@@ -48,7 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //	// A direct (uncached) client: this runs before mgr.Start, and BuildClient
 //	// also reads the providers' Secrets through it.
-//	cl, dc, err := usenetengine.BuildClient(ctx, direct, o.Namespace, clientName, o.DataDir, o.ScratchDir)
+//	cl, dc, err := usenetengine.BuildClient(ctx, direct, o.Namespace, clientName, o.DataDir, o.ScratchDir, o.PublishDir)
 //	if err != nil {
 //	    return err
 //	}

@@ -461,6 +461,17 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   good; `pkg/download.clampMessage` cuts it on a rune boundary, the same
   class as `clampPercent`. Any string an engine writes into a bounded CRD
   field must be clamped at the `pkg/download` boundary, not trusted.
+- **The usenet engine's emptyDir scratch shares the node disk with etcd
+  on kind, and vanishes with the pod.** A 10 GB transfer plus its par2
+  verify pushed etcd's fsyncs past a second: grabarr lost its leader lease
+  and exited, then the kube-apiserver failed its liveness probe and was
+  killed (2026-09-24); and a deploy that replaced the engine pod discarded
+  a finished 9.4 GB transfer, so the new pod downloaded it again. Place
+  the working area on the shared volume instead -- `spec.usenet.scratch.
+  path: /data/usenet/incomplete` and `spec.usenet.publishDir:
+  /data/usenet/complete` (ADR-0014; `existingClaim`, `volumeName` and
+  `accessModes` cover a claim of the operator's own). The controller
+  refuses a path off the data mount with `Ready=False, InvalidSpec`.
 - **Every cache strips `managedFields`, and the cache-sync timeout is ten
   minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
   `kubectl` alone takes 40 s to fetch) captionarr crash-looped on

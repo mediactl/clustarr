@@ -134,6 +134,11 @@ type Options struct {
 	// ScratchDir is the usenet engine's working area.
 	ScratchDir string
 
+	// PublishDir is where the usenet engine publishes finished content, as
+	// <PublishDir>/<category>/<name>; "" means DataDir. The DownloadClient
+	// controller passes spec.usenet.publishDir here.
+	PublishDir string
+
 	// EngineImage is the container image the DownloadClient controller
 	// stamps onto the engine StatefulSet/Deployment it creates
 	// (CLUSTARR_ENGINE_IMAGE; config/manager/grabarr.yaml sets it on the
@@ -555,7 +560,7 @@ func setupUsenetEngine(
 	if err != nil {
 		return nil, nil, err
 	}
-	cl, dc, err := usenet.BuildClient(ctx, direct, o.Namespace, clientName, o.DataDir, o.ScratchDir)
+	cl, dc, err := usenet.BuildClient(ctx, direct, o.Namespace, clientName, o.DataDir, o.ScratchDir, o.PublishDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("grabarr: build usenet client: %w", err)
 	}

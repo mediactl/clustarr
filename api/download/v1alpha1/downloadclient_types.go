@@ -238,8 +238,15 @@ type PostProcessSpec struct {
 	CleanupPatterns []string `json:"cleanupPatterns,omitempty"`
 }
 
-// ScratchSpec sizes the working area each usenet engine replica uses while
-// downloading, repairing and unpacking.
+// ScratchSpec places and sizes the working area each usenet engine replica
+// uses while downloading, repairing and unpacking. Exactly one placement
+// applies, in this order of precedence: path (a directory on the shared
+// data volume), existingClaim (a claim the operator made), storageClassName
+// or volumeName (a claim the controller makes), or none of them (an emptyDir
+// on node storage, which does not survive the pod).
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.path) || (!has(self.existingClaim) && !has(self.storageClassName) && !has(self.volumeName))",message="scratch.path excludes existingClaim, storageClassName and volumeName"
+// +kubebuilder:validation:XValidation:rule="!has(self.existingClaim) || (!has(self.storageClassName) && !has(self.volumeName))",message="scratch.existingClaim excludes storageClassName and volumeName"
 type ScratchSpec struct {
 	// SizeLimit is the capacity of the scratch volume. A Go client always
 	// sends a Quantity, so the DownloadClient controller floors a zero one to
@@ -248,10 +255,45 @@ type ScratchSpec struct {
 	// +kubebuilder:default="50Gi"
 	SizeLimit resource.Quantity `json:"sizeLimit,omitempty"`
 
-	// StorageClassName selects the StorageClass of the scratch volume. Unset
-	// means an emptyDir backed by node storage is used instead of a PVC.
+	// StorageClassName selects the StorageClass of the claim the controller
+	// creates for the scratch volume. Unset, with no other placement, means
+	// an emptyDir backed by node storage is used instead of a PVC.
 	// +optional
 	StorageClassName *string `json:"storageClassName,omitempty"`
+
+	// VolumeName binds the claim the controller creates to this existing
+	// PersistentVolume (static binding), for example an NFS volume already
+	// provisioned by hand. Set accessModes to ReadWriteMany for such a
+	// volume. Without storageClassName the claim asks for no class, so no
+	// dynamic provisioner competes for it.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	VolumeName string `json:"volumeName,omitempty"`
+
+	// AccessModes of the claim the controller creates. Empty means
+	// ReadWriteOnce.
+	// +optional
+	// +kubebuilder:validation:MaxItems=3
+	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
+
+	// ExistingClaim mounts this PersistentVolumeClaim, in the same
+	// namespace, as the scratch volume as it is. The controller creates
+	// nothing and sizeLimit does not apply.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	ExistingClaim string `json:"existingClaim,omitempty"`
+
+	// Path uses this directory on the engine's shared data volume as the
+	// working area instead of mounting a scratch volume at all, for example
+	// "/data/usenet/incomplete". It must be an absolute path under the data
+	// mount (the controller refuses one that is not), and it must be on the
+	// same filesystem as publishDir so publishing is one atomic rename.
+	// Transfers, their manifests and checkpoints then survive a pod restart
+	// and resume, at the cost of doing assembly and repair over that volume.
+	// +optional
+	// +kubebuilder:validation:MaxLength=4096
+	// +kubebuilder:validation:Pattern=`^/`
+	Path string `json:"path,omitempty"`
 }
 
 // UsenetSpec configures the NNTP engine. It applies only when spec.protocol
@@ -295,9 +337,20 @@ type UsenetSpec struct {
 	// +kubebuilder:default=pause
 	HealthAction HealthAction `json:"healthAction,omitempty"`
 
-	// Scratch sizes the per-replica working area.
+	// Scratch places and sizes the per-replica working area.
 	// +optional
 	Scratch *ScratchSpec `json:"scratch,omitempty"`
+
+	// PublishDir is where finished content is published, as
+	// <publishDir>/<category>/<name>; unset means the root of the engine's
+	// data mount. It must be an absolute path under the data mount (the
+	// controller refuses one that is not), for example
+	// "/data/usenet/complete", so the importer, which mounts the same
+	// volume, can read and hard-link it.
+	// +optional
+	// +kubebuilder:validation:MaxLength=4096
+	// +kubebuilder:validation:Pattern=`^/`
+	PublishDir string `json:"publishDir,omitempty"`
 
 	// DownloadTimeout is how long a usenet download may take, from when it
 	// was first added -- propagation wait, transfer, repair and unpack all

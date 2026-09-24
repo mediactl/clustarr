@@ -22,7 +22,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -288,10 +290,15 @@ func containerSecurityContextAC() *corev1ac.SecurityContextApplyConfiguration {
 // scratch volume), the /tmp emptyDir the read-only root filesystem needs,
 // the pod security context, spec.nodeSelector and spec.tolerations.
 func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.ContainerApplyConfiguration, dataClaimName string, rt EngineRuntime, extraVolumes ...*corev1ac.VolumeApplyConfiguration) *corev1ac.PodSpecApplyConfiguration {
-	volumes := append([]*corev1ac.VolumeApplyConfiguration{
+	volumes := []*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().WithName(dataVolumeName).WithPersistentVolumeClaim(
 			corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName(dataClaimName)),
-	}, extraVolumes...)
+	}
+	for _, v := range extraVolumes {
+		if v != nil { // a usenet client working on the data mount has no scratch volume
+			volumes = append(volumes, v)
+		}
+	}
 	volumes = append(volumes, corev1ac.Volume().WithName(tmpVolumeName).WithEmptyDir(corev1ac.EmptyDirVolumeSource()))
 
 	spec := corev1ac.PodSpec().
@@ -447,16 +454,27 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string
 // the same "grabarr --role ..." argv config/manager/grabarr.yaml already uses
 // for the controller.
 func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratchDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
+	scratch, publish := engineDirs(dc, scratchDir)
 	args := []string{
 		"grabarr",
 		"--role", "usenet-engine",
 		"--data-dir", dataDir,
-		"--scratch-dir", scratchDir,
-		"--engine", dc.Name + "-0",
+		"--scratch-dir", scratch,
 	}
+	if publish != "" {
+		args = append(args, "--publish-dir", publish)
+	}
+	args = append(args, "--engine", dc.Name+"-0")
 	if rt.BusSingleNode {
 		args = append(args, "--nats-single-node")
 	}
+	mounts := []*corev1ac.VolumeMountApplyConfiguration{
+		corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
+	}
+	if scratchVolume(dc) != nil {
+		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratch))
+	}
+	mounts = append(mounts, corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir))
 	return corev1ac.Container().
 		WithName(engineContainerName).
 		WithImage(image).
@@ -464,11 +482,54 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 		WithEnv(engineEnv(dc, rt)...).
 		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
 		WithSecurityContext(containerSecurityContextAC()).
-		WithVolumeMounts(
-			corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
-			corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir),
-			corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir),
-		)
+		WithVolumeMounts(mounts...)
+}
+
+// engineDirs resolves the usenet engine's working and publish directories:
+// spec.usenet.scratch.path when set, else the scratch mount the controller
+// was started with; and spec.usenet.publishDir, "" meaning the data mount.
+func engineDirs(dc *downloadv1alpha1.DownloadClient, scratchDir string) (scratch, publish string) {
+	scratch = scratchDir
+	if dc.Spec.Usenet != nil {
+		if dc.Spec.Usenet.Scratch != nil && dc.Spec.Usenet.Scratch.Path != "" {
+			scratch = dc.Spec.Usenet.Scratch.Path
+		}
+		publish = dc.Spec.Usenet.PublishDir
+	}
+	return scratch, publish
+}
+
+// validateEngineDirs refuses a scratch path or publish dir that is not under
+// the data mount: the engine mounts nothing else there, so a directory
+// outside it would land on the read-only root filesystem, and the importer
+// could not see the result. CEL cannot check this, since the mount point is
+// a controller flag, not a spec value.
+func validateEngineDirs(dc *downloadv1alpha1.DownloadClient, dataDir string) error {
+	if dc.Spec.Usenet == nil {
+		return nil
+	}
+	check := func(field, dir string) error {
+		if dir == "" {
+			return nil
+		}
+		if !underDir(dataDir, dir) {
+			return fmt.Errorf("downloadclient: %s %q is not under the data mount %q", field, dir, dataDir)
+		}
+		return nil
+	}
+	if dc.Spec.Usenet.Scratch != nil {
+		if err := check("spec.usenet.scratch.path", dc.Spec.Usenet.Scratch.Path); err != nil {
+			return err
+		}
+	}
+	return check("spec.usenet.publishDir", dc.Spec.Usenet.PublishDir)
+}
+
+// underDir reports whether dir is root itself or a descendant of it, on
+// cleaned paths, so "/data2" is not under "/data".
+func underDir(root, dir string) bool {
+	root, dir = filepath.Clean(root), filepath.Clean(dir)
+	return dir == root || strings.HasPrefix(dir, root+string(filepath.Separator))
 }
 
 // scratchSize is UsenetSpec.Scratch.SizeLimit when set, else
@@ -488,7 +549,18 @@ func scratchSize(dc *downloadv1alpha1.DownloadClient) resource.Quantity {
 // "nil = emptyDir backed by node storage", so this branches on nil-ness, not
 // on any other signal.
 func scratchVolume(dc *downloadv1alpha1.DownloadClient) *corev1ac.VolumeApplyConfiguration {
-	if dc.Spec.Usenet != nil && dc.Spec.Usenet.Scratch != nil && dc.Spec.Usenet.Scratch.StorageClassName != nil {
+	var sc *downloadv1alpha1.ScratchSpec
+	if dc.Spec.Usenet != nil {
+		sc = dc.Spec.Usenet.Scratch
+	}
+	switch {
+	case sc != nil && sc.Path != "":
+		// The working area is a directory on the data mount: no volume.
+		return nil
+	case sc != nil && sc.ExistingClaim != "":
+		return corev1ac.Volume().WithName(scratchVolumeName).WithPersistentVolumeClaim(
+			corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName(sc.ExistingClaim))
+	case needsScratchClaim(dc):
 		return corev1ac.Volume().WithName(scratchVolumeName).WithPersistentVolumeClaim(
 			corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName(scratchClaimName(dc.Name)))
 	}
@@ -497,19 +569,46 @@ func scratchVolume(dc *downloadv1alpha1.DownloadClient) *corev1ac.VolumeApplyCon
 		corev1ac.EmptyDirVolumeSource().WithSizeLimit(size))
 }
 
+// needsScratchClaim reports whether the controller makes the scratch claim
+// itself: a storageClassName asks a provisioner for one, a volumeName binds
+// one to an existing PersistentVolume.
+func needsScratchClaim(dc *downloadv1alpha1.DownloadClient) bool {
+	if dc.Spec.Usenet == nil || dc.Spec.Usenet.Scratch == nil {
+		return false
+	}
+	sc := dc.Spec.Usenet.Scratch
+	return sc.Path == "" && sc.ExistingClaim == "" && (sc.StorageClassName != nil || sc.VolumeName != "")
+}
+
 // buildScratchPVC renders the companion PersistentVolumeClaim a usenet client
 // needs when it names a StorageClass. It is applied (via [k8s.Apply]) before
 // the Deployment that references it, same as [buildStatefulSet] needs no PVC
 // at all because torrent engines write straight into the shared /data volume.
 func buildScratchPVC(dc *downloadv1alpha1.DownloadClient, owner *metav1ac.OwnerReferenceApplyConfiguration) *corev1ac.PersistentVolumeClaimApplyConfiguration {
 	size := scratchSize(dc)
+	modes := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+	var sc *downloadv1alpha1.ScratchSpec
+	if dc.Spec.Usenet != nil {
+		sc = dc.Spec.Usenet.Scratch
+	}
+	if sc != nil && len(sc.AccessModes) > 0 {
+		modes = sc.AccessModes
+	}
 	spec := corev1ac.PersistentVolumeClaimSpec().
-		WithAccessModes(corev1.ReadWriteOnce).
+		WithAccessModes(modes...).
 		WithResources(corev1ac.VolumeResourceRequirements().WithRequests(corev1.ResourceList{
 			corev1.ResourceStorage: size,
 		}))
-	if dc.Spec.Usenet != nil && dc.Spec.Usenet.Scratch != nil && dc.Spec.Usenet.Scratch.StorageClassName != nil {
-		spec = spec.WithStorageClassName(*dc.Spec.Usenet.Scratch.StorageClassName)
+	switch {
+	case sc != nil && sc.StorageClassName != nil:
+		spec = spec.WithStorageClassName(*sc.StorageClassName)
+	case sc != nil && sc.VolumeName != "":
+		// Static binding: an empty class keeps every dynamic provisioner
+		// out, so only the named PersistentVolume can satisfy the claim.
+		spec = spec.WithStorageClassName("")
+	}
+	if sc != nil && sc.VolumeName != "" {
+		spec = spec.WithVolumeName(sc.VolumeName)
 	}
 	return corev1ac.PersistentVolumeClaim(scratchClaimName(dc.Name), dc.Namespace).
 		WithLabels(selectorLabels(dc)).

@@ -1611,6 +1611,34 @@ what it left behind.
   ClusterRole re-apply can produce a window in which its rules are empty,
   and whether the engine's informer recovers without a restart.
 
+- [ ] **Every controller re-applies status for every object after a
+  restart or deploy.** In the six minutes after the 19:21 apiserver
+  restart on 2026-09-24: 31,262 Episode, 12,605 MediaFile and 820 Movie
+  status APPLYs, against near zero in steady state. Each is a full
+  apiserver round trip and an etcd read even when nothing changed. Skip
+  the apply when the rendered status equals what the object already
+  carries under that manager (a cheap deep-equal on the rendered
+  configuration against the live status), and stagger the initial
+  reconciles, so a deploy does not land a write storm on a control plane
+  that may already be under I/O.
+- [ ] **Leader-election and status-write timeouts are the defaults, which a
+  homelab control plane under I/O does not meet.** grabarr lost its lease
+  and exited when a lease renewal took over 5 s; the lease durations and
+  `RenewDeadline` in `pkg/k8s.ManagerOptions` should tolerate a slow
+  apiserver (and the exit-on-lost-lease is right, so the fix is the
+  timings, not the behaviour). ADR-0014 removes the I/O cause on the
+  owner's cluster; this is the second line of defence.
+- [ ] **The engine reports every failed repair as `missingArticles`.** A
+  repair that failed for another reason (par2 could not match the set's
+  names before the extras fix) carried the same reason and was blocklisted
+  the same way. Give repair failures that are not article loss their own
+  reason, or at least their own condition message.
+- [ ] **Critical health is estimated in bytes, but par2 recovers in
+  blocks.** With 5 MB blocks a lost 700 KB article costs a whole block, so
+  the byte-based NZBGet estimate (98% on the 2026-09-24 grab) overstates
+  what the set can lose; reading the block size from a par2 volume's main
+  packet once it lands would make the floor exact.
+
 ### Deferred by decision: the unified manager topology (2026-09-24)
 
 - [ ] Adopt `docs/superpowers/specs/2026-09-24-unified-manager-design.md`

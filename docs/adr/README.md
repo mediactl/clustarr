@@ -23,6 +23,7 @@ later change can tell whether its premise still holds.
 | [0011](0011-artwork-in-jetstream-object-store.md) | Artwork lives in a JetStream object store, one bucket, two writers split by variant | Accepted, 2026-09-24 |
 | [0012](0012-plex-provider-on-the-ui-service.md) | The Plex Metadata Provider is served read-only by the ui service, unauthenticated per protocol, and must not be publicly exposed | Accepted, 2026-09-24 |
 | [0013](0013-per-service-controllers-until-production.md) | Controllers stay one Deployment per service until production ready, then unify into one manager (design recorded, deferred) | Accepted, 2026-09-24 |
+| [0014](0014-download-working-areas-on-the-shared-volume.md) | Download working areas live on the shared data volume (`scratch.path`, `publishDir`), not on node-local scratch; the single shared volume stays the pattern for both engines | Accepted, 2026-09-24 |
 
 Refinements that did not change a decision are recorded in the spec, not here:
 

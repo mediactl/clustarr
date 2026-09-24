@@ -102,7 +102,7 @@ func TestUsenetEngineEndToEndThroughARealNNTPStub(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, dc))
 
-	cl, _, err := usenetengine.BuildClient(ctx, c, "default", "sabnzbd", filepath.Join(root, "data"), filepath.Join(root, "scratch"))
+	cl, _, err := usenetengine.BuildClient(ctx, c, "default", "sabnzbd", filepath.Join(root, "data"), filepath.Join(root, "scratch"), "")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 

@@ -20,22 +20,49 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	resource "k8s.io/apimachinery/pkg/api/resource"
 )
 
 // ScratchSpecApplyConfiguration represents a declarative configuration of the ScratchSpec type for use
 // with apply.
 //
-// ScratchSpec sizes the working area each usenet engine replica uses while
-// downloading, repairing and unpacking.
+// ScratchSpec places and sizes the working area each usenet engine replica
+// uses while downloading, repairing and unpacking. Exactly one placement
+// applies, in this order of precedence: path (a directory on the shared
+// data volume), existingClaim (a claim the operator made), storageClassName
+// or volumeName (a claim the controller makes), or none of them (an emptyDir
+// on node storage, which does not survive the pod).
 type ScratchSpecApplyConfiguration struct {
 	// SizeLimit is the capacity of the scratch volume. A Go client always
 	// sends a Quantity, so the DownloadClient controller floors a zero one to
 	// this default: a zero-byte scratch volume has no coherent meaning.
 	SizeLimit *resource.Quantity `json:"sizeLimit,omitempty"`
-	// StorageClassName selects the StorageClass of the scratch volume. Unset
-	// means an emptyDir backed by node storage is used instead of a PVC.
+	// StorageClassName selects the StorageClass of the claim the controller
+	// creates for the scratch volume. Unset, with no other placement, means
+	// an emptyDir backed by node storage is used instead of a PVC.
 	StorageClassName *string `json:"storageClassName,omitempty"`
+	// VolumeName binds the claim the controller creates to this existing
+	// PersistentVolume (static binding), for example an NFS volume already
+	// provisioned by hand. Set accessModes to ReadWriteMany for such a
+	// volume. Without storageClassName the claim asks for no class, so no
+	// dynamic provisioner competes for it.
+	VolumeName *string `json:"volumeName,omitempty"`
+	// AccessModes of the claim the controller creates. Empty means
+	// ReadWriteOnce.
+	AccessModes []v1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
+	// ExistingClaim mounts this PersistentVolumeClaim, in the same
+	// namespace, as the scratch volume as it is. The controller creates
+	// nothing and sizeLimit does not apply.
+	ExistingClaim *string `json:"existingClaim,omitempty"`
+	// Path uses this directory on the engine's shared data volume as the
+	// working area instead of mounting a scratch volume at all, for example
+	// "/data/usenet/incomplete". It must be an absolute path under the data
+	// mount (the controller refuses one that is not), and it must be on the
+	// same filesystem as publishDir so publishing is one atomic rename.
+	// Transfers, their manifests and checkpoints then survive a pod restart
+	// and resume, at the cost of doing assembly and repair over that volume.
+	Path *string `json:"path,omitempty"`
 }
 
 // ScratchSpecApplyConfiguration constructs a declarative configuration of the ScratchSpec type for use with
@@ -57,5 +84,39 @@ func (b *ScratchSpecApplyConfiguration) WithSizeLimit(value resource.Quantity) *
 // If called multiple times, the StorageClassName field is set to the value of the last call.
 func (b *ScratchSpecApplyConfiguration) WithStorageClassName(value string) *ScratchSpecApplyConfiguration {
 	b.StorageClassName = &value
+	return b
+}
+
+// WithVolumeName sets the VolumeName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the VolumeName field is set to the value of the last call.
+func (b *ScratchSpecApplyConfiguration) WithVolumeName(value string) *ScratchSpecApplyConfiguration {
+	b.VolumeName = &value
+	return b
+}
+
+// WithAccessModes adds the given value to the AccessModes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the AccessModes field.
+func (b *ScratchSpecApplyConfiguration) WithAccessModes(values ...v1.PersistentVolumeAccessMode) *ScratchSpecApplyConfiguration {
+	for i := range values {
+		b.AccessModes = append(b.AccessModes, values[i])
+	}
+	return b
+}
+
+// WithExistingClaim sets the ExistingClaim field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ExistingClaim field is set to the value of the last call.
+func (b *ScratchSpecApplyConfiguration) WithExistingClaim(value string) *ScratchSpecApplyConfiguration {
+	b.ExistingClaim = &value
+	return b
+}
+
+// WithPath sets the Path field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Path field is set to the value of the last call.
+func (b *ScratchSpecApplyConfiguration) WithPath(value string) *ScratchSpecApplyConfiguration {
+	b.Path = &value
 	return b
 }

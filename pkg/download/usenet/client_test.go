@@ -153,6 +153,40 @@ func waitForTerminal(t *testing.T, c download.Client, id string) download.Item {
 	return download.Item{}
 }
 
+// PublishDir is where the owner's cluster wants finished content
+// (/data/usenet/complete), separate from the data root the removals and the
+// free-space check are contained to.
+func TestClientPublishesUnderPublishDir(t *testing.T) {
+	srv := newStubServer(t)
+	parts := [][]byte{partPayload(1, 900), partPayload(2, 512)}
+	nzb := buildNZB(t, srv, "Some.Movie.2026.1080p", []fileSpec{{name: "movie.mkv", parts: parts}})
+
+	root := t.TempDir()
+	cfg := Config{
+		Providers:  []Provider{srv.provider("solo", 4, 1)},
+		ScratchDir: filepath.Join(root, "usenet", "incomplete"),
+		DataDir:    root,
+		PublishDir: filepath.Join(root, "usenet", "complete"),
+	}
+	cl, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cl.Close() })
+	c := cl.(*Client)
+
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Some.Movie.2026.1080p", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
+	require.Equal(t, filepath.Join(root, "usenet", "complete", "movies", "Some.Movie.2026.1080p"), it.OutputPath)
+	_, err = os.Stat(filepath.Join(it.OutputPath, "movie.mkv"))
+	require.NoError(t, err)
+
+	// Removal with data is contained to the publish dir and takes it away.
+	require.NoError(t, c.Remove(context.Background(), id, true))
+	_, err = os.Stat(it.OutputPath)
+	require.True(t, os.IsNotExist(err), "the published content is removed with the transfer")
+}
+
 func TestClientDownloadsAnNZBAndPublishesIt(t *testing.T) {
 	srv := newStubServer(t)
 	parts := [][]byte{partPayload(1, 900), partPayload(2, 900), partPayload(3, 512)}

@@ -48,8 +48,15 @@ type UsenetSpecApplyConfiguration struct {
 	// par2 critical health, is breached -- during the transfer or at the
 	// pre-check. See HealthActionPause and HealthActionDelete.
 	HealthAction *downloadv1alpha1.HealthAction `json:"healthAction,omitempty"`
-	// Scratch sizes the per-replica working area.
+	// Scratch places and sizes the per-replica working area.
 	Scratch *ScratchSpecApplyConfiguration `json:"scratch,omitempty"`
+	// PublishDir is where finished content is published, as
+	// <publishDir>/<category>/<name>; unset means the root of the engine's
+	// data mount. It must be an absolute path under the data mount (the
+	// controller refuses one that is not), for example
+	// "/data/usenet/complete", so the importer, which mounts the same
+	// volume, can read and hard-link it.
+	PublishDir *string `json:"publishDir,omitempty"`
 	// DownloadTimeout is how long a usenet download may take, from when it
 	// was first added -- propagation wait, transfer, repair and unpack all
 	// count, and so does time spent paused -- before the engine fails it
@@ -124,6 +131,14 @@ func (b *UsenetSpecApplyConfiguration) WithHealthAction(value downloadv1alpha1.H
 // If called multiple times, the Scratch field is set to the value of the last call.
 func (b *UsenetSpecApplyConfiguration) WithScratch(value *ScratchSpecApplyConfiguration) *UsenetSpecApplyConfiguration {
 	b.Scratch = value
+	return b
+}
+
+// WithPublishDir sets the PublishDir field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PublishDir field is set to the value of the last call.
+func (b *UsenetSpecApplyConfiguration) WithPublishDir(value string) *UsenetSpecApplyConfiguration {
+	b.PublishDir = &value
 	return b
 }
 

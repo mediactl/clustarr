@@ -84,10 +84,17 @@ type Config struct {
 	// because assembly is heavy random I/O and NFS latency triples it.
 	ScratchDir string
 
-	// DataDir is where finished content is published, on the shared volume
-	// the importer reads. It must be the volume the library is on, or the
-	// importer's hardlink degrades to a copy.
+	// DataDir is the shared volume the importer reads, and the root the
+	// free-space check and every removal are contained to. It must be the
+	// volume the library is on, or the importer's hardlink degrades to a
+	// copy.
 	DataDir string
+
+	// PublishDir is where finished content is published, as
+	// <PublishDir>/<category>/<name>. Empty means DataDir. It must be on the
+	// same filesystem as ScratchDir for the publish to be one rename;
+	// fsops.MoveAtomic falls back to a copy across filesystems.
+	PublishDir string
 
 	// Par2Path is the par2cmdline-turbo binary. Empty means look up "par2".
 	Par2Path string
@@ -195,6 +202,9 @@ func New(cfg Config) (download.Client, error) {
 	if cfg.ScratchDir == "" || cfg.DataDir == "" {
 		return nil, errors.New("usenet: ScratchDir and DataDir are required")
 	}
+	if cfg.PublishDir == "" {
+		cfg.PublishDir = cfg.DataDir
+	}
 	if cfg.PipelineDepth <= 0 {
 		cfg.PipelineDepth = defaultPipelineDepth
 	}
@@ -229,7 +239,7 @@ func New(cfg Config) (download.Client, error) {
 		return nil, err
 	}
 
-	for _, dir := range []string{cfg.ScratchDir, cfg.DataDir} {
+	for _, dir := range []string{cfg.ScratchDir, cfg.DataDir, cfg.PublishDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			pool.Close()
 			return nil, fmt.Errorf("usenet: create %s: %w", dir, err)
@@ -990,7 +1000,7 @@ func (j *job) publish(ctx context.Context, content string) error {
 	if name == "" {
 		name = j.nzb.Title
 	}
-	dest := filepath.Join(j.client.cfg.DataDir, safeName(j.category), safeName(name))
+	dest := filepath.Join(j.client.cfg.PublishDir, safeName(j.category), safeName(name))
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("usenet: create %s: %w", filepath.Dir(dest), err)
 	}
@@ -998,7 +1008,7 @@ func (j *job) publish(ctx context.Context, content string) error {
 	// removed rather than merged into: a half-published directory plus a new
 	// one is how an importer picks up a file from a run that failed.
 	if _, err := os.Lstat(dest); err == nil {
-		if err := fsops.SafeRemove(ctx, j.client.cfg.DataDir, dest); err != nil {
+		if err := fsops.SafeRemove(ctx, j.client.cfg.PublishDir, dest); err != nil {
 			return err
 		}
 	}
@@ -1370,7 +1380,7 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 	if out == "" {
 		return nil
 	}
-	return fsops.SafeRemove(ctx, c.cfg.DataDir, out)
+	return fsops.SafeRemove(ctx, c.cfg.PublishDir, out)
 }
 
 // Close stops every transfer and releases the pool's connections. It blocks

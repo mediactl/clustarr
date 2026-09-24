@@ -113,7 +113,7 @@ func LoadDownloadClient(ctx context.Context, c client.Client, namespace, name st
 // [PostProcessFromSpec] -- into a pkg/download/usenet.Config. dc must already
 // be validated by [LoadDownloadClient] (or an equivalent check); BuildConfig
 // itself trusts dc.Spec.Usenet is non-nil and does not re-check the protocol.
-func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir string) (usenetclient.Config, error) {
+func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir, publishDir string) (usenetclient.Config, error) {
 	us := dc.Spec.Usenet
 
 	providers := make([]usenetclient.Provider, 0, len(us.Providers))
@@ -129,6 +129,7 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 		Providers:          providers,
 		ScratchDir:         scratchDir,
 		DataDir:            dataDir,
+		PublishDir:         publishDir,
 		PostProcess:        PostProcessFromSpec(us.PostProcess),
 		PreCheck:           us.PreCheck,
 		AbortHealthPercent: us.AbortHealthPercent,
@@ -152,12 +153,12 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 // returning. That is what lets a caller gate engine readiness on BuildClient
 // having returned (plan ruling R4): an engine that reports ready before
 // re-attach completes could be handed a transfer it is already running.
-func BuildClient(ctx context.Context, c client.Client, namespace, downloadClientName, dataDir, scratchDir string) (download.Client, *downloadv1alpha1.DownloadClient, error) {
+func BuildClient(ctx context.Context, c client.Client, namespace, downloadClientName, dataDir, scratchDir, publishDir string) (download.Client, *downloadv1alpha1.DownloadClient, error) {
 	dc, err := LoadDownloadClient(ctx, c, namespace, downloadClientName)
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg, err := BuildConfig(ctx, c, dc, dataDir, scratchDir)
+	cfg, err := BuildConfig(ctx, c, dc, dataDir, scratchDir, publishDir)
 	if err != nil {
 		return nil, nil, err
 	}

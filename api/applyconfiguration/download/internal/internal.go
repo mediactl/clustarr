@@ -686,11 +686,26 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.ScratchSpec
   map:
     fields:
+    - name: accessModes
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.core.v1.PersistentVolumeAccessMode
+          elementRelationship: atomic
+    - name: existingClaim
+      type:
+        scalar: string
+    - name: path
+      type:
+        scalar: string
     - name: sizeLimit
       type:
         namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
       default: 50Gi
     - name: storageClassName
+      type:
+        scalar: string
+    - name: volumeName
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.TorrentSpec
@@ -787,6 +802,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - name
+    - name: publishDir
+      type:
+        scalar: string
     - name: scratch
       type:
         namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ScratchSpec
@@ -798,6 +816,8 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
       default: ""
     elementRelationship: atomic
+- name: io.k8s.api.core.v1.PersistentVolumeAccessMode
+  scalar: string
 - name: io.k8s.api.core.v1.ResourceClaim
   map:
     fields:

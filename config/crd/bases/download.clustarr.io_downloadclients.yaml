@@ -502,9 +502,48 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  publishDir:
+                    description: |-
+                      PublishDir is where finished content is published, as
+                      <publishDir>/<category>/<name>; unset means the root of the engine's
+                      data mount. It must be an absolute path under the data mount (the
+                      controller refuses one that is not), for example
+                      "/data/usenet/complete", so the importer, which mounts the same
+                      volume, can read and hard-link it.
+                    maxLength: 4096
+                    pattern: ^/
+                    type: string
                   scratch:
-                    description: Scratch sizes the per-replica working area.
+                    description: Scratch places and sizes the per-replica working
+                      area.
                     properties:
+                      accessModes:
+                        description: |-
+                          AccessModes of the claim the controller creates. Empty means
+                          ReadWriteOnce.
+                        items:
+                          type: string
+                        maxItems: 3
+                        type: array
+                      existingClaim:
+                        description: |-
+                          ExistingClaim mounts this PersistentVolumeClaim, in the same
+                          namespace, as the scratch volume as it is. The controller creates
+                          nothing and sizeLimit does not apply.
+                        maxLength: 253
+                        type: string
+                      path:
+                        description: |-
+                          Path uses this directory on the engine's shared data volume as the
+                          working area instead of mounting a scratch volume at all, for example
+                          "/data/usenet/incomplete". It must be an absolute path under the data
+                          mount (the controller refuses one that is not), and it must be on the
+                          same filesystem as publishDir so publishing is one atomic rename.
+                          Transfers, their manifests and checkpoints then survive a pod restart
+                          and resume, at the cost of doing assembly and repair over that volume.
+                        maxLength: 4096
+                        pattern: ^/
+                        type: string
                       sizeLimit:
                         anyOf:
                         - type: integer
@@ -518,10 +557,29 @@ spec:
                         x-kubernetes-int-or-string: true
                       storageClassName:
                         description: |-
-                          StorageClassName selects the StorageClass of the scratch volume. Unset
-                          means an emptyDir backed by node storage is used instead of a PVC.
+                          StorageClassName selects the StorageClass of the claim the controller
+                          creates for the scratch volume. Unset, with no other placement, means
+                          an emptyDir backed by node storage is used instead of a PVC.
+                        type: string
+                      volumeName:
+                        description: |-
+                          VolumeName binds the claim the controller creates to this existing
+                          PersistentVolume (static binding), for example an NFS volume already
+                          provisioned by hand. Set accessModes to ReadWriteMany for such a
+                          volume. Without storageClassName the claim asks for no class, so no
+                          dynamic provisioner competes for it.
+                        maxLength: 253
                         type: string
                     type: object
+                    x-kubernetes-validations:
+                    - message: scratch.path excludes existingClaim, storageClassName
+                        and volumeName
+                      rule: '!has(self.path) || (!has(self.existingClaim) && !has(self.storageClassName)
+                        && !has(self.volumeName))'
+                    - message: scratch.existingClaim excludes storageClassName and
+                        volumeName
+                      rule: '!has(self.existingClaim) || (!has(self.storageClassName)
+                        && !has(self.volumeName))'
                 required:
                 - providers
                 type: object

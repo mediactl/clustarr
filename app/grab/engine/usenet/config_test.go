@@ -131,7 +131,7 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	}
 	c := fakeClientWithScheme(t, dc, secret)
 
-	cfg, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch")
+	cfg, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
 	require.NoError(t, err)
 
 	require.Len(t, cfg.Providers, 1)
@@ -156,13 +156,13 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	assert.Zero(t, cfg.DownloadTimeout, "no downloadTimeout means no deadline")
 
 	dc.Spec.Usenet.DownloadTimeout = &metav1.Duration{Duration: 6 * time.Hour}
-	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch")
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
 	require.NoError(t, err)
 	assert.Equal(t, 6*time.Hour, cfg.DownloadTimeout, "spec.usenet.downloadTimeout must reach the client")
 
 	assert.Empty(t, cfg.HealthAction, "unset is the client's pause, the CRD default")
 	dc.Spec.Usenet.HealthAction = downloadv1alpha1.HealthActionDelete
-	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch")
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
 	require.NoError(t, err)
 	assert.Equal(t, downloadv1alpha1.HealthActionDelete, cfg.HealthAction, "spec.usenet.healthAction must reach the client")
 }
@@ -181,7 +181,7 @@ func TestBuildConfigFailsOnMissingSecret(t *testing.T) {
 	}
 	c := fakeClientWithScheme(t, dc)
 
-	_, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch")
+	_, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
 	require.Error(t, err)
 }
 

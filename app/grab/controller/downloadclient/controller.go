@@ -68,6 +68,10 @@ const (
 	// ReasonEngineNotReady means the owned workload has fewer ready replicas
 	// than desired.
 	ReasonEngineNotReady = "EngineNotReady"
+
+	// ReasonInvalidSpec means the engine cannot be run as specified: a
+	// scratch path or publish dir that is not under the data mount.
+	ReasonInvalidSpec = "InvalidSpec"
 )
 
 // Reconciler stands up a DownloadClient's engine workload -- a StatefulSet for
@@ -174,10 +178,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	workloadName := engineWorkloadName(dc.Name)
-	desiredReplicas, replicas, readyReplicas, err := r.reconcileWorkload(ctx, &dc, workloadName, ownerRef)
-	if err != nil {
-		log.Error("reconcile engine workload", "error", err)
-		return ctrl.Result{}, err
+	// A spec the engine could not run under (a working or publish directory
+	// off the data mount) applies no workload at all: the condition below
+	// says why, and the next spec change re-runs this. The old workload, if
+	// any, is left as it was rather than rolled onto a bad template.
+	var desiredReplicas, replicas, readyReplicas int32
+	specErr := validateEngineDirs(&dc, r.DataDir)
+	if specErr == nil {
+		desiredReplicas, replicas, readyReplicas, err = r.reconcileWorkload(ctx, &dc, workloadName, ownerRef)
+		if err != nil {
+			log.Error("reconcile engine workload", "error", err)
+			return ctrl.Result{}, err
+		}
+	} else {
+		desiredReplicas = 1
 	}
 
 	active, queued, seeding, downRate, upRate, err := r.aggregateDownloads(ctx, &dc)
@@ -191,7 +205,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	conditions := append([]metav1.Condition(nil), dc.Status.Conditions...)
 	setDiskSpaceCondition(&dc, &conditions, diskOK, usage.Free, r.minFreeBytes(), usageErr)
-	engineReady := desiredReplicas > 0 && replicas == desiredReplicas && readyReplicas == desiredReplicas
+	engineReady := specErr == nil && desiredReplicas > 0 && replicas == desiredReplicas && readyReplicas == desiredReplicas
 	setEngineReadyCondition(&dc, &conditions, engineReady, replicas, readyReplicas, desiredReplicas)
 
 	ready := diskOK && engineReady
@@ -201,6 +215,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		message = "engine or disk space not ready; see EngineReady and DiskSpaceOK"
 		if !diskOK {
 			reason = ReasonBelowMinFree
+		}
+		if specErr != nil {
+			reason, message = ReasonInvalidSpec, specErr.Error()
 		}
 	}
 	if k8s.MarkReady(&dc, &conditions, ready, reason, "%s", message) && !ready && r.Recorder != nil {
@@ -287,7 +304,7 @@ func (r *Reconciler) reconcileWorkload(
 		return torrentReplicas(dc), live.Status.Replicas, live.Status.ReadyReplicas, nil
 
 	case commonv1alpha1.ProtocolUsenet:
-		if dc.Spec.Usenet != nil && dc.Spec.Usenet.Scratch != nil && dc.Spec.Usenet.Scratch.StorageClassName != nil {
+		if needsScratchClaim(dc) {
 			pvc := buildScratchPVC(dc, ownerRef)
 			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, pvc); err != nil {
 				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)

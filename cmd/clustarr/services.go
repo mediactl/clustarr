@@ -178,6 +178,7 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 		engine      string
 		dataDir     string
 		scratch     string
+		publishDir  string
 		engineImage string
 		dataClaim   string
 		engineSA    string
@@ -201,6 +202,9 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 		"RWX media volume.")
 	cmd.Flags().StringVar(&scratch, "scratch-dir", defaults.ScratchDir,
 		"Usenet engine working area for yEnc assembly, PAR2 repair and extraction.")
+	cmd.Flags().StringVar(&publishDir, "publish-dir", defaults.PublishDir,
+		"Where the usenet engine publishes finished content, as <dir>/<category>/<name>; "+
+			"empty means --data-dir. Under --data-dir, on the same filesystem as --scratch-dir.")
 	cmd.Flags().StringVar(&engineImage, "engine-image", envOr(engineImageEnv, defaults.EngineImage),
 		"Image the DownloadClient controller stamps onto the engine StatefulSet/Deployment "+
 			"it creates. Required for --role controller. Defaults to $"+engineImageEnv+".")
@@ -220,6 +224,7 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 			Engine:               engine,
 			DataDir:              dataDir,
 			ScratchDir:           scratch,
+			PublishDir:           publishDir,
 			EngineImage:          engineImage,
 			DataClaimName:        dataClaim,
 			EngineServiceAccount: engineSA,

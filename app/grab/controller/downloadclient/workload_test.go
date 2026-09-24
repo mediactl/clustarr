@@ -175,6 +175,84 @@ func TestScratchVolumeDefaultsToEmptyDir(t *testing.T) {
 	assert.Equal(t, want.String(), vol.EmptyDir.SizeLimit.String())
 }
 
+// The owner's cluster keeps /data on NFS and wants the usenet engine to work
+// under /data/usenet/incomplete and publish to /data/usenet/complete, so a
+// transfer survives a pod restart and the publish is one rename; the
+// emptyDir it had before went with the pod, together with a finished 9.4 GB
+// transfer (2026-09-24).
+func TestScratchPathOnTheDataMountMountsNoScratchVolume(t *testing.T) {
+	dc := usenetClient("nzb")
+	dc.Spec.Usenet.Scratch = &downloadv1alpha1.ScratchSpec{Path: "/data/usenet/incomplete"}
+	dc.Spec.Usenet.PublishDir = "/data/usenet/complete"
+
+	assert.Nil(t, scratchVolume(dc))
+	assert.False(t, needsScratchClaim(dc))
+
+	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
+	c := dep.Spec.Template.Spec.Containers[0]
+	assert.Equal(t, []string{
+		"grabarr", "--role", "usenet-engine",
+		"--data-dir", "/data", "--scratch-dir", "/data/usenet/incomplete",
+		"--publish-dir", "/data/usenet/complete",
+		"--engine", "nzb-0",
+	}, c.Args)
+	require.Len(t, c.VolumeMounts, 2, "data and /tmp only")
+	require.Len(t, dep.Spec.Template.Spec.Volumes, 2)
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		assert.NotEqual(t, scratchVolumeName, *v.Name)
+	}
+}
+
+func TestScratchExistingClaimIsMountedAsIs(t *testing.T) {
+	dc := usenetClient("nzb")
+	dc.Spec.Usenet.Scratch = &downloadv1alpha1.ScratchSpec{ExistingClaim: "nas-scratch"}
+	vol := scratchVolume(dc)
+	require.NotNil(t, vol.PersistentVolumeClaim)
+	assert.Equal(t, "nas-scratch", *vol.PersistentVolumeClaim.ClaimName)
+	assert.False(t, needsScratchClaim(dc), "the controller creates nothing for an existing claim")
+}
+
+func TestBuildScratchPVCBindsAVolumeNameWithTheAccessModesAsked(t *testing.T) {
+	dc := usenetClient("nzb")
+	dc.Spec.Usenet.Scratch = &downloadv1alpha1.ScratchSpec{
+		VolumeName:  "synology-scratch-pv",
+		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+		SizeLimit:   resource.MustParse("100Gi"),
+	}
+	require.True(t, needsScratchClaim(dc))
+	pvc := buildScratchPVC(dc, fakeOwnerRef())
+	require.NotNil(t, pvc.Spec.VolumeName)
+	assert.Equal(t, "synology-scratch-pv", *pvc.Spec.VolumeName)
+	assert.Equal(t, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}, pvc.Spec.AccessModes)
+	require.NotNil(t, pvc.Spec.StorageClassName)
+	assert.Empty(t, *pvc.Spec.StorageClassName, "static binding asks for no class, so no provisioner competes")
+
+	vol := scratchVolume(dc)
+	require.NotNil(t, vol.PersistentVolumeClaim)
+	assert.Equal(t, "nzb-scratch", *vol.PersistentVolumeClaim.ClaimName)
+}
+
+func TestValidateEngineDirsRefusesDirectoriesOffTheDataMount(t *testing.T) {
+	dc := usenetClient("nzb")
+	require.NoError(t, validateEngineDirs(dc, "/data"), "no directories set")
+
+	dc.Spec.Usenet.Scratch = &downloadv1alpha1.ScratchSpec{Path: "/data/usenet/incomplete"}
+	dc.Spec.Usenet.PublishDir = "/data/usenet/complete"
+	require.NoError(t, validateEngineDirs(dc, "/data"))
+	require.NoError(t, validateEngineDirs(dc, "/data/"), "a trailing slash on the mount is not a different mount")
+
+	dc.Spec.Usenet.Scratch.Path = "/data2/usenet/incomplete"
+	err := validateEngineDirs(dc, "/data")
+	require.Error(t, err, "a sibling that merely shares the prefix is not under the mount")
+	assert.Contains(t, err.Error(), "spec.usenet.scratch.path")
+
+	dc.Spec.Usenet.Scratch.Path = "/data/usenet/incomplete"
+	dc.Spec.Usenet.PublishDir = "/scratch/out"
+	err = validateEngineDirs(dc, "/data")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "spec.usenet.publishDir")
+}
+
 func TestBuildScratchPVCUsesStorageClass(t *testing.T) {
 	sc := "fast"
 	dc := usenetClient("nzb")
