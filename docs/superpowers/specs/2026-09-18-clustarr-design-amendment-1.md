@@ -580,12 +580,13 @@ goes once the window reaches the end. A jump still lands on the letter's
 page and scrolls on from there. The A–Z bar is fixed to the right edge of
 the screen, from beneath the top bar, the breadcrumb row and the toolbar
 (all three sticky) to the bottom of the viewport, outside the grid's flow,
-its letters sharing the height, as Radarr's; every card files under its
-letter (`projection.JumpLetter`) and a vendored tracker
-(`ui/static/jump.js`) marks the letter of the first card in view
-`data-current` on scroll and after every htmx swap, which `app.css` draws
-as Radarr's small line beside the letter. The pipeline, downloads and
-unmatched pages keep the pager.
+its letters sharing the height, as Radarr's; a vendored tracker
+(`ui/static/jump.js`) places a thin thumb along it in proportion to the
+items on screen over the whole list (from `#library-rows`' `data-offset`
+and `data-total`, so it is stable across the pages infinite scroll loads)
+on scroll and after every htmx swap, as Radarr's position mark, and hides
+the document's native scrollbar while the bar is on the page. The
+pipeline, downloads and unmatched pages keep the pager.
 
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,

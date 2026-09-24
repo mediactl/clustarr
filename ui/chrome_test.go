@@ -142,9 +142,14 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 		require.Contains(t, bar, class, "the bar is fixed to the right of the screen")
 	}
 	require.NotContains(t, bar, "sticky")
-	require.Contains(t, tagWith(t, body, `id="library-rows"`), "lg:pr-10", "the grid keeps clear of the bar")
-	requireTag(t, body, `data-ref="default/m-000"`, `data-letter="A"`)
-	requireTag(t, body, `data-ref="default/m-001"`, `data-letter="B"`)
+	rows := requireTag(t, body, `id="library-rows"`, `data-offset="0"`, `data-total="120"`)
+	require.Contains(t, rows, "lg:pr-10", "the grid keeps clear of the bar")
+	// The position thumb (design 2026-09-24, after Radarr's): a thin mark
+	// the tracker script places along the strip in proportion to the item
+	// range on screen over the whole list, not snapped to a letter.
+	require.Contains(t, bar[strings.Index(bar, "class="):], "relative")
+	requireTag(t, body[barAt:], `data-jump-thumb`, `bg-primary`)
+	require.NotContains(t, body, `data-letter=`, "cards carry no letter; the thumb is positional")
 	headEnd := strings.Index(body, "</head>")
 	require.GreaterOrEqual(t, headEnd, 0)
 	require.Regexp(t, regexp.MustCompile(`<script[^>]*src="/static/jump.js"`), body[:headEnd], "the scroll tracker loads in the head")

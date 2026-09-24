@@ -219,9 +219,8 @@ func Arrange(items []LibraryItem, sort LibrarySort, desc bool, filter LibraryFil
 }
 
 // JumpLetter is the letter a title files under on the A-Z bar: its first
-// rune upper-cased when that is A-Z, else "#". The bar's links, the jump
-// redirect and every card's data-letter (the scroll tracker's key) all
-// use it.
+// rune upper-cased when that is A-Z, else "#". The bar's links and the
+// jump redirect both use it.
 func JumpLetter(title string) string {
 	r, _ := utf8.DecodeRuneInString(title)
 	r = unicode.ToUpper(r)

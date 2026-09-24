@@ -128,7 +128,7 @@ func TestGeneratedCSSCoversImportListsPageClasses(t *testing.T) {
 // TestGeneratedCSSCoversManualAssignFormClasses is Task G3-4's follow-up
 // addition to the same guard: w-40 is a class ui/views/unmatched.templ's
 // manualAssignForm uses for its "key" input (the manual-assign action's
-// mechanism, from G2-4's importarr/worker/rescan/doc.go, "Manual
+// mechanism, from G2-4's app/import/worker/rescan/doc.go, "Manual
 // assignment"), added new when that form was added to unmatched.templ, so
 // its presence in the committed app.css specifically proves that change was
 // included in the `make css` build that produced it.
@@ -154,8 +154,9 @@ func TestStaticRouteServesTheJumpTracker(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
 	require.Contains(t, rec.Body.String(), "data-jump-bar")
-	require.Contains(t, rec.Body.String(), "data-current")
-	require.Contains(t, rec.Body.String(), "data-letter")
+	require.Contains(t, rec.Body.String(), "data-jump-thumb")
+	require.Contains(t, rec.Body.String(), "data-total")
+	require.NotContains(t, rec.Body.String(), "data-current", "the thumb is positional, not a letter mark")
 	require.Contains(t, rec.Body.String(), "data-scrollbar", "the tracker keeps the hidden scrollbar in step with htmx swaps")
 
 	rec = httptest.NewRecorder()

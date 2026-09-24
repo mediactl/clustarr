@@ -54,6 +54,8 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 			<div
 				id="library-rows"
 				data-tab={ string(tab) }
+				data-offset={ fmt.Sprint(p.Offset) }
+				data-total={ fmt.Sprint(p.Total) }
 				hx-ext="sse"
 				sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
 				sse-swap="library"
@@ -83,13 +85,15 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 // right edge of the screen, from beneath the top bar, the breadcrumb row
 // and the toolbar (3rem + 2.25rem + 3.5rem, which is where 8.75rem comes
 // from) to the bottom of the viewport, outside the grid's flow (the grid
-// keeps clear of it with lg:pr-10). ui/static/jump.js marks the letter at
-// the top of the viewport data-current as the grid scrolls: a link per
+// keeps clear of it with lg:pr-10). ui/static/jump.js places the thumb
+// (data-jump-thumb) along it in proportion to the items on screen over
+// the whole list, from #library-rows' data-offset and data-total: a link per
 // letter that has titles, a disabled button per letter that does not,
 // each carrying data-jump for the tests.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
+		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block relative">
+			<div data-jump-thumb class="pointer-events-none absolute left-0 z-10 w-0.5 rounded-sm bg-primary" style="top: 0; height: 16px"></div>
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full w-full"}) {
 				for _, j := range jumpsFor {
 					if j.Enabled {
@@ -174,7 +178,6 @@ templ libraryCard(li projection.LibraryItem) {
 			"data-year":      fmt.Sprint(li.Year),
 			"data-profile":   li.QualityProfileRef,
 			"data-poster":    posterState(li.Poster),
-			"data-letter":    projection.JumpLetter(li.Title),
 		},
 	}) {
 		@tooltip.Tooltip() {

@@ -204,13 +204,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   }
 }
 
-/* The A-Z bar's scroll tracker (ui/static/jump.js) marks the letter at the
-   top of the viewport data-current; this is Radarr's small line beside it. */
-[data-jump-bar] [data-jump][data-current] {
-  box-shadow: inset 3px 0 0 var(--primary);
-  color: var(--foreground);
-}
-
 /* The library hides the document's native scrollbar (views.Chrome.HideScrollbar,
    kept in step by ui/static/jump.js): the A-Z strip is the only thing on the
    right edge, as in Radarr. Scrolling itself is untouched. */
