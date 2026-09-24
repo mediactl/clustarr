@@ -14,4 +14,3 @@ namespace: clustarr-system
 
 resources:
 - captionarr-worker-scaledobject.yaml
-- transcode-scaledjob.yaml

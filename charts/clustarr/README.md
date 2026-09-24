@@ -255,6 +255,8 @@ template.
 | `indexarr.cardigann.definitions.subPath` | Directory inside that ConfigMap or claim holding the files; empty is its root. | `""` |
 | `squasharr.slots` | `--slots` budget string, e.g. `cpu=2,nvidia=1,intel=1`. | `cpu=2,nvidia=1,intel=1` |
 | `squasharr.intelRenderGroups` | GIDs of the host group owning `/dev/dri/renderD*` on the Intel GPU nodes (`--intel-render-groups`), added to every Intel transcode Job's pod as `supplementalGroups`. Host-specific, so no default; leave empty with a runtime that has `device_ownership_from_security_context`. | `[]` |
+| `squasharr.gpuNodeLabelNvidia` | Override the node label (`--gpu-node-label-nvidia`) that, set to `"true"`, marks an NVIDIA GPU node. Empty uses the binary's own default, `nvidia.com/gpu.present` (the NVIDIA GPU Operator's GPU Feature Discovery). | `""` |
+| `squasharr.gpuNodeLabelIntel` | Override the node label (`--gpu-node-label-intel`) that, set to `"true"`, marks an Intel GPU node. Empty uses the binary's own default, `intel.feature.node.kubernetes.io/gpu` (Intel's Node Feature Discovery). | `""` |
 | `captionarrWorker.ackWaitSeconds` | Also `terminationGracePeriodSeconds`, so a worker can drain its in-flight fetch on `SIGTERM` instead of losing it to redelivery. | `120` |
 | `ui.auth.mode` | The web UI's authentication mode (`--auth-mode`), chosen explicitly: the binary refuses to serve without one. `anonymous`, the only mode, serves every request without a login -- put the Service behind ingress authentication and never expose it directly. | `anonymous` |
 | `ui.service.type`/`.port` | The web UI's Service. | `ClusterIP`, `8080` |

@@ -49,4 +49,4 @@ original names, such as `clustarr_transcode_fps` and
 NATS itself is not scraped here. The plain `config/nats` StatefulSet has no
 exporter sidecar; use the upstream nats chart (which `charts/clustarr` pulls
 in) for `prometheus-nats-exporter`, which is also what the optional KEDA
-triggers in `config/keda` query.
+`captionarr-worker` trigger in `config/keda` queries.

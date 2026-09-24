@@ -40,8 +40,8 @@ var imageRef = regexp.MustCompile(`ghcr\.io/mediactl/clustarr(?:/[a-z0-9._-]+)*`
 // `ghcr.io/mediactl/clustarr-media`. A chart install would have pulled an
 // image that does not exist, and no test in the tree noticed, because
 // TestChartAndKustomizeAgreePerComponent compares Deployments per component
-// and the media images are used by transcode Jobs and the KEDA ScaledJob
-// rather than by any Deployment.
+// and the media images are used by squasharr's transcode pool Jobs rather
+// than by any Deployment.
 //
 // This test compares the SET of image paths rather than matching them up
 // component by component, deliberately. The chart and config express the same

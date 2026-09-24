@@ -2,8 +2,10 @@
 
 **KEDA is opt-in and this overlay is not part of a default install.** The
 supported operating mode (design spec §12) is fixed replicas:
-`captionarr-worker` runs 2 pods, and transcodes are gated by squasharr's slot
-scheduler (`--slots cpu=2,nvidia=1,intel=1`) rather than by queue depth.
+`captionarr-worker` runs 2 pods. Transcoding has no KEDA leg at all --
+squasharr's own TranscodeJob and TranscodeProfile controllers size, suspend
+to zero and recreate one pool Job per (profile, hardware class), gated by the
+`--slots cpu=2,nvidia=1,intel=1` admission budget, never by queue depth.
 Clustarr works completely without KEDA; the Helm chart ships
 `keda.enabled=false`.
 
@@ -18,7 +20,6 @@ kustomize build config/keda | kubectl apply --server-side -f -
 | File | What it does |
 |---|---|
 | `captionarr-worker-scaledobject.yaml` | Scales the subtitle fetch workers 1-8 on JetStream consumer lag. |
-| `transcode-scaledjob.yaml` | **Example only.** An alternative to squasharr's slot scheduler; the two are mutually exclusive. |
 
 ## Why the `prometheus` trigger and not `nats-jetstream`
 

@@ -8,8 +8,8 @@
 #
 # Optional overlays are NOT included here; add them yourself when the cluster
 # has the operators for them:
-#   ../keda        ScaledObject/ScaledJob (needs KEDA; default mode is fixed
-#                  replicas, §12)
+#   ../keda        ScaledObject (needs KEDA; default mode is fixed replicas,
+#                  §12)
 #   ../prometheus  ServiceMonitors (needs the Prometheus Operator CRDs)
 #
 # Production installs should prefer charts/clustarr, which swaps this plain

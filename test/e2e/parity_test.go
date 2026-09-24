@@ -24,15 +24,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # What this file does and does not prove
 //
-// TestKEDATranscodeScaledJobRenders is the one leg this task can actually
-// build and prove: a static `kustomize build config/keda` render, parsed
-// and asserted against the two fields the carried-defect text names.
-// config/keda/** is squasharr's own owned path (Task X10, "config/keda:
-// squasharr-worker SA and --job" -- docs/superpowers/plans/2026-09-23-
-// gap-fixes.md), so this file only reads its rendered output; it never
-// edits config/keda itself. This test is written to PASS once that fix
-// lands, and to fail loudly, naming the exact field, until it does -- a
-// real regression guard, not a description of a known-broken state.
+// The transcode leg of "the KEDA opt-in renders" is gone: the 2026-09-23
+// transcode-worker-pools design retired the per-task KEDA ScaledJob example
+// (config/keda/transcode-scaledjob.yaml) in favour of the pool Jobs
+// squasharr's own controllers size and suspend, so there is nothing left
+// here for this file to render and assert against. config/keda now carries
+// only captionarr-worker's ScaledObject, which is scenario 13's concern
+// (test/e2e/subtitle_test.go), not this file's.
 //
 // The Helm-chart and clustarr-all legs are named here as SKIPPED, not
 // implemented, for a structural reason rather than an oversight:
@@ -57,103 +55,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package e2e
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
-	"os/exec"
-	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
-	"sigs.k8s.io/yaml"
 )
-
-// kustomizeBuild shells out to `kustomize build dir` (the same binary
-// hack/e2e.sh's own KUSTOMIZE variable requires) and returns every
-// document it renders as an unstructured.Unstructured, in order. It needs
-// no live cluster -- this is a pure static render -- but lives in this
-// package (behind TestMain's cluster gate) anyway, alongside every other
-// scenario, rather than as a plain non-e2e unit test: it verifies exactly
-// the deploy-time config this task's brief scopes to test/e2e and
-// config/e2e, not a library.
-func kustomizeBuild(t *testing.T, dir string) []unstructured.Unstructured {
-	t.Helper()
-	kustomizePath, err := exec.LookPath("kustomize")
-	require.NoErrorf(t, err, "kustomize not on PATH -- hack/e2e.sh requires it too")
-
-	out, err := exec.Command(kustomizePath, "build", dir).CombinedOutput()
-	require.NoErrorf(t, err, "kustomize build %s: %s", dir, out)
-
-	var docs []unstructured.Unstructured
-	reader := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(out)))
-	for {
-		raw, rerr := reader.Read()
-		if len(strings.TrimSpace(string(raw))) > 0 {
-			jsonBytes, jerr := yaml.YAMLToJSON(raw)
-			require.NoErrorf(t, jerr, "convert one %s document to JSON", dir)
-			var u unstructured.Unstructured
-			require.NoErrorf(t, json.Unmarshal(jsonBytes, &u.Object), "unmarshal one %s document", dir)
-			if u.Object != nil {
-				docs = append(docs, u)
-			}
-		}
-		if rerr != nil {
-			break
-		}
-	}
-	require.NotEmptyf(t, docs, "kustomize build %s rendered no documents", dir)
-	return docs
-}
-
-// TestKEDATranscodeScaledJobRenders is scenario 16's KEDA leg. See this
-// file's own package doc comment for what it does and does not prove.
-//
-// The carried defect (remaining-work.md, "Carried out of Phases E, F and
-// G"): "config/keda/transcode-scaledjob.yaml ... cannot work as written:
-// it runs as the squasharr ServiceAccount instead of squasharr-worker,
-// and starts the worker without --job, which squasharr's option
-// validation rejects." Both fields are asserted directly below, read off
-// the rendered ScaledJob rather than the source YAML, so a kustomize
-// patch elsewhere in config/keda that changes the effective value would
-// still be caught.
-func TestKEDATranscodeScaledJobRenders(t *testing.T) {
-	docs := kustomizeBuild(t, "../../config/keda")
-
-	var scaledJob *unstructured.Unstructured
-	for i := range docs {
-		if docs[i].GetKind() == "ScaledJob" && docs[i].GetName() == "squasharr-transcode" {
-			scaledJob = &docs[i]
-			break
-		}
-	}
-	require.NotNilf(t, scaledJob, "kustomize build config/keda rendered no ScaledJob/squasharr-transcode")
-
-	sa, found, err := unstructured.NestedString(scaledJob.Object,
-		"spec", "jobTargetRef", "template", "spec", "serviceAccountName")
-	require.NoError(t, err)
-	require.True(t, found, "ScaledJob/squasharr-transcode: spec.jobTargetRef.template.spec.serviceAccountName is not set")
-	require.Equal(t, "squasharr-worker", sa,
-		"ScaledJob/squasharr-transcode must run as the squasharr-worker ServiceAccount, matching the "+
-			"batch/v1 Jobs squasharr's own TranscodeJob controller creates (config/manager/squasharr.yaml), "+
-			"not the controller's own squasharr ServiceAccount")
-
-	containers, found, err := unstructured.NestedSlice(scaledJob.Object,
-		"spec", "jobTargetRef", "template", "spec", "containers")
-	require.NoError(t, err)
-	require.True(t, found, "ScaledJob/squasharr-transcode: spec.jobTargetRef.template.spec.containers is not set")
-	require.NotEmpty(t, containers)
-
-	container, ok := containers[0].(map[string]interface{})
-	require.True(t, ok)
-	argsRaw, found, err := unstructured.NestedStringSlice(container, "args")
-	require.NoError(t, err)
-	require.True(t, found, "ScaledJob/squasharr-transcode's worker container has no args")
-	require.Containsf(t, argsRaw, "--job", "ScaledJob/squasharr-transcode's worker container args %v must "+
-		"include --job -- squasharr's own option validation rejects `squasharr --role worker` started "+
-		"without it (this is a batch Job, not the long-running controller Deployment)", argsRaw)
-}
 
 // TestHelmChartE2EValuesPassesScenarioOne documents, rather than runs,
 // scenario 16's Helm-chart leg. See this file's own package doc comment

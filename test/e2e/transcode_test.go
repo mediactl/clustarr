@@ -22,15 +22,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Phase E's code is complete and wired (E-4, 35c298e/b001001): squasharr
 // registers the TranscodeProfile and TranscodeJob controllers and the slot
 // scheduler; config/manager/squasharr.yaml (composed into config/e2e
-// through config/default) ships the squasharr ServiceAccount,
-// --worker-image/--worker-image-cuda pointed at ghcr.io/mediactl/clustarr/
-// media:dev via CLUSTARR_WORKER_IMAGE(_CUDA), and a --slots cpu=2,nvidia=1,
-// intel=1 budget; hack/e2e.sh already builds and kind-loads the media image
-// (`make docker-build`) and waits on deployment/squasharr's rollout. Nothing
-// in config/e2e needed adding for this file's scenario to reach a real
-// worker pod -- verified by reading config/manager/squasharr.yaml,
-// config/rbac/kustomization.yaml, config/default/kustomization.yaml and
-// hack/e2e.sh's own WORKLOADS list, not assumed.
+// through config/default) ships the squasharr ServiceAccount and a
+// --slots cpu=2,nvidia=1,intel=1 budget. --worker-image/--worker-image-cuda
+// (CLUSTARR_WORKER_IMAGE(_CUDA)) point at the dedicated transcoder/
+// transcoder-cuda images (build: Dockerfile.transcoder), not the media
+// image, since the encoding runtime moved out of media; hack/e2e.sh's
+// `make docker-build` builds and kind-loads it and waits on
+// deployment/squasharr's rollout. Nothing in config/e2e needed adding for
+// this file's scenario to reach a real worker pod -- verified by reading
+// config/manager/squasharr.yaml, config/rbac/kustomization.yaml,
+// config/default/kustomization.yaml and hack/e2e.sh's own WORKLOADS list,
+// not assumed.
 //
 // X14 retired the per-Job `squasharr-worker` ServiceAccount, ClusterRole
 // and binding (config/rbac/squasharr_worker_role*.yaml, and `clustarr
@@ -113,9 +115,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -217,6 +222,18 @@ const (
 	// re-probing -- one real ffprobe run against the swapped-in
 	// (transcoded, much smaller) output.
 	transcodeSwapIncorporatedTimeout = 3 * time.Minute
+
+	// poolResumedTimeout bounds the wait for a (profile, class) pool Job to
+	// come off suspend once admission dispatches a task to it -- pod
+	// scheduling and an image pull, the same order of magnitude as
+	// transcodeJobSucceededTimeout's own margin for the identical reason,
+	// but the pool need only start, not finish an encode.
+	poolResumedTimeout = 2 * time.Minute
+
+	// poolSuspendedTimeout bounds the wait for a pool Job to go back to
+	// suspend once its only task has finished and the Job controller has
+	// let its pods go (app/squash/controller/pool.Mutable's own gate).
+	poolSuspendedTimeout = 2 * time.Minute
 )
 
 // newTranscodeProfile creates a cluster-scoped TranscodeProfile that selects
@@ -448,6 +465,31 @@ func waitForTranscodeJobPhaseAtLeast(ctx context.Context, t *testing.T, key clie
 	return live
 }
 
+// waitForTranscodeJobField polls tj's live status through get until it
+// returns a non-nil value, then returns that value. It is the generic
+// sibling of waitForTranscodeJobPhase for a status field a phase threshold
+// does not directly gate -- status.jobRef here, which dispatch.go sets in
+// the same write that takes a job to Queued, but a poll can still observe
+// between the two reads.
+func waitForTranscodeJobField[T any](ctx context.Context, t *testing.T, key client.ObjectKey, timeout time.Duration, name string, get func(transcodev1alpha1.TranscodeJobStatus) *T) *T {
+	t.Helper()
+	var got *T
+	waitFor(t, ctx, timeout, fmt.Sprintf("TranscodeJob %s field %s", key.Name, name),
+		func(ctx context.Context) (bool, error) {
+			var live transcodev1alpha1.TranscodeJob
+			if err := k8sClient.Get(ctx, key, &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			if live.Status.Phase == transcodev1alpha1.TranscodeJobPhaseFailed {
+				return false, fmt.Errorf("TranscodeJob %s reached Failed waiting for field %s (message=%q)", key.Name, name, live.Status.Message)
+			}
+			got = get(live.Status)
+			return got != nil, nil
+		}, describeTranscodeJob(key))
+	return got
+}
+
 // waitForMediaFileSwapIncorporated waits until catalogarr's MediaFile
 // controller has incorporated a transcode swap: spec.original explicitly
 // false (mediafile_controller.go:255-258's WithOriginal(false), the one
@@ -518,16 +560,18 @@ func pipelineRowStage(body string, kind commonv1.MediaKind, ref types.Namespaced
 // produces a real, probed MediaFile; a scoped TranscodeProfile
 // (newTranscodeProfile) picks it up; squasharr's TranscodeProfile mapper
 // creates a TranscodeJob; squasharr's TranscodeJob controller plans a real
-// encode (h264 -> the profile's CRD-default hevc/yuv420p10le) and admits a
-// real, suspended-then-unsuspended batch Job; squasharr's worker runs inside
-// it, transcodes, verifies, and swaps (ruling R5: hard-link the original
-// into the RootFolder's recycle bin, then rename the output over the source
-// path); catalogarr's MediaFile controller notices the Succeeded
-// TranscodeJob and incorporates the swap, taking over
-// spec.sizeBytes/modTime/original (§8.5); and the pipeline page reflects
-// the transcode stage via ui/views/pipeline.templ's data-stage/data-ref
-// attributes (D3 ruling R8: identify a row by a stable attribute, never by
-// prose that could change independently of the markup).
+// encode (h264 -> the profile's CRD-default hevc/yuv420p10le) and dispatches
+// it to its (profile, class) pool -- a shared, long-lived batch Job that
+// scales up from suspended zero to take the task and back down to suspended
+// once it is the pool's only work (§7; there is no per-task Job any more,
+// X14). squasharr's worker runs inside the pool's pod, transcodes, verifies,
+// and swaps (ruling R5: hard-link the original into the RootFolder's
+// recycle bin, then rename the output over the source path); catalogarr's
+// MediaFile controller notices the Succeeded TranscodeJob and incorporates
+// the swap, taking over spec.sizeBytes/modTime/original (§8.5); and the
+// pipeline page reflects the transcode stage via ui/views/pipeline.templ's
+// data-stage/data-ref attributes (D3 ruling R8: identify a row by a stable
+// attribute, never by prose that could change independently of the markup).
 //
 // See this file's package doc comment for why the source is the suite's
 // ordinary h264/AAC probe clip, not the HDR10 fixture this task also adds.
@@ -574,10 +618,43 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 	require.Equal(t, transcodev1alpha1.PlanModeTranscode, planned.Status.Plan.Mode,
 		"an h264 source under the profile's hevc default must plan a real encode, not a skip or remux")
 
+	// §7: the job's task went to its profile's pool, which scaled up from
+	// zero. status.jobRef names the pool Job -- squasharr dispatches to a
+	// long-lived, shared (profile, class) pool now, never a per-task Job
+	// (X14; app/squash/controller/pool.Name).
+	poolName := *waitForTranscodeJobField(ctx, t, tjKey, transcodeJobPlannedTimeout, "jobRef",
+		func(s transcodev1alpha1.TranscodeJobStatus) *string { return s.JobRef })
+	poolKey := types.NamespacedName{Namespace: Namespace, Name: poolName}
+	var poolJob batchv1.Job
+	waitFor(t, ctx, poolResumedTimeout, "pool "+poolName+" resumed from zero",
+		func(ctx context.Context) (bool, error) {
+			if err := k8sClient.Get(ctx, poolKey, &poolJob); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return !ptr.Deref(poolJob.Spec.Suspend, true), nil
+		})
+	assert.False(t, ptr.Deref(poolJob.Spec.Template.Spec.AutomountServiceAccountToken, true),
+		"a pool pod carries no ServiceAccount token (X14)")
+
+	running := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseRunning)
+	assert.NotEmpty(t, running.Status.WorkerPod, "a running job names its worker pod")
+
 	succeeded := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseSucceeded)
 	require.NotNil(t, succeeded.Status.Result)
 	require.NotEmpty(t, succeeded.Status.Result.OutputPath)
 	require.NotZero(t, succeeded.Status.Result.OutputSizeBytes)
+
+	// The pool drains and suspends back to zero once its only task has
+	// finished (app/squash/controller/pool.Mutable's own gate; next.go).
+	waitFor(t, ctx, poolSuspendedTimeout, "pool "+poolName+" suspended after its only job finished",
+		func(ctx context.Context) (bool, error) {
+			if err := k8sClient.Get(ctx, poolKey, &poolJob); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return ptr.Deref(poolJob.Spec.Suspend, false), nil
+		})
 
 	// The original lands in the RootFolder's recycle bin (ruling R5 as
 	// superseded in mechanism by E-3, 797d9f3: RecycleLink hard-links the
