@@ -194,3 +194,14 @@ func TestArrangeFiltersBeforeSorting(t *testing.T) {
 	require.Empty(t, projection.Arrange(nil, projection.SortTitle, false, projection.FilterAll))
 	require.NotNil(t, projection.Arrange(nil, projection.SortTitle, false, projection.FilterAll), "an empty tab is an empty slice, not nil, so the SSE frame renders")
 }
+
+// TestJumpLetterFilesTitles: the A-Z bar files a title under its first
+// letter, upper-cased, and everything else -- digits, punctuation,
+// letters outside A-Z, nothing -- under #.
+func TestJumpLetterFilesTitles(t *testing.T) {
+	for title, want := range map[string]string{
+		"Arrival": "A", "zulu": "Z", "'Round Midnight": "#", "2001: A Space Odyssey": "#", "Éclair": "#", "": "#",
+	} {
+		require.Equal(t, want, projection.JumpLetter(title), title)
+	}
+}

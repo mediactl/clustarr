@@ -51,21 +51,17 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab}) {
 		<div id="library-page">
 			@libraryToolbar(tb, rootFolders)
-			<div class="flex gap-4">
-			<div class="min-w-0 flex-1 space-y-4">
-				<div
-					id="library-rows"
-					data-tab={ string(tab) }
-					hx-ext="sse"
-					sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
-					sse-swap="library"
-					class="space-y-4"
-				>
-					@LibraryList(tab, p, items)
-				</div>
+			<div
+				id="library-rows"
+				data-tab={ string(tab) }
+				hx-ext="sse"
+				sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
+				sse-swap="library"
+				class="space-y-4 lg:pr-10"
+			>
+				@LibraryList(tab, p, items)
 			</div>
 			@jumpBar(jumpsFor)
-			</div>
 		</div>
 	}
 }
@@ -82,15 +78,17 @@ type Jump struct {
 // the bar fills the viewport as Radarr's does.
 const jumpButtonClass = "min-h-0 flex-1 px-1 py-0 text-[11px]"
 
-// jumpBar is Radarr's A-Z bar as a vertical button group down the right
-// edge: sticky beneath the top bar, the breadcrumb row and the toolbar
-// (3rem + 2.25rem + 3.5rem, which is where 8.75rem comes from) and as
-// tall as the viewport under them, at rest and scrolled alike: a link per
+// jumpBar is Radarr's A-Z bar as a vertical button group fixed to the
+// right edge of the screen, from beneath the top bar, the breadcrumb row
+// and the toolbar (3rem + 2.25rem + 3.5rem, which is where 8.75rem comes
+// from) to the bottom of the viewport, outside the grid's flow (the grid
+// keeps clear of it with lg:pr-10). ui/static/jump.js marks the letter at
+// the top of the viewport data-current as the grid scrolls: a link per
 // letter that has titles, a disabled button per letter that does not,
 // each carrying data-jump for the tests.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="sticky top-[8.75rem] -mt-6 -mr-6 hidden h-[calc(100vh-8.75rem)] shrink-0 self-start py-1 lg:block">
+		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 py-1 lg:block">
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full"}) {
 				for _, j := range jumpsFor {
 					if j.Enabled {
@@ -175,6 +173,7 @@ templ libraryCard(li projection.LibraryItem) {
 			"data-year":      fmt.Sprint(li.Year),
 			"data-profile":   li.QualityProfileRef,
 			"data-poster":    posterState(li.Poster),
+			"data-letter":    projection.JumpLetter(li.Title),
 		},
 	}) {
 		@tooltip.Tooltip() {

@@ -143,3 +143,17 @@ func TestGeneratedCSSCoversManualAssignFormClasses(t *testing.T) {
 			"its key input; this means the committed app.css was not rebuilt with `make css` after the "+
 			"manual-assign form was added")
 }
+
+// TestStaticRouteServesTheJumpTracker: the A-Z bar's scroll tracker
+// (design 2026-09-24: the small line beside the letter at the top of the
+// viewport, as Radarr's) is a vendored script, embedded like the rest.
+func TestStaticRouteServesTheJumpTracker(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/jump.js", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
+	require.Contains(t, rec.Body.String(), "data-jump-bar")
+	require.Contains(t, rec.Body.String(), "data-current")
+	require.Contains(t, rec.Body.String(), "data-letter")
+}

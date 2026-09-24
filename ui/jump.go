@@ -18,9 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package ui
 
 import (
-	"unicode"
-	"unicode/utf8"
-
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
@@ -32,16 +29,8 @@ import (
 
 const jumpLetters = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-// jumpKey is the letter a title files under: its first rune upper-cased
-// when that is A-Z, else '#'.
-func jumpKey(title string) byte {
-	r, _ := utf8.DecodeRuneInString(title)
-	r = unicode.ToUpper(r)
-	if r >= 'A' && r <= 'Z' {
-		return byte(r)
-	}
-	return '#'
-}
+// jumpKey is projection.JumpLetter as the byte the bar indexes by.
+func jumpKey(title string) byte { return projection.JumpLetter(title)[0] }
 
 // jumpPage is the page of per items on which the first title filing under
 // letter or later sits, given items in title order; the last page when no

@@ -133,9 +133,21 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	body = rec.Body.String()
 	barAt := strings.Index(body, `data-jump-bar`)
 	require.GreaterOrEqual(t, barAt, 0, "the library page has a jump bar")
+	// The bar is fixed to the screen's right edge beneath the toolbar, not
+	// a flex sibling of the grid (design 2026-09-24); the grid keeps clear
+	// of it, every card files under its letter for the scroll tracker, and
+	// the tracker script loads from the static files.
 	bar := tagWith(t, body, `data-jump-bar`)
-	require.Contains(t, bar, "sticky", "the bar stays put while the grid scrolls")
-	require.Contains(t, bar, "h-[calc(100vh-", "the bar fills the height, as Radarr's does")
+	for _, class := range []string{"fixed", "right-0", "top-[8.75rem]", "bottom-0"} {
+		require.Contains(t, bar, class, "the bar is fixed to the right of the screen")
+	}
+	require.NotContains(t, bar, "sticky")
+	require.Contains(t, tagWith(t, body, `id="library-rows"`), "lg:pr-10", "the grid keeps clear of the bar")
+	requireTag(t, body, `data-ref="default/m-000"`, `data-letter="A"`)
+	requireTag(t, body, `data-ref="default/m-001"`, `data-letter="B"`)
+	headEnd := strings.Index(body, "</head>")
+	require.GreaterOrEqual(t, headEnd, 0)
+	require.Regexp(t, regexp.MustCompile(`<script[^>]*src="/static/jump.js"`), body[:headEnd], "the scroll tracker loads in the head")
 	group := tagWith(t, body[barAt:], `data-slot="button-group"`)
 	require.Contains(t, group, `data-orientation="vertical"`, "the bar is a vertical button group")
 	require.Contains(t, group, "h-full")

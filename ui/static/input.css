@@ -203,3 +203,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     @apply bg-background text-foreground;
   }
 }
+
+/* The A-Z bar's scroll tracker (ui/static/jump.js) marks the letter at the
+   top of the viewport data-current; this is Radarr's small line beside it. */
+[data-jump-bar] [data-jump][data-current] {
+  box-shadow: inset 3px 0 0 var(--primary);
+  color: var(--foreground);
+}
