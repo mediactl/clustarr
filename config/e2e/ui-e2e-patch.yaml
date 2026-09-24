@@ -1,0 +1,19 @@
+# Points the ui Deployment's Plex Custom Metadata Provider at a URL
+# reachable from inside the cluster (design spec §D.1: --external-url, env
+# CLUSTARR_EXTERNAL_URL -- cmd/clustarr/flags.go's externalURLEnv). Without
+# it the provider roots answer 503 naming the flag, and scenario 18
+# (test/e2e/plex_test.go) has no thumb URL to fetch.
+#
+# An env var, not a further --external-url arg, mirroring
+# importarr-e2e-patch.yaml's CLUSTARR_TRAKT_BASE_URL/CLUSTARR_PLEX_BASE_URL:
+# --external-url already falls back to this environment variable when the
+# flag itself is absent (cmd/clustarr/services.go's envOr), so
+# config/manager/ui.yaml's own args stay untouched here. The value is the ui
+# Service's own in-cluster DNS name and port (config/manager/ui.yaml, Service
+# port 8080) -- reachable by anything else in the cluster, the same way a
+# real PMS reachable from inside a private network would be pointed at it.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: CLUSTARR_EXTERNAL_URL
+    value: http://ui.clustarr-system.svc:8080

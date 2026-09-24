@@ -21,6 +21,7 @@ later change can tell whether its premise still holds.
 | [0009](0009-transcode-worker-pools-over-jetstream.md) | Transcodes run on per-profile-per-hardware-class worker-pool Jobs fed by a JetStream work queue (supersedes 0005) | Accepted, 2026-09-24 |
 | [0010](0010-release-index-engine-selectable.md) | The release index engine is selectable: SQLite FTS5 by default, Postgres FTS via CloudNativePG for multi-replica indexarr (supersedes 0003) | Accepted, 2026-09-24 |
 | [0011](0011-artwork-in-jetstream-object-store.md) | Artwork lives in a JetStream object store, one bucket, two writers split by variant | Accepted, 2026-09-24 |
+| [0012](0012-plex-provider-on-the-ui-service.md) | The Plex Metadata Provider is served read-only by the ui service, unauthenticated per protocol, and must not be publicly exposed | Accepted, 2026-09-24 |
 
 Refinements that did not change a decision are recorded in the spec, not here:
 

@@ -292,6 +292,53 @@ and checks it with the definition's `login.test` on every renewal. When the
 tracker expires it, the condition turns to `CredentialsRejected`; sign in
 again and replace the cookie.
 
+## Plex provider
+
+`ui` can serve Plex's Custom Metadata Provider protocol (PMS ≥ 1.43.0,
+movie and TV libraries only, `docs/research/plex-metadata-provider.md`) read
+over the same catalog `ui` already renders the Library page from -- Movie,
+Series and Episode `status.metadata`, `status.artwork` and their ratings.
+
+**Adding it in Plex:** *Settings → Metadata Agents → Add Provider*, and
+enter each root's URL separately -- one provider per parent type
+(Plex's own recommendation, so it can be combined with other providers):
+
+- `http://<host>/plex/movies` for movies
+- `http://<host>/plex/tv` for TV shows, seasons and episodes
+
+`<host>` is wherever `ui.plex.externalURL` points (below); PMS must be able
+to reach it, unauthenticated, over plain HTTP.
+
+**It is unauthenticated by the Plex protocol itself.** There is no token,
+header or query parameter for auth -- Plex states plainly that "only
+unauthenticated requests are currently supported". Anyone who can reach
+`ui.plex.externalURL` can read the *entire* catalog: every title, every
+poster and backdrop URL, every rating. **Never put this Service, or a path
+that routes to it, behind a public ingress.** It belongs on the cluster's
+private network only -- the same `ClusterIP` Service the rest of `ui`
+already uses, reachable by PMS from inside that network (a Tailscale/VPN
+overlay, a private ingress class, or PMS itself running in-cluster), never
+through the public ingress `ui.auth.mode` already warns you to keep the
+rest of the UI off.
+
+**`ui.plex.enabled`** (default `true`) maps to `--plex-provider`. `false`
+unmounts `/plex` entirely -- a plain `404`, not the `503` below -- and
+silences the startup warning an empty `externalURL` would otherwise log.
+
+**`ui.plex.externalURL`** (default `""`, env `CLUSTARR_EXTERNAL_URL`) maps
+to `--external-url`: the absolute base every `thumb`, `art` and `Image[]`
+URL this provider hands Plex is built on (`GET /art/{kind}/{uid}/{type}`,
+ADR-0011). It is empty by default because no shipped value could ever guess
+an operator's own reachable hostname -- with it empty, both roots answer
+`503` with a body naming the flag, logged once at startup, and readiness is
+unaffected. Set it to wherever PMS can reach this Service, for example the
+in-cluster DNS name if PMS runs as a pod too:
+
+```sh
+helm upgrade --install clustarr charts/clustarr -n clustarr-system \
+  --set ui.plex.externalURL=http://clustarr-ui.clustarr-system.svc.cluster.local:8080
+```
+
 ## Values
 
 The full reference is `values.yaml` itself -- every value has a comment
@@ -349,6 +396,8 @@ template.
 | `squasharr.gpuNodeLabelIntel` | Override the node label (`--gpu-node-label-intel`) that, set to `"true"`, marks an Intel GPU node. Empty uses the binary's own default, `intel.feature.node.kubernetes.io/gpu` (Intel's Node Feature Discovery). | `""` |
 | `captionarrWorker.ackWaitSeconds` | Also `terminationGracePeriodSeconds`, so a worker can drain its in-flight fetch on `SIGTERM` instead of losing it to redelivery. | `120` |
 | `ui.auth.mode` | The web UI's authentication mode (`--auth-mode`), chosen explicitly: the binary refuses to serve without one. `anonymous`, the only mode, serves every request without a login -- put the Service behind ingress authentication and never expose it directly. | `anonymous` |
+| `ui.plex.enabled` | Mount the Plex Custom Metadata Provider routes (`--plex-provider`). See [Plex provider](#plex-provider). | `true` |
+| `ui.plex.externalURL` | Absolute base every `thumb`/`art`/`Image[]` URL is built on (`--external-url`). Empty means the provider roots answer `503` naming the flag. **Unauthenticated by protocol -- never a public ingress hostname.** | `""` |
 | `ui.service.type`/`.port` | The web UI's Service. | `ClusterIP`, `8080` |
 
 `imagePullSecrets`, `nodeSelector`, `tolerations` and `affinity` are plain

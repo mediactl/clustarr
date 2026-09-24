@@ -413,6 +413,32 @@ ui:
   # and never be exposed directly (amendment §A3.5).
   auth:
     mode: anonymous
+  # The Plex Custom Metadata Provider (design spec §D;
+  # docs/research/plex-metadata-provider.md): served read-only by this ui
+  # process at /plex/movies and /plex/tv. It is unauthenticated by the Plex
+  # protocol itself -- there is no token, header or query parameter for
+  # auth, so it reveals the whole catalog to anyone who can reach it. Read
+  # this chart's README "Plex provider" section before setting externalURL
+  # to anything but a private, cluster-internal address, and NEVER put this
+  # Service, or a path routing to it, behind a public ingress (see the
+  # ingress note under ui.auth above: the same rule that keeps the UI
+  # itself off a public ingress applies here, more strictly, since this
+  # path has no login at all).
+  #
+  # enabled maps to --plex-provider: false unmounts /plex entirely (a plain
+  # 404, not the 503 below) and silences the startup warning that empty
+  # externalURL would otherwise log. externalURL maps to --external-url
+  # (env CLUSTARR_EXTERNAL_URL), the absolute base every thumb, art and
+  # Image[].url this provider hands Plex is built on -- e.g. the ui
+  # Service's own in-cluster DNS name,
+  # "http://<release>-ui.<namespace>.svc.cluster.local:8080", for a PMS
+  # reachable from inside the cluster, or a private ingress hostname if PMS
+  # runs elsewhere. Empty (the default) means no shipped value can guess an
+  # operator's own reachable hostname, so the provider roots answer 503
+  # naming the flag, exactly as `clustarr ui --external-url=""` does.
+  plex:
+    enabled: true
+    externalURL: ""
   service:
     type: ClusterIP
     port: 8080

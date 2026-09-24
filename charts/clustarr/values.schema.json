@@ -268,7 +268,7 @@
     "ui": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "auth", "service", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["enabled", "replicas", "auth", "plex", "service", "resources", "nodeSelector", "tolerations", "affinity"],
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": { "type": "integer", "minimum": 0 },
@@ -281,6 +281,22 @@
             "mode": {
               "type": "string",
               "enum": ["anonymous"]
+            }
+          }
+        },
+        "plex": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "externalURL"],
+          "description": "The Plex Custom Metadata Provider (design spec §D): read-only, unauthenticated by protocol, must not sit behind a public ingress. See the chart README's \"Plex provider\" section.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "--plex-provider."
+            },
+            "externalURL": {
+              "type": "string",
+              "description": "--external-url / $CLUSTARR_EXTERNAL_URL: the absolute base every thumb, art and Image[].url is built on. Empty means the provider roots answer 503 naming the flag."
             }
           }
         },

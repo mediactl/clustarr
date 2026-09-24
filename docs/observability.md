@@ -236,3 +236,27 @@ A pod that is unready but alive keeps its existing work going (an engine keeps
 seeding, a controller keeps watching) while Kubernetes stops routing new
 traffic and a `Deployment` rollout waits — which is the whole point of
 splitting the two checks instead of using one `/health` endpoint for both.
+
+## Exposure
+
+Every endpoint above sits behind the authentication/authorization filter
+(`/metrics`) or is meant to be reached only by Kubernetes itself
+(`/healthz`, `/readyz`). `ui` is the one service designed to answer real
+user traffic, and it carries two different exposure postures on the same
+process:
+
+- The web UI itself (every page, `/events/*`) ships with no login of its
+  own — `--auth-mode=anonymous` is the only mode — and **must sit behind
+  ingress authentication** (design amendment §A3.5); nothing in the binary
+  or the installers adds that for you.
+- The Plex Custom Metadata Provider (`/plex/movies`, `/plex/tv`, design
+  spec §D; `docs/research/plex-metadata-provider.md`), mounted on the same
+  `ui` process, is **unauthenticated by the Plex protocol itself** — there
+  is no token, header or query parameter it will ever accept — and it
+  answers the *entire* catalog, matched or images included, to anyone who
+  can reach it. It is strictly more sensitive than the UI's own pages and
+  must **never** sit behind a public ingress, whether or not that ingress
+  has its own authentication in front of the rest of `ui`. See
+  `charts/clustarr/README.md`'s "Plex provider" section for how to point it
+  at PMS from inside a private network only, and the chart's `ui.plex.*`
+  values and `values.yaml` ingress comments.

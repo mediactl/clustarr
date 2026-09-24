@@ -272,7 +272,12 @@ spec:
       - name: ui
         image: {{ include "clustarr.image" (dict "root" $ "which" "controller") }}
         imagePullPolicy: {{ $.Values.image.pullPolicy }}
-        args: ["ui", {{ printf "--auth-mode=%s" .Values.ui.auth.mode | quote }}]
+        {{- $uiArgs := list "ui" (printf "--auth-mode=%s" .Values.ui.auth.mode) (printf "--plex-provider=%t" .Values.ui.plex.enabled) }}
+        {{- with .Values.ui.plex.externalURL }}
+        {{- $uiArgs = append $uiArgs (printf "--external-url=%s" .) }}
+        {{- end }}
+        args:
+          {{- toYaml $uiArgs | nindent 8 }}
         {{- with dig "resources" "limits" "memory" "" .Values.ui }}
         env:
         - name: GOMEMLIMIT

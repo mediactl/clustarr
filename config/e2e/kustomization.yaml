@@ -43,3 +43,7 @@ patches:
     kind: Deployment
     name: importarr-worker
   path: importarr-e2e-patch.yaml
+- target:
+    kind: Deployment
+    name: ui
+  path: ui-e2e-patch.yaml
