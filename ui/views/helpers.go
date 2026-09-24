@@ -38,15 +38,21 @@ func clampPercent(p int32) int32 {
 // know about still renders with the "in progress" look instead of unstyled
 // text.
 func stageBadgeClass(stage pipeline.Stage) string {
-	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+	return "rounded-full px-2 py-0.5 text-xs font-medium " + stageTone(stage)
+}
+
+// stageTone is the colour alone, for a badge component that brings its own
+// shape: the pipeline row's stage badge keeps these semantics over the
+// component's neutral secondary colours.
+func stageTone(stage pipeline.Stage) string {
 	switch stage {
 	case pipeline.StageFailed:
-		return base + "bg-red-500/20 text-red-300"
+		return "bg-red-500/20 text-red-300"
 	case pipeline.StageBlocked:
-		return base + "bg-amber-500/20 text-amber-300"
+		return "bg-amber-500/20 text-amber-300"
 	case pipeline.StageComplete:
-		return base + "bg-emerald-500/20 text-emerald-300"
+		return "bg-emerald-500/20 text-emerald-300"
 	default:
-		return base + "bg-sky-500/20 text-sky-300"
+		return "bg-sky-500/20 text-sky-300"
 	}
 }

@@ -483,7 +483,11 @@ swaps in place, and episode, album and book rows are small items in an
 item group, each toggle an hx-post targeting `closest [data-slot=item]`.
 templ writes an item's attributes in sorted order, so the tests find an
 element by one attribute and assert the rest on it rather than matching
-an attribute sequence.
+an attribute sequence. The pipeline, downloads and unmatched rows, and
+the download client cards, are items too: the stage or phase badge keeps
+its meaning colour (`stageTone`, `downloadPhaseTone`), the progress bar is
+one shared `progressBar` whose fill carries `data-progress`, and the
+unmatched row's manual-assign form is the item's footer.
 
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,

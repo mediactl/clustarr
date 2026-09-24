@@ -127,10 +127,10 @@ func TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar(t *testing.T) {
 
 	var buf bytes.Buffer
 	require.NoError(t, views.DownloadRows([]downloadv1.Download{d}).Render(context.Background(), &buf))
-	// "h-2 rounded-full bg-sky-500" is the progress-fill div's own class
-	// (downloads.templ's downloadRow); a bare "bg-sky-500" substring check
+	// "h-2 rounded-full bg-primary" is the progress-fill div's own class
+	// (downloads.templ's downloadRow); a bare "bg-primary" substring check
 	// would also match the phase badge's unrelated sky-blue default color.
-	require.NotContains(t, buf.String(), "h-2 rounded-full bg-sky-500",
+	require.NotContains(t, buf.String(), "h-2 rounded-full bg-primary",
 		"a Pending download has no meaningful progress and must not render a progress bar")
 }
 
@@ -140,7 +140,7 @@ func TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar(t *testing.T) {
 func TestDownloadRowsEmptyStateMirrorsThePipelinePage(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, views.DownloadRows(nil).Render(context.Background(), &buf))
-	require.Contains(t, buf.String(), "text-slate-400")
+	require.Contains(t, buf.String(), "text-muted-foreground")
 	require.NotContains(t, buf.String(), `data-download`)
 }
 
@@ -177,7 +177,7 @@ func TestDownloadsPageRendersWithoutACluster(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "text-slate-400")
+	require.Contains(t, rec.Body.String(), "text-muted-foreground")
 }
 
 // TestDownloadsPageListsThroughTheReader proves the handler wiring end to

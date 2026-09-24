@@ -25,6 +25,8 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -71,13 +73,13 @@ templ UnmatchedList(p paging.Page, entries []projection.UnmatchedEntry) {
 // contents.
 templ UnmatchedRows(entries []projection.UnmatchedEntry) {
 	if len(entries) == 0 {
-		<p class="text-slate-400">Nothing unmatched.</p>
+		<p class="text-muted-foreground">Nothing unmatched.</p>
 	}
-	<div class="grid gap-3">
+	@item.Group(item.GroupProps{Class: "gap-3"}) {
 		for _, e := range entries {
 			@unmatchedRow(e)
 		}
-	</div>
+	}
 }
 
 // unmatchedRow renders one UnmatchedEntry: its path, the scanner's reason,
@@ -87,26 +89,31 @@ templ UnmatchedRows(entries []projection.UnmatchedEntry) {
 // assert on these attributes, not on visible copy, so a wording change does
 // not break a test and a markup change does not pass one.
 templ unmatchedRow(e projection.UnmatchedEntry) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-scan={ e.ScanRef.String() }
-		data-root-folder={ e.RootFolder }
-		data-path={ e.Path }
-		data-reason={ e.Reason }
-		data-candidates={ strings.Join(e.Candidates, ",") }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ e.Path }</span>
-			<span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{ e.RootFolder }</span>
-		</div>
-		<div class="mt-1 text-sm text-amber-300">{ e.Reason }</div>
-		if len(e.Candidates) > 0 {
-			<div class="mt-2 text-xs text-slate-400">
-				Candidates: { strings.Join(e.Candidates, ", ") }
-			</div>
+	@item.Item(item.Props{
+		Variant: item.VariantOutline,
+		Class:   "flex-wrap items-start",
+		Attributes: templ.Attributes{
+			"data-scan":        e.ScanRef.String(),
+			"data-root-folder": e.RootFolder,
+			"data-path":        e.Path,
+			"data-reason":      e.Reason,
+			"data-candidates":  strings.Join(e.Candidates, ","),
+		},
+	}) {
+		@item.Content() {
+			@item.Title() { { e.Path } }
+			<div class="text-sm text-amber-300">{ e.Reason }</div>
+			if len(e.Candidates) > 0 {
+				@item.Description() { Candidates: { strings.Join(e.Candidates, ", ") } }
+			}
 		}
-		@manualAssignForm(e)
-	</div>
+		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { e.RootFolder } }
+		}
+		@item.Footer(item.FooterProps{Class: "basis-full"}) {
+			@manualAssignForm(e)
+		}
+	}
 }
 
 // manualAssignForm renders one unmatched entry's "assign" form
@@ -126,7 +133,7 @@ templ manualAssignForm(e projection.UnmatchedEntry) {
 	<form
 		method="post"
 		action="/unmatched/assign"
-		class="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-800 pt-3"
+		class="flex w-full flex-wrap items-end gap-2 border-t border-border pt-3"
 		data-manual-assign-form={ e.Path }
 	>
 		<input type="hidden" name="namespace" value={ e.ScanRef.Namespace }/>
@@ -134,11 +141,11 @@ templ manualAssignForm(e projection.UnmatchedEntry) {
 		<input type="hidden" name="subpath" value={ e.Path }/>
 		<input type="hidden" name="return" value="/unmatched"/>
 		<div>
-			<label class="block text-xs text-slate-400" for={ "kind-" + manualAssignRowID(e) }>Kind</label>
+			<label class="block text-xs text-muted-foreground" for={ "kind-" + manualAssignRowID(e) }>Kind</label>
 			<select
 				id={ "kind-" + manualAssignRowID(e) }
 				name="kind"
-				class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+				class="rounded-md border border-input bg-background px-2 py-1 text-sm"
 			>
 				for _, kind := range actions.MediaKinds() {
 					<option value={ string(kind) }>{ string(kind) }</option>
@@ -146,14 +153,14 @@ templ manualAssignForm(e projection.UnmatchedEntry) {
 			</select>
 		</div>
 		<div>
-			<label class="block text-xs text-slate-400" for={ "name-" + manualAssignRowID(e) }>Name</label>
+			<label class="block text-xs text-muted-foreground" for={ "name-" + manualAssignRowID(e) }>Name</label>
 			<input
 				type="text"
 				id={ "name-" + manualAssignRowID(e) }
 				name="name"
 				list={ "candidates-" + manualAssignRowID(e) }
 				placeholder="item name"
-				class="w-48 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+				class="w-48 rounded-md border border-input bg-background px-2 py-1 text-sm"
 			/>
 			if len(e.Candidates) > 0 {
 				<datalist id={ "candidates-" + manualAssignRowID(e) }>
@@ -164,19 +171,19 @@ templ manualAssignForm(e projection.UnmatchedEntry) {
 			}
 		</div>
 		<div>
-			<label class="block text-xs text-slate-400" for={ "key-" + manualAssignRowID(e) }>Key (comic/series only)</label>
+			<label class="block text-xs text-muted-foreground" for={ "key-" + manualAssignRowID(e) }>Key (comic/series only)</label>
 			<input
 				type="text"
 				id={ "key-" + manualAssignRowID(e) }
 				name="key"
 				placeholder="issue or episode name"
-				class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+				class="w-40 rounded-md border border-input bg-background px-2 py-1 text-sm"
 			/>
 		</div>
 		<button
 			type="submit"
 			data-action="manual-assign"
-			class="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
+			class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/80"
 		>
 			Assign
 		</button>

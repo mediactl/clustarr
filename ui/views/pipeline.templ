@@ -21,6 +21,8 @@ import (
 	"fmt"
 
 	"github.com/mediactl/clustarr/pkg/pipeline"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/paging"
 )
 
@@ -66,43 +68,57 @@ templ PipelineList(p paging.Page, entries []pipeline.Entry) {
 // #pipeline-rows's contents.
 templ PipelineRows(entries []pipeline.Entry) {
 	if len(entries) == 0 {
-		<p class="text-slate-400">Nothing in flight.</p>
+		<p class="text-muted-foreground">Nothing in flight.</p>
 	}
-	<div class="grid gap-3">
+	@item.Group(item.GroupProps{Class: "gap-3"}) {
 		for _, e := range entries {
 			@pipelineRow(e)
 		}
-	</div>
+	}
 }
 
-// pipelineRow renders one Entry as a card: title, stage badge, progress bar
-// when the stage has a meaningful percentage, and the failure detail when
-// the item is Failed or Blocked.
+// pipelineRow renders one Entry as an item: the title, the stage as a
+// badge keeping its meaning colour (stageTone), the progress bar when the
+// stage has a meaningful percentage, and the failure detail when the item
+// is Failed or Blocked. Every row carries data-kind, data-stage and
+// data-ref (ruling R8) for the tests.
 templ pipelineRow(e pipeline.Entry) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-kind={ string(e.Kind) }
-		data-stage={ string(e.Stage) }
-		data-ref={ e.Ref.String() }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ e.Title }</span>
-			<span class={ stageBadgeClass(e.Stage) }>{ string(e.Stage) }</span>
-		</div>
-		if e.Percent >= 0 {
-			<div class="mt-2 w-full overflow-hidden rounded-full bg-slate-800">
-				<div
-					class="h-2 rounded-full bg-sky-500"
-					style={ fmt.Sprintf("width: %d%%", clampPercent(e.Percent)) }
-				></div>
-			</div>
-			<div class="mt-1 text-xs text-slate-400">{ fmt.Sprintf("%d%%", e.Percent) }</div>
+	@item.Item(item.Props{
+		Variant: item.VariantOutline,
+		Class:   "flex-nowrap items-start",
+		Attributes: templ.Attributes{
+			"data-kind":  string(e.Kind),
+			"data-stage": string(e.Stage),
+			"data-ref":   e.Ref.String(),
+		},
+	}) {
+		@item.Content() {
+			@item.Title() { { e.Title } }
+			if e.Percent >= 0 {
+				@progressBar(e.Percent)
+			}
+			if e.Detail != "" {
+				@item.Description() { { e.Detail } }
+			}
+			if e.Stage == pipeline.StageFailed || e.Stage == pipeline.StageBlocked {
+				<div class="text-sm text-destructive">{ e.Failure }</div>
+			}
 		}
-		if e.Detail != "" {
-			<div class="mt-1 text-xs text-slate-400">{ e.Detail }</div>
+		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: stageTone(e.Stage)}) { { string(e.Stage) } }
 		}
-		if e.Stage == pipeline.StageFailed || e.Stage == pipeline.StageBlocked {
-			<div class="mt-2 text-sm text-red-400">{ e.Failure }</div>
-		}
+	}
+}
+
+// progressBar is the bar the pipeline and downloads rows share: the fill
+// carries data-progress with the raw percentage, the width the clamped one.
+templ progressBar(percent int32) {
+	<div class="mt-1 w-full overflow-hidden rounded-full bg-muted">
+		<div
+			class="h-2 rounded-full bg-primary"
+			data-progress={ fmt.Sprint(percent) }
+			style={ fmt.Sprintf("width: %d%%", clampPercent(percent)) }
+		></div>
 	</div>
+	<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", percent) }</div>
 }
