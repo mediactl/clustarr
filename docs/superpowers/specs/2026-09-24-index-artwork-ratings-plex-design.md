@@ -402,6 +402,17 @@ exists. Hotlinking of provider URLs is removed from every template.
 `TestUINeverWrites` extends its banned selector list with `Put`, `PutBytes`,
 `UpdateMeta`, `Seal`, `AddLink` and `Purge`. The ui role gains no verbs.
 
+> **As built (2026-09-24, final fix wave).** The first cut gave the ui a
+> bus and neither installer gave the ui Deployment `NATS_URL`, so it dialled
+> the binary's default Service, which no installer creates. `ConnectBus`
+> retries a failed connect in the background without returning an error,
+> so every `/art` and Plex image request hung, then answered 500. Both
+> installers now set it (the chart from `clustarr.natsUrl`, like every other
+> Deployment), `TestEveryNATSDialingDeploymentCarriesNATSURL` requires it of
+> every Deployment whose command takes `--nats-url`, the ui logs once at
+> startup when the bus is not yet connected, and it closes the connection
+> on shutdown.
+
 ### B.9 ADR-0011
 
 "Artwork lives in a JetStream object store, one bucket, two writers split
@@ -469,6 +480,18 @@ rather than searching by title. Each client takes an injected limiter and
 reads through `metadata.ReadBody`; the controller holds one limiter per
 host as for every provider.
 
+> **As built (2026-09-24): series carry no ratings in M7.** The table's
+> "Movie and series" is the design, not what shipped. TMDB declares its
+> `tmdb` source for movies only (`RatingSources` answers nil for any other
+> kind), because series metadata comes from TVDB, which supplies no
+> ratings, and no recorded TMDB `/tv/{id}` response exists to build a
+> series ratings call against. MDBList and OMDb, the other two rows, were
+> not built (§C.3, ruling R5). So `Series.status.metadata.ratings` stays
+> empty, a series `OverlayProfile` renders nothing, and the Plex provider
+> sends no `Rating[]` for a show, until TMDB TV ratings (from a recorded
+> `/tv/{id}` fixture) or MDBList/OMDb land. Both are M7 carried items in
+> the remaining-work plan.
+
 ### C.3 Recorded shapes
 
 The MDBList and OMDb clients are built against responses recorded from the
@@ -485,7 +508,8 @@ on; the implementation task blocks on the recording.
 > `MetadataProviderType: mdblist` or `omdb` CR reports `Ready=False`,
 > reason `InvalidSpec`, until the fixtures are recorded and the clients
 > built (follow-up, `docs/superpowers/plans/2026-09-18-remaining-work.md`'s
-> M7 carried items). TMDB ratings ship as designed.
+> M7 carried items). TMDB ratings ship for movies only: series get none in
+> M7 (§C.2's as-built note).
 
 ### C.4 OverlayProfile
 
@@ -610,9 +634,18 @@ leader-elected and scales by consumer.
 > profile edit is picked up by the very next render, not the cache's
 > resync interval. Minor (deferred): a profile deleted while no catalogarr
 > replica is leader strands its overlays; a known-undecodable original is
-> re-attempted on every later task, with no negative cache; a max-size
-> 8000x8000 poster decodes to roughly 512 MB per concurrent render, so the
-> decode dimensions should be capped or `GOMEMLIMIT` set accordingly.
+> re-attempted on every later task, with no negative cache.
+>
+> **Final fix wave.** A decoded original wider than `MaxRenderWidth` (2000)
+> is downscaled to it, aspect kept, before `Render`, so the canvas and the
+> JPEG are never larger than a 2000px-wide poster's; only the decode itself
+> still holds a max-size 8000x8000 original (96-256 MB, down from about
+> 512 MB per render with its full-size canvas). Step 2's digest also folds
+> in a `RenderVersion` constant, so a renderer that draws differently from
+> the same inputs re-renders every stored overlay. The gateway publishes
+> render tasks for Movie and Series only, and the renderer acknowledges a
+> task for any other kind instead of discarding it, which had
+> dead-lettered one per non-video poster.
 
 ## D. Plex Metadata Provider
 
@@ -669,6 +702,13 @@ Kubernetes name may carry, so keys are UIDs: movie, series and episode use
 the object UID; a season is `<seriesUID>-s<NN>`, `NN` zero-padded to two
 digits. `guid` is `<identifier>://<type>/<ratingKey>`.
 
+> **As built (2026-09-24, final fix wave).** "Zero-padded to two digits"
+> is a minimum: season 100, or a daily show's season 2024, mints `-s100`
+> and `-s2024`, and the parser accepts two to four digits (only the
+> canonical spelling, so `-s007` is refused). Each root resolves only the
+> types §D.1 gives it: a show's ratingKey under `/plex/movies`, or a movie's
+> under `/plex/tv`, is a 404, and a match for another root's type is empty.
+
 ### D.4 Match
 
 Order of evaluation, first hit wins, results are full Metadata objects:
@@ -685,6 +725,16 @@ Order of evaluation, first hit wins, results are full Metadata objects:
 
 Only clustarr's own catalog is answered from. No match returns an empty
 container, and Plex falls through to the next provider in the agent.
+
+> **As built (2026-09-24, final fix wave).** The first cut applied "then
+> any" even when a year was given, so an automatic match bound
+> *Dune (2021)* to *Dune (1984)*. An automatic match that names a year now
+> takes exact then ±1 only; the any-year tier is kept for a request with no
+> year and for `manual=1`, where Plex shows a ranked list. Rule 3 is
+> exempt: a season's or episode's request carries its own release year,
+> not the show's, so there the year orders the show candidates but never
+> excludes one. The ui builds the catalogue index once per 5 s
+> (`projection.IndexTTL`, singleflight) rather than per request.
 
 ### D.5 Metadata mapping
 

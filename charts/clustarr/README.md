@@ -127,6 +127,13 @@ for the default rolling strategy, and `indexarr.replicas` may be more than
 a flag, so every controller and the retention sweep stay a cluster singleton
 regardless of replica count.
 
+`indexarr.replicas > 1` currently paces each tracker per replica: the
+replicas share no rate-limiter state, and only the leader applies an
+Indexer's `spec.requestDelay` and a Cardigann definition's minimum delay, so
+N replicas can query a tracker up to N times as often as one. Keep one
+replica for a tracker with strict limits until that is fixed (a carried M7
+item in `docs/superpowers/plans/2026-09-18-remaining-work.md`).
+
 This chart renders the `Cluster` itself
 (`templates/postgres-cluster.yaml`, named `<release>-postgres`) as a normal
 resource whenever `postgres.enabled`, with `postgres.cluster.instances`

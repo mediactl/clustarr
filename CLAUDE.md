@@ -952,16 +952,23 @@ every object store belongs there, not only KV and streams, gotchas above),
 holds provider-fetched `original` artwork and `spec.artwork` overrides, one
 writer per variant (the metadata gateway; the renderer, `catalogarr --role
 artwork`); `ui` gained a read-only NATS connection and serves it at `/art`,
-dropping every provider hotlink (ADR-0011). **C** `status.metadata.ratings`
-from TMDB with fallthrough declared for MDBList and OMDb, neither built
-(ruling R5: no API keys at hand; both `MetadataProviderType`s report
-`Ready=False, InvalidSpec` until they are); `OverlayProfile` and
-`pkg/overlay` composite Kometa-style rating badges onto posters, rendered by
-the same `--role artwork` worker, bounded to 2 concurrent renders by
-default. **D** `ui/plex` serves Plex's Custom Metadata Provider protocol at
-`/plex/movies` and `/plex/tv` (`--plex-provider`,
+dropping every provider hotlink (ADR-0011); both installers give the ui
+`NATS_URL` (the first cut did not, so every image request hung — the
+`TestEveryNATSDialingDeploymentCarriesNATSURL` guard). **C**
+`status.metadata.ratings` from TMDB for **movies only** — series carry no
+ratings in M7: TMDB declares its source for movies only, TVDB (the series
+provider) supplies none, and MDBList and OMDb, declared as fallthrough, were
+not built (ruling R5: no API keys at hand; both `MetadataProviderType`s
+report `Ready=False, InvalidSpec` until they are), so series stay unrated
+until TMDB TV ratings (a recorded `/tv/{id}` fixture) or MDBList/OMDb land;
+`OverlayProfile` and `pkg/overlay` composite Kometa-style rating badges
+onto posters, rendered by the same `--role artwork` worker for Movie and
+Series only, bounded to 2 concurrent renders by default and drawn at most
+2000px wide (`MaxRenderWidth`). **D** `ui/plex` serves Plex's Custom
+Metadata Provider protocol at `/plex/movies` and `/plex/tv` (`--plex-provider`,
 `--external-url`/`CLUSTARR_EXTERNAL_URL`; ADR-0012), read-only over the
-existing projection cache, gated 503 with no external URL configured.
+existing projection cache (one index build per 5 s, `projection.IndexTTL`),
+gated 503 with no external URL configured.
 Reconciles against envtest, with real Postgres (`make pg-assets`) and real
 NATS object-store round trips included; e2e scenario 18
 (`test/e2e/plex_test.go`) is written and, like every scenario since Phase C,
