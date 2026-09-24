@@ -34,15 +34,18 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/version"
 	"github.com/mediactl/clustarr/squasharr/controller/pool"
 	"github.com/mediactl/clustarr/squasharr/task"
 	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
-// classFor is the class a Planned job dispatches to. Task 13 makes auto
-// capacity-aware; here it is the plan's encoder's class (a remux takes a CPU
-// slot), and CPU once a fallback reason is recorded (spec §18.5).
+// classFor is the class a Planned job dispatches to when it does not choose
+// one per dispatch -- a pinned job, or an auto one whose plan encodes nothing
+// (assignClasses gives an auto job that encodes ChooseClass's): the plan's
+// encoder's class (a remux takes a CPU slot), and CPU once a fallback reason
+// is recorded or with no plan to read one from (spec §18.5).
 func (r *Reconciler) classFor(tj *transcodev1alpha1.TranscodeJob, _ *transcodev1alpha1.TranscodeProfile) transcodev1alpha1.Hardware {
 	if tj.Status.FallbackReason != "" || tj.Status.Plan == nil {
 		return transcodev1alpha1.HardwareCPU
@@ -60,6 +63,16 @@ func poolKeyFor(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.
 // conditional on the attempt count the task was built from, so a job cannot
 // be recorded as dispatched twice; a task published twice for one attempt
 // carries one Msg-Id, which the stream's duplicate window absorbs.
+//
+// A job whose recorded plan is for another class than the one admission
+// chose is planned again for it first (spec §18.5: an auto job's plan is
+// made for the class it is sent to), and the task carries the new plan's
+// argsHash; the Queued write records that plan, in the same write. When the
+// new plan is a skip or a reject, or fails, it is recorded as plan records
+// it and nothing is published. When it needs another class than the chosen
+// one -- a Dolby Vision source, which no hardware encoder writes, planned for
+// a GPU -- the job stays Planned with that plan and, for an auto job, a
+// fallbackReason, so the next pass sends it to cpu.
 //
 // A source or output under no RootFolder can never be dispatched: it is
 // blocked here, as InvalidSource, without costing a pod (spec §17.5).
@@ -104,6 +117,17 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		return fmt.Errorf("transcodejob: list RootFolders: %w", err)
 	}
 
+	var replanned *planning
+	if tj.Status.Plan == nil || hardwareForEncoder(tj.Status.Plan.Encoder) != class {
+		p, fail := planFor(&tj, tp, &mf, &class)
+		if fail != nil || p.result.Decision == transcode.DecisionSkip || p.result.Decision == transcode.DecisionReject ||
+			hardwareForEncoder(encoderName(p.result)) != class {
+			return r.keepPlanned(ctx, key, tj.Status.Attempts, tp, class, p, fail)
+		}
+		replanned = &p
+		tj.Status.Plan = statusPlan(p.result) // the task carries this plan's argsHash
+	}
+
 	attempt := tj.Status.Attempts + 1
 	t, buildErr := worker.BuildTask(&tj, tp, &mf, folders.Items, attempt, class)
 	if errors.Is(buildErr, worker.ErrNoRootFolder) || errors.Is(buildErr, worker.ErrInvalidOutput) {
@@ -129,16 +153,20 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 
 	// The finalizer is added before publishing (spec §8): once a task exists
 	// on the queue, deletion must withdraw it, never just vanish the object
-	// out from under a worker that might claim it. For attempt > 1, a stale
-	// cancelled lease from an earlier withdrawal is cleared first -- an
-	// optimisation, not a requirement, since the worker's own attempt rule
-	// (squasharr/worker/lease.go's claim) already replaces a cancelled
-	// marker from an earlier attempt and proceeds.
+	// out from under a worker that might claim it.
+	//
+	// A cancel marker an earlier withdrawal left on the lease is NOT cleared
+	// for the new attempt. The worker's own attempt rule
+	// (squasharr/worker/lease.go's claim) replaces a marker from an earlier
+	// attempt and proceeds, so clearing it gains nothing -- and the marker is
+	// what still stops a delivery of the withdrawn attempt that a worker
+	// fetched before the purge and has yet to claim. A job taken back from an
+	// unschedulable GPU pool is dispatched again in the same admission pass
+	// (pools.go, reroute), milliseconds after its withdrawal, so clearing it
+	// here would let that late claim run the withdrawn attempt beside the new
+	// one.
 	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &tj, FinalizerTaskWithdrawal); err != nil {
 		return fmt.Errorf("transcodejob: add the withdrawal finalizer: %w", err)
-	}
-	if attempt > 1 {
-		_ = r.Leases.Delete(ctx, events.TranscodeLeaseKey(string(tj.UID)))
 	}
 
 	sch, data, err := schema.Encode(t)
@@ -184,11 +212,52 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		if st.Phase != transcodev1alpha1.TranscodeJobPhasePlanned || st.Attempts != attempt-1 {
 			return false // someone else moved it; the published task is a duplicate the Msg-Id absorbs
 		}
+		if replanned != nil {
+			r.recordPlan(tj, st, *replanned, tp.Spec.Container) // the plan the task was built from
+		}
 		markQueued(tj, st, attempt, class, pool.Name(k))
 		return true
 	})
 	if after != nil {
 		r.afterWrite(ctx, after, &before)
+	}
+	return err
+}
+
+// keepPlanned records what planning the job again for class decided when it
+// cannot be dispatched to class, and publishes nothing: a planning failure
+// Fails the job and a skip or reject Skips it, as plan records each; a plan
+// that needs another class is recorded, with -- for an auto job -- a
+// fallbackReason that sends it to cpu from the next pass on, which it wakes.
+// The write is conditional on the job still being Planned at attempts, as
+// dispatch read it.
+func (r *Reconciler) keepPlanned(ctx context.Context, key types.NamespacedName, attempts int32,
+	tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Hardware, p planning, fail *planFailure,
+) error {
+	fellBack := false
+	before, after, err := r.writeStatus(ctx, key, func(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) bool {
+		fellBack = false // this may run again, from a fresh read, after a Conflict
+		if st.Phase != transcodev1alpha1.TranscodeJobPhasePlanned || st.Attempts != attempts {
+			return false
+		}
+		if fail != nil {
+			r.fail(tj, st, fail.reason, "%s", fail.msg)
+			return true
+		}
+		r.recordPlan(tj, st, p, tp.Spec.Container)
+		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && isAutoFor(tj, tp) {
+			st.FallbackReason = truncate(fmt.Sprintf("a plan for %s encodes with %s, which needs no GPU", class, st.Plan.Encoder),
+				maxFallbackReason)
+			st.Message = truncate(st.FallbackReason+"; it goes to cpu", maxMessage)
+			fellBack = true
+		}
+		return true
+	})
+	if after != nil {
+		r.afterWrite(ctx, after, &before)
+	}
+	if fellBack && after != nil {
+		r.wakeAdmission() // the slot this pass gave it is free, and the job wants a cpu one
 	}
 	return err
 }

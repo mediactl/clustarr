@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -206,6 +207,15 @@ type Options struct {
 	// built-in value (pool.Config.IntelRenderGroups).
 	IntelRenderGroups []int64
 
+	// NodeLabelNVIDIA and NodeLabelIntel are the node labels, set to "true",
+	// that mark a GPU node of each class (--gpu-node-label-nvidia and
+	// --gpu-node-label-intel; spec §18.5): an auto job is sent to a class's
+	// pool only while a Ready node carries its label, and that pool's pods
+	// and Job are held to it (pool.Config.NodeLabel). Empty means the
+	// pool.DefaultNodeLabel* the GPU operators set.
+	NodeLabelNVIDIA string
+	NodeLabelIntel  string
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -225,6 +235,8 @@ func DefaultOptions() Options {
 		DataDir:              DefaultDataDir,
 		WorkerServiceAccount: DefaultWorkerServiceAccount,
 		DataClaimName:        pool.DefaultDataClaimName,
+		NodeLabelNVIDIA:      pool.DefaultNodeLabelNVIDIA,
+		NodeLabelIntel:       pool.DefaultNodeLabelIntel,
 	}
 }
 
@@ -241,6 +253,15 @@ func (o Options) Validate() error {
 	for _, gid := range o.IntelRenderGroups {
 		if gid < 0 {
 			return fmt.Errorf("squasharr: intel render group %d is negative", gid)
+		}
+	}
+	for _, l := range [...]struct{ flag, key string }{
+		{"--gpu-node-label-nvidia", o.NodeLabelNVIDIA}, {"--gpu-node-label-intel", o.NodeLabelIntel},
+	} {
+		// A malformed key would reach every GPU pool's node affinity and
+		// topology constraint, and the apiserver would refuse the pool.
+		if errs := validation.IsQualifiedName(l.key); l.key != "" && len(errs) > 0 {
+			return fmt.Errorf("squasharr: %s %q is not a label key: %s", l.flag, l.key, strings.Join(errs, "; "))
 		}
 	}
 	if o.DataDir == "" {
@@ -408,6 +429,11 @@ func poolConfig(o Options) pool.Config {
 		DataClaimName:     o.DataClaimName,
 		DataDir:           o.DataDir,
 		IntelRenderGroups: o.IntelRenderGroups,
+		// §18.5: the labels a GPU class's nodes carry, which admission
+		// reads to choose an auto job's class and the class's pools are
+		// held to.
+		NodeLabelNVIDIA: o.NodeLabelNVIDIA,
+		NodeLabelIntel:  o.NodeLabelIntel,
 		// §11: the pools create files with the same UMASK this
 		// Deployment was given.
 		Umask: os.Getenv(pool.UmaskEnv),

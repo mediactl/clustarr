@@ -35,12 +35,12 @@ func TestParseDefaultsAndCaps(t *testing.T) {
 		query string
 		want  paging.Request
 	}{
-		"empty":          {"", paging.Request{Number: 1, Per: paging.DefaultPer}},
-		"explicit":       {"page=3&per=25", paging.Request{Number: 3, Per: 25}},
-		"per capped":     {"per=9999", paging.Request{Number: 1, Per: paging.MaxPer}},
-		"per zero":       {"per=0", paging.Request{Number: 1, Per: paging.DefaultPer}},
-		"page negative":  {"page=-2", paging.Request{Number: 1, Per: paging.DefaultPer}},
-		"page malformed": {"page=abc&per=x", paging.Request{Number: 1, Per: paging.DefaultPer}},
+		"empty":          {"", paging.Request{Number: 1, Per: paging.DefaultPer, Pages: 1}},
+		"explicit":       {"page=3&per=25", paging.Request{Number: 3, Per: 25, Pages: 1}},
+		"per capped":     {"per=9999", paging.Request{Number: 1, Per: paging.MaxPer, Pages: 1}},
+		"per zero":       {"per=0", paging.Request{Number: 1, Per: paging.DefaultPer, Pages: 1}},
+		"page negative":  {"page=-2", paging.Request{Number: 1, Per: paging.DefaultPer, Pages: 1}},
+		"page malformed": {"page=abc&per=x", paging.Request{Number: 1, Per: paging.DefaultPer, Pages: 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			q, err := url.ParseQuery(tc.query)
@@ -146,4 +146,34 @@ func TestQueryCarriesParams(t *testing.T) {
 
 	req.Params = url.Values{"filter": {"#"}}
 	require.Equal(t, "?filter=%23&page=1&per=25", req.Page(1).Query(1), "values are escaped")
+}
+
+// TestPagesGrowTheWindow: ?pages=k widens a window to k pages from its
+// first one -- what the library's infinite scroll has loaded so far, so
+// its stream frames carry everything on screen. Pages defaults to 1, is
+// capped, and shows in a link only when it is more than 1.
+func TestPagesGrowTheWindow(t *testing.T) {
+	req := paging.Parse(url.Values{"page": {"2"}, "per": {"25"}, "pages": {"3"}})
+	require.Equal(t, paging.Request{Number: 2, Per: 25, Pages: 3}, req)
+	p := req.Page(120)
+	require.Equal(t, 25, p.Offset)
+	require.Equal(t, 75, p.Count, "three pages of 25 from the second")
+	require.Equal(t, 3, p.Pages)
+	require.True(t, p.HasNext(), "100 of 120 shown")
+	require.Equal(t, 100, p.To())
+	require.Equal(t, "?page=2&pages=3&per=25", p.Query(2))
+	require.Equal(t, []int{25, 100}, []int{p.Offset, p.Offset + p.Count})
+
+	req.Pages = 4
+	p = req.Page(120)
+	require.Equal(t, 95, p.Count, "the window is cut at the end")
+	require.False(t, p.HasNext())
+
+	require.Equal(t, 1, paging.Parse(url.Values{"pages": {"0"}}).Pages)
+	require.Equal(t, 1, paging.Parse(url.Values{"pages": {"x"}}).Pages)
+	require.Equal(t, paging.MaxPages, paging.Parse(url.Values{"pages": {"9999"}}).Pages)
+	require.Equal(t, 1, paging.Parse(url.Values{}).Pages)
+	require.Equal(t, "?page=1&per=50", paging.Parse(url.Values{}).Page(10).Query(1), "one page: no pages parameter")
+	require.Equal(t, 1, paging.Paginate(120, 1, 50).Pages)
+	require.Equal(t, 50, paging.Paginate(120, 1, 50).Count)
 }

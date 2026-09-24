@@ -5,6 +5,20 @@ metadata:
   name: clustarr-squasharr-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - list
+- apiGroups:
   - batch
   resources:
   - jobs

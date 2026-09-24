@@ -76,6 +76,23 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	require.Regexp(t, activeAttr, tagWith(t, body, `href="/pipeline"`), "the current page's entry is active")
 	require.NotRegexp(t, activeAttr, tagWith(t, body, `href="/downloads"`))
 
+	// The library's tabs live in the top bar of every page (design
+	// 2026-09-24, after Radarr's top nav), the breadcrumbs beneath it inside
+	// the swapped page body; on a page that is no library tab none is active.
+	headerEnd := strings.Index(body, "</header>")
+	require.GreaterOrEqual(t, headerEnd, 0)
+	header := body[:headerEnd]
+	require.Equal(t, 4, strings.Count(header, `data-tui-tabs-trigger`), "the four library tabs sit in the top bar")
+	for _, tab := range projection.Tabs() {
+		trigger := requireTag(t, header, `hx-get="/library/`+string(tab)+`"`, `data-tui-tabs-trigger`, `hx-push-url="true"`,
+			`hx-select="#page-body"`, `hx-target="#page-body"`, `hx-swap="outerHTML"`)
+		require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), trigger, "no tab is active on the pipeline page")
+	}
+	pageBody := strings.Index(body, `id="page-body"`)
+	require.Greater(t, pageBody, headerEnd, "the page body follows the top bar")
+	require.Greater(t, strings.Index(body, `data-slot="breadcrumb"`), pageBody, "the breadcrumbs sit beneath the top bar, in the page body")
+	require.NotContains(t, header, `data-slot="breadcrumb"`)
+
 	headEnd := strings.Index(body, "</head>")
 	require.GreaterOrEqual(t, headEnd, 0)
 	head := body[:headEnd]
@@ -104,8 +121,9 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	require.Contains(t, body, `data-tui-tabs-value="tv"`, "the tabs component marks the current tab")
 	for _, tab := range projection.Tabs() {
 		requireTag(t, body, `hx-get="/library/`+string(tab)+`"`, `data-tui-tabs-trigger`, `data-tui-tabs-value="`+string(tab)+`"`,
-			`hx-push-url="true"`, `hx-select="#library-page"`, `hx-target="#library-page"`)
+			`hx-push-url="true"`, `hx-select="#page-body"`, `hx-target="#page-body"`)
 	}
+	require.Less(t, strings.Index(body, `data-tui-tabs-trigger`), strings.Index(body, "</header>"), "the tabs are in the top bar")
 	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`), "the TV trigger is active")
 	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
 
@@ -115,8 +133,13 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	body = rec.Body.String()
 	barAt := strings.Index(body, `data-jump-bar`)
 	require.GreaterOrEqual(t, barAt, 0, "the library page has a jump bar")
+	bar := tagWith(t, body, `data-jump-bar`)
+	require.Contains(t, bar, "sticky", "the bar stays put while the grid scrolls")
+	require.Contains(t, bar, "h-[calc(100vh-", "the bar fills the height, as Radarr's does")
 	group := tagWith(t, body[barAt:], `data-slot="button-group"`)
 	require.Contains(t, group, `data-orientation="vertical"`, "the bar is a vertical button group")
+	require.Contains(t, group, "h-full")
+	require.Contains(t, tagWith(t, body, `data-jump="M"`), "flex-1", "the letters share the height evenly")
 	require.Equal(t, 27, strings.Count(body, `data-jump="`), "# and A-Z")
 	requireTag(t, body, `data-jump="M"`, `href="/library/movies?jump=M&amp;per=25"`)
 	hash := tagWith(t, body, `data-jump="#"`)
@@ -148,4 +171,63 @@ func TestLibraryJumpRedirectsToTheLetterPage(t *testing.T) {
 			require.Equal(t, tc.want, rec.Header().Get("Location"))
 		})
 	}
+}
+
+// TestTheItemsTabIsActiveOnItsPage: the top bar marks the tab an item's
+// page belongs to.
+func TestTheItemsTabIsActiveOnItsPage(t *testing.T) {
+	items := letteredLibrary(3)
+	items[1].Kind, items[1].Tab = commonv1.MediaKindSeries, projection.TabTV
+	srv := ui.NewServer(t.Context(), ui.Options{
+		Library: func(context.Context) []projection.LibraryItem { return items },
+	})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/series/"+items[1].Ref.Name, nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`))
+	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
+}
+
+// TestLibraryScrollsInsteadOfPaging: the library tabs load more as the
+// reader scrolls (design 2026-09-24): no pager, a sentinel after the grid
+// that fetches the window one page wider through htmx and swaps the rows
+// (stream included, so it reconnects for the wider window), none once
+// everything is on screen; the view rides the sentinel too.
+func TestLibraryScrollsInsteadOfPaging(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{
+		Library: func(context.Context) []projection.LibraryItem { return letteredLibrary(120) },
+	})
+	get := func(path string) string {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		return rec.Body.String()
+	}
+
+	body := get("/library/movies?per=25")
+	require.NotContains(t, body, `data-pager`)
+	require.Equal(t, 25, strings.Count(body, `data-ref="`))
+	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=1&amp;pages=2&amp;per=25"`, `hx-trigger="revealed"`,
+		`hx-target="#library-rows"`, `hx-select="#library-rows"`, `hx-swap="outerHTML"`)
+	require.Greater(t, strings.Index(body, `data-load-more`), strings.LastIndex(body, `data-ref="`), "the sentinel follows the grid")
+	require.Contains(t, body, `sse-connect="/events/library/movies?page=1&amp;per=25"`)
+
+	body = get("/library/movies?per=25&pages=2")
+	require.Equal(t, 50, strings.Count(body, `data-ref="`))
+	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=1&amp;pages=3&amp;per=25"`)
+	require.Contains(t, body, `sse-connect="/events/library/movies?page=1&amp;pages=2&amp;per=25"`, "the stream carries the whole window")
+
+	body = get("/library/movies?per=25&pages=5")
+	require.Equal(t, 120, strings.Count(body, `data-ref="`))
+	require.NotContains(t, body, `data-load-more`, "everything is on screen")
+
+	body = get("/library/movies?per=25&filter=unmonitored&sort=year")
+	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?filter=unmonitored&amp;page=1&amp;pages=2&amp;per=25&amp;sort=year"`)
+
+	// A jump lands on the letter's page and scrolls on from there.
+	body = get("/library/movies?page=3&per=25")
+	require.Equal(t, 25, strings.Count(body, `data-ref="`))
+	require.Contains(t, body, `data-ref="default/m-050"`)
+	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=3&amp;pages=2&amp;per=25"`)
 }

@@ -42,8 +42,9 @@ func TestStatusPlanRemuxTakesACPUSlot(t *testing.T) {
 }
 
 // classFor is the plan's encoder's class, and CPU once a fallback reason is
-// recorded or when there is no plan to read one from (spec §18.5; Task 13
-// makes auto capacity-aware).
+// recorded or when there is no plan to read one from (spec §18.5). It is the
+// class of a pinned job, or an auto one whose plan encodes nothing; an auto
+// job that encodes is given ChooseClass's (TestAssignClasses).
 func TestClassFor(t *testing.T) {
 	r := &Reconciler{}
 	tj := func(encoder, fallback string) *transcodev1alpha1.TranscodeJob {

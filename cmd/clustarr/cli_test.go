@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/version"
 	"github.com/mediactl/clustarr/squasharr"
+	"github.com/mediactl/clustarr/squasharr/controller/pool"
 	"github.com/mediactl/clustarr/ui"
 )
 
@@ -381,6 +382,8 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 		"--leader-elect",
 		"--worker-image", "ghcr.io/mediactl/clustarr/media:dev",
 		"--worker-image-cuda", "ghcr.io/mediactl/clustarr/media-cuda:dev",
+		"--gpu-node-label-nvidia", "example.com/nvidia-gpu",
+		"--gpu-node-label-intel", "example.com/intel-gpu",
 	); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
 	}
@@ -405,6 +408,27 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 	}
 	if got.DataClaimName != "clustarr-data" {
 		t.Errorf("DataClaimName = %q, want clustarr-data", got.DataClaimName)
+	}
+	if got.NodeLabelNVIDIA != "example.com/nvidia-gpu" || got.NodeLabelIntel != "example.com/intel-gpu" {
+		t.Errorf("GPU node labels = %q / %q, want the --gpu-node-label-nvidia/--gpu-node-label-intel values",
+			got.NodeLabelNVIDIA, got.NodeLabelIntel)
+	}
+
+	// Unset, they are the labels the GPU operators set; a malformed one is
+	// refused at startup rather than on every GPU pool's apply.
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if got.NodeLabelNVIDIA != pool.DefaultNodeLabelNVIDIA || got.NodeLabelIntel != pool.DefaultNodeLabelIntel {
+		t.Errorf("default GPU node labels = %q / %q, want %q / %q", got.NodeLabelNVIDIA, got.NodeLabelIntel,
+			pool.DefaultNodeLabelNVIDIA, pool.DefaultNodeLabelIntel)
+	}
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1",
+		"--gpu-node-label-intel", "not a label"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if err := got.Validate(); err == nil || !strings.Contains(err.Error(), "--gpu-node-label-intel") {
+		t.Errorf("a malformed --gpu-node-label-intel was not refused by name: %v", err)
 	}
 }
 

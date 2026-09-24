@@ -149,8 +149,7 @@ func TestLibraryViewRidesEveryLink(t *testing.T) {
 		require.Contains(t, toolbar, attr)
 	}
 	require.Contains(t, body, `sse-connect="/events/library/movies?dir=desc&amp;filter=unmonitored&amp;page=1&amp;per=25&amp;sort=year"`, "the stream carries the view")
-	require.Contains(t, body, `href="/library/movies?dir=desc&amp;filter=unmonitored&amp;page=2&amp;per=25&amp;sort=year"`, "the pager carries the view")
-	require.Contains(t, body, `href="/library/movies?dir=desc&amp;filter=unmonitored&amp;page=1&amp;per=50&amp;sort=year"`, "the page-size links carry the view")
+	require.Contains(t, body, `hx-get="/library/movies?dir=desc&amp;filter=unmonitored&amp;page=1&amp;pages=2&amp;per=25&amp;sort=year"`, "the load-more sentinel carries the view")
 	require.Contains(t, tagWith(t, body, `data-sort="year"`), `href="/library/movies?filter=unmonitored&amp;per=25&amp;sort=year"`, "the active sort flips back to ascending")
 	require.Contains(t, tagWith(t, body, `data-sort="title"`), `href="/library/movies?filter=unmonitored&amp;per=25"`, "the default sort leaves the URL")
 	require.Contains(t, tagWith(t, body, `data-filter="all"`), `href="/library/movies?dir=desc&amp;per=25&amp;sort=year"`, "the default filter leaves the URL, the sort stays")
@@ -190,7 +189,6 @@ func TestLibraryPageAndStreamApplyTheView(t *testing.T) {
 
 	body := get("/library/movies?filter=missing")
 	require.Equal(t, []string{"brazil", "dune"}, refsInOrder(body), "Missing keeps the monitored titles with nothing on disk")
-	require.Contains(t, tagWith(t, body, `data-pager`), `data-total="2"`, "the pager counts the filtered list")
 
 	require.Equal(t, []string{"dune", "arrival", "heat", "brazil", "alien"}, refsInOrder(get("/library/movies?sort=year&dir=desc")))
 	require.Equal(t, []string{"brazil", "dune", "heat", "arrival", "alien"}, refsInOrder(get("/library/movies?sort=status")))
@@ -208,5 +206,4 @@ func TestLibraryPageAndStreamApplyTheView(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	frame := readSSEEvent(t, bufio.NewReader(resp.Body))
 	require.Equal(t, []string{"dune", "brazil"}, refsInOrder(frame), "the stream filters and orders every frame as the page does")
-	require.Contains(t, frame, `data-total="2"`)
 }

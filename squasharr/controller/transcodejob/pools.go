@@ -46,6 +46,19 @@ import (
 // pool Job failed and is recreated.
 const ReasonPoolFailed = "PoolFailed"
 
+// ReasonPoolUnschedulable is the Warning Event reason on a TranscodeProfile
+// whose GPU pool cannot get a pod scheduled, and JobCreated=False's reason on
+// each auto job taken back from that pool (spec §18.5).
+const ReasonPoolUnschedulable = "PoolUnschedulable"
+
+// A GPU pool with a pod unschedulable for longer than unschedulableAfter is
+// marked unschedulable for unschedulableFor: no auto job is sent to it, and
+// its Queued auto jobs are taken back and sent to cpu (spec §18.5).
+const (
+	unschedulableAfter = 10 * time.Minute
+	unschedulableFor   = 30 * time.Minute
+)
+
 // A Failed pool is recreated after poolBackoffMin, doubling on each failure
 // that follows the last wait closely, up to poolBackoffMax (spec §7).
 const (
@@ -176,6 +189,152 @@ func (r *Reconciler) holding(stored map[string]*batchv1.Job, profiles map[string
 		}
 	}
 	return held
+}
+
+// rerouteUnschedulable marks every GPU pool with a pod that has waited
+// unschedulable -- PodScheduled=False, reason Unschedulable -- for longer
+// than unschedulableAfter, and takes its Queued auto jobs back (spec §18.5).
+// It returns how many jobs it sent back to Planned.
+//
+// A marked pool gets no auto job until the mark lapses, unschedulableFor
+// after it was set (ChooseClass reads it through unschedulableFor). The mark
+// is in memory: a restart forgets it, and the next pass that sees the pod
+// still waiting marks the pool again -- within unschedulableAfter of the
+// pod's own transition, since the pod carries when it began to wait. A
+// Warning Event on the profile names the pool once per mark.
+//
+// A pool is looked at only while it runs (not suspended) and has fewer Ready
+// pods than active ones: a pool whose every pod is Ready has none waiting for
+// a node, and costs no pod list.
+//
+// Each auto job Queued on the pool -- dispatched, not yet claimed -- is
+// withdrawn and returned to Planned with a fallbackReason naming the pool
+// (reroute), which keeps it on cpu from then on. A pinned job is left where
+// it is: a pinned class never falls back. The pool, with nothing dispatched
+// to it any more, suspends in the same pass (pools).
+func (r *Reconciler) rerouteUnschedulable(ctx context.Context, stored map[string]*batchv1.Job,
+	profiles map[string]*transcodev1alpha1.TranscodeProfile, tjs []transcodev1alpha1.TranscodeJob,
+) (int, error) {
+	log := logging.FromContext(ctx)
+	now := r.now().Time
+	for k, until := range r.unschedulable {
+		if !now.Before(until) {
+			delete(r.unschedulable, k)
+		}
+	}
+	var (
+		errs     []error
+		rerouted int
+	)
+	for k, j := range storedPools(stored, profiles) {
+		if k.Class == transcodev1alpha1.HardwareCPU || ptr.Deref(j.Spec.Suspend, false) ||
+			ownerProfileUID(j) != k.ProfileUID || j.Status.Active <= ptr.Deref(j.Status.Ready, 0) {
+			continue
+		}
+		var pods corev1.PodList
+		if err := r.reader().List(ctx, &pods, client.InNamespace(j.Namespace), client.MatchingLabels{
+			batchv1.JobNameLabel: j.Name, batchv1.ControllerUidLabel: string(j.UID),
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("transcodejob: list the pods of pool %s: %w", j.Name, err))
+			continue
+		}
+		since := unschedulableSince(pods.Items)
+		if since.IsZero() || now.Sub(since) <= unschedulableAfter {
+			continue
+		}
+		tp := profiles[k.Profile]
+		if until, marked := r.unschedulable[k]; !marked || !now.Before(until) {
+			until = now.Add(unschedulableFor)
+			r.unschedulable[k] = until
+			log.WarnContext(ctx, "squasharr: a GPU pool cannot schedule its pods; its auto jobs go to cpu",
+				"pool", j.Name, "unschedulableSince", since, "until", until)
+			if r.Recorder != nil {
+				r.Recorder.Eventf(tp, nil, corev1.EventTypeWarning, ReasonPoolUnschedulable, "Reroute",
+					"pool Job %s has had a pod unschedulable since %s; its queued auto jobs go to cpu, and no auto job is sent to it until %s",
+					j.Name, since.UTC().Format(time.RFC3339), until.UTC().Format(time.RFC3339))
+			}
+		}
+		reason := fmt.Sprintf("GPU pool %s unschedulable for %dm", j.Name, int(unschedulableAfter.Minutes()))
+		for i := range tjs {
+			tj := &tjs[i]
+			if tj.Spec.ProfileRef != tp.Name || tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseQueued ||
+				tj.Status.Hardware != k.Class || !isAutoFor(tj, tp) ||
+				k8s.IsDeleting(tj) || (tj.Spec.Suspend != nil && *tj.Spec.Suspend) {
+				continue // a pinned job waits for its class; a deleting or paused one has its own path
+			}
+			ok, err := r.reroute(ctx, tj, reason)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if ok {
+				rerouted++
+				log.InfoContext(ctx, "squasharr: took a queued auto job back from an unschedulable GPU pool",
+					"transcodeJob", client.ObjectKeyFromObject(tj).String(), "pool", j.Name, "attempt", tj.Status.Attempts)
+			}
+		}
+	}
+	return rerouted, errors.Join(errs...)
+}
+
+// unschedulableSince is when the longest-waiting live pod of pods began to
+// wait unschedulable (PodScheduled=False, reason Unschedulable), or the zero
+// time when none is.
+func unschedulableSince(pods []corev1.Pod) time.Time {
+	var since time.Time
+	for i := range pods {
+		p := &pods[i]
+		if p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodPending {
+			continue
+		}
+		for _, c := range p.Status.Conditions {
+			if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse &&
+				c.Reason == corev1.PodReasonUnschedulable && !c.LastTransitionTime.IsZero() &&
+				(since.IsZero() || c.LastTransitionTime.Time.Before(since)) {
+				since = c.LastTransitionTime.Time
+			}
+		}
+	}
+	return since
+}
+
+// reroute takes one Queued auto job back from a GPU pool that cannot
+// schedule its pods (spec §18.5): withdraw its task, then, in one
+// conditional write, return it to Planned with the fallbackReason that keeps
+// it on cpu. The next dispatch is a new attempt, planned for cpu: once a
+// task is published the class it went to is authoritative (ruling R16), so a
+// job is moved by withdrawing and dispatching again, never by rewriting
+// status.hardware. It reports whether it wrote.
+//
+// The write accepts the job in Queued OR Running, at the attempt it withdrew
+// (R24). A pod of the pool that did schedule may claim the task between the
+// listing and the withdrawal, and a claimed event may land before this
+// write. withdraw's cancel marker, per job and attempt, stops that worker
+// wherever the claim got to -- it reports a cancelled finished, which the
+// next-step table ignores -- so a write that refused a Running job would
+// leave it Running with no worker, for good. What it will not touch is a job
+// that moved on to another attempt or out of dispatch meanwhile.
+func (r *Reconciler) reroute(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, reason string) (bool, error) {
+	if err := r.withdraw(ctx, tj); err != nil {
+		return false, fmt.Errorf("transcodejob: withdraw %s from an unschedulable pool: %w", client.ObjectKeyFromObject(tj), err)
+	}
+	attempt := tj.Status.Attempts
+	before, after, err := r.writeStatus(ctx, client.ObjectKeyFromObject(tj),
+		func(live *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) bool {
+			if live.UID != tj.UID || st.Attempts != attempt || !dispatched(st.Phase) {
+				return false
+			}
+			st.Phase, st.WorkerPod, st.Progress, st.NextAttemptAt = transcodev1alpha1.TranscodeJobPhasePlanned, "", nil, nil
+			st.FallbackReason = truncate(reason, maxFallbackReason)
+			st.Message = truncate(fmt.Sprintf("attempt %d withdrawn: %s; requeued for cpu", attempt, reason), maxMessage)
+			k8s.MarkFalse(live, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonPoolUnschedulable,
+				"%s", st.Message)
+			return true
+		})
+	if after != nil {
+		r.afterWrite(ctx, after, &before)
+	}
+	return after != nil, client.IgnoreNotFound(err)
 }
 
 // failedAt is when j's Failed condition was set, or now when it says none.

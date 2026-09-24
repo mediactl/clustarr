@@ -34,6 +34,9 @@ const (
 	DefaultPer = 50
 	// MaxPer caps ?per, so one URL cannot ask for the whole library.
 	MaxPer = 500
+	// MaxPages caps ?pages, the library's scrolled window, for the same
+	// reason.
+	MaxPages = 100
 )
 
 // Request is what the URL asked for, before it is clamped against a list:
@@ -42,6 +45,10 @@ const (
 type Request struct {
 	Number int
 	Per    int
+	// Pages is how many pages from Number the window spans: 1 for a paged
+	// list, more for the library's infinite scroll, which widens its window
+	// by one page per load so a stream frame carries everything on screen.
+	Pages int
 	// Params are the query parameters every link of the page carries
 	// besides page and per -- the library's sort and filter. Parse leaves
 	// it nil; the caller sets the parameters it recognised, already
@@ -59,13 +66,22 @@ func Parse(q url.Values) Request {
 	if per, err := strconv.Atoi(q.Get("per")); err == nil && per > 0 {
 		r.Per = min(per, MaxPer)
 	}
+	r.Pages = 1
+	if pages, err := strconv.Atoi(q.Get("pages")); err == nil && pages > 1 {
+		r.Pages = min(pages, MaxPages)
+	}
 	return r
 }
 
-// Page returns the window r selects over a list of total items.
+// Page returns the window r selects over a list of total items: Pages
+// pages from page Number, cut at the end of the list.
 func (r Request) Page(total int) Page {
 	p := Paginate(total, r.Number, r.Per)
 	p.Params = r.Params
+	if r.Pages > 1 {
+		p.Pages = r.Pages
+		p.Count = max(min(p.Per*p.Pages, p.Total-p.Offset), 0)
+	}
 	return p
 }
 
@@ -80,6 +96,9 @@ type Page struct {
 	Last   int
 	Offset int
 	Count  int
+	// Pages is [Request.Pages]: how many pages from Number the window
+	// spans; 1 from [Paginate].
+	Pages int
 	// Params are [Request.Params], carried by every link; nil from
 	// [Paginate].
 	Params url.Values
@@ -96,7 +115,7 @@ func Paginate(total, number, per int) Page {
 	number = min(max(number, 1), last)
 	offset := (number - 1) * per
 	count := min(per, total-offset)
-	return Page{Number: number, Per: per, Total: total, Last: last, Offset: offset, Count: max(count, 0)}
+	return Page{Number: number, Per: per, Total: total, Last: last, Offset: offset, Count: max(count, 0), Pages: 1}
 }
 
 // Window is the slice of items p shows. A list shorter than the one p was
@@ -129,14 +148,17 @@ func (p Page) To() int {
 // HasPrev reports whether a page precedes this one.
 func (p Page) HasPrev() bool { return p.Number > 1 }
 
-// HasNext reports whether a page follows this one.
-func (p Page) HasNext() bool { return p.Number < p.Last }
+// HasNext reports whether the list goes on past this window.
+func (p Page) HasNext() bool { return p.Offset+p.Count < p.Total }
 
 // Values are the query parameters selecting page n at this page's size
-// with Params, as a fresh copy the caller may edit -- the A-Z bar swaps
-// page for jump.
+// and span, with Params, as a fresh copy the caller may edit -- the A-Z
+// bar swaps page for jump, the scroll sentinel widens pages.
 func (p Page) Values(n int) url.Values {
 	v := url.Values{"page": {strconv.Itoa(n)}, "per": {strconv.Itoa(p.Per)}}
+	if p.Pages > 1 {
+		v.Set("pages", strconv.Itoa(p.Pages))
+	}
 	for k, vs := range p.Params {
 		v[k] = slices.Clone(vs)
 	}

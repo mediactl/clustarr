@@ -221,13 +221,13 @@ func dispatched(p transcodev1alpha1.TranscodeJobPhase) bool {
 	return p == transcodev1alpha1.TranscodeJobPhaseQueued || p == transcodev1alpha1.TranscodeJobPhaseRunning
 }
 
-// isAuto reports whether tj chooses its class per dispatch (spec §18.5): its
-// own spec.hardware when set, else its profile's, where empty is the CRD
-// default, auto. A profile that cannot be read is an error, not a guess: the
+// isAuto reports whether tj chooses its class per dispatch (spec §18.5):
+// isAutoFor, reading the profile only when the job's own spec.hardware does
+// not decide. A profile that cannot be read is an error, not a guess: the
 // answer decides between a CPU fallback and a retry.
 func (r *Reconciler) isAuto(ctx context.Context, tj *transcodev1alpha1.TranscodeJob) (bool, error) {
 	if tj.Spec.Hardware != nil && *tj.Spec.Hardware != "" {
-		return *tj.Spec.Hardware == transcodev1alpha1.HardwareAuto, nil
+		return isAutoFor(tj, nil), nil
 	}
 	tp, ok, err := r.profile(ctx, tj)
 	if err != nil {
@@ -235,5 +235,8 @@ func (r *Reconciler) isAuto(ctx context.Context, tj *transcodev1alpha1.Transcode
 	}
 	// A deleted profile pins nothing it can be asked about; retrying on the
 	// class the attempt used is the conservative answer.
-	return ok && (tp.Spec.Hardware == transcodev1alpha1.HardwareAuto || tp.Spec.Hardware == ""), nil
+	if !ok {
+		return false, nil
+	}
+	return isAutoFor(tj, tp), nil
 }

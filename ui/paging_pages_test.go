@@ -153,10 +153,22 @@ func TestListPagesShowOneWindowOfRows(t *testing.T) {
 			wantIn: []string{`Unknown 119/file.mkv`}, wantOut: []string{`Unknown 099/file.mkv`},
 			pager: []string{`data-page="5"`, `data-last="5"`, `href="/unmatched?page=4&amp;per=25"`},
 		},
+		// The library scrolls instead of paging (design 2026-09-24): a page
+		// is the start of the window, and the sentinel at its end fetches the
+		// window one page wider; no pager.
 		"library tab page": {
-			path: "/library/movies?page=3", rowAttr: `data-ref="`, wantRows: 20,
-			wantIn: []string{`data-ref="default/m-100"`}, wantOut: []string{`data-ref="default/m-099"`},
-			pager: []string{`data-page="3"`, `href="/library/movies?page=2&amp;per=50"`},
+			path: "/library/movies?page=2", rowAttr: `data-ref="`, wantRows: 50,
+			wantIn: []string{`data-ref="default/m-050"`, `data-ref="default/m-099"`, `hx-get="/library/movies?page=2&amp;pages=2&amp;per=50"`},
+			wantOut: []string{`data-ref="default/m-049"`, `data-ref="default/m-100"`, `data-pager`},
+		},
+		"library window": {
+			path: "/library/movies?page=1&pages=2", rowAttr: `data-ref="`, wantRows: 100,
+			wantIn: []string{`data-ref="default/m-000"`, `data-ref="default/m-099"`, `hx-get="/library/movies?page=1&amp;pages=3&amp;per=50"`},
+			wantOut: []string{`data-ref="default/m-100"`, `data-pager`},
+		},
+		"library whole window": {
+			path: "/library/movies?pages=3", rowAttr: `data-ref="`, wantRows: 120,
+			wantIn: []string{`data-ref="default/m-119"`}, wantOut: []string{`data-load-more`, `data-pager`},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -233,6 +245,7 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 	}{
 		"pipeline":  {"/events/pipeline?page=3&per=50", `data-stage="`, 20, `default/e-119`, `default/e-099`},
 		"library":   {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `default/m-050`, `default/m-100`},
+		"library window": {"/events/library/movies?page=1&per=50&pages=2", `data-ref="`, 100, `default/m-099`, `default/m-100`},
 		"unmatched": {"/events/unmatched?page=5&per=25", `data-path="`, 20, `Unknown 100/`, `Unknown 099/`},
 		"downloads": {"/events/downloads?page=1&per=25", `data-download="`, 25, `d-024`, `d-025`},
 	} {
@@ -250,7 +263,12 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 			require.Equal(t, tc.want, strings.Count(frame, tc.rowAttr), "rows in the first frame of %s", tc.path)
 			require.Contains(t, frame, tc.wantIn)
 			require.NotContains(t, frame, tc.wantOut)
-			require.Contains(t, frame, `data-pager`, "the pager rides the frame so its counts stay live")
+			if strings.HasPrefix(tc.path, "/events/library/") {
+				require.NotContains(t, frame, `data-pager`, "the library scrolls; its frame carries the sentinel instead")
+				require.Contains(t, frame, `data-load-more`)
+			} else {
+				require.Contains(t, frame, `data-pager`, "the pager rides the frame so its counts stay live")
+			}
 		})
 	}
 }

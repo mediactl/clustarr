@@ -233,6 +233,8 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		workerAccount   string
 		dataClaim       string
 		renderGroups    string
+		labelNVIDIA     string
+		labelIntel      string
 	)
 
 	cmd := &cobra.Command{
@@ -270,6 +272,14 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			"owning /dev/dri/renderD* on the Intel GPU nodes, e.g. 109 or 44,109. It varies per host install, "+
 			"so there is no default; empty relies on the container runtime's "+
 			"device_ownership_from_security_context. Defaults to $"+intelRenderGroupsEnv+".")
+	cmd.Flags().StringVar(&labelNVIDIA, "gpu-node-label-nvidia", defaults.NodeLabelNVIDIA,
+		"Node label that, set to \"true\", marks an NVIDIA GPU node; the NVIDIA GPU Operator's GPU Feature "+
+			"Discovery sets the default. hardware: auto sends work to a profile's nvidia pool only while a Ready node "+
+			"carries it with allocatable nvidia.com/gpu, and nvidia pools are held to it.")
+	cmd.Flags().StringVar(&labelIntel, "gpu-node-label-intel", defaults.NodeLabelIntel,
+		"Node label that, set to \"true\", marks an Intel GPU node; Node Feature Discovery's rules from the "+
+			"Intel Device Plugins Operator set the default. hardware: auto sends work to a profile's intel pool only "+
+			"while a Ready node carries it with allocatable gpu.intel.com/i915, and intel pools are held to it.")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		budget, err := squasharr.ParseSlots(slots)
@@ -290,6 +300,8 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			WorkerServiceAccount: workerAccount,
 			DataClaimName:        dataClaim,
 			IntelRenderGroups:    gids,
+			NodeLabelNVIDIA:      labelNVIDIA,
+			NodeLabelIntel:       labelIntel,
 			Logging:              *lo,
 			Tracing:              tracingFor(to, squasharr.ServiceName),
 		})

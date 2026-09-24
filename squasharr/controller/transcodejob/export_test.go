@@ -35,3 +35,6 @@ var AdmissionRequestForTest = admissionRequest
 func (r *Reconciler) PatchCASForTest(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) error {
 	return r.patchCAS(ctx, tj, st)
 }
+
+// UnschedulableForTest is how long a GPU pool stays marked unschedulable.
+const UnschedulableForTest = unschedulableFor

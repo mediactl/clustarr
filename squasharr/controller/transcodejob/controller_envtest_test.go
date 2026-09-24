@@ -1183,6 +1183,7 @@ func TestAnAutoGPUFailureFallsBackToCPU(t *testing.T) {
 	newTJ(t, c, ns, "heat-nvenc", "heat", "nvenc", "probe1", func(tj *transcodev1alpha1.TranscodeJob) {
 		tj.Spec.Hardware = ptr.To(transcodev1alpha1.HardwareAuto)
 	})
+	nvidiaNode(t, c, "gpu-1", "1") // an auto job goes to a GPU only with a GPU node to go to (Task 13)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
 
 	reconcileTJ(t, r, ns, "heat-nvenc")

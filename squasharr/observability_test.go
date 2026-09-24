@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -77,6 +78,7 @@ func TestPoolConfigCarriesTheControllerOptions(t *testing.T) {
 	o.WorkerImage, o.WorkerImageCUDA = "media:1", "media-cuda:1"
 	o.DataClaimName, o.DataDir = "rel-data", "/data"
 	o.IntelRenderGroups = []int64{109, 44}
+	o.NodeLabelNVIDIA, o.NodeLabelIntel = "example.com/nvidia", "example.com/igpu"
 	o.NATSURL = "nats://rel-nats:4222"
 	o.Tracing.Enabled, o.Tracing.Endpoint = true, "otel:4317"
 
@@ -89,6 +91,8 @@ func TestPoolConfigCarriesTheControllerOptions(t *testing.T) {
 	assert.Equal(t, "rel-data", cfg.DataClaimName)
 	assert.Equal(t, "/data", cfg.DataDir)
 	assert.Equal(t, "002", cfg.Umask, "the controller's $UMASK did not reach the pool config")
+	assert.Equal(t, "example.com/nvidia", cfg.NodeLabel(transcodev1alpha1.HardwareNVIDIA), "--gpu-node-label-nvidia did not reach the pool config")
+	assert.Equal(t, "example.com/igpu", cfg.NodeLabel(transcodev1alpha1.HardwareIntel), "--gpu-node-label-intel did not reach the pool config")
 	assert.Equal(t, workerObservabilityArgs(o.Logging, o.Tracing), cfg.ExtraArgs,
 		"the workers log and trace as the controller does")
 	assert.Contains(t, cfg.ExtraArgs, "--tracing-endpoint=otel:4317")

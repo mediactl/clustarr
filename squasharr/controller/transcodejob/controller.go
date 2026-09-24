@@ -160,11 +160,15 @@ type Reconciler struct {
 	// on (created before WorkloadWithJob was enabled): each drains and is
 	// recreated. poolBackoff is each Failed pool's recreation backoff.
 	// nextSweep is when admit's backstop sweep (withdraw.go) is next due.
+	// unschedulable is each GPU pool marked unschedulable, until when (spec
+	// §18.5; pools.go, rerouteUnschedulable): in memory, so a restart
+	// forgets it and detects the pool again within unschedulableAfter.
 	// Only admission touches any of these, and MaxConcurrentReconciles 1
 	// serialises it, so admit initialises the maps lazily.
-	recreate    map[string]bool
-	poolBackoff map[string]poolBackoff
-	nextSweep   time.Time
+	recreate      map[string]bool
+	poolBackoff   map[string]poolBackoff
+	unschedulable map[pool.Key]time.Time
+	nextSweep     time.Time
 }
 
 func (r *Reconciler) now() metav1.Time {
@@ -454,83 +458,122 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 		return ctrl.Result{RequeueAfter: requeueWaiting}, nil
 	}
 
+	p, fail := planFor(tj, profile, &mf, tj.Spec.Hardware)
+	if fail != nil {
+		r.fail(tj, st, fail.reason, "%s", fail.msg)
+		return ctrl.Result{}, nil
+	}
+	r.recordPlan(tj, st, p, profile.Spec.Container)
+	return ctrl.Result{}, nil
+}
+
+// planning is one plan of a job for a hardware class: the result, and the
+// source and output paths it was planned between.
+type planning struct {
+	result          *transcode.PlanResult
+	source, outPath string
+}
+
+// planFailure is a job no plan is possible for, and no retry fixes: the
+// Failed condition's reason and the message plan records it with.
+type planFailure struct{ reason, msg string }
+
+// planFor plans tj under tp from mf's stored probe, for hardware: nil, or
+// tj.Spec.Hardware, is the job's own override of its profile's class, and
+// auto with no class chosen yet plans for cpu (worker.ProfileSpec). plan
+// uses it for a new job; dispatch uses it to plan again for the class
+// admission chose, when the recorded plan is for another (spec §18.5).
+//
+// It plans through worker.ProfileSpec, not a converter of this package's
+// own, with the thread count a pool pod hands the worker (pool.Threads) and
+// the output path the worker writes (worker.OutputPath, gap-fix ruling R-11:
+// a container change or a kept source is a new name beside the source), so
+// status.plan.argsHash is the hash of the argv the worker renders for the
+// same class.
+func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
+	mf *catalogv1alpha1.MediaFile, hardware *transcodev1alpha1.Hardware,
+) (planning, *planFailure) {
 	source := tj.Spec.SourcePath
 	if source == "" {
 		source = mf.Spec.Path
 	}
 	source = filepath.Clean(source) // the worker's input path, rendered into the argv
-	// Where the output lands (gap-fix ruling R-11): the same function the
-	// worker writes it with, so the plan's .part and argv name the path the
-	// worker uses. A container change or a kept source (replaceSource=false)
-	// is a new name beside the source; Phase E ruling R8's "container change
-	// is Skipped" is gone.
-	outPath, err := worker.OutputPath(tj.Spec, profile.Name, profile.Spec.Container, worker.ReplaceSource(profile.Spec.Policy))
+	outPath, err := worker.OutputPath(tj.Spec, tp.Name, tp.Spec.Container, worker.ReplaceSource(tp.Spec.Policy))
 	if err != nil {
-		r.fail(tj, st, ReasonInvalidOutput, "cannot place the output: %v", err)
-		return ctrl.Result{}, nil
+		return planning{}, &planFailure{ReasonInvalidOutput, fmt.Sprintf("cannot place the output: %v", err)}
 	}
-	info, err := mediaInfoFromFile(source, &mf, profile.Name+"@"+profile.Status.Hash)
+	info, err := mediaInfoFromFile(source, mf, tp.Name+"@"+tp.Status.Hash)
 	if err != nil {
-		r.fail(tj, st, ReasonPlanError, "planning failed: %v", err)
-		return ctrl.Result{}, nil
+		return planning{}, &planFailure{ReasonPlanError, fmt.Sprintf("planning failed: %v", err)}
 	}
-
-	// worker.ProfileSpec, not a converter of this package's own: the plan
-	// recorded here must be made from the same profile the worker executes,
-	// with the same thread count and output path, so status.plan.argsHash is
-	// the hash of the worker's argv.
-	result, err := transcode.Plan(info, worker.ProfileSpec(profile.Spec, tj.Spec.Hardware), allEncoders(),
+	result, err := transcode.Plan(info, worker.ProfileSpec(tp.Spec, hardware), allEncoders(),
 		transcode.PlanMeta{
-			ProfileName: profile.Name, ProfileHash: profile.Status.Hash,
-			Threads: pool.Threads(profile), OutputPath: outPath,
+			ProfileName: tp.Name, ProfileHash: tp.Status.Hash,
+			Threads: pool.Threads(tp), OutputPath: outPath,
 		})
 	if err != nil {
 		// Plan errors only on inputs that no retry fixes (no video stream,
 		// an unknown hardware class the CRD enum should already reject).
-		r.fail(tj, st, ReasonPlanError, "planning failed: %v", err)
-		return ctrl.Result{}, nil
+		return planning{}, &planFailure{ReasonPlanError, fmt.Sprintf("planning failed: %v", err)}
 	}
+	return planning{result: result, source: source, outPath: outPath}, nil
+}
 
+// recordPlan writes p onto st as a plan is recorded: a reject is Skipped
+// with status.plan unset (ruling R1: PlanMode has no reject value), a skip
+// is Skipped with its plan, and anything else is Planned with status.plan
+// and Planned=True naming the mode, the encoder and where the output lands
+// (container is the profile's). It sets the conditions of this write, so a
+// caller sets no other Planned condition in the same one.
+func (r *Reconciler) recordPlan(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus,
+	p planning, container transcodev1alpha1.Container,
+) {
 	now := r.now()
-	switch result.Decision {
+	switch p.result.Decision {
 	case transcode.DecisionReject:
-		// Ruling R1: a deliberate decision not to transcode is Skipped, with
-		// status.plan left unset because PlanMode has no reject value.
 		st.Phase = transcodev1alpha1.TranscodeJobPhaseSkipped
-		st.Message = "rejected: " + result.Reason
+		st.Plan = nil
+		st.Message = "rejected: " + p.result.Reason
 		st.FinishedAt = &now
-		k8s.MarkFalse(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonRejected, "%s", result.Reason)
+		k8s.MarkFalse(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonRejected, "%s", p.result.Reason)
 	case transcode.DecisionSkip:
 		st.Phase = transcodev1alpha1.TranscodeJobPhaseSkipped
-		st.Plan = statusPlan(result)
-		st.Message = "skipped: " + result.Reason
+		st.Plan = statusPlan(p.result)
+		st.Message = "skipped: " + p.result.Reason
 		st.FinishedAt = &now
-		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonSkipped, "%s", result.Reason)
+		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonSkipped, "%s", p.result.Reason)
 	default:
 		st.Phase = transcodev1alpha1.TranscodeJobPhasePlanned
-		st.Plan = statusPlan(result)
-		st.Message = result.Reason
+		st.Plan = statusPlan(p.result)
+		st.Message = p.result.Reason
 		reason, where := ReasonPlanned, ""
-		if outPath != source {
-			where = "; output " + outPath
-			if src, want, changed := containerChange(source, profile.Spec.Container); changed {
+		if p.outPath != p.source {
+			where = "; output " + p.outPath
+			if src, want, changed := containerChange(p.source, container); changed {
 				reason = ReasonContainerChange
-				where = fmt.Sprintf("; .%s becomes %s at %s", src, want, outPath)
+				where = fmt.Sprintf("; .%s becomes %s at %s", src, want, p.outPath)
 			}
 		}
 		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, reason,
 			"%s with %s%s", st.Plan.Mode, st.Plan.Encoder, where)
 	}
-	return ctrl.Result{}, nil
 }
 
 // admit is one pass of the slot scheduler: every Planned job that is not
 // paused, deleting or waiting out its nextAttemptAt competes, under
 // [Admit], for the slots the dispatched (Queued or Running) jobs leave free,
-// and each one admitted is dispatched. A job whose pool is draining for a
-// profile change, recovering from a failure, or held by a Job it does not
-// own is held out of the competition (pools.go, holding). Then every pool is
-// sized to the work dispatched to it (pools).
+// and each one admitted is dispatched. Then every pool is sized to the work
+// dispatched to it (pools).
+//
+// Before anything competes, a GPU pool whose pods have been unschedulable
+// for unschedulableAfter is marked, and its Queued auto jobs are withdrawn
+// and sent back to Planned with a fallback reason (rerouteUnschedulable), so
+// they compete in this same pass -- for CPU. Then each candidate is given
+// its class (assignClasses; spec §18.5): an auto job the first GPU class
+// with a GPU node, a free slot and a schedulable pool, else cpu; a pinned
+// job its own. A job whose pool, for the class it was given, is draining for
+// a profile change, recovering from a failure, or held by a Job it does not
+// own is held out of the competition (pools.go, holding; ruling R4).
 //
 // TranscodeJobs are listed through Reader (uncached) so the count includes a
 // job the previous pass dispatched even if the informer has not caught up;
@@ -543,6 +586,9 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	log := logging.FromContext(ctx)
 	if r.recreate == nil {
 		r.recreate, r.poolBackoff = map[string]bool{}, map[string]poolBackoff{}
+	}
+	if r.unschedulable == nil {
+		r.unschedulable = map[pool.Key]time.Time{}
 	}
 
 	var tjs transcodev1alpha1.TranscodeJobList
@@ -561,18 +607,35 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	var errs []error
+	rerouted, err := r.rerouteUnschedulable(ctx, stored, byName, tjs.Items)
+	errs = append(errs, err)
+	if rerouted > 0 {
+		// The rerouted jobs are Planned now, and compete in this pass.
+		tjs = transcodev1alpha1.TranscodeJobList{}
+		if err := r.reader().List(ctx, &tjs); err != nil {
+			return errors.Join(append(errs, fmt.Errorf("transcodejob: list TranscodeJobs: %w", err))...)
+		}
+	}
 	held := r.holding(stored, byName)
+	gpu, err := r.gpuNodes(ctx)
+	if err != nil {
+		// No GPU node is the safe reading: auto work goes to CPU, which
+		// every cluster has, rather than wait on a class nothing confirmed.
+		log.WarnContext(ctx, "squasharr: cannot list Nodes; auto jobs go to cpu this pass", "error", err)
+		gpu = nil
+	}
 
 	now := r.now().Time
 	var (
-		queued, running []Slot
-		errs            []error
+		running []Slot
+		cands   []candidate
 	)
 	// The backstop sweep (withdraw.go), due at most once per sweepInterval:
 	// every TranscodeJob that exists, of any phase, protects its own task
 	// subject from it.
 	errs = append(errs, r.sweep(ctx, tjs.Items))
-	candidates := map[string]*transcodev1alpha1.TranscodeJob{}
 	for i := range tjs.Items {
 		tj := &tjs.Items[i]
 		key := tj.Namespace + "/" + tj.Name
@@ -588,24 +651,27 @@ func (r *Reconciler) admit(ctx context.Context) error {
 			if !ok {
 				continue
 			}
-			class := r.classFor(tj, tp)
-			if msg, ok := held[poolKeyFor(tp, class)]; ok {
-				errs = append(errs, r.setHeldMessage(ctx, tj, msg))
-				continue
-			}
-			slot := Slot{
-				Key: key, Hardware: string(class), Profile: tj.Spec.ProfileRef,
-				Priority: tj.Spec.Priority, Created: tj.CreationTimestamp.Time,
-			}
+			slot := Slot{Key: key, Profile: tj.Spec.ProfileRef, Priority: tj.Spec.Priority, Created: tj.CreationTimestamp.Time}
 			if slot.Priority == 0 {
 				slot.Priority = tp.Spec.Priority
 			}
-			queued = append(queued, slot)
-			candidates[key] = tj
+			cands = append(cands, candidate{tj: tj, tp: tp, slot: slot})
 		}
 	}
 
-	admitted := Admit(queued, running, Budget{Slots: r.Slots, ProfileLimits: profileLimits(profiles.Items)})
+	limits := profileLimits(profiles.Items)
+	assigned, holds := r.assignClasses(cands, running, gpu, held, limits)
+	for _, h := range holds {
+		errs = append(errs, r.setHeldMessage(ctx, h.tj, h.msg))
+	}
+	queued := make([]Slot, 0, len(assigned))
+	candidates := make(map[string]*transcodev1alpha1.TranscodeJob, len(assigned))
+	for _, c := range assigned {
+		queued = append(queued, c.slot)
+		candidates[c.slot.Key] = c.tj
+	}
+
+	admitted := Admit(queued, running, Budget{Slots: r.Slots, ProfileLimits: limits})
 	setActive(r.Slots, running, admitted)
 	for _, s := range admitted {
 		delete(candidates, s.Key)

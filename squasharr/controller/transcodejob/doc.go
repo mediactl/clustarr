@@ -23,7 +23,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	Pending -> Planned -> Queued -> Running -> Succeeded | Failed
 //	        \-> Skipped (skip or reject decision)
 //	        \-> Failed  (source changed since the job was made, or no plan possible)
-//	Queued/Running -> Planned (requeued: a retriable failure, or a GPU fallback)
+//	Queued/Running -> Planned (requeued: a retriable failure, a GPU fallback,
+//	                           or an auto job taken back from an unschedulable GPU pool)
 //	Planned/Queued/Running -> Failed + Blocked (spec §18.4)
 //
 // Planned: the controller role does not mount /data, so it plans from the
@@ -60,10 +61,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // TranscodeProfile's spec.maxConcurrent sets; the reconciler runs it after
 // every non-terminal pass, and on the results consumer's wake.
 //
+// Classes (spec §18.5; class.go, capacity.go): before Admit, each candidate
+// is given the class it competes for, in Admit's own order. A pinned job
+// (cpu, nvidia or intel, on the job or its profile) keeps its plan's class
+// and never falls back. An auto job whose plan encodes takes [ChooseClass]'s:
+// nvidia, then intel, the first with a GPU node -- a Ready, schedulable
+// node labelled with the class's --gpu-node-label-* as "true" and with the
+// GPU its pods request allocatable -- a slot still free after the jobs
+// dispatched and those before it in this pass, and a pool not marked
+// unschedulable; else cpu, and cpu for good once status.fallbackReason is
+// set. A job is held only for the pool of the class it was given (ruling
+// R4). A GPU pool with a pod unschedulable for over 10 minutes is marked for
+// 30, in memory, and its Queued auto jobs are withdrawn and sent back to
+// Planned with a fallbackReason, to go to cpu as a new attempt (pools.go,
+// rerouteUnschedulable).
+//
 // Queued: each admitted job is dispatched (dispatch.go): its task, built by
 // squasharr/worker.BuildTask, is published to its (profile, class) pool's
 // subject, and only then is the job recorded Queued with attempts+1 and
-// jobRef naming the pool Job. A source under no RootFolder is blocked here.
+// jobRef naming the pool Job. A job whose plan is for another class is
+// planned again for the class it was given first, and the Queued write
+// records that plan: status.plan is the plan the task carries. A source
+// under no RootFolder is blocked here.
 //
 // Pools: after dispatching, the same pass sizes each (profile, class) pool
 // Job -- a long-lived work-queue batch/v1 Job running cmd/squasharr-worker,
@@ -139,7 +158,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the finalizers subresource are for FinalizerTaskWithdrawal (withdraw.go,
 // Task 12): dispatch.go adds it and afterWrite/reconcileDelete remove it
 // through k8s.EnsureFinalizer/RemoveFinalizer's plain object Update, not the
-// status subresource.
+// status subresource. Nodes are watched (the manager's cache) for the GPU
+// nodes an auto job's class is chosen by (capacity.go), and a GPU pool's
+// pods are listed, uncached, to find one unschedulable (pools.go).
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs/status,verbs=get;update;patch
@@ -149,4 +170,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=list
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=list
 package transcodejob

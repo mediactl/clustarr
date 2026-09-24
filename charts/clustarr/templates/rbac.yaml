@@ -611,6 +611,20 @@ metadata:
 rules:
 # BEGIN generated from config/rbac/squasharr_role.yaml -- do not edit by hand.
 - apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - list
+- apiGroups:
   - batch
   resources:
   - jobs

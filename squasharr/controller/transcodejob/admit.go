@@ -96,16 +96,7 @@ func Admit(queued, running []Slot, budget Budget) []Slot {
 
 	order := make([]Slot, len(queued))
 	copy(order, queued)
-	sort.SliceStable(order, func(i, j int) bool {
-		a, b := order[i], order[j]
-		if a.Priority != b.Priority {
-			return a.Priority > b.Priority
-		}
-		if !a.Created.Equal(b.Created) {
-			return a.Created.Before(b.Created)
-		}
-		return a.Key < b.Key
-	})
+	sort.SliceStable(order, func(i, j int) bool { return admitsBefore(order[i], order[j]) })
 
 	var admitted []Slot
 	seen := map[string]bool{}
@@ -125,4 +116,18 @@ func Admit(queued, running []Slot, budget Budget) []Slot {
 		admitted = append(admitted, q)
 	}
 	return admitted
+}
+
+// admitsBefore is [Admit]'s order over queued transcodes: priority
+// (higher first), then creation time (older first), then Key. The class
+// assignment that runs before Admit (assignClasses) takes candidates in the
+// same order, through this one function, so the two cannot disagree.
+func admitsBefore(a, b Slot) bool {
+	if a.Priority != b.Priority {
+		return a.Priority > b.Priority
+	}
+	if !a.Created.Equal(b.Created) {
+		return a.Created.Before(b.Created)
+	}
+	return a.Key < b.Key
 }
