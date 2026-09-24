@@ -73,9 +73,13 @@ type LibraryItem struct {
 	Tab Tab
 	// Year is status.metadata.year where the kind has one, else 0.
 	Year int32
-	// Poster is the URL of the first status.metadata.images entry whose type
-	// is poster, or "" when metadata has not arrived or publishes no poster.
-	// The UI hotlinks it (spec 2026-09-23-library-page-design, decision 1).
+	// Poster is the [ArtURL] of the item's poster: status.overlay's when the
+	// renderer has written one (Movie and Series only), else the poster
+	// entry in status.artwork, else "" when neither has arrived yet. It
+	// always points at this ui's own /art route -- never a provider's URL
+	// directly -- so the browser never hotlinks a metadata provider's CDN
+	// (ADR-0011, superseding spec 2026-09-23-library-page-design decision 1;
+	// see that spec's dated note).
 	Poster string
 	// QualityProfileRef is spec.qualityProfileRef, or "" for a kind that
 	// inherits one (a Book with no profile of its own).
@@ -210,36 +214,34 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		c := libraryCard{
 			tab: TabMovies, monitored: monitoredOrDefault(v.Spec.Monitored),
 			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef,
+			poster: posterArt(commonv1.MediaKindMovie, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
 		}
 		if md := v.Status.Metadata; md != nil {
-			c.year, c.poster = md.Year, posterOf(md.Images)
+			c.year = md.Year
 		}
 		return c, true
 	case *catalogv1.Series:
 		c := libraryCard{
 			tab: TabTV, monitored: monitoredOrDefault(v.Spec.Monitored),
 			phase: string(v.Status.Phase), profile: v.Spec.QualityProfileRef,
+			poster: posterArt(commonv1.MediaKindSeries, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
 		}
 		if md := v.Status.Metadata; md != nil {
-			c.year, c.poster = md.Year, posterOf(md.Images)
+			c.year = md.Year
 		}
 		return c, true
 	case *catalogv1.Artist:
 		c := libraryCard{
 			tab: TabMusic, monitored: monitoredOrDefault(v.Spec.Monitored),
 			hasFile: v.Status.AlbumFileCount > 0, profile: v.Spec.QualityProfileRef,
-		}
-		if md := v.Status.Metadata; md != nil {
-			c.poster = posterOf(md.Images)
+			poster: posterArt(commonv1.MediaKindArtist, v.GetUID(), v.Status.Artwork, nil),
 		}
 		return c, true
 	case *catalogv1.Author:
 		c := libraryCard{
 			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
 			hasFile: v.Status.BookFileCount > 0, profile: v.Spec.QualityProfileRef,
-		}
-		if md := v.Status.Metadata; md != nil {
-			c.poster = posterOf(md.Images)
+			poster: posterArt(commonv1.MediaKindAuthor, v.GetUID(), v.Status.Artwork, nil),
 		}
 		return c, true
 	case *catalogv1.Book:
@@ -249,30 +251,27 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		c := libraryCard{
 			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
 			phase: string(v.Status.Phase), hasFile: v.Status.HasFile,
+			poster: posterArt(commonv1.MediaKindBook, v.GetUID(), v.Status.Artwork, nil),
 		}
 		if v.Spec.QualityProfileRef != nil {
 			c.profile = *v.Spec.QualityProfileRef
-		}
-		if md := v.Status.Metadata; md != nil {
-			c.poster = posterOf(md.Images)
 		}
 		return c, true
 	case *catalogv1.Audiobook:
 		c := libraryCard{
 			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
 			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef,
-		}
-		if md := v.Status.Metadata; md != nil {
-			c.poster = posterOf(md.Images)
+			poster: posterArt(commonv1.MediaKindAudiobook, v.GetUID(), v.Status.Artwork, nil),
 		}
 		return c, true
 	case *catalogv1.Comic:
 		c := libraryCard{
 			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
 			hasFile: v.Status.IssueFileCount > 0, profile: v.Spec.QualityProfileRef,
+			poster: posterArt(commonv1.MediaKindComic, v.GetUID(), v.Status.Artwork, nil),
 		}
 		if md := v.Status.Metadata; md != nil {
-			c.year, c.poster = md.Year, posterOf(md.Images)
+			c.year = md.Year
 		}
 		return c, true
 	default:
@@ -280,11 +279,36 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 	}
 }
 
-// posterOf is the URL of the first poster among images, or "".
-func posterOf(images []catalogv1.Image) string {
-	for _, img := range images {
-		if img.Type == catalogv1.ImageTypePoster {
-			return img.URL
+// ArtURL is the URL ui/art.go's handleArt serves the artwork object
+// (kind, uid, t) from: /art/<kind>/<uid>/<type>?v=<digest>. It is the only
+// way a page ever links to a catalog item's artwork -- never a provider's
+// own URL -- so the browser's request always lands on this ui, not on
+// whatever CDN status.metadata.images or status.artwork.sourceURL names
+// (ADR-0011).
+//
+// digest is the digest of whichever object handleArt is expected to serve
+// right now (the caller decides which -- see [posterArt]): handleArt
+// compares it against what it actually served and answers
+// "Cache-Control: public, max-age=31536000, immutable" only on a match,
+// "no-cache" otherwise, so a stale digest here costs a cache miss, never a
+// wrong image.
+func ArtURL(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType, digest string) string {
+	return fmt.Sprintf("/art/%s/%s/%s?v=%s", kind, uid, t, digest)
+}
+
+// posterArt is a card's poster [ArtURL]: the rating-badge overlay when one
+// has been rendered (overlay is non-nil only for Movie and Series, the only
+// two kinds status.overlay exists on, spec §B.3), else the poster entry in
+// status.artwork, else "" -- which the templates already render as a
+// placeholder rather than an empty <img> (posterFill, poster in
+// ui/views/library.templ).
+func posterArt(kind commonv1.MediaKind, uid types.UID, artwork []catalogv1.ArtworkEntry, overlay *catalogv1.OverlayEntry) string {
+	if overlay != nil {
+		return ArtURL(kind, uid, catalogv1.ImageTypePoster, overlay.Digest)
+	}
+	for _, a := range artwork {
+		if a.Type == catalogv1.ImageTypePoster {
+			return ArtURL(kind, uid, catalogv1.ImageTypePoster, a.Digest)
 		}
 	}
 	return ""

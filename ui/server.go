@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
@@ -112,6 +113,23 @@ type Options struct {
 	// cmd/clustarr hands the same reader to ui/projection, which backs
 	// Entries, Library, Unmatched and ImportLists and their streams.
 	Reader client.Reader
+
+	// Artwork is the object store GET /art (ui/art.go's handleArt) serves
+	// every artwork image from -- B1's events.ObjectStore bound to
+	// events.BucketArtwork, connected in cmd/clustarr (ui never imports
+	// pkg/k8s, ui/guard_test.go), and handed here as an interface so this
+	// package still needs nothing from pkg/events/natsbus. It is the one
+	// seam through which any catalog item's poster, fanart or other image
+	// reaches a page: [projection.ArtURL] and ui/detail.go's backdropArt
+	// build every image link as a URL into this route, never a provider's
+	// own URL, so the browser's request always lands here (ADR-0011).
+	//
+	// A nil Artwork (no NATS endpoint reachable, or a test that only cares
+	// about routing) is legal and stays legal: handleArt answers 404 for
+	// every request, the same "missing dependency degrades, does not fail
+	// the process" pattern a nil Reader already has for the library-scan
+	// detail page.
+	Artwork events.ObjectStore
 
 	// Actions is ui's one write seam, and deliberately a separate field from
 	// Reader: Reader stays a client.Reader, so every read path is read-only

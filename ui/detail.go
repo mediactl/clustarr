@@ -72,16 +72,18 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		if s.getObject(ctx, item.Ref, &a) {
 			d.Path = a.Status.Path
 			if md := a.Status.Metadata; md != nil {
-				d.Overview, d.Genres, d.Backdrop = md.Overview, md.Genres, imageOf(md.Images, catalogv1.ImageTypeFanart)
+				d.Overview, d.Genres = md.Overview, md.Genres
 			}
+			d.Backdrop = backdropArt(commonv1.MediaKindArtist, a.GetUID(), a.Status.Artwork)
 		}
 	case commonv1.MediaKindAuthor:
 		var a catalogv1.Author
 		if s.getObject(ctx, item.Ref, &a) {
 			d.Path = a.Status.Path
 			if md := a.Status.Metadata; md != nil {
-				d.Overview, d.Genres, d.Backdrop = md.Overview, md.Genres, imageOf(md.Images, catalogv1.ImageTypeFanart)
+				d.Overview, d.Genres = md.Overview, md.Genres
 			}
+			d.Backdrop = backdropArt(commonv1.MediaKindAuthor, a.GetUID(), a.Status.Artwork)
 		}
 	}
 	return d
@@ -124,7 +126,7 @@ func fillMovie(d *views.Detail, m *catalogv1.Movie) {
 	}
 	d.Certification, d.Runtime, d.Overview, d.Genres = md.Certification, runtimeLabel(md.RuntimeMinutes), md.Overview, md.Genres
 	d.Language = languageName(md.OriginalLanguage)
-	d.Backdrop = imageOf(md.Images, catalogv1.ImageTypeFanart)
+	d.Backdrop = backdropArt(commonv1.MediaKindMovie, m.GetUID(), m.Status.Artwork)
 	d.AltTitles = md.AlternateTitles
 	if id := md.ExternalIDs[commonv1.IDKeyIMDB]; id != "" {
 		d.Links = append(d.Links, views.Link{Label: "IMDb", Href: "https://www.imdb.com/title/" + id + "/"})
@@ -142,7 +144,7 @@ func fillSeries(d *views.Detail, sr *catalogv1.Series) {
 	}
 	d.Certification, d.Runtime, d.Overview, d.Genres = md.Certification, runtimeLabel(md.RuntimeMinutes), md.Overview, md.Genres
 	d.Language, d.Network = languageName(md.OriginalLanguage), md.Network
-	d.Backdrop = imageOf(md.Images, catalogv1.ImageTypeFanart)
+	d.Backdrop = backdropArt(commonv1.MediaKindSeries, sr.GetUID(), sr.Status.Artwork)
 	for _, t := range md.AlternateTitles {
 		d.AltTitles = append(d.AltTitles, t.Title)
 	}
@@ -151,11 +153,15 @@ func fillSeries(d *views.Detail, sr *catalogv1.Series) {
 	}
 }
 
-// imageOf is the first image of the type, or "".
-func imageOf(images []catalogv1.Image, t catalogv1.ImageType) string {
-	for _, img := range images {
-		if img.Type == t {
-			return img.URL
+// backdropArt is a detail page's Backdrop: the [projection.ArtURL] of the
+// fanart entry in status.artwork, or "" when none has been fetched yet. It
+// never reads status.metadata.images directly -- every image this ui ever
+// links to comes from the object store through GET /art, not a provider's
+// own URL (ADR-0011).
+func backdropArt(kind commonv1.MediaKind, uid types.UID, artwork []catalogv1.ArtworkEntry) string {
+	for _, a := range artwork {
+		if a.Type == catalogv1.ImageTypeFanart {
+			return projection.ArtURL(kind, uid, catalogv1.ImageTypeFanart, a.Digest)
 		}
 	}
 	return ""

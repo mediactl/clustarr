@@ -27,15 +27,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// busServices are the service packages whose Run connects to the bus. ui is
-// absent: it has no bus of its own.
-var busServices = []string{
-	"app/catalog",
-	"app/import",
-	"app/indexer",
-	"app/grab",
-	"app/squash",
-	"app/caption",
+// busSource is one file this test holds to the k8s.WithBusHooks(obs.BusHooks())
+// rule: name is what t.Run reports it under, path is where to find it.
+type busSource struct {
+	name string
+	path string
+}
+
+// busServiceSources are the service packages whose Run connects to the bus,
+// plus cmd/clustarr's own services.go, which connects ui's read-only bus
+// (Task B3, buildUIArtwork) -- ui itself is still absent: it has no bus of
+// its own, and never imports pkg/k8s (ui/guard_test.go).
+var busServiceSources = []busSource{
+	{"app/catalog", filepath.Join("..", "..", "app/catalog", "run.go")},
+	{"app/import", filepath.Join("..", "..", "app/import", "run.go")},
+	{"app/indexer", filepath.Join("..", "..", "app/indexer", "run.go")},
+	{"app/grab", filepath.Join("..", "..", "app/grab", "run.go")},
+	{"app/squash", filepath.Join("..", "..", "app/squash", "run.go")},
+	{"app/caption", filepath.Join("..", "..", "app/caption", "run.go")},
+	{"cmd/clustarr/services.go (ui)", "services.go"},
 }
 
 // TestEveryServicePassesBusHooks is the guard behind Task C12a's step 2b
@@ -50,14 +60,14 @@ var busServices = []string{
 // propagation existed and never ran, and every unit test passed, because
 // every unit test built its own bus.
 //
-// This test reads each service's run.go and insists that every
-// k8s.ConnectBus call site passes obs.BusHooks() through k8s.WithBusHooks.
-// It is source-level rather than behavioural because there is nothing to
-// observe at runtime: a missing hook is silence, not an error.
+// This test reads each source file and insists that every k8s.ConnectBus
+// call site passes obs.BusHooks() through k8s.WithBusHooks. It is
+// source-level rather than behavioural because there is nothing to observe
+// at runtime: a missing hook is silence, not an error.
 func TestEveryServicePassesBusHooks(t *testing.T) {
-	for _, service := range busServices {
-		t.Run(service, func(t *testing.T) {
-			path := filepath.Join("..", "..", service, "run.go")
+	for _, src := range busServiceSources {
+		t.Run(src.name, func(t *testing.T) {
+			path := src.path
 			fset := token.NewFileSet()
 			file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 			require.NoError(t, err, "parse %s", path)
@@ -92,7 +102,7 @@ func TestEveryServicePassesBusHooks(t *testing.T) {
 
 			require.Positive(t, calls,
 				"%s has no k8s.ConnectBus call; either the service stopped using the bus "+
-					"(remove it from busServices) or the call moved out of run.go "+
+					"(remove it from busServiceSources) or the call moved elsewhere "+
 					"(this guard must move with it)", path)
 		})
 	}

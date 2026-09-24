@@ -32,6 +32,9 @@ import (
 	importarr "github.com/mediactl/clustarr/app/import"
 	indexarr "github.com/mediactl/clustarr/app/indexer"
 	squasharr "github.com/mediactl/clustarr/app/squash"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/ui"
@@ -476,9 +479,42 @@ func buildUIProjection(ctx context.Context, reader client.Reader) *projection.Pr
 	return proj
 }
 
+// buildUIArtwork connects a bus under ui's own service name and returns the
+// artwork object store ui/art.go's handleArt serves every image from --
+// B1's events.ObjectStore bound to events.BucketArtwork (Task B3).
+//
+// ui never imports pkg/k8s (ui/guard_test.go bans it): this is why the bus
+// is connected and bound here, in cmd/clustarr, and only the resulting
+// events.ObjectStore -- an interface handleArt only ever calls Get on --
+// crosses into ui.Options.Artwork. It does not call k8s.EnsureTopology:
+// unlike a controller service, which is the one responsible for the streams
+// and buckets its own reconcilers need, ui creates nothing and writes
+// nothing here -- events.BucketArtwork is provisioned by whichever *arr
+// service is running (catalogarr's metadata gateway is the one that ever
+// calls Put on it) -- and bus.ObjectStore's binding is lazy and cached
+// (natsbus's own doc comment), so this never makes a network round trip
+// just to hand back a handle.
+//
+// A ConnectBus failure is logged and swallowed, exactly like
+// buildUICluster's unreachable-Kubernetes case: Options.Artwork == nil is
+// legal (ui/art.go answers 404 for every request), so a developer running
+// `clustarr ui` with no NATS endpoint reachable still gets a working UI,
+// only with placeholder art everywhere spec.metadata has not published a
+// poster for yet.
+func buildUIArtwork(ctx context.Context, natsURL string) events.ObjectStore {
+	log := ctrl.LoggerFrom(ctx).WithName("ui")
+	bus, _, err := k8s.ConnectBus(natsURL, "ui", k8s.WithBusHooks(obs.BusHooks()))
+	if err != nil {
+		log.Error(err, "connect ui to NATS; ui will serve placeholder art for every item")
+		return nil
+	}
+	return bus.ObjectStore(events.BucketArtwork)
+}
+
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var bindAddress string
 	var authMode string
+	var natsURL string
 
 	cmd := &cobra.Command{
 		Use:   "ui",
@@ -498,11 +534,16 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		"Authentication mode, chosen explicitly: ui refuses to serve without one. The only mode is "+
 			"anonymous, which serves every request without a login and must sit behind ingress "+
 			"authentication (design amendment §A3.5).")
+	cmd.Flags().StringVar(&natsURL, "nats-url", envOr(natsURLEnv, k8s.DefaultNATSURL),
+		"JetStream endpoint ui reads artwork from (GET /art). Defaults to $"+natsURLEnv+". ui never "+
+			"writes to it, so an unreachable endpoint degrades every page to placeholder art rather "+
+			"than failing the process.")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
 		reader, waitForSync, acts := buildUICluster(ctx)
 		proj := buildUIProjection(ctx, reader)
+		artwork := buildUIArtwork(ctx, natsURL)
 		// Every cluster-derived field, in the same order as all.go's ui
 		// closure; ui_options_wiring_test.go executes both commands and fails
 		// on any func, pointer or interface field of ui.Options left nil.
@@ -513,6 +554,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			WaitForSync:          waitForSync,
 			Projected:            proj.Projected,
 			Actions:              acts,
+			Artwork:              artwork,
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,
 			SubscribeDownloads:   proj.SubscribeDownloads,

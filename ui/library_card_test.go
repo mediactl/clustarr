@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -55,10 +56,11 @@ func tagWith(t *testing.T, body, attr string) string {
 // and the quality profile. Every data attribute the earlier tests key on
 // stays on the card element.
 func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
+	arrivalPoster := projection.ArtURL(commonv1.MediaKindMovie, types.UID("arrival-uid"), catalogv1.ImageTypePoster, "arrival-digest")
 	arrival := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
 		Tab: projection.TabMovies, Title: "Arrival", Year: 2016, Monitored: true, Phase: "Imported", HasFile: true,
-		QualityProfileRef: "hd-bluray-web", Poster: "https://image.tmdb.org/t/p/w500/arrival.jpg",
+		QualityProfileRef: "hd-bluray-web", Poster: arrivalPoster,
 	}
 	heat := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
@@ -93,9 +95,13 @@ func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 
 	require.Regexp(t, regexp.MustCompile(`data-slot="aspect-ratio"[^>]*--ratio: 2/3[^>]*>[^<]*<img[^>]*alt="Arrival"`), body, "the poster fills a 2:3 box")
 	img := tagWith(t, body, `alt="Arrival"`)
-	require.Contains(t, img, `src="https://image.tmdb.org/t/p/w500/arrival.jpg"`)
+	require.Contains(t, img, `src="`+arrivalPoster+`"`, "the poster is this ui's own /art route, never a provider's URL")
 	require.Contains(t, img, `loading="lazy"`)
-	require.Contains(t, img, `referrerpolicy="no-referrer"`)
+
+	// ADR-0011: every image a card renders is this ui's own /art route, so
+	// no rendered card ever hotlinks a provider's URL directly.
+	require.NotRegexp(t, regexp.MustCompile(`<img[^>]*src="https?://`), body,
+		"no <img> in the library grid hotlinks a provider's own URL")
 	require.Regexp(t, regexp.MustCompile(`data-slot="tooltip-content"[^>]*>[^<]*Arrival`), body, "the title is a tooltip on the poster")
 
 	requireTag(t, body, `data-status="downloaded"`, `bg-emerald-500`)

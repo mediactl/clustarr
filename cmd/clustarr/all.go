@@ -220,7 +220,7 @@ func allServices(
 			d.Tracing = tr
 			return runCaptionarr(ctx, d)
 		}},
-		{"ui", func(ctx context.Context, _ k8s.Options) error {
+		{"ui", func(ctx context.Context, o k8s.Options) error {
 			// ui has no k8s.Options of its own -- no manager, no CRD, no
 			// ports to offset -- so it binds --ui-bind-address rather than
 			// an offset of the probe port (design spec §2: `clustarr all`
@@ -229,7 +229,10 @@ func allServices(
 			// failure, and ui.Run's own shutdown depends on that
 			// cancellation to stop its HTTP server. The same ctx bounds the
 			// cluster reader buildUICluster may build, so it stops on the
-			// same cancellation too.
+			// same cancellation too. o is used for exactly one field of its
+			// own, o.NATSURL: buildUIArtwork connects ui's own read-only bus
+			// to the same JetStream endpoint every other service in this
+			// process shares.
 			//
 			// Every cluster-derived field, in the same order as
 			// newUICommand's; ui_options_wiring_test.go executes both
@@ -237,6 +240,7 @@ func allServices(
 			// ui.Options left nil.
 			reader, waitForSync, acts := buildUICluster(ctx)
 			proj := buildUIProjection(ctx, reader)
+			artwork := buildUIArtwork(ctx, o.NATSURL)
 			return runUI(ctx, ui.Options{
 				BindAddress:          uiAddr,
 				AuthMode:             uiAuthMode,
@@ -244,6 +248,7 @@ func allServices(
 				WaitForSync:          waitForSync,
 				Projected:            proj.Projected,
 				Actions:              acts,
+				Artwork:              artwork,
 				Entries:              proj.Entries,
 				Subscribe:            proj.Subscribe,
 				SubscribeDownloads:   proj.SubscribeDownloads,

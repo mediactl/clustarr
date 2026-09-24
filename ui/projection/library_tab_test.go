@@ -27,34 +27,44 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
+// artworkEntry is a minimal, valid status.artwork entry for t, standing in
+// for what the metadata gateway would have written (app/catalog/metadata/artwork).
+func artworkEntry(t catalogv1.ImageType, digest string) catalogv1.ArtworkEntry {
+	return catalogv1.ArtworkEntry{
+		Type: t, Source: catalogv1.ArtworkSourceProvider,
+		SourceURL: "https://img.example/" + digest, Digest: digest, SizeBytes: 1,
+		UpdatedAt: metav1.Now(),
+	}
+}
+
 // The library page's cards (spec 2026-09-23-library-page-design): every
-// parent kind lands in one tab, carries the poster its metadata publishes
-// (and nothing when there is none, or no metadata yet), its year and its
-// quality profile -- all read off the real API objects, never off a
-// hand-shaped LibraryItem.
+// parent kind lands in one tab, carries the [projection.ArtURL] its
+// status.artwork poster entry resolves to (and nothing when there is none,
+// or no artwork yet), its year and its quality profile -- all read off the
+// real API objects, never off a hand-shaped LibraryItem.
 func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.T) {
 	movie := &catalogv1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "default", UID: "arrival-uid"},
 		Spec:       catalogv1.MovieSpec{TmdbID: 329865, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
-		Status: catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{
-			Title: "Arrival", Year: 2016,
-			Images: []catalogv1.Image{
-				{Type: catalogv1.ImageTypeFanart, URL: "https://img.example/arrival-fanart.jpg"},
-				{Type: catalogv1.ImageTypePoster, URL: "https://img.example/arrival-poster.jpg"},
-				{Type: catalogv1.ImageTypePoster, URL: "https://img.example/arrival-poster-2.jpg"},
+		Status: catalogv1.MovieStatus{
+			Metadata: &catalogv1.MovieMetadata{Title: "Arrival", Year: 2016},
+			Artwork: []catalogv1.ArtworkEntry{
+				artworkEntry(catalogv1.ImageTypeFanart, "arrival-fanart"),
+				artworkEntry(catalogv1.ImageTypePoster, "arrival-poster"),
 			},
-		}},
+		},
 	}
 	series := &catalogv1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "andor", Namespace: "default", UID: "andor-uid"},
 		Spec:       catalogv1.SeriesSpec{TvdbID: 393189, QualityProfileRef: "web-1080p", RootFolderRef: "tv"},
-		Status: catalogv1.SeriesStatus{Metadata: &catalogv1.SeriesMetadata{
-			Title: "Andor", Year: 2022,
-			Images: []catalogv1.Image{{Type: catalogv1.ImageTypeFanart, URL: "https://img.example/andor-fanart.jpg"}},
-		}},
+		Status: catalogv1.SeriesStatus{
+			Metadata: &catalogv1.SeriesMetadata{Title: "Andor", Year: 2022},
+			Artwork:  []catalogv1.ArtworkEntry{artworkEntry(catalogv1.ImageTypeFanart, "andor-fanart")},
+		},
 	}
 	pending := &catalogv1.Series{ // no metadata yet: no poster, no year
 		ObjectMeta: metav1.ObjectMeta{Name: "pending", Namespace: "default", UID: "pending-uid"},
@@ -63,10 +73,10 @@ func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.
 	artist := &catalogv1.Artist{
 		ObjectMeta: metav1.ObjectMeta{Name: "bjork", Namespace: "default", UID: "bjork-uid"},
 		Spec:       catalogv1.ArtistSpec{QualityProfileRef: "music-lossless"},
-		Status: catalogv1.ArtistStatus{Metadata: &catalogv1.ArtistMetadata{
-			Name:   "Björk",
-			Images: []catalogv1.Image{{Type: catalogv1.ImageTypePoster, URL: "https://img.example/bjork.jpg"}},
-		}},
+		Status: catalogv1.ArtistStatus{
+			Metadata: &catalogv1.ArtistMetadata{Name: "Björk"},
+			Artwork:  []catalogv1.ArtworkEntry{artworkEntry(catalogv1.ImageTypePoster, "bjork-poster")},
+		},
 	}
 	author := &catalogv1.Author{
 		ObjectMeta: metav1.ObjectMeta{Name: "le-guin", Namespace: "default", UID: "le-guin-uid"},
@@ -116,7 +126,10 @@ func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.
 
 	m := byName["arrival"]
 	require.Equal(t, projection.TabMovies, m.Tab)
-	require.Equal(t, "https://img.example/arrival-poster.jpg", m.Poster, "the first poster, not the fanart before it")
+	require.Equal(t, projection.ArtURL(commonv1.MediaKindMovie, "arrival-uid", catalogv1.ImageTypePoster, "arrival-poster"),
+		m.Poster, "the poster entry, not the fanart one")
+	require.NotContains(t, m.Poster, "http://")
+	require.NotContains(t, m.Poster, "https://")
 	require.EqualValues(t, 2016, m.Year)
 	require.Equal(t, "hd-bluray-web", m.QualityProfileRef)
 
@@ -129,7 +142,8 @@ func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.
 	require.Zero(t, byName["pending"].Year)
 
 	require.Equal(t, projection.TabMusic, byName["bjork"].Tab)
-	require.Equal(t, "https://img.example/bjork.jpg", byName["bjork"].Poster)
+	require.Equal(t, projection.ArtURL(commonv1.MediaKindArtist, "bjork-uid", catalogv1.ImageTypePoster, "bjork-poster"),
+		byName["bjork"].Poster)
 	require.Equal(t, "music-lossless", byName["bjork"].QualityProfileRef)
 	for _, name := range []string{"le-guin", "lone-book", "dune-audio", "saga"} {
 		require.Equal(t, projection.TabBooks, byName[name].Tab, name)

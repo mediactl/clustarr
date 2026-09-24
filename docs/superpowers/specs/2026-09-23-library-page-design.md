@@ -26,6 +26,23 @@ albums, books and issues beyond the monitor toggle.
    first follow-up. Until then the browser fetches from the provider's image
    CDN with `loading="lazy"` and `referrerpolicy="no-referrer"`, so the CDN
    never learns the UI's address. The UI itself still never calls a provider.
+
+   **2026-09-24: superseded.** Task B3 (plan
+   `docs/superpowers/plans/2026-09-24-index-artwork-ratings-plex.md`) removed
+   the hotlink entirely rather than caching it on `/data` as this decision's
+   own follow-up: artwork now lives in a JetStream object store
+   (`events.BucketArtwork`, ADR-0011), fetched by the metadata gateway and,
+   for a Movie or Series poster, composited with its rating-badge overlay by
+   task C3's renderer. `ui` serves it itself, read-only, at
+   `GET /art/{kind}/{uid}/{type}`; `LibraryItem.Poster` and the detail pages'
+   backdrop are now that route's URL (`projection.ArtURL`), never
+   `status.metadata.images` directly, and every `<img>` in the Library and
+   detail templates points there. `referrerpolicy="no-referrer"` is no
+   longer meaningful once the source is same-origin and has been dropped
+   everywhere it could be (ADR-0011's Decision, ui/art_test.go); it survives
+   in `ui/views/library.templ`'s shared `poster`/`posterFill` components
+   only because that file was mid-edit by a concurrent task when this note
+   was written -- harmless on a same-origin URL, but stale as a comment.
 2. **Tabs show parents only.** Movie → Movies; Series → TV; Artist → Music;
    Author, Comic and Audiobook → Books (Comic and Audiobook have no parent
    kind of their own), and so does a Book with no `authorRef`, which stands

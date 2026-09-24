@@ -52,23 +52,44 @@ import (
 
 const nervePath = "/data/media/movies/Nerve (2016) {tmdb-328387}"
 
+// nervePosterDigest and nerveFanartDigest are the fixture's stored artwork
+// digests: what the movie's status.artwork carries and what the hero's
+// poster and backdrop [projection.ArtURL]s are built from, so a test can
+// assert the exact route without hand-formatting it twice.
+const (
+	nervePosterDigest = "nerve-poster-digest"
+	nerveFanartDigest = "nerve-fanart-digest"
+)
+
 func movieFixture(t *testing.T, withActions bool) (*ui.Server, client.Client) {
 	t.Helper()
 	movie := &catalogv1.Movie{
-		ObjectMeta: metav1.ObjectMeta{Name: "nerve", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "nerve", Namespace: "default", UID: "nerve-uid"},
 		Spec:       catalogv1.MovieSpec{TmdbID: 328387, Monitored: ptr.To(true), QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
 		Status: catalogv1.MovieStatus{
 			Phase: catalogv1.MoviePhaseImported, HasFile: true, Path: nervePath, FileRef: ptr.To("nerve-file"),
 			Metadata: &catalogv1.MovieMetadata{
 				Title: "Nerve", OriginalTitle: "Nerve", Year: 2016, RuntimeMinutes: 96, Certification: "PG-13",
 				Genres: []string{"Mystery", "Adventure", "Crime"}, OriginalLanguage: "en",
-				Overview:    "Industrious high school senior Vee Delmonico has had it with living life on the sidelines.",
-				ExternalIDs: map[string]string{"imdb": "tt3531824"},
-				Images: []catalogv1.Image{
-					{Type: catalogv1.ImageTypePoster, URL: "https://image.tmdb.org/t/p/w500/nerve.jpg"},
-					{Type: catalogv1.ImageTypeFanart, URL: "https://image.tmdb.org/t/p/original/nerve-fanart.jpg"},
-				},
+				Overview:        "Industrious high school senior Vee Delmonico has had it with living life on the sidelines.",
+				ExternalIDs:     map[string]string{"imdb": "tt3531824"},
 				AlternateTitles: []string{"NePBB", "Nerve : Voyeur ou Joueur?"},
+			},
+			// Artwork, not Metadata.Images: every image this ui links to comes
+			// from the object store through GET /art, never a provider's own
+			// URL (ADR-0011) -- SourceURL here is only what the metadata
+			// gateway would have fetched from, not anything a page renders.
+			Artwork: []catalogv1.ArtworkEntry{
+				{
+					Type: catalogv1.ImageTypePoster, Source: catalogv1.ArtworkSourceProvider,
+					SourceURL: "https://image.tmdb.org/t/p/w500/nerve.jpg", Digest: nervePosterDigest,
+					SizeBytes: 1, UpdatedAt: metav1.Now(),
+				},
+				{
+					Type: catalogv1.ImageTypeFanart, Source: catalogv1.ArtworkSourceProvider,
+					SourceURL: "https://image.tmdb.org/t/p/original/nerve-fanart.jpg", Digest: nerveFanartDigest,
+					SizeBytes: 1, UpdatedAt: metav1.Now(),
+				},
 			},
 		},
 	}
@@ -98,7 +119,7 @@ func movieFixture(t *testing.T, withActions bool) (*ui.Server, client.Client) {
 		return projection.LibraryItem{
 			Ref: types.NamespacedName{Namespace: "default", Name: name}, Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies,
 			Title: title, Year: 2016, Monitored: true, Phase: "Imported", HasFile: true, QualityProfileRef: "hd-bluray-web",
-			Poster: "https://image.tmdb.org/t/p/w500/" + name + ".jpg",
+			Poster: projection.ArtURL(commonv1.MediaKindMovie, types.UID(name+"-uid"), catalogv1.ImageTypePoster, name+"-poster-digest"),
 		}
 	}
 	opts := ui.Options{
@@ -145,8 +166,12 @@ func TestMoviePageHeroReadsTheGatheredMetadata(t *testing.T) {
 	heroAt := strings.Index(body, `data-hero`)
 	heroBody := section(t, body, `data-hero`)
 
-	requireTag(t, heroBody, `data-backdrop`, `src="https://image.tmdb.org/t/p/original/nerve-fanart.jpg"`)
-	requireTag(t, heroBody, `alt="Nerve"`, `src="https://image.tmdb.org/t/p/w500/nerve.jpg"`)
+	backdropURL := projection.ArtURL(commonv1.MediaKindMovie, "nerve-uid", catalogv1.ImageTypeFanart, nerveFanartDigest)
+	posterURL := projection.ArtURL(commonv1.MediaKindMovie, "nerve-uid", catalogv1.ImageTypePoster, "nerve-poster-digest")
+	requireTag(t, heroBody, `data-backdrop`, `src="`+backdropURL+`"`)
+	requireTag(t, heroBody, `alt="Nerve"`, `src="`+posterURL+`"`)
+	require.NotRegexp(t, regexp.MustCompile(`<img[^>]*src="https?://`), body,
+		"no <img> ever hotlinks a provider's own URL -- every one points at this ui's own /art route (ADR-0011)")
 	require.Regexp(t, regexp.MustCompile(`<h1[^>]*>[^<]*Nerve`), heroBody)
 
 	// Radarr's bookmark beside the title is the monitored toggle.

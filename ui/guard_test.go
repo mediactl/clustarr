@@ -67,11 +67,26 @@ var statusWriteSelectors = map[string]bool{
 // list; ui/actions' package doc says why the UI's spec edits are merge
 // patches rather than applies (an apply releases whatever the same manager
 // set before and omits now, and applies to a missing object create it).
+//
+// Put, PutBytes, UpdateMeta, Seal, AddLink and Purge are the object-store
+// side of the same rule (Task B3): Options.Artwork is an events.ObjectStore,
+// read-only from ui's own side (ui/art.go's handleArt calls only Get), but
+// the guard is syntactic (see this test's own doc comment below), so it
+// bans these names the same way it bans Update and Delete -- by selector,
+// not by receiver type -- in case a future change reaches for the
+// underlying jetstream.ObjectStore's write half instead of the read-only
+// events.ObjectStore this package is handed.
 var neverWriteSelectors = map[string]bool{
 	"Update":      true,
 	"Delete":      true,
 	"DeleteAllOf": true,
 	"Apply":       true,
+	"Put":         true,
+	"PutBytes":    true,
+	"UpdateMeta":  true,
+	"Seal":        true,
+	"AddLink":     true,
+	"Purge":       true,
 }
 
 // actionWriteSelectors are the two writes ui/actions exists to make --
@@ -290,6 +305,39 @@ func (f goFile) imports() []goImport {
 		out = append(out, goImport{path: path, line: f.fset.Position(imp.Pos()).Line})
 	}
 	return out
+}
+
+// TestNeverWriteSelectorsCatchObjectStoreWrites proves the object-store
+// names Task B3 added to neverWriteSelectors are not just declared but
+// actually recognised by the same selector-call extraction TestUINeverWrites
+// runs over every real file under ui/: a synthetic file that calls
+// store.Put -- the write half of events.ObjectStore, which ui/art.go's
+// handleArt must never reach, only Get -- is flagged exactly as
+// store.Update or store.Delete already are. Falsifying this the way
+// TestUINeverWrites' own "carve-out is real" subtest falsifies its allow
+// list: an unrecognised name here would make the guard above silently pass
+// a file that writes artwork.
+func TestNeverWriteSelectorsCatchObjectStoreWrites(t *testing.T) {
+	const src = `package ui
+
+func writeArt(store interface{ Put() }) {
+	store.Put()
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "synthetic_write.go", src, parser.SkipObjectResolution)
+	require.NoError(t, err)
+
+	f := goFile{path: "synthetic_write.go", fset: fset, file: file}
+	var caught bool
+	for _, c := range selectorCalls(f) {
+		if neverWriteSelectors[c.name] {
+			caught = true
+		}
+	}
+	require.True(t, caught,
+		"a synthetic file calling store.Put was not caught by neverWriteSelectors -- TestUINeverWrites "+
+			"would let a real file that writes to Options.Artwork through the same way")
 }
 
 // parseNonTestGoFiles parses every .go file under the current package
