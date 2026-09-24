@@ -458,12 +458,13 @@ func jobConfig(o Options) transcodejob.JobConfig {
 }
 
 // workerObservabilityArgs renders the root command's --log-* and
-// --tracing-* flags (pkg/obs/logging.BindFlags; cmd/clustarr's
-// bindObservabilityFlags) for a transcode Job's worker, so a Job pod logs in
-// the controller's format and level and exports its spans -- the
-// squasharr.worker.run and transcode.run (ffmpeg) spans -- to the same
-// collector. Only what differs from the flags' defaults is rendered.
-// TestWorkerObservabilityArgsParse holds the names to the flags.
+// --tracing-* flags (pkg/obs/obsflags.Bind, which both cmd/clustarr's
+// bindObservabilityFlags and cmd/squasharr-worker call) for a transcode
+// Job's worker, so a Job pod logs in the controller's format and level and
+// exports its spans -- the squasharr.worker.run and transcode.run (ffmpeg)
+// spans -- to the same collector. Only what differs from the flags'
+// defaults is rendered. TestWorkerObservabilityArgsParse holds the names to
+// the flags.
 func workerObservabilityArgs(lo logging.Options, to tracing.Options) []string {
 	var args []string
 	if lo.Level != 0 {

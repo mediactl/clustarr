@@ -19,8 +19,6 @@ package squasharr
 
 import (
 	"log/slog"
-	"os"
-	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -28,39 +26,37 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // A transcode Job's worker gets the controller's logging and tracing flags,
 // so its spans -- the ffmpeg run's among them -- reach the collector the
-// controller's do. The log flags are parsed by the real
-// logging.BindFlags; the tracing flags live in cmd/clustarr (package main),
-// so their names are checked against its source instead.
+// controller's do. Both are parsed back by the real pkg/obs/obsflags.Bind,
+// the same binder cmd/clustarr's subcommands and cmd/squasharr-worker use,
+// rather than by re-implementing a parser or grepping a source file for
+// flag names.
 func TestWorkerObservabilityArgsParse(t *testing.T) {
 	lo := logging.Options{Level: slog.LevelDebug, Format: "text", AddSource: true}
 	to := tracing.Options{Enabled: true, Endpoint: "otel-collector:4317", Insecure: true, SampleRatio: 0.25}
 	args := workerObservabilityArgs(lo, to)
 
-	var logArgs []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "--log-") {
-			logArgs = append(logArgs, a)
-		}
-	}
-	fs := pflag.NewFlagSet("worker", pflag.ContinueOnError)
-	var got logging.Options
-	logging.BindFlags(fs, &got)
-	require.NoError(t, fs.Parse(logArgs))
-	assert.Equal(t, lo, got, "the worker must parse back the controller's logging options")
-
 	assert.Subset(t, args, []string{
 		"--tracing-enabled", "--tracing-endpoint=otel-collector:4317", "--tracing-insecure", "--tracing-sample-ratio=0.25",
 	})
-	src, err := os.ReadFile("../cmd/clustarr/flags.go")
-	require.NoError(t, err)
-	for _, name := range []string{"tracing-enabled", "tracing-endpoint", "tracing-insecure", "tracing-sample-ratio"} {
-		assert.Contains(t, string(src), `"`+name+`"`, "cmd/clustarr no longer defines --%s", name)
-	}
+
+	fs := pflag.NewFlagSet("worker", pflag.ContinueOnError)
+	gotLo, gotTo := obsflags.Bind(fs)
+	require.NoError(t, fs.Parse(args))
+	assert.Equal(t, lo, *gotLo, "the worker must parse back the controller's logging options")
+	// tracing.Options carries ServiceName too, which no flag renders (it is
+	// set programmatically, e.g. cmd/squasharr-worker/main.go's
+	// to.ServiceName = "squasharr-worker"), so only the four fields the args
+	// actually carry are compared here rather than the whole struct.
+	assert.Equal(t, to.Enabled, gotTo.Enabled, "--tracing-enabled did not round-trip")
+	assert.Equal(t, to.Endpoint, gotTo.Endpoint, "--tracing-endpoint did not round-trip")
+	assert.Equal(t, to.Insecure, gotTo.Insecure, "--tracing-insecure did not round-trip")
+	assert.Equal(t, to.SampleRatio, gotTo.SampleRatio, "--tracing-sample-ratio did not round-trip")
 
 	// Defaults render nothing but the sample ratio, and no exporter.
 	quiet := workerObservabilityArgs(logging.Options{}, tracing.Options{SampleRatio: 1})
