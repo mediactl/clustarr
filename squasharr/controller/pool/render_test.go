@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -160,4 +161,21 @@ func TestRenderRefusesAPoolWithoutItsAppliedSpec(t *testing.T) {
 	_, err := Render(k, profile(), Want(profile(), k.Class, cfg), Desired{Parallelism: 1, Suspend: true}, &stored, cfg)
 	require.ErrorIs(t, err, ErrNoAppliedSpec)
 	assert.Contains(t, err.Error(), stored.Name)
+}
+
+// A TranscodeProfile name may be 253 characters; a label value only 63
+// (R19). The pool's name and every label it carries must stay valid.
+func TestALongProfileNameRendersValidLabels(t *testing.T) {
+	long := strings.Repeat("a", 60) + "." + strings.Repeat("b", 60) + ".uhd"
+	tp := profile()
+	tp.Name = long
+	k := Key{Profile: long, ProfileUID: "puid", Class: transcodev1alpha1.HardwareCPU}
+	j := rendered(t, k, tp, Desired{Parallelism: 1}, nil)
+	assert.Empty(t, validation.IsDNS1123Label(j.Name), "a Job name is a DNS-1123 label: %q", j.Name)
+	for key, v := range j.Labels {
+		assert.Empty(t, validation.IsValidLabelValue(v), "label %s=%q", key, v)
+	}
+	assert.Equal(t, ProfileLabelValue(long), j.Labels[LabelProfile])
+	assert.NotEqual(t, ProfileLabelValue(long), ProfileLabelValue(long+"x"), "distinct names keep distinct values")
+	assert.Equal(t, "hevc.uhd", ProfileLabelValue("hevc.uhd"), "a name that fits is its own value")
 }

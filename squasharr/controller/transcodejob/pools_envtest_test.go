@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,8 +35,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -353,9 +356,11 @@ func (r *capturingRecorder) take(reason string) []recordedEvent {
 // TestFailedPoolIsRecreatedWithBackoff is spec §7's Failed pool: it is
 // deleted with a Warning Event on its TranscodeProfile, recreated only once
 // its backoff has passed -- though its task is still queued -- and a second
-// failure soon after doubles the wait.
+// failure soon after doubles the wait. While it is failed or backing off,
+// admission sends it no new work (R20): a free slot of its class is not
+// spent on a task with no pool to run it.
 func TestFailedPoolIsRecreatedWithBackoff(t *testing.T) {
-	f := newDispatched(t, "tj-failed", map[string]int32{"cpu": 1})
+	f := newDispatched(t, "tj-failed", map[string]int32{"cpu": 2})
 	rec := &capturingRecorder{}
 	f.r.Recorder = rec
 	now := time.Now()
@@ -363,8 +368,13 @@ func TestFailedPoolIsRecreatedWithBackoff(t *testing.T) {
 
 	first := getPool(t, f.c, f.tp, "cpu")
 	setPoolFailed(t, f.c, first)
-	admitPass(t, f.r)
+	newMediaFile(t, f.c, f.ns, "b", "pb", ptr.To(h264Probe()))
+	newTJ(t, f.c, f.ns, "b-hevc", "b", "hevc", "pb", nil)
+	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	assert.True(t, poolGone(t, f.c, f.tp, "cpu"), "a Failed pool is deleted")
+	b := getTJ(t, f.c, f.ns, "b-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, b.Status.Phase, "a free slot, but the pool failed")
+	assert.Contains(t, b.Status.Message, "waiting for pool "+first.Name+" to recover: it failed at")
 	warned := rec.take(transcodejob.ReasonPoolFailed)
 	require.Len(t, warned, 1)
 	assert.Equal(t, corev1.EventTypeWarning, warned[0].eventType)
@@ -375,16 +385,21 @@ func TestFailedPoolIsRecreatedWithBackoff(t *testing.T) {
 	assert.Contains(t, warned[0].note, "1m0s")
 
 	now = now.Add(30 * time.Second)
-	admitPass(t, f.r)
+	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	assert.True(t, poolGone(t, f.c, f.tp, "cpu"), "inside the backoff nothing is created")
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, f.get(t).Status.Phase, "the task stays queued")
+	b = getTJ(t, f.c, f.ns, "b-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, b.Status.Phase, "nothing new goes to a pool in backoff")
+	assert.Zero(t, b.Status.Attempts)
+	assert.Contains(t, b.Status.Message, "is recreated at "+now.Add(30*time.Second).UTC().Format(time.RFC3339))
 
 	now = now.Add(31 * time.Second)
-	admitPass(t, f.r)
+	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	second := getPool(t, f.c, f.tp, "cpu")
 	assert.NotEqual(t, first.UID, second.UID)
 	assert.False(t, *second.Spec.Suspend)
-	assert.EqualValues(t, 1, *second.Spec.Parallelism)
+	assert.EqualValues(t, 2, *second.Spec.Parallelism, "the queued task and the one held for it")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, f.c, f.ns, "b-hevc").Status.Phase)
 
 	// It fails again soon after: the wait doubles.
 	setPoolFailed(t, f.c, second)
@@ -514,9 +529,10 @@ func TestAGateEnabledLaterDrainsAndRecreatesThePool(t *testing.T) {
 	assert.False(t, *fresh.Spec.Suspend)
 }
 
-// TestAPoolJobChangeWakesAdmission runs the real manager: a pool Job deleted
-// by hand while its task is queued is recreated by the pass the Job watch
-// wakes, not by the job's own requeue a minute later.
+// TestAPoolJobChangeWakesAdmission runs the real manager, its Job cache
+// restricted as squasharr's is: a pool Job deleted by hand while its task is
+// queued is recreated by the pass the Job watch wakes, not by the job's own
+// requeue a minute later.
 func TestAPoolJobChangeWakesAdmission(t *testing.T) {
 	cfg, c := startEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -526,6 +542,10 @@ func TestAPoolJobChangeWakesAdmission(t *testing.T) {
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
 		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+		// As squasharr's manager caches Jobs (R21): the pool Jobs alone.
+		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
+			&batchv1.Job{}: transcodejob.PoolJobCache("default"),
+		}},
 	})
 	require.NoError(t, err)
 	r := newReconciler(t, mgr.GetClient(), map[string]int32{"cpu": 1})
@@ -558,4 +578,61 @@ func TestAPoolJobChangeWakesAdmission(t *testing.T) {
 		var j batchv1.Job
 		return c.Get(ctx, poolKey(tp, "cpu"), &j) == nil && j.UID != first.UID
 	}, 10*time.Second, 100*time.Millisecond, "the Job watch wakes admission, which recreates the pool for its queued task")
+}
+
+// TestALongProfileNameGetsAWorkingPool is R19: a TranscodeProfile name may be
+// 253 characters, a label value 63. The pool's profile label is label-safe
+// and the pool is found by the name its profile's UID derives, never by
+// reading that label back -- so a 100-character profile gets a pool that is
+// created, sized and suspended like any other.
+func TestALongProfileNameGetsAWorkingPool(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-longname"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	name := strings.Repeat("h", 50) + "." + strings.Repeat("e", 49)
+	require.Len(t, name, 100)
+	tp := newProfile(t, c, name, "hash1", nil)
+	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "a-long", "a", name, "pa", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+
+	reconcileTJ(t, r, ns, "a-long")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, c, ns, "a-long").Status.Phase)
+	j := getPool(t, c, tp, "cpu")
+	assert.LessOrEqual(t, len(j.Name), 63)
+	for key, v := range j.Labels {
+		assert.Empty(t, validation.IsValidLabelValue(v), "label %s=%q", key, v)
+	}
+	assert.Equal(t, pool.ProfileLabelValue(name), j.Labels[pool.LabelProfile])
+	assert.False(t, *j.Spec.Suspend)
+
+	runToSuccess(t, r, c, ns, "a-long")
+	admitPass(t, r)
+	assert.True(t, *getPool(t, c, tp, "cpu").Spec.Suspend, "found by its name, the idle pool suspends")
+}
+
+// TestAPoolJobItDoesNotOwnHoldsItsWork is R22: a Job at a pool's name whose
+// controller owner reference is not the profile -- only an operator's edit
+// of its ownerReferences makes one, since pool.Name hashes the profile's
+// UID -- is neither applied to nor deleted, and the work for it is held
+// with a message that says what to do.
+func TestAPoolJobItDoesNotOwnHoldsItsWork(t *testing.T) {
+	f := newDispatched(t, "tj-foreign", map[string]int32{"cpu": 2})
+	ctx := context.Background()
+	j := getPool(t, f.c, f.tp, "cpu")
+	patch := client.MergeFrom(j.DeepCopy())
+	j.OwnerReferences = nil
+	require.NoError(t, f.c.Patch(ctx, j, patch))
+	rv := getPool(t, f.c, f.tp, "cpu").ResourceVersion
+
+	newMediaFile(t, f.c, f.ns, "b", "pb", ptr.To(h264Probe()))
+	newTJ(t, f.c, f.ns, "b-hevc", "b", "hevc", "pb", nil)
+	reconcileTJ(t, f.r, f.ns, "b-hevc")
+	b := getTJ(t, f.c, f.ns, "b-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, b.Status.Phase)
+	assert.Contains(t, b.Status.Message, j.Name)
+	assert.Contains(t, b.Status.Message, "owner reference")
+	assert.Contains(t, b.Status.Message, "delete the Job")
+	assert.Equal(t, rv, getPool(t, f.c, f.tp, "cpu").ResourceVersion, "a Job squasharr does not own is left alone")
 }

@@ -29,7 +29,10 @@ import (
 	"strconv"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -262,8 +265,19 @@ func (o Options) Validate() error {
 
 // ManagerOptions renders the controller-runtime options for this role without
 // contacting the cluster, so a test can assert them.
+//
+// The cache holds only the pool Jobs of batch/v1 Jobs
+// (transcodejob.PoolJobCache): the TranscodeJob controller watches them, and
+// nothing else in this process has any business with the cluster's other
+// Jobs. The flip side, which PoolJobCache documents: a Job read through the
+// cached client silently misses every Job that is not a pool.
 func (o Options) ManagerOptions() ctrl.Options {
-	return o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
+	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
+	if opts.Cache.ByObject == nil {
+		opts.Cache.ByObject = map[client.Object]cache.ByObject{}
+	}
+	opts.Cache.ByObject[&batchv1.Job{}] = transcodejob.PoolJobCache(o.Namespace)
+	return opts
 }
 
 // Run starts the manager and blocks until ctx is cancelled.

@@ -38,9 +38,11 @@ import (
 
 // Labels, annotations and defaults a rendered pool Job carries.
 const (
-	// LabelProfile is the TranscodeProfile name a pool renders. A label, not
-	// only an owner reference, so `kubectl get jobs -l ...` and the
-	// admission pass's listers can select by it directly.
+	// LabelProfile names the TranscodeProfile a pool renders, for
+	// `kubectl get jobs -l ...`. Its value is [ProfileLabelValue]: the name
+	// when it fits a label value, else a truncated, hashed form, so it
+	// cannot be read back as the name. What identifies a pool is its name
+	// ([Name], from the profile's UID) and its controller owner reference.
 	LabelProfile = "transcode.clustarr.io/profile"
 
 	// LabelTemplateHash is the immutable part's hash (see [Hash]): a
@@ -58,7 +60,19 @@ const (
 	BackoffLimit = int32(6)
 )
 
-// Name is a pool's Job name: readable where it fits, hashed where it does not.
+// ProfileLabelValue is a profile name as a label value. A TranscodeProfile
+// name is a DNS subdomain, up to 253 characters of which a label value may
+// hold 63 (R19): one that fits is itself; a longer one is its truncated
+// prefix and a hash of the whole name.
+func ProfileLabelValue(profile string) string {
+	if len(profile) <= k8s.MaxLabelValueLength {
+		return profile
+	}
+	return k8s.LabelSafeName(profile, profile)
+}
+
+// Name is a pool's Job name: readable where it fits, and always ending in a
+// hash of the profile's UID and the class, within 63 characters.
 func Name(k Key) string {
 	return k8s.LabelSafeName("squasharr-pool-"+k.Profile+"-"+string(k.Class), string(k.ProfileUID), string(k.Class))
 }
@@ -191,7 +205,7 @@ func Render(k Key, tp *transcodev1alpha1.TranscodeProfile, want Spec, d Desired,
 			Name: Name(k), Namespace: cfg.Namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "squasharr-worker",
-				LabelManagedBy: ManagedByValue, LabelHardware: string(k.Class), LabelProfile: k.Profile,
+				LabelManagedBy: ManagedByValue, LabelHardware: string(k.Class), LabelProfile: ProfileLabelValue(k.Profile),
 				LabelTemplateHash: Hash(spec),
 			},
 			Annotations: map[string]string{AnnotationAppliedTemplate: string(raw)},

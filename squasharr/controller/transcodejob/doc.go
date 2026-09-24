@@ -80,8 +80,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // scheduling on a cluster that now has it, and -- ruling R15 -- a pool Job
 // that lost its applied-template annotation). A Failed pool is deleted, a
 // Warning Event recorded on its TranscodeProfile, and recreated after a
-// backoff of 1m doubling to 30m. A watch on the pool Jobs runs the pass
-// that acts on each change.
+// backoff of 1m doubling to 30m; admission sends it no new work meanwhile,
+// nor to a pool whose Job an operator's edit left owned by something else.
+// A pool is found by its name, which its profile's UID and class derive,
+// never by its (label-safe) profile label. A watch on the pool Jobs, cached
+// alone (PoolJobCache), runs the pass that acts on each change.
 //
 // Running / Succeeded / Failed come from the pool workers' status events on
 // squasharr-transcode-results (results.go): claimed and progress move a job

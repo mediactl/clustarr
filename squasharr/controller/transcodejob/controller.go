@@ -482,8 +482,9 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 // paused, deleting or waiting out its nextAttemptAt competes, under
 // [Admit], for the slots the dispatched (Queued or Running) jobs leave free,
 // and each one admitted is dispatched. A job whose pool is draining for a
-// profile change is held out of the competition (pools.go, holding). Then
-// every pool is sized to the work dispatched to it (pools).
+// profile change, recovering from a failure, or held by a Job it does not
+// own is held out of the competition (pools.go, holding). Then every pool is
+// sized to the work dispatched to it (pools).
 //
 // TranscodeJobs are listed through Reader (uncached) so the count includes a
 // job the previous pass dispatched even if the informer has not caught up;
@@ -538,8 +539,8 @@ func (r *Reconciler) admit(ctx context.Context) error {
 				continue
 			}
 			class := r.classFor(tj, tp)
-			if k := poolKeyFor(tp, class); held[k] {
-				errs = append(errs, r.setHeldMessage(ctx, tj, holdMessage(k)))
+			if msg, ok := held[poolKeyFor(tp, class)]; ok {
+				errs = append(errs, r.setHeldMessage(ctx, tj, msg))
 				continue
 			}
 			slot := Slot{

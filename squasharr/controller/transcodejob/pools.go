@@ -29,8 +29,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -59,8 +61,9 @@ const heldPrefix = "waiting for pool "
 // delay is the wait that until was set with, so the next one can double it.
 // It is kept in memory: a restart forgets it, which only shortens one wait.
 type poolBackoff struct {
-	until time.Time
-	delay time.Duration
+	failedAt time.Time
+	until    time.Time
+	delay    time.Duration
 }
 
 // poolJobs lists every pool Job, by name, through the uncached reader: a
@@ -101,47 +104,88 @@ func (r *Reconciler) drift(cur *batchv1.Job, want pool.Spec) pool.Drift {
 	return pool.Classify(cur, want)
 }
 
+// poolClasses are the hardware classes a pool can be for: every class a
+// task is dispatched to (auto is resolved before dispatch).
+var poolClasses = []transcodev1alpha1.Hardware{
+	transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel,
+}
+
+// storedPools is the key of every pool Job of a current profile: the
+// profile's pool name for a class, found among stored. A pool is identified
+// by the name its profile's UID and class derive, never by reading its
+// labels back: the profile label is only label-safe, not the name
+// (pool.ProfileLabelValue). A Job of a deleted profile is none of these; it
+// goes with its owner, by garbage collection.
+func storedPools(stored map[string]*batchv1.Job, profiles map[string]*transcodev1alpha1.TranscodeProfile) map[pool.Key]*batchv1.Job {
+	out := map[pool.Key]*batchv1.Job{}
+	for _, tp := range profiles {
+		for _, class := range poolClasses {
+			k := poolKeyFor(tp, class)
+			if j, ok := stored[pool.Name(k)]; ok {
+				out[k] = j
+			}
+		}
+	}
+	return out
+}
+
 // holding is the set of pools admission dispatches nothing new to in this
-// pass (spec §7, "draining"): a pool whose template drifted while its pods
-// may still run must finish its dispatched work and suspend before the
-// change can land, and a new task would both keep it busy and run under the
-// old template. It is judged before admission, from the pools as they are
-// now, so the pass that first sees a profile edit already holds.
+// pass, each with the message its held jobs carry. It is judged before
+// admission, from the pools as they are now, so the pass that first sees a
+// change already holds. A pool is held while:
 //
-// A drifted pool that is suspended and stopped ([pool.Mutable]) is not
-// held: the apply after dispatch reshapes and resumes it in one, or it is
-// deleted and recreated for its work. Nor is a Failed pool, which is
-// recreated: its tasks wait on the queue meanwhile. A pool name held by a
-// Job another incarnation of the profile owns is held until garbage
-// collection has removed that Job.
+//   - its template drifted and its pods may still run (spec §7,
+//     "draining"): it must finish its dispatched work and suspend before the
+//     change can land, and a new task would both keep it busy and run under
+//     the old template. A drifted pool that is suspended and stopped
+//     ([pool.Mutable]) is not held: the apply after dispatch reshapes and
+//     resumes it in one, or it is deleted and recreated for its work.
+//   - it failed, or waits out the backoff before it is recreated (R20):
+//     without a pool, every task dispatched to it would take a slot of its
+//     class and wait, so a failing profile could hold every slot for as long
+//     as the backoff lasts. Its tasks already dispatched stay queued.
+//   - its name is taken by a Job whose controller owner is not this profile
+//     (R22). pool.Name hashes the profile's UID, so no other incarnation of
+//     the profile produces that name: only an edit of the Job's
+//     ownerReferences does, and squasharr neither adopts nor deletes a Job
+//     it does not own. The message tells the operator to delete it.
 //
-// Holding ends when the pool's dispatched jobs do, so it lasts as long as
-// the slowest of them.
-func (r *Reconciler) holding(stored map[string]*batchv1.Job, profiles map[string]*transcodev1alpha1.TranscodeProfile) map[pool.Key]bool {
-	held := map[pool.Key]bool{}
-	for name, j := range stored {
-		tp, ok := profiles[j.Labels[pool.LabelProfile]]
-		if !ok {
-			continue
-		}
-		k := poolKeyFor(tp, transcodev1alpha1.Hardware(j.Labels[pool.LabelHardware]))
-		if pool.Name(k) != name {
-			continue // not the current profile's pool of that class
-		}
-		switch {
-		case ownerProfileUID(j) != tp.UID:
-			held[k] = true
-		case pool.Failed(j) || pool.Mutable(j):
-		case r.drift(j, pool.Want(tp, k.Class, r.Pool)) != pool.DriftNone:
-			held[k] = true
+// A drain lasts as long as the pool's slowest dispatched job.
+func (r *Reconciler) holding(stored map[string]*batchv1.Job, profiles map[string]*transcodev1alpha1.TranscodeProfile) map[pool.Key]string {
+	held := map[pool.Key]string{}
+	for _, tp := range profiles {
+		for _, class := range poolClasses {
+			k := poolKeyFor(tp, class)
+			name := pool.Name(k)
+			j, ok := stored[name]
+			switch {
+			case !ok:
+				if b, ok := r.poolBackoff[name]; ok && !r.poolBackoffOver(name) {
+					held[k] = fmt.Sprintf("%s%s to recover: it failed at %s and is recreated at %s",
+						heldPrefix, name, b.failedAt.UTC().Format(time.RFC3339), b.until.UTC().Format(time.RFC3339))
+				}
+			case ownerProfileUID(j) != tp.UID:
+				held[k] = fmt.Sprintf("%s%s: that Job's controller owner reference is not TranscodeProfile %s (uid %s), "+
+					"so squasharr will not touch it; delete the Job and the pool is recreated", heldPrefix, name, tp.Name, tp.UID)
+			case pool.Failed(j):
+				held[k] = fmt.Sprintf("%s%s to recover: it failed at %s", heldPrefix, name, failedAt(j, r.now().Time).UTC().Format(time.RFC3339))
+			case pool.Mutable(j):
+			case r.drift(j, pool.Want(tp, class, r.Pool)) != pool.DriftNone:
+				held[k] = heldPrefix + name + " to drain before its profile change applies"
+			}
 		}
 	}
 	return held
 }
 
-// holdMessage is a held job's message.
-func holdMessage(k pool.Key) string {
-	return heldPrefix + pool.Name(k) + " to drain before its profile change applies"
+// failedAt is when j's Failed condition was set, or now when it says none.
+func failedAt(j *batchv1.Job, now time.Time) time.Time {
+	for _, c := range j.Status.Conditions {
+		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue && !c.LastTransitionTime.IsZero() {
+			return c.LastTransitionTime.Time
+		}
+	}
+	return now
 }
 
 // setHeldMessage records why admission passed tj over, or -- for a job it no
@@ -198,14 +242,8 @@ func (r *Reconciler) pools(ctx context.Context, stored map[string]*batchv1.Job,
 	if keys == nil {
 		keys = map[pool.Key]int32{}
 	}
-	for _, j := range stored { // a pool with no dispatched work still needs its suspend
-		if uid := ownerProfileUID(j); uid != "" {
-			k := pool.Key{
-				Profile: j.Labels[pool.LabelProfile], ProfileUID: uid,
-				Class: transcodev1alpha1.Hardware(j.Labels[pool.LabelHardware]),
-			}
-			keys[k] += 0
-		}
+	for k := range storedPools(stored, profiles) { // a pool with no dispatched work still needs its suspend
+		keys[k] += 0
 	}
 
 	var errs []error
@@ -219,8 +257,10 @@ func (r *Reconciler) pools(ctx context.Context, stored map[string]*batchv1.Job,
 		if cur == nil {
 			delete(r.recreate, name)
 		} else if uid := ownerProfileUID(cur); uid != k.ProfileUID {
-			log.InfoContext(ctx, "squasharr: a Job another owner holds has this pool's name; holding its work until it goes",
-				"pool", name, "ownerUID", uid)
+			// An operator's edit of its ownerReferences (see holding): not
+			// ours to apply to or delete. Its work is held, saying so.
+			log.WarnContext(ctx, "squasharr: the pool's Job is not owned by its TranscodeProfile; leaving it alone until it is deleted",
+				"pool", name, "profile", tp.Name, "ownerUID", uid)
 			continue
 		}
 		want := pool.Want(tp, k.Class, r.Pool)
@@ -297,7 +337,7 @@ func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.Trans
 		log.InfoContext(ctx, "squasharr: deleted pool for recreation", "pool", j.Name)
 		return nil
 	}
-	delay := r.backOffPool(j.Name)
+	delay := r.backOffPool(j.Name, failedAt(j, r.now().Time))
 	why := "it failed"
 	for _, c := range j.Status.Conditions {
 		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
@@ -312,16 +352,16 @@ func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.Trans
 	return nil
 }
 
-// backOffPool starts name's recreation backoff and returns its length: the
-// minimum, or double the last one when this failure follows the end of that
-// wait within poolBackoffMax.
-func (r *Reconciler) backOffPool(name string) time.Duration {
+// backOffPool starts name's recreation backoff for a failure at failed and
+// returns its length: the minimum, or double the last one when this failure
+// follows the end of that wait within poolBackoffMax.
+func (r *Reconciler) backOffPool(name string, failed time.Time) time.Duration {
 	now := r.now().Time
 	delay := poolBackoffMin
 	if prev, ok := r.poolBackoff[name]; ok && now.Sub(prev.until) < poolBackoffMax {
 		delay = min(prev.delay*2, poolBackoffMax)
 	}
-	r.poolBackoff[name] = poolBackoff{until: now.Add(delay), delay: delay}
+	r.poolBackoff[name] = poolBackoff{failedAt: failed, until: now.Add(delay), delay: delay}
 	return delay
 }
 
@@ -330,6 +370,24 @@ func (r *Reconciler) backOffPool(name string) time.Duration {
 func (r *Reconciler) poolBackoffOver(name string) bool {
 	b, ok := r.poolBackoff[name]
 	return !ok || !r.now().Time.Before(b.until)
+}
+
+// PoolJobCache is the one way squasharr's manager may cache batch/v1 Jobs
+// (R21): the pool Jobs alone -- those in namespace, the pools' own, labelled
+// managed-by=squasharr -- rather than every Job in the cluster. The pool Job
+// watch (SetupWithManager) is what needs the informer; the pools are read
+// through Reader (poolJobs), never the cache.
+//
+// A Job read through the cached client would therefore silently miss every
+// other Job: a restricted cache answers NotFound for an object it does not
+// hold, which is indistinguishable from a Job that does not exist. Read any
+// other Job through the APIReader, or widen this first.
+func PoolJobCache(namespace string) cache.ByObject {
+	b := cache.ByObject{Label: labels.SelectorFromSet(labels.Set{pool.LabelManagedBy: pool.ManagedByValue})}
+	if namespace != "" {
+		b.Namespaces = map[string]cache.Config{namespace: {}}
+	}
+	return b
 }
 
 // isPoolJob passes the Jobs squasharr's pools are.
