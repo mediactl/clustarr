@@ -47,7 +47,7 @@ func TestQueryRingKeyGoesThroughKVKeyToken(t *testing.T) {
 		"the query ring and the grab ring must not share a key")
 }
 
-// GrabRingKeyLike mirrors indexarr/download's key shape without importing a
+// GrabRingKeyLike mirrors app/indexer/download's key shape without importing a
 // sibling verb: the point of the assertion above is that the two suffixes
 // differ, not that this reimplements anything.
 func GrabRingKeyLike(uid string) string { return events.KVKeyToken(uid) + ".grab" }

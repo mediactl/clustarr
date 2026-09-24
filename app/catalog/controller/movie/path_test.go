@@ -29,7 +29,7 @@ import (
 )
 
 // TestPath's expected folder literal is the real Jellyfin preset output,
-// confirmed against testdata/naming/dialects.json's golden
+// confirmed against test/data/naming/dialects.json's golden
 // ("The Matrix (1999) [tmdbid-603]") rather than guessed: [tmdbid-<id>], not
 // Plex's {tmdb-<id>}.
 func TestPath(t *testing.T) {

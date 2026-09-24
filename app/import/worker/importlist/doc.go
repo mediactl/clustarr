@@ -40,19 +40,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # The status split
 //
 // This worker is never the writer of ImportList.status: k8s.ManagerImportarr
-// (the ImportList controller's field manager, importarr/controller/importlist)
+// (the ImportList controller's field manager, app/import/controller/importlist)
 // owns it in full, per that constant's own doc comment. Instead this worker
 // checkpoints its outcome -- Result, at ResultKey(uid) in the
 // clustarr-progress bucket -- for the controller to poll and project into
-// status, the same split importarr/worker/rescan uses against
-// importarr/controller/libraryscan for LibraryScan.status.
+// status, the same split app/import/worker/rescan uses against
+// app/import/controller/libraryscan for LibraryScan.status.
 //
 // Catalog writes are spec-only, under [FieldManager]
 // (k8s.ManagerImportarrWorker): this worker creates or updates a Movie or
 // Series' spec fields and unmonitors or deletes one spec.syncLevel decides
 // has fallen off the list, but it never touches MovieStatus or
 // SeriesStatus, both of which catalogarr owns in full. See FieldManager's
-// doc comment for why importarr/worker/rescan shares this same manager name
+// doc comment for why app/import/worker/rescan shares this same manager name
 // rather than getting its own, and why that is deliberate rather than the
 // hazard CLAUDE.md otherwise warns two writers sharing one manager name
 // into.
@@ -63,7 +63,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // clustarr-import-exclusions bucket (isExcluded, in sync.go) before it is
 // ever turned into a catalog write -- the same KV lookup contract
 // events.ExclusionEntry documents, and the reason the ImportExclusion
-// controller (importarr/controller/importexclusion) indexes that bucket in
+// controller (app/import/controller/importexclusion) indexes that bucket in
 // the first place rather than this worker listing every ImportExclusion
 // per candidate.
 //
@@ -71,7 +71,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The device-code handshake itself (minting and polling a user code) is
 // the ImportList controller's job, not this worker's -- see
-// importarr/controller/importlist's doc comment. This package's role is
+// app/import/controller/importlist's doc comment. This package's role is
 // narrower: [SecretTokenStore] persists the resulting access/refresh token
 // pair (and, in the controller, the in-flight device code) in an owned
 // Secret, so a token survives a pod restart the way
@@ -81,7 +81,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. importarr/run.go's setupWorkers does (task
+// Nothing here registers itself. app/import/run.go's setupWorkers does (task
 // G1-5), alongside the rescan and fileimport consumers, with exactly the
 // shape those two use:
 //

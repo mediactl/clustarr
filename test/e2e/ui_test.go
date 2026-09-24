@@ -52,11 +52,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the only route in this suite that produces a REAL MediaFile without
 // depending on D2's still-landing grab-to-download wiring. The Download is
 // created directly, in the shape
-// grabarr/controller/download/controller_envtest_test.go's own
+// app/grab/controller/download/controller_envtest_test.go's own
 // newTorrentDownload fixture uses (proven legal against the CRD's "release
 // identity is immutable" CEL rule): scenario 14 is about the UI's READ path,
 // and nothing in the tree creates a Download from a grab decision yet
-// (catalogarr/worker/search does not either), so there is no "real" grab
+// (app/catalog/worker/search does not either), so there is no "real" grab
 // flow to drive instead.
 //
 // `ui` is reached over a `kubectl port-forward` subprocess
@@ -259,7 +259,7 @@ func TestUIPipelineAndDownloadsPages(t *testing.T) {
 		phase, gated := waitForNonEmptyPhase(ctx, dl, uiPhaseGateTimeout)
 		if !gated {
 			t.Skip("grabarr's Download controller never advanced status.phase off its zero value within " +
-				uiPhaseGateTimeout.String() + ": D2 (grabarr/controller/download) is what writes it, and the " +
+				uiPhaseGateTimeout.String() + ": D2 (app/grab/controller/download) is what writes it, and the " +
 				"reaper/engine wiring that carries a Download past its first reconcile is still landing in this " +
 				"worktree as of Task D3-5 -- skipping rather than asserting on a signal that may not exist yet " +
 				"in the deployed image")
@@ -313,7 +313,7 @@ func requireNoUIManager(t *testing.T, kind string, obj client.Object) {
 
 // newUIDownload creates a Download targeting movie and registers its
 // cleanup. Protocol, Source and Release are the exact shape
-// grabarr/controller/download/controller_envtest_test.go's own
+// app/grab/controller/download/controller_envtest_test.go's own
 // newTorrentDownload fixture uses -- proven legal against
 // DownloadSource's magnetURL pattern, ReleaseInfo.InfoHash's 40-hex-char
 // pattern, and the "release identity is immutable" CEL rule (the rule that
@@ -340,7 +340,7 @@ func newUIDownload(ctx context.Context, t *testing.T, prefix string, movie *cata
 	}
 	// DownloadSpec.Target's own doc comment: "It is also the ownerReference
 	// of this Download." Nothing in the tree sets this automatically yet --
-	// catalogarr/worker/search does not create Downloads at all as of this
+	// app/catalog/worker/search does not create Downloads at all as of this
 	// task -- so the creator does what that comment says the real grab
 	// decision eventually will.
 	require.NoError(t, k8s.SetControllerReference(movie, dl, k8sClient.Scheme()))
@@ -754,7 +754,7 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 		t.Run("write action", func(t *testing.T) {
 			// A movie for the manual-assign target: FileRefFitsRoot requires
 			// the target's own kind (movie) to fit the scan's root folder
-			// kind (also movie) -- importarr/worker/rescan/doc.go's "Manual
+			// kind (also movie) -- app/import/worker/rescan/doc.go's "Manual
 			// assignment" section.
 			target := &catalogv1alpha1.Movie{
 				ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e14-unmatched-target"), Namespace: Namespace},

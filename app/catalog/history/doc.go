@@ -93,9 +93,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing in this package registers itself; catalogarr/run.go's RoleHistory
+// Nothing in this package registers itself; app/catalog/run.go's RoleHistory
 // branch (task G1-5) does that, the same way setupQueueWorkers wires
-// catalogarr/worker/rssmatcher:
+// app/catalog/worker/rssmatcher:
 //
 //	sink := history.NewSink(history.SinkDeps{Recorder: mgr.GetEventRecorder("catalogarr-history")})
 //	if err := sink.SetupWithManager(mgr, bus); err != nil { ... }

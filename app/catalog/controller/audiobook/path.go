@@ -63,7 +63,7 @@ func Path(rootPath string, folderOverride *string, engine naming.Engine, ctx nam
 // judgment call FileState's doc comment makes elsewhere in this package --
 // not spec-mandated, documented here so a future task can change it in one
 // place. AudiobookMetadata.Series is already a single SeriesLink (not a
-// list): catalogarr/metadata/patch.go's buildAudiobookMetadataAC collapses
+// list): app/catalog/metadata/patch.go's buildAudiobookMetadataAC collapses
 // the provider's series list onto it before this ever runs, so there is no
 // further selection to make here.
 func namingContext(spec catalogv1alpha1.AudiobookSpec, meta *catalogv1alpha1.AudiobookMetadata) naming.Context {

@@ -16,14 +16,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package cardigannstub serves a real Cardigann tracker page: a form login
-// (testdata/cardigann/login-form.yml's own shape, served from
+// (test/data/cardigann/login-form.yml's own shape, served from
 // login-form.html) and a search results page, matched exactly against how
 // pkg/cardigann/login.go's loginForm and pkg/cardigann/search.go's
 // searchOnePath parse them -- not a shape this package invented.
 //
 // login-form.yml (read directly by test/e2e as the IndexerDefinition's
 // spec.yaml; this package never parses it) is the "test fixture — form
-// login with a scraped CSRF token" definition under testdata/cardigann/,
+// login with a scraped CSRF token" definition under test/data/cardigann/,
 // chosen because it is the one bundled definition that exercises BOTH login
 // and search with nothing else in the way: 1337x.yml's search.paths use Go
 // template conditionals this fixture would have to reimplement pixel for
@@ -41,9 +41,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // test -- and GET /torrent/{name} (a
 // session-gated download target, reached only through indexarr's Torznab
 // facade -- GET /{indexer}/download -- never by pkg/cardigann.Engine.Download
-// itself, since indexarr/download's Fetcher is a separate, generic
+// itself, since app/indexer/download's Fetcher is a separate, generic
 // session-cookie fetch that never consults the definition's download:
-// block; see indexarr/download/doc.go, "The download URL is never
+// block; see app/indexer/download/doc.go, "The download URL is never
 // rewritten"). Both are served so scenario 10 (G4-1) can prove the session
 // carries all the way from login through a facade-mediated fetch.
 //
@@ -123,7 +123,7 @@ const browseHTMLTemplate = `<!DOCTYPE html><html><body><table>
 </table></body></html>`
 
 // NewHandler builds the stub. recordedDir holds login-form.html, copied
-// verbatim from testdata/cardigann (images/Dockerfile.e2e-fixtures COPYs it
+// verbatim from test/data/cardigann (images/Dockerfile.e2e-fixtures COPYs it
 // there at image-build time; local `go run` callers point --recorded-dir at
 // ../../testdata/cardigann instead).
 func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
@@ -213,7 +213,7 @@ func handleBrowse(logger *slog.Logger) http.HandlerFunc {
 // private tracker's download link. It is reached two ways in scenario 10 --
 // directly (expected 401, proving the gate is real) and through indexarr's
 // Torznab facade (GET /{indexer}/download), whose Fetcher carries the
-// Indexer's stored session cookie (indexarr/download/fetch.go's
+// Indexer's stored session cookie (app/indexer/download/fetch.go's
 // NewFetcherFor) and so is expected to succeed.
 func handleTorrent(logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

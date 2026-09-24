@@ -26,7 +26,7 @@ import (
 
 // destinationPath resolves the absolute library path a source file is
 // imported to: the RootFolder's own folder-resolution rule (mirroring
-// catalogarr/controller/movie.Path, which computes the same folder for
+// app/catalog/controller/movie.Path, which computes the same folder for
 // Movie.status.path) joined with the rendered file name and the source
 // file's own extension, then run through naming.SanitizePath -- the one
 // general-purpose sanitiser pkg/naming exports, which no per-kind renderer

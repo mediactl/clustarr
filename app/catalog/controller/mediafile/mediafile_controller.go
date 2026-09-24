@@ -70,7 +70,7 @@ import (
 // controller that a post-transcode file changed on disk: "<sizeBytes>@<RFC
 // 3339 mtime>" as the walk found it, applied under k8s.ManagerImportarr,
 // which owns nothing else on a MediaFile. It is the same key as
-// importarr/worker/rescan.AnnotationObservedFingerprint (a test holds the
+// app/import/worker/rescan.AnnotationObservedFingerprint (a test holds the
 // two equal; catalogarr does not import importarr to read one constant).
 //
 // This is the gap-fix X5a/X7a contract for "a transcoded file's bytes
@@ -542,7 +542,7 @@ func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaF
 
 // SetupWithManager registers the field indexes this controller's watches
 // need, then wires the For(MediaFile) controller plus the TranscodeJob and
-// SubtitleRequest watches §10 lists for it. The eventual catalogarr/run.go
+// SubtitleRequest watches §10 lists for it. The eventual app/catalog/run.go
 // integration calls it as:
 //
 //	return mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(),

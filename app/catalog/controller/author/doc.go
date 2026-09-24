@@ -41,7 +41,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     k8s.ManagerCatalogarrSeries, Comic under k8s.ManagerCatalogarrFanout.
 //   - Book, like Album, DOES carry its own status.metadata and its own
 //     MetadataReady condition (book_types.go), and independently refreshes
-//     it the same way Movie/Series/Author do: catalogarr/metadata/target.go's
+//     it the same way Movie/Series/Author do: app/catalog/metadata/target.go's
 //     externalIDs maps *catalogv1alpha1.Book to
 //     {pkgmetadata.KeyOpenLibraryWork: spec.workID}, and
 //     Registry.Lookup(kind=book) already serves that single-work fetch. A

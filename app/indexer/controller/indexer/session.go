@@ -43,7 +43,7 @@ const (
 	SessionSecretKeySession = "session"
 
 	// SessionSecretKeyCookie is the session's cookies as one Cookie header
-	// value. indexarr/download's generic fetcher already reads exactly this
+	// value. app/indexer/download's generic fetcher already reads exactly this
 	// key from status.sessionSecretRef, so a plain fetch of a
 	// definition-backed release carries the login too.
 	SessionSecretKeyCookie = "cookie"
@@ -61,7 +61,7 @@ func SessionKey(uid types.UID) string { return events.KVKeyToken(string(uid)) }
 //
 // Why both. The KV bucket is the design's session store. The Secret is what
 // survives a NATS wipe, what `kubectl` can inspect and delete to force a
-// re-login, and what indexarr/download's generic fetcher reads. Load prefers
+// re-login, and what app/indexer/download's generic fetcher reads. Load prefers
 // KV and falls back to the Secret, so a process wired without a bus still
 // logs in once and reuses the session.
 //

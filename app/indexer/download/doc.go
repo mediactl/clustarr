@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Status ownership
 //
 // This package writes Indexer.status as k8s.ManagerIndexarrWorker, through
-// indexarr/status.Patch and nothing else. Server-side apply REPLACES a field
+// app/indexer/status.Patch and nothing else. Server-side apply REPLACES a field
 // manager's ownership set on every apply rather than merging into it, so an
 // apply must declare all ten fields that manager owns even though this verb
 // changes one:
@@ -64,7 +64,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // WorkerFields emits it only when non-nil. Silently re-enabling an indexer
 // another writer just put into backoff is not a counter blip that heals, it
 // is the backoff undone until the tracker is hammered into failing again.
-// One Get per download closes the window, as indexarr/worker/rss does for
+// One Get per download closes the window, as app/indexer/worker/rss does for
 // its poll.
 //
 // # Grab accounting, both paths
@@ -100,13 +100,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // produce a 403 that reads like an auth failure. Credentials are applied only
 // as cookies on a per-origin jar, plus spec.timeout, the per-host limiter and
 // the redirect policy -- and through the Indexer's IndexerProxies
-// (indexarr/proxy), like every other request it makes.
+// (app/indexer/proxy), like every other request it makes.
 //
 // One consequence: an empty DownloadRequest.URL is a hard Error.
 // relindex.Query has no GUID field and ADR-0003 fixes the Store at four
 // methods, so indexarr cannot resolve a GUID to a URL. Carried item.
 //
-// # Wiring (Task D1-8, in indexarr/run.go)
+// # Wiring (Task D1-8, in app/indexer/run.go)
 //
 //	dl := &download.Service{Client: mgr.GetClient(), Bus: bus,
 //	    Fetch: download.NewFetcherFor(mgr.GetClient(), limiters)}
@@ -126,7 +126,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // This verb reads Indexer, reads the Secrets that hold the indexer's
 // credentials and its login session, and writes only the /status subresource.
-// Each pair is already declared by indexarr/status and by the Indexer
+// Each pair is already declared by app/indexer/status and by the Indexer
 // reconciler; they are restated here so the package's own needs survive
 // either of those moving, and controller-gen deduplicates them.
 //
@@ -161,6 +161,6 @@ import (
 
 // Handle must stay assignable to the search service's DownloadFn. The
 // signature is restated rather than imported: a named func type accepts a
-// plain func of the same signature, and importing indexarr/search would
+// plain func of the same signature, and importing app/indexer/search would
 // couple two packages that have no other reason to know about each other.
 var _ func(context.Context, schema.DownloadRequest) schema.DownloadResponse = (&Service{}).Handle

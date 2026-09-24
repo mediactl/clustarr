@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	// fixtureTmdbID is the movie testdata/metadata/tmdb records, and the one
+	// fixtureTmdbID is the movie test/data/metadata/tmdb records, and the one
 	// the in-cluster TMDB stub can answer for. It is Inception, not Fight
 	// Club: 27205 is Inception's TMDB id and pkg/metadata's own tests assert
 	// that title.
@@ -125,7 +125,7 @@ func TestLibraryRescan(t *testing.T) {
 	// these scenarios stayed green throughout; only the Series path noticed,
 	// because it needs status.metadata before it can resolve status.path.
 	// A title that can only have come from the stub's recorded JSON closes
-	// it: "Inception" is what testdata/metadata/tmdb/movie_27205.json holds
+	// it: "Inception" is what test/data/metadata/tmdb/movie_27205.json holds
 	// (27205 is Inception's TMDB id, not Fight Club's), and nothing on disk
 	// or in the CR carries that string.
 	//
@@ -236,7 +236,7 @@ func TestLibraryRescanUnmatchedAndSchedule(t *testing.T) {
 
 	finished := waitForScanCompleted(ctx, t, client.ObjectKeyFromObject(&second))
 	require.Equal(t, catalogv1alpha1.ScanModeIncremental, second.Spec.Mode,
-		"a scheduled scan is incremental (importarr/controller/rootfolderschedule)")
+		"a scheduled scan is incremental (app/import/controller/rootfolderschedule)")
 	require.GreaterOrEqual(t, finished.Status.FilesSeen, int64(2),
 		"the schedule-triggered scan must have walked the tree again")
 }

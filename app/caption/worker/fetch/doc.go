@@ -31,7 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // namespace's enabled SubtitleProviders the way Bazarr does (gap-fix ruling
 // R-4, [Worker.search]): every eligible provider is searched -- each
 // skipping an active throttle window and taking a token from its shared
-// bucket (captionarr/throttle) first -- every candidate is scored Bazarr's
+// bucket (app/caption/throttle) first -- every candidate is scored Bazarr's
 // way (pkg/subtitles CandidateMatches and Score), those below the profile's
 // minimum (or the upgrade's score+1) are dropped, and the rest are ranked
 // together, priority (or the profile's spec.providers order) breaking ties.
@@ -45,14 +45,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What it writes
 //
 // Only SubtitleRequest.status.items (ruling R1), under
-// k8s.ManagerCaptionarrWorker, through captionarr/status.PatchRequest --
+// k8s.ManagerCaptionarrWorker, through app/caption/status.PatchRequest --
 // every worker-owned leaf of every LIVE item, re-read immediately before the
 // apply (see [Worker.record] for why). The worker follows the item-liveness
-// protocol in captionarr/status.IsLive: it never creates an item, records
+// protocol in app/caption/status.IsLive: it never creates an item, records
 // nothing for a language the controller has stopped scheduling, and its
 // apply releases -- and so deletes -- every entry the controller withdrew. items[].path is the sidecar's name
 // RELATIVE to the media file's directory; catalogarr joins it
-// (catalogarr/controller/mediafile/sidecars.go) and projects the item into
+// (app/catalog/controller/mediafile/sidecars.go) and projects the item into
 // MediaFile.status.sidecars. Provider failures go to the shared
 // clustarr-provider-throttle KV bucket (ruling R2) -- never to
 // SubtitleProvider.status, which the provider controller alone projects.
@@ -100,7 +100,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The RBAC below is package-level so controller-gen collects it; the
 // provider builder's own (SubtitleProviders, Secrets) is on
-// captionarr/providerset. rootfolders is read for the sidecar's file mode
+// app/caption/providerset. rootfolders is read for the sidecar's file mode
 // ([Worker.sidecarModeFor]) through the manager's cached client, hence
 // list and watch.
 //

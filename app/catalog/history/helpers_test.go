@@ -31,7 +31,7 @@ import (
 
 // testMessage is the same minimal events.Message fake every other package in
 // this tree defines locally for handler tests (see e.g.
-// catalogarr/worker/grab/handler_envtest_test.go); there is no shared one to
+// app/catalog/worker/grab/handler_envtest_test.go); there is no shared one to
 // import.
 type testMessage struct {
 	env     *events.Envelope

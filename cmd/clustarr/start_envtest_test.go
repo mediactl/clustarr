@@ -119,7 +119,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	var facadeAddr string
 
 	// nvFake is the fake MusicBrainz, Open Library, ComicVine and Audnexus
-	// the catalogarr/all case's metadata gateway reaches; its prepare
+	// the app/catalog/all case's metadata gateway reaches; its prepare
 	// starts it, its verify reads what it was asked.
 	var nvFake *fakeMetadataProviders
 
@@ -146,8 +146,8 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// album, author, book, audiobook, comic, issue, mediafile, rootfolder,
 	// qualityprofile, delayprofile, metadataprovider, search) and
 	// importarr's (libraryscan, rootfolderschedule, importexclusion,
-	// importlist, fileimport-retrigger) are disjoint. Running catalogarr/all
-	// and importarr/all in this one binary is what proves that.
+	// importlist, fileimport-retrigger) are disjoint. Running app/catalog/all
+	// and app/import/all in this one binary is what proves that.
 	//
 	// The roles that register no named controller -- worker and metadata,
 	// whose consumers are manager Runnables -- can therefore run alongside
@@ -165,7 +165,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		verify func(t *testing.T)
 	}{
 		{
-			name: "catalogarr/worker",
+			name: "app/catalog/worker",
 			run: func(ctx context.Context, o k8s.Options) error {
 				d := catalogarr.DefaultOptions()
 				d.Options, d.Role = o, catalogarr.RoleWorker
@@ -175,7 +175,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			// running worker, not only built.
 			verify: func(t *testing.T) { verifyRedownload(t, natsURL) },
 		},
-		{name: "catalogarr/metadata", run: func(ctx context.Context, o k8s.Options) error {
+		{name: "app/catalog/metadata", run: func(ctx context.Context, o k8s.Options) error {
 			d := catalogarr.DefaultOptions()
 			d.Options, d.Role = o, catalogarr.RoleMetadata
 			return catalogarr.Run(ctx, d)
@@ -184,10 +184,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// the clustarr.io/replay handler, a controller per annotatable kind
 		// ("replay-movie", ...), and controller names are unique per
 		// process -- so, like every role with named controllers, it can run
-		// once per binary. catalogarr/all below is its superset and runs
+		// once per binary. app/catalog/all below is its superset and runs
 		// verifyHistory: the sink, the DLQ projector and the replay handler,
 		// each doing its first piece of work on the real bus.
-		{name: "importarr/worker", run: func(ctx context.Context, o k8s.Options) error {
+		{name: "app/import/worker", run: func(ctx context.Context, o k8s.Options) error {
 			d := importarr.DefaultOptions()
 			d.Options, d.Role = o, importarr.RoleWorker
 			// The worker roles gate readiness on a writable /data
@@ -206,18 +206,18 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		//
 		// The first version of the two engine cases used mgr.GetClient()
 		// for the pre-mgr.Start DownloadClient read, following
-		// grabarr/engine/usenet/doc.go's own prescribed wiring snippet
+		// app/grab/engine/usenet/doc.go's own prescribed wiring snippet
 		// literally -- and the torrent-engine case failed immediately with
 		// "the cache is not started, can not read objects": the cache-backed
 		// client does not lazily start the one informer such a read needs.
 		// Both setup functions now read through a client built straight
 		// against the apiserver instead (see [directClient]/GetAPIReader in
-		// grabarr/run.go). Without this table exercising the real Run path,
+		// app/grab/run.go). Without this table exercising the real Run path,
 		// that would have shipped as a doc-comment-verified but
 		// never-executed wiring snippet -- inert in the exact way this task
 		// exists to catch.
 		{
-			name: "grabarr/controller",
+			name: "app/grab/controller",
 			run: func(ctx context.Context, o k8s.Options) error {
 				d := grabarr.DefaultOptions()
 				d.Options = o
@@ -268,14 +268,14 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				})
 				if claim != "media-clustarr-data" {
 					t.Errorf("the engine StatefulSet mounts claim %q, want --data-claim's media-clustarr-data: "+
-						"grabarr/run.go did not pass Options.DataClaimName to the DownloadClient reconciler", claim)
+						"app/grab/run.go did not pass Options.DataClaimName to the DownloadClient reconciler", claim)
 				}
 				// X14: the engine pod runs as the account the installers
 				// bind, and gets the namespace and bus it needs to start.
 				pod := sts.Spec.Template.Spec
 				if pod.ServiceAccountName != "media-clustarr-grabarr-engine" {
 					t.Errorf("the engine pod runs as ServiceAccount %q, want --engine-service-account's "+
-						"media-clustarr-grabarr-engine: grabarr/run.go did not pass Options.EngineServiceAccount",
+						"media-clustarr-grabarr-engine: app/grab/run.go did not pass Options.EngineServiceAccount",
 						pod.ServiceAccountName)
 				}
 				env := map[string]corev1.EnvVar{}
@@ -295,7 +295,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			},
 		},
 		{
-			name: "grabarr/torrent-engine",
+			name: "app/grab/torrent-engine",
 			prepare: func(t *testing.T) {
 				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
 				if err != nil {
@@ -340,7 +340,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			},
 		},
 		{
-			name: "grabarr/usenet-engine",
+			name: "app/grab/usenet-engine",
 			prepare: func(t *testing.T) {
 				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
 				if err != nil {
@@ -400,7 +400,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// which starts no manager and serves no probes, and whose exit
 		// codes cmd/squasharr-worker's own tests hold to the process.
 		{
-			name: "squasharr/controller",
+			name: "app/squash/controller",
 			run: func(ctx context.Context, o k8s.Options) error {
 				d := squasharr.DefaultOptions()
 				d.Options = o
@@ -452,7 +452,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// is also what proves the subject, the consumer filter and the task
 		// schema line up across the two roles.
 		{
-			name: "captionarr/controller",
+			name: "app/caption/controller",
 			run: func(ctx context.Context, o k8s.Options) error {
 				d := captionarr.DefaultOptions()
 				d.Options, d.Role = o, captionarr.RoleController
@@ -462,7 +462,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			verify: func(t *testing.T) { verifyCaptionarrController(t, env.Config, captionData) },
 		},
 		{
-			name: "captionarr/worker",
+			name: "app/caption/worker",
 			run: func(ctx context.Context, o k8s.Options) error {
 				d := captionarr.DefaultOptions()
 				d.Options, d.Role = o, captionarr.RoleWorker
@@ -479,9 +479,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// controllers, the RSS consumer, three RPC verbs and the release
 		// index's retention sweep.
 		//
-		// catalogarr/all runs WITHOUT leader election, so its controllers
+		// app/catalog/all runs WITHOUT leader election, so its controllers
 		// actually start and the case proves registration end to end.
-		// importarr/all runs WITH it, and loses: the lease is pre-held by
+		// app/import/all runs WITH it, and loses: the lease is pre-held by
 		// another identity (see leaderElect below), which is the rollout
 		// scenario -- a surge pod coming up beside an incumbent that still
 		// owns the lease. Its /readyz must go green anyway. Before Task
@@ -492,14 +492,14 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// and passes vacuously, which is why that shipped.
 		//
 		// It is also the one case that can prove catalogarr's controllers
-		// WORK, for the same reason importarr/all is importarr's: controller
+		// WORK, for the same reason app/import/all is importarr's: controller
 		// names are unique per process. Plan task G2-5 needs exactly that for
 		// the seven non-video reconcilers G2-2 and G2-3 built and nothing
 		// registered, and their first work runs through the metadata gateway
 		// this role also starts -- so prepare points the gateway at fake
 		// providers before it builds its registry.
 		{
-			name: "catalogarr/all",
+			name: "app/catalog/all",
 			prepare: func(t *testing.T) {
 				nvFake = startFakeMetadataProviders(t)
 				prepareNonVideoCatalog(t, env.Config, nvFake)
@@ -523,7 +523,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// ImportList controller and list worker G1-3 built and nothing
 		// registered, as does plan task G2-5 for fileimport's Retrigger.
 		{
-			name: "importarr/all (non-leader)",
+			name: "app/import/all (non-leader)",
 			run: func(ctx context.Context, o k8s.Options) error {
 				d := importarr.DefaultOptions()
 				d.Options, d.Role = o, importarr.RoleAll
@@ -551,7 +551,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// in all.go. allServices is the production wiring, so deleting the
 		// `d.IndexPath = devIndexPath()` line fails this case.
 		{
-			name: "indexarr/all (as `clustarr all` builds it)",
+			name: "app/indexer/all (as `clustarr all` builds it)",
 			prepare: func(t *testing.T) {
 				// devIndexPath resolves through os.UserCacheDir, which reads
 				// XDG_CACHE_HOME on Linux and HOME elsewhere. Redirecting
@@ -636,7 +636,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		},
 	}
 
-	// The lease importarr/all must fail to acquire, held by another identity
+	// The lease app/import/all must fail to acquire, held by another identity
 	// for a day so the takeover can never happen inside the test.
 	holdLease(t, env.Config, "default", importarr.LeaderElectionID)
 
@@ -868,7 +868,7 @@ func allServiceRun(t *testing.T, name string) func(ctx context.Context, o k8s.Op
 // turning the event into an events.k8s.io Event on the CR it concerns, the
 // DLQ projector annotating the dead-lettered CR (ruling R1) with the
 // sequence to replay -- which it can name only with the DLQ reader
-// catalogarr/run.go hands it -- and the replay handler (X14) republishing
+// app/catalog/run.go hands it -- and the replay handler (X14) republishing
 // that dead letter when the CR is annotated clustarr.io/replay=<seq>.
 func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 	t.Helper()
@@ -945,12 +945,12 @@ func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 	}
 	// The annotation names whichever dead letter for this Movie came last.
 	// That is usually the one published above, but this runs beside the
-	// Movie controller and the metadata gateway (catalogarr/all), and with
+	// Movie controller and the metadata gateway (app/catalog/all), and with
 	// no TMDB provider configured the gateway dead-letters the Movie's own
 	// MetadataTask too -- a real dead letter, which resolves to the same
 	// Movie and proves the projector just as well. The sequence is what
 	// matters: the projector can name it only with the DLQ reader
-	// catalogarr/run.go hands it.
+	// app/catalog/run.go hands it.
 	var seq string
 	waitFor(t, "the DLQ projector to annotate the dead-lettered Movie with its sequence", func() bool {
 		var got catalogv1alpha1.Movie
@@ -997,7 +997,7 @@ func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 }
 
 // verifyRedownload proves spec §8.3's failed-Download consumer (gap fix Y3,
-// catalogarr/worker/redownload) runs in `catalogarr --role worker`: a lease
+// app/catalog/worker/redownload) runs in `catalogarr --role worker`: a lease
 // held by a Download is freed once grabarr's failed event for that Download
 // reaches the bus. The Movie does not exist, so the consumer frees the lease
 // and publishes no search -- the lease is its first observable piece of
@@ -1042,7 +1042,7 @@ func verifyRedownload(t *testing.T, natsURL string) {
 	})
 }
 
-// verifyImportList takes importarr/all from non-leader to leader and waits
+// verifyImportList takes app/import/all from non-leader to leader and waits
 // for the ImportList controller to schedule a sync (status.nextSyncAt) and
 // the list worker to consume it (its Result checkpoint in clustarr-progress).
 // The list points at a closed local port, so the sync fails at once and

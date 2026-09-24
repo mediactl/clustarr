@@ -33,7 +33,7 @@ import (
 var schemaJSON []byte
 
 // EmbeddedSchemaForTest exposes the embedded schema bytes for a test-only
-// byte-identity check against testdata/cardigann/schema-v11.json — the two
+// byte-identity check against test/data/cardigann/schema-v11.json — the two
 // must never drift, since //go:embed cannot reach outside this package
 // directory and therefore needs its own copy of the same file.
 func EmbeddedSchemaForTest() []byte { return schemaJSON }

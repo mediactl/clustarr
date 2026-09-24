@@ -68,7 +68,7 @@ func getList(t *testing.T, ctx context.Context, c client.Client, ns, name string
 
 // mediaDir returns a fresh directory under /data/media (RootFolderSpec.path's
 // CEL requires that prefix), skipping when it cannot be made -- the same
-// named skip importarr/worker/fileimport's dataDir uses.
+// named skip app/import/worker/fileimport's dataDir uses.
 func mediaDir(t *testing.T) string {
 	t.Helper()
 	prefix := "/data/media"

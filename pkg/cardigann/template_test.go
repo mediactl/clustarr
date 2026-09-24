@@ -81,7 +81,7 @@ func TestResolveSettingsCheckboxSentinelsRoundTripThroughEqTemplate(t *testing.T
 }
 
 // TestBalanceActionParensFixesTheReal1337xTypo loads the real, unmodifiable
-// testdata/cardigann/1337x.yml and proves balanceActionParens fixes the
+// test/data/cardigann/1337x.yml and proves balanceActionParens fixes the
 // genuine typo in its second search.paths entry (the TV page): a stray
 // extra ")" in `(eq .Config.disablesort .False))`. The fixed text's
 // occurrence of that shared action must come out byte-identical to the

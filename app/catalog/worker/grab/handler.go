@@ -60,7 +60,7 @@ type Handler struct {
 	// Topology is the bus topology this process installed --
 	// k8s.Options.BusTopology(), the value run.go hands k8s.EnsureTopology
 	// -- and Subscription looks the catalogarr-grab consumer up in it, as
-	// catalogarr/worker/search does for its two. Nil means
+	// app/catalog/worker/search does for its two. Nil means
 	// events.Default(), which is only correct while BusTopology's
 	// single-node collapse leaves consumers untouched; a caller that has
 	// the process's topology should always set it, so the consumer a
@@ -95,7 +95,7 @@ func (h *Handler) Subscription() events.Subscription {
 // when the manager stops, rather than leaking a context.Background()
 // subscription that outlives a graceful shutdown.
 //
-// This, with Topology set, is the ONLY registration catalogarr/run.go's
+// This, with Topology set, is the ONLY registration app/catalog/run.go's
 // setupQueueWorkers needs for the grab worker:
 //
 //	h := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus})

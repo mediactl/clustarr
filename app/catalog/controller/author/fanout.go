@@ -108,7 +108,7 @@ func InitialBookMonitored(mode catalogv1alpha1.AuthorMonitorMode, b metadata.Boo
 //
 // Absent data never excludes a work -- only data that IS present and fails
 // the check does. This matches artist.AlbumAccepted's own ReleaseStatuses
-// handling (catalogarr/controller/artist/fanout.go, `if len(alb.Releases) >
+// handling (app/catalog/controller/artist/fanout.go, `if len(alb.Releases) >
 // 0 { ... }`), the sibling controller's identical fix for the identical
 // class of gap (MusicBrainz never populating Album.Releases): an earlier
 // version of this function excluded on absence, which meant any Author with

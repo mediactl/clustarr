@@ -74,7 +74,7 @@ const ReasonSuspended = "Suspended"
 // reaches a worker at its next renewal; the purge removes a task no worker
 // has taken yet. Order matters: the marker is written first, so a worker
 // that fetched the task just before the purge still finds it cancelled when
-// it claims (squasharr/worker/lease.go's claim and renew).
+// it claims (app/squash/worker/lease.go's claim and renew).
 //
 // The purge needs no TranscodeProfile (ruling R23): tj.UID alone already
 // identifies the subject uniquely, so it is purged with a wildcard in the

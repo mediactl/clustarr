@@ -73,7 +73,7 @@ type ReAttachResult struct {
 // ReAttach loads every descriptor under [Engine.StateDir] and re-adds it
 // through [Engine.Client], then marks the engine ready. It must be called
 // exactly once, synchronously, before the engine accepts any other work --
-// see doc.go and grabarr/run.go:216 for why.
+// see doc.go and app/grab/run.go:216 for why.
 //
 // A single corrupt or unreadable descriptor is logged and skipped rather than
 // aborting the whole pass: one damaged sidecar must not strand every other
@@ -132,7 +132,7 @@ func (e *Engine) Ready() bool { return e.ready.Load() }
 
 // HealthzCheck is a controller-runtime healthz.Checker (func(*http.Request)
 // error) that fails until [Engine.Ready]. Wiring it into
-// k8s.AddProbes(mgr, ...)'s readyz set is D2-8's job (grabarr/run.go, outside
+// k8s.AddProbes(mgr, ...)'s readyz set is D2-8's job (app/grab/run.go, outside
 // this task's directory -- see the task instructions), but the check itself
 // lives here so that wiring is a one-line call once it happens.
 func (e *Engine) HealthzCheck(_ *http.Request) error {

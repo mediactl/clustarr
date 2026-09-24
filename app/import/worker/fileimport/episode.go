@@ -28,7 +28,7 @@ import (
 )
 
 // What this file knows about episode files, shared with
-// importarr/worker/rescan so the importer and the scanner attribute an
+// app/import/worker/rescan so the importer and the scanner attribute an
 // episode file the same way.
 
 // EpisodeCandidate is one existing Episode of a series, reduced to what

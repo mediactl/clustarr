@@ -30,7 +30,7 @@ import (
 // status.metadata.releaseDate, gateway-owned), so an unmonitored-but-
 // unreleased album simply reads Wanted like any other not-yet-imported one.
 // Deciding whether to search/grab an unreleased album at all is the search
-// worker's job (catalogarr/worker/search), which does not support non-video
+// worker's job (app/catalog/worker/search), which does not support non-video
 // kinds yet -- a separate subsystem this task's controllers do not touch,
 // unrelated to whether pkg/quality itself has a music ladder (it does; see
 // this package's reconciler.go doc comment).

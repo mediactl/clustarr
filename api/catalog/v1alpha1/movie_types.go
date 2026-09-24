@@ -51,7 +51,7 @@ const (
 //
 // Transcoded is Imported's twin for a file squasharr transcoded -- one that
 // carries the CLUSTARR_PROFILE tag, or that a transcode swap replaced
-// (catalogarr/controller/rollup.Transcoded). A transcoded file is the final
+// (app/catalog/controller/rollup.Transcoded). A transcoded file is the final
 // destination: it reads Transcoded where it would otherwise read Imported,
 // CutoffUnmet or CutoffUnevaluated, counts as meeting the cutoff (the
 // CutoffMet condition is True with reason Transcoded), is never selected by

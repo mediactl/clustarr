@@ -83,7 +83,7 @@ func TestRegistryLookupRejectsAnUnsupportedKind(t *testing.T) {
 // is deliberately absent from Lookup's switch, not merely unimplemented: see
 // Lookup's default-case comment for why ("first entity from the first
 // provider that succeeds" is the wrong shape for the list Issues(volumeID)
-// returns). catalogarr/metadata/rpc.go's lookupIssues is where Issue is
+// returns). app/catalog/metadata/rpc.go's lookupIssues is where Issue is
 // actually served.
 func TestRegistryLookupRejectsIssue(t *testing.T) {
 	reg := &metadata.Registry{}
@@ -183,7 +183,7 @@ func TestRegistryLookupBookUsesBookProviderBook(t *testing.T) {
 // alongside this task's new Album/Book cases: the pre-existing Audiobook
 // case hardcoded region "us" regardless of AudiobookSpec.Region, which task
 // G2-1 makes reachable for the first time by wiring Audiobook into
-// catalogarr/metadata's worker -- so it is fixed here rather than shipped as
+// app/catalog/metadata's worker -- so it is fixed here rather than shipped as
 // a newly-reachable bug. ids["region"] threads through exactly like
 // rpc.go's lookupEpisodes threads ids["order"].
 func TestRegistryLookupAudiobookThreadsTheRegionIDThrough(t *testing.T) {

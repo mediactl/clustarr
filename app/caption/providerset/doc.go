@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package providerset turns SubtitleProvider custom resources, and the
 // Secrets they reference, into pkg/subtitles.Provider clients.
 //
-// It is a separate package from captionarr/worker/fetch so that the
+// It is a separate package from app/caption/worker/fetch so that the
 // SubtitleProvider controller can validate a provider ([Validate]) with
 // exactly the checks the fetch worker's [Builder.Entry] runs before building
 // a client -- one switch over SubtitleProviderType, not two that drift.
@@ -56,7 +56,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Every client is built with a nil limiter (ruling R3: the provider
 // packages default none). The caller paces requests through the shared
-// clustarr-provider-throttle token bucket (captionarr/throttle.Acquire),
+// clustarr-provider-throttle token bucket (app/caption/throttle.Acquire),
 // keyed by [Entry.UID], so N worker replicas share one budget per
 // SubtitleProvider rather than each holding a private one.
 //

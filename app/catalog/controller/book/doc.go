@@ -49,7 +49,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // QualityProfileRef when unset, mirroring RootFolderRef's own inheritance
 // in resolveContext) and ranks the backing MediaFile's spec.quality against
 // it via rollup.FileState -- the same call Movie/Episode/Audiobook make --
-// exactly as G2-3's Audiobook controller does (catalogarr/controller/
+// exactly as G2-3's Audiobook controller does (app/catalog/controller/
 // audiobook/reconciler.go's resolveProfile, filestate.go). BookStatus has
 // no FileQuality/FileFormatScore leaf to store the resolved Quality in
 // (unlike Movie/Episode/Audiobook), only FileFormat (a string); filestate.go

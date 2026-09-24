@@ -50,7 +50,7 @@ func TestKbpsFromBitRate(t *testing.T) {
 }
 
 func TestContainerFromPath(t *testing.T) {
-	assert.Equal(t, "mp4", containerFromPath("testdata/mediainfo/sample_h264_8bit.mp4"))
+	assert.Equal(t, "mp4", containerFromPath("test/data/mediainfo/sample_h264_8bit.mp4"))
 	assert.Equal(t, "mkv", containerFromPath("/data/movies/Foo/Foo.MKV"))
 }
 

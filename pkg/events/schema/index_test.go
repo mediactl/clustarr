@@ -31,8 +31,8 @@ import (
 // INCOMPATIBLE change to an existing struct, and using an already-optional
 // field for data it always documented ("the free-text query") is not one.
 // This is a corrected, more specific claim than three places in this repo
-// used to make (indexarr/search/query.go's old "CARRIED ITEM" comment,
-// indexarr/search/doc.go and docs/superpowers/plans/2026-09-18-remaining-work.md's
+// used to make (app/indexer/search/query.go's old "CARRIED ITEM" comment,
+// app/indexer/search/doc.go and docs/superpowers/plans/2026-09-18-remaining-work.md's
 // carried item), which all said the frozen payload had "no field" for a
 // resolved title. It did.
 func TestSearchRequestSchemaStringUnchanged(t *testing.T) {

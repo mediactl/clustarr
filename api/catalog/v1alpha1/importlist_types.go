@@ -255,8 +255,8 @@ type DeviceAuth struct {
 //
 // A list may name only kinds its provider can yield (gap-fix ruling R-10):
 // such a list is refused at admission, not skipped at sync time. The table
-// is importarr/worker/importlist.YieldableKinds', and
-// importarr/controller/importlist's TestAdmissionMatchesYieldableKinds holds
+// is app/import/worker/importlist.YieldableKinds', and
+// app/import/controller/importlist's TestAdmissionMatchesYieldableKinds holds
 // the admission rules to it for every provider and kind.
 //
 // +kubebuilder:validation:XValidation:rule="!(has(self.trakt) || has(self.plex) || has(self.tmdb) || has(self.mdblist) || has(self.imdbCSV)) || self.kinds.all(k, k == 'movie' || k == 'series')",message="trakt, plex, tmdb, mdblist and imdbCSV lists yield only movie and series"

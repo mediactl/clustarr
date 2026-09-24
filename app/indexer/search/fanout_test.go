@@ -490,7 +490,7 @@ func TestAFailingStoreStillYieldsAnOKOutcome(t *testing.T) {
 
 // The index write and the query read must use ONE normaliser or the index
 // answers nothing -- silently, with an empty result set rather than an error.
-// indexarr/query reads with release.TitleNorm, so the rows must be written
+// app/indexer/query reads with release.TitleNorm, so the rows must be written
 // with it.
 func TestIndexRowsAreNormalisedWithTitleNorm(t *testing.T) {
 	idx := healthyIndexer("fast")

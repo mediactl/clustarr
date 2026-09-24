@@ -234,7 +234,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	if !stale {
 		// RefreshStateOngoing, not a bucket derived from c.Status.Metadata:
 		// ComicMetadata carries no run-status field to derive one from (see
-		// this package's doc.go and catalogarr/metadata/refreshstate.go's
+		// this package's doc.go and app/catalog/metadata/refreshstate.go's
 		// comicRefreshState, which the metadata worker uses on the FRESHLY
 		// FETCHED provider value it has and this reconciler does not). Both
 		// sides agree today because pkg/metadata/clients/comicvine.Client.
@@ -372,7 +372,7 @@ func reassertKnownStatus(statusAC *catalogac.ComicStatusApplyConfiguration, c *c
 }
 
 // syncIssues lists c's currently owned Issues, requests its issue list from
-// the metadata gateway (lookupIssues, catalogarr/metadata/rpc.go, task
+// the metadata gateway (lookupIssues, app/catalog/metadata/rpc.go, task
 // f665aa9), ensures each desired Issue exists with its provider-sourced
 // status fields, and returns the full (pre-fan-out) owned Issue list for the
 // IssueFileCount rollup -- self-correcting: a newly created Issue's own

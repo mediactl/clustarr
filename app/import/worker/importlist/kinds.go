@@ -64,7 +64,7 @@ var videoKinds = []commonv1.MediaKind{commonv1.MediaKindMovie, commonv1.MediaKin
 //   - custom is an arbitrary feed with no fixed schema, so any kind.
 //
 // ImportListSpec's R-10 CEL rules encode this same table, and
-// importarr/controller/importlist's TestAdmissionMatchesYieldableKinds holds
+// app/import/controller/importlist's TestAdmissionMatchesYieldableKinds holds
 // the two to each other for every provider and kind.
 func YieldableKinds(spec catalogv1alpha1.ImportListSpec) []commonv1.MediaKind {
 	switch {

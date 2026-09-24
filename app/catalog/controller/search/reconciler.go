@@ -269,7 +269,7 @@ func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
 // configuration field is omitempty), which is harmless here: status.grabbed is
 // listType=map, and server-side apply tracks an associative list per entry, so
 // declaring it empty would remove this manager's entries exactly as omitting it
-// does (catalogarr/controller/search's ownership envtests pin both). What
+// does (app/catalog/controller/search's ownership envtests pin both). What
 // protects the recorded grabs is newStatusUpdate copying the live
 // status.grabbed into every update, so the contents are re-declared rather
 // than merely re-claimed.
@@ -491,7 +491,7 @@ func workerFailure(s *catalogv1alpha1.Search) (string, bool) {
 // noQueryResponderRequeue is how long to wait before asking indexarr's
 // release index again when nothing answers clustarr.rpc.indexarr.query --
 // most often indexarr rolling, or not up yet. It mirrors
-// catalogarr/worker/search's own noRespondersRetryAfter for the same subject
+// app/catalog/worker/search's own noRespondersRetryAfter for the same subject
 // family, without reusing pkg/events.Retry: that helper drives a queue
 // consumer's nak/redelivery schedule, and this is a plain controller-runtime
 // Reconcile, which already gets a retry from a returned RequeueAfter.
@@ -507,8 +507,8 @@ const noQueryResponderRequeue = 15 * time.Second
 // search as blank. Deliberately not a valid DNS-1123 subdomain, so it can
 // never collide with a real Indexer's name in this listType=map keyed by
 // name -- the same trick WorkerOutcomeName uses in applyconfiguration.go,
-// and the same "_local-index" spelling indexarr/query's own metrics use for
-// the same reason (indexarr/query/service.go's localIndexLabel).
+// and the same "_local-index" spelling app/indexer/query's own metrics use for
+// the same reason (app/indexer/query/service.go's localIndexLabel).
 const QueryOutcomeName = "_local-index"
 
 // runQuery answers a free-text Search (spec.query) directly against
@@ -597,9 +597,9 @@ func (r *Reconciler) runQuery(ctx context.Context, s *catalogv1alpha1.Search) (c
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
 }
 
-// queryFilters translates the SearchSpec fields indexarr/query's filter
+// queryFilters translates the SearchSpec fields app/indexer/query's filter
 // vocabulary understands -- category and indexer, see
-// indexarr/query/filters.go's filterKeys -- into a QueryRequest.Filters map.
+// app/indexer/query/filters.go's filterKeys -- into a QueryRequest.Filters map.
 // spec.kinds has no counterpart there (query's filters are category,
 // indexer, protocol and since) and is left unfiltered rather than guessed
 // at; spec.protocol and spec.since have no SearchSpec field to read from.

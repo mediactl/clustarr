@@ -25,7 +25,7 @@ import (
 
 // DownloadOverlay maps rollup.DownloadOverlay's phase-independent verdict
 // onto EpisodePhase. The decision logic (which Download phases mean what)
-// lives once, in catalogarr/controller/rollup, per the C6 controller
+// lives once, in app/catalog/controller/rollup, per the C6 controller
 // amendment -- this is only the type translation, not a second copy of the
 // switch. See rollup.DownloadOverlay's doc comment for the mapping
 // rationale.

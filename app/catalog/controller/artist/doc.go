@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package artist implements the Artist controller: metadata staleness
 // (publishing a MetadataTask when the cache is missing or past its
 // RefreshTTL), path, and a thin Reconciler that fans an Artist out into
-// owned Album objects per spec §4.2, mirroring catalogarr/controller/series
+// owned Album objects per spec §4.2, mirroring app/catalog/controller/series
 // exactly (read that package first -- this one follows it, not the other
 // way around).
 //
@@ -32,7 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // objects it creates -- no k8s.ManagerCatalogarrFanout apply, no per-item
 // provider fields seeded at create time. That split is settled by G2-1
 // (commit f665aa9) and documented on buildAlbumMetadataAC
-// (catalogarr/metadata/patch.go): Artist's own release-group discovery call
+// (app/catalog/metadata/patch.go): Artist's own release-group discovery call
 // (ArtistProvider.Albums(mbArtistID), reached here via the
 // rpc.catalogarr.metadata.lookup RPC's lookupAlbums handler) and the
 // gateway's later per-item fetch (ArtistProvider.Album(mbReleaseGroupID))
@@ -54,5 +54,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // newly created Album then flows through the exact same
 // MetadataTask -> Handler -> ManagerCatalogarrMetadata pipeline as any
 // Movie, Series or Artist, driven by the Album reconciler's own staleness
-// check (catalogarr/controller/album), not by this package.
+// check (app/catalog/controller/album), not by this package.
 package artist

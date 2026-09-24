@@ -24,7 +24,7 @@ import (
 )
 
 // planItems decides which items this apply declares, under the item-liveness
-// protocol (captionarr/status.IsLive): every item returned is one this
+// protocol (app/caption/status.IsLive): every item returned is one this
 // controller wants, and the caller gives each a non-empty nextSearchAt before
 // the apply. It keeps every item for
 // a language the (override-filtered) profile still has -- re-adopting one an

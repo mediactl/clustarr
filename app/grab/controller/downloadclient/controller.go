@@ -53,7 +53,7 @@ import (
 
 // recheckInterval is how often a DownloadClient is re-reconciled with no spec
 // change or child-workload event to prompt it -- the same invented, documented
-// default catalogarr/controller/rootfolder uses for the same reason: DiskSpaceOK
+// default app/catalog/controller/rootfolder uses for the same reason: DiskSpaceOK
 // is a live filesystem fact that can change with nothing in the cluster telling
 // this controller so.
 const recheckInterval = 5 * time.Minute
@@ -100,7 +100,7 @@ type Reconciler struct {
 	// DataClaimName is the PersistentVolumeClaim every grabarr pod mounts at
 	// DataDir. The two installers do NOT agree on it: config/ names it
 	// "clustarr-data" (DefaultDataClaimName, which NewReconciler sets), while
-	// charts/clustarr names it "<release fullname>-data". grabarr/run.go
+	// charts/clustarr names it "<release fullname>-data". app/grab/run.go
 	// therefore always overwrites it from --data-claim ($CLUSTARR_DATA_CLAIM,
 	// which the chart sets); this field once claimed both installers used
 	// "clustarr-data", and under any release name but "clustarr" every
@@ -110,7 +110,7 @@ type Reconciler struct {
 	// Engine is what every engine pod needs from this controller's own
 	// process: its ServiceAccount, the bus, the umask (see EngineRuntime).
 	// NewReconciler sets Engine.ServiceAccountName to
-	// [DefaultEngineServiceAccount]; grabarr/run.go overwrites every field
+	// [DefaultEngineServiceAccount]; app/grab/run.go overwrites every field
 	// from its options and environment.
 	Engine EngineRuntime
 

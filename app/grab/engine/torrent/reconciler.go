@@ -154,7 +154,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	// The engine finalizer goes on before the transfer does, so no transfer
 	// ever exists for a Download that could be deleted without this engine
-	// hearing of it (ruling R-6; grabarr/engine's package doc). A write here
+	// hearing of it (ruling R-6; app/grab/engine's package doc). A write here
 	// does not end the reconcile -- pkg/k8s.EnsureFinalizer's "finalizer
 	// without early return".
 	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &dl, engine.Finalizer); err != nil {
@@ -334,7 +334,7 @@ func (r *Reconciler) sync(ctx context.Context, dl *downloadv1alpha1.Download, id
 		log.ErrorContext(ctx, "torrent: update persisted descriptor failed", "error", err)
 	}
 
-	// status.import is read-only here (R3, and grabarr/status's own doc):
+	// status.import is read-only here (R3, and app/grab/status's own doc):
 	// importarr's file-import worker (D2-7) is the only writer. Once it
 	// reports Imported, MarkImported releases this engine's claim on the
 	// files; CanMoveFiles/CanBeRemoved on the NEXT Get reflect that, which is
@@ -428,7 +428,7 @@ func (r *Reconciler) reconcileStopped(ctx context.Context, log *slog.Logger, dl 
 }
 
 // reconcileDeleting is this engine's half of the teardown protocol (ruling
-// R-6, grabarr/engine's package doc): remove dl's transfer from the client,
+// R-6, app/grab/engine's package doc): remove dl's transfer from the client,
 // drop the persisted re-attach descriptor, then drop [engine.Finalizer] --
 // in that order, so the Download controller's removeDataOnDelete finalizer,
 // which waits for this one, never deletes files this engine still holds
@@ -563,7 +563,7 @@ func (r *Reconciler) downloadClient(ctx context.Context, dl *downloadv1alpha1.Do
 }
 
 // removeOnImport is DownloadSpec.RemoveOnImport, restated for the in-memory
-// zero value the same way grabarr/controller/downloadclient.torrentReplicas
+// zero value the same way app/grab/controller/downloadclient.torrentReplicas
 // restates spec.replicas' floor: RemoveOnImport carries
 // +kubebuilder:default=true, which the apiserver's structural defaulting
 // applies to any object that reached it, but an object built directly in a
@@ -574,7 +574,7 @@ func removeOnImport(dl *downloadv1alpha1.Download) bool {
 
 // SetupWithManager registers the torrent engine's Download controller,
 // filtered to Downloads carrying downloadv1alpha1.LabelEngine == r.EngineID
-// via k8s.HasLabel -- the same §10 helper grabarr/engine/usenet's sibling
+// via k8s.HasLabel -- the same §10 helper app/grab/engine/usenet's sibling
 // reconciler uses for the identical filter. It intentionally applies no
 // k8s.GenerationChanged predicate on top, for the same reason usenet's
 // SetupWithManager gives: deletionTimestamp and status.import are both
@@ -583,7 +583,7 @@ func removeOnImport(dl *downloadv1alpha1.Download) bool {
 //
 // Wiring [Engine.ReAttach] to run before mgr.Start returns control, and
 // [Engine.HealthzCheck] into the manager's readyz set, is D2-8's job
-// (grabarr/run.go) -- see doc.go.
+// (app/grab/run.go) -- see doc.go.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("torrent-engine").

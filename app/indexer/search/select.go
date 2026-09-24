@@ -34,7 +34,7 @@ import (
 //
 // An Indexer the request did not ask for is NOT a candidate at all and
 // produces no outcome: the caller caps status.indexerOutcomes at 100 entries
-// and keeps the first of each name (catalogarr/worker/search/worker.go), so
+// and keeps the first of each name (app/catalog/worker/search/worker.go), so
 // two hundred "you did not ask for me" entries would push out the outcomes
 // that matter.
 type candidate struct {

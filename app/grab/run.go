@@ -299,7 +299,7 @@ func Run(ctx context.Context, o Options) error {
 	// An engine role must build its embedded download.Client and, for
 	// torrent, run [torrent.Engine.ReAttach] to completion -- both
 	// synchronously, before mgr.Start returns control -- and gate readyz on
-	// it (R4, grabarr/run.go's own long-standing TODO, closed here):
+	// it (R4, app/grab/run.go's own long-standing TODO, closed here):
 	// reporting ready before re-attach completes lets the Download
 	// controller hand this engine work it would then double-download. The
 	// usenet client re-attaches inside usenet.BuildClient itself
@@ -415,7 +415,7 @@ func setupEngine(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Option
 
 // splitEngineIdentity splits "<client>-<ordinal>" (grabarr.Options.Engine's
 // documented shape) into the DownloadClient name at the LAST hyphen, mirroring
-// grabarr/controller/downloadclient/workload.go's own encoding
+// app/grab/controller/downloadclient/workload.go's own encoding
 // ("${HOSTNAME##*-}" strips everything but the ordinal) -- the client name
 // itself may contain hyphens, so only the last separator is meaningful.
 // directClient builds a client.Client that talks to the apiserver directly,

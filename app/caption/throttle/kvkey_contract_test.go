@@ -47,7 +47,7 @@ import (
 // startServer boots an embedded JetStream server with its store under the
 // test's temporary directory, so the suite needs no external broker. Copied
 // verbatim from pkg/events/natsbus/natsbus_test.go and
-// indexarr/worker/rss/publish_test.go, which document the same duplication
+// app/indexer/worker/rss/publish_test.go, which document the same duplication
 // for the same reason.
 func startServer(t *testing.T) *natsserver.Server {
 	t.Helper()

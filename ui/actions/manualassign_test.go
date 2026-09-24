@@ -33,7 +33,7 @@ import (
 // TestAnnotationImportTargetMatchesFileimport pins actions.AnnotationImportTarget
 // to fileimport.AnnotationImportTarget's value, the same way
 // TestFieldManagerIsK8sManagerUI pins actions.FieldManager to
-// pkg/k8s.ManagerUI's -- ui/actions cannot import importarr/worker/fileimport
+// pkg/k8s.ManagerUI's -- ui/actions cannot import app/import/worker/fileimport
 // itself (ui/guard_test.go's import allowlist), so a _test.go file, which is
 // exempt, is what stops the two constants drifting apart.
 func TestAnnotationImportTargetMatchesFileimport(t *testing.T) {

@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The API is JSON:API ("Accept: application/vnd.api+json", no auth for
 // reads). The shapes are the live service's, captured 2026-09-23 into
-// testdata/metadata/kitsu: GET /mappings?filter[externalSite]=
+// test/data/metadata/kitsu: GET /mappings?filter[externalSite]=
 // &filter[externalId]=&include=item answers {"data":[{"attributes":
 // {"externalSite","externalId"},"relationships":{"item":{"data":{"type":
 // "anime"|"manga","id"}}}}],"meta":{"count"}}, and GET

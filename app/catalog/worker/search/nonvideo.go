@@ -220,7 +220,7 @@ type NonVideoItem struct {
 // creator's name and, when the item does not override it, its QualityProfile
 // live.
 //
-// It is exported so catalogarr/worker/rssmatcher decides a release for one
+// It is exported so app/catalog/worker/rssmatcher decides a release for one
 // of these items from exactly the input the search worker's snapshot does:
 // an RSS decision and a search decision about one item must agree on what it
 // is and what it already has. Any other kind is an error. A Get failure is

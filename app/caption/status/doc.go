@@ -69,7 +69,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // item ([IsLive]): that skip is the item-liveness protocol, and it is the
 // only way an entry two managers share can ever be removed. The caller's job
 // is to pass a freshly-read status, the same "seed and target must be fresh"
-// rule grabarr/status documents for Download.
+// rule app/grab/status documents for Download.
 //
 // langKey itself is the map key, so both managers send it on every item they
 // touch, for identification. That is a deliberate CO-OWNERSHIP, not a bug:
@@ -104,7 +104,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // .WithItems on an already-seeded configuration.
 //
 // Conditions is left unseeded on every one of the three status types for the
-// same reason grabarr/status and indexarr/status leave it unseeded: the
+// same reason app/grab/status and app/indexer/status leave it unseeded: the
 // generated WithConditions APPENDS, so a seeded set plus the caller's own set
 // is rejected outright with `duplicate entries for key [type="..."]`.
 // Conditions are set in exactly one place per apply -- the caller's mutate,

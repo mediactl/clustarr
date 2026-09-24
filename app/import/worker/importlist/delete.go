@@ -51,7 +51,7 @@ var ErrNoRecycleBin = errors.New("importlist: root folder has no recycle bin pat
 // (the list-sync clean-up calls DeleteMovie/DeleteSeries with deleteFiles),
 // whose file half goes through the recycle bin, never a bare unlink -- and
 // so does this: every file goes through fsops.Recycle into the item's
-// RootFolder spec.recycleBin.path, the same path importarr/worker/fileimport
+// RootFolder spec.recycleBin.path, the same path app/import/worker/fileimport
 // sends a replaced file down, where spec.recycleBin.cleanupDays governs how
 // long it stays.
 //

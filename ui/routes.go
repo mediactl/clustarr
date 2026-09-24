@@ -427,7 +427,7 @@ func (s *Server) handleUnmatched(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleManualAssign is the Unmatched page's "assign" action (Task G3-4,
-// mechanism from G2-4: importarr/worker/rescan/doc.go, "Manual
+// mechanism from G2-4: app/import/worker/rescan/doc.go, "Manual
 // assignment"): POST /unmatched/assign with "namespace", "rootFolder",
 // "subpath", "kind", "name" and "key" fields, one submitted by each row's
 // own form (views.manualAssignForm). It calls Options.Actions.ManualAssign

@@ -191,7 +191,7 @@ func filesOn(rel *pkgmetadata.AlbumRelease, files map[string]string) int {
 // +required and this list's own +listMapKey, so a blank id would collide
 // with every other dropped entry -- the same rule buildAlbumMetadataAC's
 // Releases loop and buildBookMetadataAC's Editions loop already apply
-// (catalogarr/metadata/patch.go). For the same reason a recording the
+// (app/catalog/metadata/patch.go). For the same reason a recording the
 // release lists twice -- the same audio on a CD and on the DVD beside it --
 // is kept once, at its first position: two entries with one key would make
 // the apiserver refuse the whole status apply.

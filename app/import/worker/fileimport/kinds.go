@@ -34,7 +34,7 @@ import (
 )
 
 // What this file knows about non-video files, shared with
-// importarr/worker/rescan so the importer and the scanner agree on what a
+// app/import/worker/rescan so the importer and the scanner agree on what a
 // music, book, audiobook or comic file is and on what quality one is frozen
 // with. Which extensions each kind's files have, and which sample and extras
 // rules apply to them, is pkg/fsops' (fsops.MediaExtensions, fsops.IsSample,
@@ -196,7 +196,7 @@ func FrozenFileQuality(
 // west of UTC a release dated 1 January 00:30 UTC reads as 31 December of the
 // year before -- a wrong year in a rendered folder name and a failed year
 // match during attribution. The same fix as
-// catalogarr/controller/audiobook/path.go's namingContext.
+// app/catalog/controller/audiobook/path.go's namingContext.
 func ReleaseYear(t *metav1.Time) int {
 	if t == nil || t.IsZero() {
 		return 0

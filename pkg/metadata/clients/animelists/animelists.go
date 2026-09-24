@@ -28,7 +28,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // "anilist_id", "mal_id", "kitsu_id", "tvdb_id", "imdb_id" (a list),
 // "themoviedb_id" ({"tv": n} or {"movie": [n...]}), "season" ({"tvdb",
 // "tmdb"}), "episode_offset" ({"tvdb","tmdb"})}, every field optional.
-// testdata/metadata/animelists holds 35 real entries.
+// test/data/metadata/animelists holds 35 real entries.
 //
 // AniDB, AniList, MAL and Kitsu ids name one entry each. A TVDB series
 // does not: AniDB (and so this list) files each season, OVA, special and

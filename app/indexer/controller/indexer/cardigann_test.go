@@ -206,7 +206,7 @@ func TestIndexersForDefinitionFollowsReplacedIDs(t *testing.T) {
 }
 
 // Every IndexerProxy type now yields a route rather than a refusal: socks4
-// through indexarr/proxy's own dialer and flaresolverr as the outer
+// through app/indexer/proxy's own dialer and flaresolverr as the outer
 // challenge-solving layer. Before, both were ErrProxyUnavailable.
 func TestEveryProxyTypeResolves(t *testing.T) {
 	for _, typ := range []indexv1alpha1.IndexerProxyType{

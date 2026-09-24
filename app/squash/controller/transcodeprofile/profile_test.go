@@ -252,7 +252,7 @@ func TestTranscodeJobNameTruncatesOnlyWhenOverLimit(t *testing.T) {
 
 func TestProfileTagMatchesTheMediafileControllerConvention(t *testing.T) {
 	// This exact "<name>@<hash>" shape is also rendered by
-	// catalogarr/controller/mediafile.transcodeProfileTag and by
+	// app/catalog/controller/mediafile.transcodeProfileTag and by
 	// pkg/transcode.Plan's own PlanResult.Tags["CLUSTARR_PROFILE"]. All three
 	// must agree byte for byte.
 	assert.Equal(t, "hevc-1080p@deadbeef", profileTag("hevc-1080p", "deadbeef"))

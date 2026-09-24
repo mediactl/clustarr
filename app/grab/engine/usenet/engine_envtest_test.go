@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // A double-claim against a field another manager owns does NOT surface as an
 // apiserver conflict: pkg/k8s.PatchStatus forces ownership unconditionally,
 // so an over-claim is silent everywhere except metadata.managedFields (CLAUDE.md;
-// grabarr/controller/downloadclient/managedfields_envtest_test.go is the
+// app/grab/controller/downloadclient/managedfields_envtest_test.go is the
 // pattern this file copies). This file reads managedFields directly wherever
 // that matters.
 package usenet_test

@@ -150,7 +150,7 @@ func newUsenetClient(t *testing.T, ctx context.Context, c client.Client, ns, nam
 }
 
 // markEngineReady patches dc's EngineReady condition directly under
-// k8s.ManagerGrabarr, standing in for what grabarr/controller/downloadclient's
+// k8s.ManagerGrabarr, standing in for what app/grab/controller/downloadclient's
 // own reconciler (D2-3, already landed) would have written.
 func markEngineReady(t *testing.T, ctx context.Context, c client.Client, ns, name string, ready bool) {
 	t.Helper()

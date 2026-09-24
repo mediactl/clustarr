@@ -42,8 +42,8 @@ import (
 // resolving, which is the correct outcome.
 //
 // Downloads and Searches are owned directly by the catalog item they
-// target: catalogarr/worker/grab/perform.go and
-// catalogarr/controller/search/reconciler.go both call
+// target: app/catalog/worker/grab/perform.go and
+// app/catalog/controller/search/reconciler.go both call
 // k8s.OwnerReferenceAC(owner, ...) against the resolved catalog item before
 // creating a Download, and that owner reference is what this index reads.
 // TranscodeJobs and SubtitleRequests are owned by the MediaFile they act on
@@ -53,7 +53,7 @@ import (
 // which MediaFile owns it, and mediaFileOwner in turn maps that MediaFile's
 // own owner UID to the catalog item.
 //
-// As of this task, importarr's MediaFile writer (importarr/worker/rescan)
+// As of this task, importarr's MediaFile writer (app/import/worker/rescan)
 // sets no OwnerReference on the MediaFiles it creates -- it links back only
 // through the Name-based spec.mediaRef, which this index deliberately does
 // not consult, for the same reason Download's Target field is not consulted

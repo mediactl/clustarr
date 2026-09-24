@@ -24,13 +24,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Task B2 (path ownership pkg/quality/ only) and is carried to Phase C as a
 // nice-to-decoding-path, not a blocker: this package's data/ is hand
 // authored, but every embedded Format's trash_id and regex is proven
-// byte-identical to the vendored corpus under testdata/trash/ by
+// byte-identical to the vendored corpus under test/data/trash/ by
 // parity_test.go's TestEveryEmbeddedFormatMatchesItsCorpusSource, so
 // generating catalogue_gen.go from the same corpus mechanically, later, is a
 // pure refactor. Until hack/gen-catalogue lands, this file go:embeds the
 // curated subset under data/: every custom format the 13 built-in profiles
 // actually reference, transcribed with real trash_ids, scores and regexes
-// from the vendored corpus (testdata/trash/docs/json/{radarr,sonarr}/cf) and
+// from the vendored corpus (test/data/trash/docs/json/{radarr,sonarr}/cf) and
 // cross-checked against docs/research/quality.md. When the generator lands,
 // data/ is deleted and this file's embed directives point at
 // catalogue_gen.go's output instead.

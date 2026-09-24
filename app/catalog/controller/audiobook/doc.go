@@ -18,14 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package audiobook implements the Audiobook controller: phase, naming and
 // the MediaFile/Download rollup as pure functions (Phase, Path,
 // FileState, DownloadOverlay), and a thin Reconciler around them, following
-// catalogarr/controller/movie -- task G2-3's assigned precedent for a leaf
+// app/catalog/controller/movie -- task G2-3's assigned precedent for a leaf
 // kind with no parent fan-out (spec §8.1, amendment-1 §A1.5).
 //
 // Audiobook differs from Movie in three ways this package encodes directly:
 //
 //   - it is keyed by spec.asin + spec.region against Audnexus rather than a
 //     single provider id, but that threading is entirely the metadata
-//     gateway's concern (catalogarr/metadata/target.go's externalIDs) -- this
+//     gateway's concern (app/catalog/metadata/target.go's externalIDs) -- this
 //     package only ever names the item by kind and reads whatever
 //     status.metadata the gateway already wrote.
 //   - AudiobookPhase has no Pending or Unavailable value (unlike MoviePhase):

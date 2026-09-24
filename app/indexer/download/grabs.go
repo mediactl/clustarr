@@ -134,7 +134,7 @@ func CountGrabAt(
 			// whole 2d TTL.
 			if uerr := json.Unmarshal(ent.Value, &ring); uerr != nil {
 				logging.FromContext(ctx).Warn(
-					"indexarr/download: replacing an undecodable grab ring",
+					"app/indexer/download: replacing an undecodable grab ring",
 					"indexer", idx.Name, "err", uerr)
 				ring = nil
 			}
@@ -172,6 +172,6 @@ func CountGrabAt(
 			return 0, false, err
 		}
 	}
-	return 0, false, fmt.Errorf("indexarr/download: grab ring CAS gave up after %d attempts: %w",
+	return 0, false, fmt.Errorf("app/indexer/download: grab ring CAS gave up after %d attempts: %w",
 		casAttempts, lastErr)
 }

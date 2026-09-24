@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // does not run a search, and does not register the definition into any live
 // indexer set. An Indexer that names this kind (spec.definitionRef, or a
 // bundled id this kind declares through spec.replaces or status.id) is
-// resolved and driven by indexarr/controller/indexer, which builds the
+// resolved and driven by app/indexer/controller/indexer, which builds the
 // engine, logs in, and hands it to the search fan-out, the RSS poll and the
 // download verb (plan task G1-1, wired by G1-5). Everything here is
 // parse-and-report against pkg/cardigann's two pure entry points, Validate
@@ -33,7 +33,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Wiring (Task D1-8)
 //
-// The exact call indexarr/run.go must make:
+// The exact call app/indexer/run.go must make:
 //
 //	if err := indexerdefinition.NewReconciler(
 //	    mgr.GetClient(),
@@ -48,7 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # The owned field set
 //
 // IndexerDefinition.status has exactly one writer, k8s.ManagerIndexarr, so the
-// two-manager split in indexarr/status (which covers Indexer, not this kind)
+// two-manager split in app/indexer/status (which covers Indexer, not this kind)
 // does not apply. What does apply is the rule that made that package
 // necessary: server-side apply REPLACES a field manager's ownership set on
 // every apply rather than merging into it, so a field this manager sent before
@@ -80,7 +80,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // carries enum [torrent, usenet] in the generated CRD, so sending "" is an
 // apiserver rejection rather than a no-op. Both are therefore omitted while
 // empty -- which only happens before the first successful parse. That is the
-// same rule indexarr/status states: the owned set may vary with the spec's
+// same rule app/indexer/status states: the owned set may vary with the spec's
 // SHAPE, never with a transient OUTCOME.
 //
 // # Values that deliberately go stale rather than reset

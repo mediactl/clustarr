@@ -31,9 +31,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Every failure fails CLOSED with [ErrUnavailable]: no path in this package
 // ever falls back to a direct connection when a proxy was meant to apply.
 //
-// It lives in its own package, not in indexarr/controller/indexer where the
-// proxyRef half used to be, because indexarr/download needs it too and that
-// controller imports indexarr/download: the generic download fetcher had no
+// It lives in its own package, not in app/indexer/controller/indexer where the
+// proxyRef half used to be, because app/indexer/download needs it too and that
+// controller imports app/indexer/download: the generic download fetcher had no
 // way to reach the proxy at all, and fetched every .torrent directly.
 //
 // The RBAC markers below are package-level, which is the only place

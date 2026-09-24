@@ -47,7 +47,7 @@ import (
 // connection. An operator names a proxy to keep the cluster's real address
 // away from a tracker; quietly bypassing it on a misconfiguration is the one
 // outcome worse than failing the request.
-var ErrUnavailable = errors.New("indexarr/proxy: indexer proxy unavailable")
+var ErrUnavailable = errors.New("app/indexer/proxy: indexer proxy unavailable")
 
 // Selection is the proxies that apply to one Indexer: at most one Route (an
 // http, socks4 or socks5 proxy the connection goes through) and at most one

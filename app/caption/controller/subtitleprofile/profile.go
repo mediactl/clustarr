@@ -33,7 +33,7 @@ import (
 // k8s.Reason* and the api package's SubtitleProfileConditionReady/Invalid.
 const (
 	// ConditionOverlap is a condition type this controller invented, mirroring
-	// squasharr/controller/transcodeprofile's identical ruling: "pick
+	// app/squash/controller/transcodeprofile's identical ruling: "pick
 	// deterministically, never create two requests, and surface it (a
 	// condition on the losing profile is reasonable)." Overlap=True never
 	// blocks a SubtitleRequest being ensured for the files this profile DOES

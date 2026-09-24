@@ -63,7 +63,7 @@ const (
 )
 
 // TraceParentEnv carries the W3C traceparent of the controller span that
-// created the Job (squasharr/controller/transcodejob), so the worker's spans
+// created the Job (app/squash/controller/transcodejob), so the worker's spans
 // join that trace ([ContextWithTraceParent]).
 const TraceParentEnv = "CLUSTARR_TRACEPARENT"
 

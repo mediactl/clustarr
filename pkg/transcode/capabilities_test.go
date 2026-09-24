@@ -29,7 +29,7 @@ import (
 
 func TestParseCapabilitiesFindsOurFourTiersInARealFfmpegEncodersDump(t *testing.T) {
 	// Go tests run with the package directory as CWD, so the repo-root
-	// testdata/transcode/ fixture tree is reached via ../../.
+	// test/data/transcode/ fixture tree is reached via ../../.
 	b, err := os.ReadFile("../../test/data/transcode/fixtures/ffmpeg-encoders.txt")
 	require.NoError(t, err)
 

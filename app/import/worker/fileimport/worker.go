@@ -49,7 +49,7 @@ import (
 )
 
 // heartbeatInterval is how often the file loop sends an in-progress ack,
-// following importarr/worker/rescan's identical reasoning: ConsumerImportFile's
+// following app/import/worker/rescan's identical reasoning: ConsumerImportFile's
 // AckWait is 60s (topology.go, R6) and a multi-file hardlink-or-copy import
 // can outlast it, so this worker heartbeats rather than ask for a longer
 // AckWait than the worker Deployment's terminationGracePeriodSeconds allows.
@@ -57,7 +57,7 @@ const heartbeatInterval = 20 * time.Second
 
 // FieldManager is the server-side-apply field manager this worker uses for
 // the resource it creates: MediaFile. It is k8s.ManagerImportarrWorker, the
-// same constant importarr/worker/rescan uses and for the same reason -- see
+// same constant app/import/worker/rescan uses and for the same reason -- see
 // that package's FieldManager doc comment for the full rationale (two
 // importarr writers must never share one manager name on one object type).
 //
@@ -141,7 +141,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
 	// Extract before Start, so this span continues the trace of whatever
 	// published the ImportTask rather than beginning a new one, matching
-	// catalogarr/worker/grab's pattern.
+	// app/catalog/worker/grab's pattern.
 	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "fileimport.Worker.Handle")
 	defer span.End()
@@ -518,7 +518,7 @@ func (w *Worker) recordDedup(ctx context.Context, dl *downloadv1alpha1.Download,
 }
 
 // beat extends the delivery's ack deadline when heartbeatInterval has
-// elapsed, mirroring importarr/worker/rescan.Worker.beat.
+// elapsed, mirroring app/import/worker/rescan.Worker.beat.
 func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) error {
 	now := w.now()
 	if !last.IsZero() && now.Sub(*last) < heartbeatInterval {

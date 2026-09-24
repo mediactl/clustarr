@@ -73,8 +73,8 @@ func PostProcessFromSpec(pp *downloadv1alpha1.PostProcessSpec) usenetclient.Post
 }
 
 // readSecret fetches ref's Secret in ns and returns its Data, the same
-// get-by-name shape indexarr/controller/indexer.readSecret and
-// indexarr/download.readSecretData use for the same reason: a targeted Get,
+// get-by-name shape app/indexer/controller/indexer.readSecret and
+// app/indexer/download.readSecretData use for the same reason: a targeted Get,
 // not a List, is all a single named SecretRef ever needs.
 func readSecret(ctx context.Context, c client.Client, ns string, ref corev1.LocalObjectReference) (map[string][]byte, error) {
 	var s corev1.Secret

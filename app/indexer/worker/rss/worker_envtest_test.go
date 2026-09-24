@@ -171,7 +171,7 @@ func TestFailedPollKeepsTheRssFieldsItDidNotChange(t *testing.T) {
 // image, and it is why the escalation's pointer fields are ASSIGNED onto the
 // apply configuration instead of set through the generated With* helpers.
 //
-// indexarr/status.WorkerFields seeds the apply from the LIVE status, so
+// app/indexer/status.WorkerFields seeds the apply from the LIVE status, so
 // disabledUntil, lastFailureAt and initialFailureAt all arrive pre-set. A
 // writer that only ever added to that seed could never clear them, and a
 // recovered indexer would stay disabled until something else rewrote the
@@ -620,7 +620,7 @@ func TestAConcurrentWorkerWriteSurvivesALongPoll(t *testing.T) {
 // counterValue reads a single-series counter without pulling in
 // prometheus/client_golang/prometheus/testutil, which needs a module that is
 // in go.sum but not declared in go.mod -- and go.mod is not this task's to
-// touch. Same approach as catalogarr/metadata's own metric assertions.
+// touch. Same approach as app/catalog/metadata's own metric assertions.
 func counterValue(t *testing.T, c prometheus.Counter) float64 {
 	t.Helper()
 	var m dto.Metric

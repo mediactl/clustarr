@@ -177,7 +177,7 @@ var funcMap = template.FuncMap{
 // C# expression evaluator evidently tolerates it, since this file is a
 // real, in-use definition. Retrying against the paren-balanced text is
 // this package's only way to still search all four of 1337x's paths
-// without editing testdata/cardigann/1337x.yml, which Task B0 seeded and
+// without editing test/data/cardigann/1337x.yml, which Task B0 seeded and
 // this task may not modify.
 func render(tmplText string, tc *TemplateContext) (string, error) {
 	return renderModified(tmplText, tc, nil)

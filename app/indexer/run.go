@@ -174,11 +174,11 @@ type Options struct {
 	// directory of definition YAML files, such as hack/sync-cardigann
 	// writes, mounted into the pod. When set it replaces the embedded corpus
 	// entirely, so an operator can pin or trim the definitions. See
-	// indexarr/bundle.
+	// app/indexer/bundle.
 	CardigannDefinitionsDir string
 
 	// CardigannBundled loads the corpus compiled into the binary
-	// (indexarr/bundle/embedded, --cardigann-bundled) when
+	// (app/indexer/bundle/embedded, --cardigann-bundled) when
 	// CardigannDefinitionsDir is empty. The CLI defaults it on; the zero
 	// value, which Go callers such as tests get, loads nothing.
 	CardigannBundled bool
@@ -425,7 +425,7 @@ func Run(ctx context.Context, o Options) error {
 // not travel through the Kubernetes Service at all, so whether this pod is in
 // the Service's endpoints has no bearing on whether a responder exists. A
 // gate would delay `kubectl rollout status` and prevent not one
-// events.ErrNoResponders. catalogarr/worker/search's busSearchRPC already
+// events.ErrNoResponders. app/catalog/worker/search's busSearchRPC already
 // turns that error into a 15s retry (§8.8), which covers a rollout, an
 // unscheduled pod and a NATS partition alike.
 //
@@ -544,7 +544,7 @@ func IndexReadyChecker(store relindex.Store) healthz.Checker {
 // The Cardigann login and the owned session Secret (plan task G1-1) live
 // inside the Indexer reconciler, which NewReconciler wires to the bus's
 // clustarr-indexer-sessions bucket. Proxy routing -- spec.proxyRef and every
-// IndexerProxy whose spec.selector matches the Indexer -- is indexarr/proxy's,
+// IndexerProxy whose spec.selector matches the Indexer -- is app/indexer/proxy's,
 // applied by the one client builder every path shares and by the download
 // fetcher, not by the IndexerProxy reconciler, which only probes reachability.
 func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientCache) error {
@@ -599,7 +599,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 // X8a built cardigann.LoadBundle and left its consumer to the wiring). It
 // applies every definition the bundle accepts as a labelled
 // IndexerDefinition, once, after the caches sync, and leaves any same-named
-// IndexerDefinition that is not the bundle's alone (see indexarr/bundle). A
+// IndexerDefinition that is not the bundle's alone (see app/indexer/bundle). A
 // bundle directory that cannot be read stops the manager: the operator asked
 // for definitions that are not there.
 func setupBundle(mgr ctrl.Manager, o Options) error {
@@ -641,7 +641,7 @@ func setupWorkers(
 ) (verbs, error) {
 	c := mgr.GetClient()
 
-	// indexarr/download's doc.go documents this construction verbatim.
+	// app/indexer/download's doc.go documents this construction verbatim.
 	//
 	// Definitions is the Cardigann half (plan task G1-1). Without it,
 	// Service.Handle REFUSES every grab from a spec.definition or

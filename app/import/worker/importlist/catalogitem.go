@@ -39,7 +39,7 @@ import (
 // this name when it creates the Movie a scanned file is attributed to" --
 // this package is the "list" co-owner that same comment anticipates.
 //
-// Sharing one manager name with importarr/worker/rescan is deliberate, not
+// Sharing one manager name with app/import/worker/rescan is deliberate, not
 // an oversight: a movie already in the library (created by a scan) that
 // also appears on a followed list, and a movie a list adds that a later
 // scan finds a file for, are the SAME Movie object under
@@ -95,7 +95,7 @@ func mapMonitorNewItems(mode catalogv1alpha1.MonitorNewItemsMode) catalogv1alpha
 }
 
 // movieName is the deterministic name a Movie for tmdbID gets, matching
-// importarr/worker/rescan's own naming exactly (k8s.ChildName hashes
+// app/import/worker/rescan's own naming exactly (k8s.ChildName hashes
 // "movie"+tmdbID, not title) so a list sync and a library scan that
 // identify the same film always agree on one object.
 func movieName(title string, tmdbID int64) string {

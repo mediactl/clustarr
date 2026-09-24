@@ -66,7 +66,7 @@ func (m testMessage) Term(context.Context, string) error       { return nil }
 func (m testMessage) InProgress(context.Context) error         { return nil }
 
 // recordingSink captures what the worker hands to the automatic grab path. Its
-// method set is search.Sink, which is catalogarr/worker/grab.Sink's verbatim.
+// method set is search.Sink, which is app/catalog/worker/grab.Sink's verbatim.
 type recordingSink struct {
 	mu         sync.Mutex
 	namespaces []string
@@ -345,7 +345,7 @@ func TestWorkerHandleDeliversNonInteractiveResultsToTheSink(t *testing.T) {
 }
 
 // TestWorkerHandleHandsARedownloadSearchsGrabSourceToTheSink: a search that
-// catalogarr/worker/redownload published for a failed Download (spec §8.3)
+// app/catalog/worker/redownload published for a failed Download (spec §8.3)
 // must lead to a grab recorded as grabbedBy=redownload -- DownloadSpec's
 // enum value that had no producer until then.
 func TestWorkerHandleHandsARedownloadSearchsGrabSourceToTheSink(t *testing.T) {

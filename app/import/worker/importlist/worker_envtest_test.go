@@ -173,7 +173,7 @@ func TestHandleRespectsAnImportExclusion(t *testing.T) {
 	serveTmdbResolve(t, bus, "tmdb", "603")
 
 	// The exclusion index is normally maintained by
-	// importarr/controller/importexclusion; this test writes the KV entry
+	// app/import/controller/importexclusion; this test writes the KV entry
 	// directly, the same lookup contract events.ExclusionEntry documents,
 	// so it does not need that controller running to prove this worker
 	// consults the bucket.

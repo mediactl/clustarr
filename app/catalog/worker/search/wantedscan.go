@@ -42,7 +42,7 @@ import (
 // The split is spec §5's: wantedcron publishes ONE message per namespace onto
 // clustarr.work.catalogarr.wantedscan.low.<namespace>, which the
 // catalogarr-search-normal consumer already filters, and the search worker
-// fans it out. catalogarr/controller/wantedcron/doc.go states the same
+// fans it out. app/catalog/controller/wantedcron/doc.go states the same
 // contract from the other side; §6.1's per-item backoff therefore runs here,
 // against wantedcron's own exported Backoff/NextEligible/Eligible so the two
 // halves cannot drift.

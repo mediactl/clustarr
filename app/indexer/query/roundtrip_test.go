@@ -38,7 +38,7 @@ import (
 // Nothing inside pkg/relindex can catch a mismatch from the inside, and the
 // symptom is silence rather than an error.
 //
-// An earlier version of this guard grepped indexarr/worker/rss/worker.go for
+// An earlier version of this guard grepped app/indexer/worker/rss/worker.go for
 // the spelling `release.CleanTitle(` (the normaliser both sides used before
 // release.TitleNorm replaced it). That pinned a string in a file rather
 // than a behaviour: it passed when the real assignment was swapped for
@@ -50,15 +50,15 @@ import (
 // because these tests took over its role -- they do not, and an earlier
 // version of this comment implied they did. The helper below hardcodes
 // TitleNorm: release.TitleNorm(title) in this package and references nothing
-// in indexarr/worker/rss, so if the worker started writing TitleNorm some
+// in app/indexer/worker/rss, so if the worker started writing TitleNorm some
 // other way, every test in this file would still pass. What catches that is
-// indexarr/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn
+// app/indexer/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn
 // (worker_test.go), which asserts the row the worker actually builds. The two
 // sides are pinned separately, each in its own package, and the pair is what
 // the grep used to be.
 
 // indexed opens a store, writes one row per title with TitleNorm set exactly
-// as indexarr/worker/rss sets it, and returns the store.
+// as app/indexer/worker/rss sets it, and returns the store.
 func indexed(t *testing.T, titles ...string) relindex.Store {
 	t.Helper()
 	ctx := t.Context()
@@ -76,7 +76,7 @@ func indexed(t *testing.T, titles ...string) relindex.Store {
 			Indexer: "tr",
 			GUID:    title,
 			Title:   title,
-			// Exactly what indexarr/worker/rss writes into this column.
+			// Exactly what app/indexer/worker/rss writes into this column.
 			TitleNorm: release.TitleNorm(title),
 			Protocol:  string(commonv1.ProtocolTorrent),
 			FetchedAt: time.Now().Add(time.Duration(-i) * time.Minute),

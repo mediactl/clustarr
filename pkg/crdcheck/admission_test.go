@@ -227,7 +227,7 @@ func transcodeProfileCases() []admissionCase {
 // importListKindCases: an ImportList may name only the kinds its provider
 // can yield (gap-fix ruling R-10; task X14 applied the rules). Before, a
 // Trakt list asking for albums was admitted and then skipped with a log
-// line. importarr/controller/importlist's TestAdmissionMatchesYieldableKinds
+// line. app/import/controller/importlist's TestAdmissionMatchesYieldableKinds
 // holds every provider and kind to the worker's own table; these pin the
 // shape here, with the rest of the gap-fix API decisions.
 func importListKindCases() []admissionCase {

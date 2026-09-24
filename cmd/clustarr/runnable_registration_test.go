@@ -187,8 +187,8 @@ func TestEveryManagerRunnableIsRegistered(t *testing.T) {
 // Each such exported type must be reachable from its service's wiring
 // source: that source must name the type, or one of its constructors (an
 // exported function of the same package whose first result is the type), or
-// a package-level Setup or Serve of that package -- catalogarr/metadata and
-// indexarr/search register their own internals through one of those. The
+// a package-level Setup or Serve of that package -- app/catalog/metadata and
+// app/indexer/search register their own internals through one of those. The
 // package qualifier is resolved through the wiring files' own imports, so an
 // alias (searchctl, importlistctrl) counts and a same-named package
 // elsewhere does not.
@@ -247,7 +247,7 @@ func TestEveryServiceComponentIsRegistered(t *testing.T) {
 // component is one exported type with a registrable shape.
 type component struct {
 	name       string // "Reconciler"
-	dir        string // "catalogarr/controller/movie", slash-separated, relative to the repo root
+	dir        string // "app/catalog/controller/movie", slash-separated, relative to the repo root
 	importPath string
 	file       string
 	shape      string

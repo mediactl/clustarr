@@ -372,7 +372,7 @@ func TestIndexRowsCarryTheFieldsTheIndexSearchesOn(t *testing.T) {
 	require.Equal(t, "Some.Movie.2000.1080p.BluRay.x264-GRP", row.Title)
 	// The FTS5 column and its normaliser. relindex stores TitleNorm verbatim
 	// and escapes Query.Text without normalising it, so the search side runs
-	// Query.Text through release.TitleNorm too (indexarr/query) or the index
+	// Query.Text through release.TitleNorm too (app/indexer/query) or the index
 	// answers nothing -- and no test inside pkg/relindex can catch the
 	// mismatch.
 	require.Equal(t, release.TitleNorm(row.Title), row.TitleNorm)

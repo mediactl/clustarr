@@ -32,7 +32,7 @@ import (
 )
 
 // SweptKinds is every kind a sweep searches for: the kinds the search worker
-// can snapshot, identify and decide (catalogarr/worker/search.Searchable).
+// can snapshot, identify and decide (app/catalog/worker/search.Searchable).
 // The containers -- series, artist, author, comic -- are not searched for
 // themselves; their episodes, albums, books and issues are.
 var SweptKinds = []commonv1.MediaKind{
@@ -199,7 +199,7 @@ func audiobookCandidate(ab *catalogv1alpha1.Audiobook) Candidate {
 }
 
 // issueCandidate reads an Issue, which has no phase: its IssueState plus its
-// cover date stand in for one (catalogarr/controller/issue.State).
+// cover date stand in for one (app/catalog/controller/issue.State).
 //
 //   - Missing: monitored, state wanted, and out by now. The issue controller
 //     reports an unreleased monitored issue as wanted too (IssueState has no

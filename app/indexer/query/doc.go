@@ -45,7 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // normalises Query.Text with it too. The failure
 // mode if they ever diverge is silent -- an index that answers nothing rather
 // than an error -- which is why each side is pinned in its own package:
-// indexarr/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn asserts
+// app/indexer/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn asserts
 // the row the worker builds, and roundtrip_test.go runs this verb's query
 // through a real store against rows written that way. (An earlier guard
 // grepped the worker's source for the call; roundtrip_test.go says why it
@@ -122,6 +122,6 @@ import (
 
 // Handle must stay assignable to the search service's QueryFn. The signature
 // is restated rather than imported: a named func type accepts a plain func of
-// the same signature, and importing indexarr/search would couple two packages
+// the same signature, and importing app/indexer/search would couple two packages
 // that have no other reason to know about each other.
 var _ func(context.Context, schema.QueryRequest) schema.QueryResponse = (&Service{}).Handle

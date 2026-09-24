@@ -29,7 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     SubtitleProfile.spec.default and TranscodeProfile.spec.priority;
 //   - the Unmatched page's "assign" action creates an annotated LibraryScan
 //     ([ManualAssign], manualassign.go) -- G2-4's mechanism
-//     (importarr/worker/rescan/doc.go, "Manual assignment"), needing no new
+//     (app/import/worker/rescan/doc.go, "Manual assignment"), needing no new
 //     grant: it is the same create on libraryscans [Rescan] already has.
 //
 // Nothing else. The UI never writes status, holds no status field manager and
@@ -99,7 +99,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //  3. The controllers that also set spec.monitored do so only at creation:
 //     the Series fan-out creates each Episode with r.Create and never sends
 //     spec.monitored again, so "after that it belongs to the user"
-//     (catalogarr/controller/series/fanout.go, DesiredEpisode.Monitored, and
+//     (app/catalog/controller/series/fanout.go, DesiredEpisode.Monitored, and
 //     reconciler.go's ensureEpisode). A create is itself an Update-operation
 //     entry in managedFields, so there is no applier whose next apply could
 //     release the leaf out from under the user. The UI's merge patch takes
@@ -126,7 +126,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // [OriginUI] so `kubectl get searches,libraryscans -l clustarr.io/origin=ui`
 // separates user-requested work from the wanted cron's and the RootFolder
 // schedule's. The LibraryScan deliberately does not carry
-// importarr/controller/rootfolderschedule's LabelRootFolder: that label is
+// app/import/controller/rootfolderschedule's LabelRootFolder: that label is
 // how the schedule finds the scans it created itself.
 //
 // # The field manager

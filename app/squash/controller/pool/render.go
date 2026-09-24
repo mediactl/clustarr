@@ -244,7 +244,7 @@ func toApply(job *batchv1.Job) (*batchv1ac.JobApplyConfiguration, error) {
 }
 
 // podFailurePolicy is ruling R4 for a pool pod, against the process-level
-// exit codes squasharr/worker declares: a pod evicted, preempted or drained
+// exit codes app/squash/worker declares: a pod evicted, preempted or drained
 // (DisruptionTarget) is replaced without spending a retry; a worker that
 // exits WorkerExitDrained (SIGTERM: scaling the pool down) is ignored too, so
 // it never counts against backoffLimit; and WorkerExitMisconfigured fails the

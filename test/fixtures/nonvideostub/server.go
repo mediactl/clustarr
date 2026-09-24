@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package nonvideostub serves MusicBrainz, Open Library, Audnexus and
 // ComicVine -- the four non-video metadata providers pkg/metadata/clients
 // has real clients for -- from one process, re-serving the recorded JSON
-// under testdata/metadata/{musicbrainz,openlibrary,audnexus,comicvine}/.
+// under test/data/metadata/{musicbrainz,openlibrary,audnexus,comicvine}/.
 // Every route below is read off each client's own request-building code
 // (pkg/metadata/clients/<provider>/<provider>.go's doGet calls, or, for
 // MusicBrainz, its own unit test's asserted request paths -- that client
@@ -29,7 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Each client's own default base URL already differs (musicbrainz.org,
 // openlibrary.org, api.audnex.us, comicvine.gamespot.com/api), and
-// MetadataProvider.spec.baseURL (catalogarr/metadata/registry.go's baseURL
+// MetadataProvider.spec.baseURL (app/catalog/metadata/registry.go's baseURL
 // helper) is a full replacement, not a suffix -- so config/e2e can point
 // each of the four MetadataProviders at this ONE Service, differing only
 // in path prefix: http://nonvideo-stub.clustarr-system.svc/{musicbrainz,
@@ -49,13 +49,13 @@ import (
 
 // ComicVineAPIKey is the key this stub accepts on ComicVine's api_key query
 // parameter. ComicVine is the one provider here that requires a secretRef
-// (catalogarr/metadata/registry.go's ComicVine case); the other three need
+// (app/catalog/metadata/registry.go's ComicVine case); the other three need
 // none, matching pkg/metadata/clients' own constructors.
 const ComicVineAPIKey = "e2e-fixture-key"
 
-// NewHandler builds the stub. recordedDir holds testdata/metadata's four
+// NewHandler builds the stub. recordedDir holds test/data/metadata's four
 // provider subdirectories, copied verbatim by images/Dockerfile.e2e-fixtures
-// (it already COPYs the whole testdata/metadata tree for tmdbstub/tvdbstub);
+// (it already COPYs the whole test/data/metadata tree for tmdbstub/tvdbstub);
 // local `go run` callers point --recorded-dir at ../../testdata/metadata
 // instead.
 func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
@@ -63,7 +63,7 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 
 	// MusicBrainz: base "/musicbrainz". go.uploadedlobster.com/musicbrainzws2
 	// requests are unauthenticated apart from a mandatory User-Agent (which
-	// this stub does not enforce -- catalogarr/metadata's own client
+	// this stub does not enforce -- app/catalog/metadata's own client
 	// construction is what supplies it, and enforcing it here would only
 	// duplicate that client's own required-field check).
 	mux.HandleFunc("GET /musicbrainz/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711",

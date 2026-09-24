@@ -20,8 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // own status: FileState and DownloadOverlay. Task C6's controller amendment
 // gives this package to the movie/series/episode task specifically so this
 // logic is written once, with one table test each, and imported from both
-// controllers rather than duplicated between catalogarr/controller/movie and
-// catalogarr/controller/episode.
+// controllers rather than duplicated between app/catalog/controller/movie and
+// app/catalog/controller/episode.
 //
 // DownloadOverlay's result is phase-independent (Overlay, not MoviePhase or
 // EpisodePhase) because Movie and Episode each have their own phase enum;

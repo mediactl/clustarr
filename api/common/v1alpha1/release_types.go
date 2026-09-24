@@ -149,7 +149,7 @@ type ReleaseInfo struct {
 
 	// IndexerFlags lists indexer-specific flags on the release, each at most
 	// once: the cap is the enum's seven values, and the one writer
-	// (indexarr/worker/rss.indexerFlags) deduplicates.
+	// (app/indexer/worker/rss.indexerFlags) deduplicates.
 	// +optional
 	// +kubebuilder:validation:MaxItems=7
 	// +kubebuilder:validation:items:Enum=freeleech;halfleech;neutralleech;doubleupload;internal;exclusive;scene
@@ -157,7 +157,7 @@ type ReleaseInfo struct {
 
 	// Categories lists the Newznab/Torznab category IDs of the release. A
 	// release sits in a category and its parent, so a handful is normal; the
-	// list is indexer-supplied, and indexarr/worker/rss.ProjectRelease keeps
+	// list is indexer-supplied, and app/indexer/worker/rss.ProjectRelease keeps
 	// the first 50 rather than let one tracker's output fail a whole Search.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50

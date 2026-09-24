@@ -251,7 +251,7 @@ func TestArtistReconcilerNeverClaimsStatusMetadata(t *testing.T) {
 	require.NoError(t, c.Create(ctx, a))
 
 	// Simulate the metadata gateway's OWN write under its OWN manager,
-	// exactly as catalogarr/metadata/worker.go's Handler does, so this
+	// exactly as app/catalog/metadata/worker.go's Handler does, so this
 	// reconcile's staleness check reads metaReady=true and this reconciler's
 	// own apply has something to (not) collide with.
 	metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(

@@ -116,7 +116,7 @@ func transitions(old, st *transcodev1alpha1.TranscodeJobStatus) []transition {
 // publishJobEvents publishes each transition that §5 names as one
 // clustarr.evt.transcode.job.<action>.<uid> -- the TranscodeJobSubject
 // producer §5 assigns to squasharr, which the history sink
-// (catalogarr/history) turns into an Event and the DLQ projector resolves
+// (app/catalog/history) turns into an Event and the DLQ projector resolves
 // back to this TranscodeJob. Until this, the subject had no producer.
 //
 // It runs from afterWrite, once the conditional status write that records

@@ -27,7 +27,7 @@ import (
 
 // TestToMediaInfoReadsTheTranscodeProfileTag pins how the CLUSTARR_PROFILE
 // container tag reaches MediaInfo.TranscodeProfile, the half of "is this file
-// transcoded" a rescan can see (catalogarr/controller/rollup.Transcoded).
+// transcoded" a rescan can see (app/catalog/controller/rollup.Transcoded).
 func TestToMediaInfoReadsTheTranscodeProfileTag(t *testing.T) {
 	const tag = "default@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	cases := []struct {

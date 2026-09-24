@@ -34,7 +34,7 @@ import (
 )
 
 // fakeRequester is a minimal events.Requester test double, the same shape
-// catalogarr/worker/search.FakeSearchRPC uses for events.RPCIndexSearch.
+// app/catalog/worker/search.FakeSearchRPC uses for events.RPCIndexSearch.
 type fakeRequester struct {
 	resp schema.DownloadResponse
 	err  error

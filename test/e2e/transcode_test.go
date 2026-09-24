@@ -32,7 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // in config/e2e needed adding for this file's scenario to reach a real
 // worker Job pod -- verified by reading config/manager/squasharr.yaml,
 // config/rbac/kustomization.yaml, config/default/kustomization.yaml,
-// squasharr/run.go's DefaultOptions (DefaultWorkerServiceAccount =
+// app/squash/run.go's DefaultOptions (DefaultWorkerServiceAccount =
 // "squasharr-worker", matching the plain ServiceAccount name exactly) and
 // hack/e2e.sh's own WORKLOADS list, not assumed.
 //
@@ -151,7 +151,7 @@ const (
 
 	// defaultRecycleBinLogical mirrors RootFolderSpec.RecycleBin.Path's own
 	// CRD default (api/catalog/v1alpha1/rootfolder_types.go) and
-	// squasharr/worker/paths.go's identical code-level floor
+	// app/squash/worker/paths.go's identical code-level floor
 	// (defaultRecycleBin) for when a RootFolder's is somehow empty. Neither
 	// is imported here: the CRD default is a struct tag on a type in
 	// another package's API, and paths.go's constant is unexported.
@@ -168,7 +168,7 @@ const (
 
 	// transcodeJobCreatedTimeout covers the round trip from a probed
 	// MediaFile through transcodeprofile's mapper (watch-driven, no
-	// redelivery ladder -- squasharr/controller/transcodeprofile watches
+	// redelivery ladder -- app/squash/controller/transcodeprofile watches
 	// MediaFile on status.probeHash changing and TranscodeProfile itself)
 	// to a created TranscodeJob.
 	transcodeJobCreatedTimeout = 2 * time.Minute
@@ -219,11 +219,11 @@ const (
 // newTranscodeProfile creates a cluster-scoped TranscodeProfile that selects
 // MediaFiles by an EXACT (resolution, source) label pair --
 // catalog.clustarr.io/resolution and catalog.clustarr.io/source, which
-// catalogarr/controller/mediafile/labels.go's mirrorLabels sets from the
+// app/catalog/controller/mediafile/labels.go's mirrorLabels sets from the
 // frozen-at-import Quality every real MediaFile in this suite carries -- and
 // waits for it to reach Ready with a non-empty status.hash (the controller's
 // own gate before it will plan or tag anything against this profile:
-// squasharr/controller/transcodejob/controller.go's plan() waits on exactly
+// app/squash/controller/transcodejob/controller.go's plan() waits on exactly
 // this field too).
 //
 // container overrides the CRD's own "mkv" default; every other field is
@@ -237,7 +237,7 @@ const (
 // value never marshals as genuinely absent (ActiveDeadline, Resources,
 // Scratch -- metav1.Duration and resource.Quantity both always emit a
 // quoted value, never omit) are floored in Go by squasharr's own buildJob
-// (squasharr/controller/transcodejob/job.go's activeDeadlineFor/
+// (app/squash/controller/transcodejob/job.go's activeDeadlineFor/
 // resourcesFor/scratchFor), not by CRD defaulting, so they need no value
 // here either.
 func newTranscodeProfile(
@@ -345,7 +345,7 @@ func transcodeJobsForMediaFile(ctx context.Context, t *testing.T, namespace, med
 }
 
 // waitForTranscodeJobForMediaFile waits for transcodeprofile's mapper
-// (squasharr/controller/transcodeprofile/controller.go's ensureTranscodeJob)
+// (app/squash/controller/transcodeprofile/controller.go's ensureTranscodeJob)
 // to create exactly one TranscodeJob for mediaFileName and returns it.
 // transcodeJobName is deterministic on (MediaFile, profile hash) precisely
 // so this is "exactly one", not "at least one".
@@ -372,7 +372,7 @@ func waitForTranscodeJobForMediaFile(ctx context.Context, t *testing.T, namespac
 // apiserver's persisted status -- a terminal one (Succeeded, Failed,
 // Skipped), which advance() always returns from before its next status
 // apply. For an intermediate phase like Planned, use
-// waitForTranscodeJobPhaseAtLeast instead: squasharr/controller/transcodejob's
+// waitForTranscodeJobPhaseAtLeast instead: app/squash/controller/transcodejob's
 // advance() runs plan() and ensureJob() in the SAME Reconcile call when
 // nothing blocks either, so a fresh job's FIRST persisted status can already
 // read Queued (or later) -- Planned was true only for an instant inside that
@@ -730,7 +730,7 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 // real HEVC SEI bytes -- not a fixture, a codec implementation.
 //
 // pkg/transcode.Plan's DecisionReject path and
-// squasharr/controller/transcodejob's handling of it (ReasonRejected,
+// app/squash/controller/transcodejob's handling of it (ReasonRejected,
 // phase Skipped, status.plan unset) are exercised by pkg/transcode's own
 // unit and golden tests instead, against hand-authored MediaInfo, not a
 // real file -- see pkg/transcode/plan_test.go.
@@ -741,7 +741,7 @@ func TestTranscodeDolbyVisionSkipped(t *testing.T) {
 		"ffmpeg refuses -dolbyvision without a real master (\"Dolby Vision requires VBV settings\"), " +
 		"and there is no real Dolby Vision RPU to encode even if it did not. Ruling R1 " +
 		"(docs/superpowers/plans/2026-09-23-phase-e-transcode.md) and " +
-		"squasharr/controller/transcodejob's DecisionReject handling are exercised instead by " +
+		"app/squash/controller/transcodejob's DecisionReject handling are exercised instead by " +
 		"pkg/transcode's own unit and golden tests, against hand-authored MediaInfo, not a real file.")
 }
 

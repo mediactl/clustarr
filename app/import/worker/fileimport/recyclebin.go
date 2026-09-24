@@ -63,7 +63,7 @@ const DefaultRecycleSweepInterval = time.Hour
 // folder directly beneath the bin, and a library's folders are not its to
 // judge.
 //
-// Registration is W2's (importarr/run.go, the worker role):
+// Registration is W2's (app/import/run.go, the worker role):
 //
 //	if err := mgr.Add(k8s.EveryReplica(fileimport.NewRecycleSweeper(mgr.GetClient()).Run)); err != nil {
 //	        return err

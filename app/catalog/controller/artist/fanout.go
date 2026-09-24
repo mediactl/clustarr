@@ -45,7 +45,7 @@ func mapPrimaryType(mb string) string {
 // djMix;mixtape;demo;audioDrama;fieldRecording). Most fold by a plain case
 // change; four do not ("Audio drama"'s and "Field recording"'s spaces,
 // "DJ-mix"'s hyphen+case, "Mixtape/Street"'s slash), so this is an explicit
-// table -- the same style catalogarr/metadata/patch.go's mapImageType uses
+// table -- the same style app/catalog/metadata/patch.go's mapImageType uses
 // for its own provider-to-CRD vocabulary crosswalk -- rather than a
 // strings.ToLower call.
 //
@@ -112,7 +112,7 @@ func mapReleaseStatus(mb string) (string, bool) {
 // (spelled as the web service spells it) folds onto a token in
 // profile.ReleaseStatuses. It is the one release-status rule shared by
 // AlbumAccepted here and the Album controller's release selection
-// (catalogarr/controller/album), so the two can never disagree about which
+// (app/catalog/controller/album), so the two can never disagree about which
 // statuses a profile admits.
 func ReleaseStatusAccepted(profile catalogv1alpha1.MusicMetadataProfile, status string) bool {
 	token, ok := mapReleaseStatus(status)
@@ -165,7 +165,7 @@ func containsFold(list []string, want string) bool {
 // album on data the call does not carry. The Album controller applies the
 // same rule once it has fetched its release group's releases: it selects
 // only among releases of an accepted status, and reports an album none of
-// whose releases qualifies (catalogarr/controller/album's SelectRelease).
+// whose releases qualifies (app/catalog/controller/album's SelectRelease).
 func AlbumAccepted(profile catalogv1alpha1.MusicMetadataProfile, alb pkgmetadata.Album) bool {
 	if !containsFold(profile.PrimaryTypes, mapPrimaryType(alb.PrimaryType)) {
 		return false

@@ -22,12 +22,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // fixture HTML tracker -> results -> grab through the Torznab facade; an
 // IndexerProxy on the HTTP path."
 //
-// "the bundled corpus" is not shipped yet -- indexarr/controller/indexer/
+// "the bundled corpus" is not shipped yet -- app/indexer/controller/indexer/
 // cardigann.go's resolveDefinition own doc comment says so plainly ("the
 // bundled corpus is NOT shipped yet ... an id resolves only through an
 // IndexerDefinition"). So this scenario uses spec.definitionRef against an
 // IndexerDefinition whose spec.yaml IS one of the bundled definitions'
-// source files, testdata/cardigann/login-form.yml -- the same definition
+// source files, test/data/cardigann/login-form.yml -- the same definition
 // test/fixtures/cardigannstub serves, chosen for the reasons that
 // package's own doc comment gives (a real login step, no Go-template
 // path-building to reimplement in a fixture).
@@ -37,7 +37,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // facade/convert.go's releaseToTorznab writes a release's DownloadURL/
 // MagnetURL straight onto the wire, unrewritten: G1-2's facade does not
 // proxy every download through itself, it only BROKERS one when asked
-// (GET /{indexer}/download -- indexarr/download/fetch.go's NewFetcherFor
+// (GET /{indexer}/download -- app/indexer/download/fetch.go's NewFetcherFor
 // attaches the Indexer's own stored session cookie before fetching). So
 // this scenario's fixture (cardigannstub) makes that distinction provable
 // instead of moot: its one search result's download link is a same-origin,
@@ -90,17 +90,17 @@ const cardigannIndexerReadyTimeout = 2 * time.Minute
 
 // facadeAPIKeySecretName is indexarr.DefaultFacadeAPIKeySecret's value,
 // restated here because test/e2e does not import indexarr (its own file
-// scope is cmd/clustarr, config/, charts/, catalogarr/, importarr/, api/ --
+// scope is cmd/clustarr, config/, charts/, app/catalog/, app/import/, api/ --
 // none of which this task may touch, and importing indexarr's own package
 // only to read one string constant is not worth crossing that line for).
-// indexarr/run.go pins the same value permanently: it is also the literal
+// app/indexer/run.go pins the same value permanently: it is also the literal
 // config/manager/indexarr.yaml uses for CLUSTARR_FACADE_API_KEY_SECRET's
 // default and for the readOnly kubectl example in that manifest's own
 // comment.
 const facadeAPIKeySecretName = "indexarr-facade"
 
 // readFacadeAPIKey polls for the indexarr-facade Secret (indexarr generates
-// it on first start when absent, indexarr/facadekey.go's ensureFacadeAPIKeys)
+// it on first start when absent, app/indexer/facadekey.go's ensureFacadeAPIKeys)
 // and returns its apikey field.
 func readFacadeAPIKey(ctx context.Context, t *testing.T) string {
 	t.Helper()
@@ -130,7 +130,7 @@ func TestCardigannIndexerLoginSearchFacadeAndProxy(t *testing.T) {
 	requireFixtureService(ctx, t, fixtureHTTPProxyStubService)
 	requireFixtureService(ctx, t, "indexarr")
 
-	// --- The IndexerDefinition: testdata/cardigann/login-form.yml's own
+	// --- The IndexerDefinition: test/data/cardigann/login-form.yml's own
 	// text, verbatim -- the single source of truth
 	// test/fixtures/cardigannstub's own doc comment names, never a copy.
 	yamlBytes, err := os.ReadFile("../data/cardigann/login-form.yml")

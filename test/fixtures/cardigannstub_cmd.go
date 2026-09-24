@@ -53,6 +53,6 @@ func newCardigannStubCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address")
 	cmd.Flags().StringVar(&recordedDir, "recorded-dir", "/fixtures/testdata/cardigann",
-		"directory holding testdata/cardigann's login-form.html")
+		"directory holding test/data/cardigann's login-form.html")
 	return cmd
 }

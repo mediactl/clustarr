@@ -140,7 +140,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The Job pod does not run as squasharr's ServiceAccount, so the manager
 // ClusterRole -- which these markers also feed, like every marker under
-// squasharr/ -- is not what it holds. `make manifests` runs controller-gen a
+// app/squash/ -- is not what it holds. `make manifests` runs controller-gen a
 // second time over THIS package alone and writes
 // config/rbac/squasharr_worker_role.yaml, bound to the squasharr-worker
 // ServiceAccount that squasharr's --worker-service-account names on every
@@ -149,8 +149,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // cmd/clustarr's TestSquasharrWorkerRoleMatchesTheWorkerMarkers fails until
 // that regeneration is committed.
 //
-// transcodejobs/status patch is the server-side apply squasharr/status.Patch
-// makes; squasharr/status declares the same grant for the controller, but
+// transcodejobs/status patch is the server-side apply app/squash/status.Patch
+// makes; app/squash/status declares the same grant for the controller, but
 // its markers do not reach this Role.
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get

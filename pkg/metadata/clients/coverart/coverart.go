@@ -30,7 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	 "release":"https://musicbrainz.org/release/<mbid>"}
 //
 // (verified against the live service on 2026-09-23; the fixtures under
-// testdata/metadata/coverart are those responses, unedited). A release or
+// test/data/metadata/coverart are those responses, unedited). A release or
 // release group with no art answers 404, which maps to ErrNotFound.
 //
 // pkg/metadata/clients/musicbrainz.CoverArtURL builds the front-cover URL

@@ -299,7 +299,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.MoviePhaseWanted
 		}, 10*time.Second, 20*time.Millisecond, "the movie must settle at Wanted before the delay is applied")
 
-		// Exactly what catalogarr/worker/grab writes: pendingGrab, never
+		// Exactly what app/catalog/worker/grab writes: pendingGrab, never
 		// Phase, under the grab path's own field manager. It carries no
 		// status.metadata, and does not have to: k8s.ManagerCatalogarrGrab
 		// and k8s.ManagerCatalogarrMetadata own disjoint field sets, so
@@ -457,7 +457,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 
 		// The envelope key and the subject's media key are different things
 		// and must not be conflated. Every consumer recovers the namespace
-		// with strings.Cut(env.Key, "/") -- catalogarr/metadata/worker.go,
+		// with strings.Cut(env.Key, "/") -- app/catalog/metadata/worker.go,
 		// the grab handler, the rss matcher and the search worker all do it,
 		// and all of them events.Discard to the DLQ when the cut fails. A
 		// media key is tokenised for the wire and has no slash left to cut

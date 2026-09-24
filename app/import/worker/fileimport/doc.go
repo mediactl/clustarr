@@ -130,7 +130,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Grabarr publishes a Download's ImportTask once, so an annotation set on a
 // Download that is already Blocked is acted on by [Retrigger], which re-
 // queues it. The same import-target grammar on a LibraryScan is how a
-// rescan-unmatched file is assigned by hand: importarr/worker/rescan's
+// rescan-unmatched file is assigned by hand: app/import/worker/rescan's
 // package doc, "Manual assignment".
 //
 // # Registration
@@ -160,7 +160,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	}
 //
 // k8s.EveryReplica, not manager.RunnableFunc, for the same reason
-// importarr/worker/rescan uses it: manager.RunnableFunc has no
+// app/import/worker/rescan uses it: manager.RunnableFunc has no
 // NeedLeaderElection method, so controller-runtime would put this behind the
 // leader lease on any service that elects, and a completed-download import
 // must not wait for leadership.

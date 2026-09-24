@@ -34,7 +34,7 @@ import (
 // EngineDownloader is a definition-backed Indexer's client as this package
 // sees it: Cardigann's Engine.Download bound to that Indexer's definition,
 // configuration and session, plus the secret values a diagnostic must never
-// carry. indexarr/controller/indexer's Cardigann client implements it.
+// carry. app/indexer/controller/indexer's Cardigann client implements it.
 type EngineDownloader interface {
 	Download(ctx context.Context, link string) (io.ReadCloser, error)
 	Secrets() []string
@@ -66,7 +66,7 @@ func (f *engineFetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult,
 
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("indexarr/download: parse download URL: %w", cardigann.RedactErr(err))
+		return nil, fmt.Errorf("app/indexer/download: parse download URL: %w", cardigann.RedactErr(err))
 	}
 	if u.Scheme == "magnet" {
 		return &FetchResult{MagnetURL: rawURL, FinalURL: u}, nil
@@ -75,7 +75,7 @@ func (f *engineFetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult,
 	rc, err := f.d.Download(ctx, rawURL)
 	if err != nil {
 		tracing.RecordError(span, err)
-		return nil, fmt.Errorf("indexarr/download: definition download from %s: %w",
+		return nil, fmt.Errorf("app/indexer/download: definition download from %s: %w",
 			cardigann.RedactURL(u), cardigann.RedactErr(err))
 	}
 	defer func() { _ = rc.Close() }()

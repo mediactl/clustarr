@@ -34,7 +34,7 @@ import (
 // applies as IndexerDefinition objects one at a time.
 //
 // LoadBundle takes an fs.FS, so one loader serves both bundles indexarr
-// knows: the corpus compiled into the binary (indexarr/bundle/embedded, a
+// knows: the corpus compiled into the binary (app/indexer/bundle/embedded, a
 // deflated zip read through archive/zip's *zip.Reader -- Prowlarr's
 // definitions, added to the project by its owner on 2026-09-23, which
 // superseded gap-fix ruling R-13's "embed nothing") and a directory an

@@ -70,7 +70,7 @@ func TraktTokenSecretName(listName string) string {
 // the same complete-declaration discipline.
 //
 // SecretTokenStore is used from two different processes: the ImportList
-// controller (the device-code handshake, importarr/controller/importlist)
+// controller (the device-code handshake, app/import/controller/importlist)
 // and the import-list worker (pkg/importlist/trakt.List.Fetch's own
 // refresh-on-401, which calls Save transparently). Both write under
 // [k8s.ManagerImportarr] and both go through [SecretTokenStore.applyAll],

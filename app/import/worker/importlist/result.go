@@ -28,7 +28,7 @@ import (
 // Result is the worker's outcome for one ImportList sync (every requested
 // kind combined), checkpointed to a clustarr-progress key. The ImportList
 // controller polls that key and projects it into status -- the same split
-// importarr/worker/rescan.Progress uses for LibraryScan, and for the same
+// app/import/worker/rescan.Progress uses for LibraryScan, and for the same
 // reason: the controller is the single writer of ImportList.status (see
 // k8s.ManagerImportarr's doc comment), so the worker reports through a KV
 // checkpoint instead of an apiserver write of its own.
@@ -81,7 +81,7 @@ func DecodeResult(data []byte) (Result, error) {
 
 // ResultKey is the clustarr-progress key one ImportList's worker
 // checkpoints to and its controller polls, following that bucket's existing
-// "<kind>.<uid>" convention (the same one importarr/worker/rescan.ProgressKey
+// "<kind>.<uid>" convention (the same one app/import/worker/rescan.ProgressKey
 // uses for LibraryScan). The UID, not the name, keys it, so an ImportList
 // deleted and recreated under the same name never reads a stale checkpoint
 // left by the deleted one.

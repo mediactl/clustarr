@@ -104,7 +104,7 @@ type Options struct {
 
 	// DataDir is where the RWX media volume is mounted in this process
 	// (--data-dir). Every path in a CRD is a logical /data path; both roles
-	// map it through this with captionarr/datapath.
+	// map it through this with app/caption/datapath.
 	DataDir string
 
 	// Logging configures this process's root logger. The zero value is a
@@ -230,7 +230,7 @@ func Run(ctx context.Context, o Options) error {
 //     SubtitleRequest per video-kind MediaFile the profile wins, woken by
 //     MediaFile.status.probeHash (task F-3);
 //   - subtitleprovider validates each SubtitleProvider through
-//     captionarr/providerset.Validate and projects the shared
+//     app/caption/providerset.Validate and projects the shared
 //     clustarr-provider-throttle KV state into its status -- ruling R2 makes
 //     it that status's only writer (task F-3);
 //   - subtitlerequest plans each request, publishes a fetch task for every

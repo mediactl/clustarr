@@ -98,7 +98,7 @@ type Runnable struct {
 }
 
 // SetupWithManager registers the sweep. This is the ONLY call
-// catalogarr/run.go needs to make for wantedcron; see the package doc for the
+// app/catalog/run.go needs to make for wantedcron; see the package doc for the
 // exact shape, including the fact that setupControllers does not yet receive
 // an events.Bus.
 func (r *Runnable) SetupWithManager(mgr ctrl.Manager) error {

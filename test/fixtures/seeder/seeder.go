@@ -73,7 +73,7 @@ const (
 	// by assumption:
 	//
 	//   - The extension must be one pkg/fsops.MediaExtensions[KindVideo]
-	//     recognises (.mkv here) or importarr/worker/fileimport's Walk
+	//     recognises (.mkv here) or app/import/worker/fileimport's Walk
 	//     classifies the download ClassOther and never even calls
 	//     release.ParsePath on it -- this was the whole of the former
 	//     "clustarr-fixture.bin" gap (remaining-work.md's carried defect).

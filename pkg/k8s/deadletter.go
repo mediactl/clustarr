@@ -28,9 +28,9 @@ import (
 )
 
 // AnnotationDeadLettered is the metadata annotation the DLQ projector
-// (catalogarr/history.DLQProjector, under ManagerDLQProjector) applies to the
+// (app/catalog/history.DLQProjector, under ManagerDLQProjector) applies to the
 // object a dead-lettered message concerns. Its value is
-// "<original-subject>@<RFC3339>". catalogarr/history.AnnotationDeadLettered
+// "<original-subject>@<RFC3339>". app/catalog/history.AnnotationDeadLettered
 // is the same key.
 //
 // Design spec §5 had the projector set a DeadLettered status condition
@@ -42,7 +42,7 @@ import (
 // # Which kinds can carry it
 //
 // The projector annotates only an object it can name exactly, from the dead
-// letter's payload schema (catalogarr/history/target.go's resolvers). That
+// letter's payload schema (app/catalog/history/target.go's resolvers). That
 // is these sixteen kinds -- the same set its +kubebuilder:rbac patch markers
 // grant, and the only kinds whose controllers need to fold the condition:
 //

@@ -61,7 +61,7 @@ func newTestClient(t *testing.T) client.Client {
 	return c
 }
 
-// testKV mirrors captionarr/throttle/state_test.go's identical helper: a
+// testKV mirrors app/caption/throttle/state_test.go's identical helper: a
 // clustarr-provider-throttle bucket bound to an in-memory bus, independent of
 // the envtest apiserver newTestClient starts. The provider controller reads
 // this bucket and the CRD's own client separately -- exactly as it does in
@@ -263,7 +263,7 @@ func TestReconcileUnsupportedProviderTypeNeverErrorsOrAuthenticates(t *testing.T
 
 // TestReadyAgreesWithTheFetchWorkersBuilder is plan task F-6's one-validator
 // rule at the controller: for every provider, Ready=True exactly when the
-// fetch worker's builder (captionarr/providerset.Builder.Build) would search
+// fetch worker's builder (app/caption/providerset.Builder.Build) would search
 // it. The gestdown provider whose secretRef names a missing Secret is the
 // case the controller's former, separate check got wrong: gestdown needs no
 // credentials, so it reported Authenticated and Ready, while the builder

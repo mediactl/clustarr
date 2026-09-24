@@ -32,8 +32,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // below is written to fail with a NAMED reason rather than hang for its
 // full timeout when a dependency is missing.
 //
-//  1. grabarr/run.go's setupControllers/setupEngine and
-//     importarr/run.go's setupWorkers are task D2-8's ("wiring, RBAC,
+//  1. app/grab/run.go's setupControllers/setupEngine and
+//     app/import/run.go's setupWorkers are task D2-8's ("wiring, RBAC,
 //     readiness") job, owned by a different agent than this file, and that
 //     file is explicitly not this task's to touch. Checked against source
 //     TWICE while writing this file -- once at the start of this task, once
@@ -67,7 +67,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // A third gap, independent of (1)-(2), used to block every "Imported"
 // assertion PERMANENTLY: both fixtures always named their downloaded
 // content "clustarr-fixture.bin", an extension pkg/fsops.MediaExtensions
-// does not recognise, so importarr/worker/fileimport could never classify
+// does not recognise, so app/import/worker/fileimport could never classify
 // it as importable. X12c closed this too (test/fixtures/seeder.ContentName,
 // test/fixtures/nntpstub.FileName): both now serve
 // "Clustarr.Fixture.2010.1080p.BluRay.x264-CLUSTARR.REPACK.mkv", real bytes
@@ -222,8 +222,8 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 // created directly, as before.
 //
 // BlocklistSweeper's deletion of the blocklisted Download
-// (grabarr/controller/downloadclient/blocklist.go, registered in
-// grabarr/run.go) is not exercised: blocklistedUntil is 90 days out, far
+// (app/grab/controller/downloadclient/blocklist.go, registered in
+// app/grab/run.go) is not exercised: blocklistedUntil is 90 days out, far
 // past any scenario timeout. blocklist_envtest_test.go proves the sweep.
 // This test proves grabarr's consumption of the label, not the sweep.
 func TestDownloadBlocklistThenRedownload(t *testing.T) {
@@ -272,13 +272,13 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 // Download... no duplicate files"). It proves grabarr's OWN idempotency
 // under a real restart -- the SSA-complete-declaration discipline CLAUDE.md
 // requires holding across a reconcile that starts from a cold cache -- the
-// same property grabarr/controller/download/controller_envtest_test.go's
+// same property app/grab/controller/download/controller_envtest_test.go's
 // TestEnginePinSurvivesAReconcileThatWouldOtherwisePickDifferently proves in
 // envtest, now against a real restarted Deployment.
 //
 // The rest of scenario 4 -- rerunning scenario 1's inputs end to end and
 // checking for a SECOND Download rather than a reused one -- exercises
-// catalogarr/worker/grab/perform.go's SSA-idempotent create from a real grab
+// app/catalog/worker/grab/perform.go's SSA-idempotent create from a real grab
 // decision, which is Phase C's own surface, not D2's, and is not re-proven
 // here. TranscodeJob/SubtitleRequest duplication is Phase E/F's surface and
 // likewise out of scope for this task.

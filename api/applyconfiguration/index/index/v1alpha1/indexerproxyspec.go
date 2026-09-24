@@ -55,7 +55,7 @@ type IndexerProxySpecApplyConfiguration struct {
 	// spec.proxyRef wins over any selector. At most one http, socks4 or
 	// socks5 proxy and at most one FlareSolverr may apply to an Indexer, and
 	// the FlareSolverr is applied last; anything more, or a FlareSolverr
-	// beside a proxy with credentials, fails closed (indexarr/proxy).
+	// beside a proxy with credentials, fails closed (app/indexer/proxy).
 	Selector *applyconfigurationsmetav1.LabelSelectorApplyConfiguration `json:"selector,omitempty"`
 }
 

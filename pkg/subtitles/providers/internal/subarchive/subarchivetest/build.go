@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package subarchivetest builds the ZIP and RAR archives subtitle provider
-// tests serve, in memory, so no binary archive has to live under testdata/.
+// tests serve, in memory, so no binary archive has to live under test/data/.
 package subarchivetest
 
 import (

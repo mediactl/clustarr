@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // apiserver conflict: pkg/k8s.PatchStatus and pkg/k8s.Apply both force
 // ownership unconditionally, so an over-claim is silent everywhere except
 // metadata.managedFields -- see CLAUDE.md, "A double-claim will NOT surface
-// as an apiserver conflict", and grabarr/status's own doc comment. This file
+// as an apiserver conflict", and app/grab/status's own doc comment. This file
 // reads managedFields directly, which is the only place this class of bug is
 // visible at all.
 package download_test
@@ -54,7 +54,7 @@ func managersOf(entries []metav1.ManagedFieldsEntry, subresource string) map[str
 // every status write this controller makes goes out under k8s.ManagerGrabarr
 // and nothing else -- not k8s.ManagerGrabarrEngine (the engine's disjoint
 // telemetry set) and not k8s.ManagerImportarr (status.import, settled by
-// D2-7). grabarr/status.Patch already refuses any manager but the first two,
+// D2-7). app/grab/status.Patch already refuses any manager but the first two,
 // but a refusal only catches a caller that mis-names the manager at the
 // Patch call site; it says nothing about whether some OTHER path in this
 // package reached for k8s.PatchStatus/k8s.Apply directly with the wrong

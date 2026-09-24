@@ -26,9 +26,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Wiring status
 //
 // F-0 through F-6 are all committed as of this writing (2026-09-23):
-// captionarr/run.go's setupControllers registers subtitleprofile,
+// app/caption/run.go's setupControllers registers subtitleprofile,
 // subtitleprovider and subtitlerequest, and setupWorkers registers the
-// fetch worker on both consumers (confirmed by reading captionarr/run.go
+// fetch worker on both consumers (confirmed by reading app/caption/run.go
 // at HEAD, not assumed -- F-6 landed mid-way through this task, after this
 // package doc comment's first draft said otherwise). Every scenario below
 // is written against a real, wired reconcile loop, the same posture
@@ -63,7 +63,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     search survives it needs a second provider that CAN answer the item.
 //   - pkg/subtitles/providers/gestdown.Provider.Capabilities() reports only
 //     Episodes: true (confirmed against provider.go), and
-//     captionarr/worker/fetch/select.go's searchable() independently says
+//     app/caption/worker/fetch/select.go's searchable() independently says
 //     "gestdown is episode-only, and only with a tvdb id". Gestdown is
 //     therefore never even offered a Movie search.
 //
@@ -305,7 +305,7 @@ func readGestdownRequestsSince(t *testing.T, t0 time.Time) []gestdownstub.Entry 
 // stage by data-stage (D3 ruling R8); and removing one language from the
 // profile withdraws exactly its item (and its mirrored sidecar) while the
 // other survives -- the item-liveness protocol F-4/F-5 built
-// (captionarr/status.IsLive), which CLAUDE.md's own "Gotchas" section
+// (app/caption/status.IsLive), which CLAUDE.md's own "Gotchas" section
 // names as the part of Phase F most likely to regress.
 func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
@@ -510,7 +510,7 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 }
 
 // itemDownloaded reports whether it is present, downloaded and carries a
-// sidecar path -- the shape hasSubtitle (captionarr/worker/fetch/worker.go)
+// sidecar path -- the shape hasSubtitle (app/caption/worker/fetch/worker.go)
 // itself checks before catalogarr's mirror will ever surface it.
 func itemDownloaded(it *subtitlev1alpha1.SubtitleItem) bool {
 	return it != nil && it.State == subtitlev1alpha1.SubtitleItemDownloaded && it.Path != ""
@@ -524,7 +524,7 @@ func itemDownloaded(it *subtitlev1alpha1.SubtitleItem) bool {
 // TestSubtitleThrottleFallsThroughToGestdown is scenario 13's throttle
 // proof: with opensubtitles-stub set to ModeThrottled (429 on every
 // /subtitles and /download), the fetch worker's shared KV throttle
-// (captionarr/throttle) must bench that SubtitleProvider -- surfaced on
+// (app/caption/throttle) must bench that SubtitleProvider -- surfaced on
 // SubtitleProvider.status.conditions[Throttled] (ruling R2, the
 // SubtitleProvider controller's own projection) -- and fall through to
 // Gestdown, which must succeed. See this file's package doc comment,
@@ -692,7 +692,7 @@ func describeSubtitleProvider(key client.ObjectKey) func() string {
 // file's own former doc comment here -- because
 // test/fixtures/seeder always named its downloaded content
 // "clustarr-fixture.bin", an extension outside pkg/fsops.MediaExtensions,
-// so importarr/worker/fileimport could never classify it as importable and
+// so app/import/worker/fileimport could never classify it as importable and
 // captionarr's SubtitleProfile controller (which watches MediaFile, not
 // Download) had structurally nothing to attach a SubtitleRequest to. X12c
 // (docs/superpowers/plans/2026-09-23-gap-fixes.md) closed that fixture-shape

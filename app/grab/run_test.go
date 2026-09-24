@@ -72,7 +72,7 @@ func TestValidateRejectsEngineOnAControllerRole(t *testing.T) {
 }
 
 // TestValidateRequiresEngineImageForTheControllerRole is the guard behind
-// plan task D2-8's own note on grabarr/controller/downloadclient/doc.go:
+// plan task D2-8's own note on app/grab/controller/downloadclient/doc.go:
 // "There is no default -- guessing an image tag would silently run the
 // wrong engine."
 func TestValidateRequiresEngineImageForTheControllerRole(t *testing.T) {

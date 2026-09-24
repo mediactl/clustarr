@@ -70,7 +70,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration (Task C12)
 //
-// Nothing in this package registers itself. catalogarr/run.go's
+// Nothing in this package registers itself. app/catalog/run.go's
 // setupQueueWorkers makes this call, with the topology it installed:
 //
 //	grabHandler := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus})

@@ -20,7 +20,7 @@ package v1alpha1
 // Transcoded reports whether mf is a transcoded file. This is the one place
 // the rule lives, here beside the type so every service reads the same
 // predicate without importing another's: catalogarr through
-// catalogarr/controller/rollup.Transcoded (the Movie and Episode phases, the
+// app/catalog/controller/rollup.Transcoded (the Movie and Episode phases, the
 // cutoff, the search worker's and the RSS matcher's decision input), and
 // importarr's completed-download import, which refuses to let an automatic
 // grab replace a transcoded file (spec §8.4).

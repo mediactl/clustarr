@@ -47,7 +47,7 @@ import (
 )
 
 // FieldManager is the server-side-apply field manager this worker writes
-// SubtitleRequest.status under. captionarr/status.PatchRequest renders its
+// SubtitleRequest.status under. app/caption/status.PatchRequest renders its
 // complete owned set from [status.RequestWorkerFields].
 const FieldManager = k8s.ManagerCaptionarrWorker
 
@@ -110,7 +110,7 @@ type Worker struct {
 	Providers ProviderSource
 
 	// DataDir is where the /data volume is mounted in this process. Empty
-	// means /data itself (captionarr/datapath.Local).
+	// means /data itself (app/caption/datapath.Local).
 	DataDir string
 
 	// SidecarMode is the file mode of a sidecar whose video lies under no
@@ -207,7 +207,7 @@ func decodeTask(env *events.Envelope) (task, error) {
 
 // Handle implements events.Handler.
 //
-// Settlement follows importarr/worker/fileimport: nil acks, events.Discard
+// Settlement follows app/import/worker/fileimport: nil acks, events.Discard
 // dead-letters a poison message at once, and any other error is redelivered
 // on the consumer's backoff until MaxDeliver dead-letters it. A search that
 // finds nothing, or finds every provider throttled, is a result -- recorded
@@ -379,7 +379,7 @@ func findItem(items []subtitlev1alpha1.SubtitleItem, langKey string) *subtitlev1
 
 // hasSubtitle reports whether an item already has a subtitle on disk that
 // catalogarr projects into MediaFile.status.sidecars
-// (catalogarr/controller/mediafile/sidecars.go: downloaded or upgradable,
+// (app/catalog/controller/mediafile/sidecars.go: downloaded or upgradable,
 // with a path). Such an item is only ever REPLACED by a better one: a search
 // that finds nothing better leaves it exactly as it is.
 func hasSubtitle(it *subtitlev1alpha1.SubtitleItem) bool {

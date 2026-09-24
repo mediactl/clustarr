@@ -81,7 +81,7 @@ const (
 //
 //   - Completed and Seeding used to have no opinion, so an item whose file
 //     was one import away read Wanted -- and the wanted sweep, which selects
-//     Wanted and CutoffUnmet (catalogarr/controller/wantedcron), searched
+//     Wanted and CutoffUnmet (app/catalog/controller/wantedcron), searched
 //     for it again. Now they are Downloading, which it skips.
 //   - Pending used to map to Delayed, "the closest existing value". But
 //     Delayed means a grab held back by a DelayProfile (§8.2, PendingGrab),

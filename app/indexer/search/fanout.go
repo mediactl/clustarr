@@ -274,7 +274,7 @@ func (s *Service) fanOut(
 	select {
 	case <-done:
 	case <-timer.C:
-		logging.FromContext(ctx).Warn("indexarr/search: replying before every indexer finished",
+		logging.FromContext(ctx).Warn("app/indexer/search: replying before every indexer finished",
 			"budget", budget, "candidates", len(cands))
 	}
 
@@ -319,7 +319,7 @@ func (s *Service) queryOne(
 		// bus. A nil factory there would panic inside a worker goroutine and
 		// take the whole process down rather than failing one search.
 		return s.failOutcome(ctx, out, started, nil,
-			errors.New("indexarr/search: no indexer client factory is configured")), nil
+			errors.New("app/indexer/search: no indexer client factory is configured")), nil
 	}
 	cli, err := s.ClientFor(qctx, idx)
 	if err != nil {
@@ -353,7 +353,7 @@ func (s *Service) queryOne(
 	metrics.IndexerReleasesReturned.WithLabelValues(idx.Name).Observe(float64(len(rels)))
 
 	if err := s.recordOutcome(sideCtx, out.IndexerRef, true, "", queries, inserted); err != nil {
-		logging.FromContext(ctx).Warn("indexarr/search: recording a successful query failed",
+		logging.FromContext(ctx).Warn("app/indexer/search: recording a successful query failed",
 			"indexer", idx.Name, "err", err)
 	}
 
@@ -380,7 +380,7 @@ func (s *Service) failOutcome(
 	sideCtx, cancel := context.WithTimeout(ctx, sideEffectTimeout)
 	defer cancel()
 	if rerr := s.recordOutcome(sideCtx, out.IndexerRef, false, msg, queries, 0); rerr != nil {
-		logging.FromContext(ctx).Warn("indexarr/search: recording a failed query failed",
+		logging.FromContext(ctx).Warn("app/indexer/search: recording a failed query failed",
 			"indexer", out.IndexerRef.Name, "err", rerr)
 	}
 
@@ -439,7 +439,7 @@ func (s *Service) index(ctx context.Context, idx *indexv1alpha1.Indexer, rels []
 	for _, r := range rels {
 		row, err := indexRow(r, idx.Name)
 		if err != nil {
-			log.Warn("indexarr/search: skipping a release that will not encode",
+			log.Warn("app/indexer/search: skipping a release that will not encode",
 				"indexer", idx.Name, "err", err)
 			continue
 		}
@@ -449,7 +449,7 @@ func (s *Service) index(ctx context.Context, idx *indexv1alpha1.Indexer, rels []
 			// transaction and refuses all of it, so an untitled or
 			// guid-less release would cost every good release beside it.
 			metrics.IndexerReleasesDropped.WithLabelValues(idx.Name).Inc()
-			log.Warn("indexarr/search: dropping a release the index cannot store",
+			log.Warn("app/indexer/search: dropping a release the index cannot store",
 				"indexer", idx.Name, "reason", reason)
 			continue
 		}
@@ -460,7 +460,7 @@ func (s *Service) index(ctx context.Context, idx *indexv1alpha1.Indexer, rels []
 	}
 	n, err := s.Store.Upsert(ctx, rows)
 	if err != nil {
-		log.Warn("indexarr/search: upserting the release index failed",
+		log.Warn("app/indexer/search: upserting the release index failed",
 			"indexer", idx.Name, "rows", len(rows), "err", err)
 		return 0
 	}
@@ -472,7 +472,7 @@ func (s *Service) index(ctx context.Context, idx *indexv1alpha1.Indexer, rels []
 func indexRow(r schema.Release, indexerName string) (relindex.Release, error) {
 	info, err := json.Marshal(r)
 	if err != nil {
-		return relindex.Release{}, fmt.Errorf("indexarr/search: encode index row for %s/%s: %w",
+		return relindex.Release{}, fmt.Errorf("app/indexer/search: encode index row for %s/%s: %w",
 			indexerName, r.Info.GUID, err)
 	}
 	return relindex.Release{
@@ -483,8 +483,8 @@ func indexRow(r schema.Release, indexerName string) (relindex.Release, error) {
 		// stores what it is given and escapes Query.Text without normalising
 		// it, so the indexed column and the query must go through ONE
 		// function or the index answers nothing -- silently, with an empty
-		// result set rather than an error. indexarr/worker/rss writes the
-		// same function and indexarr/query reads with it. It is TitleNorm
+		// result set rather than an error. app/indexer/worker/rss writes the
+		// same function and app/indexer/query reads with it. It is TitleNorm
 		// rather than CleanTitle so a non-Latin title keeps its own tokens.
 		TitleNorm:  release.TitleNorm(r.Info.Title),
 		Group:      r.Info.ReleaseGroup,
@@ -504,7 +504,7 @@ func indexRow(r schema.Release, indexerName string) (relindex.Release, error) {
 // it would accept it.
 //
 // It mirrors relindex's own validate (pkg/relindex/upsert.go), as
-// indexarr/worker/rss's rejectReason does for the poll path, and a guard that
+// app/indexer/worker/rss's rejectReason does for the poll path, and a guard that
 // restates another package's rules in prose drifts the moment that package
 // gains a rule. So the mirror is held to a REAL sqlite store, in both
 // directions, by TestIndexRejectReasonAgreesWithTheRealStore, with the cases
@@ -542,7 +542,7 @@ func (s *Service) countQuery(ctx context.Context, idx *indexv1alpha1.Indexer) *i
 	}
 	n, err := countQuery(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, s.now())
 	if err != nil {
-		logging.FromContext(ctx).Warn("indexarr/search: query accounting failed",
+		logging.FromContext(ctx).Warn("app/indexer/search: query accounting failed",
 			"indexer", idx.Name, "err", err)
 		return nil
 	}
@@ -553,7 +553,7 @@ func (s *Service) countQuery(ctx context.Context, idx *indexv1alpha1.Indexer) *i
 // k8s.ManagerIndexarrWorker.
 //
 // It re-reads the live Indexer first. A fan-out is an HTTP round trip per
-// indexer -- seconds, not milliseconds -- and indexarr/status seeds the apply
+// indexer -- seconds, not milliseconds -- and app/indexer/status seeds the apply
 // from the status it is handed and re-sends EVERY field this manager owns,
 // so applying the snapshot the fan-out started from would roll back whatever
 // else wrote under the shared manager in the meantime: the RSS poll's
@@ -566,7 +566,7 @@ func (s *Service) countQuery(ctx context.Context, idx *indexv1alpha1.Indexer) *i
 //
 // That is a lost update rather than a server-side-apply release, which is
 // why no "manager X released field Y" test can see it. One Get per outcome
-// closes the window, as indexarr/worker/rss and indexarr/download do.
+// closes the window, as app/indexer/worker/rss and app/indexer/download do.
 //
 // queries is nil when accounting could not run; newlyIndexed is what
 // relindex.Upsert actually inserted, so indexedReleases counts distinct
@@ -580,12 +580,12 @@ func (s *Service) recordOutcome(
 	newlyIndexed int64,
 ) error {
 	if s.Client == nil {
-		return errors.New("indexarr/search: no client is configured")
+		return errors.New("app/indexer/search: no client is configured")
 	}
 	var live indexv1alpha1.Indexer
 	key := client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}
 	if err := s.Client.Get(ctx, key, &live); err != nil {
-		return fmt.Errorf("indexarr/search: read indexer %s: %w", key, err)
+		return fmt.Errorf("app/indexer/search: read indexer %s: %w", key, err)
 	}
 
 	now := s.now()
@@ -596,7 +596,7 @@ func (s *Service) recordOutcome(
 		esc = idxstatus.RecordFailure(live.Status, now, reason)
 	}
 
-	// ONE apply, through indexarr/status, so the indexarr-worker owned set
+	// ONE apply, through app/indexer/status, so the indexarr-worker owned set
 	// is declared in exactly one place (ruling R14). Patch seeds every field
 	// this manager owns from the status it is handed; the mutate changes
 	// only what this query moved. ApplyEscalation is the only thing that can

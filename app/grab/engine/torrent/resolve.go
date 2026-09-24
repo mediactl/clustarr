@@ -40,7 +40,7 @@ const maxPayloadBytes = 8 << 20 // 8MiB
 var ErrResponseTooLarge = errors.New("torrent: response body exceeds size limit")
 
 // IndexerResolver is the narrow client this package needs against
-// clustarr.rpc.indexarr.download (indexarr/download, already served -- see
+// clustarr.rpc.indexarr.download (app/indexer/download, already served -- see
 // its own doc comment for the payload contract this mirrors). It exists,
 // rather than a bare events.Requester, so tests can inject
 // [FakeIndexerResolver] instead of standing up a bus.

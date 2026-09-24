@@ -30,7 +30,7 @@ import (
 // TestDerivePhaseIsASubsetOfDownloadOverlay is R1's own guard, local to this
 // package: every phase value derivePhase can produce must already have a
 // case (explicit or default) in
-// catalogarr/controller/rollup/downloadoverlay.go's DownloadOverlay switch.
+// app/catalog/controller/rollup/downloadoverlay.go's DownloadOverlay switch.
 // This package cannot import catalogarr (a dependency direction the module
 // does not allow), so it cannot call DownloadOverlay directly; instead it
 // pins the closed set derivePhase may return, which is the half of R1 this

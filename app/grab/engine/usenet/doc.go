@@ -44,7 +44,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Wiring
 //
-// grabarr/run.go's setupUsenetEngine is the real wiring; in outline:
+// app/grab/run.go's setupUsenetEngine is the real wiring; in outline:
 //
 //	// A direct (uncached) client: this runs before mgr.Start, and BuildClient
 //	// also reads the providers' Secrets through it.
@@ -84,14 +84,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # The engine finalizer (ruling R-6)
 //
-// [Reconciler] adds grabarr/engine's [engine.Finalizer] to every Download
+// [Reconciler] adds app/grab/engine's [engine.Finalizer] to every Download
 // labelled for this replica before it adds the transfer, and on deletion
 // removes the transfer ([download.Client.Remove] stops the job's fetch
 // goroutines, discards its scratch job and, per spec.removeDataOnDelete,
 // the published content) and only then drops the finalizer. The Download
 // controller's own removeDataOnDelete finalizer waits for this one, which
 // closes the ordering race Phase D2 carried: the controller no longer
-// removes files a job still has open. grabarr/engine's package doc has the
+// removes files a job still has open. app/grab/engine's package doc has the
 // whole protocol, including the bounded timeout after which the controller
 // stops waiting for an engine that is gone.
 //
@@ -104,8 +104,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What this package deliberately does not do
 //
 // It never writes status.phase, status.conditions, status.engine or
-// status.import -- see grabarr/status.go for the full field-manager split.
-// grabarr/status.Patch itself refuses any manager but
+// status.import -- see app/grab/status.go for the full field-manager split.
+// app/grab/status.Patch itself refuses any manager but
 // k8s.ManagerGrabarr/k8s.ManagerGrabarrEngine, so a caller that tried to
 // route a status.import write through this package's Reconciler would be
 // rejected by that package, not merely discouraged by this comment.
@@ -123,7 +123,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - An over-claim is silent: pkg/k8s.PatchStatus forces ownership, so a
 //     double-claim never surfaces as a conflict. engine_envtest_test.go's
 //     managedFields assertions are the only place that class of bug is
-//     visible at all (CLAUDE.md; grabarr/controller/downloadclient's own
+//     visible at all (CLAUDE.md; app/grab/controller/downloadclient's own
 //     managedfields_envtest_test.go is the pattern this package's copies).
 //
 // The engine finalizer (above) is why this package updates Downloads and

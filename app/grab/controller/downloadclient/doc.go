@@ -26,7 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // owns nothing on DownloadClient at all; it watches Download and deletes the
 // ones whose blocklist has expired. They are two controllers, registered
 // separately, because they watch different root kinds and controller-runtime
-// reconciles one kind per controller. Both need wiring in grabarr/run.go's
+// reconciles one kind per controller. Both need wiring in app/grab/run.go's
 // setupControllers, which is task D2-8's job, not this one's:
 //
 //	if err := downloadclient.NewReconciler(
@@ -43,9 +43,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // engineImage is CLUSTARR_ENGINE_IMAGE (config/manager/grabarr.yaml already
 // declares it, on the grabarr Deployment, as "images the controller stamps
 // into the engine workloads it owns"); no code reads that env var into
-// grabarr.Options yet, because grabarr/run.go is outside this task's directory
+// grabarr.Options yet, because app/grab/run.go is outside this task's directory
 // (see the task instructions: stay inside
-// grabarr/controller/downloadclient/). D2-8 adds the flag/Options field and
+// app/grab/controller/downloadclient/). D2-8 adds the flag/Options field and
 // passes it through.
 //
 // # Why the sweep deletes rather than clears BlocklistedUntil
@@ -54,7 +54,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // "grabarr sweeps expired entries, and the decision engine reads the live set
 // through a catalogarr informer" and BlocklistedUntil's comment is more
 // direct still -- "grabarr deletes the Download once the deadline passes."
-// [BlocklistSweeper] therefore never calls grabarr/status.Patch or claims any
+// [BlocklistSweeper] therefore never calls app/grab/status.Patch or claims any
 // part of k8s.ManagerGrabarr's Download.status set: it Gets, checks the label
 // and the deadline, and either client.Delete()s or requeues for the moment
 // the deadline arrives. There is no status write here to build a partial
@@ -67,7 +67,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Unlike RootFolderSpec.MinFreeBytes, DownloadClientSpec carries no
 // minimum-free-space field (verified against downloadclient_types.go). This
 // package therefore invents one -- [DefaultMinFreeBytes], overridable on
-// [Reconciler] -- the same way catalogarr/controller/rootfolder invented its
+// [Reconciler] -- the same way app/catalog/controller/rootfolder invented its
 // recheckInterval: cheap, frequent enough, and documented so a later task can
 // replace it with a real signal (a RootFolder-style spec field, or a cheaper
 // kubelet volume metric) without archaeology.
@@ -91,7 +91,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # R5 -- this task turns automatic search on
 //
-// catalogarr/worker/search/worker.go's enabledProtocols already lists live
+// app/catalog/worker/search/worker.go's enabledProtocols already lists live
 // DownloadClient objects and fails closed for a protocol with no enabled
 // client (verified at worker.go:498-527). Nothing in this package changes
 // that code, and nothing needs to: creating a DownloadClient CR was already
@@ -111,7 +111,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // permissions reached because their markers sat directly above
 // SetupWithManager instead.
 //
-// grabarr/status/doc.go already grants downloads and downloads/status
+// app/grab/status/doc.go already grants downloads and downloads/status
 // get;list;watch;update;patch for the Download controller (D2-4) and the
 // engines; this package adds delete on downloads, for the sweep, and get,
 // list, watch, update and patch are re-declared here too because this
@@ -125,7 +125,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // but running it is task D2-8's job (see the task instructions). Until then
 // cmd/clustarr's TestGeneratedRoleCoversEveryStatusWriter is expected to fail
 // on download.clustarr.io/downloadclients/status, exactly as
-// grabarr/status/doc.go's own comment predicts for downloadclients, the
+// app/grab/status/doc.go's own comment predicts for downloadclients, the
 // engine StatefulSet and the blocklist sweep.
 //
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch

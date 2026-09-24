@@ -34,8 +34,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
-// queryCountingWorker wires the worker exactly as indexarr/run.go does: its
-// CountQuery is indexarr/search.CountQuery over the bus's
+// queryCountingWorker wires the worker exactly as app/indexer/run.go does: its
+// CountQuery is app/indexer/search.CountQuery over the bus's
 // clustarr-indexer-limits bucket, the ring the search fan-out counts into.
 func queryCountingWorker(t *testing.T, clock *fakeClock, s rss.Searcher, c client.Client, bus events.Bus) *rss.Worker {
 	t.Helper()

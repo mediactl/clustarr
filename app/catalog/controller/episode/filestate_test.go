@@ -31,7 +31,7 @@ import (
 
 // TestFileState only proves episode.FileState re-exports rollup.FileState
 // correctly -- the full decision table is table-tested once, in
-// catalogarr/controller/rollup, per the C6 controller amendment.
+// app/catalog/controller/rollup, per the C6 controller amendment.
 func TestFileState(t *testing.T) {
 	q := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080}
 	mf := &catalogv1alpha1.MediaFile{

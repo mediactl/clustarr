@@ -37,7 +37,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The project owner added Prowlarr's Cardigann definitions to the project on
 // 2026-09-23: 752 files from a Prowlarr Definitions directory, packed by
 // hack/pack-cardigann (`make cardigann-bundle`) into
-// indexarr/bundle/embedded/definitions.zip, which indexarr loads at startup.
+// app/indexer/bundle/embedded/definitions.zip, which indexarr loads at startup.
 // That superseded gap-fix ruling R-13, under which nothing was vendored. This
 // tool still fetches a pinned upstream commit into a directory, which
 // indexarr's --cardigann-definitions-dir loads in place of the embedded
@@ -74,7 +74,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // GPL-3.0-or-later -- cannot embed these files in its binary or its source
 // tree. This tool fetches them onto an operator's machine for their own
 // cluster; its output is theirs, not part of Clustarr. Should the upstream
-// licence change, vendoring is: run this with -out indexarr/definitions,
+// licence change, vendoring is: run this with -out app/indexer/definitions,
 // embed that directory, and hand the embed.FS to cardigann.LoadBundle.
 //
 // At the pinned commit definitions/v11 holds 557 definitions, 3,595,106

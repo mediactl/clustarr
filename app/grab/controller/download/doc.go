@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // telemetry once pinned, publishes the file-import work item once content
 // is complete on disk, and runs a finalizer honouring
 // spec.removeDataOnDelete. Design spec §6.3; plan tasks D2-4 and D2-8a.
-// Field manager: k8s.ManagerGrabarr only -- see grabarr/status for the full
+// Field manager: k8s.ManagerGrabarr only -- see app/grab/status for the full
 // split with k8s.ManagerGrabarrEngine and why an over-claim against the
 // engine's set is silent rather than a conflict.
 //
@@ -66,7 +66,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What D2-4 deliberately did not do, and what D2-8a closed
 //
 // The eleven-value DownloadPhase enum is closed and pinned (plan ruling R1):
-// catalogarr/controller/rollup/downloadoverlay.go's DownloadOverlay switches
+// app/catalog/controller/rollup/downloadoverlay.go's DownloadOverlay switches
 // on all of it, with a default branch (Completed, Seeding, Imported, Failed,
 // Blocklisted, Removing) that means "no opinion". D2-4 (43845da) only ever
 // wrote Pending and Assigned, because the mapping a further phase needed
@@ -118,7 +118,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // design spec §6.3's condensed prose ("Phase=Assigned; evt.download.queued;
 // delete the grab lease on terminal phase") and plan ruling R8 (the payload
 // type had zero producers) both gestured at this producer without D2-4
-// claiming it. It is the one importarr/worker/fileimport's ConsumerImportFile
+// claiming it. It is the one app/import/worker/fileimport's ConsumerImportFile
 // (D2-7) has been waiting on since it landed; see controller.go's
 // publishImportTask and advancePhase doc comments for the exactly-once
 // discipline (a Downloaded-condition gate, backed by a deterministic
@@ -137,19 +137,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // observes the edge, before the apply that records it, with a per-action
 // Envelope id; see events.go. schema.DownloadProgress, the 1 Hz telemetry,
 // is not this controller's: the engines own the telemetry, and each runs a
-// grabarr/engine.ProgressPublisher into the clustarr-progress bucket (Z1).
-// "Delete the grab lease" is catalogarr/worker/grab's KV state, out of this
+// app/grab/engine.ProgressPublisher into the clustarr-progress bucket (Z1).
+// "Delete the grab lease" is app/catalog/worker/grab's KV state, out of this
 // directory regardless.
 //
 // # The finalizer needs no live engine -- but waits for one that is there
 //
 // grabarr's controller Deployment mounts the same RWX DataDir every engine
-// pod does (config/manager/grabarr.yaml; grabarr/controller/downloadclient's
+// pod does (config/manager/grabarr.yaml; app/grab/controller/downloadclient's
 // Reconciler.DataDir does the identical statfs for DiskSpaceOK). That means
 // spec.removeDataOnDelete can be honoured with a direct
 // fsops.SafeRemove(DataDir, status.outputPath) from this controller, with no
 // need to hold a download.Client the controller process does not have --
-// engine roles hold those, per grabarr/run.go's role split. status.outputPath
+// engine roles hold those, per app/grab/run.go's role split. status.outputPath
 // is engine-owned telemetry (k8s.ManagerGrabarrEngine): a torrent's per-
 // transfer directory from the moment it is added, a usenet transfer's
 // published directory once it is renamed into place.
@@ -157,12 +157,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Needing no engine is not the same as ignoring one. Before gap-fix ruling
 // R-6 this finalizer removed the files and let the object go at once, so an
 // engine could still hold them open -- writing into, or seeding from, unlinked
-// inodes. Now each engine puts grabarr/engine's finalizer on the Downloads it
+// inodes. Now each engine puts app/grab/engine's finalizer on the Downloads it
 // runs and drops it only after removing the transfer, and reconcileDelete
 // removes nothing until that finalizer is gone. An engine that is itself gone
 // (its DownloadClient deleted, its engine not ready, its ordinal scaled away)
 // is waited for DefaultEngineTeardownTimeout and then released on its behalf;
-// teardown.go has the rules and grabarr/engine's package doc the whole
+// teardown.go has the rules and app/grab/engine's package doc the whole
 // protocol.
 //
 // The finalizer does not set status.phase=Removing (unchanged by D2-8a,
@@ -175,9 +175,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # RBAC markers are package-level
 //
-// See grabarr/controller/downloadclient/doc.go for why: controller-gen only
+// See app/grab/controller/downloadclient/doc.go for why: controller-gen only
 // collects +kubebuilder:rbac from a comment group that is not attached to a
-// declaration. grabarr/status/doc.go already grants downloads and
+// declaration. app/grab/status/doc.go already grants downloads and
 // downloads/status get;list;watch;update;patch for this controller; the
 // verbs are restated here too, because a marker states what the package it
 // sits in does, not what is already granted somewhere else in the tree.

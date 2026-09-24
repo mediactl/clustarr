@@ -148,7 +148,7 @@ func TestRejectReasonCatchesWhatAFeedCanActuallySend(t *testing.T) {
 // these normalised to "" and the store refused the row, so a release named
 // only in Cyrillic, Japanese or Korean was unsearchable by its own title.
 // The row goes to a REAL store and is found by a query built the way
-// indexarr/query builds one, so the two sides are proved to agree.
+// app/indexer/query builds one, so the two sides are proved to agree.
 func TestANonLatinTitleIndexesUnderItsOwnTitle(t *testing.T) {
 	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	store, closer, err := relindex.Open(t.Context(), filepath.Join(t.TempDir(), "releases.db"))

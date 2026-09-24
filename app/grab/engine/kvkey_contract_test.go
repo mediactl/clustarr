@@ -43,7 +43,7 @@ import (
 )
 
 // startServer boots an embedded JetStream server under the test's temporary
-// directory -- the helper captionarr/throttle's contract test copies from
+// directory -- the helper app/caption/throttle's contract test copies from
 // pkg/events/natsbus for the same import-cycle reason.
 func startServer(t *testing.T) *natsserver.Server {
 	t.Helper()

@@ -22,13 +22,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // writer of ImportList.status (amendment §A1.3, §A1.6, design spec §8.7;
 // task G1-3).
 //
-// It never fetches a list itself. importarr/worker/importlist does that,
+// It never fetches a list itself. app/import/worker/importlist does that,
 // on the schedule this controller publishes -- see that package's doc
 // comment for why: this controller polls that worker's checkpoint
 // (importlist.ResultKey/Result, in the clustarr-progress bucket) and
 // projects it into status, the same split
-// importarr/controller/libraryscan runs against
-// importarr/worker/rescan's Progress checkpoint for LibraryScan.
+// app/import/controller/libraryscan runs against
+// app/import/worker/rescan's Progress checkpoint for LibraryScan.
 //
 // # Why a worker on a queue, not a controller-driven requeue alone
 //
@@ -38,10 +38,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ("clustarr.work.importarr.list.>") and events.WorkListSubject, all wired
 // into StreamWorkImportarr's ConsumerSpec already -- amendment §A1.6 names
 // exactly this subject in its process-topology table. So the sync itself
-// runs on that queue, in importarr/worker/importlist; this controller's
+// runs on that queue, in app/import/worker/importlist; this controller's
 // role is the "plus a scheduled sync" half: deciding WHEN to enqueue one,
 // via RequeueAfter, the same self-timed mechanism
-// importarr/controller/rootfolderschedule uses for LibraryScan ticks.
+// app/import/controller/rootfolderschedule uses for LibraryScan ticks.
 //
 // # Projecting a finished sync
 //
@@ -90,7 +90,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. importarr/run.go's setupControllers does
+// Nothing here registers itself. app/import/run.go's setupControllers does
 // (task G1-5), alongside libraryscan, rootfolderschedule and
 // importexclusion, with exactly the shape those three use (plus, when set,
 // TraktBaseURL for the device-code flow, which should name the same host as

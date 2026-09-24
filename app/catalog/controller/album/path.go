@@ -38,7 +38,7 @@ import (
 // for a January release, one calendar year) earlier than what the provider
 // sent, and that wrong year lands directly in the folder name. This is the
 // exact bug and fix audiobook.namingContext documents for
-// AudiobookMetadata.ReleaseDate (catalogarr/controller/audiobook/path.go);
+// AudiobookMetadata.ReleaseDate (app/catalog/controller/audiobook/path.go);
 // buildAlbumMetadataAC has no equivalent plain-int Year field to sidestep
 // it the way Movie's own ingestion-time capture does (pkg/metadata/clients/
 // tmdb's t.Year() call, on the freshly parsed, not-yet-round-tripped

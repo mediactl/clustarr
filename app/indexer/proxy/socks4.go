@@ -47,7 +47,7 @@ const (
 
 // ErrSocks4 is what every SOCKS4 failure matches: a refused CONNECT, a
 // malformed reply, or a target SOCKS4 cannot express (an IPv6 address).
-var ErrSocks4 = errors.New("indexarr/proxy: socks4")
+var ErrSocks4 = errors.New("app/indexer/proxy: socks4")
 
 // Socks4Dialer connects through a SOCKS4 proxy. net/http has no SOCKS4 dialer
 // and golang.org/x/net/proxy speaks SOCKS5 only, so this is the whole client:

@@ -32,7 +32,7 @@ import (
 // TestFileState only proves movie.FileState re-exports rollup.FileState
 // correctly -- the full decision table (no file / no profile / cutoff
 // met / cutoff unmet) is table-tested once, in
-// catalogarr/controller/rollup, per the C6 controller amendment: this
+// app/catalog/controller/rollup, per the C6 controller amendment: this
 // package must not carry a second copy of that logic or its table.
 func TestFileState(t *testing.T) {
 	q := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080}

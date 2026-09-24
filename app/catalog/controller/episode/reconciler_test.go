@@ -248,7 +248,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseWanted
 		}, 10*time.Second, 20*time.Millisecond, "the episode must settle at Wanted before the delay is applied")
 
-		// Exactly what catalogarr/worker/grab writes: pendingGrab only, under
+		// Exactly what app/catalog/worker/grab writes: pendingGrab only, under
 		// the worker's own field manager, never Phase.
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
 			catalogac.Episode(ep.Name, ep.Namespace).WithStatus(

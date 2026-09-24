@@ -49,7 +49,7 @@ import (
 // a new rule on a field the table never zeroes passes unnoticed. The
 // previous version of this test did exactly that -- five hand-listed cases,
 // no store -- and adding a `case r.Group == "":` rule to relindex.validate
-// failed indexarr/worker/rss while leaving this package green.
+// failed app/indexer/worker/rss while leaving this package green.
 //
 // What it still cannot catch is a rule that rejects some NON-zero value, for
 // example a size ceiling. Nothing here claims otherwise.

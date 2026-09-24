@@ -28,8 +28,8 @@ import (
 // SourceKey is the pkg/metadata ExternalIDs key a comic of this source is
 // looked up by: ComicVine's volume id, or MangaDex's manga UUID. The
 // metadata gateway keys a Comic's own fetch the same way
-// (catalogarr/metadata/target.go) and its issue listing dispatches on the
-// key it is handed (catalogarr/metadata/rpc.go's lookupIssues), so a
+// (app/catalog/metadata/target.go) and its issue listing dispatches on the
+// key it is handed (app/catalog/metadata/rpc.go's lookupIssues), so a
 // MangaDex comic reaches only the providers that can read a MangaDex id.
 func SourceKey(source catalogv1alpha1.ComicSourceProvider) string {
 	if source == catalogv1alpha1.ComicSourceMangaDex {

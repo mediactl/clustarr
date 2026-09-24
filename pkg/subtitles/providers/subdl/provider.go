@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ec41fe82c03ccd556d168666595bd0be1202f77b. Field names and parameters are
 // the ones that code sends and reads, and the payloads in its tests
 // (tests/subliminal_patch/test_subdl.py) are what this package's fixtures
-// under testdata/subtitles/subdl reproduce. The error body was verified
+// under test/data/subtitles/subdl reproduce. The error body was verified
 // live against api.subdl.com on 2026-09-23 (see errorPayload).
 //
 // What is ported: the search with its fallbacks (episode, then season-only,

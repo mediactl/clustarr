@@ -183,7 +183,7 @@ var listFreeExternals = map[string]bool{
 //
 // A cap is half the contract: a writer that exceeds it has its WHOLE apply
 // rejected. Whoever adds a cap here owns truncating to it where the list is
-// written (pkg/download.MaxStatusFiles, importarr/worker/fileimport's caps,
+// written (pkg/download.MaxStatusFiles, app/import/worker/fileimport's caps,
 // pkg/mediainfo.MaxStreamsPerKind).
 func TestEveryStatusListIsCapped(t *testing.T) {
 	m := loadAPIModel(t)

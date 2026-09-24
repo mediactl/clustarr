@@ -59,7 +59,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // phase enum is a pinned contract shared with catalogarr's rollup overlay
 // (plan ruling R1) and an engine must not be able to move an object through
 // it. [ApplyStatus] therefore never emits phase, conditions, or any other
-// field in k8s.ManagerGrabarr's owned set -- see grabarr/status for the
+// field in k8s.ManagerGrabarr's owned set -- see app/grab/status for the
 // declaration of that split.
 package download
 

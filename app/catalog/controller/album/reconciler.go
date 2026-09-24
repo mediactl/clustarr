@@ -138,7 +138,7 @@ type Reconciler struct {
 // SetupWithManager registers the Album controller, including
 // Download/QualityProfile/MediaFile watches so an imported file, a grab and
 // a quality-profile edit each wake the right Albums, mirroring
-// audiobook.Reconciler.SetupWithManager's shape (catalogarr/controller/
+// audiobook.Reconciler.SetupWithManager's shape (app/catalog/controller/
 // audiobook is this package's sibling precedent for the quality-evaluation
 // half -- see this package's doc.go).
 //

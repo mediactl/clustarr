@@ -568,7 +568,7 @@ func ptrBoolTrue(p *bool) bool { return p != nil && *p }
 
 // TestSeriesEpisodeFieldManagersStayDisjoint is the mandatory two-writer
 // gate the coordinator's ruling calls for, modeled on
-// catalogarr/controller/mediafile's TestMediaFileFieldManagersStayDisjoint:
+// app/catalog/controller/mediafile's TestMediaFileFieldManagersStayDisjoint:
 // Series's real ensureEpisode applies the provider fields under
 // k8s.ManagerCatalogarrSeries, a simulated Episode-reconciler write applies
 // its own computed fields under k8s.ManagerCatalogarr, and managedFields is
@@ -584,7 +584,7 @@ func ptrBoolTrue(p *bool) bool { return p != nil && *p }
 // SeriesRef/SeasonNumber/EpisodeNumber, immutable and set once at Create,
 // never through server-side apply, plus Monitored, which Series also only
 // ever sets once at Create). So this is a status-versus-status split
-// exactly like grabarr/grabarr-engine's on DownloadStatus (§5): distinct
+// exactly like app/grab/grabarr-engine's on DownloadStatus (§5): distinct
 // field manager NAMES on disjoint fields within one subresource, not a
 // subresource split. That is what makes it correct, and it is why the
 // assertions below check specific field-path names via statusFieldNames

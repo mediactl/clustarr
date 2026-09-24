@@ -33,7 +33,7 @@ import (
 )
 
 // Root is where every path stored in a CRD lives. It is the same constant
-// squasharr/worker uses, for the same reason: a CRD path is a logical /data
+// app/squash/worker uses, for the same reason: a CRD path is a logical /data
 // path, and each process maps it through its own mount point. In the
 // Deployments the volume is mounted at /data and the mapping is the
 // identity; in a test it is a temp dir.

@@ -124,7 +124,7 @@ func queryCategories(requested []int32, caps *indexv1alpha1.Caps) []newznab.Cate
 // G1-6 closed the gap this comment used to describe (catalogarr never set
 // Text and the payload "had no field for" a resolved title): both were
 // wrong. schema.SearchRequest.Text has carried a free-text query since M0
-// (pkg/events/schema/index.go); the gap was catalogarr/worker/search never
+// (pkg/events/schema/index.go); the gap was app/catalog/worker/search never
 // having a resolved title to put there. BuildSearchRequest now renders one
 // from status.metadata via TargetIDs.Title, so Text is populated for the
 // Torznab facade, an interactive Search AND an automatic search alike, and

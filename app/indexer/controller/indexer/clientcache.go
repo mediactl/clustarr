@@ -153,7 +153,7 @@ func (cc *ClientCache) ttl() time.Duration {
 // different resourceVersion or has aged past the TTL.
 //
 // It is shaped exactly like search.ClientFor and rss.Deps.SearcherFor, and is
-// what indexarr/run.go hands to both.
+// what app/indexer/run.go hands to both.
 //
 // The cache key cannot see a new login session either -- a session lives in
 // a Secret and a KV entry, not on the Indexer -- so the reconciler calls

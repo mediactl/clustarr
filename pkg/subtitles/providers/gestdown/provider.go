@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // response field names; and, for the show-lookup step (fix round 1, item
 // 6), against a live call to https://api.gestdown.info/shows/external/tvdb/
 // 81189 on 2026-09-18 (Breaking Bad's real TVDB id), whose response shape
-// the testdata/subtitles/gestdown/shows.json fixture reproduces verbatim.
+// the test/data/subtitles/gestdown/shows.json fixture reproduces verbatim.
 // One remaining, disclosed simplification: the per-language Addic7ed code
 // conversion (PatchedAddic7edConverter) is skipped — the plain BCP-47
 // language tag is sent as-is, which matches Addic7ed's own code for English

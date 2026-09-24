@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Two bundles reach it. By default it is the corpus compiled into the
 // binary: Prowlarr's Cardigann definitions, added to the project by its
 // owner on 2026-09-23 and embedded as a deflated zip
-// (indexarr/bundle/embedded, --cardigann-bundled, default true). That
+// (app/indexer/bundle/embedded, --cardigann-bundled, default true). That
 // supersedes gap-fix ruling R-13, under which Clustarr shipped no corpus;
 // hack/sync-cardigann's package doc keeps the upstream licensing record R-13
 // was decided on. Otherwise it is an operator's directory, which

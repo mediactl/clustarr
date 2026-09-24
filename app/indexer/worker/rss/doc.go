@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package rss polls each Indexer's feed and publishes what it finds to the
 // release firehose, clustarr.rel.<protocol>.<indexerName>.<newznabTop>.
 //
-// The consumer already ships. catalogarr/worker/rssmatcher has been
+// The consumer already ships. app/catalog/worker/rssmatcher has been
 // subscribed to clustarr.rel.> since Phase C and has received nothing,
 // because nothing published. Its handler pins two requirements:
 //
@@ -51,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Status
 //
 // Indexer.status is split by field manager, and this package writes only as
-// k8s.ManagerIndexarrWorker, through indexarr/status.Patch. That package
+// k8s.ManagerIndexarrWorker, through app/indexer/status.Patch. That package
 // holds the single declaration of what the manager owns (WorkerFields);
 // this one never builds an apply configuration of its own, because two
 // callers hand-rolling one manager's apply is precisely how each releases
@@ -59,9 +59,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// indexarr/run.go constructs a Worker with a client, the bus, the release
+// app/indexer/run.go constructs a Worker with a client, the bus, the release
 // index and a SearcherFor that is
-// indexarr/controller/indexer.ClientCache.For -- the same builder the caps
+// app/indexer/controller/indexer.ClientCache.For -- the same builder the caps
 // probe uses, so this poll and that probe cannot disagree about an indexer's
 // endpoint, timeout, bucket or (from M6) proxy -- and calls SetupWithManager.
 //
@@ -73,7 +73,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The markers below are package-level on purpose: controller-gen collects
 // RBAC only from package-level comments and silently ignores one attached to
 // a function. The worker reads Indexer and writes only its /status
-// subresource; the status write itself goes through indexarr/status, which
+// subresource; the status write itself goes through app/indexer/status, which
 // declares the same pair.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch

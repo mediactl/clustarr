@@ -45,7 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Registration
 //
 // Nothing registers itself. catalogarr's setupQueueWorkers registers this
-// package's thirteen indexes and catalogarr/worker/search's Download target
+// package's thirteen indexes and app/catalog/worker/search's Download target
 // index together, from one call (registerWorkerIndexes), and then:
 //
 //	h := rssmatcher.NewHandler(rssmatcher.Deps{

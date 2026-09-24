@@ -23,7 +23,7 @@ import (
 	"testing"
 )
 
-// readTestdata reads a file from testdata/cardigann/ (repo-root, two levels
+// readTestdata reads a file from test/data/cardigann/ (repo-root, two levels
 // up from this package) and fails the test on any read error. Every _test.go
 // file in this package uses it, and its byte-identical twin readTestdataBytes,
 // to load both YAML definitions and the binary/HTML/JSON response fixtures.

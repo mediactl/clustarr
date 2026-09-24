@@ -20,7 +20,7 @@ package grabarr
 import "testing"
 
 // TestSplitEngineIdentity proves splitEngineIdentity mirrors
-// grabarr/controller/downloadclient/workload.go's own encoding
+// app/grab/controller/downloadclient/workload.go's own encoding
 // ("${HOSTNAME##*-}" strips everything after the last hyphen to get the
 // ordinal), including the case that shape exists for: a DownloadClient name
 // that itself contains hyphens.

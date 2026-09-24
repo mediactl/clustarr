@@ -58,7 +58,7 @@ import (
 //
 // The status write is the verb's: countGrabAt re-reads the Indexer and
 // applies the complete k8s.ManagerIndexarrWorker set through
-// indexarr/status.Patch. A ring or apply failure is returned, so the
+// app/indexer/status.Patch. A ring or apply failure is returned, so the
 // controller retries with backoff rather than losing the grab -- the verb
 // swallows the same error because its caller already has the bytes.
 type DirectGrabReconciler struct {
@@ -105,7 +105,7 @@ func (r *DirectGrabReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 	var idx indexv1alpha1.Indexer
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: dl.Namespace, Name: ref}, &idx); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Debug("indexarr/download: a direct grab names an indexer that does not exist", "indexer", ref)
+			log.Debug("app/indexer/download: a direct grab names an indexer that does not exist", "indexer", ref)
 			return ctrl.Result{}, nil
 		}
 		tracing.RecordError(span, err)
@@ -137,7 +137,7 @@ func directGrabCreated() predicate.Predicate {
 	}
 }
 
-// SetupWithManager registers the direct-grab counter. indexarr/run.go's
+// SetupWithManager registers the direct-grab counter. app/indexer/run.go's
 // setupControllers calls it. The name is indexarr's own: grabarr's Download
 // controller is "download", and `clustarr all` runs both in one manager,
 // where controller names must be unique.

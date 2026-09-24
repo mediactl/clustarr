@@ -115,7 +115,7 @@ func TestReconcileDisabledProviderSkipsProbe(t *testing.T) {
 	}
 }
 
-// fixtures is testdata/metadata, relative to this package.
+// fixtures is test/data/metadata, relative to this package.
 const fixtures = "../../../../test/data/metadata/"
 
 // addedTypeServer answers the one probe a supplementary provider's Ping

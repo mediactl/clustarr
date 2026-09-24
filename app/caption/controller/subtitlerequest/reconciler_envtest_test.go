@@ -696,7 +696,7 @@ func TestBlocksBeforePlanning(t *testing.T) {
 	assert.Equal(t, subtitlerequest.ReasonProfileNotFound, cond(f.get("orphan"), subtitlev1alpha1.SubtitleRequestConditionPlanned).Reason)
 
 	// A path off the data volume: neither this controller nor the fetch
-	// worker can ever map it through --data-dir (captionarr/datapath), so
+	// worker can ever map it through --data-dir (app/caption/datapath), so
 	// it is its own block, not an unreadable directory.
 	off := f.mediaFile("offvolume", englishTrack())
 	patch := client.MergeFrom(off.DeepCopy())

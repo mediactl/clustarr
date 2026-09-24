@@ -63,7 +63,7 @@ type resolveState struct {
 	delayProfileRef     *string
 	tags                []string
 	currentFile         *decision.Current
-	// identity is built by catalogarr/worker/search's own MovieIdentity,
+	// identity is built by app/catalog/worker/search's own MovieIdentity,
 	// EpisodeIdentity and (through search.ReadNonVideo) the non-video
 	// builders, so an RSS decision and a search decision agree on what the
 	// item is. The matcher already picked the item by id or by name; the

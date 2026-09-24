@@ -126,10 +126,10 @@ type Deps struct {
 	SearcherFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (Searcher, error)
 
 	// CountQuery records one query against idx in the query ring and
-	// returns the window's count -- indexarr/search.CountQuery over the
+	// returns the window's count -- app/indexer/search.CountQuery over the
 	// clustarr-indexer-limits bucket, the same ring the search fan-out
 	// counts into, so status.queriesInWindow is every request the indexer
-	// saw rather than only the searches. indexarr/run.go wires it. nil
+	// saw rather than only the searches. app/indexer/run.go wires it. nil
 	// disables accounting (a unit test), and an error is non-fatal: the
 	// poll leaves queriesInWindow as it is, exactly as the fan-out does.
 	CountQuery func(ctx context.Context, idx *indexv1alpha1.Indexer, now time.Time) (int32, error)
@@ -264,7 +264,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	// Re-read before anything reads status again.
 	//
 	// idx was fetched before the poll, and a poll is up to maxPages requests
-	// of spec.timeout each -- minutes, not milliseconds. indexarr/status
+	// of spec.timeout each -- minutes, not milliseconds. app/indexer/status
 	// seeds the apply from the status it is handed and re-sends EVERY field
 	// this manager owns, so applying a minutes-old snapshot would roll back
 	// whatever else wrote under k8s.ManagerIndexarrWorker in the meantime:
@@ -329,7 +329,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 
-	// ONE apply, whatever happened, and it goes through indexarr/status so
+	// ONE apply, whatever happened, and it goes through app/indexer/status so
 	// the indexarr-worker owned set is declared in exactly one place. Never
 	// an early return with a partial status: the early return is usually the
 	// transient case, which is exactly when a healthy object would be gutted
@@ -694,7 +694,7 @@ func indexRow(rel schema.Release, indexerName string, now time.Time) (relindex.R
 	// TitleNorm is CleanTitle's Unicode-aware sibling: identical on printable
 	// ASCII, so rows written under CleanTitle stay findable, but a Cyrillic
 	// or CJK title keeps its own tokens instead of normalising to its ASCII
-	// residue. indexarr/search and indexarr/query use the same function.
+	// residue. app/indexer/search and app/indexer/query use the same function.
 	row := relindex.Release{
 		Indexer:    indexerName,
 		GUID:       rel.Info.GUID,

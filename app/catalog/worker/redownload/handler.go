@@ -82,7 +82,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// catalogarr/run.go's setupQueueWorkers, with the other queue workers:
+// app/catalog/run.go's setupQueueWorkers, with the other queue workers:
 //
 //	h := redownload.NewHandler(mgr.GetClient(), bus)
 //	h.Topology = &topo // o.BusTopology()

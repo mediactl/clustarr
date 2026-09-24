@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // 10's "an IndexerProxy on the HTTP path" (docs/superpowers/plans/
 // 2026-09-18-remaining-work.md, scenario 10).
 //
-// indexarr/controller/indexer/proxy.go's resolveProxy builds an
+// app/indexer/controller/indexer/proxy.go's resolveProxy builds an
 // IndexerProxyTypeHTTP proxy as plain net/http.Transport.Proxy =
 // http.ProxyURL(u) -- Go's own standard forward-proxy client behaviour. For
 // an http:// target (test/fixtures/cardigannstub is plain HTTP; the e2e

@@ -33,7 +33,7 @@ const (
 	// and conditions on every catalog.clustarr.io kind. (This comment used to
 	// also claim Download.status.import, the project's one cross-group
 	// status write. Design spec §8.4 assigned it to catalogarr before
-	// amendment-1 moved the importer into importarr/worker/fileimport; see
+	// amendment-1 moved the importer into app/import/worker/fileimport; see
 	// ManagerImportarr, which now owns that write. Settled at task D2-7.)
 	ManagerCatalogarr FieldManager = "catalogarr"
 
@@ -87,7 +87,7 @@ const (
 	// delayed item out of Phase=Delayed back to Wanted, where the wanted
 	// cron re-searched an item that already had a grab scheduled). Both
 	// directions were reproduced against a real apiserver; see
-	// catalogarr/worker/grab's field-manager tests.
+	// app/catalog/worker/grab's field-manager tests.
 	ManagerCatalogarrMetadata FieldManager = "catalogarr-metadata"
 
 	// ManagerCatalogarrGrab is the catalogarr grab path -- the grab worker,
@@ -148,12 +148,12 @@ const (
 	// ImportExclusion and LibraryScan status.
 	//
 	// It also owns Download.status.import -- the project's one cross-group
-	// status write, applied by importarr/worker/fileimport (task D2-7), not
+	// status write, applied by app/import/worker/fileimport (task D2-7), not
 	// by any importarr controller. That write deliberately uses this bare
 	// manager name rather than ManagerImportarrWorker: nothing else ever
 	// applies under either name to a Download object, so there is no
 	// collision to guard against the way there is on MediaFile (see
-	// ManagerImportarrWorker), and grabarr/status.Patch (which owns every
+	// ManagerImportarrWorker), and app/grab/status.Patch (which owns every
 	// other field manager on Download.status) refuses this name from its own
 	// declaration precisely so that importarr's write stays importarr's,
 	// made from importarr's own code, rather than being routed through
@@ -161,10 +161,10 @@ const (
 	//
 	// Design spec §8.4 assigned this write to catalogarr, under the name
 	// ManagerCatalogarr. Amendment-1 moved the importer out of catalogarr
-	// into importarr/worker/fileimport ("Nothing named 'importer' remains in
+	// into app/import/worker/fileimport ("Nothing named 'importer' remains in
 	// catalogarr"), and this field's ownership moved with it. Three comments
 	// disagreed on the result until task D2-7 settled it: this one and
-	// grabarr/status already said importarr; ManagerCatalogarr's comment and
+	// app/grab/status already said importarr; ManagerCatalogarr's comment and
 	// DownloadStatus' own field doc still said catalogarr. All three are now
 	// consistent.
 	ManagerImportarr FieldManager = "importarr"
@@ -207,7 +207,7 @@ const (
 	// fields; that hazard took eight distinct forms in Phase C and the
 	// remedy that worked, twice, was distinct managers. The two worker paths
 	// DO share this name, so both declare the identical set through
-	// indexarr/status.WorkerFields -- one definition, not two.
+	// app/indexer/status.WorkerFields -- one definition, not two.
 	ManagerIndexarrWorker FieldManager = "indexarr-worker"
 
 	// ManagerGrabarr is the grabarr controller manager, the single writer for

@@ -33,7 +33,7 @@ import (
 )
 
 // This file is the Unmatched page's manual-assign action, whose mechanism is
-// importarr/worker/rescan/doc.go's "Manual assignment" (carried into this
+// app/import/worker/rescan/doc.go's "Manual assignment" (carried into this
 // task by G2-4, commit 6e1b97b, and the phase plan's G3-4 note). It needs no
 // API addition and no new RBAC grant: assigning one unmatched file is a
 // create of a LibraryScan, annotated to redirect the walk at one catalog
@@ -42,16 +42,16 @@ import (
 // (metadata.annotations is an unvalidated map on every kind), so there is
 // nothing else to grant.
 
-// AnnotationImportTarget is importarr/worker/fileimport.AnnotationImportTarget's
+// AnnotationImportTarget is app/import/worker/fileimport.AnnotationImportTarget's
 // value, restated here for the same reason [FieldManager] restates
 // pkg/k8s.ManagerUI's: ui/actions may import only api/ and pkg/obs/ from
 // this module (ui/guard_test.go's own import allowlist), and
-// importarr/worker/fileimport is neither. manualassign_test.go pins the two
+// app/import/worker/fileimport is neither. manualassign_test.go pins the two
 // strings together by importing that package directly (a _test.go file is
 // exempt from the allowlist).
 const AnnotationImportTarget = "catalog.clustarr.io/import-target"
 
-// ManualAssignTarget is importarr/worker/fileimport.ImportTarget's grammar
+// ManualAssignTarget is app/import/worker/fileimport.ImportTarget's grammar
 // -- "<kind>/<name>" or, for a series or comic, "<kind>/<name>/<key>" --
 // restated as a Go struct for the same reason [AnnotationImportTarget] is
 // restated as a string: ui/actions cannot import the package that type lives
@@ -119,7 +119,7 @@ func (t ManualAssignTarget) validate() error {
 }
 
 // ManualAssign is the Unmatched page's "assign" action
-// (importarr/worker/rescan/doc.go, "Manual assignment"): it creates a
+// (app/import/worker/rescan/doc.go, "Manual assignment"): it creates a
 // LibraryScan of rootFolder, restricted to subpath (an unmatched file's own
 // path, relative to the root -- naming the FILE, not a directory: see that
 // doc comment on why LibraryScanSpec.Subpath's "one directory" wording does

@@ -115,8 +115,8 @@ type Reconciler struct {
 	// observed complete on disk (see [derivePhase] and [publishImportTask]).
 	// events.Publisher, not the full events.Bus, is deliberate: this
 	// reconciler only ever produces, never subscribes or reads KV, the same
-	// minimal-footprint choice catalogarr/controller/movie.Reconciler and
-	// catalogarr/controller/search.Reconciler already make for their own Bus
+	// minimal-footprint choice app/catalog/controller/movie.Reconciler and
+	// app/catalog/controller/search.Reconciler already make for their own Bus
 	// fields.
 	//
 	// Nil is accepted by NewReconciler -- every test built before this task
@@ -352,7 +352,7 @@ func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Down
 	// its own retry) publishes again -- survivable, because D2-7's
 	// file-import worker is idempotent both through its own dedup
 	// fingerprint and through its status.import.state check
-	// (importarr/worker/fileimport/dedup.go, worker.go). Recording first and
+	// (app/import/worker/fileimport/dedup.go, worker.go). Recording first and
 	// publishing second would risk the opposite outcome: a Download marked
 	// Downloaded whose import task was never actually sent, which nothing
 	// in the system would ever retry.
@@ -423,13 +423,13 @@ func seedGoalEdge(dl *downloadv1alpha1.Download) bool {
 
 // applyAdvancedStatus sends the complete k8s.ManagerGrabarr declaration for
 // res: phase; failureReason (set for Failed and Blocklisted, explicitly
-// cleared otherwise -- grabarr/status.ControllerFields' "to CLEAR a field"
+// cleared otherwise -- app/grab/status.ControllerFields' "to CLEAR a field"
 // note); blocklistedUntil, recorded once when the Download first becomes
 // Blocklisted (DefaultBlocklistTTL from now: the design spec's default, and
 // the one an operator labelling by hand gets too, since the status
 // subresource is not something they set); the startedAt, completedAt and
 // seedGoalMetAt transition timestamps; and every condition, derived fresh
-// rather than carried forward (grabarr/status.ControllerFields: "the
+// rather than carried forward (app/grab/status.ControllerFields: "the
 // reconciler derives all five on every pass"). downloaded is passed in
 // rather than recomputed so advancePhase's publish gate and the Downloaded
 // condition this method sets can never disagree about whether content is
@@ -533,13 +533,13 @@ func failureMessage(dl *downloadv1alpha1.Download, res phaseResult) string {
 // calls it at most once per completion via its Downloaded-condition gate;
 // this method adds a second, independent idempotency layer for the one case
 // that gate cannot cover -- a crash between this publish succeeding and the
-// status apply that records it (grabarr/status.Patch, in
+// status apply that records it (app/grab/status.Patch, in
 // applyAdvancedStatus), which would otherwise leave the next reconcile
 // reading a still-False Downloaded condition and publishing a duplicate.
 // The Envelope's ID is deterministic per Download identity rather than per
 // publish attempt, so the broker's own MsgID dedup window absorbs that
 // specific near-term retry; D2-7's worker is also independently idempotent
-// through its own dedup fingerprint (importarr/worker/fileimport/dedup.go)
+// through its own dedup fingerprint (app/import/worker/fileimport/dedup.go)
 // and its status.import.state check, so a duplicate that outlives both
 // windows is survivable rather than free -- exactly what the plan asks the
 // producer to be.
@@ -574,8 +574,8 @@ func (r *Reconciler) publishImportTask(ctx context.Context, dl *downloadv1alpha1
 
 // reconcileDelete runs the spec.removeDataOnDelete finalizer and, once done,
 // drops the finalizer. It is the controller's half of the teardown protocol
-// (ruling R-6; grabarr/engine's package doc): it removes status.outputPath
-// only once the engine has dropped grabarr/engine's finalizer -- i.e. once
+// (ruling R-6; app/grab/engine's package doc): it removes status.outputPath
+// only once the engine has dropped app/grab/engine's finalizer -- i.e. once
 // the engine has removed the transfer and released its files -- so it no
 // longer unlinks files an engine is still writing or seeding.
 //
@@ -762,7 +762,7 @@ func phaseSignal(o client.Object) downloadPhaseSignal {
 // GenerationChanged alone would miss the update that only sets
 // deletionTimestamp (a metadata change, not a spec change) -- k8s.Deleting()
 // covers that, and also wakes the finalizer when an engine drops
-// grabarr/engine's finalizer. k8s.StatusFieldChanged(phaseSignal) is D2-8a's:
+// app/grab/engine's finalizer. k8s.StatusFieldChanged(phaseSignal) is D2-8a's:
 // see phaseSignal for why phase advancement is unreachable without it.
 // k8s.DeadLetteredAnnotationChanged() is the DLQ fold's: the projector's
 // annotation, and an operator removing it, touch neither generation nor any

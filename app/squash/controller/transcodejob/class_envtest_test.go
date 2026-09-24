@@ -554,7 +554,7 @@ func TestTheUnschedulableMarkLastsThirtyMinutesAndIsInMemory(t *testing.T) {
 	// the cancel marker survives it: a GPU worker that fetched attempt 1
 	// before the purge, and has yet to claim it, must still find it
 	// cancelled. Attempt 2's worker replaces a marker from an earlier
-	// attempt (squasharr/worker's claim).
+	// attempt (app/squash/worker's claim).
 	lease := leaseOf(t, r, a)
 	assert.Equal(t, task.LeaseCancelled, lease.State, "the re-dispatch cleared the withdrawn attempt's cancel marker")
 	assert.EqualValues(t, 1, lease.Attempt)

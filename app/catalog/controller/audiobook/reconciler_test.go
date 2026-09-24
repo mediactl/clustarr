@@ -257,7 +257,7 @@ func (p *capturingPublisher) Publish(_ context.Context, _ string, e *events.Enve
 
 // noopCache is a pkgmetadata.Cache that never hits, so every lookup in
 // TestAudiobookRegionReachesTheMetadataGateway reaches the fake Audnexus
-// server. Mirrors catalogarr/metadata/worker_envtest_test.go's identical
+// server. Mirrors app/catalog/metadata/worker_envtest_test.go's identical
 // helper (unexported there, so repeated here rather than imported).
 type noopCache struct{}
 
@@ -277,7 +277,7 @@ func (m testMessage) Term(context.Context, string) error       { return nil }
 func (m testMessage) InProgress(context.Context) error         { return nil }
 
 // TestAudiobookRegionReachesTheMetadataGateway is task G2-3's explicit
-// regression case: catalogarr/metadata/target.go's externalIDs used to
+// regression case: app/catalog/metadata/target.go's externalIDs used to
 // hardcode region "us" for every Audnexus lookup regardless of
 // spec.region (fixed at G2-1, commit f665aa9). schema.MetadataTask carries
 // only MediaRef{Kind, Name} -- no region field -- so this reconciler cannot
@@ -336,7 +336,7 @@ func TestAudiobookRegionReachesTheMetadataGateway(t *testing.T) {
 	assert.Equal(t, "guards-guards", task.MediaRef.Name)
 
 	// The real gateway Handler, fed the reconciler's own real envelope --
-	// catalogarr/metadata.Handler.Handle -> target.go's externalIDs ->
+	// app/catalog/metadata.Handler.Handle -> target.go's externalIDs ->
 	// pkg/metadata.Registry.Lookup -> audnexus.Client.Audiobook.
 	h := &catalogmetadata.Handler{
 		Client:   c,

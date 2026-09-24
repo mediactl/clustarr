@@ -33,7 +33,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - Nothing ever imported them, so they left go.mod: Masterminds/sprig/v3
 //     (the Cardigann template surface never needed it), gabriel-vasile/
 //     mimetype (pkg/fsops classifies by extension), golang.org/x/net/proxy
-//     (indexarr/proxy dials SOCKS4 itself and SOCKS5 through net/http), and
+//     (app/indexer/proxy dials SOCKS4 itself and SOCKS5 through net/http), and
 //     antchfx/xmlquery with its antchfx/xpath dependency, unimported since
 //     gap fix X8a queried XML definitions with CSS, as Prowlarr does.
 //

@@ -387,7 +387,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 		// (pkg/metadata/refresh.go), so RefreshStateActive is passed only to
 		// avoid metadata.RefreshTTL's two magic-string special cases ahead of
 		// its per-kind switch -- exactly the reasoning
-		// catalogarr/metadata/worker.go's own Audiobook branch comment gives.
+		// app/catalog/metadata/worker.go's own Audiobook branch comment gives.
 		ttl := metadata.RefreshTTL(commonv1.MediaKindAudiobook, metadata.RefreshStateActive, m.Status.Metadata.RefreshedAt.Time)
 		stale = now.Sub(m.Status.Metadata.RefreshedAt.Time) >= ttl
 	}
@@ -402,7 +402,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 		// below carries only MediaRef{Kind, Name} (schema.MetadataTask has
 		// no region field), and the metadata gateway's Handler re-Gets this
 		// exact object by that name before it ever looks at region
-		// (catalogarr/metadata/worker.go's Handle, target.go's
+		// (app/catalog/metadata/worker.go's Handle, target.go's
 		// externalIDs) -- so region reaches the gateway through
 		// m.Spec.Region on the live object, not through anything this
 		// reconciler puts on the wire. This reconciler's only job is to ask

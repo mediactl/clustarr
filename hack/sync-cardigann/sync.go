@@ -61,7 +61,7 @@ const (
 const licenceNotice = `sync-cardigann: Prowlarr/Indexers carries no licence file (its history is
 Jackett's GPL-2.0 tree, whose LICENSE was deleted in 2020). Clustarr embeds a
 copy of Prowlarr's definitions that the project owner added on 2026-09-23
-(indexarr/bundle/embedded); this tool fetches a fresh set for a
+(app/indexer/bundle/embedded); this tool fetches a fresh set for a
 --cardigann-definitions-dir bundle. See hack/sync-cardigann's package
 documentation.`
 

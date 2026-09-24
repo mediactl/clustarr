@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Command gen-catalogue regenerates pkg/quality/catalogue/data/formats/*.json
-// from the vendored TRaSH-Guides corpus (testdata/trash/docs/json/{radarr,sonarr}/cf),
+// from the vendored TRaSH-Guides corpus (test/data/trash/docs/json/{radarr,sonarr}/cf),
 // closing the Phase B library carry described in
 // docs/superpowers/specs/2026-09-18-clustarr-design.md §7/§9: the embedded
 // catalogue is meant to be *generated*, not hand-typed.
@@ -41,7 +41,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Usage:
 //
-//	go run ./hack/gen-catalogue [-corpus testdata/trash/docs/json] [-manifest hack/gen-catalogue/manifest] [-out pkg/quality/catalogue/data/formats]
+//	go run ./hack/gen-catalogue [-corpus test/data/trash/docs/json] [-manifest hack/gen-catalogue/manifest] [-out pkg/quality/catalogue/data/formats]
 package main
 
 // manifestApp names one app whose TrashIDs entry a format carries, in the

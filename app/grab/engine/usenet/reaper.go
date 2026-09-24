@@ -43,7 +43,7 @@ const (
 
 	// DefaultOrphanGrace is how old a transfer with no matching Download
 	// must be -- by its own [download.Item.AddedAt], see
-	// grabarr/engine.OrphanClock -- before [Reaper] treats it as an
+	// app/grab/engine.OrphanClock -- before [Reaper] treats it as an
 	// orphan rather than one this replica added moments ago and has not yet
 	// matched.
 	//
@@ -51,7 +51,7 @@ const (
 	// Download: [Reconciler.getOrAdd] resolves the payload under
 	// [DefaultResolveTimeout] (60s), then Adds and the caller applies
 	// telemetry that sets status.downloadID. Ten minutes is a wide margin
-	// over that, matching grabarr/engine/torrent's identical constant and
+	// over that, matching app/grab/engine/torrent's identical constant and
 	// its reasoning against that package's own 5-minute reconcile timeout.
 	DefaultOrphanGrace = 10 * time.Minute
 )
@@ -66,7 +66,7 @@ type cacheSyncWaiter interface {
 	WaitForCacheSync(ctx context.Context) bool
 }
 
-// Reaper is the backstop behind the engine finalizer (grabarr/engine's
+// Reaper is the backstop behind the engine finalizer (app/grab/engine's
 // [engine.Finalizer], gap-fix ruling R-6). The finalizer makes the ordinary
 // path safe: a deleted Download is not gone until this engine has removed
 // its transfer. But the Download controller drops that finalizer on the
@@ -107,7 +107,7 @@ type cacheSyncWaiter interface {
 // a transfer whose age is unknown).
 //
 // [Reconciler] itself needs no equivalent re-attach gate here: unlike
-// grabarr/engine/torrent's [Engine], [download.Client] as built by
+// app/grab/engine/torrent's [Engine], [download.Client] as built by
 // [BuildClient] has already re-attached synchronously by the time it
 // exists at all (pkg/download/usenet.New's own doc comment), so there is no
 // window where a Reaper could be constructed before re-attach completes.
@@ -171,7 +171,7 @@ type Reaper struct {
 // NeedLeaderElection makes the reaper run on every replica rather than only
 // the leader. Usenet clients are capped at one replica by DownloadClientSpec's
 // own CEL rule, so this is belt and braces today, but it matches
-// grabarr/engine/torrent's identical reasoning and pkg/k8s.EveryReplica's:
+// app/grab/engine/torrent's identical reasoning and pkg/k8s.EveryReplica's:
 // each engine replica embeds its own client and knows only its own
 // transfers, so a leader-elected singleton is the wrong shape even where it
 // would currently be harmless.
@@ -202,7 +202,7 @@ func (r *Reaper) now() time.Time {
 // WaitForCacheSync, reaps once straight away -- so an engine that restarts
 // more often than [Reaper.ReapInterval] still reaps orphans older than the
 // grace -- then reaps on [Reaper.ReapInterval] until ctx is done. It returns nil on cancellation, matching every other
-// Runnable in this tree (e.g. catalogarr/controller/wantedcron): a Runnable
+// Runnable in this tree (e.g. app/catalog/controller/wantedcron): a Runnable
 // that returns an error takes the whole manager down with it, and a
 // graceful shutdown is not an error.
 func (r *Reaper) Start(ctx context.Context) error {

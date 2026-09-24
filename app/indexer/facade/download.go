@@ -59,10 +59,10 @@ func (s *Server) handleIndexerDownload(w http.ResponseWriter, r *http.Request) {
 	case resp.Error != "":
 		// DownloadResponse.Error is intentionally NOT echoed to the caller
 		// verbatim on other verbs in this package (writeLookupError), but
-		// this one is: it is indexarr/download's own designed error
+		// this one is: it is app/indexer/download's own designed error
 		// contract for this exact caller-facing purpose ("DownloadResponse
 		// carries exactly one of Bytes, MagnetURL or RedirectURL ... or an
-		// Error and none" -- indexarr/download/doc.go), not an internal
+		// Error and none" -- app/indexer/download/doc.go), not an internal
 		// detail like an apiserver error.
 		s.writeTorznabError(w, http.StatusBadGateway, torznab.ErrUnknown, resp.Error)
 	case len(resp.Bytes) > 0:

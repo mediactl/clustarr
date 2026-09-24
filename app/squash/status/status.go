@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package status is the single place squasharr declares what each field
 // manager owns on TranscodeJob.status and TranscodeProfile.status.
 //
-// It exists for the same reason grabarr/status and indexarr/status do:
+// It exists for the same reason app/grab/status and app/indexer/status do:
 // server-side apply replaces a field manager's ownership set on every apply
 // rather than merging into it, so any field a manager sent before and omits
 // now is RELEASED, and a released field nobody else owns is deleted from the
@@ -55,7 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // TranscodeProfile.status has exactly one writer too: the squasharr
 // controller, computing hash, matchingFiles, pendingJobs and runningJobs on
 // every reconcile. [PatchProfile] refuses every manager but
-// k8s.ManagerSquasharr, for the same reason grabarr/status.Patch refuses
+// k8s.ManagerSquasharr, for the same reason app/grab/status.Patch refuses
 // k8s.ManagerImportarr even though it legitimately writes Download.status.import:
 // a write that belongs to a specific piece of code should be routed through
 // that code's own declaration, not through one that happens to compile.
@@ -78,7 +78,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // status.plan, status.progress and status.result are themselves structs, and
 // server-side apply tracks ownership per leaf inside them, not for the
-// sub-object as a whole -- the same hazard indexarr/status.capsAC exists to
+// sub-object as a whole -- the same hazard app/indexer/status.capsAC exists to
 // avoid. [ControllerFields] therefore renders every field of a non-nil Plan,
 // Progress or Result through planAC, progressAC and resultAC rather than
 // only the leaves a particular write happened to compute, so a re-apply
@@ -218,7 +218,7 @@ func Patch(
 // PatchCAS applies squasharr's complete status for job, conditional on
 // job.ResourceVersion: a write that raced another returns a Conflict instead
 // of silently rolling that other write back (spec §18.2). It is
-// catalogarr/worker/grab's applyWorkerStatus pattern -- the apply carries the
+// app/catalog/worker/grab's applyWorkerStatus pattern -- the apply carries the
 // resourceVersion the status was read at as a precondition.
 //
 // job must carry the resourceVersion of the read its status was seeded
@@ -291,7 +291,7 @@ func PatchProfile(
 // planAC renders status.plan completely: every field of p, zero values
 // included where the field cannot mean anything else, because server-side
 // apply tracks ownership per leaf inside the struct rather than for it as a
-// whole (the same rule indexarr/status.capsAC documents). Encoder, mode,
+// whole (the same rule app/indexer/status.capsAC documents). Encoder, mode,
 // skipReason, hdrMode, videoArgs, audioTracks, subtitleTracks and argsHash
 // are omitted while empty, and that is a property of the DECISION's shape --
 // a skip decision has no encoder or video args, a remux-only one has no audio

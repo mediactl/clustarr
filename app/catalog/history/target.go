@@ -108,7 +108,7 @@ func refTarget(ref schema.Ref, apiVersion, kind string) Target {
 }
 
 // splitKey parses the Clustarr-Key convention, "<namespace>/<name>" (see
-// events.HeaderKey), the same way catalogarr/worker/rssmatcher.Handle does.
+// events.HeaderKey), the same way app/catalog/worker/rssmatcher.Handle does.
 // A key with no slash means the producer's Ref had an empty namespace (see
 // schema.Ref.String), so the whole value is the name and the namespace is
 // unknown -- not the other way around, which would attribute an object to a
@@ -264,7 +264,7 @@ func resolveImportTask(key string, data []byte) Target {
 }
 
 // resolveRelease is indexarr's parsed-release payload. It carries no Ref of
-// its own; the producer convention (see catalogarr/worker/rssmatcher.Handle)
+// its own; the producer convention (see app/catalog/worker/rssmatcher.Handle)
 // is Clustarr-Key = "<namespace>/<indexerName>", so the key alone resolves
 // it. Info.IndexerRef is consulted only to prefer a name the payload itself
 // vouches for when it disagrees with the key -- it should never disagree in
@@ -313,15 +313,15 @@ func resolveJobEvent(key string, data []byte) Target {
 	return refTarget(p.JobRef, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
 }
 
-// transcodeTaskRef is the one field of squasharr/task.Task a dead letter
+// transcodeTaskRef is the one field of app/squash/task.Task a dead letter
 // needs: the TranscodeJob the task was dispatched for. It is decoded here
-// rather than importing squasharr/task, which would make catalogarr depend
+// rather than importing app/squash/task, which would make catalogarr depend
 // on squasharr's worker types for one reference.
 type transcodeTaskRef struct {
 	Job schema.Ref `json:"job"`
 }
 
-// Schema implements schema.Payload; it is squasharr/task.Task's.
+// Schema implements schema.Payload; it is app/squash/task.Task's.
 func (transcodeTaskRef) Schema() string { return "transcode.Task.v1" }
 
 // resolveTranscodeTask names the TranscodeJob a dead-lettered transcode task

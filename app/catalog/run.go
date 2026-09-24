@@ -439,7 +439,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // Album, Book and Audiobook are metadata targets of their own and publish
 // their own MetadataTasks, so they need it too. Issue fetches no metadata
 // of its own -- Comic's fan-out writes its provider fields under
-// k8s.ManagerCatalogarrFanout (catalogarr/controller/issue's doc.go) -- but
+// k8s.ManagerCatalogarrFanout (app/catalog/controller/issue's doc.go) -- but
 // it publishes its catalog item events like every other kind, and a nil Bus
 // publishes nothing, so it gets the bus as well.
 //
@@ -578,7 +578,7 @@ func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
 //
 // Order is load-bearing and is the reason the indexes are registered here
 // rather than by whichever worker happens to want them first: the RSS matcher
-// reads the live queue through catalogarr/worker/search's Download target
+// reads the live queue through app/catalog/worker/search's Download target
 // index and matches releases through its own indexes, and when they are
 // missing its lookups degrade rather than fail. See registerWorkerIndexes
 // and assertWorkerIndexes, which turn that silent degradation into a

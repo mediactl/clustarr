@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration (Task C12)
 //
-// Nothing registers itself. catalogarr/run.go's setupControllers makes exactly
+// Nothing registers itself. app/catalog/run.go's setupControllers makes exactly
 // this call -- and it needs an events.Bus, which setupControllers does not
 // take today, so C12 either threads bus through or registers this from Run:
 //

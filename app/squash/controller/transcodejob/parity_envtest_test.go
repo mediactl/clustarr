@@ -129,7 +129,7 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			cfg := pool.Config{Image: "transcoder:test"}
 			t.Setenv(worker.CPULimitEnv, cpuLimitEnv(t, pool.Template(tp, class, cfg)))
 
-			// The worker's own path, as squasharr/worker.Process takes it.
+			// The worker's own path, as app/squash/worker.Process takes it.
 			info, err := transcode.FromProbe(mi, raw)
 			require.NoError(t, err)
 			info.Path = src

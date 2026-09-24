@@ -67,7 +67,7 @@ func (s *Server) handleIndexerAPI(w http.ResponseWriter, r *http.Request) {
 // handleIndexerSearch runs a LIVE federated search scoped to exactly one
 // Indexer via Config.Search -- clustarr.rpc.indexarr.search's own body,
 // called in-process (see doc.go). SearchRequest.Text is set from q, the
-// same field catalogarr/worker/search's BuildSearchRequest fills from the
+// same field app/catalog/worker/search's BuildSearchRequest fills from the
 // item's resolved title (G1-6); buildQuery still prefers ids wherever the
 // indexer supports one.
 func (s *Server) handleIndexerSearch(w http.ResponseWriter, r *http.Request, idx *indexv1alpha1.Indexer, mode torznab.SearchMode) {
@@ -127,11 +127,11 @@ func buildSearchRequest(q url.Values, mode torznab.SearchMode, timeout time.Dura
 }
 
 // kindForMode maps a Torznab t= mode onto the MediaKind
-// indexarr/search/query.go's modeFor reads back out to pick the wire search
+// app/indexer/search/query.go's modeFor reads back out to pick the wire search
 // mode (movie<->MediaKindMovie, tvsearch<->MediaKindEpisode). music/audio/
 // search have no MediaKind of their own and fall back to modeFor's default
 // (ModeSearch), same as every kind modeFor does not special-case -- that
-// mapping belongs to indexarr/search, not duplicated here.
+// mapping belongs to app/indexer/search, not duplicated here.
 func kindForMode(mode torznab.SearchMode) commonv1.MediaKind {
 	switch mode {
 	case torznab.ModeMovieSearch:

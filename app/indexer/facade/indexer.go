@@ -76,7 +76,7 @@ func (s *Server) resolveIndexer(ctx context.Context, name string) (*indexv1alpha
 
 // indexerEnabled reports spec.enabled -- the operator's master on/off
 // switch, distinct from EnableAutomaticSearch/EnableInteractiveSearch, which
-// indexarr/search's own candidate selection already applies and which
+// app/indexer/search's own candidate selection already applies and which
 // legitimately degrade to a zero-result search rather than a facade-level
 // rejection.
 func indexerEnabled(idx *indexv1alpha1.Indexer) bool {

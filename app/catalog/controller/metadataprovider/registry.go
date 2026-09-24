@@ -186,7 +186,7 @@ func addToRegistry(reg *metadata.Registry, spec catalogv1alpha1.MetadataProvider
 // defaults to priority 50, and a default-priority Hardcover or Metron
 // sorts by name ahead of Open Library or ComicVine and would answer a
 // search with hits no CR can be created from. The gateway's own
-// BuildRegistry (catalogarr/metadata/registry.go) applies the same rule.
+// BuildRegistry (app/catalog/metadata/registry.go) applies the same rule.
 func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 	switch t {
 	case catalogv1alpha1.MetadataProviderCoverArt, catalogv1alpha1.MetadataProviderFanart,

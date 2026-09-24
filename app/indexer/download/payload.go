@@ -41,12 +41,12 @@ const MaxPayloadBytes = 4 << 20
 // package-level max, an io.LimitReader(body, max+1) and a sentinel, so
 // errors.Is works through the wrapping. pkg/metadata/clients reads bodies
 // with no cap at all; that is a recorded defect, not a second convention.
-var ErrResponseTooLarge = errors.New("indexarr/download: response body exceeds size limit")
+var ErrResponseTooLarge = errors.New("app/indexer/download: response body exceeds size limit")
 
 // errEmptyBody is a 200 with nothing in it. A torrent client handed zero
 // bytes reports a corrupt file, which reads as our bug rather than the
 // indexer's.
-var errEmptyBody = errors.New("indexarr/download: indexer returned an empty body")
+var errEmptyBody = errors.New("app/indexer/download: indexer returned an empty body")
 
 // maxContentTypeChars bounds a header value from a third party before it is
 // copied into DownloadResponse.ContentType.

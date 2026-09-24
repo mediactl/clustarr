@@ -40,18 +40,18 @@ import (
 )
 
 // defaultMetadataTimeout bounds one id-resolve RPC, matching
-// importarr/worker/rescan's own default for the same call.
+// app/import/worker/rescan's own default for the same call.
 const defaultMetadataTimeout = 10 * time.Second
 
 // Worker handles clustarr.work.importarr.list.* messages: one message is
 // one ImportList's sync, across every catalog kind its spec.kinds names.
-// See this package's doc comment for how importarr/run.go registers it.
+// See this package's doc comment for how app/import/run.go registers it.
 //
 // The worker is never the writer of ImportList.status: k8s.ManagerImportarr
 // (the controller's field manager) owns it in full, per that constant's own
 // doc comment, and this worker instead checkpoints its result to a
 // clustarr-progress key (see Result and ResultKey) that the controller
-// reads -- the same split importarr/worker/rescan uses for LibraryScan --
+// reads -- the same split app/import/worker/rescan uses for LibraryScan --
 // and then stamps [AnnotationSyncedAt] so the controller reads it now.
 type Worker struct {
 	// Client reads the ImportList, its Secret/ConfigMap, and creates or

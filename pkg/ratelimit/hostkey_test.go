@@ -25,7 +25,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
 
-// These assertions came from indexarr/controller/indexer's TestLimiterKeyFor,
+// These assertions came from app/indexer/controller/indexer's TestLimiterKeyFor,
 // verbatim, when the helper moved here (ruling R38).
 func TestHostKey(t *testing.T) {
 	require.Equal(t, "nzbgeek.info:8080", ratelimit.HostKey("https://nzbgeek.info:8080/api"))

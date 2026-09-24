@@ -34,7 +34,7 @@ import (
 
 // notEngineOwned lists the Download.status fields ApplyStatus must never
 // emit: nine belong to k8s.ManagerGrabarr and one, import, to
-// k8s.ManagerImportarr. grabarr/status holds the authoritative split; this
+// k8s.ManagerImportarr. app/grab/status holds the authoritative split; this
 // copy is what keeps pkg/download honest without importing a service package.
 var notEngineOwned = []string{
 	"ObservedGeneration", "Phase", "Engine", "FailureReason", "BlocklistedUntil",
@@ -99,7 +99,7 @@ func statusFromAC(t *testing.T, ac any) downloadv1alpha1.DownloadStatus {
 }
 
 // The round trip must be exact ON THE STATUS SIDE, because that is what
-// grabarr/status.EngineFields relies on: it seeds a complete declaration by
+// app/grab/status.EngineFields relies on: it seeds a complete declaration by
 // reading the live object back through ItemFromStatus and re-rendering it, so
 // any lossy field would be silently rewritten to a different value on every
 // apply that touched something else.

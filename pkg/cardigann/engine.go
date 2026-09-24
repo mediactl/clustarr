@@ -315,7 +315,7 @@ var ErrResponseTooLarge = errors.New("cardigann: response body exceeds size limi
 // second, independent implementation elsewhere is how that secret
 // eventually leaks -- the two copies drift and nobody notices until a
 // passkey is on someone's screen. Other packages needing the same
-// redaction (captionarr/indexarr diagnostics, per Ruling R26) must call
+// redaction (app/caption/indexarr diagnostics, per Ruling R26) must call
 // this one rather than writing their own.
 func RedactURL(u *url.URL) string {
 	if u == nil {

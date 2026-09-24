@@ -43,8 +43,8 @@ import (
 )
 
 // readSecret returns ref's data in namespace ns, or an empty map when ref is
-// nil. Mirrors catalogarr/controller/metadataprovider's readSecret and
-// indexarr/controller/indexer's own copy: the pattern is small enough that
+// nil. Mirrors app/catalog/controller/metadataprovider's readSecret and
+// app/indexer/controller/indexer's own copy: the pattern is small enough that
 // this package duplicates it rather than adding a shared helper package for
 // three call sites across three services.
 func readSecret(ctx context.Context, c client.Client, ns string, ref *corev1.LocalObjectReference) (map[string][]byte, error) {

@@ -89,7 +89,7 @@ type Entry struct {
 	Name, Namespace string
 
 	// UID is the SubtitleProvider's UID: the key of its state in the
-	// clustarr-provider-throttle KV bucket (captionarr/throttle).
+	// clustarr-provider-throttle KV bucket (app/caption/throttle).
 	UID string
 
 	// Type is spec.type, which pkg/subtitles.ThrottleFor keys its
@@ -221,7 +221,7 @@ type Builder struct {
 	// KV is the clustarr-provider-throttle bucket
 	// (events.BucketProviderThrottle). When set, every OpenSubtitles.com
 	// client shares its login token through it -- [TokenCache] over
-	// captionarr/throttle.Get and throttle.SetAuth -- so N worker replicas
+	// app/caption/throttle.Get and throttle.SetAuth -- so N worker replicas
 	// using one account log in once between them rather than once each
 	// (spec §6.5: the bucket "holds JWT + remaining/reset"). Nil keeps each
 	// client's token to itself.
@@ -469,7 +469,7 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 
 // TokenCache is opensubtitlescom.TokenCache over one SubtitleProvider's entry
 // in the clustarr-provider-throttle KV bucket: the State's JWT and
-// TokenExpiresAt, read through captionarr/throttle.Get and written through
+// TokenExpiresAt, read through app/caption/throttle.Get and written through
 // throttle.SetAuth. Keyed by the provider's UID like the rest of that
 // entry, so two SubtitleProviders -- two accounts -- never share a token.
 //

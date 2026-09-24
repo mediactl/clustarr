@@ -93,7 +93,7 @@ func TestAllElevenDownloadPhasesRenderWithoutPanicking(t *testing.T) {
 }
 
 // TestDownloadRowRendersTheZeroValueStatusWithoutError is R5's other half:
-// grabarr/ has no controller yet, so every Download in a live cluster today
+// app/grab/ has no controller yet, so every Download in a live cluster today
 // sits at status.phase == "" with every other status field at its zero
 // value. The row must render, not panic and not error.
 func TestDownloadRowRendersTheZeroValueStatusWithoutError(t *testing.T) {

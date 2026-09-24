@@ -538,7 +538,7 @@ func portForwardService(ctx context.Context, t *testing.T, name string, remotePo
 const indexerReadyTimeout = 2 * time.Minute
 
 // searchCompletedTimeout is bounded by the CONTROLLER, not by the queue:
-// catalogarr/controller/search's SearchRunningTimeout (5 minutes) fails a
+// app/catalog/controller/search's SearchRunningTimeout (5 minutes) fails a
 // Search that has sat in Running that long, so no wait past it can ever
 // observe a Completed that was not already going to arrive.
 //
@@ -586,7 +586,7 @@ const firehoseTimeout = 7 * time.Minute
 //
 // The driver is the RSS poll at the scenario's rssInterval of 1 minute, and
 // the ladder's first step is a ZERO-length disable
-// (indexarr/status.escalationTable's [0, 1m, 5m, ...]), so reaching a
+// (app/indexer/status.escalationTable's [0, 1m, 5m, ...]), so reaching a
 // 5-minute window takes three failing polls: level 0 -> 1 (a 1m window),
 // then, when that window expires, level 1 -> 2 (a 5m window). That is ~180s.
 // One of those polls can lose its delivery and come back on ConsumerIndexRSS's
@@ -915,7 +915,7 @@ func newDelayProfile(ctx context.Context, t *testing.T, prefix string, torrentDe
 //
 // minimumAvailability is a parameter rather than the CRD's "released" default
 // because it decides whether the RSS matcher will even consider the item:
-// catalogarr/controller/movie.Availability returns "always available" for
+// app/catalog/controller/movie.Availability returns "always available" for
 // announced without consulting metadata at all, so a scenario that depends on
 // a release being accepted can hold that guarantee independently of whether
 // the metadata refresh has landed.
@@ -1086,7 +1086,7 @@ const (
 	// nntp-stub's real ~55MiB baked-clip content (test/fixtures/seed.
 	// BakedClipPath, X12c's --content-path default on both fixtures) over
 	// cluster-internal networking, plus the engine's own telemetry cadence
-	// (grabarr/run.go's TODO comments cite Stats() every 5s and SSA
+	// (app/grab/run.go's TODO comments cite Stats() every 5s and SSA
 	// telemetry every 10s). Sized generously for a loaded node, not for
 	// the transfer itself, which is trivially fast on cluster-internal
 	// networking even at real size.
@@ -1234,7 +1234,7 @@ func describeDownloadClient(key client.ObjectKey) func() string {
 }
 
 // newTorrentDownloadE2E creates a Download directly under movie, standing in
-// for the real grab decision catalogarr/worker/grab/perform.go makes (R2):
+// for the real grab decision app/catalog/worker/grab/perform.go makes (R2):
 // that path is driven from a real Search's ranked results, and the fixture
 // indexer's canned releases (test/fixtures/torznabstub/testdata) do not
 // point at this suite's seeder or nntp-stub, so there is no real grab to
@@ -1410,7 +1410,7 @@ func patchDownloadLabel(ctx context.Context, t *testing.T, dl *downloadv1alpha1.
 // skipped instead: test/fixtures/seeder and test/fixtures/nntpstub both
 // named their downloaded content "clustarr-fixture.bin", an extension
 // outside pkg/fsops.MediaExtensions, so fsops.Walk classified it ClassOther
-// and importarr/worker/fileimport skipped it before ever calling
+// and app/import/worker/fileimport skipped it before ever calling
 // release.ParsePath -- a structural, permanent wall, not a wiring gap, and
 // out of D2-10's file scope (test/e2e/*.go only, not test/fixtures/*) to
 // fix. X12c owns test/fixtures/** and closed it: both fixtures now serve
@@ -1465,7 +1465,7 @@ func waitForImportOutcome(ctx context.Context, t *testing.T, dl *downloadv1alpha
 		}
 	})
 	require.NoErrorf(t, err, "Download %s/%s: status.import never reached a terminal state within %s -- either "+
-		"importarr/worker/fileimport.Worker is not wired into importarr-worker's RoleWorker setup, or "+
+		"app/import/worker/fileimport.Worker is not wired into importarr-worker's RoleWorker setup, or "+
 		"grabarr's own completion publish is unreachable because its controllers/engines are not registered "+
 		"(both task D2-8), or something else entirely blocked the handoff.\n%s",
 		dl.Namespace, dl.Name, timeout, describeDownload(client.ObjectKeyFromObject(dl))())

@@ -92,7 +92,7 @@ type EvaluateFunc func(
 ) []decision.Decision
 
 // Sink is what the worker hands ranked, non-interactive results to.
-// catalogarr/worker/grab.Sink is the production implementation and this is its
+// app/catalog/worker/grab.Sink is the production implementation and this is its
 // method set verbatim.
 //
 // The namespace is a parameter because neither schema.SearchTask nor
@@ -363,7 +363,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 }
 
 // grabSource is the spec.grabbedBy a grab this search leads to records. A
-// search catalogarr/worker/redownload published for a failed Download is a
+// search app/catalog/worker/redownload published for a failed Download is a
 // redownload (spec §8.3; DownloadSpec.GrabbedBy's enum has the value for
 // exactly this); every other automatic search is a search. An interactive
 // search never reaches the sink -- its grabs are the Search controller's,
@@ -394,7 +394,7 @@ func Searchable(kind commonv1.MediaKind) bool {
 // count. Without it wantedcron.Backoff stays flat at MinimumGap forever and
 // every twelve-hourly sweep re-searches every still-wanted item.
 //
-// The write goes through catalogarr/worker/grab, which owns that field set
+// The write goes through app/catalog/worker/grab, which owns that field set
 // under k8s.ManagerCatalogarrGrab and re-declares all of it on every apply.
 // Reimplementing the cycle here would release the grab path's pendingGrab,
 // which is the failure that split catalogarr-worker into per-consumer
@@ -725,7 +725,7 @@ func (w *Worker) writeFailure(ctx context.Context, srch *catalogv1alpha1.Search,
 // omitempty: that releases the field, and since this manager is its only
 // owner the object then reads no results, which is what an empty list means.
 // Only the ownership record differs from declaring `[]`
-// (catalogarr/controller/search's ownership envtests pin it).
+// (app/catalog/controller/search's ownership envtests pin it).
 //
 // Nothing here ever touches a controller-owned field, which is what lets the
 // worker report a terminal failure at all without breaking the single-writer
@@ -899,7 +899,7 @@ func (w *Worker) topology() events.Topology {
 //
 // It does NOT call [RegisterDownloadIndexes]. It used to, and that made the
 // Download indexes a side effect of this worker being enabled -- while
-// catalogarr/worker/rssmatcher read the same ones and degraded to "not
+// app/catalog/worker/rssmatcher read the same ones and degraded to "not
 // blocklisted, empty queue" with a warning when they were missing. A role
 // that ran the RSS matcher without the search worker would therefore have
 // grabbed blocklisted releases, silently. (The blocklist is one labelled List

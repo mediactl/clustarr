@@ -192,7 +192,7 @@ type Options struct {
 
 	// WorkerServiceAccount is the ServiceAccount every transcode Job's pod
 	// runs as (--worker-service-account). It must hold the worker's RBAC --
-	// squasharr/worker/doc.go's markers, generated into their own
+	// app/squash/worker/doc.go's markers, generated into their own
 	// ClusterRole -- and NOT this controller's; left empty, the pods would
 	// run as the namespace default and fail their first Get.
 	WorkerServiceAccount string

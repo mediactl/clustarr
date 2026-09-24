@@ -43,7 +43,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// The non-video probes are keyed by the ids testdata/metadata's fixtures
+// The non-video probes are keyed by the ids test/data/metadata's fixtures
 // carry, so the fake providers below serve those fixtures verbatim and the
 // gateway maps real provider-shaped responses.
 const (
@@ -59,10 +59,10 @@ const (
 )
 
 // fakeMetadataProviders stands in for MusicBrainz, Open Library, ComicVine
-// and Audnexus: one httptest server each, which catalogarr/all's metadata
+// and Audnexus: one httptest server each, which app/catalog/all's metadata
 // gateway reaches through MetadataProvider objects whose spec.baseURL names
 // them. Faking at the HTTP edge rather than at the RPC is what keeps the
-// proof honest here: catalogarr/all runs the REAL gateway, which answers
+// proof honest here: app/catalog/all runs the REAL gateway, which answers
 // rpc.catalogarr.metadata.lookup in the catalogarr queue group, so a fake
 // RPC responder beside it would race it for every request. Nothing leaves
 // the machine.
@@ -404,7 +404,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 		t.Errorf("Issue %s status is applied by %v, want both %s (Comic's fan-out) and %s (the Issue controller)",
 			iss.Name, got, k8s.ManagerCatalogarrFanout, k8s.ManagerCatalogarr)
 	}
-	// The Issue controller's catalog item event, which catalogarr/run.go
+	// The Issue controller's catalog item event, which app/catalog/run.go
 	// could publish only once it handed the reconciler the bus (X14; until
 	// then a nil Bus published nothing, silently). This case also runs the
 	// history sink, which turns that event into an Event on the Issue.
@@ -446,7 +446,7 @@ func statusManagers(entries []metav1.ManagedFieldsEntry) map[string]bool {
 }
 
 // verifyRetrigger gives fileimport's Retrigger (registered by plan task
-// G2-5) its first piece of work on the leader importarr/all has become: a
+// G2-5) its first piece of work on the leader app/import/all has become: a
 // Blocked Download gains an import-target annotation, the Retrigger re-queues
 // its ImportTask, and the file-import worker in the same process re-runs the
 // import against the new target -- which does not exist, so it blocks again
@@ -470,7 +470,7 @@ func verifyRetrigger(t *testing.T, cfg *rest.Config) {
 				Title: "Retrigger Probe 2020 1080p WEB-DL x264-GRP", Protocol: commonv1alpha1.ProtocolTorrent,
 				// Set although optional: the CRD's release-identity CEL rule
 				// reads it unguarded on every status apply (see
-				// importarr/worker/fileimport's envtest fixture).
+				// app/import/worker/fileimport's envtest fixture).
 				InfoHash: strings.Repeat("b", 40),
 			},
 			Target: commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "retrigger-probe"},

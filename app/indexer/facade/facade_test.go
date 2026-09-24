@@ -20,13 +20,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Server built by facade.New. Config.Search/Query/Download are plain
 // function values (see doc.go's "same process, plain Go calls" section), so
 // these tests stand them in with fakes rather than a real
-// indexarr/search.Service/query.Service/download.Service -- those packages
+// app/indexer/search.Service/query.Service/download.Service -- those packages
 // are under concurrent development by a sibling task, and facade's own
 // doc.go explains why this package does not import them even in its own
 // tests. The fakes have IDENTICAL signatures to the real services' method
 // values (facade.SearchFunc/QueryFunc/DownloadFunc match
-// indexarr/search.Service.Search / indexarr/query.Service.Handle /
-// indexarr/download.Service.Handle exactly, verified against their current
+// app/indexer/search.Service.Search / app/indexer/query.Service.Handle /
+// app/indexer/download.Service.Handle exactly, verified against their current
 // source), so this suite is a faithful test of everything the facade itself
 // -- routing, auth, param parsing, XML rendering, error mapping -- is
 // responsible for.
@@ -189,7 +189,7 @@ func TestIndexerSearchScopesToExactlyThatIndexerAndSetsText(t *testing.T) {
 	body := get(t, f, "/idx1/api?t=movie&q=the+matrix&apikey="+testAPIKey)
 
 	require.Equal(t, "the matrix", f.lastSearchReq.Text,
-		"the facade is what finally exercises SearchRequest.Text (indexarr/search/query.go's carried fallback note)")
+		"the facade is what finally exercises SearchRequest.Text (app/indexer/search/query.go's carried fallback note)")
 	require.Equal(t, commonv1.MediaKindMovie, f.lastSearchReq.Kind)
 	require.Len(t, f.lastSearchReq.IndexerRefs, 1)
 	require.Equal(t, "idx1", f.lastSearchReq.IndexerRefs[0].Name)

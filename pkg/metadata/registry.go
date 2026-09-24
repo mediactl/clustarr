@@ -75,7 +75,7 @@ func (r *Registry) Lookup(ctx context.Context, kind commonv1.MediaKind, ids Exte
 			return nil, fmt.Errorf("metadata: audiobook lookup requires %q in ExternalIDs", KeyASIN)
 		}
 		// AudiobookSpec.Region (design §4.2) has ten possible marketplaces,
-		// not just "us" -- so the caller (catalogarr/metadata/target.go's
+		// not just "us" -- so the caller (app/catalog/metadata/target.go's
 		// externalIDs) stuffs it into ids["region"] the same way
 		// rpc.go's lookupEpisodes stuffs an episode order into
 		// ids["order"]: Lookup's signature is fixed at (kind, ExternalIDs),
@@ -108,8 +108,8 @@ func (r *Registry) Lookup(ctx context.Context, kind commonv1.MediaKind, ids Exte
 		// "first entity from the first provider that succeeds" -- what
 		// Lookup does for every case above -- is the wrong shape for a
 		// list, exactly as this package's task C6 predecessor found for
-		// Episode (see catalogarr/metadata/rpc.go's lookupEpisodes, which
-		// bypasses this switch entirely). catalogarr/metadata/rpc.go's
+		// Episode (see app/catalog/metadata/rpc.go's lookupEpisodes, which
+		// bypasses this switch entirely). app/catalog/metadata/rpc.go's
 		// lookupIssues is Issue's counterpart to lookupEpisodes, for the
 		// same reason. Neither belongs here.
 		return nil, fmt.Errorf("metadata: Lookup does not support kind %q", kind)

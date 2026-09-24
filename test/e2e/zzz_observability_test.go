@@ -203,7 +203,7 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// project's closest documented signal for encode throughput is
 	// clustarr_transcode_speed_ratio (docs/observability.md: "Below 1.0 on
 	// tier=gpu means the encode is slower than real time"), produced by
-	// squasharr/worker's progress reporting (FPSMilli feeds the ratio, not
+	// app/squash/worker's progress reporting (FPSMilli feeds the ratio, not
 	// a standalone counter) once a TranscodeJob Succeeds.
 	squasharrBody := fetchMetrics(ctx, t, "squasharr")
 	_, speedSeries := metricSum(squasharrBody, "clustarr_transcode_speed_ratio")
@@ -224,7 +224,7 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 			"polled at all, which points at the worker never having run rather than an empty queue")
 
 	// indexer duration: clustarr_indexer_query_duration_seconds, recorded
-	// by every caps probe (indexarr/controller/indexer) as well as every
+	// by every caps probe (app/indexer/controller/indexer) as well as every
 	// real search -- indexer_test.go's scenario 17 test and the caps probe
 	// every Indexer gets on creation both produce this.
 	indexarrBody := fetchMetrics(ctx, t, "indexarr")
@@ -317,13 +317,13 @@ func waitReadyz(ctx context.Context, t *testing.T, svcName string, want bool, ti
 // budgeting for here"), and the SAME reasoning applies here more so --
 // this suite's context timeout is scenarioTimeout (15m), far short of
 // even one consumer's ladder. This proves the DLQ PROJECTOR's own
-// behaviour (catalogarr/history/dlq.go's Handle: annotate the CR a dead
+// behaviour (app/catalog/history/dlq.go's Handle: annotate the CR a dead
 // letter concerns) in isolation from how a message actually arrives at
 // CLUSTARR_DLQ, which pkg/events' own DeadLetter helper and its callers
 // are responsible for and are not this test's concern.
 //
 // The envelope is built from pkg/events' and pkg/events/schema's own
-// public types -- catalog.ItemEvent.v1, the schema catalogarr/history/
+// public types -- catalog.ItemEvent.v1, the schema app/catalog/history/
 // target.go's resolveItemEvent decodes -- not hand-rolled wire bytes, so
 // this exercises the same header/payload contract a real dead letter
 // carries (events.HeaderDLQSubject, -Reason, -Consumer, -Attempts) rather
@@ -390,7 +390,7 @@ func TestObservabilityDLQPoisonMessage(t *testing.T) {
 	var live catalogv1alpha1.Movie
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: Namespace, Name: movie.Name}, &live))
 	require.Contains(t, live.Annotations[k8s.AnnotationDeadLettered], "@",
-		"the annotation value must be \"<original-subject>@<RFC3339>\" (catalogarr/history/dlq.go's own doc comment)")
+		"the annotation value must be \"<original-subject>@<RFC3339>\" (app/catalog/history/dlq.go's own doc comment)")
 
 	require.True(t, metav1.HasAnnotation(live.ObjectMeta, k8s.AnnotationDeadLettered))
 }

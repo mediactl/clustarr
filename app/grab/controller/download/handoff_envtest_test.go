@@ -47,7 +47,7 @@ import (
 )
 
 // newTestBus brings up the whole default topology single-node, the same
-// reason catalogarr/worker/grab's own newTestBus gives: events.Topology.Validate
+// reason app/catalog/worker/grab's own newTestBus gives: events.Topology.Validate
 // requires the DLQ stream, and a hand-rolled partial topology both fails
 // that check and drifts from production's real consumer tuning -- which is
 // exactly what this file needs to be a faithful proof of the handoff.

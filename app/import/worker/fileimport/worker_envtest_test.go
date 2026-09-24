@@ -50,7 +50,7 @@ import (
 
 // testClient is the manager-cached client every envtest in this package
 // shares; nil (and every test skips) when KUBEBUILDER_ASSETS is unset. See
-// importarr/worker/rescan's TestMain, which this mirrors.
+// app/import/worker/rescan's TestMain, which this mirrors.
 var (
 	testClient client.Client
 	testAPI    client.Reader
@@ -119,7 +119,7 @@ func createNamespace(t *testing.T, ctx context.Context, c client.Client, name st
 
 // dataDir returns a fresh, writable directory under /data/<sub>, skipping the
 // test when /data is not creatable or writable -- the same named skip
-// importarr/worker/rescan.mediaTempDir uses, and for the same reason: a
+// app/import/worker/rescan.mediaTempDir uses, and for the same reason: a
 // missing prerequisite and a broken worker must not look the same in the
 // output. sub is "media" for a RootFolder (RootFolderSpec.Path's CEL requires
 // the /data/media/ prefix) or "scratch" for a Download content root (no CEL,
@@ -145,7 +145,7 @@ func dataDir(t *testing.T, sub string) string {
 
 // mustWriteSparseFile creates a sparse file of the given size, so a test can
 // plant a "60 MiB" movie without writing 60 MiB. sampleFloor clears
-// fsops.DefaultSampleMaxBytes (mirrored from importarr/worker/rescan's
+// fsops.DefaultSampleMaxBytes (mirrored from app/import/worker/rescan's
 // sampleFloor); under it a video file is a suspected sample, which the
 // import rejects rather than imports (sample_envtest_test.go).
 const sampleFloor = 60 << 20
@@ -168,8 +168,8 @@ func newBus(t *testing.T, ctx context.Context) events.Bus {
 }
 
 // fakeMessage is a minimal events.Message backed by a locally built
-// envelope, mirroring importarr/worker/rescan's fakeMessage and
-// catalogarr/worker/search's testMessage.
+// envelope, mirroring app/import/worker/rescan's fakeMessage and
+// app/catalog/worker/search's testMessage.
 type fakeMessage struct {
 	env     *events.Envelope
 	attempt uint64
@@ -198,7 +198,7 @@ func newImportTaskMessage(t *testing.T, ns, name, uid string) *fakeMessage {
 	}}
 }
 
-// testQualityProfile mirrors catalogarr/worker/search's fixture of the same
+// testQualityProfile mirrors app/catalog/worker/search's fixture of the same
 // name: a minimal, cluster-scoped, valid QualityProfile.
 func testQualityProfile(name string) *catalogv1alpha1.QualityProfile {
 	return &catalogv1alpha1.QualityProfile{
@@ -345,7 +345,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 
 // managerFor returns the name of the field manager that owns jsonPath (for
 // example "import" inside the status subresource) on entries, or "" when
-// nobody owns it. Copied from importarr/worker/rescan's identical helper:
+// nobody owns it. Copied from app/import/worker/rescan's identical helper:
 // decoding FieldsV1 is the only place the apiserver records which manager
 // owns which leaf, so an ownership-split test has to read it here rather
 // than infer it from values.

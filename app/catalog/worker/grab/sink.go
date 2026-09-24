@@ -77,7 +77,7 @@ func statusKindOf(ref commonv1.MediaRef) commonv1.MediaKind {
 // It is the bridge between §8.2's two halves: the search worker decides, this
 // package delays and grabs.
 //
-// It implements catalogarr/worker/search.Sink. That interface's Deliver takes
+// It implements app/catalog/worker/search.Sink. That interface's Deliver takes
 // the namespace the search worker resolved from the envelope, because neither
 // a SearchTask nor a commonv1.MediaRef carries one while every object this
 // package touches is namespaced, and the grab source the task's reason maps
@@ -101,7 +101,7 @@ type Sink struct {
 //
 // grabbedBy is what the Download will record as spec.grabbedBy: the search
 // worker passes redownload for a search a failed Download triggered (spec
-// §8.3, catalogarr/worker/redownload) and search otherwise. Empty means
+// §8.3, app/catalog/worker/redownload) and search otherwise. Empty means
 // search. It is carried through a delay as well (pendingValue.GrabbedBy), so
 // a redownload held by a DelayProfile is still a redownload when the
 // scheduled grab fires.

@@ -62,7 +62,7 @@ const (
 // authorization flow. It is the sole writer of ImportList.status, under
 // k8s.ManagerImportarr -- see that constant's own doc comment, which
 // already names this task's resource -- and it never fetches a list
-// itself: that is importarr/worker/importlist's job, on the
+// itself: that is app/import/worker/importlist's job, on the
 // clustarr.work.importarr.list.* queue this controller publishes to.
 type Reconciler struct {
 	// Client reads the ImportList and applies its status.
@@ -76,7 +76,7 @@ type Reconciler struct {
 	HTTPClient *http.Client
 
 	// TraktBaseURL overrides trakt.DefaultBaseURL for the device-code flow:
-	// importarr's --trakt-base-url (importarr/run.go), which gives the list
+	// importarr's --trakt-base-url (app/import/run.go), which gives the list
 	// worker the same host, and tests that point it at an httptest server.
 	TraktBaseURL string
 
@@ -130,8 +130,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// before deciding whether a new sync is due. The worker never writes
 	// ImportList.status itself (see k8s.ManagerImportarr's doc comment);
 	// this is the read half of that split, the same one
-	// importarr/controller/libraryscan runs against
-	// importarr/worker/rescan's Progress checkpoint. The worker's
+	// app/import/controller/libraryscan runs against
+	// app/import/worker/rescan's Progress checkpoint. The worker's
 	// AnnotationSyncedAt stamp is what brings a finished sync here.
 	checkpoint, hasCheckpoint, err := r.pollResult(ctx, &il)
 	if err != nil {

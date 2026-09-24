@@ -27,7 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // under the distinct k8s.ManagerCatalogarrSeries field manager, never
 // k8s.ManagerCatalogarr, which this reconciler alone uses for
 // Phase/Conditions/HasFile/FileRef/FileQuality/FileFormatScore/CutoffMet/
-// ActiveDownloadRef. §5's grabarr/grabarr-engine split on Download is the
+// ActiveDownloadRef. §5's app/grab/grabarr-engine split on Download is the
 // same pattern: two field manager NAMES on disjoint fields, not one name
 // shared by convention. Server-side apply replaces a manager's whole
 // ownership set on every apply, so two writers sharing one manager name

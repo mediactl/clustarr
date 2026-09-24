@@ -84,7 +84,7 @@ const maxDefinitionErr = 800
 //
 // spec.definitionRef is an IndexerDefinition's name. spec.definition is a
 // definition id, and an id resolves only through an IndexerDefinition that
-// provides it -- loaded by indexarr/bundle from the embedded corpus or a
+// provides it -- loaded by app/indexer/bundle from the embedded corpus or a
 // mounted directory, or operator-applied -- by spec.replaces first,
 // its parsed status.id second, and last the retired ids its spec.yaml says
 // it replaces (status.replaces), so an Indexer written against a tracker's

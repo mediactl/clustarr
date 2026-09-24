@@ -71,9 +71,9 @@ const DefaultResolveTimeout = 60 * time.Second
 // It is filtered, at the watch, to Downloads carrying
 // downloadv1alpha1.LabelEngine == Engine -- see [Reconciler.SetupWithManager]
 // -- so a replica never sees a sibling's work. Field manager:
-// k8s.ManagerGrabarrEngine, the telemetry subset only (grabarr/status.go);
+// k8s.ManagerGrabarrEngine, the telemetry subset only (app/grab/status.go);
 // this reconciler never sets status.phase, status.conditions, status.engine
-// or status.import. The one metadata it writes is grabarr/engine's
+// or status.import. The one metadata it writes is app/grab/engine's
 // [engine.Finalizer] -- see doc.go's "The engine finalizer".
 type Reconciler struct {
 	Client   client.Client
@@ -182,7 +182,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	// The engine finalizer goes on before the transfer does (ruling R-6;
-	// grabarr/engine's package doc). A write here does not end the
+	// app/grab/engine's package doc). A write here does not end the
 	// reconcile -- pkg/k8s.EnsureFinalizer's "finalizer without early
 	// return".
 	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &dl, engine.Finalizer); err != nil {
@@ -303,19 +303,19 @@ func (r *Reconciler) syncPause(ctx context.Context, dl *downloadv1alpha1.Downloa
 // It re-Gets dl immediately before applying rather than reusing the object
 // this Reconcile call started with. getOrAdd's payload resolution can be an
 // RPC to indexarr or a direct HTTP fetch -- slow, relative to an in-process
-// map lookup -- and grabarr/status.Patch's seed is only as fresh as the
+// map lookup -- and app/grab/status.Patch's seed is only as fresh as the
 // object it is handed. Applying a snapshot read before that call would
 // silently roll back whatever the Download controller (phase, conditions,
 // status.engine) or importarr (status.import) wrote in the meantime: a lost
 // update, not a server-side-apply release, which is exactly the class of bug
 // no release-regression test in this tree can see (CLAUDE.md;
-// indexarr/worker/rss/worker.go does the same re-Get with the comment "the
+// app/indexer/worker/rss/worker.go does the same re-Get with the comment "the
 // poll closes the window").
 //
 // mutate replaces the seeded apply configuration wholesale with
 // download.ApplyStatus(item) rather than calling ac.WithFiles or similar on
 // top of it: status.files is a listType=map and WithFiles APPENDS, so seeding
-// from grabarr/status.EngineFields (itself built from the live, possibly
+// from app/grab/status.EngineFields (itself built from the live, possibly
 // different, file list) and then appending item's files would duplicate every
 // entry that survived and fail the apply outright on the listType=map merge.
 func (r *Reconciler) patchTelemetry(ctx context.Context, key client.ObjectKey, item download.Item) error {
@@ -390,7 +390,7 @@ func (r *Reconciler) reconcileStopped(ctx context.Context, log *slog.Logger, dl 
 }
 
 // reconcileDeleting is this engine's half of the teardown protocol (ruling
-// R-6, grabarr/engine's package doc): remove dl's transfer from the client
+// R-6, app/grab/engine's package doc): remove dl's transfer from the client
 // -- stopping its fetch goroutines and discarding its scratch job, and
 // honouring spec.removeDataOnDelete for the published content -- then drop
 // [engine.Finalizer]. The Download controller's removeDataOnDelete

@@ -640,7 +640,7 @@ func withExt(base string) func(string) string {
 }
 
 // resolveAudiobook mirrors the Audiobook controller's path rule
-// (catalogarr/controller/audiobook.Path): status.path when resolved, else
+// (app/catalog/controller/audiobook.Path): status.path when resolved, else
 // spec.folder, else the audiobook preset over the same naming context.
 func (w *Worker) resolveAudiobook(ctx context.Context, ns, name string) (rootRef, profileRef, folder string, err error) {
 	var ab catalogv1alpha1.Audiobook

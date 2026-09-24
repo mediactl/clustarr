@@ -50,7 +50,7 @@ func searchRequest(ns string) schema.SearchRequest {
 // steadyState creates an Indexer and drives its status to a REAL steady
 // state: a completed RSS poll (lastRssAt, lastRssNewCount), a release count
 // and a grab count, all applied under the SAME indexarr-worker manager the
-// search path uses, exactly as indexarr/worker/rss and indexarr/download
+// search path uses, exactly as app/indexer/worker/rss and app/indexer/download
 // would leave it.
 //
 // A test that skips this and acts on a blank object CANNOT observe a

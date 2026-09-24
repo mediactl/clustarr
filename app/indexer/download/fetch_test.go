@@ -318,7 +318,7 @@ func TestNewFetcherForRefusesAnUnusableBaseURL(t *testing.T) {
 
 // TestTheFetcherKeysItsLimiterWithRatelimitHostKey pins the DOWNLOAD half of
 // a convention that has two halves. The other half is
-// indexarr/controller/indexer's TestTheLimiterKeyIsRatelimitHostKey, and both
+// app/indexer/controller/indexer's TestTheLimiterKeyIsRatelimitHostKey, and both
 // anchor on ratelimit.HostKey so neither can drift on its own (ruling R38).
 //
 // The reconciler is the only writer of a key's Config and this package only

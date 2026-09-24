@@ -38,7 +38,7 @@ import (
 // The facade's API-key Secret: read, and created when it is absent. get and
 // create only -- indexarr never updates or patches it, because a key an
 // operator set must never be overwritten by one this process generated.
-// indexarr/controller/indexer already grants secrets get;create;patch for the
+// app/indexer/controller/indexer already grants secrets get;create;patch for the
 // Cardigann session Secret; this package asks for what it uses on its own,
 // so the grant survives that one changing.
 //

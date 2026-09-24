@@ -498,7 +498,7 @@ func x265Range(colorRange string) string {
 // the worker's argv for every HDR10 source with mastering metadata.
 //
 // Exported because spec §7 names it ("func X265Params(...) string //
-// golden-tested"); the goldens in testdata/transcode/ cover the string it
+// golden-tested"); the goldens in test/data/transcode/ cover the string it
 // renders for every CPU tier. Its hdrBucket argument is package-internal,
 // so in practice Args is what a caller outside this package uses.
 func X265Params(threads int32, v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisionMode) string {

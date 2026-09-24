@@ -35,7 +35,7 @@ const (
 	// happens to observe an error or success against the SAME provider at
 	// the same moment -- a handful at most, since a SubtitleProvider is
 	// typically one upstream account shared by a small worker fleet. Set
-	// well above indexarr/search's queryCASAttempts (3): each attempt costs
+	// well above app/indexer/search's queryCASAttempts (3): each attempt costs
 	// one KV round trip against an infrequently-hit path (only on a worker's
 	// error/success observation, never per-request the way [Acquire] is), so
 	// a generous ceiling is nearly free and meaningfully de-risks the
@@ -74,7 +74,7 @@ const (
 	errorStrikeFloor = time.Hour
 
 	// maxErrorRingEntries caps the error timestamp ring the same way
-	// indexarr/search's maxQueryRingEntries caps the query ring: a provider
+	// app/indexer/search's maxQueryRingEntries caps the query ring: a provider
 	// failing far faster than ErrorStrikeThreshold would ever need cannot
 	// turn this KV value into an unbounded blob. Errors prune out of the
 	// window on every call, so this is a defensive ceiling, not a value
@@ -133,7 +133,7 @@ type State struct {
 
 	// errorTimestamps is [RecordError]'s own rolling window bookkeeping
 	// (unix seconds, pruned to the last [ErrorStrikeWindow] on every call),
-	// mirroring indexarr/search's query ring. It is exported so it
+	// mirroring app/indexer/search's query ring. It is exported so it
 	// round-trips through JSON, but it is this package's internal state, not
 	// part of the projection -- callers read ErrorsLast120s instead.
 	ErrorTimestamps []int64 `json:"errorTimestamps,omitempty"`
@@ -165,7 +165,7 @@ func Get(ctx context.Context, kv events.KV, providerUID string) (State, error) {
 }
 
 // mutateState runs a read-modify-write compare-and-swap loop against
-// providerUID's State, the same shape indexarr/search/limits.go's countQuery
+// providerUID's State, the same shape app/indexer/search/limits.go's countQuery
 // uses for its ring: Get (or treat absence as a zero State), let fn mutate
 // it, then Create or Update depending on whether a live value existed,
 // retrying on ErrRevisionMismatch/ErrKeyExists. A value that fails to decode
@@ -187,7 +187,7 @@ func mutateState(ctx context.Context, kv events.KV, providerUID string, fn func(
 		case err == nil:
 			have, rev = true, ent.Revision
 			if uerr := json.Unmarshal(ent.Value, &st); uerr != nil {
-				logging.FromContext(ctx).Warn("captionarr/throttle: replacing an undecodable provider state",
+				logging.FromContext(ctx).Warn("app/caption/throttle: replacing an undecodable provider state",
 					"provider", providerUID, "err", uerr)
 				st = State{}
 			}
@@ -252,7 +252,7 @@ func RecordError(ctx context.Context, kv events.KV, providerType, providerUID st
 // pruneErrorRing drops timestamps older than ErrorStrikeWindow and caps the
 // ring at maxErrorRingEntries, keeping the newest. Pure so the window
 // arithmetic is testable without a KV at all, mirroring
-// indexarr/search.pruneQueryRing.
+// app/indexer/search.pruneQueryRing.
 func pruneErrorRing(ring []int64, now time.Time) []int64 {
 	cutoff := now.Add(-ErrorStrikeWindow).Unix()
 	out := ring[:0:0]

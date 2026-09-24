@@ -95,7 +95,7 @@ const bannedK8sImport = modulePrefix + "pkg/k8s"
 
 // actionsModuleImports are the only packages from this module that
 // ui/actions may import: API types, and logging/tracing. The per-service
-// status packages (grabarr/status, indexarr/status, ...) write status with a
+// status packages (app/grab/status, app/indexer/status, ...) write status with a
 // call named Patch -- which the selector checks above allow inside
 // ui/actions -- so an allowlist on imports, not a denylist on names, is what
 // keeps a status writer from being reached that way.

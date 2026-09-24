@@ -30,7 +30,7 @@ import (
 // ErrProxyUnavailable is returned when the IndexerProxies that apply to an
 // Indexer cannot be routed through: one that does not exist, whose
 // credentials are missing, whose selector cannot be evaluated, or two
-// competing for one slot. It is indexarr/proxy's ErrUnavailable, re-exported
+// competing for one slot. It is app/indexer/proxy's ErrUnavailable, re-exported
 // so errors.Is works from either name.
 //
 // It is an ERROR, deliberately, never a silent fall back to a direct
@@ -43,11 +43,11 @@ var ErrProxyUnavailable = proxy.ErrUnavailable
 // spec.proxyRef and every IndexerProxy whose spec.selector matches its labels
 // -- or returns nil for an Indexer none apply to. http, socks4 and socks5
 // routes and a FlareSolverr applied last are all supported; see
-// indexarr/proxy.
+// app/indexer/proxy.
 //
 // It is used by the ONE builder shared by the caps probe, the search
 // fan-out, the RSS poll and the download verb (the generic download fetcher
-// calls indexarr/proxy.Resolve itself), so the proxy is applied to all four
+// calls app/indexer/proxy.Resolve itself), so the proxy is applied to all four
 // or to none -- a probe that honoured the proxy while searches bypassed it
 // would report the proxy healthy while leaking the real IP.
 func resolveProxy(ctx context.Context, c client.Client, idx *indexv1alpha1.Indexer) (http.RoundTripper, error) {

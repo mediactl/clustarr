@@ -63,7 +63,7 @@ var animeSeasonEpisodeRegex = mustCompile(`(?<title>.+?)\s*-\s*S(?<season>\d{1,2
 // the marker closes that gap — verified with a scratch regexp2 check
 // against exactly that title before landing this — while still matching
 // every review-required case ("Show - Episode 12") and every title in the
-// anime fixture corpus (testdata/releases/anime.json) unchanged, since
+// anime fixture corpus (test/data/releases/anime.json) unchanged, since
 // none of them has a marker word between the dash and the digits at all.
 var animeAbsoluteRegex = mustCompile(
 	`(?<title>.+?)\s*-\s*(?:(?:Episode|Ep|E|#)\s+)?(?<abs>\d{2,4})(?:\s*\((?<res>\d{3,4}p)\))?`,

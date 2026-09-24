@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // a real show lookup and subtitle search, in exactly the wire shapes
 // pkg/subtitles/providers/gestdown's client sends and parses (verified
 // against that package's provider.go and its own
-// testdata/subtitles/gestdown fixtures before this file was written). It
+// test/data/subtitles/gestdown fixtures before this file was written). It
 // never reaches the Internet.
 //
 // Unlike opensubtitlesstub, this stub has no runtime-settable failure mode:
@@ -45,7 +45,7 @@ import (
 const FixtureShowID = "e2e00000-0000-0000-0000-0000000000gd"
 
 // FixtureSubtitleID and FixtureVersion are the one candidate's subtitleId and
-// version (release tag), mirroring gestdownstub's own testdata/gestdown
+// version (release tag), mirroring gestdownstub's own test/data/gestdown
 // fixtures' shape.
 const (
 	FixtureSubtitleID = "gd-fixture-1"

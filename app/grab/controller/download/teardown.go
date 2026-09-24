@@ -33,7 +33,7 @@ import (
 
 // DefaultEngineTeardownTimeout is how long the removeDataOnDelete finalizer
 // waits, from the Download's deletionTimestamp, for an engine that is GONE
-// to drop grabarr/engine's finalizer before dropping it on the engine's
+// to drop app/grab/engine's finalizer before dropping it on the engine's
 // behalf (ruling R-6).
 //
 // It is a judgement, like the reapers' grace period it matches: long enough

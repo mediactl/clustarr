@@ -32,7 +32,7 @@ import (
 // over every Download phase, under the R-12 contract (3d3cf54): every phase
 // before Imported reads Downloading and keeps the ref; only a terminal phase
 // or a pending deletion clears it. rollup.DownloadOverlay's own decision
-// table is tested in catalogarr/controller/rollup (the C6 controller
+// table is tested in app/catalog/controller/rollup (the C6 controller
 // amendment); this pins the Book side of it.
 func TestDownloadOverlay(t *testing.T) {
 	dl := func(p downloadv1alpha1.DownloadPhase) *downloadv1alpha1.Download {

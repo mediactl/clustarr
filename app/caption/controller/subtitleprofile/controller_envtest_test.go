@@ -202,7 +202,7 @@ func TestReconcileUpdatesProfileRefWhenTheWinningProfileChanges(t *testing.T) {
 }
 
 // TestReconcileMarksTheNewerOfTwoDefaultsInvalid mirrors
-// squasharr/controller/transcodeprofile's identical ruling for the identical
+// app/squash/controller/transcodeprofile's identical ruling for the identical
 // shape shared between the two CRDs.
 func TestReconcileMarksTheNewerOfTwoDefaultsInvalid(t *testing.T) {
 	c := newTestClient(t)

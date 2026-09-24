@@ -230,7 +230,7 @@ func TestReconcileQueryModeCompletesFromTheLocalIndex(t *testing.T) {
 }
 
 // TestReconcileQueryModeFailsWhenTheIndexReportsAnError covers
-// QueryResponse.Error, the one business-level failure indexarr/query's
+// QueryResponse.Error, the one business-level failure app/indexer/query's
 // Handle can report (it "never returns an error, by design").
 func TestReconcileQueryModeFailsWhenTheIndexReportsAnError(t *testing.T) {
 	f := newFixture(t, "search-query-err")

@@ -28,7 +28,7 @@ import (
 )
 
 // The JSON shapes below are real ffprobe 9 output for the two audio
-// fixtures in testdata/mediainfo (ffprobe -show_entries stream=codec_name,
+// fixtures in test/data/mediainfo (ffprobe -show_entries stream=codec_name,
 // bit_rate,bits_per_raw_sample,bits_per_sample:format=bit_rate), which were
 // generated with:
 //

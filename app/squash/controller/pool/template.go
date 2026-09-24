@@ -158,7 +158,7 @@ type Key struct {
 
 // The TranscodeProfile defaults Template floors a zero to. Each restates a
 // +kubebuilder:default in transcodeprofile_types.go, and
-// squasharr/controller/pool/template_test.go:TestFlooredDefaultsMatchTheGeneratedCRD
+// app/squash/controller/pool/template_test.go:TestFlooredDefaultsMatchTheGeneratedCRD
 // holds them to the generated CRD.
 //
 // They exist because a kubebuilder default fills only an ABSENT field, and

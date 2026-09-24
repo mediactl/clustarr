@@ -35,7 +35,7 @@ var updateGolden = os.Getenv("UPDATE_GOLDEN") == "1"
 
 // goldenPath resolves name to its golden fixture, relative to the package
 // directory (Go tests run with the package directory as CWD), so the
-// repo-root testdata/transcode/ tree is reached via ../../.
+// repo-root test/data/transcode/ tree is reached via ../../.
 func goldenPath(name string) string {
 	return filepath.Join("..", "..", "test", "data", "transcode", "golden", name+".golden")
 }

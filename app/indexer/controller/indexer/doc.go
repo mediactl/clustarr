@@ -21,11 +21,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // and RateLimited conditions.
 //
 // The health and backoff ladder -- RecordFailure, RecordSuccess, Healthy,
-// StartupGrace, EscalationTable -- is NOT here. It lives in indexarr/status,
+// StartupGrace, EscalationTable -- is NOT here. It lives in app/indexer/status,
 // beside the declaration of the very fields it computes (ruling R35). It
 // moved because indexarr's RSS poll, search fan-out and download verb all
-// need it while this package imports indexarr/status, so a ladder here could
-// never share a home with indexarr/status.ApplyEscalation, the one mapping
+// need it while this package imports app/indexer/status, so a ladder here could
+// never share a home with app/indexer/status.ApplyEscalation, the one mapping
 // from an Escalation onto an apply. This package only READS the result, to
 // derive the Healthy condition and the requeue delay.
 //
@@ -59,8 +59,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # One declaration of the owned set, and it is not here (ruling R31)
 //
 // The table above is documentation. The single machine-readable declaration
-// of what k8s.ManagerIndexarr owns lives in indexarr/status.ControllerFields,
-// and every apply this package makes goes through indexarr/status.Patch,
+// of what k8s.ManagerIndexarr owns lives in app/indexer/status.ControllerFields,
+// and every apply this package makes goes through app/indexer/status.Patch,
 // which seeds the apply configuration from the live status and then runs this
 // package's mutate. Two places declaring one manager's owned set is precisely
 // how the two drift apart, silently, which is the release bug in its ninth
@@ -98,7 +98,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // lastFailure, queriesInWindow, grabsInWindow, lastRssAt, lastRssNewCount and
 // indexedReleases belong to indexarr-worker. This package READS them (to
 // derive the Healthy and RateLimited conditions and to choose a requeue
-// delay); the workers compute the next set with indexarr/status's
+// delay); the workers compute the next set with app/indexer/status's
 // RecordFailure/RecordSuccess and apply it themselves. A
 // caps-probe failure therefore moves conditions and the requeue delay and
 // does not move escalationLevel: writing the escalation set here under
@@ -109,7 +109,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // spec.definitionRef names an IndexerDefinition; spec.definition names a
 // definition id, which resolves only through an IndexerDefinition that
 // provides it -- one indexarr's bundle loader created from the embedded
-// corpus or a mounted directory (indexarr/bundle), or one an operator
+// corpus or a mounted directory (app/indexer/bundle), or one an operator
 // applied (spec.replaces, then status.id, then status.replaces: the retired
 // ids the definition's Cardigann `replaces` key says it supersedes). The
 // definition supplies status.caps (modes renamed to the
@@ -142,7 +142,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The IndexerProxies that apply -- spec.proxyRef, then every proxy whose
 // spec.selector matches the Indexer's labels, at most one http/socks4/socks5
 // route and at most one FlareSolverr applied last -- are routed by
-// indexarr/proxy inside the one builder every path shares; an unresolvable
+// app/indexer/proxy inside the one builder every path shares; an unresolvable
 // selection fails closed as ProxyUnavailable rather than going direct. The
 // client cache keys on the selection's fingerprint and this reconciler
 // watches IndexerProxy, so a proxy change reaches both at once.
@@ -169,7 +169,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // config/rbac/role.yaml, and no envtest could see it because envtest does not
 // enforce RBAC. cmd/clustarr's TestRBACMarkersArePackageLevel is the guard.
 //
-// indexers/status is deliberately NOT granted here. indexarr/status/doc.go
+// indexers/status is deliberately NOT granted here. app/indexer/status/doc.go
 // carries it, on the package that actually performs the write, which is the
 // convention D1-0 set and the same reasoning as R31: one declaration, in the
 // place that does the thing.

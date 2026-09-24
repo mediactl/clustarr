@@ -46,7 +46,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // at Create, not through repeated server-side apply, so they carry none of
 // the same-manager clobbering risk the status fields do. Distinct field
 // manager NAMES on disjoint fields within one subresource is exactly the
-// §5 grabarr/grabarr-engine pattern on DownloadStatus.
+// §5 app/grab/grabarr-engine pattern on DownloadStatus.
 //
 // The reconciler also folds the DLQ projector's annotation into a
 // DeadLettered condition, emits Events on phase, fan-out and failure edges,

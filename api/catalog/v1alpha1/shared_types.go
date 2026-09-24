@@ -59,7 +59,7 @@ type ImageType string
 // requester's Unix time. catalogarr's refresher publishes a MetadataTask
 // carrying it as the refresh epoch (spec §5) and consumes the annotation;
 // the UI's "Refresh metadata" writes it. Declared here because both the
-// writer (ui/actions) and the consumer (catalogarr/metadata) read it.
+// writer (ui/actions) and the consumer (app/catalog/metadata) read it.
 const AnnotationRefreshMetadata = "clustarr.io/refresh-metadata"
 
 // Image types.

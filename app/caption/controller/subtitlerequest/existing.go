@@ -118,7 +118,7 @@ func extractors(providers []subtitlev1alpha1.SubtitleProvider, profileProviders 
 // which codecs extract), and an extractor the fetch worker would task
 // serves its language. Such a stream's language stays wanted, the fetch
 // task goes out, and the worker's local tier writes the track out as a
-// sidecar before any remote provider is asked (captionarr/worker/fetch).
+// sidecar before any remote provider is asked (app/caption/worker/fetch).
 //
 // Design spec §6.5 says "existing = embedded text streams", which left
 // extract no effect at all: an embedded track always counted, so its

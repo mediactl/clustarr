@@ -418,7 +418,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // The list worker creates Movie and Series only today; a spec.kinds entry
 // naming a kind its provider cannot yield is refused at admission (R-10),
 // and one it can yield but no catalog writer exists for fails on status
-// (importarr/worker/importlist's syncKind), rather than being skipped.
+// (app/import/worker/importlist's syncKind), rather than being skipped.
 //
 // Both file-reading workers get o.SampleMaxBytes through [newScanWorker] and
 // [newImportWorker]; see Options.SampleMaxBytes.

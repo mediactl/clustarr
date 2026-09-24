@@ -59,7 +59,7 @@ func mkBlocklistedDownload(t *testing.T, ctx context.Context, c client.Client, n
 			// generated CRD (config/crd/bases) via this suite; every fixture
 			// in this package sets all five for that reason. This is a
 			// pre-existing landmine in api/download/v1alpha1/download_types.go,
-			// out of scope for grabarr/controller/downloadclient/ to fix --
+			// out of scope for app/grab/controller/downloadclient/ to fix --
 			// see the D2-3 report.
 			Release: commonv1alpha1.ReleaseInfo{
 				GUID: name, IndexerRef: "idx", Title: name,

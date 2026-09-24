@@ -501,7 +501,7 @@ func TestPerformGrab_PreservesTheGatewaysMetadata(t *testing.T) {
 // Wanted, where the wanted cron re-searched an item that already had a grab
 // scheduled. Nothing errored; the item simply lost its place in the pipeline.
 //
-// The apply below is byte-for-byte what catalogarr/metadata's handler builds:
+// The apply below is byte-for-byte what app/catalog/metadata's handler builds:
 // MovieStatus().WithMetadata(...) and nothing else.
 func TestGatewayRefreshPreservesTheGrabsFields(t *testing.T) {
 	ctx := context.Background()

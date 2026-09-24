@@ -158,7 +158,7 @@ func serveThroughRedialTracker(t *testing.T, srv *seeder.Server) string {
 //
 // It also happens to exercise spec.source.torrentURL's HTTP fetch path for
 // real (resolveSource), and closes with the managedFields assertion so a
-// full run through this package's own code, not just grabarr/status's, is on
+// full run through this package's own code, not just app/grab/status's, is on
 // record as respecting the split.
 func TestRealLoopCompletesSeedsAndRemovesOnPolicy(t *testing.T) {
 	const contentBytes = 64 * 1024
@@ -243,7 +243,7 @@ func TestRealLoopCompletesSeedsAndRemovesOnPolicy(t *testing.T) {
 	assert.False(t, got.Status.CanBeRemoved, "not imported yet, so CanBeRemoved must still be false")
 
 	// importarr's file-import worker (D2-7) is the only writer of
-	// status.import; simulate it exactly as grabarr/status's own test does.
+	// status.import; simulate it exactly as app/grab/status's own test does.
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerImportarr,
 		downloadac.Download(dl.Name, ns).WithStatus(downloadac.DownloadStatus().
 			WithImport(downloadac.ImportState().WithState(downloadv1alpha1.ImportPhaseImported))))

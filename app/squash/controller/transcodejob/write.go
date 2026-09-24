@@ -38,7 +38,7 @@ const writeRetries = 3
 
 // patchCAS is the reconciler's and the results consumer's one status write
 // (spec §18.2): the dead-letter fold, sorted conditions, and ONE complete
-// squasharr/status.ControllerFields declaration applied conditional on the
+// app/squash/status.ControllerFields declaration applied conditional on the
 // resourceVersion tj was read at. A write that raced the other path fails
 // with a Conflict rather than rolling it back.
 //

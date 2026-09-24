@@ -418,7 +418,7 @@ func TestSubtitleProfileAndProviderRoundTripThroughManagerCaptionarr(t *testing.
 
 	// A re-apply that only touches ThrottleReason must not release
 	// HIVerifiable or ErrorsLast120s -- the same "survive its own re-apply"
-	// property grabarr/status.status_envtest_test proves for the controller
+	// property app/grab/status.status_envtest_test proves for the controller
 	// and engine halves of Download.status.
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(provider), provider))
 	require.NoError(t, status.PatchProvider(ctx, c, k8s.ManagerCaptionarr, provider,

@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // The RBAC markers live here, on the package that actually performs the
 // write, rather than on whichever controller or engine happens to call it --
-// the same placement indexarr/status uses, for the same reason.
+// the same placement app/indexer/status uses, for the same reason.
 //
 // They are package-level comments on purpose: controller-gen collects markers
 // only from package-level comments and silently ignores one attached to a

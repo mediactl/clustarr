@@ -46,7 +46,7 @@ import (
 )
 
 // metricKindMovie is the bounded `kind` label on the import metrics, mirroring
-// importarr/worker/rescan's identical constant.
+// app/import/worker/rescan's identical constant.
 const metricKindMovie = "movie"
 
 // processConfig is everything one Download's import needs, so [processConfig.run]
@@ -376,7 +376,7 @@ func (pc *processConfig) processFile(
 // relPath renders srcPath relative to root, matching
 // ImportedFile.SourcePath's documented contract ("the path the file had
 // inside the download"). It falls back to the absolute path when the two
-// are unrelated, mirroring importarr/worker/rescan.relPath.
+// are unrelated, mirroring app/import/worker/rescan.relPath.
 func relPath(root, path string) string {
 	if root == "" {
 		return path

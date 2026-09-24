@@ -73,14 +73,14 @@ type Language struct {
 // and Spanish.
 //
 // The ids the vendored corpus
-// (testdata/trash/docs/json/{radarr,sonarr}/cf/*.json) actually references
+// (test/data/trash/docs/json/{radarr,sonarr}/cf/*.json) actually references
 // in a LanguageSpecification are -2, 1, 2, 4, 8, 10 and 21; re-derive that
 // list with:
 //
 //	python3 -c "
 //	import json, glob
 //	ids = set()
-//	for f in glob.glob('testdata/trash/docs/json/*/cf/*.json'):
+//	for f in glob.glob('test/data/trash/docs/json/*/cf/*.json'):
 //	    for s in json.load(open(f)).get('specifications', []):
 //	        if s.get('implementation') == 'LanguageSpecification':
 //	            ids.add(s['fields']['value'])

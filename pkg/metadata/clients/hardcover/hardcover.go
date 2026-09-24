@@ -562,7 +562,7 @@ const authorBooksQuery = `query AuthorBooks($id: Int!) {
 
 // Books lists the works authorID wrote, most-read first, capped at 100.
 // authorID must be a Hardcover author id: the gateway hands every
-// BookProvider the same id (catalogarr/metadata/rpc.go lookupBooks passes
+// BookProvider the same id (app/catalog/metadata/rpc.go lookupBooks passes
 // an Open Library "OL…A" key), and a non-numeric id is refused rather
 // than read as something it is not.
 func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, error) {

@@ -36,7 +36,7 @@ import (
 // immutable and is also the Download's ownerReference, so redirecting an
 // import must not rewrite it. The same import-target grammar is also honoured
 // on a LibraryScan, where it is how a file the scanner left unmatched is
-// assigned by hand -- see importarr/worker/rescan's package doc, "Manual
+// assigned by hand -- see app/import/worker/rescan's package doc, "Manual
 // assignment".
 const (
 	// AnnotationImportTarget directs an import at one catalog item:

@@ -119,7 +119,7 @@ type bus interface {
 // under the distinct k8s.ManagerCatalogarrSeries field manager, never
 // k8s.ManagerCatalogarr (the Episode controller's own reconciler uses that
 // one for Phase/Conditions/HasFile/etc). Two field manager NAMES, the same
-// way grabarr/grabarr-engine split Download -- not the same name on
+// way app/grab/grabarr-engine split Download -- not the same name on
 // disjoint fields by convention, which server-side apply does not actually
 // keep disjoint (a same-manager apply that omits a field the manager
 // previously sent releases it; see ManagerCatalogarrSeries's doc comment).

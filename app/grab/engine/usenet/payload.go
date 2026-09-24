@@ -97,8 +97,8 @@ func (r *Resolver) Resolve(ctx context.Context, ns string, src downloadv1alpha1.
 
 // resolveIndexer calls events.RPCIndexDownload, the same subject and
 // schema.DownloadRequest/DownloadResponse pair
-// indexarr/search.Service.handleDownload serves -- verified against source,
-// not assumed, the same way catalogarr/worker/search.busSearchRPC calls
+// app/indexer/search.Service.handleDownload serves -- verified against source,
+// not assumed, the same way app/catalog/worker/search.busSearchRPC calls
 // events.RPCIndexSearch.
 func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id downloadv1alpha1.IndexerDownload) ([]byte, error) {
 	if r.RPC == nil {

@@ -70,7 +70,7 @@ func (f *fixture) importedFile(t *testing.T, ctx context.Context) (name, path st
 
 // takeOver is catalogarr incorporating a transcode swap: it applies
 // spec.sizeBytes, spec.modTime and spec.original=false under its own
-// manager, exactly as catalogarr/controller/mediafile does.
+// manager, exactly as app/catalog/controller/mediafile does.
 func takeOver(ctx context.Context, c client.Client, ns, name string, size int64, mod time.Time) error {
 	_, err := k8s.Apply(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, ns).WithSpec(
 		catalogac.MediaFileSpec().WithSizeBytes(size).WithModTime(metav1.NewTime(mod)).WithOriginal(false)))

@@ -43,7 +43,7 @@ import (
 
 // resolveQualityProfile turns a QualityProfile name into a resolved
 // quality.Profile. It is the production ResolveProfile for
-// catalogarr/worker/grab.Sink.
+// app/catalog/worker/grab.Sink.
 //
 // QualityProfile is cluster-scoped (qualityprofile_types.go), so the lookup
 // takes no namespace.
@@ -65,7 +65,7 @@ func resolveQualityProfile(ctx context.Context, c client.Client, name string, ca
 // resolveDelayProfile runs §8.2's resolution order (item ref -> tag match ->
 // lowest order) over the namespace's DelayProfiles, through the delayprofile
 // controller's own pure Resolve. It is the production ResolveDelay for
-// catalogarr/worker/grab.Sink.
+// app/catalog/worker/grab.Sink.
 //
 // A namespace with no catch-all profile yields ErrNoMatch, which is "no
 // delay", not a failure: the chart installs a catch-all, and an operator who
@@ -97,14 +97,14 @@ var workerIndexes = []struct {
 	// list returns an empty list of the kind the index is registered on.
 	list func() client.ObjectList
 }{
-	// catalogarr/worker/search's Download target index: the per-target live
+	// app/catalog/worker/search's Download target index: the per-target live
 	// queue the search worker and the RSS matcher both read. It is the only
 	// Download index left: the blocklist is one labelled List per decision
 	// since X4b (search.LoadBlocklist), and the two blocklist indexes nothing
 	// read any more were pruned.
 	{search.IndexDownloadTarget, func() client.ObjectList { return &downloadv1alpha1.DownloadList{} }},
 
-	// catalogarr/worker/rssmatcher's thirteen matching indexes -- §6.1's
+	// app/catalog/worker/rssmatcher's thirteen matching indexes -- §6.1's
 	// "informer-backed in-memory map". The absolute-number one (X4b) is what
 	// lets an absolute-only anime release match at all.
 	{rssmatcher.IndexMovieTmdbID, func() client.ObjectList { return &catalogv1alpha1.MovieList{} }},
@@ -129,8 +129,8 @@ var workerIndexes = []struct {
 // one manager.
 //
 // It is deliberately NOT a side effect of whichever worker happens to be
-// enabled. catalogarr/worker/rssmatcher reads the live queue through
-// catalogarr/worker/search's Download target index, and if it is absent the
+// enabled. app/catalog/worker/rssmatcher reads the live queue through
+// app/catalog/worker/search's Download target index, and if it is absent the
 // lookup degrades to "empty queue" with a WARNING rather than an error -- so
 // a wiring mistake leaves the RSS path deciding as if nothing were already
 // downloading, for as long as nobody reads the logs. Registering both sets

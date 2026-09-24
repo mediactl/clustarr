@@ -96,7 +96,7 @@ func LiveItemKeys(st subtitlev1alpha1.SubtitleRequestStatus) sets.Set[string] {
 // "" for, so a request that has not been planned yet omits it instead of
 // sending a value the apiserver would reject; that is a property of the
 // object's SHAPE (never planned) rather than of this reconcile's OUTCOME, the
-// same exception indexarr/status makes for Indexer.status.protocol and
+// same exception app/indexer/status makes for Indexer.status.protocol and
 // pkg/download.ApplyStatus makes for Download.status.stage.
 // ObservedGeneration, ProfileGeneration and ProbeHash are plain,
 // non-enum values, so -- like pkg/download.ApplyStatus's Message and
@@ -298,7 +298,7 @@ func PatchRequest(
 // only writer.
 //
 // It still follows the seed-from-live-status shape the split-manager kinds
-// use, for the same reason indexarr/status.ControllerFields does despite
+// use, for the same reason app/indexer/status.ControllerFields does despite
 // Indexer's config half also having one writer: one declaration in one place
 // is what stops a second call site from hand-building its own apply
 // configuration and forgetting a field. WantedKeys and Conditions are left
@@ -362,7 +362,7 @@ func PatchProfile(
 // is in. To CLEAR one of these once set -- the provider's throttle window
 // elapsing, for example -- a caller assigns the returned configuration's
 // field directly (ac.ThrottledUntil = nil), the same pattern
-// grabarr/status.ControllerFields documents for BlocklistedUntil: the seed
+// app/grab/status.ControllerFields documents for BlocklistedUntil: the seed
 // means omission by mutate is "keep what is there", not "clear this", and a
 // With* helper cannot express a clear either.
 //
@@ -372,7 +372,7 @@ func PatchProfile(
 // real value once a provider exists, not an absence.
 //
 // Quota, when present, is rendered in full through [providerQuotaAC] --
-// every leaf, zero values included -- the same discipline indexarr/status's
+// every leaf, zero values included -- the same discipline app/indexer/status's
 // capsAC applies to Indexer.status.caps: server-side apply tracks ownership
 // per leaf inside a struct, so a renderer that sent only Remaining would
 // release ResetAt on every apply that did not also recompute it.
@@ -398,7 +398,7 @@ func ProviderFields(st subtitlev1alpha1.SubtitleProviderStatus) *subtitleac.Subt
 }
 
 // providerQuotaAC renders status.quota with every leaf set, zero values
-// included, the same complete-declaration discipline indexarr/status.capsAC
+// included, the same complete-declaration discipline app/indexer/status.capsAC
 // documents for status.caps.
 func providerQuotaAC(q *subtitlev1alpha1.ProviderQuota) *subtitleac.ProviderQuotaApplyConfiguration {
 	return subtitleac.ProviderQuota().WithRemaining(q.Remaining).WithResetAt(q.ResetAt)

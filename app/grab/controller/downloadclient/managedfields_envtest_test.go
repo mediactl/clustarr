@@ -59,7 +59,7 @@ func managersOf(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource s
 
 // TestDownloadClientStatusIsOwnedOnlyByManagerGrabarr guards D2-3's own claim:
 // DownloadClientStatus has exactly one legitimate writer (k8s.ManagerGrabarr;
-// see grabarr/status.go's doc comment, which covers Download.status, not
+// see app/grab/status.go's doc comment, which covers Download.status, not
 // DownloadClient.status -- DownloadClient has no split at all). A future
 // change that routed some DownloadClientStatus field through a different
 // manager -- k8s.ManagerGrabarrEngine, say, by copy-pasting a pattern from

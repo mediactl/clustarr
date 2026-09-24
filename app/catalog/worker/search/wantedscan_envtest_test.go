@@ -267,7 +267,7 @@ func TestWorkerWantedScanRetriesOnBackPressure(t *testing.T) {
 }
 
 // TestWorkerWantedScanBackoffMatchesWantedcron guards the one piece of policy
-// this package shares with catalogarr/controller/wantedcron: if the ladder
+// this package shares with app/catalog/controller/wantedcron: if the ladder
 // there changes, the search worker follows, because it calls the same
 // exported function rather than restating it.
 func TestWorkerWantedScanBackoffMatchesWantedcron(t *testing.T) {

@@ -35,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // reason in message and the Planned condition (ruling R1: PlanMode has no
 // reject value, and Skipped already means "decided not to transcode").
 //
-// The output's location is squasharr/worker.OutputPath (gap-fix ruling
+// The output's location is app/squash/worker.OutputPath (gap-fix ruling
 // R-11): in place for a same-container profile, a new name beside the
 // source for a container change (an .mp4 source under an mkv profile, or the
 // reverse -- Phase E's ruling R8 skipped these; they are now transcoded, with
@@ -45,7 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Failed (InvalidOutput) at plan time.
 //
 // The plan is made through pkg/transcode.FromSummary from the stored probe,
-// with the profile converted by squasharr/worker.ProfileSpec, the worker's
+// with the profile converted by app/squash/worker.ProfileSpec, the worker's
 // own converter, the thread count a pool pod's CLUSTARR_CPU_LIMIT will hand
 // the worker (pool.Threads: the Downward API's limits.cpu, or a stated
 // default when the profile sets no CPU limit), and the worker's output
@@ -77,7 +77,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // rerouteUnschedulable).
 //
 // Queued: each admitted job is dispatched (dispatch.go): its task, built by
-// squasharr/worker.BuildTask, is published to its (profile, class) pool's
+// app/squash/worker.BuildTask, is published to its (profile, class) pool's
 // subject, and only then is the job recorded Queued with attempts+1 and
 // jobRef naming the pool Job. A job whose plan is for another class is
 // planned again for the class it was given first, and the Queued write
@@ -86,7 +86,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Pools: after dispatching, the same pass sizes each (profile, class) pool
 // Job -- a long-lived work-queue batch/v1 Job running cmd/squasharr-worker,
-// rendered by squasharr/controller/pool and applied under squasharr-pool --
+// rendered by app/squash/controller/pool and applied under squasharr-pool --
 // to the jobs dispatched to it (pools.go; spec §7). It is created or resumed
 // with work, raised as work grows, and suspended when none is left:
 // parallelism is never 0, a pool's zero is suspend. A pool is counted by
@@ -118,7 +118,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // read fresh through the uncached reader, change a copy, apply it
 // conditional on the read resourceVersion. A write that races the other
 // path conflicts and is redone from a fresh read; neither can roll the
-// other back. squasharr/status.ControllerFields is the complete
+// other back. app/squash/status.ControllerFields is the complete
 // declaration both send -- progress, result and stderrTail included.
 //
 // # Metrics
@@ -152,7 +152,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Package-level on purpose: controller-gen ignores markers attached to a
 // declaration, and envtest does not enforce RBAC. batch/v1 Jobs are the
-// pools (squasharr/controller/pool), deleted to recreate one; the Warning
+// pools (app/squash/controller/pool), deleted to recreate one; the Warning
 // Event on a Failed pool's TranscodeProfile is an events.k8s.io Event;
 // rootfolders are listed at dispatch to place the task's source. update and
 // the finalizers subresource are for FinalizerTaskWithdrawal (withdraw.go,

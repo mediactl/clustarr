@@ -36,7 +36,7 @@ func discardLogger() *slog.Logger {
 }
 
 // loginFormDefinition loads the exact bundled definition test/e2e's
-// scenario 10 will use, from repo-root testdata/cardigann -- the single
+// scenario 10 will use, from repo-root test/data/cardigann -- the single
 // source of truth this stub's own doc comment names, never a copy.
 func loginFormDefinition(t *testing.T) *cardigann.Definition {
 	t.Helper()
@@ -108,7 +108,7 @@ func TestWrongCredentialsFail(t *testing.T) {
 // TestTorrentIsSessionGated proves ResultDownloadPath is not a free URL:
 // fetched without the session cookie it 401s, and indexarr's Torznab
 // facade (GET /{indexer}/download) is what is expected to supply that
-// cookie on a real caller's behalf -- see indexarr/download/fetch.go's
+// cookie on a real caller's behalf -- see app/indexer/download/fetch.go's
 // NewFetcherFor, which seeds a cookie jar from the Indexer's stored
 // session Secret before making exactly this request.
 func TestTorrentIsSessionGated(t *testing.T) {

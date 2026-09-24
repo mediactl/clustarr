@@ -33,7 +33,7 @@ import (
 
 // publishItem publishes one catalog ItemEvent for a -- spec §5's
 // clustarr.evt.catalog.<kind>.<added|updated|deleted>.<uid>, which the
-// history sink (catalogarr/history) turns into an Event on the Author. It is
+// history sink (app/catalog/history) turns into an Event on the Author. It is
 // built by rollup.ItemEvent, so its envelope id is the same function of the
 // edge for every kind, and it is best effort, as the Movie reconciler's is:
 // the event is history and the status is the record, so a failed publish is

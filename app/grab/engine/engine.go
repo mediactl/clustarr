@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package engine holds what grabarr's two transfer engines
-// (grabarr/engine/torrent, grabarr/engine/usenet) share with each other and
+// (app/grab/engine/torrent, app/grab/engine/usenet) share with each other and
 // with the Download controller: the engine finalizer that orders a
 // Download's teardown (gap-fix ruling R-6), and the age bookkeeping both
 // orphan reapers use.
@@ -67,7 +67,7 @@ import (
 // its engine got to it -- is not fetched again.
 //
 // An Imported Download is never stopped, label or not: the controller keeps
-// Imported sticky over the label (grabarr/controller/download's
+// Imported sticky over the label (app/grab/controller/download's
 // derivePhase), and its transfer is governed by spec.removeOnImport.
 func Stopped(dl *downloadv1alpha1.Download) bool {
 	switch dl.Status.Phase {

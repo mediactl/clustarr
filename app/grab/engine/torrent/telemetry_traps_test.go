@@ -127,10 +127,10 @@ func TestApplyTelemetryDoesNotClobberAConcurrentControllerWrite(t *testing.T) {
 // TestApplyTelemetryManagedFieldsAreOnlyGrabarrEngine is the third trap:
 // assert on metadata.managedFields, not on values, because a double-claim
 // under ForceOwnership is invisible to a value assertion. This mirrors
-// grabarr/controller/downloadclient/managedfields_envtest_test.go's pattern,
+// app/grab/controller/downloadclient/managedfields_envtest_test.go's pattern,
 // exercised through THIS package's own applyTelemetry rather than
-// grabarr/status directly -- catching a wiring mistake here (the wrong
-// constant, a typo) that grabarr/status's own tests cannot see because they
+// app/grab/status directly -- catching a wiring mistake here (the wrong
+// constant, a typo) that app/grab/status's own tests cannot see because they
 // call status.Patch with the right manager by construction.
 func TestApplyTelemetryManagedFieldsAreOnlyGrabarrEngine(t *testing.T) {
 	ctx := context.Background()
@@ -183,7 +183,7 @@ func TestApplyTelemetryManagedFieldsAreOnlyGrabarrEngine(t *testing.T) {
 }
 
 // TestReconcileDeletingRemovesDataWhenRequestedAndTouchesNoOtherManagedField
-// mirrors grabarr/engine/usenet's identical test
+// mirrors app/grab/engine/usenet's identical test
 // (TestReconcileDeletingRemovesTransferAndTouchesNoOtherManagedField). A
 // FOREIGN finalizer (standing in for the Download controller's own) keeps
 // the object around once this engine has dropped its [engine.Finalizer],

@@ -23,7 +23,7 @@ package cardigann_test
 // Prowlarr gives the field. Each test keeps its definition small and
 // self-contained rather than borrowing a corpus file, so it pins one field's
 // behaviour and nothing else (the corpus itself is loaded, whole, by
-// indexarr/bundle/embedded's tests).
+// app/indexer/bundle/embedded's tests).
 
 import (
 	"context"

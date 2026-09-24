@@ -29,7 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What it writes
 //
 // Only the controller half of SubtitleRequest.status, under
-// k8s.ManagerCaptionarr, through captionarr/status.PatchRequest -- phase,
+// k8s.ManagerCaptionarr, through app/caption/status.PatchRequest -- phase,
 // profileGeneration, probeHash, fileFingerprint, existing, conditions
 // (Planned, Satisfied, CutoffMet, and DeadLettered while the DLQ projector's
 // clustarr.io/dead-lettered annotation is on the object),
@@ -47,7 +47,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // when two managers share it leaf by leaf:
 //
 //   - An item is LIVE exactly while this controller owns its nextSearchAt
-//     (captionarr/status.IsLive). Every item this controller wants carries one -- a
+//     (app/caption/status.IsLive). Every item this controller wants carries one -- a
 //     missing language its next search, a satisfied one its next
 //     upgrade-pass check -- so nextSearchAt is never nil on an item it sends.
 //   - It CREATES an item for a newly wanted language by applying langKey,
@@ -98,7 +98,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // half is subtitles.ParseSidecar over the media file's directory, which the
 // controller role mounts at /data (config/manager/captionarr.yaml, and
 // "data" true for captionarr in the chart). spec.path is a logical /data
-// path, mapped through --data-dir by captionarr/datapath -- the one mapping
+// path, mapped through --data-dir by app/caption/datapath -- the one mapping
 // the fetch worker uses too. A directory that cannot be read, or that does
 // not contain the video, is a Blocked request -- never "no sidecars", which
 // would re-download every subtitle placed there by hand.

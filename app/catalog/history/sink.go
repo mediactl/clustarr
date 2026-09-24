@@ -80,7 +80,7 @@ func (s *Sink) Subscription() events.Subscription {
 // the same leader lease its controllers use, and a bare RunnableFunc has no
 // NeedLeaderElection method, so controller-runtime would put it behind that
 // lease -- exactly one replica would ever drain CLUSTARR_EVENTS, however many
-// were scaled up. See k8s.EveryReplica's doc comment; catalogarr/worker/
+// were scaled up. See k8s.EveryReplica's doc comment; app/catalog/worker/
 // rssmatcher.Handler.SetupWithManager hit this first.
 func (s *Sink) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {

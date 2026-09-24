@@ -34,7 +34,7 @@ func discardLogger() *slog.Logger {
 }
 
 // TestForwardsAndRecords drives this stub exactly the way
-// indexarr/controller/indexer/proxy.go's resolveProxy configures a real
+// app/indexer/controller/indexer/proxy.go's resolveProxy configures a real
 // client: an *http.Transport whose Proxy is http.ProxyURL(the fixture's own
 // URL). It proves a plain-HTTP request reaches its real target THROUGH the
 // proxy, with the response and body intact, and that GET /_proxied reports

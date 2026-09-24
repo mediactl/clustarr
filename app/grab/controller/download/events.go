@@ -30,7 +30,7 @@ import (
 
 // publishDownloadEvent publishes one clustarr.evt.download.download.<action>
 // transition for dl -- the DownloadEventSubject producer design spec §5
-// assigns to grabarr and the history sink (catalogarr/history) turns into
+// assigns to grabarr and the history sink (app/catalog/history) turns into
 // an Event on the Download. Until this, the subject had no producer and a
 // Download's history showed nothing.
 //

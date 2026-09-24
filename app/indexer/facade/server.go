@@ -55,15 +55,15 @@ const DefaultSearchTimeout = 30 * time.Second
 // requests already past that point.
 const shutdownGrace = 5 * time.Second
 
-// SearchFunc is clustarr.rpc.indexarr.search's own body: indexarr/search's
+// SearchFunc is clustarr.rpc.indexarr.search's own body: app/indexer/search's
 // Service.Search method value satisfies it directly.
 type SearchFunc func(ctx context.Context, req schema.SearchRequest) schema.SearchResponse
 
-// QueryFunc is clustarr.rpc.indexarr.query's own body: indexarr/query's
+// QueryFunc is clustarr.rpc.indexarr.query's own body: app/indexer/query's
 // Service.Handle method value satisfies it directly.
 type QueryFunc func(ctx context.Context, req schema.QueryRequest) schema.QueryResponse
 
-// DownloadFunc is clustarr.rpc.indexarr.download's own body: indexarr/download's
+// DownloadFunc is clustarr.rpc.indexarr.download's own body: app/indexer/download's
 // Service.Handle method value satisfies it directly.
 type DownloadFunc func(ctx context.Context, req schema.DownloadRequest) schema.DownloadResponse
 

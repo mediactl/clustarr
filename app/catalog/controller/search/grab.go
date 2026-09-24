@@ -26,7 +26,7 @@ import (
 
 // BuildDownloadSource maps a release to a Download's spec.source. It is
 // downloads.ResolveSource -- the one mapping the automatic grab path
-// (catalogarr/worker/grab) uses too -- and must stay exactly that.
+// (app/catalog/worker/grab) uses too -- and must stay exactly that.
 //
 // Both paths name a Download k8s.ChildName(target, guid), and
 // DownloadSpec.Source is `self == oldSelf`. While this function and the grab

@@ -34,7 +34,7 @@ import (
 // This file builds the two catalog domain events the item reconcilers
 // produce -- spec §5's clustarr.evt.catalog.<kind>.<added|updated|deleted>
 // and clustarr.evt.catalog.mediafile.<imported|replaced|deleted> -- which the
-// history sink (catalogarr/history) turns into Events on the item. Until the
+// history sink (app/catalog/history) turns into Events on the item. Until the
 // gap-fix wave nothing published either subject, so an item's history showed
 // only its grabs. The builders are pure (no bus, no clock) so each
 // reconciler keeps the one side effect, the publish, where it decides to

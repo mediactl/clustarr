@@ -61,7 +61,7 @@ func fakeTools(t *testing.T) string {
 }
 
 // ensureTopology creates the streams, consumers and buckets the worker needs
-// against a real embedded JetStream server, the way squasharr/worker's own
+// against a real embedded JetStream server, the way app/squash/worker's own
 // NATS-backed tests do (e.g. lease_nats_test.go's leaseKVWithTTL): a bus
 // that has never had Ensure run against it has no clustarr-transcode-tasks
 // stream to pull from and no clustarr-transcode-leases or clustarr-progress

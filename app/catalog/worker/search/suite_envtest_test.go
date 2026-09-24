@@ -39,7 +39,7 @@ import (
 )
 
 // testCfg is the shared envtest control plane; see the same comment in
-// catalogarr/controller/search. It is nil when KUBEBUILDER_ASSETS is unset,
+// app/catalog/controller/search. It is nil when KUBEBUILDER_ASSETS is unset,
 // in which case every envtest here skips -- a skip is NOT a pass.
 var testCfg *rest.Config
 

@@ -32,7 +32,7 @@ import (
 //
 // Every "tier" label here is the SLOT class -- cpu, nvidia or intel -- the
 // same three values --slots budgets, never an encoder or a title. The
-// resolution label is sd/hd/uhd, the same classes squasharr/worker uses.
+// resolution label is sd/hd/uhd, the same classes app/squash/worker uses.
 
 // setActive sets clustarr_transcode_jobs_active{tier} to the TranscodeJobs
 // holding a slot after this admission pass: those already dispatched
@@ -126,7 +126,7 @@ func (r *Reconciler) observeFinished(ctx context.Context, fresh *transcodev1alph
 	}
 }
 
-// resolutionClass matches squasharr/worker's (unexported) classes, so the
+// resolutionClass matches app/squash/worker's (unexported) classes, so the
 // label values are the ones the worker would have used; "unknown" when no
 // probe is available at all.
 func resolutionClass(height int32) string {

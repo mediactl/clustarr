@@ -63,7 +63,7 @@ type authResult struct {
 	message       string
 }
 
-// judge turns captionarr/providerset.Validate's verdict on a provider into
+// judge turns app/caption/providerset.Validate's verdict on a provider into
 // this controller's conditions. It validates nothing itself: providerset is
 // the one validator, shared with the fetch worker's builder, so a provider
 // this controller calls Authenticated is exactly one the worker will search

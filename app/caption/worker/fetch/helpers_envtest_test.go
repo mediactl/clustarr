@@ -89,7 +89,7 @@ func TestMain(m *testing.M) {
 // now is the fixed instant every fixture's worker clock reports. It is a
 // real wall-clock time (not a far-past constant) because throttle windows
 // recorded at it are compared against it, and the token bucket in
-// captionarr/throttle reads time.Now for itself.
+// app/caption/throttle reads time.Now for itself.
 var now = time.Now().UTC().Truncate(time.Second)
 
 const (
@@ -367,7 +367,7 @@ func candidate(id, release string) subtitles.Candidate {
 }
 
 // fakeMessage is a minimal events.Message, mirroring
-// importarr/worker/fileimport's.
+// app/import/worker/fileimport's.
 type fakeMessage struct {
 	env        *events.Envelope
 	attempt    uint64
@@ -436,7 +436,7 @@ func memBus(t *testing.T) events.Bus {
 // natsBus is a real embedded JetStream server with the production topology,
 // for every test that exercises the clustarr-provider-throttle KV: the
 // in-memory bus has no key grammar and has let an illegal key ship twice.
-// Mirrors captionarr/throttle's kvkey_contract_test.go.
+// Mirrors app/caption/throttle's kvkey_contract_test.go.
 func natsBus(t *testing.T) events.Bus {
 	t.Helper()
 	dir, err := os.MkdirTemp(t.TempDir(), "jetstream")

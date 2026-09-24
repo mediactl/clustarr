@@ -123,7 +123,7 @@ func TestRpsFor(t *testing.T) {
 }
 
 // TestTheLimiterKeyIsRatelimitHostKey pins the RECONCILER half of a
-// convention that has two halves. The other half is indexarr/download's
+// convention that has two halves. The other half is app/indexer/download's
 // TestTheFetcherKeysItsLimiterWithRatelimitHostKey, and both anchor on
 // ratelimit.HostKey so neither can drift on its own (ruling R38).
 //

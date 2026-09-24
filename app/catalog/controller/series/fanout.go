@@ -59,7 +59,7 @@ type DesiredEpisode struct {
 	// when the provider sent no tvdb key, or one that does not parse as a
 	// base-10 int64 -- the same "leave it unset rather than fail the whole
 	// fan-out" behaviour buildMovieMetadataAC uses for CollectionRef's own
-	// TmdbID (catalogarr/metadata/patch.go).
+	// TmdbID (app/catalog/metadata/patch.go).
 	TvdbID int64
 
 	// Monitored is non-nil on the first fan-out (addOptionsApplied == false,

@@ -37,7 +37,7 @@ type removeCall struct {
 
 // fakeDownloadClient is a download.Client test double: an in-memory map of
 // items plus a call log for every mutating method, so
-// grabarr/engine/usenet's Reconciler can be exercised without a real NNTP
+// app/grab/engine/usenet's Reconciler can be exercised without a real NNTP
 // pool. It is intentionally NOT the concrete pkg/download/usenet.Client --
 // the Reconciler depends only on the download.Client interface, and
 // integration_envtest_test.go is where the real client (and a real NNTP

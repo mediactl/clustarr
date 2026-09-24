@@ -22,7 +22,7 @@ import "github.com/mediactl/clustarr/pkg/fsops"
 // DefaultMinFreeBytes is the floor [Reconciler.MinFreeBytes] uses when left
 // at zero. DownloadClientSpec has no minFreeBytes field of its own (verified
 // against downloadclient_types.go, unlike RootFolderSpec), so this is
-// invented the same way catalogarr/controller/rootfolder invented its
+// invented the same way app/catalog/controller/rootfolder invented its
 // recheckInterval: a cheap, documented default rather than a real signal.
 // 1Gi is comfortably above what a stalled or near-full engine volume needs to
 // finish an in-flight write, and comfortably below the smallest sane media
@@ -31,5 +31,5 @@ const DefaultMinFreeBytes int64 = 1 << 30 // 1Gi
 
 // diskUsageFunc is the filesystem probe [Reconciler] calls for DiskSpaceOK.
 // Production wires fsops.DiskUsage; tests inject a fake so they never need a
-// real /data mount, mirroring catalogarr/controller/rootfolder's CheckPath.
+// real /data mount, mirroring app/catalog/controller/rootfolder's CheckPath.
 type diskUsageFunc func(path string) (fsops.Usage, error)

@@ -34,7 +34,7 @@ import (
 // Album, a Book, an Audiobook or a comic Issue is one release, never a pack
 // narrowed by keys. Their grab configuration follows the same inheritance
 // the search worker and the RSS matcher rank them under
-// (catalogarr/worker/search.ReadNonVideo), so the profile a release was
+// (app/catalog/worker/search.ReadNonVideo), so the profile a release was
 // approved against is the profile its Download records:
 //
 //   - Album: its own qualityProfileRef override, else the Artist's; the

@@ -27,7 +27,7 @@ import (
 // FileState is rollup.FileState, re-exported so the reconciler and this
 // package's own tests read as episode.FileState(...), matching the movie
 // package's identical re-export. The logic (and its table test) lives once,
-// in catalogarr/controller/rollup, per the C6 controller amendment.
+// in app/catalog/controller/rollup, per the C6 controller amendment.
 func FileState(mf *catalogv1alpha1.MediaFile, profile *quality.Profile) (hasFile bool, fileRef *string, fileQuality *commonv1.Quality, fileFormatScore int32, cutoffMet bool) {
 	return rollup.FileState(mf, profile)
 }

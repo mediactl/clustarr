@@ -18,13 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package subtitleprovider reconciles SubtitleProvider: ruling R2 makes it
 // the ONLY writer of SubtitleProvider.status. Every fetch worker (task F-5)
 // records throttles, quota and cached auth into the shared
-// clustarr-provider-throttle KV bucket (captionarr/throttle) instead of
-// touching this object directly -- captionarr/status.PatchProvider refuses
+// clustarr-provider-throttle KV bucket (app/caption/throttle) instead of
+// touching this object directly -- app/caption/status.PatchProvider refuses
 // every field manager except k8s.ManagerCaptionarr, which is R2 enforced in
 // code, not just documented.
 //
 // This package reports; it never builds a real pkg/subtitles.Provider client
-// or calls an upstream API. Validation is captionarr/providerset.Validate,
+// or calls an upstream API. Validation is app/caption/providerset.Validate,
 // the same checks the fetch worker's builder runs before it builds a client,
 // so Ready here means "the worker will search this provider".
 package subtitleprovider
@@ -57,7 +57,7 @@ import (
 )
 
 // kvPollInterval is the steady-state requeue for an enabled, implemented
-// provider, mirroring indexarr/controller/indexer's identical reprobeInterval
+// provider, mirroring app/indexer/controller/indexer's identical reprobeInterval
 // and its own doc comment's reasoning verbatim: status.throttledUntil,
 // .quota, .errorsLast120s and .lastSuccessAt are all derived from the shared
 // KV bucket every fetch worker writes, under a DIFFERENT field manager this
@@ -70,7 +70,7 @@ const kvPollInterval = 15 * time.Minute
 // get only: the Secret is read by name through [Reconciler.Secrets], the
 // manager's API reader, never the cache -- a cached Get would start a
 // cluster-wide Secret informer, which needs list and watch on every Secret
-// and holds them all in memory (captionarr/providerset's package doc).
+// and holds them all in memory (app/caption/providerset's package doc).
 //
 // The blank line below is load-bearing -- see
 // cmd/clustarr.TestRBACMarkersArePackageLevel: controller-gen only collects
@@ -84,14 +84,14 @@ const kvPollInterval = 15 * time.Minute
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler owns SubtitleProvider.status (under k8s.ManagerCaptionarr, via
-// captionarr/status.PatchProvider) and writes nothing else. See ruling R2 and
+// app/caption/status.PatchProvider) and writes nothing else. See ruling R2 and
 // the package doc comment.
 type Reconciler struct {
 	client.Client
 
 	// KV is the clustarr-provider-throttle bucket (events.BucketProviderThrottle)
 	// every fetch worker writes and this reconciler alone reads, via
-	// captionarr/throttle.Get. A nil KV is a caller error, not a valid "no
+	// app/caption/throttle.Get. A nil KV is a caller error, not a valid "no
 	// bus configured" state -- captionarr's own Options.Validate requires
 	// --nats-url precisely because this bucket is load-bearing.
 	KV events.KV
@@ -123,7 +123,7 @@ func (r *Reconciler) now() time.Time {
 	return r.Clock.Now().UTC()
 }
 
-// Reconcile validates sp through captionarr/providerset.Validate (the fetch
+// Reconcile validates sp through app/caption/providerset.Validate (the fetch
 // worker's own checks: a client for the type, per ruling R5, and complete
 // credentials), projects the shared KV throttle state into
 // status.throttledUntil/throttleReason/quota/tokenExpiresAt/lastSuccessAt
@@ -236,9 +236,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 // from state -- the fresh read from KV, never carried forward from the
 // object's stale status -- clearing a leaf explicitly (assigning the
 // generated field nil) when state no longer carries it, per
-// captionarr/status.ProviderFields' own doc comment on ThrottledUntil,
+// app/caption/status.ProviderFields' own doc comment on ThrottledUntil,
 // TokenExpiresAt and LastSuccessAt: "a caller assigns the returned
-// configuration's field directly ... the same pattern grabarr/status
+// configuration's field directly ... the same pattern app/grab/status
 // documents for BlocklistedUntil". state.JWT is never read here.
 func applyThrottleState(
 	ac *subtitleac.SubtitleProviderStatusApplyConfiguration,
@@ -297,7 +297,7 @@ func nextRequeue(now time.Time, state throttle.State) time.Duration {
 // run.go setupControllers calls it for the controller role.
 //
 // There is deliberately no Watches on corev1.Secret, matching
-// catalogarr/controller/metadataprovider's identical choice for the
+// app/catalog/controller/metadataprovider's identical choice for the
 // identical shape: a Secret edit is picked up within [kvPollInterval] by the
 // steady-state requeue every enabled, implemented provider already
 // schedules, rather than by a dedicated watch.

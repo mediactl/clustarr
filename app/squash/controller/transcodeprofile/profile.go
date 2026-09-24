@@ -67,7 +67,7 @@ func eligibleKind(k commonv1.MediaKind) bool {
 }
 
 // profileHash is status.hash: pkg/transcode.ProfileHash over the profile as
-// squasharr/worker.ProfileSpec converts it -- the one converter squasharr
+// app/squash/worker.ProfileSpec converts it -- the one converter squasharr
 // has, which the TranscodeJob controller plans from and the worker
 // executes. This package had its own copy until E-4; two converters is two
 // chances to drop a field, and a field dropped from the hash is a field

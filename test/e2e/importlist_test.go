@@ -40,7 +40,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # One fixture item, three ImportList objects
 //
-// testdata/importlist/mdblist/items.json (out of this task's file scope --
+// test/data/importlist/mdblist/items.json (out of this task's file scope --
 // only test/fixtures/, test/e2e/, config/e2e/ and the Dockerfile are) holds
 // exactly one movie row, "The Matrix" (tmdb 603, imdb tt0133093), and
 // pkg/importlist/mdblist/list_test.go asserts len(items)==1 against it
@@ -84,7 +84,7 @@ import (
 // name.
 const fixtureImportListStubService = "importlist-stub"
 
-// theMatrixTMDBID is testdata/importlist/mdblist/items.json's one movie
+// theMatrixTMDBID is test/data/importlist/mdblist/items.json's one movie
 // row's tmdb id -- Movie's own identity field (MovieSpec.TmdbID), the
 // import-list controller's natural dedupe/exclusion key for a movie kind.
 const theMatrixTMDBID int64 = 603
@@ -275,7 +275,7 @@ func TestImportListTraktDeviceFlowCRDAccepted(t *testing.T) {
 	// answers "authorization_pending" twice and then authorizes; only then
 	// can the worker sync the watchlist, so Synced=True is the proof that
 	// both the device flow and the sync reached the fixture rather than
-	// api.trakt.tv. testdata/importlist/trakt/watchlist_movies.json holds
+	// api.trakt.tv. test/data/importlist/trakt/watchlist_movies.json holds
 	// one movie.
 	live := waitForImportListSynced(ctx, t, il)
 	require.Empty(t, live.Status.LastError, "the Trakt sync reported an error")
@@ -307,7 +307,7 @@ func TestImportListPlexWatchlistCRDAccepted(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, il))
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), il) })
 
-	// testdata/importlist/plex/watchlist_page1.json holds two movies.
+	// test/data/importlist/plex/watchlist_page1.json holds two movies.
 	live := waitForImportListSynced(ctx, t, il)
 	require.Empty(t, live.Status.LastError, "the Plex sync reported an error")
 	require.GreaterOrEqual(t, live.Status.ItemCount, int32(1),

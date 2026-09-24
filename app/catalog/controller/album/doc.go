@@ -18,10 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package album implements the Album controller: phase, path, track-listing
 // selection and the file/download rollup, plus a thin Reconciler around
 // them. Album objects are created and owned by the Artist controller
-// (catalogarr/controller/artist sets spec.artistRef/releaseGroupID and, at
+// (app/catalog/controller/artist sets spec.artistRef/releaseGroupID and, at
 // creation or per spec.monitorNewItems, spec.monitored) -- but unlike
 // Episode, Album fetches its OWN metadata: it is a first-class metadata
-// target (catalogarr/metadata/target.go's newTarget/externalIDs both cover
+// target (app/catalog/metadata/target.go's newTarget/externalIDs both cover
 // MediaKindAlbum, keyed by spec.releaseGroupID) with its own
 // ConditionMetadataReady, exactly like Movie, Series and Artist. So this
 // package's reconciler follows movie.Reconciler's shape for the metadata
@@ -37,7 +37,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.metadata.selectedReleaseID, under
 // k8s.ManagerCatalogarr. Every other leaf of status.metadata belongs to the
 // metadata gateway (k8s.ManagerCatalogarrMetadata) -- see
-// buildAlbumMetadataAC's doc comment in catalogarr/metadata/patch.go for
+// buildAlbumMetadataAC's doc comment in app/catalog/metadata/patch.go for
 // why the Artist fan-out that creates this object never seeds it.
 // selectedReleaseID is the one exception because only this reconciler can
 // decide it (selectedReleaseAC in reconciler.go); server-side apply tracks

@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package torznabstub serves a real Torznab upstream -- a real t=caps
 // document and real <rss><channel><item> result feeds, byte for byte the
-// XML in testdata/, parsed by pkg/torznab's own ParseCaps/ParseResults.
+// XML in test/data/, parsed by pkg/torznab's own ParseCaps/ParseResults.
 // It never reaches the Internet; the e2e cluster has no egress.
 //
 // Three personalities, selected by path, so one Deployment covers every
@@ -38,14 +38,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // tree that personality cannot drive the escalation ladder at all, and the
 // reason is structural rather than a timing accident:
 //
-//   - indexarr/status.RecordFailure is called where a failure is OBSERVED --
+//   - app/indexer/status.RecordFailure is called where a failure is OBSERVED --
 //     the RSS poll and the search fan-out -- never by the Indexer
 //     reconciler (rulings R6/R15);
 //   - the reconciler seeds the RSS poll chain only for a HEALTHY Indexer
-//     (indexarr/controller/indexer's seedRSSSchedule), and "healthy" here
+//     (app/indexer/controller/indexer's seedRSSSchedule), and "healthy" here
 //     requires a successful caps probe;
 //   - the search fan-out skips an Indexer whose status.caps is nil, with
-//     "caps not probed" (indexarr/search/select.go).
+//     "caps not probed" (app/indexer/search/select.go).
 //
 // So an Indexer whose caps NEVER probe is never polled and never queried:
 // nothing calls RecordFailure, status.escalationLevel stays 0 and

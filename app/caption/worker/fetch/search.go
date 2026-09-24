@@ -236,7 +236,7 @@ func (w *Worker) searchProvider(ctx context.Context, m events.Message, kv events
 	log := logging.FromContext(ctx).With("provider", e.Name)
 
 	// Skip a throttled provider BEFORE spending a token on it
-	// (captionarr/throttle's package doc: the two mechanisms are separate).
+	// (app/caption/throttle's package doc: the two mechanisms are separate).
 	if !e.Local() {
 		st, err := throttle.Get(ctx, kv, e.UID)
 		if err != nil {
@@ -463,7 +463,7 @@ func isASS(content []byte) bool {
 }
 
 // beat extends the delivery's ack deadline once heartbeatInterval has
-// passed since the last one, mirroring importarr/worker/fileimport.
+// passed since the last one, mirroring app/import/worker/fileimport.
 func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) error {
 	now := w.now()
 	if !last.IsZero() && now.Sub(*last) < heartbeatInterval {

@@ -43,7 +43,7 @@ const (
 
 	// DefaultOrphanGrace is how old a transfer with no matching Download
 	// must be -- by its own [download.Item.AddedAt], see
-	// grabarr/engine.OrphanClock -- before [Reaper] treats it as an
+	// app/grab/engine.OrphanClock -- before [Reaper] treats it as an
 	// orphan rather than a transfer this replica added a moment ago and has
 	// not yet matched.
 	//
@@ -67,7 +67,7 @@ type cacheSyncWaiter interface {
 	WaitForCacheSync(ctx context.Context) bool
 }
 
-// Reaper is the backstop behind the engine finalizer (grabarr/engine's
+// Reaper is the backstop behind the engine finalizer (app/grab/engine's
 // [engine.Finalizer], gap-fix ruling R-6). The finalizer makes the ordinary
 // path safe: a deleted Download is not gone until this engine has removed
 // its transfer. But the Download controller drops that finalizer on the
@@ -206,7 +206,7 @@ func (r *Reaper) now() time.Time {
 // WaitForCacheSync, reaps once straight away -- so an engine that restarts
 // more often than [Reaper.ReapInterval] still reaps orphans older than the
 // grace -- then reaps on [Reaper.ReapInterval] until ctx is done. It returns nil on cancellation, matching every other
-// Runnable in this tree (e.g. catalogarr/controller/wantedcron): a Runnable
+// Runnable in this tree (e.g. app/catalog/controller/wantedcron): a Runnable
 // that returns an error takes the whole manager down with it, and a
 // graceful shutdown is not an error.
 func (r *Reaper) Start(ctx context.Context) error {

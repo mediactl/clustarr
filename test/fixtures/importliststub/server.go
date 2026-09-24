@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // trakt), the Plex Discover watchlist (pkg/importlist/plex) and an
 // mdblist.com list export (pkg/importlist/mdblist). Every route and JSON
 // shape below is read straight off those packages' own request-building code
-// and their existing recorded fixtures under testdata/importlist/ -- see
+// and their existing recorded fixtures under test/data/importlist/ -- see
 // each provider's doc comment for the exact source read.
 //
 // # How a deployed importarr reaches it
@@ -80,7 +80,7 @@ type Server struct {
 	polls map[string]int // device_code -> POST /oauth/device/token count
 }
 
-// NewHandler builds the stub. recordedDir holds testdata/importlist's three
+// NewHandler builds the stub. recordedDir holds test/data/importlist's three
 // subdirectories (trakt, plex, mdblist), copied verbatim by
 // images/Dockerfile.e2e-fixtures at image-build time; local `go run`
 // callers point --recorded-dir at ../../testdata/importlist instead.
@@ -122,7 +122,7 @@ func (s *Server) serveRecorded(w http.ResponseWriter, provider, relPath string) 
 	_, _ = w.Write(b)
 }
 
-// loadDeviceCode reads testdata/importlist/trakt/device_code.json once at
+// loadDeviceCode reads test/data/importlist/trakt/device_code.json once at
 // construction, so the poll handler below knows which device_code the
 // GET .../oauth/device/code response actually promised, without restating
 // it by hand and risking drift from the recorded fixture.

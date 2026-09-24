@@ -103,7 +103,7 @@ const (
 //     ran as the namespace's "default" account, which nothing binds, and was
 //     denied every one of those calls. Both installers create this account
 //     and bind it to the engine's own generated ClusterRole
-//     (config/rbac/grabarr_engine_role.yaml, from grabarr/engine's markers).
+//     (config/rbac/grabarr_engine_role.yaml, from app/grab/engine's markers).
 //   - NATSURL: the engine publishes download events and progress on the bus,
 //     and its --nats-url default names a Service the installers do not
 //     create; the controller hands on its own $NATS_URL.
@@ -344,7 +344,7 @@ func engineConfigHash(dc *downloadv1alpha1.DownloadClient, secrets map[string]st
 }
 
 // engineStartConfig is what the engine for dc reads once, at start
-// (grabarr/run.go's setupTorrentEngine and grabarr/engine/usenet.BuildClient):
+// (app/grab/run.go's setupTorrentEngine and app/grab/engine/usenet.BuildClient):
 //
 //   - torrent: spec.torrent, less seed and removeCompleted. The engine reads
 //     those two on every reconcile, so a change to them applies without a
@@ -393,7 +393,7 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]s
 // StatefulSet controller, not by this reconciler): engineWorkloadName already
 // bakes "-engine" into the workload name, so the pod name is
 // "<client>-engine-<ordinal>" and grabarr.Options.Engine wants
-// "<client>-<ordinal>" (see grabarr/run.go's doc comment on Engine). Getting
+// "<client>-<ordinal>" (see app/grab/run.go's doc comment on Engine). Getting
 // from one to the other needs a shell, because Kubernetes has no field
 // selector or downward-API projection that strips a hostname's ordinal
 // suffix -- "${HOSTNAME##*-}" is POSIX parameter expansion for "everything

@@ -119,7 +119,7 @@ func TestSeriesAndEpisodes(t *testing.T) {
 // was TestSeriesRootFolderScanIsNotSupportedYet and pinned that); it now
 // attributes each file to an EXISTING Series and Episode (the Series by its
 // resolved folder, the Episode by the numbering the file's name carries --
-// importarr/worker/rescan/series.go) and creates a MediaFile for it.
+// app/import/worker/rescan/series.go) and creates a MediaFile for it.
 //
 // The never-guess invariant (CLAUDE.md) is the other half: a file naming an
 // episode the series does not have is reported with a reason and nothing is
@@ -186,7 +186,7 @@ func createSeries(ctx context.Context, t *testing.T, rootFolder string, tvdbID i
 // on the returned snapshot must first be IN this predicate.
 //
 // episodeCount in particular is not free-riding on Ready.
-// catalogarr/controller/series/reconciler.go computes the rollup from the
+// app/catalog/controller/series/reconciler.go computes the rollup from the
 // episode list it read BEFORE fanning out -- its own comment says the count
 // is "completed by the very next reconcile" -- so the reconcile that flips
 // Ready can legitimately carry episodeCount 0. It usually does not, because

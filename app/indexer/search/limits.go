@@ -46,8 +46,8 @@ import (
 // Both of an indexer's query paths count here: the search fan-out, and the
 // RSS poll, which makes up to four Torznab requests per poll. Prowlarr counts
 // IndexerQuery and IndexerRss together against QueryLimit. The poll cannot
-// import this package (this package imports indexarr/worker/rss for
-// ProjectRelease), so indexarr/run.go hands it [CountQuery] through
+// import this package (this package imports app/indexer/worker/rss for
+// ProjectRelease), so app/indexer/run.go hands it [CountQuery] through
 // rss.Deps.CountQuery -- one ring, one key, one window for both.
 const (
 	// maxQueryRingEntries caps the ring so a busy indexer cannot turn a KV
@@ -151,7 +151,7 @@ func countQuery(
 			// whole 2d TTL.
 			if uerr := json.Unmarshal(ent.Value, &ring); uerr != nil {
 				logging.FromContext(ctx).Warn(
-					"indexarr/search: replacing an undecodable query ring",
+					"app/indexer/search: replacing an undecodable query ring",
 					"indexer", idx.Name, "err", uerr)
 				ring = nil
 			}
@@ -181,6 +181,6 @@ func countQuery(
 			return 0, err
 		}
 	}
-	return 0, fmt.Errorf("indexarr/search: query ring CAS gave up after %d attempts: %w",
+	return 0, fmt.Errorf("app/indexer/search: query ring CAS gave up after %d attempts: %w",
 		queryCASAttempts, lastErr)
 }

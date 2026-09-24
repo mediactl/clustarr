@@ -29,7 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // controller's job, run from inside the same manager process but a distinct
 // reconciler) and never touches batch/v1 -- this package only ever writes
 // TranscodeJob.spec (via k8s.Apply, main resource, not status) and
-// TranscodeProfile.status (via squasharr/status.PatchProfile).
+// TranscodeProfile.status (via app/squash/status.PatchProfile).
 package transcodeprofile
 
 import (
@@ -62,9 +62,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// This controller's own RBAC, on top of what squasharr/status already grants
+// This controller's own RBAC, on top of what app/squash/status already grants
 // for the /status subresources it writes through. The blank line below is
-// load-bearing -- see squasharr/status/doc.go and
+// load-bearing -- see app/squash/status/doc.go and
 // cmd/clustarr.TestRBACMarkersArePackageLevel: controller-gen only collects
 // +kubebuilder:rbac from a comment group that is NOT a declaration's doc
 // comment, and attaching this block to SetupWithManager would make every
@@ -87,7 +87,7 @@ import (
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler owns TranscodeProfile.status (under k8s.ManagerSquasharr, via
-// squasharr/status.PatchProfile) and is the sole creator of TranscodeJob
+// app/squash/status.PatchProfile) and is the sole creator of TranscodeJob
 // objects (also k8s.ManagerSquasharr, on the main resource). It never writes
 // MediaFile or TranscodeJob.status.
 type Reconciler struct {

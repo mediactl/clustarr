@@ -84,7 +84,7 @@ type phaseResult struct {
 //
 // Every value this function can produce -- Assigned, Queued, Downloading,
 // Paused, Completed, Seeding, Imported, Failed, Blocklisted -- has a case in
-// catalogarr/controller/rollup/downloadoverlay.go's DownloadOverlay switch
+// app/catalog/controller/rollup/downloadoverlay.go's DownloadOverlay switch
 // (plan ruling R1). It never returns Pending (controller.go's pre-assignment
 // applies) or Removing (the finalizer does not set it; doc.go).
 //
@@ -135,7 +135,7 @@ func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
 		// yet "on disk and ready to import" -- DownloadPhaseCompleted's own
 		// doc comment -- so it groups with the active-transfer phase, the
 		// same "actively working on it" bucket
-		// catalogarr/controller/rollup/downloadoverlay.go's own comment uses
+		// app/catalog/controller/rollup/downloadoverlay.go's own comment uses
 		// for Assigned/Queued/Downloading/Paused.
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseDownloading}
 	case downloadv1alpha1.DownloadStageSeeding:
@@ -148,7 +148,7 @@ func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
 		// exists) this is the first point content is on disk. A torrent
 		// reaches it once it stops seeding -- its seed goal met -- or when
 		// it never seeded. Completed and Seeding are both "ready to import"
-		// to importarr's consumer (importarr/worker/fileimport/worker.go's
+		// to importarr's consumer (app/import/worker/fileimport/worker.go's
 		// own phase switch), so which of the two this picks changes no
 		// downstream behaviour.
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted}
@@ -215,7 +215,7 @@ func isBlocklistLabelled(dl *downloadv1alpha1.Download) bool {
 
 // isContentComplete reports whether phase means the content is complete on
 // disk and importable: Completed and Seeding, by
-// importarr/worker/fileimport.Worker.Handle's own phase switch (worker.go),
+// app/import/worker/fileimport.Worker.Handle's own phase switch (worker.go),
 // plus Imported itself so a reconcile after the import has already
 // happened continues to observe "complete" rather than flapping back to
 // false once status.phase advances past the two phases the importer

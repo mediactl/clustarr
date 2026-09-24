@@ -313,9 +313,9 @@ func TestReconcileAggregatesDownloadCounters(t *testing.T) {
 		require.NoError(t, c.Create(ctx, d))
 
 		// Two writers, two applies, exactly as production does: Phase is
-		// k8s.ManagerGrabarr's (grabarr/status.ControllerFields), the two
+		// k8s.ManagerGrabarr's (app/grab/status.ControllerFields), the two
 		// rates are k8s.ManagerGrabarrEngine's (EngineFields). Using
-		// grabarr/status.Patch here rather than a direct
+		// app/grab/status.Patch here rather than a direct
 		// client.Status().Update keeps this fixture honest about field-manager
 		// provenance and stays inside forbidigo's rule, which has no
 		// test-file exemption (see mediafile_envtest_test.go's identical

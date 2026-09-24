@@ -30,8 +30,8 @@ import (
 // rather than once each: the API allows one login per second, and
 // OpenSubtitles rate-limits logins far harder than searches (research note
 // §4.3). Spec §6.5 puts this token in the provider's shared KV entry;
-// captionarr implements TokenCache over captionarr/throttle.Get (the
-// State's JWT and TokenExpiresAt) and captionarr/throttle.SetAuth.
+// captionarr implements TokenCache over app/caption/throttle.Get (the
+// State's JWT and TokenExpiresAt) and app/caption/throttle.SetAuth.
 //
 // The token is a credential. An implementation must keep it out of logs
 // and out of any CRD status.

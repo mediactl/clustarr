@@ -57,7 +57,7 @@ func aggregateCaps() torznab.Caps {
 		Modes: map[torznab.SearchMode]torznab.Searching{
 			// SearchEngine: "raw" is caps.go's own wire flag for "accepts
 			// free-text q" (Searching's doc comment), which is exactly
-			// indexarr/query's whole capability.
+			// app/indexer/query's whole capability.
 			torznab.ModeSearch: {Available: true, SupportedParams: []string{"q"}, SearchEngine: "raw"},
 		},
 		Categories: newznab.Tree(),
@@ -65,8 +65,8 @@ func aggregateCaps() torznab.Caps {
 }
 
 // handleAggregateSearch answers every t= mode the same way: a text query
-// (plus `cat`, the one Torznab-standard param indexarr/query's own filter
-// vocabulary already understands -- indexarr/query/filters.go's filterKeys)
+// (plus `cat`, the one Torznab-standard param app/indexer/query's own filter
+// vocabulary already understands -- app/indexer/query/filters.go's filterKeys)
 // against Config.Query. Season/ep/imdbid and the rest of the Jackett filter
 // grammar §6.2 names as deferred are not translated here.
 func (s *Server) handleAggregateSearch(w http.ResponseWriter, r *http.Request) {

@@ -31,7 +31,7 @@ import (
 )
 
 // envelopeFor encodes p and wraps it in an Envelope with key as Clustarr-Key,
-// mirroring what a real producer sends (see e.g. catalogarr/worker/grab/
+// mirroring what a real producer sends (see e.g. app/catalog/worker/grab/
 // perform.go's publishGrabbed).
 func envelopeFor(t *testing.T, key string, p schema.Payload) *events.Envelope {
 	t.Helper()

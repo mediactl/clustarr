@@ -39,11 +39,11 @@ func TestWorkerPackageImportsNoKubernetesClient(t *testing.T) {
 	for _, dep := range strings.Fields(string(out)) {
 		for _, bad := range forbiddenForWorker {
 			if dep == strings.TrimSuffix(bad, "/") || strings.HasPrefix(dep, bad) {
-				t.Errorf("squasharr/worker depends on %s", dep)
+				t.Errorf("app/squash/worker depends on %s", dep)
 			}
 		}
 		if dep == "github.com/mediactl/clustarr/pkg/obs" {
-			t.Errorf("squasharr/worker depends on pkg/obs, which links controller-runtime; use pkg/obs/logging or tracing")
+			t.Errorf("app/squash/worker depends on pkg/obs, which links controller-runtime; use pkg/obs/logging or tracing")
 		}
 	}
 }

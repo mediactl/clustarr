@@ -59,13 +59,13 @@ const maxRedirects = 5
 // the connection and never answers would hold the RPC until grabarr's own
 // deadline. Unlike spec.requestDelay -- where ratelimit.Config documents
 // RPS <= 0 as a supported "do not pace me" -- a zero timeout has no reading
-// anyone wants, so it is floored. This mirrors indexarr/controller/indexer's
+// anyone wants, so it is floored. This mirrors app/indexer/controller/indexer's
 // timeoutFor for exactly the same reason; the two are deliberately separate
 // because that one is unexported and in a package this task does not own.
 const defaultTimeout = 30 * time.Second
 
 // errTooManyRedirects is returned through *url.Error by the redirect policy.
-var errTooManyRedirects = errors.New("indexarr/download: too many redirects")
+var errTooManyRedirects = errors.New("app/indexer/download: too many redirects")
 
 // FetchResult is one authenticated GET, with the redirect chain ALREADY
 // classified by the fetcher. Exactly one of Body, MagnetURL and OffHostURL is
@@ -170,7 +170,7 @@ func (f *fetcher) checkRedirect(req *http.Request, via []*http.Request) error {
 	default:
 		// The scheme is named; the URL is not, because a data: URL can
 		// carry anything and a file: URL names a path.
-		return fmt.Errorf("indexarr/download: refusing to follow a %q redirect", req.URL.Scheme)
+		return fmt.Errorf("app/indexer/download: refusing to follow a %q redirect", req.URL.Scheme)
 	}
 }
 
@@ -182,14 +182,14 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("indexarr/download: parse download URL: %w", cardigann.RedactErr(err))
+		return nil, fmt.Errorf("app/indexer/download: parse download URL: %w", cardigann.RedactErr(err))
 	}
 	// A magnet link is already the payload. Never fetch it.
 	if u.Scheme == "magnet" {
 		return &FetchResult{MagnetURL: rawURL, FinalURL: u}, nil
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("indexarr/download: refusing a %q download URL", u.Scheme)
+		return nil, fmt.Errorf("app/indexer/download: refusing a %q download URL", u.Scheme)
 	}
 
 	// The caller owns rate limiting (CLAUDE.md); this waits on the limiter
@@ -201,7 +201,7 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 		}
 	}
 
-	logging.FromContext(ctx).Debug("indexarr/download: fetching", "url", cardigann.RedactURL(u))
+	logging.FromContext(ctx).Debug("app/indexer/download: fetching", "url", cardigann.RedactURL(u))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, cardigann.RedactErr(err)
@@ -209,7 +209,7 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 	resp, err := f.hc.Do(req)
 	if err != nil {
 		tracing.RecordError(span, err)
-		return nil, fmt.Errorf("indexarr/download: get %s: %w", cardigann.RedactURL(u), cardigann.RedactErr(err))
+		return nil, fmt.Errorf("app/indexer/download: get %s: %w", cardigann.RedactURL(u), cardigann.RedactErr(err))
 	}
 
 	res := &FetchResult{
@@ -222,7 +222,7 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 		defer func() { _ = resp.Body.Close() }()
 		loc, lerr := resp.Location()
 		if lerr != nil {
-			return nil, fmt.Errorf("indexarr/download: %d with no usable Location: %w",
+			return nil, fmt.Errorf("app/indexer/download: %d with no usable Location: %w",
 				resp.StatusCode, cardigann.RedactErr(lerr))
 		}
 		if loc.Scheme == "magnet" {
@@ -265,7 +265,7 @@ func seedCookies(jar http.CookieJar, origin *url.URL, raw string) {
 // writer of a key's Config, and this package only ever Waits on it.
 //
 // The Indexer's IndexerProxies apply here as they do to every other path
-// (indexarr/proxy.Resolve): the fetch goes through the route and the
+// (app/indexer/proxy.Resolve): the fetch goes through the route and the
 // FlareSolverr layer they select, and an unusable one fails the fetch rather
 // than falling back to a direct connection. Before, this fetcher used the
 // default transport whatever the Indexer named, so every .torrent grabbed
@@ -275,12 +275,12 @@ func NewFetcherFor(c client.Client, lim *ratelimit.Limiter) FetcherFor {
 	return func(ctx context.Context, idx *indexv1alpha1.Indexer) (Fetcher, error) {
 		base, err := url.Parse(idx.Spec.BaseURL)
 		if err != nil || base.Host == "" || base.Scheme == "" {
-			return nil, fmt.Errorf("indexarr/download: indexer %s/%s has an unusable spec.baseURL",
+			return nil, fmt.Errorf("app/indexer/download: indexer %s/%s has an unusable spec.baseURL",
 				idx.Namespace, idx.Name)
 		}
 		transport, err := proxy.Resolve(ctx, c, idx)
 		if err != nil {
-			return nil, fmt.Errorf("indexarr/download: indexer %s/%s: %w", idx.Namespace, idx.Name, err)
+			return nil, fmt.Errorf("app/indexer/download: indexer %s/%s: %w", idx.Namespace, idx.Name, err)
 		}
 		secret, err := readSecretData(ctx, c, idx.Namespace, idx.Spec.SecretRef)
 		if err != nil {
@@ -336,7 +336,7 @@ func readSecretData(
 	}
 	var s corev1.Secret
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &s); err != nil {
-		return nil, fmt.Errorf("indexarr/download: read secret %s/%s: %w", ns, ref.Name, err)
+		return nil, fmt.Errorf("app/indexer/download: read secret %s/%s: %w", ns, ref.Name, err)
 	}
 	return s.Data, nil
 }
@@ -355,7 +355,7 @@ func readSessionData(
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("indexarr/download: read session secret %s/%s: %w", ns, name, err)
+		return nil, fmt.Errorf("app/indexer/download: read session secret %s/%s: %w", ns, name, err)
 	}
 	return s.Data, nil
 }

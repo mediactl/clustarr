@@ -35,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // scan, which is the SubtitleRequest controller's job, task F-4, run from
 // inside the same manager process but a distinct reconciler) -- this package
 // only ever writes SubtitleRequest.spec (via k8s.Apply, main resource, not
-// status) and SubtitleProfile.status (via captionarr/status.PatchProfile).
+// status) and SubtitleProfile.status (via app/caption/status.PatchProfile).
 package subtitleprofile
 
 import (
@@ -71,7 +71,7 @@ import (
 // This controller's own RBAC. SubtitleProfile is cluster-scoped (no
 // namespaces verb needed); subtitlerequests needs create (and update,
 // alongside patch, for the same server-side-apply create-if-absent reason
-// squasharr/controller/transcodeprofile/controller.go's own marker comment
+// app/squash/controller/transcodeprofile/controller.go's own marker comment
 // documents) because this package is captionarr's only creator of them.
 // mediafiles is read-only: this controller only ever reads a MediaFile's
 // labels, kind and status.probeHash to decide whether and for whom to
@@ -92,7 +92,7 @@ import (
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler owns SubtitleProfile.status (under k8s.ManagerCaptionarr, via
-// captionarr/status.PatchProfile) and is the sole creator of SubtitleRequest
+// app/caption/status.PatchProfile) and is the sole creator of SubtitleRequest
 // objects (also k8s.ManagerCaptionarr, on the main resource). It never
 // writes MediaFile or SubtitleRequest.status.
 type Reconciler struct {
@@ -251,7 +251,7 @@ func (r *Reconciler) ensureSubtitleRequest(
 }
 
 // extractProbeHash is this package's own restatement of the §10-documented
-// predicate function (squasharr/controller/transcodeprofile/controller.go's
+// predicate function (app/squash/controller/transcodeprofile/controller.go's
 // own extractProbeHash carries the identical doc comment) -- not imported,
 // because it is a closure over this package's concrete MediaFile type. This
 // is the watch that wakes a SubtitleProfile reconcile when a MediaFile is

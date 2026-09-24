@@ -31,7 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // degraded at 30 for years (research note; the live X-RateLimit-Limit
 // header read 30 on 2026-09-23), and answers an unknown id with HTTP 404
 // and {"errors":[{"message":"Not Found.","status":404}],"data":{"Media":
-// null}}. The fixtures under testdata/metadata/anilist are live responses
+// null}}. The fixtures under test/data/metadata/anilist are live responses
 // to exactly the queries this file sends.
 package anilist
 

@@ -53,6 +53,6 @@ func newImportListStubCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address")
 	cmd.Flags().StringVar(&recordedDir, "recorded-dir", "/fixtures/testdata/importlist",
-		"directory holding testdata/importlist's trakt, plex and mdblist subdirectories")
+		"directory holding test/data/importlist's trakt, plex and mdblist subdirectories")
 	return cmd
 }

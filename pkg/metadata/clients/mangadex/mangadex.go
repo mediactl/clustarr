@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Reads need no auth, but every request must carry a User-Agent, and the
 // service allows about five requests a second per IP
 // (docs/research/metadata.md §2.5). The shapes are the live API's,
-// captured on 2026-09-23 into testdata/metadata/mangadex (trimmed, not
+// captured on 2026-09-23 into test/data/metadata/mangadex (trimmed, not
 // edited): GET /manga?title= and GET /manga/{id} answer
 // {"result":"ok","response":...,"data":...} with attributes {title,
 // altTitles, description, links, originalLanguage, lastVolume, status,

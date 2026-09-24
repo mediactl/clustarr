@@ -92,7 +92,7 @@ func TestMain(m *testing.M) {
 // Step 1: a guard that DISCOVERS what must be registered.
 // ---------------------------------------------------------------------------
 
-// TestEveryIndexarrRunnableIsRegistered walks indexarr/** and asserts that
+// TestEveryIndexarrRunnableIsRegistered walks app/indexer/** and asserts that
 // run.go names every component it finds.
 //
 // A hand-maintained list is the anti-pattern, and cmd/clustarr's equivalent
@@ -109,13 +109,13 @@ func TestMain(m *testing.M) {
 //     accident.
 //   - a SetupWithManager METHOD: the registration call itself. run.go must
 //     make a SetupWithManager call rooted at that package.
-//   - an exported Serve FUNCTION: the shape indexarr/search uses to register
+//   - an exported Serve FUNCTION: the shape app/indexer/search uses to register
 //     all three RPC verbs in one call. run.go must call it.
 //
 // # What it still cannot see, stated rather than hoped
 //
 //  1. A plain struct wired only by ASSIGNMENT into another component's field.
-//     indexarr/download.Service and indexarr/query.Service reach production
+//     app/indexer/download.Service and app/indexer/query.Service reach production
 //     as search.Service.Download and .Query, and nothing structural tells
 //     them apart from a helper type. TestTheRPCVerbsAnswer below covers both
 //     by driving them over a real bus, which is the only honest substitute.
@@ -151,14 +151,14 @@ func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
 		total++
 		require.Contains(t, wiring.text, r.name,
 			"%s is a manager.Runnable (it has Start and NeedLeaderElection) declared in %s, "+
-				"but indexarr/run.go never names it. A Runnable nobody adds to the manager "+
+				"but app/indexer/run.go never names it. A Runnable nobody adds to the manager "+
 				"never runs, and neither the compiler nor the manager says a word.",
 			r.name, r.file)
 	}
 	for _, s := range found.setups {
 		total++
 		require.Contains(t, wiring.setupRoots, s.pkg,
-			"%s declares SetupWithManager in %s, but indexarr/run.go makes no "+
+			"%s declares SetupWithManager in %s, but app/indexer/run.go makes no "+
 				"SetupWithManager call on anything from package %q. It is therefore never "+
 				"registered: on a fresh cluster that component is simply inert, with no "+
 				"compiler error and nothing in the logs. run.go's SetupWithManager calls are "+
@@ -169,7 +169,7 @@ func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
 		total++
 		require.Contains(t, wiring.serveRoots, s.pkg,
 			"%s is an exported Serve function in %s -- the shape that registers RPC "+
-				"responders -- but indexarr/run.go never calls %s.Serve. Its verbs would "+
+				"responders -- but app/indexer/run.go never calls %s.Serve. Its verbs would "+
 				"answer nothing, and every caller would get events.ErrNoResponders forever. "+
 				"run.go's Serve calls are rooted at %v.",
 			s.name, s.file, s.pkg, sortedKeys(wiring.serveRoots))
@@ -180,7 +180,7 @@ func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
 	// up. Asserting on the total keeps the guard honest about looking in the
 	// right place without demanding a shape indexarr does not need.
 	require.Positive(t, total,
-		"no components were discovered under indexarr/; this guard is not looking where it "+
+		"no components were discovered under app/indexer/; this guard is not looking where it "+
 			"thinks it is")
 	t.Logf("discovered %d components: %d runnable types, %d SetupWithManager, %d Serve",
 		total, len(found.runnableTypes), len(found.setups), len(found.serves))
@@ -189,7 +189,7 @@ func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
 type componentDecl struct {
 	name string // "rss.Worker" or "search.Serve"
 	pkg  string // "rss"
-	file string // path relative to indexarr/
+	file string // path relative to app/indexer/
 }
 
 type components struct {
@@ -460,7 +460,7 @@ func rootIdent(expr ast.Expr) string {
 // fallback for an unknown host cannot drift away from what an operator
 // actually gets.
 //
-// It is the same shape as indexarr/controller/indexer's
+// It is the same shape as app/indexer/controller/indexer's
 // TestSpecDefaultsMatchTheGeneratedCRD, deliberately: both are anchored on
 // the same generated file rather than on each other. (spec.timeout is pinned
 // only there now -- the client construction this file used to duplicate moved
@@ -519,7 +519,7 @@ func TestTheDefaultLimiterPacesAnUnknownHost(t *testing.T) {
 // matters as much as the test above.
 //
 // `requestDelay: 0s` is a SUPPORTED "do not pace this indexer": the CRD
-// permits it and indexarr/controller/indexer's rpsFor maps it to RPS 0 on
+// permits it and app/indexer/controller/indexer's rpsFor maps it to RPS 0 on
 // purpose, refusing to floor it so an operator's explicit choice is not
 // silently overruled. A default that paces unknown hosts must not leak into
 // that decision -- and it cannot, because SetConfig installs a config FOR THE
@@ -669,7 +669,7 @@ func TestRunPassesTheBusHooks(t *testing.T) {
 		return false
 	})
 	require.NotEmpty(t, args,
-		"indexarr/run.go no longer calls k8s.ConnectBus; this guard is looking for a call that "+
+		"app/indexer/run.go no longer calls k8s.ConnectBus; this guard is looking for a call that "+
 			"is not there")
 	require.Contains(t, args, "k8s.WithBusHooks(obs.BusHooks())",
 		"k8s.ConnectBus was called with %v. Without the hooks, trace propagation exists and "+
@@ -799,7 +799,7 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 	})
 
 	t.Run("the RPC verbs answer", func(t *testing.T) {
-		// This is what covers indexarr/download and indexarr/query, which the
+		// This is what covers app/indexer/download and app/indexer/query, which the
 		// source-level guard cannot see: they reach production only as
 		// search.Service.Download and .Query, and a run.go that left either
 		// nil would still compile, still register the RPC group, and answer

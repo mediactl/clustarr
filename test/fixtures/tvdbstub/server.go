@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package tvdbstub serves TheTVDB v4's login/series/episodes/updates shapes
 // (pkg/metadata/clients/tvdb/{tvdb,auth}.go) for one real, recorded series
 // (121361, Game of Thrones) and two fixture-owned series this task adds to
-// exercise daily and anime absolute numbering, which testdata/metadata/tvdb
+// exercise daily and anime absolute numbering, which test/data/metadata/tvdb
 // does not record. No credential is ever checked -- the fixture answers any
 // /login body, matching "no Internet, closed network".
 package tvdbstub
@@ -48,7 +48,7 @@ var episodes900002 []byte
 
 // NewHandler builds the stub. recordedDir holds the real recorded
 // login.json, series_121361.json and updates_since.json, copied verbatim
-// from testdata/metadata/tvdb by images/Dockerfile.e2e-fixtures.
+// from test/data/metadata/tvdb by images/Dockerfile.e2e-fixtures.
 func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /login", serveFile(filepath.Join(recordedDir, "login.json"), logger))

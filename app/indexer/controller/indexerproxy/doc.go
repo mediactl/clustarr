@@ -26,17 +26,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // checks that the Secret exists), and does not evaluate spec.selector against
 // any Indexer. What happens here is a reachability probe and nothing else.
 //
-// Routing is not absent, it lives in indexarr/proxy: spec.proxyRef and
+// Routing is not absent, it lives in app/indexer/proxy: spec.proxyRef and
 // spec.selector are resolved there (at most one http/socks4/socks5 route and
 // at most one FlareSolverr, applied last), and the resulting transport is
 // applied to every request an Indexer makes -- caps probe, search, RSS poll
 // and both download fetchers. The FlareSolverr client, which solves a
 // Cloudflare or DDoS-Guard challenge as Prowlarr's does, is
-// indexarr/proxy.FlareSolverr.
+// app/indexer/proxy.FlareSolverr.
 //
 // # Wiring (Task D1-8)
 //
-// The exact call indexarr/run.go must make:
+// The exact call app/indexer/run.go must make:
 //
 //	if err := indexerproxy.NewReconciler(
 //	    mgr.GetClient(),
@@ -52,7 +52,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # The owned field set
 //
 // IndexerProxy.status has exactly one writer, k8s.ManagerIndexarr, so the
-// two-manager split in indexarr/status (which covers Indexer, not this kind)
+// two-manager split in app/indexer/status (which covers Indexer, not this kind)
 // does not apply. What does apply is the rule behind it: server-side apply
 // REPLACES a field manager's ownership set on every apply rather than merging
 // into it, so a field this manager sent before and omits now is released,

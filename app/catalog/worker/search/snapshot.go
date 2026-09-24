@@ -226,7 +226,7 @@ func episodeAvailable(e *catalogv1alpha1.Episode, now time.Time) bool {
 // already-imported matching falls back to the release title, which
 // spec.importedFrom.releaseTitle always carries.
 //
-// It is exported so catalogarr/worker/rssmatcher reads an item's current
+// It is exported so app/catalog/worker/rssmatcher reads an item's current
 // file through this same code: an RSS decision and a search decision about
 // one item must see the same file, revision, source hash and all. Reading
 // the item's status rollup instead (hasFile/fileQuality/fileFormatScore)

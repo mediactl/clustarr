@@ -51,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // holding only {until, reason, quota}; this package extends that shape with
 // a JWT field and a separate rate-limit sub-key, the same way
 // clustarr-indexer-limits' documented "<indexer-uid>" grew a ".query" and
-// ".grab" sub-key in Phase D1 (indexarr/search/limits.go) without changing
+// ".grab" sub-key in Phase D1 (app/indexer/search/limits.go) without changing
 // the spec's meaning.
 //
 // # Two independent mechanisms, deliberately not conflated

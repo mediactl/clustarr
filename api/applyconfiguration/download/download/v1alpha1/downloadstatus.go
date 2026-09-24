@@ -33,7 +33,7 @@ import (
 // owns the lifecycle fields, the grabarr-engine replica owns the telemetry
 // fields, and importarr's file-import worker owns status.import. (Design
 // spec §8.4 assigned this field to catalogarr; amendment-1 moved the
-// importer out of catalogarr into importarr/worker/fileimport, and this
+// importer out of catalogarr into app/import/worker/fileimport, and this
 // field's ownership moved with it. Settled at task D2-7.)
 type DownloadStatusApplyConfiguration struct {
 	// ObservedGeneration is the spec generation this status was computed from.

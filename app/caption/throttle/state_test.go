@@ -32,7 +32,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
-// testKV mirrors indexarr/search/limits_test.go's testKV: a bucket bound to
+// testKV mirrors app/indexer/search/limits_test.go's testKV: a bucket bound to
 // an in-memory bus, for the tests that exercise this package's logic rather
 // than the KV key grammar itself (kvkey_contract_test.go needs a real
 // server; the CAS arithmetic and merge semantics below do not).
@@ -151,7 +151,7 @@ func TestRecordErrorEscalatesAfterFiveStrikesIn120Seconds(t *testing.T) {
 
 // Errors outside the 120s window must not count toward the strike
 // threshold -- the window is a sliding one, not a running total (the same
-// property indexarr/search's query ring proves for itself).
+// property app/indexer/search's query ring proves for itself).
 func TestErrorRingPrunesEntriesOutsideTheWindow(t *testing.T) {
 	kv := testKV(t)
 	base := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
@@ -190,7 +190,7 @@ func TestRecordSuccessDoesNotClearAnExistingThrottleOrErrorCount(t *testing.T) {
 // SetQuota and SetAuth are separate mutators against the SAME KV value; each
 // must merge rather than clobber the other's fields -- the hazard this
 // package's mutateState exists to prevent, the same discipline
-// captionarr/status documents for server-side apply's complete-declaration
+// app/caption/status documents for server-side apply's complete-declaration
 // rule, applied here to a hand-rolled JSON blob instead of SSA.
 func TestSetQuotaAndSetAuthMergeRatherThanClobber(t *testing.T) {
 	kv := testKV(t)

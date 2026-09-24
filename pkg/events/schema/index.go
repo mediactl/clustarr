@@ -234,9 +234,9 @@ type SearchRequest struct {
 	Kind commonv1.MediaKind `json:"kind"`
 
 	// Text is the free-text query. Ids are preferred over it wherever an
-	// indexer supports one (see indexarr/search's buildQuery): an id-based
+	// indexer supports one (see app/indexer/search's buildQuery): an id-based
 	// match is server-side and exact, while a text query is only as precise
-	// as the indexer's own keyword search. catalogarr/worker/search.
+	// as the indexer's own keyword search. app/catalog/worker/search.
 	// BuildSearchRequest sets this from the item's resolved title (and year,
 	// or SxxEyy for an episode) so an automatic search still reaches an
 	// indexer that advertises no id parameter at all, matching the Torznab

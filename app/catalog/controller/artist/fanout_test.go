@@ -157,7 +157,7 @@ func TestAlbumAcceptedReleaseStatuses(t *testing.T) {
 
 // TestReleaseStatusAcceptedFoldsMusicBrainzSpelling pins the spelling the
 // web service actually sends ("Official", "Pseudo-Release"; see
-// testdata/metadata/musicbrainz/browse_releases_the_bends.json), which an
+// test/data/metadata/musicbrainz/browse_releases_the_bends.json), which an
 // exact-case table matched none of.
 func TestReleaseStatusAcceptedFoldsMusicBrainzSpelling(t *testing.T) {
 	profile := catalogv1alpha1.MusicMetadataProfile{ReleaseStatuses: []string{"official", "pseudoRelease"}}

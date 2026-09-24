@@ -249,7 +249,7 @@ func seedWorkerStatus(t *testing.T, ctx context.Context, c client.Client, m *cat
 }
 
 // interactiveDownload applies a Download for rel exactly the way the Search
-// controller's spec.grab does (catalogarr/controller/search handleGrabs):
+// controller's spec.grab does (app/catalog/controller/search handleGrabs):
 // the deterministic name, the target as owner, grabbedBy=interactive,
 // manual=true, under k8s.ManagerCatalogarr. src is passed in rather than
 // resolved so a test can reproduce a Download whose source another build
@@ -297,7 +297,7 @@ func managerStatusFields(obj client.Object, fm k8s.FieldManager) string {
 	return ""
 }
 
-// seedGatewayMetadata writes status.metadata exactly as catalogarr/metadata's
+// seedGatewayMetadata writes status.metadata exactly as app/catalog/metadata's
 // handler does: MovieStatus().WithMetadata(...) and nothing else, under
 // k8s.ManagerCatalogarrMetadata.
 func seedGatewayMetadata(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie) {

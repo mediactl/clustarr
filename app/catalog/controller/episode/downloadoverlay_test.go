@@ -29,7 +29,7 @@ import (
 
 // TestDownloadOverlay proves only the EpisodePhase type mapping --
 // rollup.DownloadOverlay's decision table is table-tested once, in
-// catalogarr/controller/rollup, per the C6 controller amendment.
+// app/catalog/controller/rollup, per the C6 controller amendment.
 func TestDownloadOverlay(t *testing.T) {
 	dl := func(p downloadv1alpha1.DownloadPhase) *downloadv1alpha1.Download {
 		return &downloadv1alpha1.Download{Status: downloadv1alpha1.DownloadStatus{Phase: p}}

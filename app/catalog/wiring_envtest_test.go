@@ -127,8 +127,8 @@ func newBus(t *testing.T) events.Bus {
 // TestSetupWorkersLeavesTheBlocklistPathLive is the proof behind Task C12a's
 // startup-ordering requirement.
 //
-// catalogarr/worker/rssmatcher then read the blocklist and the live queue
-// through catalogarr/worker/search's three Download field indexes; when they
+// app/catalog/worker/rssmatcher then read the blocklist and the live queue
+// through app/catalog/worker/search's three Download field indexes; when they
 // were absent every one of those reads failed and the matcher WARNED and
 // carried on as if the release were not blocklisted and the queue were empty
 // -- so a wiring mistake did not break anything visibly, it just started

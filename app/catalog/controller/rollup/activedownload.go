@@ -36,7 +36,7 @@ import (
 // guard above all -- that nothing is working on an item whose file is one
 // import away.
 //
-// The set is the same one catalogarr/worker/search/blocklist.go's
+// The set is the same one app/catalog/worker/search/blocklist.go's
 // isTerminal uses for the live queue, so the item's ref and the search
 // worker's "is this target already queued" can never disagree about one
 // Download. DownloadOverlay is built on it too, so the item's phase reads

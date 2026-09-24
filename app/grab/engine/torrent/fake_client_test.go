@@ -53,7 +53,7 @@ type fakeClient struct {
 }
 
 // removeCall records one Remove invocation, id and deleteData together --
-// grabarr/engine/usenet's fakeDownloadClient test double records the same
+// app/grab/engine/usenet's fakeDownloadClient test double records the same
 // shape for the same reason: a test asserting RemoveDataOnDelete's effect
 // needs both.
 type removeCall struct {

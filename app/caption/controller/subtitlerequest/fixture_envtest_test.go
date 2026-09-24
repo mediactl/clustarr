@@ -322,7 +322,7 @@ func (f *fixture) workerApply(name string) {
 }
 
 // workerApplyFrom is the worker's real apply path from snapshot sr:
-// captionarr/status.PatchRequest under k8s.ManagerCaptionarrWorker, whose
+// app/caption/status.PatchRequest under k8s.ManagerCaptionarrWorker, whose
 // RequestWorkerFields re-sends leaves only for items live IN sr (rule 3 of
 // the liveness protocol). Nothing is filtered here, so the protocol under
 // test is the worker's own. A stale sr is how a test makes the worker race

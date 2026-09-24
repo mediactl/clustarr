@@ -33,7 +33,7 @@ import (
 // known by, its year, and its tmdb and imdb ids.
 //
 // It is exported, together with EpisodeIdentity, so that
-// catalogarr/worker/rssmatcher builds its decision Target's identity from
+// app/catalog/worker/rssmatcher builds its decision Target's identity from
 // this same code: an RSS decision and a search decision about one item must
 // agree on what that item IS, and two builders are how they would come to
 // disagree. The tmdb id comes from spec, not metadata, so a movie whose
@@ -116,7 +116,7 @@ func EpisodeIdentity(s *catalogv1alpha1.Series, eps ...*catalogv1alpha1.Episode)
 // SceneMappings is the decision.Identity.SceneMappings of one TVDB series:
 // TheXEM's WHOLE scene-numbering table for it, read from src.
 //
-// It is exported so catalogarr/worker/rssmatcher reads the same table
+// It is exported so app/catalog/worker/rssmatcher reads the same table
 // through the same code: a search decision and an RSS decision about one
 // episode must read a scene number the same way. It must be the whole table,
 // never only the target's rows -- a scene number that maps to a different
@@ -214,8 +214,8 @@ func searchNumbering(scene []decision.SceneMapping, e *catalogv1alpha1.Episode) 
 // idQueryIndexers names the indexers whose query in this search was keyed by
 // one of the item's ids, from the per-indexer QueryMode indexarr reports.
 // Both sides of the join are the Indexer object's name: indexarr stamps it on
-// every release as ReleaseInfo.IndexerRef (indexarr/worker/rss.ProjectRelease)
-// and on the outcome as IndexerRef.Name (indexarr/search.newOutcome).
+// every release as ReleaseInfo.IndexerRef (app/indexer/worker/rss.ProjectRelease)
+// and on the outcome as IndexerRef.Name (app/indexer/search.newOutcome).
 //
 // One torrent offered by two indexers is collapsed into one release carrying
 // ONE IndexerRef. When the survivor is the text-mode indexer's copy, the

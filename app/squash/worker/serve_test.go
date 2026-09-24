@@ -222,7 +222,7 @@ func newHarness(t *testing.T) *harness {
 // (20s renewal, 60s FenceAfter, 60s task deadlines), so the drift they add
 // over a test's few hundred milliseconds of real time is negligible; the
 // same pattern is established in
-// catalogarr/worker/grab/decide_envtest_test.go's pumpClock.
+// app/catalog/worker/grab/decide_envtest_test.go's pumpClock.
 func pumpClock(t *testing.T, clock *clockwork.FakeClock, step time.Duration) func() {
 	t.Helper()
 	done := make(chan struct{})

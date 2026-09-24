@@ -386,7 +386,7 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 	// Process makes no Kubernetes client of its own (spec §9): the
 	// TranscodeJob's controller-owned fields, and its managedFields, are
 	// exactly as createJob left them. squasharr alone writes status, from
-	// the events Serve publishes (squasharr/controller/transcodejob).
+	// the events Serve publishes (app/squash/controller/transcodejob).
 	tj := f.get(t, c)
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, tj.Status.Phase)
 	require.NotNil(t, tj.Status.Plan)
@@ -546,7 +546,7 @@ func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testin
 // missing TranscodeJob and an unhashed TranscodeProfile are now caught by
 // squasharr BEFORE it can even build a task.Task -- dispatch reads the job
 // and refuses a profile with no status.hash
-// (squasharr/controller/transcodejob).
+// (app/squash/controller/transcodejob).
 // Process, given a task, no longer has Kubernetes objects to fail a Get
 // against.
 func TestRunClassifiesInputFailures(t *testing.T) {

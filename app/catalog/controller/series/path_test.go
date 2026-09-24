@@ -29,7 +29,7 @@ import (
 )
 
 // TestPath's expected folder literal is the real Jellyfin preset output for
-// SeriesFolder, confirmed against testdata/naming/dialects.json's golden
+// SeriesFolder, confirmed against test/data/naming/dialects.json's golden
 // ("The Series Title! (2010) [tvdbid-153021]") rather than guessed.
 func TestPath(t *testing.T) {
 	eng := naming.NewEngine(naming.Config{Dialect: naming.DialectJellyfin})

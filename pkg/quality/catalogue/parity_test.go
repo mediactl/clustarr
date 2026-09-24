@@ -40,7 +40,7 @@ type corpusSpecification struct {
 	Fields         json.RawMessage `json:"fields"`
 }
 
-// corpusFormatByTrashID scans testdata/trash/docs/json/<app>/cf for the file
+// corpusFormatByTrashID scans test/data/trash/docs/json/<app>/cf for the file
 // whose trash_id matches id and returns its raw specifications.
 func corpusFormatByTrashID(t *testing.T, app, id string) []corpusSpecification {
 	t.Helper()

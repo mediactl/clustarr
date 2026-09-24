@@ -26,7 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // unable to coexist.
 //
 // Whether a Download is still live is not decided here: that is
-// catalogarr/controller/rollup.DownloadNonTerminal, the set the Movie and
+// app/catalog/controller/rollup.DownloadNonTerminal, the set the Movie and
 // Episode reconcilers derive status.activeDownloadRef from (gap-fix ruling
 // R-5), which the grab path's guard uses too so the two cannot disagree.
 package downloads
@@ -54,7 +54,7 @@ var ErrNoSource = errors.New("downloads: release has no downloadable source")
 // ResolveSource maps a release to the spec.source of the Download that grabs
 // it. It is the only such mapping: the grab worker (automatic search, RSS and
 // delayed grabs) and the Search controller (a user's spec.grab, through
-// catalogarr/controller/search.BuildDownloadSource) both call it.
+// app/catalog/controller/search.BuildDownloadSource) both call it.
 //
 // It has to be one function, and a function of the release snapshot alone,
 // because both paths name the Download identically -- k8s.ChildName(target,

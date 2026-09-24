@@ -51,9 +51,9 @@ const MaxStatusFiles = 200
 // the Item removes that entry from status, which is right, but it also means
 // an Item must always carry the complete file list.
 //
-// # Its relationship to grabarr/status.EngineFields
+// # Its relationship to app/grab/status.EngineFields
 //
-// They are the same declaration, not two. grabarr/status.EngineFields is
+// They are the same declaration, not two. app/grab/status.EngineFields is
 // literally ApplyStatus(ItemFromStatus(st)): the owned set is written down
 // once, here, and the seed-from-live-status path reaches it through the
 // inverse in [ItemFromStatus]. Two hand-built versions of one manager's write
@@ -107,7 +107,7 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 	// has not decided on a stage yet omits the field instead of sending a
 	// value the apiserver rejects -- which would fail the whole telemetry
 	// write, not just this leaf. It is the same shape-not-outcome exception
-	// indexarr/status makes for Indexer.status.protocol.
+	// app/indexer/status makes for Indexer.status.protocol.
 	if item.Stage != "" {
 		ac = ac.WithStage(item.Stage)
 	}
@@ -131,7 +131,7 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 	// freshly constructed above: the file list is declared exactly once per
 	// apply configuration. A caller that seeds from [ItemFromStatus] and then
 	// calls WithFiles again gets duplicate entries, which is why
-	// grabarr/status.Patch tells its callers to assign ac.Files instead.
+	// app/grab/status.Patch tells its callers to assign ac.Files instead.
 	//
 	// The list is capped at [MaxStatusFiles], the CRD's MaxItems: a
 	// discography or a full-series pack easily lists more, and the apiserver
@@ -155,7 +155,7 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 // ItemFromStatus is the inverse of [ApplyStatus] over the engine-owned fields:
 // it reads a live Download.status back into the Item that would reproduce it.
 //
-// It exists so that grabarr/status.EngineFields can seed a complete
+// It exists so that app/grab/status.EngineFields can seed a complete
 // declaration from the object without a second copy of the field list. It
 // reads ONLY engine-owned fields; st.Phase, st.Import and the rest are not
 // representable on an [Item] at all, so the inverse cannot accidentally widen

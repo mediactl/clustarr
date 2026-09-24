@@ -44,7 +44,7 @@ func capsFromIndexer(idx *indexv1alpha1.Indexer) torznab.Caps {
 // modesFromIndexer converts Indexer.status.caps.modes (map[wire mode]->
 // supported params) into torznab.Caps.Modes. The keys are ALREADY
 // torznab.SearchMode's own wire values -- api/index/v1alpha1's Caps.Modes
-// doc comment says so, and indexarr/search/query.go's paramSupported reads
+// doc comment says so, and app/indexer/search/query.go's paramSupported reads
 // the very same map the same way -- so this is a type change, not a
 // translation. A mode present in the map is available; one absent from it is
 // not, which is why this ranges over st.Modes rather than every known

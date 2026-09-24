@@ -29,7 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // that proof, not extend it.
 //
 // What IS D2's own, new surface for this scenario is
-// importarr/worker/fileimport's UPGRADE decision and its recycle of the
+// app/import/worker/fileimport's UPGRADE decision and its recycle of the
 // superseded file: processConfig.processFile (process.go) compares a new
 // candidate against pc.existing via profile.UpgradeDecision, and on a
 // genuine upgrade calls fsops.Recycle on the old file's path before

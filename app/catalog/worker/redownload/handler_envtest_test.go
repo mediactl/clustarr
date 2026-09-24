@@ -305,7 +305,7 @@ func (f *fixture) leaseHolder(t *testing.T, key string) string {
 }
 
 // event is the envelope grabarr publishes for dl's action, built the way
-// grabarr/controller/download's publishDownloadEvent builds it.
+// app/grab/controller/download's publishDownloadEvent builds it.
 func (f *fixture) event(t *testing.T, dl *downloadv1alpha1.Download, action string,
 	reason downloadv1alpha1.DownloadFailureReason, at time.Time,
 ) *events.Envelope {

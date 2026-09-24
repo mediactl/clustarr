@@ -157,7 +157,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	//
 	// A cancel marker an earlier withdrawal left on the lease is NOT cleared
 	// for the new attempt. The worker's own attempt rule
-	// (squasharr/worker/lease.go's claim) replaces a marker from an earlier
+	// (app/squash/worker/lease.go's claim) replaces a marker from an earlier
 	// attempt and proceeds, so clearing it gains nothing -- and the marker is
 	// what still stops a delivery of the withdrawn attempt that a worker
 	// fetched before the purge and has yet to claim. A job taken back from an

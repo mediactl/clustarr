@@ -22,14 +22,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // It also registers the other two verbs -- clustarr.rpc.indexarr.download and
 // clustarr.rpc.indexarr.query -- because [Serve] is indexarr's single
 // registration point for the RPC queue group; their bodies live in
-// indexarr/download and indexarr/query and arrive as [DownloadFn] and
+// app/indexer/download and app/indexer/query and arrive as [DownloadFn] and
 // [QueryFn].
 //
 // # The payload types are frozen, and already being called
 //
 // schema.SearchRequest and schema.SearchResponse live in
 // pkg/events/schema/index.go. This is not a contract being designed here:
-// catalogarr/worker/search has been building the request and asking for it
+// app/catalog/worker/search has been building the request and asking for it
 // since Phase C, getting events.ErrNoResponders and retrying every 15s. No
 // field may be renamed, re-tagged or removed from this side, and an addition
 // must be optional -- as G1-6's SearchOutcome.QueryMode was -- so a peer built
@@ -40,7 +40,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Search never returns an error
 //
 // An RPC error reply makes the caller return before it writes
-// status.indexerOutcomes (catalogarr/worker/search/worker.go), so the
+// status.indexerOutcomes (app/catalog/worker/search/worker.go), so the
 // outcomes -- the operator's whole diagnosis of why nothing was found -- are
 // thrown away. Every failure is therefore a NAMED schema.SearchOutcome
 // instead, and only a request that cannot be decoded at all is answered with
@@ -49,7 +49,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Status ownership
 //
 // This package writes Indexer.status as k8s.ManagerIndexarrWorker, through
-// indexarr/status.Patch and nothing else. Server-side apply REPLACES a field
+// app/indexer/status.Patch and nothing else. Server-side apply REPLACES a field
 // manager's ownership set on every apply rather than merging into it, so an
 // apply must declare all ten fields that manager owns even though a search
 // changes three:
@@ -68,7 +68,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // fan-out started from would roll back whatever else wrote under the shared
 // manager in the meantime. That is a lost update rather than an SSA release,
 // so no "manager X released field Y" test can see it; the window is closed
-// by re-reading, as indexarr/worker/rss and indexarr/download do.
+// by re-reading, as app/indexer/worker/rss and app/indexer/download do.
 //
 // # Two things this package must not build
 //
@@ -84,7 +84,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // No +kubebuilder:rbac marker lives here. The reads this package makes
 // (indexers get;list;watch) and the writes it makes (indexers/status
-// get;update;patch) are already granted by indexarr/controller/indexer and
-// indexarr/status respectively, on the packages that declare them; restating
+// get;update;patch) are already granted by app/indexer/controller/indexer and
+// app/indexer/status respectively, on the packages that declare them; restating
 // a rule generates the same role and puts a second place to change.
 package search

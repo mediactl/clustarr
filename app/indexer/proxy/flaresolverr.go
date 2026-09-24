@@ -54,11 +54,11 @@ var (
 	// ErrFlareSolverr is what every failed solve matches: FlareSolverr
 	// unreachable, refusing, or answering without the clearance cookies a
 	// solve exists to produce.
-	ErrFlareSolverr = errors.New("indexarr/proxy: flaresolverr could not solve the challenge")
+	ErrFlareSolverr = errors.New("app/indexer/proxy: flaresolverr could not solve the challenge")
 
 	// ErrResponseTooLarge is returned when a body this package must buffer
 	// exceeds maxBodyBytes.
-	ErrResponseTooLarge = errors.New("indexarr/proxy: body exceeds size limit")
+	ErrResponseTooLarge = errors.New("app/indexer/proxy: body exceeds size limit")
 )
 
 // FlareSolverr is an http.RoundTripper that answers a Cloudflare or
@@ -245,7 +245,7 @@ func (f *FlareSolverr) solve(req *http.Request, body []byte, key string, seen Cl
 		return err
 	}
 	f.clearances().set(key, sol)
-	logging.FromContext(ctx).Info("indexarr/proxy: FlareSolverr solved a challenge", "host", req.URL.Host)
+	logging.FromContext(ctx).Info("app/indexer/proxy: FlareSolverr solved a challenge", "host", req.URL.Host)
 	return nil
 }
 
@@ -348,7 +348,7 @@ func bufferBody(req *http.Request) ([]byte, error) {
 		return nil, err
 	}
 	if len(body) > maxBodyBytes {
-		return nil, fmt.Errorf("indexarr/proxy: request body: %w", ErrResponseTooLarge)
+		return nil, fmt.Errorf("app/indexer/proxy: request body: %w", ErrResponseTooLarge)
 	}
 	return body, nil
 }

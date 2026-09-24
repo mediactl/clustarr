@@ -41,7 +41,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // package doc comment), a REAL grabbed-and-completed Download still cannot
 // reach fileimport's import step for a NON-VIDEO kind: both fixtures serve
 // one fixed movie-release file (seeder.ContentName), real VIDEO bytes
-// under a real MOVIE-shaped release name, and importarr/worker/fileimport/
+// under a real MOVIE-shaped release name, and app/import/worker/fileimport/
 // process.go's release.ParsePath call is hard-coded
 // Options{Kind: commonv1.MediaKindMovie} (processFile's own source) for
 // the movie walk this Download route drives -- there is no download-path
@@ -52,7 +52,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // waitForImportOutcome failures proving nothing about non-video import
 // specifically.
 //
-// importarr/worker/fileimport/annotation.go's own doc comment states the
+// app/import/worker/fileimport/annotation.go's own doc comment states the
 // import-target grammar is honoured on BOTH a Download and a LibraryScan --
 // "The same import-target grammar is also honoured on a LibraryScan, where
 // it is how a file the scanner left unmatched is assigned by hand" -- and
@@ -67,7 +67,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Until G2-4 (6e1b97b), library rescan refused every non-movie root folder
 // as "unsupported_root_kind", so every scan below would have failed
 // outright; that code is now reported only for a root folder kind rescan
-// does not attribute at all (importarr/worker/rescan's fileKindForRoot).
+// does not attribute at all (app/import/worker/rescan's fileKindForRoot).
 //
 // Build-tagged e2e. Per the standing instruction, this suite is written and
 // has never been run against a kind cluster.
@@ -164,7 +164,7 @@ func TestNonVideoArtistAlbumManualImport(t *testing.T) {
 	artist := &catalogv1alpha1.Artist{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e11-artist"), Namespace: Namespace},
 		Spec: catalogv1alpha1.ArtistSpec{
-			MusicBrainzID:     "a74b1b7f-71a5-4011-9441-d0b5e4122711", // Radiohead, testdata/metadata/musicbrainz
+			MusicBrainzID:     "a74b1b7f-71a5-4011-9441-d0b5e4122711", // Radiohead, test/data/metadata/musicbrainz
 			QualityProfileRef: "music-standard",                       // built-in, seeded by qualityprofile.Bootstrap
 			RootFolderRef:     rf.Name,
 		},
@@ -191,7 +191,7 @@ func TestNonVideoArtistAlbumManualImport(t *testing.T) {
 			break
 		}
 	}
-	require.NotNil(t, album, "Artist %s fanned out no Album (testdata/metadata/musicbrainz/browse_releasegroups_radiohead.json names one, Kid A)", artist.Name)
+	require.NotNil(t, album, "Artist %s fanned out no Album (test/data/metadata/musicbrainz/browse_releasegroups_radiohead.json names one, Kid A)", artist.Name)
 	require.Equal(t, "0b56cf2b-8e64-39e0-b6d5-9a89e46be9f6", album.Spec.ReleaseGroupID, "fanned-out Album must be Kid A, the one release group the fixture browse answers with")
 
 	relSubpath := filepath.Join(artist.Name, "track.mp3")
@@ -216,7 +216,7 @@ func TestNonVideoAuthorBookManualImport(t *testing.T) {
 	author := &catalogv1alpha1.Author{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e11-author"), Namespace: Namespace},
 		Spec: catalogv1alpha1.AuthorSpec{
-			OpenLibraryID:     "OL21594A", // testdata/metadata/openlibrary/author_OL21594A.json
+			OpenLibraryID:     "OL21594A", // test/data/metadata/openlibrary/author_OL21594A.json
 			QualityProfileRef: "ebook",    // built-in
 			RootFolderRef:     rf.Name,
 		},
@@ -243,7 +243,7 @@ func TestNonVideoAuthorBookManualImport(t *testing.T) {
 			break
 		}
 	}
-	require.NotNil(t, book, "Author %s fanned out no Book (testdata/metadata/openlibrary/works_OL21594A.json)", author.Name)
+	require.NotNil(t, book, "Author %s fanned out no Book (test/data/metadata/openlibrary/works_OL21594A.json)", author.Name)
 
 	relSubpath := filepath.Join(author.Name, "book.epub")
 	fullPath := filepath.Join(rf.Spec.Path, relSubpath)
@@ -270,7 +270,7 @@ func TestNonVideoAudiobookManualImport(t *testing.T) {
 	audiobook := &catalogv1alpha1.Audiobook{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e11-audiobook"), Namespace: Namespace},
 		Spec: catalogv1alpha1.AudiobookSpec{
-			ASIN:              "B0036I54I6", // testdata/metadata/audnexus/book_B0036I54I6.json
+			ASIN:              "B0036I54I6", // test/data/metadata/audnexus/book_B0036I54I6.json
 			QualityProfileRef: "audiobook",  // built-in
 			RootFolderRef:     rf.Name,
 		},
@@ -317,7 +317,7 @@ func TestNonVideoComicIssueManualImport(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e11-comic"), Namespace: Namespace},
 		Spec: catalogv1alpha1.ComicSpec{
 			Source:            catalogv1alpha1.ComicSourceComicVine,
-			SourceID:          "4050-18257", // testdata/metadata/comicvine/volume_18257.json
+			SourceID:          "4050-18257", // test/data/metadata/comicvine/volume_18257.json
 			QualityProfileRef: "comic",      // built-in
 			RootFolderRef:     rf.Name,
 			Monitored:         ptr.To(true),
@@ -345,7 +345,7 @@ func TestNonVideoComicIssueManualImport(t *testing.T) {
 			break
 		}
 	}
-	require.NotNil(t, issue, "Comic %s fanned out no Issue (testdata/metadata/comicvine/issues_volume_18257.json)", comic.Name)
+	require.NotNil(t, issue, "Comic %s fanned out no Issue (test/data/metadata/comicvine/issues_volume_18257.json)", comic.Name)
 
 	relSubpath := filepath.Join(comic.Name, fmt.Sprintf("issue-%s.cbz", issue.Spec.Number))
 	fullPath := filepath.Join(rf.Spec.Path, relSubpath)

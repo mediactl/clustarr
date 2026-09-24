@@ -135,7 +135,7 @@ func TestIndexerHealthAndCaps(t *testing.T) {
 
 	// caps.xml advertises music-search available="no", and the projection
 	// DROPS unavailable modes rather than recording them as unavailable
-	// (indexarr/controller/indexer/caps.go: status.SupportsMode treats key
+	// (app/indexer/controller/indexer/caps.go: status.SupportsMode treats key
 	// presence as availability, so an unavailable key would advertise a search
 	// the indexer answers with error 203). The D1-9 brief asserted the
 	// opposite; the tree wins, and this pins the tree's behaviour so the two
@@ -334,7 +334,7 @@ func TestIndexerReleaseFirehose(t *testing.T) {
 		catalogv1alpha1.MinimumAvailabilityAnnounced)
 	patchMovieDelayProfile(ctx, t, movie, delay.Name)
 	// minimumAvailability: announced is the second guarantee behind the
-	// fixture TMDB entry: catalogarr/controller/movie.Availability returns
+	// fixture TMDB entry: app/catalog/controller/movie.Availability returns
 	// "always available" for announced without consulting metadata at all, so
 	// even a metadata refresh that failed could not leave this Movie
 	// unavailable and the release temporarily rejected.
@@ -500,7 +500,7 @@ func TestIndexerFailureBackoff(t *testing.T) {
 	// failure alone would only move conditions.
 	//
 	// Level >= 2, not >= 1: the ladder's FIRST step is a zero-length disable
-	// (indexarr/status.escalationTable starts [0, 1m, 5m, ...]), so level 1
+	// (app/indexer/status.escalationTable starts [0, 1m, 5m, ...]), so level 1
 	// buys only a 60-second window -- shorter than quietWindow, and the
 	// indexer would legitimately come back mid-check. Level 2 is a 5-minute
 	// window, which the quiet check fits inside with margin, and the final
@@ -641,7 +641,7 @@ func remaining(at time.Time) time.Duration {
 // indexarrStartupGraceEndsAt returns the wall-clock instant from which
 // indexarr's backoff ladder is certain to be able to move.
 //
-// indexarr/status.RecordFailure suppresses escalation for any failure inside
+// app/indexer/status.RecordFailure suppresses escalation for any failure inside
 // StartupGrace (15 minutes) of the indexarr PROCESS's start -- Prowlarr's
 // MinimumTimeSinceStartup, so a restart does not disable every indexer at
 // once. `make e2e` has a 30-minute budget in total, so that window is half of
@@ -650,8 +650,8 @@ func remaining(at time.Time) time.Duration {
 //
 // config/e2e/indexarr-e2e-patch.yaml therefore sets
 // CLUSTARR_INDEXER_STARTUP_GRACE=0s. THAT VARIABLE IS NOT READ BY INDEXARR
-// YET: StartupGrace is a const in indexarr/status/health.go and nothing in
-// indexarr/run.go plumbs an override. The D1-9 brief listed the variable as an
+// YET: StartupGrace is a const in app/indexer/status/health.go and nothing in
+// app/indexer/run.go plumbs an override. The D1-9 brief listed the variable as an
 // interface task D1-8 would provide; D1-8 did not, and D1-9 may not edit
 // indexarr.
 //
@@ -663,7 +663,7 @@ func remaining(at time.Time) time.Duration {
 // uses it as an ALLOWANCE on a wait's deadline, never as a sleep: when the
 // variable does work, the ladder moves in a couple of minutes and the wait
 // returns then, so the allowance costs nothing. Plumb the variable in
-// indexarr/run.go and the worst case disappears too.
+// app/indexer/run.go and the worst case disappears too.
 //
 // The margin covers the gap between the Pod's StartTime (which the kubelet
 // stamps) and the moment the process's own package variables initialise.
@@ -711,7 +711,7 @@ func indexarrStartupGraceEndsAt(t *testing.T) time.Time {
 	t.Logf("indexarr Pod started %s; %s declared in the Deployment: %t. "+
 		"Allowing until %s (%s + %s margin) for escalation to become possible; the wait "+
 		"returns as soon as the ladder actually moves, which is immediately if the variable "+
-		"is honoured. Plumb it in indexarr/run.go to remove the worst case.",
+		"is honoured. Plumb it in app/indexer/run.go to remove the worst case.",
 		newest.Format(time.RFC3339), graceEnv, declared,
 		endsAt.Format(time.RFC3339), idxstatus.StartupGrace, startMargin)
 	return endsAt

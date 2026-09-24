@@ -30,8 +30,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     -> a LIVE federated search scoped to that one indexer, via Config.Search
 //     (clustarr.rpc.indexarr.search's own body, called in-process -- see
 //     below). q becomes SearchRequest.Text, the field
-//     catalogarr/worker/search's BuildSearchRequest also fills, from the
-//     item's resolved title (G1-6); indexarr/search's buildQuery uses it
+//     app/catalog/worker/search's BuildSearchRequest also fills, from the
+//     item's resolved title (G1-6); app/indexer/search's buildQuery uses it
 //     only for an indexer that supports none of the request's id
 //     parameters.
 //   - "GET /{indexer}/download?guid=...&url=..."      -> Config.Download
@@ -60,15 +60,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // process as the search, query and download RPC responders -- not a
 // separate service reaching them over the bus the way catalogarr does. So
 // Config.Search/Query/Download are plain Go function values with the same
-// signature as indexarr/search.Service.Search, indexarr/query.Service.Handle
-// and indexarr/download.Service.Handle's methods (a *search.Service's
+// signature as app/indexer/search.Service.Search, app/indexer/query.Service.Handle
+// and app/indexer/download.Service.Handle's methods (a *search.Service's
 // Search method value is directly assignable to facade.SearchFunc, with no
 // wrapper needed) -- this package intentionally does not import
-// indexarr/search, indexarr/query, indexarr/controller or indexarr/run.go so
+// app/indexer/search, app/indexer/query, app/indexer/controller or app/indexer/run.go so
 // it has nothing to conflict with while those packages are under concurrent
 // development; it only shares the wire schema
 // (github.com/mediactl/clustarr/pkg/events/schema) and the Indexer CRD type.
-// Wiring New's three funcs to the real services is indexarr/run.go's job,
+// Wiring New's three funcs to the real services is app/indexer/run.go's job,
 // not this package's: setupFacade (plan task G1-5) hands it the same
 // search, query and download services the RPC responder serves.
 //
@@ -83,9 +83,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // passkeys included, since DownloadResponse.Bytes/RedirectURL carry
 // whatever the indexer's own session produces -- to anything that can reach
 // the Service's port. The caller sources the key(s) from a Kubernetes
-// Secret -- indexarr/run.go's setupFacade reads every non-blank entry of
+// Secret -- app/indexer/run.go's setupFacade reads every non-blank entry of
 // --facade-api-key-secret, generating it with one random key when absent
-// (indexarr/facadekey.go); this package takes plain strings so it does not
+// (app/indexer/facadekey.go); this package takes plain strings so it does not
 // need a client.Client just to read one.
 //
 // # Disabling

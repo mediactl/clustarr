@@ -226,7 +226,7 @@ func (GrabTask) Schema() string { return "catalog.GrabTask.v1" }
 // Subject: clustarr.work.importarr.fileimport.<download-uid>, built by
 // events.WorkFileImportSubject and consumed by ConsumerImportFile
 // ("importarr-fileimport", topology.go). Amendment §A1 moved the importer out
-// of catalogarr into importarr/worker/fileimport (D2-7); the catalogarr
+// of catalogarr into app/import/worker/fileimport (D2-7); the catalogarr
 // import subject and consumer this task once named were removed from the
 // topology in gap fixes Z2, never having had a subscriber. The schema name
 // keeps its catalog. prefix, which the history projector's target table

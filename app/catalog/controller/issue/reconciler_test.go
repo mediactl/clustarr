@@ -250,7 +250,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 
 	// Download watch and gap-fix ruling R-5: the Issue derives
 	// status.activeDownloadRef from the Downloads it owns -- the grab path
-	// (catalogarr/worker/grab) creates each one owned by the Issue it targets
+	// (app/catalog/worker/grab) creates each one owned by the Issue it targets
 	// -- so nothing seeds the ref. State reads Snatched exactly while such a
 	// Download is not terminal (Completed included, R-12), and the ref goes
 	// with it.
@@ -354,7 +354,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 	})
 
 	// X15: the grab worker records a delayed grab in status.pendingGrab under
-	// its own manager (catalogarr/worker/grab), a status-only write that bumps
+	// its own manager (app/catalog/worker/grab), a status-only write that bumps
 	// no generation. The Issue must wake on it and read delayed, then read
 	// wanted again once the grab consumes it -- and this reconciler, which
 	// re-applies its own set on every pass, must never take the field.

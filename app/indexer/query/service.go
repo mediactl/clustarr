@@ -156,7 +156,7 @@ func decodeRows(
 	for _, r := range rows[offset:] {
 		var rel schema.Release
 		if err := json.Unmarshal(r.InfoJSON, &rel); err != nil {
-			log.Warn("indexarr/query: skipping a row whose infoJSON will not decode",
+			log.Warn("app/indexer/query: skipping a row whose infoJSON will not decode",
 				"indexer", r.Indexer, "err", err)
 			continue
 		}

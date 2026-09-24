@@ -364,7 +364,7 @@ func TestProviderFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 
 	// Quota is a struct-typed leaf: both its own fields must be present even
 	// though Remaining is the zero value, the same complete-declaration
-	// discipline indexarr/status.capsAC documents for status.caps.
+	// discipline app/indexer/status.capsAC documents for status.caps.
 	require.NotNil(t, got.Quota)
 	assert.Equal(t, []string{"Remaining", "ResetAt"}, setFields(got.Quota))
 }

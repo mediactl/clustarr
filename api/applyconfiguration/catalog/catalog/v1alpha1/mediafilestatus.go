@@ -41,7 +41,7 @@ type MediaFileStatusApplyConfiguration struct {
 	// MediaInfo is the technical description produced by the probe. Its
 	// transcodeProfile is the file's CLUSTARR_PROFILE tag: with it, or with
 	// spec.original false, the file is transcoded and final
-	// (catalogarr/controller/rollup.Transcoded) -- the tag is what recognises
+	// (app/catalog/controller/rollup.Transcoded) -- the tag is what recognises
 	// a file an earlier install transcoded, found by a rescan.
 	MediaInfo *commonv1alpha1.MediaInfo `json:"mediaInfo,omitempty"`
 	// Sidecars lists the subtitle and metadata files found next to this one.

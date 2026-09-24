@@ -42,7 +42,7 @@ import (
 //
 // It is an interface rather than *torznab.Client so the fan-out is testable
 // without a network, and so a Cardigann-backed client drops in unchanged --
-// which it does (ruling R5): indexarr/controller/indexer's Cardigann engine
+// which it does (ruling R5): app/indexer/controller/indexer's Cardigann engine
 // adapter satisfies this interface, so a definition-backed indexer inherits
 // this package's dedupe, query-limit window and health/backoff instead of
 // getting a parallel path that skips them. A tracker's search.error page
@@ -54,7 +54,7 @@ type IndexerClient interface {
 // ClientFor returns the wire client for one Indexer, ALREADY carrying that
 // host's injected ratelimit.Limiter and its timeout.
 //
-// In production it is indexarr/controller/indexer.ClientCache.For, and that
+// In production it is app/indexer/controller/indexer.ClientCache.For, and that
 // is load-bearing rather than incidental: it shares the reconciler's own
 // builders, so the caps probe (or Cardigann login) and every search use one
 // construction. The proxy is the reason to care: spec.proxyRef is applied in
@@ -65,14 +65,14 @@ type IndexerClient interface {
 //
 // This package never constructs a ratelimit.Limiter, never calls
 // torznab.NewClient and never writes a limiter Config. The Limiter is built
-// by indexarr/run.go and each host's Config is written by the Indexer
+// by app/indexer/run.go and each host's Config is written by the Indexer
 // reconciler alone, since it is the only reader of spec.requestDelay; two
 // spellings of a host key are not "paced twice as fast", they are completely
 // unpaced.
 type ClientFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (IndexerClient, error)
 
 // DownloadFn and QueryFn are the other two verbs' bodies, supplied by
-// indexarr/download and indexarr/query. A nil one answers with a populated
+// app/indexer/download and app/indexer/query. A nil one answers with a populated
 // Error field rather than a handler error, because those two payloads have an
 // Error field and a transport error means something else entirely to their
 // callers: "the request never reached indexarr".
@@ -178,7 +178,7 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 			IndexerRef:  schema.Ref{Name: ListOutcomeName},
 			IndexerName: ListOutcomeName,
 			Status:      schema.SearchOutcomeError,
-			Error:       "indexarr/search: no client is configured",
+			Error:       "app/indexer/search: no client is configured",
 		}}}
 	}
 
@@ -217,7 +217,7 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 	// fetched alongside releases shows how much the merge collapsed in
 	// aggregate; which OTHER indexers offered a particular collapsed release
 	// is on that release, in Info.AlsoOn (spec §6.2's alsoOn provenance).
-	log.Info("indexarr/search: replied",
+	log.Info("app/indexer/search: replied",
 		"kind", req.Kind, "candidates", len(cands), "fetched", fetched,
 		"releases", len(rels), "truncated", truncated)
 	return schema.SearchResponse{
@@ -266,7 +266,7 @@ func requestNamespace(req schema.SearchRequest, log *slog.Logger) string {
 		}
 	}
 	if ns == "" {
-		log.Warn("indexarr/search: request carries no namespace; listing indexers cluster-wide",
+		log.Warn("app/indexer/search: request carries no namespace; listing indexers cluster-wide",
 			"kind", req.Kind, "userInvoked", req.UserInvoked, "indexerRefs", len(req.IndexerRefs))
 	}
 	return ns
@@ -311,7 +311,7 @@ func capOutcomes(in []schema.SearchOutcome) []schema.SearchOutcome {
 // ErrNoResponders -- and with §3's Recreate strategy at one replica there is
 // an unavoidable gap across every rollout regardless.
 //
-// It is handled at the layer that can handle it. catalogarr/worker/search's
+// It is handled at the layer that can handle it. app/catalog/worker/search's
 // busSearchRPC turns events.ErrNoResponders into an events.Retry with a 15s
 // delay (§8.8's worker error handling), which covers a rollout, a pod that is
 // not scheduled and a NATS partition alike -- none of which readiness
@@ -324,13 +324,13 @@ func capOutcomes(in []schema.SearchOutcome) []schema.SearchOutcome {
 func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 	switch {
 	case bus == nil:
-		return nil, errors.New("indexarr/search: nil bus")
+		return nil, errors.New("app/indexer/search: nil bus")
 	case s == nil:
-		return nil, errors.New("indexarr/search: nil Service")
+		return nil, errors.New("app/indexer/search: nil Service")
 	case s.Client == nil:
-		return nil, errors.New("indexarr/search: nil Service.Client")
+		return nil, errors.New("app/indexer/search: nil Service.Client")
 	case s.ClientFor == nil:
-		return nil, errors.New("indexarr/search: nil Service.ClientFor")
+		return nil, errors.New("app/indexer/search: nil Service.ClientFor")
 	}
 	if s.Bus == nil {
 		// Query accounting needs a bus and the caller already handed us one.
@@ -364,7 +364,7 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 				return out, err
 			}); err != nil {
 			cancel()
-			return nil, fmt.Errorf("indexarr/search: serve %s: %w", v.subject, err)
+			return nil, fmt.Errorf("app/indexer/search: serve %s: %w", v.subject, err)
 		}
 	}
 	return func() {
@@ -387,10 +387,10 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 func (s *Service) handleSearch(ctx context.Context, data []byte) ([]byte, error) {
 	var req schema.SearchRequest
 	if err := json.Unmarshal(data, &req); err != nil {
-		return nil, fmt.Errorf("indexarr/search: decode SearchRequest: %w", err)
+		return nil, fmt.Errorf("app/indexer/search: decode SearchRequest: %w", err)
 	}
 	if req.Kind == "" {
-		return nil, errors.New("indexarr/search: SearchRequest.kind is required")
+		return nil, errors.New("app/indexer/search: SearchRequest.kind is required")
 	}
 	return json.Marshal(s.Search(ctx, req))
 }
@@ -398,7 +398,7 @@ func (s *Service) handleSearch(ctx context.Context, data []byte) ([]byte, error)
 func (s *Service) handleDownload(ctx context.Context, data []byte) ([]byte, error) {
 	var req schema.DownloadRequest
 	if err := json.Unmarshal(data, &req); err != nil {
-		return nil, fmt.Errorf("indexarr/search: decode DownloadRequest: %w", err)
+		return nil, fmt.Errorf("app/indexer/search: decode DownloadRequest: %w", err)
 	}
 	if s.Download == nil {
 		return json.Marshal(schema.DownloadResponse{
@@ -411,7 +411,7 @@ func (s *Service) handleDownload(ctx context.Context, data []byte) ([]byte, erro
 func (s *Service) handleQuery(ctx context.Context, data []byte) ([]byte, error) {
 	var req schema.QueryRequest
 	if err := json.Unmarshal(data, &req); err != nil {
-		return nil, fmt.Errorf("indexarr/search: decode QueryRequest: %w", err)
+		return nil, fmt.Errorf("app/indexer/search: decode QueryRequest: %w", err)
 	}
 	if s.Query == nil {
 		return json.Marshal(schema.QueryResponse{

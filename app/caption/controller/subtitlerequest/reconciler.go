@@ -98,7 +98,7 @@ const (
 // Reconciler owns SubtitleRequest: it plans which languages a video still
 // wants, publishes a fetch task for each one that is due, and schedules the
 // next search. It writes only the controller half of status under
-// k8s.ManagerCaptionarr, through captionarr/status.PatchRequest, and never
+// k8s.ManagerCaptionarr, through app/caption/status.PatchRequest, and never
 // touches MediaFile (ruling R1). See doc.go.
 type Reconciler struct {
 	Client client.Client
@@ -110,7 +110,7 @@ type Reconciler struct {
 
 	// DataDir is where the /data volume is mounted in this process
 	// (--data-dir). Every MediaFile path is a logical /data path, mapped
-	// through captionarr/datapath exactly as the fetch worker maps it. Empty
+	// through app/caption/datapath exactly as the fetch worker maps it. Empty
 	// means /data itself.
 	DataDir string
 
@@ -601,7 +601,7 @@ func (r *Reconciler) block(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 // writer -- this reconciler, leader-elected, serialized per object by the
 // workqueue -- so a snapshot taken at the top of the reconcile cannot roll
 // back anybody else's value. The worker's leaves are not in the declaration
-// at all (captionarr/status renders only langKey, attempts and nextSearchAt
+// at all (app/caption/status renders only langKey, attempts and nextSearchAt
 // per item), and the worker never creates or withdraws an item (the
 // liveness protocol, status.IsLive), so the snapshot's item set is this
 // manager's own.
@@ -613,7 +613,7 @@ func (r *Reconciler) apply(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 	target.Status = st
 	return status.PatchRequest(ctx, r.Client, k8s.ManagerCaptionarr, target,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
-			// Conditions are unseeded by captionarr/status and WithConditions
+			// Conditions are unseeded by app/caption/status and WithConditions
 			// appends, so this is the one place they are set.
 			ac.WithConditions(k8s.ConditionACs(conds)...)
 		})

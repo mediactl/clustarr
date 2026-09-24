@@ -61,7 +61,7 @@ type Options struct {
 // Setup builds the metadata gateway (the Registry from every enabled
 // MetadataProvider, the two-tier cache, the work-queue Handler and the RPC
 // responders) and starts consuming. It is RoleMetadata's entire job;
-// catalogarr/run.go's setupWorkers is expected to call this once, guarded
+// app/catalog/run.go's setupWorkers is expected to call this once, guarded
 // by o.Role.Has(catalogarr.RoleMetadata) (a different Phase C task's path --
 // see "Interfaces -- Produces").
 func Setup(ctx context.Context, o Options) (stop func(), err error) {

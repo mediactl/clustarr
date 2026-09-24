@@ -25,7 +25,7 @@ import (
 
 // DownloadOverlay maps rollup.DownloadOverlay's phase-independent verdict
 // onto BookPhase. The decision logic lives once, in
-// catalogarr/controller/rollup (per the C6 controller amendment) -- this is
+// app/catalog/controller/rollup (per the C6 controller amendment) -- this is
 // only the type translation, the same shape movie.DownloadOverlay and
 // episode.DownloadOverlay use.
 func DownloadOverlay(dl *downloadv1alpha1.Download) (phase catalogv1alpha1.BookPhase, active bool) {

@@ -236,7 +236,7 @@ func (w *Worker) recordFailure(ctx context.Context, req *subtitlev1alpha1.Subtit
 
 // transient redelivers a failure that may clear up -- a file mid-move, a
 // full disk -- and, on the final delivery, records it on the item and acks
-// instead, the same shape as importarr/worker/fileimport's finishBlocked:
+// instead, the same shape as app/import/worker/fileimport's finishBlocked:
 // the operator sees why on the object rather than only in the DLQ.
 func (w *Worker) transient(ctx context.Context, m events.Message, req *subtitlev1alpha1.SubtitleRequest, langKey string,
 	outOf int32, cause error, retryAfter time.Duration,

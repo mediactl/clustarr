@@ -120,7 +120,7 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 		// Query.Text with the same function, or nothing will match"
 		// (pkg/relindex/doc.go, fts.go). The RSS worker and the search
 		// fan-out fill that column with release.TitleNorm
-		// (indexarr/worker/rss/worker.go, indexarr/search/fanout.go), so
+		// (app/indexer/worker/rss/worker.go, app/indexer/search/fanout.go), so
 		// this runs the same function. Passing raw text instead would make
 		// "The Matrix" -- indexed as "matrix" -- return nothing, silently.
 		Text:  release.TitleNorm(req.Text),

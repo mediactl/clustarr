@@ -399,7 +399,7 @@ func isExcluded(ctx context.Context, kv events.KV, ids pkgimportlist.ExternalIDs
 // by: TMDB for movie, TVDB for series. If ids already carries it, no RPC is
 // made. Otherwise it asks the metadata gateway's resolve verb to fill the
 // gap from whatever ids ARE present, the same rpc.catalogarr.metadata.resolve
-// call importarr/worker/rescan.resolveIMDb makes.
+// call app/import/worker/rescan.resolveIMDb makes.
 func resolveRequiredID(
 	ctx context.Context, deps syncDeps, kind commonv1.MediaKind, ids pkgimportlist.ExternalIDs,
 ) (int64, error) {

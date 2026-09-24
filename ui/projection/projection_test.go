@@ -80,7 +80,7 @@ func (r *countingReader) List(ctx context.Context, list client.ObjectList, opts 
 const listCallsPerTick = 5 + 10 + 1 + 1
 
 // ownerRef builds a controlling OwnerReference to owner, the same shape
-// catalogarr/worker/grab/perform.go's k8s.OwnerReferenceAC produces for a
+// app/catalog/worker/grab/perform.go's k8s.OwnerReferenceAC produces for a
 // real Download -- the one production writer this repo has today that sets
 // an owner reference on anything relatedIndex reads.
 func ownerRef(owner client.Object, kind string) metav1.OwnerReference {

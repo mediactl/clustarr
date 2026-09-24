@@ -210,7 +210,7 @@ func (w *Worker) resolveSeries(ctx context.Context, dl *downloadv1alpha1.Downloa
 
 // SeriesFolder is a Series' absolute folder in the library: status.path once
 // the Series controller has resolved it, else the same rule that controller
-// resolves it by (catalogarr/controller/series.Path) -- spec.folder under the
+// resolves it by (app/catalog/controller/series.Path) -- spec.folder under the
 // root folder, else the dialect's series preset.
 func SeriesFolder(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series, eng naming.Engine) (string, error) {
 	if s.Status.Path != "" {

@@ -31,9 +31,9 @@ import (
 // schema.QueryRequest -> schema.QueryResponse, pinned in
 // pkg/events/schema/index.go; this package adds no new payload type, only
 // this narrow client interface plus a fake for tests -- the same shape
-// catalogarr/worker/search's SearchRPC uses for clustarr.rpc.indexarr.search.
+// app/catalog/worker/search's SearchRPC uses for clustarr.rpc.indexarr.search.
 //
-// indexarr/query.Service.Handle "never returns an error, by design: after a
+// app/indexer/query.Service.Handle "never returns an error, by design: after a
 // successful decode every failure is a populated QueryResponse.Error", so the
 // only error THIS interface can produce is the RPC transport's own --
 // events.ErrNoResponders when indexarr is not up, or a context deadline.
@@ -56,7 +56,7 @@ func (b *busQueryRPC) Query(ctx context.Context, req schema.QueryRequest) (schem
 
 // FakeQueryRPC is a QueryRPC test double: it returns Response/Err
 // unconditionally and records every request it saw. Safe for concurrent use,
-// mirroring catalogarr/worker/search's FakeSearchRPC.
+// mirroring app/catalog/worker/search's FakeSearchRPC.
 type FakeQueryRPC struct {
 	Response schema.QueryResponse
 	Err      error

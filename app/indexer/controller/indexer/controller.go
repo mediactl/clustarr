@@ -216,7 +216,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	conditions := append([]metav1.Condition(nil), idx.Status.Conditions...)
 
 	// What this pass resolves is written onto the LOCAL copy of the status
-	// first, and indexarr/status.ControllerFields then seeds the apply from
+	// first, and app/indexer/status.ControllerFields then seeds the apply from
 	// that copy. The apply is therefore a complete declaration of the
 	// indexarr-owned set by construction, on every return path, rather than
 	// by a discipline remembered at seven call sites -- so an early return
@@ -502,7 +502,7 @@ func firstNonEmpty(vals ...string) string {
 // patch is the ONLY status write in this package. Every return path in
 // Reconcile goes through it; do not add a second one.
 //
-// It routes through indexarr/status.Patch (ruling R31), which holds the one
+// It routes through app/indexer/status.Patch (ruling R31), which holds the one
 // declaration of what k8s.ManagerIndexarr owns on Indexer.status and seeds
 // the apply configuration from idx.Status. Conditions are supplied here and
 // ONLY here: ControllerFields deliberately does not seed them, and the
@@ -598,7 +598,7 @@ func (r *Reconciler) indexersForProxy(ctx context.Context, o client.Object) []re
 		idx := &list.Items[i]
 		named := idx.Spec.ProxyRef != nil && *idx.Spec.ProxyRef == p.Name
 		// An unparseable selector could have been meant for any Indexer
-		// here, and indexarr/proxy fails every one of them closed, so every
+		// here, and app/indexer/proxy fails every one of them closed, so every
 		// one is reconciled to report it.
 		if named || err != nil || (selects && sel.Matches(labels.Set(idx.Labels))) {
 			out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(idx)})

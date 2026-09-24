@@ -19,20 +19,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // -- a real /login, /subtitles and /download, in exactly the wire shapes
 // pkg/subtitles/providers/opensubtitlescom's client sends and parses
 // (verified against that package's client.go/provider.go and its own
-// testdata/subtitles/opensubtitles fixtures before this file was written).
+// test/data/subtitles/opensubtitles fixtures before this file was written).
 // It never reaches the Internet; the e2e cluster has no egress.
 //
 // # The control route
 //
 // Task F-7's brief is explicit that this mock must be able to return 429
 // (rate limited) or 406 (quota exhausted) "on demand", so scenario 13 can
-// prove the shared provider throttle (captionarr/throttle) benches this
+// prove the shared provider throttle (app/caption/throttle) benches this
 // provider and the fetch worker falls through to the next one -- the
 // behaviour most worth an e2e in the whole phase. A stub built the way
 // torznabstub is (a personality baked into the URL PATH at process start)
 // cannot do that without a second Deployment and a second SubtitleProvider,
 // which would prove the wrong thing: two providers of the SAME type can
-// never both be searched (captionarr/worker/fetch's eligible() dedups a
+// never both be searched (app/caption/worker/fetch's eligible() dedups a
 // provider registry by Name(), one account per provider, Bazarr's own
 // model), so a scenario built that way could never show ONE provider
 // getting throttled and a search falling through to a DIFFERENT one that

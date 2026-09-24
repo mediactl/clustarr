@@ -124,7 +124,7 @@ func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
 		return len(got) == 1
 	}, 5*time.Second, 10*time.Millisecond)
 
-	// Exactly what catalogarr/worker/rssmatcher/handler.go does.
+	// Exactly what app/catalog/worker/rssmatcher/handler.go does.
 	ns, indexer, ok := strings.Cut(got[0].Key, "/")
 	require.True(t, ok,
 		"key %q has no slash: the matcher Discards it STRAIGHT TO THE DLQ, bypassing MaxDeliver", got[0].Key)

@@ -83,7 +83,7 @@ func cardigannIndexer(t *testing.T, ctx context.Context, c client.Client, ns, na
 	return idx
 }
 
-// cardigannService is the fan-out wired the way indexarr/run.go wires it:
+// cardigannService is the fan-out wired the way app/indexer/run.go wires it:
 // ClientFor is the production ClientCache, not a stub, so the Cardigann
 // engine is reached through the SAME seam a Torznab client is (ruling R5).
 func cardigannService(c client.Client) *search.Service {

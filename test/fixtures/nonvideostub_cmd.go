@@ -53,6 +53,6 @@ func newNonVideoStubCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address")
 	cmd.Flags().StringVar(&recordedDir, "recorded-dir", "/fixtures/testdata/metadata",
-		"directory holding testdata/metadata's musicbrainz, openlibrary, audnexus and comicvine subdirectories")
+		"directory holding test/data/metadata's musicbrainz, openlibrary, audnexus and comicvine subdirectories")
 	return cmd
 }

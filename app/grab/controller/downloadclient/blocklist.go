@@ -45,7 +45,7 @@ const ReasonBlocklistExpired = "BlocklistExpired"
 // BlocklistSweeper deletes a Download once its blocklist entry expires.
 //
 // It claims no part of k8s.ManagerGrabarr's Download.status set and never
-// calls grabarr/status.Patch: download_types.go's own doc comments on
+// calls app/grab/status.Patch: download_types.go's own doc comments on
 // LabelBlocklisted and BlocklistedUntil are explicit that grabarr DELETES the
 // Download once the deadline passes, not that it clears the field. There is
 // therefore no status apply here to build a partial declaration of -- see
@@ -62,7 +62,7 @@ type BlocklistSweeper struct {
 	Recorder events.EventRecorder
 
 	// Now is the clock; nil means time.Now. A seam for tests, exactly as
-	// catalogarr/worker/grab.Deps.Now is.
+	// app/catalog/worker/grab.Deps.Now is.
 	Now func() time.Time
 }
 

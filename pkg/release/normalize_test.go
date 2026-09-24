@@ -49,7 +49,7 @@ func TestNormalizeStripsAccentsPreservesCase(t *testing.T) {
 
 // TestCleanTitleSeparatesRatherThanDeletes covers the two ways CleanTitle
 // used to lose text: a control rune was deleted, welding its neighbours
-// into one word ("dunematrix", the NUL-welding note indexarr/query carried),
+// into one word ("dunematrix", the NUL-welding note app/indexer/query carried),
 // and a byte that is not valid UTF-8 or a literal U+FFFD stopped rls's
 // transformer, dropping everything after it.
 func TestCleanTitleSeparatesRatherThanDeletes(t *testing.T) {

@@ -254,7 +254,7 @@ func (s *Service) classify(
 
 	switch {
 	case res.MagnetURL != "":
-		log.Debug("indexarr/download: magnet link")
+		log.Debug("app/indexer/download: magnet link")
 		return schema.DownloadResponse{MagnetURL: res.MagnetURL}, resultMagnet
 
 	case res.OffHostURL != "":
@@ -262,7 +262,7 @@ func (s *Service) classify(
 		// our session cookie would not be sent anyway. Returned INTACT --
 		// grabarr needs it -- and logged redacted, because it may carry a
 		// passkey.
-		log.Debug("indexarr/download: handing back an off-host link",
+		log.Debug("app/indexer/download: handing back an off-host link",
 			"url", redactRawURL(res.OffHostURL))
 		return schema.DownloadResponse{RedirectURL: res.OffHostURL}, resultRedirect
 
@@ -289,7 +289,7 @@ func (s *Service) classify(
 	// ALONE, before the body is touched, so a one-shot link is not spent on
 	// bytes we would refuse.
 	if res.ContentLen > MaxPayloadBytes {
-		log.Info("indexarr/download: body exceeds the broker payload budget; handing back the link",
+		log.Info("app/indexer/download: body exceeds the broker payload budget; handing back the link",
 			"contentLength", res.ContentLen, "max", MaxPayloadBytes)
 		return schema.DownloadResponse{RedirectURL: res.FinalURL.String()}, resultRedirect
 	}
@@ -345,7 +345,7 @@ func (s *Service) countGrabAt(
 	}
 	n, counted, err := CountGrabAt(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, at, now)
 	if err != nil {
-		log.Warn("indexarr/download: grab accounting failed", "err", err)
+		log.Warn("app/indexer/download: grab accounting failed", "err", err)
 		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabFailed).Inc()
 		tracing.RecordError(span, err)
 		return err
@@ -362,7 +362,7 @@ func (s *Service) countGrabAt(
 
 	// RE-READ before the apply. idx was fetched before the download, and a
 	// download is one request of up to spec.timeout plus up to
-	// MaxPayloadBytes of body -- seconds, not milliseconds. indexarr/status
+	// MaxPayloadBytes of body -- seconds, not milliseconds. app/indexer/status
 	// seeds the apply from the status it is handed and re-sends EVERY field
 	// this manager owns, so applying a pre-fetch snapshot rolls back whatever
 	// else wrote under k8s.ManagerIndexarrWorker in the meantime: the search
@@ -380,13 +380,13 @@ func (s *Service) countGrabAt(
 	// That is a lost update rather than a server-side-apply release, which
 	// is why no "manager X released field Y" test can see it: both applies
 	// declare the field, the second just declares a stale value. One Get per
-	// download closes the window, as indexarr/worker/rss does for its poll.
+	// download closes the window, as app/indexer/worker/rss does for its poll.
 	var fresh indexv1alpha1.Indexer
 	if err := s.Client.Get(ctx, client.ObjectKeyFromObject(idx), &fresh); err != nil {
 		// Non-fatal, like the rest of accounting: the ring holds the grab
 		// and the projection catches up at the next one. Applying the stale
 		// object instead would be the bug this Get exists to prevent.
-		log.Warn("indexarr/download: re-reading the indexer before the grab apply failed",
+		log.Warn("app/indexer/download: re-reading the indexer before the grab apply failed",
 			"err", err)
 		tracing.RecordError(span, err)
 		return err
@@ -419,7 +419,7 @@ func (s *Service) countGrabAt(
 			*ac = *idxstatus.WorkerFields(fresh.Status)
 			ac.WithGrabsInWindow(n)
 		}); err != nil {
-		log.Warn("indexarr/download: grabsInWindow apply failed", "err", err)
+		log.Warn("app/indexer/download: grabsInWindow apply failed", "err", err)
 		return err
 	}
 	// indexer.limited when this grab filled the window, after the apply.

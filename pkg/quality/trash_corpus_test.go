@@ -47,7 +47,7 @@ var regexBearingImplementations = map[string]bool{
 // TestEveryVendoredTRaSHRegexCompilesUnderRegexp2 is the gate CLAUDE.md's
 // "157 of 2791 patterns" gotcha exists for, run for real against the
 // corpus vendored by hack/sync-trash.sh at the commit recorded in
-// testdata/trash/COMMIT (3f532266d93ae0fa9c65cd2efcb503ead7ce7784,
+// test/data/trash/COMMIT (3f532266d93ae0fa9c65cd2efcb503ead7ce7784,
 // 2026-09-18), instead of asserted from the research note.
 func TestEveryVendoredTRaSHRegexCompilesUnderRegexp2(t *testing.T) {
 	var total int
@@ -76,7 +76,7 @@ func TestEveryVendoredTRaSHRegexCompilesUnderRegexp2(t *testing.T) {
 		}
 	}
 	// Count observed at the pinned commit 3f532266d93ae0fa9c65cd2efcb503ead7ce7784
-	// (see testdata/trash/COMMIT), recorded here after this test's first real
+	// (see test/data/trash/COMMIT), recorded here after this test's first real
 	// run against the vendored corpus -- 2791, matching
 	// docs/research/quality.md's figure exactly at this commit.
 	require.Equal(t, 2791, total)

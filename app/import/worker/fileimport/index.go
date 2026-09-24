@@ -39,7 +39,7 @@ const MediaFileByTargetIndexKey = ".spec.mediaRef.target"
 
 // IndexMediaFileByTarget registers [MediaFileByTargetIndexKey] on the
 // manager's cache. It must be called before the manager starts, exactly like
-// importarr/worker/rescan.IndexMediaFileByPath -- the informer is built with
+// app/import/worker/rescan.IndexMediaFileByPath -- the informer is built with
 // the indexes it was given.
 func IndexMediaFileByTarget(ctx context.Context, mgr ctrl.Manager) error {
 	return mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, MediaFileByTargetIndexKey,

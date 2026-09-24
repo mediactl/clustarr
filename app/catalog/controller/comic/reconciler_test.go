@@ -96,7 +96,7 @@ func testRootFolder(ns, name, path string) *catalogv1alpha1.RootFolder {
 }
 
 // fakeIssueRPC implements the issue-listing half of the reconciler's
-// bus.Request, matching lookupIssues' contract (catalogarr/metadata/rpc.go):
+// bus.Request, matching lookupIssues' contract (app/catalog/metadata/rpc.go):
 // Kind: MediaKindIssue, Results [][]byte of JSON metadata.ComicIssue.
 type fakeIssueRPC struct {
 	issues []metadata.ComicIssue

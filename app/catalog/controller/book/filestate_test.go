@@ -33,7 +33,7 @@ import (
 // ebookProfile mirrors pkg/quality/catalogue/data/profiles/ebook.json's real
 // tier order (PDF < MOBI < EPUB < AZW3, cutoff MOBI) without needing the
 // full CRD/catalogue machinery, the same shape
-// catalogarr/controller/rollup/filestate_test.go builds its test profiles
+// app/catalog/controller/rollup/filestate_test.go builds its test profiles
 // with.
 func ebookProfile() quality.Profile {
 	return quality.Profile{
