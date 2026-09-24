@@ -130,6 +130,21 @@ func parsePGCategories(s string) ([]int, error) {
 	return out, nil
 }
 
+// pgStripNUL removes every NUL byte (0x00) from s. Postgres' text type
+// cannot store one at all -- the server rejects the whole statement with
+// "invalid byte sequence for encoding \"UTF8\": 0x00" -- where SQLite
+// stores it as an ordinary byte. See Upsert's doc comment for why this
+// package strips rather than rejects: a released row is data the caller
+// already validated (validate, upsert.go), and Postgres' inability to
+// store one specific byte is this engine's limitation to absorb, not a
+// reason to fail every OTHER release in the same batch.
+func pgStripNUL(s string) string {
+	if !strings.Contains(s, "\x00") {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
 // pgHasSearchTerm reports whether text carries at least one token
 // plainto_tsquery would turn into a lexeme, after replacing every control
 // rune with a space exactly as SQLite's matchExpr does (fts.go). Both
@@ -277,6 +292,22 @@ func (s *pgStore) Search(ctx context.Context, q Query) ([]Release, error) {
 // holds true within one transaction too, so a duplicated key in the same
 // batch (a paged RSS response repeating a guid) reports exactly one insert
 // and the rest as updates, same as SQLite.
+//
+// Every text column (Indexer, GUID, Title, TitleNorm, Group, Protocol -- not
+// InfoJSON, which is bytea) has its NUL bytes stripped (pgStripNUL) before
+// it reaches the statement. validate (upsert.go) does not reject a NUL
+// byte -- SQLite stores one as an ordinary byte, so there was never a
+// reason for it to -- but Postgres' text type cannot store 0x00 at all, and
+// this is a batch transaction: one release with a NUL in its title, from a
+// hostile or merely malformed indexer, would fail that row's INSERT and
+// roll back every OTHER release in the same batch with it, zeroing
+// ingestion from that indexer on every poll for as long as the bad title
+// stayed in its RSS window. Stripping is scoped to this file: validate and
+// SQLite's own storage of a NUL byte (titlenorm_test.go) are untouched, and
+// storetest's testUpsertToleratesANULByteInOneReleasesTitle asserts only
+// what both engines must agree on -- the batch commits whole and the clean
+// releases in it stay findable -- never what the stripped title reads back
+// as.
 func (s *pgStore) Upsert(ctx context.Context, rels []Release) (int, error) {
 	if len(rels) == 0 {
 		return 0, nil
@@ -323,7 +354,8 @@ func (s *pgStore) Upsert(ctx context.Context, rels []Release) (int, error) {
 
 		var wasInsert bool
 		if err := stmt.QueryRowContext(ctx,
-			r.Indexer, r.GUID, r.Title, r.TitleNorm, r.Group, r.Protocol,
+			pgStripNUL(r.Indexer), pgStripNUL(r.GUID), pgStripNUL(r.Title), pgStripNUL(r.TitleNorm),
+			pgStripNUL(r.Group), pgStripNUL(r.Protocol),
 			pgCategories(r.Categories), r.SizeBytes, pub, r.FetchedAt.UTC(), r.InfoJSON,
 		).Scan(&wasInsert); err != nil {
 			return 0, fmt.Errorf("relindex: postgres: upsert %s/%s: %w", r.Indexer, r.GUID, err)

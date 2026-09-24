@@ -77,9 +77,11 @@ var pgDDLV1 = []string{
 // database must not both try to CREATE TABLE releases.
 //
 // The key is an arbitrary constant: pg_advisory_lock's bigint key space is
-// process-global on the server, not scoped to this database or this
-// package, but nothing else in this deployment takes an advisory lock, so
-// collision risk is nil in practice.
+// per-database -- an advisory lock taken in one database never conflicts
+// with the same key taken in another database on the same server -- and
+// scoped to neither this table nor this package within that database. But
+// nothing else in this deployment takes an advisory lock in the database
+// OpenPostgres connects to, so collision risk is nil in practice.
 const pgAdvisoryLockKey = 0x636c7573_72656c69 // ASCII "clusreli" packed into 8 bytes, well within int64
 
 // pgMigrate brings the database db is connected to up to pgSchemaVersion, or

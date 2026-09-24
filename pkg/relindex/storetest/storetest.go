@@ -153,6 +153,7 @@ func Run(t *testing.T, open func(t *testing.T) relindex.Store) {
 		{"UpsertWritesNothingWhenAnyReleaseInTheBatchIsInvalid", testUpsertWritesNothingWhenAnyReleaseInTheBatchIsInvalid},
 		{"UpsertRoundTripsEveryField", testUpsertRoundTripsEveryField},
 		{"UpsertRoundTripsAnEmptyCategoryListAsNil", testUpsertRoundTripsAnEmptyCategoryListAsNil},
+		{"UpsertToleratesANULByteInOneReleasesTitle", testUpsertToleratesANULByteInOneReleasesTitle},
 
 		// Prune and Stats.
 		{"PruneDeletesOnlyRowsOlderThanTheCutoff", testPruneDeletesOnlyRowsOlderThanTheCutoff},
@@ -632,6 +633,46 @@ func testUpsertRoundTripsAnEmptyCategoryListAsNil(t *testing.T, s relindex.Store
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Nil(t, got[0].Categories)
+}
+
+// A NUL byte in one release's Title must never cost the OTHER releases in
+// the same batch. Postgres' text type cannot store 0x00 at all -- before
+// pgStore.Upsert stripped it (postgres.go), the whole transaction rolled
+// back on the first row carrying one, so a hostile or merely malformed
+// indexer that keeps a single such title in its RSS window would zero
+// ingestion from that indexer on every poll. SQLite stores the byte as
+// ordinary content (proved directly by
+// pkg/relindex/titlenorm_test.go's TestTitleNormSeparatesOnControlRunes,
+// which is SQLite-only for exactly that reason -- Postgres cannot agree on
+// what the stripped title reads back as).
+//
+// The assertion here is deliberately engine-neutral: it checks only what
+// both engines must agree on -- the batch commits whole (inserted == 3, no
+// error) and the two CLEAN releases are still findable by their titles --
+// never what the hostile release's own Title/TitleNorm becomes.
+func testUpsertToleratesANULByteInOneReleasesTitle(t *testing.T, s relindex.Store) {
+	ctx := t.Context()
+
+	first := rel("nzbgeek", "g1", "The Matrix 1999")
+	first.TitleNorm = "the matrix 1999"
+
+	hostile := rel("nzbgeek", "g2", "Dune\x00Matrix 2026")
+	hostile.TitleNorm = release.TitleNorm(hostile.Title)
+
+	third := rel("nzbgeek", "g3", "Arrival 2016")
+	third.TitleNorm = "arrival 2016"
+
+	mustUpsert(t, ctx, s, 3, first, hostile, third)
+
+	foundFirst, err := s.Search(ctx, relindex.Query{Text: "1999", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, foundFirst, 1)
+	require.Equal(t, "g1", foundFirst[0].GUID)
+
+	foundThird, err := s.Search(ctx, relindex.Query{Text: "arrival", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, foundThird, 1)
+	require.Equal(t, "g3", foundThird[0].GUID)
 }
 
 // --- Prune and Stats ---------------------------------------------------------
