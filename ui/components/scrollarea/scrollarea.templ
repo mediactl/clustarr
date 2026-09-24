@@ -1,0 +1,113 @@
+package scrollarea
+
+import "github.com/mediactl/clustarr/ui/components/utils"
+
+type Orientation string
+
+const (
+	OrientationVertical   Orientation = "vertical"
+	OrientationHorizontal Orientation = "horizontal"
+	// OrientationBoth gives the area both bars, the tsx's ScrollArea with a
+	// second ScrollBar inside it.
+	OrientationBoth Orientation = "both"
+)
+
+type Props struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	// Orientation picks the bars. Defaults to vertical, the tsx's.
+	Orientation Orientation
+}
+
+// ScrollArea is the tsx's ScrollArea: Base UI's Root around the Viewport
+// (the element that scrolls, its native bar hidden), the Content wrapper,
+// the bars and the Corner. The script measures the viewport, draws each
+// thumb and drags it.
+templ ScrollArea(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="scroll-area"
+		data-tui-scroll-area
+		class={ utils.CN("relative", p.Class) }
+		{ p.Attributes... }
+	>
+		<div
+			data-slot="scroll-area-viewport"
+			data-tui-scroll-area-viewport
+			tabindex="0"
+			class="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+		>
+			<div data-slot="scroll-area-content" data-tui-scroll-area-content class="min-w-fit">
+				{ children... }
+			</div>
+		</div>
+		if p.Orientation != OrientationHorizontal {
+			@ScrollBar(ScrollBarProps{Orientation: OrientationVertical})
+		}
+		if p.Orientation == OrientationHorizontal || p.Orientation == OrientationBoth {
+			@ScrollBar(ScrollBarProps{Orientation: OrientationHorizontal})
+		}
+		@Corner()
+	</div>
+}
+
+type ScrollBarProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	// Orientation of the bar. Defaults to vertical.
+	Orientation Orientation
+	// KeepMounted keeps the bar in the DOM while the viewport has nothing to
+	// scroll; otherwise the script hides it, as Base UI unmounts it.
+	KeepMounted bool
+}
+
+// ScrollBar is the tsx's ScrollBar: Base UI's Scrollbar with its Thumb,
+// laid over the viewport's edge. The vertical bar keeps the tsx's h-full,
+// so it overlaps the corner as the tsx's does.
+templ ScrollBar(props ...ScrollBarProps) {
+	{{ var p ScrollBarProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.Orientation != OrientationHorizontal {
+		{{ p.Orientation = OrientationVertical }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="scroll-area-scrollbar"
+		data-tui-scroll-area-scrollbar
+		data-orientation={ string(p.Orientation) }
+		data-vertical?={ p.Orientation == OrientationVertical }
+		data-horizontal?={ p.Orientation == OrientationHorizontal }
+		data-tui-scroll-area-keep-mounted?={ p.KeepMounted }
+		hidden?={ !p.KeepMounted }
+		class={
+			utils.CN(
+				"flex touch-none p-px transition-colors select-none data-horizontal:h-2.5 data-horizontal:flex-col data-horizontal:border-t data-horizontal:border-t-transparent data-vertical:h-full data-vertical:w-2.5 data-vertical:border-l data-vertical:border-l-transparent",
+				// Base UI's inline placement, over the viewport's end edges,
+				// leaving the corner to the other bar.
+				"absolute data-vertical:top-0 data-vertical:right-0 data-vertical:bottom-(--scroll-area-corner-height) data-horizontal:bottom-0 data-horizontal:left-0 data-horizontal:right-(--scroll-area-corner-width)",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		<div data-slot="scroll-area-thumb" data-tui-scroll-area-thumb data-orientation={ string(p.Orientation) } class="relative flex-1 rounded-full bg-border"></div>
+	</div>
+}
+
+// Corner is Base UI's Corner, the square where two bars meet; the script
+// shows it only while both are.
+templ Corner() {
+	<div data-slot="scroll-area-corner" data-tui-scroll-area-corner hidden class="absolute right-0 bottom-0 w-(--scroll-area-corner-width) h-(--scroll-area-corner-height)"></div>
+}

@@ -102,6 +102,12 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, src, nil))
 	require.Equal(t, http.StatusOK, rec.Code, "GET %s", src)
 	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
+	// Clustarr's own components (2026-09-24: navigationmenu and scrollarea,
+	// shadcn parts shadcn-templ's registry lacks) ship their scripts in the
+	// same bundle: `shadcn-templ bundle` packs every ui/components/*/*.js.
+	for _, own := range []string{"data-tui-navigation-menu", "data-tui-scroll-area"} {
+		require.Contains(t, rec.Body.String(), own, "the bundle lacks %s; run `shadcn-templ bundle`", own)
+	}
 }
 
 func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {

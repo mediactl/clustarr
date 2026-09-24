@@ -1,0 +1,413 @@
+package navigationmenu
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/utils"
+)
+
+type Orientation string
+
+const (
+	OrientationHorizontal Orientation = "horizontal"
+	OrientationVertical   Orientation = "vertical"
+)
+
+type Side string
+
+const (
+	SideTop    Side = "top"
+	SideRight  Side = "right"
+	SideBottom Side = "bottom"
+	SideLeft   Side = "left"
+)
+
+type Align string
+
+const (
+	AlignStart  Align = "start"
+	AlignCenter Align = "center"
+	AlignEnd    Align = "end"
+)
+
+// Props are Base UI's NavigationMenu.Root props plus the tsx's Positioner
+// props (side, align and the offsets), which the tsx exposes on the root.
+type Props struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	// Orientation of the list, which sets the arrow keys. Defaults to
+	// horizontal.
+	Orientation Orientation
+	// Value is the controlled open item (the Item's Value). Use
+	// DefaultValue when the browser should own the open item after the
+	// initial render.
+	Value *string
+	// DefaultValue is the item open at first.
+	DefaultValue string
+	// Delay is how long a hover waits before it opens, in ms; CloseDelay
+	// how long a leave waits before it closes. Both default to 50, Base
+	// UI's; 0 reads as the default.
+	Delay      int
+	CloseDelay int
+	// Side, Align, SideOffset and AlignOffset place the popup against the
+	// open trigger. Defaults: bottom, start, 8 and 0, the tsx's.
+	Side        Side
+	Align       Align
+	SideOffset  int
+	AlignOffset int
+}
+
+type ctxKey string
+
+const (
+	stateKey ctxKey = "navigationmenuState"
+	itemKey  ctxKey = "navigationmenuItem"
+)
+
+type ctxState struct {
+	id          string
+	value       string
+	controlled  bool
+	orientation Orientation
+}
+
+func state(ctx context.Context) ctxState {
+	if s, ok := ctx.Value(stateKey).(ctxState); ok {
+		return s
+	}
+	return ctxState{}
+}
+
+// itemValue is the value of the enclosing Item.
+func itemValue(ctx context.Context) string {
+	if v, ok := ctx.Value(itemKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func initialValue(p Props) string {
+	if p.Value != nil {
+		return *p.Value
+	}
+	return p.DefaultValue
+}
+
+func isOpen(ctx context.Context, value string) bool {
+	s := state(ctx)
+	return value != "" && s.value == value
+}
+
+// contentID names an item's content, what its trigger's aria-controls
+// points at.
+func contentID(menuID, value string) string {
+	return menuID + "-content-" + value
+}
+
+// TriggerStyle is the tsx's navigationMenuTriggerStyle(): the trigger's
+// look, for a Link that should read as a top-level entry beside the
+// triggers (pass it as the Link's Class).
+func TriggerStyle() string {
+	return "group/navigation-menu-trigger inline-flex h-9 w-max items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-all outline-none hover:bg-muted focus:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 data-popup-open:bg-muted/50 data-popup-open:hover:bg-muted data-open:bg-muted/50 data-open:hover:bg-muted data-open:focus:bg-muted"
+}
+
+// NavigationMenu is Base UI's Root, a nav, with the tsx's positioner (the
+// popup and its viewport) rendered once after the children, hidden until
+// the script opens an item, as NavigationMenuPositioner does.
+templ NavigationMenu(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	{{ id := p.ID }}
+	if id == "" {
+		{{ id = utils.RandomID() }}
+	}
+	if p.Orientation == "" {
+		{{ p.Orientation = OrientationHorizontal }}
+	}
+	if p.Delay == 0 {
+		{{ p.Delay = 50 }}
+	}
+	if p.CloseDelay == 0 {
+		{{ p.CloseDelay = 50 }}
+	}
+	if p.Side == "" {
+		{{ p.Side = SideBottom }}
+	}
+	if p.Align == "" {
+		{{ p.Align = AlignStart }}
+	}
+	if p.SideOffset == 0 {
+		{{ p.SideOffset = 8 }}
+	}
+	{{ value := initialValue(p) }}
+	<nav
+		id={ id }
+		data-slot="navigation-menu"
+		data-tui-navigation-menu
+		data-tui-navigation-menu-id={ id }
+		data-orientation={ string(p.Orientation) }
+		data-horizontal?={ p.Orientation == OrientationHorizontal }
+		data-vertical?={ p.Orientation == OrientationVertical }
+		data-tui-navigation-menu-delay={ strconv.Itoa(p.Delay) }
+		data-tui-navigation-menu-close-delay={ strconv.Itoa(p.CloseDelay) }
+		if value != "" {
+			data-tui-navigation-menu-value={ value }
+		}
+		data-tui-navigation-menu-controlled?={ p.Value != nil }
+		class={ utils.CN("group/navigation-menu relative flex max-w-max flex-1 items-center justify-center", p.Class) }
+		{ p.Attributes... }
+	>
+		{{ ctx = context.WithValue(ctx, stateKey, ctxState{id: id, value: value, controlled: p.Value != nil, orientation: p.Orientation}) }}
+		{ children... }
+		@positioner(id, p)
+	</nav>
+}
+
+// positioner is the tsx's NavigationMenuPositioner: Base UI's Positioner
+// holding the Popup, which holds the Viewport the open item's content
+// moves into. Positioned by the script against the open trigger (floating
+// ui, like the tooltip), sized by the --positioner-* and --popup-*
+// variables it sets from the content.
+templ positioner(id string, p Props) {
+	<div
+		data-slot="navigation-menu-positioner"
+		data-tui-navigation-menu-positioner
+		data-tui-navigation-menu-id={ id }
+		data-tui-navigation-menu-side={ string(p.Side) }
+		data-tui-navigation-menu-align={ string(p.Align) }
+		data-tui-navigation-menu-side-offset={ strconv.Itoa(p.SideOffset) }
+		data-tui-navigation-menu-align-offset={ strconv.Itoa(p.AlignOffset) }
+		data-closed
+		hidden
+		class="absolute isolate z-50 h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom] duration-[0.35s] ease-[cubic-bezier(0.22,1,0.36,1)] data-instant:transition-none"
+	>
+		<nav
+			data-slot="navigation-menu-popup"
+			data-tui-navigation-menu-popup
+			data-closed
+			class="relative h-(--popup-height) w-(--popup-width) origin-(--transform-origin) rounded-lg bg-popover text-popover-foreground shadow ring-1 ring-foreground/10 transition-[opacity,transform,width,height,scale,translate] duration-[0.35s] ease-[cubic-bezier(0.22,1,0.36,1)] outline-none data-ending-style:scale-90 data-ending-style:opacity-0 data-ending-style:duration-150 data-starting-style:scale-90 data-starting-style:opacity-0"
+		>
+			<div data-slot="navigation-menu-viewport" data-tui-navigation-menu-viewport class="relative size-full overflow-hidden"></div>
+		</nav>
+	</div>
+}
+
+type ListProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+// List is Base UI's List, a ul.
+templ List(props ...ListProps) {
+	{{ var p ListProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<ul
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="navigation-menu-list"
+		class={ utils.CN("group flex flex-1 list-none items-center justify-center gap-0", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</ul>
+}
+
+type ItemProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	// Value names the item, what the root's Value or DefaultValue opens.
+	// Minted when empty.
+	Value string
+}
+
+// Item is Base UI's Item, an li; its Trigger and Content share its value.
+templ Item(props ...ItemProps) {
+	{{ var p ItemProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	{{ value := p.Value }}
+	if value == "" {
+		{{ value = utils.RandomID() }}
+	}
+	<li
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="navigation-menu-item"
+		data-tui-navigation-menu-item
+		data-tui-navigation-menu-value={ value }
+		class={ utils.CN("relative", p.Class) }
+		{ p.Attributes... }
+	>
+		{{ ctx = context.WithValue(ctx, itemKey, value) }}
+		{ children... }
+	</li>
+}
+
+type TriggerProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	Disabled   bool
+}
+
+// Trigger is Base UI's Trigger, a button that opens its item's content on
+// hover or click, ending with the chevron the tsx adds.
+templ Trigger(props ...TriggerProps) {
+	{{ var p TriggerProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	{{ s := state(ctx) }}
+	{{ value := itemValue(ctx) }}
+	{{ open := isOpen(ctx, value) }}
+	<button
+		type="button"
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="navigation-menu-trigger"
+		data-tui-navigation-menu-trigger
+		data-tui-navigation-menu-id={ s.id }
+		data-tui-navigation-menu-value={ value }
+		aria-expanded={ utils.IfElse(open, "true", "false") }
+		aria-controls={ contentID(s.id, value) }
+		data-popup-open?={ open }
+		if p.Disabled {
+			disabled
+			data-disabled
+		}
+		class={ utils.CN(TriggerStyle(), "group", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+		{ " " }
+		@icon.Icon("chevron-down")(icon.Props{
+			Class:      "relative top-px ml-1 size-3 transition duration-300 group-data-popup-open/navigation-menu-trigger:rotate-180 group-data-open/navigation-menu-trigger:rotate-180",
+			Attributes: templ.Attributes{"aria-hidden": "true"},
+		})
+	</button>
+}
+
+type ContentProps struct {
+	Class      string
+	Attributes templ.Attributes
+}
+
+// Content is Base UI's Content: rendered inside its item, hidden, and moved
+// into the viewport by the script when the item opens; it slides in from
+// the side of the trigger that was open before (data-activation-direction).
+// The tsx writes those variants as data-activation-direction=left:, a
+// shorthand the pinned Tailwind does not compile (make css emitted nothing
+// for it); the bracket form is the same selector.
+templ Content(props ...ContentProps) {
+	{{ var p ContentProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	{{ s := state(ctx) }}
+	{{ value := itemValue(ctx) }}
+	{{ open := isOpen(ctx, value) }}
+	<div
+		id={ contentID(s.id, value) }
+		data-slot="navigation-menu-content"
+		data-tui-navigation-menu-content
+		data-tui-navigation-menu-id={ s.id }
+		data-tui-navigation-menu-value={ value }
+		data-open?={ open }
+		data-closed?={ !open }
+		hidden?={ !open }
+		class={
+			utils.CN(
+				"data-ending-style:data-[activation-direction=left]:translate-x-[50%] data-ending-style:data-[activation-direction=right]:translate-x-[-50%] data-starting-style:data-[activation-direction=left]:translate-x-[-50%] data-starting-style:data-[activation-direction=right]:translate-x-[50%] h-full w-auto p-2 pr-2.5 transition-[opacity,transform,translate] duration-[0.35s] ease-[cubic-bezier(0.22,1,0.36,1)] data-ending-style:opacity-0 data-starting-style:opacity-0 **:data-[slot=navigation-menu-link]:focus:ring-0 **:data-[slot=navigation-menu-link]:focus:outline-none",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+type LinkProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	Href       string
+	// Active marks the current page's link.
+	Active bool
+	// CloseOnClick closes the menu when the link is clicked, for a link
+	// htmx follows in place. Off by default, like Base UI's.
+	CloseOnClick bool
+}
+
+// Link is Base UI's Link, an a.
+templ Link(props ...LinkProps) {
+	{{ var p LinkProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<a
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		href={ templ.SafeURL(p.Href) }
+		data-slot="navigation-menu-link"
+		data-tui-navigation-menu-link
+		if p.Active {
+			data-active="true"
+		}
+		data-tui-navigation-menu-close-on-click?={ p.CloseOnClick }
+		class={
+			utils.CN(
+				"flex items-center gap-1.5 rounded-md p-2 text-sm transition-all outline-none hover:bg-muted focus:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 in-data-[slot=navigation-menu-content]:rounded-sm data-[active=true]:bg-muted/50 data-[active=true]:hover:bg-muted data-[active=true]:focus:bg-muted [&_svg:not([class*='size-'])]:size-4",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		{ children... }
+	</a>
+}
+
+type IndicatorProps struct {
+	Class      string
+	Attributes templ.Attributes
+}
+
+// Indicator is the tsx's NavigationMenuIndicator: a small diamond the
+// script slides under the open trigger. Render it inside the root, after
+// the list.
+templ Indicator(props ...IndicatorProps) {
+	{{ var p IndicatorProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		data-slot="navigation-menu-indicator"
+		data-tui-navigation-menu-indicator
+		data-tui-navigation-menu-id={ state(ctx).id }
+		data-state="hidden"
+		hidden
+		class={
+			utils.CN(
+				"absolute top-full z-1 flex h-1.5 items-end justify-center overflow-hidden transition-[left,width] duration-[0.35s] ease-[cubic-bezier(0.22,1,0.36,1)] data-[state=hidden]:animate-out data-[state=hidden]:fade-out data-[state=visible]:animate-in data-[state=visible]:fade-in",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		<div class="relative top-[60%] h-2 w-2 rotate-45 rounded-tl-sm bg-border shadow-md"></div>
+	</div>
+}

@@ -467,6 +467,32 @@ radius small, Noto Sans, lucide) and the token file applied on top:
 reads a URL as a component registry, not a theme. The tokens live in
 `ui/static/input.css` (`:root` and `.dark`), which `make css` compiles.
 
+**Own components (as built, 2026-09-24).** shadcn's base style has parts
+shadcn-templ's registry lacks; those are written by hand under
+`ui/components/<name>/`, the way the vendored ones are: one templ part per
+tsx export, the `data-slot` names and class strings verbatim,
+`data-tui-<name>-*` attributes for a script in the same directory that
+`shadcn-templ bundle` packs into the one bundle, Base UI's public state
+contract (`data-open`/`data-closed`, `data-starting-style`/`data-ending-style`,
+`data-popup-open`, the `--popup-*` variables), and tests beside them, since
+nothing overwrites them. `navigationmenu` is Base UI's NavigationMenu: a
+hover (after the root's delay) or a click opens an item, its content moves
+into the popup's viewport, floating ui places the positioner against the
+trigger, a switch slides the popup and the contents cross in
+`data-activation-direction`, the arrows walk the triggers and carry an open
+menu along, Escape, an outside press, focus leaving and a close-on-click
+link close. `scrollarea` is Base UI's ScrollArea: the viewport scrolls
+natively with its bar hidden, each thumb is the viewport's share of the
+content (never under 16px) and drags, a track press centres the thumb
+under the pointer, a wheel over the bar scrolls the viewport, and
+`data-hovering`, `data-scrolling`, `data-has-overflow-*` and
+`data-overflow-*-start/end` mark the parts. Two traps met building them:
+the tsx's `data-activation-direction=left:` variant shorthand compiles to
+nothing under the pinned Tailwind (the bracket form
+`data-[activation-direction=left]:` is the same selector), and a browser
+keeps `/static/app.css` from an earlier load, so a page checked against a
+rebuilt stylesheet needs a cache-busting query or a hard reload.
+
 **Library cards (as built, 2026-09-23).** A library card is shadcn-templ's
 `item`: the whole tile is the link to the detail page (`Href`), the poster
 is the item's media at poster ratio (2:3, never a square crop), the title
@@ -591,7 +617,12 @@ items on screen over the whole list (from `#library-rows`' `data-offset`
 and `data-total`, so it is stable across the pages infinite scroll loads)
 on scroll and after every htmx swap, as Radarr's position mark, and hides
 the document's native scrollbar while the bar is on the page. The
-pipeline, downloads and unmatched pages keep the pager.
+pipeline, downloads and unmatched pages keep the pager. The thumb drags like a native scrollbar's (2026-09-24): a 12px grab
+strip down the bar's left edge draws the 2px line, a press on it follows
+the pointer from where it took hold, the grid follows the thumb (its top
+over the bar's height, times the total, is the title put under the
+toolbar), a title outside the loaded window is reached the way a letter
+click reaches one after a short pause, and letting go asks at once.
 
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,

@@ -3396,6 +3396,646 @@
   return t;
 });
 
+// components/navigationmenu/navigationmenu.js
+// Clustarr's own component (2026-09-24): a port of Base UI's NavigationMenu
+// behaviour for navigationmenu.templ, which shadcn-templ's registry lacks.
+// Uses window.FloatingUIDOM from components/floatingui (the same bundle).
+//
+// A trigger opens its item's content after the root's delay on hover, at
+// once on click (a click on the open trigger closes); the pointer leaving
+// the root -- the popup is inside it -- closes after the close delay, as
+// does focus leaving it, Escape (focus returns to the trigger), a press
+// outside, and a click on a link marked close-on-click. The open content
+// is moved into the popup's viewport, the previous one slides out the way
+// Base UI's does (data-activation-direction says which way), the popup is
+// sized to the content through --popup-width/height and
+// --positioner-width/height and placed against the trigger with floating
+// ui (side, align and the offsets from the positioner's attributes,
+// --transform-origin for the popup's scale); a switch between items slides
+// the positioner, a first open lands it without a transition
+// (data-instant). The arrow keys move focus along the triggers (the
+// orientation picks the axis, the writing direction the order) and carry
+// an open menu along; the arrow into the content (down under a horizontal
+// list) opens and focuses its first link; Home and End jump.
+//
+// State follows Base UI's public contract: data-popup-open on the trigger,
+// data-open/closed with data-starting-style and data-ending-style on the
+// content, popup and positioner, data-side and data-align on the
+// positioner and popup, and the root's data-tui-navigation-menu-value for
+// the open item, which navigation-menu-value-change announces before it
+// changes (cancelable; a controlled root never changes it itself).
+(function () {
+  "use strict";
+
+  const EXIT_MS = 350; // the tsx's 0.35s transitions
+  const q = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/"/g, '\\"'));
+  const byId = (root, part) =>
+    "[data-tui-navigation-menu-" + part + '][data-tui-navigation-menu-id="' + q(root.getAttribute("data-tui-navigation-menu-id")) + '"]';
+
+  function rootOf(el) {
+    return el && el.closest ? el.closest("[data-tui-navigation-menu]") : null;
+  }
+  function partsOf(root) {
+    return {
+      positioner: root.querySelector(byId(root, "positioner")),
+      popup: root.querySelector(byId(root, "positioner") + " [data-tui-navigation-menu-popup]"),
+      viewport: root.querySelector(byId(root, "positioner") + " [data-tui-navigation-menu-viewport]"),
+      indicator: root.querySelector(byId(root, "indicator")),
+    };
+  }
+  function triggersOf(root) {
+    return [...root.querySelectorAll(byId(root, "trigger"))];
+  }
+  function triggerFor(root, value) {
+    return root.querySelector(byId(root, "trigger") + '[data-tui-navigation-menu-value="' + q(value) + '"]');
+  }
+  function contentFor(root, value) {
+    return root.querySelector(byId(root, "content") + '[data-tui-navigation-menu-value="' + q(value) + '"]');
+  }
+  function current(root) {
+    return root.getAttribute("data-tui-navigation-menu-value") || "";
+  }
+  function num(el, name, fallback) {
+    const n = parseInt(el.getAttribute(name), 10);
+    return isNaN(n) ? fallback : n;
+  }
+  function timers(root) {
+    return root._tuiNav || (root._tuiNav = { open: 0, close: 0, exit: 0 });
+  }
+  function nextFrames(fn) {
+    requestAnimationFrame(() => requestAnimationFrame(fn));
+  }
+
+  // ----- geometry ------------------------------------------------------------
+
+  function origin(side, align) {
+    const x = align === "start" ? "left" : align === "end" ? "right" : "center";
+    if (side === "bottom") return "top " + x;
+    if (side === "top") return "bottom " + x;
+    const y = align === "start" ? "top" : align === "end" ? "bottom" : "center";
+    return (side === "right" ? "left " : "right ") + y;
+  }
+
+  // The content's own size, measured free of the popup's current one.
+  // Nothing paints between the two style writes, so the content is not
+  // hidden for the measure: a link inside it wears transition-all, and a
+  // visibility that flips hidden and back would transition, leaving the
+  // link unfocusable for the transition's length (an arrow into the
+  // content right after it opened found it so).
+  // The author's inline style stays (a width set there or by a class
+  // holds); min-width keeps the old popup's width from wrapping a wider
+  // content, and the tsx's h-full gives way to the content's own height.
+  function sizeOf(content) {
+    const saved = content.style.cssText;
+    content.style.cssText =
+      saved +
+      ";position:absolute;top:0;left:0;min-width:max-content;" +
+      (/(^|;)\s*height\s*:/.test(saved) ? "" : "height:auto;");
+    const w = content.offsetWidth, h = content.offsetHeight;
+    content.style.cssText = saved;
+    return { w: Math.min(w, document.documentElement.clientWidth - 10), h };
+  }
+
+  function place(root, trigger, instant) {
+    const p = partsOf(root);
+    const pos = p.positioner;
+    if (!pos || !window.FloatingUIDOM) return Promise.resolve();
+    const { computePosition, offset, flip, shift } = window.FloatingUIDOM;
+    const side = pos.getAttribute("data-tui-navigation-menu-side") || "bottom";
+    const align = pos.getAttribute("data-tui-navigation-menu-align") || "start";
+    const placement = align === "center" ? side : side + "-" + align;
+    const sideOffset = num(pos, "data-tui-navigation-menu-side-offset", 8);
+    const alignOffset = num(pos, "data-tui-navigation-menu-align-offset", 0);
+    if (instant) pos.setAttribute("data-instant", "");
+    return computePosition(trigger, pos, {
+      placement,
+      strategy: "absolute",
+      middleware: [offset({ mainAxis: sideOffset, crossAxis: alignOffset }), flip(), shift({ padding: 5 })],
+    }).then((r) => {
+      pos.style.left = r.x + "px";
+      pos.style.top = r.y + "px";
+      const finalSide = r.placement.split("-")[0];
+      const finalAlign = r.placement.split("-")[1] || "center";
+      const tb = trigger.getBoundingClientRect();
+      pos.style.setProperty("--anchor-width", tb.width + "px");
+      pos.style.setProperty("--anchor-height", tb.height + "px");
+      pos.style.setProperty("--available-width", document.documentElement.clientWidth - 10 + "px");
+      pos.style.setProperty("--available-height", document.documentElement.clientHeight - 10 + "px");
+      pos.style.setProperty("--transform-origin", origin(finalSide, finalAlign));
+      [pos, p.popup].forEach((el) => {
+        if (!el) return;
+        el.setAttribute("data-side", finalSide);
+        el.setAttribute("data-align", finalAlign);
+      });
+      if (instant) {
+        pos.offsetHeight; // flush the move before transitions come back
+        pos.removeAttribute("data-instant");
+      }
+      const ind = p.indicator;
+      if (ind) {
+        const rb = root.getBoundingClientRect();
+        ind.hidden = false;
+        ind.style.left = tb.left - rb.left + "px";
+        ind.style.width = tb.width + "px";
+        ind.setAttribute("data-state", "visible");
+      }
+    });
+  }
+
+  // ----- state ---------------------------------------------------------------
+
+  // The content of value leaves the viewport: it slides out towards dir
+  // (or fades, on a close) and goes home to its item once done.
+  function retire(root, value, dir) {
+    const trigger = triggerFor(root, value);
+    if (trigger) {
+      trigger.setAttribute("aria-expanded", "false");
+      trigger.removeAttribute("data-popup-open");
+    }
+    const content = contentFor(root, value);
+    if (!content) return;
+    content.removeAttribute("data-open");
+    content.removeAttribute("data-starting-style");
+    content.setAttribute("data-closed", "");
+    content.setAttribute("data-ending-style", "");
+    if (dir) content.setAttribute("data-activation-direction", dir);
+    else content.removeAttribute("data-activation-direction");
+    // Out of the flow, so the next content takes the viewport at once.
+    content.style.position = "absolute";
+    content.style.inset = "0";
+    setTimeout(() => {
+      if (!content.hasAttribute("data-ending-style")) return;
+      content.hidden = true;
+      content.removeAttribute("data-ending-style");
+      content.style.position = "";
+      content.style.inset = "";
+      if (content._tuiHome && content._tuiHome.isConnected) content._tuiHome.appendChild(content);
+    }, EXIT_MS);
+  }
+
+  function open(root, value, opts) {
+    opts = opts || {};
+    const t = timers(root);
+    clearTimeout(t.open);
+    clearTimeout(t.close);
+    const prev = current(root);
+    if (prev === value) return;
+    const trigger = triggerFor(root, value);
+    const content = contentFor(root, value);
+    const p = partsOf(root);
+    if (!trigger || !content || !p.positioner || !p.popup || !p.viewport) return;
+    let dir = "";
+    if (prev) {
+      const order = triggersOf(root);
+      dir = order.indexOf(trigger) > order.indexOf(triggerFor(root, prev)) ? "right" : "left";
+      retire(root, prev, dir);
+    }
+    clearTimeout(t.exit);
+    root.setAttribute("data-tui-navigation-menu-value", value);
+    trigger.setAttribute("aria-expanded", "true");
+    trigger.setAttribute("data-popup-open", "");
+
+    // The content moves into the viewport, as Base UI moves it.
+    if (!content._tuiHome) content._tuiHome = content.parentElement;
+    p.viewport.appendChild(content);
+    content.hidden = false;
+    content.style.position = "";
+    content.style.inset = "";
+    content.removeAttribute("data-closed");
+    content.removeAttribute("data-ending-style");
+    if (dir) content.setAttribute("data-activation-direction", dir);
+    else content.removeAttribute("data-activation-direction");
+    content.setAttribute("data-open", "");
+    content.setAttribute("data-starting-style", "");
+
+    // A first open shows the positioner before the content is measured: a
+    // hidden ancestor measures as nothing. Its starting style keeps the
+    // popup invisible until it is placed.
+    const first = !prev;
+    if (first) {
+      [p.positioner, p.popup].forEach((el) => {
+        el.hidden = false;
+        el.removeAttribute("data-closed");
+        el.removeAttribute("data-ending-style");
+        el.setAttribute("data-open", "");
+        el.setAttribute("data-starting-style", "");
+      });
+    }
+    const size = sizeOf(content);
+    p.positioner.style.setProperty("--positioner-width", size.w + "px");
+    p.positioner.style.setProperty("--positioner-height", size.h + "px");
+    p.positioner.style.setProperty("--popup-width", size.w + "px");
+    p.positioner.style.setProperty("--popup-height", size.h + "px");
+    place(root, trigger, first || opts.instant).then(() => {
+      nextFrames(() => {
+        content.removeAttribute("data-starting-style");
+        if (first) {
+          p.positioner.removeAttribute("data-starting-style");
+          p.popup.removeAttribute("data-starting-style");
+        }
+      });
+    });
+  }
+
+  function close(root) {
+    const t = timers(root);
+    clearTimeout(t.open);
+    clearTimeout(t.close);
+    const value = current(root);
+    if (!value) return;
+    root.removeAttribute("data-tui-navigation-menu-value");
+    retire(root, value, "");
+    const p = partsOf(root);
+    [p.positioner, p.popup].forEach((el) => {
+      if (!el) return;
+      el.removeAttribute("data-open");
+      el.removeAttribute("data-starting-style");
+      el.setAttribute("data-closed", "");
+      el.setAttribute("data-ending-style", "");
+    });
+    if (p.indicator) p.indicator.setAttribute("data-state", "hidden");
+    t.exit = setTimeout(() => {
+      if (p.positioner && p.positioner.hasAttribute("data-ending-style")) {
+        p.positioner.hidden = true;
+        p.positioner.removeAttribute("data-ending-style");
+        if (p.popup) p.popup.removeAttribute("data-ending-style");
+      }
+      if (p.indicator && p.indicator.getAttribute("data-state") === "hidden") p.indicator.hidden = true;
+    }, EXIT_MS);
+  }
+
+  // value "" asks to close. A controlled root only announces.
+  function request(root, value) {
+    if (!root || current(root) === value) return;
+    const accepted = root.dispatchEvent(
+      new CustomEvent("navigation-menu-value-change", {
+        bubbles: true,
+        cancelable: true,
+        detail: { value: value || null },
+      }),
+    );
+    if (!accepted || root.hasAttribute("data-tui-navigation-menu-controlled")) return;
+    if (value) open(root, value);
+    else close(root);
+  }
+  function delay(root) {
+    return num(root, "data-tui-navigation-menu-delay", 50);
+  }
+  function closeDelay(root) {
+    return num(root, "data-tui-navigation-menu-close-delay", 50);
+  }
+
+  // ----- events --------------------------------------------------------------
+
+  document.addEventListener("pointerover", (e) => {
+    if (e.pointerType === "touch") return;
+    const root = rootOf(e.target);
+    if (!root) return;
+    const t = timers(root);
+    clearTimeout(t.close);
+    const trigger = e.target.closest("[data-tui-navigation-menu-trigger]");
+    if (!trigger || rootOf(trigger) !== root || trigger.disabled) return;
+    const value = trigger.getAttribute("data-tui-navigation-menu-value");
+    if (current(root) === value) return;
+    clearTimeout(t.open);
+    t.open = setTimeout(() => request(root, value), delay(root));
+  });
+
+  document.addEventListener("pointerout", (e) => {
+    if (e.pointerType === "touch") return;
+    const root = rootOf(e.target);
+    if (!root || (e.relatedTarget && root.contains(e.relatedTarget))) return;
+    const t = timers(root);
+    clearTimeout(t.open);
+    if (!current(root)) return;
+    clearTimeout(t.close);
+    t.close = setTimeout(() => request(root, ""), closeDelay(root));
+  });
+
+  document.addEventListener("click", (e) => {
+    const trigger = e.target.closest("[data-tui-navigation-menu-trigger]");
+    if (trigger) {
+      const root = rootOf(trigger);
+      if (!root || trigger.disabled) return;
+      const value = trigger.getAttribute("data-tui-navigation-menu-value");
+      request(root, current(root) === value ? "" : value);
+      return;
+    }
+    const link = e.target.closest("[data-tui-navigation-menu-close-on-click]");
+    if (link) request(rootOf(link), "");
+  });
+
+  // A press outside an open menu closes it.
+  document.addEventListener("pointerdown", (e) => {
+    document.querySelectorAll("[data-tui-navigation-menu][data-tui-navigation-menu-value]").forEach((root) => {
+      if (!root.contains(e.target)) request(root, "");
+    });
+  });
+
+  document.addEventListener("focusin", (e) => {
+    const root = rootOf(e.target);
+    if (root) clearTimeout(timers(root).close);
+  });
+  document.addEventListener("focusout", (e) => {
+    const root = rootOf(e.target);
+    if (!root || !current(root) || (e.relatedTarget && root.contains(e.relatedTarget))) return;
+    const t = timers(root);
+    clearTimeout(t.close);
+    t.close = setTimeout(() => request(root, ""), closeDelay(root));
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const root = rootOf(e.target);
+    if (!root) return;
+    if (e.key === "Escape") {
+      const value = current(root);
+      if (!value) return;
+      e.preventDefault();
+      const trigger = triggerFor(root, value);
+      request(root, "");
+      if (trigger) trigger.focus();
+      return;
+    }
+    const trigger = e.target.closest("[data-tui-navigation-menu-trigger]");
+    if (!trigger || rootOf(trigger) !== root) return;
+    const vertical = root.getAttribute("data-orientation") === "vertical";
+    const rtl = getComputedStyle(root).direction === "rtl";
+    const prev = vertical ? "ArrowUp" : rtl ? "ArrowRight" : "ArrowLeft";
+    const next = vertical ? "ArrowDown" : rtl ? "ArrowLeft" : "ArrowRight";
+    const into = vertical ? (rtl ? "ArrowLeft" : "ArrowRight") : "ArrowDown";
+    if (e.key === into) {
+      e.preventDefault();
+      const value = trigger.getAttribute("data-tui-navigation-menu-value");
+      if (current(root) !== value) request(root, value);
+      const content = contentFor(root, value);
+      const first = content && !content.hidden && content.querySelector('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (first) first.focus();
+      return;
+    }
+    const all = triggersOf(root).filter((t) => !t.disabled);
+    const i = all.indexOf(trigger);
+    if (i < 0) return;
+    let target = null;
+    if (e.key === next) target = all[(i + 1) % all.length];
+    else if (e.key === prev) target = all[(i - 1 + all.length) % all.length];
+    else if (e.key === "Home") target = all[0];
+    else if (e.key === "End") target = all[all.length - 1];
+    if (!target) return;
+    e.preventDefault();
+    target.focus();
+    if (current(root)) request(root, target.getAttribute("data-tui-navigation-menu-value"));
+  });
+
+  // An item rendered open (the root's Value or DefaultValue) has its content
+  // in its item still; move it into the viewport and land the popup without
+  // a transition.
+  function init() {
+    document.querySelectorAll("[data-tui-navigation-menu][data-tui-navigation-menu-value]").forEach((root) => {
+      const value = current(root);
+      const content = contentFor(root, value);
+      const p = partsOf(root);
+      if (!content || !p.viewport || content.parentElement === p.viewport) return;
+      root.removeAttribute("data-tui-navigation-menu-value");
+      open(root, value, { instant: true });
+    });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+  // Re-init on any childList mutation, directly (never rAF-deferred: rAF
+  // does not fire in hidden tabs or throttled iframes): swapped-in markup
+  // wires itself.
+  new MutationObserver(() => init()).observe(document.body, { childList: true, subtree: true });
+
+  window.tui = window.tui || {};
+  window.tui.navigationMenu = {
+    open: (root, value) => open(root, value),
+    close: (root) => close(root),
+  };
+})();
+
+// components/scrollarea/scrollarea.js
+// Clustarr's own component (2026-09-24): a port of Base UI's ScrollArea
+// behaviour for scrollarea.templ, which shadcn-templ's registry lacks.
+//
+// The viewport scrolls natively with its own bar hidden; this draws the
+// bar over it. Each thumb's length is the viewport's share of the content
+// and its place the scroll's share of the range, as Base UI computes them
+// (never under 16px). A press on the thumb drags it (pointer capture, so
+// the drag survives leaving the bar); a press on the track centres the
+// thumb under the pointer and drags from there; a wheel over the bar
+// scrolls the viewport under it. data-hovering marks the bars while the
+// pointer is over the area, data-scrolling the area and thumbs for half a
+// second after each scroll, data-has-overflow-x/y and
+// data-overflow-*-start/end the root, viewport and content as Base UI
+// sets them, with the --scroll-area-overflow-* distances on the viewport
+// and --scroll-area-thumb-* on each bar. A bar with nothing to scroll
+// leaves the DOM (hidden) unless it is kept mounted, and the corner shows
+// only while both bars do.
+//
+// Binds once per root, on load and on every childList mutation, so htmx
+// swaps wire themselves; a root is set up once, and every init re-measures
+// it, since the swap may have replaced its content.
+(function () {
+  "use strict";
+
+  const MIN_THUMB = 16; // Base UI's MIN_THUMB_SIZE
+  const SCROLL_END_MS = 500; // data-scrolling lingers this long past the last scroll event
+  const THUMB = "[data-tui-scroll-area-thumb]";
+  const BAR = "[data-tui-scroll-area-scrollbar]";
+
+  function padding(bar, vertical) {
+    const cs = getComputedStyle(bar);
+    return vertical
+      ? parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)
+      : parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  }
+
+  function setup(root) {
+    if (root._tuiScrollArea) {
+      root._tuiScrollArea.observe();
+      root._tuiScrollArea.measure();
+      return;
+    }
+    const viewport = root.querySelector(":scope > [data-tui-scroll-area-viewport]");
+    if (!viewport) return;
+    const content = () => viewport.querySelector(":scope > [data-tui-scroll-area-content]");
+    const corner = () => root.querySelector(":scope > [data-tui-scroll-area-corner]");
+    const bars = () => [...root.querySelectorAll(":scope > " + BAR)];
+    const state = { scrollTimer: 0, drag: null, observed: null };
+    root._tuiScrollArea = state;
+
+    function mark(name, on) {
+      [root, viewport, content()].forEach((el) => el && el.toggleAttribute(name, on));
+    }
+
+    function measure() {
+      const sh = viewport.scrollHeight, sw = viewport.scrollWidth;
+      const ch = viewport.clientHeight, cw = viewport.clientWidth;
+      const top = viewport.scrollTop, left = viewport.scrollLeft;
+      const maxY = Math.max(0, sh - ch), maxX = Math.max(0, sw - cw);
+      const hasY = maxY > 1, hasX = maxX > 1;
+      mark("data-has-overflow-y", hasY);
+      mark("data-has-overflow-x", hasX);
+      mark("data-overflow-y-start", hasY && top > 0.5);
+      mark("data-overflow-y-end", hasY && top < maxY - 0.5);
+      mark("data-overflow-x-start", hasX && left > 0.5);
+      mark("data-overflow-x-end", hasX && left < maxX - 0.5);
+      viewport.style.setProperty("--scroll-area-overflow-y-start", top + "px");
+      viewport.style.setProperty("--scroll-area-overflow-y-end", maxY - top + "px");
+      viewport.style.setProperty("--scroll-area-overflow-x-start", left + "px");
+      viewport.style.setProperty("--scroll-area-overflow-x-end", maxX - left + "px");
+
+      let vBar = null, hBar = null;
+      bars().forEach((bar) => {
+        const vertical = bar.getAttribute("data-orientation") !== "horizontal";
+        const has = vertical ? hasY : hasX;
+        bar.hidden = !has && !bar.hasAttribute("data-tui-scroll-area-keep-mounted");
+        if (bar.hidden) return;
+        if (has) {
+          if (vertical) vBar = bar;
+          else hBar = bar;
+        }
+        const thumb = bar.querySelector(THUMB);
+        if (!thumb) return;
+        const track = (vertical ? bar.clientHeight : bar.clientWidth) - padding(bar, vertical);
+        if (vertical) {
+          const size = has ? Math.max(MIN_THUMB, Math.round((track * ch) / sh)) : track;
+          const pos = maxY ? ((track - size) * top) / maxY : 0;
+          thumb.style.height = size + "px";
+          thumb.style.transform = "translate3d(0," + pos + "px,0)";
+          bar.style.setProperty("--scroll-area-thumb-height", size + "px");
+        } else {
+          const size = has ? Math.max(MIN_THUMB, Math.round((track * cw) / sw)) : track;
+          const pos = maxX ? ((track - size) * left) / maxX : 0;
+          thumb.style.width = size + "px";
+          thumb.style.transform = "translate3d(" + pos + "px,0,0)";
+          bar.style.setProperty("--scroll-area-thumb-width", size + "px");
+        }
+      });
+
+      const both = !!(vBar && hBar);
+      root.style.setProperty("--scroll-area-corner-width", both ? vBar.offsetWidth + "px" : "0px");
+      root.style.setProperty("--scroll-area-corner-height", both ? hBar.offsetHeight + "px" : "0px");
+      const c = corner();
+      if (c) c.hidden = !both;
+    }
+    state.measure = measure;
+
+    // Watch the viewport and its current content for size changes; the
+    // content element may be swapped, so re-observe on every init.
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (ro) ro.observe(viewport);
+    state.observe = function () {
+      const c = content();
+      if (!ro || !c || c === state.observed) return;
+      if (state.observed) ro.unobserve(state.observed);
+      state.observed = c;
+      ro.observe(c);
+    };
+    state.observe();
+
+    function scrolling() {
+      mark("data-scrolling", true);
+      root.querySelectorAll(THUMB).forEach((t) => t.setAttribute("data-scrolling", ""));
+      clearTimeout(state.scrollTimer);
+      state.scrollTimer = setTimeout(() => {
+        mark("data-scrolling", false);
+        root.querySelectorAll(THUMB).forEach((t) => t.removeAttribute("data-scrolling"));
+      }, SCROLL_END_MS);
+    }
+    viewport.addEventListener("scroll", () => {
+      measure();
+      scrolling();
+    }, { passive: true });
+
+    function hovering(on) {
+      root.toggleAttribute("data-hovering", on);
+      bars().forEach((b) => b.toggleAttribute("data-hovering", on));
+    }
+    root.addEventListener("pointerenter", () => hovering(true));
+    root.addEventListener("pointerleave", () => hovering(false));
+
+    // Put the thumb's leading edge at pos along the track by scrolling the
+    // viewport the matching share of its range.
+    function scrollToThumb(vertical, pos, track, size) {
+      const range = track - size;
+      if (range <= 0) return;
+      const share = Math.min(1, Math.max(0, pos / range));
+      if (vertical) viewport.scrollTop = share * (viewport.scrollHeight - viewport.clientHeight);
+      else viewport.scrollLeft = share * (viewport.scrollWidth - viewport.clientWidth);
+    }
+
+    root.addEventListener("pointerdown", (e) => {
+      const bar = e.target.closest(BAR);
+      if (!bar || bar.parentElement !== root || (e.button && e.button !== 0)) return;
+      const thumb = bar.querySelector(THUMB);
+      if (!thumb) return;
+      e.preventDefault();
+      const vertical = bar.getAttribute("data-orientation") !== "horizontal";
+      const tb = thumb.getBoundingClientRect(), bb = bar.getBoundingClientRect();
+      const pad = padding(bar, vertical) / 2;
+      const track = (vertical ? bb.height : bb.width) - pad * 2;
+      const size = vertical ? tb.height : tb.width;
+      const start = (vertical ? bb.top : bb.left) + pad;
+      const pointer = vertical ? e.clientY : e.clientX;
+      let grab = pointer - (vertical ? tb.top : tb.left);
+      if (!e.target.closest(THUMB)) {
+        // A press on the track: the thumb centres under the pointer first.
+        grab = size / 2;
+        scrollToThumb(vertical, pointer - grab - start, track, size);
+      }
+      state.drag = { id: e.pointerId, vertical, grab, track, size, start };
+      try {
+        bar.setPointerCapture(e.pointerId);
+      } catch (err) {
+        // A pointer the browser is not tracking (a synthetic event) has
+        // nothing to capture; the root's listeners still follow it.
+      }
+    });
+    root.addEventListener("pointermove", (e) => {
+      const d = state.drag;
+      if (!d || e.pointerId !== d.id) return;
+      scrollToThumb(d.vertical, (d.vertical ? e.clientY : e.clientX) - d.grab - d.start, d.track, d.size);
+    });
+    const release = (e) => {
+      if (state.drag && e.pointerId === state.drag.id) state.drag = null;
+    };
+    root.addEventListener("pointerup", release);
+    root.addEventListener("pointercancel", release);
+
+    // The bar sits over the viewport, so a wheel on it scrolls the viewport.
+    root.addEventListener("wheel", (e) => {
+      const bar = e.target.closest(BAR);
+      if (!bar || bar.parentElement !== root) return;
+      e.preventDefault();
+      viewport.scrollBy(e.deltaX, e.deltaY);
+    }, { passive: false });
+
+    measure();
+  }
+
+  function init() {
+    document.querySelectorAll("[data-tui-scroll-area]").forEach(setup);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+  // Re-init on any childList mutation, directly (never rAF-deferred: rAF
+  // does not fire in hidden tabs or throttled iframes): swapped-in markup
+  // wires itself and a swapped content is measured again.
+  new MutationObserver(() => init()).observe(document.body, { childList: true, subtree: true });
+
+  window.tui = window.tui || {};
+  window.tui.scrollArea = {
+    measure: (root) => root && root._tuiScrollArea && root._tuiScrollArea.measure(),
+  };
+})();
+
 // components/sidebar/sidebar.js
 (function () {
   "use strict";
