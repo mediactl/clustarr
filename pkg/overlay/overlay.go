@@ -32,8 +32,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // edges and rounded (2% of the poster's width) only on the inner corner,
 // black at 80%, its count 56px tall (27% of the box) and centred, in Open
 // Sans Bold. The defaults reproduce it; Template.WidthPct scales it at the
-// same aspect. A badge puts its logo left of the score on one row, the row
-// centred in the box both ways, the digits at the count's height.
+// same aspect. A badge stacks its logo above the score, the pair centred
+// in the box both ways, the digits at the count's height.
 // (Until then the box was square and rounded on three corners, from the
 // spec's prose description of the same reference.)
 //
@@ -261,86 +261,76 @@ func drawBadge(canvas *image.NRGBA, box image.Rectangle, paddingPx, radiusPx int
 	contentW := maxInt(boxW-2*margin, 1)
 	contentH := maxInt(boxH-2*margin, 1)
 
-	// One row, like Plex's single-line count: the logo, a gap and the
-	// score, centred in the box both ways. The score's cap height is
-	// ScorePct of the box height (Plex's count is 56px on its 207px box,
-	// 27%) and the logo LogoPct of it tall; a row wider than the content
-	// area -- a three-character score beside the logo -- shrinks as a
-	// whole until it fits.
-	lb := logoBounds(b.Logo)
-	capTarget := math.Min(float64(scalePct(boxH, t.ScorePct)), float64(contentH))
-	logoTarget := math.Min(float64(scalePct(boxH, t.LogoPct)), float64(contentH))
-	var r scoreRow
-	for scale := 1.0; ; scale *= 0.95 {
-		var err error
-		r, err = layoutRow(b, lb, capTarget*scale, logoTarget*scale)
+	// The score's cap height is ScorePct of the box height, as
+	// OverlayGeometry.scorePercent documents: Plex's count is 56px on its
+	// 207px box, 27%. (Until 2026-09-24 it was ScorePct of the height left
+	// under the logo, 10px at the defaults on a 500px poster, so the 8px
+	// font floor drew every score.)
+	var face font.Face
+	capH := 0
+	if b.Score != "" {
+		f, _, err := faceForCapHeight(math.Max(float64(scalePct(boxH, t.ScorePct)), 1))
 		if err != nil {
-			return err
+			return fmt.Errorf("score font: %w", err)
 		}
-		if r.width() <= contentW || scale < 0.2 {
-			break
-		}
-		r.close()
+		defer func() { _ = f.Close() }()
+		face = f
+		capH = maxInt(int(math.Round(fixedToFloat(f.Metrics().CapHeight))), 1)
 	}
-	defer r.close()
 
-	centreY := float64(box.Min.Y) + float64(boxH)/2
-	x := box.Min.X + (boxW-r.width())/2
-	if r.logoH > 0 {
-		top := int(math.Round(centreY - float64(r.logoH)/2))
-		dst := image.Rect(x, top, x+r.logoW, top+r.logoH)
-		xdraw.CatmullRom.Scale(canvas, dst, b.Logo, lb, xdraw.Over, nil)
-		x += r.logoW + r.gap
+	// The logo is LogoPct of the content width, shrunk to the height the
+	// score and the gap above it leave.
+	lb := logoBounds(b.Logo)
+	logoW, logoH := 0, 0
+	if !lb.Empty() {
+		room := contentH
+		if capH > 0 {
+			room = contentH - capH - margin
+		}
+		if room >= 1 {
+			logoW = clampInt(scalePct(contentW, t.LogoPct), 1, contentW)
+			logoH = scaleToWidth(logoW, lb)
+			if logoH > room {
+				logoH = room
+				logoW = scaleToHeight(logoH, lb)
+			}
+		}
 	}
-	if r.face != nil {
-		drawScoreText(canvas, b.Score, r.face, float64(x-r.textLeft), centreY+float64(r.capH)/2)
+
+	// The logo above the score, the pair centred in the box as one group,
+	// as Plex centres its count -- the owner's choice over a single row
+	// (2026-09-24), compared against a Plex item side by side.
+	groupH := logoH + capH
+	if logoH > 0 && capH > 0 {
+		groupH += margin
+	}
+	top := box.Min.Y + (boxH-groupH)/2
+	if logoH > 0 {
+		left := box.Min.X + (boxW-logoW)/2
+		dst := image.Rect(left, top, left+logoW, top+logoH)
+		xdraw.CatmullRom.Scale(canvas, dst, b.Logo, lb, xdraw.Over, nil)
+		top += logoH + margin
+	}
+	if face != nil {
+		// Centred by the glyphs' ink, not their advance, whose side
+		// bearings would put the score a few pixels left of centre.
+		ink, _ := font.BoundString(face, b.Score)
+		inkLeft := fixedToFloat(ink.Min.X)
+		inkW := fixedToFloat(ink.Max.X) - inkLeft
+		x := float64(box.Min.X) + (float64(boxW)-inkW)/2 - inkLeft
+		drawScoreText(canvas, b.Score, face, x, float64(top+capH))
 	}
 	return nil
 }
 
-// scoreRow is one badge's row at one scale: the logo's size, the gap after
-// it, and the score's face, cap height and ink extent -- ink, not advance,
-// so the visible glyphs are what is centred, not the font's side bearings.
-type scoreRow struct {
-	logoW, logoH int
-	gap          int
-	face         font.Face
-	capH, textW  int
-	textLeft     int // the ink's left edge relative to the pen position
-}
-
-func (r scoreRow) width() int { return r.logoW + r.gap + r.textW }
-
-func (r scoreRow) close() {
-	if r.face != nil {
-		_ = r.face.Close()
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
 	}
-}
-
-// layoutRow sizes b's row for a score cap height of capPx and a logo
-// logoPx tall. The gap between them is a third of the cap height, the
-// space Plex-style labels leave between an icon and its text.
-func layoutRow(b Badge, lb image.Rectangle, capPx, logoPx float64) (scoreRow, error) {
-	var r scoreRow
-	if b.Score != "" {
-		face, _, err := faceForCapHeight(math.Max(capPx, 1))
-		if err != nil {
-			return scoreRow{}, fmt.Errorf("score font: %w", err)
-		}
-		r.face = face
-		r.capH = maxInt(int(math.Round(fixedToFloat(face.Metrics().CapHeight))), 1)
-		ink, _ := font.BoundString(face, b.Score)
-		r.textLeft = int(math.Floor(fixedToFloat(ink.Min.X)))
-		r.textW = int(math.Ceil(fixedToFloat(ink.Max.X))) - r.textLeft
+	if v > hi {
+		return hi
 	}
-	if !lb.Empty() && logoPx >= 1 {
-		r.logoH = maxInt(int(math.Round(logoPx)), 1)
-		r.logoW = scaleToHeight(r.logoH, lb)
-	}
-	if r.logoH > 0 && r.face != nil {
-		r.gap = maxInt(int(math.Round(float64(r.capH)/3)), 1)
-	}
-	return r, nil
+	return v
 }
 
 func minInt(a, b int) int {
@@ -360,8 +350,17 @@ func logoBounds(img image.Image) image.Rectangle {
 	return img.Bounds()
 }
 
-// scaleToHeight returns the width that preserves src's aspect ratio at
-// height h, at least 1px.
+// scaleToWidth returns the height that preserves src's aspect ratio at
+// width w, at least 1px.
+func scaleToWidth(w int, src image.Rectangle) int {
+	sw, sh := src.Dx(), src.Dy()
+	if sw <= 0 {
+		return 1
+	}
+	return maxInt(int(math.Round(float64(w)*float64(sh)/float64(sw))), 1)
+}
+
+// scaleToHeight is scaleToWidth's inverse.
 func scaleToHeight(h int, src image.Rectangle) int {
 	sw, sh := src.Dx(), src.Dy()
 	if sh <= 0 {

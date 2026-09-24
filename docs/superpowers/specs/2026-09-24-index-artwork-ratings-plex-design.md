@@ -645,6 +645,11 @@ along the poster's vertical edge with `PaddingPct` between them.
 > rendered at the count's 56px, its "665" overlaps the screenshot's glyphs
 > at IoU 0.87, against 0.76 for Inter Bold and 0.78 for Open Sans SemiBold.
 > `RenderVersion` 4.
+>
+> The owner then compared the stacked badge beside a Plex item and chose
+> it over the row: the logo is back **above** the score (`logoPercent` the
+> logo's width, default 60), keeping Open Sans Bold and the ink-centred
+> score. `RenderVersion` 5.
 
 `FormatScore`: metacritic, rottenTomatoesCritic and rottenTomatoesAudience
 as whole numbers 0 to 100; imdb, tmdb, trakt and letterboxd with one

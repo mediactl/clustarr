@@ -226,9 +226,10 @@ func Badges(spec catalogv1alpha1.OverlayProfileSpec, ratings []catalogv1alpha1.R
 // Clustarr-Rendered-From stops matching, so each is re-rendered on its next
 // task rather than served stale forever. 1 was the unversioned renderer
 // through M7's first cut; 2 downscales originals to MaxRenderWidth; 3 draws
-// Plex's episode-count box (pkg/overlay's package doc); 4 puts the logo
-// beside the score in Open Sans Bold, Plex's face.
-const RenderVersion = 4
+// Plex's episode-count box (pkg/overlay's package doc); 4 put the logo
+// beside the score in Open Sans Bold, Plex's face; 5 stacks it above the
+// score again, keeping the face.
+const RenderVersion = 5
 
 // InputsDigest is spec §C.6 step 2: the hex SHA-256 over the original
 // poster's digest, the profile hash and the item's ratings sorted by

@@ -81,9 +81,9 @@ type OverlayGeometry struct {
 	// +kubebuilder:validation:Maximum=100
 	PaddingPercent *int32 `json:"paddingPercent,omitempty"`
 
-	// LogoPercent is the provider logo's height, as a percentage of the
-	// badge's box height; the logo sits left of the score, the two centred
-	// in the box as one row. Unset means 32 (LogoPercentOrDefault,
+	// LogoPercent is the provider logo's width, as a percentage of the
+	// badge's box width; the logo sits above the score, the pair centred in
+	// the box. Unset means 60 (LogoPercentOrDefault,
 	// DefaultOverlayLogoPercent).
 	// +optional
 	// +kubebuilder:validation:Minimum=1

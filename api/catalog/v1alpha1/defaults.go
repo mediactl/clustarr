@@ -56,8 +56,8 @@ const (
 	// DefaultOverlayPaddingPercent mirrors OverlayGeometry.paddingPercent's default.
 	DefaultOverlayPaddingPercent int32 = 2
 	// DefaultOverlayLogoPercent mirrors OverlayGeometry.logoPercent's default
-	// (percentage of the badge's box height).
-	DefaultOverlayLogoPercent int32 = 32
+	// (percentage of the badge's box width).
+	DefaultOverlayLogoPercent int32 = 60
 	// DefaultOverlayScorePercent mirrors OverlayGeometry.scorePercent's default
 	// (percentage of the badge's box height).
 	DefaultOverlayScorePercent int32 = 27

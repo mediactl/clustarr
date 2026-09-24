@@ -41,9 +41,9 @@ type OverlayGeometryApplyConfiguration struct {
 	// poster width. Unset means 2 (PaddingPercentOrDefault,
 	// DefaultOverlayPaddingPercent).
 	PaddingPercent *int32 `json:"paddingPercent,omitempty"`
-	// LogoPercent is the provider logo's height, as a percentage of the
-	// badge's box height; the logo sits left of the score, the two centred
-	// in the box as one row. Unset means 32 (LogoPercentOrDefault,
+	// LogoPercent is the provider logo's width, as a percentage of the
+	// badge's box width; the logo sits above the score, the pair centred in
+	// the box. Unset means 60 (LogoPercentOrDefault,
 	// DefaultOverlayLogoPercent).
 	LogoPercent *int32 `json:"logoPercent,omitempty"`
 	// ScorePercent is the score text's cap height, as a percentage of the
