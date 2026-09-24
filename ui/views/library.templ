@@ -21,6 +21,8 @@ import (
 	"fmt"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -92,63 +94,85 @@ templ libraryTabs(current projection.Tab) {
 // #library-rows's contents.
 templ LibraryRows(items []projection.LibraryItem) {
 	if len(items) == 0 {
-		<p class="text-slate-400">Nothing in the library yet.</p>
+		<p class="text-muted-foreground">Nothing in the library yet.</p>
 	}
-	<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-		for _, item := range items {
-			@libraryCard(item)
+	@item.Group(item.GroupProps{Class: "grid gap-3 sm:grid-cols-2 lg:grid-cols-3"}) {
+		for _, li := range items {
+			@libraryCard(li)
 		}
-	</div>
+	}
 }
 
-// libraryCard renders one LibraryItem as a poster-grid tile: title, kind and
-// monitored badges, phase when the kind has one, and a link through to its
-// detail view. Every row carries data-ref, data-kind, data-monitored,
-// data-phase and data-hasfile (ruling R8): the UI tests assert on these
-// attributes, not on visible copy, so a wording change does not break a test
-// and a markup change does not pass one.
-templ libraryCard(item projection.LibraryItem) {
-	<div
-		class="flex gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3"
-		data-ref={ item.Ref.String() }
-		data-kind={ string(item.Kind) }
-		data-monitored={ fmt.Sprintf("%t", item.Monitored) }
-		data-phase={ item.Phase }
-		data-hasfile={ fmt.Sprintf("%t", item.HasFile) }
-		data-year={ fmt.Sprint(item.Year) }
-		data-profile={ item.QualityProfileRef }
-		data-poster={ posterState(item.Poster) }
-	>
-		@poster(item.Poster, item.Title)
-		<div class="min-w-0 flex-1">
-			<div class="flex items-start justify-between gap-3">
-				<a href={ libraryItemURL(item) } class="truncate font-medium hover:underline">{ item.Title }</a>
-				<span class={ monitoredBadgeClass(item.Monitored) }>{ monitoredLabel(item.Monitored) }</span>
-			</div>
-			if item.Year > 0 {
-				<div class="mt-0.5 text-xs text-slate-400">{ fmt.Sprint(item.Year) }</div>
+// libraryCard renders one LibraryItem as shadcn-templ's item: the whole
+// tile is the link to the detail page, the poster is the item's media at
+// poster ratio, the title (with the year) and the kind and profile are its
+// title and description, and monitored, phase and on-disk are badges.
+// Every card carries data-ref, data-kind, data-monitored, data-phase and
+// data-hasfile (ruling R8): the UI tests assert on these attributes, not on
+// visible copy, so a wording change does not break a test and a markup
+// change does not pass one.
+templ libraryCard(li projection.LibraryItem) {
+	@item.Item(item.Props{
+		Variant: item.VariantOutline,
+		Href:    libraryDetailPath(li),
+		Class:   "flex-nowrap items-start",
+		Attributes: templ.Attributes{
+			"data-ref":       li.Ref.String(),
+			"data-kind":      string(li.Kind),
+			"data-monitored": fmt.Sprintf("%t", li.Monitored),
+			"data-phase":     li.Phase,
+			"data-hasfile":   fmt.Sprintf("%t", li.HasFile),
+			"data-year":      fmt.Sprint(li.Year),
+			"data-profile":   li.QualityProfileRef,
+			"data-poster":    posterState(li.Poster),
+		},
+	}) {
+		@item.Media(item.MediaProps{Variant: item.MediaVariantImage, Class: "h-24 w-16"}) {
+			@poster(li.Poster, li.Title)
+		}
+		@item.Content() {
+			@item.Title(item.TitleProps{Class: "line-clamp-1"}) {
+				{ li.Title }
+				if li.Year > 0 {
+					<span class="text-muted-foreground">{ fmt.Sprint(li.Year) }</span>
+				}
 			}
-			<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-				<span class="rounded-full bg-slate-800 px-2 py-0.5">{ string(item.Kind) }</span>
-				if item.QualityProfileRef != "" {
-					<span class="rounded-full bg-slate-800 px-2 py-0.5" title="quality profile">{ item.QualityProfileRef }</span>
+			@item.Description() {
+				{ string(li.Kind) }
+				if li.QualityProfileRef != "" {
+					· { li.QualityProfileRef }
 				}
-				if item.Phase != "" {
-					<span class={ stagePhaseBadgeClass(item.Phase) }>{ item.Phase }</span>
-				}
-				if item.HasFile {
-					<span class="text-emerald-300">on disk</span>
-				}
-			</div>
-		</div>
-	</div>
+			}
+		}
+		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
+			@monitoredBadge(li.Monitored)
+			if li.Phase != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone(li.Phase)}) { { li.Phase } }
+			}
+			if li.HasFile {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { on disk }
+			}
+		}
+	}
+}
+
+// monitoredBadge is the monitored mark every card and header shows: the
+// primary badge (Plex gold) when monitored, an outline one when not.
+templ monitoredBadge(monitored bool) {
+	if monitored {
+		@badge.Badge() { { monitoredLabel(monitored) } }
+	} else {
+		@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { monitoredLabel(monitored) } }
+	}
 }
 
 // poster renders the cover art the provider published, hotlinked (spec
 // 2026-09-23-library-page-design, decision 1): lazily, so a long grid does
 // not fetch every image at once, and without a referrer, so the provider's
-// image CDN never learns the UI's address. No art yet renders a
-// placeholder of the same size, never a broken image.
+// image CDN never learns the UI's address. It fills its container at
+// poster ratio (2:3 -- a square crop takes the faces off), so the caller
+// sizes the box. No art yet renders a placeholder of the same shape, never
+// a broken image.
 templ poster(url, title string) {
 	if url != "" {
 		<img
@@ -156,10 +180,10 @@ templ poster(url, title string) {
 			alt={ title }
 			loading="lazy"
 			referrerpolicy="no-referrer"
-			class="h-36 w-24 flex-none rounded-md bg-slate-800 object-cover"
+			class="aspect-[2/3] w-full rounded-sm bg-muted object-cover"
 		/>
 	} else {
-		<div class="flex h-36 w-24 flex-none items-center justify-center rounded-md bg-slate-800 text-xs text-slate-500">no art</div>
+		<div class="flex aspect-[2/3] w-full items-center justify-center rounded-sm bg-muted text-xs text-muted-foreground">no art</div>
 	}
 }
 
@@ -324,22 +348,28 @@ func monitoredBadgeClass(monitored bool) string {
 // to a kind's enum after this was written) reads as the default "in
 // progress" sky blue.
 func stagePhaseBadgeClass(phase string) string {
-	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+	return "rounded-full px-2 py-0.5 text-xs font-medium " + phaseTone(phase)
+}
+
+// phaseTone is the colour alone, for a badge component that brings its own
+// shape: the library card's phase badge keeps these semantics (the tests
+// assert on them) over the component's neutral secondary colours.
+func phaseTone(phase string) string {
 	switch phase {
 	case "CutoffUnmet", "CutoffUnevaluated", "Delayed":
 		// CutoffUnevaluated (Movie, Episode) is an item whose quality
 		// profile could not be resolved: like CutoffUnmet, something is
 		// wrong with it that the user should look at, so it shares the
 		// warning colour rather than the neutral in-flight sky blue.
-		return base + "bg-amber-500/20 text-amber-300"
+		return "bg-amber-500/20 text-amber-300"
 	case "Imported", "Transcoded":
 		// Transcoded (Movie, Episode) is a transcoded file, which is final:
 		// as settled as Imported, so it shares the "done" colour.
-		return base + "bg-emerald-500/20 text-emerald-300"
+		return "bg-emerald-500/20 text-emerald-300"
 	case "Unmonitored":
-		return base + "bg-slate-500/20 text-slate-300"
+		return "bg-slate-500/20 text-slate-300"
 	default:
-		return base + "bg-sky-500/20 text-sky-300"
+		return "bg-sky-500/20 text-sky-300"
 	}
 }
 

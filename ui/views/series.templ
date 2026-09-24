@@ -56,7 +56,9 @@ templ itemHeader(item projection.LibraryItem) {
 		data-profile={ item.QualityProfileRef }
 		data-poster={ posterState(item.Poster) }
 	>
-		@poster(item.Poster, item.Title)
+		<div class="w-24 flex-none">
+			@poster(item.Poster, item.Title)
+		</div>
 		<div class="min-w-0 flex-1">
 			<div class="flex items-start justify-between gap-4">
 				<h1 class="text-2xl font-bold">{ item.Title }</h1>

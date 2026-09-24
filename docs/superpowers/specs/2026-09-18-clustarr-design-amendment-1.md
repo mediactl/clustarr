@@ -467,6 +467,16 @@ radius small, Noto Sans, lucide) and the token file applied on top:
 reads a URL as a component registry, not a theme. The tokens live in
 `ui/static/input.css` (`:root` and `.dark`), which `make css` compiles.
 
+**Library cards (as built, 2026-09-23).** A library card is shadcn-templ's
+`item`: the whole tile is the link to the detail page (`Href`), the poster
+is the item's media at poster ratio (2:3, never a square crop), the title
+with its year is the item's title, kind and quality profile its
+description, and monitored, phase and on-disk are `badge`s -- the phase
+badge keeping the amber warning and emerald done tones the earlier tests
+guard (`phaseTone`). The grid is an `item.Group` with the responsive column
+classes. Every data attribute the tests and the e2e suite key on stays on
+the card element.
+
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,
 `per` defaulting to 50 and capped at 500, a page past the end clamping to
