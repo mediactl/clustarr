@@ -268,7 +268,7 @@ func (w *Worker) runEpisodes(
 			return nil
 		}
 		c := fileCandidate{path: srcPath, info: info}
-		if p, err := release.ParsePath(srcPath, release.Options{Kind: commonv1.MediaKindEpisode}); err == nil {
+		if p, err := parseMediaFile(srcPath, plan.sceneName, commonv1.MediaKindEpisode); err == nil {
 			c.ranked(plan.profile, p.Quality, p.Revision, true)
 		}
 		cands = append(cands, c)
@@ -313,7 +313,9 @@ func (w *Worker) importEpisodeFile(
 	rel := relPath(dl.Status.ContentRoot, srcPath)
 	series := plan.series
 
-	parsed, perr := release.ParsePath(srcPath, release.Options{Kind: commonv1.MediaKindEpisode})
+	// plan.sceneName is the release title only for a single episode's
+	// download, so a pack's files never take the pack's title.
+	parsed, perr := parseMediaFile(srcPath, plan.sceneName, commonv1.MediaKindEpisode)
 	if perr != nil {
 		return nil, fmt.Sprintf("%s: could not parse the filename: %v", rel, perr), nil
 	}

@@ -115,7 +115,7 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 			return nil
 		}
 		c := fileCandidate{path: srcPath, info: info}
-		if p, err := release.ParsePath(srcPath, release.Options{Kind: commonv1.MediaKindMovie}); err == nil {
+		if p, err := parseMediaFile(srcPath, pc.download.Spec.Release.Title, commonv1.MediaKindMovie); err == nil {
 			c.ranked(pc.profile, p.Quality, p.Revision, true)
 		}
 		cands = append(cands, c)
@@ -209,6 +209,28 @@ func (w *Worker) admit(
 	}
 }
 
+// parseMediaFile parses a media file's name, and when that names nothing
+// -- an obfuscated post's "2ef6f194995e4a11b055d0f2354ef0ba.mp4", the
+// first grab on the owner's cluster (2026-09-24) -- the release title the
+// Download carries: Radarr's ImportDecisionMaker falls back from the
+// file's name (FileMovieInfo) to the download client item's title, and
+// Sonarr does the same for a single episode. The Download already names
+// the item, so the parse serves the quality, revision, group and
+// languages, which the release title carries as well as any file name.
+// An empty releaseTitle (a pack, whose title names none of its files) is
+// no fallback, and the file's own parse error is the one reported.
+func parseMediaFile(srcPath, releaseTitle string, kind commonv1.MediaKind) (*release.ParsedRelease, error) {
+	p, err := release.ParsePath(srcPath, release.Options{Kind: kind})
+	if err == nil || releaseTitle == "" {
+		return p, err
+	}
+	fp, ferr := release.Parse(releaseTitle, release.Options{Kind: kind})
+	if ferr != nil {
+		return nil, err
+	}
+	return fp, nil
+}
+
 // processFile imports one media file, or explains why it was rejected.
 // A non-nil error means the whole walk must abort; see [processConfig.run].
 func (pc *processConfig) processFile(
@@ -217,7 +239,7 @@ func (pc *processConfig) processFile(
 	log := logging.FromContext(ctx)
 	rel := relPath(pc.download.Status.ContentRoot, srcPath)
 
-	parsed, perr := release.ParsePath(srcPath, release.Options{Kind: commonv1.MediaKindMovie})
+	parsed, perr := parseMediaFile(srcPath, pc.download.Spec.Release.Title, commonv1.MediaKindMovie)
 	if perr != nil {
 		return nil, fmt.Sprintf("%s: could not parse the filename: %v", rel, perr), nil
 	}

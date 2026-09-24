@@ -118,3 +118,25 @@ func TestAnUnreadableFolderInADownloadIsARejectionNotAnAbort(t *testing.T) {
 	require.Len(t, got.Status.Import.Rejections, 1)
 	require.Contains(t, got.Status.Import.Rejections[0], "Extras-locked: could not be read")
 }
+
+// An obfuscated post names its one video "2ef6f194995e4a11b055d0f2354ef0ba.mp4"
+// (the first grab on the owner's cluster, 2026-09-24): the file name parses
+// to nothing, so the import rejected the only file and the controller
+// blocklisted a whole, repaired release for it. Radarr's ImportDecisionMaker
+// falls back from the file's name to the download client item's title; the
+// Download carries that title, and it names the quality and group as well
+// as any file name would.
+func TestAnObfuscatedFileNameTakesTheDownloadsReleaseTitle(t *testing.T) {
+	f := newFixture(t, "fi-obfuscated")
+	contentRoot := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(contentRoot, "2ef6f194995e4a11b055d0f2354ef0ba.mkv"), sampleFloor)
+
+	got := f.importTitled(t, "obfuscated-dl", "The.Matrix.1999.1080p.BluRay.x264-SPARKS", contentRoot,
+		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName})
+	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	require.Len(t, got.Imported, 1)
+	for _, mf := range f.importedFiles(t, got) {
+		require.Equal(t, "Bluray-1080p", mf.Spec.Quality.Name, "the quality is the release title's")
+		require.Equal(t, "SPARKS", mf.Spec.ReleaseGroup, "so is the group")
+	}
+}

@@ -186,3 +186,25 @@ func TestHandleBlocksAnEpisodeImportWithNoEpisode(t *testing.T) {
 	require.NoError(t, s.api.List(context.Background(), &list, client.InNamespace(s.ns)))
 	assert.Empty(t, list.Items)
 }
+
+// The same fallback for a single episode: Sonarr parses the download client
+// item's title when the file's name says nothing, and only when the
+// download holds one video, since a pack's title names none of its files.
+func TestAnObfuscatedEpisodeFileTakesTheDownloadsReleaseTitle(t *testing.T) {
+	s := newSeriesFixture(t, "fi-ep-obfuscated")
+	contentRoot := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(contentRoot, "2ef6f194995e4a11b055d0f2354ef0ba.mkv"), sampleFloor)
+
+	dl := s.createDownloadWith(t, "ep-obfuscated-dl", contentRoot,
+		commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "breaking-bad-s01e03"}, "", nil,
+		func(sp *downloadv1alpha1.DownloadSpec) {
+			sp.Release.Title = "Breaking.Bad.S01E03.1080p.WEB-DL.DD5.1.H.264-GRP"
+		})
+	require.NoError(t, s.worker.Handle(context.Background(), newImportTaskMessage(t, s.ns, dl.Name, "")))
+	got := s.importState(t, dl).Status.Import
+	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	require.Len(t, got.Imported, 1)
+	mf := s.mediaFile(t, got.Imported[0].MediaFileRef)
+	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "breaking-bad-s01e03"}, mf.Spec.MediaRef)
+	assert.Equal(t, "WEBDL-1080p", mf.Spec.Quality.Name, "the quality is the release title's")
+}
