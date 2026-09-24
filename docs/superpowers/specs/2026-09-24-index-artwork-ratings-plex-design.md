@@ -632,10 +632,19 @@ along the poster's vertical edge with `PaddingPct` between them.
 > `opacityPercent` default of 80 (not `#1F1F1F` at 90), and `scorePercent`
 > (default 27) of the box height, as §C.4 always documented -- the first
 > cut applied it to the height left under the logo, which at the old
-> defaults drew every score at the 8px font floor. The logo and score are
-> centred in the box as one group. `RenderVersion` 3 re-renders every
-> stored overlay. The owner's profile anchors it `topLeft`, clear of
-> Plex's own count in the top right.
+> defaults drew every score at the 8px font floor. `RenderVersion` 3
+> re-renders every stored overlay. The owner's profile anchors it
+> `topLeft`, clear of Plex's own count in the top right.
+>
+> Then, at the owner's choice: the logo sits **left of** the score on one
+> row, the row centred in the box both ways by the glyphs' ink (not their
+> advance), and `logoPercent` became the logo's **height** as a share of the
+> box height (default 32, a little taller than the 27% digits); a row too
+> wide for the box -- "100" beside a logo -- shrinks as a whole. The score
+> is drawn in **Open Sans Bold** (OFL, `pkg/overlay/fonts/`), Plex's face:
+> rendered at the count's 56px, its "665" overlaps the screenshot's glyphs
+> at IoU 0.87, against 0.76 for Inter Bold and 0.78 for Open Sans SemiBold.
+> `RenderVersion` 4.
 
 `FormatScore`: metacritic, rottenTomatoesCritic and rottenTomatoesAudience
 as whole numbers 0 to 100; imdb, tmdb, trakt and letterboxd with one

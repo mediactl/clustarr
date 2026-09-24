@@ -57,14 +57,14 @@ func TestOverlayGeometryOrDefault(t *testing.T) {
 		{"nil/width", nilGeometry.WidthPercentOrDefault(), 19},
 		{"nil/radius", nilGeometry.RadiusPercentOrDefault(), 2},
 		{"nil/padding", nilGeometry.PaddingPercentOrDefault(), 2},
-		{"nil/logo", nilGeometry.LogoPercentOrDefault(), 60},
+		{"nil/logo", nilGeometry.LogoPercentOrDefault(), 32},
 		{"nil/score", nilGeometry.ScorePercentOrDefault(), 27},
 		{"nil/opacity", nilGeometry.OpacityPercentOrDefault(), 80},
 
 		{"empty/width", empty.WidthPercentOrDefault(), 19},
 		{"empty/radius", empty.RadiusPercentOrDefault(), 2},
 		{"empty/padding", empty.PaddingPercentOrDefault(), 2},
-		{"empty/logo", empty.LogoPercentOrDefault(), 60},
+		{"empty/logo", empty.LogoPercentOrDefault(), 32},
 		{"empty/score", empty.ScorePercentOrDefault(), 27},
 		{"empty/opacity", empty.OpacityPercentOrDefault(), 80},
 

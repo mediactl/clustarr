@@ -52,7 +52,7 @@ func TestDefaultTemplateMatchesNamedConstants(t *testing.T) {
 	require.Equal(t, 19, defaultWidthPct)
 	require.Equal(t, 2, defaultRadiusPct)
 	require.Equal(t, 2, defaultPaddingPct)
-	require.Equal(t, 60, defaultLogoPct)
+	require.Equal(t, 32, defaultLogoPct)
 	require.Equal(t, 27, defaultScorePct)
 	require.Equal(t, 80, defaultOpacityPct)
 
@@ -194,6 +194,35 @@ func TestTheDefaultBadgeIsPlexsEpisodeCountBox(t *testing.T) {
 	assert.InDelta(t, 56, maxY-minY+1, 2, "the score's height")
 	assert.InDelta(t, 0, minX-(236-maxX), 3, "centred horizontally")
 	assert.InDelta(t, 0, minY-(206-maxY), 3, "centred vertically")
+
+	// With the Metacritic logo beside it, the score keeps Plex's height and
+	// the logo-and-score row is centred in the box both ways.
+	logo, ok := Logo(SourceMetacritic)
+	require.True(t, ok)
+	got, err = Render(base, []Badge{{Source: SourceMetacritic, Score: "75", Logo: logo}}, tpl)
+	require.NoError(t, err)
+	row, err := layoutRow(Badge{Score: "75", Logo: logo}, logo.Bounds(), float64(scalePct(207, tpl.ScorePct)), float64(scalePct(207, tpl.LogoPct)))
+	require.NoError(t, err)
+	defer row.close()
+	minX, minY, maxX, maxY = 237, 207, -1, -1
+	dMinY, dMaxY := 207, -1
+	for y := 0; y < 207; y++ {
+		for x := 0; x < 237; x++ {
+			n := color.NRGBAModel.Convert(got.At(x, y)).(color.NRGBA)
+			// The row is the logo's gold ring and white glyphs; the box, the
+			// poster and their anti-aliased blend at the rounded corner all
+			// have a red channel of 100 or less.
+			if n.R > 150 {
+				minX, minY, maxX, maxY = min(minX, x), min(minY, y), max(maxX, x), max(maxY, y)
+			}
+			if x > minX+row.logoW && n.R > 200 && n.G > 200 && n.B > 200 {
+				dMinY, dMaxY = min(dMinY, y), max(dMaxY, y)
+			}
+		}
+	}
+	assert.InDelta(t, 0, minX-(236-maxX), 3, "the row is centred horizontally")
+	assert.InDelta(t, 0, minY-(206-maxY), 3, "the row is centred vertically")
+	assert.InDelta(t, 56, dMaxY-dMinY+1, 2, "the score keeps Plex's height beside the logo")
 }
 
 func TestLayoutBoxesClampsToMinBoxPxOnASmallPoster(t *testing.T) {
