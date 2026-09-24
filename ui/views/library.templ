@@ -194,59 +194,10 @@ templ poster(url, title string) {
 // monitored state and phase, and the two per-item actions, monitor/unmonitor
 // and search now (§A3.2). "Rescan" is RootFolder-scoped, not per-item, so it
 // lives only on the Library page's own toolbar.
-templ LibraryDetail(item projection.LibraryItem) {
-	@Layout(item.Title) {
-		<a href="/library" class="text-sm text-slate-400 hover:text-slate-100">&larr; Library</a>
-		<div
-			class="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-6"
-			data-ref={ item.Ref.String() }
-			data-kind={ string(item.Kind) }
-			data-monitored={ fmt.Sprintf("%t", item.Monitored) }
-			data-phase={ item.Phase }
-			data-hasfile={ fmt.Sprintf("%t", item.HasFile) }
-		>
-			<div class="flex items-center justify-between gap-4">
-				<h1 class="text-2xl font-bold">{ item.Title }</h1>
-				<span class={ monitoredBadgeClass(item.Monitored) }>{ monitoredLabel(item.Monitored) }</span>
-			</div>
-			<div class="mt-2 flex items-center gap-2 text-xs text-slate-400">
-				<span class="rounded-full bg-slate-800 px-2 py-0.5">{ string(item.Kind) }</span>
-				if item.Phase != "" {
-					<span class={ stagePhaseBadgeClass(item.Phase) }>{ item.Phase }</span>
-				}
-				if item.HasFile {
-					<span class="text-emerald-300">on disk</span>
-				}
-			</div>
-			<div class="mt-6 flex gap-3">
-				<form method="post" action={ templ.URL(libraryActionURL(item, "monitor")) }>
-					<input type="hidden" name="return" value={ libraryDetailPath(item) }/>
-					<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !item.Monitored) }/>
-					<button
-						type="submit"
-						data-action="set-monitored"
-						class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
-					>
-						if item.Monitored {
-							Unmonitor
-						} else {
-							Monitor
-						}
-					</button>
-				</form>
-				<form method="post" action={ templ.URL(libraryActionURL(item, "search")) }>
-					<input type="hidden" name="return" value={ libraryDetailPath(item) }/>
-					<button
-						type="submit"
-						data-action="search-now"
-						class="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
-					>
-						Search now
-					</button>
-				</form>
-				@refreshMetadataForm(item)
-			</div>
-		</div>
+templ LibraryDetail(li projection.LibraryItem) {
+	@Layout(li.Title) {
+		<a href={ templ.URL("/library/" + string(li.Tab)) } class="text-sm text-muted-foreground hover:text-foreground">&larr; Library</a>
+		@itemHeader(li)
 	}
 }
 

@@ -107,9 +107,9 @@ func TestSeriesPageListsSeasonsThatLoadTheirEpisodesLazily(t *testing.T) {
 	require.Contains(t, body, `data-profile="web-1080p"`)
 	require.Contains(t, body, `data-season="1"`)
 	require.Contains(t, body, `data-season="2"`)
-	require.Contains(t, body, `data-season="1" data-monitored="true" data-episodes="12" data-files="8"`)
-	require.Contains(t, body, `data-season="2" data-monitored="false" data-episodes="12" data-files="0"`,
-		"the spec override wins over the rollup")
+	requireTag(t, body, `data-season="1"`, `data-monitored="true"`, `data-episodes="12"`, `data-files="8"`)
+	// The spec override wins over the rollup.
+	requireTag(t, body, `data-season="2"`, `data-monitored="false"`, `data-episodes="12"`, `data-files="0"`)
 	require.Contains(t, body, `hx-get="/library/default/series/andor/seasons/1"`)
 	require.Contains(t, body, `hx-trigger="toggle once"`)
 	require.Contains(t, body, `href="/library/default/series/andor/seasons/2"`)
@@ -130,7 +130,7 @@ func TestSeasonRouteServesAPartialToHTMXAndAPageOtherwise(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	partial := rec.Body.String()
 	require.NotContains(t, partial, "<html", "htmx gets the component, not a page")
-	require.Contains(t, partial, `data-episode="1" data-monitored="true" data-hasfile="true" data-quality="WEBDL-1080p" data-phase="Imported"`)
+	requireTag(t, partial, `data-episode="1"`, `data-monitored="true"`, `data-hasfile="true"`, `data-quality="WEBDL-1080p"`, `data-phase="Imported"`)
 	require.Contains(t, partial, `data-episode="2"`)
 	require.Less(t, indexOf(partial, `data-episode="1"`), indexOf(partial, `data-episode="2"`), "episodes in number order")
 	require.NotContains(t, partial, `One Year Later`, "season 2's episode is not in season 1")
@@ -144,7 +144,7 @@ func TestSeasonRouteServesAPartialToHTMXAndAPageOtherwise(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	page := rec.Body.String()
 	require.Contains(t, page, "<html")
-	require.Contains(t, page, `data-episode="1" data-monitored="true" data-hasfile="false"`)
+	requireTag(t, page, `data-episode="1"`, `data-monitored="true"`, `data-hasfile="false"`)
 	require.Contains(t, page, "One Year Later")
 	require.NotContains(t, page, "Kassa")
 
@@ -224,7 +224,7 @@ func TestSeasonMonitorToggleRepliesWithTheComponentToHTMX(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	require.NotContains(t, body, "<html")
-	require.Contains(t, body, `data-season="2" data-monitored="true"`)
+	requireTag(t, body, `data-season="2"`, `data-monitored="true"`)
 	require.NotContains(t, body, `data-action-error`)
 
 	var got catalogv1.Series
@@ -252,7 +252,7 @@ func TestEpisodeMonitorToggleRepliesWithTheRowToHTMX(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	require.NotContains(t, body, "<html")
-	require.Contains(t, body, `data-episode="1" data-monitored="false" data-hasfile="true" data-quality="WEBDL-1080p"`)
+	requireTag(t, body, `data-episode="1"`, `data-monitored="false"`, `data-hasfile="true"`, `data-quality="WEBDL-1080p"`)
 	require.Contains(t, body, "Kassa")
 	var got catalogv1.Episode
 	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor-s01e01"}, &got))
@@ -267,13 +267,14 @@ func TestFailedToggleFromHTMXRepliesWithTheComponentAndAnInlineError(t *testing.
 	rec := postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.Contains(t, body, `data-season="2" data-monitored="false"`, "the component shows the value that still stands")
+	// The component shows the value that still stands.
+	requireTag(t, body, `data-season="2"`, `data-monitored="false"`)
 	require.Contains(t, body, `data-action-error="no-writer"`)
 
 	rec = postForm(t, srv, "/library/default/episode/andor-s01e01/monitor", url.Values{"monitored": {"false"}}, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body = rec.Body.String()
-	require.Contains(t, body, `data-episode="1" data-monitored="true"`)
+	requireTag(t, body, `data-episode="1"`, `data-monitored="true"`)
 	require.Contains(t, body, `data-action-error="no-writer"`)
 
 	rec = postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, false)

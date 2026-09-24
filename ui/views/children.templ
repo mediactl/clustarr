@@ -20,6 +20,8 @@ package views
 import (
 	"fmt"
 
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -28,34 +30,34 @@ import (
 // loads the children -- albums or books -- on first expand, the series
 // page's shape with one component instead of one per season. label names
 // the children ("Albums", "Books").
-templ ParentDetail(item projection.LibraryItem, label string) {
-	@Layout(item.Title) {
-		<a href={ templ.URL("/library/" + string(item.Tab)) } class="text-sm text-slate-400 hover:text-slate-100">&larr; Library</a>
-		@itemHeader(item)
-		<div class="mt-6 rounded-lg border border-slate-800 bg-slate-900">
+templ ParentDetail(li projection.LibraryItem, label string) {
+	@Layout(li.Title) {
+		<a href={ templ.URL("/library/" + string(li.Tab)) } class="text-sm text-muted-foreground hover:text-foreground">&larr; Library</a>
+		@itemHeader(li)
+		<div class="mt-6 rounded-md border border-border bg-card">
 			<details
-				hx-get={ ChildrenURL(item.Ref.Namespace, string(item.Kind), item.Ref.Name) }
+				hx-get={ ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name) }
 				hx-trigger="toggle once"
 				hx-target="find .children"
 				hx-swap="innerHTML"
 			>
 				<summary class="cursor-pointer px-4 py-3 font-medium">
-					<a href={ templ.URL(ChildrenURL(item.Ref.Namespace, string(item.Kind), item.Ref.Name)) } class="hover:underline">{ label }</a>
+					<a href={ templ.URL(ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name)) } class="hover:underline">{ label }</a>
 				</summary>
-				<div class="children border-t border-slate-800 px-4 py-3 text-sm text-slate-400">Loading…</div>
+				<div class="children border-t border-border px-4 py-3 text-sm text-muted-foreground">Loading…</div>
 			</details>
 		</div>
 	}
 }
 
 // ChildrenPage is a parent's children on their own page.
-templ ChildrenPage(item projection.LibraryItem, label string, children []ChildRow) {
-	@Layout(fmt.Sprintf("%s · %s", item.Title, label)) {
-		<a href={ libraryItemURL(item) } class="text-sm text-slate-400 hover:text-slate-100">&larr; { item.Title }</a>
-		@itemHeader(item)
-		<div class="mt-6 rounded-lg border border-slate-800 bg-slate-900">
+templ ChildrenPage(li projection.LibraryItem, label string, children []ChildRow) {
+	@Layout(fmt.Sprintf("%s · %s", li.Title, label)) {
+		<a href={ libraryItemURL(li) } class="text-sm text-muted-foreground hover:text-foreground">&larr; { li.Title }</a>
+		@itemHeader(li)
+		<div class="mt-6 rounded-md border border-border bg-card">
 			<h2 class="px-4 py-3 font-medium">{ label }</h2>
-			<div class="children border-t border-slate-800">
+			<div class="children border-t border-border">
 				@ChildRows(children)
 			</div>
 		</div>
@@ -66,49 +68,52 @@ templ ChildrenPage(item projection.LibraryItem, label string, children []ChildRo
 // fetches, and what the children page renders inline.
 templ ChildRows(children []ChildRow) {
 	if len(children) == 0 {
-		<p class="px-4 py-3 text-sm text-slate-400">Nothing here yet.</p>
+		<p class="px-4 py-3 text-sm text-muted-foreground">Nothing here yet.</p>
 	} else {
-		<table class="w-full text-sm">
-			<tbody>
-				for _, child := range children {
-					@ChildRowView(child)
-				}
-			</tbody>
-		</table>
+		@item.Group(item.GroupProps{Class: "gap-0 p-2"}) {
+			for _, child := range children {
+				@ChildRowView(child)
+			}
+		}
 	}
 }
 
 // ChildRowView is one album or book row, and what its monitor toggle swaps
 // in place.
 templ ChildRowView(child ChildRow) {
-	<tr
-		class="border-b border-slate-800/60 last:border-0"
-		data-child={ child.Name }
-		data-kind={ child.Kind }
-		data-monitored={ fmt.Sprintf("%t", child.Monitored) }
-		data-hasfile={ fmt.Sprintf("%t", child.HasFile) }
-		data-quality={ child.Quality }
-		data-phase={ child.Phase }
-	>
-		<td class="px-4 py-2">{ child.Title }</td>
-		<td class="w-20 px-2 py-2 text-slate-400">
-			if child.Year > 0 {
-				{ fmt.Sprint(child.Year) }
+	@item.Item(item.Props{
+		Size:  item.SizeSm,
+		Class: "flex-nowrap",
+		Attributes: templ.Attributes{
+			"data-child":     child.Name,
+			"data-kind":      child.Kind,
+			"data-monitored": fmt.Sprintf("%t", child.Monitored),
+			"data-hasfile":   fmt.Sprintf("%t", child.HasFile),
+			"data-quality":   child.Quality,
+			"data-phase":     child.Phase,
+		},
+	}) {
+		@item.Content() {
+			@item.Title() {
+				{ child.Title }
+				if child.Year > 0 {
+					<span class="text-muted-foreground">{ fmt.Sprint(child.Year) }</span>
+				}
 			}
-		</td>
-		<td class="w-36 px-2 py-2">
-			if child.HasFile {
-				<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">{ child.Quality }</span>
-			} else if child.Phase != "" {
-				<span class={ stagePhaseBadgeClass(child.Phase) }>{ child.Phase }</span>
-			}
-		</td>
-		<td class="w-28 px-2 py-2 text-right">
-			<form hx-post={ child.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(child.MonitorURL()) }>
-				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !child.Monitored) }/>
-				<button type="submit" data-action="set-monitored" class={ monitoredBadgeClass(child.Monitored) }>{ monitoredLabel(child.Monitored) }</button>
-			</form>
 			@actionFailure(child.Error)
-		</td>
-	</tr>
+		}
+		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
+			if child.HasFile {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone("Imported")}) { { child.Quality } }
+			} else if child.Phase != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone(child.Phase)}) { { child.Phase } }
+			}
+		}
+		@item.Actions() {
+			<form hx-post={ child.MonitorURL() } hx-target="closest [data-slot=item]" hx-swap="outerHTML" method="post" action={ templ.URL(child.MonitorURL()) }>
+				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !child.Monitored) }/>
+				@monitorToggle(child.Monitored, "set-monitored")
+			</form>
+		}
+	}
 }

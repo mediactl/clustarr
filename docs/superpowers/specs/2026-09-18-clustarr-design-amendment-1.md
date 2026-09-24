@@ -475,7 +475,15 @@ description, and monitored, phase and on-disk are `badge`s -- the phase
 badge keeping the amber warning and emerald done tones the earlier tests
 guard (`phaseTone`). The grid is an `item.Group` with the responsive column
 classes. Every data attribute the tests and the e2e suite key on stays on
-the card element.
+the card element. The rest of the library follows the same shape: the
+detail header is an item (poster media, title with year, kind and profile,
+badges, and the monitor, search and refresh forms as `button`s in the
+item's actions slot), each season header is a muted item that its toggle
+swaps in place, and episode, album and book rows are small items in an
+item group, each toggle an hx-post targeting `closest [data-slot=item]`.
+templ writes an item's attributes in sorted order, so the tests find an
+element by one attribute and assert the rest on it rather than matching
+an attribute sequence.
 
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,
