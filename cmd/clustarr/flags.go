@@ -133,6 +133,14 @@ const (
 	// load the Cardigann corpus compiled into the binary when no
 	// --cardigann-definitions-dir is given. Unset means on.
 	cardigannBundledEnv = "CLUSTARR_CARDIGANN_BUNDLED"
+
+	// externalURLEnv is the default for ui's --external-url (design spec
+	// §D.1): the absolute base every thumb, art and Image[].url the Plex
+	// Custom Metadata Provider hands Plex is built on. No shipped manifest
+	// sets it -- an operator's own reachable hostname is not something a
+	// default here could ever guess -- but the chart accepts it as
+	// `ui.plex.externalURL`.
+	externalURLEnv = "CLUSTARR_EXTERNAL_URL"
 )
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.

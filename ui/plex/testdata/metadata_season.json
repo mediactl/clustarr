@@ -1,0 +1,38 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.tv",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "22222222-2222-2222-2222-222222222222-s01",
+        "key": "/library/metadata/22222222-2222-2222-2222-222222222222-s01/children",
+        "guid": "tv.plex.agents.custom.clustarr.tv://season/22222222-2222-2222-2222-222222222222-s01",
+        "type": "season",
+        "title": "Season 1",
+        "originallyAvailableAt": "2018-03-04",
+        "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+        "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+        "year": 2018,
+        "parentRatingKey": "22222222-2222-2222-2222-222222222222",
+        "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
+        "parentGuid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
+        "parentType": "show",
+        "parentTitle": "Harborview",
+        "parentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+        "index": 1,
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1"
+          },
+          {
+            "type": "background",
+            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1"
+          }
+        ]
+      }
+    ]
+  }
+}

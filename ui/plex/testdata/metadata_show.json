@@ -1,0 +1,139 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.agents.custom.clustarr.tv",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "22222222-2222-2222-2222-222222222222",
+        "key": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
+        "guid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
+        "type": "show",
+        "title": "Harborview",
+        "originallyAvailableAt": "2018-03-04",
+        "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+        "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+        "contentRating": "TV-14",
+        "titleSort": "Harborview",
+        "year": 2018,
+        "summary": "A coastal town keeps its secrets.",
+        "duration": 2700000,
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1"
+          },
+          {
+            "type": "background",
+            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Drama"
+          },
+          {
+            "tag": "Crime"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "imdb://tt7654321"
+          },
+          {
+            "id": "tvdb://298762"
+          }
+        ],
+        "Network": [
+          {
+            "tag": "AMC"
+          }
+        ],
+        "Rating": [
+          {
+            "image": "imdb://image.rating",
+            "type": "audience",
+            "value": 8.1
+          },
+          {
+            "image": "themoviedb://image.rating",
+            "type": "audience",
+            "value": 7.9
+          },
+          {
+            "image": "rottentomatoes://image.rating.ripe",
+            "type": "critic",
+            "value": 8.8
+          },
+          {
+            "image": "rottentomatoes://image.rating.upright",
+            "type": "audience",
+            "value": 7.6
+          }
+        ],
+        "Children": {
+          "size": 2,
+          "Metadata": [
+            {
+              "ratingKey": "22222222-2222-2222-2222-222222222222-s01",
+              "key": "/library/metadata/22222222-2222-2222-2222-222222222222-s01/children",
+              "guid": "tv.plex.agents.custom.clustarr.tv://season/22222222-2222-2222-2222-222222222222-s01",
+              "type": "season",
+              "title": "Season 1",
+              "originallyAvailableAt": "2018-03-04",
+              "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+              "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+              "year": 2018,
+              "parentRatingKey": "22222222-2222-2222-2222-222222222222",
+              "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
+              "parentType": "show",
+              "parentTitle": "Harborview",
+              "parentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+              "index": 1,
+              "Image": [
+                {
+                  "type": "coverPoster",
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1"
+                },
+                {
+                  "type": "background",
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1"
+                }
+              ]
+            },
+            {
+              "ratingKey": "22222222-2222-2222-2222-222222222222-s02",
+              "key": "/library/metadata/22222222-2222-2222-2222-222222222222-s02/children",
+              "guid": "tv.plex.agents.custom.clustarr.tv://season/22222222-2222-2222-2222-222222222222-s02",
+              "type": "season",
+              "title": "Season 2",
+              "originallyAvailableAt": "2019-04-07",
+              "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+              "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+              "year": 2018,
+              "parentRatingKey": "22222222-2222-2222-2222-222222222222",
+              "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
+              "parentGuid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
+              "parentType": "show",
+              "parentTitle": "Harborview",
+              "parentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+              "index": 2,
+              "Image": [
+                {
+                  "type": "coverPoster",
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1"
+                },
+                {
+                  "type": "background",
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -238,4 +239,223 @@ func searchRank(s *catalogv1.Search) int {
 	default:
 		return 0
 	}
+}
+
+// Index is the lookup ui/plex needs over the catalog's Movie, Series and
+// Episode objects: by object UID (Plex's ratingKey, D.3), by the external
+// ids a Plex match request's guid carries (tmdb, tvdb, imdb -- D.4), and a
+// series' episodes (for the /children and /grandchildren routes, D.2). It is
+// built fresh per Plex request (BuildIndex) rather than riding the shared
+// Projection ticker: unlike the streamed pages, the Plex provider is an
+// occasional, unauthenticated protocol call from Plex Media Server, not an
+// open SSE connection, so there is no steady subscriber to broadcast to --
+// the same reasoning ui/routes.go's listDownloads and listRootFolders
+// already apply to their own direct, per-request reads.
+type Index struct {
+	movies   map[types.UID]*catalogv1.Movie
+	series   map[types.UID]*catalogv1.Series
+	episodes map[types.UID]*catalogv1.Episode
+
+	tmdbMovies map[int64]*catalogv1.Movie
+	tvdbSeries map[int64]*catalogv1.Series
+	imdbMovies map[string]*catalogv1.Movie
+	imdbSeries map[string]*catalogv1.Series
+
+	// episodesBySeries buckets every Episode by its owning Series' UID
+	// (metav1.GetControllerOf, exactly relatedIndex's own reading of
+	// app/catalog/controller/series/reconciler.go's
+	// k8s.SetControllerReference(s, &ep, r.Scheme)) -- not by
+	// EpisodeSpec.SeriesRef, which is the Series' Name, not its UID, and so
+	// no more trustworthy here than it is for relatedIndex (see that type's
+	// own doc comment).
+	episodesBySeries map[types.UID][]*catalogv1.Episode
+
+	// episodeSeries is episodesBySeries' reverse: one Episode's UID to its
+	// owning Series' UID, for [Index.SeriesOfEpisode].
+	episodeSeries map[types.UID]types.UID
+}
+
+// BuildIndex lists every Movie, Series and Episode once each and returns the
+// [Index] ui/plex's routes look everything up through. A nil reader (no
+// cluster configured) returns an empty, still-usable Index rather than an
+// error, matching every other read-only seam in this package (a nil
+// Options.Reader renders "nothing to show", never a 500).
+func BuildIndex(ctx context.Context, r client.Reader) (*Index, error) {
+	idx := &Index{
+		movies:           map[types.UID]*catalogv1.Movie{},
+		series:           map[types.UID]*catalogv1.Series{},
+		episodes:         map[types.UID]*catalogv1.Episode{},
+		tmdbMovies:       map[int64]*catalogv1.Movie{},
+		tvdbSeries:       map[int64]*catalogv1.Series{},
+		imdbMovies:       map[string]*catalogv1.Movie{},
+		imdbSeries:       map[string]*catalogv1.Series{},
+		episodesBySeries: map[types.UID][]*catalogv1.Episode{},
+		episodeSeries:    map[types.UID]types.UID{},
+	}
+	if r == nil {
+		return idx, nil
+	}
+
+	var movies catalogv1.MovieList
+	if err := r.List(ctx, &movies); err != nil {
+		return nil, fmt.Errorf("projection: list movies: %w", err)
+	}
+	for i := range movies.Items {
+		m := &movies.Items[i]
+		idx.movies[m.UID] = m
+		if m.Spec.TmdbID != 0 {
+			idx.tmdbMovies[m.Spec.TmdbID] = m
+		}
+		if md := m.Status.Metadata; md != nil {
+			if imdb := md.ExternalIDs["imdb"]; imdb != "" {
+				idx.imdbMovies[imdb] = m
+			}
+		}
+	}
+
+	var series catalogv1.SeriesList
+	if err := r.List(ctx, &series); err != nil {
+		return nil, fmt.Errorf("projection: list series: %w", err)
+	}
+	for i := range series.Items {
+		s := &series.Items[i]
+		idx.series[s.UID] = s
+		if s.Spec.TvdbID != 0 {
+			idx.tvdbSeries[s.Spec.TvdbID] = s
+		}
+		if md := s.Status.Metadata; md != nil {
+			if imdb := md.ExternalIDs["imdb"]; imdb != "" {
+				idx.imdbSeries[imdb] = s
+			}
+		}
+	}
+
+	var episodes catalogv1.EpisodeList
+	if err := r.List(ctx, &episodes); err != nil {
+		return nil, fmt.Errorf("projection: list episodes: %w", err)
+	}
+	for i := range episodes.Items {
+		ep := &episodes.Items[i]
+		idx.episodes[ep.UID] = ep
+		if owner, ok := controllingOwnerUID(ep); ok {
+			idx.episodesBySeries[owner] = append(idx.episodesBySeries[owner], ep)
+			idx.episodeSeries[ep.UID] = owner
+		}
+	}
+
+	return idx, nil
+}
+
+// ByUID returns the Movie, Series or Episode with the given UID -- Plex's
+// ratingKey, per D.3, always addresses exactly one of the three. A season
+// has no object of its own (it is derived from a Series' status.seasons, see
+// ui/plex/ratingkey.go's SeasonKey), so this never resolves one.
+func (idx *Index) ByUID(uid types.UID) (client.Object, bool) {
+	if m, ok := idx.movies[uid]; ok {
+		return m, true
+	}
+	if s, ok := idx.series[uid]; ok {
+		return s, true
+	}
+	if e, ok := idx.episodes[uid]; ok {
+		return e, true
+	}
+	return nil, false
+}
+
+// MovieByUID narrows [Index.ByUID] to a Movie.
+func (idx *Index) MovieByUID(uid types.UID) (*catalogv1.Movie, bool) {
+	m, ok := idx.movies[uid]
+	return m, ok
+}
+
+// SeriesByUID narrows [Index.ByUID] to a Series.
+func (idx *Index) SeriesByUID(uid types.UID) (*catalogv1.Series, bool) {
+	s, ok := idx.series[uid]
+	return s, ok
+}
+
+// EpisodeByUID narrows [Index.ByUID] to an Episode.
+func (idx *Index) EpisodeByUID(uid types.UID) (*catalogv1.Episode, bool) {
+	e, ok := idx.episodes[uid]
+	return e, ok
+}
+
+// ByTMDB resolves a match request's "tmdb://<id>" guid (D.4 rule 1) against
+// spec.tmdbID. Only Movie carries a tmdbID today (Series' identity is
+// spec.tvdbID, [Index.ByTVDB]); kind is taken all the same so a future kind
+// that gains one needs no signature change here.
+func (idx *Index) ByTMDB(kind commonv1.MediaKind, id int64) (client.Object, bool) {
+	if kind != commonv1.MediaKindMovie {
+		return nil, false
+	}
+	m, ok := idx.tmdbMovies[id]
+	return m, ok
+}
+
+// ByTVDB resolves a match request's "tvdb://<id>" guid (D.4 rule 1) against
+// spec.tvdbID -- Series only, the one catalog kind with a tvdbID.
+func (idx *Index) ByTVDB(id int64) (*catalogv1.Series, bool) {
+	s, ok := idx.tvdbSeries[id]
+	return s, ok
+}
+
+// ByIMDb resolves a match request's "imdb://tt<id>" guid (D.4 rule 1) against
+// status.metadata.externalIDs.imdb, for whichever kind the request names
+// (movie or show; D.4's guid resolution never targets a season or episode
+// directly -- rule 3 resolves their show first, by this same method).
+func (idx *Index) ByIMDb(kind commonv1.MediaKind, id string) (client.Object, bool) {
+	switch kind {
+	case commonv1.MediaKindMovie:
+		m, ok := idx.imdbMovies[id]
+		return m, ok
+	case commonv1.MediaKindSeries:
+		s, ok := idx.imdbSeries[id]
+		return s, ok
+	default:
+		return nil, false
+	}
+}
+
+// Movies returns every indexed Movie, for D.4 rule 2's title/alternate-title
+// scan when no guid resolves a match. Order is unspecified; a caller that
+// needs a stable order (ui/plex/match.go) sorts it.
+func (idx *Index) Movies() []*catalogv1.Movie {
+	out := make([]*catalogv1.Movie, 0, len(idx.movies))
+	for _, m := range idx.movies {
+		out = append(out, m)
+	}
+	return out
+}
+
+// AllSeries returns every indexed Series, [Index.Movies]'s counterpart for
+// D.4 rule 2's show matching.
+func (idx *Index) AllSeries() []*catalogv1.Series {
+	out := make([]*catalogv1.Series, 0, len(idx.series))
+	for _, s := range idx.series {
+		out = append(out, s)
+	}
+	return out
+}
+
+// Episodes returns every Episode owned by the Series with the given UID,
+// for the /children (a season's episodes) and /grandchildren (a show's
+// episodes) routes. Order is unspecified; ui/plex/children.go sorts it by
+// season and episode number.
+func (idx *Index) Episodes(seriesUID types.UID) []*catalogv1.Episode {
+	return idx.episodesBySeries[seriesUID]
+}
+
+// SeriesOfEpisode returns the Series that owns the Episode with the given
+// UID -- [Index.Episodes]' reverse, for a ratingKey that resolves straight
+// to an Episode (spec §D.3: an episode's ratingKey is its own UID, with no
+// season or series segment), which still needs its show and season to build
+// its parent/grandparent fields (spec §D.5).
+func (idx *Index) SeriesOfEpisode(episodeUID types.UID) (*catalogv1.Series, bool) {
+	owner, ok := idx.episodeSeries[episodeUID]
+	if !ok {
+		return nil, false
+	}
+	s, ok := idx.series[owner]
+	return s, ok
 }

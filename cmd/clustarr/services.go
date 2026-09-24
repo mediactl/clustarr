@@ -511,10 +511,27 @@ func buildUIArtwork(ctx context.Context, natsURL string) events.ObjectStore {
 	return bus.ObjectStore(events.BucketArtwork)
 }
 
+// buildUIPlexOptions builds ui.Options.Plex from --plex-provider and
+// --external-url, shared by `clustarr ui` and `clustarr all`. nil (feature
+// off) exactly when --plex-provider is false; otherwise non-nil regardless
+// of whether externalURL is set, since an empty one is a legal, if
+// currently unusable, value (design spec §D.1: the roots answer 503 for
+// it rather than the flag's absence silently turning the whole feature
+// off) -- and ui.NewServer, not this func, is what logs the "no
+// --external-url" warning once at startup.
+func buildUIPlexOptions(enabled bool, externalURL string) *ui.PlexOptions {
+	if !enabled {
+		return nil
+	}
+	return &ui.PlexOptions{ExternalURL: externalURL}
+}
+
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var bindAddress string
 	var authMode string
 	var natsURL string
+	var plexProvider bool
+	var externalURL string
 
 	cmd := &cobra.Command{
 		Use:   "ui",
@@ -538,6 +555,13 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		"JetStream endpoint ui reads artwork from (GET /art). Defaults to $"+natsURLEnv+". ui never "+
 			"writes to it, so an unreachable endpoint degrades every page to placeholder art rather "+
 			"than failing the process.")
+	cmd.Flags().BoolVar(&plexProvider, "plex-provider", true,
+		"Serve the Plex Custom Metadata Provider at /plex/movies and /plex/tv (design spec §D). "+
+			"Unauthenticated by protocol: it must not sit behind a public ingress.")
+	cmd.Flags().StringVar(&externalURL, "external-url", envOr(externalURLEnv, ""),
+		"Absolute base every thumb, art and Image[].url the Plex provider hands Plex is built on, "+
+			"e.g. https://clustarr.example.com. Defaults to $"+externalURLEnv+". Required for "+
+			"--plex-provider to serve anything but 503.")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
@@ -555,6 +579,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			Projected:            proj.Projected,
 			Actions:              acts,
 			Artwork:              artwork,
+			Plex:                 buildUIPlexOptions(plexProvider, externalURL),
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,
 			SubscribeDownloads:   proj.SubscribeDownloads,

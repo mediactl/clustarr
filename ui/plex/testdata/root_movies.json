@@ -1,0 +1,18 @@
+{
+  "MediaProvider": {
+    "identifier": "tv.plex.agents.custom.clustarr.movies",
+    "title": "Clustarr Movies",
+    "Types": [
+      {
+        "type": 1,
+        "Scheme": [
+          { "scheme": "tv.plex.agents.custom.clustarr.movies" }
+        ]
+      }
+    ],
+    "Feature": [
+      { "type": "match", "key": "/library/metadata/matches" },
+      { "type": "metadata", "key": "/library/metadata" }
+    ]
+  }
+}

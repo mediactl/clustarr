@@ -59,6 +59,16 @@ const allProcessServiceName = "clustarr"
 // reasoning devIndexPath below already applies to indexarr's IndexPath.
 const devEngineImage = "ghcr.io/mediactl/clustarr/media:dev"
 
+// uiPlexArgs bundles allServices' optional Plex provider settings (design
+// spec §D.1), so it can take them as a single variadic parameter rather
+// than adding two required ones to a function with call sites outside this
+// file's own control (cmd/clustarr/start_envtest_test.go, a file this task
+// does not own -- see D1's own concurrency note).
+type uiPlexArgs struct {
+	provider    bool
+	externalURL string
+}
+
 // devFacadeBindAddress is `clustarr all`'s address for indexarr's Torznab
 // facade when $CLUSTARR_FACADE_BIND_ADDRESS is unset. It is not indexarr's
 // own :8080 because ui keeps that address in this one process (see
@@ -85,13 +95,22 @@ const devFacadeBindAddress = ":9696"
 // TestBothUICommandsWireEveryUIOption's sibling flag-wiring test can prove
 // the flag reaches indexer.Options.IndexDSN without executing the process's
 // real environment. uiAddr is --ui-bind-address and uiAuthMode is
-// --ui-auth-mode, ui's explicit authentication mode (§A3.5).
+// --ui-auth-mode, ui's explicit authentication mode (§A3.5). uiPlex is
+// `clustarr ui`'s own --plex-provider and --external-url (design spec
+// §D.1), threaded through the same way; it is variadic so every call site
+// that predates this task keeps compiling unchanged, defaulting to the
+// same "on, no external URL" state those flags' own defaults produce.
 func allServices(
 	lo *logging.Options, to *tracing.Options, indexDSN string, uiAddr string, uiAuthMode ui.AuthMode,
+	uiPlex ...uiPlexArgs,
 ) []struct {
 	name string
 	run  func(ctx context.Context, o k8s.Options) error
 } {
+	plex := uiPlexArgs{provider: true}
+	if len(uiPlex) > 0 {
+		plex = uiPlex[0]
+	}
 	tr := *to
 	tr.ServiceName = allProcessServiceName
 
@@ -249,6 +268,7 @@ func allServices(
 				Projected:            proj.Projected,
 				Actions:              acts,
 				Artwork:              artwork,
+				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL),
 				Entries:              proj.Entries,
 				Subscribe:            proj.Subscribe,
 				SubscribeDownloads:   proj.SubscribeDownloads,
@@ -287,6 +307,8 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var indexDSN string
 	var uiAddr string
 	var uiAuthMode string
+	var uiPlexProvider bool
+	var uiExternalURL string
 	cmd.Flags().StringVar(&indexDSN, "index-dsn", envOr(indexDSNEnv, ""),
 		"Postgres DSN for the release index. Non-empty selects Postgres and ignores the dev SQLite "+
 			"index path. Defaults to $"+indexDSNEnv+".")
@@ -297,6 +319,12 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		"ui's authentication mode (`clustarr ui`'s --auth-mode), chosen explicitly: ui refuses to "+
 			"serve without one, and that failure stops every service in this process. The only mode "+
 			"is anonymous, which serves every request without a login (design amendment §A3.5).")
+	cmd.Flags().BoolVar(&uiPlexProvider, "plex-provider", true,
+		"Serve the Plex Custom Metadata Provider at /plex/movies and /plex/tv (design spec §D). "+
+			"Unauthenticated by protocol: it must not sit behind a public ingress.")
+	cmd.Flags().StringVar(&uiExternalURL, "external-url", envOr(externalURLEnv, ""),
+		"Absolute base every thumb, art and Image[].url the Plex provider hands Plex is built on. "+
+			"Defaults to $"+externalURLEnv+". Required for --plex-provider to serve anything but 503.")
 
 	// Leader election buys nothing in a single process that already runs one
 	// of each controller, and would only add a Lease per service to clean up.
@@ -309,7 +337,8 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		base.LeaderElect = false
 		base.BusSingleNode = true
 
-		services := allServices(lo, to, indexDSN, uiAddr, ui.AuthMode(uiAuthMode))
+		services := allServices(lo, to, indexDSN, uiAddr, ui.AuthMode(uiAuthMode),
+			uiPlexArgs{provider: uiPlexProvider, externalURL: uiExternalURL})
 		optionsFor := make([]k8s.Options, len(services))
 		for i, svc := range services {
 			o := base

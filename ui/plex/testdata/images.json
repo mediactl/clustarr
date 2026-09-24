@@ -1,0 +1,18 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 2,
+    "identifier": "tv.plex.agents.custom.clustarr.movies",
+    "size": 2,
+    "Image": [
+      {
+        "type": "coverPoster",
+        "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/poster?v=overlaydigest1"
+      },
+      {
+        "type": "background",
+        "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/fanart?v=fanartdigest1"
+      }
+    ]
+  }
+}

@@ -70,6 +70,27 @@ const authWarning = "ui authentication mode is anonymous: every request is serve
 	"it must sit behind ingress authentication and must never be exposed directly " +
 	"(design amendment §A3.5, docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md)"
 
+// PlexOptions configures the Plex Custom Metadata Provider (design spec
+// §D.1), ui/plex's own Options threaded through from cmd/clustarr.
+type PlexOptions struct {
+	// ExternalURL is the absolute base every thumb, art and Image[].url the
+	// provider hands Plex is built on (`--external-url`, env
+	// CLUSTARR_EXTERNAL_URL). Empty means the flag was never set: the
+	// provider roots answer 503 (spec §D.1) rather than publish a relative
+	// URL Plex could never fetch, and [NewServer] logs
+	// [plexExternalURLWarning] once at startup so an operator sees this
+	// before the first request does.
+	ExternalURL string
+}
+
+// plexExternalURLWarning is logged once, at startup, when the Plex provider
+// is enabled without an external URL configured: every request to its
+// roots will 503 until one is set (spec §D.1), and that is easy to miss in
+// a sea of per-request logs.
+const plexExternalURLWarning = "the Plex Custom Metadata Provider (--plex-provider) has no --external-url " +
+	"configured: every request to /plex/movies and /plex/tv will answer 503 until $CLUSTARR_EXTERNAL_URL " +
+	"or --external-url is set (design spec §D.1)"
+
 // Options configures a [Server].
 type Options struct {
 	// BindAddress is the address the HTTP server listens on, e.g. ":8080".
@@ -130,6 +151,22 @@ type Options struct {
 	// the process" pattern a nil Reader already has for the library-scan
 	// detail page.
 	Artwork events.ObjectStore
+
+	// Plex configures the Plex Custom Metadata Provider (design spec §D):
+	// two read-only roots, /plex/movies and /plex/tv, over the same
+	// catalog data every other page reads through Options.Reader. A nil
+	// Plex means `--plex-provider` is off: ui/routes.go never registers
+	// "/plex/" at all, so a request there answers 404 exactly like any
+	// other unregistered path -- the same "absent means the feature does
+	// not exist yet" shape Options.Actions and Options.Artwork already
+	// have, one level up (a whole feature rather than one dependency).
+	//
+	// cmd/clustarr builds a non-nil *PlexOptions whenever `--plex-provider`
+	// is on (the default), whatever `--external-url` holds -- an empty
+	// ExternalURL is a legal, if unusable, value: the provider roots
+	// answer 503 for it (spec §D.1) rather than the flag's absence
+	// silently turning the whole feature off.
+	Plex *PlexOptions
 
 	// Actions is ui's one write seam, and deliberately a separate field from
 	// Reader: Reader stays a client.Reader, so every read path is read-only
@@ -352,6 +389,9 @@ func NewServer(ctx context.Context, opts Options) *Server {
 		opts.Projected = func() bool { return true }
 	}
 	logging.FromContext(ctx).Warn(authWarning)
+	if opts.Plex != nil && opts.Plex.ExternalURL == "" {
+		logging.FromContext(ctx).Warn(plexExternalURLWarning)
+	}
 	return &Server{opts: opts}
 }
 

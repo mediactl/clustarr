@@ -1,0 +1,30 @@
+{
+  "MediaProvider": {
+    "identifier": "tv.plex.agents.custom.clustarr.tv",
+    "title": "Clustarr TV",
+    "Types": [
+      {
+        "type": 2,
+        "Scheme": [
+          { "scheme": "tv.plex.agents.custom.clustarr.tv" }
+        ]
+      },
+      {
+        "type": 3,
+        "Scheme": [
+          { "scheme": "tv.plex.agents.custom.clustarr.tv" }
+        ]
+      },
+      {
+        "type": 4,
+        "Scheme": [
+          { "scheme": "tv.plex.agents.custom.clustarr.tv" }
+        ]
+      }
+    ],
+    "Feature": [
+      { "type": "match", "key": "/library/metadata/matches" },
+      { "type": "metadata", "key": "/library/metadata" }
+    ]
+  }
+}

@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/paging"
+	"github.com/mediactl/clustarr/ui/plex"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
@@ -78,7 +79,26 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /settings/transcodeprofiles/{name}", s.handleSetTranscodeProfilePriority)
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 
+	if s.opts.Plex != nil {
+		mux.Handle("/plex/", plex.Handler(plex.Options{
+			ExternalURL: s.opts.Plex.ExternalURL,
+			Index:       s.plexIndex,
+		}))
+	}
+
 	return mux
+}
+
+// plexIndex builds the [projection.Index] ui/plex's routes look up Movie,
+// Series and Episode objects through, straight from Options.Reader
+// (projection.BuildIndex) -- one read per Plex request, the same direct,
+// per-request pattern listDownloads and listRootFolders already use for
+// their own reads, rather than riding the shared *projection.Projection
+// ticker: the Plex provider is an occasional, unauthenticated protocol call
+// from Plex Media Server, not an open SSE connection with a steady stream
+// of subscribers to broadcast to.
+func (s *Server) plexIndex(ctx context.Context) (*projection.Index, error) {
+	return projection.BuildIndex(ctx, s.opts.Reader)
 }
 
 // handleHealthz answers the liveness probe, unconditionally. It must not

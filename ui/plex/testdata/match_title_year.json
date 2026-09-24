@@ -1,0 +1,95 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 2,
+    "identifier": "tv.plex.agents.custom.clustarr.movies",
+    "size": 2,
+    "Metadata": [
+      {
+        "ratingKey": "11111111-1111-1111-1111-111111111111",
+        "key": "/library/metadata/11111111-1111-1111-1111-111111111111",
+        "guid": "tv.plex.agents.custom.clustarr.movies://movie/11111111-1111-1111-1111-111111111111",
+        "type": "movie",
+        "title": "Skyfall Protocol",
+        "originallyAvailableAt": "2015-10-23",
+        "thumb": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/poster?v=overlaydigest1",
+        "art": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/fanart?v=fanartdigest1",
+        "contentRating": "PG-13",
+        "originalTitle": "Skyfall Protocol",
+        "titleSort": "Skyfall Protocol",
+        "year": 2015,
+        "summary": "A retired operative is pulled back in.",
+        "duration": 7080000,
+        "Image": [
+          {
+            "type": "coverPoster",
+            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/poster?v=overlaydigest1"
+          },
+          {
+            "type": "background",
+            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/fanart?v=fanartdigest1"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Action"
+          },
+          {
+            "tag": "Thriller"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "imdb://tt0468569"
+          },
+          {
+            "id": "tmdb://424680"
+          }
+        ],
+        "Collection": [
+          {
+            "guid": "tmdb://645",
+            "tag": "Skyfall Protocol Collection"
+          }
+        ],
+        "Rating": [
+          {
+            "image": "imdb://image.rating",
+            "type": "audience",
+            "value": 8.7
+          },
+          {
+            "image": "themoviedb://image.rating",
+            "type": "audience",
+            "value": 8.3
+          },
+          {
+            "image": "rottentomatoes://image.rating.ripe",
+            "type": "critic",
+            "value": 9.2
+          },
+          {
+            "image": "rottentomatoes://image.rating.upright",
+            "type": "audience",
+            "value": 8.8
+          }
+        ]
+      },
+      {
+        "ratingKey": "44444444-4444-4444-4444-444444444444",
+        "key": "/library/metadata/44444444-4444-4444-4444-444444444444",
+        "guid": "tv.plex.agents.custom.clustarr.movies://movie/44444444-4444-4444-4444-444444444444",
+        "type": "movie",
+        "title": "Skyfall Protocol",
+        "originallyAvailableAt": "",
+        "year": 1999,
+        "summary": "The original operation.",
+        "Guid": [
+          {
+            "id": "tmdb://9001"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "MediaContainer": {
+    "offset": 1,
+    "totalSize": 3,
+    "identifier": "tv.plex.agents.custom.clustarr.tv",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "33333333-3333-3333-3333-333333333332",
+        "key": "/library/metadata/33333333-3333-3333-3333-333333333332",
+        "guid": "tv.plex.agents.custom.clustarr.tv://episode/33333333-3333-3333-3333-333333333332",
+        "type": "episode",
+        "title": "Low Water",
+        "originallyAvailableAt": "2018-03-11",
+        "summary": "An episode of Harborview.",
+        "duration": 2700000,
+        "parentRatingKey": "22222222-2222-2222-2222-222222222222-s01",
+        "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222-s01/children",
+        "parentGuid": "tv.plex.agents.custom.clustarr.tv://season/22222222-2222-2222-2222-222222222222-s01",
+        "parentType": "season",
+        "parentTitle": "Season 1",
+        "parentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+        "index": 2,
+        "grandparentRatingKey": "22222222-2222-2222-2222-222222222222",
+        "grandparentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
+        "grandparentGuid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
+        "grandparentType": "show",
+        "grandparentTitle": "Harborview",
+        "grandparentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+        "parentIndex": 1
+      }
+    ]
+  }
+}
