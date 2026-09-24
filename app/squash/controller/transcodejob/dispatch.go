@@ -58,6 +58,24 @@ func poolKeyFor(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.
 	return pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: class}
 }
 
+// orphaned reports whether tj is dispatched (Queued or Running) to a pool
+// that no longer serves it (final-review C1): its TranscodeProfile tp is
+// gone (nil), or status.jobRef is not tp's pool for status.hardware -- the
+// profile was deleted and recreated under its name, a new UID and so new
+// pools, while the task sits on the old UID's subject that nothing pulls.
+// Every dispatch and every adoption records jobRef as exactly that pool
+// (markQueued), so a live job never differs from it; a job left dispatched
+// by the pre-pool controller, whose jobRef names its own batch Job, does.
+func orphaned(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) bool {
+	if !dispatched(tj.Status.Phase) {
+		return false
+	}
+	if tp == nil {
+		return true
+	}
+	return tj.Status.JobRef == nil || *tj.Status.JobRef != pool.Name(poolKeyFor(tp, tj.Status.Hardware))
+}
+
 // dispatch publishes one admitted job's task, then records it: a job is never
 // Queued without a task on the queue (spec §8). The status write is
 // conditional on the attempt count the task was built from, so a job cannot

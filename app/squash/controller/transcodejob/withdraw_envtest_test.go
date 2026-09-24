@@ -271,3 +271,46 @@ func TestSweepPurgesTasksOfDeletedJobs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{liveSubject}, subs, "the orphan's task is purged; the live job's is not")
 }
+
+// TestSweepDeletesTheDurablesOfDeletedProfiles is final-review M1 (kind
+// finding D1): a pool's workers create its durable with their first Pull,
+// garbage collection takes a deleted profile's pool Jobs, and nothing else
+// ever removed the durable. The sweep deletes every pool durable whose
+// profile UID no longer exists -- every class's -- and keeps an existing
+// profile's, and squasharr-transcode-results, which shares the prefix.
+func TestSweepDeletesTheDurablesOfDeletedProfiles(t *testing.T) {
+	_, c := startEnv(t)
+	gone := newProfile(t, c, "hevc", "hash1", nil)
+	kept := newProfile(t, c, "hevc-kept", "hash2", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	r.Admin = r.Bus.(events.StreamAdmin)
+	ctx := context.Background()
+
+	for _, d := range []events.Subscription{
+		events.TranscodeTaskConsumer(string(gone.UID), "cpu").Subscription(),
+		events.TranscodeTaskConsumer(string(gone.UID), "nvidia").Subscription(),
+		events.TranscodeTaskConsumer(string(kept.UID), "cpu").Subscription(),
+	} {
+		p, err := r.Bus.(events.PullSubscriber).Pull(ctx, d) // a pool worker's first Pull creates it
+		require.NoError(t, err)
+		p.Stop()
+	}
+	results, ok := events.Default().Consumer(events.ConsumerSquasharrResults)
+	require.True(t, ok)
+	stop, err := r.Bus.Subscribe(ctx, results.Subscription(), func(context.Context, events.Message) error { return nil })
+	require.NoError(t, err)
+	stop()
+	before, err := r.Admin.Subscriptions(ctx, events.StreamWorkSquasharr)
+	require.NoError(t, err)
+	require.Len(t, before, 4, "setup: three pool durables and the results consumer")
+
+	require.NoError(t, c.Delete(ctx, gone))
+	admitPass(t, r) // r.nextSweep is its zero value: due on the very first pass
+
+	after, err := r.Admin.Subscriptions(ctx, events.StreamWorkSquasharr)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{
+		events.TranscodeTaskConsumerName(string(kept.UID), "cpu"),
+		events.ConsumerSquasharrResults,
+	}, after, "the deleted profile's durables are gone, every class's; the rest are kept")
+}

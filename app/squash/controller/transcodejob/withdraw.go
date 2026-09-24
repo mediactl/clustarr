@@ -169,17 +169,22 @@ func (r *Reconciler) releaseFinalizerIfTerminal(ctx context.Context, key types.N
 	return err
 }
 
-// sweep purges CLUSTARR_WORK_SQUASHARR task subjects with no live
-// TranscodeJob behind them (spec §8's backstop): a task published for a job
-// deleted while NATS was unreachable, or whose Queued write was never
-// recorded, or any other orphaned UID. tjs is every TranscodeJob that
-// exists, of any phase -- a job counts as live regardless of whether it
-// has ever been dispatched, since dispatch.go publishes a task before it
-// records status.hardware (R16's "lost Queued write" window).
+// sweep is admit's backstop for queue state whose owner is gone (spec §8,
+// §6.4). It purges CLUSTARR_WORK_SQUASHARR task subjects with no live
+// TranscodeJob behind them: a task published for a job deleted while NATS
+// was unreachable, or whose Queued write was never recorded, or any other
+// orphaned UID. tjs is every TranscodeJob that exists, of any phase -- a job
+// counts as live regardless of whether it has ever been dispatched, since
+// dispatch.go publishes a task before it records status.hardware (R16's
+// "lost Queued write" window). Then it deletes the pool durables of every
+// TranscodeProfile that no longer exists (sweepDurables); profiles is every
+// one that does.
 //
 // It runs at most once every sweepInterval, tracked in r.nextSweep; a zero
 // r.nextSweep (a fresh Reconciler) is due immediately.
-func (r *Reconciler) sweep(ctx context.Context, tjs []transcodev1alpha1.TranscodeJob) error {
+func (r *Reconciler) sweep(ctx context.Context, tjs []transcodev1alpha1.TranscodeJob,
+	profiles map[string]*transcodev1alpha1.TranscodeProfile,
+) error {
 	if r.Admin == nil {
 		return nil
 	}
@@ -207,8 +212,69 @@ func (r *Reconciler) sweep(ctx context.Context, tjs []transcodev1alpha1.Transcod
 		}
 		log.InfoContext(ctx, "squasharr: swept an orphaned transcode task", "subject", subject)
 	}
+	errs = append(errs, r.sweepDurables(ctx, profiles))
 	r.nextSweep = now.Add(sweepInterval)
 	return errors.Join(errs...)
+}
+
+// sweepDurables deletes every pool durable on CLUSTARR_WORK_SQUASHARR whose
+// TranscodeProfile no longer exists (final-review M1). A worker's Pull
+// creates its pool's durable (events.TranscodeTaskConsumer), and garbage
+// collection takes a deleted profile's pool Jobs, but nothing else ever
+// removed the durable or its dead-letter watcher on CLUSTARR_ADVISORIES, so
+// every deleted or recreated profile leaked up to one of each per class.
+// DeleteSubscription removes both.
+//
+// A durable is kept when it is the name events.TranscodeTaskConsumerName
+// builds for an existing profile's UID and any pool class -- idle or not,
+// since the pool may be resumed at any pass -- and so is every durable that
+// is not a pool's at all (isPoolDurable): squasharr-transcode-results
+// shares the prefix. The name is compared as built, never parsed back into
+// a UID, so the builder's token escaping is the only one involved.
+func (r *Reconciler) sweepDurables(ctx context.Context, profiles map[string]*transcodev1alpha1.TranscodeProfile) error {
+	names, err := r.Admin.Subscriptions(ctx, events.StreamWorkSquasharr)
+	if err != nil {
+		return fmt.Errorf("transcodejob: list the work stream's durables for the sweep: %w", err)
+	}
+	live := make(map[string]bool, len(profiles)*len(poolClasses))
+	for _, tp := range profiles {
+		for _, class := range poolClasses {
+			live[events.TranscodeTaskConsumerName(string(tp.UID), string(class))] = true
+		}
+	}
+	log := logging.FromContext(ctx)
+	var errs []error
+	for _, name := range names {
+		if live[name] || !isPoolDurable(name) {
+			continue
+		}
+		if err := r.Admin.DeleteSubscription(ctx, events.StreamWorkSquasharr, name); err != nil {
+			errs = append(errs, fmt.Errorf("transcodejob: sweep: delete the durable %s of a deleted TranscodeProfile's pool: %w", name, err))
+			continue
+		}
+		log.InfoContext(ctx, "squasharr: deleted the durable of a deleted TranscodeProfile's pool", "durable", name)
+	}
+	return errors.Join(errs...)
+}
+
+// poolDurablePrefix starts every name events.TranscodeTaskConsumerName
+// builds (TestIsPoolDurable holds the two together).
+const poolDurablePrefix = "squasharr-transcode-"
+
+// isPoolDurable reports whether name is a pool's durable: one
+// events.TranscodeTaskConsumerName builds, for some profile UID and a pool
+// class, and never a durable of the shipped topology -- which is how
+// squasharr-transcode-results, under the same prefix, is never swept.
+func isPoolDurable(name string) bool {
+	if _, shipped := events.Default().Consumer(name); shipped || !strings.HasPrefix(name, poolDurablePrefix) {
+		return false
+	}
+	for _, class := range poolClasses {
+		if strings.HasSuffix(name, "-"+events.KVKeyToken(string(class))) {
+			return true
+		}
+	}
+	return false
 }
 
 // taskUIDToken is jobUID's escaped subject token, exactly as

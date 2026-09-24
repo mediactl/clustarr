@@ -370,6 +370,11 @@ func (r *Reconciler) setHeldMessage(ctx context.Context, tj *transcodev1alpha1.T
 // class it went to is authoritative (ruling R16), whatever class admission
 // would choose for the job now. So a pool is never suspended while a task
 // dispatched to it is still on its queue.
+//
+// An orphaned job (final-review C1) counts toward no pool: its task is on
+// the subject of a profile UID that is gone, so the pool its profile's name
+// now resolves to -- a recreated profile's -- would never see it, and would
+// run a pod idle for it until its reconcile withdrew it.
 func dispatchedPerPool(tjs []transcodev1alpha1.TranscodeJob, profiles map[string]*transcodev1alpha1.TranscodeProfile) map[pool.Key]int32 {
 	out := map[pool.Key]int32{}
 	for i := range tjs {
@@ -377,7 +382,7 @@ func dispatchedPerPool(tjs []transcodev1alpha1.TranscodeJob, profiles map[string
 		if !dispatched(tj.Status.Phase) || tj.Status.Hardware == "" {
 			continue
 		}
-		if tp, ok := profiles[tj.Spec.ProfileRef]; ok {
+		if tp, ok := profiles[tj.Spec.ProfileRef]; ok && !orphaned(tj, tp) {
 			out[poolKeyFor(tp, tj.Status.Hardware)]++
 		}
 	}

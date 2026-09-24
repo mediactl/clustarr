@@ -100,6 +100,18 @@ const (
 	ReasonJobSucceeded    = "JobSucceeded"
 	ReasonJobFailed       = "JobFailed"
 	ReasonWorkerVerified  = "WorkerVerified"
+
+	// ReasonProfileDeleted is Failed=True's reason on a dispatched job whose
+	// TranscodeProfile was deleted (final-review C1): its pool went with the
+	// profile, so nothing will ever take its task. It is not Blocked:
+	// recreating the profile and deleting the job retries it.
+	ReasonProfileDeleted = "ProfileDeleted"
+
+	// ReasonOrphaned is JobCreated=False's reason on a dispatched job sent
+	// back to Planned because its task went to a pool that is not its
+	// profile's any more -- the profile was deleted and recreated under the
+	// same name, a new UID and so new pools (final-review C1).
+	ReasonOrphaned = "Orphaned"
 )
 
 // Reconciler drives a TranscodeJob Pending -> Planned -> Queued -> Running ->
@@ -345,7 +357,9 @@ func (r *Reconciler) wakeAdmission() {
 //   - Planned waits for admission, which dispatches it (admit, dispatch):
 //     until nextAttemptAt for a requeued job, else requeueQueued.
 //   - Queued and Running are moved on by worker status events (results.go);
-//     the pass only checks that their task was not dead-lettered.
+//     the pass only checks that their task was not dead-lettered, and that
+//     it is not orphaned: dispatched to a pool that is not its profile's
+//     (recoverOrphan).
 func (r *Reconciler) advance(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) (ctrl.Result, error) {
 	if st.Phase == transcodev1alpha1.TranscodeJobPhasePending {
 		res, err := r.plan(ctx, tj, st)
@@ -393,8 +407,65 @@ func (r *Reconciler) advance(ctx context.Context, tj *transcodev1alpha1.Transcod
 			}, now)
 			return ctrl.Result{}, nil
 		}
+		tp, ok, err := r.profile(ctx, tj)
+		if err != nil {
+			return ctrl.Result{}, err // unreadable is not gone: never guess an orphan
+		}
+		if !ok {
+			tp = nil
+		}
+		if orphaned(tj, tp) {
+			return r.recoverOrphan(ctx, tj, tp, st)
+		}
 		return ctrl.Result{RequeueAfter: requeueQueued}, nil
 	}
+	return ctrl.Result{}, nil
+}
+
+// recoverOrphan takes back the task of a dispatched job that no pool will
+// ever serve (final-review C1; [orphaned]) and moves the job on in st:
+//
+//   - its TranscodeProfile is gone: Failed, ProfileDeleted. Its pools went
+//     with it, by owner reference, and nothing pulls its subject any more.
+//     Not Blocked -- recreating the profile and deleting the job retries it.
+//   - the profile exists under another UID (deleted and recreated under the
+//     same name), or jobRef names no pool of it: back to Planned, with the
+//     attempt left recorded, so the next dispatch is a new attempt to the
+//     current profile's pool, as a reroute's is.
+//
+// withdraw needs no profile (ruling R23): it cancels the recorded attempt
+// and purges the task by the job's UID. Before this, such a job stayed
+// Queued or Running for good, held a slot of its class, and counted toward
+// the recreated profile's pool, which then ran idle for a task it would
+// never see.
+func (r *Reconciler) recoverOrphan(ctx context.Context, tj *transcodev1alpha1.TranscodeJob,
+	tp *transcodev1alpha1.TranscodeProfile, st *transcodev1alpha1.TranscodeJobStatus,
+) (ctrl.Result, error) {
+	if err := r.withdraw(ctx, tj); err != nil {
+		return ctrl.Result{}, fmt.Errorf("transcodejob: withdraw an orphaned task: %w", err)
+	}
+	ref := "(none)"
+	if st.JobRef != nil {
+		ref = *st.JobRef
+	}
+	log := logging.FromContext(ctx)
+	if tp == nil {
+		now := r.now().Time
+		applyDecision(tj, st, task.StatusEvent{At: now}, Decision{
+			Phase: transcodev1alpha1.TranscodeJobPhaseFailed, Reason: ReasonProfileDeleted,
+			Message: fmt.Sprintf("TranscodeProfile %s was deleted while attempt %d was dispatched to pool %s; "+
+				"recreate the profile and delete this TranscodeJob to retry", tj.Spec.ProfileRef, st.Attempts, ref),
+		}, now)
+		log.InfoContext(ctx, "squasharr: a dispatched job's TranscodeProfile is gone; withdrew its task, failing the job",
+			"transcodeJob", client.ObjectKeyFromObject(tj).String(), "attempt", st.Attempts, "pool", ref)
+		return ctrl.Result{}, nil
+	}
+	st.Phase, st.WorkerPod, st.Progress, st.NextAttemptAt = transcodev1alpha1.TranscodeJobPhasePlanned, "", nil, nil
+	st.Message = truncate(fmt.Sprintf("attempt %d was dispatched to pool %s, which is not TranscodeProfile %s's (uid %s) %s pool; "+
+		"withdrawn and requeued as a new attempt", st.Attempts, ref, tp.Name, tp.UID, st.Hardware), maxMessage)
+	k8s.MarkFalse(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonOrphaned, "%s", st.Message)
+	log.InfoContext(ctx, "squasharr: a dispatched job's pool is not its profile's any more; withdrew its task, requeueing the job",
+		"transcodeJob", client.ObjectKeyFromObject(tj).String(), "attempt", st.Attempts, "pool", ref, "profileUID", string(tp.UID))
 	return ctrl.Result{}, nil
 }
 
@@ -635,12 +706,18 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	// The backstop sweep (withdraw.go), due at most once per sweepInterval:
 	// every TranscodeJob that exists, of any phase, protects its own task
 	// subject from it.
-	errs = append(errs, r.sweep(ctx, tjs.Items))
+	errs = append(errs, r.sweep(ctx, tjs.Items, byName))
 	for i := range tjs.Items {
 		tj := &tjs.Items[i]
 		key := tj.Namespace + "/" + tj.Name
 		switch {
 		case dispatched(tj.Status.Phase):
+			if orphaned(tj, byName[tj.Spec.ProfileRef]) {
+				// Its pool is gone, so it holds no worker's slot: its own
+				// reconcile withdraws it (recoverOrphan). Counting it would
+				// starve its class until then (final-review C1).
+				continue
+			}
 			running = append(running, Slot{Key: key, Hardware: string(tj.Status.Hardware), Profile: tj.Spec.ProfileRef})
 		case tj.Status.Phase == transcodev1alpha1.TranscodeJobPhasePlanned:
 			if k8s.IsDeleting(tj) || (tj.Spec.Suspend != nil && *tj.Spec.Suspend) ||
