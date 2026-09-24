@@ -1639,6 +1639,64 @@ what it left behind.
   blocks for this either, and tolerates five bad articles before judging.
   par2's verdict after the fact is the block-exact answer.
 
+### From reading jokull/udl (2026-09-24)
+
+udl is a single-binary Sonarr+Radarr+NZBGet replacement in Go (one
+provider level plus fill, SQLite, macOS-first). Most of its download layer
+is a subset of ours -- our pool, 430 failover, checkpointed bitsets,
+pre-check, health action and SABnzbd-matched rules all go further -- but
+the comparison found these gaps in ours, in order of value:
+
+- [ ] **Skip par2 when no article failed.** `job.repair` runs `par2 r`
+  whenever the binary and an index exist, which is a full read of the
+  set (10 GB over NFS now that scratch lives there) to verify data every
+  part's pcrc32 already verified on receipt. udl skips par2 outright when
+  `FailedSegments == 0`; NZBGet's ParQuick does the same on CRC. Our
+  missing-binary branch already reasons this way; make it the rule when
+  `failedArticles() == 0`, keep repair for anything else.
+- [ ] **par2 hash16k renames before repair, and magic-byte extensions for
+  bare names.** The design (§2.4 of the research note, `docs/research/
+  download.md` §4.3 step 3) says to MD5 the first 16 KiB of each file and
+  rename to `FileDesc.name` from any downloaded par2 -- udl does exactly
+  that (`renameByPAR2`, a 100-line `par2.ParseFileEntries` over the
+  FileDesc packets) -- and to sniff an extension from magic bytes for a
+  file whose name carries none (`renameByMagic`: EBML, `Rar!`, `PAR2`,
+  `ftyp`, `RIFF`). Neither is built. With the extras fix par2 now
+  *matches* obfuscated files by content, but it recreates targets by
+  copying blocks rather than renaming, and `archiveEntryPoints` keys on
+  extension, so an obfuscated set without a par2 index is not unpacked.
+- [ ] **Let unrar judge when par2 cannot repair and the damage is outside
+  the archive set.** udl continues to extraction when repair fails and RAR
+  files exist. Safer and still valuable: after a failed repair, if every
+  failed segment belongs to a non-archive file (nfo, sfv, sample, a par2
+  volume), continue to unpack and let the archive's own CRCs decide; only
+  a missing article inside an archive volume makes the failure final.
+- [ ] **Per-job disk pre-flight.** udl refuses a grab when free space is
+  under 2x the release size plus 1 GB (download plus extraction); ours
+  checks only the client-level `minFreeBytes` floor on the data volume. A
+  job-level check on the scratch and publish volumes at Add would fail a
+  hopeless grab as `diskFull` (a local fault, never blocklisted) before
+  10 GB of transfer.
+- [ ] **A stall timeout for usenet.** udl's health check flags a download
+  in `downloading` for over two hours; ours has `stallTimeout` for
+  torrents only, while a usenet job whose provider answers nothing waits
+  `ProviderRetryDelay` forever. `lastProgress` is already tracked; a
+  `UsenetSpec.stallTimeout` (opt-in, like `downloadTimeout`) would fail
+  the job as `timeout` after that long without progress.
+- [ ] **Bound the par2 subprocess.** udl gives par2 a 30-minute deadline;
+  ours runs under the job context alone, so a wedged par2 over NFS wedges
+  the job. A generous per-run deadline scaled by set size would turn that
+  into a retryable failure.
+
+Considered and not taken: udl's `segments.done` resume file (our
+manifest bitsets are the same idea, checkpointed every 2 s); its stale-dir
+rule keyed on manifest bytes (our job dir is keyed by content hash and now
+by Download name); its 3-try fetch loop (matched in `maxArticleTries`);
+its health abort at over half the segments failed after 100 (ours is
+SABnzbd's rule); its `failAndRetry` re-search (our Y3 redownload); its
+subject patterns for `[PRiVATE]-[WtFnZb]-[name]-[N/M]` (nzbparser
+already parses them); AppleDouble cleanup (macOS only).
+
 ### Deferred by decision: the unified manager topology (2026-09-24)
 
 - [ ] Adopt `docs/superpowers/specs/2026-09-24-unified-manager-design.md`
