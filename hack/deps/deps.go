@@ -67,12 +67,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // github.com/jackc/pgx/v5/stdlib for real (OpenPostgres, spec §A.1) and
 // pkg/relindex/postgres_test.go imports github.com/fergusstrange/
 // embedded-postgres for real (TestPostgresStoreContract, spec §A.2).
-// x/image stays -- C2 (pkg/overlay) has not landed yet.
+//
+// x/image, also pre-added in W0-1, was retired the same way by C2:
+// pkg/overlay/overlay.go imports golang.org/x/image/draw,
+// golang.org/x/image/font, golang.org/x/image/font/gofont/gobold,
+// golang.org/x/image/font/opentype and golang.org/x/image/math/fixed for
+// real (Render, faceForCapHeight).
 package deps
-
-// M7 (plan docs/superpowers/plans/2026-09-24-index-artwork-ratings-plex.md)
-// pre-adds x/image in W0-1; it is retired by the task that imports it for
-// real: x/image by C2 (pkg/overlay).
-import (
-	_ "golang.org/x/image/draw"
-)

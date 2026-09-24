@@ -1,0 +1,45 @@
+Third-party marks embedded in this directory
+=============================================
+
+Ruling R6 (docs/superpowers/sdd/2026-09-24-index-artwork-ratings-plex/
+task-C2-brief.md; the owner's decision over the trademark concern,
+2026-09-24): these logos ship embedded in the clustarr binary so the
+overlay renderer (pkg/overlay) can identify a rating's source on a poster
+badge, the same nominative use Kometa (https://github.com/Kometa-Team/Kometa,
+MIT licensed) makes of them in defaults/overlays/images/rating/. clustarr
+does not claim any right, title or interest in these marks; each is the
+property of its respective owner, reproduced here only to identify the
+rating source it labels, as Kometa's overlay defaults already do.
+
+  File               Mark                        Owner
+  ------------------ --------------------------- --------------------------
+  imdb.png           IMDb logo                   IMDb.com, Inc. (an Amazon
+                                                   company)
+  tmdb.png           TMDB logo                   TMDb (The Movie Database).
+                                                   This product uses the TMDB
+                                                   API but is not endorsed or
+                                                   certified by TMDB.
+  metacritic.png     Metacritic "m" logo         Fandom, Inc. (Metacritic)
+  trakt.png          Trakt logo                  Trakt.tv
+  letterboxd.png     Letterboxd logo             Letterboxd Limited
+  rt-critic.png      Rotten Tomatoes "RT" tomato Fandango Media, LLC
+                     (critic badge)
+  rt-audience.png    Rotten Tomatoes "RT" popcorn Fandango Media, LLC
+                     (audience badge)
+
+Source: each file is byte-identical to the corresponding file fetched
+2026-09-24 from Kometa-Team/Kometa's defaults/overlays/images/rating/ at
+master (MIT-licensed repository; the images themselves are the third-party
+marks above, not Kometa's copyrighted work):
+
+  imdb.png        <- defaults/overlays/images/rating/IMDb.png
+  tmdb.png        <- defaults/overlays/images/rating/TMDb.png
+  metacritic.png  <- defaults/overlays/images/rating/Metacritic.png
+  trakt.png       <- defaults/overlays/images/rating/Trakt.png
+  letterboxd.png  <- defaults/overlays/images/rating/Letterboxd.png
+  rt-critic.png   <- defaults/overlays/images/rating/RT-Crit-Direct.png
+  rt-audience.png <- defaults/overlays/images/rating/RT-Aud-Direct.png
+
+None of these seven were drawn as a placeholder -- every source named in
+task C2 (imdb, tmdb, metacritic, rottenTomatoesCritic, rottenTomatoesAudience,
+trakt, letterboxd) had a plain identifying mark available at that path.
