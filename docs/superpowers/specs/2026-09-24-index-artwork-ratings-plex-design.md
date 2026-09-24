@@ -130,6 +130,15 @@ worker and the search fan-out change nothing since they write through
 sweep runnable declares `NeedLeaderElection() == true`; under SQLite one
 replica is the leader and nothing changes.
 
+> **As built (2026-09-24).** Leader election turns on for every indexarr
+> controller, not only the retention sweep: with `--index-dsn` set,
+> `--leader-elect` is accepted and every controller declares
+> `NeedLeaderElection() == true` alongside the sweep; with the DSN empty,
+> nothing changes from the SQLite, single-replica shape. Minor (deferred):
+> `clustarr all --index-dsn` with no `--namespace` fails at manager
+> construction with controller-runtime's generic leader-election-namespace
+> error rather than a `Validate` message.
+
 ### A.4 CloudNativePG
 
 Chart (`charts/clustarr`):
@@ -157,6 +166,30 @@ Kustomize: a component `config/postgres` with the same `Cluster` and a patch
 giving indexarr the env, no volume and default strategy; `config/README`
 notes the operator must be installed first. `TestChartAndKustomizeAgree...`
 gains a postgres-enabled case so the two paths cannot drift.
+
+> **As built (2026-09-24), ruling supersedes this section's hook sentence
+> and the plan's R2.** The `Cluster` renders as a normal resource carrying
+> `helm.sh/resource-policy: keep`, never a hook: Helm's default
+> hook-delete-policy, with no `helm.sh/hook-delete-policy` annotation, is
+> `before-hook-creation`, so a `post-install,post-upgrade` hook of this kind
+> would be deleted and recreated on every `helm upgrade`, destroying the
+> database. CNPG's admission webhook still fails closed until the operator's
+> own Deployment is Ready, so a first install that also installs the
+> operator is two steps (`cloudnative-pg.enabled=true`,
+> `postgres.enabled=false` first, wait for the operator, then upgrade with
+> `postgres.enabled=true`), or one step against an operator already running
+> elsewhere; `clustarr.validate`'s `fail` catches the unordered case at
+> render time (`postgres.enabled && cloudnative-pg.enabled &&
+> .Release.IsInstall`). `--wait` does **not** substitute for this ordering —
+> it only waits on the release's own resources, never an externally managed
+> operator's — and the README is corrected to the explicit two-step /
+> `kubectl wait --for=condition=Available
+> deployment/cnpg-controller-manager -n cnpg-system` instructions. Minor
+> (deferred): no test renders `postgres.enabled=false && indexarr.replicas>1`
+> to prove the `clustarr.validate` fail; the `cnpg-system` namespace
+> assumption is unverified until Phase H; the README's Postgres section still
+> phrases install/upgrade as two verbs rather than addressing `helm upgrade
+> --install` users directly.
 
 ### A.5 nack
 
@@ -255,6 +288,19 @@ image, and a silent substitute is a guess.
 
 After storing a poster original whose digest changed, the gateway publishes
 one `RenderOverlay` task (§C.6) for the item.
+
+> **As built (2026-09-24).** The rate limiter is per image host, not per
+> provider — an image hosted on a CDN a provider's API does not itself front
+> is limited on its own host. The stored `Content-Type` follows the decoded
+> image format rather than the response header verbatim. Every artwork pass
+> — not only one that found a changed digest — republishes the
+> `RenderOverlay` task idempotently, closing the gap where a crash between
+> the `status.artwork` apply and the publish could strand an item with no
+> render ever queued. A poster drop (an override withdrawn, a fetch that now
+> resolves to no source) also publishes the render task; the renderer's own
+> "no original" branch (§C.6 step 1) is what actually deletes `poster/overlay`
+> and clears `status.overlay` — the gateway never deletes an `overlay`
+> object itself.
 
 ### B.5 Reaper
 
@@ -432,6 +478,15 @@ real APIs during implementation into `test/data/metadata/mdblist/` and
 units and quotas. Until recorded, no field name from memory is to be relied
 on; the implementation task blocks on the recording.
 
+> **As built (2026-09-24), ruling R5.** Neither client was built: no
+> `MDBLIST_API_KEY`/`OMDB_API_KEY` was available at implementation time.
+> `docs/research/ratings-providers.md` exists as a skeleton carrying
+> `UNRECORDED` markers in place of verified field names, and a
+> `MetadataProviderType: mdblist` or `omdb` CR reports `Ready=False`,
+> reason `InvalidSpec`, until the fixtures are recorded and the clients
+> built (follow-up, `docs/superpowers/plans/2026-09-18-remaining-work.md`'s
+> M7 carried items). TMDB ratings ship as designed.
+
 ### C.4 OverlayProfile
 
 A new kind in `catalog.clustarr.io/v1alpha1`, namespaced:
@@ -477,6 +532,20 @@ overlapping selectors with `Overlap`, the lower name winning, as
 `TranscodeProfile` does; and on any change to hash or selection publishes
 one `RenderOverlay` task per selected item. An item matched by no
 non-overlapped profile has its overlay removed on its next render task.
+
+> **As built (2026-09-24).** "Lower name wins" is kept as designed — but
+> the comparison to `TranscodeProfile` above is wrong and should be read as
+> struck: `TranscodeProfile`'s own overlap rule is oldest-wins, not
+> lower-name-wins, so the two kinds tie-break differently. `status.hash`
+> includes the profile's badges, not only its selector and geometry, so a
+> badge-only edit re-renders. The controller keys each render task's Msg-Id
+> by the selected item's `resourceVersion`, and publishes one for an item a
+> change just *deselected* too, so its overlay is cleared rather than left
+> stale. RBAC on `overlayprofiles` is `get,list,watch` plus a `status`
+> patch, matching every other controller-owned kind. `Kinds`' enum is
+> narrowed to `movie`/`series` by CEL only; the raw OpenAPI schema still
+> lists all ten `MediaKind` values, since the field's underlying Go type
+> admits more values than this kind's business rule allows.
 
 ### C.5 The renderer package
 
@@ -531,6 +600,20 @@ gateway (§B.4) and the OverlayProfile controller (§C.4), Msg-Id
 The role never touches `original` objects or `status.artwork`. It is not
 leader-elected and scales by consumer.
 
+> **As built (2026-09-24).** Renders are bounded to a default 2 concurrent
+> in-flight per process (an unbounded fan-out of large-poster decodes could
+> OOM the catalogarr pod carrying the role, review finding on C3). An
+> original that fails to decode clears any existing overlay instead of
+> leaving a stale one — the same "none" outcome as a missing original.
+> Finding the item's profile (step 1) reads the current `OverlayProfile`
+> list uncached on every task rather than from an informer cache, so a
+> profile edit is picked up by the very next render, not the cache's
+> resync interval. Minor (deferred): a profile deleted while no catalogarr
+> replica is leader strands its overlays; a known-undecodable original is
+> re-attempted on every later task, with no negative cache; a max-size
+> 8000x8000 poster decodes to roughly 512 MB per concurrent render, so the
+> decode dimensions should be capped or `GOMEMLIMIT` set accordingly.
+
 ## D. Plex Metadata Provider
 
 ### D.1 Placement and flags
@@ -551,6 +634,13 @@ at startup; readiness is unaffected. The provider is unauthenticated by
 protocol and exposes the whole catalog: the README, the chart's ingress
 values and `docs/observability.md`'s exposure section state it must not sit
 behind a public ingress.
+
+> **As built (2026-09-24).** The chart gained `ui.plex.enabled` and
+> `ui.plex.externalURL` values that render as `--plex-provider` and
+> `--external-url` on the `ui` Deployment; kustomize carries the same two
+> flags on `config/manager/ui.yaml`, matching the binary's own flag names
+> for parity. Both default to the routes being reachable but inert (503, no
+> external URL) rather than a guessed hostname.
 
 ### D.2 Routes
 

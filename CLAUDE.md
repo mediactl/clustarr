@@ -30,13 +30,13 @@ One Go module, one cobra binary: `clustarr <service> --role <role>`.
 
 | Dir | Owns |
 | --- | --- |
-| `app/catalog/` | Media domain (movies, series, music, books, comics, audiobooks), metadata gateway, release decisions |
+| `app/catalog/` | Media domain (movies, series, music, books, comics, audiobooks), metadata gateway, release decisions, artwork render role (`--role artwork`) |
 | `app/import/` | Everything entering the library: root-folder rescan, import lists, completed-download import |
 | `app/indexer/` | Indexer aggregation, Cardigann engine, local release index (SQLite FTS5) |
 | `app/grab/` | Download clients: torrent (anacrolix) and usenet engines |
 | `app/squash/` | Transcode to HEVC 10-bit + AAC, as batch Jobs |
 | `app/caption/` | Subtitles, Bazarr-equivalent, distributed |
-| `ui/` | Server-rendered web UI (templ + htmx + SSE); never writes status |
+| `ui/` | Server-rendered web UI (templ + htmx + SSE); serves artwork at `/art` and the Plex Metadata Provider roots over a read-only bus; never writes status |
 
 API groups: `{catalog,index,download,transcode,subtitle}.clustarr.io/v1alpha1`.
 Module `github.com/mediactl/clustarr`. Licence GPL-3.0 (lets us port *arr and
@@ -93,6 +93,22 @@ Each item should show the cover art, monitored status and selected quality profi
   `LibraryScan.status.unmatched` with the reason, never a speculative item.
 - **The UI never writes status** and owns no CRD. User actions patch spec or
   create short-lived resources, so anything the UI does, `kubectl` can do.
+- **The UI may hold a read-only bus connection.** Since M7, `cmd/clustarr`'s
+  ui command calls `k8s.ConnectBus` and passes `Bus.ObjectStore(...)` into
+  `ui.Options.Artwork` to serve `/art`; `ui/` still never imports `pkg/k8s`.
+  `TestUINeverWrites`' AST guard extends its banned-selector list with every
+  object-store write method (`Put`, `PutBytes`, `UpdateMeta`, `Seal`,
+  `AddLink`, `Purge`) so a NATS write is caught the same way a Kubernetes
+  write already is — the connection is read-only by construction, not by
+  omission.
+- **Artwork objects have two writers split by variant, the same discipline
+  as spec versus status on MediaFile.** The metadata gateway
+  (`k8s.ManagerCatalogarrMetadata`) is the sole writer of `original` objects
+  and of `status.artwork`; the renderer (`catalogarr --role artwork`,
+  `k8s.ManagerCatalogarrArtwork`) is the sole writer of `overlay` objects and
+  of `status.overlay` (Movie and Series only). Neither reads, writes or
+  deletes the other's variant; the reaper is the only code that deletes
+  both.
 
 ## Commands
 
@@ -351,6 +367,40 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   passed. natsbus now naks for `d - (BackOff[n-1] - BackOff[0])`
   (`natsbus.nakDelay`), and the contract test measures the real gap between
   deliveries on both buses.
+- **A Helm hook with no delete policy defaults to `before-hook-creation`,
+  which destroys anything holding data.** A `post-install,post-upgrade`
+  hook carrying no `helm.sh/hook-delete-policy` annotation is deleted and
+  recreated on every `helm upgrade` — fine for a Job, fatal for a database.
+  The CNPG `Cluster` for the Postgres-backed release index
+  (`charts/clustarr/templates/postgres-cluster.yaml`) shipped as exactly
+  that hook first, caught in review before it reached `main`: a stateful
+  resource that must survive `helm upgrade` is a normal templated resource
+  carrying `helm.sh/resource-policy: keep` (as `pvc.yaml`'s `/data` claim
+  already does), never a hook. Ordering against an external operator
+  (CNPG's admission webhook fails closed until its own Deployment is Ready)
+  is a render-time `clustarr.validate` fail plus documentation instead —
+  and `--wait` does **not** substitute for that ordering, since it only
+  waits on the release's own resources, never a resource Helm did not
+  install.
+- **A JetStream object digest is `SHA-256=<base64url>`, not the hex
+  `events.ObjectInfo.Digest` documents.** `natsbus.objectDigestHex`
+  (`pkg/events/natsbus/objectstore.go`) converts through
+  `jetstream.DecodeObjectDigest` plus `hex.EncodeToString`; an empty digest
+  (a freshly created, still-uploading object) stays empty rather than
+  erroring, and anything else that fails to decode is reported as an error,
+  never silently turned into `""`.
+- **`make pg-assets` (`CLUSTARR_PG_ASSETS`) populates `embedded-postgres`'s
+  cache directory once, the way `setup-envtest` populates
+  `KUBEBUILDER_ASSETS`.** `make test`/`test-race` depend on it and export
+  the variable; `pkg/relindex`'s Postgres store contract test skips
+  silently, naming the variable, when it is unset — the same silent-skip
+  trap `KUBEBUILDER_ASSETS` already has above, now with a second variable
+  to remember.
+- **`git stash` swept another task's uncommitted work again, despite the
+  rule above.** An M7 task ran a path-scoped `git stash` mid-task; the
+  stash list was empty afterwards and no damage was observed this time, but
+  the rule stands exactly as written above: never `git stash` while another
+  agent may be working in the same checkout.
 - **`ForSingleNode` keeps object stores on file storage.** It maps streams
   and KV buckets to memory (scaled into a 64 MiB budget under config/nats'
   256Mi `max_memory_store`), but the artwork object store reserves 5 GiB,
@@ -887,9 +937,42 @@ alternate titles; searches send scene numbering. The open list is the
 unchecked items under "Still open after the gap fixes" in the remaining-work
 plan.
 
-Next: Phases D through G and the gap fixes are done (M2-M6) → **Phase H:
+M7 (done, 2026-09-24): index/artwork/ratings/Plex
+(`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md`).
+**A** `pkg/relindex` gains `OpenPostgres` behind the same `Store` contract
+(`storetest.Run` runs both engines), selected by `--index-dsn`
+(`CLUSTARR_INDEX_DSN`, ADR-0010); a DSN turns on leader election for every
+indexarr controller and the retention sweep, since more than one replica may
+now run; the chart and kustomize gained an optional CloudNativePG `Cluster`
+(`postgres.enabled`/`config/postgres`) as a kept normal resource, never a
+hook (a ruling reversing this design's own hook sentence and the plan's R2,
+gotchas above), and `nack` left the chart. **B** a JetStream object store
+bucket, `clustarr-artwork` (5Gi, file storage — `ForSingleNode` had to learn
+every object store belongs there, not only KV and streams, gotchas above),
+holds provider-fetched `original` artwork and `spec.artwork` overrides, one
+writer per variant (the metadata gateway; the renderer, `catalogarr --role
+artwork`); `ui` gained a read-only NATS connection and serves it at `/art`,
+dropping every provider hotlink (ADR-0011). **C** `status.metadata.ratings`
+from TMDB with fallthrough declared for MDBList and OMDb, neither built
+(ruling R5: no API keys at hand; both `MetadataProviderType`s report
+`Ready=False, InvalidSpec` until they are); `OverlayProfile` and
+`pkg/overlay` composite Kometa-style rating badges onto posters, rendered by
+the same `--role artwork` worker, bounded to 2 concurrent renders by
+default. **D** `ui/plex` serves Plex's Custom Metadata Provider protocol at
+`/plex/movies` and `/plex/tv` (`--plex-provider`,
+`--external-url`/`CLUSTARR_EXTERNAL_URL`; ADR-0012), read-only over the
+existing projection cache, gated 503 with no external URL configured.
+Reconciles against envtest, with real Postgres (`make pg-assets`) and real
+NATS object-store round trips included; e2e scenario 18
+(`test/e2e/plex_test.go`) is written and, like every scenario since Phase C,
+has never run on kind — its thumb-fetch leg skips by name rather than
+asserting, since `config/e2e` has no egress and no in-cluster fixture serves
+image bytes yet. Every deferred item the build surfaced is under "M7 carried
+items" in `docs/superpowers/plans/2026-09-18-remaining-work.md`.
+
+Next: Phases D through G, the gap fixes and M7 are done (M2-M7) → **Phase H:
 end-to-end proof on kind** is next. Only Phase C's scenarios (5, 7 and 8)
-have ever run on kind; every scenario written since — 1-4, 6, 9-17 — never
+have ever run on kind; every scenario written since — 1-4, 6, 9-18 — never
 has. Phase H runs them, builds the second deploy path scenario 16's Helm and
 `clustarr all` legs need, extends scenario 1's trace check to all four
 services, and owns the open items left under "Carried defects" in

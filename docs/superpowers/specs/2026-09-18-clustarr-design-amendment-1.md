@@ -452,6 +452,20 @@ then served by the UI from disk. The UI never calls a metadata provider itself,
 so provider rate limits stay owned by the one component that already manages
 them.
 
+> **Note (2026-09-24, M7 Task B3).** Superseded by ADR-0011
+> (`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md`
+> §B). This paragraph was never built past the sentence: what actually
+> shipped, in Phase G and the gap fixes, was hotlinking `status.metadata.images`
+> URLs straight into `<img src>`. Cover art now lives in a JetStream object
+> store bucket (`clustarr-artwork`), not a `/data` disk cache: the metadata
+> gateway is the sole writer of provider-fetched `original` objects, a
+> renderer (`catalogarr --role artwork`) is the sole writer of rating-badge
+> `overlay` objects, and the UI serves both at
+> `GET /art/{kind}/{uid}/{type}` over a read-only NATS connection it did not
+> hold before — it still never mounts `/data` and still never writes
+> status. Every template-facing image URL, and the hotlinks above, now point
+> at `/art`.
+
 ### A3.4a Components and theme (as built, 2026-09-23)
 
 The UI's shared widgets come from shadcn-templ (`components.json` at the

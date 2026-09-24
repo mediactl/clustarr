@@ -1500,6 +1500,59 @@ three phase plans, and each re-verified at HEAD during the final gate.
 
 **Fixed during E, F and G, or at the final gate — not carried:** Cardigann `SearchBlock.Error` (`a7dd0cd`); grabarr's hard-coded engine PVC (`--data-claim`, G1-5); `Download.status.import.rejections` uncapped (`app/import/worker/fileimport/caps.go`, G4-0); OpenSubtitles.com JSON read uncapped (`7fbe132`); the stale "M6 / not applied" comments in indexarr (G1-5); `ManagerCatalogarrFanout`'s doc and `ManagerCatalogarr`'s missing Audiobook (it now says every `catalog.clustarr.io` kind); the `capMatchedFormats` wiring left untested (`0d820a9`); `ImportedFile` and every other 1024-capped path raised to 4096 (`8c76baf`); the pre-existing gofumpt and staticcheck findings (`7747c8c`, `11dfc86`); and the stale comments the gate brief listed (`f7a9a56`).
 
+### M7 carried items (2026-09-24)
+
+Harvested from the M7 execution ledger
+(`.superpowers/sdd/2026-09-24-index-artwork-ratings-plex/`) — every line
+marked minor (deferred), a Carry-to note, a Follow-up, or a ruling carrying
+a stated cost if it turns out wrong, transcribed close to verbatim and left
+unchecked pending Phase H or a dedicated follow-up, the way "Still open
+after the gap fixes" started before later waves ticked items off. Design:
+`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md`.
+
+**Release index (Part A).**
+
+- [ ] A1: every `OpenPostgres` pays one advisory-lock round trip before the version check (startup-only); the categories read path hand-parses `array_to_string` instead of a pgtype scanner (correct, documented).
+- [ ] A2: `clustarr all --index-dsn` with no `--namespace` fails at manager construction with controller-runtime's generic leader-election-namespace error instead of a `Validate` message; `Validate` still requires `IndexPath` non-empty under a DSN (its default is already non-empty).
+- [ ] A3: no test renders `postgres.enabled=false && indexarr.replicas>1` to prove the `clustarr.validate` template fail; the `cnpg-system` namespace assumption is unverified until Phase H.
+- [ ] A3: `charts/clustarr/README.md`'s Postgres section does not address `helm upgrade --install` users directly (the guard fires correctly; the docs phrase install/upgrade as two verbs).
+- [ ] Ruling (A2, cost if wrong: a Postgres deployment with `replicas>1` double-reconciles): with `--index-dsn` set, leader election is enabled and `--leader-elect` is accepted; an empty DSN keeps the single-replica SQLite shape. Unverified against a real multi-replica Postgres deployment until Phase H.
+
+**Artwork store (Part B).**
+
+- [ ] B1: no shared-contract assertion for `Put` to an unknown bucket (a pre-existing KV gap too); the `objectDigestHex` empty-digest branch is effectively unreachable.
+- [ ] B1: `natsbus`'s object `Delete` is `GetInfo`-then-`Delete`, not atomic — two racing deletes can both return nil (membus is atomic under its mutex); needs a doc note.
+- [ ] B2: the metadata consumer's heartbeat is a free-running timer — a hung handler would never dead-letter (every inner call is bounded today); give the handler a deadline or a beat per image.
+- [ ] B2: the SSRF surface on `spec.artwork` (no private-address deny-list, a redirect bypasses the per-host limiter, Event notes are a blind oracle) is accepted while `spec.artwork` is `kubectl`-only reachable (ADR-0011); it needs a `CheckRedirect` follow-up before any lower-trust caller (e.g. `ui/actions`) gains a write path to it.
+- [ ] B2: artwork drift detection compares the source URL only; there is no interleaving test for the pre-apply re-read; the gateway's render-task publish path has no metrics (`domain.go` not owned by this work).
+- [ ] B2/C3: the render Msg-Id is keyed by the poster digest alone, so a poster that changes and changes back within the 1h dedup window absorbs the second render task until a later pass republishes it — the same window absorbs a ratings-only change with an unchanged poster. Fix: fold a ratings digest into the render Msg-Id (follow-up).
+- [ ] C3: a known-undecodable original is re-downloaded and re-attempted on every later task — no negative cache.
+- [ ] Peer commit `dabd496` (ForSingleNode): the artwork object store had to move off memory storage onto file storage to boot on a single-node kind cluster, recorded as a CLAUDE.md gotcha; flagged here so a future single-node topology change re-checks every bucket, not only KV and streams.
+
+**Ratings and overlays (Part C).**
+
+- [ ] C1: no test for "a failing higher-priority ratings provider frees the source for a lower one that also declares it" (needs overlapping sources — mdblist/omdb, pending R5). Two `BuildRegistry` copies (gateway vs. controller) must be kept in agreement for mdblist/omdb — cleanup candidate.
+- [ ] C1: the ratings envtest exercises only the `noopCache` path (cache-hit seeding argued by inspection, not tested); `enrichRatings`' `out` slice ranges an unordered map (callers sort — reconfirm this whenever a new caller is added).
+- [ ] Follow-up (ruling R5): record MDBList and OMDb fixtures and build the two clients once API keys are available (`test/data/metadata/mdblist/`, `test/data/metadata/omdb/`, `docs/research/ratings-providers.md`); until then `MetadataProviderType: mdblist|omdb` CRs report `Ready=False, InvalidSpec`.
+- [ ] C2: the `alpha_base` overlay golden's badge sits over the near-opaque end of the background gradient; `paddingPx` is computed twice; `radiusPx` is not re-derived after the `minBoxPx` clamp; there is no `pkg/overlay/testdata` directory (the poster is generated in code, not a fixture).
+- [ ] C2: the small-poster test asserts full containment only for badge 0 of the stack (badges 1 and 2 also fit, unasserted); badges' X coordinate is not asserted equal across the stack.
+- [ ] Ruling (C2, cost if wrong: an unreadable badge stack on a thumbnail-sized poster): four 24px-minimum badges cannot fit a 60x90 poster; badges beyond the poster's edge are clipped by `image/draw` and accepted, since real posters are ≥500px and the 24px floor exists only to keep one badge legible.
+- [ ] C3: a profile deleted while no leader runs strands its overlays — a `ProfileRef` naming a missing profile should be treated as owned by every reconcile, not skipped.
+- [ ] C3: the render envelope is built independently in `artwork.Publish` and in the gateway's `publishRender` — merge into one renderer in a follow-up.
+- [ ] C3: no manager-driven watch test proves the label → `OverlayProfile` selector mapping wakes the right items.
+- [ ] C3: a max-size 8000x8000 poster decodes to roughly 512 MB per concurrent render — cap decode dimensions for rendering, or set `GOMEMLIMIT` accordingly.
+- [ ] Ruling (C3, cost if wrong: renders re-trigger more often than strictly needed): the profile hash includes badges; the OverlayProfile controller keys render Msg-Ids by the item's `resourceVersion` and publishes a render task for a deselected item too, so its overlay is cleared.
+- [ ] W0-2: minor, harmless. `Rating.ValueCentis`/`Votes` gained `+kubebuilder:validation:Minimum`/`Maximum` markers beyond what the design brief specified.
+- [ ] W0-3: minor, harmless. A doc comment names a non-existent type `ArtworkVariant`; the fetch consumer's comment calls the task `ImportArtwork` (the spec's informal name for it); `events.ArtworkMaxBytes` is written `5 * GiB` where the design brief showed the literal `5 << 30` (identical value).
+
+**Plex provider (Part D) and e2e.**
+
+- [ ] D1: `buildEpisodeImages` is a stub — Episode carries no artwork of its own yet.
+- [ ] B3: `detail_test.go` repeats the literal `"nerve-poster-digest"` instead of referencing its constant.
+- [ ] Verify: the renderer treats a missing original as "none" (deletes `poster/overlay`, clears `status.overlay`) and checks `status.overlay`'s `Clustarr-Rendered-From` against the current poster digest on every render task (Carry to C3; implemented per C3's DONE report, not independently re-verified here).
+- [ ] Design spec §D.2: whether Plex's `X-Plex-Container-Start` paging is 0- or 1-based is unverified against a real PMS; 0-based is implemented and Phase H's real-server run settles it.
+- [ ] Scenario 18's thumb-fetch leg skips by name instead of asserting: `config/e2e` has no egress and no in-cluster fixture serves image bytes (`test/fixtures/tmdbstub` serves JSON only; `pkg/metadata/clients/tmdb` hard-codes `posterBaseURL` to the real CDN). Phase H follow-up: an image-serving fixture (extend `tmdbstub` or add one) plus a TMDB image base-URL override (a flag or a `MetadataProvider` spec field) so the leg can assert a 200 `image/*` response; until then the art round trip is proven only by `ui/art.go`'s membus tests and B2's envtests.
+
 ## Self-review notes
 
 Checked against both specs on 2026-09-18.
