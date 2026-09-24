@@ -158,7 +158,7 @@ func ParentDetail(d Detail, label string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = Shell(li.Title, itemCrumbs(li)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Shell(Chrome{Title: li.Title, Crumbs: itemCrumbs(li), Tab: li.Tab}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -240,7 +240,7 @@ func ChildrenPage(d Detail, label string, children []ChildRow) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = Shell(fmt.Sprintf("%s · %s", li.Title, label), childCrumbs(li, label)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Shell(Chrome{Title: fmt.Sprintf("%s · %s", li.Title, label), Crumbs: childCrumbs(li, label), Tab: li.Tab}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

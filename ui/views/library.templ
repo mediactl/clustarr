@@ -28,7 +28,6 @@ import (
 	"github.com/mediactl/clustarr/ui/components/dropdownmenu"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/item"
-	"github.com/mediactl/clustarr/ui/components/tabs"
 	"github.com/mediactl/clustarr/ui/components/tooltip"
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -49,12 +48,11 @@ import (
 // same cadence as item status, mirroring downloads.templ's own client-cards
 // placement.
 templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
-	@Shell("Library", []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}) {
+	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab}) {
 		<div id="library-page">
 			@libraryToolbar(tb, rootFolders)
 			<div class="flex gap-4">
 			<div class="min-w-0 flex-1 space-y-4">
-				@libraryTabs(tab)
 				<div
 					id="library-rows"
 					data-tab={ string(tab) }
@@ -80,18 +78,23 @@ type Jump struct {
 	Href    string
 }
 
+// jumpButtonClass makes every letter share the bar's height evenly, so
+// the bar fills the viewport as Radarr's does.
+const jumpButtonClass = "min-h-0 flex-1 px-1 py-0 text-[11px]"
+
 // jumpBar is Radarr's A-Z bar as a vertical button group down the right
-// edge: a link per letter that has titles, a disabled button per letter
-// that does not, each carrying data-jump for the tests.
+// edge, sticky and as tall as the viewport under the top bar: a link per
+// letter that has titles, a disabled button per letter that does not,
+// each carrying data-jump for the tests.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="sticky top-16 hidden self-start lg:block">
-			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical}) {
+		<div data-jump-bar class="sticky top-12 hidden h-[calc(100vh-3rem)] shrink-0 self-start py-2 lg:block">
+			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full"}) {
 				for _, j := range jumpsFor {
 					if j.Enabled {
-						@button.Button(button.Props{Href: j.Href, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
+						@button.Button(button.Props{Href: j.Href, Size: button.SizeXs, Variant: button.VariantOutline, Class: jumpButtonClass, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
 					} else {
-						@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantOutline, Disabled: true, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
+						@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantOutline, Disabled: true, Class: jumpButtonClass, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
 					}
 				}
 			}
@@ -100,35 +103,35 @@ templ jumpBar(jumpsFor []Jump) {
 }
 
 // LibraryList is what #library-rows holds and what every
-// /events/library/{tab} frame carries: the pager, the page's cards, the
-// pager again. items is already the tab's page window.
+// /events/library/{tab} frame carries: the window's cards and, while the
+// list goes on, the sentinel that loads more. items is already the tab's
+// window.
 templ LibraryList(tab projection.Tab, p paging.Page, items []projection.LibraryItem) {
-	@Pager(p, "/library/"+string(tab))
 	@LibraryRows(items)
-	@Pager(p, "/library/"+string(tab))
+	@loadMore(tab, p)
 }
 
-// libraryTabs renders the tab strip -- one link per projection.Tab, in
-// the order Tabs() lists them, the current one marked -- so every tab is
-// reachable by a plain link, no JavaScript needed to switch.
-templ libraryTabs(current projection.Tab) {
-	@tabs.Tabs(tabs.Props{DefaultValue: string(current), Attributes: templ.Attributes{"data-tabs": true}}) {
-		@tabs.List(tabs.ListProps{Variant: tabs.VariantLine}) {
-			for _, tab := range projection.Tabs() {
-				@tabs.Trigger(tabs.TriggerProps{
-					Value: string(tab),
-					Attributes: templ.Attributes{
-						"hx-get":      "/library/" + string(tab),
-						"hx-push-url": "true",
-						"hx-target":   "#library-page",
-						"hx-select":   "#library-page",
-						"hx-swap":     "outerHTML",
-					},
-				}) {
-					{ tabLabel(tab) }
-				}
-			}
-		}
+// loadMore is the library's infinite scroll (design 2026-09-24): a
+// sentinel after the grid that, once scrolled into view, fetches the
+// same window one page wider and swaps #library-rows whole -- the wider
+// grid, the next sentinel and the stream element, which reconnects for
+// the wider window so live frames carry everything on screen. Nothing
+// once the window reaches the end.
+templ loadMore(tab projection.Tab, p paging.Page) {
+	if p.HasNext() {
+		{{ q := p.Values(p.Number) }}
+		{{ q.Set("pages", fmt.Sprint(p.Pages+1)) }}
+		<div
+			data-load-more
+			hx-get={ "/library/" + string(tab) + "?" + q.Encode() }
+			hx-trigger="revealed"
+			hx-target="#library-rows"
+			hx-select="#library-rows"
+			hx-swap="outerHTML"
+			class="py-6 text-center text-sm text-muted-foreground"
+		>
+			Loading more…
+		</div>
 	}
 }
 

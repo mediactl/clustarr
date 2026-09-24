@@ -60,13 +60,13 @@ func TestPaginateClampsAndWindows(t *testing.T) {
 		want               paging.Page
 		from, to           int
 	}{
-		"first of three": {120, 1, 50, paging.Page{Number: 1, Per: 50, Total: 120, Last: 3, Offset: 0, Count: 50}, 1, 50},
-		"short last":     {120, 3, 50, paging.Page{Number: 3, Per: 50, Total: 120, Last: 3, Offset: 100, Count: 20}, 101, 120},
-		"past the end":   {120, 9, 50, paging.Page{Number: 3, Per: 50, Total: 120, Last: 3, Offset: 100, Count: 20}, 101, 120},
-		"middle":         {120, 2, 50, paging.Page{Number: 2, Per: 50, Total: 120, Last: 3, Offset: 50, Count: 50}, 51, 100},
-		"exact fit":      {100, 2, 50, paging.Page{Number: 2, Per: 50, Total: 100, Last: 2, Offset: 50, Count: 50}, 51, 100},
-		"empty":          {0, 1, 50, paging.Page{Number: 1, Per: 50, Total: 0, Last: 1, Offset: 0, Count: 0}, 0, 0},
-		"empty past end": {0, 4, 50, paging.Page{Number: 1, Per: 50, Total: 0, Last: 1, Offset: 0, Count: 0}, 0, 0},
+		"first of three": {120, 1, 50, paging.Page{Number: 1, Per: 50, Total: 120, Last: 3, Offset: 0, Count: 50, Pages: 1}, 1, 50},
+		"short last":     {120, 3, 50, paging.Page{Number: 3, Per: 50, Total: 120, Last: 3, Offset: 100, Count: 20, Pages: 1}, 101, 120},
+		"past the end":   {120, 9, 50, paging.Page{Number: 3, Per: 50, Total: 120, Last: 3, Offset: 100, Count: 20, Pages: 1}, 101, 120},
+		"middle":         {120, 2, 50, paging.Page{Number: 2, Per: 50, Total: 120, Last: 3, Offset: 50, Count: 50, Pages: 1}, 51, 100},
+		"exact fit":      {100, 2, 50, paging.Page{Number: 2, Per: 50, Total: 100, Last: 2, Offset: 50, Count: 50, Pages: 1}, 51, 100},
+		"empty":          {0, 1, 50, paging.Page{Number: 1, Per: 50, Total: 0, Last: 1, Offset: 0, Count: 0, Pages: 1}, 0, 0},
+		"empty past end": {0, 4, 50, paging.Page{Number: 1, Per: 50, Total: 0, Last: 1, Offset: 0, Count: 0, Pages: 1}, 0, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := paging.Paginate(tc.total, tc.number, tc.per)

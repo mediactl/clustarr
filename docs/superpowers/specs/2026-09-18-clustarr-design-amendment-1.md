@@ -564,6 +564,23 @@ studio, cast, crew) and the actions that do not exist (interactive
 search, rename, manage files, history, edit, delete) are not on the page.
 Series, artist and author pages share the toolbar and the hero.
 
+**Top bar, infinite scroll and the A–Z bar (as built, 2026-09-24).** The
+library's tabs (Movies, TV, Music, Books) sit in the top bar of every
+page, as Radarr's top nav, with the sidebar trigger; each trigger swaps
+`#page-body` -- the breadcrumb row beneath the bar and the page -- through
+htmx and pushes the URL, so the sidebar and the bar stay put. An item's
+page marks its tab. The library tabs no longer page: `#library-rows`
+renders the window `?page=N&per=M&pages=K` (K pages from page N,
+`paging.Request.Pages`, one by default) and ends in a sentinel that,
+once scrolled into view (`hx-trigger="revealed"`), fetches the same
+window one page wider and swaps `#library-rows` whole -- the wider grid,
+the next sentinel and the stream element, which reconnects for the wider
+window so every live frame carries everything on screen; the sentinel
+goes once the window reaches the end. A jump still lands on the letter's
+page and scrolls on from there. The A–Z bar is sticky under the top bar
+and as tall as the viewport, its letters sharing the height, as Radarr's.
+The pipeline, downloads and unmatched pages keep the pager.
+
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,
 `per` defaulting to 50 and capped at 500, a page past the end clamping to

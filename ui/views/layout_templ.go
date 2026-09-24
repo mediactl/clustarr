@@ -70,7 +70,18 @@ import (
 	"github.com/mediactl/clustarr/ui/components/breadcrumb"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/sidebar"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+	"github.com/mediactl/clustarr/ui/projection"
 )
+
+// Chrome is what a page tells the Shell: its title, its breadcrumb trail
+// and, when it belongs to a library tab, that tab, which the top bar
+// marks.
+type Chrome struct {
+	Title  string
+	Crumbs []Crumb
+	Tab    projection.Tab
+}
 
 // Crumb is one step of a page's breadcrumb trail. The last crumb has no
 // Href: it is the page itself.
@@ -149,7 +160,7 @@ func Layout(title string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = Shell(title, []Crumb{{Label: title}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Shell(Chrome{Title: title, Crumbs: []Crumb{{Label: title}}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -162,9 +173,12 @@ func Layout(title string) templ.Component {
 // and the component script bundle, all vendored and served from the
 // embedded static files so a cluster without Internet egress still has a
 // working UI; then shadcn-templ's sidebar with every page, collapsible to
-// icons, and its inset holding a breadcrumb header and the page. The
-// active entry is derived from the title (activeFor).
-func Shell(title string, crumbs []Crumb) templ.Component {
+// icons, and its inset holding the top bar -- the sidebar trigger and the
+// library's tabs, as Radarr's top nav -- and the page body: the
+// breadcrumb row and the page. The active sidebar entry is derived from
+// the title (activeFor); a tab's trigger swaps the page body through
+// htmx, so the top bar stays and the URL follows.
+func Shell(c Chrome) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -190,9 +204,9 @@ func Shell(title string, crumbs []Crumb) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(title)
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(c.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 89, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 103, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -344,7 +358,7 @@ func Shell(title string, crumbs []Crumb) templ.Component {
 											var templ_7745c5c3_Var14 string
 											templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(n.Label)
 											if templ_7745c5c3_Err != nil {
-												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 112, Col: 27}
+												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 126, Col: 27}
 											}
 											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 											if templ_7745c5c3_Err != nil {
@@ -356,7 +370,7 @@ func Shell(title string, crumbs []Crumb) templ.Component {
 											}
 											return nil
 										})
-										templ_7745c5c3_Err = sidebar.MenuButton(sidebar.MenuButtonProps{Href: n.Href, IsActive: n.Href == activeFor(title), Tooltip: n.Label}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
+										templ_7745c5c3_Err = sidebar.MenuButton(sidebar.MenuButtonProps{Href: n.Href, IsActive: n.Href == activeFor(c.Title), Tooltip: n.Label}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
 										if templ_7745c5c3_Err != nil {
 											return templ_7745c5c3_Err
 										}
@@ -421,7 +435,7 @@ func Shell(title string, crumbs []Crumb) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<header class=\"flex h-12 shrink-0 items-center gap-3 border-b border-border px-4\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<header class=\"sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-border bg-background px-4\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -429,11 +443,19 @@ func Shell(title string, crumbs []Crumb) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = breadcrumbs(crumbs).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = topTabs(c.Tab).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</header><div class=\"flex-1 p-6\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</header><div id=\"page-body\" class=\"flex flex-1 flex-col\"><div class=\"flex h-9 shrink-0 items-center border-b border-border px-4 text-sm\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = breadcrumbs(c.Crumbs).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div><div class=\"flex-1 p-6\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -441,7 +463,7 @@ func Shell(title string, crumbs []Crumb) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -457,7 +479,7 @@ func Shell(title string, crumbs []Crumb) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -520,7 +542,7 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 								return templ_7745c5c3_Err
 							}
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, " ")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, " ")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -552,7 +574,7 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 									var templ_7745c5c3_Var21 string
 									templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 148, Col: 71}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 167, Col: 71}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 									if templ_7745c5c3_Err != nil {
@@ -580,7 +602,7 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 									var templ_7745c5c3_Var23 string
 									templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 150, Col: 37}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 169, Col: 37}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 									if templ_7745c5c3_Err != nil {
@@ -612,6 +634,109 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+		}
+		return nil
+	})
+}
+
+// topTabs is the library's tab strip in the top bar (design 2026-09-24,
+// after Radarr's top nav): one trigger per projection.Tab, the current
+// one marked, each swapping the page body through htmx (hx-select of
+// #page-body, URL pushed) so the sidebar and the bar itself stay put.
+func topTabs(current projection.Tab) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var24 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var24 == nil {
+			templ_7745c5c3_Var24 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var25 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Var26 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				for _, tab := range projection.Tabs() {
+					templ_7745c5c3_Var27 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						var templ_7745c5c3_Var28 string
+						templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(tabLabel(tab))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 196, Col: 20}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = tabs.Trigger(tabs.TriggerProps{
+						Value: string(tab),
+						Attributes: templ.Attributes{
+							"hx-get":      "/library/" + string(tab),
+							"hx-push-url": "true",
+							"hx-target":   "#page-body",
+							"hx-select":   "#page-body",
+							"hx-swap":     "outerHTML",
+						},
+					}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = tabs.List(tabs.ListProps{Variant: tabs.VariantLine}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var26), templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = tabs.Tabs(tabs.Props{DefaultValue: string(current), Attributes: templ.Attributes{"data-tabs": true}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
 		}
 		return nil
 	})

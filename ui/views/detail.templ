@@ -97,7 +97,7 @@ func DetailPath(li projection.LibraryItem) string { return libraryDetailPath(li)
 
 // LibraryDetail is a movie's (or any other standalone item's) page.
 templ LibraryDetail(d Detail) {
-	@Shell(d.Item.Title, itemCrumbs(d.Item)) {
+	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
 		if d.ShowFiles {

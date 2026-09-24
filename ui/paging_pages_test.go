@@ -158,12 +158,12 @@ func TestListPagesShowOneWindowOfRows(t *testing.T) {
 		// window one page wider; no pager.
 		"library tab page": {
 			path: "/library/movies?page=2", rowAttr: `data-ref="`, wantRows: 50,
-			wantIn: []string{`data-ref="default/m-050"`, `data-ref="default/m-099"`, `hx-get="/library/movies?page=2&amp;pages=2&amp;per=50"`},
+			wantIn:  []string{`data-ref="default/m-050"`, `data-ref="default/m-099"`, `hx-get="/library/movies?page=2&amp;pages=2&amp;per=50"`},
 			wantOut: []string{`data-ref="default/m-049"`, `data-ref="default/m-100"`, `data-pager`},
 		},
 		"library window": {
 			path: "/library/movies?page=1&pages=2", rowAttr: `data-ref="`, wantRows: 100,
-			wantIn: []string{`data-ref="default/m-000"`, `data-ref="default/m-099"`, `hx-get="/library/movies?page=1&amp;pages=3&amp;per=50"`},
+			wantIn:  []string{`data-ref="default/m-000"`, `data-ref="default/m-099"`, `hx-get="/library/movies?page=1&amp;pages=3&amp;per=50"`},
 			wantOut: []string{`data-ref="default/m-100"`, `data-pager`},
 		},
 		"library whole window": {
@@ -243,13 +243,30 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 		wantIn  string
 		wantOut string
 	}{
-		"pipeline":  {"/events/pipeline?page=3&per=50", `data-stage="`, 20, `default/e-119`, `default/e-099`},
-		"library":   {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `default/m-050`, `default/m-100`},
+		"pipeline":       {"/events/pipeline?page=3&per=50", `data-stage="`, 20, `default/e-119`, `default/e-099`},
+		"library":        {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `default/m-050`, `default/m-100`},
 		"library window": {"/events/library/movies?page=1&per=50&pages=2", `data-ref="`, 100, `default/m-099`, `default/m-100`},
-		"unmatched": {"/events/unmatched?page=5&per=25", `data-path="`, 20, `Unknown 100/`, `Unknown 099/`},
-		"downloads": {"/events/downloads?page=1&per=25", `data-download="`, 25, `d-024`, `d-025`},
+		"unmatched":      {"/events/unmatched?page=5&per=25", `data-path="`, 20, `Unknown 100/`, `Unknown 099/`},
+		"downloads":      {"/events/downloads?page=1&per=25", `data-download="`, 25, `d-024`, `d-025`},
 	} {
 		t.Run(name, func(t *testing.T) {
+			// Each channel holds one push; an earlier case may have taken it.
+			select {
+			case items <- libraryFixture(120):
+			default:
+			}
+			select {
+			case entries <- pipelineFixture(120):
+			default:
+			}
+			select {
+			case unmatched <- unmatchedFixture(120):
+			default:
+			}
+			select {
+			case downloads <- dl:
+			default:
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+tc.path, nil)

@@ -207,7 +207,7 @@ func LibraryDetail(d Detail) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = Shell(d.Item.Title, itemCrumbs(d.Item)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

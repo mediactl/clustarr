@@ -27,7 +27,18 @@ import (
 	"github.com/mediactl/clustarr/ui/components/breadcrumb"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/sidebar"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+	"github.com/mediactl/clustarr/ui/projection"
 )
+
+// Chrome is what a page tells the Shell: its title, its breadcrumb trail
+// and, when it belongs to a library tab, that tab, which the top bar
+// marks.
+type Chrome struct {
+	Title  string
+	Crumbs []Crumb
+	Tab    projection.Tab
+}
 
 // Crumb is one step of a page's breadcrumb trail. The last crumb has no
 // Href: it is the page itself.
@@ -68,7 +79,7 @@ func activeFor(title string) string {
 // Layout is the page chrome for a page that is itself a sidebar entry:
 // Shell with no breadcrumbs beyond the page's own name.
 templ Layout(title string) {
-	@Shell(title, []Crumb{{Label: title}}) {
+	@Shell(Chrome{Title: title, Crumbs: []Crumb{{Label: title}}}) {
 		{ children... }
 	}
 }
@@ -78,15 +89,18 @@ templ Layout(title string) {
 // and the component script bundle, all vendored and served from the
 // embedded static files so a cluster without Internet egress still has a
 // working UI; then shadcn-templ's sidebar with every page, collapsible to
-// icons, and its inset holding a breadcrumb header and the page. The
-// active entry is derived from the title (activeFor).
-templ Shell(title string, crumbs []Crumb) {
+// icons, and its inset holding the top bar -- the sidebar trigger and the
+// library's tabs, as Radarr's top nav -- and the page body: the
+// breadcrumb row and the page. The active sidebar entry is derived from
+// the title (activeFor); a tab's trigger swaps the page body through
+// htmx, so the top bar stays and the URL follows.
+templ Shell(c Chrome) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-			<title>{ title } · Clustarr</title>
+			<title>{ c.Title } · Clustarr</title>
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script src="/static/htmx.min.js"></script>
 			<script src="/static/htmx-ext-sse.js"></script>
@@ -107,7 +121,7 @@ templ Shell(title string, crumbs []Crumb) {
 								@sidebar.Menu() {
 									for _, n := range navEntries {
 										@sidebar.MenuItem() {
-											@sidebar.MenuButton(sidebar.MenuButtonProps{Href: n.Href, IsActive: n.Href == activeFor(title), Tooltip: n.Label}) {
+											@sidebar.MenuButton(sidebar.MenuButtonProps{Href: n.Href, IsActive: n.Href == activeFor(c.Title), Tooltip: n.Label}) {
 												@icon.Icon(n.Icon)()
 												<span>{ n.Label }</span>
 											}
@@ -120,12 +134,17 @@ templ Shell(title string, crumbs []Crumb) {
 					@sidebar.Rail()
 				}
 				@sidebar.Inset() {
-					<header class="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+					<header class="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-border bg-background px-4">
 						@sidebar.Trigger()
-						@breadcrumbs(crumbs)
+						@topTabs(c.Tab)
 					</header>
-					<div class="flex-1 p-6">
-						{ children... }
+					<div id="page-body" class="flex flex-1 flex-col">
+						<div class="flex h-9 shrink-0 items-center border-b border-border px-4 text-sm">
+							@breadcrumbs(c.Crumbs)
+						</div>
+						<div class="flex-1 p-6">
+							{ children... }
+						</div>
 					</div>
 				}
 			}
@@ -150,6 +169,31 @@ templ breadcrumbs(crumbs []Crumb) {
 							@breadcrumb.Page() { { c.Label } }
 						}
 					}
+				}
+			}
+		}
+	}
+}
+
+// topTabs is the library's tab strip in the top bar (design 2026-09-24,
+// after Radarr's top nav): one trigger per projection.Tab, the current
+// one marked, each swapping the page body through htmx (hx-select of
+// #page-body, URL pushed) so the sidebar and the bar itself stay put.
+templ topTabs(current projection.Tab) {
+	@tabs.Tabs(tabs.Props{DefaultValue: string(current), Attributes: templ.Attributes{"data-tabs": true}}) {
+		@tabs.List(tabs.ListProps{Variant: tabs.VariantLine}) {
+			for _, tab := range projection.Tabs() {
+				@tabs.Trigger(tabs.TriggerProps{
+					Value: string(tab),
+					Attributes: templ.Attributes{
+						"hx-get":      "/library/" + string(tab),
+						"hx-push-url": "true",
+						"hx-target":   "#page-body",
+						"hx-select":   "#page-body",
+						"hx-swap":     "outerHTML",
+					},
+				}) {
+					{ tabLabel(tab) }
 				}
 			}
 		}

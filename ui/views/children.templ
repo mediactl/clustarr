@@ -31,7 +31,7 @@ import (
 // the children ("Albums", "Books").
 templ ParentDetail(d Detail, label string) {
 	{{ li := d.Item }}
-	@Shell(li.Title, itemCrumbs(li)) {
+	@Shell(Chrome{Title: li.Title, Crumbs: itemCrumbs(li), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
 		<div class="mt-6 rounded-md border border-border bg-card">
@@ -53,7 +53,7 @@ templ ParentDetail(d Detail, label string) {
 // ChildrenPage is a parent's children on their own page.
 templ ChildrenPage(d Detail, label string, children []ChildRow) {
 	{{ li := d.Item }}
-	@Shell(fmt.Sprintf("%s · %s", li.Title, label), childCrumbs(li, label)) {
+	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", li.Title, label), Crumbs: childCrumbs(li, label), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
 		<div class="mt-6 rounded-md border border-border bg-card">

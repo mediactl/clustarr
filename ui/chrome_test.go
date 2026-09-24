@@ -228,6 +228,6 @@ func TestLibraryScrollsInsteadOfPaging(t *testing.T) {
 	// A jump lands on the letter's page and scrolls on from there.
 	body = get("/library/movies?page=3&per=25")
 	require.Equal(t, 25, strings.Count(body, `data-ref="`))
-	require.Contains(t, body, `data-ref="default/m-050"`)
+	require.Contains(t, body, `data-ref="default/m-010"`, "the third page of 25 opens on K, the eleventh letter of five titles each")
 	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=3&amp;pages=2&amp;per=25"`)
 }
