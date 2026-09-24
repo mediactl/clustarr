@@ -2,7 +2,7 @@ Clustarr {{ .Chart.AppVersion }} installed as "{{ .Release.Name }}" in namespace
 
 Services in this release:
 {{- if .Values.catalogarr.enabled }}
-  catalogarr           {{ .Values.catalogarr.replicas }}  controllers + queue workers + history
+  catalogarr           {{ .Values.catalogarr.replicas }}  controllers + queue workers + history + artwork renderer
 {{- end }}
 {{- if .Values.catalogarrMetadata.enabled }}
   catalogarr-metadata  1  metadata gateway (pinned to 1: in-process rate limiters)

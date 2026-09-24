@@ -240,6 +240,7 @@ func TestCatalogarrRoleCombinations(t *testing.T) {
 		{"artwork", false, true},
 		{"all", true, true},
 		{"controller,worker,history", true, true},
+		{"controller,worker,history,artwork", true, true},
 		{"worker,history", false, true},
 		{"controller, worker", true, true},
 	}
@@ -262,11 +263,16 @@ func TestCatalogarrRoleCombinations(t *testing.T) {
 		}
 	}
 
-	// The catalogarr Deployment runs the queue workers but not the metadata
-	// gateway, so its role must not name metadata.
-	const deployed catalogarr.Role = "controller,worker,history"
+	// The catalogarr Deployment runs the queue workers and the renderer but
+	// not the metadata gateway, so its role must not name metadata.
+	// TestBothInstallersRunTheRendererOnTheCatalogarrDeployment reads the
+	// role both installers actually render.
+	const deployed catalogarr.Role = "controller,worker,history,artwork"
 	if deployed.Has(catalogarr.RoleMetadata) {
 		t.Error("the catalogarr Deployment's role would start a second metadata gateway")
+	}
+	if !deployed.Has(catalogarr.RoleArtwork) {
+		t.Error("the catalogarr Deployment's role would start no overlay renderer")
 	}
 }
 

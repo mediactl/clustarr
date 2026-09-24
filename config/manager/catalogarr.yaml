@@ -62,6 +62,9 @@ spec:
           # --leader-elect: §3 and §12 run the controllers under a lease so
           # only one replica reconciles. The flag defaults to off, so a
           # controller Deployment that omits it reconciles from every replica.
+          # artwork: the overlay renderer (spec §C.6) runs here, not in
+          # catalogarr-metadata -- it is not leader-elected and scales by
+          # consumer, and the gateway is pinned to one replica.
           # --nats-single-node: config/default ships the single-server dev NATS
           # in config/nats, which cannot host the R3 streams events.Default()
           # asks for (§12). charts/clustarr deploys a clustered NATS and derives
@@ -70,7 +73,7 @@ spec:
             [
               "catalogarr",
               "--role",
-              "controller,worker,history",
+              "controller,worker,history,artwork",
               "--leader-elect",
               "--nats-single-node",
             ]

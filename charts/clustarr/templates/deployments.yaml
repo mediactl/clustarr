@@ -15,7 +15,7 @@ asked for them, so they can never be chart templates.
       "component" "catalogarr"
       "values" .Values.catalogarr
       "image" "media"
-      "args" (list "catalogarr" "--role" "controller,worker,history")
+      "args" (list "catalogarr" "--role" "controller,worker,history,artwork")
       "leaderElect" true
       "data" true
       "index" false
