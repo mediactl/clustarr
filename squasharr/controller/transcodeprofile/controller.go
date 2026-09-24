@@ -59,6 +59,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
+	"github.com/mediactl/clustarr/squasharr/task"
 )
 
 // This controller's own RBAC, on top of what squasharr/status already grants
@@ -72,13 +73,15 @@ import (
 // transcodejobs needs create (and update, alongside patch, for the same
 // reason mediafile_controller.go's own main-resource marker lists all three:
 // server-side apply's create-if-absent path is not covered by patch alone)
-// because this package is the one thing in Phase E that creates them; every
-// other transcode.clustarr.io marker elsewhere in squasharr only reads or
-// writes status. mediafiles is read-only: this controller only ever reads a
-// MediaFile's spec.path and status to decide whether and what to create.
+// because this package is the one thing in Phase E that creates them, and
+// delete because it replaces a job that failed on a changed source (spec
+// §18.3); every other transcode.clustarr.io marker elsewhere in squasharr
+// only reads or writes status. mediafiles is read-only: this controller only
+// ever reads a MediaFile's spec.path and status to decide whether and what
+// to create.
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
@@ -150,6 +153,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("transcodeprofile: list TranscodeJobs: %w", err)
 	}
 	pending, running := countJobs(jobList.Items, tp.Name)
+	jobsByName := make(map[types.NamespacedName]*transcodev1alpha1.TranscodeJob, len(jobList.Items))
+	for i := range jobList.Items {
+		jobsByName[client.ObjectKeyFromObject(&jobList.Items[i])] = &jobList.Items[i]
+	}
 
 	created := 0
 	var createErrs []error
@@ -157,6 +164,31 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		tag := profileTag(tp.Name, hash)
 		for _, mf := range matching {
 			if !probed(mf) || alreadyTranscoded(mf, tag) {
+				continue
+			}
+			// A job that failed because its source changed can never
+			// succeed: its sourceProbeHash is immutable. Once the MediaFile
+			// has a new probe, replace the job so the next pass plans the
+			// new file (spec §18.3). It is the job ensureTranscodeJob would
+			// otherwise re-apply -- same name, since the name is (file,
+			// profile hash) -- where the new sourceProbeHash would be
+			// refused as immutable.
+			key := types.NamespacedName{Namespace: mf.Namespace, Name: transcodeJobName(mf.Name, hash)}
+			if old, ok := jobForFile(jobsByName, key, tp.Name, mf.Name); ok && old.Spec.SourceProbeHash != mf.Status.ProbeHash {
+				if sourceChangedSince(old, mf) {
+					if err := r.Delete(ctx, old, client.Preconditions{UID: &old.UID}); client.IgnoreNotFound(err) != nil {
+						createErrs = append(createErrs, fmt.Errorf("transcodeprofile: replace TranscodeJob %s: %w", key, err))
+					} else {
+						log.Info("replacing a TranscodeJob whose source changed", "transcodeJob", key.String(),
+							"sourceProbeHash", old.Spec.SourceProbeHash, "probeHash", mf.Status.ProbeHash)
+					}
+				}
+				// Otherwise the job was made for an earlier probe of this
+				// file and is not done with it: re-applying the new probe
+				// hash would be refused as immutable on every pass. It is
+				// left to its worker, whose SourceChanged report makes it
+				// replaceable above, or -- blocked -- to the user's delete
+				// (spec §18.4).
 				continue
 			}
 			if err := r.ensureTranscodeJob(ctx, &tp, mf, hash); err != nil {
@@ -265,6 +297,36 @@ func countJobs(jobs []transcodev1alpha1.TranscodeJob, profileName string) (pendi
 		}
 	}
 	return pending, running
+}
+
+// jobForFile returns the listed TranscodeJob named key, when it is this
+// profile's job for the MediaFile mfName.
+func jobForFile(jobs map[types.NamespacedName]*transcodev1alpha1.TranscodeJob, key types.NamespacedName,
+	profile, mfName string,
+) (*transcodev1alpha1.TranscodeJob, bool) {
+	tj, ok := jobs[key]
+	if !ok || tj.Spec.ProfileRef != profile || tj.Spec.MediaFileRef != mfName {
+		return nil, false
+	}
+	return tj, true
+}
+
+// sourceChangedSince reports whether tj failed because its source changed
+// and mf now carries a different probe: the job can never succeed, and the
+// file it names is a new one to plan (spec §18.3).
+func sourceChangedSince(tj *transcodev1alpha1.TranscodeJob, mf *catalogv1alpha1.MediaFile) bool {
+	return tj.Status.Phase == transcodev1alpha1.TranscodeJobPhaseFailed &&
+		failedReason(tj) == string(task.ReasonSourceChanged) &&
+		mf.Status.ProbeHash != "" && tj.Spec.SourceProbeHash != mf.Status.ProbeHash &&
+		!k8s.IsDeleting(tj)
+}
+
+// failedReason is the reason of tj's Failed condition, or "".
+func failedReason(tj *transcodev1alpha1.TranscodeJob) string {
+	if c := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionFailed); c != nil {
+		return c.Reason
+	}
+	return ""
 }
 
 // ensureTranscodeJob creates (or, idempotently, re-applies) the TranscodeJob

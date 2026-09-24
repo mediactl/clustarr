@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -38,11 +39,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
+	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/squasharr/controller/transcodeprofile"
+	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
 )
 
 func newTestClient(t *testing.T) client.Client {
@@ -438,4 +441,98 @@ func TestAMovieReturningWakesTheProfile(t *testing.T) {
 	}))
 	require.Eventually(t, func() bool { return jobFor(kept.Name) }, 20*time.Second, 100*time.Millisecond,
 		"the Movie's return must wake the profile on its own")
+}
+
+// failJobWith stands in for squasharr's TranscodeJob controller recording a
+// Failed job, through the same compare-and-swap write it uses.
+func failJobWith(t *testing.T, ctx context.Context, c client.Client, tj *transcodev1alpha1.TranscodeJob, reason string, blocked bool) {
+	t.Helper()
+	var live transcodev1alpha1.TranscodeJob
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &live))
+	now := metav1.Now()
+	live.Status.Phase, live.Status.FinishedAt, live.Status.Message = transcodev1alpha1.TranscodeJobPhaseFailed, &now, reason
+	k8s.MarkTrue(&live, &live.Status.Conditions, transcodev1alpha1.TranscodeJobConditionFailed, reason, "%s", reason)
+	if blocked {
+		k8s.MarkTrue(&live, &live.Status.Conditions, transcodev1alpha1.ConditionBlocked, reason, "%s", reason)
+	}
+	require.NoError(t, squasharrstatus.PatchCAS(ctx, c, &live, func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
+		ac.WithConditions(k8s.ConditionACs(live.Status.Conditions)...)
+	}))
+}
+
+// reprobe stands in for catalogarr re-probing a MediaFile whose bytes
+// changed.
+func reprobe(t *testing.T, ctx context.Context, c client.Client, mf *catalogv1alpha1.MediaFile, probeHash string) {
+	t.Helper()
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+		catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(
+			catalogac.MediaFileStatus().WithProbeHash(probeHash).WithMediaInfo(commonv1.MediaInfo{})))
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mf), mf))
+}
+
+// Spec §18.3: a job that failed because its source changed is not blocked.
+// Its sourceProbeHash is immutable, so it can never succeed; once the
+// MediaFile carries the new file's probe, the profile deletes it and, on the
+// next pass, creates it again for the new file -- under the same name,
+// which is (file, profile hash). A blocked failure, and a SourceChanged job
+// whose file has not been re-probed, are left alone.
+func TestASourceChangedJobIsReplacedForTheNewFile(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	const ns = "transcodeprofile-sourcechanged"
+	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
+
+	changed := probedMovie(t, ctx, c, ns, "changed", nil)
+	blocked := probedMovie(t, ctx, c, ns, "blocked", nil)
+	unprobed := probedMovie(t, ctx, c, ns, "unprobed", nil)
+	tp := defaultProfile(t, ctx, c, "default")
+	r := transcodeprofile.NewReconciler(c, k8s.MustNewScheme(), events.NewFakeRecorder(10))
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: tp.Name}}
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	byFile := func() map[string]transcodev1alpha1.TranscodeJob {
+		out := map[string]transcodev1alpha1.TranscodeJob{}
+		for _, j := range listJobs(t, ctx, c) {
+			out[j.Spec.MediaFileRef] = j
+		}
+		return out
+	}
+	first := byFile()
+	require.Len(t, first, 3)
+	for name, j := range first {
+		require.Equal(t, "probe-"+name, j.Spec.SourceProbeHash)
+	}
+	oldChanged := first["changed"]
+	failJobWith(t, ctx, c, &oldChanged, "SourceChanged", false)
+	blockedJob := first["blocked"]
+	failJobWith(t, ctx, c, &blockedJob, "VerifyFailed", true)
+	unprobedJob := first["unprobed"]
+	failJobWith(t, ctx, c, &unprobedJob, "SourceChanged", false)
+
+	// The changed file and the blocked one are re-probed; the third file's
+	// probe still matches its job.
+	reprobe(t, ctx, c, changed, "p2")
+	reprobe(t, ctx, c, blocked, "p2-blocked")
+	_ = unprobed
+
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	var gone transcodev1alpha1.TranscodeJob
+	err = c.Get(ctx, client.ObjectKeyFromObject(&oldChanged), &gone)
+	require.True(t, apierrors.IsNotFound(err), "the failed SourceChanged job must be deleted, got %v", err)
+	second := byFile()
+	assert.Equal(t, blockedJob.UID, second["blocked"].UID, "a blocked failure stands until the user deletes it (spec §18.4)")
+	assert.Equal(t, unprobedJob.UID, second["unprobed"].UID, "a SourceChanged job whose file was not re-probed stays")
+
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	third := byFile()
+	replacement, ok := third["changed"]
+	require.True(t, ok, "the next pass must create the job again for the new file")
+	assert.Equal(t, oldChanged.Name, replacement.Name, "the replacement has the same (file, profile hash) name")
+	assert.NotEqual(t, oldChanged.UID, replacement.UID)
+	assert.Equal(t, "p2", replacement.Spec.SourceProbeHash)
+	assert.Empty(t, replacement.Status.Phase, "a new job, to be planned from scratch")
 }
