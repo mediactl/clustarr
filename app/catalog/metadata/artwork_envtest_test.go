@@ -307,10 +307,93 @@ func TestMetadataRefreshNeverReleasesStatusArtwork(t *testing.T) {
 	})
 }
 
+// TestMetadataRefreshPublishesARenderWhenOnlyTheRatingsChanged is the
+// kind-cluster-plex regression (2026-09-24): a series' scheduled refresh
+// published its render, then MDBList was added and a forced refresh inside
+// the hour brought a Metascore -- same poster, so the same Msg-Id, and the
+// duplicate window swallowed the render; 57 series kept no overlay. Ratings
+// are drawn, so a changed rating is a new render; a changed vote count is
+// not drawn, so it is still a repeat.
+func TestMetadataRefreshPublishesARenderWhenOnlyTheRatingsChanged(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "artwork-render-ratings", "inception"
+	newMovie(t, ctx, c, ns, name, 27205)
+
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	var mu sync.Mutex
+	var renders []*events.Envelope
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream: events.StreamWorkCatalogarr, Durable: "test-render-collector",
+		Filters: []string{events.FilterCatalogArtworkRender},
+	}, func(_ context.Context, m events.Message) error {
+		mu.Lock()
+		defer mu.Unlock()
+		renders = append(renders, m.Envelope())
+		return nil
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(renders)
+	}
+
+	host := newImageHost(t)
+	host.set("/p.png", solidPNG(t, color.White))
+	host.set("/f.png", solidPNG(t, color.Black))
+	doc := func(ratings pkgmetadata.Ratings) pkgmetadata.Movie {
+		d := inceptionDoc("https://img.example/p.png", "https://img.example/f.png")
+		d.Ratings = ratings
+		return d
+	}
+	provider := &docMovieProvider{}
+	provider.set(doc(pkgmetadata.Ratings{"tmdb": {Source: "tmdb", ValueCentis: 830, Votes: 100}}))
+	h := &metadata.Handler{
+		Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
+		Cache: noopCache{}, Bus: bus,
+		Artwork: &artwork.Fetcher{Store: bus.ObjectStore(events.BucketArtwork), HTTP: host.client()},
+	}
+
+	require.NoError(t, h.Handle(ctx, movieTask(t, ns, name)))
+	require.Eventually(t, func() bool { return count() == 1 }, 2*time.Second, 5*time.Millisecond)
+
+	provider.set(doc(pkgmetadata.Ratings{
+		"tmdb":       {Source: "tmdb", ValueCentis: 830, Votes: 100},
+		"metacritic": {Source: "metacritic", ValueCentis: 7400, Votes: 42},
+	}))
+	require.NoError(t, h.Handle(ctx, movieTask(t, ns, name)))
+	require.Eventually(t, func() bool { return count() == 2 }, 2*time.Second, 5*time.Millisecond,
+		"a new rating on an unchanged poster is a new render, not a repeat")
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	var poster catalogv1alpha1.ArtworkEntry
+	for _, e := range got.Status.Artwork {
+		if e.Type == catalogv1alpha1.ImageTypePoster {
+			poster = e
+		}
+	}
+	mu.Lock()
+	last := renders[1]
+	mu.Unlock()
+	assert.Equal(t, schema.MsgIDForRenderOverlay(got.UID, artwork.RenderToken(poster.Digest, got.Status.Metadata.Ratings)), last.ID)
+
+	provider.set(doc(pkgmetadata.Ratings{
+		"tmdb":       {Source: "tmdb", ValueCentis: 830, Votes: 250},
+		"metacritic": {Source: "metacritic", ValueCentis: 7400, Votes: 43},
+	}))
+	require.NoError(t, h.Handle(ctx, movieTask(t, ns, name)))
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 2, count(), "vote counts are not drawn, so a pass that changed only them is a repeat")
+}
+
 // TestMetadataRefreshPublishesOneRenderPerChangedPoster: every refresh
-// publishes the RenderOverlay task for its poster, keyed by the digest, so a
-// changed digest is one new task and an unchanged one is absorbed as a
-// duplicate.
+// publishes the RenderOverlay task for its poster, keyed by the digest and
+// the ratings (artwork.RenderToken), so a changed digest is one new task and
+// an unchanged one is absorbed as a duplicate.
 func TestMetadataRefreshPublishesOneRenderPerChangedPoster(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -374,7 +457,7 @@ func TestMetadataRefreshPublishesOneRenderPerChangedPoster(t *testing.T) {
 			poster = e
 		}
 	}
-	assert.Equal(t, schema.MsgIDForRenderOverlay(got.UID, poster.Digest), last.ID)
+	assert.Equal(t, schema.MsgIDForRenderOverlay(got.UID, artwork.RenderToken(poster.Digest, got.Status.Metadata.Ratings)), last.ID)
 	var task schema.RenderOverlayTask
 	require.NoError(t, schema.Decode(last.Schema, last.Data, &task))
 	assert.Equal(t, schema.RenderOverlayTask{

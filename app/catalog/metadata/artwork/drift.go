@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -137,11 +138,32 @@ func PublishFetch(ctx context.Context, bus events.Publisher, obj client.Object, 
 	return nil
 }
 
+// RenderToken is the digest slot of the RenderOverlay Msg-Id a pass
+// publishes for a poster: the hex SHA-256 over the poster original's digest
+// and the item's ratings sorted by source. The ratings are there because
+// they are drawn: keyed by the poster alone, a pass that changed a rating
+// but not the poster -- a new ratings provider's first refresh -- reused the
+// Msg-Id of an earlier pass inside the duplicate window, and its render was
+// absorbed as a repeat, leaving the overlay stale (57 continuing Series on
+// kind-cluster-plex, 2026-09-24). A rating contributes its source and
+// value, never its vote count, which is not drawn -- the rule the
+// renderer's own InputsDigest follows.
+func RenderToken(posterDigest string, ratings []catalogv1alpha1.Rating) string {
+	sorted := append([]catalogv1alpha1.Rating(nil), ratings...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Source < sorted[j].Source })
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "poster=%s\n", posterDigest)
+	for _, r := range sorted {
+		_, _ = fmt.Fprintf(h, "rating=%s:%d\n", r.Source, r.ValueCentis)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // publishRender publishes one RenderOverlay task (spec §B.4) under
-// schema.MsgIDForRenderOverlay(uid, posterDigest) -- posterDigest being
-// RenderNoPoster when the item has no poster original. See
-// Pass.publishRenders for when.
-func publishRender(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind, posterDigest string) error {
+// schema.MsgIDForRenderOverlay(uid, token) -- token being [RenderToken] of
+// the poster and ratings, or RenderNoPoster when the item has no poster
+// original. See Pass.publishRenders for when.
+func publishRender(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind, token string) error {
 	schemaName, data, err := schema.Encode(schema.RenderOverlayTask{
 		MediaRef: commonv1.MediaRef{Kind: kind, Name: obj.GetName()},
 		Reason:   "original",
@@ -150,7 +172,7 @@ func publishRender(ctx context.Context, bus events.Publisher, obj client.Object,
 		return err
 	}
 	env := &events.Envelope{
-		ID:     schema.MsgIDForRenderOverlay(obj.GetUID(), posterDigest),
+		ID:     schema.MsgIDForRenderOverlay(obj.GetUID(), token),
 		Type:   "catalog.RenderOverlayTask",
 		Schema: schemaName,
 		Source: "catalogarr@" + version.String(),

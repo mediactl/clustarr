@@ -331,9 +331,9 @@ func (c *renderCollector) settled(t *testing.T, want int) []*events.Envelope {
 	return c.all()
 }
 
-func assertRender(t *testing.T, env *events.Envelope, uid types.UID, digest string) {
+func assertRender(t *testing.T, env *events.Envelope, uid types.UID, token string) {
 	t.Helper()
-	assert.Equal(t, schema.MsgIDForRenderOverlay(uid, digest), env.ID)
+	assert.Equal(t, schema.MsgIDForRenderOverlay(uid, token), env.ID)
 	var task schema.RenderOverlayTask
 	require.NoError(t, schema.Decode(env.Schema, env.Data, &task))
 	assert.Equal(t, "original", task.Reason)
@@ -411,7 +411,7 @@ func TestAPassWithAnUnchangedPosterStillPublishesItsRender(t *testing.T) {
 	assert.Zero(t, srv.totalHits(), "nothing was stale, nothing was fetched")
 	envs := renders.settled(t, 1)
 	require.Len(t, envs, 1)
-	assertRender(t, envs[0], m.UID, digestOf(body))
+	assertRender(t, envs[0], m.UID, artwork.RenderToken(digestOf(body), nil))
 }
 
 // The review's lost-render case: the apply lands, the render publish fails,
@@ -445,7 +445,7 @@ func TestARenderLostAfterTheApplyIsPublishedOnRedelivery(t *testing.T) {
 	assert.Equal(t, 1, srv.hitsFor("/custom.png"), "the redelivery found nothing stale")
 	envs := renders.settled(t, 1)
 	require.Len(t, envs, 1, "and published the render all the same")
-	assertRender(t, envs[0], m.UID, digestOf(customBody))
+	assertRender(t, envs[0], m.UID, artwork.RenderToken(digestOf(customBody), nil))
 }
 
 // Dropping the poster (a custom override removed, no provider poster to
@@ -532,5 +532,5 @@ func TestANonOverlaidKindPublishesNoRender(t *testing.T) {
 	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, m.Namespace, m.Name)))
 	envs := renders.settled(t, 1)
 	require.Len(t, envs, 1, "the movie's render, and nothing for the album")
-	assertRender(t, envs[0], m.UID, digestOf(body))
+	assertRender(t, envs[0], m.UID, artwork.RenderToken(digestOf(body), nil))
 }

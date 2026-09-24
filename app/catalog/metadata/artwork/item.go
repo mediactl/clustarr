@@ -42,6 +42,10 @@ type item struct {
 	// hasOverlay: status.overlay is set (Movie and Series only), so the
 	// renderer has an overlay to clear if the poster goes.
 	hasOverlay bool
+
+	// ratings are status.metadata.ratings (Movie and Series only): an input
+	// of the overlay, so part of the render task's Msg-Id (RenderToken).
+	ratings []catalogv1alpha1.Rating
 }
 
 // itemOf reads obj's artwork inputs: its kind, spec.artwork,
@@ -54,49 +58,57 @@ func itemOf(obj client.Object) (item, error) {
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindMovie, o.Spec.Artwork, imgs, o.Status.Artwork, o.Status.Overlay != nil}, nil
+		var ratings []catalogv1alpha1.Rating
+		if o.Status.Metadata != nil {
+			ratings = o.Status.Metadata.Ratings
+		}
+		return item{commonv1.MediaKindMovie, o.Spec.Artwork, imgs, o.Status.Artwork, o.Status.Overlay != nil, ratings}, nil
 	case *catalogv1alpha1.Series:
 		var imgs []catalogv1alpha1.Image
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindSeries, o.Spec.Artwork, imgs, o.Status.Artwork, o.Status.Overlay != nil}, nil
+		var ratings []catalogv1alpha1.Rating
+		if o.Status.Metadata != nil {
+			ratings = o.Status.Metadata.Ratings
+		}
+		return item{commonv1.MediaKindSeries, o.Spec.Artwork, imgs, o.Status.Artwork, o.Status.Overlay != nil, ratings}, nil
 	case *catalogv1alpha1.Artist:
 		var imgs []catalogv1alpha1.Image
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindArtist, o.Spec.Artwork, imgs, o.Status.Artwork, false}, nil
+		return item{commonv1.MediaKindArtist, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
 	case *catalogv1alpha1.Album:
 		var imgs []catalogv1alpha1.Image
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindAlbum, o.Spec.Artwork, imgs, o.Status.Artwork, false}, nil
+		return item{commonv1.MediaKindAlbum, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
 	case *catalogv1alpha1.Author:
 		var imgs []catalogv1alpha1.Image
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindAuthor, o.Spec.Artwork, imgs, o.Status.Artwork, false}, nil
+		return item{commonv1.MediaKindAuthor, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
 	case *catalogv1alpha1.Book:
 		var imgs []catalogv1alpha1.Image
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindBook, o.Spec.Artwork, imgs, o.Status.Artwork, false}, nil
+		return item{commonv1.MediaKindBook, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
 	case *catalogv1alpha1.Audiobook:
 		var imgs []catalogv1alpha1.Image
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindAudiobook, o.Spec.Artwork, imgs, o.Status.Artwork, false}, nil
+		return item{commonv1.MediaKindAudiobook, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
 	case *catalogv1alpha1.Comic:
 		var imgs []catalogv1alpha1.Image
 		if o.Status.Metadata != nil {
 			imgs = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindComic, o.Spec.Artwork, imgs, o.Status.Artwork, false}, nil
+		return item{commonv1.MediaKindComic, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
 	default:
 		return item{}, fmt.Errorf("%w: %T", ErrNoArtwork, obj)
 	}

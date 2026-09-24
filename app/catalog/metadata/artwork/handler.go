@@ -207,6 +207,12 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 		return fmt.Errorf("artwork: apply %s %s status: %w", kind, key, err)
 	}
 
+	// The ratings the render is keyed by are the ones this apply declared:
+	// the metadata path writes newly fetched ratings in the very apply, so
+	// fresh -- read before it -- still carries the previous refresh's.
+	if ratings, ok := appliedRatings(ac); ok {
+		freshItem.ratings = ratings
+	}
 	if err := p.publishRenders(ctx, fresh, kind, it, freshItem, merged); err != nil {
 		tracing.RecordError(span, err)
 		return err
@@ -221,8 +227,9 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 // stale, and has no edge left to publish on. So:
 //
 //   - a poster entry exists: publish under MsgIDForRenderOverlay(uid,
-//     digest). A repeat inside the duplicate window is absorbed by the
-//     Msg-Id, and one after it by the renderer's inputs-digest check;
+//     RenderToken(digest, ratings)). A repeat inside the duplicate window
+//     is absorbed by the Msg-Id, and one after it by the renderer's
+//     inputs-digest check; a pass that changed a rating is not a repeat;
 //   - no poster entry, but this pass's first read had one (it dropped a
 //     removed override's poster) or the item still records an overlay:
 //     publish under RenderNoPoster so the renderer clears it. The overlay
@@ -242,12 +249,45 @@ func (p Pass) publishRenders(ctx context.Context, fresh client.Object, kind comm
 		return nil
 	}
 	if poster, ok := index(merged)[catalogv1alpha1.ImageTypePoster]; ok {
-		return publishRender(ctx, p.Bus, fresh, kind, poster.Digest)
+		return publishRender(ctx, p.Bus, fresh, kind, RenderToken(poster.Digest, freshItem.ratings))
 	}
 	if _, had := index(before.entries)[catalogv1alpha1.ImageTypePoster]; had || freshItem.hasOverlay {
 		return publishRender(ctx, p.Bus, fresh, kind, RenderNoPoster)
 	}
 	return nil
+}
+
+// appliedRatings is status.metadata.ratings as ac declares them, for the two
+// kinds whose ratings are drawn (Movie and Series); false when ac declares
+// no status.metadata at all, so the caller keeps what it read.
+func appliedRatings(ac k8s.ApplyConfiguration) ([]catalogv1alpha1.Rating, bool) {
+	var declared []catalogac.RatingApplyConfiguration
+	switch a := ac.(type) {
+	case *catalogac.MovieApplyConfiguration:
+		if a.Status == nil || a.Status.Metadata == nil {
+			return nil, false
+		}
+		declared = a.Status.Metadata.Ratings
+	case *catalogac.SeriesApplyConfiguration:
+		if a.Status == nil || a.Status.Metadata == nil {
+			return nil, false
+		}
+		declared = a.Status.Metadata.Ratings
+	default:
+		return nil, false
+	}
+	out := make([]catalogv1alpha1.Rating, 0, len(declared))
+	for _, r := range declared {
+		var got catalogv1alpha1.Rating
+		if r.Source != nil {
+			got.Source = *r.Source
+		}
+		if r.ValueCentis != nil {
+			got.ValueCentis = *r.ValueCentis
+		}
+		out = append(out, got)
+	}
+	return out, true
 }
 
 func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.ObjectKey) (client.Object, error) {
