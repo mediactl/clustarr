@@ -20,7 +20,9 @@ package transcodejob_test
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/transcodejob"
@@ -313,4 +316,46 @@ func TestSweepDeletesTheDurablesOfDeletedProfiles(t *testing.T) {
 		events.TranscodeTaskConsumerName(string(kept.UID), "cpu"),
 		events.ConsumerSquasharrResults,
 	}, after, "the deleted profile's durables are gone, every class's; the rest are kept")
+}
+
+// TestDeleteAfterALostQueuedWriteWithdrawsTheUnrecordedAttempt is
+// final-review M6. Dispatch published attempt 1 and lost its Queued write,
+// so the job reads Planned with attempts 0 and no status.hardware. Deleting
+// it must still take that task back: a marker for attempt 0 would be
+// replaced by attempt 1's claim, and with no hardware recorded the old
+// withdrawal purged nothing, so the task ran for a job that no longer
+// existed.
+func TestDeleteAfterALostQueuedWriteWithdrawsTheUnrecordedAttempt(t *testing.T) {
+	_, c := startEnv(t)
+	ctx := context.Background()
+	const ns = "tj-delete-lost"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	r.Admin = r.Bus.(events.StreamAdmin)
+	remaining := &atomic.Int32{}
+	remaining.Store(1)
+	r.Client = failQueuedWrite{Client: c, remaining: remaining}
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "heat-hevc"}})
+	require.Error(t, err, "the lost Queued write surfaces as a reconcile error")
+	lost := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, lost.Status.Phase)
+	require.EqualValues(t, 0, lost.Status.Attempts)
+	require.Empty(t, lost.Status.Hardware)
+	require.Contains(t, lost.Finalizers, transcodejob.FinalizerTaskWithdrawal, "added before the publish")
+	require.Len(t, taskSubjects(t, r, tp, "cpu"), 1, "setup: attempt 1's task is on the queue")
+
+	require.NoError(t, c.Delete(ctx, lost))
+	reconcileTJ(t, r, ns, "heat-hevc")
+
+	assert.Empty(t, taskSubjects(t, r, tp, "cpu"), "every task of the deleted job is purged, whatever status.hardware says")
+	lease := leaseOf(t, r, lost)
+	assert.Equal(t, task.LeaseCancelled, lease.State)
+	assert.EqualValues(t, math.MaxInt32, lease.Attempt, "the marker cancels every attempt, the unrecorded one included")
+	err = c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "heat-hevc"}, &transcodev1alpha1.TranscodeJob{})
+	assert.True(t, apierrors.IsNotFound(err), "withdrawal landed, so the finalizer was released")
 }

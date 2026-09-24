@@ -153,12 +153,13 @@ type Reconciler struct {
 	// cancel markers (Task 12).
 	Leases events.KV
 
-	// Admin purges withdrawn and orphaned task subjects and is the sweep's
-	// source of truth for what is stored (withdraw.go). Nil disables both:
-	// a Reconciler built without it (a test that does not exercise
-	// withdrawal) still runs, since withdraw and sweep are only ever called
-	// from paths a bus-less test does not reach, except sweep itself, which
-	// no-ops when Admin is nil.
+	// Admin purges withdrawn and orphaned task subjects, deletes the pool
+	// durables of deleted profiles, and is the sweep's source of truth for
+	// what is stored (withdraw.go). Nil disables the sweep, which no-ops,
+	// so a Reconciler built without it (a test that does not exercise
+	// withdrawal) still runs; a withdrawal without it -- suspend, delete,
+	// reroute, an orphan -- fails with an error rather than leave its task
+	// on the queue.
 	Admin events.StreamAdmin
 
 	// Now is the clock. Nil means time.Now.

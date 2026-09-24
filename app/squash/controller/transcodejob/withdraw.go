@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -88,11 +89,49 @@ const ReasonSuspended = "Suspended"
 // with no MaxAge, so a leaked task never expires on its own and only grows
 // the stream toward its cap. A never-dispatched job (status.hardware=="")
 // still has nothing to purge.
+//
+// It withdraws the recorded attempt only, for a job that stays and may be
+// dispatched again (spec.suspend, an unschedulable pool, an orphaned task):
+// that next dispatch is attempts+1, which the worker's attempt rule lets
+// past this marker. A job being deleted is withdrawn by withdrawAll instead.
 func (r *Reconciler) withdraw(ctx context.Context, tj *transcodev1alpha1.TranscodeJob) error {
+	subject := ""
+	if tj.Status.Hardware != "" {
+		subject = events.WorkTranscodeTaskSubjectAnyProfile(string(tj.Status.Hardware), string(tj.UID))
+	}
+	return r.cancelAndPurge(ctx, tj, tj.Status.Attempts, subject)
+}
+
+// cancelAttemptsForDeletion is the cancel marker's attempt when a job is
+// deleted: every attempt, the recorded one and any later one whose dispatch
+// write was lost. No attempt of this job can exceed it, and a job
+// recreated under the same name has a new UID, so a new lease key, which
+// this marker never touches.
+const cancelAttemptsForDeletion = math.MaxInt32
+
+// withdrawAll is deletion's withdrawal (final-review M6): it cancels every
+// attempt, not only the recorded one, and purges the job's tasks under every
+// profile and class (events.WorkTranscodeTaskSubjectAnyPool), whatever
+// status.hardware says. withdraw's marker names status.attempts, and it
+// purges nothing without status.hardware; a dispatch whose Queued write was
+// lost has published attempts+1 -- under a class status.hardware may not
+// name, or with no status.hardware at all -- and that task would replace
+// such a marker at its claim and run for a job that no longer exists.
+// Deletion alone may do this: a suspended job is dispatched again later as
+// attempts+1, which a marker for every attempt would cancel on arrival.
+func (r *Reconciler) withdrawAll(ctx context.Context, tj *transcodev1alpha1.TranscodeJob) error {
+	return r.cancelAndPurge(ctx, tj, cancelAttemptsForDeletion, events.WorkTranscodeTaskSubjectAnyPool(string(tj.UID)))
+}
+
+// cancelAndPurge writes tj's cancel marker for attempt and every earlier
+// one, then purges subject from the work stream ("" purges nothing). The
+// marker goes first, so a worker that fetched the task just before the
+// purge still finds it cancelled when it claims.
+func (r *Reconciler) cancelAndPurge(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, attempt int32, subject string) error {
 	uid := string(tj.UID)
 	b, err := json.Marshal(task.Lease{
 		Job:     schema.Ref{Namespace: tj.Namespace, Name: tj.Name, UID: uid},
-		Attempt: tj.Status.Attempts,
+		Attempt: attempt,
 		State:   task.LeaseCancelled,
 		Since:   r.now().UTC(),
 	})
@@ -102,18 +141,21 @@ func (r *Reconciler) withdraw(ctx context.Context, tj *transcodev1alpha1.Transco
 	if _, err := r.Leases.Put(ctx, events.TranscodeLeaseKey(uid), b); err != nil {
 		return fmt.Errorf("transcodejob: cancel lease: %w", err)
 	}
-	if tj.Status.Hardware == "" {
+	if subject == "" {
 		return nil
 	}
-	if err := r.Admin.PurgeSubject(ctx, events.StreamWorkSquasharr,
-		events.WorkTranscodeTaskSubjectAnyProfile(string(tj.Status.Hardware), uid)); err != nil {
+	if r.Admin == nil {
+		return errors.New("transcodejob: no StreamAdmin to purge the task with")
+	}
+	if err := r.Admin.PurgeSubject(ctx, events.StreamWorkSquasharr, subject); err != nil {
 		return fmt.Errorf("transcodejob: purge task: %w", err)
 	}
 	return nil
 }
 
 // reconcileDelete runs the withdrawal finalizer's protocol for a TranscodeJob
-// marked for deletion (spec §8): cancel the lease and purge the task, then
+// marked for deletion (spec §8): cancel every attempt's lease and purge every
+// task of the job (withdrawAll), then
 // release the finalizer once that succeeded, or once withdrawalTimeout has
 // passed since deletion was requested -- an outage must not pin the object
 // forever (the R-6 pattern). It always returns, and requeues after
@@ -126,7 +168,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, tj *transcodev1alpha1.
 	log := logging.FromContext(ctx)
 	key := client.ObjectKeyFromObject(tj)
 
-	werr := r.withdraw(ctx, tj)
+	werr := r.withdrawAll(ctx, tj)
 	timedOut := r.now().Sub(tj.DeletionTimestamp.Time) > withdrawalTimeout
 	if werr != nil && !timedOut {
 		log.WarnContext(ctx, "transcodejob: withdrawal failed; retrying", "transcodeJob", key.String(), "error", werr)
