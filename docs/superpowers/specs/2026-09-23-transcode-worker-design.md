@@ -215,7 +215,7 @@ the (cluster-scoped) TranscodeProfile. Labels:
 | `suspend` | true when the pool has no dispatched work |
 | `podReplacementPolicy` | `Failed` |
 | `backoffLimit` | 6 (worker-level failures only; task failures never fail a pod) |
-| `podFailurePolicy` | Ignore `DisruptionTarget`; Ignore exit `ExitDrained`; FailJob on exit `ExitMisconfigured` |
+| `podFailurePolicy` | Ignore `DisruptionTarget`; Ignore exits `ExitDrained` and 137 (OOM-killed; final fix round, I1); FailJob on exit `ExitMisconfigured` |
 | `activeDeadlineSeconds`, `ttlSecondsAfterFinished` | unset: a pool never finishes by design |
 
 **Template.** Rendered from the profile and squasharr's flags, reusing today's
@@ -276,7 +276,9 @@ dying pods.
 
 ## 8. TranscodeJob controller
 
-**Phases** are unchanged in name.
+**Phases** are unchanged in name. `Verifying` is never set under pools (the
+worker verifies inside Running); it stays in the enum as legacy (final fix
+round, D5).
 
 | Phase | Meaning now |
 |---|---|
@@ -550,7 +552,9 @@ wins.**
      exactly one message when called. A worker never prefetches a second task
      that would outlive its ack window.
    - `events.StreamAdmin` has `DeleteSubscription(stream, durable)` (the
-     durable and its dead-letter watcher) and `PurgeSubject`.
+     durable and its dead-letter watcher) and `PurgeSubject`, and -- since the
+     final fix round (M1) -- `Subscriptions(stream)`, which squasharr's sweep
+     reads to delete the durables of profiles that no longer exist.
    - Both are implemented by `natsbus` and `membus`, under the contract
      suite.
    - Dispatch does not pre-create the consumer: work-queue retention keeps a

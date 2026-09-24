@@ -34,7 +34,8 @@ import (
 type TranscodeJobStatusApplyConfiguration struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
-	// Phase is the coarse lifecycle phase.
+	// Phase is the coarse lifecycle phase. Verifying is legacy and never
+	// set under worker pools: the worker verifies inside Running.
 	Phase *transcodev1alpha1.TranscodeJobPhase `json:"phase,omitempty"`
 	// Plan is the planner's rendered decision.
 	Plan *PlanApplyConfiguration `json:"plan,omitempty"`

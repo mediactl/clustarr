@@ -30,10 +30,15 @@ type TranscodeJobPhase string
 
 // TranscodeJob phases.
 const (
-	TranscodeJobPhasePending   TranscodeJobPhase = "Pending"
-	TranscodeJobPhasePlanned   TranscodeJobPhase = "Planned"
-	TranscodeJobPhaseQueued    TranscodeJobPhase = "Queued"
-	TranscodeJobPhaseRunning   TranscodeJobPhase = "Running"
+	TranscodeJobPhasePending TranscodeJobPhase = "Pending"
+	TranscodeJobPhasePlanned TranscodeJobPhase = "Planned"
+	TranscodeJobPhaseQueued  TranscodeJobPhase = "Queued"
+	TranscodeJobPhaseRunning TranscodeJobPhase = "Running"
+	// TranscodeJobPhaseVerifying is legacy and never set under worker
+	// pools: the worker verifies its output inside Running and reports one
+	// finished event (spec §6.4). It stays in the enum so an object written
+	// by the pre-pool controller still validates, and readers treat it as
+	// Running.
 	TranscodeJobPhaseVerifying TranscodeJobPhase = "Verifying"
 	TranscodeJobPhaseSucceeded TranscodeJobPhase = "Succeeded"
 	TranscodeJobPhaseFailed    TranscodeJobPhase = "Failed"
@@ -255,7 +260,8 @@ type TranscodeJobStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Phase is the coarse lifecycle phase.
+	// Phase is the coarse lifecycle phase. Verifying is legacy and never
+	// set under worker pools: the worker verifies inside Running.
 	// +optional
 	Phase TranscodeJobPhase `json:"phase,omitempty"`
 
