@@ -46,14 +46,15 @@ func tagWith(t *testing.T, body, attr string) string {
 	return body[start : i+end+1]
 }
 
-// TestLibraryCardsAreItemComponents: a library card is shadcn-templ's item
-// (design 2026-09-23, "Use shadcn-templ item components for the library
-// elements"): the whole tile is a link to the detail page, the poster
-// sits in the item's media slot at poster ratio, the title and year are
-// the item's title, kind and profile its description, and the monitored,
-// phase and on-disk marks are badges. Every data attribute the earlier
-// tests and the e2e suite assert on stays on the card itself.
-func TestLibraryCardsAreItemComponents(t *testing.T) {
+// TestLibraryCardsFollowRadarrsPosterGrid: a library card is Radarr's
+// poster tile (design 2026-09-24) built from shadcn-templ's item,
+// aspect-ratio and tooltip: the whole tile is the link, the poster fills
+// it at 2:3 inside the aspect-ratio slot with the title as a tooltip
+// rather than printed text, a status stripe under the poster carries
+// data-status, and the footer is two centred lines -- the monitored state
+// and the quality profile. Every data attribute the earlier tests key on
+// stays on the card element.
+func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 	arrival := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
 		Tab: projection.TabMovies, Title: "Arrival", Year: 2016, Monitored: true, Phase: "Imported", HasFile: true,
@@ -61,10 +62,14 @@ func TestLibraryCardsAreItemComponents(t *testing.T) {
 	}
 	heat := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
-		Tab: projection.TabMovies, Title: "Heat", Year: 1995, Phase: "Wanted",
+		Tab: projection.TabMovies, Title: "Heat", Year: 1995, Monitored: true, Phase: "Wanted",
+	}
+	alien := projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "alien"}, Kind: commonv1.MediaKindMovie,
+		Tab: projection.TabMovies, Title: "Alien", Year: 1979, Phase: "Unmonitored",
 	}
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{arrival, heat} },
+		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{arrival, heat, alien} },
 	})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
@@ -72,11 +77,11 @@ func TestLibraryCardsAreItemComponents(t *testing.T) {
 	body := rec.Body.String()
 
 	require.Equal(t, 1, strings.Count(body, `data-slot="item-group"`), "the grid is one item group")
-	require.Equal(t, 2, strings.Count(body, `data-slot="item"`), "one item per card")
-	require.Equal(t, 2, strings.Count(body, `data-slot="item-media"`), "every card has a media slot, art or not")
+	require.Equal(t, 3, strings.Count(body, `data-slot="aspect-ratio"`), "every card has a poster box, art or not")
+	require.NotContains(t, body, `data-slot="item-title"`, "the poster carries the title; the card prints none")
 
 	card := tagWith(t, body, `data-ref="default/arrival"`)
-	require.True(t, strings.HasPrefix(card, "<a "), "the whole card is the link, not only its title: %s", card)
+	require.True(t, strings.HasPrefix(card, "<a "), "the whole tile is the link: %s", card)
 	require.Contains(t, card, `href="/library/default/movie/arrival"`)
 	require.Contains(t, card, `data-slot="item"`)
 	for _, attr := range []string{
@@ -86,23 +91,62 @@ func TestLibraryCardsAreItemComponents(t *testing.T) {
 		require.Contains(t, card, attr, "the card keeps the attribute the tests key on")
 	}
 
+	require.Regexp(t, regexp.MustCompile(`data-slot="aspect-ratio"[^>]*--ratio: 2/3[^>]*>[^<]*<img[^>]*alt="Arrival"`), body, "the poster fills a 2:3 box")
 	img := tagWith(t, body, `alt="Arrival"`)
-	require.True(t, strings.HasPrefix(img, "<img"), "%s", img)
 	require.Contains(t, img, `src="https://image.tmdb.org/t/p/w500/arrival.jpg"`)
 	require.Contains(t, img, `loading="lazy"`)
 	require.Contains(t, img, `referrerpolicy="no-referrer"`)
-	require.Contains(t, img, `aspect-[2/3]`, "posters keep their ratio; a square crop takes the faces off")
-	require.Regexp(t, regexp.MustCompile(`data-slot="item-media"[^>]*>\s*<img[^>]*alt="Arrival"`), body, "the poster is the item's media")
+	require.Regexp(t, regexp.MustCompile(`data-slot="tooltip-content"[^>]*>[^<]*Arrival`), body, "the title is a tooltip on the poster")
 
-	require.Regexp(t, regexp.MustCompile(`data-slot="item-title"[^>]*>[^<]*Arrival`), body)
-	require.Regexp(t, regexp.MustCompile(`data-slot="item-title"[^>]*>.*?2016.*?</`), body, "the year rides the title")
-	require.Regexp(t, regexp.MustCompile(`data-slot="item-description"[^>]*>[^<]*movie[^<]*hd-bluray-web`), body, "kind and profile are the description")
-	require.GreaterOrEqual(t, strings.Count(body, `data-slot="badge"`), 4, "monitored, Imported, on disk, and Heat's unmonitored and Wanted are badges")
-	require.Regexp(t, regexp.MustCompile(`data-slot="badge"[^>]*>monitored<`), body)
-	require.Regexp(t, regexp.MustCompile(`data-slot="badge"[^>]*>Imported<`), body)
+	requireTag(t, body, `data-status="downloaded"`, `bg-emerald-500`)
+	at := strings.Index(body, `data-status="downloaded"`)
+	require.GreaterOrEqual(t, at, 0)
+	footer := body[at:]
+	end := strings.Index(footer, "</a>")
+	require.GreaterOrEqual(t, end, 0)
+	footer = footer[:end]
+	require.Contains(t, footer, ">Monitored<")
+	require.Contains(t, footer, ">hd-bluray-web<")
 
 	heatCard := tagWith(t, body, `data-ref="default/heat"`)
 	require.Contains(t, heatCard, `data-poster="none"`)
-	require.NotContains(t, body, `alt="Heat"`, "no art means no image tag, a placeholder box instead")
-	require.Contains(t, body, "no art")
+	require.NotContains(t, body, `alt="Heat"`, "no art means no image tag, a placeholder with the title instead")
+	require.Regexp(t, regexp.MustCompile(`data-slot="aspect-ratio"[^>]*>\s*<div[^>]*>[^<]*Heat`), body, "the placeholder names the film")
+	requireTag(t, body, `data-status="missing"`, `bg-red-500`)
+	requireTag(t, body, `data-status="unmonitored"`, `bg-slate-500`)
+	require.Contains(t, body, ">Unmonitored<")
+}
+
+// TestLibraryStripeColourFollowsState pins Radarr's stripe semantics on
+// the card: on disk is green, on disk below the cutoff is amber, in
+// flight is blue, missing and monitored is red, and unmonitored with
+// nothing on disk is gray.
+func TestLibraryStripeColourFollowsState(t *testing.T) {
+	for name, tc := range map[string]struct {
+		item   projection.LibraryItem
+		status string
+		class  string
+	}{
+		"on disk":            {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "Imported"}, "downloaded", "bg-emerald-500"},
+		"transcoded":         {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "Transcoded"}, "downloaded", "bg-emerald-500"},
+		"cutoff unmet":       {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "CutoffUnmet"}, "cutoff-unmet", "bg-amber-500"},
+		"cutoff unevaluated": {projection.LibraryItem{HasFile: true, Monitored: true, Phase: "CutoffUnevaluated"}, "cutoff-unmet", "bg-amber-500"},
+		"downloading":        {projection.LibraryItem{Monitored: true, Phase: "Downloading"}, "downloading", "bg-sky-500"},
+		"delayed":            {projection.LibraryItem{Monitored: true, Phase: "Delayed"}, "downloading", "bg-sky-500"},
+		"missing":            {projection.LibraryItem{Monitored: true, Phase: "Wanted"}, "missing", "bg-red-500"},
+		"unmonitored":        {projection.LibraryItem{Monitored: false, Phase: "Unmonitored"}, "unmonitored", "bg-slate-500"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			it := tc.item
+			it.Ref = types.NamespacedName{Namespace: "default", Name: "x"}
+			it.Kind, it.Tab, it.Title = commonv1.MediaKindMovie, projection.TabMovies, "X"
+			srv := ui.NewServer(t.Context(), ui.Options{
+				Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{it} },
+			})
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			requireTag(t, rec.Body.String(), `data-status="`+tc.status+`"`, tc.class)
+		})
+	}
 }

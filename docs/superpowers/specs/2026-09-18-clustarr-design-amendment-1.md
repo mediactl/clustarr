@@ -495,6 +495,28 @@ embedded and served under `/static/fonts`, and `input.css` declares their
 its text face from a third party and a script neither subset covers falls
 through to the system faces.
 
+**Radarr's look (as built, 2026-09-24).** The chrome and the library grid
+follow Radarr's, from shadcn-templ components: a `sidebar` with every page
+(collapsible to icons, the active entry derived from the page title), a
+`breadcrumb` trail in the inset's header (Library › tab › item › season),
+the library's tabs as the `tabs` component whose triggers navigate through
+htmx (`hx-get` with `hx-push-url` and an `hx-select` of the library page,
+so the tab strip, the rows and their stream are replaced together and the
+URL follows), and an A–Z bar as a vertical `button-group` down the right
+edge: a link per letter that has titles, `?jump=<letter>`, which the
+handler answers with a redirect to the page where that letter's titles
+begin, and a disabled button per letter that has none. A library card is
+Radarr's poster tile: the whole tile the link, the poster filling an
+`aspect-ratio` box at 2:3 with the title as a `tooltip` rather than
+printed text (a card without art prints the title in the box instead), a
+status stripe under it (`data-status`: green on disk, amber on disk below
+the cutoff, blue in flight, red monitored and missing, gray unmonitored),
+and two centred footer lines, the monitored state and the quality profile.
+The grid is `repeat(auto-fill, minmax(160px, 1fr))`. The component script
+bundle `shadcn-templ add` writes under `ui/static/js` is embedded and
+loaded once from the layout head; its scripts bind by delegation and
+observe the DOM, so htmx swaps keep them working.
+
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,
 `per` defaulting to 50 and capped at 500, a page past the end clamping to

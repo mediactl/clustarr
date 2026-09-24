@@ -21,8 +21,13 @@ import (
 	"fmt"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/aspectratio"
 	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/buttongroup"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+	"github.com/mediactl/clustarr/ui/components/tooltip"
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -41,22 +46,53 @@ import (
 // swapped element, deliberately: the set of RootFolders does not move on the
 // same cadence as item status, mirroring downloads.templ's own client-cards
 // placement.
-templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, rootFolders []catalogv1.RootFolder) {
-	@Layout("Library") {
-		<h1 class="mb-4 text-2xl font-bold">Library</h1>
-		@libraryTabs(tab)
-		if len(rootFolders) > 0 {
-			@rescanToolbar(rootFolders)
-		}
-		<div
-			id="library-rows"
-			data-tab={ string(tab) }
-			hx-ext="sse"
-			sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
-			sse-swap="library"
-			class="space-y-4"
-		>
-			@LibraryList(tab, p, items)
+templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
+	@Shell("Library", []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}) {
+		<div id="library-page" class="flex gap-4">
+			<div class="min-w-0 flex-1 space-y-4">
+				@libraryTabs(tab)
+				if len(rootFolders) > 0 {
+					@rescanToolbar(rootFolders)
+				}
+				<div
+					id="library-rows"
+					data-tab={ string(tab) }
+					hx-ext="sse"
+					sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
+					sse-swap="library"
+					class="space-y-4"
+				>
+					@LibraryList(tab, p, items)
+				</div>
+			</div>
+			@jumpBar(jumpsFor)
+		</div>
+	}
+}
+
+// Jump is one entry of the A-Z bar: a letter, whether any title on the
+// tab files under it, and the link to the page where those titles begin.
+type Jump struct {
+	Letter  string
+	Enabled bool
+	Href    string
+}
+
+// jumpBar is Radarr's A-Z bar as a vertical button group down the right
+// edge: a link per letter that has titles, a disabled button per letter
+// that does not, each carrying data-jump for the tests.
+templ jumpBar(jumpsFor []Jump) {
+	if len(jumpsFor) > 0 {
+		<div data-jump-bar class="sticky top-16 hidden self-start lg:block">
+			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical}) {
+				for _, j := range jumpsFor {
+					if j.Enabled {
+						@button.Button(button.Props{Href: j.Href, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
+					} else {
+						@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantOutline, Disabled: true, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
+					}
+				}
+			}
 		</div>
 	}
 }
@@ -74,17 +110,24 @@ templ LibraryList(tab projection.Tab, p paging.Page, items []projection.LibraryI
 // the order Tabs() lists them, the current one marked -- so every tab is
 // reachable by a plain link, no JavaScript needed to switch.
 templ libraryTabs(current projection.Tab) {
-	<nav class="mb-4 flex gap-1 border-b border-slate-800" data-tabs>
-		for _, tab := range projection.Tabs() {
-			<a
-				href={ templ.URL("/library/" + string(tab)) }
-				data-tab-link={ string(tab) }
-				class={ tabClass(tab == current) }
-			>
-				{ tabLabel(tab) }
-			</a>
+	@tabs.Tabs(tabs.Props{DefaultValue: string(current), Attributes: templ.Attributes{"data-tabs": true}}) {
+		@tabs.List(tabs.ListProps{Variant: tabs.VariantLine}) {
+			for _, tab := range projection.Tabs() {
+				@tabs.Trigger(tabs.TriggerProps{
+					Value: string(tab),
+					Attributes: templ.Attributes{
+						"hx-get":      "/library/" + string(tab),
+						"hx-push-url": "true",
+						"hx-target":   "#library-page",
+						"hx-select":   "#library-page",
+						"hx-swap":     "outerHTML",
+					},
+				}) {
+					{ tabLabel(tab) }
+				}
+			}
 		}
-	</nav>
+	}
 }
 
 // LibraryRows renders the dynamic part of the Library page: the "nothing
@@ -96,7 +139,7 @@ templ LibraryRows(items []projection.LibraryItem) {
 	if len(items) == 0 {
 		<p class="text-muted-foreground">Nothing in the library yet.</p>
 	}
-	@item.Group(item.GroupProps{Class: "grid gap-3 sm:grid-cols-2 lg:grid-cols-3"}) {
+	@item.Group(item.GroupProps{Class: "grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3"}) {
 		for _, li := range items {
 			@libraryCard(li)
 		}
@@ -113,9 +156,9 @@ templ LibraryRows(items []projection.LibraryItem) {
 // change does not pass one.
 templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
-		Variant: item.VariantOutline,
+		Variant: item.VariantMuted,
 		Href:    libraryDetailPath(li),
-		Class:   "flex-nowrap items-start",
+		Class:   "flex-col items-stretch gap-0 overflow-hidden border-0 bg-card p-0 hover:bg-card",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
 			"data-kind":      string(li.Kind),
@@ -127,33 +170,48 @@ templ libraryCard(li projection.LibraryItem) {
 			"data-poster":    posterState(li.Poster),
 		},
 	}) {
-		@item.Media(item.MediaProps{Variant: item.MediaVariantImage, Class: "h-24 w-16"}) {
-			@poster(li.Poster, li.Title)
-		}
-		@item.Content() {
-			@item.Title(item.TitleProps{Class: "line-clamp-1"}) {
+		@tooltip.Tooltip() {
+			@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted", Attributes: tooltip.Trigger(ctx)}) {
+				@posterFill(li.Poster, li.Title)
+			}
+			@tooltip.Content(tooltip.ContentProps{Side: tooltip.SideBottom}) {
 				{ li.Title }
 				if li.Year > 0 {
-					<span class="text-muted-foreground">{ fmt.Sprint(li.Year) }</span>
-				}
-			}
-			@item.Description() {
-				{ string(li.Kind) }
-				if li.QualityProfileRef != "" {
-					· { li.QualityProfileRef }
+					({ fmt.Sprint(li.Year) })
 				}
 			}
 		}
-		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
-			@monitoredBadge(li.Monitored)
-			if li.Phase != "" {
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone(li.Phase)}) { { li.Phase } }
-			}
-			if li.HasFile {
-				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { on disk }
-			}
-		}
+		<div class={ stripeClass(posterStatus(li)) } data-status={ posterStatus(li) }></div>
+		<div class="px-2 py-1.5 text-center text-xs leading-5">
+			<div>{ monitoredTitle(li.Monitored) }</div>
+			<div class="truncate text-muted-foreground">{ li.QualityProfileRef }</div>
+		</div>
 	}
+}
+
+// posterFill is the poster filling a 2:3 aspect-ratio box: the hotlinked
+// art (lazily, without a referrer, as poster's own doc says), or a
+// placeholder that names the film when there is none, as Radarr's does.
+templ posterFill(url, title string) {
+	if url != "" {
+		<img
+			src={ templ.URL(url) }
+			alt={ title }
+			loading="lazy"
+			referrerpolicy="no-referrer"
+			class="absolute inset-0 h-full w-full object-cover"
+		/>
+	} else {
+		<div class="absolute inset-0 flex items-center justify-center p-3 text-center text-sm font-medium text-muted-foreground">{ title }</div>
+	}
+}
+
+// monitoredTitle is the footer's first line, Radarr's capitalisation.
+func monitoredTitle(monitored bool) string {
+	if monitored {
+		return "Monitored"
+	}
+	return "Unmonitored"
 }
 
 // monitoredBadge is the monitored mark every card and header shows: the
@@ -195,9 +253,28 @@ templ poster(url, title string) {
 // and search now (§A3.2). "Rescan" is RootFolder-scoped, not per-item, so it
 // lives only on the Library page's own toolbar.
 templ LibraryDetail(li projection.LibraryItem) {
-	@Layout(li.Title) {
-		<a href={ templ.URL("/library/" + string(li.Tab)) } class="text-sm text-muted-foreground hover:text-foreground">&larr; Library</a>
+	@Shell(li.Title, itemCrumbs(li)) {
 		@itemHeader(li)
+	}
+}
+
+// itemCrumbs is an item's trail: Library, its tab, itself.
+func itemCrumbs(li projection.LibraryItem) []Crumb {
+	return []Crumb{
+		{Label: "Library", Href: "/library"},
+		{Label: tabLabel(li.Tab), Href: "/library/" + string(li.Tab)},
+		{Label: li.Title},
+	}
+}
+
+// childCrumbs is the trail of a page under an item -- a season, the
+// albums, the books -- with the item linked and the page last.
+func childCrumbs(li projection.LibraryItem, label string) []Crumb {
+	return []Crumb{
+		{Label: "Library", Href: "/library"},
+		{Label: tabLabel(li.Tab), Href: "/library/" + string(li.Tab)},
+		{Label: li.Title, Href: libraryDetailPath(li)},
+		{Label: label},
 	}
 }
 
@@ -256,14 +333,6 @@ func tabLabel(tab projection.Tab) string {
 	}
 }
 
-func tabClass(current bool) string {
-	const base = "-mb-px border-b-2 px-3 py-2 text-sm font-medium "
-	if current {
-		return base + "border-sky-500 text-slate-100"
-	}
-	return base + "border-transparent text-slate-400 hover:text-slate-100"
-}
-
 // posterState is the card's data-poster value: "provider" when the card
 // hotlinks the provider's art, "none" when it shows the placeholder.
 func posterState(url string) string {
@@ -271,6 +340,42 @@ func posterState(url string) string {
 		return "provider"
 	}
 	return "none"
+}
+
+// posterStatus is the card's stripe (design 2026-09-24, after Radarr's):
+// what is on disk decides first -- green, or amber below the cutoff --
+// then an item in flight is blue, a monitored item with nothing on disk
+// is red, and an unmonitored one is gray.
+func posterStatus(li projection.LibraryItem) string {
+	switch {
+	case li.HasFile && (li.Phase == "CutoffUnmet" || li.Phase == "CutoffUnevaluated"):
+		return "cutoff-unmet"
+	case li.HasFile:
+		return "downloaded"
+	case li.Phase == "Downloading" || li.Phase == "Delayed" || li.Phase == "Grabbed":
+		return "downloading"
+	case li.Monitored:
+		return "missing"
+	default:
+		return "unmonitored"
+	}
+}
+
+// stripeClass is the stripe's colour for a posterStatus.
+func stripeClass(status string) string {
+	const base = "h-1 w-full "
+	switch status {
+	case "downloaded":
+		return base + "bg-emerald-500"
+	case "cutoff-unmet":
+		return base + "bg-amber-500"
+	case "downloading":
+		return base + "bg-sky-500"
+	case "missing":
+		return base + "bg-red-500"
+	default:
+		return base + "bg-slate-500"
+	}
 }
 
 // monitoredLabel and monitoredBadgeClass mirror downloads.templ's

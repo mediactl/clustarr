@@ -36,7 +36,7 @@ import (
 // not embedded or served -- it is a build-time input, consumed only by
 // `make css`, not a runtime asset.
 //
-//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/fonts/*.woff2
+//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/fonts/*.woff2 static/js/*.js
 var staticFiles embed.FS
 
 // The distroless image has no /etc/mime.types, so Go's table would serve a

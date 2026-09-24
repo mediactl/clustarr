@@ -104,7 +104,7 @@ func TestLibraryPageShowsAnUnevaluatedCutoffAsAWarning(t *testing.T) {
 	for _, phase := range []string{"CutoffUnevaluated", "CutoffUnmet"} {
 		item := projection.LibraryItem{
 			Ref:  types.NamespacedName{Namespace: "default", Name: "arrival"},
-			Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "Arrival", Monitored: true, Phase: phase,
+			Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "Arrival", Monitored: true, Phase: phase, HasFile: true,
 		}
 		srv := ui.NewServer(t.Context(), ui.Options{
 			Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
@@ -112,8 +112,9 @@ func TestLibraryPageShowsAnUnevaluatedCutoffAsAWarning(t *testing.T) {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.Contains(t, rec.Body.String(), `bg-amber-500/20 text-amber-300">`+phase+`</span>`,
-			"phase %s is not shown with the amber warning badge", phase)
+		// The card's stripe carries the warning colour (design 2026-09-24,
+		// after Radarr): an item on disk below its cutoff is amber.
+		requireTag(t, rec.Body.String(), `data-status="cutoff-unmet"`, "bg-amber-500")
 	}
 }
 
@@ -134,8 +135,9 @@ func TestLibraryPageShowsTranscodedAsDone(t *testing.T) {
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
 		require.Contains(t, rec.Body.String(), `data-phase="`+phase+`"`)
-		require.Contains(t, rec.Body.String(), `bg-emerald-500/20 text-emerald-300">`+phase+`</span>`,
-			"phase %s is not shown with the emerald done badge", phase)
+		// The card's stripe carries the done colour (design 2026-09-24,
+		// after Radarr): an item on disk at its cutoff is green.
+		requireTag(t, rec.Body.String(), `data-status="downloaded"`, "bg-emerald-500")
 	}
 }
 
@@ -408,7 +410,7 @@ func TestLibraryTabRendersItsOwnCardsWithArtYearAndProfile(t *testing.T) {
 	require.NotContains(t, body, `<img`, "no poster means no image tag")
 	require.Contains(t, body, `sse-connect="/events/library/tv?page=1&amp;per=50"`, "the stream carries the page's own window")
 	for _, tab := range projection.Tabs() {
-		require.Contains(t, body, fmt.Sprintf(`href="/library/%s"`, tab))
+		require.Contains(t, body, fmt.Sprintf(`hx-get="/library/%s"`, tab), "every tab is reachable from the strip")
 	}
 
 	rec = httptest.NewRecorder()

@@ -31,8 +31,7 @@ import (
 // page's shape with one component instead of one per season. label names
 // the children ("Albums", "Books").
 templ ParentDetail(li projection.LibraryItem, label string) {
-	@Layout(li.Title) {
-		<a href={ templ.URL("/library/" + string(li.Tab)) } class="text-sm text-muted-foreground hover:text-foreground">&larr; Library</a>
+	@Shell(li.Title, itemCrumbs(li)) {
 		@itemHeader(li)
 		<div class="mt-6 rounded-md border border-border bg-card">
 			<details
@@ -52,8 +51,7 @@ templ ParentDetail(li projection.LibraryItem, label string) {
 
 // ChildrenPage is a parent's children on their own page.
 templ ChildrenPage(li projection.LibraryItem, label string, children []ChildRow) {
-	@Layout(fmt.Sprintf("%s · %s", li.Title, label)) {
-		<a href={ libraryItemURL(li) } class="text-sm text-muted-foreground hover:text-foreground">&larr; { li.Title }</a>
+	@Shell(fmt.Sprintf("%s · %s", li.Title, label), childCrumbs(li, label)) {
 		@itemHeader(li)
 		<div class="mt-6 rounded-md border border-border bg-card">
 			<h2 class="px-4 py-3 font-medium">{ label }</h2>

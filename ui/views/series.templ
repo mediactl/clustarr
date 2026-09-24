@@ -31,8 +31,7 @@ import (
 // -- followed by one season component per season. Episodes are not on the
 // page; each season loads its own on first expand.
 templ SeriesDetail(li projection.LibraryItem, seasons []SeasonRow) {
-	@Layout(li.Title) {
-		<a href={ templ.URL("/library/" + string(li.Tab)) } class="text-sm text-muted-foreground hover:text-foreground">&larr; Library</a>
+	@Shell(li.Title, itemCrumbs(li)) {
 		@itemHeader(li)
 		<div class="mt-6 space-y-3" data-seasons={ fmt.Sprint(len(seasons)) }>
 			if len(seasons) == 0 {
@@ -205,8 +204,7 @@ templ actionFailure(f ActionFailure) {
 // SeasonPage is a season on its own: the series header, the season's
 // header, then its episodes.
 templ SeasonPage(li projection.LibraryItem, season SeasonRow, episodes []EpisodeRow) {
-	@Layout(fmt.Sprintf("%s · %s", li.Title, season.Label())) {
-		<a href={ libraryItemURL(li) } class="text-sm text-muted-foreground hover:text-foreground">&larr; { li.Title }</a>
+	@Shell(fmt.Sprintf("%s · %s", li.Title, season.Label()), childCrumbs(li, season.Label())) {
 		@itemHeader(li)
 		<div class="mt-6 rounded-md border border-border bg-card">
 			@SeasonHeader(season)

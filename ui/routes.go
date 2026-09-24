@@ -198,10 +198,19 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := projection.ForTab(s.opts.Library(r.Context()), tab)
-	p := paging.Parse(r.URL.Query()).Page(len(items))
+	req := paging.Parse(r.URL.Query())
+	base := "/library/" + string(tab)
+	// ?jump=<letter> is the A-Z bar (design 2026-09-24, after Radarr): the
+	// page where that letter's titles begin, as a redirect so the URL the
+	// reader lands on is the plain paged one.
+	if jump := r.URL.Query().Get("jump"); jump != "" {
+		http.Redirect(w, r, base+paging.Paginate(len(items), jumpPage(items, jumpKey(jump), req.Per), req.Per).Query(jumpPage(items, jumpKey(jump), req.Per)), http.StatusFound)
+		return
+	}
+	p := req.Page(len(items))
 	rootFolders := s.listRootFolders(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Library(tab, p, paging.Window(items, p), rootFolders).Render(r.Context(), w); err != nil {
+	if err := views.Library(tab, p, paging.Window(items, p), rootFolders, jumps(items, base, p.Per)).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render library page", "error", err)
 	}
 }
