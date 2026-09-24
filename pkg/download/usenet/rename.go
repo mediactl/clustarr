@@ -1,0 +1,343 @@
+/*
+Copyright 2026 The clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package usenet
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/md5" //nolint:gosec // PAR2's hash16k is MD5 by specification.
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+)
+
+// This file is the de-obfuscation step the research note (§2.4, §4.3 step
+// 3) asked for and udl's postprocess.renameByPAR2/renameByMagic showed the
+// shape of: before repair, give every file the name the par2 set records
+// for it, matched by the MD5 of its first 16 KiB (FileDesc.hash16k); then
+// give a file whose name carries no usable extension one from its magic
+// bytes. Obfuscated posts name their files "z75QO...part070.rar" inside the
+// par2 set and something else on the wire; par2 can match them by content
+// but recreates targets by copying blocks, and archive detection keys on
+// the extension, so a set that arrived whole and obfuscated was never
+// unpacked.
+
+var (
+	par2Magic        = []byte("PAR2\x00PKT")
+	par2FileDescType = []byte("PAR 2.0\x00FileDesc")
+)
+
+// par2FileDesc is one FileDesc packet: the name the set records for a file
+// and the MD5 of its first 16 KiB (or of the whole file when smaller).
+type par2FileDesc struct {
+	Name    string
+	Hash16k [16]byte
+	Length  uint64
+}
+
+// parsePar2FileDescs walks the packets of one par2 file and returns its
+// FileDesc packets. Unknown packet types are skipped by their length; the
+// walk stops at the first byte that is not a packet header, so a truncated
+// or damaged file yields what it can rather than an error.
+func parsePar2FileDescs(r io.Reader) ([]par2FileDesc, error) {
+	br := bufioReaderOf(r)
+	var out []par2FileDesc
+	for {
+		header := make([]byte, 64)
+		if _, err := io.ReadFull(br, header); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return out, nil
+			}
+			return out, err
+		}
+		if !bytes.Equal(header[:8], par2Magic) {
+			return out, nil
+		}
+		length := binary.LittleEndian.Uint64(header[8:16])
+		if length < 64 || length > 1<<26 {
+			return out, nil
+		}
+		body := make([]byte, length-64)
+		if _, err := io.ReadFull(br, body); err != nil {
+			return out, nil
+		}
+		if !bytes.Equal(header[48:64], par2FileDescType) {
+			continue
+		}
+		// file id 16, hash 16, hash16k 16, length 8, name.
+		if len(body) < 56 {
+			continue
+		}
+		var d par2FileDesc
+		copy(d.Hash16k[:], body[32:48])
+		d.Length = binary.LittleEndian.Uint64(body[48:56])
+		d.Name = strings.TrimRight(string(body[56:]), "\x00")
+		d.Name = filepath.Base(strings.ReplaceAll(d.Name, "\\", "/"))
+		if d.Name == "" || d.Name == "." || d.Name == "/" {
+			continue
+		}
+		out = append(out, d)
+	}
+}
+
+// hash16k is the MD5 of a file's first 16 KiB, the FileDesc.hash16k rule.
+func hash16k(path string) ([16]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return [16]byte{}, err
+	}
+	defer func() { _ = f.Close() }()
+	h := md5.New() //nolint:gosec // PAR2 specifies MD5.
+	if _, err := io.CopyN(h, f, 16<<10); err != nil && !errors.Is(err, io.EOF) {
+		return [16]byte{}, err
+	}
+	var out [16]byte
+	copy(out[:], h.Sum(nil))
+	return out, nil
+}
+
+// isPar2File reports whether the file starts with a par2 packet header, for
+// a par2 file whose name says otherwise.
+func isPar2File(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	head := make([]byte, 8)
+	if _, err := io.ReadFull(f, head); err != nil {
+		return false
+	}
+	return bytes.Equal(head, par2Magic)
+}
+
+// sniffExtension returns an extension for a file from its first bytes, or
+// "" when the bytes say nothing this recognises.
+func sniffExtension(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	head := make([]byte, 16)
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	switch {
+	case n >= 4 && bytes.Equal(head[:4], []byte{0x1a, 0x45, 0xdf, 0xa3}):
+		return ".mkv" // EBML; WebM is Matroska too, and .mkv is what the importer probes
+	case n >= 7 && bytes.HasPrefix(head, []byte("Rar!\x1a\x07")):
+		return ".rar"
+	case n >= 8 && bytes.Equal(head[:8], par2Magic):
+		return ".par2"
+	case n >= 8 && bytes.Equal(head[4:8], []byte("ftyp")):
+		return ".mp4"
+	case n >= 12 && bytes.Equal(head[:4], []byte("RIFF")) && bytes.Equal(head[8:12], []byte("AVI ")):
+		return ".avi"
+	case n >= 6 && bytes.Equal(head[:6], []byte{'7', 'z', 0xbc, 0xaf, 0x27, 0x1c}):
+		return ".7z"
+	case n >= 4 && bytes.Equal(head[:4], []byte("PK\x03\x04")):
+		return ".zip"
+	default:
+		return ""
+	}
+}
+
+// knownExtensions are the extensions a file may carry and be left alone by
+// the magic step: what the importer, the unpacker and the cleanup know.
+var knownExtensions = map[string]bool{
+	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true, ".wmv": true, ".flv": true,
+	".webm": true, ".ts": true, ".m2ts": true, ".mpg": true, ".mpeg": true, ".iso": true, ".img": true,
+	".srt": true, ".sub": true, ".idx": true, ".ass": true, ".ssa": true, ".vtt": true,
+	".nfo": true, ".sfv": true, ".txt": true, ".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+	".mp3": true, ".flac": true, ".m4a": true, ".m4b": true, ".ogg": true, ".wav": true, ".aac": true,
+	".epub": true, ".pdf": true, ".mobi": true, ".azw3": true, ".cbz": true, ".cbr": true,
+	".rar": true, ".zip": true, ".7z": true, ".par2": true,
+}
+
+// hasUsableExtension reports whether a name carries an extension the rest
+// of the pipeline understands, rar volumes and par2 sets included.
+func hasUsableExtension(name string) bool {
+	if classify(name) != kindContent {
+		return true
+	}
+	return knownExtensions[strings.ToLower(filepath.Ext(name))]
+}
+
+// renameObfuscated gives the job's files the names the par2 set records for
+// them, then extensions from magic bytes to whatever still has none, on disk
+// and in j.nzb.Files, and records the renames in the manifest so a restart
+// sees the same names. It never fails the job: a rename that cannot be done
+// is logged and left, and par2 or the unpacker judges the result as before.
+func (j *job) renameObfuscated(ctx context.Context) {
+	log := logging.FromContext(ctx)
+	dir := j.contentDir()
+
+	descs := map[[16]byte]string{}
+	for _, f := range j.nzb.Files {
+		p := filepath.Join(dir, safeName(f.Name))
+		if f.Kind != kindPar2Index && f.Kind != kindPar2Volume && !isPar2File(p) {
+			continue
+		}
+		fh, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		found, err := parsePar2FileDescs(fh)
+		_ = fh.Close()
+		if err != nil {
+			log.DebugContext(ctx, "usenet: par2 FileDesc parse failed", "file", f.Name, "error", err)
+		}
+		for _, d := range found {
+			descs[d.Hash16k] = d.Name
+		}
+	}
+
+	rename := func(i int, to string) {
+		from := safeName(j.nzb.Files[i].Name)
+		to = safeName(to)
+		if from == to {
+			return
+		}
+		if _, err := os.Lstat(filepath.Join(dir, to)); err == nil {
+			log.WarnContext(ctx, "usenet: rename collides with an existing file; leaving it", "from", from, "to", to)
+			return
+		}
+		if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
+			log.WarnContext(ctx, "usenet: rename failed", "from", from, "to", to, "error", err)
+			return
+		}
+		j.mu.Lock()
+		if j.renames == nil {
+			j.renames = map[string]string{}
+		}
+		orig := from
+		for o, cur := range j.renames { // keep the chain keyed on the wire name
+			if cur == from {
+				orig = o
+				break
+			}
+		}
+		j.renames[orig] = to
+		j.nzb.Files[i].Name = to
+		j.nzb.Files[i].Kind = classify(to)
+		j.mu.Unlock()
+		log.InfoContext(ctx, "usenet: renamed", "from", from, "to", to)
+	}
+
+	renamed := 0
+	if len(descs) > 0 {
+		for i, f := range j.nzb.Files {
+			if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
+				continue
+			}
+			h, err := hash16k(filepath.Join(dir, safeName(f.Name)))
+			if err != nil {
+				continue
+			}
+			if want, ok := descs[h]; ok && want != f.Name {
+				rename(i, want)
+				renamed++
+			}
+		}
+	}
+	for i, f := range j.nzb.Files {
+		if hasUsableExtension(f.Name) {
+			continue
+		}
+		if ext := sniffExtension(filepath.Join(dir, safeName(f.Name))); ext != "" {
+			rename(i, f.Name+ext)
+			renamed++
+		}
+	}
+	if renamed > 0 {
+		if err := j.checkpoint(); err != nil {
+			log.WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
+		}
+	}
+}
+
+// applyRenames replays a manifest's renames onto freshly parsed files, so a
+// job re-attached after a restart sees the names on disk.
+func applyRenames(files []nzbFile, renames map[string]string) {
+	if len(renames) == 0 {
+		return
+	}
+	for i := range files {
+		if to, ok := renames[safeName(files[i].Name)]; ok {
+			files[i].Name = to
+			files[i].Kind = classify(to)
+		}
+	}
+}
+
+// failedInsideArchive reports whether any missing article belongs to an
+// archive volume -- the case where par2 failing to repair is final. A
+// missing article in an nfo, a sample or a par2 volume leaves the archive
+// whole, and its own checksums can judge it.
+func (j *job) failedInsideArchive() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for fi, b := range j.failedSegs {
+		if j.nzb.Files[fi].Kind != kindArchive {
+			continue
+		}
+		if b.count() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// checkDiskSpace is the pre-flight udl runs before a grab: the working area
+// needs twice the release (the articles and the unpacked result) plus
+// headroom, the publish area once plus headroom. A release that cannot fit
+// fails as diskFull before it moves 10 GB, not after; diskFull is a local
+// fault and is never blocklisted.
+func (j *job) checkDiskSpace() error {
+	free := j.client.freeBytes
+	need := func(mult int64) int64 { return j.nzb.TotalBytes*mult + diskHeadroomBytes }
+	for _, chk := range []struct {
+		dir  string
+		mult int64
+	}{{j.client.cfg.ScratchDir, 2}, {j.client.cfg.PublishDir, 1}} {
+		got, err := free(chk.dir)
+		if err != nil {
+			continue // a volume that cannot be asked is judged by its writes, as before
+		}
+		if got < need(chk.mult) {
+			return fmt.Errorf("%w: %d bytes free on %s, this release needs %d (%dx its size plus %d headroom)",
+				errPreflightSpace, got, chk.dir, need(chk.mult), chk.mult, diskHeadroomBytes)
+		}
+	}
+	return nil
+}
+
+// bufioReaderOf wraps r in a bufio.Reader unless it already is one.
+func bufioReaderOf(r io.Reader) *bufio.Reader {
+	if br, ok := r.(*bufio.Reader); ok {
+		return br
+	}
+	return bufio.NewReader(r)
+}

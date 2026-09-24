@@ -159,6 +159,11 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
 	require.NoError(t, err)
 	assert.Equal(t, 6*time.Hour, cfg.DownloadTimeout, "spec.usenet.downloadTimeout must reach the client")
+	assert.Zero(t, cfg.StallTimeout, "no stallTimeout means never")
+	dc.Spec.Usenet.StallTimeout = &metav1.Duration{Duration: 45 * time.Minute}
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
+	require.NoError(t, err)
+	assert.Equal(t, 45*time.Minute, cfg.StallTimeout, "spec.usenet.stallTimeout must reach the client")
 
 	assert.Empty(t, cfg.HealthAction, "unset is the client's pause, the CRD default")
 	dc.Spec.Usenet.HealthAction = downloadv1alpha1.HealthActionDelete

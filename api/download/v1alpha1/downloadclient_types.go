@@ -361,6 +361,15 @@ type UsenetSpec struct {
 	// pod: its template carries a hash of every setting read at start.
 	// +optional
 	DownloadTimeout *metav1.Duration `json:"downloadTimeout,omitempty"`
+
+	// StallTimeout is how long a transferring usenet download may go without
+	// completing a single article before the engine fails it with reason
+	// stalled, which blocklists the release -- the counterpart of
+	// TorrentSpec.stallTimeout. Time spent paused or waiting for a provider
+	// that cannot be asked does not count. Unset or "0s" means never, the
+	// default. Read at start, so a change rolls the engine pod.
+	// +optional
+	StallTimeout *metav1.Duration `json:"stallTimeout,omitempty"`
 }
 
 // DownloadClientSpec defines the desired state of DownloadClient. Exactly one

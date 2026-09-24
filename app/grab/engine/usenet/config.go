@@ -141,6 +141,9 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 	}
 	// No CRD default: unset (and "0s") means no deadline, which is also
 	// Config's zero value.
+	if us.StallTimeout != nil && us.StallTimeout.Duration > 0 {
+		cfg.StallTimeout = us.StallTimeout.Duration
+	}
 	if us.DownloadTimeout != nil && us.DownloadTimeout.Duration > 0 {
 		cfg.DownloadTimeout = us.DownloadTimeout.Duration
 	}

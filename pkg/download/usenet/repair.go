@@ -28,6 +28,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -136,6 +138,13 @@ func (r Par2Runner) Repair(ctx context.Context, dir, indexFile string) (Par2Resu
 	args := append([]string{"r", "-q", "--", indexFile}, extraFiles(dir, indexFile)...)
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
+	// On cancellation kill the whole process group, not just the leader,
+	// and stop waiting on the output pipes soon after: a par2 that spawned
+	// helpers (or a wrapper script) would otherwise hold Wait open until
+	// its children exit on their own -- the deadline's whole point lost.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
 
 	// A ring, not a cap that errors: an io.Writer that refuses further output
 	// makes exec.Cmd.Run return THAT error instead of par2's verdict, which
@@ -177,6 +186,24 @@ func (r Par2Runner) Repair(ctx context.Context, dir, indexFile string) (Par2Resu
 	// keep the output so an operator can see what it actually said.
 	res.AllCorrect = true
 	return res, nil
+}
+
+// ErrPar2Timeout is returned when par2 did not finish within par2Deadline.
+// It is a local fault (writeError), never a verdict on the release.
+var ErrPar2Timeout = errors.New("usenet: par2 timed out")
+
+// errPreflightSpace is the disk pre-flight's refusal, classed diskFull.
+var errPreflightSpace = errors.New("usenet: not enough free space for this release")
+
+// diskHeadroomBytes is the margin the pre-flight adds on top of the
+// release's size, udl's 1 GB.
+const diskHeadroomBytes = 1 << 30
+
+// par2Deadline bounds one par2 run: 30 minutes plus one minute per GB, so a
+// 10 GB set gets 40 minutes, far above a healthy verify and far below
+// "for good".
+var par2Deadline = func(totalBytes int64) time.Duration {
+	return 30*time.Minute + time.Duration(totalBytes/(1<<30))*time.Minute
 }
 
 // par2BackupRE matches the backup par2cmdline leaves behind when it repairs a

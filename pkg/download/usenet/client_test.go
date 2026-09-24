@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -266,6 +267,90 @@ func TestBareContentWithMissingArticlesIsNotPublished(t *testing.T) {
 	require.Contains(t, it.Message, "1 of 4 articles missing, with no par2 to repair them and no archive")
 	_, err = os.Stat(filepath.Join(dataDir, "movies", "Holey"))
 	require.True(t, os.IsNotExist(err), "nothing is published past the gate")
+}
+
+// Every article's pcrc32 is verified on receipt, so a set that arrived whole
+// needs no par2: a full verify would read every byte again (10 GB over NFS)
+// to learn what the transfer already proved. The fake par2 here fails if
+// run at all.
+func TestPar2IsSkippedWhenEveryArticleArrived(t *testing.T) {
+	srv := newStubServer(t)
+	parts := [][]byte{partPayload(1, 900), partPayload(2, 512)}
+	nzb := buildNZB(t, srv, "Whole.Set", []fileSpec{
+		{name: "movie.mkv", parts: parts},
+		{name: "movie.par2", parts: [][]byte{partPayload(9, 100)}},
+		{name: "movie.vol000+01.par2", parts: [][]byte{partPayload(8, 100)}},
+	})
+	fake := filepath.Join(t.TempDir(), "par2")
+	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\necho 'par2 must not run'; exit 3\n"), 0o755))
+
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}, Par2Path: fake, PostProcess: PostProcess{Par2: true}})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Whole.Set", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
+}
+
+// The pre-flight udl runs: a release that cannot fit twice over in the
+// working area fails as diskFull before it moves a byte, and diskFull is a
+// local fault, never a blocklist.
+func TestDiskPreflightFailsAReleaseThatCannotFit(t *testing.T) {
+	srv := newStubServer(t)
+	parts := [][]byte{partPayload(1, 900), partPayload(2, 512)}
+	nzb := buildNZB(t, srv, "Too.Big", []fileSpec{{name: "movie.mkv", parts: parts}})
+	c, _, _ := newTestClient(t, Config{
+		Providers: []Provider{srv.provider("solo", 2, 1)},
+		FreeBytes: func(string) (int64, error) { return diskHeadroomBytes + 1000, nil },
+	})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Too.Big", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusFailed, it.Status)
+	require.Equal(t, downloadv1alpha1.DownloadFailureDiskFull, it.FailureReason)
+	require.False(t, it.FailureReason.IsReleaseFault())
+	require.Contains(t, it.Message, "not enough free space")
+	require.Zero(t, srv.servedCount("f0-p1@clustarr.test"), "nothing was fetched")
+}
+
+// A par2 that never returns is a failed job to retry, not a job stuck in
+// Repairing: the runner gets a deadline scaled to the set.
+func TestPar2DeadlineTurnsAWedgedRepairIntoAFailure(t *testing.T) {
+	old := par2Deadline
+	par2Deadline = func(int64) time.Duration { return 200 * time.Millisecond }
+	t.Cleanup(func() { par2Deadline = old })
+
+	srv := newStubServer(t)
+	nzb := buildNZB(t, srv, "Wedged", []fileSpec{
+		{name: "movie.mkv", parts: [][]byte{partPayload(1, 900), partPayload(2, 512)}},
+		{name: "movie.par2", parts: [][]byte{partPayload(9, 100)}},
+	})
+	srv.refuse["f0-p1@clustarr.test"] = 430 // one article missing, so par2 runs
+	sleeper := filepath.Join(t.TempDir(), "par2")
+	require.NoError(t, os.WriteFile(sleeper, []byte("#!/bin/sh\nsleep 30\n"), 0o755))
+
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}, Par2Path: sleeper, PostProcess: PostProcess{Par2: true}})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Wedged", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusFailed, it.Status)
+	require.ErrorContains(t, errors.New(it.Message), "par2 did not finish")
+	require.Equal(t, downloadv1alpha1.DownloadFailureWriteError, it.FailureReason, "a wedged par2 is a local fault")
+}
+
+// A provider that answers but never completes an article stalls the job;
+// with StallTimeout set the job fails as stalled instead of sitting in
+// transferring for good -- the torrent engine's rule, now for usenet.
+func TestStallTimeoutFailsAJobThatCompletesNoArticle(t *testing.T) {
+	srv := newStubServer(t)
+	srv.bodyDelay = 3 * time.Second
+	nzb := buildNZB(t, srv, "Stalled", []fileSpec{{name: "movie.mkv", parts: [][]byte{partPayload(1, 900), partPayload(2, 512)}}})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}, StallTimeout: 400 * time.Millisecond})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Stalled", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusFailed, it.Status, "message: %s", it.Message)
+	require.Equal(t, downloadv1alpha1.DownloadFailureStalled, it.FailureReason)
+	require.True(t, it.FailureReason.IsReleaseFault(), "a stall is judged like a stalled torrent")
 }
 
 func TestClientDownloadsAnNZBAndPublishesIt(t *testing.T) {

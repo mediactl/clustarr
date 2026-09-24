@@ -580,6 +580,15 @@ spec:
                         volumeName
                       rule: '!has(self.existingClaim) || (!has(self.storageClassName)
                         && !has(self.volumeName))'
+                  stallTimeout:
+                    description: |-
+                      StallTimeout is how long a transferring usenet download may go without
+                      completing a single article before the engine fails it with reason
+                      stalled, which blocklists the release -- the counterpart of
+                      TorrentSpec.stallTimeout. Time spent paused or waiting for a provider
+                      that cannot be asked does not count. Unset or "0s" means never, the
+                      default. Read at start, so a change rolls the engine pod.
+                    type: string
                 required:
                 - providers
                 type: object

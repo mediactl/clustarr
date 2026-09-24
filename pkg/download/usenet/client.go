@@ -155,6 +155,16 @@ type Config struct {
 	// ([ErrProvidersUnavailable]). Zero means [defaultProviderRetryDelay].
 	ProviderRetryDelay time.Duration
 
+	// StallTimeout fails a transferring job that completes no article for
+	// this long as stalled (blocklisted, like a stalled torrent). Paused
+	// time and time waiting for an unaskable provider do not count. Zero
+	// means never.
+	StallTimeout time.Duration
+
+	// FreeBytes reports the free bytes on a path, for the disk pre-flight
+	// every job runs before its transfer. nil means fsops.FreeBytes.
+	FreeBytes func(path string) (int64, error)
+
 	// ArticleRetryDelay is how long the job waits before its one retry pass
 	// over the articles every server said were missing, so a propagation
 	// or sync gap has a chance to close. Zero means
@@ -183,9 +193,11 @@ type PostProcess struct {
 
 // Client is the usenet [download.Client].
 type Client struct {
-	cfg  Config
-	pool *Pool
-	par2 Par2Runner
+	cfg Config
+	// freeBytes is Config.FreeBytes with its default applied.
+	freeBytes func(path string) (int64, error)
+	pool      *Pool
+	par2      Par2Runner
 
 	workers int
 
@@ -262,12 +274,17 @@ func New(cfg Config) (download.Client, error) {
 		}
 	}
 
+	freeBytes := cfg.FreeBytes
+	if freeBytes == nil {
+		freeBytes = fsops.FreeBytes
+	}
 	c := &Client{
-		cfg:     cfg,
-		pool:    pool,
-		par2:    Par2Runner{Path: cfg.Par2Path},
-		workers: workers,
-		jobs:    map[string]*job{},
+		cfg:       cfg,
+		freeBytes: freeBytes,
+		pool:      pool,
+		par2:      Par2Runner{Path: cfg.Par2Path},
+		workers:   workers,
+		jobs:      map[string]*job{},
 	}
 	if err := c.reattach(); err != nil {
 		pool.Close()
@@ -299,6 +316,10 @@ type manifest struct {
 	// operator has not looked at nor re-pauses one they told to carry on.
 	HealthPaused   bool `json:"healthPaused,omitempty"`
 	HealthOverride bool `json:"healthOverride,omitempty"`
+
+	// Renames maps a file's on-the-wire name to the name it carries now,
+	// after the par2 hash16k and magic-byte renames (rename.go).
+	Renames map[string]string `json:"renames,omitempty"`
 	// AddedAt is when the job was first added -- [download.Item.AddedAt],
 	// which an orphan reaper ages the transfer by. A manifest written before
 	// it existed decodes to zero, which the reaper reads as "unknown".
@@ -370,6 +391,9 @@ type job struct {
 	// workers that might reach it at the same time through the gate.
 	retryMu sync.Mutex
 	retried bool
+
+	// renames is the manifest's Renames, kept in step by renameObfuscated.
+	renames map[string]string
 
 	done           []bitset
 	failedSegs     []bitset
@@ -450,6 +474,7 @@ func (j *job) checkpoint() error {
 		Priority:       string(j.getPriority()),
 		HealthPaused:   j.healthPaused,
 		HealthOverride: j.healthOverride,
+		Renames:        j.renames,
 		AddedAt:        j.addedAt,
 		Done:           cloneBitsets(j.done),
 		Failed:         cloneBitsets(j.failedSegs),
@@ -535,6 +560,8 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	j.prio.Store(downloadv1alpha1.DownloadPriority(m.Priority))
 	j.healthPaused = m.HealthPaused
 	j.healthOverride = m.HealthOverride
+	j.renames = m.Renames
+	applyRenames(j.nzb.Files, m.Renames)
 	j.addedAt = m.AddedAt
 	restoreBitsets(j.done, m.Done)
 	restoreBitsets(j.failedSegs, m.Failed)
@@ -758,6 +785,10 @@ func (j *job) run(ctx context.Context) {
 		j.abort(ctx, err)
 		return
 	}
+	if err := j.checkDiskSpace(); err != nil {
+		j.abort(ctx, err)
+		return
+	}
 	if err := j.preCheck(ctx); err != nil {
 		j.abort(ctx, err)
 		return
@@ -860,9 +891,12 @@ func failureReason(ctx context.Context, err error) downloadv1alpha1.DownloadFail
 		return downloadv1alpha1.DownloadFailureTimeout
 	case errors.Is(err, ErrEncrypted):
 		return downloadv1alpha1.DownloadFailureEncrypted
+	case errors.Is(err, ErrStalled):
+		return downloadv1alpha1.DownloadFailureStalled
 	case errors.Is(err, ErrUnrecoverable), errors.Is(err, ErrArticleMissing), errors.Is(err, ErrRepairFailed):
 		return downloadv1alpha1.DownloadFailureMissingArticles
-	case errors.Is(err, fsops.ErrInsufficientSpace), errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
+	case errors.Is(err, fsops.ErrInsufficientSpace), errors.Is(err, errPreflightSpace),
+		errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
 		return downloadv1alpha1.DownloadFailureDiskFull
 	default:
 		return downloadv1alpha1.DownloadFailureWriteError
@@ -972,9 +1006,22 @@ func (j *job) postProcess(ctx context.Context) error {
 	}
 
 	content := j.contentDir()
+	j.renameObfuscated(ctx)
 	if j.client.cfg.PostProcess.Par2 {
 		if err := j.repair(ctx); err != nil {
-			return err
+			// par2 could not repair, but if every missing article is outside
+			// the archive set the archive is whole and its own checksums can
+			// judge it: an nfo, a sample or a par2 volume with a hole is not
+			// a reason to throw away 10 GB of intact rar (udl continues to
+			// extraction on any repair failure; this is the safe form).
+			if errors.Is(err, ErrRepairFailed) && j.client.cfg.PostProcess.Unpack &&
+				len(archiveEntryPoints(j.nzb.Files)) > 0 && !j.failedInsideArchive() {
+				logging.FromContext(ctx).WarnContext(ctx,
+					"usenet: par2 could not repair, but no missing article is inside the archive set; letting the archive's checksums judge",
+					"download", j.id, "error", err)
+			} else {
+				return err
+			}
 		}
 	}
 
@@ -1034,6 +1081,16 @@ func (j *job) repair(ctx context.Context) error {
 	if index == "" {
 		return nil
 	}
+	if j.failedArticles() == 0 {
+		// The quick check: every article arrived and its pcrc32 verified on
+		// the way in, so the set is whole and par2 has nothing to do. A full
+		// par2 verify reads every byte of the set -- 10 GB over NFS, since
+		// the working area moved there -- to learn what the transfer already
+		// proved. NZBGet's ParQuick and udl skip it the same way.
+		logging.FromContext(ctx).InfoContext(ctx, "usenet: every article verified on receipt; skipping par2",
+			"download", j.id)
+		return nil
+	}
 	if !j.client.par2.Available() {
 		// No binary and nothing missing: the quick-check equivalent. A set
 		// with every article present and correct -- every part's pcrc32
@@ -1046,7 +1103,15 @@ func (j *job) repair(ctx context.Context) error {
 			ErrPar2Unavailable, j.failedArticles())
 	}
 	j.setStage(downloadv1alpha1.DownloadStageRepairing, download.StatusDownloading)
-	if _, err := j.client.par2.Repair(ctx, j.contentDir(), safeName(index)); err != nil {
+	// A deadline, so a par2 wedged on a slow volume is a failed job to retry
+	// rather than a job stuck in Repairing for good: udl's 30 minutes plus a
+	// budget for the set's size.
+	repairCtx, cancel := context.WithTimeout(ctx, par2Deadline(j.nzb.TotalBytes))
+	defer cancel()
+	if _, err := j.client.par2.Repair(repairCtx, j.contentDir(), safeName(index)); err != nil {
+		if repairCtx.Err() != nil && ctx.Err() == nil {
+			return fmt.Errorf("%w: par2 did not finish within %s", ErrPar2Timeout, par2Deadline(j.nzb.TotalBytes))
+		}
 		return err
 	}
 	return removePar2Backups(ctx, j.contentDir(), j.nzb.Files)

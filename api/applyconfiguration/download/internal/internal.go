@@ -808,6 +808,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: scratch
       type:
         namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ScratchSpec
+    - name: stallTimeout
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
 - name: io.k8s.api.core.v1.LocalObjectReference
   map:
     fields:

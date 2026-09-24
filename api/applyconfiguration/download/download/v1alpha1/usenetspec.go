@@ -65,6 +65,13 @@ type UsenetSpecApplyConfiguration struct {
 	// whole job. The engine reads it at start, so a change rolls the engine
 	// pod: its template carries a hash of every setting read at start.
 	DownloadTimeout *v1.Duration `json:"downloadTimeout,omitempty"`
+	// StallTimeout is how long a transferring usenet download may go without
+	// completing a single article before the engine fails it with reason
+	// stalled, which blocklists the release -- the counterpart of
+	// TorrentSpec.stallTimeout. Time spent paused or waiting for a provider
+	// that cannot be asked does not count. Unset or "0s" means never, the
+	// default. Read at start, so a change rolls the engine pod.
+	StallTimeout *v1.Duration `json:"stallTimeout,omitempty"`
 }
 
 // UsenetSpecApplyConfiguration constructs a declarative configuration of the UsenetSpec type for use with
@@ -147,5 +154,13 @@ func (b *UsenetSpecApplyConfiguration) WithPublishDir(value string) *UsenetSpecA
 // If called multiple times, the DownloadTimeout field is set to the value of the last call.
 func (b *UsenetSpecApplyConfiguration) WithDownloadTimeout(value v1.Duration) *UsenetSpecApplyConfiguration {
 	b.DownloadTimeout = &value
+	return b
+}
+
+// WithStallTimeout sets the StallTimeout field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StallTimeout field is set to the value of the last call.
+func (b *UsenetSpecApplyConfiguration) WithStallTimeout(value v1.Duration) *UsenetSpecApplyConfiguration {
+	b.StallTimeout = &value
 	return b
 }

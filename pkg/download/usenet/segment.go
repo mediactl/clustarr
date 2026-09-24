@@ -266,6 +266,7 @@ func (j *job) transfer(ctx context.Context) error {
 	}
 
 	stop := j.startCheckpoint(ctx)
+	stopWatch := j.startStallWatch(workerCtx, fail)
 
 dispatch:
 	for _, b := range batches {
@@ -277,6 +278,7 @@ dispatch:
 	}
 	close(work)
 	wg.Wait()
+	stopWatch()
 	stop()
 
 	if fatal != nil {
@@ -626,6 +628,62 @@ func (j *job) breach(ctx context.Context, detail string, cause error) error {
 	logging.FromContext(ctx).WarnContext(ctx, "usenet download paused by its health action",
 		"download", j.id, "detail", detail)
 	return nil
+}
+
+// ErrStalled is returned when a transferring job completed no article for
+// Config.StallTimeout: the counterpart of the torrent engine's stall, and
+// like it a verdict on the release (blocklisted). A provider that cannot be
+// asked is ErrProvidersUnavailable instead, and is waited out, not judged.
+var ErrStalled = errors.New("usenet: no article completed within the stall timeout")
+
+// startStallWatch fails the transfer through fail when no article has
+// completed for Config.StallTimeout, measured from the later of the watch's
+// start and the last completed article, and not while paused. It returns a
+// stop func. Zero timeout means no watch.
+func (j *job) startStallWatch(ctx context.Context, fail func(error)) func() {
+	timeout := j.client.cfg.StallTimeout
+	if timeout <= 0 {
+		return func() {}
+	}
+	done := make(chan struct{})
+	quit := make(chan struct{})
+	start := time.Now()
+	go func() {
+		defer close(done)
+		tick := min(timeout/4, 30*time.Second)
+		if tick <= 0 {
+			tick = time.Millisecond
+		}
+		t := time.NewTicker(tick)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-quit:
+				return
+			case now := <-t.C:
+				if j.paused.Load() {
+					start = now // a pause is the operator's time, not the release's
+					continue
+				}
+				j.mu.Lock()
+				last := j.lastProgress
+				j.mu.Unlock()
+				if last.Before(start) {
+					last = start
+				}
+				if idle := now.Sub(last); idle >= timeout {
+					fail(fmt.Errorf("%w: %s without a completed article (timeout %s)", ErrStalled, idle.Truncate(time.Second), timeout))
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		close(quit)
+		<-done
+	}
 }
 
 // startCheckpoint persists the bitsets on a timer and returns a stop func.

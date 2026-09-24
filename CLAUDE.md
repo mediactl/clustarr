@@ -493,6 +493,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   transfer. Whole-percent health against a whole-percent floor decided a
   10 GB job at the margin once ("96%" that was 96.98% against 97), so the
   gate compares bytes, and the percentages in status are for reading only.
+- **`exec.CommandContext` alone does not end a subprocess that has
+  children.** Cancelling the context kills only the leader; a wrapper
+  script's `sleep` (or par2's helpers) kept the stdout pipe open and
+  `Wait` blocked until the child exited on its own, which made the par2
+  deadline test hang for the child's whole lifetime. `Par2Runner.Repair`
+  sets `Setpgid`, a `Cancel` that kills the process group, and
+  `WaitDelay`; do the same for any subprocess given a deadline.
 - **Every cache strips `managedFields`, and the cache-sync timeout is ten
   minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
   `kubectl` alone takes 40 s to fetch) captionarr crash-looped on

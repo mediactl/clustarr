@@ -1647,15 +1647,15 @@ is a subset of ours -- our pool, 430 failover, checkpointed bitsets,
 pre-check, health action and SABnzbd-matched rules all go further -- but
 the comparison found these gaps in ours, in order of value:
 
-- [ ] **Skip par2 when no article failed.** `job.repair` runs `par2 r`
+- [x] **Skip par2 when no article failed.** (built 2026-09-24: `job.repair` returns before par2 when `failedArticles() == 0`) `job.repair` runs `par2 r`
   whenever the binary and an index exist, which is a full read of the
   set (10 GB over NFS now that scratch lives there) to verify data every
   part's pcrc32 already verified on receipt. udl skips par2 outright when
   `FailedSegments == 0`; NZBGet's ParQuick does the same on CRC. Our
   missing-binary branch already reasons this way; make it the rule when
   `failedArticles() == 0`, keep repair for anything else.
-- [ ] **par2 hash16k renames before repair, and magic-byte extensions for
-  bare names.** The design (§2.4 of the research note, `docs/research/
+- [x] **par2 hash16k renames before repair, and magic-byte extensions for
+  bare names.** (built 2026-09-24: `rename.go`, run first in post-processing, renames persisted in the manifest) The design (§2.4 of the research note, `docs/research/
   download.md` §4.3 step 3) says to MD5 the first 16 KiB of each file and
   rename to `FileDesc.name` from any downloaded par2 -- udl does exactly
   that (`renameByPAR2`, a 100-line `par2.ParseFileEntries` over the
@@ -1665,25 +1665,25 @@ the comparison found these gaps in ours, in order of value:
   *matches* obfuscated files by content, but it recreates targets by
   copying blocks rather than renaming, and `archiveEntryPoints` keys on
   extension, so an obfuscated set without a par2 index is not unpacked.
-- [ ] **Let unrar judge when par2 cannot repair and the damage is outside
-  the archive set.** udl continues to extraction when repair fails and RAR
+- [x] **Let unrar judge when par2 cannot repair and the damage is outside
+  the archive set.** (built 2026-09-24: `failedInsideArchive`) udl continues to extraction when repair fails and RAR
   files exist. Safer and still valuable: after a failed repair, if every
   failed segment belongs to a non-archive file (nfo, sfv, sample, a par2
   volume), continue to unpack and let the archive's own CRCs decide; only
   a missing article inside an archive volume makes the failure final.
-- [ ] **Per-job disk pre-flight.** udl refuses a grab when free space is
+- [x] **Per-job disk pre-flight.** (built 2026-09-24: `checkDiskSpace`, 2x plus 1 GiB on scratch, 1x plus 1 GiB on the publish dir, `diskFull`) udl refuses a grab when free space is
   under 2x the release size plus 1 GB (download plus extraction); ours
   checks only the client-level `minFreeBytes` floor on the data volume. A
   job-level check on the scratch and publish volumes at Add would fail a
   hopeless grab as `diskFull` (a local fault, never blocklisted) before
   10 GB of transfer.
-- [ ] **A stall timeout for usenet.** udl's health check flags a download
+- [x] **A stall timeout for usenet.** (built 2026-09-24: `spec.usenet.stallTimeout`, `startStallWatch`, reason `stalled`) udl's health check flags a download
   in `downloading` for over two hours; ours has `stallTimeout` for
   torrents only, while a usenet job whose provider answers nothing waits
   `ProviderRetryDelay` forever. `lastProgress` is already tracked; a
   `UsenetSpec.stallTimeout` (opt-in, like `downloadTimeout`) would fail
   the job as `timeout` after that long without progress.
-- [ ] **Bound the par2 subprocess.** udl gives par2 a 30-minute deadline;
+- [x] **Bound the par2 subprocess.** (built 2026-09-24: `par2Deadline`, 30 min plus 1 min per GB, process-group kill, `ErrPar2Timeout` as writeError) udl gives par2 a 30-minute deadline;
   ours runs under the job context alone, so a wedged par2 over NFS wedges
   the job. A generous per-run deadline scaled by set size would turn that
   into a retryable failure.
