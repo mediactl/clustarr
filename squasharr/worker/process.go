@@ -22,6 +22,7 @@ import (
 	"errors"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr/task"
 )
@@ -45,12 +46,19 @@ func Process(ctx context.Context, t task.Task, o Options) Outcome {
 	o = o.withDefaults()
 	ctx, span := tracing.Start(ctx, "squasharr.worker.process") // the span Run used
 	defer span.End()
+	// Every log line run() emits below -- and any a caller emits with this
+	// ctx afterward -- carries the task's job, the way Run's did for every
+	// worker log line before this package stopped reading it off Options.
+	ctx = logging.With(ctx, "transcodeJob", t.Job.Namespace+"/"+t.Job.Name)
 	r := &runner{o: o, t: t, started: o.Now()}
 	err := r.run(ctx)
 	r.out.Code, r.out.Err = ExitCode(err), err
 	var f *failure
 	if errors.As(err, &f) && f.reason != "" {
 		r.out.Reason = f.reason
+	}
+	if err != nil {
+		tracing.RecordError(span, err)
 	}
 	r.observeOutcome(r.out.Code)
 	return r.out

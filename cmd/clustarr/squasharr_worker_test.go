@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -32,10 +33,14 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/squasharr"
 	"github.com/mediactl/clustarr/squasharr/worker"
 )
@@ -152,6 +157,54 @@ func TestSquasharrWorkerExitCodeReachesTheProcess(t *testing.T) {
 			"squasharr", "--role", "worker", "--job", "no-such-job", "--namespace", "default", "--data-dir", tmp)
 		require.Equal(t, worker.ExitInvalidSource, code, "output:\n%s", out)
 		require.Contains(t, out, "not found")
+	})
+
+	// runWorkerJob (squasharr/run.go) checks tp.Status.Hash == "" itself --
+	// Process never sees a TranscodeProfile at all -- so this is the only
+	// place that check is exercised, and it is this adapter's, not
+	// worker.Process's. Task 10 deletes runWorkerJob and this test goes with
+	// it.
+	t.Run("retriable: a TranscodeProfile with no status.hash yet exits 2", func(t *testing.T) {
+		if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+			t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
+		}
+		env := &envtest.Environment{
+			CRDDirectoryPaths:     []string{"../../config/crd/bases"},
+			ErrorIfCRDPathMissing: true,
+		}
+		cfg, err := env.Start()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = env.Stop() })
+		realKubeconfig := filepath.Join(tmp, "envtest-kubeconfig-hash")
+		require.NoError(t, os.WriteFile(realKubeconfig, env.KubeConfig, 0o600))
+
+		c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		require.NoError(t, err)
+		ctx := context.Background()
+		require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "hash-pending"}}))
+		require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "profile-no-hash"},
+		}))
+		require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "film-no-hash", Namespace: "hash-pending"},
+			Spec: transcodev1alpha1.TranscodeJobSpec{
+				MediaFileRef: "film-2020", ProfileRef: "profile-no-hash",
+				SourcePath: "/data/media/movies/Film (2020)/Film.mkv", SourceProbeHash: "deadbeef",
+			},
+		}))
+
+		// The TranscodeJob and TranscodeProfile Gets both succeed before
+		// either binary would ever run.
+		fakeBin := filepath.Join(tmp, "fake-bin-hash")
+		require.NoError(t, os.Mkdir(fakeBin, 0o755))
+		for _, name := range []string{"ffmpeg", "ffprobe"} {
+			require.NoError(t, os.WriteFile(filepath.Join(fakeBin, name), []byte("#!/bin/sh\nexit 0\n"), 0o755))
+		}
+
+		code, out := runClustarr(t, []string{"HOME=" + tmp, "KUBECONFIG=" + realKubeconfig, "PATH=" + fakeBin},
+			"squasharr", "--role", "worker", "--job", "film-no-hash", "--namespace", "hash-pending", "--data-dir", tmp)
+		require.Equal(t, worker.ExitRetriable, code, "output:\n%s", out)
+		require.Contains(t, out, "has no status.hash yet")
 	})
 }
 

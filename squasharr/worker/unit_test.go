@@ -21,7 +21,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -37,6 +39,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/squasharr/task"
 )
@@ -120,6 +124,47 @@ func TestExitCodeClassifiesTheNamedReasons(t *testing.T) {
 	f = nil
 	require.ErrorAs(t, retriable("x"), &f)
 	assert.Empty(t, f.reason)
+}
+
+// recordingHandler is a slog.Handler that records the attrs each WithAttrs
+// call receives. (*slog.Logger).With calls a handler's WithAttrs eagerly,
+// the instant With is called, not lazily when a record is finally emitted --
+// so this observes context enrichment (logging.With) without needing
+// anything to actually be logged, or any real ffmpeg/envtest fixture.
+type recordingHandler struct {
+	mu    sync.Mutex
+	calls [][]slog.Attr
+}
+
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool  { return false }
+func (h *recordingHandler) Handle(context.Context, slog.Record) error { return nil }
+
+func (h *recordingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	h.mu.Lock()
+	h.calls = append(h.calls, attrs)
+	h.mu.Unlock()
+	return h
+}
+
+func (h *recordingHandler) WithGroup(string) slog.Handler { return h }
+
+// Process must enrich its context's logger with the task's job before doing
+// anything else -- run() logs off this ctx throughout, and once Process
+// used to read Options.JobName/Namespace to do exactly this before it lost
+// that pair, every worker log line silently stopped carrying the job.
+// Asserting this holds even when Process fails immediately (an FFmpegPath
+// nothing can run) proves logging.With runs unconditionally before run(),
+// not only on some success path.
+func TestProcessLogsWithTheTaskJob(t *testing.T) {
+	h := &recordingHandler{}
+	ctx := logging.NewContext(context.Background(), slog.New(h))
+	tk := task.Task{Job: schema.Ref{Namespace: "media", Name: "film-hevc"}}
+	Process(ctx, tk, Options{FFmpegPath: filepath.Join(t.TempDir(), "no-such-ffmpeg")})
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.NotEmpty(t, h.calls, "Process must call logging.With before run()")
+	assert.Contains(t, h.calls[0], slog.String("transcodeJob", "media/film-hevc"))
 }
 
 // ProfileSpec must carry every render-relevant field. Populate every field
