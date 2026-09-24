@@ -210,3 +210,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   box-shadow: inset 3px 0 0 var(--primary);
   color: var(--foreground);
 }
+
+/* The library hides the document's native scrollbar (views.Chrome.HideScrollbar,
+   kept in step by ui/static/jump.js): the A-Z strip is the only thing on the
+   right edge, as in Radarr. Scrolling itself is untouched. */
+html[data-scrollbar="hidden"] {
+  scrollbar-width: none;
+}
+html[data-scrollbar="hidden"]::-webkit-scrollbar {
+  display: none;
+}

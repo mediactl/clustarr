@@ -152,6 +152,12 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	require.Contains(t, group, `data-orientation="vertical"`, "the bar is a vertical button group")
 	require.Contains(t, group, "h-full")
 	require.Contains(t, group, "w-full", "the group fills the strip, which runs to the right border")
+	// The native scrollbar is hidden on the library (design 2026-09-24): the
+	// A-Z strip is the only thing on the right edge, as in Radarr.
+	require.Contains(t, tagWith(t, body, `<html`), `data-scrollbar="hidden"`)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
+	require.NotContains(t, tagWith(t, rec.Body.String(), `<html`), `data-scrollbar`, "other pages keep their scrollbar")
 	letter := tagWith(t, body, `data-jump="M"`)
 	require.Contains(t, letter, "flex-1", "the letters share the height evenly")
 	require.Contains(t, letter, "w-full", "and the strip's width")

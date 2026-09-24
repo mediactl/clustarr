@@ -2,13 +2,21 @@
  * The A-Z bar's scroll tracker (design 2026-09-24, after Radarr's): as the
  * grid scrolls, the letter of the first card still in view beneath the bar's
  * top is marked data-current, and app.css draws Radarr's small line beside
- * it. Cards carry data-letter; the bar's buttons carry data-jump. It binds to
+ * it, and the document's native scrollbar hides while the bar is on the
+ * page. Cards carry data-letter; the bar's buttons carry data-jump. It binds to
  * the window and the document once and re-reads the DOM on every run, so
  * htmx swaps (a wider window, a filter, another tab) need nothing more.
  */
 (function () {
   function update() {
     var bar = document.querySelector('[data-jump-bar]');
+    // The native scrollbar hides while the bar is on the page (app.css),
+    // whichever way the page arrived -- a full load or an htmx swap.
+    if (bar) {
+      document.documentElement.setAttribute('data-scrollbar', 'hidden');
+    } else {
+      document.documentElement.removeAttribute('data-scrollbar');
+    }
     if (!bar) return;
     var top = bar.getBoundingClientRect().top;
     var cards = document.querySelectorAll('[data-letter]');

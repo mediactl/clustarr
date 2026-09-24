@@ -156,4 +156,10 @@ func TestStaticRouteServesTheJumpTracker(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "data-jump-bar")
 	require.Contains(t, rec.Body.String(), "data-current")
 	require.Contains(t, rec.Body.String(), "data-letter")
+	require.Contains(t, rec.Body.String(), "data-scrollbar", "the tracker keeps the hidden scrollbar in step with htmx swaps")
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Regexp(t, `html\[data-scrollbar=("?)hidden\1\][^{]*\{[^}]*scrollbar-width:\s*none`, rec.Body.String(), "the stylesheet hides the document scrollbar under data-scrollbar")
 }
