@@ -622,10 +622,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			run: func(ctx context.Context, o k8s.Options) error {
 				uiAddr.Store(o.HealthProbeBindAddress)
 				// --ui-bind-address, the flag `clustarr all` binds ui with,
-				// is allServices' third argument.
+				// is allServices' fourth argument.
 				var lo logging.Options
 				var to tracing.Options
-				for _, svc := range allServices(&lo, &to, o.HealthProbeBindAddress, ui.AuthModeAnonymous) {
+				for _, svc := range allServices(&lo, &to, "", o.HealthProbeBindAddress, ui.AuthModeAnonymous) {
 					if svc.name == "ui" {
 						return svc.run(ctx, o)
 					}
@@ -854,7 +854,7 @@ func allServiceRun(t *testing.T, name string) func(ctx context.Context, o k8s.Op
 	t.Helper()
 	var lo logging.Options
 	var to tracing.Options
-	for _, svc := range allServices(&lo, &to, ui.DefaultBindAddress, ui.AuthModeAnonymous) {
+	for _, svc := range allServices(&lo, &to, "", ui.DefaultBindAddress, ui.AuthModeAnonymous) {
 		if svc.name == name {
 			return svc.run
 		}

@@ -112,6 +112,7 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 	var (
 		role         string
 		indexPath    string
+		indexDSN     string
 		facade       string
 		facadeSecret string
 		definitions  string
@@ -132,6 +133,9 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 	cmd.Flags().StringVar(&role, "role", defaults.Role.String(), roleUsage(indexarr.Roles()))
 	cmd.Flags().StringVar(&indexPath, "index-path", envOr(indexPathEnv, defaults.IndexPath),
 		"SQLite release index file, on the RWO volume. Defaults to $"+indexPathEnv+".")
+	cmd.Flags().StringVar(&indexDSN, "index-dsn", envOr(indexDSNEnv, defaults.IndexDSN),
+		"Postgres DSN for the release index. Non-empty selects Postgres and ignores --index-path. "+
+			"Defaults to $"+indexDSNEnv+".")
 	cmd.Flags().StringVar(&facade, "facade-bind-address", envOr(facadeBindAddressEnv, defaults.FacadeBindAddress),
 		`Address the Torznab facade binds to. "0" disables it. Defaults to $`+facadeBindAddressEnv+".")
 	cmd.Flags().StringVar(&facadeSecret, "facade-api-key-secret",
@@ -152,6 +156,7 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 			Options:                 *common,
 			Role:                    indexarr.Role(role),
 			IndexPath:               indexPath,
+			IndexDSN:                indexDSN,
 			FacadeBindAddress:       facade,
 			FacadeAPIKeySecret:      facadeSecret,
 			CardigannDefinitionsDir: definitions,

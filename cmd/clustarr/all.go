@@ -79,9 +79,16 @@ const devFacadeBindAddress = ":9696"
 // lo and to are the root command's shared --log-*/--tracing-* options
 // (see bindObservabilityFlags): every service gets the same lo, and the same
 // to except for ServiceName, which is forced to allProcessServiceName for
-// the reason given on that constant. uiAddr is --ui-bind-address and
-// uiAuthMode is --ui-auth-mode, ui's explicit authentication mode (§A3.5).
-func allServices(lo *logging.Options, to *tracing.Options, uiAddr string, uiAuthMode ui.AuthMode) []struct {
+// the reason given on that constant. indexDSN is --index-dsn, threaded
+// through explicitly (rather than read from $CLUSTARR_INDEX_DSN inside the
+// indexarr closure the way most of indexarr's other dev defaults are) so
+// TestBothUICommandsWireEveryUIOption's sibling flag-wiring test can prove
+// the flag reaches indexer.Options.IndexDSN without executing the process's
+// real environment. uiAddr is --ui-bind-address and uiAuthMode is
+// --ui-auth-mode, ui's explicit authentication mode (§A3.5).
+func allServices(
+	lo *logging.Options, to *tracing.Options, indexDSN string, uiAddr string, uiAuthMode ui.AuthMode,
+) []struct {
 	name string
 	run  func(ctx context.Context, o k8s.Options) error
 } {
@@ -141,6 +148,10 @@ func allServices(lo *logging.Options, to *tracing.Options, uiAddr string, uiAuth
 			// index that vanishes on restart, hiding a broken mount
 			// indefinitely. Only the dev entry point chooses a dev path.
 			d.IndexPath = devIndexPath()
+			// --index-dsn: non-empty selects Postgres and ignores the dev
+			// SQLite path above (spec §A.3), the same pivot indexarr.Run
+			// itself makes.
+			d.IndexDSN = indexDSN
 			// The Torznab facade cannot take its default :8080 here: ui,
 			// below, already binds :8080 in this same process, and runAll
 			// would cancel the whole stack on the second bind. The dev
@@ -268,8 +279,12 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		SilenceUsage: true,
 	}
 	common := bindCommonFlags(cmd.Flags())
+	var indexDSN string
 	var uiAddr string
 	var uiAuthMode string
+	cmd.Flags().StringVar(&indexDSN, "index-dsn", envOr(indexDSNEnv, ""),
+		"Postgres DSN for the release index. Non-empty selects Postgres and ignores the dev SQLite "+
+			"index path. Defaults to $"+indexDSNEnv+".")
 	cmd.Flags().StringVar(&uiAddr, "ui-bind-address", ui.DefaultBindAddress,
 		"Address ui's HTTP server listens on. It is not offset like the managers' ports: ui has one "+
 			"listener, serving its pages, /healthz and /readyz together.")
@@ -289,7 +304,7 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		base.LeaderElect = false
 		base.BusSingleNode = true
 
-		services := allServices(lo, to, uiAddr, ui.AuthMode(uiAuthMode))
+		services := allServices(lo, to, indexDSN, uiAddr, ui.AuthMode(uiAuthMode))
 		optionsFor := make([]k8s.Options, len(services))
 		for i, svc := range services {
 			o := base

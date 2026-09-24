@@ -48,6 +48,11 @@ const (
 	// volume, the default for --index-path.
 	indexPathEnv = "CLUSTARR_INDEX_PATH"
 
+	// indexDSNEnv is a Postgres DSN for indexarr's release index, the
+	// default for --index-dsn. Non-empty selects relindex.OpenPostgres and
+	// --index-path is ignored (spec §A.3); empty keeps SQLite, the default.
+	indexDSNEnv = "CLUSTARR_INDEX_DSN"
+
 	// facadeBindAddressEnv is the address indexarr's Torznab facade binds,
 	// the default for --facade-bind-address. No manifest sets it -- both
 	// installers use the flag's own :8080, the port their Services route --

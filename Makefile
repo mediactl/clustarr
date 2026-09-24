@@ -6,6 +6,12 @@ SETUP_ENVTEST ?= $(GOBIN)/setup-envtest
 KUSTOMIZE ?= $(GOBIN)/kustomize
 GOLANGCI_LINT ?= $(GOBIN)/golangci-lint-v2
 ENVTEST_K8S_VERSION ?= 1.37.0
+# PG_ASSETS is a cache directory embedded-postgres downloads its Postgres
+# binaries into (spec §A.2), the way SETUP_ENVTEST populates
+# KUBEBUILDER_ASSETS. `make pg-assets` populates it once; `test` and
+# test-race export it as CLUSTARR_PG_ASSETS so pkg/relindex's
+# TestPostgresStoreContract runs instead of skipping.
+PG_ASSETS ?= $(GOBIN)/pg-assets
 IMG ?= ghcr.io/mediactl/clustarr:dev
 MEDIA_IMG ?= ghcr.io/mediactl/clustarr/media:dev
 TRANSCODER_IMG ?= ghcr.io/mediactl/clustarr/transcoder:dev
@@ -186,21 +192,30 @@ docker-build-cuda: ## Build the CUDA transcoder image (amd64).
 # wants 2.
 TEST_PARALLEL ?= 4
 
-test-race: envtest ## Run the suites under the race detector.
+.PHONY: test-race
+test-race: envtest pg-assets ## Run the suites under the race detector.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || true
-	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -race -p $(TEST_PARALLEL)
+	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
+	go test ./... -race -p $(TEST_PARALLEL)
 
-test: envtest ## Run unit and envtest suites.
+test: envtest pg-assets ## Run unit and envtest suites.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; importarr's scan suites will skip"
-	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -p $(TEST_PARALLEL) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
+	go test ./... -p $(TEST_PARALLEL) -coverprofile cover.out
 
 .PHONY: test-unit
-test-unit: ## Run unit tests only (no envtest).
+test-unit: ## Run unit tests only (no envtest, no pg-assets).
 	go test -short ./...
 
 .PHONY: envtest
 envtest: ## Download envtest binaries.
 	$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path >/dev/null
+
+.PHONY: pg-assets
+pg-assets: ## Download the embedded Postgres binary for pkg/relindex's Postgres tests.
+	go run ./hack/pgassets $(PG_ASSETS)
 
 # Extra arguments appended to the e2e `go test` invocation, e.g.
 #   make e2e E2E_ARGS="-run TestLibraryRescan -v"

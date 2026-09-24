@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -156,8 +157,16 @@ type Options struct {
 	// Role is the --role value.
 	Role Role
 
-	// IndexPath is the SQLite release index file.
+	// IndexPath is the SQLite release index file. Ignored when IndexDSN is
+	// set.
 	IndexPath string
+
+	// IndexDSN is a Postgres DSN for the release index (--index-dsn,
+	// $CLUSTARR_INDEX_DSN). Non-empty selects [relindex.OpenPostgres] and
+	// IndexPath is ignored; empty (the default) keeps SQLite at IndexPath.
+	// Spec §A.3: with a DSN indexarr may run several replicas, which is why
+	// [indexSweeper] declares NeedLeaderElection (ruling R1).
+	IndexDSN string
 
 	// FacadeBindAddress serves the Torznab facade. "0" disables it.
 	FacadeBindAddress string
@@ -353,13 +362,30 @@ func Run(ctx context.Context, o Options) error {
 	// The release index is opened BEFORE the manager starts, because the RSS
 	// worker, the search fan-out and the query verb are all constructed with
 	// it and a Store that appeared later would have to be reached through a
-	// nil check on every use. Open also creates and migrates the schema, so a
-	// success here is the process's proof that the PVC is writable -- §13's
-	// "open and writable" half that no cheap periodic probe can restate
-	// without writing to the volume every few seconds.
-	store, closer, err := relindex.Open(ctx, o.IndexPath)
-	if err != nil {
-		return fmt.Errorf("indexarr: open the release index at %s: %w", o.IndexPath, err)
+	// nil check on every use. Open (or OpenPostgres) also creates and
+	// migrates the schema, so a success here is the process's proof that the
+	// index is open and writable -- the PVC under SQLite, the configured
+	// database under Postgres -- §13's "open and writable" half that no
+	// cheap periodic probe can restate without writing to the index every
+	// few seconds.
+	//
+	// A non-empty IndexDSN selects Postgres and IndexPath is ignored (spec
+	// §A.3); empty keeps SQLite, the default.
+	var (
+		store  relindex.Store
+		closer io.Closer
+	)
+	if o.IndexDSN != "" {
+		log.Info("indexarr: release index on Postgres; --index-path ignored")
+		store, closer, err = relindex.OpenPostgres(ctx, o.IndexDSN)
+		if err != nil {
+			return fmt.Errorf("indexarr: open the release index at the configured --index-dsn: %w", err)
+		}
+	} else {
+		store, closer, err = relindex.Open(ctx, o.IndexPath)
+		if err != nil {
+			return fmt.Errorf("indexarr: open the release index at %s: %w", o.IndexPath, err)
+		}
 	}
 	defer func() {
 		if err := closer.Close(); err != nil {
@@ -625,12 +651,21 @@ func setupBundle(mgr ctrl.Manager, o Options) error {
 // release index's retention sweep, all as manager Runnables so they stop with
 // the manager.
 //
-// Every one of them is a [k8s.EveryReplica], directly or through
-// rss.Worker.SetupWithManager. indexarr forbids leader election (see
-// Options.Validate), so a bare manager.RunnableFunc would in fact start here
-// -- controller-runtime treats a non-electing process as elected. That is a
-// deployment detail a future change can invalidate silently, and it is why
-// Phase C's readiness deadlock survived review, so nothing here relies on it.
+// The RPC responder and the RSS worker are each a [k8s.EveryReplica],
+// directly or through rss.Worker.SetupWithManager: every replica answers
+// search RPCs and polls RSS. The retention sweep is [indexSweeper] instead
+// (ruling R1): a Postgres-backed index (IndexDSN) may run several replicas,
+// and only one of them may prune, so it declares NeedLeaderElection.
+// indexarr's manager never enables leader election today (see
+// Options.ManagerOptions), so a non-electing process is treated as elected
+// and indexSweeper runs immediately regardless -- under SQLite's single
+// replica that single replica is always "the leader" and nothing observable
+// changes, exactly as it would for a bare manager.RunnableFunc. That is a
+// deployment detail a future change (enabling leader election once a DSN is
+// set) can invalidate silently, and it is why Phase C's readiness deadlock
+// survived review, so nothing here relies on it: indexSweeper declares the
+// property it actually needs rather than the property today's wiring
+// happens to give it for free.
 //
 // It returns the three verb bodies it built, so [setupFacade] serves the
 // SAME instances the RPC responder does: one download.Service with one
@@ -694,7 +729,7 @@ func setupWorkers(
 		return verbs{}, fmt.Errorf("indexarr: subscribe rss: %w", err)
 	}
 
-	if err := mgr.Add(k8s.EveryReplica(sweepReleaseIndex(store))); err != nil {
+	if err := mgr.Add(indexSweeper{store: store}); err != nil {
 		return verbs{}, fmt.Errorf("indexarr: add the release-index sweep: %w", err)
 	}
 
@@ -791,38 +826,47 @@ func setupFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) erro
 	return nil
 }
 
-// sweepReleaseIndex is §6.2's "`expires_at` sweep every 10 min (72h)".
-// relindex.Open starts no goroutines and Prune reads no clock, both
-// deliberately, so the schedule is here.
+// indexSweeper is §6.2's "`expires_at` sweep every 10 min (72h)".
+// relindex.Open/OpenPostgres starts no goroutines and Prune reads no clock,
+// both deliberately, so the schedule is here.
 //
 // It sweeps once on startup before it starts ticking: indexarr is pinned to a
-// Recreate rollout, so a restart is the moment the index is most likely to be
-// holding a backlog older than the window, and a first sweep ten minutes in
-// leaves that backlog answering searches until then.
+// Recreate rollout under SQLite, so a restart is the moment the index is most
+// likely to be holding a backlog older than the window, and a first sweep ten
+// minutes in leaves that backlog answering searches until then.
 //
 // A failed sweep is logged and the ticker continues. Returning the error would
 // take the whole manager down over a transient SQLITE_BUSY, and the index is a
 // cache (ADR-0003): the cost of a missed sweep is disk, not correctness.
 //
-// The return type is a plain func rather than a k8s.EveryReplica so the
-// conversion stays visible at the mgr.Add call site, where all three of
-// indexarr's runnables read the same way and the leader-election property is
-// the thing a reader is checking.
-func sweepReleaseIndex(store relindex.Store) func(context.Context) error {
-	return func(ctx context.Context) error {
-		pruneOnce(ctx, store)
-		ticker := time.NewTicker(IndexSweepInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-ticker.C:
-				pruneOnce(ctx, store)
-			}
+// It is a typed Runnable, not a k8s.EveryReplica, because it is NOT one:
+// ruling R1 makes it a cluster singleton, since a Postgres-backed index
+// (IndexDSN) may run several replicas and Prune racing across two of them is
+// wasted work, not corruption, but still work worth doing once. Declaring
+// NeedLeaderElection states that regardless of whether today's indexarr
+// manager actually enables leader election (see setupWorkers's doc comment).
+type indexSweeper struct {
+	store relindex.Store
+}
+
+// Start implements manager.Runnable.
+func (s indexSweeper) Start(ctx context.Context) error {
+	pruneOnce(ctx, s.store)
+	ticker := time.NewTicker(IndexSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			pruneOnce(ctx, s.store)
 		}
 	}
 }
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable: ruling R1,
+// the retention sweep is leader-only under both engines.
+func (indexSweeper) NeedLeaderElection() bool { return true }
 
 // pruneOnce drops every release fetched more than [IndexRetention] ago.
 func pruneOnce(ctx context.Context, store relindex.Store) {
