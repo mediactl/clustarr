@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -164,6 +165,16 @@ func (o Options) Validate() error {
 // UsesBus reports whether a NATS endpoint was configured.
 func (o Options) UsesBus() bool { return strings.TrimSpace(o.NATSURL) != "" }
 
+// CacheSyncTimeout is how long a controller waits for its informers'
+// initial List before the manager gives up and the process exits.
+// controller-runtime's default is two minutes; on a real library (15,000
+// Episodes, a 57 MB list that kubectl alone takes 40 s to fetch) that was
+// not always enough while every service listed at once after an upgrade,
+// and captionarr crash-looped on it (2026-09-24). Ten minutes covers a
+// cold start under that load; a genuinely unreachable apiserver still
+// fails the readiness probe long before this elapses.
+const CacheSyncTimeout = 10 * time.Minute
+
 // ManagerOptions renders ctrl.Options for a manager.
 //
 // leaderElectionID is §2's `<service>.clustarr.io`. leaderElect is passed
@@ -194,6 +205,13 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		LeaderElectionNamespace:       o.leaderElectionNamespace(),
 		LeaderElectionReleaseOnCancel: true,
 		GracefulShutdownTimeout:       &shutdown,
+		Controller:                    config.Controller{CacheSyncTimeout: CacheSyncTimeout},
+		// Every cache strips managedFields: on a real library they are a
+		// third of the Episode list's bytes and no reconciler reads them
+		// from a cached object -- the two readers of managedFields (the
+		// grab worker, the artwork status paths) go through the API reader.
+		// Read them through GetAPIReader, never the cached client.
+		Cache: cache.Options{DefaultTransform: cache.TransformStripManagedFields()},
 	}
 
 	if len(o.WatchNamespaces) > 0 {
@@ -201,7 +219,7 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		for _, ns := range o.WatchNamespaces {
 			byNamespace[ns] = cache.Config{}
 		}
-		opts.Cache = cache.Options{DefaultNamespaces: byNamespace}
+		opts.Cache.DefaultNamespaces = byNamespace
 	}
 
 	return opts

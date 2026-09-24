@@ -20,6 +20,9 @@ package k8s
 import (
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestDefaultOptionsMatchTheSpec(t *testing.T) {
@@ -182,4 +185,48 @@ func TestRegisterRESTClientMetricsIsIdempotent(t *testing.T) {
 	// starts five services in one process.
 	RegisterRESTClientMetrics()
 	RegisterRESTClientMetrics()
+}
+
+// TestManagerOptionsSurviveABigLibrary: on a library of 15,000 Episodes
+// the initial List is 57 MB and does not always finish inside
+// controller-runtime's two-minute cache-sync default, which crash-looped
+// captionarr (2026-09-24), so every manager waits CacheSyncTimeout and
+// every cache strips managedFields -- a third of those bytes that no
+// reconciler reads from a cached object (the two readers of managedFields
+// go through the API reader). The transform survives a namespace list.
+func TestManagerOptionsSurviveABigLibrary(t *testing.T) {
+	for name, o := range map[string]Options{
+		"cluster wide": {},
+		"namespaced":   {WatchNamespaces: []string{"media"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts := o.ManagerOptions("catalogarr.clustarr.io", false)
+			if opts.Controller.CacheSyncTimeout != CacheSyncTimeout {
+				t.Fatalf("cache sync timeout = %v, want %v", opts.Controller.CacheSyncTimeout, CacheSyncTimeout)
+			}
+			if CacheSyncTimeout < 10*time.Minute {
+				t.Fatalf("CacheSyncTimeout = %v, want at least ten minutes", CacheSyncTimeout)
+			}
+			if opts.Cache.DefaultTransform == nil {
+				t.Fatal("the cache has no default transform")
+			}
+			cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+				Name:          "x",
+				ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "kubectl", Operation: metav1.ManagedFieldsOperationApply}},
+			}}
+			got, err := opts.Cache.DefaultTransform(cm)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.(*corev1.ConfigMap).ManagedFields) != 0 {
+				t.Fatal("the transform left managedFields on the object")
+			}
+			if got.(*corev1.ConfigMap).Name != "x" {
+				t.Fatal("the transform touched more than managedFields")
+			}
+			if len(o.WatchNamespaces) > 0 && len(opts.Cache.DefaultNamespaces) != 1 {
+				t.Fatalf("namespaces = %v, want the one configured", opts.Cache.DefaultNamespaces)
+			}
+		})
+	}
 }

@@ -351,6 +351,17 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   passed. natsbus now naks for `d - (BackOff[n-1] - BackOff[0])`
   (`natsbus.nakDelay`), and the contract test measures the real gap between
   deliveries on both buses.
+- **Every cache strips `managedFields`, and the cache-sync timeout is ten
+  minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
+  `kubectl` alone takes 40 s to fetch) captionarr crash-looped on
+  controller-runtime's two-minute default while every service listed at
+  once after an upgrade, so `pkg/k8s.ManagerOptions` sets
+  `Controller.CacheSyncTimeout = k8s.CacheSyncTimeout` and a
+  `DefaultTransform` of `cache.TransformStripManagedFields()`, and the ui's
+  reader does the same. The trap: a reconciler that reads `managedFields`
+  off an object from the cached client sees none, silently. Read them
+  through `mgr.GetAPIReader()`, as the grab worker's `appliedByGrabPath`
+  does; the artwork envtests read them through a direct client.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.

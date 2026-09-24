@@ -161,6 +161,7 @@ func TestNewClusterReaderSeesRealObjects(t *testing.T) {
 	}
 	require.NoError(t, writer.Create(ctx, movie))
 
+	var seen catalogv1alpha1.Movie
 	require.Eventually(t, func() bool {
 		var list catalogv1alpha1.MovieList
 		if err := reader.List(ctx, &list); err != nil {
@@ -168,11 +169,19 @@ func TestNewClusterReaderSeesRealObjects(t *testing.T) {
 		}
 		for i := range list.Items {
 			if list.Items[i].Name == movie.Name {
+				seen = list.Items[i]
 				return true
 			}
 		}
 		return false
 	}, 10*time.Second, 50*time.Millisecond, "ui's cluster reader never observed the Movie a separate writer created")
+
+	// The reader strips managedFields (2026-09-24): on this library they are
+	// a third of a 57 MB Episode list and the ui reads none of them.
+	var direct catalogv1alpha1.Movie
+	require.NoError(t, writer.Get(ctx, client.ObjectKeyFromObject(movie), &direct))
+	require.NotEmpty(t, direct.ManagedFields, "the apiserver records managedFields on a created object")
+	require.Empty(t, seen.ManagedFields, "the cached copy carries no managedFields")
 
 	require.True(t, waitForSync(ctx), "WaitForCacheSync must report true once the informer above has synced")
 }

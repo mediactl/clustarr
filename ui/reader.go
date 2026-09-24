@@ -114,7 +114,10 @@ func MustNewReaderScheme() *runtime.Scheme {
 func NewClusterReader(
 	ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme,
 ) (client.Reader, func(context.Context) bool, error) {
-	c, err := cache.New(cfg, cache.Options{Scheme: scheme})
+	// managedFields are stripped from every cached object: the ui reads
+	// none of them, and on a real library they are a third of the bytes of
+	// a 57 MB Episode list held whole in this cache.
+	c, err := cache.New(cfg, cache.Options{Scheme: scheme, DefaultTransform: cache.TransformStripManagedFields()})
 	if err != nil {
 		return nil, nil, fmt.Errorf("ui: build cluster cache: %w", err)
 	}
