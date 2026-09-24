@@ -71,8 +71,9 @@ func TestDetailHeaderIsAnItemWithActions(t *testing.T) {
 		`data-monitored="true"`, `data-phase="Imported"`, `data-hasfile="true"`, `data-year="2016"`, `data-profile="hd-bluray-web"`)
 	require.False(t, strings.HasPrefix(header, "<a "), "the header is not a link to itself")
 	require.Contains(t, body, `data-slot="item-media"`, "the header shows the poster slot")
-	require.Contains(t, body, `data-slot="item-actions"`)
-	actions := body[strings.Index(body, `data-slot="item-actions"`):]
+	at := strings.Index(body, `data-slot="item-actions"`)
+	require.GreaterOrEqual(t, at, 0, "the header has an actions slot")
+	actions := body[at:]
 	for _, a := range []string{`data-action="set-monitored"`, `data-action="search-now"`, `data-action="refresh-metadata"`} {
 		require.Contains(t, actions, a, "the actions live in the item's actions slot")
 	}
