@@ -130,14 +130,6 @@ func testPullInProgress(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
 	ps, _ := pullBus(t, bus)
 	sub := events.TranscodeTaskConsumer("prof", "cpu").Subscription()
-	// TranscodeTaskConsumer carries a Backoff, which -- as Subscription.Backoff
-	// documents -- is also the acknowledgement deadline, replacing AckWait, on
-	// every delivery including the first. Clear it so the AckWait override
-	// below actually governs the ack window this test exercises; leaving it
-	// set makes the override dead code and the real window a silent one
-	// minute (Backoff[0]), timing out the redelivery check below on both
-	// buses identically.
-	sub.Backoff = nil
 	sub.AckWait = 2 * time.Second
 	p, err := ps.Pull(ctx, sub)
 	if err != nil {

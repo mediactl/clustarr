@@ -32,11 +32,28 @@ var (
 	errDeadline  = errors.New("task deadline exceeded")
 )
 
-// claim takes t's lease. It reports the lease it found when it could not.
+// claim takes t's lease. It reports the lease it found when it could not:
+// ok=false with err=nil covers three outcomes handle tells apart by cur.State
+// and t.Attempt --
+//   - cur.State==Held and cur.Attempt<=t.Attempt: someone else actively
+//     holds an equal-or-older attempt; handle naks with HeldRetry.
+//   - cur.Attempt>t.Attempt, in any state: a later attempt already has (or
+//     had) this job's lease, so this delivery was superseded before it ever
+//     ran; handle acks it (fix round 1, item 6).
+//   - a cancel marker names this attempt or a later one: withdrawn; handle
+//     acks it.
+//
+// Replacing an earlier attempt's cancel marker (the fourth case, ok=true) can
+// itself race a concurrent writer: if the Update fails with
+// ErrRevisionMismatch or ErrKeyNotFound the marker moved or lapsed between
+// the Get and the Update, not that this attempt lost -- returning that error
+// as ok=false would silently ack a task that is still runnable (fix round 1,
+// item 2). Re-read and decide again instead, bounded so a genuinely stuck
+// bus still returns.
 func (s *server) claim(ctx context.Context, t task.Task) (cur task.Lease, rev uint64, ok bool, err error) {
 	key := events.TranscodeLeaseKey(t.Job.UID)
 	val, _ := json.Marshal(s.held(t))
-	for try := 0; try < 2; try++ {
+	for try := 0; try < 3; try++ {
 		rev, err = s.o.Leases.Create(ctx, key, val)
 		if err == nil {
 			return task.Lease{}, rev, true, nil
@@ -44,21 +61,34 @@ func (s *server) claim(ctx context.Context, t task.Task) (cur task.Lease, rev ui
 		if !errors.Is(err, events.ErrKeyExists) {
 			return task.Lease{}, 0, false, err
 		}
-		e, err := s.o.Leases.Get(ctx, key)
-		if errors.Is(err, events.ErrKeyNotFound) {
-			continue // lapsed between Create and Get: try again once
+		e, gerr := s.o.Leases.Get(ctx, key)
+		if errors.Is(gerr, events.ErrKeyNotFound) {
+			continue // lapsed between Create and Get: try again
 		}
-		if err != nil {
-			return task.Lease{}, 0, false, err
+		if gerr != nil {
+			return task.Lease{}, 0, false, gerr
 		}
-		if err := json.Unmarshal(e.Value, &cur); err != nil {
-			return task.Lease{}, 0, false, err
+		cur = task.Lease{}
+		if uerr := json.Unmarshal(e.Value, &cur); uerr != nil {
+			return task.Lease{}, 0, false, uerr
 		}
-		if cur.State == task.LeaseCancelled && cur.Attempt < t.Attempt {
-			rev, err = s.o.Leases.Update(ctx, key, val, e.Revision)
-			return cur, rev, err == nil, nil
+		switch {
+		case cur.Attempt > t.Attempt:
+			return task.Lease{}, 0, false, nil
+		case cur.State != task.LeaseCancelled || cur.Attempt >= t.Attempt:
+			return cur, 0, false, nil
 		}
-		return cur, 0, false, nil
+		var next uint64
+		var uerr error
+		next, uerr = s.o.Leases.Update(ctx, key, val, e.Revision)
+		switch {
+		case uerr == nil:
+			return task.Lease{}, next, true, nil
+		case errors.Is(uerr, events.ErrRevisionMismatch) || errors.Is(uerr, events.ErrKeyNotFound):
+			continue // the marker moved or lapsed since Get: decide again
+		default:
+			return task.Lease{}, 0, false, uerr
+		}
 	}
 	return task.Lease{}, 0, false, events.ErrKeyExists
 }
@@ -106,15 +136,31 @@ func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m even
 			case err == nil:
 				*rev, lastOK = next, s.clock.Now()
 			case errors.Is(err, events.ErrRevisionMismatch) || errors.Is(err, events.ErrKeyNotFound):
-				if e, gerr := s.o.Leases.Get(ctx, key); gerr == nil {
-					var cur task.Lease
-					if json.Unmarshal(e.Value, &cur) == nil && cur.State == task.LeaseCancelled && cur.Attempt >= t.Attempt {
-						stop(errCancelled)
-						return
-					}
+				e, gerr := s.o.Leases.Get(ctx, key)
+				if gerr != nil {
+					stop(errFenced)
+					return
 				}
-				stop(errFenced)
-				return
+				var cur task.Lease
+				if json.Unmarshal(e.Value, &cur) != nil {
+					stop(errFenced)
+					return
+				}
+				switch {
+				case cur.State == task.LeaseCancelled && cur.Attempt >= t.Attempt:
+					stop(errCancelled)
+					return
+				case cur.State == task.LeaseHeld && cur.Pod == s.o.PodName && cur.Attempt == t.Attempt:
+					// A lost Update reply (fix round 1, item 5): our own
+					// write landed on the server and this is it -- we just
+					// never saw the new revision come back. Adopt it and
+					// keep renewing instead of fencing ourselves off a lease
+					// we still hold.
+					*rev, lastOK = e.Revision, s.clock.Now()
+				default:
+					stop(errFenced)
+					return
+				}
 			default:
 				if s.clock.Since(lastOK) >= s.o.FenceAfter {
 					stop(errFenced)

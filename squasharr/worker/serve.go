@@ -119,7 +119,9 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		sctx, cancel := settle()
 		defer cancel()
 		subj, dl := events.DeadLetter(m, s.sub.Durable, "undecodable task: "+err.Error())
-		_, _ = s.bus.Publish(sctx, subj, dl)
+		if _, perr := s.bus.Publish(sctx, subj, dl); perr != nil {
+			log.WarnContext(ctx, "squasharr worker: dead-letter publish failed", "error", perr)
+		}
 		_ = m.Term(sctx, "undecodable task")
 		return
 	}
@@ -164,22 +166,44 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 	}
 	switch {
 	case errors.Is(cause, errFenced):
+		// A fenced worker must not report at all: it no longer knows whether
+		// it still holds the lease, so even a Failed report could race a
+		// second worker's claim and clobber its status (fix round 1, item 4:
+		// this is the one outcome that beats a successful out.Code, since
+		// Process may have returned before noticing the fence).
+		log.WarnContext(ctx, "squasharr worker: lease could not be renewed; stopping before it lapses",
+			"job", t.Job.Key(), "attempt", t.Attempt)
 		sctx, cancel := settle()
 		defer cancel()
 		_ = m.Nak(sctx, 0) // the lease is left to lapse; nothing else is safe
 		return
+	case out.Code == ExitOK:
+		// A success Process returned outranks a cancel or deadline cause
+		// that only fired after it was already done (fix round 1, item 4):
+		// squasharr is told what actually happened to the file, not that a
+		// signal it can no longer act on arrived microseconds later.
+		fin.Outcome, fin.Result = task.OutcomeSucceeded, out.Result
 	case errors.Is(cause, errCancelled):
+		log.InfoContext(ctx, "squasharr worker: task cancelled by squasharr",
+			"job", t.Job.Key(), "attempt", t.Attempt)
 		fin.Outcome, fin.Reason = task.OutcomeCancelled, task.ReasonCancelled
 	case errors.Is(cause, errDeadline):
 		fin.Outcome, fin.Reason = task.OutcomeFailed, task.ReasonDeadlineExceeded
-	case out.Code == ExitRetriable && ctx.Err() != nil: // drained mid-encode
+	case ctx.Err() != nil && out.Code != ExitOK:
+		// Drained: the top-level ctx (not just work) was cancelled while
+		// Process was still short of success, whatever it returned --
+		// ExitRetriable mid-encode, but just as much a classified failure
+		// from a probe or stat call that was interrupted by the same
+		// cancellation (fix round 1, item 1: the old ExitRetriable-only
+		// guard reported that as Failed and acked it, blocking the job for
+		// good instead of letting redelivery retry a healthy task).
+		log.InfoContext(ctx, "squasharr worker: drained; releasing the lease for the next pod",
+			"job", t.Job.Key(), "attempt", t.Attempt)
 		sctx, cancel := settle()
 		defer cancel()
 		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev)
 		_ = m.Nak(sctx, 0)
 		return
-	case out.Code == ExitOK:
-		fin.Outcome, fin.Result = task.OutcomeSucceeded, out.Result
 	default:
 		fin.Outcome, fin.Reason = task.OutcomeFailed, reasonFor(out)
 	}
@@ -189,6 +213,9 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 	defer cancel()
 	if err := rep.publish(sctx, fin); err != nil {
 		log.WarnContext(ctx, "squasharr worker: finished event not published; redelivery will redo it", "error", err)
+		// Release the lease now rather than leave a redelivery waiting out
+		// the full lease TTL for it to lapse (fix round 1, item 8).
+		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev)
 		_ = m.Nak(sctx, 0)
 		return
 	}

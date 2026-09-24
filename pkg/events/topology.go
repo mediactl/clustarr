@@ -117,10 +117,18 @@ func (c ConsumerSpec) Subscription() Subscription {
 // TranscodeTaskConsumer is one pool's durable. It is not in Default(): pools
 // come and go with profiles, so the worker's Pull creates it and squasharr's
 // StreamAdmin deletes it. There is no Heartbeat: the worker sends InProgress
-// itself while it renews its lease (spec §17.3). Workers settle every task
-// once its finished event is stored; redelivery covers only a crashed,
-// drained or fenced worker, so MaxDeliver is a safety net, not a retry policy
-// (squasharr decides retries, spec §18.3).
+// itself while it renews its lease (spec §17.3). AckWait governs redelivery
+// of a crashed worker's task; every other redelivery is an explicit Nak (a
+// held lease's HeldRetry, a drain, a fence's Nak(0) left to lapse instead),
+// whose delay is the worker's own choice (spec §18.1), so this carries no
+// BackOff schedule -- a Subscription's Backoff replaces AckWait as the
+// redelivery timer for every delivery (Subscription.Backoff's doc comment,
+// JetStream semantics mirrored by membus), which would silently floor or
+// override those explicit Nak delays instead of honouring them. Retry policy
+// is squasharr's, not the queue's (spec §18.3); MaxDeliver is headroom for
+// the worker's own settlement paths (held, drain, fence can each redeliver
+// more than once) before the queue's own safety net -- dead-lettering a
+// hung handler -- ever needs to fire.
 func TranscodeTaskConsumer(profileUID, class string) ConsumerSpec {
 	return ConsumerSpec{
 		Name:          TranscodeTaskConsumerName(profileUID, class),
@@ -128,8 +136,7 @@ func TranscodeTaskConsumer(profileUID, class string) ConsumerSpec {
 		Description:   "One transcode pool's tasks.",
 		Filters:       []string{FilterTranscodeTasks(profileUID, class)},
 		AckWait:       60 * time.Second,
-		MaxDeliver:    8,
-		BackOff:       []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute},
+		MaxDeliver:    16,
 		MaxAckPending: 64,
 	}
 }
