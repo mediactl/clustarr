@@ -165,6 +165,7 @@ func BuildClient(ctx context.Context, c client.Client, namespace, downloadClient
 	if err != nil {
 		return nil, nil, err
 	}
+	cfg.BaseContext = ctx
 	cl, err := usenetclient.New(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("usenetengine: build client: %w", err)

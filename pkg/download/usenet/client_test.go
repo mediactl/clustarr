@@ -21,9 +21,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -31,6 +33,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 
 	"github.com/javi11/rapidyenc"
 	"github.com/stretchr/testify/require"
@@ -839,4 +843,53 @@ func TestConcurrentCheckpointsNeverCollide(t *testing.T) {
 		require.NoError(t, err)
 	}
 	waitForTerminal(t, c, id)
+}
+
+// A job New resumes from disk has no caller's context to inherit, and ran
+// under context.Background -- logging.FromContext's discard logger -- so a
+// transfer picked up after an engine restart logged nothing for its whole
+// life. Config.BaseContext is what it inherits now.
+func TestAResumedJobLogsThroughTheBaseContext(t *testing.T) {
+	srv := newStubServer(t)
+	nzb := buildNZB(t, srv, "Resumed", []fileSpec{
+		{name: "movie.mkv", parts: [][]byte{partPayload(8, 700)}},
+		{name: "movie.par2", parts: [][]byte{partPayload(9, 100)}},
+	})
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	root := t.TempDir()
+	cfg := Config{
+		Providers:   []Provider{srv.provider("solo", 2, 1)},
+		ScratchDir:  filepath.Join(root, "scratch"),
+		DataDir:     filepath.Join(root, "data"),
+		PostProcess: PostProcess{Par2: true},
+		BaseContext: logging.NewContext(context.Background(), logger),
+	}
+	first, err := New(cfg)
+	require.NoError(t, err)
+	id, err := first.Add(context.Background(), download.AddRequest{Name: "Resumed", Payload: nzb})
+	require.NoError(t, err)
+	waitForTerminal(t, first, id)
+	require.NoError(t, first.Close())
+	logs.Reset()
+
+	// Wind the manifest back to mid-transfer, the state a restart finds.
+	manifests, err := filepath.Glob(filepath.Join(cfg.ScratchDir, "*", id, manifestName))
+	require.NoError(t, err)
+	require.Len(t, manifests, 1)
+	dir := filepath.Dir(manifests[0])
+	raw, err := os.ReadFile(manifests[0])
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(raw, &m))
+	m["status"] = string(download.StatusDownloading)
+	raw, err = json.Marshal(m)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestName), raw, 0o644))
+
+	second, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = second.Close() })
+	waitForTerminal(t, second, id)
+	require.Contains(t, logs.String(), "skipping par2", "the resumed job's log lines reach the base context's logger")
 }

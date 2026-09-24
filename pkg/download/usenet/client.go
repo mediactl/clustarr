@@ -99,6 +99,11 @@ type Config struct {
 	// Par2Path is the par2cmdline-turbo binary. Empty means look up "par2".
 	Par2Path string
 
+	// BaseContext carries the logger and tracer for the jobs New resumes
+	// from disk, which have no caller's context to inherit; nil means
+	// context.Background, and a resumed job then logs nowhere.
+	BaseContext context.Context
+
 	// PostProcess controls repair, unpacking and cleanup.
 	PostProcess PostProcess
 
@@ -198,6 +203,9 @@ type Client struct {
 	freeBytes func(path string) (int64, error)
 	pool      *Pool
 	par2      Par2Runner
+	// baseCtx is Config.BaseContext without its cancellation, for jobs
+	// resumed from disk.
+	baseCtx context.Context
 
 	workers int
 
@@ -283,8 +291,12 @@ func New(cfg Config) (download.Client, error) {
 		freeBytes: freeBytes,
 		pool:      pool,
 		par2:      Par2Runner{Path: cfg.Par2Path},
+		baseCtx:   context.Background(),
 		workers:   workers,
 		jobs:      map[string]*job{},
+	}
+	if cfg.BaseContext != nil {
+		c.baseCtx = context.WithoutCancel(cfg.BaseContext)
 	}
 	if err := c.reattach(); err != nil {
 		pool.Close()
@@ -527,7 +539,7 @@ func (c *Client) reattach() error {
 			}
 			c.jobs[j.id] = j
 			if j.status != download.StatusCompleted && j.status != download.StatusFailed {
-				c.start(context.Background(), j)
+				c.start(c.baseCtx, j)
 			}
 		}
 	}

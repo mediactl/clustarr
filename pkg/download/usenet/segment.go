@@ -382,8 +382,11 @@ func (j *job) retryFailed(ctx context.Context) error {
 			recovered++
 		}
 	}
+	j.mu.Lock()
+	lastErr := j.lastError
+	j.mu.Unlock()
 	log.InfoContext(ctx, "usenet: missing-article retry finished",
-		"download", j.id, "recovered", recovered, "stillMissing", len(failed)-recovered)
+		"download", j.id, "recovered", recovered, "stillMissing", len(failed)-recovered, "lastError", lastErr)
 	return j.checkpoint()
 }
 
