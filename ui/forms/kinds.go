@@ -138,7 +138,7 @@ var kinds = []Kind{
 			}},
 			{Title: "Usenet", When: whenUsenet, Paths: []string{
 				"usenet.providers", "usenet.postProcess", "usenet.propagationDelay", "usenet.preCheck", "usenet.abortHealthPercent",
-				"usenet.healthAction", "usenet.downloadTimeout", "usenet.scratch",
+				"usenet.healthAction", "usenet.downloadTimeout", "usenet.publishDir", "usenet.scratch",
 			}},
 			{Title: "Engine", Paths: []string{"replicas"}, Advanced: true},
 		},
@@ -148,6 +148,8 @@ var kinds = []Kind{
 			"torrent.downloadLimitBps": "Download limit (bytes/s)", "torrent.uploadLimitBps": "Upload limit (bytes/s)",
 			"usenet.providers": "Servers", "usenet.providers[].quotaBytes": "Monthly quota (bytes)", "usenet.providers[].backup": "Backup server",
 			"usenet.abortHealthPercent": "Abort below health (%)", "usenet.scratch.sizeLimit": "Scratch size",
+			"usenet.publishDir": "Publish directory", "usenet.scratch.path": "Scratch path (on the data volume)",
+			"usenet.scratch.existingClaim": "Existing claim", "usenet.scratch.volumeName": "Persistent volume",
 		},
 		Secrets: []Secret{{Path: "usenet.providers[].secretRef", Keys: []Key{
 			{Key: "username", Label: "Username", Required: true},
