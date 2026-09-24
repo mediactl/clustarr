@@ -619,6 +619,24 @@ beneath it. Every dimension scales with poster width so a 1000x1500 poster
 and a 500x750 thumbnail match. Several badges stack away from the corner
 along the poster's vertical edge with `PaddingPct` between them.
 
+> **As built (2026-09-24, later): the box is Plex's episode-count box,
+> measured.** The owner supplied a Plex screenshot and asked for the badge
+> to match its episode-count box exactly. Measured on its 1249x1869
+> poster: 237x207 px (18.98% of the poster's width by 16.57% of it, aspect
+> 237:207), flush with two poster edges, square on the two corners on
+> those edges and rounded (about 25px, 2% of the width) only on the inner
+> corner, pure black at 80% (every box pixel is 0.2x the poster beneath),
+> its count 56px tall (27% of the box) and centred. `pkg/overlay` now draws
+> exactly that: `widthPercent` defaults to 19 and the height follows at
+> 237:207 (not square), one rounded corner (not three), black at an
+> `opacityPercent` default of 80 (not `#1F1F1F` at 90), and `scorePercent`
+> (default 27) of the box height, as §C.4 always documented -- the first
+> cut applied it to the height left under the logo, which at the old
+> defaults drew every score at the 8px font floor. The logo and score are
+> centred in the box as one group. `RenderVersion` 3 re-renders every
+> stored overlay. The owner's profile anchors it `topLeft`, clear of
+> Plex's own count in the top right.
+
 `FormatScore`: metacritic, rottenTomatoesCritic and rottenTomatoesAudience
 as whole numbers 0 to 100; imdb, tmdb, trakt and letterboxd with one
 decimal 0 to 10. Drawing uses `golang.org/x/image/draw` and

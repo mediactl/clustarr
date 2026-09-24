@@ -50,7 +50,7 @@ func (r RecycleBin) CleanupDaysOrDefault() int32 {
 // overlayprofile_types.go).
 const (
 	// DefaultOverlayWidthPercent mirrors OverlayGeometry.widthPercent's default.
-	DefaultOverlayWidthPercent int32 = 14
+	DefaultOverlayWidthPercent int32 = 19
 	// DefaultOverlayRadiusPercent mirrors OverlayGeometry.radiusPercent's default.
 	DefaultOverlayRadiusPercent int32 = 2
 	// DefaultOverlayPaddingPercent mirrors OverlayGeometry.paddingPercent's default.
@@ -60,9 +60,9 @@ const (
 	DefaultOverlayLogoPercent int32 = 60
 	// DefaultOverlayScorePercent mirrors OverlayGeometry.scorePercent's default
 	// (percentage of the badge's box height).
-	DefaultOverlayScorePercent int32 = 45
+	DefaultOverlayScorePercent int32 = 27
 	// DefaultOverlayOpacityPercent mirrors OverlayGeometry.opacityPercent's default.
-	DefaultOverlayOpacityPercent int32 = 90
+	DefaultOverlayOpacityPercent int32 = 80
 )
 
 // WidthPercentOrDefault is geometry.widthPercent; a nil geometry or a nil

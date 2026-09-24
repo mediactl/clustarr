@@ -225,8 +225,9 @@ func Badges(spec catalogv1alpha1.OverlayProfileSpec, ratings []catalogv1alpha1.R
 // font, resampling or MaxRenderWidth -- bumps it, and every stored overlay's
 // Clustarr-Rendered-From stops matching, so each is re-rendered on its next
 // task rather than served stale forever. 1 was the unversioned renderer
-// through M7's first cut; 2 downscales originals to MaxRenderWidth.
-const RenderVersion = 2
+// through M7's first cut; 2 downscales originals to MaxRenderWidth; 3 draws
+// Plex's episode-count box (pkg/overlay's package doc).
+const RenderVersion = 3
 
 // InputsDigest is spec §C.6 step 2: the hex SHA-256 over the original
 // poster's digest, the profile hash and the item's ratings sorted by

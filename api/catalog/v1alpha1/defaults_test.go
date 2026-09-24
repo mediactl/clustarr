@@ -54,19 +54,19 @@ func TestOverlayGeometryOrDefault(t *testing.T) {
 		got  int32
 		want int32
 	}{
-		{"nil/width", nilGeometry.WidthPercentOrDefault(), 14},
+		{"nil/width", nilGeometry.WidthPercentOrDefault(), 19},
 		{"nil/radius", nilGeometry.RadiusPercentOrDefault(), 2},
 		{"nil/padding", nilGeometry.PaddingPercentOrDefault(), 2},
 		{"nil/logo", nilGeometry.LogoPercentOrDefault(), 60},
-		{"nil/score", nilGeometry.ScorePercentOrDefault(), 45},
-		{"nil/opacity", nilGeometry.OpacityPercentOrDefault(), 90},
+		{"nil/score", nilGeometry.ScorePercentOrDefault(), 27},
+		{"nil/opacity", nilGeometry.OpacityPercentOrDefault(), 80},
 
-		{"empty/width", empty.WidthPercentOrDefault(), 14},
+		{"empty/width", empty.WidthPercentOrDefault(), 19},
 		{"empty/radius", empty.RadiusPercentOrDefault(), 2},
 		{"empty/padding", empty.PaddingPercentOrDefault(), 2},
 		{"empty/logo", empty.LogoPercentOrDefault(), 60},
-		{"empty/score", empty.ScorePercentOrDefault(), 45},
-		{"empty/opacity", empty.OpacityPercentOrDefault(), 90},
+		{"empty/score", empty.ScorePercentOrDefault(), 27},
+		{"empty/opacity", empty.OpacityPercentOrDefault(), 80},
 
 		{"set/width", set.WidthPercentOrDefault(), 20},
 		{"set/radius", set.RadiusPercentOrDefault(), 3},

@@ -119,8 +119,8 @@ spec:
                     type: integer
                   opacityPercent:
                     description: |-
-                      OpacityPercent is the badge stack's background opacity. Unset means 90
-                      (OpacityPercentOrDefault, DefaultOverlayOpacityPercent).
+                      OpacityPercent is the opacity of the badges' black background. Unset
+                      means 80, Plex's (OpacityPercentOrDefault, DefaultOverlayOpacityPercent).
                     format: int32
                     maximum: 100
                     minimum: 1
@@ -136,17 +136,18 @@ spec:
                     type: integer
                   radiusPercent:
                     description: |-
-                      RadiusPercent is each badge's corner radius, as a percentage of poster
-                      width. Unset means 2 (RadiusPercentOrDefault, DefaultOverlayRadiusPercent).
+                      RadiusPercent is the radius of each badge's one rounded corner, the
+                      one diagonally opposite Corner, as a percentage of poster width.
+                      Unset means 2 (RadiusPercentOrDefault, DefaultOverlayRadiusPercent).
                     format: int32
                     maximum: 100
                     minimum: 1
                     type: integer
                   scorePercent:
                     description: |-
-                      ScorePercent is the score text's size, as a percentage of the badge's
-                      box height. Unset means 45 (ScorePercentOrDefault,
-                      DefaultOverlayScorePercent).
+                      ScorePercent is the score text's cap height, as a percentage of the
+                      badge's box height. Unset means 27, the height of Plex's episode count
+                      on its box (ScorePercentOrDefault, DefaultOverlayScorePercent).
                     format: int32
                     maximum: 100
                     minimum: 1
@@ -154,7 +155,9 @@ spec:
                   widthPercent:
                     description: |-
                       WidthPercent is the badge stack's width, as a percentage of poster
-                      width. Unset means 14 (WidthPercentOrDefault, DefaultOverlayWidthPercent).
+                      width; each badge's height follows at the aspect of Plex's
+                      episode-count box (237:207). Unset means 19, which reproduces that box
+                      (WidthPercentOrDefault, DefaultOverlayWidthPercent).
                     format: int32
                     maximum: 100
                     minimum: 1

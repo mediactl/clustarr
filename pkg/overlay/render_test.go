@@ -35,6 +35,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -48,12 +49,12 @@ func TestDefaultTemplateMatchesNamedConstants(t *testing.T) {
 	// Pin the literal values the task brief specifies, independently of
 	// DefaultTemplate's own use of them -- a change to the constants
 	// themselves is then a failure here, not just a silent flow-through.
-	require.Equal(t, 14, defaultWidthPct)
+	require.Equal(t, 19, defaultWidthPct)
 	require.Equal(t, 2, defaultRadiusPct)
 	require.Equal(t, 2, defaultPaddingPct)
 	require.Equal(t, 60, defaultLogoPct)
-	require.Equal(t, 45, defaultScorePct)
-	require.Equal(t, 90, defaultOpacityPct)
+	require.Equal(t, 27, defaultScorePct)
+	require.Equal(t, 80, defaultOpacityPct)
 
 	want := Template{
 		Corner:     CornerBottomRight,
@@ -147,13 +148,61 @@ func TestTemplateHashChangesWithEveryField(t *testing.T) {
 
 // --- Small-poster floor (Review Focus 4) ------------------------------------
 
+// TestTheDefaultBadgeIsPlexsEpisodeCountBox holds the default geometry to
+// the box measured from the owner's Plex screenshot (2026-09-24) on the
+// same 1249x1869 poster: 237x207, flush with the poster's two edges at the
+// anchored corner, square on both corners that lie on those edges and
+// rounded only on the inner one, black at 80% (0.2x the poster beneath),
+// and a score 56px tall, centred.
+func TestTheDefaultBadgeIsPlexsEpisodeCountBox(t *testing.T) {
+	grey := color.NRGBA{R: 100, G: 150, B: 200, A: 255}
+	base := image.NewNRGBA(image.Rect(0, 0, 1249, 1869))
+	draw.Draw(base, base.Bounds(), image.NewUniform(grey), image.Point{}, draw.Src)
+
+	tpl := DefaultTemplate()
+	tpl.Corner = CornerTopLeft
+	boxes := layoutBoxes(base.Bounds(), 1, tpl)
+	require.Equal(t, image.Rect(0, 0, 237, 207), boxes[0], "Plex's box, flush with the top-left corner")
+
+	got, err := Render(base, []Badge{{Source: SourceMetacritic, Score: "665"}}, tpl)
+	require.NoError(t, err)
+
+	dimmed := color.NRGBA{R: 20, G: 30, B: 40, A: 255} // 0.2 x grey: black at 80%
+	near := func(c color.Color, want color.NRGBA) bool {
+		n := color.NRGBAModel.Convert(c).(color.NRGBA)
+		d := func(a, b uint8) int { return absInt(int(a) - int(b)) }
+		return d(n.R, want.R) <= 1 && d(n.G, want.G) <= 1 && d(n.B, want.B) <= 1
+	}
+	assert.True(t, near(got.At(0, 0), dimmed), "the anchored corner is square")
+	assert.True(t, near(got.At(236, 0), dimmed), "the corner on the top edge is square")
+	assert.True(t, near(got.At(0, 206), dimmed), "the corner on the left edge is square")
+	assert.True(t, near(got.At(236, 206), grey), "the inner corner is rounded")
+	assert.True(t, near(got.At(237, 100), grey), "nothing right of the box")
+	assert.True(t, near(got.At(100, 207), grey), "nothing below the box")
+
+	// The score: white pixels only, bounded to the box, 56px tall (27% of
+	// 207) and centred like Plex's count.
+	minX, minY, maxX, maxY := 237, 207, -1, -1
+	for y := 0; y < 207; y++ {
+		for x := 0; x < 237; x++ {
+			if n := color.NRGBAModel.Convert(got.At(x, y)).(color.NRGBA); n.R > 200 && n.G > 200 && n.B > 200 {
+				minX, minY, maxX, maxY = min(minX, x), min(minY, y), max(maxX, x), max(maxY, y)
+			}
+		}
+	}
+	require.GreaterOrEqual(t, maxY, 0, "the score was drawn")
+	assert.InDelta(t, 56, maxY-minY+1, 2, "the score's height")
+	assert.InDelta(t, 0, minX-(236-maxX), 3, "centred horizontally")
+	assert.InDelta(t, 0, minY-(206-maxY), 3, "centred vertically")
+}
+
 func TestLayoutBoxesClampsToMinBoxPxOnASmallPoster(t *testing.T) {
 	bounds := image.Rect(0, 0, 60, 90)
 	boxes := layoutBoxes(bounds, 4, DefaultTemplate())
 	require.Len(t, boxes, 4)
 	for i, b := range boxes {
 		require.GreaterOrEqualf(t, b.Dx(), minBoxPx, "badge %d width", i)
-		require.GreaterOrEqualf(t, b.Dy(), minBoxPx, "badge %d height", i)
+		require.Equalf(t, (b.Dx()*plexBoxH+plexBoxW/2)/plexBoxW, b.Dy(), "badge %d height keeps Plex's aspect", i)
 	}
 }
 
@@ -214,28 +263,27 @@ func TestRenderOnASmallPosterBadgeBoxesStayInBounds(t *testing.T) {
 	// The one-badge case is the task brief's literal wording ("a 60x90
 	// poster renders ... the badge stays within bounds", singular): one
 	// badge always fits fully inside the poster. It is flush against the
-	// anchored corner by construction, and its box (boxW == boxH ==
-	// minBoxPx here, since 60*14/100 == 8 < minBoxPx) is smaller than both
-	// poster dimensions.
+	// anchored corner by construction, and its box (boxW == minBoxPx here,
+	// since 60*19/100 == 11 < minBoxPx, and boxH that at Plex's 237:207
+	// aspect) is smaller than both poster dimensions.
 	one := layoutBoxes(bounds, 1, tmpl)
 	require.Len(t, one, 1)
 	require.Truef(t, one[0].In(bounds), "the single badge's box %v must be fully inside the poster bounds %v", one[0], bounds)
 	require.GreaterOrEqual(t, one[0].Dx(), minBoxPx)
-	require.GreaterOrEqual(t, one[0].Dy(), minBoxPx)
+	require.Equal(t, (one[0].Dx()*plexBoxH+plexBoxW/2)/plexBoxW, one[0].Dy())
 
 	// The four-badge case is what TestRenderOnASmallPosterDoesNotPanicAndKeepsPosterBounds
 	// and TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle drive
-	// through Render/drawBadge. Every box is still at least minBoxPx in
-	// both dimensions -- the floor in layoutBoxes clamps width
-	// unconditionally, and height equals width (boxH := boxW; see
-	// overlay.go's "square badge" design decision) -- and the box nearest
+	// through Render/drawBadge. Every box is still at least minBoxPx wide
+	// -- the floor in layoutBoxes clamps width unconditionally, and height
+	// follows at Plex's aspect (see overlay.go's package doc) -- and the box nearest
 	// the anchor corner (index 0) is always fully contained, for the same
 	// reason the single-badge case is.
 	four := layoutBoxes(bounds, 4, tmpl)
 	require.Len(t, four, 4)
 	for i, b := range four {
 		require.GreaterOrEqualf(t, b.Dx(), minBoxPx, "badge %d width", i)
-		require.GreaterOrEqualf(t, b.Dy(), minBoxPx, "badge %d height", i)
+		require.Equalf(t, (b.Dx()*plexBoxH+plexBoxW/2)/plexBoxW, b.Dy(), "badge %d height", i)
 	}
 	require.Truef(t, four[0].In(bounds), "the badge nearest the anchor corner, %v, must be fully inside the poster bounds %v", four[0], bounds)
 

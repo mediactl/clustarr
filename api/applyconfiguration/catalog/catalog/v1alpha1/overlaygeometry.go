@@ -29,10 +29,13 @@ package v1alpha1
 // field directly.
 type OverlayGeometryApplyConfiguration struct {
 	// WidthPercent is the badge stack's width, as a percentage of poster
-	// width. Unset means 14 (WidthPercentOrDefault, DefaultOverlayWidthPercent).
+	// width; each badge's height follows at the aspect of Plex's
+	// episode-count box (237:207). Unset means 19, which reproduces that box
+	// (WidthPercentOrDefault, DefaultOverlayWidthPercent).
 	WidthPercent *int32 `json:"widthPercent,omitempty"`
-	// RadiusPercent is each badge's corner radius, as a percentage of poster
-	// width. Unset means 2 (RadiusPercentOrDefault, DefaultOverlayRadiusPercent).
+	// RadiusPercent is the radius of each badge's one rounded corner, the
+	// one diagonally opposite Corner, as a percentage of poster width.
+	// Unset means 2 (RadiusPercentOrDefault, DefaultOverlayRadiusPercent).
 	RadiusPercent *int32 `json:"radiusPercent,omitempty"`
 	// PaddingPercent is the padding inside each badge, as a percentage of
 	// poster width. Unset means 2 (PaddingPercentOrDefault,
@@ -42,12 +45,12 @@ type OverlayGeometryApplyConfiguration struct {
 	// badge's box width. Unset means 60 (LogoPercentOrDefault,
 	// DefaultOverlayLogoPercent).
 	LogoPercent *int32 `json:"logoPercent,omitempty"`
-	// ScorePercent is the score text's size, as a percentage of the badge's
-	// box height. Unset means 45 (ScorePercentOrDefault,
-	// DefaultOverlayScorePercent).
+	// ScorePercent is the score text's cap height, as a percentage of the
+	// badge's box height. Unset means 27, the height of Plex's episode count
+	// on its box (ScorePercentOrDefault, DefaultOverlayScorePercent).
 	ScorePercent *int32 `json:"scorePercent,omitempty"`
-	// OpacityPercent is the badge stack's background opacity. Unset means 90
-	// (OpacityPercentOrDefault, DefaultOverlayOpacityPercent).
+	// OpacityPercent is the opacity of the badges' black background. Unset
+	// means 80, Plex's (OpacityPercentOrDefault, DefaultOverlayOpacityPercent).
 	OpacityPercent *int32 `json:"opacityPercent,omitempty"`
 }
 

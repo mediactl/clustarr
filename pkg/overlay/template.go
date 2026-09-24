@@ -42,18 +42,18 @@ const (
 )
 
 // Named geometry defaults. These mirror api/catalog/v1alpha1/defaults.go's
-// DefaultOverlay*Percent constants (14, 2, 2, 60, 45, 90) as plain,
+// DefaultOverlay*Percent constants (19, 2, 2, 60, 27, 80) as plain,
 // unexported ints -- Template's fields are int, not int32, per the task
 // brief's interface -- so TestDefaultTemplateMatchesNamedConstants can
 // assert DefaultTemplate() against them by name: a drift between the two
 // defaults.go files is then a named test failure, not a silent divergence.
 const (
-	defaultWidthPct   = 14
+	defaultWidthPct   = 19
 	defaultRadiusPct  = 2
 	defaultPaddingPct = 2
 	defaultLogoPct    = 60
-	defaultScorePct   = 45
-	defaultOpacityPct = 90
+	defaultScorePct   = 27
+	defaultOpacityPct = 80
 )
 
 // Template is the fully resolved geometry and corner for one poster's badge
@@ -77,8 +77,7 @@ type Template struct {
 	// width (the box width less its internal margins).
 	LogoPct int
 	// ScorePct is the score text's cap height, as a percentage of the box
-	// height remaining below the logo (spec §C.5: "the remaining box
-	// height").
+	// height (OverlayGeometry.scorePercent, spec §C.4).
 	ScorePct int
 	// OpacityPct is the badge box background's opacity, 0-100.
 	OpacityPct int

@@ -23,27 +23,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // network; the artwork-render role (spec §C.6, a later task) is the only
 // caller that talks to Kubernetes or an object store.
 //
-// # Badge shape, a design decision this package makes
+// # Badge shape: Plex's episode-count box
 //
-// The spec describes one badge's shape from the user's reference images:
-// "the box sits in the chosen corner with its outer corner square and flush
-// with the poster edge and the other three corners rounded." That is exactly
-// right for a single badge. It does not say what a second, stacked badge
-// looks like -- spec §C.5 adds only "several badges stack away from the
-// corner along the poster's vertical edge with PaddingPct between them,"
-// which fixes each badge's position but not its shape.
+// A badge box is Plex's episode-count box, measured to the pixel from the
+// owner's reference screenshot (2026-09-24): 237x207 on a 1249x1869 poster
+// (18.98% of the poster's width by 16.57% of it), flush with the poster's
+// two edges at its corner, square on the two corners that lie on those
+// edges and rounded (2% of the poster's width) only on the inner corner,
+// black at 80%, its count 56px tall (27% of the box) and centred. The
+// defaults reproduce it; Template.WidthPct scales it at the same aspect.
+// (Until then the box was square and rounded on three corners, from the
+// spec's prose description of the same reference.)
 //
-// This package gives every badge in a stack the same shape as the anchor
-// badge: the corner matching the stack's Corner field stays a square right
-// angle on every box, even for a box stacked away from the poster edge and
-// so not literally touching it. The alternative -- rounding all four
-// corners on every badge except the one actually flush with the poster --
-// would need a "which layout position am I" flag threaded through the
-// drawing code, and would look visually inconsistent (one hard corner, then
-// a run of fully-rounded boxes) against the two reference images, which
-// both show a single badge. Rulings on future badges belong to whoever
-// reviews the four-badge golden this package ships
-// (test/data/overlay/four_badges.png).
+// Every badge in a stack takes the anchor badge's shape, even a box
+// stacked away from the poster edge and so not literally touching it; the
+// alternative would need a "which layout position am I" flag threaded
+// through the drawing code. The four-badge golden this package ships
+// (test/data/overlay/four_badges.png) shows the result.
 package overlay
 
 import (
@@ -71,9 +67,21 @@ const (
 	minFontSizePx = 8
 )
 
-// fillColor is the badge box background, #1F1F1F, blended at
-// Template.OpacityPct.
-var fillColor = color.NRGBA{R: 0x1F, G: 0x1F, B: 0x1F}
+// fillColor is the badge box background, black, blended at
+// Template.OpacityPct: Plex's episode-count box is black at 80% -- every
+// pixel of it in the reference screenshot (2026-09-24) is exactly 0.2x the
+// poster beneath, in every channel.
+var fillColor = color.NRGBA{}
+
+// plexBoxW and plexBoxH are Plex's episode-count box, measured in pixels
+// from the owner's reference screenshot (2026-09-24): 237x207 on a
+// 1249x1869 poster, i.e. 18.98% of the poster's width wide and 16.57% of
+// it tall. A badge box keeps this aspect at every Template.WidthPct, so
+// the default width (19%) reproduces the box to the pixel.
+const (
+	plexBoxW = 237
+	plexBoxH = 207
+)
 
 // Render composites badges onto base, in the corner and geometry t
 // describes, and returns the result as a new image the same size as base.
@@ -118,11 +126,12 @@ func scalePct(v, pct int) int {
 	return v * pct / 100
 }
 
-// roundedRectMask returns a w x h alpha mask for a rectangle whose corners
-// are all rounded to radius except the one matching square, which stays a
-// right angle -- the "outer corner square, three corners rounded" shape
-// (spec §C.5) every badge box uses regardless of its position in a stack
-// (see the package doc comment). radius is clamped to fit within the box so
+// roundedRectMask returns a w x h alpha mask for a rectangle with one
+// rounded corner, the one diagonally opposite anchor, and three right
+// angles -- the shape of Plex's episode-count box, whose two corners on the
+// poster's edges are square and whose one inner corner is rounded
+// (measured, 2026-09-24). Every badge box in a stack takes it (see the
+// package doc comment). radius is clamped to fit within the box so
 // a large RadiusPct on a small badge degrades to a circle/stadium rather
 // than producing overlapping or inverted arcs.
 //
@@ -131,7 +140,7 @@ func scalePct(v, pct int) int {
 // rounded -- deterministic across architectures, unlike this package's
 // glyph rendering (see render_test.go's golden comparison for why that one
 // needs a tolerance).
-func roundedRectMask(w, h, radius int, square Corner) *image.Alpha {
+func roundedRectMask(w, h, radius int, anchor Corner) *image.Alpha {
 	if radius < 0 {
 		radius = 0
 	}
@@ -144,34 +153,32 @@ func roundedRectMask(w, h, radius int, square Corner) *image.Alpha {
 	mask := image.NewAlpha(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			c := cornerCoverage(x, y, w, h, radius, square)
+			c := cornerCoverage(x, y, w, h, radius, anchor)
 			mask.SetAlpha(x, y, color.Alpha{A: uint8(c*255 + 0.5)})
 		}
 	}
 	return mask
 }
 
-// cornerCoverage returns pixel (x,y)'s coverage (0..1) of a w x h rounded
-// rect whose square corner is square. A pixel outside every corner's
-// radius x radius box -- the straight edges and the interior -- is fully
-// covered; a pixel inside the square corner's own box is also fully
-// covered (no rounding there); a pixel inside one of the three rounded
-// corners' boxes is covered by distance from that corner's circle centre.
-func cornerCoverage(x, y, w, h, radius int, square Corner) float64 {
+// cornerCoverage returns pixel (x,y)'s coverage (0..1) of a w x h rect whose
+// only rounded corner is the one diagonally opposite anchor. A pixel
+// outside that corner's radius x radius box is fully covered; a pixel
+// inside it is covered by distance from the corner's circle centre.
+func cornerCoverage(x, y, w, h, radius int, anchor Corner) float64 {
 	var cx, cy float64
 	var rounded bool
 	switch {
 	case x < radius && y < radius:
-		rounded = square != CornerTopLeft
+		rounded = anchor == CornerBottomRight
 		cx, cy = float64(radius), float64(radius)
 	case x >= w-radius && y < radius:
-		rounded = square != CornerTopRight
+		rounded = anchor == CornerBottomLeft
 		cx, cy = float64(w-radius), float64(radius)
 	case x < radius && y >= h-radius:
-		rounded = square != CornerBottomLeft
+		rounded = anchor == CornerTopRight
 		cx, cy = float64(radius), float64(h-radius)
 	case x >= w-radius && y >= h-radius:
-		rounded = square != CornerBottomRight
+		rounded = anchor == CornerTopLeft
 		cx, cy = float64(w-radius), float64(h-radius)
 	default:
 		return 1
@@ -194,8 +201,8 @@ func cornerCoverage(x, y, w, h, radius int, square Corner) float64 {
 }
 
 // layoutBoxes returns each badge's box rectangle in canvas coordinates.
-// Every box is the same size (boxW x boxW -- see the package doc comment on
-// why a badge box is square); index 0 sits flush with the poster edge at
+// Every box is the same size, WidthPct of the poster's width wide and
+// plexBoxH/plexBoxW of that tall; index 0 sits flush with the poster edge at
 // the anchored corner, and later indices step away from that edge by
 // boxH+gap, per badge, along the vertical axis only -- the horizontal
 // position (flush with the corner's vertical edge) never changes across the
@@ -206,7 +213,7 @@ func layoutBoxes(bounds image.Rectangle, n int, t Template) []image.Rectangle {
 	if boxW < minBoxPx {
 		boxW = minBoxPx
 	}
-	boxH := boxW // square badge box; see the package doc comment
+	boxH := maxInt(int(math.Round(float64(boxW)*plexBoxH/plexBoxW)), 1)
 	gap := scalePct(posterW, t.PaddingPct)
 
 	var x int
@@ -246,55 +253,72 @@ func drawBadge(canvas *image.NRGBA, box image.Rectangle, paddingPx, radiusPx int
 	if margin < 1 {
 		margin = 1
 	}
-	if 2*margin >= boxW {
-		margin = maxInt((boxW-1)/2, 0)
+	if 2*margin >= boxW || 2*margin >= boxH {
+		margin = maxInt((minInt(boxW, boxH)-1)/2, 0)
 	}
+	contentW := maxInt(boxW-2*margin, 1)
+	contentH := maxInt(boxH-2*margin, 1)
 
-	contentLeft := box.Min.X + margin
-	contentRight := box.Max.X - margin
-	contentW := maxInt(contentRight-contentLeft, 1)
-
-	// logoBottom is where the score's area starts. With no logo (or one
-	// Render chooses not to draw -- a zero-area source image), it starts
-	// right after the top margin, so the score gets the whole content area.
-	logoBottom := box.Min.Y + margin
-
-	if lb := logoBounds(b.Logo); !lb.Empty() {
-		logoW := clampInt(scalePct(contentW, t.LogoPct), 1, contentW)
-		logoH := scaleToWidth(logoW, lb)
-		maxLogoH := maxInt(boxH-2*margin, 1)
-		if logoH > maxLogoH {
-			logoH = maxLogoH
-			logoW = scaleToHeight(logoH, lb)
+	// The score's cap height is ScorePct of the box height, as
+	// OverlayGeometry.scorePercent documents: Plex's count is 56px on its
+	// 207px box, 27%. (Until 2026-09-24 it was ScorePct of the height left
+	// under the logo, 10px at the defaults on a 500px poster, so the 8px
+	// font floor drew every score.)
+	var face font.Face
+	capH := 0
+	if b.Score != "" {
+		f, _, err := faceForCapHeight(math.Max(float64(scalePct(boxH, t.ScorePct)), 1))
+		if err != nil {
+			return fmt.Errorf("score font: %w", err)
 		}
-		logoTop := box.Min.Y + margin
-		logoLeft := box.Min.X + (boxW-logoW)/2
-		dst := image.Rect(logoLeft, logoTop, logoLeft+logoW, logoTop+logoH)
+		defer func() { _ = f.Close() }()
+		face = f
+		capH = maxInt(int(math.Round(fixedToFloat(f.Metrics().CapHeight))), 1)
+	}
+
+	// The logo is LogoPct of the content width, shrunk to the height the
+	// score and the gap above it leave.
+	lb := logoBounds(b.Logo)
+	logoW, logoH := 0, 0
+	if !lb.Empty() {
+		room := contentH
+		if capH > 0 {
+			room = contentH - capH - margin
+		}
+		if room >= 1 {
+			logoW = clampInt(scalePct(contentW, t.LogoPct), 1, contentW)
+			logoH = scaleToWidth(logoW, lb)
+			if logoH > room {
+				logoH = room
+				logoW = scaleToHeight(logoH, lb)
+			}
+		}
+	}
+
+	// The logo, the gap and the score's cap height are centred in the box
+	// as one group, as Plex centres its count.
+	groupH := logoH + capH
+	if logoH > 0 && capH > 0 {
+		groupH += margin
+	}
+	top := box.Min.Y + (boxH-groupH)/2
+	if logoH > 0 {
+		left := box.Min.X + (boxW-logoW)/2
+		dst := image.Rect(left, top, left+logoW, top+logoH)
 		xdraw.CatmullRom.Scale(canvas, dst, b.Logo, lb, xdraw.Over, nil)
-		logoBottom = logoTop + logoH + margin
+		top += logoH + margin
 	}
-
-	if b.Score == "" {
-		return nil
+	if face != nil {
+		drawScoreText(canvas, b.Score, face, box, top, capH)
 	}
-
-	scoreTop := logoBottom
-	scoreBottom := box.Max.Y - margin
-	scoreAreaH := maxInt(scoreBottom-scoreTop, 1)
-
-	capHeightPx := float64(scalePct(scoreAreaH, t.ScorePct))
-	if capHeightPx < 1 {
-		capHeightPx = 1
-	}
-
-	face, _, err := faceForCapHeight(capHeightPx)
-	if err != nil {
-		return fmt.Errorf("score font: %w", err)
-	}
-	defer func() { _ = face.Close() }()
-
-	drawScoreText(canvas, b.Score, face, box, scoreTop, scoreAreaH)
 	return nil
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // logoBounds returns img's bounds, or a zero (Empty) rectangle for a nil
