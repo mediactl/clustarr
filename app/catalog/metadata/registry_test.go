@@ -148,6 +148,32 @@ func TestBuildRegistryWiresEveryProviderType(t *testing.T) {
 	require.ElementsMatch(t, []string{"metron", "mangadex", "anilist", "kitsu", "animelists"}, got.resolvers)
 }
 
+// TestBuildRegistryWiresTMDBAsARatingsProviderToo proves the same *tmdb.Client
+// lands in both reg.Movies and reg.Ratings (spec §C.2's table: tmdb
+// declares its own source "from the fetch it already performs").
+func TestBuildRegistryWiresTMDBAsARatingsProviderToo(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "tmdb-key", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("test-key")},
+	}
+	providers := []catalogv1alpha1.MetadataProvider{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "tmdb", Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: catalogv1alpha1.MetadataProviderTMDB, Enabled: enabled(),
+				SecretRef: &corev1.LocalObjectReference{Name: "tmdb-key"},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+	require.NoError(t, err)
+
+	require.Len(t, reg.Ratings, 1)
+	require.Equal(t, "tmdb", reg.Ratings[0].Name())
+	require.Equal(t, reg.Movies[0], reg.Ratings[0], "the same client instance fills both slots")
+}
+
 func TestBuildRegistryAnExplicitPriorityBeatsTheTieBreak(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "clustarr"},

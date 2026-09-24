@@ -212,7 +212,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	switch v := result.(type) {
 	case *pkgmetadata.Movie:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindMovie, movieRefreshState(v, now()), refreshedAt(target))
-		md := buildMovieMetadataAC(v, now())
+		// v.IDs, not the outer ids: enrich (above) has already merged in
+		// whatever the Resolvers crosswalked, and a ratings provider keyed
+		// by a crosswalked id (mdblist by tmdb, omdb by imdb) needs that,
+		// not the bare spec id externalIDs(target) returned.
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, knownRatings(target))
+		md := buildMovieMetadataAC(v, ratings, now())
 		images = imagesOf(md.Images)
 		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
 			return catalogac.Movie(key.Name, key.Namespace).WithStatus(
@@ -220,7 +225,8 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	case *pkgmetadata.Series:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindSeries, seriesRefreshState(v, now()), refreshedAt(target))
-		md := buildSeriesMetadataAC(v, now())
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, knownRatings(target))
+		md := buildSeriesMetadataAC(v, ratings, now())
 		images = imagesOf(md.Images)
 		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
 			return catalogac.Series(key.Name, key.Namespace).WithStatus(

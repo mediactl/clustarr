@@ -88,6 +88,7 @@ func BuildRegistry(ctx context.Context, c client.Client, providers []catalogv1al
 				return nil, fmt.Errorf("metadata: build tmdb client for %s/%s: %w", p.Namespace, p.Name, err)
 			}
 			reg.Movies = append(reg.Movies, cl)
+			reg.Ratings = append(reg.Ratings, cl) // spec §C.2: tmdb declares its own source from the fetch it already performs.
 		case catalogv1alpha1.MetadataProviderTVDB:
 			key, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
 			if err != nil {
@@ -123,14 +124,28 @@ func BuildRegistry(ctx context.Context, c client.Client, providers []catalogv1al
 // isSupplementary reports whether t is a provider no catalog CR is keyed
 // by: artwork-only (coverart, fanart), a secondary source for a kind whose
 // CR carries another provider's id (hardcover for Open Library-keyed books,
-// metron for ComicVine-keyed comics), or a pure crosswalk (anilist, kitsu,
+// metron for ComicVine-keyed comics), ratings-only (mdblist, omdb -- no
+// catalog CR is ever keyed by either), or a pure crosswalk (anilist, kitsu,
 // animelists). mangadex is primary: a Comic can name it as its source.
+//
+// mdblist and omdb have no case in addSupplementary below: ruling R5 (spec
+// §C.3) blocks writing either client without a recorded response shape,
+// with neither MDBLIST_API_KEY nor OMDB_API_KEY set as of task C1. A
+// MetadataProvider of either type therefore falls through addSupplementary
+// silently -- no client, no error, matching every other type this switch
+// does not yet know -- and is included here only so its priority-tie
+// position is correct once C1's follow-up adds the case. The CR itself
+// still reports NotReady with an explicit reason: see the sibling
+// buildSupplementary in app/catalog/controller/metadataprovider/registry.go,
+// which this package does not share code with but must stay consistent
+// with (CLAUDE.md: "grep for the other copies of the thing you fixed").
 func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 	switch t {
 	case catalogv1alpha1.MetadataProviderCoverArt, catalogv1alpha1.MetadataProviderFanart,
 		catalogv1alpha1.MetadataProviderHardcover, catalogv1alpha1.MetadataProviderMetron,
 		catalogv1alpha1.MetadataProviderAniList, catalogv1alpha1.MetadataProviderKitsu,
-		catalogv1alpha1.MetadataProviderAnimeLists:
+		catalogv1alpha1.MetadataProviderAnimeLists,
+		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb:
 		return true
 	default:
 		return false

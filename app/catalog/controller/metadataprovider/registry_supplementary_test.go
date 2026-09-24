@@ -100,6 +100,31 @@ func TestAnUnknownTypeIsStillNotImplemented(t *testing.T) {
 	require.ErrorIs(t, err, ErrProviderNotImplemented)
 }
 
+// TestMDBListAndOMDbAreRecognisedButBlockedUnderR5 proves both new
+// MetadataProviderType enum members are accepted (not
+// ErrProviderNotImplemented -- this package knows the type) but refuse
+// client construction with ErrProviderAwaitingFixtures, per ruling R5
+// (spec §C.3): neither client is written without a recorded response
+// shape, and MDBLIST_API_KEY/OMDB_API_KEY were unset at task C1's
+// dispatch. Both addToRegistry and newSupplementaryProber (the two
+// construction paths, registry-build and CR-probe) must agree.
+func TestMDBListAndOMDbAreRecognisedButBlockedUnderR5(t *testing.T) {
+	for _, typ := range []catalogv1alpha1.MetadataProviderType{
+		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
+	} {
+		t.Run(string(typ), func(t *testing.T) {
+			err := addToRegistry(&metadata.Registry{}, catalogv1alpha1.MetadataProviderSpec{Type: typ}, creds, http.DefaultClient)
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrProviderAwaitingFixtures)
+			require.NotErrorIs(t, err, ErrProviderNotImplemented, "the type is known, not unimplemented -- construction is refused, not missing")
+			require.ErrorContains(t, err, "not implemented: awaiting recorded fixtures (C1 follow-up)")
+
+			_, err = newSupplementaryProber(catalogv1alpha1.MetadataProviderSpec{Type: typ}, creds, http.DefaultClient)
+			require.ErrorIs(t, err, ErrProviderAwaitingFixtures)
+		})
+	}
+}
+
 func TestSupplementaryProberReportsReachabilityAndRejectedCredentials(t *testing.T) {
 	notFound := httptest.NewServer(http.NotFoundHandler())
 	defer notFound.Close()

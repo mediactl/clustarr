@@ -46,6 +46,20 @@ import (
 // Ready=Unknown/ProviderNotImplemented rather than an error.
 var ErrProviderNotImplemented = errors.New("metadataprovider: no client exists for this provider type")
 
+// ErrProviderAwaitingFixtures is returned by buildSupplementary for
+// MetadataProviderMDBList and MetadataProviderOMDb: both CRD enum members
+// and their secretRef shape (key "apiKey") already exist, but ruling R5
+// (spec §C.3) blocks writing either client against no recorded response
+// shape -- neither MDBLIST_API_KEY nor OMDB_API_KEY was set in the
+// environment at task C1's dispatch, and "no field name from memory is to
+// be relied on" until the shapes are recorded. Unlike
+// ErrProviderNotImplemented (Ready=Unknown, "no client exists yet", for a
+// type this package genuinely does not know), a CR of one of these two
+// types is a definite, actionable NotReady: the type is recognised and its
+// client construction refused outright, pending the recording step in
+// docs/research/ratings-providers.md.
+var ErrProviderAwaitingFixtures = errors.New("not implemented: awaiting recorded fixtures (C1 follow-up)")
+
 // ProbeResult carries whatever the probe learned that is worth writing to
 // status beyond reachability itself.
 type ProbeResult struct {

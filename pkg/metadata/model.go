@@ -66,6 +66,25 @@ type Rating struct {
 // Ratings holds one Rating per source, keyed by Rating.Source.
 type Ratings map[string]Rating
 
+// Rating source values. These are plain strings, like every other
+// pkg/metadata enum (ImageType, MovieStatus, ...), not
+// catalogv1alpha1.RatingSource -- pkg/metadata never imports api/catalog,
+// so the mapping onto the CRD's typed enum happens only at the gateway
+// boundary (app/catalog/metadata/enrich.go's enrichRatings), the same
+// pattern mapImageType uses for ImageType. The values match
+// catalogv1alpha1.RatingSource's CRD enum exactly;
+// pkg/crdcheck.TestRatingSourceEnumMatchesPkgMetadata holds the two lists
+// equal, mirroring TestImageTypeEnumMatchesPkgMetadata.
+const (
+	RatingSourceIMDb       = "imdb"
+	RatingSourceTMDB       = "tmdb"
+	RatingSourceRTCritic   = "rottenTomatoesCritic"
+	RatingSourceRTAudience = "rottenTomatoesAudience"
+	RatingSourceMetacritic = "metacritic"
+	RatingSourceTrakt      = "trakt"
+	RatingSourceLetterboxd = "letterboxd"
+)
+
 // AltTitle is a title an entity is also known by, optionally scoped to a
 // language, country or scene-release context.
 type AltTitle struct {

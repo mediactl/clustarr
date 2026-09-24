@@ -24,6 +24,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -122,6 +123,66 @@ func imageTypeConstants(t *testing.T, path string) []string {
 			for _, v := range vs.Values {
 				lit, ok := v.(*ast.BasicLit)
 				require.True(t, ok, "an ImageType constant is not a string literal")
+				s, err := strconv.Unquote(lit.Value)
+				require.NoError(t, err)
+				out = append(out, s)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestRatingSourceEnumMatchesPkgMetadata is
+// TestImageTypeEnumMatchesPkgMetadata's counterpart for ratings (task C1):
+// pkg/metadata.RatingSource* (model.go) are deliberately plain, untyped
+// strings, not a named type the way ImageType is (RatingsProvider.Ratings
+// returns pkg/metadata.Ratings, keyed by Rating.Source, itself a plain
+// string field) -- so this reads the const block by name prefix
+// ("RatingSource") rather than by an *ast.Ident type annotation
+// imageTypeConstants relies on, which an untyped string constant has none
+// of. Both sides are still read from source; neither list is restated
+// here.
+func TestRatingSourceEnumMatchesPkgMetadata(t *testing.T) {
+	want := ratingSourceConstants(t, "../metadata/model.go")
+	require.Len(t, want, 7, "pkg/metadata should declare seven RatingSource* constants; update this guard if that changed deliberately")
+
+	schema := crdSchemaAt(t, "catalog.clustarr.io_movies.yaml", "status", "metadata", "ratings")
+	require.NotNil(t, schema.Items)
+	source, ok := schema.Items.Schema.Properties["source"]
+	require.True(t, ok)
+
+	var got []string
+	for _, v := range source.Enum {
+		var s string
+		require.NoError(t, yaml.Unmarshal(v.Raw, &s))
+		got = append(got, s)
+	}
+	sort.Strings(got)
+	require.Equal(t, want, got,
+		"catalog RatingSource's enum (api/catalog/v1alpha1/shared_types.go) must equal pkg/metadata's RatingSource* constants")
+}
+
+// ratingSourceConstants returns the sorted string values of every constant
+// declared in the named file whose identifier starts with "RatingSource".
+func ratingSourceConstants(t *testing.T, path string) []string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	require.NoError(t, err)
+	var out []string
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs := spec.(*ast.ValueSpec)
+			for i, name := range vs.Names {
+				if !strings.HasPrefix(name.Name, "RatingSource") {
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				require.True(t, ok, "%s is not a string literal", name.Name)
 				s, err := strconv.Unquote(lit.Value)
 				require.NoError(t, err)
 				out = append(out, s)

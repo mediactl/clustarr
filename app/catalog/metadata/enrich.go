@@ -20,8 +20,10 @@ package metadata
 import (
 	"context"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -114,6 +116,92 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 			*imagesp = append(*imagesp, img)
 		}
 	}
+}
+
+// enrichRatings computes status.metadata.ratings for kind, from
+// reg.Ratings in priority order (spec §C.2), given the ids the primary
+// fetch and enrich's crosswalk settled on and prior -- the target's
+// current status.metadata.ratings, read before this refresh started.
+//
+// For each provider in order it computes need: the sources
+// (RatingsProvider.RatingSources(kind)) that provider declares and that no
+// higher-priority provider has already filled this pass. A provider whose
+// need is empty is skipped without a call -- "a provider not declaring a
+// source is never asked for it" extends to "and never asked again once a
+// higher-priority provider already filled everything it could offer". A
+// provider that IS called is called exactly once; on error this logs at
+// warn and moves on to the next provider, filling nothing -- a failing
+// provider must not blank a source a previous provider (this pass or a
+// past one) already supplied. On success only the sources still in need
+// are copied from its result, even if it returned more: a provider must
+// never overwrite a source a higher-priority provider already filled.
+//
+// Once every provider has been tried, any source still unfilled is carried
+// forward from prior -- exactly as resolveIDs above carries known ids
+// forward -- so a provider outage this pass cannot strip a rating badge a
+// past refresh already earned. A source with both a zero ValueCentis and
+// zero Votes is dropped rather than copied (Review Focus 5): that shape is
+// "the provider has nothing to say", not a genuine zero score, and a Rating
+// with no votes at all would render as a 0/10 badge no source actually
+// reported.
+func enrichRatings(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs, prior []catalogv1alpha1.Rating) []catalogv1alpha1.Rating {
+	if reg == nil || len(reg.Ratings) == 0 {
+		return prior
+	}
+	ctx, span := tracing.Start(ctx, "metadata.enrichRatings")
+	defer span.End()
+
+	filled := make(map[catalogv1alpha1.RatingSource]catalogv1alpha1.Rating, len(prior))
+	for _, p := range reg.Ratings {
+		declared := p.RatingSources(kind)
+		if len(declared) == 0 {
+			continue
+		}
+		var need []string
+		for _, s := range declared {
+			if _, ok := filled[catalogv1alpha1.RatingSource(s)]; !ok {
+				need = append(need, s)
+			}
+		}
+		if len(need) == 0 {
+			continue
+		}
+
+		rCtx, rSpan := tracing.Start(ctx, "metadata.RatingsProvider.Ratings")
+		result, err := p.Ratings(rCtx, kind, ids)
+		if err != nil {
+			tracing.RecordError(rSpan, err)
+			rSpan.End()
+			logging.FromContext(ctx).Warn("ratings provider failed", "provider", p.Name(), "error", err)
+			continue
+		}
+		rSpan.End()
+
+		for _, s := range need {
+			r, ok := result[s]
+			if !ok || (r.ValueCentis == 0 && r.Votes == 0) {
+				continue
+			}
+			filled[catalogv1alpha1.RatingSource(s)] = catalogv1alpha1.Rating{
+				Source: catalogv1alpha1.RatingSource(s), ValueCentis: r.ValueCentis, Votes: r.Votes,
+			}
+		}
+	}
+
+	for _, r := range prior {
+		if _, ok := filled[r.Source]; !ok {
+			filled[r.Source] = r
+		}
+	}
+
+	if len(filled) == 0 {
+		return nil
+	}
+	out := make([]catalogv1alpha1.Rating, 0, len(filled))
+	for _, r := range filled {
+		out = append(out, r)
+	}
+	return out
 }
 
 // docFields returns pointers to a fetched document's ExternalIDs and, for

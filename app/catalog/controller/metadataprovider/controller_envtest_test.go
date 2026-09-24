@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -243,5 +244,63 @@ func TestReconcileAnAddedTypeWithARejectedCredentialIsNotReady(t *testing.T) {
 	auth := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MetadataProviderConditionAuthenticated)
 	if auth == nil || auth.Status != metav1.ConditionFalse {
 		t.Errorf("Authenticated = %+v, want False", auth)
+	}
+}
+
+// TestReconcileMDBListAndOMDbAreNotReadyUnderR5 is ruling R5's CR-level
+// contract (spec §C.3): with neither client written (no recorded response
+// shape; MDBLIST_API_KEY/OMDB_API_KEY unset at task C1's dispatch), a
+// MetadataProvider naming either type must not read as merely unimplemented
+// (Ready=Unknown/ProviderNotImplemented, the fate of a type this package
+// has genuinely never heard of) -- it is a real MetadataProviderType the
+// CRD enum and this Reconciler both know, so it reports a definite
+// Ready=False/InvalidSpec, with the message naming exactly what blocks it,
+// through the real Reconciler and a real apiserver.
+func TestReconcileMDBListAndOMDbAreNotReadyUnderR5(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := "mdp-ratings-blocked"
+	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	for _, typ := range []catalogv1alpha1.MetadataProviderType{
+		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
+	} {
+		t.Run(string(typ), func(t *testing.T) {
+			name := string(typ)
+			secret := map[string][]byte{"apiKey": []byte("would-be-a-real-key")}
+			if err := c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Data: secret}); err != nil {
+				t.Fatalf("create secret: %v", err)
+			}
+			if err := c.Create(ctx, &catalogv1alpha1.MetadataProvider{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+				Spec: catalogv1alpha1.MetadataProviderSpec{
+					Type: typ, SecretRef: &corev1.LocalObjectReference{Name: name},
+				},
+			}); err != nil {
+				t.Fatalf("create MetadataProvider: %v", err)
+			}
+
+			r := metadataprovider.NewReconciler(c, events.NewFakeRecorder(10), http.DefaultClient)
+			if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}); err != nil {
+				t.Fatalf("Reconcile %s: %v", typ, err)
+			}
+			var got catalogv1alpha1.MetadataProvider
+			if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
+				t.Fatalf("get: %v", err)
+			}
+
+			ready := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MetadataProviderConditionReady)
+			if ready == nil || ready.Status != metav1.ConditionFalse {
+				t.Fatalf("Ready = %+v, want False", ready)
+			}
+			if ready.Reason != k8s.ReasonInvalidSpec {
+				t.Errorf("Ready.Reason = %q, want %q -- not ProviderNotImplemented, the type is known", ready.Reason, k8s.ReasonInvalidSpec)
+			}
+			if !strings.Contains(ready.Message, "not implemented: awaiting recorded fixtures (C1 follow-up)") {
+				t.Errorf("Ready.Message = %q, want it to name the R5 block", ready.Message)
+			}
+		})
 	}
 }

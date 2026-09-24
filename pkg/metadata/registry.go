@@ -38,6 +38,11 @@ type Registry struct {
 	Comics     []ComicProvider
 	Artwork    []ArtworkProvider
 	Resolvers  []IDResolver
+	// Ratings is ordered by priority like Artwork: the gateway's
+	// enrichRatings (app/catalog/metadata/enrich.go) walks it in order,
+	// computing what each provider still needs to be asked for rather than
+	// taking a single "first that answers" result the way Lookup does.
+	Ratings []RatingsProvider
 }
 
 // Lookup fetches a single entity of kind, identified by ids, from the first

@@ -50,7 +50,7 @@ func TestBuildMovieMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 		AlternateTitles: []pkgmetadata.AltTitle{{Title: "Origen"}, {Title: "Inception: Le Origini"}},
 	}
 
-	ac := buildMovieMetadataAC(m, now)
+	ac := buildMovieMetadataAC(m, nil, now)
 
 	require.Equal(t, "Inception", *ac.Title)
 	require.EqualValues(t, 148, *ac.RuntimeMinutes)
@@ -86,7 +86,7 @@ func TestBuildMovieMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
 		m.Genres = append(m.Genres, "Genre")
 	}
 
-	ac := buildMovieMetadataAC(m, time.Now())
+	ac := buildMovieMetadataAC(m, nil, time.Now())
 	require.Len(t, ac.AlternateTitles, 50, "MovieMetadata.AlternateTitles: +kubebuilder:validation:MaxItems=50")
 	require.Len(t, ac.Images, 50, "MovieMetadata.Images: +kubebuilder:validation:MaxItems=50")
 	require.Len(t, ac.ReleaseDates, 60, "MovieMetadata.ReleaseDates: +kubebuilder:validation:MaxItems=60")
@@ -97,13 +97,13 @@ func TestBuildMovieMetadataACOmitsCollectionWithoutATMDBID(t *testing.T) {
 	withTMDB := &pkgmetadata.Movie{Collection: &pkgmetadata.Collection{
 		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyTMDB: "1241"}, Title: "The Mummy Collection",
 	}}
-	ac := buildMovieMetadataAC(withTMDB, time.Now())
+	ac := buildMovieMetadataAC(withTMDB, nil, time.Now())
 	require.NotNil(t, ac.Collection)
 	require.EqualValues(t, 1241, *ac.Collection.TmdbID)
 	require.Equal(t, "The Mummy Collection", *ac.Collection.Name)
 
 	withoutTMDB := &pkgmetadata.Movie{Collection: &pkgmetadata.Collection{Title: "Untethered"}}
-	ac = buildMovieMetadataAC(withoutTMDB, time.Now())
+	ac = buildMovieMetadataAC(withoutTMDB, nil, time.Now())
 	require.Nil(t, ac.Collection, "CollectionRef.TmdbID is +required; without one, omit the collection rather than send a zero id")
 }
 
@@ -119,7 +119,7 @@ func TestBuildSeriesMetadataACMapsAlternateTitlesAsStructsNotStrings(t *testing.
 			{Title: "Le Trône de Fer"},
 		},
 	}
-	ac := buildSeriesMetadataAC(s, time.Now())
+	ac := buildSeriesMetadataAC(s, nil, time.Now())
 
 	require.Equal(t, "Game of Thrones", *ac.Title)
 	require.Equal(t, catalogv1alpha1.SeriesRunStatus("ended"), *ac.Status)
@@ -127,6 +127,92 @@ func TestBuildSeriesMetadataACMapsAlternateTitlesAsStructsNotStrings(t *testing.
 	require.Equal(t, "GoT", *ac.AlternateTitles[0].Title)
 	require.EqualValues(t, 1, *ac.AlternateTitles[0].SceneSeason)
 	require.Nil(t, ac.AlternateTitles[1].SceneSeason)
+}
+
+// TestBuildMovieMetadataACRendersRatingsSortedBySource proves
+// buildMovieMetadataAC's WithRatings call renders every entry
+// enrichRatings hands it, in Source order -- spec §C.2's own wording,
+// "patch.go renders ... sorted by source" -- regardless of the input
+// slice's order, which enrichRatings does not guarantee (it is built from
+// map iteration).
+func TestBuildMovieMetadataACRendersRatingsSortedBySource(t *testing.T) {
+	ratings := []catalogv1alpha1.Rating{
+		{Source: catalogv1alpha1.RatingSourceTrakt, ValueCentis: 800, Votes: 50},
+		{Source: catalogv1alpha1.RatingSourceIMDb, ValueCentis: 833, Votes: 900},
+		{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 837, Votes: 36892},
+	}
+	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Inception"}, ratings, time.Now())
+
+	require.Len(t, ac.Ratings, 3)
+	var sources []catalogv1alpha1.RatingSource
+	for _, r := range ac.Ratings {
+		sources = append(sources, *r.Source)
+	}
+	require.Equal(t, []catalogv1alpha1.RatingSource{
+		catalogv1alpha1.RatingSourceIMDb, catalogv1alpha1.RatingSourceTMDB, catalogv1alpha1.RatingSourceTrakt,
+	}, sources, "rendered in Source order, not input order")
+	require.EqualValues(t, 833, *ac.Ratings[0].ValueCentis)
+	require.EqualValues(t, 900, *ac.Ratings[0].Votes)
+}
+
+// TestBuildMovieMetadataACOmitsRatingsWhenEmpty proves a Movie with no
+// ratings (nil from enrichRatings, e.g. no RatingsProvider registered and
+// no prior status) renders no Ratings field at all, matching every other
+// optional list this file only sends when non-empty.
+func TestBuildMovieMetadataACOmitsRatingsWhenEmpty(t *testing.T) {
+	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "No Ratings"}, nil, time.Now())
+	require.Empty(t, ac.Ratings)
+}
+
+// TestBuildMovieMetadataACCapsRatingsAtSeven proves ratingsMaxItems is
+// enforced even if enrichRatings were ever handed more than the CRD's
+// seven declared sources.
+func TestBuildMovieMetadataACCapsRatingsAtSeven(t *testing.T) {
+	var ratings []catalogv1alpha1.Rating
+	for _, s := range []catalogv1alpha1.RatingSource{
+		catalogv1alpha1.RatingSourceIMDb, catalogv1alpha1.RatingSourceTMDB, catalogv1alpha1.RatingSourceRTCritic,
+		catalogv1alpha1.RatingSourceRTAudience, catalogv1alpha1.RatingSourceMetacritic, catalogv1alpha1.RatingSourceTrakt,
+		catalogv1alpha1.RatingSourceLetterboxd, "eighth-not-a-real-source",
+	} {
+		ratings = append(ratings, catalogv1alpha1.Rating{Source: s, ValueCentis: 500, Votes: 1})
+	}
+	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Padded"}, ratings, time.Now())
+	require.Len(t, ac.Ratings, 7, "MovieMetadata.Ratings: +kubebuilder:validation:MaxItems=7")
+}
+
+// TestBuildSeriesMetadataACSetsFirstAiredFromTheProviderDocument proves
+// s.FirstAired (TVDB's firstAired) reaches status.metadata.firstAired,
+// which Plex requires (spec §C.1).
+func TestBuildSeriesMetadataACSetsFirstAiredFromTheProviderDocument(t *testing.T) {
+	first := time.Date(2011, 4, 17, 0, 0, 0, 0, time.UTC)
+	s := &pkgmetadata.Series{Title: "Game of Thrones", FirstAired: &first}
+	ac := buildSeriesMetadataAC(s, nil, time.Now())
+	require.NotNil(t, ac.FirstAired)
+	require.True(t, ac.FirstAired.Equal(&metav1.Time{Time: first}))
+}
+
+// TestBuildSeriesMetadataACOmitsFirstAiredWhenTheProviderHasNone proves a
+// nil FirstAired renders no firstAired field at all, not the zero time --
+// SSA's complete-declaration rule means a genuinely unknown air date must
+// stay absent, not become "0001-01-01" and fail CEL/format validation.
+func TestBuildSeriesMetadataACOmitsFirstAiredWhenTheProviderHasNone(t *testing.T) {
+	ac := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "No FirstAired"}, nil, time.Now())
+	require.Nil(t, ac.FirstAired)
+}
+
+// TestBuildSeriesMetadataACRendersRatingsSortedBySource is
+// TestBuildMovieMetadataACRendersRatingsSortedBySource's Series
+// counterpart.
+func TestBuildSeriesMetadataACRendersRatingsSortedBySource(t *testing.T) {
+	ratings := []catalogv1alpha1.Rating{
+		{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 780, Votes: 5000},
+		{Source: catalogv1alpha1.RatingSourceIMDb, ValueCentis: 920, Votes: 20000},
+	}
+	ac := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Game of Thrones"}, ratings, time.Now())
+
+	require.Len(t, ac.Ratings, 2)
+	require.Equal(t, catalogv1alpha1.RatingSourceIMDb, *ac.Ratings[0].Source)
+	require.Equal(t, catalogv1alpha1.RatingSourceTMDB, *ac.Ratings[1].Source)
 }
 
 func TestBuildSeriesMetadataACCapsAlternateTitlesAt100(t *testing.T) {
@@ -137,7 +223,7 @@ func TestBuildSeriesMetadataACCapsAlternateTitlesAt100(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		s.Genres = append(s.Genres, "Genre")
 	}
-	ac := buildSeriesMetadataAC(s, time.Now())
+	ac := buildSeriesMetadataAC(s, nil, time.Now())
 	require.Len(t, ac.AlternateTitles, 100, "SeriesMetadata.AlternateTitles: +kubebuilder:validation:MaxItems=100")
 	require.Len(t, ac.Genres, 30, "SeriesMetadata.Genres: +kubebuilder:validation:MaxItems=30 -- previously sent uncapped")
 }
@@ -153,7 +239,7 @@ func TestBuildSeriesMetadataACCapsAlternateTitlesAt100(t *testing.T) {
 // expensive (needs KUBEBUILDER_ASSETS) and indirect (the failure surfaces
 // as an apiserver rejection, not a builder assertion).
 func TestBuildMovieMetadataACOmitsStatusWhenEmpty(t *testing.T) {
-	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "No Status"}, time.Now())
+	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "No Status"}, nil, time.Now())
 	require.Nil(t, ac.Status, "MovieReleaseStatus has no empty enum member; \"\" must stay unset, not sent as a zero value")
 }
 
@@ -162,7 +248,7 @@ func TestBuildMovieMetadataACOmitsStatusWhenEmpty(t *testing.T) {
 // SeriesRunStatus (continuing;ended;upcoming), which has the same
 // no-empty-member shape.
 func TestBuildSeriesMetadataACOmitsStatusWhenEmpty(t *testing.T) {
-	ac := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "No Status"}, time.Now())
+	ac := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "No Status"}, nil, time.Now())
 	require.Nil(t, ac.Status, "SeriesRunStatus has no empty enum member; \"\" must stay unset, not sent as a zero value")
 }
 
@@ -551,7 +637,7 @@ func TestMapImageTypeCoversEveryPkgMetadataRole(t *testing.T) {
 }
 
 func TestBuildMovieMetadataACCarriesSecondaryYear(t *testing.T) {
-	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Festival Premiere", Year: 2021, SecondaryYear: 2020}, time.Now())
+	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Festival Premiere", Year: 2021, SecondaryYear: 2020}, nil, time.Now())
 	require.EqualValues(t, 2021, *ac.Year)
 	require.EqualValues(t, 2020, *ac.SecondaryYear)
 }

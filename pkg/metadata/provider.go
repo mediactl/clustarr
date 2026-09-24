@@ -135,3 +135,22 @@ type IDResolver interface {
 	Provider
 	Resolve(ctx context.Context, kind commonv1.MediaKind, ids ExternalIDs) (ExternalIDs, error)
 }
+
+// RatingsProvider supplies ratings for any media kind, independent of that
+// kind's primary metadata provider -- mdblist and omdb rate a Movie or
+// Series without being a MovieProvider or SeriesProvider at all, and tmdb
+// implements this alongside MovieProvider, from the same fetch (spec
+// §C.2). RatingSources declares, for kind, which Rating.Source values (the
+// RatingSource* constants in model.go) this provider can ever fill; the
+// gateway's enrichRatings (app/catalog/metadata/enrich.go) uses it to
+// compute what a provider still needs to be asked for, so a provider is
+// never called for a source it does not declare and never overwrites a
+// source a higher-priority provider already filled. Ratings performs one
+// call and returns every source this provider has for ids, keyed exactly
+// as RatingSources names them; enrichRatings copies out only the sources
+// it still needs.
+type RatingsProvider interface {
+	Provider
+	RatingSources(kind commonv1.MediaKind) []string
+	Ratings(ctx context.Context, kind commonv1.MediaKind, ids ExternalIDs) (Ratings, error)
+}

@@ -24,9 +24,41 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
+
+// stubRatingsProvider is a fake metadata.RatingsProvider: it declares
+// sources fixed at construction, returns ratings fixed at construction (or
+// err), and counts how many times Ratings was actually called -- the
+// enrichRatings tests below assert on *calls directly, proving "one call
+// per provider" and "a provider not declaring a source is never asked for
+// it" (an untouched pointer means zero calls).
+type stubRatingsProvider struct {
+	name     string
+	declared []string
+	ratings  pkgmetadata.Ratings
+	err      error
+	calls    *int
+}
+
+func (p stubRatingsProvider) Name() string { return p.name }
+func (p stubRatingsProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+
+func (p stubRatingsProvider) RatingSources(commonv1.MediaKind) []string { return p.declared }
+
+func (p stubRatingsProvider) Ratings(context.Context, commonv1.MediaKind, pkgmetadata.ExternalIDs) (pkgmetadata.Ratings, error) {
+	if p.calls != nil {
+		*p.calls++
+	}
+	if p.err != nil {
+		return nil, p.err
+	}
+	return p.ratings, nil
+}
 
 type chainResolver struct {
 	name string
@@ -138,4 +170,127 @@ func TestEnrichWithNothingRegisteredLeavesTheDocumentAlone(t *testing.T) {
 	doc := &pkgmetadata.Movie{IDs: pkgmetadata.ExternalIDs{"tmdb": "603"}}
 	enrich(context.Background(), &pkgmetadata.Registry{}, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603", "region": "us"}, pkgmetadata.ExternalIDs{"imdb": "tt0133093"}, doc)
 	require.Equal(t, pkgmetadata.ExternalIDs{"tmdb": "603"}, doc.IDs)
+}
+
+// TestEnrichRatingsHigherPriorityWins is spec §C.2: a lower-priority
+// provider that also declares "imdb" must never overwrite the value the
+// first, higher-priority provider already filled -- and it is still asked
+// for the source it alone declares ("trakt").
+func TestEnrichRatingsHigherPriorityWins(t *testing.T) {
+	var firstCalls, secondCalls int
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{
+			name: "first", declared: []string{"imdb"}, calls: &firstCalls,
+			ratings: pkgmetadata.Ratings{"imdb": {Source: "imdb", ValueCentis: 900, Votes: 100}},
+		},
+		stubRatingsProvider{
+			name: "second", declared: []string{"imdb", "trakt"}, calls: &secondCalls,
+			ratings: pkgmetadata.Ratings{"imdb": {Source: "imdb", ValueCentis: 100, Votes: 1}, "trakt": {Source: "trakt", ValueCentis: 800, Votes: 50}},
+		},
+	}}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+
+	require.Equal(t, 1, firstCalls)
+	require.Equal(t, 1, secondCalls, "second is still called for trakt, which only it declares")
+	byS := ratingsBySource(got)
+	require.Equal(t, int32(900), byS[catalogv1alpha1.RatingSourceIMDb].ValueCentis, "first's imdb value wins, not second's")
+	require.Equal(t, int32(800), byS[catalogv1alpha1.RatingSourceTrakt].ValueCentis)
+}
+
+// TestEnrichRatingsFailingProviderBlanksNothing is spec §C.2: a provider
+// error is logged at warn and the loop continues, and it must never erase
+// what a previous provider (this pass, or a past one via prior) already
+// filled.
+func TestEnrichRatingsFailingProviderBlanksNothing(t *testing.T) {
+	var failCalls int
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{
+			name: "good", declared: []string{"imdb"},
+			ratings: pkgmetadata.Ratings{"imdb": {Source: "imdb", ValueCentis: 833, Votes: 900}},
+		},
+		stubRatingsProvider{name: "down", declared: []string{"trakt"}, calls: &failCalls, err: errors.New("mdblist: unexpected status 502")},
+	}}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+
+	require.Equal(t, 1, failCalls)
+	byS := ratingsBySource(got)
+	require.Equal(t, int32(833), byS[catalogv1alpha1.RatingSourceIMDb].ValueCentis, "a later provider failing must not blank an earlier one's fill")
+	_, hasTrakt := byS[catalogv1alpha1.RatingSourceTrakt]
+	require.False(t, hasTrakt, "the failing provider contributed nothing, not a zero-value entry")
+}
+
+// TestEnrichRatingsNeverAsksAProviderForASourceItDoesNotDeclare proves a
+// provider whose declared sources are already fully filled by a
+// higher-priority provider is skipped without a call at all -- "a provider
+// not declaring a source is never asked for it" extended to "and not asked
+// again once nothing it declares is still needed".
+func TestEnrichRatingsNeverAsksAProviderForASourceItDoesNotDeclare(t *testing.T) {
+	var neverCalls int
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{
+			name: "first", declared: []string{"imdb"},
+			ratings: pkgmetadata.Ratings{"imdb": {Source: "imdb", ValueCentis: 900, Votes: 100}},
+		},
+		stubRatingsProvider{
+			name: "redundant", declared: []string{"imdb"}, calls: &neverCalls,
+			ratings: pkgmetadata.Ratings{"imdb": {Source: "imdb", ValueCentis: 100, Votes: 1}},
+		},
+	}}
+
+	enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+
+	require.Equal(t, 0, neverCalls, "everything redundant declares was already filled by first; it must never be asked")
+}
+
+// TestEnrichRatingsCarriesForwardOnTotalFailure is spec §C.2: when every
+// provider fails (or declares nothing), whatever prior already had for a
+// source survives unchanged -- a transient outage must not strip a badge a
+// past refresh already earned.
+func TestEnrichRatingsCarriesForwardOnTotalFailure(t *testing.T) {
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{name: "down", declared: []string{"imdb", "tmdb"}, err: errors.New("tmdb: unexpected status 503")},
+	}}
+	prior := []catalogv1alpha1.Rating{
+		{Source: catalogv1alpha1.RatingSourceIMDb, ValueCentis: 833, Votes: 900},
+		{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 810, Votes: 500},
+	}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, prior)
+
+	require.ElementsMatch(t, prior, got)
+}
+
+// TestEnrichRatingsOmitsAZeroValueWithZeroVotes is Review Focus 5: a source
+// that answers with ValueCentis 0 and Votes 0 -- "nothing to report", not a
+// genuine 0/10 -- is dropped rather than copied into status.metadata.ratings.
+func TestEnrichRatingsOmitsAZeroValueWithZeroVotes(t *testing.T) {
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{
+			name: "empty", declared: []string{"imdb"},
+			ratings: pkgmetadata.Ratings{"imdb": {Source: "imdb", ValueCentis: 0, Votes: 0}},
+		},
+	}}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+
+	require.Empty(t, got, "a zero value with zero votes must be omitted, not sent as an empty rating")
+}
+
+// TestEnrichRatingsWithNoRegisteredProvidersReturnsPriorUnchanged mirrors
+// TestEnrichWithNothingRegisteredLeavesTheDocumentAlone for ratings: an
+// empty Registry.Ratings is a no-op over prior.
+func TestEnrichRatingsWithNoRegisteredProvidersReturnsPriorUnchanged(t *testing.T) {
+	prior := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceIMDb, ValueCentis: 833, Votes: 900}}
+	got := enrichRatings(context.Background(), &pkgmetadata.Registry{}, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, prior)
+	require.Equal(t, prior, got)
+}
+
+func ratingsBySource(ratings []catalogv1alpha1.Rating) map[catalogv1alpha1.RatingSource]catalogv1alpha1.Rating {
+	out := make(map[catalogv1alpha1.RatingSource]catalogv1alpha1.Rating, len(ratings))
+	for _, r := range ratings {
+		out[r.Source] = r
+	}
+	return out
 }

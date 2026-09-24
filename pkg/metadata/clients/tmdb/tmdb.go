@@ -61,6 +61,7 @@ import (
 	rawtmdb "github.com/cyruzin/golang-tmdb"
 	"golang.org/x/time/rate"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -258,6 +259,43 @@ func (c *Client) FindMovie(ctx context.Context, ids metadata.ExternalIDs) (*meta
 
 	tmdbID := strconv.FormatInt(found.MovieResults[0].ID, 10)
 	return c.Movie(ctx, tmdbID, "")
+}
+
+// RatingSources declares which Rating.Source values this client can ever
+// fill (metadata.RatingsProvider), per spec §C.2's table: tmdb, for movies
+// only. TMDB has no SeriesProvider in this client (this package has never
+// fetched or fixture-tested TMDB's TV endpoints; TVDB is the registry's
+// primary series source), so this deliberately declares no source for any
+// other MediaKind rather than reaching for an endpoint with no recorded
+// fixture behind it.
+func (c *Client) RatingSources(kind commonv1.MediaKind) []string {
+	if kind == commonv1.MediaKindMovie {
+		return []string{metadata.RatingSourceTMDB}
+	}
+	return nil
+}
+
+// Ratings implements metadata.RatingsProvider for kind == MediaKindMovie by
+// reusing Movie -- "the fetch it already performs" (spec §C.2's table) --
+// rather than a second, ratings-only endpoint: mapMovie already builds
+// Ratings{"tmdb": ...} from vote_average/vote_count on every call. ids must
+// carry a TMDB id; this client has no other crosswalk for a ratings-only
+// lookup (FindMovie's imdb_id/tvdb_id fallback exists for the primary fetch
+// path, not this one, so a caller wanting mdblist- or omdb-style
+// imdb-keyed rating lookups uses those providers instead).
+func (c *Client) Ratings(ctx context.Context, kind commonv1.MediaKind, ids metadata.ExternalIDs) (metadata.Ratings, error) {
+	if kind != commonv1.MediaKindMovie {
+		return nil, metadata.ErrUnsupported
+	}
+	tmdbID, ok := ids[metadata.KeyTMDB]
+	if !ok {
+		return nil, metadata.ErrUnsupported
+	}
+	m, err := c.Movie(ctx, tmdbID, "")
+	if err != nil {
+		return nil, err
+	}
+	return m.Ratings, nil
 }
 
 // SearchMovies searches TMDB's movie index by title (GET /search/movie,

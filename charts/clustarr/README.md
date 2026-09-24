@@ -229,6 +229,24 @@ forward-compatible within a few minor versions of API server skew, and
 there is no newer KEDA release to pick instead; revisit this pin once one
 lists 1.36 or 1.37 in its compatibility table.
 
+## Ratings providers
+
+`catalogarr-metadata`'s `enrichRatings` fills `status.metadata.ratings` on a Movie or Series
+(and Series' `status.metadata.firstAired`) from every enabled `MetadataProvider` that declares
+ratings sources, in ascending `spec.priority` order: a higher-priority provider's value for a
+source is never overwritten by a lower-priority one, and a provider that fails or is disabled
+leaves whatever a previous refresh already had (spec §C.2).
+
+| `spec.type` | Sources | `secretRef` key | Status |
+| --- | --- | --- | --- |
+| `tmdb` | `tmdb` (movies only -- reuses the same fetch that fills `status.metadata` itself; this client has no TMDB series lookup, so it never rates a Series) | `apiKey` | implemented |
+| `mdblist` | `imdb`, `tmdb`, `rottenTomatoesCritic`, `rottenTomatoesAudience`, `metacritic`, `trakt`, `letterboxd` | `apiKey` | **not yet implemented** -- the CRD accepts the type, but ruling R5 (`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md` §C.3) blocks writing the client until a response shape is recorded (`docs/research/ratings-providers.md`); a CR of this type reports `Ready=False` with a message naming the block |
+| `omdb` | `imdb`, `rottenTomatoesCritic`, `metacritic` | `apiKey` | **not yet implemented**, same reason as `mdblist` |
+
+`spec.baseURL` overrides apply the same way they do for every other provider (an e2e stub can
+point at itself); `spec.rateLimit` overrides the per-host limiter the controller holds, as for
+every provider -- clustarr never defaults a limiter on inside a client library.
+
 ## Cardigann definitions
 
 indexarr applies Cardigann indexer definitions as `IndexerDefinition`s at

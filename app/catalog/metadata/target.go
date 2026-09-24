@@ -150,6 +150,26 @@ func knownExternalIDs(obj client.Object) pkgmetadata.ExternalIDs {
 	return nil
 }
 
+// knownRatings returns the target's current status.metadata.ratings --
+// enrichRatings' prior, carried forward for any source no provider can
+// fill this pass (CLAUDE.md: a transient failure must not gut a healthy
+// object). Only Movie and Series carry a Ratings field
+// (api/catalog/v1alpha1/movie_types.go, series_types.go); every other kind
+// returns nil, since enrichRatings is only ever called for those two.
+func knownRatings(obj client.Object) []catalogv1alpha1.Rating {
+	switch o := obj.(type) {
+	case *catalogv1alpha1.Movie:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	case *catalogv1alpha1.Series:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.Ratings
+		}
+	}
+	return nil
+}
+
 // refreshedAt returns the target's previous status.metadata.refreshedAt, or
 // the zero time when it has never been fetched -- the "lastRefreshed"
 // pkg/metadata.RefreshTTL needs.

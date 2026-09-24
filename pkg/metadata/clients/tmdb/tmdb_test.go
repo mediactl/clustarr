@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 )
@@ -58,6 +59,70 @@ func TestMovieMapsTMDBFieldsIntoTheNormalizedModel(t *testing.T) {
 	require.EqualValues(t, 837, m.Ratings["tmdb"].ValueCentis, "8.369 * 100, rounded")
 	require.True(t, m.InCinemas.Equal(time.Date(2010, 7, 16, 0, 0, 0, 0, time.UTC)))
 	require.Equal(t, metadata.MovieStatusReleased, m.Status)
+}
+
+// TestRatingSourcesDeclaresTMDBForMovieOnly is spec §C.2's table: tmdb
+// declares its own source for MediaKindMovie and nothing for any other
+// kind (this client has no SeriesProvider, so it must never be asked to
+// rate a series it cannot fetch).
+func TestRatingSourcesDeclaresTMDBForMovieOnly(t *testing.T) {
+	c, err := tmdb.New("test-key", http.DefaultClient, "", metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	require.Equal(t, []string{metadata.RatingSourceTMDB}, c.RatingSources(commonv1.MediaKindMovie))
+	require.Empty(t, c.RatingSources(commonv1.MediaKindSeries))
+	require.Empty(t, c.RatingSources(commonv1.MediaKindAlbum))
+}
+
+// TestRatingsReusesTheMovieFetch proves Ratings(MediaKindMovie, ...) reads
+// through the same recorded fixture (test/data/metadata/tmdb/movie_27205.json)
+// TestMovieMapsTMDBFieldsIntoTheNormalizedModel does, and returns exactly
+// the "tmdb" entry Movie's own mapMovie already builds from vote_average
+// and vote_count -- "the fetch it already performs", not a second endpoint.
+func TestRatingsReusesTheMovieFetch(t *testing.T) {
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
+	require.NoError(t, err)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		require.Equal(t, "/movie/27205", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	ratings, err := c.Ratings(context.Background(), commonv1.MediaKindMovie, metadata.ExternalIDs{metadata.KeyTMDB: "27205"})
+	require.NoError(t, err)
+	require.Equal(t, 1, calls, "one call, the same GetMovieDetails Movie() already makes")
+	require.Len(t, ratings, 1)
+	require.Equal(t, metadata.RatingSourceTMDB, ratings["tmdb"].Source)
+	require.EqualValues(t, 837, ratings["tmdb"].ValueCentis)
+	require.EqualValues(t, 36892, ratings["tmdb"].Votes)
+}
+
+// TestRatingsRejectsAnythingButMovie proves this client refuses to be
+// asked for a series' or any other kind's ratings -- it has never fetched
+// one, and RatingSources already told the gateway not to ask.
+func TestRatingsRejectsAnythingButMovie(t *testing.T) {
+	c, err := tmdb.New("test-key", http.DefaultClient, "", metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	_, err = c.Ratings(context.Background(), commonv1.MediaKindSeries, metadata.ExternalIDs{metadata.KeyTMDB: "1399"})
+	require.ErrorIs(t, err, metadata.ErrUnsupported)
+}
+
+// TestRatingsRequiresATMDBID proves a Movie whose ExternalIDs carries no
+// tmdb key (only imdb, say) gets ErrUnsupported rather than a guessed
+// lookup -- this client's only ratings-keying is TMDB's own id.
+func TestRatingsRequiresATMDBID(t *testing.T) {
+	c, err := tmdb.New("test-key", http.DefaultClient, "", metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	_, err = c.Ratings(context.Background(), commonv1.MediaKindMovie, metadata.ExternalIDs{metadata.KeyIMDb: "tt1375666"})
+	require.ErrorIs(t, err, metadata.ErrUnsupported)
 }
 
 // TestMovieMapsAlternativeTitles: Movie asks TMDB to append the movie's

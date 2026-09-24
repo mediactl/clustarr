@@ -105,7 +105,13 @@ func BuildRegistry(ctx context.Context, c client.Client, namespace string, httpC
 			return nil, err
 		}
 		if err := addToRegistry(reg, p.Spec, secretData, httpClient); err != nil {
-			if errors.Is(err, ErrProviderNotImplemented) {
+			// ErrProviderAwaitingFixtures is treated exactly like
+			// ErrProviderNotImplemented here: an mdblist/omdb CR must not
+			// take the whole registry build down for every other
+			// provider. Its CR-level NotReady is a Reconciler concern
+			// (controller.go), fed by NewProber returning the same error
+			// unwrapped -- see that path's own errors.Is check.
+			if errors.Is(err, ErrProviderNotImplemented) || errors.Is(err, ErrProviderAwaitingFixtures) {
 				continue
 			}
 			return nil, fmt.Errorf("metadataprovider: build client for %s: %w", p.Name, err)
@@ -144,6 +150,7 @@ func addToRegistry(reg *metadata.Registry, spec catalogv1alpha1.MetadataProvider
 			return err
 		}
 		reg.Movies = append(reg.Movies, c)
+		reg.Ratings = append(reg.Ratings, c) // spec §C.2: tmdb declares its own source from the fetch it already performs.
 	case catalogv1alpha1.MetadataProviderTVDB:
 		reg.Series = append(reg.Series, tvdb.New(string(secret["apiKey"]), string(secret["pin"]), httpClient, baseURL(spec), limiterFor(spec, limits.TVDB, limits.TVDBBurst)))
 	case catalogv1alpha1.MetadataProviderMusicBrainz:
@@ -175,31 +182,37 @@ func addToRegistry(reg *metadata.Registry, spec catalogv1alpha1.MetadataProvider
 		if a.resolver != nil {
 			reg.Resolvers = append(reg.Resolvers, a.resolver)
 		}
+		if a.ratings != nil {
+			reg.Ratings = append(reg.Ratings, a.ratings)
+		}
 	}
 	return nil
 }
 
 // isSupplementary reports whether t is a provider no catalog CR is keyed
 // by -- artwork-only, a secondary source for a kind keyed by another
-// provider's id, or a pure crosswalk. It breaks priority ties: the
-// Registry takes the first provider that answers, every MetadataProvider
-// defaults to priority 50, and a default-priority Hardcover or Metron
-// sorts by name ahead of Open Library or ComicVine and would answer a
-// search with hits no CR can be created from. The gateway's own
-// BuildRegistry (app/catalog/metadata/registry.go) applies the same rule.
+// provider's id, ratings-only (mdblist, omdb), or a pure crosswalk. It
+// breaks priority ties: the Registry takes the first provider that
+// answers, every MetadataProvider defaults to priority 50, and a
+// default-priority Hardcover or Metron sorts by name ahead of Open Library
+// or ComicVine and would answer a search with hits no CR can be created
+// from. The gateway's own BuildRegistry (app/catalog/metadata/registry.go)
+// applies the same rule.
 func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 	switch t {
 	case catalogv1alpha1.MetadataProviderCoverArt, catalogv1alpha1.MetadataProviderFanart,
 		catalogv1alpha1.MetadataProviderHardcover, catalogv1alpha1.MetadataProviderMetron,
 		catalogv1alpha1.MetadataProviderAniList, catalogv1alpha1.MetadataProviderKitsu,
-		catalogv1alpha1.MetadataProviderAnimeLists:
+		catalogv1alpha1.MetadataProviderAnimeLists,
+		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb:
 		return true
 	default:
 		return false
 	}
 }
 
-// supplementary is one of the eight clients task X6b added, with each
+// supplementary is one of the eight clients task X6b added, plus (once C1's
+// follow-up records mdblist and omdb's shapes) a ratings client, with each
 // Registry slot it fills (nil where it fills none) and the cheapest call
 // that proves it reachable.
 type supplementary struct {
@@ -207,6 +220,7 @@ type supplementary struct {
 	books    metadata.BookProvider
 	comics   metadata.ComicProvider
 	resolver metadata.IDResolver
+	ratings  metadata.RatingsProvider
 	ping     func(context.Context) error
 }
 
@@ -255,6 +269,11 @@ func buildSupplementary(spec catalogv1alpha1.MetadataProviderSpec, secret map[st
 	case catalogv1alpha1.MetadataProviderAnimeLists:
 		c := animelists.New(animelists.Config{HTTPClient: httpClient, URL: baseURL(spec), Limiter: limiterFor(spec, animelists.DefaultRate, animelists.DefaultBurst), UserAgent: ua})
 		return &supplementary{resolver: c, ping: c.Ping}, nil
+	case catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb:
+		// Ruling R5 (spec §C.3): the CRD enum member and secretRef shape
+		// exist, but no client is written against no recorded response
+		// shape. See ErrProviderAwaitingFixtures' doc comment (prober.go).
+		return nil, fmt.Errorf("metadataprovider: %s: %w", spec.Type, ErrProviderAwaitingFixtures)
 	default:
 		return nil, ErrProviderNotImplemented
 	}

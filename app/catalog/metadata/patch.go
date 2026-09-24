@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metadata
 
 import (
+	"sort"
 	"strconv"
 	"time"
 
@@ -62,11 +63,45 @@ func mapImageType(t pkgmetadata.ImageType) (catalogv1alpha1.ImageType, bool) {
 	}
 }
 
+// ratingsMaxItems is MovieMetadata.ratings' and SeriesMetadata.ratings'
+// shared +kubebuilder:validation:MaxItems (api/catalog/v1alpha1/movie_types.go,
+// series_types.go) -- one entry per RatingSource, of which the CRD enum
+// has exactly seven.
+const ratingsMaxItems = 7
+
+// renderRatings maps enrichRatings' result onto the CRD's
+// RatingApplyConfiguration list, sorted by Source for a deterministic apply
+// (spec §C.2's own wording: "patch.go renders ... sorted by source") and
+// capped at ratingsMaxItems like every other list this file caps. An empty
+// input renders nothing, which is safe precisely because enrichRatings
+// never returns fewer sources than status.metadata.ratings already carried
+// (unfilled sources are carried forward from prior) -- so omitting
+// WithRatings entirely here can only happen when there was never anything
+// to release in the first place.
+func renderRatings(ratings []catalogv1alpha1.Rating) []*catalogac.RatingApplyConfiguration {
+	if len(ratings) == 0 {
+		return nil
+	}
+	sorted := append([]catalogv1alpha1.Rating(nil), ratings...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Source < sorted[j].Source })
+	if len(sorted) > ratingsMaxItems {
+		sorted = sorted[:ratingsMaxItems]
+	}
+	out := make([]*catalogac.RatingApplyConfiguration, 0, len(sorted))
+	for _, r := range sorted {
+		out = append(out, catalogac.Rating().WithSource(r.Source).WithValueCentis(r.ValueCentis).WithVotes(r.Votes))
+	}
+	return out
+}
+
 // buildMovieMetadataAC maps a fetched provider Movie onto
 // MovieStatus.metadata, truncating every list to the CRD's own
 // +kubebuilder:validation:MaxItems cap (CLAUDE.md: "cap every status
-// list").
-func buildMovieMetadataAC(m *pkgmetadata.Movie, now time.Time) *catalogac.MovieMetadataApplyConfiguration {
+// list"). ratings is enrichRatings' result (app/catalog/metadata/enrich.go),
+// computed separately from m because RatingsProvider is independent of
+// MovieProvider -- not every source m.Ratings might carry (today, only
+// "tmdb" from the fetch that produced m) is the whole story.
+func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating, now time.Time) *catalogac.MovieMetadataApplyConfiguration {
 	ac := catalogac.MovieMetadata().
 		WithTitle(m.Title).
 		WithOriginalTitle(m.OriginalTitle).
@@ -130,14 +165,22 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, now time.Time) *catalogac.MovieM
 			}
 		}
 	}
+	if rs := renderRatings(ratings); len(rs) > 0 {
+		ac.WithRatings(rs...)
+	}
 	return ac
 }
 
 // buildSeriesMetadataAC maps a fetched provider Series onto
 // SeriesStatus.metadata. Unlike Movie, Series' CRD AlternateTitles is
 // []AltTitle{Title, SceneSeason}, not []string -- map the struct, not just
-// the title.
-func buildSeriesMetadataAC(s *pkgmetadata.Series, now time.Time) *catalogac.SeriesMetadataApplyConfiguration {
+// the title. FirstAired is TVDB's own firstAired (pkg/metadata/clients/tvdb),
+// carried straight through: spec §C.1 also names TMDB's first_air_date as an
+// acceptable source, but pkg/metadata/clients/tmdb has no SeriesProvider to
+// fetch it from (see that package's RatingSources doc comment), so TVDB is
+// the only source today. ratings is enrichRatings' result, exactly as
+// buildMovieMetadataAC's is.
+func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rating, now time.Time) *catalogac.SeriesMetadataApplyConfiguration {
 	ac := catalogac.SeriesMetadata().
 		WithTitle(s.Title).
 		WithSortTitle(s.SortTitle).
@@ -178,6 +221,12 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, now time.Time) *catalogac.Seri
 			alt.WithSceneSeason(*at.SceneSeason)
 		}
 		ac.WithAlternateTitles(alt)
+	}
+	if s.FirstAired != nil {
+		ac.WithFirstAired(metav1.NewTime(*s.FirstAired))
+	}
+	if rs := renderRatings(ratings); len(rs) > 0 {
+		ac.WithRatings(rs...)
 	}
 	return ac
 }
