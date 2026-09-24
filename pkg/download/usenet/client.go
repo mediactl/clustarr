@@ -1538,14 +1538,21 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 	if err := fsops.SafeRemove(ctx, c.cfg.ScratchDir, j.dir); err != nil {
 		return err
 	}
-	if !deleteData {
-		return nil
-	}
 	out := j.snapshotOutputPath()
 	if out == "" {
 		return nil
 	}
-	return fsops.SafeRemove(ctx, c.cfg.PublishDir, out)
+	if deleteData {
+		return fsops.SafeRemove(ctx, c.cfg.PublishDir, out)
+	}
+	// Keeping the data keeps the files, which the importer may have
+	// hard-linked into the library; a published folder the importer has
+	// emptied is not data, and one of them per import accumulated under
+	// the publish area on the owner's cluster (2026-09-24).
+	if entries, err := os.ReadDir(out); err == nil && len(entries) == 0 {
+		return fsops.SafeRemove(ctx, c.cfg.PublishDir, out)
+	}
+	return nil
 }
 
 // Close stops every transfer and releases the pool's connections. It blocks

@@ -893,3 +893,38 @@ func TestAResumedJobLogsThroughTheBaseContext(t *testing.T) {
 	waitForTerminal(t, second, id)
 	require.Contains(t, logs.String(), "skipping par2", "the resumed job's log lines reach the base context's logger")
 }
+
+// Remove without deleteData keeps the published files -- the importer may
+// have hard-linked them into the library -- but a published folder the
+// importer has emptied is not data, and one per import piled up under the
+// publish area on the owner's cluster.
+func TestRemoveKeepsDataButPrunesAnEmptiedPublishFolder(t *testing.T) {
+	srv := newStubServer(t)
+	for _, tc := range []struct {
+		name      string
+		emptyItOK bool
+	}{{"emptied by the importer", true}, {"still holding a file", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			nzb := buildNZB(t, srv, "Keep."+tc.name, []fileSpec{{name: "movie.mkv", parts: [][]byte{partPayload(8, 700)}}})
+			c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}})
+			id, err := c.Add(context.Background(), download.AddRequest{Name: "Keep." + tc.name, Payload: nzb})
+			require.NoError(t, err)
+			it := waitForTerminal(t, c, id)
+			require.Equal(t, download.StatusCompleted, it.Status)
+			out := it.OutputPath
+			require.NotEmpty(t, out)
+			if tc.emptyItOK {
+				require.NoError(t, os.Remove(filepath.Join(out, "movie.mkv")))
+			}
+
+			require.NoError(t, c.Remove(context.Background(), id, false))
+
+			_, err = os.Stat(out)
+			if tc.emptyItOK {
+				require.ErrorIs(t, err, os.ErrNotExist, "an emptied publish folder is pruned")
+			} else {
+				require.NoError(t, err, "a folder still holding data is kept")
+			}
+		})
+	}
+}
