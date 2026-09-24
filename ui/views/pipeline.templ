@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/mediactl/clustarr/pkg/pipeline"
+	"github.com/mediactl/clustarr/ui/paging"
 )
 
 // Pipeline renders the Pipeline page (§A3.4): one row per in-flight item,
@@ -33,19 +34,29 @@ import (
 // (and only what's inside it) must be exactly what PipelineRows renders --
 // the page heading lives outside the swapped element so it survives a live
 // update instead of being replaced by it.
-templ Pipeline(entries []pipeline.Entry) {
+templ Pipeline(p paging.Page, entries []pipeline.Entry) {
 	@Layout("Pipeline") {
 		<h1 class="mb-4 text-2xl font-bold">Pipeline</h1>
 		<div
 			id="pipeline-rows"
 			hx-ext="sse"
-			sse-connect="/events/pipeline"
+			sse-connect={ "/events/pipeline" + p.Query(p.Number) }
 			sse-swap="pipeline"
 			class="space-y-4"
 		>
-			@PipelineRows(entries)
+			@PipelineList(p, entries)
 		</div>
 	}
+}
+
+// PipelineList is what #pipeline-rows holds and what every /events/pipeline
+// frame carries: the pager, the page's rows, the pager again. entries is
+// already the page's window (paging.Window); p says where it sits, so the
+// counts in the pager are as live as the rows.
+templ PipelineList(p paging.Page, entries []pipeline.Entry) {
+	@Pager(p, "/pipeline")
+	@PipelineRows(entries)
+	@Pager(p, "/pipeline")
 }
 
 // PipelineRows renders the dynamic part of the Pipeline page: the "nothing

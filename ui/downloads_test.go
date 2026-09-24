@@ -33,6 +33,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -161,7 +162,7 @@ func TestDownloadsPageIncludesAClientSection(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	require.NoError(t, views.Downloads(nil, []downloadv1.DownloadClient{c}).Render(context.Background(), &buf))
+	require.NoError(t, views.Downloads(paging.Paginate(0, 1, paging.DefaultPer), nil, []downloadv1.DownloadClient{c}).Render(context.Background(), &buf))
 	require.Contains(t, buf.String(), `data-client="qbittorrent"`)
 	require.Contains(t, buf.String(), `data-protocol="torrent"`)
 }

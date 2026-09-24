@@ -25,6 +25,7 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -39,19 +40,28 @@ import (
 // htmx's SSE extension replaces that element's innerHTML with the named
 // event's data, so everything inside it (and only what's inside it) must be
 // exactly what UnmatchedRows renders.
-templ Unmatched(entries []projection.UnmatchedEntry) {
+templ Unmatched(p paging.Page, entries []projection.UnmatchedEntry) {
 	@Layout("Unmatched") {
 		<h1 class="mb-4 text-2xl font-bold">Unmatched</h1>
 		<div
 			id="unmatched-rows"
 			hx-ext="sse"
-			sse-connect="/events/unmatched"
+			sse-connect={ "/events/unmatched" + p.Query(p.Number) }
 			sse-swap="unmatched"
 			class="space-y-4"
 		>
-			@UnmatchedRows(entries)
+			@UnmatchedList(p, entries)
 		</div>
 	}
+}
+
+// UnmatchedList is what #unmatched-rows holds and what every
+// /events/unmatched frame carries: the pager, the page's rows, the pager
+// again. entries is already the page's window.
+templ UnmatchedList(p paging.Page, entries []projection.UnmatchedEntry) {
+	@Pager(p, "/unmatched")
+	@UnmatchedRows(entries)
+	@Pager(p, "/unmatched")
 }
 
 // UnmatchedRows renders the dynamic part of the Unmatched page: the "nothing

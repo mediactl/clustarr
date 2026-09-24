@@ -406,7 +406,7 @@ func TestLibraryTabRendersItsOwnCardsWithArtYearAndProfile(t *testing.T) {
 	require.Contains(t, body, `data-monitored="false"`)
 	require.Contains(t, body, `data-poster="none"`, "no poster yet renders a placeholder")
 	require.NotContains(t, body, `<img`, "no poster means no image tag")
-	require.Contains(t, body, `sse-connect="/events/library/tv"`)
+	require.Contains(t, body, `sse-connect="/events/library/tv?page=1&amp;per=50"`, "the stream carries the page's own window")
 	for _, tab := range projection.Tabs() {
 		require.Contains(t, body, fmt.Sprintf(`href="/library/%s"`, tab))
 	}

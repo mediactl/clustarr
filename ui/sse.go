@@ -29,6 +29,7 @@ import (
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
+	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
@@ -92,12 +93,17 @@ func (s *Server) handlePipelineEvents(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.opts.Subscribe()
 	defer unsubscribe()
 
+	// The page's own ?page and ?per, re-clamped against every push: the
+	// list can grow or shrink under an open stream, and the frame must be
+	// the page the reader is looking at, not page 1.
+	want := paging.Parse(r.URL.Query())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case entries := <-ch:
-			if !writePipelineEvent(w, ctx, entries) {
+			p := want.Page(len(entries))
+			if !writePipelineEvent(w, ctx, p, paging.Window(entries, p)) {
 				return
 			}
 			flusher.Flush()
@@ -108,13 +114,13 @@ func (s *Server) handlePipelineEvents(w http.ResponseWriter, r *http.Request) {
 // writePipelineEvent writes one "pipeline" SSE event for entries and
 // reports whether the write succeeded; a false return means the client is
 // gone and the caller should stop.
-func writePipelineEvent(w http.ResponseWriter, ctx context.Context, entries []pipeline.Entry) bool {
+func writePipelineEvent(w http.ResponseWriter, ctx context.Context, p paging.Page, entries []pipeline.Entry) bool {
 	if entries == nil {
 		entries = []pipeline.Entry{}
 	}
 
 	var fragment bytes.Buffer
-	if err := views.PipelineRows(entries).Render(ctx, &fragment); err != nil {
+	if err := views.PipelineList(p, entries).Render(ctx, &fragment); err != nil {
 		logging.FromContext(ctx).Error("render pipeline rows for sse", "error", err)
 		return false
 	}
@@ -172,12 +178,14 @@ func (s *Server) handleDownloadsEvents(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.opts.SubscribeDownloads()
 	defer unsubscribe()
 
+	want := paging.Parse(r.URL.Query())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case downloads := <-ch:
-			if !writeDownloadsEvent(w, ctx, downloads) {
+			p := want.Page(len(downloads))
+			if !writeDownloadsEvent(w, ctx, p, paging.Window(downloads, p)) {
 				return
 			}
 			flusher.Flush()
@@ -194,13 +202,13 @@ func (s *Server) handleDownloadsEvents(w http.ResponseWriter, r *http.Request) {
 // reassembles the fragment exactly -- the same fragment #downloads-rows was
 // initially rendered with, which is the D3-2/D3-3 markup contract this
 // stream exists to satisfy.
-func writeDownloadsEvent(w http.ResponseWriter, ctx context.Context, downloads []downloadv1.Download) bool {
+func writeDownloadsEvent(w http.ResponseWriter, ctx context.Context, p paging.Page, downloads []downloadv1.Download) bool {
 	if downloads == nil {
 		downloads = []downloadv1.Download{}
 	}
 
 	var fragment bytes.Buffer
-	if err := views.DownloadRows(downloads).Render(ctx, &fragment); err != nil {
+	if err := views.DownloadList(p, downloads).Render(ctx, &fragment); err != nil {
 		logging.FromContext(ctx).Error("render download rows for sse", "error", err)
 		return false
 	}
@@ -260,12 +268,15 @@ func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.opts.SubscribeLibrary()
 	defer unsubscribe()
 
+	want := paging.Parse(r.URL.Query())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case items := <-ch:
-			if !writeLibraryEvent(w, ctx, projection.ForTab(items, tab)) {
+			rows := projection.ForTab(items, tab)
+			p := want.Page(len(rows))
+			if !writeLibraryEvent(w, ctx, tab, p, paging.Window(rows, p)) {
 				return
 			}
 			flusher.Flush()
@@ -276,13 +287,13 @@ func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
 // writeLibraryEvent writes one "library" SSE event for items and reports
 // whether the write succeeded; a false return means the client is gone and
 // the caller should stop. Its framing is writePipelineEvent's, unchanged.
-func writeLibraryEvent(w http.ResponseWriter, ctx context.Context, items []projection.LibraryItem) bool {
+func writeLibraryEvent(w http.ResponseWriter, ctx context.Context, tab projection.Tab, p paging.Page, items []projection.LibraryItem) bool {
 	if items == nil {
 		items = []projection.LibraryItem{}
 	}
 
 	var fragment bytes.Buffer
-	if err := views.LibraryRows(items).Render(ctx, &fragment); err != nil {
+	if err := views.LibraryList(tab, p, items).Render(ctx, &fragment); err != nil {
 		logging.FromContext(ctx).Error("render library rows for sse", "error", err)
 		return false
 	}
@@ -321,12 +332,14 @@ func (s *Server) handleUnmatchedEvents(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.opts.SubscribeUnmatched()
 	defer unsubscribe()
 
+	want := paging.Parse(r.URL.Query())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case entries := <-ch:
-			if !writeUnmatchedEvent(w, ctx, entries) {
+			p := want.Page(len(entries))
+			if !writeUnmatchedEvent(w, ctx, p, paging.Window(entries, p)) {
 				return
 			}
 			flusher.Flush()
@@ -336,13 +349,13 @@ func (s *Server) handleUnmatchedEvents(w http.ResponseWriter, r *http.Request) {
 
 // writeUnmatchedEvent writes one "unmatched" SSE event for entries and
 // reports whether the write succeeded, mirroring writeLibraryEvent.
-func writeUnmatchedEvent(w http.ResponseWriter, ctx context.Context, entries []projection.UnmatchedEntry) bool {
+func writeUnmatchedEvent(w http.ResponseWriter, ctx context.Context, p paging.Page, entries []projection.UnmatchedEntry) bool {
 	if entries == nil {
 		entries = []projection.UnmatchedEntry{}
 	}
 
 	var fragment bytes.Buffer
-	if err := views.UnmatchedRows(entries).Render(ctx, &fragment); err != nil {
+	if err := views.UnmatchedList(p, entries).Render(ctx, &fragment); err != nil {
 		logging.FromContext(ctx).Error("render unmatched rows for sse", "error", err)
 		return false
 	}

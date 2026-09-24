@@ -3,6 +3,7 @@ module github.com/mediactl/clustarr
 go 1.27
 
 require (
+	github.com/Oudwins/tailwind-merge-go v0.2.3
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/Tensai75/nntp v0.1.5
 	github.com/a-h/templ v0.3.1020
@@ -52,7 +53,6 @@ require (
 )
 
 require (
-	github.com/Oudwins/tailwind-merge-go v0.2.3 // indirect
 	github.com/RoaringBitmap/roaring v1.2.3 // indirect
 	github.com/alecthomas/atomic v0.1.0-alpha2 // indirect
 	github.com/anacrolix/btree v0.0.0-20251201064447-d86c3fa41bd8 // indirect

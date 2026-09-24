@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -358,8 +359,11 @@ func TestDownloadsEventPayloadIsExactlyViewsDownloadRows(t *testing.T) {
 
 	got := readSSEEvent(t, bufio.NewReader(resp.Body))
 
+	// The frame is the page's list fragment -- the pager, the rows, the
+	// pager -- for page 1 at the default size, exactly as GET /downloads
+	// first rendered it.
 	var direct bytes.Buffer
-	require.NoError(t, views.DownloadRows(downloads).Render(context.Background(), &direct))
+	require.NoError(t, views.DownloadList(paging.Paginate(len(downloads), 1, paging.DefaultPer), downloads).Render(context.Background(), &direct))
 
 	var want bytes.Buffer
 	want.WriteString("event: downloads\n")

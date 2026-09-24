@@ -1,0 +1,97 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/ui/components/pagination"
+	"github.com/mediactl/clustarr/ui/paging"
+)
+
+// perSizes are the page sizes the pager offers.
+var perSizes = []int{25, 50, 100, 250}
+
+// Pager is the strip every list page shows above and below its rows, and
+// which rides the page's SSE fragment so its counts stay live: "showing
+// a to b of N", the page-number strip built from shadcn-templ's pagination
+// component (previous, first, neighbours, gaps, last, next), and the
+// page-size links. base is the page's path; every link keeps the size
+// through paging.Page.Query. It carries data-pager, data-page, data-last,
+// data-total and data-per for the tests, which assert on those and not on
+// the copy.
+templ Pager(p paging.Page, base string) {
+	<nav
+		class="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground"
+		data-pager
+		data-page={ fmt.Sprint(p.Number) }
+		data-last={ fmt.Sprint(p.Last) }
+		data-total={ fmt.Sprint(p.Total) }
+		data-per={ fmt.Sprint(p.Per) }
+		aria-label="pages"
+	>
+		<span>
+			if p.Total == 0 {
+				Nothing to show
+			} else {
+				Showing { fmt.Sprint(p.From()) }–{ fmt.Sprint(p.To()) } of { fmt.Sprint(p.Total) }
+			}
+		</span>
+		if p.Last > 1 {
+			@pagination.Pagination(pagination.Props{Class: "mx-0 w-auto"}) {
+				@pagination.Content() {
+					@pagination.Item() {
+						@pagination.Previous(pagination.PreviousProps{Href: pageHref(base, p, p.Number-1), Disabled: !p.HasPrev()})
+					}
+					for _, n := range p.Numbers() {
+						@pagination.Item() {
+							if n == 0 {
+								@pagination.Ellipsis()
+							} else {
+								@pagination.Link(pagination.LinkProps{Href: pageHref(base, p, n), IsActive: n == p.Number}) {
+									{ fmt.Sprint(n) }
+								}
+							}
+						}
+					}
+					@pagination.Item() {
+						@pagination.Next(pagination.NextProps{Href: pageHref(base, p, p.Number+1), Disabled: !p.HasNext()})
+					}
+				}
+			}
+		}
+		<span class="flex items-center gap-2">
+			<span>Per page</span>
+			for _, size := range perSizes {
+				if size == p.Per {
+					<span class="font-medium text-foreground" aria-current="true">{ fmt.Sprint(size) }</span>
+				} else {
+					<a href={ templ.SafeURL(base + paging.Paginate(p.Total, 1, size).Query(1)) } class="hover:text-foreground">{ fmt.Sprint(size) }</a>
+				}
+			}
+		</span>
+	</nav>
+}
+
+// pageHref is the link to page n of base at p's size. A disabled previous
+// or next still gets a real href so a browser without JavaScript is never
+// handed "#".
+func pageHref(base string, p paging.Page, n int) string {
+	n = min(max(n, 1), p.Last)
+	return base + p.Query(n)
+}

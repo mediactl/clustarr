@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -38,7 +39,7 @@ import (
 // swapped element, deliberately: the set of RootFolders does not move on the
 // same cadence as item status, mirroring downloads.templ's own client-cards
 // placement.
-templ Library(tab projection.Tab, items []projection.LibraryItem, rootFolders []catalogv1.RootFolder) {
+templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, rootFolders []catalogv1.RootFolder) {
 	@Layout("Library") {
 		<h1 class="mb-4 text-2xl font-bold">Library</h1>
 		@libraryTabs(tab)
@@ -49,13 +50,22 @@ templ Library(tab projection.Tab, items []projection.LibraryItem, rootFolders []
 			id="library-rows"
 			data-tab={ string(tab) }
 			hx-ext="sse"
-			sse-connect={ "/events/library/" + string(tab) }
+			sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
 			sse-swap="library"
 			class="space-y-4"
 		>
-			@LibraryRows(items)
+			@LibraryList(tab, p, items)
 		</div>
 	}
+}
+
+// LibraryList is what #library-rows holds and what every
+// /events/library/{tab} frame carries: the pager, the page's cards, the
+// pager again. items is already the tab's page window.
+templ LibraryList(tab projection.Tab, p paging.Page, items []projection.LibraryItem) {
+	@Pager(p, "/library/"+string(tab))
+	@LibraryRows(items)
+	@Pager(p, "/library/"+string(tab))
 }
 
 // libraryTabs renders the tab strip -- one link per projection.Tab, in

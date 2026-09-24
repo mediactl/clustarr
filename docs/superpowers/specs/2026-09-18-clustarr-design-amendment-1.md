@@ -467,6 +467,18 @@ radius small, Noto Sans, lucide) and the token file applied on top:
 reads a URL as a component registry, not a theme. The tokens live in
 `ui/static/input.css` (`:root` and `.dark`), which `make css` compiles.
 
+**Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
+and library pages each show one window of rows: `?page=N&per=M`, 1-based,
+`per` defaulting to 50 and capped at 500, a page past the end clamping to
+the last one (`ui/paging`, pure Go). Each page's `sse-connect` URL carries
+the same parameters and the stream slices every push to that window, so a
+live update redraws only the page in view; the pager (shadcn-templ's
+pagination component: previous, first, neighbours, gaps, last, next, plus
+"showing a to b of N" and the page-size links) rides the streamed fragment
+so its counts stay live. Ordering is the projection's own; sorting and
+filtering are not part of this. The Downloads page's client cards stay
+outside the window.
+
 ### A3.5 Authentication
 
 Out of scope for v1, and stated rather than left implied. The UI binds inside the

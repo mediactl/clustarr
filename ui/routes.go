@@ -32,6 +32,7 @@ import (
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
@@ -129,8 +130,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 // projection returned by Options.Entries.
 func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
 	entries := s.opts.Entries(r.Context())
+	p := paging.Parse(r.URL.Query()).Page(len(entries))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Pipeline(entries).Render(r.Context(), w); err != nil {
+	if err := views.Pipeline(p, paging.Window(entries, p)).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render pipeline page", "error", err)
 	}
 }
@@ -143,8 +145,9 @@ func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
 // rather than waiting on it.
 func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 	downloads, clients := s.listDownloads(r.Context())
+	p := paging.Parse(r.URL.Query()).Page(len(downloads))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Downloads(downloads, clients).Render(r.Context(), w); err != nil {
+	if err := views.Downloads(p, paging.Window(downloads, p), clients).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render downloads page", "error", err)
 	}
 }
@@ -195,9 +198,10 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := projection.ForTab(s.opts.Library(r.Context()), tab)
+	p := paging.Parse(r.URL.Query()).Page(len(items))
 	rootFolders := s.listRootFolders(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Library(tab, items, rootFolders).Render(r.Context(), w); err != nil {
+	if err := views.Library(tab, p, paging.Window(items, p), rootFolders).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render library page", "error", err)
 	}
 }
@@ -388,8 +392,9 @@ func actionErrorCode(err error) (code string, status int) {
 // by G2-4 in importarr, and G3-4 adds it once that lands.
 func (s *Server) handleUnmatched(w http.ResponseWriter, r *http.Request) {
 	entries := s.opts.Unmatched(r.Context())
+	p := paging.Parse(r.URL.Query()).Page(len(entries))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Unmatched(entries).Render(r.Context(), w); err != nil {
+	if err := views.Unmatched(p, paging.Window(entries, p)).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render unmatched page", "error", err)
 	}
 }
