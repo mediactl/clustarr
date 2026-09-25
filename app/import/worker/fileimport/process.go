@@ -38,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -66,7 +67,6 @@ type processConfig struct {
 	// existing is every MediaFile the movie has now (existingMovieFiles),
 	// empty when this is the first file imported for it.
 	existing             []catalogv1alpha1.MediaFile
-	engine               naming.Engine
 	baseContext          naming.Context
 	originalLanguageName string
 }
@@ -305,7 +305,8 @@ func (pc *processConfig) processFile(
 	nctx.Edition = parsed.Edition
 	nctx.CustomFormats = matched
 
-	dest, derr := destinationPath(pc.rootFolder.Spec.Path, pc.movie.Spec.Folder, srcPath, pc.engine, nctx)
+	ext := catalogctx.ContainerExt(nil, srcPath)
+	dest, derr := catalogctx.MovieFilePath(pc.rootFolder, pc.movie, nctx, ext)
 	if derr != nil {
 		return nil, fmt.Sprintf("%s: could not render a destination path: %v", rel, derr), nil
 	}

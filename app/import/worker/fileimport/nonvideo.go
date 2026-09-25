@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -451,17 +452,6 @@ func (w *Worker) resolveNonVideo(ctx context.Context, dl *downloadv1alpha1.Downl
 // keepRelative is the file-name rule for a multi-file item.
 func keepRelative(srcRel string) string { return srcRel }
 
-// engineFor builds the naming engine a root folder's naming spec selects,
-// exactly as Handle does for a movie.
-func engineFor(root *catalogv1alpha1.RootFolder) naming.Engine {
-	return naming.NewEngine(naming.Config{
-		Dialect:           naming.Dialect(root.Spec.Naming.Dialect),
-		ColonReplacement:  naming.ColonReplacement(root.Spec.Naming.ColonReplacement),
-		MultiEpisodeStyle: naming.MultiEpisodeStyle(root.Spec.Naming.MultiEpisodeStyle),
-		Overrides:         root.Spec.Naming.Overrides,
-	})
-}
-
 // getRoot reads a root folder by name for folder rendering. A missing one is
 // terminal.
 func (w *Worker) getRoot(ctx context.Context, ns, name string) (*catalogv1alpha1.RootFolder, error) {
@@ -516,7 +506,7 @@ func (w *Worker) resolveAlbum(ctx context.Context, ns, name string) (rootRef, pr
 	if err != nil {
 		return "", "", "", "", err
 	}
-	eng := engineFor(root)
+	eng := catalogctx.EngineFor(root)
 	artistFolder, err := w.artistFolder(root, &artist, eng)
 	if err != nil {
 		return "", "", "", "", err
@@ -599,7 +589,7 @@ func (w *Worker) resolveBook(ctx context.Context, ns, name string) (
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	eng := engineFor(root)
+	eng := catalogctx.EngineFor(root)
 	nctx := naming.Context{Kind: commonv1.MediaKindBook, BookTitle: book.Status.Metadata.Title}
 	nctx.Year = ReleaseYear(book.Status.Metadata.ReleaseDate)
 
@@ -676,7 +666,7 @@ func (w *Worker) resolveAudiobook(ctx context.Context, ns, name string) (rootRef
 	if meta.Series != nil {
 		nctx.BookSeries, nctx.BookSeriesPosition = meta.Series.Series, meta.Series.Position
 	}
-	rendered, err := engineFor(root).BuildFolder(commonv1.MediaKindAudiobook, nctx)
+	rendered, err := catalogctx.EngineFor(root).BuildFolder(commonv1.MediaKindAudiobook, nctx)
 	if err != nil {
 		return "", "", "", blocked("render audiobook folder: %v", err)
 	}
@@ -727,7 +717,7 @@ func (w *Worker) resolveIssue(ctx context.Context, ns string, target ImportTarge
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	eng := engineFor(root)
+	eng := catalogctx.EngineFor(root)
 	nctx := naming.Context{
 		Kind:             commonv1.MediaKindIssue,
 		ComicSeriesTitle: comic.Status.Metadata.Title,

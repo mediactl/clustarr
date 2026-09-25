@@ -22,8 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/naming"
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -78,18 +78,34 @@ func TestTargetKey(t *testing.T) {
 		"the same name under a different kind must not collide")
 }
 
-func TestDestinationPath(t *testing.T) {
-	eng := naming.NewEngine(naming.Config{Dialect: naming.DialectJellyfin, ColonReplacement: naming.ColonSmart})
-	nctx := naming.Context{Kind: commonv1.MediaKindMovie, Title: "The Matrix", Year: 1999, TmdbID: "603"}
+// TestMovieFilePathHonoursTheFolderOverride is a thin integration check
+// that this package wires catalogv1alpha1's RootFolder and Movie into
+// catalogctx.MovieFilePath correctly; catalogctx's own tests cover the
+// rendering itself.
+func TestMovieFilePathHonoursTheFolderOverride(t *testing.T) {
+	root := &catalogv1alpha1.RootFolder{Spec: catalogv1alpha1.RootFolderSpec{
+		Path: "/data/media/movies",
+		Naming: catalogv1alpha1.NamingSpec{
+			Dialect: catalogv1alpha1.NamingDialectJellyfin, ColonReplacement: catalogv1alpha1.ColonReplacementSmart,
+		},
+	}}
+	movie := &catalogv1alpha1.Movie{
+		Spec:   catalogv1alpha1.MovieSpec{TmdbID: 603},
+		Status: catalogv1alpha1.MovieStatus{Metadata: &catalogv1alpha1.MovieMetadata{Title: "The Matrix", Year: 1999}},
+	}
+	c, ok := catalogctx.Movie(movie)
+	require.True(t, ok)
 
-	dest, err := destinationPath("/data/media/movies", nil, "/data/torrents/x/The.Matrix.1999.mkv", eng, nctx)
+	ext := catalogctx.ContainerExt(nil, "/data/torrents/x/The.Matrix.1999.mkv")
+	dest, err := catalogctx.MovieFilePath(root, movie, c, ext)
 	require.NoError(t, err)
 	require.Contains(t, dest, "/data/media/movies/")
 	require.Contains(t, dest, "The Matrix (1999)")
 	require.True(t, len(dest) > 4 && dest[len(dest)-4:] == ".mkv", "the source extension must be preserved: %s", dest)
 
 	override := "Custom Folder"
-	dest2, err := destinationPath("/data/media/movies", &override, "/data/torrents/x/f.mkv", eng, nctx)
+	movie.Spec.Folder = &override
+	dest2, err := catalogctx.MovieFilePath(root, movie, c, ext)
 	require.NoError(t, err)
 	require.Contains(t, dest2, "/data/media/movies/Custom Folder/")
 }

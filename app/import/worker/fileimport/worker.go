@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -41,7 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
-	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -283,20 +282,11 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return err
 	}
 
-	eng := naming.NewEngine(naming.Config{
-		Dialect:           naming.Dialect(rootFolder.Spec.Naming.Dialect),
-		ColonReplacement:  naming.ColonReplacement(rootFolder.Spec.Naming.ColonReplacement),
-		MultiEpisodeStyle: naming.MultiEpisodeStyle(rootFolder.Spec.Naming.MultiEpisodeStyle),
-		Overrides:         rootFolder.Spec.Naming.Overrides,
-	})
-	base := naming.Context{
-		Kind:          commonv1.MediaKindMovie,
-		Title:         movie.Status.Metadata.Title,
-		OriginalTitle: movie.Status.Metadata.Title,
-		Year:          int(movie.Status.Metadata.Year),
-		TmdbID:        strconv.FormatInt(movie.Spec.TmdbID, 10),
-		ImdbID:        movie.Status.Metadata.ExternalIDs["imdb"],
-	}
+	// movie.Status.Metadata == nil was already rejected above, so this base
+	// context is always renderable; the bool is catalogctx.Movie's general
+	// gate for a caller (a controller's Reconcile, unlike Handle) that has
+	// not made that check itself.
+	base, _ := catalogctx.Movie(&movie)
 	originalLanguageName := ""
 	if movie.Status.Metadata.OriginalLanguage != "" {
 		if n, ok := catalogue.LanguageName(movie.Status.Metadata.OriginalLanguage); ok {
@@ -314,7 +304,6 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		rootFolder:           &rootFolder,
 		profile:              profile,
 		existing:             existing,
-		engine:               eng,
 		baseContext:          base,
 		originalLanguageName: originalLanguageName,
 	}

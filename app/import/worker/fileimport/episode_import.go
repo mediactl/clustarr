@@ -22,14 +22,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -40,7 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -58,12 +55,7 @@ type episodePlan struct {
 	series     *catalogv1alpha1.Series
 	rootFolder *catalogv1alpha1.RootFolder
 	profile    quality.Profile
-	engine     naming.Engine
 
-	// folder is the series' absolute folder in the library.
-	folder string
-	// seasonFolder is spec.seasonFolder, defaulted.
-	seasonFolder bool
 	// originalLanguageName is the series' original language, in the
 	// vocabulary pkg/release and the custom-format catalogue share.
 	originalLanguageName string
@@ -174,12 +166,6 @@ func (w *Worker) resolveSeries(ctx context.Context, dl *downloadv1alpha1.Downloa
 	}
 	plan.profile = profile
 
-	plan.engine = engineFor(root)
-	plan.folder, err = SeriesFolder(root, &series, plan.engine)
-	if err != nil {
-		return plan, blocked("render series folder: %v", err)
-	}
-	plan.seasonFolder = ptr.Deref(series.Spec.SeasonFolder, true)
 	if lang := series.Status.Metadata.OriginalLanguage; lang != "" {
 		if n, ok := catalogue.LanguageName(lang); ok {
 			plan.originalLanguageName = n
@@ -206,28 +192,6 @@ func (w *Worker) resolveSeries(ctx context.Context, dl *downloadv1alpha1.Downloa
 		}
 	}
 	return plan, nil
-}
-
-// SeriesFolder is a Series' absolute folder in the library: status.path once
-// the Series controller has resolved it, else the same rule that controller
-// resolves it by (app/catalog/controller/series.Path) -- spec.folder under the
-// root folder, else the dialect's series preset.
-func SeriesFolder(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series, eng naming.Engine) (string, error) {
-	if s.Status.Path != "" {
-		return s.Status.Path, nil
-	}
-	if f := ptr.Deref(s.Spec.Folder, ""); f != "" {
-		return path.Join(root.Spec.Path, f), nil
-	}
-	nctx := naming.Context{Kind: commonv1.MediaKindSeries, TvdbID: strconv.FormatInt(s.Spec.TvdbID, 10)}
-	if md := s.Status.Metadata; md != nil {
-		nctx.SeriesTitle, nctx.SeriesYear = md.Title, int(md.Year)
-	}
-	folder, err := eng.SeriesFolder(nctx)
-	if err != nil {
-		return "", err
-	}
-	return path.Join(root.Spec.Path, folder), nil
 }
 
 // runEpisodes walks the content root and imports every episode file.
@@ -372,7 +336,18 @@ func (w *Worker) importEpisodeFile(
 		}
 	}
 
-	dest, derr := episodeDestination(plan, eps, parsed, matched, srcPath)
+	// series.Status.Metadata == nil was already rejected by resolveSeries,
+	// so this context is always renderable; the bool is catalogctx.Episode's
+	// general gate for a caller that has not made that check itself.
+	nctx, _ := catalogctx.Episode(series, episodesFor(eps))
+	nctx.Quality = parsed.Quality
+	nctx.Revision = parsed.Revision
+	nctx.ReleaseGroup = parsed.Group
+	nctx.Edition = parsed.Edition
+	nctx.CustomFormats = matched
+
+	ext := catalogctx.ContainerExt(nil, srcPath)
+	dest, derr := catalogctx.EpisodeFilePath(plan.rootFolder, series, nctx, ext)
 	if derr != nil {
 		return nil, fmt.Sprintf("%s: could not render a destination path: %v", rel, derr), nil
 	}
@@ -479,54 +454,35 @@ func (w *Worker) existingForEpisodes(ctx context.Context, ns string, eps []Episo
 	return out, nil
 }
 
-// episodeDestination renders an episode file's library path: the series
-// folder, the season folder when the series keeps one, and pkg/naming's
-// standard, anime or daily episode file name, with the source's extension.
-func episodeDestination(plan episodePlan, eps []EpisodeCandidate, parsed *release.ParsedRelease, formats []string, srcPath string) (string, error) {
-	md := plan.series.Status.Metadata
-	nctx := naming.Context{
-		Kind:          commonv1.MediaKindEpisode,
-		SeriesTitle:   md.Title,
-		SeriesYear:    int(md.Year),
-		TvdbID:        strconv.FormatInt(plan.series.Spec.TvdbID, 10),
-		Season:        eps[0].Season,
-		EpisodeTitle:  eps[0].Title,
-		Special:       eps[0].Season == 0,
-		Quality:       parsed.Quality,
-		Revision:      parsed.Revision,
-		ReleaseGroup:  parsed.Group,
-		Edition:       parsed.Edition,
-		CustomFormats: formats,
-	}
-	absolute := plan.series.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
-	for _, e := range eps {
-		nctx.Episodes = append(nctx.Episodes, e.Number)
-		if e.Absolute == 0 {
-			absolute = false
+// episodesFor rebuilds the catalogv1alpha1.Episode objects
+// catalogctx.Episode needs from the EpisodeCandidates MatchEpisodes settled
+// on -- the inverse of EpisodeCandidateFor's own projection, not a second
+// source of truth: every field catalogctx.Episode reads (spec.seasonNumber,
+// spec.episodeNumber, status.title, status.absoluteNumber, status.airDate)
+// is already carried on EpisodeCandidate, from the one real Episode
+// resolveSeries read via the apiserver.
+func episodesFor(cands []EpisodeCandidate) []catalogv1alpha1.Episode {
+	out := make([]catalogv1alpha1.Episode, len(cands))
+	for i, c := range cands {
+		ep := catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: c.Name},
+			Spec: catalogv1alpha1.EpisodeSpec{
+				SeasonNumber:  int32(c.Season),
+				EpisodeNumber: int32(c.Number),
+			},
+			Status: catalogv1alpha1.EpisodeStatus{Title: c.Title},
 		}
-	}
-	if absolute {
-		for _, e := range eps {
-			nctx.Absolute = append(nctx.Absolute, e.Absolute)
+		if c.Absolute != 0 {
+			absolute := int32(c.Absolute)
+			ep.Status.AbsoluteNumber = &absolute
 		}
-	}
-	if plan.series.Spec.SeriesType == catalogv1alpha1.SeriesTypeDaily && eps[0].AirDate != "" {
-		if t, err := time.Parse("2006-01-02", eps[0].AirDate); err == nil {
-			nctx.AirDate = &t
+		if c.AirDate != "" {
+			if t, err := time.Parse("2006-01-02", c.AirDate); err == nil {
+				airDate := metav1.NewTime(t)
+				ep.Status.AirDate = &airDate
+			}
 		}
+		out[i] = ep
 	}
-	file, err := plan.engine.EpisodeFile(nctx)
-	if err != nil {
-		return "", err
-	}
-	folder := plan.folder
-	if plan.seasonFolder {
-		season, err := plan.engine.SeasonFolder(nctx)
-		if err != nil {
-			return "", err
-		}
-		folder = filepath.Join(folder, season)
-	}
-	full := filepath.Join(folder, file+filepath.Ext(srcPath))
-	return naming.SanitizePath(full, naming.DefaultSanitizeOptions()), nil
+	return out
 }
