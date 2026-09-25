@@ -38,6 +38,9 @@ asked for them, so they can never be chart templates.
       "httpPort" false) }}
 {{- end }}
 {{- if .Values.importarr.enabled }}
+{{/* The controllers mount /data too: the rename controller moves library
+     files (probe-driven naming §5), and its readiness includes /data
+     writability, as the worker's does. */}}
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "importarr"
@@ -45,7 +48,7 @@ asked for them, so they can never be chart templates.
       "image" "media"
       "args" (list "importarr" "--role" "controller")
       "leaderElect" true
-      "data" false
+      "data" true
       "index" false
       "strategy" ""
       "grace" 60

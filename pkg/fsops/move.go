@@ -19,7 +19,9 @@ package fsops
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -54,4 +56,54 @@ func MoveAtomic(src, dst string) error {
 		return fmt.Errorf("fsops: remove source %s after move: %w", src, err)
 	}
 	return nil
+}
+
+// ErrExists is what [MoveNoReplace] wraps when something already exists at
+// its destination.
+var ErrExists = errors.New("fsops: destination exists")
+
+// MoveNoReplace moves src to dst on one filesystem and never replaces dst.
+// [MoveAtomic]'s rename(2) silently replaces an existing dst, so a caller
+// that checked dst was free and then moved could still clobber a file that
+// arrived in between; link(2) refuses an existing dst atomically (EEXIST),
+// on NFS too. The move is link, then unlink src, then an fsync of dst's
+// parent directory (and src's, when it differs), as MoveAtomic does.
+//
+// An existing dst is reported as an error wrapping [ErrExists], with
+// nothing changed -- unless dst is already a hard link to src: that is a
+// MoveNoReplace interrupted between its link and its unlink (or an NFS
+// LINK retried after its reply was lost), so the move is finished instead.
+// There is no cross-device fallback: link(2) fails with EXDEV, reported as
+// is.
+func MoveNoReplace(src, dst string) error {
+	if err := linkFunc(src, dst); err != nil {
+		if !errors.Is(err, fs.ErrExist) || !sameFile(src, dst) {
+			if errors.Is(err, fs.ErrExist) {
+				return fmt.Errorf("fsops: move %s to %s: %w: %w", src, dst, ErrExists, err)
+			}
+			return fmt.Errorf("fsops: move %s to %s: %w", src, dst, err)
+		}
+	}
+	if err := os.Remove(src); err != nil {
+		// Leave the one name the caller started with.
+		_ = os.Remove(dst)
+		return fmt.Errorf("fsops: move %s to %s: remove the source: %w", src, dst, err)
+	}
+	if err := fsyncDir(filepath.Dir(dst)); err != nil {
+		return err
+	}
+	if srcDir := filepath.Dir(src); srcDir != filepath.Dir(dst) {
+		return fsyncDir(srcDir)
+	}
+	return nil
+}
+
+// sameFile reports whether a and b both exist and name the same file.
+func sameFile(a, b string) bool {
+	ai, err := os.Lstat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Lstat(b)
+	return err == nil && os.SameFile(ai, bi)
 }

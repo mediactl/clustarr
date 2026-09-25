@@ -3,7 +3,9 @@
 #
 # The scan.importarr, list.importarr and fileimport.importarr work itself
 # runs on importarr-worker, on every replica; this Deployment owns only the
-# controllers and does not mount /data.
+# controllers. It mounts /data all the same: the rename controller moves a
+# library file to the path catalogarr proposes (probe-driven naming §5), and
+# its readiness includes /data writability, as the worker's does.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -47,13 +49,16 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: importarr
           # clustarr-media: the import worker shares this family's toolchain
-          # (hardlink/move, ffprobe) even though the controller replica itself
-          # does not touch files -- one image per binary family, not per role.
+          # (hardlink/move, ffprobe); the controller replica only moves files
+          # (the rename controller) -- one image per binary family, not per
+          # role.
           image: ghcr.io/mediactl/clustarr/media:dev
           # --leader-elect: §3 and §12 run the controllers under a lease so
           # only one replica reconciles. The flag defaults to off, so a
@@ -81,6 +86,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # §11: everything writing under /data uses UMASK 002 so the other
+            # services (and the transcode Jobs) can rewrite what it creates.
+            - name: UMASK
+              value: "002"
             # §12: GOMEMLIMIT = 80% of 512Mi, in bytes (see catalogarr.yaml).
             - name: GOMEMLIMIT
               value: "429496730"
@@ -98,7 +107,7 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
-            # §13: readiness is a JetStream ping.
+            # §13: readiness is /data writability plus a JetStream ping.
             httpGet:
               path: /readyz
               port: health
@@ -117,8 +126,13 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            - name: data
+              mountPath: /data
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: clustarr-data
         - name: tmp
           emptyDir: {}

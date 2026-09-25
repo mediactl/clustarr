@@ -22,7 +22,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // §A1.6).
 //
 // §A1.6 splits importarr across two Deployments that share the RWX `/data`
-// volume: `importarr` runs the leader-elected controllers, and
+// volume: `importarr` runs the leader-elected controllers -- the rename
+// controller among them moves library files, so it mounts /data too -- and
 // `importarr-worker` runs the work.importarr.scan, work.importarr.list and
 // work.importarr.fileimport consumers on every replica. `--role all` runs
 // both in one process, for kind and for development.
@@ -39,12 +40,15 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/importexclusion"
 	importlistctrl "github.com/mediactl/clustarr/app/import/controller/importlist"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/controller/rename"
 	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/app/import/worker/importlist"
@@ -83,9 +87,10 @@ type Role string
 
 // The roles amendment §A1.6 lists for `clustarr importarr --role`.
 const (
-	// RoleController runs the import-list, import-exclusion, library-scan
-	// and root-folder schedule controllers, and fileimport's Retrigger.
-	// Leader-elected.
+	// RoleController runs the import-list, import-exclusion, library-scan,
+	// root-folder schedule and rename controllers, and fileimport's
+	// Retrigger. Leader-elected. The rename controller moves library files,
+	// so this role needs a writable /data too.
 	RoleController Role = "controller"
 
 	// RoleWorker runs the scan, list and fileimport consumers. Every
@@ -140,8 +145,7 @@ func (r Role) Has(want Role) bool { return slices.Contains(r.Split(), want) }
 // therefore whether it should take the leader lease.
 func (r Role) RunsControllers() bool { return r.Has(RoleController) || r.Has(RoleAll) }
 
-// RunsWorkers reports whether this role consumes queue work, and therefore
-// whether it needs a writable /data.
+// RunsWorkers reports whether this role consumes queue work.
 func (r Role) RunsWorkers() bool { return r.Has(RoleWorker) || r.Has(RoleAll) }
 
 // Options is everything `clustarr importarr` needs.
@@ -240,8 +244,37 @@ func (o Options) Validate() error {
 // §A1.6 runs the controllers leader-only on `importarr` and the workers on
 // every replica of `importarr-worker`, and a worker that waited for the lease
 // would simply never start.
+//
+// The controller role alone also caches MediaFiles without
+// status.mediaInfo ([stripMediaFileMediaInfo]): the rename controller
+// watches every MediaFile, and the library's probe results would otherwise
+// be most of what the `importarr` Deployment holds in memory. Nothing it
+// runs reads mediaInfo. A role that runs the workers too keeps the whole
+// object, as importarr-worker always has.
 func (o Options) ManagerOptions() ctrl.Options {
-	return o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
+	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
+	if o.Role.RunsControllers() && !o.Role.RunsWorkers() {
+		if opts.Cache.ByObject == nil {
+			opts.Cache.ByObject = map[client.Object]cache.ByObject{}
+		}
+		opts.Cache.ByObject[&catalogv1alpha1.MediaFile{}] = cache.ByObject{Transform: stripMediaFileMediaInfo}
+	}
+	return opts
+}
+
+// stripMediaFileMediaInfo is the controller role's cache transform for
+// MediaFile: it drops status.mediaInfo, and managedFields as every cache
+// does -- a per-object transform replaces the manager's DefaultTransform
+// rather than adding to it.
+func stripMediaFileMediaInfo(obj any) (any, error) {
+	obj, err := cache.TransformStripManagedFields()(obj)
+	if err != nil {
+		return obj, err
+	}
+	if mf, ok := obj.(*catalogv1alpha1.MediaFile); ok {
+		mf.Status.MediaInfo = nil
+	}
+	return obj, nil
 }
 
 // Run starts the manager and blocks until ctx is cancelled, which is what the
@@ -297,11 +330,10 @@ func Run(ctx context.Context, o Options) error {
 		// which read as "nothing to do" rather than as "not ready yet".
 		"cache": cacheReady,
 	}
-	if o.Role.RunsWorkers() {
-		// A scan or import worker that cannot write the library must not
-		// accept work (amendment §A1.6).
-		ready["data"] = DataReadyChecker(o.dataPath())
-	}
+	// A scan or import worker that cannot write the library must not
+	// accept work (amendment §A1.6), and neither may the controllers, whose
+	// rename controller moves library files.
+	ready["data"] = DataReadyChecker(o.dataPath())
 	if err := k8s.AddProbes(mgr, ready); err != nil {
 		return err
 	}
@@ -364,6 +396,19 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Clock:  time.Now,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: libraryscan: %w", err)
+	}
+
+	// The streaming rename pass (probe-driven naming spec §5): moves a file
+	// to the path catalogarr proposes in status.naming when its RootFolder
+	// sets renameFiles. It reads the MediaFile past the cache immediately
+	// before each move (the lost-update rule), hence the APIReader, and it
+	// moves files, so it needs the library mounted where spec.path says.
+	if err := (&rename.Reconciler{
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Recorder:  mgr.GetEventRecorder("rename"),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("importarr: rename: %w", err)
 	}
 
 	// mgr.GetEventRecorder, not the deprecated mgr.GetEventRecorderFor: the

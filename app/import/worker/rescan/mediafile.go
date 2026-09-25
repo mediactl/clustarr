@@ -581,61 +581,79 @@ func (w *Worker) applyObserved(
 	ctx context.Context, namespace string, existing *catalogv1alpha1.MediaFile,
 	ref commonv1.MediaRef, path string, info os.FileInfo, fresh frozenFields,
 ) error {
-	name := k8s.ChildName(ref.Name, "mediafile", path)
+	name, rv := k8s.ChildName(ref.Name, "mediafile", path), ""
 	if existing != nil {
-		name = existing.Name
+		name, rv = existing.Name, existing.ResourceVersion
 		ref = existing.Spec.MediaRef
 		fresh = reassertFrozen(&existing.Spec)
 	} else if fresh.track != "" {
 		ref.Track = fresh.track
 	}
+	return applySpec(ctx, w.Client, namespace, name, rv, ref, path, info, fresh)
+}
+
+// applySpec applies importarr's complete MediaFileSpec for one MediaFile
+// under [FieldManager]: ref, path, the size and mtime info observed, and
+// every frozen field f carries. It is the one render of this manager's set
+// on a MediaFile -- the rescan and the rename both go through it, so neither
+// can become a second, narrower apply that releases what the other sends.
+//
+// A nil info sends no size or mtime: a transcoded file's are catalogarr's
+// (see [RenameFile]). A non-empty rv is the resourceVersion the caller read,
+// sent as a precondition, and a refusal for that reason comes back as a
+// *staleReadError.
+func applySpec(
+	ctx context.Context, c client.Client, namespace, name, rv string,
+	ref commonv1.MediaRef, path string, info os.FileInfo, f frozenFields,
+) error {
 	spec := catalogac.MediaFileSpec().
 		WithMediaRef(ref).
-		WithPath(path).
-		WithSizeBytes(info.Size()).
-		WithModTime(metav1.NewTime(info.ModTime()))
-	if fresh.quality != nil {
-		spec = spec.WithQuality(*fresh.quality)
+		WithPath(path)
+	if info != nil {
+		spec = spec.WithSizeBytes(info.Size()).WithModTime(metav1.NewTime(info.ModTime()))
 	}
-	if fresh.revision != nil {
-		spec = spec.WithRevision(*fresh.revision)
+	if f.quality != nil {
+		spec = spec.WithQuality(*f.quality)
 	}
-	if fresh.releaseType != "" {
-		spec = spec.WithReleaseType(fresh.releaseType)
+	if f.revision != nil {
+		spec = spec.WithRevision(*f.revision)
 	}
-	if fresh.releaseGroup != nil {
-		spec = spec.WithReleaseGroup(*fresh.releaseGroup)
+	if f.releaseType != "" {
+		spec = spec.WithReleaseType(f.releaseType)
 	}
-	if fresh.edition != nil {
-		spec = spec.WithEdition(*fresh.edition)
+	if f.releaseGroup != nil {
+		spec = spec.WithReleaseGroup(*f.releaseGroup)
 	}
-	if len(fresh.languages) > 0 {
-		spec = spec.WithLanguages(fresh.languages...)
+	if f.edition != nil {
+		spec = spec.WithEdition(*f.edition)
 	}
-	if fresh.importedFrom != nil {
-		spec = spec.WithImportedFrom(fresh.importedFrom)
+	if len(f.languages) > 0 {
+		spec = spec.WithLanguages(f.languages...)
 	}
-	if fresh.formatScore != nil {
-		spec = spec.WithFormatScore(*fresh.formatScore)
+	if f.importedFrom != nil {
+		spec = spec.WithImportedFrom(f.importedFrom)
 	}
-	if len(fresh.matchedFormats) > 0 {
-		spec = spec.WithMatchedFormats(fresh.matchedFormats...)
+	if f.formatScore != nil {
+		spec = spec.WithFormatScore(*f.formatScore)
 	}
-	if fresh.profileHash != "" {
-		spec = spec.WithProfileHash(fresh.profileHash)
+	if len(f.matchedFormats) > 0 {
+		spec = spec.WithMatchedFormats(f.matchedFormats...)
 	}
-	if fresh.original != nil {
-		spec = spec.WithOriginal(*fresh.original)
+	if f.profileHash != "" {
+		spec = spec.WithProfileHash(f.profileHash)
+	}
+	if f.original != nil {
+		spec = spec.WithOriginal(*f.original)
 	}
 
 	ac := catalogac.MediaFile(name, namespace).WithSpec(spec)
-	if existing != nil {
-		ac = ac.WithResourceVersion(existing.ResourceVersion)
+	if rv != "" {
+		ac = ac.WithResourceVersion(rv)
 	}
-	if _, err := k8s.Apply(ctx, w.Client, FieldManager, ac); err != nil {
-		if existing != nil && apierrors.IsConflict(err) {
+	if _, err := k8s.Apply(ctx, c, FieldManager, ac); err != nil {
+		if rv != "" && apierrors.IsConflict(err) {
 			return &staleReadError{
-				key: types.NamespacedName{Namespace: namespace, Name: name}, rv: existing.ResourceVersion,
+				key: types.NamespacedName{Namespace: namespace, Name: name}, rv: rv,
 				err: fmt.Errorf("rescan: apply media file %s: %w", name, err),
 			}
 		}

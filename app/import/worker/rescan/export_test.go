@@ -22,3 +22,11 @@ var WalkOrderLess = walkOrderLess
 
 // KeptOutputName exposes keptOutputName to the external test package.
 var KeptOutputName = keptOutputName
+
+// SetRenameBeforeMove installs fn as the hook RenameFile runs between its
+// read of the MediaFile and its move, and returns a func that removes it.
+func SetRenameBeforeMove(fn func()) (restore func()) {
+	prev := renameBeforeMove
+	renameBeforeMove = fn
+	return func() { renameBeforeMove = prev }
+}
