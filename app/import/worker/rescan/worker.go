@@ -88,6 +88,14 @@ type Worker struct {
 	// MediaFiles through and applies them with.
 	Client client.Client
 
+	// APIReader reads straight from the apiserver. The rename pass hands it
+	// to RenameFile, which re-reads each MediaFile through it immediately
+	// before deciding (CLAUDE.md's lost-update rule). Nil falls back to
+	// Client: a stale cached read then fails the rename's
+	// resourceVersion-checked apply, and RenameFile moves the file back.
+	// NewWorker leaves it nil and importarr's run.go sets the manager's.
+	APIReader client.Reader
+
 	// Bus carries the progress checkpoints and the metadata-resolve RPC.
 	Bus events.Bus
 
@@ -248,7 +256,8 @@ func (s *scanState) unmatched(path, code, reason string, candidates []string, at
 }
 
 // Handle implements events.Handler. It walks the ScanTask's path, attributes
-// what it finds, and reports progress through the clustarr-progress bucket --
+// what it finds, runs the scan's rename pass when spec.rename asks for one
+// (renamePass), and reports progress through the clustarr-progress bucket --
 // never through LibraryScan.status, whose single writer is the LibraryScan
 // controller.
 func (w *Worker) Handle(ctx context.Context, m events.Message) error {
@@ -383,6 +392,9 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if err := w.walk(ctx, m, st); err != nil {
 		return w.abort(ctx, m, st, err)
 	}
+	if err := w.renamePass(ctx, m, st); err != nil {
+		return w.abort(ctx, m, st, err)
+	}
 
 	st.progress.Done = true
 	st.progress.Resume = ""
@@ -399,6 +411,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		"itemsCreated", st.progress.ItemsCreated,
 		"itemsUpdated", st.progress.ItemsUpdated,
 		"unmatched", len(st.progress.Unmatched),
+		"filesRenamed", st.progress.FilesRenamed,
 		"summary", st.progress.Summary())
 	return nil
 }

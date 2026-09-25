@@ -49,7 +49,7 @@ func TestWorkersGetTheSampleSizeFloor(t *testing.T) {
 		{name: "disabled", o: Options{SampleMaxBytes: 0}, want: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, newScanWorker(nil, nil, tc.o).SampleMaxBytes,
+			require.Equal(t, tc.want, newScanWorker(nil, nil, nil, tc.o).SampleMaxBytes,
 				"the rescan worker (work.importarr.scan) did not get Options.SampleMaxBytes")
 			require.Equal(t, tc.want, newImportWorker(nil, nil, nil, tc.o).SampleMaxBytes,
 				"the file-import worker (work.importarr.fileimport) did not get Options.SampleMaxBytes")
@@ -63,6 +63,14 @@ func TestWorkersGetTheSampleSizeFloor(t *testing.T) {
 func TestImportWorkerGetsTheAPIReader(t *testing.T) {
 	api := fake.NewClientBuilder().Build()
 	require.Same(t, api, newImportWorker(nil, api, nil, DefaultOptions()).APIReader)
+}
+
+// A scan's rename pass re-reads each MediaFile through the API reader
+// (rescan.Worker.APIReader) immediately before it moves the file; a worker
+// built without it would quietly fall back to the cache.
+func TestScanWorkerGetsTheAPIReader(t *testing.T) {
+	api := fake.NewClientBuilder().Build()
+	require.Same(t, api, newScanWorker(nil, api, nil, DefaultOptions()).APIReader)
 }
 
 func TestDefaultOptionsTurnTheSampleSizeFloorOn(t *testing.T) {

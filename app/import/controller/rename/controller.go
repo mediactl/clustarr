@@ -42,7 +42,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -95,7 +94,7 @@ type Reconciler struct {
 }
 
 // Reconcile renames one MediaFile's file when it is renameable
-// ([Renameable]) and the RootFolder its item is stored under sets
+// ([rescan.Renameable]) and the RootFolder its item is stored under sets
 // spec.naming.renameFiles.
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "rename.Reconcile")
@@ -106,7 +105,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err := r.Client.Get(ctx, req.NamespacedName, &mf); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if k8s.IsDeleting(&mf) || !Renameable(&mf) {
+	if k8s.IsDeleting(&mf) || !rescan.Renameable(&mf) {
 		return ctrl.Result{}, nil
 	}
 	roots, enabled, err := r.renameEnabled(ctx, &mf)
@@ -242,26 +241,14 @@ func (r *Reconciler) rootFolderRef(ctx context.Context, mf *catalogv1alpha1.Medi
 	return "", nil
 }
 
-// Renameable reports whether mf is one this controller acts on: catalogarr
-// says its path is not the canonical one (NamingCurrent False), and the file
-// is present and probed (Ready and Probed True). catalogarr holds a file it
-// cannot name yet with NamingCurrent Unknown, so a held file never passes;
-// RenameFile refuses one too.
-func Renameable(mf *catalogv1alpha1.MediaFile) bool {
-	c := mf.Status.Conditions
-	return meta.IsStatusConditionFalse(c, catalogv1alpha1.ConditionNamingCurrent) &&
-		meta.IsStatusConditionTrue(c, catalogv1alpha1.MediaFileConditionReady) &&
-		meta.IsStatusConditionTrue(c, catalogv1alpha1.MediaFileConditionProbed)
-}
-
-// Predicate admits a MediaFile that is [Renameable] when it is first seen,
-// and on an update only when its conditions or its proposed path changed:
-// catalogarr rewrites status on every reconcile, and the rename's own spec
-// apply changes neither, so neither loops the controller.
+// Predicate admits a MediaFile that is [rescan.Renameable] when it is first
+// seen, and on an update only when its conditions or its proposed path
+// changed: catalogarr rewrites status on every reconcile, and the rename's
+// own spec apply changes neither, so neither loops the controller.
 func Predicate() predicate.Predicate {
 	renameable := func(o client.Object) bool {
 		mf, ok := o.(*catalogv1alpha1.MediaFile)
-		return ok && Renameable(mf)
+		return ok && rescan.Renameable(mf)
 	}
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool { return renameable(e.Object) },

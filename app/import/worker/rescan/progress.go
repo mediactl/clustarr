@@ -20,6 +20,7 @@ package rescan
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,6 +50,43 @@ type UnmatchedFile struct {
 
 	// SeenAt is when the walk observed the file.
 	SeenAt time.Time `json:"seenAt"`
+}
+
+// RenamedFile is what a LibraryScan's rename pass did with one rename
+// candidate. It mirrors catalogv1alpha1.RenamedFile, as [UnmatchedFile]
+// mirrors its CRD type: From is the file's spec.path, To the path
+// catalogarr proposes, and Reason is empty for a move, else a Rename*
+// reason -- or "Failed: <error>" ([RenameFailed]) for a file the pass could
+// not rename, clamped to the CRD field's 256 characters.
+type RenamedFile struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// maxRenamed is catalogv1alpha1.LibraryScanStatus.Renamed's MaxItems.
+const maxRenamed = 200
+
+// MergeRenamed adds each of more to list, reusing list's backing array, and
+// returns it: an entry for a file (its From) already in list replaces that
+// entry where it stands -- the newer report of a file wins, so a redelivered
+// pass or a controller merging a checkpoint into status never lists a file
+// twice -- and any other is appended. Past LibraryScanStatus.Renamed's MaxItems, 200, the oldest
+// entries are dropped, as the walk drops its oldest unmatched files. The
+// rename pass and the LibraryScan controller both merge through it, so the
+// worker's list and status agree on which entries survive.
+func MergeRenamed(list []RenamedFile, more ...RenamedFile) []RenamedFile {
+	for _, r := range more {
+		if i := slices.IndexFunc(list, func(e RenamedFile) bool { return e.From == r.From }); i >= 0 {
+			list[i] = r
+			continue
+		}
+		list = append(list, r)
+	}
+	if len(list) > maxRenamed {
+		list = list[len(list)-maxRenamed:]
+	}
+	return list
 }
 
 // Progress is the worker's running -- and, once Done, final -- tally for one
@@ -158,6 +196,13 @@ type Progress struct {
 
 	// Unmatched lists the files that could not be attributed.
 	Unmatched []UnmatchedFile `json:"unmatched,omitempty"`
+
+	// FilesRenamed counts the files the scan's rename pass moved.
+	FilesRenamed int64 `json:"filesRenamed,omitempty"`
+
+	// Renamed lists what the rename pass did with each rename candidate
+	// under the walked path, in the order it took them (MergeRenamed).
+	Renamed []RenamedFile `json:"renamed,omitempty"`
 
 	// Resume is the last path whose outcome is in this tally, in walk
 	// order. A redelivered task resumes after it rather than walking from

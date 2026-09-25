@@ -193,6 +193,62 @@ func TestReconcileFoldsDeadLettered(t *testing.T) {
 	assert.Equal(t, int64(12), cleared.Status.FilesSeen)
 }
 
+// The rename pass's report follows the counters' rules: filesRenamed never
+// goes backwards, and status.renamed keeps an entry until the worker
+// reports the same file again, which replaces it where it stands. An apply
+// re-asserted from the object -- the dead-letter fold once the checkpoint
+// is gone, through baseStatus -- keeps both rather than releasing them:
+// importarr is their only owner, so a release would clear them.
+func TestReconcileCarriesTheRenamePass(t *testing.T) {
+	ctx := context.Background()
+	c := requireEnvtest(t)
+	ns := createNamespace(t, ctx, c, "ls-renamed")
+	started := metav1.NewTime(time.Now())
+	scan := seedScan(t, ctx, c, ns, catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies"},
+		catalogv1alpha1.LibraryScanStatus{Phase: catalogv1alpha1.ScanPhaseRunning, StartedAt: &started})
+	bus := newBus(t, ctx)
+	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+
+	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{FilesRenamed: 2, Renamed: []rescan.RenamedFile{
+		{From: "/data/media/m/a.mkv", To: "/data/media/m/A.mkv"},
+		{From: "/data/media/m/b.mkv", To: "/data/media/m/B.mkv"},
+		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameCollision},
+	}})
+	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
+
+	// The redelivery, restarted from the top: the moved files are no longer
+	// candidates, and the third is refused for another reason this time.
+	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{Renamed: []rescan.RenamedFile{
+		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameHeld},
+	}})
+	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
+
+	want := []catalogv1alpha1.RenamedFile{
+		{From: "/data/media/m/a.mkv", To: "/data/media/m/A.mkv"},
+		{From: "/data/media/m/b.mkv", To: "/data/media/m/B.mkv"},
+		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameHeld},
+	}
+	after := getScan(t, ctx, c, ns, scan.Name)
+	assert.Equal(t, int64(2), after.Status.FilesRenamed)
+	assert.Equal(t, want, after.Status.Renamed)
+	for _, field := range []string{"status.renamed", "status.filesRenamed"} {
+		assert.Equal(t, []string{string(k8s.ManagerImportarr)}, managersFor(t, after.ManagedFields, "status", field), field)
+	}
+
+	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, rescan.ProgressKey(string(scan.UID))))
+	var cur catalogv1alpha1.LibraryScan
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(scan), &cur))
+	patch := client.MergeFrom(cur.DeepCopy())
+	cur.Annotations = map[string]string{k8s.AnnotationDeadLettered: "clustarr.work.importarr.scan.movies@2026-09-25T10:00:00Z"}
+	require.NoError(t, c.Patch(ctx, &cur, patch))
+	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
+
+	failed := getScan(t, ctx, c, ns, scan.Name)
+	require.Equal(t, catalogv1alpha1.ScanPhaseFailed, failed.Status.Phase)
+	assert.Equal(t, int64(2), failed.Status.FilesRenamed, "the failure re-asserts filesRenamed")
+	assert.Equal(t, want, failed.Status.Renamed, "the failure re-asserts status.renamed")
+}
+
 // The Ready condition's message carries the whole breakdown -- the part
 // LibraryScan.status has no counters for.
 func TestReconcileReportsTheBreakdownInTheReadyMessage(t *testing.T) {

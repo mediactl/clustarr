@@ -394,6 +394,8 @@ func (r *Reconciler) fail(
 // aggregate folds a checkpoint into the scan's status, never lowering a
 // counter status already reports (see poll): every field this manager owns
 // except the phase, finishedAt and the conditions, which the caller sets.
+// status.renamed keeps an entry until the worker reports the same file
+// again, as status.unmatched does (rescan.MergeRenamed).
 func aggregate(scan *catalogv1alpha1.LibraryScan, p rescan.Progress) *catalogac.LibraryScanStatusApplyConfiguration {
 	s := scan.Status
 	ac := catalogac.LibraryScanStatus().
@@ -401,7 +403,11 @@ func aggregate(scan *catalogv1alpha1.LibraryScan, p rescan.Progress) *catalogac.
 		WithFilesMatched(max(s.FilesMatched, p.FilesMatched)).
 		WithItemsCreated(max(s.ItemsCreated, p.ItemsCreated)).
 		WithItemsUpdated(max(s.ItemsUpdated, p.ItemsUpdated)).
-		WithFilesSkipped(max(s.FilesSkipped, p.FilesSkipped))
+		WithFilesSkipped(max(s.FilesSkipped, p.FilesSkipped)).
+		WithFilesRenamed(max(s.FilesRenamed, p.FilesRenamed))
+	if renamed := rescan.MergeRenamed(renamedOf(s.Renamed), p.Renamed...); len(renamed) > 0 {
+		ac = ac.WithRenamed(renamedACs(renamed)...)
+	}
 	if s.StartedAt != nil {
 		ac = ac.WithStartedAt(*s.StartedAt)
 	}
@@ -488,7 +494,8 @@ func baseStatus(scan *catalogv1alpha1.LibraryScan) *catalogac.LibraryScanStatusA
 		WithFilesMatched(s.FilesMatched).
 		WithItemsCreated(s.ItemsCreated).
 		WithItemsUpdated(s.ItemsUpdated).
-		WithFilesSkipped(s.FilesSkipped)
+		WithFilesSkipped(s.FilesSkipped).
+		WithFilesRenamed(s.FilesRenamed)
 	if s.Phase != "" {
 		ac = ac.WithPhase(s.Phase)
 	}
@@ -509,7 +516,34 @@ func baseStatus(scan *catalogv1alpha1.LibraryScan) *catalogac.LibraryScanStatusA
 		}
 		ac = ac.WithUnmatched(acs...)
 	}
+	if len(s.Renamed) > 0 {
+		ac = ac.WithRenamed(renamedACs(renamedOf(s.Renamed))...)
+	}
 	return ac
+}
+
+// renamedOf converts status.renamed to the worker's entries, for
+// rescan.MergeRenamed.
+func renamedOf(in []catalogv1alpha1.RenamedFile) []rescan.RenamedFile {
+	out := make([]rescan.RenamedFile, 0, len(in))
+	for _, r := range in {
+		out = append(out, rescan.RenamedFile{From: r.From, To: r.To, Reason: r.Reason})
+	}
+	return out
+}
+
+// renamedACs renders rename-pass entries in the order given; the caller has
+// capped them (rescan.MergeRenamed).
+func renamedACs(in []rescan.RenamedFile) []*catalogac.RenamedFileApplyConfiguration {
+	out := make([]*catalogac.RenamedFileApplyConfiguration, 0, len(in))
+	for _, r := range in {
+		ac := catalogac.RenamedFile().WithFrom(r.From).WithTo(r.To)
+		if r.Reason != "" {
+			ac = ac.WithReason(r.Reason)
+		}
+		out = append(out, ac)
+	}
+	return out
 }
 
 // unmatchedACs renders the worker's unmatched files newest first and

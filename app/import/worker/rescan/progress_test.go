@@ -18,9 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rescan_test
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,4 +153,32 @@ func TestProgressSummary(t *testing.T) {
 			HandedOver: 1, Unreadable: 2, NotMedia: 5, Samples: 3, Parts: 1,
 			Unmatched: []rescan.UnmatchedFile{{Path: "x.mkv"}},
 		}.Summary())
+}
+
+// MergeRenamed replaces an entry for a file already listed where it stands,
+// appends any other, and keeps the newest 200 -- the CRD's MaxItems.
+func TestMergeRenamed(t *testing.T) {
+	list := rescan.MergeRenamed(nil,
+		rescan.RenamedFile{From: "a", To: "A", Reason: rescan.RenameDryRun},
+		rescan.RenamedFile{From: "b", To: "B", Reason: rescan.RenameCollision})
+	list = rescan.MergeRenamed(list, rescan.RenamedFile{From: "a", To: "A"}, rescan.RenamedFile{From: "c", To: "C"})
+	assert.Equal(t, []rescan.RenamedFile{
+		{From: "a", To: "A"}, {From: "b", To: "B", Reason: rescan.RenameCollision}, {From: "c", To: "C"},
+	}, list)
+
+	for i := range 250 {
+		list = rescan.MergeRenamed(list, rescan.RenamedFile{From: fmt.Sprintf("f%03d", i)})
+	}
+	require.Len(t, list, 200)
+	assert.Equal(t, "f050", list[0].From, "the oldest entries are dropped")
+	assert.Equal(t, "f249", list[199].From)
+}
+
+// A reason is clamped to the CRD's MaxLength, which counts characters, on a
+// character boundary.
+func TestClampRunes(t *testing.T) {
+	assert.Equal(t, "abc", rescan.ClampRunes("abc", 3))
+	assert.Equal(t, "ab", rescan.ClampRunes("abc", 2))
+	assert.Equal(t, "日本", rescan.ClampRunes("日本語", 2))
+	assert.Equal(t, strings.Repeat("é", 256), rescan.ClampRunes(strings.Repeat("é", 300), 256))
 }

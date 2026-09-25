@@ -193,6 +193,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	        return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
 //	}
 //	worker := rescan.NewWorker(mgr.GetClient(), bus)
+//	worker.APIReader = mgr.GetAPIReader() // the rename pass's uncached reader
 //
 // k8s.EveryReplica, not manager.RunnableFunc: the latter has no
 // NeedLeaderElection method, so controller-runtime puts it behind the leader

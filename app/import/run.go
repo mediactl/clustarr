@@ -479,7 +479,7 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if !ok {
 		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
 	}
-	worker := newScanWorker(mgr.GetClient(), bus, o)
+	worker := newScanWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, o)
 	sub := spec.Subscription()
 	// k8s.EveryReplica, not manager.RunnableFunc: amendment §A1.6 runs the
 	// scan consumer on EVERY replica of importarr-worker, and a bare
@@ -570,9 +570,12 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // newScanWorker builds the work.importarr.scan handler with o's sample size
 // floor. rescan.NewWorker already defaults the floor, so the assignment
 // matters exactly when o carries a different one -- a non-default
-// --sample-max-bytes, or 0 to disable the rule.
-func newScanWorker(c client.Client, bus events.Bus, o Options) *rescan.Worker {
+// --sample-max-bytes, or 0 to disable the rule. It also gets the manager's
+// API reader, which a scan's rename pass re-reads each MediaFile through
+// (rescan.Worker.APIReader).
+func newScanWorker(c client.Client, api client.Reader, bus events.Bus, o Options) *rescan.Worker {
 	w := rescan.NewWorker(c, bus)
+	w.APIReader = api
 	w.SampleMaxBytes = o.SampleMaxBytes
 	return w
 }
