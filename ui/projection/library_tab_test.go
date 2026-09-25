@@ -174,3 +174,25 @@ func TestParseTabAcceptsTheFourTabsOnly(t *testing.T) {
 		require.False(t, ok, bad)
 	}
 }
+
+// TestRootFolderKindsCoverEveryKindOnce: every RootFolderKind belongs to
+// exactly one tab, so the page's Rescan reaches every folder and no folder
+// twice.
+func TestRootFolderKindsCoverEveryKindOnce(t *testing.T) {
+	seen := map[catalogv1.RootFolderKind]projection.Tab{}
+	for _, tab := range projection.Tabs() {
+		for _, k := range projection.RootFolderKinds(tab) {
+			_, dup := seen[k]
+			require.False(t, dup, "%s is in two tabs", k)
+			seen[k] = tab
+		}
+	}
+	require.Equal(t, map[catalogv1.RootFolderKind]projection.Tab{
+		catalogv1.RootFolderKindMovie:     projection.TabMovies,
+		catalogv1.RootFolderKindSeries:    projection.TabTV,
+		catalogv1.RootFolderKindMusic:     projection.TabMusic,
+		catalogv1.RootFolderKindBook:      projection.TabBooks,
+		catalogv1.RootFolderKindAudiobook: projection.TabBooks,
+		catalogv1.RootFolderKindComic:     projection.TabBooks,
+	}, seen)
+}

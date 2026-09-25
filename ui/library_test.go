@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -141,22 +142,30 @@ func TestLibraryPageShowsTranscodedAsDone(t *testing.T) {
 	}
 }
 
-// TestLibraryPageRendersRescanToolbarPerRootFolder proves listRootFolders'
-// wiring: a RootFolder seeded into a fake, scheme-matched Reader shows up as
-// its own rescan form in the toolbar.
-func TestLibraryPageRendersRescanToolbarPerRootFolder(t *testing.T) {
+// TestLibraryPageRescanIsEnabledOnlyForATabWithARootFolder proves
+// listRootFolders' wiring and the single Rescan button (2026-09-24): with a
+// movie RootFolder seeded into a fake, scheme-matched Reader, the Movies
+// page's Rescan is live and the TV page's, which has no RootFolder of its
+// kinds, is disabled.
+func TestLibraryPageRescanIsEnabledOnlyForATabWithARootFolder(t *testing.T) {
 	scheme := libraryTestScheme(t)
 	rf := &catalogv1.RootFolder{
 		ObjectMeta: metav1.ObjectMeta{Name: "movies", Namespace: "default"},
 		Spec:       catalogv1.RootFolderSpec{Path: "/data/media/movies", Kind: catalogv1.RootFolderKindMovie},
 	}
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(rf).Build()
-
 	srv := ui.NewServer(t.Context(), ui.Options{Reader: reader})
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), `data-root-folder="movies"`)
+
+	get := func(path string) string {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		return rec.Body.String()
+	}
+	movies := tagWith(t, get("/library/movies"), `data-action="rescan"`)
+	require.NotRegexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), movies, "a movie RootFolder exists")
+	tv := tagWith(t, get("/library/tv"), `data-action="rescan"`)
+	require.Regexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), tv, "no RootFolder holds series")
 }
 
 // TestLibraryDetailPageRendersActionsAndAttributes proves GET
@@ -295,6 +304,49 @@ func TestRescanActionSucceedsAndRedirects(t *testing.T) {
 	require.NoError(t, writer.List(t.Context(), &scans))
 	require.Len(t, scans.Items, 1)
 	require.Equal(t, "movies", scans.Items[0].Spec.RootFolderRef)
+}
+
+// TestRescanActionScansEveryRootFolderOfTheTab: the page's single Rescan
+// posts the tab, and the handler creates one LibraryScan per RootFolder of
+// that tab's kinds -- rescan stays RootFolder-scoped (§A3.2) -- and none
+// for another tab's folders; a tab with no RootFolder is refused with a
+// visible error and creates nothing.
+func TestRescanActionScansEveryRootFolderOfTheTab(t *testing.T) {
+	scheme := libraryTestScheme(t)
+	folder := func(name string, kind catalogv1.RootFolderKind) *catalogv1.RootFolder {
+		return &catalogv1.RootFolder{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec:       catalogv1.RootFolderSpec{Path: "/data/media/" + name, Kind: kind},
+		}
+	}
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		folder("movies", catalogv1.RootFolderKindMovie), folder("movies-4k", catalogv1.RootFolderKindMovie), folder("tv", catalogv1.RootFolderKindSeries)).Build()
+	writer := fake.NewClientBuilder().WithScheme(scheme).Build()
+	srv := ui.NewServer(t.Context(), ui.Options{Reader: reader, Actions: actions.New(writer)})
+
+	post := func(form url.Values) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/library/rescan", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	rec := post(url.Values{"tab": {"movies"}, "return": {"/library/movies"}})
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.Equal(t, "/library/movies", rec.Header().Get("Location"))
+	var scans catalogv1.LibraryScanList
+	require.NoError(t, writer.List(t.Context(), &scans))
+	refs := make([]string, 0, len(scans.Items))
+	for _, s := range scans.Items {
+		refs = append(refs, s.Spec.RootFolderRef)
+	}
+	require.ElementsMatch(t, []string{"movies", "movies-4k"}, refs, "every movie RootFolder, no series one")
+
+	rec = post(url.Values{"tab": {"music"}})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), `data-action-error`)
+	require.NoError(t, writer.List(t.Context(), &scans))
+	require.Len(t, scans.Items, 2, "a tab with no RootFolder creates nothing")
 }
 
 // TestLibraryNavLinksOnEveryPage covers the same nav-consistency bullet

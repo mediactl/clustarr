@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -202,9 +203,10 @@ func (s *Server) listDownloads(ctx context.Context) ([]downloadv1.Download, []do
 }
 
 // handleLibrary renders the Library page (amendment §A3.4, Task G3-3) from
-// the current library projection returned by Options.Library, plus a
-// "Rescan" toolbar built from every known RootFolder (listRootFolders,
-// mirroring listDownloads' own direct-Reader reads for config-like data).
+// the current library projection returned by Options.Library, plus the
+// toolbar's single "Rescan", live when a RootFolder of the tab's kinds
+// exists (listRootFolders, mirroring listDownloads' own direct-Reader reads
+// for config-like data, narrowed by rootFoldersFor).
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	tab, ok := projection.ParseTab(r.PathValue("tab"))
 	if !ok {
@@ -232,7 +234,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	if view.Sort == projection.SortTitle {
 		bar = jumps(items, base, p)
 	}
-	rootFolders := s.listRootFolders(r.Context())
+	rootFolders := rootFoldersFor(s.listRootFolders(r.Context()), tab)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Library(tab, p, paging.Window(items, p), view.toolbar(base, p.Per), rootFolders, bar).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render library page", "error", err)
@@ -369,18 +371,56 @@ func (s *Server) handleSearchNow(w http.ResponseWriter, r *http.Request) {
 	s.finishAction(w, r, err)
 }
 
-// handleRescan is the "rescan" action (§A3.2): POST /library/rescan with
-// "namespace" and "rootFolder" form fields, one submitted by each button in
-// the Library page's own rescan toolbar (views.rescanToolbar), calling
-// Options.Actions.Rescan.
+// handleRescan is the "rescan" action (§A3.2): POST /library/rescan. The
+// Library page's single "Rescan" (2026-09-24) posts the "tab" it shows, and
+// the action fans out to every RootFolder of that tab's kinds
+// (projection.RootFolderKinds), one LibraryScan each through
+// Options.Actions.Rescan -- rescan stays RootFolder-scoped, the page just
+// asks for all of its folders at once. A form naming one "rootFolder" (with
+// its "namespace") still rescans that folder alone, which is what kubectl's
+// equivalent does. A tab with no RootFolder is refused as ErrInvalid so
+// the reader sees why nothing happened.
 func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
 
-	_, err := s.opts.Actions.Rescan(r.Context(), r.FormValue("namespace"), r.FormValue("rootFolder"))
-	s.finishAction(w, r, err)
+	if name := r.FormValue("rootFolder"); name != "" {
+		_, err := s.opts.Actions.Rescan(r.Context(), r.FormValue("namespace"), name)
+		s.finishAction(w, r, err)
+		return
+	}
+	tab, ok := projection.ParseTab(r.FormValue("tab"))
+	if !ok {
+		s.finishAction(w, r, fmt.Errorf("%w: unknown library %q", actions.ErrInvalid, r.FormValue("tab")))
+		return
+	}
+	folders := rootFoldersFor(s.listRootFolders(r.Context()), tab)
+	if len(folders) == 0 {
+		s.finishAction(w, r, fmt.Errorf("%w: no root folder holds %s yet", actions.ErrInvalid, tab))
+		return
+	}
+	for _, rf := range folders {
+		if _, err := s.opts.Actions.Rescan(r.Context(), rf.Namespace, rf.Name); err != nil {
+			s.finishAction(w, r, fmt.Errorf("rescan %s: %w", rf.Name, err))
+			return
+		}
+	}
+	s.finishAction(w, r, nil)
+}
+
+// rootFoldersFor keeps the RootFolders whose kind belongs to tab
+// (projection.RootFolderKinds), in their existing order.
+func rootFoldersFor(folders []catalogv1.RootFolder, tab projection.Tab) []catalogv1.RootFolder {
+	kinds := projection.RootFolderKinds(tab)
+	out := make([]catalogv1.RootFolder, 0, len(folders))
+	for _, rf := range folders {
+		if slices.Contains(kinds, rf.Spec.Kind) {
+			out = append(out, rf)
+		}
+	}
+	return out
 }
 
 // finishAction is the shared tail of every Library-page write action: on

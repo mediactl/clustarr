@@ -35,9 +35,12 @@ import (
 
 // Library renders the Library page (amendment §A3.4, Task G3-3): every
 // catalog item the shared projection lists, its monitored state and phase, a
-// link to its detail view, and a rescan toolbar -- one form per known
-// RootFolder, since "rescan" (§A3.2) is a RootFolder-scoped action, not a
-// per-item one. It is a full page, wrapped in Layout, so a plain GET renders
+// link to its detail view, and a toolbar with one "Rescan" for the tab's
+// library (2026-09-24, replacing one form per RootFolder): the action fans
+// out to every RootFolder of the tab's kinds, since "rescan" (§A3.2) is a
+// RootFolder-scoped action, not a per-item one; rootFolders is already
+// narrowed to the tab, and an empty list disables the button. It is a full
+// page, wrapped in Layout, so a plain GET renders
 // something useful even before htmx's SSE extension has connected.
 //
 // #library-rows is the sse-swap target, mirroring the Pipeline and Downloads
@@ -50,7 +53,7 @@ import (
 templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
 	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab, HideScrollbar: true}) {
 		<div id="library-page">
-			@libraryToolbar(tb, rootFolders)
+			@libraryToolbar(tab, tb, rootFolders)
 			<div
 				id="library-rows"
 				data-tab={ string(tab) }
@@ -339,24 +342,57 @@ type LibraryToolbar struct {
 }
 
 // libraryToolbar is Radarr's toolbar row (design 2026-09-24, views/toolbar.templ): the actions
-// on the left -- one "Rescan" form per known RootFolder, §A3.2's third
+// on the left -- the tab's single "Rescan" (rescanForm), §A3.2's third
 // action, reading config-like data that needs no live stream of its own,
 // as downloads.templ's client cards do -- and the Sort and Filter menus on
 // the right. It renders outside the SSE-swapped rows: the view only changes
 // when the reader chooses, and every menu link swaps the whole page as the
-// tabs do so the stream reconnects with the new view.
-templ libraryToolbar(tb LibraryToolbar, rootFolders []catalogv1.RootFolder) {
+// sidebar's tab entries do so the stream reconnects with the new view.
+templ libraryToolbar(tab projection.Tab, tb LibraryToolbar, rootFolders []catalogv1.RootFolder) {
 	@toolbar(templ.Attributes{"data-current-sort": tb.Sort, "data-current-dir": tb.Dir, "data-current-filter": tb.Filter}) {
 		@toolbarGroup() {
-			for _, rf := range rootFolders {
-				@toolbarForm("/library/rescan", []Field{{"namespace", rf.Namespace}, {"rootFolder", rf.Name}, {"return", "/library"}}, "refresh-cw", "Rescan "+rf.Name, "rescan", templ.Attributes{"data-root-folder": rf.Name})
-			}
+			@rescanForm(tab, len(rootFolders) > 0)
 		}
 		@toolbarGroup() {
 			@viewMenu("Sort", "arrow-up-down", "Sort by", "data-sort", tb.Sorts)
 			@viewMenu("Filter", "funnel", "Filter", "data-filter", tb.Filters)
 		}
 	}
+}
+
+// rescanForm is the toolbar's "Rescan" (2026-09-24): one form posting the
+// tab to /library/rescan, whose handler creates a LibraryScan for every
+// RootFolder of the tab's kinds; the return field brings the reader back to
+// this tab. With no RootFolder of those kinds the button is disabled and
+// its title says so, rather than posting a request that can only fail.
+templ rescanForm(tab projection.Tab, enabled bool) {
+	<form method="post" action="/library/rescan" data-tab={ string(tab) }>
+		<input type="hidden" name="tab" value={ string(tab) }/>
+		<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
+		@button.Button(button.Props{
+			Type:     button.TypeSubmit,
+			Variant:  button.VariantGhost,
+			Class:    toolbarButtonClass,
+			Disabled: !enabled,
+			Attributes: templ.Attributes{
+				"data-action":         "rescan",
+				"data-toolbar-button": true,
+				"title":               rescanTitle(tab, enabled),
+			},
+		}) {
+			@icon.Icon("refresh-cw")()
+			<span>Rescan</span>
+		}
+	</form>
+}
+
+// rescanTitle is the Rescan button's tooltip: what it scans, or why it
+// cannot.
+func rescanTitle(tab projection.Tab, enabled bool) string {
+	if !enabled {
+		return "No root folder holds " + tabLabel(tab) + " yet; add one under Settings"
+	}
+	return "Rescan every " + tabLabel(tab) + " root folder"
 }
 
 // viewMenu is one toolbar menu: a button trigger and a dropdown of links,

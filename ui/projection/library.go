@@ -123,6 +123,24 @@ func ForTab(items []LibraryItem, tab Tab) []LibraryItem {
 	return out
 }
 
+// RootFolderKinds lists the RootFolder kinds whose folders hold a tab's
+// items: the page's single Rescan (2026-09-24) fans out to every
+// RootFolder of these kinds. Every RootFolderKind belongs to exactly one
+// tab, mirroring the parent kinds Build puts in each.
+func RootFolderKinds(tab Tab) []catalogv1.RootFolderKind {
+	switch tab {
+	case TabMovies:
+		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindMovie}
+	case TabTV:
+		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindSeries}
+	case TabMusic:
+		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindMusic}
+	case TabBooks:
+		return []catalogv1.RootFolderKind{catalogv1.RootFolderKindBook, catalogv1.RootFolderKindAudiobook, catalogv1.RootFolderKindComic}
+	}
+	return nil
+}
+
 // UnmatchedEntry is one row on the Unmatched page (amendment §A3.4): one file
 // from one LibraryScan's status.unmatched list (A1.5's never-guess output),
 // plus enough of the scan's own identity for the row to be useful without a

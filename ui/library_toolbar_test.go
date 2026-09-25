@@ -77,8 +77,12 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "movies", Namespace: "default"},
 		Spec:       catalogv1.RootFolderSpec{Path: "/data/media/movies", Kind: catalogv1.RootFolderKindMovie},
 	}
+	rf4k := &catalogv1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "movies-4k", Namespace: "default"},
+		Spec:       catalogv1.RootFolderSpec{Path: "/data/media/movies-4k", Kind: catalogv1.RootFolderKindMovie},
+	}
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Reader:  fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(rf).Build(),
+		Reader:  fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(rf, rf4k).Build(),
 		Library: func(context.Context) []projection.LibraryItem { return letteredLibrary(120) },
 	})
 	rec := httptest.NewRecorder()
@@ -97,10 +101,18 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 	require.Less(t, at, rows, "the toolbar sits above the rows")
 	bar := body[at:rows]
 
-	// Rescan moved into the toolbar as a button component, still one form
-	// per RootFolder with the same action and data attributes.
-	requireTag(t, bar, `data-root-folder="movies"`, `action="/library/rescan"`, `method="post"`)
-	requireTag(t, bar, `data-action="rescan"`, `data-slot="button"`, `type="submit"`)
+	// One "Rescan" for the page's library (2026-09-24): a single form
+	// carrying the tab, not one per RootFolder -- two movie folders, one
+	// button -- and the handler fans out to every RootFolder of the tab's
+	// kinds.
+	require.Equal(t, 1, strings.Count(bar, `data-action="rescan"`), "one rescan button for the page")
+	require.NotContains(t, bar, `data-root-folder=`)
+	requireTag(t, bar, `data-tab="movies"`, `action="/library/rescan"`, `method="post"`)
+	requireTag(t, bar, `name="tab"`, `value="movies"`)
+	requireTag(t, bar, `name="return"`, `value="/library/movies"`)
+	rescan := requireTag(t, bar, `data-action="rescan"`, `data-slot="button"`, `type="submit"`)
+	require.NotRegexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), rescan, "a RootFolder of the tab's kind exists")
+	require.Regexp(t, regexp.MustCompile(`(?s)data-action="rescan"[^>]*>.*?<span>Rescan</span>`), bar, "the label is plain Rescan")
 
 	require.Equal(t, 2, strings.Count(bar, `data-tui-dropdownmenu-trigger`), "a Sort trigger and a Filter trigger")
 	require.Regexp(t, regexp.MustCompile(`data-tui-dropdownmenu-trigger[^>]*>[^<]*(<[^>]*>[^<]*)*Sort`), bar)
