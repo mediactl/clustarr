@@ -21,8 +21,11 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -249,6 +252,24 @@ func episodeNamingInputs(o client.Object) episodeNaming {
 		out.airDate = ep.Status.AirDate.UTC().Truncate(time.Second).Unix()
 	}
 	return out
+}
+
+// rootFolderNamingChanged passes a RootFolder update only when spec.path or
+// spec.naming moved -- the two inputs of a render -- so editing its
+// defaults, recycle bin or free-space floor does not re-render every file
+// under it. Creates and deletes pass: a RootFolder appearing or going away
+// is exactly what turns its files' proposals Unrenderable or back.
+func rootFolderNamingChanged() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldRF, okOld := e.ObjectOld.(*catalogv1alpha1.RootFolder)
+			newRF, okNew := e.ObjectNew.(*catalogv1alpha1.RootFolder)
+			if !okOld || !okNew {
+				return false
+			}
+			return oldRF.Spec.Path != newRF.Spec.Path || !equality.Semantic.DeepEqual(oldRF.Spec.Naming, newRF.Spec.Naming)
+		},
+	}
 }
 
 // mediaFilesForMovie, mediaFilesForEpisode, mediaFilesForSeries and

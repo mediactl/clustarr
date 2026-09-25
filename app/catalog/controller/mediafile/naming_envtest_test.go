@@ -21,24 +21,29 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
+	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -100,13 +105,20 @@ func wantMoviePath(t *testing.T, ctx context.Context, c client.Client, mf *catal
 // entry in managedFields claims status.naming -- the one place an SSA
 // release is visible (CLAUDE.md, "A double-claim is silent").
 func namingOwnedByCatalogarr(entries []metav1.ManagedFieldsEntry) bool {
+	return catalogarrNamingFields(entries) != nil
+}
+
+// catalogarrNamingFields is k8s.ManagerCatalogarr's FieldsV1 set under
+// f:status.f:naming, nil when it claims none: SSA tracks ownership per leaf,
+// so a release test asserts the leaves, not the parent (CLAUDE.md).
+func catalogarrNamingFields(entries []metav1.ManagedFieldsEntry) map[string]any {
 	fields := managedFieldPaths(entries, k8s.ManagerCatalogarr.String(), "status")
 	status, ok := fields["f:status"].(map[string]any)
 	if !ok {
-		return false
+		return nil
 	}
-	_, ok = status["f:naming"]
-	return ok
+	naming, _ := status["f:naming"].(map[string]any)
+	return naming
 }
 
 // TestNamingProposesTheCanonicalPath is Task 9's (a): a probed MediaFile of
@@ -384,6 +396,12 @@ func TestNamingSurvivesAMissingFile(t *testing.T) {
 
 	assert.True(t, namingOwnedByCatalogarr(got.ManagedFields),
 		"the FileMissing apply released status.naming from %s: %+v", k8s.ManagerCatalogarr, fieldManagerNames(got.ManagedFields))
+	leaves := catalogarrNamingFields(got.ManagedFields)
+	for _, leaf := range []string{"f:expectedPath", "f:current", "f:quality"} {
+		assert.Contains(t, leaves, leaf, "the FileMissing apply released status.naming.%s", strings.TrimPrefix(leaf, "f:"))
+	}
+	qualityLeaves, _ := leaves["f:quality"].(map[string]any)
+	assert.Contains(t, qualityLeaves, "f:name", "the FileMissing apply released status.naming.quality.name")
 	assert.Equal(t, steady.Status.Naming, got.Status.Naming, "status.naming changed on a missing file")
 	assert.Equal(t, steady.Status.ProbeHash, got.Status.ProbeHash, "status.probeHash was released")
 	assert.Equal(t, steady.Status.MediaInfo, got.Status.MediaInfo, "status.mediaInfo was released")
@@ -391,4 +409,259 @@ func TestNamingSurvivesAMissingFile(t *testing.T) {
 	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ConditionNamingCurrent)
 	require.NotNil(t, cond, "the NamingCurrent condition was dropped")
 	assert.Equal(t, "Stale", cond.Reason)
+}
+
+// containerProbe is fakeProbe with the container and codec the file's own
+// extension implies, as the real mediainfo.Probe records the container: an
+// .avi is an XviD AVI, an .mkv an HEVC Matroska -- so a render can show a
+// transcode's container change.
+func containerProbe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
+	mi, raw, err := fakeProbe(ctx, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	mi.Container = strings.TrimPrefix(filepath.Ext(path), ".")
+	mi.VideoCodec = "mpeg4"
+	if mi.Container == "mkv" {
+		mi.VideoCodec = "hevc"
+	}
+	return mi, raw, nil
+}
+
+// patchTranscodeJobStatus stands in for squasharr, the sole writer of
+// TranscodeJob.status, declaring its whole status on every apply.
+func patchTranscodeJobStatus(t *testing.T, ctx context.Context, c client.Client, ns, name string, st *transcodeac.TranscodeJobStatusApplyConfiguration) {
+	t.Helper()
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr, transcodeac.TranscodeJob(name, ns).WithStatus(st))
+	require.NoError(t, err)
+}
+
+// TestNamingHoldsWhileATranscodeRuns is ruling R18 (spec D6: a rename never
+// touches a file another job holds), against a running manager: a
+// TranscodeJob that is merely Running must turn the proposal into
+// TranscodePending -- which only the TranscodeJob watch firing on a
+// non-Succeeded phase can bring about, since the MediaFile itself does not
+// change -- and once it succeeds with a container change and the swap is
+// incorporated, the proposal renders again with the new extension and codec.
+// The fixture is TestContainerChangeMovesSpecPath's: an .avi encoded to
+// .mkv, the source retired.
+func TestNamingHoldsWhileATranscodeRuns(t *testing.T) {
+	_, cfg := startEnv(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 k8s.MustNewScheme(),
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+	})
+	require.NoError(t, err)
+	r := mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), events.NewFakeRecorder(64))
+	r.Probe = containerProbe
+	require.NoError(t, r.SetupWithManager(mgr))
+	go func() { _ = mgr.Start(ctx) }()
+	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
+	c := mgr.GetClient()
+
+	const ns, name = "naming-transcode", "inception-abc1234567"
+	key := types.NamespacedName{Namespace: ns, Name: name}
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustTranscodeProfile(t, ctx, c, "hevc-main10", "profile-hash-def")
+	mustRootFolder(t, ctx, c, ns, "movies", "/data/media/movies", catalogv1alpha1.RootFolderKindMovie)
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+	setMovieMetadata(t, ctx, c, ns, "inception", "Inception", 2010)
+
+	source := writeFile(t, t.TempDir(), "Inception.2010.720p.WEB-DL.avi", []byte("an avi as imported"))
+	stat, err := os.Stat(source)
+	require.NoError(t, err)
+	importarrCreatesMediaFile(t, ctx, c, ns, name, source, stat.Size(), stat.ModTime(), webdl720)
+
+	var got catalogv1alpha1.MediaFile
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && got.Status.Naming != nil && got.Status.Naming.ExpectedPath != ""
+	}, 10*time.Second, 100*time.Millisecond, "the initial render never landed")
+	require.True(t, strings.HasSuffix(got.Status.Naming.ExpectedPath, "[XviD].avi"), "setup: %s", got.Status.Naming.ExpectedPath)
+
+	tj := &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-enc01", Namespace: ns},
+		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: name, ProfileRef: "hevc-main10", SourcePath: source},
+	}
+	require.NoError(t, c.Create(ctx, tj))
+	patchTranscodeJobStatus(t, ctx, c, ns, tj.Name, transcodeac.TranscodeJobStatus().WithPhase(transcodev1alpha1.TranscodeJobPhaseRunning))
+
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && got.Status.Naming != nil &&
+			got.Status.Naming.Reason == catalogv1alpha1.NamingReasonTranscodePending
+	}, 10*time.Second, 100*time.Millisecond, "a running transcode did not hold the rename")
+	assert.Empty(t, got.Status.Naming.ExpectedPath, "a held file proposes no path")
+	assert.False(t, got.Status.Naming.Current)
+	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ConditionNamingCurrent)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionUnknown, cond.Status)
+	assert.Equal(t, "TranscodePending", cond.Reason)
+
+	// squasharr's worker: place the output under its new name, retire the
+	// source, then report Succeeded -- finished after the probe's second.
+	output := strings.TrimSuffix(source, ".avi") + ".mkv"
+	require.NoError(t, os.WriteFile(output, []byte("a matroska encode, not the same size"), 0o644))
+	require.NoError(t, os.Remove(source))
+	time.Sleep(1100 * time.Millisecond)
+	patchTranscodeJobStatus(t, ctx, c, ns, tj.Name, transcodeac.TranscodeJobStatus().
+		WithPhase(transcodev1alpha1.TranscodeJobPhaseSucceeded).
+		WithFinishedAt(metav1.NewTime(time.Now())).
+		WithResult(transcodeac.Result().WithOutputPath(output).WithOutputSizeBytes(int64(len("a matroska encode, not the same size")))))
+
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && got.Spec.Path == output &&
+			got.Status.Naming != nil && got.Status.Naming.ExpectedPath != ""
+	}, 10*time.Second, 100*time.Millisecond, "the incorporated swap never rendered a proposal")
+	assert.Empty(t, got.Status.Naming.Reason)
+	assert.True(t, strings.HasSuffix(got.Status.Naming.ExpectedPath, "[h265].mkv"),
+		"the proposal follows the encode's container and codec: %s", got.Status.Naming.ExpectedPath)
+	assert.Equal(t, wantMoviePath(t, ctx, c, &got), got.Status.Naming.ExpectedPath)
+}
+
+// TestNamingHoldsAStaleFileWhoseProbeFailed is ruling R20: once a file's
+// bytes have changed, the last good probe no longer describes it, so a
+// failed re-probe holds the proposal as ProbePending rather than rendering
+// the name the old bytes earned.
+func TestNamingHoldsAStaleFileWhoseProbeFailed(t *testing.T) {
+	c, _ := startEnv(t)
+	ctx := t.Context()
+	const ns, name = "naming-stale", "inception-abc1234567"
+	key := types.NamespacedName{Namespace: ns, Name: name}
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustRootFolder(t, ctx, c, ns, "movies", "/data/media/movies", catalogv1alpha1.RootFolderKindMovie)
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+	setMovieMetadata(t, ctx, c, ns, "inception", "Inception", 2010)
+
+	path := writeFile(t, t.TempDir(), "Inception.2010.720p.WEB-DL.mkv", []byte("stand-in bytes"))
+	stat, err := os.Stat(path)
+	require.NoError(t, err)
+	importarrCreatesMediaFile(t, ctx, c, ns, name, path, stat.Size(), stat.ModTime(), webdl720)
+	_, err = (&mediafile.Reconciler{Client: c, Probe: fakeProbe, Clock: time.Now}).Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	var steady catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, key, &steady))
+	require.NotNil(t, steady.Status.Naming)
+	require.NotEmpty(t, steady.Status.Naming.ExpectedPath, "setup: never rendered")
+
+	require.NoError(t, os.WriteFile(path, []byte("different bytes, unreadable by ffprobe"), 0o644))
+	failing := &mediafile.Reconciler{
+		Client: c, Clock: time.Now,
+		Probe: func(context.Context, string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
+			return nil, nil, errors.New("ffprobe: Invalid data found when processing input")
+		},
+	}
+	res, err := failing.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, res.RequeueAfter, "setup: this was not the ProbeFailed path")
+
+	var got catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, key, &got))
+	require.NotNil(t, got.Status.Naming)
+	assert.Equal(t, catalogv1alpha1.NamingReasonProbePending, got.Status.Naming.Reason)
+	assert.Empty(t, got.Status.Naming.ExpectedPath, "the old bytes' name is withdrawn")
+	assert.Nil(t, got.Status.Naming.Quality, "the old probe's quality does not describe these bytes")
+	assert.Equal(t, steady.Status.MediaInfo, got.Status.MediaInfo, "the last good probe itself is kept")
+	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ConditionNamingCurrent)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionUnknown, cond.Status)
+	assert.Equal(t, "ProbePending", cond.Reason)
+}
+
+// TestNamingUnrenderableClearsThePath: a proposal already rendered is
+// withdrawn when it can no longer be rendered -- here the RootFolder is
+// deleted -- so no rename acts on a path nothing can vouch for.
+func TestNamingUnrenderableClearsThePath(t *testing.T) {
+	c, _ := startEnv(t)
+	ctx := t.Context()
+	const ns, name = "naming-unrenderable", "inception-abc1234567"
+	key := types.NamespacedName{Namespace: ns, Name: name}
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustRootFolder(t, ctx, c, ns, "movies", "/data/media/movies", catalogv1alpha1.RootFolderKindMovie)
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+	setMovieMetadata(t, ctx, c, ns, "inception", "Inception", 2010)
+
+	path := writeFile(t, t.TempDir(), "Inception.2010.720p.WEB-DL.mkv", []byte("stand-in bytes"))
+	stat, err := os.Stat(path)
+	require.NoError(t, err)
+	importarrCreatesMediaFile(t, ctx, c, ns, name, path, stat.Size(), stat.ModTime(), webdl720)
+	r := &mediafile.Reconciler{Client: c, Probe: fakeProbe, Clock: time.Now}
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	var steady catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, key, &steady))
+	require.NotNil(t, steady.Status.Naming)
+	require.NotEmpty(t, steady.Status.Naming.ExpectedPath, "setup: never rendered")
+
+	require.NoError(t, c.Delete(ctx, &catalogv1alpha1.RootFolder{ObjectMeta: metav1.ObjectMeta{Name: "movies", Namespace: ns}}))
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+
+	var got catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, key, &got))
+	require.NotNil(t, got.Status.Naming)
+	assert.Equal(t, catalogv1alpha1.NamingReasonUnrenderable, got.Status.Naming.Reason)
+	assert.Empty(t, got.Status.Naming.ExpectedPath, "the previous expectedPath was not cleared")
+	assert.False(t, got.Status.Naming.Current)
+	assert.NotContains(t, catalogarrNamingFields(got.ManagedFields), "f:expectedPath", "catalogarr still claims a cleared expectedPath")
+	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ConditionNamingCurrent)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionUnknown, cond.Status)
+	assert.Equal(t, "Unrenderable", cond.Reason)
+}
+
+// TestNamingKeepsItsProposalOverALookupFailure: a lookup that fails for any
+// reason but NotFound -- a cache blip -- keeps the proposal already on the
+// object rather than withdrawing or releasing it, and requeues so the render
+// is retried: nothing else would wake the reconcile for it.
+func TestNamingKeepsItsProposalOverALookupFailure(t *testing.T) {
+	c, cfg := startEnv(t)
+	ctx := t.Context()
+	const ns, name = "naming-blip", "inception-abc1234567"
+	key := types.NamespacedName{Namespace: ns, Name: name}
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustRootFolder(t, ctx, c, ns, "movies", "/data/media/movies", catalogv1alpha1.RootFolderKindMovie)
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+	setMovieMetadata(t, ctx, c, ns, "inception", "Inception", 2010)
+
+	path := writeFile(t, t.TempDir(), "Inception.2010.720p.WEB-DL.mkv", []byte("stand-in bytes"))
+	stat, err := os.Stat(path)
+	require.NoError(t, err)
+	importarrCreatesMediaFile(t, ctx, c, ns, name, path, stat.Size(), stat.ModTime(), webdl720)
+	res, err := (&mediafile.Reconciler{Client: c, Probe: fakeProbe, Clock: time.Now}).Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	require.Zero(t, res.RequeueAfter, "setup: a healthy render does not requeue")
+	var steady catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, key, &steady))
+	require.NotNil(t, steady.Status.Naming)
+	require.NotEmpty(t, steady.Status.Naming.ExpectedPath, "setup: never rendered")
+
+	// The movie's title moves, so a render that went ahead would change the
+	// proposal; the RootFolder read fails, so none can.
+	setMovieMetadata(t, ctx, c, ns, "inception", "Inception Redux", 2010)
+	wc, err := client.NewWithWatch(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	require.NoError(t, err)
+	blip := interceptor.NewClient(wc, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*catalogv1alpha1.RootFolder); ok {
+				return apierrors.NewInternalError(errors.New("cache blip"))
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	res, err = (&mediafile.Reconciler{Client: blip, Probe: fakeProbe, Clock: time.Now}).Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err, "a failed naming lookup does not fail the reconcile")
+	assert.Equal(t, 30*time.Second, res.RequeueAfter, "a render kept over a failed lookup must be retried")
+
+	var got catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, key, &got))
+	assert.Equal(t, steady.Status.Naming, got.Status.Naming, "the proposal was not kept over the failed lookup")
+	assert.True(t, namingOwnedByCatalogarr(got.ManagedFields))
 }

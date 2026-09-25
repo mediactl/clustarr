@@ -224,14 +224,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// does not touch is re-asserted rather than released.
 	known := statusOf(&mf)
 
-	// Detect an unincorporated successful transcode: the newest Succeeded
-	// TranscodeJob for this MediaFile whose result landed after the last
-	// probe. It is looked up BEFORE the file is stat'ed, because a swap can
-	// move the file: see swapTarget.
-	swap, err := r.latestUnincorporatedTranscode(ctx, &mf)
+	// The file's TranscodeJobs, listed once. From them: an unincorporated
+	// successful transcode -- the newest Succeeded TranscodeJob for this
+	// MediaFile whose result landed after the last probe -- looked up
+	// BEFORE the file is stat'ed, because a swap can move the file (see
+	// swapTarget); and whether one is still running, which holds a rename
+	// (status.naming's TranscodePending, spec D6, ruling R18).
+	jobs, err := r.transcodeJobsOf(ctx, &mf)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	swap := latestUnincorporatedTranscode(jobs, mf.Status.ProbedAt)
+	transcodeRunning := transcodeInFlight(jobs)
 	path, kept := swapTarget(&mf, swap)
 	if kept != nil {
 		swap = nil
@@ -258,14 +262,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if probeErr != nil {
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "ProbeFailed", "%s", probeErr)
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "ProbeFailed", "probe failed: %s", probeErr)
-			// Rendered from the last good probe, if any: a file never
-			// probed reads ProbePending, and a swap this failed probe
-			// could not incorporate reads TranscodePending.
-			known.Naming = r.renderNaming(ctx, &mf, known)
+			// A swap this failed probe could not incorporate, or a running
+			// transcode, reads TranscodePending; a file whose bytes changed
+			// reads ProbePending rather than a name the old bytes earned
+			// (ruling R20), as does a file never probed. Otherwise the
+			// last good probe still describes the file. spec.path is
+			// unchanged: nothing was incorporated.
+			var retryNaming bool
+			known.Naming, retryNaming = r.renderNaming(ctx, &mf, known, namingInputs{
+				specPath:         mf.Spec.Path,
+				probeStale:       ps.Stale,
+				transcodePending: swap != nil || transcodeRunning,
+			})
 			if serr := r.applyStatus(ctx, &mf, conditions, known); serr != nil {
 				return ctrl.Result{}, serr
 			}
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			return withNamingRetry(ctrl.Result{RequeueAfter: 30 * time.Second}, retryNaming), nil
 		}
 
 		original := mf.Spec.Original == nil || *mf.Spec.Original
@@ -397,10 +409,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Rendered on every reconcile that reaches here, not only after a
 	// probe: the Movie, Series, Episode and RootFolder watches wake this
 	// reconcile for a title or preset change with nothing to re-probe. The
-	// file is at path as of this apply -- a swap may have just moved it.
-	named := mf
-	named.Spec.Path = path
-	known.Naming = r.renderNaming(ctx, &named, known)
+	// file is at path as of this apply -- a swap may have just moved it --
+	// and any swap or kept copy is incorporated by it, so only a transcode
+	// still running holds the rename.
+	var retryNaming bool
+	known.Naming, retryNaming = r.renderNaming(ctx, &mf, known, namingInputs{
+		specPath:         path,
+		transcodePending: transcodeRunning,
+	})
 
 	if err := r.applyStatus(ctx, &mf, conditions, known); err != nil {
 		return ctrl.Result{}, err
@@ -419,9 +435,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	if transcoded || swap != nil {
-		return ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, nil
+		return withNamingRetry(ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, retryNaming), nil
 	}
-	return ctrl.Result{}, nil
+	return withNamingRetry(ctrl.Result{}, retryNaming), nil
 }
 
 // swapTarget decides what an unincorporated Succeeded TranscodeJob means for
@@ -605,8 +621,12 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			k8s.GenerationChanged(),
 			k8s.StatusFieldChanged(observedFingerprint),
 		))).
+		// Every phase transition, not only Succeeded: a transcode that
+		// starts or stops running holds or releases the rename
+		// (TranscodePending, ruling R18). A Succeeded one is still what
+		// triggers the swap.
 		Watches(&transcodev1alpha1.TranscodeJob{}, handler.EnqueueRequestsFromMapFunc(r.mediaFileForTranscodeJob),
-			builder.WithPredicates(k8s.StatusFieldIn(extractTranscodeJobPhase, string(transcodev1alpha1.TranscodeJobPhaseSucceeded)))).
+			builder.WithPredicates(k8s.StatusFieldChanged(extractTranscodeJobPhase))).
 		Watches(&subtitlev1alpha1.SubtitleRequest{}, handler.EnqueueRequestsFromMapFunc(r.mediaFileForSubtitleRequest),
 			builder.WithPredicates(k8s.StatusFieldChanged(extractSubtitleItemsSignature))).
 		Watches(&catalogv1alpha1.Movie{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForMovie),
@@ -616,7 +636,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForEpisode),
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(episodeNamingInputs)))).
 		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForRootFolder),
-			builder.WithPredicates(k8s.GenerationChanged())).
+			builder.WithPredicates(rootFolderNamingChanged())).
 		WithOptions(controller.Options{
 			RecoverPanic:          ptr.To(true),
 			ReconciliationTimeout: 5 * time.Minute,
@@ -624,11 +644,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// latestUnincorporatedTranscode lists TranscodeJobs for mf via the field
-// index and returns the most recently finished Succeeded one whose
-// FinishedAt is after mf.Status.ProbedAt, or nil if none. This is what
-// tells Reconcile "a transcode swap happened and I have not folded it in
-// yet" without needing to know which watch woke it up.
+// transcodeJobsOf lists the TranscodeJobs whose spec.mediaFileRef names mf,
+// once per reconcile: latestUnincorporatedTranscode and transcodeInFlight
+// both read the result.
 //
 // This filters list.Items in Go rather than sending
 // client.MatchingFields{transcodeJobMediaFileRefIndex: mf.Name}: that option
@@ -643,28 +661,58 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 // still documents and enables the reverse (MediaFile -> its TranscodeJobs)
 // lookup direction for any future caller that goes through the manager
 // cache.
-func (r *Reconciler) latestUnincorporatedTranscode(ctx context.Context, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.TranscodeJob, error) {
+func (r *Reconciler) transcodeJobsOf(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]transcodev1alpha1.TranscodeJob, error) {
 	var list transcodev1alpha1.TranscodeJobList
 	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace)); err != nil {
 		return nil, fmt.Errorf("mediafile: list TranscodeJobs: %w", err)
 	}
-	var latest *transcodev1alpha1.TranscodeJob
+	out := list.Items[:0]
 	for i := range list.Items {
-		tj := &list.Items[i]
-		if tj.Spec.MediaFileRef != mf.Name {
-			continue
+		if list.Items[i].Spec.MediaFileRef == mf.Name {
+			out = append(out, list.Items[i])
 		}
+	}
+	return out, nil
+}
+
+// latestUnincorporatedTranscode returns the most recently finished
+// Succeeded job in jobs whose FinishedAt is after probedAt (every Succeeded
+// one when probedAt is nil), or nil if none. This is what tells Reconcile
+// "a transcode swap happened and I have not folded it in yet" without
+// needing to know which watch woke it up.
+func latestUnincorporatedTranscode(jobs []transcodev1alpha1.TranscodeJob, probedAt *metav1.Time) *transcodev1alpha1.TranscodeJob {
+	var latest *transcodev1alpha1.TranscodeJob
+	for i := range jobs {
+		tj := &jobs[i]
 		if tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseSucceeded || tj.Status.FinishedAt == nil {
 			continue
 		}
-		if mf.Status.ProbedAt != nil && !tj.Status.FinishedAt.After(mf.Status.ProbedAt.Time) {
+		if probedAt != nil && !tj.Status.FinishedAt.After(probedAt.Time) {
 			continue
 		}
 		if latest == nil || tj.Status.FinishedAt.After(latest.Status.FinishedAt.Time) {
 			latest = tj
 		}
 	}
-	return latest, nil
+	return latest
+}
+
+// transcodeInFlight reports whether any of jobs has not reached a terminal
+// phase (Succeeded, Failed or Skipped) -- including one squasharr has not
+// yet given a phase at all. Such a job holds the file: its worker re-probes
+// spec.sourcePath and swaps its output over it, so a rename underneath it
+// would fail the encode or strand the output under the old name (spec D6).
+func transcodeInFlight(jobs []transcodev1alpha1.TranscodeJob) bool {
+	for i := range jobs {
+		switch jobs[i].Status.Phase {
+		case transcodev1alpha1.TranscodeJobPhaseSucceeded,
+			transcodev1alpha1.TranscodeJobPhaseFailed,
+			transcodev1alpha1.TranscodeJobPhaseSkipped:
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // transcodeProfileTag renders §4.5's "CLUSTARR_PROFILE=<name>@<hash>"
@@ -689,7 +737,7 @@ func (r *Reconciler) transcodeProfileTag(ctx context.Context, tj *transcodev1alp
 // same manager, it released probeHash, probedAt, mediaInfo and transcode
 // every time a SubtitleRequest existed. See Reconcile's doc comment.
 //
-// See latestUnincorporatedTranscode's comment for why this filters
+// See transcodeJobsOf's comment for why this filters
 // list.Items in Go instead of sending
 // client.MatchingFields{subtitleRequestMediaFileRefIndex: mf.Name}: the same
 // apiserver-selectable-field gap applies to SubtitleRequest.
