@@ -64,7 +64,11 @@ func TestParseQualityTagsMapsSourceResolutionModifierToRadarrNames(t *testing.T)
 		},
 		{
 			"sdtv", "Some.Show.S01E01.HDTV.XviD-GROUP",
-			commonv1.SourceTV, commonv1.ResolutionUnknown, commonv1.ModifierNone, "SDTV",
+			commonv1.SourceTV, commonv1.Resolution480p, commonv1.ModifierNone, "SDTV",
+		},
+		{
+			"sdtv with a 480p token", "Some.Show.S01E01.480p.HDTV.x264-GROUP",
+			commonv1.SourceTV, commonv1.Resolution480p, commonv1.ModifierNone, "SDTV",
 		},
 	}
 	for _, tt := range tests {

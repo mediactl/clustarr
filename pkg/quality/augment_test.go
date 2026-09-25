@@ -33,10 +33,11 @@ func TestAugmentFromMediaInfoCorrectsResolutionAndKeepsSource(t *testing.T) {
 	require.True(t, changed)
 	require.Equal(t, commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080}, q)
 
-	unknown := commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}
-	q, changed = quality.AugmentFromMediaInfo(unknown, mi)
-	require.False(t, changed, "the table defines no quality for an unknown source at any resolution, so the name's stays")
-	require.Equal(t, unknown, q, "the probe never supplies a source")
+	q, changed = quality.AugmentFromMediaInfo(commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}, mi)
+	require.True(t, changed)
+	require.Equal(t, int32(1080), q.Resolution)
+	require.Equal(t, commonv1.SourceUnknown, q.Source, "the probe never supplies a source")
+	require.Equal(t, "Unknown", q.Name, "an unknown source has no quality to place the resolution on")
 
 	q, changed = quality.AugmentFromMediaInfo(commonv1.Quality{Name: "Remux-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierRemux}, mi)
 	require.True(t, changed)
@@ -89,6 +90,16 @@ func TestAugmentFromMediaInfoPlacesAProbedResolutionOnADefinedQuality(t *testing
 			"a 576-line WEB-DL takes the rung below, WEBDL-480p, not 720p",
 			named("WEBDL-1080p", commonv1.SourceWebDL, commonv1.Resolution1080p, commonv1.ModifierNone), 720, 576,
 			named("WEBDL-480p", commonv1.SourceWebDL, commonv1.Resolution480p, commonv1.ModifierNone), true,
+		},
+		{
+			"an HDTV capture probed at SD is SDTV",
+			named("HDTV-720p", commonv1.SourceTV, commonv1.Resolution720p, commonv1.ModifierNone), 720, 480,
+			named("SDTV", commonv1.SourceTV, commonv1.Resolution480p, commonv1.ModifierNone), true,
+		},
+		{
+			"an HDTV capture probed at 576 lines takes the rung below, SDTV",
+			named("HDTV-1080p", commonv1.SourceTV, commonv1.Resolution1080p, commonv1.ModifierNone), 720, 576,
+			named("SDTV", commonv1.SourceTV, commonv1.Resolution480p, commonv1.ModifierNone), true,
 		},
 		{
 			"a remux with no rung at or below keeps the name's quality",

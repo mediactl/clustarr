@@ -158,7 +158,7 @@ type qualityKey struct {
 }
 
 var qualityTable = map[qualityKey]string{
-	{commonv1.SourceTV, commonv1.ResolutionUnknown, commonv1.ModifierNone}:        "SDTV",
+	{commonv1.SourceTV, commonv1.Resolution480p, commonv1.ModifierNone}:           "SDTV",
 	{commonv1.SourceDVD, commonv1.ResolutionUnknown, commonv1.ModifierNone}:       "DVD",
 	{commonv1.SourceWebDL, commonv1.Resolution1080p, commonv1.ModifierNone}:       "WEBDL-1080p",
 	{commonv1.SourceTV, commonv1.Resolution720p, commonv1.ModifierNone}:           "HDTV-720p",
@@ -324,9 +324,15 @@ func detectQuality(title string) (commonv1.Quality, error) {
 		if rerr != nil {
 			return commonv1.Quality{}, fmt.Errorf("release: quality: rawhd match: %w", rerr)
 		}
-		if rawhd {
+		switch {
+		case rawhd:
 			mod = commonv1.ModifierRawHD
 			resolution = commonv1.Resolution1080p
+		case resolution == commonv1.ResolutionUnknown:
+			// A TV capture that names no resolution is SD: Radarr's
+			// Quality.SDTV is (TV, 480), as pkg/quality's Definition is,
+			// so the parse lands on the triple a profile's SDTV tier holds.
+			resolution = commonv1.Resolution480p
 		}
 	case commonv1.SourceWebDL, commonv1.SourceWebRip:
 		if resolution == commonv1.ResolutionUnknown {
@@ -356,7 +362,7 @@ func QualityFor(src commonv1.Source, res int32, mod commonv1.Modifier) (commonv1
 // lowest resolution first: the source's ladder, for a caller that must
 // place a resolution the table has no exact entry for (pkg/quality's
 // AugmentFromMediaInfo). A quality defined without a resolution (DVD,
-// SDTV, CAM, ...) is a rung at ResolutionUnknown, so it sorts first.
+// CAM, ...) is a rung at ResolutionUnknown, so it sorts first.
 func QualityRungs(src commonv1.Source, mod commonv1.Modifier) []commonv1.Quality {
 	var rungs []commonv1.Quality
 	for k, name := range qualityTable {

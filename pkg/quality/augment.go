@@ -38,7 +38,9 @@ const remuxFloorKbps = 20000
 // The corrected (source, resolution, modifier) is placed on a quality the
 // table defines (findBySourceAndResolution), never left on a triple no
 // Definition holds: a quality the name gave a known name never augments to
-// "Unknown", which no profile tier would admit.
+// "Unknown", which no profile tier would admit, and keeps its name when
+// there is nowhere to place it. An unknown source has no ladder at all, so
+// its quality stays "Unknown" and takes the probed resolution (ruling R13).
 func AugmentFromMediaInfo(q commonv1.Quality, mi *commonv1.MediaInfo) (commonv1.Quality, bool) {
 	if mi == nil || mi.Width == 0 || mi.Height == 0 {
 		return q, false
@@ -68,7 +70,10 @@ func AugmentFromMediaInfo(q commonv1.Quality, mi *commonv1.MediaInfo) (commonv1.
 	}
 	found, ok := findBySourceAndResolution(q.Source, res, lookupMod)
 	if !ok {
-		return q, false
+		if q.Source != commonv1.SourceUnknown {
+			return q, false
+		}
+		found = commonv1.Quality{Name: q.Name, Resolution: res}
 	}
 	out := commonv1.Quality{Name: found.Name, Source: q.Source, Resolution: found.Resolution, Modifier: mod}
 	if out == q {
@@ -84,9 +89,9 @@ func AugmentFromMediaInfo(q commonv1.Quality, mi *commonv1.MediaInfo) (commonv1.
 //
 //   - the exact triple, when the table has it;
 //   - else the source's one quality defined without a resolution, for this
-//     modifier: DVD, SDTV, CAM, TELESYNC, TELECINE and WORKPRINT, which
-//     the name parse also keys at ResolutionUnknown -- a DVD rip probed at
-//     576 lines is still DVD;
+//     modifier: DVD, CAM, TELESYNC, TELECINE and WORKPRINT, which the name
+//     parse also keys at ResolutionUnknown -- a DVD rip probed at 576
+//     lines is still DVD;
 //   - else the source's nearest rung at or below the probed resolution,
 //     never above: a 540-line Bluray encode is Bluray-480p. A stream of
 //     360 lines or fewer counts as 480p, the lowest resolution any rung is

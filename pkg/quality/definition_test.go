@@ -24,6 +24,7 @@ import (
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 func TestLookupResolvesCanonicalAndSonarrAliasNames(t *testing.T) {
@@ -83,4 +84,34 @@ func TestLookupResolvesNonVideoTables(t *testing.T) {
 		require.Equal(t, tc.wantWeight, def.Weight)
 		require.Equal(t, tc.name, def.Quality.Name)
 	}
+}
+
+// TestEveryParsedVideoQualityIsHeldByItsDefinition: every quality
+// pkg/release can name sits on the (source, resolution, modifier) triple
+// the Definition of that name holds, since Profile.holds compares video by
+// triple. SDTV once parsed at (tv, 0) while its Definition, like Radarr's,
+// is (tv, 480), so no profile's SDTV tier ever admitted a parsed SDTV
+// release (ruling R12).
+func TestEveryParsedVideoQualityIsHeldByItsDefinition(t *testing.T) {
+	sources := []common.Source{
+		common.SourceUnknown, common.SourceCam, common.SourceTelesync, common.SourceTelecine, common.SourceWorkprint,
+		common.SourceDVD, common.SourceTV, common.SourceWebDL, common.SourceWebRip, common.SourceBluray,
+	}
+	modifiers := []common.Modifier{
+		common.ModifierNone, common.ModifierRegional, common.ModifierScreener,
+		common.ModifierRawHD, common.ModifierBRDisk, common.ModifierRemux,
+	}
+	seen := 0
+	for _, src := range sources {
+		for _, mod := range modifiers {
+			for _, q := range release.QualityRungs(src, mod) {
+				seen++
+				def, ok := quality.Lookup("video", q.Name)
+				require.True(t, ok, "%s has no Definition", q.Name)
+				require.Equal(t, [3]any{q.Source, q.Resolution, q.Modifier},
+					[3]any{def.Quality.Source, def.Quality.Resolution, def.Quality.Modifier}, q.Name)
+			}
+		}
+	}
+	require.Equal(t, 29, seen, "every named video quality in pkg/release's table")
 }
