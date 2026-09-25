@@ -130,7 +130,10 @@ func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string, pro
 	rel := relPath(st.root.Spec.Path, path)
 	confirmed := source.Status.Transcode != nil && strings.HasPrefix(source.Status.Transcode.ProfileTag, profile+"@")
 	if !confirmed && probe.available() {
-		mi, perr := probe.result(ctx)
+		mi, perr, fatal := probe.result(ctx)
+		if fatal != nil {
+			return false, fatal
+		}
 		if perr != nil {
 			st.progress.FilesSeen++
 			st.unmatched(rel, CodeUnconfirmedTranscodeOutput, fmt.Sprintf(

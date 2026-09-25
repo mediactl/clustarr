@@ -48,11 +48,20 @@ import (
 )
 
 // heartbeatInterval is how often the file loop sends an in-progress ack,
-// following app/import/worker/rescan's identical reasoning: ConsumerImportFile's
-// AckWait is 60s (topology.go, R6) and a multi-file hardlink-or-copy import
-// can outlast it, so this worker heartbeats rather than ask for a longer
-// AckWait than the worker Deployment's terminationGracePeriodSeconds allows.
-const heartbeatInterval = 20 * time.Second
+// checked before each file, following app/import/worker/rescan's
+// reasoning: a multi-file hardlink-or-copy import can outlast the
+// delivery's acknowledgement deadline, so this worker heartbeats rather
+// than ask for a longer one than the worker Deployment's
+// terminationGracePeriodSeconds allows. That deadline is
+// ConsumerImportFile's BackOff[0], 30s on a first delivery, not its 60s
+// AckWait (topology.go, R6): a BackOff replaces AckWait as the deadline
+// (events.Subscription.Backoff). Between two beats the loop may wait out
+// this interval and probe a file (videoProbeTimeout), so the two together
+// must fit inside it with room for the loop's own work;
+// TestTheImportFitsTheFileConsumersAckDeadline holds them to it. (The
+// loop also beats immediately before each probe, so the sum is a bound
+// that holds even without that beat.)
+const heartbeatInterval = 10 * time.Second
 
 // FieldManager is the server-side-apply field manager this worker uses for
 // the resource it creates: MediaFile. It is k8s.ManagerImportarrWorker, the
@@ -514,6 +523,14 @@ func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) er
 		return nil
 	}
 	*last = now
+	return heartbeat(ctx, m)
+}
+
+// heartbeat extends the delivery's ack deadline now: beat's send, and the
+// one probeVideo makes immediately before a probe. The file loop's
+// interval clock is not moved by the latter, so its next beat can only
+// come sooner than it needs to.
+func heartbeat(ctx context.Context, m events.Message) error {
 	if err := m.InProgress(ctx); err != nil {
 		return fmt.Errorf("fileimport: heartbeat: %w", err)
 	}

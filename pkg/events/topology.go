@@ -700,14 +700,25 @@ func defaultConsumers() []ConsumerSpec {
 		},
 		// importarr (amendment §A1.6). AckWait is 60s on all three, which is
 		// the floor set by terminationGracePeriodSeconds: 60 in
-		// config/manager/importarr-worker.yaml. A worker that is SIGTERMed
-		// must be able to finish or give up an in-flight message inside the
-		// grace period, or the pod is killed mid-task and the message is
-		// only redelivered after AckWait expires. Any unit of work that can
-		// outlast 60s -- a chunked directory walk, a large hardlink-or-copy
-		// import -- must send in-progress acks rather than have its AckWait
-		// raised past the grace period, and the manifest and this value must
-		// be changed together.
+		// config/manager/importarr-worker.yaml, and the manifest and this
+		// value must be changed together. A worker that is SIGTERMed must be
+		// able to finish or give up an in-flight message inside the grace
+		// period, or the pod is killed mid-task and the message is only
+		// redelivered after its acknowledgement deadline expires.
+		//
+		// That deadline is not AckWait: each of the three also sets a
+		// BackOff, and a BackOff replaces AckWait as the deadline
+		// (Subscription.Backoff) -- delivery n must be settled, or extended
+		// by an in-progress ack, within BackOff[n-1]: 30s on a first
+		// delivery of a scan or a file import, 5m of an import list. Any unit
+		// of work that can outlast it -- a chunked directory walk, a large
+		// hardlink-or-copy import, a file probe -- must send in-progress acks
+		// rather than have the deadline raised past the grace period.
+		// app/import/worker/rescan and fileimport hold their heartbeat
+		// interval and per-step timeouts to the shortest BackOff entry in
+		// tests (TestTheWalkFitsTheScanConsumersAckDeadline,
+		// TestTheImportFitsTheFileConsumersAckDeadline), so a change here
+		// trips them.
 		{
 			Name: ConsumerImportScan, Stream: StreamWorkImportarr,
 			Filters: []string{FilterImportScan},

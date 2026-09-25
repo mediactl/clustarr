@@ -61,10 +61,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //   - movie: [MatchMovie]; a file carrying a tmdb or imdb id may create its
 //     Movie. A file whose name does not parse (an obfuscated download
-//     name) is attributed by its item folder, "Title (Year) {tmdb-N}",
-//     which creates a Movie only by its own tmdb id -- the folder is
-//     evidence of identity, not a request to add. A newly recorded file is
-//     probed once, and the probe corrects the quality its name says
+//     name) is attributed by its item folder, "Title (Year) {tmdb-N}", and
+//     by that folder alone: its own tmdb or imdb id counts exactly as a
+//     filename's would, an id on a further ancestor (a collection folder)
+//     never does, and without one the folder's title and year match an
+//     existing Movie or nothing. A newly recorded file is probed once, and
+//     the probe corrects the quality its name says
 //     (quality.AugmentFromMediaInfo); a probe failure leaves that quality.
 //   - music, book, audiobook, comic: attributed to an EXISTING Album, Book,
 //     Audiobook or Issue only (nonvideo.go explains why nothing on disk can
@@ -173,8 +175,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // controller is its single writer. Progress instead flows through a
 // [Progress] checkpoint in the clustarr-progress bucket, written roughly
 // every [checkpointInterval] and polled by the controller, with in-progress
-// acks roughly every [heartbeatInterval] so a multi-minute walk outlives
-// ConsumerImportScan's 60s AckWait.
+// acks roughly every [heartbeatInterval], and immediately before each probe,
+// so a multi-minute walk outlives ConsumerImportScan's acknowledgement
+// deadline -- 30s on a first delivery, its BackOff[0], which replaces its
+// 60s AckWait (events.Subscription.Backoff).
 //
 // # Registration
 //

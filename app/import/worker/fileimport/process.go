@@ -50,10 +50,13 @@ import (
 // videoProbeTimeout bounds probeVideo's two ffprobe runs (container, then
 // first frame). A healthy file answers in well under a second, even over a
 // network mount; one that hangs -- a stalled mount, a pathological file --
-// must not hold the import handler past its consumer's AckWait, so a
-// timeout is a probe failure like any other and the file imports under its
-// name.
-const videoProbeTimeout = 60 * time.Second
+// must not hold the import handler past its delivery's acknowledgement
+// deadline, ConsumerImportFile's BackOff[0] (30s; heartbeatInterval says
+// why not its AckWait), so a timeout is a probe failure like any other and
+// the file imports under its name. probeVideo heartbeats immediately before
+// it probes, and TestTheImportFitsTheFileConsumersAckDeadline holds this
+// and heartbeatInterval to that deadline together.
+const videoProbeTimeout = 15 * time.Second
 
 // metricKindMovie is the bounded `kind` label on the import metrics, mirroring
 // app/import/worker/rescan's identical constant.
@@ -265,7 +268,10 @@ func (pc *processConfig) processFile(
 	// The probe corrects the name's resolution (and a false remux) before
 	// the profile judges the quality, so a "2160p" name on a 1080p stream
 	// is admitted, compared and frozen as the 1080p it is.
-	mi := probeVideo(ctx, srcPath, rel)
+	mi, err := probeVideo(ctx, pc.message, srcPath, rel)
+	if err != nil {
+		return nil, "", err
+	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 
 	if !pc.profile.Allowed(parsed.Quality) {
@@ -413,17 +419,23 @@ func (pc *processConfig) processFile(
 // source extension, exactly as it did before imports probed, since every
 // MediaInfo block of a preset is optional -- so it is logged and nil
 // returned. The probe gets videoProbeTimeout, and running out of it is
-// such a failure.
-func probeVideo(ctx context.Context, srcPath, rel string) *commonv1.MediaInfo {
+// such a failure. It heartbeats on m immediately before it probes, so the
+// probe's whole bound lies inside the delivery's ack deadline however long
+// the file loop has gone since its last beat; a failed heartbeat is the
+// error, which aborts the import as the loop's own heartbeat failure does.
+func probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (*commonv1.MediaInfo, error) {
+	if err := heartbeat(ctx, m); err != nil {
+		return nil, err
+	}
 	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
 	defer cancel()
 	mi, _, err := mediainfo.Probe(pctx, srcPath)
 	if err != nil {
 		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
 			"source", rel, "error", err)
-		return nil
+		return nil, nil
 	}
-	return mi
+	return mi, nil
 }
 
 // frozenRelease is the release-time half of the MediaFileSpec an import

@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -171,8 +172,9 @@ func newBus(t *testing.T, ctx context.Context) events.Bus {
 // envelope, mirroring app/import/worker/rescan's fakeMessage and
 // app/catalog/worker/search's testMessage.
 type fakeMessage struct {
-	env     *events.Envelope
-	attempt uint64
+	env        *events.Envelope
+	attempt    uint64
+	heartbeats atomic.Int64
 }
 
 func (m *fakeMessage) Envelope() *events.Envelope { return m.env }
@@ -186,7 +188,7 @@ func (m *fakeMessage) Attempt() uint64 {
 func (m *fakeMessage) Ack(context.Context) error                { return nil }
 func (m *fakeMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m *fakeMessage) Term(context.Context, string) error       { return nil }
-func (m *fakeMessage) InProgress(context.Context) error         { return nil }
+func (m *fakeMessage) InProgress(context.Context) error         { m.heartbeats.Add(1); return nil }
 
 func newImportTaskMessage(t *testing.T, ns, name, uid string) *fakeMessage {
 	t.Helper()

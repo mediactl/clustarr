@@ -251,7 +251,7 @@ func (w *Worker) runEpisodes(
 		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
 			return out, err
 		}
-		imported, rejection, err := w.importEpisodeFile(ctx, dl, plan, manual, c.path, c.info, dests, replaced, filled)
+		imported, rejection, err := w.importEpisodeFile(ctx, m, dl, plan, manual, c.path, c.info, dests, replaced, filled)
 		if err != nil {
 			return out, err
 		}
@@ -270,7 +270,7 @@ func (w *Worker) runEpisodes(
 // multi-episode file that an import replaces with two single-episode files
 // is recycled once.
 func (w *Worker) importEpisodeFile(
-	ctx context.Context, dl *downloadv1alpha1.Download, plan episodePlan, manual bool,
+	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, plan episodePlan, manual bool,
 	srcPath string, info os.FileInfo, dests map[string]string, replaced map[string]bool, filled map[string]string,
 ) (*downloadac.ImportedFileApplyConfiguration, string, error) {
 	log := logging.FromContext(ctx)
@@ -296,7 +296,10 @@ func (w *Worker) importEpisodeFile(
 	parsed.Languages = parsed.LanguagesFor(plan.originalLanguageName)
 	// The probe corrects the name's quality before the profile judges it,
 	// as processConfig.processFile does for a movie.
-	mi := probeVideo(ctx, srcPath, rel)
+	mi, err := probeVideo(ctx, m, srcPath, rel)
+	if err != nil {
+		return nil, "", err
+	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 	if !plan.profile.Allowed(parsed.Quality) {
 		return nil, notAllowedRejection(rel, parsed.Quality), nil

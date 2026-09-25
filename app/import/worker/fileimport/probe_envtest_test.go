@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
@@ -171,4 +172,27 @@ func TestAProbedDVDRipIsStillDVD(t *testing.T) {
 	assert.Contains(t, base, "[XviD]")
 	assert.NotContains(t, base, "576p")
 	assert.Equal(t, ".avi", filepath.Ext(base))
+}
+
+// TestAnImportHeartbeatsImmediatelyBeforeItsProbe is ruling R17: the
+// import extends the delivery's ack deadline immediately before it probes
+// a file, so the probe's whole bound lies inside the deadline however long
+// the file loop has gone since its last interval beat. The loop's own beat
+// on the walk's first file is one; the probe's must be a second, since no
+// interval beat falls due in between. The file is sparse, so the probe
+// fails and the file imports under its name -- after the beat all the same.
+func TestAnImportHeartbeatsImmediatelyBeforeItsProbe(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "fi-probe-beat")
+	contentRoot := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(contentRoot, "The.Matrix.1999.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
+	dl := f.createDownload(t, "beat-dl", contentRoot, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName})
+
+	msg := newImportTaskMessage(t, f.ns, dl.Name, "")
+	require.NoError(t, f.worker.Handle(ctx, msg))
+	var got downloadv1alpha1.Download
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: dl.Name}, &got))
+	require.NotNil(t, got.Status.Import)
+	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.Status.Import.State, "message: %s", got.Status.Import.Message)
+	assert.Equal(t, int64(2), msg.heartbeats.Load(), "the loop's beat on the first file, and one immediately before the probe")
 }

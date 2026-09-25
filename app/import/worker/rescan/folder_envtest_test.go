@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	dto "github.com/prometheus/client_model/go"
@@ -31,11 +32,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
@@ -159,54 +162,116 @@ func TestHandleLeavesAJunkNamedFileInAnUnknownFolderUnmatched(t *testing.T) {
 	noMediaFiles(t, ctx, f)
 }
 
-// A folder attributes a junk-named file to a movie the catalogue lacks
-// only by the folder's own tmdb id. An imdb id resolved through the
-// metadata gateway binds to an existing movie, but does not create one
-// from a folder.
-func TestHandleCreatesAMovieFromAFolderOnlyByItsTmdbID(t *testing.T) {
+// serveImdbResolve answers the metadata gateway's resolve RPC with tmdbID
+// for any imdb id, counting the calls. The handler runs on membus's own
+// goroutine, so it asserts and returns its error rather than stopping the
+// test from there.
+func serveImdbResolve(t *testing.T, f *fixture, tmdbID string) *atomic.Int64 {
+	t.Helper()
+	var calls atomic.Int64
+	require.NoError(t, f.bus.Serve(events.RPCMetadataResolve, "test",
+		func(_ context.Context, data []byte) ([]byte, error) {
+			calls.Add(1)
+			var req schema.MetadataRequest
+			if err := schema.Decode("", data, &req); !assert.NoError(t, err) {
+				return nil, err
+			}
+			_, out, err := schema.Encode(schema.MetadataResponse{Kind: req.Kind, IDs: map[string]string{"tmdb": tmdbID}})
+			assert.NoError(t, err)
+			return out, err
+		}))
+	return &calls
+}
+
+// A junk-named file's item folder carrying an id attributes the file to a
+// movie the catalogue lacks exactly as the same id in a filename would
+// (ruling R15): a tmdb id is the identity, and an imdb id is resolved
+// through the metadata gateway.
+func TestHandleCreatesAMovieFromItsFoldersOwnID(t *testing.T) {
 	for i, tc := range []struct {
 		name, folder string
-		created      bool
+		resolves     bool
 	}{
-		{name: "the folder's tmdb id", folder: "A Scanner Darkly (2006) {tmdb-3509}", created: true},
-		{name: "the folder's imdb id, resolved", folder: "A Scanner Darkly (2006) {imdb-tt0405296}"},
+		{name: "the folder's tmdb id", folder: "A Scanner Darkly (2006) {tmdb-3509}"},
+		{name: "the folder's imdb id, resolved", folder: "A Scanner Darkly (2006) {imdb-tt0405296}", resolves: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			f := newFixture(t, ctx, fmt.Sprintf("rw-folder-create-%d", i), catalogv1alpha1.RootFolderKindMovie,
 				"hd-bluray-web", catalogv1alpha1.ScanModeFull)
-			require.NoError(t, f.bus.Serve(events.RPCMetadataResolve, "test",
-				func(_ context.Context, data []byte) ([]byte, error) {
-					var req schema.MetadataRequest
-					require.NoError(t, schema.Decode("", data, &req))
-					assert.Equal(t, "tt0405296", req.IDs["imdb"])
-					_, out, err := schema.Encode(schema.MetadataResponse{Kind: req.Kind, IDs: map[string]string{"tmdb": "3509"}})
-					return out, err
-				}))
+			calls := serveImdbResolve(t, f, "3509")
 			// A sparse file: the decision is made before the probe, which
 			// fails on it and leaves the name-derived quality.
-			rel := filepath.Join(tc.folder, junkName)
-			mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
+			mustWriteFile(t, filepath.Join(f.root, tc.folder, junkName), sampleFloor)
 
-			before := noMatches(t)
 			require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
 			got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 			require.Empty(t, got.Error)
-			if tc.created {
-				assert.Empty(t, got.Unmatched)
-				assert.Equal(t, int64(1), got.ItemsCreated)
-				assert.Equal(t, int64(3509), movieCountIs(t, ctx, f, 1)[0].Spec.TmdbID)
-				mediaFilesIn(t, ctx, f.c, f.ns, 1)
-				return
-			}
-			_, ok := unmatchedByPath(got)[rel]
-			require.True(t, ok, "reported unmatched: %+v", got.Unmatched)
-			assert.InDelta(t, 1, noMatches(t)-before, 0, "unmatched as %s", rescan.CodeNoMatch)
-			assert.Zero(t, got.ItemsCreated)
-			movieCountIs(t, ctx, f, 0)
-			noMediaFiles(t, ctx, f)
+			assert.Empty(t, got.Unmatched)
+			assert.Equal(t, int64(1), got.ItemsCreated)
+			assert.Equal(t, tc.resolves, calls.Load() > 0, "the gateway resolves an imdb id, and only that")
+			movie := movieCountIs(t, ctx, f, 1)[0]
+			assert.Equal(t, int64(3509), movie.Spec.TmdbID)
+			mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
+			assert.Equal(t, movie.Name, mf.Spec.MediaRef.Name)
 		})
 	}
+}
+
+// A junk-named file is attributed by its item folder alone (ruling R14):
+// an id on a further ancestor -- a collection folder's, which is no
+// movie's -- neither creates a movie nor attaches the file to one that
+// carries it. Without an id of its own the item folder matches by its
+// title and year among existing movies, or the file is unmatched.
+func TestHandleNeverReadsAGrandparentsIDForAJunkNamedFile(t *testing.T) {
+	rel := filepath.Join("Alien Collection {tmdb-8091}", "Alien (1979)", junkName)
+	t.Run("no movie of the folder's title: unmatched, nothing created", func(t *testing.T) {
+		ctx := context.Background()
+		f := newFixture(t, ctx, "rw-folder-grandparent-0", catalogv1alpha1.RootFolderKindMovie,
+			"hd-bluray-web", catalogv1alpha1.ScanModeFull)
+		mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
+
+		before := noMatches(t)
+		require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+		got := readProgress(t, ctx, f.bus, string(f.scan.UID))
+		require.Empty(t, got.Error)
+		_, ok := unmatchedByPath(got)[rel]
+		require.True(t, ok, "reported unmatched: %+v", got.Unmatched)
+		assert.InDelta(t, 1, noMatches(t)-before, 0, "unmatched as %s", rescan.CodeNoMatch)
+		assert.Zero(t, got.ItemsCreated)
+		movieCountIs(t, ctx, f, 0)
+		noMediaFiles(t, ctx, f)
+	})
+	t.Run("a movie carries the collection's id: attached by title and year, never by that id", func(t *testing.T) {
+		ctx := context.Background()
+		f := newFixture(t, ctx, "rw-folder-grandparent-1", catalogv1alpha1.RootFolderKindMovie,
+			"hd-bluray-web", catalogv1alpha1.ScanModeFull)
+		byID := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "collection-8091", Namespace: f.ns},
+			Spec:       catalogv1alpha1.MovieSpec{TmdbID: 8091, QualityProfileRef: "hd-bluray-web", RootFolderRef: f.rf.Name},
+		}
+		require.NoError(t, f.c.Create(ctx, byID))
+		alien := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "alien-348", Namespace: f.ns},
+			Spec:       catalogv1alpha1.MovieSpec{TmdbID: 348, QualityProfileRef: "hd-bluray-web", RootFolderRef: f.rf.Name},
+		}
+		require.NoError(t, f.c.Create(ctx, alien))
+		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Movie(alien.Name, f.ns).WithStatus(
+			catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Alien").WithYear(1979))))
+		require.NoError(t, err)
+		waitCached(t, ctx, f.c, byID, func() bool { return true })
+		waitCached(t, ctx, f.c, alien, func() bool { return alien.Status.Metadata != nil })
+		mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
+
+		require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+		got := readProgress(t, ctx, f.bus, string(f.scan.UID))
+		require.Empty(t, got.Error)
+		assert.Empty(t, got.Unmatched)
+		assert.Zero(t, got.ItemsCreated)
+		mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
+		assert.Equal(t, alien.Name, mf.Spec.MediaRef.Name, "the item folder's title and year, not the collection's id")
+		movieCountIs(t, ctx, f, 2)
+	})
 }
 
 // A file whose name says 2160p and whose stream is 1080 lines freezes the
@@ -248,6 +313,29 @@ func noMatches(t *testing.T) float64 {
 	require.NoError(t, metrics.ImportUnmatchedTotal.WithLabelValues(
 		string(catalogv1alpha1.RootFolderKindMovie), rescan.CodeNoMatch).Write(&m))
 	return m.GetCounter().GetValue()
+}
+
+// The walk extends the delivery's ack deadline immediately before it
+// probes a file (ruling R17), so the probe's whole bound lies inside the
+// deadline however long the walk has gone since its last interval beat.
+// The walk's own beat on its first file is the one before; the probe must
+// see a second.
+func TestHandleHeartbeatsImmediatelyBeforeAProbe(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, ctx, "rw-probe-beat", catalogv1alpha1.RootFolderKindMovie,
+		"hd-bluray-web", catalogv1alpha1.ScanModeFull)
+	mustWriteFile(t, filepath.Join(f.root, "Heat (1995) {tmdb-949}", "Heat.1995.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
+
+	msg := newFakeMessage(t, f.task(false))
+	var atProbe []int64
+	w := rescan.NewWorker(f.c, f.bus)
+	w.ProbeVideo = func(context.Context, string) (*commonv1.MediaInfo, error) {
+		atProbe = append(atProbe, msg.heartbeats.Load())
+		return &commonv1.MediaInfo{Width: 1920, Height: 1080}, nil
+	}
+	require.NoError(t, w.Handle(ctx, msg))
+	require.Empty(t, readProgress(t, ctx, f.bus, string(f.scan.UID)).Error)
+	assert.Equal(t, []int64{2}, atProbe, "one probe, after the walk's beat on the file and one of its own")
 }
 
 // movieCountIs asserts the namespace holds want Movies, read past the

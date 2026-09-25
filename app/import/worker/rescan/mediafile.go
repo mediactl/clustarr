@@ -38,7 +38,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -183,10 +182,10 @@ func (w *Worker) awaitNewerCopy(ctx context.Context, stale *staleReadError) bool
 //
 // A movie file whose name does not parse -- an obfuscated download name --
 // is attributed by its item folder ("Title (Year) {tmdb-N}";
-// release.Options.FolderFallback). That folder is evidence of identity,
-// not a request to add: it attributes the file to an existing movie by
-// title and year or by its id, but creates a movie only by its own tmdb
-// id (folderMayCreate). The scanner never guesses.
+// release.Options.FolderFallback), and by that folder alone
+// (itemFolderIdentity): its own id counts exactly as a filename's would,
+// and without one the file is matched by the folder's title and year
+// among existing movies, or left unmatched. The scanner never guesses.
 //
 // A path that already has a MediaFile is not attributed again. The
 // MediaFile IS its attribution -- spec.mediaRef is immutable -- so a rescan
@@ -237,6 +236,11 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 		st.unmatched(rel, CodeParseError, fmt.Sprintf("could not parse the filename: %v", perr), nil, now)
 		return nil
 	}
+	if ferr := itemFolderIdentity(parsed, path); ferr != nil {
+		st.unmatched(rel, CodeParseError, fmt.Sprintf(
+			"the filename does not parse, nor does its folder alone: %v", ferr), nil, now)
+		return nil
+	}
 
 	result := MatchMovie(parsed, st.movies, w.resolveIMDb(ctx))
 	if result.Unmatched {
@@ -246,13 +250,6 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 
 	movieName := result.ExistingName
 	created := movieName == ""
-	if created && !folderMayCreate(parsed, result) {
-		st.unmatched(rel, CodeNoMatch, fmt.Sprintf(
-			"the filename does not parse, and its folder %q names no tmdb id; the identity it resolves to "+
-				"(tmdb id %d) is no existing movie, and a folder creates a movie only by its own tmdb id",
-			filepath.Base(filepath.Dir(path)), result.TmdbID), nil, now)
-		return nil
-	}
 	profile, originalLanguage := st.root.Spec.Defaults.QualityProfileRef, ""
 	if created {
 		if profile == "" {
@@ -286,7 +283,11 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 
 	if !st.task.DryRun {
 		ref := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieName}
-		parsed.Quality = probedQuality(ctx, probe, rel, parsed.Quality)
+		q, err := probedQuality(ctx, probe, rel, parsed.Quality)
+		if err != nil {
+			return err
+		}
+		parsed.Quality = q
 		fresh := w.freshVideoSpec(ctx, st, path, parsed, profile, originalLanguage)
 		if err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, fresh); err != nil {
 			return err
@@ -298,94 +299,29 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 	return nil
 }
 
-// folderMayCreate reports whether a match that names no existing movie may
-// create one. A file attributed by its own name may, as before. One
-// attributed by its folder (parsed.FromFolder) may only when the identity
-// is the tmdb id that folder path carries, never one the metadata gateway
-// resolved from an imdb id: the folder is evidence of which movie a file
-// is, not a request to add a movie to the catalogue. (A title-and-year
-// match never gets here -- MatchMovie matches a bare title against
-// existing movies only.)
-func folderMayCreate(parsed *release.ParsedRelease, result MatchResult) bool {
+// itemFolderIdentity narrows a parse attributed by its folder
+// (parsed.FromFolder) to the ids its immediate parent folder carries
+// (ruling R14). release.ParsePath merges the ids of every ancestor folder
+// into its result, which is right for a file whose own name parses -- a
+// library layout puts the id on the item folder, above a disc or extras
+// folder -- but not when the folder is the identity: in
+// "Alien Collection {tmdb-8091}/Alien (1979)/<hex>.mkv" the collection's
+// id is no movie's, and reading it would attach the file to, or create,
+// the wrong movie. The parent folder's own id, tmdb or imdb, counts
+// exactly as a filename's would (ruling R15), so MatchMovie may attach by
+// it or create from it; without one the file is matched by the folder's
+// title and year among existing movies only, which never creates. A parse
+// from the file's own name is left as it is.
+func itemFolderIdentity(parsed *release.ParsedRelease, path string) error {
 	if !parsed.FromFolder {
-		return true
+		return nil
 	}
-	return result.TmdbID > 0 && tmdbID(parsed) == result.TmdbID
-}
-
-// VideoProber reads a video file's technical description.
-type VideoProber func(ctx context.Context, path string) (*commonv1.MediaInfo, error)
-
-// videoProbeTimeout bounds one file's probe (probeVideo), as the
-// file-import worker's constant of the same name bounds an import's: a
-// healthy file answers in well under a second, even over a network mount,
-// and one that hangs -- a stalled mount, a pathological file -- must not
-// hold the walk, so running out of it is a probe failure like any other.
-// It is half the import's 60s because the walk heartbeats between files,
-// at most heartbeatInterval (20s) apart, and ConsumerImportScan's AckWait
-// is 60s: a beat, then a probe that runs out, must still land inside it,
-// or the scan is redelivered while it is still walking.
-const videoProbeTimeout = 30 * time.Second
-
-// probeVideo is the production [VideoProber]: pkg/mediainfo's probe, the
-// same reading catalogarr's probe gives the file, bounded by
-// videoProbeTimeout.
-func probeVideo(ctx context.Context, path string) (*commonv1.MediaInfo, error) {
-	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
-	defer cancel()
-	mi, _, err := mediainfo.Probe(pctx, path)
-	return mi, err
-}
-
-// fileProbe is one walked file's probe, run at most once however many of
-// the walk's decisions read it -- the kept-output tag check (keptOutput)
-// and the quality correction (attributeMediaFile), and every conflict
-// retry of the latter (handleMediaFile) -- and only when one does. visit
-// makes one per file.
-type fileProbe struct {
-	path  string
-	probe VideoProber // nil: the worker probes nothing
-	ran   bool
-	mi    *commonv1.MediaInfo
-	err   error
-}
-
-// probeFor is path's fileProbe, through [Worker.ProbeVideo].
-func (w *Worker) probeFor(path string) *fileProbe {
-	return &fileProbe{path: path, probe: w.ProbeVideo}
-}
-
-// available reports whether the worker probes at all.
-func (p *fileProbe) available() bool { return p.probe != nil }
-
-// result probes the file the first time it is asked, and returns that one
-// result every time after. Callers check available first.
-func (p *fileProbe) result(ctx context.Context) (*commonv1.MediaInfo, error) {
-	if !p.ran {
-		p.mi, p.err = p.probe(ctx, p.path)
-		p.ran = true
-	}
-	return p.mi, p.err
-}
-
-// probedQuality corrects a name-derived quality from the file's probe
-// (quality.AugmentFromMediaInfo): the resolution the stream really has,
-// onto the quality ladder, under the name's source. A probe failure never
-// fails the scan -- it is logged and the file keeps the quality its name
-// says, as it did before scans probed -- and neither does a worker that
-// probes nothing.
-func probedQuality(ctx context.Context, probe *fileProbe, rel string, q commonv1.Quality) commonv1.Quality {
-	if !probe.available() {
-		return q
-	}
-	mi, err := probe.result(ctx)
+	folder, err := release.Parse(filepath.Base(filepath.Dir(path)), release.Options{Kind: commonv1.MediaKindMovie})
 	if err != nil {
-		logging.FromContext(ctx).Warn("rescan: could not probe the file; recording it under its name-derived quality",
-			"path", rel, "error", err)
-		return q
+		return err
 	}
-	q, _ = quality.AugmentFromMediaInfo(q, mi)
-	return q
+	parsed.IDs = folder.IDs
+	return nil
 }
 
 // movie is the walk's candidate named name, or nil.

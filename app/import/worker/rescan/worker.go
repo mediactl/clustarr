@@ -46,13 +46,20 @@ import (
 )
 
 const (
-	// heartbeatInterval is how often the walk sends an in-progress ack.
-	// ConsumerImportScan's AckWait is 60s (topology.go pins it to the
-	// worker Deployment's terminationGracePeriodSeconds), and topology.go's
-	// own comment requires any unit of work that can outlast it to
-	// heartbeat rather than have AckWait raised. 20s leaves two missed
-	// beats of headroom.
-	heartbeatInterval = 20 * time.Second
+	// heartbeatInterval is how often the walk sends an in-progress ack,
+	// checked before each file. ConsumerImportScan sets a BackOff, and a
+	// BackOff replaces AckWait as the acknowledgement deadline
+	// (events.Subscription.Backoff): a first delivery must be acked, or
+	// extended, within BackOff[0], 30s -- not the 60s AckWait that
+	// topology.go pins to the worker Deployment's
+	// terminationGracePeriodSeconds. Between two beats the walk may wait
+	// out this interval, resolve an imdb id (defaultMetadataTimeout) and
+	// probe a file (videoProbeTimeout), so the three together must fit
+	// inside that deadline with room for the walk's own work;
+	// TestTheWalkFitsTheScanConsumersAckDeadline holds them to it. (The
+	// walk also beats immediately before each probe, so the sum is a
+	// bound that holds even without that beat.)
+	heartbeatInterval = 3 * time.Second
 
 	// checkpointInterval is how often the running tally is written to the
 	// clustarr-progress bucket. The LibraryScan controller polls at 3s, so
@@ -487,7 +494,7 @@ func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) erro
 		if st.resuming(path) {
 			return nil
 		}
-		if err := w.visit(ctx, st, path, info, class); err != nil {
+		if err := w.visit(ctx, m, st, path, info, class); err != nil {
 			return err
 		}
 		st.progress.Resume = path
@@ -508,9 +515,12 @@ func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) erro
 }
 
 // visit is one walked file's outcome, by its class. A media file's
-// decisions share one probe of it (fileProbe), run only if one needs it.
-func (w *Worker) visit(ctx context.Context, st *scanState, path string, info os.FileInfo, class fsops.FileClass) error {
-	probe := w.probeFor(path)
+// decisions share one probe of it (fileProbe), run only if one needs it,
+// and immediately after a heartbeat on m.
+func (w *Worker) visit(
+	ctx context.Context, m events.Message, st *scanState, path string, info os.FileInfo, class fsops.FileClass,
+) error {
+	probe := w.probeFor(path, func(ctx context.Context) error { return w.heartbeat(ctx, m, st) })
 	if class == fsops.ClassMedia || class == fsops.ClassSuspectedSample {
 		if skip, err := w.transcodeOutput(ctx, st, path, probe); err != nil || skip {
 			return err
@@ -671,13 +681,18 @@ func (w *Worker) suspectedSample(ctx context.Context, st *scanState, path string
 
 // beat extends the delivery's ack deadline when heartbeatInterval has
 // elapsed. A library walk is the canonical long task: without this the broker
-// redelivers it after AckWait and two workers walk the same tree.
+// redelivers it after its ack deadline and two workers walk the same tree.
 func (w *Worker) beat(ctx context.Context, m events.Message, st *scanState) error {
-	now := w.now()
-	if !st.lastHeartbeat.IsZero() && now.Sub(st.lastHeartbeat) < heartbeatInterval {
+	if !st.lastHeartbeat.IsZero() && w.now().Sub(st.lastHeartbeat) < heartbeatInterval {
 		return nil
 	}
-	st.lastHeartbeat = now
+	return w.heartbeat(ctx, m, st)
+}
+
+// heartbeat extends the delivery's ack deadline now: beat's send, and the
+// one fileProbe makes immediately before a probe.
+func (w *Worker) heartbeat(ctx context.Context, m events.Message, st *scanState) error {
+	st.lastHeartbeat = w.now()
 	if err := m.InProgress(ctx); err != nil {
 		return fmt.Errorf("rescan: heartbeat: %w", err)
 	}
