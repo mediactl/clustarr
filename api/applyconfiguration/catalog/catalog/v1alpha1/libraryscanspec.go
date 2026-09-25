@@ -49,6 +49,9 @@ type LibraryScanSpecApplyConfiguration struct {
 	DryRun *bool `json:"dryRun,omitempty"`
 	// TTLSecondsAfterFinished deletes the scan once it has settled.
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+	// Rename runs a rename pass over the scanned subtree: dryRun records
+	// what would move in status.renamed, apply moves it. Off by default.
+	Rename *catalogv1alpha1.ScanRename `json:"rename,omitempty"`
 }
 
 // LibraryScanSpecApplyConfiguration constructs a declarative configuration of the LibraryScanSpec type for use with
@@ -94,5 +97,13 @@ func (b *LibraryScanSpecApplyConfiguration) WithDryRun(value bool) *LibraryScanS
 // If called multiple times, the TTLSecondsAfterFinished field is set to the value of the last call.
 func (b *LibraryScanSpecApplyConfiguration) WithTTLSecondsAfterFinished(value int32) *LibraryScanSpecApplyConfiguration {
 	b.TTLSecondsAfterFinished = &value
+	return b
+}
+
+// WithRename sets the Rename field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Rename field is set to the value of the last call.
+func (b *LibraryScanSpecApplyConfiguration) WithRename(value catalogv1alpha1.ScanRename) *LibraryScanSpecApplyConfiguration {
+	b.Rename = &value
 	return b
 }

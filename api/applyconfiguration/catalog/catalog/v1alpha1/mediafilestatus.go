@@ -48,6 +48,10 @@ type MediaFileStatusApplyConfiguration struct {
 	Sidecars []SidecarApplyConfiguration `json:"sidecars,omitempty"`
 	// Transcode is transcodarr's view of this file.
 	Transcode *TranscodeStateApplyConfiguration `json:"transcode,omitempty"`
+	// Naming is the file's canonical path under its RootFolder's naming
+	// preset, rendered by catalogarr from the item's metadata, the
+	// release-time spec and the probe; importarr performs the rename.
+	Naming *NamingStatusApplyConfiguration `json:"naming,omitempty"`
 }
 
 // MediaFileStatusApplyConfiguration constructs a declarative configuration of the MediaFileStatus type for use with
@@ -119,5 +123,13 @@ func (b *MediaFileStatusApplyConfiguration) WithSidecars(values ...*SidecarApply
 // If called multiple times, the Transcode field is set to the value of the last call.
 func (b *MediaFileStatusApplyConfiguration) WithTranscode(value *TranscodeStateApplyConfiguration) *MediaFileStatusApplyConfiguration {
 	b.Transcode = value
+	return b
+}
+
+// WithNaming sets the Naming field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Naming field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithNaming(value *NamingStatusApplyConfiguration) *MediaFileStatusApplyConfiguration {
+	b.Naming = value
 	return b
 }

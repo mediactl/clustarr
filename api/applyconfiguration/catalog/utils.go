@@ -193,6 +193,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.NamedRefApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NamingSpec"):
 		return &catalogv1alpha1.NamingSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NamingStatus"):
+		return &catalogv1alpha1.NamingStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("OverlayBadge"):
 		return &catalogv1alpha1.OverlayBadgeApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("OverlayEntry"):
@@ -225,6 +227,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.ReleaseDateApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReleaseSummary"):
 		return &catalogv1alpha1.ReleaseSummaryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("RenamedFile"):
+		return &catalogv1alpha1.RenamedFileApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("RootDefaults"):
 		return &catalogv1alpha1.RootDefaultsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("RootFolder"):

@@ -558,6 +558,84 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              naming:
+                description: |-
+                  Naming is the file's canonical path under its RootFolder's naming
+                  preset, rendered by catalogarr from the item's metadata, the
+                  release-time spec and the probe; importarr performs the rename.
+                properties:
+                  current:
+                    description: Current is true when spec.path equals expectedPath.
+                    type: boolean
+                  expectedPath:
+                    description: |-
+                      ExpectedPath is the absolute path the preset renders; empty until
+                      the item's metadata and the probe are both present.
+                    maxLength: 4096
+                    type: string
+                  quality:
+                    description: |-
+                      Quality is the probe-corrected quality importarr re-applies into
+                      spec.quality when it renames.
+                    properties:
+                      modifier:
+                        description: Modifier refines the quality (remux, screener,
+                          ...).
+                        enum:
+                        - none
+                        - regional
+                        - screener
+                        - rawhd
+                        - brdisk
+                        - remux
+                        type: string
+                      name:
+                        description: Name is the canonical quality definition name.
+                        type: string
+                      resolution:
+                        description: Resolution is the vertical resolution in lines.
+                          Video only.
+                        enum:
+                        - 0
+                        - 360
+                        - 480
+                        - 540
+                        - 576
+                        - 720
+                        - 1080
+                        - 2160
+                        format: int32
+                        type: integer
+                      source:
+                        description: Source is the release source. Video only.
+                        enum:
+                        - unknown
+                        - cam
+                        - telesync
+                        - telecine
+                        - workprint
+                        - dvd
+                        - tv
+                        - webdl
+                        - webrip
+                        - bluray
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  reason:
+                    description: Reason says why expectedPath is empty or the file
+                      is not renameable.
+                    enum:
+                    - MetadataPending
+                    - ProbePending
+                    - TranscodePending
+                    - Recycling
+                    - Unrenderable
+                    type: string
+                required:
+                - current
+                type: object
               observedGeneration:
                 description: ObservedGeneration is the generation of the spec this
                   status reflects.

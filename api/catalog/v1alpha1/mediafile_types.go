@@ -233,7 +233,52 @@ type MediaFileStatus struct {
 	// Transcode is transcodarr's view of this file.
 	// +optional
 	Transcode *TranscodeState `json:"transcode,omitempty"`
+
+	// Naming is the file's canonical path under its RootFolder's naming
+	// preset, rendered by catalogarr from the item's metadata, the
+	// release-time spec and the probe; importarr performs the rename.
+	// +optional
+	Naming *NamingStatus `json:"naming,omitempty"`
 }
+
+// NamingStatus is catalogarr's proposal for a MediaFile's canonical path.
+type NamingStatus struct {
+	// ExpectedPath is the absolute path the preset renders; empty until
+	// the item's metadata and the probe are both present.
+	// +optional
+	// +kubebuilder:validation:MaxLength=4096
+	ExpectedPath string `json:"expectedPath,omitempty"`
+
+	// Current is true when spec.path equals expectedPath.
+	Current bool `json:"current"`
+
+	// Reason says why expectedPath is empty or the file is not renameable.
+	// +optional
+	// +kubebuilder:validation:Enum=MetadataPending;ProbePending;TranscodePending;Recycling;Unrenderable
+	Reason NamingReason `json:"reason,omitempty"`
+
+	// Quality is the probe-corrected quality importarr re-applies into
+	// spec.quality when it renames.
+	// +optional
+	Quality *commonv1.Quality `json:"quality,omitempty"`
+}
+
+// NamingReason says why a MediaFile's expectedPath is empty or the file is
+// not renameable.
+//
+// +kubebuilder:validation:Enum=MetadataPending;ProbePending;TranscodePending;Recycling;Unrenderable
+type NamingReason string
+
+// Naming reasons.
+const (
+	NamingReasonMetadataPending  NamingReason = "MetadataPending"
+	NamingReasonProbePending     NamingReason = "ProbePending"
+	NamingReasonTranscodePending NamingReason = "TranscodePending"
+	NamingReasonRecycling        NamingReason = "Recycling"
+	NamingReasonUnrenderable     NamingReason = "Unrenderable"
+	// ConditionNamingCurrent mirrors status.naming.current.
+	ConditionNamingCurrent = "NamingCurrent"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

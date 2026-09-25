@@ -48,6 +48,37 @@ const (
 	ScanPhaseFailed    ScanPhase = "Failed"
 )
 
+// ScanRename selects the rename pass of a LibraryScan.
+//
+// +kubebuilder:validation:Enum=off;dryRun;apply
+type ScanRename string
+
+// Scan rename modes.
+const (
+	ScanRenameOff    ScanRename = "off"
+	ScanRenameDryRun ScanRename = "dryRun"
+	ScanRenameApply  ScanRename = "apply"
+)
+
+// RenamedFile is one entry of a rename pass.
+type RenamedFile struct {
+	// From is the file's path before the rename.
+	// +required
+	// +kubebuilder:validation:MaxLength=4096
+	From string `json:"from"`
+
+	// To is the file's path after the rename.
+	// +required
+	// +kubebuilder:validation:MaxLength=4096
+	To string `json:"to"`
+
+	// Reason is empty for a move, else why it was refused (Collision,
+	// Changed, DryRun, NotCurrent, Held).
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Reason string `json:"reason,omitempty"`
+}
+
 // UnmatchedFile is a file the scanner could not attribute to a catalog item.
 // The scanner never guesses: an unattributable file is recorded here with the
 // reason instead of becoming a speculative item.
@@ -105,6 +136,12 @@ type LibraryScanSpec struct {
 	// +optional
 	// +kubebuilder:default=3600
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+
+	// Rename runs a rename pass over the scanned subtree: dryRun records
+	// what would move in status.renamed, apply moves it. Off by default.
+	// +optional
+	// +kubebuilder:default=off
+	Rename ScanRename `json:"rename,omitempty"`
 }
 
 // LibraryScanStatus reports progress. All lists are capped per the §4 legend.
@@ -146,6 +183,15 @@ type LibraryScanStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
 	Unmatched []UnmatchedFile `json:"unmatched,omitempty"`
+
+	// FilesRenamed is how many files the rename pass moved.
+	// +optional
+	FilesRenamed int64 `json:"filesRenamed,omitempty"`
+
+	// Renamed lists the files a rename pass moved or refused to move.
+	// +optional
+	// +kubebuilder:validation:MaxItems=200
+	Renamed []RenamedFile `json:"renamed,omitempty"`
 
 	// Conditions represent the latest available observations of the scan's state.
 	// +optional

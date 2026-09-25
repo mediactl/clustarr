@@ -39,6 +39,11 @@ type NamingSpecApplyConfiguration struct {
 	// animeFile, dailyFile, artistFolder, albumFolder, trackFile, authorFolder,
 	// bookFile, audiobookFolder, audiobookFile, comicFolder and issueFile.
 	Overrides map[string]string `json:"overrides,omitempty"`
+	// RenameFiles lets importarr rename a library file to its canonical
+	// name whenever catalogarr reports it is not (status.naming). Off by
+	// default: a library imported before codec tokens existed differs on
+	// every file. A LibraryScan with spec.rename runs a pass regardless.
+	RenameFiles *bool `json:"renameFiles,omitempty"`
 }
 
 // NamingSpecApplyConfiguration constructs a declarative configuration of the NamingSpec type for use with
@@ -82,5 +87,13 @@ func (b *NamingSpecApplyConfiguration) WithOverrides(entries map[string]string) 
 	for k, v := range entries {
 		b.Overrides[k] = v
 	}
+	return b
+}
+
+// WithRenameFiles sets the RenameFiles field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RenameFiles field is set to the value of the last call.
+func (b *NamingSpecApplyConfiguration) WithRenameFiles(value bool) *NamingSpecApplyConfiguration {
+	b.RenameFiles = &value
 	return b
 }

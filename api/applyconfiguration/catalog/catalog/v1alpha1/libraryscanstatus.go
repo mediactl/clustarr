@@ -49,6 +49,10 @@ type LibraryScanStatusApplyConfiguration struct {
 	FilesSkipped *int64 `json:"filesSkipped,omitempty"`
 	// Unmatched lists files the scanner could not attribute, newest first.
 	Unmatched []UnmatchedFileApplyConfiguration `json:"unmatched,omitempty"`
+	// FilesRenamed is how many files the rename pass moved.
+	FilesRenamed *int64 `json:"filesRenamed,omitempty"`
+	// Renamed lists the files a rename pass moved or refused to move.
+	Renamed []RenamedFileApplyConfiguration `json:"renamed,omitempty"`
 	// Conditions represent the latest available observations of the scan's state.
 	Conditions []metav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
@@ -132,6 +136,27 @@ func (b *LibraryScanStatusApplyConfiguration) WithUnmatched(values ...*Unmatched
 			panic("nil value passed to WithUnmatched")
 		}
 		b.Unmatched = append(b.Unmatched, *values[i])
+	}
+	return b
+}
+
+// WithFilesRenamed sets the FilesRenamed field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FilesRenamed field is set to the value of the last call.
+func (b *LibraryScanStatusApplyConfiguration) WithFilesRenamed(value int64) *LibraryScanStatusApplyConfiguration {
+	b.FilesRenamed = &value
+	return b
+}
+
+// WithRenamed adds the given value to the Renamed field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Renamed field.
+func (b *LibraryScanStatusApplyConfiguration) WithRenamed(values ...*RenamedFileApplyConfiguration) *LibraryScanStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRenamed")
+		}
+		b.Renamed = append(b.Renamed, *values[i])
 	}
 	return b
 }

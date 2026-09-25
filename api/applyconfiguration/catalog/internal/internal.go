@@ -2011,6 +2011,10 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanMode
       default: incremental
+    - name: rename
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanRename
+      default: false
     - name: rootFolderRef
       type:
         scalar: string
@@ -2035,6 +2039,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: filesMatched
       type:
         scalar: numeric
+    - name: filesRenamed
+      type:
+        scalar: numeric
     - name: filesSeen
       type:
         scalar: numeric
@@ -2053,6 +2060,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: phase
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanPhase
+    - name: renamed
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.RenamedFile
+          elementRelationship: atomic
     - name: startedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -2217,6 +2230,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: mediaInfo
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaInfo
+    - name: naming
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingStatus
     - name: observedGeneration
       type:
         scalar: numeric
@@ -2677,6 +2693,8 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingDialect
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingReason
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingSpec
   map:
     fields:
@@ -2697,6 +2715,25 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             scalar: string
+    - name: renameFiles
+      type:
+        scalar: boolean
+      default: false
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingStatus
+  map:
+    fields:
+    - name: current
+      type:
+        scalar: boolean
+    - name: expectedPath
+      type:
+        scalar: string
+    - name: quality
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
+    - name: reason
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingReason
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayBadge
   map:
     fields:
@@ -3083,6 +3120,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: trackCount
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.RenamedFile
+  map:
+    fields:
+    - name: from
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: to
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.RootDefaults
   map:
     fields:
@@ -3232,6 +3281,8 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanMode
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanRename
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SceneNumbering
   map:

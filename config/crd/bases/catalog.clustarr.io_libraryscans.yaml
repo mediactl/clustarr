@@ -74,6 +74,16 @@ spec:
                 - full
                 - incremental
                 type: string
+              rename:
+                default: "off"
+                description: |-
+                  Rename runs a rename pass over the scanned subtree: dryRun records
+                  what would move in status.renamed, apply moves it. Off by default.
+                enum:
+                - "off"
+                - dryRun
+                - apply
+                type: string
               rootFolderRef:
                 description: |-
                   RootFolderRef names the RootFolder to scan.
@@ -172,6 +182,10 @@ spec:
                   item.
                 format: int64
                 type: integer
+              filesRenamed:
+                description: FilesRenamed is how many files the rename pass moved.
+                format: int64
+                type: integer
               filesSeen:
                 description: FilesSeen is how many files the scanner walked.
                 format: int64
@@ -202,6 +216,32 @@ spec:
                 - Completed
                 - Failed
                 type: string
+              renamed:
+                description: Renamed lists the files a rename pass moved or refused
+                  to move.
+                items:
+                  description: RenamedFile is one entry of a rename pass.
+                  properties:
+                    from:
+                      description: From is the file's path before the rename.
+                      maxLength: 4096
+                      type: string
+                    reason:
+                      description: |-
+                        Reason is empty for a move, else why it was refused (Collision,
+                        Changed, DryRun, NotCurrent, Held).
+                      maxLength: 256
+                      type: string
+                    to:
+                      description: To is the file's path after the rename.
+                      maxLength: 4096
+                      type: string
+                  required:
+                  - from
+                  - to
+                  type: object
+                maxItems: 200
+                type: array
               startedAt:
                 description: StartedAt is when the scan began.
                 format: date-time

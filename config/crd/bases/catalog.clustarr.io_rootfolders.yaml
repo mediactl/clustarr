@@ -198,6 +198,14 @@ spec:
                       bookFile, audiobookFolder, audiobookFile, comicFolder and issueFile.
                     maxProperties: 16
                     type: object
+                  renameFiles:
+                    default: false
+                    description: |-
+                      RenameFiles lets importarr rename a library file to its canonical
+                      name whenever catalogarr reports it is not (status.naming). Off by
+                      default: a library imported before codec tokens existed differs on
+                      every file. A LibraryScan with spec.rename runs a pass regardless.
+                    type: boolean
                 type: object
               path:
                 description: |-

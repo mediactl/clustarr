@@ -39,6 +39,13 @@ func (r RecycleBin) CleanupDaysOrDefault() int32 {
 	return *r.CleanupDays
 }
 
+// RenameFilesOrDefault is naming.renameFiles; unset means false, the same
+// value the CRD default supplies, since a typed client cannot send a value
+// the CRD default overrides.
+func (n NamingSpec) RenameFilesOrDefault() bool {
+	return n.RenameFiles != nil && *n.RenameFiles
+}
+
 // OverlayGeometry's fields are reached through an optional pointer
 // (OverlayProfileSpec.Geometry), unlike RecycleBin and IndexerSpec above, so
 // every accessor below has a pointer receiver and treats a nil *OverlayGeometry

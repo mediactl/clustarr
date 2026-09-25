@@ -185,6 +185,14 @@ type NamingSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxProperties=16
 	Overrides map[string]string `json:"overrides,omitempty"`
+
+	// RenameFiles lets importarr rename a library file to its canonical
+	// name whenever catalogarr reports it is not (status.naming). Off by
+	// default: a library imported before codec tokens existed differs on
+	// every file. A LibraryScan with spec.rename runs a pass regardless.
+	// +optional
+	// +kubebuilder:default=false
+	RenameFiles *bool `json:"renameFiles,omitempty"`
 }
 
 // RecycleBin holds deleted files for a grace period instead of unlinking them.
