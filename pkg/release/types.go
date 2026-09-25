@@ -32,6 +32,11 @@ type Options struct {
 	// titles: "standard" (default when empty), "daily" or "anime". Ignored
 	// for every other Kind.
 	SeriesType string
+	// FolderFallback lets ParsePath attribute a movie file by its parent
+	// folder when the basename does not parse; the rescan sets it, an
+	// import from a download does not, since a download's content folder
+	// is the release name and the release title is the better fallback.
+	FolderFallback bool
 }
 
 // Hints carries custom-format-only tag detail moistari/rls extracts from a

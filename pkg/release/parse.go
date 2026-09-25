@@ -43,10 +43,7 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 
 	ids, stripped := extractIDs(title)
 
-	kind := o.Kind
-	if kind == "" {
-		kind = ClassifyKind(stripped)
-	}
+	kind := resolveKind(stripped, o)
 
 	var (
 		p   *ParsedRelease
@@ -102,6 +99,17 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 		p.Title = p.Titles[0]
 	}
 	return p, nil
+}
+
+// resolveKind is Parse's own kind-resolution idiom (o.Kind, or
+// ClassifyKind(stripped) when o.Kind is empty), shared with
+// parsePathFolderFallback so both make the movie-vs-not decision the same
+// way from a title already run through extractIDs.
+func resolveKind(stripped string, o Options) commonv1.MediaKind {
+	if o.Kind != "" {
+		return o.Kind
+	}
+	return ClassifyKind(stripped)
 }
 
 // ParseKind is sugar for Parse(title, Options{Kind: kind}).
@@ -168,14 +176,19 @@ func ParsePath(path string, o Options) (*ParsedRelease, error) {
 	return p, nil
 }
 
-// parsePathFolderFallback implements spec D4: a movie file whose basename
-// does not parse -- most often an obfuscated scene/usenet download name
-// like "2ef6f194995e4a11b055d0f2354ef0ba.mp4" -- is attributed by the
-// nearest ancestor folder that does, the item's own library folder named
-// "Title (Year) {tmdb-N}" by every Jellyfin/Plex/*arr convention. It walks
-// segments from the immediate parent (segments[len(segments)-2]) outward to
-// segments[1], stopping before the root segment (segments[0], the leading
-// ""), and returns the first ancestor Parse succeeds on.
+// parsePathFolderFallback implements spec D4 (ruling R8/R9): a movie file
+// whose basename does not parse -- most often an obfuscated scene/usenet
+// download name like "2ef6f194995e4a11b055d0f2354ef0ba.mp4" -- is
+// attributed by its immediate parent folder, the item's own library folder
+// named "Title (Year) {tmdb-N}" by every Jellyfin/Plex/*arr convention.
+//
+// It is opt-in (o.FolderFallback; see Options) and reads only
+// segments[len(segments)-2], never a further ancestor: the scanner never
+// guesses (CLAUDE.md), and every naming preset places the item folder
+// directly above the file, so a further ancestor (an Extras/, Featurettes/
+// or disc subfolder between the file and the item folder) is exactly the
+// case that must NOT attribute -- walking outward past the immediate parent
+// risks reading a non-item intermediate folder as if it named the item.
 //
 // Only what a folder name can actually carry -- Title, Year and IDs -- comes
 // from that parse; Quality, Revision, Group and Hash reset to their
@@ -186,36 +199,41 @@ func ParsePath(path string, o Options) (*ParsedRelease, error) {
 //
 // Episodes are excluded per spec D4: a folder names the series, never which
 // episode a given file is, so an episode basename that fails to parse stays
-// an error. The kind is read the same way Parse itself would (o.Kind, or
-// ClassifyKind of the basename with its own ids stripped) so the fallback
-// only ever fires for the same movie classification Parse used to fail.
+// an error. The kind is read with the same resolveKind idiom Parse itself
+// uses (o.Kind, or ClassifyKind of the basename with its own ids stripped)
+// so the fallback only ever fires for the same movie classification Parse
+// used to fail.
 func parsePathFolderFallback(base string, segments []string, o Options) (*ParsedRelease, bool) {
-	kind := o.Kind
-	if kind == "" {
-		_, stripped := extractIDs(base)
-		kind = ClassifyKind(stripped)
-	}
-	if kind != commonv1.MediaKindMovie {
+	if !o.FolderFallback {
 		return nil, false
 	}
 
-	for i := len(segments) - 2; i >= 1; i-- {
-		dir := segments[i]
-		if dir == "" {
-			continue
-		}
-		p, err := Parse(dir, o)
-		if err != nil {
-			continue
-		}
-		p.FromFolder = true
-		p.Quality = commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}
-		p.Revision = revisionOrDefault("")
-		p.Group = ""
-		p.Hash = ""
-		return p, true
+	_, stripped := extractIDs(base)
+	if resolveKind(stripped, o) != commonv1.MediaKindMovie {
+		return nil, false
 	}
-	return nil, false
+
+	// segments[len-2] is the immediate parent; segments[0] is the leading
+	// "" an absolute path splits to, so len(segments) must be at least 3
+	// for a parent to exist at index >= 1.
+	if len(segments) < 3 {
+		return nil, false
+	}
+	dir := segments[len(segments)-2]
+	if dir == "" {
+		return nil, false
+	}
+
+	p, err := Parse(dir, o)
+	if err != nil {
+		return nil, false
+	}
+	p.FromFolder = true
+	p.Quality = commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}
+	p.Revision = revisionOrDefault("")
+	p.Group = ""
+	p.Hash = ""
+	return p, true
 }
 
 // keepsComicExtension reports whether ParsePath must hand base to Parse with
