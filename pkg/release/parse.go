@@ -148,7 +148,11 @@ func ParsePath(path string, o Options) (*ParsedRelease, error) {
 
 	p, err := Parse(base, o)
 	if err != nil {
-		return nil, err
+		folder, ok := parsePathFolderFallback(base, segments, o)
+		if !ok {
+			return nil, err
+		}
+		p = folder
 	}
 
 	if len(dirIDs) > 0 {
@@ -162,6 +166,56 @@ func ParsePath(path string, o Options) (*ParsedRelease, error) {
 		}
 	}
 	return p, nil
+}
+
+// parsePathFolderFallback implements spec D4: a movie file whose basename
+// does not parse -- most often an obfuscated scene/usenet download name
+// like "2ef6f194995e4a11b055d0f2354ef0ba.mp4" -- is attributed by the
+// nearest ancestor folder that does, the item's own library folder named
+// "Title (Year) {tmdb-N}" by every Jellyfin/Plex/*arr convention. It walks
+// segments from the immediate parent (segments[len(segments)-2]) outward to
+// segments[1], stopping before the root segment (segments[0], the leading
+// ""), and returns the first ancestor Parse succeeds on.
+//
+// Only what a folder name can actually carry -- Title, Year and IDs -- comes
+// from that parse; Quality, Revision, Group and Hash reset to their
+// unparsed defaults so nothing a folder-name parse might coincidentally
+// match (a bracketed quality tag, an edition, a release group) leaks into
+// the result as if it were read from the real file. dirIDs still merges
+// into the result afterward, exactly as it does for a basename that parsed.
+//
+// Episodes are excluded per spec D4: a folder names the series, never which
+// episode a given file is, so an episode basename that fails to parse stays
+// an error. The kind is read the same way Parse itself would (o.Kind, or
+// ClassifyKind of the basename with its own ids stripped) so the fallback
+// only ever fires for the same movie classification Parse used to fail.
+func parsePathFolderFallback(base string, segments []string, o Options) (*ParsedRelease, bool) {
+	kind := o.Kind
+	if kind == "" {
+		_, stripped := extractIDs(base)
+		kind = ClassifyKind(stripped)
+	}
+	if kind != commonv1.MediaKindMovie {
+		return nil, false
+	}
+
+	for i := len(segments) - 2; i >= 1; i-- {
+		dir := segments[i]
+		if dir == "" {
+			continue
+		}
+		p, err := Parse(dir, o)
+		if err != nil {
+			continue
+		}
+		p.FromFolder = true
+		p.Quality = commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}
+		p.Revision = revisionOrDefault("")
+		p.Group = ""
+		p.Hash = ""
+		return p, true
+	}
+	return nil, false
 }
 
 // keepsComicExtension reports whether ParsePath must hand base to Parse with

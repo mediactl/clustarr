@@ -120,4 +120,10 @@ type ParsedRelease struct {
 	Comic           *ComicInfo
 	Hints           Hints
 	IDs             map[string]string
+	// FromFolder is true when ParsePath's basename parse failed and this
+	// result came from an ancestor folder instead (spec D4, movies only):
+	// Title, Year and IDs are the folder's, while Quality, Revision, Group
+	// and Hash are reset to their unparsed defaults, since a folder name
+	// carries no per-file data.
+	FromFolder bool
 }
