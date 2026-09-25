@@ -60,7 +60,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Root folder kinds
 //
 //   - movie: [MatchMovie]; a file carrying a tmdb or imdb id may create its
-//     Movie.
+//     Movie. A file whose name does not parse (an obfuscated download
+//     name) is attributed by its item folder, "Title (Year) {tmdb-N}",
+//     which creates a Movie only by its own tmdb id -- the folder is
+//     evidence of identity, not a request to add. A newly recorded file is
+//     probed once, and the probe corrects the quality its name says
+//     (quality.AugmentFromMediaInfo); a probe failure leaves that quality.
 //   - music, book, audiobook, comic: attributed to an EXISTING Album, Book,
 //     Audiobook or Issue only (nonvideo.go explains why nothing on disk can
 //     honestly yield the provider id creating one would need). Files are

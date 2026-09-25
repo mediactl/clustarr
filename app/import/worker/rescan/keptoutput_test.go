@@ -32,6 +32,7 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/app/squash/worker"
@@ -118,15 +119,22 @@ func TestHandleKeepsAKeptSourcesOutputOnceItsJobIsGone(t *testing.T) {
 
 			var probes atomic.Int64
 			w := rescan.NewWorker(f.c, f.bus)
-			w.ProbeTranscodeProfile = func(_ context.Context, path string) (string, error) {
+			w.ProbeVideo = func(_ context.Context, path string) (*commonv1.MediaInfo, error) {
 				probes.Add(1)
 				assert.Equal(t, kept, path)
-				return tc.probe, tc.probeErr
+				if tc.probeErr != nil {
+					return nil, tc.probeErr
+				}
+				return &commonv1.MediaInfo{TranscodeProfile: tc.probe}, nil
 			}
 			require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
 			got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 			require.Empty(t, got.Error)
 			assert.Equal(t, tc.probed, probes.Load() > 0, "the probe runs only when the source's record does not confirm")
+			if tc.probed {
+				assert.Equal(t, int64(1), probes.Load(),
+					"one probe per file: a file the tag check adopts is attributed from the same probe")
+			}
 			assert.Equal(t, int64(1), got.Unchanged, "the recorded source")
 
 			switch {

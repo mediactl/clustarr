@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -47,19 +47,16 @@ const keptOutputSeparator = " - "
 // TranscodeProfile's container enum, lower-cased, as OutputPath renders it.
 var keptOutputContainers = map[string]bool{".mkv": true, ".mp4": true}
 
-// ProbeTranscodeProfile reads a file's CLUSTARR_PROFILE container tag,
-// "" when it carries none.
-type ProbeTranscodeProfile func(ctx context.Context, path string) (string, error)
-
-// probeTranscodeProfile is the production [ProbeTranscodeProfile]: the tag
-// pkg/mediainfo's probe records as MediaInfo.TranscodeProfile, the same
-// reading catalogarr's probe gives the file.
-func probeTranscodeProfile(ctx context.Context, path string) (string, error) {
-	mi, _, err := mediainfo.Probe(ctx, path)
-	if err != nil {
-		return "", err
+// probedTranscodeProfile reads a file's CLUSTARR_PROFILE container tag off
+// its probe -- the tag pkg/mediainfo records as MediaInfo.TranscodeProfile,
+// the same reading catalogarr's probe gives the file -- "" when it carries
+// none. It takes the walk's one probe of the file (fileProbe) rather than
+// probing again.
+func probedTranscodeProfile(mi *commonv1.MediaInfo) string {
+	if mi == nil {
+		return ""
 	}
-	return mi.TranscodeProfile, nil
+	return mi.TranscodeProfile
 }
 
 // keptOutputName splits base as app/squash/worker.OutputPath names a
@@ -107,7 +104,10 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 //     sets it when it incorporates a kept job), or, when that record has
 //     moved on (a later transcode of the source by another profile), the
 //     file's own CLUSTARR_PROFILE tag names it. The probe runs only then,
-//     so an ordinary rescan of a library of kept copies probes nothing.
+//     so an ordinary rescan of a library of kept copies probes nothing;
+//     and it is the walk's one probe of the file (fileProbe), so a file
+//     that turns out not to be an output is not probed again when it is
+//     attributed.
 //
 // A recognised output is skipped and counted in Progress.TranscodeOutputs,
 // as one a TranscodeJob names is. A file that passes the first two and
@@ -115,7 +115,7 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 // rather than guessed at either way. An output given an explicit
 // spec.outputPath follows no naming convention, so it is recognised only
 // while its TranscodeJob exists.
-func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string) (skip bool, err error) {
+func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string, probe *fileProbe) (skip bool, err error) {
 	if k := st.root.Spec.Kind; k != catalogv1alpha1.RootFolderKindMovie && k != catalogv1alpha1.RootFolderKindSeries {
 		return false, nil
 	}
@@ -129,8 +129,8 @@ func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string) (sk
 	}
 	rel := relPath(st.root.Spec.Path, path)
 	confirmed := source.Status.Transcode != nil && strings.HasPrefix(source.Status.Transcode.ProfileTag, profile+"@")
-	if !confirmed && w.ProbeTranscodeProfile != nil {
-		tag, perr := w.ProbeTranscodeProfile(ctx, path)
+	if !confirmed && probe.available() {
+		mi, perr := probe.result(ctx)
 		if perr != nil {
 			st.progress.FilesSeen++
 			st.unmatched(rel, CodeUnconfirmedTranscodeOutput, fmt.Sprintf(
@@ -139,7 +139,7 @@ func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string) (sk
 					"that source's item", profile, relPath(st.root.Spec.Path, source.Spec.Path), perr), nil, w.now())
 			return true, nil
 		}
-		confirmed = strings.HasPrefix(tag, profile+"@")
+		confirmed = strings.HasPrefix(probedTranscodeProfile(mi), profile+"@")
 	}
 	if !confirmed {
 		return false, nil

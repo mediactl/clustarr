@@ -102,11 +102,15 @@ type Worker struct {
 	// NewWorker sets catalogue.LoadedCatalogue(); nil means the same.
 	Catalogue *catalogue.Catalogue
 
-	// ProbeTranscodeProfile reads a file's CLUSTARR_PROFILE tag, the last
-	// test of whether a file named like a kept source's transcode output is
-	// one (keptOutput). NewWorker sets the pkg/mediainfo probe; nil skips
-	// that test, so only the kept source's own record can confirm one.
-	ProbeTranscodeProfile ProbeTranscodeProfile
+	// ProbeVideo reads a video file's technical description, at most once
+	// per walked file however many decisions read it (fileProbe): its
+	// CLUSTARR_PROFILE tag is the last test of whether a file named like a
+	// kept source's transcode output is one (keptOutput), and its stream
+	// corrects a new movie file's name-derived quality (attributeMediaFile).
+	// NewWorker sets the pkg/mediainfo probe; nil probes nothing, so only
+	// the kept source's own record can confirm a kept output, and a scanned
+	// file freezes the quality its name says.
+	ProbeVideo VideoProber
 
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
 	// video file smaller than this whose name does not mark it a sample is
@@ -145,7 +149,7 @@ func NewWorker(c client.Client, bus events.Bus) *Worker {
 	return &Worker{
 		Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout,
 		Catalogue: catalogue.LoadedCatalogue(), ProbeAudio: mediainfo.ProbeAudio,
-		ProbeTranscodeProfile: probeTranscodeProfile, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+		ProbeVideo: probeVideo, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
 }
 
@@ -503,10 +507,12 @@ func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) erro
 	})
 }
 
-// visit is one walked file's outcome, by its class.
+// visit is one walked file's outcome, by its class. A media file's
+// decisions share one probe of it (fileProbe), run only if one needs it.
 func (w *Worker) visit(ctx context.Context, st *scanState, path string, info os.FileInfo, class fsops.FileClass) error {
+	probe := w.probeFor(path)
 	if class == fsops.ClassMedia || class == fsops.ClassSuspectedSample {
-		if skip, err := w.transcodeOutput(ctx, st, path); err != nil || skip {
+		if skip, err := w.transcodeOutput(ctx, st, path, probe); err != nil || skip {
 			return err
 		}
 	}
@@ -533,7 +539,7 @@ func (w *Worker) visit(ctx context.Context, st *scanState, path string, info os.
 		return nil
 	}
 	st.progress.FilesSeen++
-	return w.handleMediaFile(ctx, st, path, info)
+	return w.handleMediaFile(ctx, st, path, info, probe)
 }
 
 // transcodeOutputs lists the scan namespace's TranscodeJobs once and
@@ -569,7 +575,7 @@ func (w *Worker) transcodeOutputs(ctx context.Context, ns string) (map[string]st
 // unmatched entry, or a new Movie. A kept source's derived file stays
 // protected once its job is gone too, recognised by its name beside the
 // recorded source and squasharr's tag (keptOutput).
-func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string) (skip bool, err error) {
+func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string, probe *fileProbe) (skip bool, err error) {
 	job, byJob := st.transcodeOutputs[filepath.Clean(path)]
 	if !byJob {
 		if _, _, named := keptOutputName(filepath.Base(path)); !named {
@@ -581,7 +587,7 @@ func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string
 		return false, err
 	}
 	if !byJob {
-		return w.keptOutput(ctx, st, path)
+		return w.keptOutput(ctx, st, path, probe)
 	}
 	st.progress.FilesSeen++
 	st.progress.TranscodeOutputs++
