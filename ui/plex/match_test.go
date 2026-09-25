@@ -174,3 +174,38 @@ func TestAutomaticShowMatchIsStrictButRule3IsNot(t *testing.T) {
 	require.Len(t, body.MediaContainer.Metadata, 1, "an episode's year must not exclude its show")
 	require.Equal(t, "Low Water", body.MediaContainer.Metadata[0].Title)
 }
+
+// TestMatchShowWhoseTitleCarriesItsYear is TVDB's disambiguated name: a
+// series TVDB calls "The Americans (2013)" is a folder Plex's scanner reads
+// as title "The Americans", year 2013 -- the year leaves the title for the
+// year hint -- so the title match must see past the catalogue title's own
+// "(2013)", or every such show falls through to the next provider.
+func TestMatchShowWhoseTitleCarriesItsYear(t *testing.T) {
+	series, episodes := fixtureSeriesAndEpisodes()
+	series.Status.Metadata.Title = "Harborview (2018)"
+	h := newTestHandlerWithEpisodes(t, externalURLFixture, series, episodes)
+
+	rec := postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{"type": 2, "title": "Harborview", "year": 2018})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []int32{2018}, matchedYears(t, rec.Body.Bytes()), "the show by its title without TVDB's year")
+
+	rec = postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{
+		"type": 4, "grandparentTitle": "Harborview", "parentIndex": 1, "index": 2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, matchedYears(t, rec.Body.Bytes()), 1, "an episode resolves the same show")
+}
+
+// TestMatchShowByTMDBGuid is D.4 rule 1 for a show named by its TMDB id --
+// a "{tmdb-N}" folder hint, or the tmdb:// guid Plex's own agent stored --
+// resolved through status.metadata.externalIDs, since a Series' spec
+// carries only its tvdbID.
+func TestMatchShowByTMDBGuid(t *testing.T) {
+	series, episodes := fixtureSeriesAndEpisodes()
+	series.Status.Metadata.ExternalIDs["tmdb"] = "74321"
+	h := newTestHandlerWithEpisodes(t, externalURLFixture, series, episodes)
+
+	rec := postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{"type": 2, "guid": "tmdb://74321"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []int32{2018}, matchedYears(t, rec.Body.Bytes()))
+}

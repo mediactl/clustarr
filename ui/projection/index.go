@@ -20,6 +20,7 @@ package projection
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -258,6 +259,7 @@ type Index struct {
 	episodes map[types.UID]*catalogv1.Episode
 
 	tmdbMovies map[int64]*catalogv1.Movie
+	tmdbSeries map[int64]*catalogv1.Series
 	tvdbSeries map[int64]*catalogv1.Series
 	imdbMovies map[string]*catalogv1.Movie
 	imdbSeries map[string]*catalogv1.Series
@@ -288,6 +290,7 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		series:           map[types.UID]*catalogv1.Series{},
 		episodes:         map[types.UID]*catalogv1.Episode{},
 		tmdbMovies:       map[int64]*catalogv1.Movie{},
+		tmdbSeries:       map[int64]*catalogv1.Series{},
 		tvdbSeries:       map[int64]*catalogv1.Series{},
 		imdbMovies:       map[string]*catalogv1.Movie{},
 		imdbSeries:       map[string]*catalogv1.Series{},
@@ -328,6 +331,9 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		if md := s.Status.Metadata; md != nil {
 			if imdb := md.ExternalIDs["imdb"]; imdb != "" {
 				idx.imdbSeries[imdb] = s
+			}
+			if tmdb, err := strconv.ParseInt(md.ExternalIDs["tmdb"], 10, 64); err == nil && tmdb != 0 {
+				idx.tmdbSeries[tmdb] = s
 			}
 		}
 	}
@@ -383,16 +389,22 @@ func (idx *Index) EpisodeByUID(uid types.UID) (*catalogv1.Episode, bool) {
 	return e, ok
 }
 
-// ByTMDB resolves a match request's "tmdb://<id>" guid (D.4 rule 1) against
-// spec.tmdbID. Only Movie carries a tmdbID today (Series' identity is
-// spec.tvdbID, [Index.ByTVDB]); kind is taken all the same so a future kind
-// that gains one needs no signature change here.
+// ByTMDB resolves a match request's "tmdb://<id>" guid (D.4 rule 1): a
+// Movie by spec.tmdbID, a Series by status.metadata.externalIDs.tmdb (its
+// spec identity is the tvdbID, [Index.ByTVDB], but the metadata gateway
+// records the TMDB id too, and a Plex library's folder hints or its own
+// agent's guids may name a show by either).
 func (idx *Index) ByTMDB(kind commonv1.MediaKind, id int64) (client.Object, bool) {
-	if kind != commonv1.MediaKindMovie {
+	switch kind {
+	case commonv1.MediaKindMovie:
+		m, ok := idx.tmdbMovies[id]
+		return m, ok
+	case commonv1.MediaKindSeries:
+		s, ok := idx.tmdbSeries[id]
+		return s, ok
+	default:
 		return nil, false
 	}
-	m, ok := idx.tmdbMovies[id]
-	return m, ok
 }
 
 // ByTVDB resolves a match request's "tvdb://<id>" guid (D.4 rule 1) against

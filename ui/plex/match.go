@@ -20,6 +20,7 @@ package plex
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -190,6 +191,17 @@ func showByGuid(idx *projection.Index, guid string) (*catalogv1.Series, bool) {
 			return nil, false
 		}
 		return idx.ByTVDB(n)
+	case "tmdb":
+		n, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		obj, ok := idx.ByTMDB(commonv1.MediaKindSeries, n)
+		if !ok {
+			return nil, false
+		}
+		s, ok := obj.(*catalogv1.Series)
+		return s, ok
 	case "imdb":
 		obj, ok := idx.ByIMDb(commonv1.MediaKindSeries, id)
 		if !ok {
@@ -388,18 +400,25 @@ func seriesTitle(s *catalogv1.Series) string {
 }
 
 // titleMatches reports whether norm (already release.TitleNorm-ed) equals
-// the normalised title or any normalised alternate title (D.4 rule 2).
+// the normalised title or any normalised alternate title (D.4 rule 2),
+// each also read without a trailing year ([yearSuffix]).
 func titleMatches(norm, title string, alternates []string) bool {
-	if release.TitleNorm(title) == norm {
-		return true
-	}
-	for _, alt := range alternates {
-		if release.TitleNorm(alt) == norm {
+	for _, t := range append([]string{title}, alternates...) {
+		if release.TitleNorm(t) == norm {
+			return true
+		}
+		if bare := yearSuffix.ReplaceAllString(t, ""); bare != t && release.TitleNorm(bare) == norm {
 			return true
 		}
 	}
 	return false
 }
+
+// yearSuffix is the " (2013)" TVDB appends to a series name it has to tell
+// apart from another ("The Americans (2013)"). Plex's scanner never sends
+// it: it reads a folder's "(2013)" into the request's year, leaving the
+// title bare, so a catalogue title is compared both with and without it.
+var yearSuffix = regexp.MustCompile(`\s*\(\d{4}\)\s*$`)
 
 // admitsTier reports whether a candidate in tier may be returned at all:
 // always, unless strict and the request named a year, when only the exact
