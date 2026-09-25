@@ -24,6 +24,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -39,9 +40,19 @@ import (
 // page: htmx's SSE extension replaces that element's innerHTML with the
 // named event's data, so everything inside it (and only what's inside it)
 // must be exactly what ImportListRows renders.
+// importListsReturnPath is where this page's forms come back to: the lists
+// are managed here (Add, Edit, Delete through the settings forms,
+// 2026-09-24), not on the Settings page.
+const importListsReturnPath = "/import-lists"
+
 templ ImportLists(entries []projection.ImportListEntry) {
 	@Layout("Import Lists") {
-		<h1 class="mb-4 text-2xl font-bold">Import Lists</h1>
+		<div class="mb-4 flex items-center justify-between">
+			<h1 class="text-2xl font-bold">Import Lists</h1>
+			@button.Button(button.Props{Href: "/settings/new/importlists?return=" + importListsReturnPath, Size: button.SizeSm, Variant: button.VariantOutline}) {
+				Add
+			}
+		</div>
 		<div
 			id="import-lists-rows"
 			hx-ext="sse"
@@ -128,6 +139,7 @@ templ importListRow(e projection.ImportListEntry) {
 		if e.LastError != "" {
 			<div class="mt-2 text-sm text-red-400">{ e.LastError }</div>
 		}
+		@configActionsTo("importlists", e.Ref.Namespace, e.Ref.Name, importListsReturnPath)
 	</div>
 }
 

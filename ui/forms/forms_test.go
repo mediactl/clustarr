@@ -90,7 +90,8 @@ func TestEveryConfigKindHasAnOverlayWhosePathsExist(t *testing.T) {
 			for _, p := range g.Paths {
 				require.NotNil(t, root.Lookup(p), "%s: group %q names %q, which the CRD has not", k.Slug, g.Title, p)
 			}
-			if g.When != nil {
+			// a group may depend on the kind's Choice, which the CRD has not
+			if g.When != nil && (k.Choice == nil || g.When.Path != k.Choice.ControlName()) {
 				require.NotNil(t, root.Lookup(g.When.Path), "%s: group %q shows when %q, which the CRD has not", k.Slug, g.Title, g.When.Path)
 			}
 		}
@@ -293,4 +294,60 @@ func TestHumanize(t *testing.T) {
 	} {
 		require.Equal(t, want, forms.Humanize(in), in)
 	}
+}
+
+// The ImportList overlay (Import Lists page, 2026-09-24): the provider is
+// which sub-object exists, which no schema field names, so the kind
+// carries a Choice -- a synthetic select ahead of the groups that the
+// provider sections and the Secret keys depend on, read off a stored spec
+// on edit and applied to a decoded one on submit.
+func TestBuildRendersTheImportListFormWithAProviderChoice(t *testing.T) {
+	k := kind(t, "importlists")
+	root := rootOf(t, k)
+	spec := map[string]any{
+		"kinds":     []any{"movie"},
+		"trakt":     map[string]any{"listType": "watchlist"},
+		"secretRef": map[string]any{"name": "trakt-creds"},
+		"defaults":  map[string]any{"qualityProfileRef": "hd", "rootFolderRef": "movies"},
+	}
+	f := forms.Build(k, root, spec, forms.Choices{forms.RefRootFolders: {{Value: "movies", Label: "movies (/data/media/movies)"}}}, forms.ModeEdit)
+	require.NotNil(t, k.Choice)
+	require.Equal(t, "Provider", f.Sections[0].Title, "the choice comes first")
+	choice := control(t, f.Sections[0], "__choice.provider")
+	require.Equal(t, forms.ControlSelect, choice.Type)
+	require.Equal(t, "trakt", choice.Value, "Current reads the variant off the stored spec")
+	require.True(t, choice.ReadOnly, "the provider is fixed once created")
+	var values []string
+	for _, o := range choice.Options {
+		values = append(values, o.Value)
+	}
+	require.Equal(t, []string{"trakt", "plex", "tmdb", "mdblist", "stevenLu", "imdbCSV", "custom", "arr"}, values)
+
+	trakt := section(t, f, "Trakt")
+	require.Equal(t, &forms.When{Path: "__choice.provider", Values: []string{"trakt"}}, trakt.When)
+	require.Equal(t, "watchlist", control(t, trakt, "trakt.listType").Value)
+	creds := section(t, f, "Credentials")
+	require.Equal(t, "trakt-creds", control(t, creds, "secretRef.name").Value)
+	clientID := control(t, creds, "__secret.secretRef.clientID")
+	require.Equal(t, forms.ControlPassword, clientID.Type)
+	require.Equal(t, &forms.When{Path: "__choice.provider", Values: []string{"trakt", "plex"}}, clientID.When)
+	require.Equal(t, &forms.When{Path: "__choice.provider", Values: []string{"plex"}}, control(t, creds, "__secret.secretRef.token").When)
+	defaults := section(t, f, "Defaults")
+	rootFolder := control(t, defaults, "defaults.rootFolderRef")
+	require.Equal(t, forms.ControlSelect, rootFolder.Type, "a root folder picker from live RootFolders")
+	require.Equal(t, "movies", rootFolder.Value)
+	for _, s := range f.Sections {
+		require.NotEqual(t, "Other", s.Title, "every ImportList field is placed")
+	}
+}
+
+func TestImportListChoiceShapesTheProvider(t *testing.T) {
+	k := kind(t, "importlists")
+	spec := map[string]any{"trakt": map[string]any{"listType": "watchlist"}, "tmdb": map[string]any{}, "kinds": []any{"movie"}}
+	k.Choice.Shape(spec, "plex")
+	require.Equal(t, map[string]any{"plex": map[string]any{}, "kinds": []any{"movie"}}, spec, "the chosen provider exists, the others are gone")
+	require.Equal(t, "plex", k.Choice.Current(spec))
+	require.Equal(t, "", k.Choice.Current(map[string]any{}))
+	k.Choice.Shape(spec, "")
+	require.Equal(t, map[string]any{"plex": map[string]any{}, "kinds": []any{"movie"}}, spec, "no choice leaves the spec alone")
 }

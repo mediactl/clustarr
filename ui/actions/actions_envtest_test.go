@@ -233,9 +233,12 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 	t.Run("no clustarr-ui entry on any status path, anywhere", func(t *testing.T) {
 		inspected := 0
 		for _, g := range actions.Grants() {
-			gvk, err := c.RESTMapper().KindFor(schema.GroupVersionResource{Group: g.Group, Resource: g.Resource})
+			gvk, err := kindForGrant(c, g)
 			require.NoError(t, err, "the apiserver serves no %s in %s", g.Resource, g.Group)
 			list := &metav1.PartialObjectMetadataList{}
+			// a list carries the list kind: the metadata client trims one "List"
+			// off it, which read an ImportList as kind "Import"
+			gvk.Kind += "List"
 			list.SetGroupVersionKind(gvk)
 			require.NoError(t, c.List(ctx, list, client.InNamespace(ns)))
 			for i := range list.Items {
@@ -482,4 +485,16 @@ func lookup(m map[string]any, path ...string) (any, bool) {
 		}
 	}
 	return cur, true
+}
+
+// kindForGrant resolves a grant's kind: a Settings kind names its own,
+// since the mapper's guess from a resource name cannot ("importlists"
+// reads as kind "Import" to it); anything else goes through the mapper.
+func kindForGrant(c client.Client, g actions.Grant) (schema.GroupVersionKind, error) {
+	for _, k := range actions.ConfigKinds() {
+		if k.Group == g.Group && k.Resource == g.Resource {
+			return k.GroupVersionKind(), nil
+		}
+	}
+	return c.RESTMapper().KindFor(schema.GroupVersionResource{Group: g.Group, Resource: g.Resource})
 }

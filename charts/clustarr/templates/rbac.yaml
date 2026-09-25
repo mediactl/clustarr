@@ -872,6 +872,7 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - importlists
   - metadataproviders
   - qualityprofiles
   - rootfolders

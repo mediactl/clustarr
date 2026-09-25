@@ -42,7 +42,7 @@ func TestConfigKindsAreTheSettingsPageKinds(t *testing.T) {
 	for _, k := range kinds {
 		bySlug[k.Slug] = k
 	}
-	require.Len(t, kinds, 8)
+	require.Len(t, kinds, 9)
 	for slug, want := range map[string]struct {
 		group, kind, resource string
 		namespaced            bool

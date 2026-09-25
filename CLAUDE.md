@@ -97,9 +97,10 @@ Each item should show the cover art, monitored status and selected quality profi
 - **The UI never writes status** and owns no CRD. User actions patch spec,
   create short-lived resources, or -- since the settings CRUD design
   (`docs/superpowers/specs/2026-09-24-settings-crud-design.md`) -- create,
-  patch and delete the eight Settings kinds (RootFolder, QualityProfile,
+  patch and delete the nine Settings kinds (RootFolder, QualityProfile,
   MetadataProvider, Indexer, DownloadClient, SubtitleProvider,
-  SubtitleProfile, TranscodeProfile) and create or patch the Secrets their
+  SubtitleProfile, TranscodeProfile, and ImportList from the Import Lists
+  page) and create or patch the Secrets their
   credentials live in, never reading one (the role grants no get, list or
   watch on secrets). So anything the UI does, `kubectl` can do.
 - **The UI may hold a read-only bus connection.** Since M7, `cmd/clustarr`'s

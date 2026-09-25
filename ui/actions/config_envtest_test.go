@@ -96,6 +96,17 @@ var configFixtures = map[string]configFixture{
 		},
 		rejects: "the CEL rule 'cutoff must be the name of one of the tiers'",
 	},
+	"importlists": {
+		// exactly one provider sub-object (Plex is the empty one), the kinds
+		// it yields, and the defaults an added item gets
+		minimal: map[string]any{
+			"kinds":    []any{"movie"},
+			"plex":     map[string]any{},
+			"defaults": map[string]any{"qualityProfileRef": "hd", "rootFolderRef": "movies"},
+		},
+		nullable: configField{"refreshInterval", "12h"},
+		change:   configField{"syncLevel", "logOnly"},
+	},
 	"metadataproviders": {
 		minimal:  map[string]any{"type": "tmdb"},
 		nullable: configField{"baseURL", "https://tmdb.example"},

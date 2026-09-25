@@ -93,6 +93,11 @@ func TestSettingsPageLinksAddEditAndDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	for _, k := range actions.ConfigKinds() {
+		if k.Slug == "importlists" {
+			// managed on the Import Lists page (TestImportListsPageHasAddEditAndDelete), not here
+			require.NotContains(t, body, `href="/settings/new/importlists`, "import lists are the Import Lists page's")
+			continue
+		}
 		require.Contains(t, body, `href="/settings/new/`+k.Slug+`"`, "an Add link per kind")
 	}
 	require.Contains(t, body, `href="/settings/edit/downloadclients/media/eweka"`, "a namespaced kind's Edit link")
@@ -293,4 +298,49 @@ func TestIndexerFormOffersDefinitionsClientsAndProxies(t *testing.T) {
 	require.Contains(t, body, `<option value="flare"`)
 	requireTag(t, body, `data-section="Generic Newznab/Torznab"`, `data-show-when="definition="`)
 	requireTag(t, body, `name="__secret.secretRef.apikey"`, `type="password"`)
+}
+
+// The Import Lists page's own forms (2026-09-24): an ImportList is created
+// with the provider the choice names -- a stale input from a hidden
+// provider section does not survive -- its credentials go to a Secret
+// under the keys importarr reads, and the forms return to the page they
+// came from, not to /settings.
+func TestCreateAndEditAnImportListFromTheForm(t *testing.T) {
+	srv, c := settingsServer(t)
+	rec := post(t, srv, "/settings/new/importlists", url.Values{
+		"__name": {"plex-watch"}, "__namespace": {"media"}, "__choice.provider": {"plex"}, "return": {"/import-lists"},
+		"kinds": {"movie\nseries"}, "syncLevel": {"logOnly"},
+		"trakt.listType":             {"watchlist"},
+		"defaults.qualityProfileRef": {"hd"}, "defaults.rootFolderRef": {"movies"},
+		"__secret.secretRef.token": {"plex-token"},
+	})
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.Equal(t, "/import-lists", rec.Header().Get("Location"), "the Import Lists page's forms return there")
+	var il catalogv1.ImportList
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "media", Name: "plex-watch"}, &il))
+	require.NotNil(t, il.Spec.Plex)
+	require.Nil(t, il.Spec.Trakt, "only the chosen provider is set")
+	require.Equal(t, []string{"movie", "series"}, il.Spec.Kinds)
+	require.Equal(t, catalogv1.SyncLevelLogOnly, il.Spec.SyncLevel)
+	require.Equal(t, "plex-watch-credentials", il.Spec.SecretRef.Name)
+	var s corev1.Secret
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "media", Name: "plex-watch-credentials"}, &s))
+	require.Equal(t, map[string]string{"token": "plex-token"}, s.StringData)
+
+	rec = get(t, srv, "/settings/edit/importlists/media/plex-watch?return=/import-lists")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, `name="return" value="/import-lists"`, "the edit form goes back to the Import Lists page")
+	require.Regexp(t, `name="__choice.provider"[^>]*value="plex"`, body, "the fixed provider rides a hidden input")
+	require.NotContains(t, body, "plex-token")
+	rec = post(t, srv, "/settings/edit/importlists/media/plex-watch", url.Values{
+		"__choice.provider": {"plex"}, "return": {"/import-lists"}, "kinds": {"movie"}, "syncLevel": {"disabled"},
+		"defaults.qualityProfileRef": {"hd"}, "defaults.rootFolderRef": {"movies"}, "secretRef.name": {"plex-watch-credentials"},
+	})
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.Equal(t, "/import-lists", rec.Header().Get("Location"))
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "media", Name: "plex-watch"}, &il))
+	require.Equal(t, []string{"movie"}, il.Spec.Kinds)
+	require.Equal(t, catalogv1.SyncLevelDisabled, il.Spec.SyncLevel)
+	require.NotNil(t, il.Spec.Plex)
 }

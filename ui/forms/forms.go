@@ -59,6 +59,10 @@ type Kind struct {
 	// Ensure completes a decoded spec with what a form cannot express
 	// (an empty object a CRD rule requires). Optional.
 	Ensure func(spec map[string]any)
+	// Choice is a selector the schema lacks (ImportList's provider is which
+	// sub-object exists): rendered ahead of the groups, and applied to a
+	// decoded spec before Ensure. Optional.
+	Choice *Choice
 	// Help is shown under the form's heading.
 	Help string
 }
@@ -111,7 +115,30 @@ const (
 	RefDownloadClients    Ref = "downloadclients"
 	RefIndexerDefinitions Ref = "indexerdefinitions"
 	RefIndexerProxies     Ref = "indexerproxies"
+	RefRootFolders        Ref = "rootfolders"
 )
+
+// Choice is a selector the schema lacks: for a kind whose variant is
+// which sub-object exists (an ImportList's provider), one control picks
+// it. It renders as a required select named ControlName() in a section of
+// its own ahead of the groups; sections and Secret keys depend on it
+// through When{Path: ControlName()}; Current reads the variant off a
+// stored spec (an edit, or a submission being re-rendered); Shape shapes a
+// decoded spec to the chosen variant before the write, and leaves the
+// spec alone for "".
+type Choice struct {
+	Name           string
+	Label          string
+	Help           string
+	Options        []Option
+	ReadOnlyOnEdit bool
+	Current        func(spec map[string]any) string
+	Shape          func(spec map[string]any, value string)
+}
+
+// ControlName is the form input a Choice posts as: "__choice.<Name>", a
+// name no schema path can take, so Decode ignores it.
+func (c Choice) ControlName() string { return "__choice." + c.Name }
 
 // Choices are the options each Ref offers, listed by the page from live
 // objects. A Ref with no entry renders as a text input.
@@ -228,6 +255,13 @@ type builder struct {
 func Build(kind Kind, root *schema.Field, spec map[string]any, choices Choices, mode Mode) *Form {
 	b := &builder{kind: kind, spec: spec, choices: choices, mode: mode}
 	f := &Form{Kind: kind, Mode: mode}
+	if c := kind.Choice; c != nil {
+		ctl := Control{Type: ControlSelect, Name: c.ControlName(), Label: c.Label, Help: c.Help, Required: true, Options: c.Options, ReadOnly: mode == ModeEdit && c.ReadOnlyOnEdit}
+		if c.Current != nil {
+			ctl.Value = c.Current(spec)
+		}
+		f.Sections = append(f.Sections, Section{Title: c.Label, Controls: []Control{ctl}})
+	}
 	for _, g := range kind.Groups {
 		s := Section{Title: g.Title, Help: g.Help, When: g.When, Advanced: g.Advanced}
 		for _, p := range g.Paths {

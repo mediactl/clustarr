@@ -17,7 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package forms
 
-import "github.com/mediactl/clustarr/ui/actions"
+import (
+	"slices"
+
+	"github.com/mediactl/clustarr/ui/actions"
+)
 
 // The overlays: one per Settings kind, in the page's order. Paths are the
 // CRD's spec paths; TestEveryConfigKindHasAnOverlayWhosePathsExist holds
@@ -34,6 +38,13 @@ func configKind(slug string) actions.ConfigKind {
 var (
 	whenTorrent = &When{Path: "protocol", Values: []string{"torrent"}}
 	whenUsenet  = &When{Path: "protocol", Values: []string{"usenet"}}
+	// importListProviders are ImportListSpec's provider sub-objects, exactly
+	// one of which the CRD requires; the form's Choice offers them in this
+	// order, and only these credentials are read: importarr's provider.go
+	// takes clientID and clientSecret for Trakt (the device flow writes the
+	// tokens itself), token and an optional clientID for Plex, apiKey for
+	// MDBList; TMDB, StevenLu, IMDb CSV, custom and *arr lists need none.
+	importListProviders = []string{"trakt", "plex", "tmdb", "mdblist", "stevenLu", "imdbCSV", "custom", "arr"}
 )
 
 var kinds = []Kind{
@@ -90,6 +101,52 @@ var kinds = []Kind{
 			{Key: "bearer", Label: "Bearer token", When: &When{Path: "type", Values: []string{"hardcover", "metron"}}},
 		}}},
 		ReadOnlyOnEdit: []string{"type"},
+	},
+	{
+		ConfigKind: configKind("importlists"),
+		Title:      "Import lists", Singular: "import list",
+		Help: "A list whose titles are added to the library on every refresh: a Trakt or Plex watchlist, a TMDB, MDBList, StevenLu, IMDb CSV, custom or *arr list. The provider cannot change once created. A Trakt list needs authorizing after it is created: the Import Lists page shows the device code while that is pending.",
+		Choice: &Choice{
+			Name: "provider", Label: "Provider", Help: "Where the list comes from.",
+			Options: []Option{
+				{Value: "trakt", Label: "Trakt"},
+				{Value: "plex", Label: "Plex watchlist"},
+				{Value: "tmdb", Label: "TMDB list or discover"},
+				{Value: "mdblist", Label: "MDBList"},
+				{Value: "stevenLu", Label: "StevenLu popular movies"},
+				{Value: "imdbCSV", Label: "IMDb CSV (from a ConfigMap)"},
+				{Value: "custom", Label: "Custom URL"},
+				{Value: "arr", Label: "Radarr, Sonarr or another Clustarr"},
+			},
+			ReadOnlyOnEdit: true,
+			Current:        importListProvider,
+			Shape:          shapeImportListProvider,
+		},
+		Groups: []Group{
+			{Title: "List", Paths: []string{"kinds", "enabled", "refreshInterval", "syncLevel", "automaticAdd"}},
+			{Title: "Trakt", When: whenProvider("trakt"), Paths: []string{"trakt.listType", "trakt.username", "trakt.listSlug", "trakt.limit"}},
+			{Title: "TMDB", When: whenProvider("tmdb"), Paths: []string{"tmdb.listID", "tmdb.discover"}},
+			{Title: "MDBList", When: whenProvider("mdblist"), Paths: []string{"mdblist.url"}},
+			{Title: "IMDb CSV", When: whenProvider("imdbCSV"), Paths: []string{"imdbCSV.configMapRef.name"}},
+			{Title: "Custom", When: whenProvider("custom"), Paths: []string{"custom.url", "custom.format"}},
+			{Title: "Arr", When: whenProvider("arr"), Paths: []string{"arr.baseURL", "arr.kind"}},
+			{Title: "Credentials", When: whenProvider("trakt", "plex", "mdblist"), Paths: []string{"secretRef"}},
+			{Title: "Defaults", Help: "What an added item gets.", Paths: []string{
+				"defaults.qualityProfileRef", "defaults.rootFolderRef", "defaults.delayProfileRef", "defaults.monitored", "defaults.monitorNewItems",
+				"defaults.minimumAvailability", "defaults.seriesType", "defaults.seasonFolder", "defaults.searchOnAdd", "defaults.tags",
+			}},
+		},
+		Labels: map[string]string{
+			"kinds": "Kinds (one per line: movie, series, album, book, audiobook, comic)", "imdbCSV.configMapRef.name": "ConfigMap name",
+			"tmdb.listID": "List ID", "tmdb.discover": "Discover parameters", "mdblist.url": "List URL", "custom.url": "List URL", "arr.baseURL": "Base URL",
+		},
+		Refs: map[string]Ref{"defaults.qualityProfileRef": RefQualityProfiles, "defaults.rootFolderRef": RefRootFolders, "defaults.delayProfileRef": RefDelayProfiles},
+		Secrets: []Secret{{Path: "secretRef", Keys: []Key{
+			{Key: "clientID", Label: "Client ID", When: whenProvider("trakt", "plex")},
+			{Key: "clientSecret", Label: "Client secret", When: whenProvider("trakt")},
+			{Key: "token", Label: "Plex token", When: whenProvider("plex")},
+			{Key: "apiKey", Label: "API key", When: whenProvider("mdblist")},
+		}}},
 	},
 	{
 		ConfigKind: configKind("indexers"),
@@ -223,4 +280,37 @@ var kinds = []Kind{
 		Hidden: []string{"chunking", "ttlSecondsAfterFinished", "gpu.nodeSelector", "gpu.tolerations", "resources.claims", "selector.matchExpressions"},
 		Labels: map[string]string{"default": "Cluster default", "maxConcurrent": "Max concurrent jobs", "selector.matchLabels": "Applies to files labelled", "video.crf.hdrOffset": "CRF offset for HDR", "video.maxRateKbps": "Max rate (kbps)", "video.bufSizeKbps": "Buffer size (kbps)"},
 	},
+}
+
+// whenProvider is a condition on the ImportList form's provider choice.
+func whenProvider(values ...string) *When {
+	return &When{Path: "__choice.provider", Values: values}
+}
+
+// importListProvider is the provider a stored ImportList spec carries:
+// the one sub-object of importListProviders that exists.
+func importListProvider(spec map[string]any) string {
+	for _, p := range importListProviders {
+		if _, ok := spec[p]; ok {
+			return p
+		}
+	}
+	return ""
+}
+
+// shapeImportListProvider shapes a decoded spec to the chosen provider:
+// the others are dropped (a hidden section's stale inputs included) and
+// the chosen one exists, as the empty object Plex and StevenLu are.
+func shapeImportListProvider(spec map[string]any, value string) {
+	if !slices.Contains(importListProviders, value) {
+		return
+	}
+	for _, p := range importListProviders {
+		if p != value {
+			delete(spec, p)
+		}
+	}
+	if _, ok := spec[value].(map[string]any); !ok {
+		spec[value] = map[string]any{}
+	}
 }

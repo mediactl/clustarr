@@ -66,6 +66,7 @@ var configConstructors = map[string]func() client.Object{
 	"rootfolders":       func() client.Object { return &catalogv1.RootFolder{} },
 	"qualityprofiles":   func() client.Object { return &catalogv1.QualityProfile{} },
 	"metadataproviders": func() client.Object { return &catalogv1.MetadataProvider{} },
+	"importlists":       func() client.Object { return &catalogv1.ImportList{} },
 	"indexers":          func() client.Object { return &indexv1.Indexer{} },
 	"downloadclients":   func() client.Object { return &downloadv1.DownloadClient{} },
 	"subtitleproviders": func() client.Object { return &subtitlev1.SubtitleProvider{} },
@@ -178,6 +179,13 @@ func (s *Server) listChoices(ctx context.Context, ref forms.Ref) []forms.Option 
 		for _, dc := range clients {
 			names([]string{dc.Name})
 		}
+	case forms.RefRootFolders:
+		var list catalogv1.RootFolderList
+		if err := s.opts.Reader.List(ctx, &list); err == nil {
+			for _, rf := range list.Items {
+				opts = append(opts, forms.Option{Value: rf.Name, Label: rf.Name + " (" + rf.Spec.Path + ")"})
+			}
+		}
 	case forms.RefDelayProfiles:
 		var list catalogv1.DelayProfileList
 		if err := s.opts.Reader.List(ctx, &list); err == nil {
@@ -226,6 +234,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, k forms.Kind
 		Form:      forms.Build(k, root, sub.spec, s.choices(r.Context(), k), mode),
 		Namespace: sub.namespace,
 		Name:      sub.name,
+		ReturnTo:  returnPath(r),
 	}
 	if mode == forms.ModeNew {
 		page.Action = "/settings/new/" + k.Slug
@@ -296,6 +305,9 @@ func decodeSubmission(r *http.Request, k forms.Kind, root *schema.Field, mode fo
 	if err != nil {
 		sub.spec = map[string]any{}
 		return sub, fmt.Errorf("%w: %w", actions.ErrInvalid, err)
+	}
+	if k.Choice != nil && k.Choice.Shape != nil {
+		k.Choice.Shape(spec, r.PostForm.Get(k.Choice.ControlName()))
 	}
 	if k.Ensure != nil {
 		k.Ensure(spec)
@@ -476,11 +488,24 @@ func (s *Server) finishSettings(w http.ResponseWriter, r *http.Request, err erro
 		s.finishAction(w, r, err)
 		return
 	}
-	returnTo := r.FormValue("return")
-	if returnTo == "" || returnTo[0] != '/' {
+	returnTo := returnPath(r)
+	if returnTo == "" {
 		returnTo = "/settings"
 	}
 	http.Redirect(w, r, returnTo, http.StatusSeeOther)
+}
+
+// returnPath is where a form goes when it is done: the "return" it
+// carries (a query on GET, a field on POST), which the Import Lists page
+// sets to itself so its lists are managed without a detour through
+// /settings. Anything but an absolute local path is "" -- the caller's
+// default -- so a form can never send the reader off the site.
+func returnPath(r *http.Request) string {
+	v := r.FormValue("return")
+	if !strings.HasPrefix(v, "/") || strings.HasPrefix(v, "//") {
+		return ""
+	}
+	return v
 }
 
 // handleSettingsCreate creates the object from the form.

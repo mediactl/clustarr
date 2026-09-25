@@ -149,3 +149,17 @@ so nothing the CRD accepts is unreachable.
    per CLAUDE.md; the tiers, cutoff, language and protocol are editable.
 5. Workload plumbing on a DownloadClient (`resources`, `nodeSelector`,
    `tolerations`) is not on the form; it stays a YAML concern.
+
+## Amendment (2026-09-24): ImportList, from the Import Lists page
+
+The Import Lists page gains Add, Edit and Delete for `ImportList`, the
+ninth kind, through the same forms and writes (`ui/actions.ConfigKinds`,
+the role's create/patch/delete on `importlists`). Two additions to the
+engine: a form may carry a `Choice`, a synthetic select the schema lacks,
+because an ImportList's provider is which sub-object exists (`trakt`,
+`plex`, ... exactly one, by CEL) -- the provider sections and the Secret
+keys depend on it, and on submit it shapes the decoded spec (the chosen
+sub-object exists, the others are dropped); and a form carries a
+`return` path, so a form opened from the Import Lists page saves,
+cancels and deletes back to it rather than to `/settings`. The provider is
+fixed once created, like the other kinds' `type`.

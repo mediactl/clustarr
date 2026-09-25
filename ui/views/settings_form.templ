@@ -25,6 +25,18 @@ type FormPage struct {
 	// ErrorCode and Error come back with a rejected submission.
 	ErrorCode string
 	Error     string
+	// ReturnTo is where Save, Cancel and Delete go when done: the page the
+	// form was opened from (the Import Lists page sets it), or the
+	// Settings page.
+	ReturnTo string
+}
+
+// returnTo is ReturnTo with its default applied.
+func (p FormPage) returnTo() string {
+	if p.ReturnTo != "" {
+		return p.ReturnTo
+	}
+	return settingsReturnPath
 }
 
 func (p FormPage) title() string {
@@ -51,7 +63,7 @@ templ SettingsForm(p FormPage) {
 			</div>
 		}
 		<form method="post" action={ templ.URL(p.Action) } data-settings-form class="max-w-4xl space-y-6">
-			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			<input type="hidden" name="return" value={ p.returnTo() }/>
 			<fieldset data-section="Object" class="rounded-lg border bg-card p-4">
 				<legend class="px-1 text-sm font-semibold">{ strings.ToUpper(p.Form.Kind.Singular[:1]) + p.Form.Kind.Singular[1:] }</legend>
 				<div class="grid gap-4 sm:grid-cols-2">
@@ -75,14 +87,14 @@ templ SettingsForm(p FormPage) {
 				@button.Button(button.Props{Type: "submit"}) {
 					Save
 				}
-				@button.Button(button.Props{Variant: button.VariantOutline, Href: settingsReturnPath}) {
+				@button.Button(button.Props{Variant: button.VariantOutline, Href: p.returnTo()}) {
 					Cancel
 				}
 			</div>
 		</form>
 		if p.DeleteAction != "" {
 			<form method="post" action={ templ.URL(p.DeleteAction) } data-confirm={ fmt.Sprintf("Delete %s %q? This cannot be undone.", p.Form.Kind.Singular, p.Name) } class="mt-8 max-w-4xl border-t pt-6">
-				<input type="hidden" name="return" value={ settingsReturnPath }/>
+				<input type="hidden" name="return" value={ p.returnTo() }/>
 				@button.Button(button.Props{Type: "submit", Variant: button.VariantDestructive}) {
 					Delete this { p.Form.Kind.Singular }
 				}
@@ -324,16 +336,27 @@ func number(f float64) string {
 // configActions is the Edit link and Delete form on a Settings-page card.
 // namespace is "-" for a cluster-scoped kind, the form routes' placeholder.
 templ configActions(slug, namespace, name string) {
+	@configActionsTo(slug, namespace, name, settingsReturnPath)
+}
+
+// configActionsTo is configActions for a card on another page (the Import
+// Lists page, 2026-09-24): the edit form and the delete both return to
+// returnTo instead of the Settings page.
+templ configActionsTo(slug, namespace, name, returnTo string) {
 	{{ ns := namespace }}
 	if ns == "" {
 		{{ ns = "-" }}
 	}
+	{{ edit := fmt.Sprintf("/settings/edit/%s/%s/%s", slug, ns, name) }}
+	if returnTo != settingsReturnPath {
+		{{ edit += "?return=" + returnTo }}
+	}
 	<div class="mt-3 flex items-center gap-2 border-t border-slate-800 pt-3">
-		@button.Button(button.Props{Href: fmt.Sprintf("/settings/edit/%s/%s/%s", slug, ns, name), Size: button.SizeXs, Variant: button.VariantOutline}) {
+		@button.Button(button.Props{Href: edit, Size: button.SizeXs, Variant: button.VariantOutline}) {
 			Edit
 		}
 		<form method="post" action={ templ.URL(fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name)) } data-confirm={ fmt.Sprintf("Delete %q? This cannot be undone.", name) }>
-			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			<input type="hidden" name="return" value={ returnTo }/>
 			@button.Button(button.Props{Type: "submit", Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive"}) {
 				Delete
 			}

@@ -73,6 +73,7 @@ var configKinds = []ConfigKind{
 	{Slug: "rootfolders", Group: catalogv1alpha1.GroupVersion.Group, Version: catalogv1alpha1.GroupVersion.Version, Kind: "RootFolder", Resource: "rootfolders", Namespaced: true},
 	{Slug: "qualityprofiles", Group: catalogv1alpha1.GroupVersion.Group, Version: catalogv1alpha1.GroupVersion.Version, Kind: "QualityProfile", Resource: "qualityprofiles"},
 	{Slug: "metadataproviders", Group: catalogv1alpha1.GroupVersion.Group, Version: catalogv1alpha1.GroupVersion.Version, Kind: "MetadataProvider", Resource: "metadataproviders", Namespaced: true},
+	{Slug: "importlists", Group: catalogv1alpha1.GroupVersion.Group, Version: catalogv1alpha1.GroupVersion.Version, Kind: "ImportList", Resource: "importlists", Namespaced: true},
 	{Slug: "indexers", Group: indexv1alpha1.GroupVersion.Group, Version: indexv1alpha1.GroupVersion.Version, Kind: "Indexer", Resource: "indexers", Namespaced: true},
 	{Slug: "downloadclients", Group: downloadv1alpha1.GroupVersion.Group, Version: downloadv1alpha1.GroupVersion.Version, Kind: "DownloadClient", Resource: "downloadclients", Namespaced: true},
 	{Slug: "subtitleproviders", Group: subtitlev1alpha1.GroupVersion.Group, Version: subtitlev1alpha1.GroupVersion.Version, Kind: "SubtitleProvider", Resource: "subtitleproviders", Namespaced: true},

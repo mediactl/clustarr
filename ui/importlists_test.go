@@ -22,6 +22,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,4 +154,28 @@ func TestImportListsNoAuthRendersNoAuthState(t *testing.T) {
 	body := rec.Body.String()
 	require.Contains(t, body, `data-auth-state=""`)
 	require.NotContains(t, body, "Authorization required")
+}
+
+// TestImportListsPageHasAddEditAndDelete: the Import Lists page manages
+// its lists (2026-09-24) through the settings forms -- Add above the rows,
+// Edit and Delete on each row, every link returning to this page -- and
+// the row actions ride the SSE-swapped rows, so they survive a refresh.
+func TestImportListsPageHasAddEditAndDelete(t *testing.T) {
+	entry := projection.ImportListEntry{
+		Ref: types.NamespacedName{Namespace: "media", Name: "trakt-watchlist"}, Kinds: []string{"movie"}, SourceType: "trakt",
+	}
+	srv := ui.NewServer(t.Context(), ui.Options{
+		ImportLists: func(context.Context) []projection.ImportListEntry { return []projection.ImportListEntry{entry} },
+	})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/import-lists", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, `href="/settings/new/importlists?return=/import-lists"`, "an Add link to the new-list form")
+	rows := strings.Index(body, `id="import-lists-rows"`)
+	edit := strings.Index(body, `href="/settings/edit/importlists/media/trakt-watchlist?return=/import-lists"`)
+	require.Greater(t, edit, rows, "Edit sits in the swapped rows")
+	form := requireTag(t, body, `action="/settings/delete/importlists/media/trakt-watchlist"`, `method="post"`, `data-confirm=`)
+	_ = form
+	require.Regexp(t, `action="/settings/delete/importlists/media/trakt-watchlist"[^<]*<input[^>]*name="return"[^>]*value="/import-lists"`, body)
 }

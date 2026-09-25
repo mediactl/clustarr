@@ -91,12 +91,16 @@ var uiActionGrants = map[uiGrant]bool{
 	// Settings CRUD (docs/superpowers/specs/2026-09-24-settings-crud-design.md):
 	// the Settings page creates and deletes the same eight kinds, and writes
 	// -- never reads -- the Secrets their credentials live in.
-	{"catalog.clustarr.io", "rootfolders", "create"}:         true,
-	{"catalog.clustarr.io", "rootfolders", "delete"}:         true,
-	{"catalog.clustarr.io", "qualityprofiles", "create"}:     true,
-	{"catalog.clustarr.io", "qualityprofiles", "delete"}:     true,
-	{"catalog.clustarr.io", "metadataproviders", "create"}:   true,
-	{"catalog.clustarr.io", "metadataproviders", "delete"}:   true,
+	{"catalog.clustarr.io", "rootfolders", "create"}:       true,
+	{"catalog.clustarr.io", "rootfolders", "delete"}:       true,
+	{"catalog.clustarr.io", "qualityprofiles", "create"}:   true,
+	{"catalog.clustarr.io", "qualityprofiles", "delete"}:   true,
+	{"catalog.clustarr.io", "metadataproviders", "create"}: true,
+	{"catalog.clustarr.io", "metadataproviders", "delete"}: true,
+	// the Import Lists page manages ImportLists through the same forms (2026-09-24).
+	{"catalog.clustarr.io", "importlists", "create"}:         true,
+	{"catalog.clustarr.io", "importlists", "patch"}:          true,
+	{"catalog.clustarr.io", "importlists", "delete"}:         true,
 	{"index.clustarr.io", "indexers", "create"}:              true,
 	{"index.clustarr.io", "indexers", "delete"}:              true,
 	{"download.clustarr.io", "downloadclients", "create"}:    true,
