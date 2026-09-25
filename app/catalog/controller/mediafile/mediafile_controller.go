@@ -64,6 +64,7 @@ import (
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // AnnotationObservedFingerprint is how importarr's library rescan tells this
@@ -238,6 +239,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	info, statErr := os.Stat(path)
 	if statErr != nil {
+		// No renderNaming here: there is no file to name, and the blip is
+		// usually transient. known.Naming, seeded from the object, is
+		// re-sent as it stands -- sent, not dropped, or this apply would
+		// release it.
 		k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "FileMissing", "stat %s: %s", path, statErr)
 		if err := r.applyStatus(ctx, &mf, conditions, known); err != nil {
 			return ctrl.Result{}, err
@@ -253,6 +258,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if probeErr != nil {
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "ProbeFailed", "%s", probeErr)
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "ProbeFailed", "probe failed: %s", probeErr)
+			// Rendered from the last good probe, if any: a file never
+			// probed reads ProbePending, and a swap this failed probe
+			// could not incorporate reads TranscodePending.
+			known.Naming = r.renderNaming(ctx, &mf, known)
 			if serr := r.applyStatus(ctx, &mf, conditions, known); serr != nil {
 				return ctrl.Result{}, serr
 			}
@@ -385,6 +394,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		known.Sidecars = sidecars
 	}
 
+	// Rendered on every reconcile that reaches here, not only after a
+	// probe: the Movie, Series, Episode and RootFolder watches wake this
+	// reconcile for a title or preset change with nothing to re-probe. The
+	// file is at path as of this apply -- a swap may have just moved it.
+	named := mf
+	named.Spec.Path = path
+	known.Naming = r.renderNaming(ctx, &named, known)
+
 	if err := r.applyStatus(ctx, &mf, conditions, known); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -479,6 +496,7 @@ type knownStatus struct {
 	MediaInfo *commonv1.MediaInfo
 	Sidecars  []catalogv1alpha1.Sidecar
 	Transcode *catalogv1alpha1.TranscodeState
+	Naming    *catalogv1alpha1.NamingStatus
 }
 
 // statusOf seeds a knownStatus from the live object, so a reconcile that
@@ -490,6 +508,7 @@ func statusOf(mf *catalogv1alpha1.MediaFile) *knownStatus {
 		MediaInfo: mf.Status.MediaInfo,
 		Sidecars:  mf.Status.Sidecars,
 		Transcode: mf.Status.Transcode,
+		Naming:    mf.Status.Naming,
 	}
 }
 
@@ -530,11 +549,31 @@ func (k *knownStatus) statusAC(mf *catalogv1alpha1.MediaFile, conditions []metav
 		}
 		ac = ac.WithTranscode(tac)
 	}
+	if n := k.Naming; n != nil {
+		// current is sent unconditionally, false included, for the same
+		// reason as compliant above; the enum reason and the optional
+		// path and quality only when set.
+		nac := catalogac.NamingStatus().WithCurrent(n.Current)
+		if n.ExpectedPath != "" {
+			nac = nac.WithExpectedPath(n.ExpectedPath)
+		}
+		if n.Reason != "" {
+			nac = nac.WithReason(n.Reason)
+		}
+		if n.Quality != nil {
+			nac = nac.WithQuality(*n.Quality)
+		}
+		ac = ac.WithNaming(nac)
+	}
 	return ac
 }
 
-// applyStatus is the one status write in this package.
+// applyStatus is the one status write in this package. It also sets the
+// NamingCurrent condition from known.Naming, so every path -- the early
+// returns included -- sends a condition that agrees with the status.naming
+// beside it, set in exactly one place.
 func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaFile, conditions []metav1.Condition, known *knownStatus) error {
+	markNamingCurrent(mf, &conditions, known.Naming)
 	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
 		catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(known.statusAC(mf, conditions)))
 	return err
@@ -542,7 +581,9 @@ func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaF
 
 // SetupWithManager registers the field indexes this controller's watches
 // need, then wires the For(MediaFile) controller plus the TranscodeJob and
-// SubtitleRequest watches §10 lists for it. The eventual app/catalog/run.go
+// SubtitleRequest watches §10 lists for it, and the Movie, Series, Episode
+// and RootFolder watches that re-render status.naming when a title, a
+// numbering or a naming preset changes. The eventual app/catalog/run.go
 // integration calls it as:
 //
 //	return mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(),
@@ -555,6 +596,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &subtitlev1alpha1.SubtitleRequest{}, subtitleRequestMediaFileRefIndex, indexSubtitleRequestByMediaFileRef); err != nil {
 		return err
 	}
+	if err := registerNamingIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("mediafile").
 		For(&catalogv1alpha1.MediaFile{}, builder.WithPredicates(k8s.Or(
@@ -565,6 +609,14 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(k8s.StatusFieldIn(extractTranscodeJobPhase, string(transcodev1alpha1.TranscodeJobPhaseSucceeded)))).
 		Watches(&subtitlev1alpha1.SubtitleRequest{}, handler.EnqueueRequestsFromMapFunc(r.mediaFileForSubtitleRequest),
 			builder.WithPredicates(k8s.StatusFieldChanged(extractSubtitleItemsSignature))).
+		Watches(&catalogv1alpha1.Movie{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForMovie),
+			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(movieNamingInputs)))).
+		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForSeries),
+			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(seriesNamingInputs)))).
+		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForEpisode),
+			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(episodeNamingInputs)))).
+		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForRootFolder),
+			builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{
 			RecoverPanic:          ptr.To(true),
 			ReconciliationTimeout: 5 * time.Minute,
