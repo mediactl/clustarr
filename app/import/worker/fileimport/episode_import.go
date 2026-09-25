@@ -294,6 +294,10 @@ func (w *Worker) importEpisodeFile(
 	}
 
 	parsed.Languages = parsed.LanguagesFor(plan.originalLanguageName)
+	// The probe corrects the name's quality before the profile judges it,
+	// as processConfig.processFile does for a movie.
+	mi := probeVideo(ctx, srcPath, rel)
+	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 	if !plan.profile.Allowed(parsed.Quality) {
 		return nil, notAllowedRejection(rel, parsed.Quality), nil
 	}
@@ -340,14 +344,9 @@ func (w *Worker) importEpisodeFile(
 	// so this context is always renderable; the bool is catalogctx.Episode's
 	// general gate for a caller that has not made that check itself.
 	nctx, _ := catalogctx.Episode(series, episodesFor(eps))
-	nctx.Quality = parsed.Quality
-	nctx.Revision = parsed.Revision
-	nctx.ReleaseGroup = parsed.Group
-	nctx.Edition = parsed.Edition
-	nctx.CustomFormats = matched
-
-	ext := catalogctx.ContainerExt(nil, srcPath)
-	dest, derr := catalogctx.EpisodeFilePath(plan.rootFolder, series, nctx, ext)
+	frozen := frozenRelease(parsed, matched, dl.Spec.Release.Title)
+	nctx = catalogctx.File(nctx, frozen, mi)
+	dest, derr := catalogctx.EpisodeFilePath(plan.rootFolder, series, nctx, catalogctx.ContainerExt(mi, srcPath))
 	if derr != nil {
 		return nil, fmt.Sprintf("%s: could not render a destination path: %v", rel, derr), nil
 	}
@@ -379,23 +378,23 @@ func (w *Worker) importEpisodeFile(
 		WithPath(dest).
 		WithSizeBytes(destInfo.Size()).
 		WithModTime(metav1.NewTime(destInfo.ModTime())).
-		WithQuality(parsed.Quality).
-		WithRevision(parsed.Revision).
+		WithQuality(frozen.Quality).
+		WithRevision(frozen.Revision).
 		WithReleaseType(parsed.ReleaseType).
-		WithReleaseGroup(parsed.Group).
-		WithEdition(parsed.Edition).
+		WithReleaseGroup(frozen.ReleaseGroup).
+		WithEdition(frozen.Edition).
 		WithFormatScore(int32(score)). //nolint:gosec // a custom-format score is a small bounded sum
 		WithProfileHash(plan.profile.Hash).
 		WithOriginal(true).
 		WithImportedFrom(catalogac.ImportSource().
 			WithDownloadRef(dl.Name).
-			WithReleaseTitle(dl.Spec.Release.Title).
+			WithReleaseTitle(frozen.ImportedFrom.ReleaseTitle).
 			WithIndexerName(dl.Spec.Release.IndexerName).
 			WithProtocol(dl.Spec.Release.Protocol).
 			WithImportedAt(metav1.NewTime(w.now())).
 			WithManual(manual))
-	if len(matched) > 0 {
-		spec = spec.WithMatchedFormats(capMatchedFormats(matched)...)
+	if len(frozen.MatchedFormats) > 0 {
+		spec = spec.WithMatchedFormats(frozen.MatchedFormats...)
 	}
 	if len(parsed.Languages) > 0 {
 		spec = spec.WithLanguages(parsed.Languages...)

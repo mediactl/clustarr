@@ -38,9 +38,16 @@ import (
 // and returns the MediaFile it produced.
 func (f *fixture) importOne(t *testing.T, dlName, fileName string) catalogv1alpha1.MediaFile {
 	t.Helper()
+	return f.importPlanted(t, dlName, fileName, func(path string) { mustWriteSparseFile(t, path, sampleFloor) })
+}
+
+// importPlanted is importOne with the file's bytes written by plant, given
+// the file's path in the Download's content root.
+func (f *fixture) importPlanted(t *testing.T, dlName, fileName string, plant func(path string)) catalogv1alpha1.MediaFile {
+	t.Helper()
 	ctx := context.Background()
 	contentRoot := dataDir(t, "scratch")
-	mustWriteSparseFile(t, filepath.Join(contentRoot, fileName), sampleFloor)
+	plant(filepath.Join(contentRoot, fileName))
 
 	dl := f.createDownload(t, dlName, contentRoot, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName})
 	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))

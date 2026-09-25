@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -253,6 +254,12 @@ func (pc *processConfig) processFile(
 	// group that shares a quality word.
 	parsed.Languages = parsed.LanguagesFor(pc.originalLanguageName)
 
+	// The probe corrects the name's resolution (and a false remux) before
+	// the profile judges the quality, so a "2160p" name on a 1080p stream
+	// is admitted, compared and frozen as the 1080p it is.
+	mi := probeVideo(ctx, srcPath, rel)
+	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
+
 	if !pc.profile.Allowed(parsed.Quality) {
 		return nil, notAllowedRejection(rel, parsed.Quality), nil
 	}
@@ -298,15 +305,9 @@ func (pc *processConfig) processFile(
 		}
 	}
 
-	nctx := pc.baseContext
-	nctx.Quality = parsed.Quality
-	nctx.Revision = parsed.Revision
-	nctx.ReleaseGroup = parsed.Group
-	nctx.Edition = parsed.Edition
-	nctx.CustomFormats = matched
-
-	ext := catalogctx.ContainerExt(nil, srcPath)
-	dest, derr := catalogctx.MovieFilePath(pc.rootFolder, pc.movie, nctx, ext)
+	frozen := frozenRelease(parsed, matched, pc.download.Spec.Release.Title)
+	nctx := catalogctx.File(pc.baseContext, frozen, mi)
+	dest, derr := catalogctx.MovieFilePath(pc.rootFolder, pc.movie, nctx, catalogctx.ContainerExt(mi, srcPath))
 	if derr != nil {
 		return nil, fmt.Sprintf("%s: could not render a destination path: %v", rel, derr), nil
 	}
@@ -338,23 +339,23 @@ func (pc *processConfig) processFile(
 		WithPath(dest).
 		WithSizeBytes(destInfo.Size()).
 		WithModTime(metav1.NewTime(destInfo.ModTime())).
-		WithQuality(parsed.Quality).
-		WithRevision(parsed.Revision).
+		WithQuality(frozen.Quality).
+		WithRevision(frozen.Revision).
 		WithReleaseType(parsed.ReleaseType).
-		WithReleaseGroup(parsed.Group).
-		WithEdition(parsed.Edition).
+		WithReleaseGroup(frozen.ReleaseGroup).
+		WithEdition(frozen.Edition).
 		WithFormatScore(int32(score)). //nolint:gosec // a custom-format score is a small bounded sum, never near int32's range
 		WithProfileHash(pc.profile.Hash).
 		WithOriginal(true).
 		WithImportedFrom(catalogac.ImportSource().
 			WithDownloadRef(pc.download.Name).
-			WithReleaseTitle(pc.download.Spec.Release.Title).
+			WithReleaseTitle(frozen.ImportedFrom.ReleaseTitle).
 			WithIndexerName(pc.download.Spec.Release.IndexerName).
 			WithProtocol(pc.download.Spec.Release.Protocol).
 			WithImportedAt(metav1.NewTime(pc.worker.now())).
 			WithManual(pc.manual))
-	if len(matched) > 0 {
-		spec = spec.WithMatchedFormats(capMatchedFormats(matched)...)
+	if len(frozen.MatchedFormats) > 0 {
+		spec = spec.WithMatchedFormats(frozen.MatchedFormats...)
 	}
 	if len(parsed.Languages) > 0 {
 		spec = spec.WithLanguages(parsed.Languages...)
@@ -394,6 +395,37 @@ func (pc *processConfig) processFile(
 		WithSourcePath(rel).
 		WithDestPath(dest).
 		WithMediaFileRef(mfName), "", nil
+}
+
+// probeVideo probes a video file an import is about to judge: its
+// technical description corrects the name-derived quality
+// (quality.AugmentFromMediaInfo) and names the file for its codec and
+// dynamic range (catalogctx.File). A probe failure never fails the import
+// -- an unprobeable file imports under its name-derived quality and its
+// source extension, exactly as it did before imports probed, since every
+// MediaInfo block of a preset is optional -- so it is logged and nil
+// returned.
+func probeVideo(ctx context.Context, srcPath, rel string) *commonv1.MediaInfo {
+	mi, _, err := mediainfo.Probe(ctx, srcPath)
+	if err != nil {
+		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
+			"source", rel, "error", err)
+		return nil
+	}
+	return mi
+}
+
+// frozenRelease is the release-time half of the MediaFileSpec an import
+// freezes -- quality, revision, group, edition, matched formats and the
+// release title -- built once, so the spec the worker applies and the
+// naming context catalogctx.File renders the destination from read the same
+// values, and a later rename of the file renders the name the import did.
+func frozenRelease(parsed *release.ParsedRelease, matched []string, releaseTitle string) *catalogv1alpha1.MediaFileSpec {
+	return &catalogv1alpha1.MediaFileSpec{
+		Quality: parsed.Quality, Revision: parsed.Revision, ReleaseGroup: parsed.Group, Edition: parsed.Edition,
+		MatchedFormats: capMatchedFormats(matched),
+		ImportedFrom:   &catalogv1alpha1.ImportSource{ReleaseTitle: releaseTitle},
+	}
 }
 
 // relPath renders srcPath relative to root, matching

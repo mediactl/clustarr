@@ -1,0 +1,106 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package fileimport_test
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
+)
+
+// hdr10ClipArgs encodes a short 1920x1080 HEVC Main 10 clip carrying
+// HDR10's colour tags and mastering-display metadata: pkg/mediainfo's
+// hdr10FixtureArgs recipe at 1080 lines. test/data/mediainfo's HEVC sample
+// is 320x240, which the probe corrects to 360p -- a resolution no quality
+// definition holds, so every profile rejects it and the import renders no
+// name to check.
+var hdr10ClipArgs = []string{
+	"-hide_banner", "-loglevel", "error", "-y",
+	"-f", "lavfi", "-i", "testsrc2=duration=0.2:size=1920x1080:rate=25",
+	"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le",
+	"-x265-params", "log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:" +
+		"master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400",
+}
+
+// TestAnImportIsQualifiedAndNamedFromItsProbe: the file's name says 2160p
+// x264, its stream is 1080 lines of 10-bit HEVC in HDR10. The import
+// probes it, so the profile (which holds Bluray-1080p and no 2160p) admits
+// it, spec.quality freezes the probe's resolution under the name's
+// source, and the library name says what the file is -- [h265], since the
+// release title names no x265 encode, and [HDR10], which the name never
+// said at all.
+func TestAnImportIsQualifiedAndNamedFromItsProbe(t *testing.T) {
+	for _, tool := range []string{"ffmpeg", "ffprobe"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s not on PATH", tool)
+		}
+	}
+	ctx := context.Background()
+	f := newFixture(t, "fi-probe-name")
+	// The clip is a few hundred KiB, under the sample floor: that rule has
+	// its own test (sample_envtest_test.go).
+	f.worker.SampleMaxBytes = 0
+
+	clip := filepath.Join(t.TempDir(), "clip.mkv")
+	out, err := exec.CommandContext(ctx, "ffmpeg", append(append([]string{}, hdr10ClipArgs...), clip)...).CombinedOutput()
+	require.NoError(t, err, "ffmpeg: %s", out)
+	mi, _, err := mediainfo.Probe(ctx, clip)
+	require.NoError(t, err)
+	res := mediainfo.ResolutionFromDimensions(mi.Width, mi.Height)
+	require.Equal(t, commonv1.HdrFormatHDR10, mi.Hdr, "the clip must be HDR10, or its name's dynamic-range block proves nothing")
+
+	const fileName = "The.Matrix.1999.2160p.BluRay.x264-SPARKS.mkv"
+	mf := f.importPlanted(t, "probe-dl", fileName, func(path string) {
+		b, rerr := os.ReadFile(clip)
+		require.NoError(t, rerr)
+		require.NoError(t, os.WriteFile(path, b, 0o644))
+	})
+
+	assert.Equal(t, res, mf.Spec.Quality.Resolution, "the probe's resolution, not the name's 2160p")
+	assert.Equal(t, commonv1.SourceBluray, mf.Spec.Quality.Source, "the probe names no source, so the name's stays")
+
+	base := filepath.Base(mf.Spec.Path)
+	assert.Contains(t, base, fmt.Sprintf("[Bluray-%dp]", res))
+	assert.Contains(t, base, "[HDR10]")
+	assert.Contains(t, base, "[h265]", "an HEVC stream whose release title says x264 is h265")
+	for _, stale := range []string{"2160p", "x264", "x265"} {
+		assert.NotContains(t, base, stale)
+	}
+
+	// And the whole path is the one the shared renderer gives the frozen
+	// spec and the probe, so a later rename of this file renders it again.
+	var movie catalogv1alpha1.Movie
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: f.movieName}, &movie))
+	nctx, ok := catalogctx.Movie(&movie)
+	require.True(t, ok)
+	want, err := catalogctx.MovieFilePath(f.rootFolder, &movie, catalogctx.File(nctx, &mf.Spec, mi), catalogctx.ContainerExt(mi, fileName))
+	require.NoError(t, err)
+	assert.Equal(t, want, mf.Spec.Path)
+}
