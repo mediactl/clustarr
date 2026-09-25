@@ -18,7 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package release
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -348,6 +350,22 @@ func QualityFor(src commonv1.Source, res int32, mod commonv1.Modifier) (commonv1
 		return commonv1.Quality{}, false
 	}
 	return commonv1.Quality{Name: name, Source: src, Resolution: res, Modifier: mod}, true
+}
+
+// QualityRungs returns every Quality qualityTable defines for src and mod,
+// lowest resolution first: the source's ladder, for a caller that must
+// place a resolution the table has no exact entry for (pkg/quality's
+// AugmentFromMediaInfo). A quality defined without a resolution (DVD,
+// SDTV, CAM, ...) is a rung at ResolutionUnknown, so it sorts first.
+func QualityRungs(src commonv1.Source, mod commonv1.Modifier) []commonv1.Quality {
+	var rungs []commonv1.Quality
+	for k, name := range qualityTable {
+		if k.Source == src && k.Modifier == mod {
+			rungs = append(rungs, commonv1.Quality{Name: name, Source: src, Resolution: k.Resolution, Modifier: mod})
+		}
+	}
+	slices.SortFunc(rungs, func(a, b commonv1.Quality) int { return cmp.Compare(a.Resolution, b.Resolution) })
+	return rungs
 }
 
 // detectRevision ports ParseQualityModifiers, identical in Radarr, Sonarr

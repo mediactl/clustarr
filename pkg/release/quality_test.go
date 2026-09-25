@@ -129,3 +129,25 @@ func TestParseQualityTagsRevisionHandlesProperRepackRealVersion(t *testing.T) {
 		})
 	}
 }
+
+// TestQualityRungsListsASourcesLadderLowestFirst: each rung is QualityFor's
+// own answer for its triple, a resolution-less quality sorts first, and a
+// source with no defined quality has no ladder.
+func TestQualityRungsListsASourcesLadderLowestFirst(t *testing.T) {
+	names := func(src commonv1.Source, mod commonv1.Modifier) []string {
+		var out []string
+		for _, q := range QualityRungs(src, mod) {
+			want, ok := QualityFor(q.Source, q.Resolution, q.Modifier)
+			assert.True(t, ok, q.Name)
+			assert.Equal(t, want, q)
+			out = append(out, q.Name)
+		}
+		return out
+	}
+	assert.Equal(t, []string{"Bluray-480p", "Bluray-576p", "Bluray-720p", "Bluray-1080p", "Bluray-2160p"},
+		names(commonv1.SourceBluray, commonv1.ModifierNone))
+	assert.Equal(t, []string{"SDTV", "HDTV-720p", "HDTV-1080p", "HDTV-2160p"}, names(commonv1.SourceTV, commonv1.ModifierNone))
+	assert.Equal(t, []string{"DVD"}, names(commonv1.SourceDVD, commonv1.ModifierNone))
+	assert.Equal(t, []string{"Remux-1080p", "Remux-2160p"}, names(commonv1.SourceBluray, commonv1.ModifierRemux))
+	assert.Empty(t, names(commonv1.SourceUnknown, commonv1.ModifierNone))
+}

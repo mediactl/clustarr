@@ -33,10 +33,10 @@ func TestAugmentFromMediaInfoCorrectsResolutionAndKeepsSource(t *testing.T) {
 	require.True(t, changed)
 	require.Equal(t, commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080}, q)
 
-	q, changed = quality.AugmentFromMediaInfo(commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}, mi)
-	require.True(t, changed)
-	require.Equal(t, int32(1080), q.Resolution)
-	require.Equal(t, commonv1.SourceUnknown, q.Source, "the probe never supplies a source")
+	unknown := commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}
+	q, changed = quality.AugmentFromMediaInfo(unknown, mi)
+	require.False(t, changed, "the table defines no quality for an unknown source at any resolution, so the name's stays")
+	require.Equal(t, unknown, q, "the probe never supplies a source")
 
 	q, changed = quality.AugmentFromMediaInfo(commonv1.Quality{Name: "Remux-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierRemux}, mi)
 	require.True(t, changed)
@@ -49,4 +49,58 @@ func TestAugmentFromMediaInfoCorrectsResolutionAndKeepsSource(t *testing.T) {
 
 	_, changed = quality.AugmentFromMediaInfo(commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080}, nil)
 	require.False(t, changed, "no probe, no change")
+}
+
+// TestAugmentFromMediaInfoPlacesAProbedResolutionOnADefinedQuality is ruling
+// R10, Radarr's QualityFinder.FindBySourceAndResolution: a probed
+// resolution the source's ladder has no rung for lands on the source's
+// resolution-less quality, else its nearest rung at or below, else the
+// name's quality stands -- never "Unknown", which no profile tier holds.
+func TestAugmentFromMediaInfoPlacesAProbedResolutionOnADefinedQuality(t *testing.T) {
+	named := func(name string, src commonv1.Source, res int32, mod commonv1.Modifier) commonv1.Quality {
+		return commonv1.Quality{Name: name, Source: src, Resolution: res, Modifier: mod}
+	}
+	dvd := named("DVD", commonv1.SourceDVD, commonv1.ResolutionUnknown, commonv1.ModifierNone)
+	for _, tc := range []struct {
+		name          string
+		in            commonv1.Quality
+		width, height int32
+		want          commonv1.Quality
+		changed       bool
+	}{
+		{"a DVD rip at 720x576 stays DVD", dvd, 720, 576, dvd, false},
+		{"a DVD rip at 704x400 stays DVD", dvd, 704, 400, dvd, false},
+		{
+			"a 320x240 Bluray encode is Bluray-480p, the ladder's floor",
+			named("Bluray-2160p", commonv1.SourceBluray, commonv1.Resolution2160p, commonv1.ModifierNone), 320, 240,
+			named("Bluray-480p", commonv1.SourceBluray, commonv1.Resolution480p, commonv1.ModifierNone), true,
+		},
+		{
+			"a 960x540 Bluray encode takes the rung below, Bluray-480p",
+			named("Bluray-1080p", commonv1.SourceBluray, commonv1.Resolution1080p, commonv1.ModifierNone), 960, 540,
+			named("Bluray-480p", commonv1.SourceBluray, commonv1.Resolution480p, commonv1.ModifierNone), true,
+		},
+		{
+			"a 1280x720 WEB-DL named 1080p is WEBDL-720p",
+			named("WEBDL-1080p", commonv1.SourceWebDL, commonv1.Resolution1080p, commonv1.ModifierNone), 1280, 720,
+			named("WEBDL-720p", commonv1.SourceWebDL, commonv1.Resolution720p, commonv1.ModifierNone), true,
+		},
+		{
+			"a 576-line WEB-DL takes the rung below, WEBDL-480p, not 720p",
+			named("WEBDL-1080p", commonv1.SourceWebDL, commonv1.Resolution1080p, commonv1.ModifierNone), 720, 576,
+			named("WEBDL-480p", commonv1.SourceWebDL, commonv1.Resolution480p, commonv1.ModifierNone), true,
+		},
+		{
+			"a remux with no rung at or below keeps the name's quality",
+			named("Remux-1080p", commonv1.SourceBluray, commonv1.Resolution1080p, commonv1.ModifierRemux), 1280, 720,
+			named("Remux-1080p", commonv1.SourceBluray, commonv1.Resolution1080p, commonv1.ModifierRemux), false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, changed := quality.AugmentFromMediaInfo(tc.in, &commonv1.MediaInfo{Width: tc.width, Height: tc.height})
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.changed, changed)
+			require.NotEqual(t, "Unknown", got.Name)
+		})
+	}
 }
