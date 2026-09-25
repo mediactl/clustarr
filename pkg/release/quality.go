@@ -332,11 +332,22 @@ func detectQuality(title string) (commonv1.Quality, error) {
 		}
 	}
 
-	name, ok := qualityTable[qualityKey{Source: src, Resolution: resolution, Modifier: mod}]
-	if !ok {
-		return commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}, nil
+	if q, ok := QualityFor(src, resolution, mod); ok {
+		return q, nil
 	}
-	return commonv1.Quality{Name: name, Source: src, Resolution: resolution, Modifier: mod}, nil
+	return commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}, nil
+}
+
+// QualityFor looks up the fully populated Quality for a (source, resolution,
+// modifier) triple in qualityTable, the same table detectQuality's pipeline
+// resolves against once it has classified a title. It reports false when no
+// *arr quality is defined for that combination.
+func QualityFor(src commonv1.Source, res int32, mod commonv1.Modifier) (commonv1.Quality, bool) {
+	name, ok := qualityTable[qualityKey{Source: src, Resolution: res, Modifier: mod}]
+	if !ok {
+		return commonv1.Quality{}, false
+	}
+	return commonv1.Quality{Name: name, Source: src, Resolution: res, Modifier: mod}, true
 }
 
 // detectRevision ports ParseQualityModifiers, identical in Radarr, Sonarr
