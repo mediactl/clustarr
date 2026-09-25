@@ -191,14 +191,32 @@ type tokenEntry struct {
 // tokenFuncs is grown by every later step; this step seeds it with the
 // tokens exercised so far.
 var tokenFuncs = map[string]tokenEntry{
-	"movie title":                     {fn: func(c Context, _, _ int) string { return c.Title }, colonSensitive: true},
-	"movie cleantitle":                {fn: func(c Context, _, _ int) string { return cleanTitle(c.Title) }, colonSensitive: true},
-	"movie titlethe":                  {fn: func(c Context, _, _ int) string { return titleThe(c.Title) }, colonSensitive: true},
-	"release year":                    {fn: func(c Context, _, _ int) string { return yearString(c.Year) }},
-	"release group":                   {fn: func(c Context, _, _ int) string { return c.ReleaseGroup }},
-	"tmdbid":                          {fn: func(c Context, _, _ int) string { return c.TmdbID }},
-	"mediainfo audiocodec":            {fn: func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) }},
-	"mediainfo audiochannels":         {fn: func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) }},
+	"movie title":             {fn: func(c Context, _, _ int) string { return c.Title }, colonSensitive: true},
+	"movie cleantitle":        {fn: func(c Context, _, _ int) string { return cleanTitle(c.Title) }, colonSensitive: true},
+	"movie titlethe":          {fn: func(c Context, _, _ int) string { return titleThe(c.Title) }, colonSensitive: true},
+	"release year":            {fn: func(c Context, _, _ int) string { return yearString(c.Year) }},
+	"release group":           {fn: func(c Context, _, _ int) string { return c.ReleaseGroup }},
+	"tmdbid":                  {fn: func(c Context, _, _ int) string { return c.TmdbID }},
+	"mediainfo audiocodec":    {fn: func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) }},
+	"mediainfo audiochannels": {fn: func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) }},
+	"mediainfo videocodec": {fn: func(c Context, _, _ int) string {
+		return VideoCodecLabel(c.MediaInfo.VideoCodec, c.MediaInfo.VideoProfile, c.ReleaseTitle)
+	}},
+	"mediainfo videobitdepth":     {fn: func(c Context, _, _ int) string { return nonZero(c.MediaInfo.VideoBitDepth) }},
+	"mediainfo audiolanguages":    {fn: func(c Context, _, _ int) string { return languageList(audioLanguages(c.MediaInfo)) }},
+	"mediainfo subtitlelanguages": {fn: func(c Context, _, _ int) string { return languageList(subtitleLanguages(c.MediaInfo)) }},
+	"mediainfo simple": {fn: func(c Context, _, _ int) string {
+		return joinNonEmpty(" ",
+			VideoCodecLabel(c.MediaInfo.VideoCodec, c.MediaInfo.VideoProfile, c.ReleaseTitle),
+			firstAudioCodec(c.MediaInfo))
+	}},
+	"mediainfo full": {fn: func(c Context, _, _ int) string {
+		return joinNonEmpty(" ",
+			VideoCodecLabel(c.MediaInfo.VideoCodec, c.MediaInfo.VideoProfile, c.ReleaseTitle),
+			firstAudioCodec(c.MediaInfo),
+			languageList(audioLanguages(c.MediaInfo)),
+			languageList(subtitleLanguages(c.MediaInfo)))
+	}},
 	"season":                          {fn: func(c Context, pad, _ int) string { return padInt(c.Season, pad) }},
 	"episode":                         {fn: episodeToken},
 	"absolute":                        {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
@@ -286,11 +304,30 @@ func truncate(s string, n int) string {
 	return string(runes[:n])
 }
 
-func firstAudioCodec(mi commonv1.MediaInfo) string {
+// defaultAudioStream returns the audio stream the container itself flags
+// as default, falling back to the first stream when none is flagged (or
+// there is only one); ok is false when the probe found no audio at all.
+// {MediaInfo AudioCodec}/{MediaInfo AudioChannels} read the default track,
+// not simply the first one in probe order, because ffprobe does not
+// guarantee stream order follows the container's own default flag.
+func defaultAudioStream(mi commonv1.MediaInfo) (stream commonv1.AudioStream, ok bool) {
 	if len(mi.Audio) == 0 {
+		return commonv1.AudioStream{}, false
+	}
+	for _, a := range mi.Audio {
+		if a.Default {
+			return a, true
+		}
+	}
+	return mi.Audio[0], true
+}
+
+func firstAudioCodec(mi commonv1.MediaInfo) string {
+	a, ok := defaultAudioStream(mi)
+	if !ok {
 		return ""
 	}
-	return mi.Audio[0].Codec
+	return a.Codec
 }
 
 // audioChannelLayout maps a raw channel count to the *arr channel-layout
@@ -299,12 +336,76 @@ func firstAudioCodec(mi commonv1.MediaInfo) string {
 var audioChannelLayout = map[int32]string{1: "1.0", 2: "2.0", 6: "5.1", 8: "7.1"}
 
 func firstAudioChannels(mi commonv1.MediaInfo) string {
-	if len(mi.Audio) == 0 {
+	a, ok := defaultAudioStream(mi)
+	if !ok {
 		return ""
 	}
-	n := mi.Audio[0].Channels
-	if label, ok := audioChannelLayout[n]; ok {
+	if label, ok := audioChannelLayout[a.Channels]; ok {
 		return label
 	}
-	return fmt.Sprintf("%d.0", n)
+	return fmt.Sprintf("%d.0", a.Channels)
+}
+
+// nonZero renders an int32 count as a string, or "" for the probe's zero
+// value (not yet measured), so an un-probed field's naming token collapses
+// like any other empty token instead of rendering a literal "0".
+func nonZero(n int32) string {
+	if n == 0 {
+		return ""
+	}
+	return strconv.Itoa(int(n))
+}
+
+// audioLanguages and subtitleLanguages return each stream's raw BCP-47
+// language tag, in probe order; languageList does the dedupe, casing and
+// "fewer than two is unstated" work.
+func audioLanguages(mi commonv1.MediaInfo) []string {
+	langs := make([]string, 0, len(mi.Audio))
+	for _, a := range mi.Audio {
+		langs = append(langs, a.Language)
+	}
+	return langs
+}
+
+func subtitleLanguages(mi commonv1.MediaInfo) []string {
+	langs := make([]string, 0, len(mi.Subtitles))
+	for _, s := range mi.Subtitles {
+		langs = append(langs, s.Language)
+	}
+	return langs
+}
+
+// languageList renders {MediaInfo AudioLanguages}/{MediaInfo
+// SubtitleLanguages}: the tags upper-cased, first-occurrence order,
+// duplicates and empty/"und" (unknown) tags dropped, joined "[A+B+C]" --
+// but only once at least two distinct languages remain, since Radarr's own
+// rule is that a single language is not stated.
+func languageList(tags []string) string {
+	seen := make(map[string]bool, len(tags))
+	kept := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.ToUpper(strings.TrimSpace(t))
+		if t == "" || t == "UND" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		kept = append(kept, t)
+	}
+	if len(kept) < 2 {
+		return ""
+	}
+	return "[" + strings.Join(kept, "+") + "]"
+}
+
+// joinNonEmpty joins the non-empty parts with sep, skipping any empty one
+// so {MediaInfo Simple}/{MediaInfo Full} do not leave a dangling separator
+// when, say, a probe found no audio track.
+func joinNonEmpty(sep string, parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, sep)
 }

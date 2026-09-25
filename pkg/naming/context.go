@@ -180,10 +180,19 @@ type Context struct {
 	IssueNumber      string
 
 	// Shared release descriptors
-	Quality          commonv1.Quality
-	Revision         commonv1.Revision
-	MediaInfo        commonv1.MediaInfo
-	ReleaseGroup     string
-	CustomFormats    []string
+	Quality       commonv1.Quality
+	Revision      commonv1.Revision
+	MediaInfo     commonv1.MediaInfo
+	ReleaseGroup  string
+	CustomFormats []string
+
 	OriginalFilename string
+
+	// ReleaseTitle is the release's own title -- the download client
+	// item's name, or the .nzb/.torrent name -- as opposed to the item's
+	// metadata title. VideoCodecLabel needs it to tell an x264/x265
+	// encode from a generic AVC/HEVC stream, which MediaInfo.VideoCodec
+	// alone cannot say: the probe only names the codec family, never
+	// whether a particular encoder produced it.
+	ReleaseTitle string
 }

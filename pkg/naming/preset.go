@@ -32,7 +32,7 @@ import (
 // the provider ids, and a controller renders a path only once the metadata
 // carrying the rest is in. pkg/naming's emptytoken_test.go holds every
 // preset to this in all four dialects.
-const movieFileTemplate = "{Movie CleanTitle}{ (Release Year)}{ - [Quality Full]}{-Release Group}"
+const movieFileTemplate = "{Movie CleanTitle}{ (Release Year)}{ - [Quality Full]}{ [MediaInfo VideoDynamicRangeType]}{ [MediaInfo VideoCodec]}{-Release Group}"
 
 // movieFolderTemplate is the per-dialect default for MovieFolder.
 func movieFolderTemplate(d Dialect) string {

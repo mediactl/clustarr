@@ -92,14 +92,23 @@ func TestEveryPresetCollapsesEmptyOptionalTokens(t *testing.T) {
 	noYear := func(c *naming.Context) { c.Year = 0 }
 	noQuality := func(c *naming.Context) { c.Quality = commonv1.Quality{}; c.Revision = commonv1.Revision{} }
 	noGroup := func(c *naming.Context) { c.ReleaseGroup = "" }
+	// noMediaInfo puts a probed context back to the un-probed zero value, so
+	// this test also exercises the two blocks the presets gained for the
+	// probe-driven naming tokens: "{ [MediaInfo VideoDynamicRangeType]}
+	// { [MediaInfo VideoCodec]}" must collapse the same way any other
+	// optional token does when nothing was ever probed.
+	noMediaInfo := func(c *naming.Context) { c.MediaInfo = commonv1.MediaInfo{} }
+	probedMediaInfo := commonv1.MediaInfo{VideoCodec: "hevc", Hdr: commonv1.HdrFormatHDR10}
 
 	movie := naming.Context{
 		Kind: commonv1.MediaKindMovie, Title: "The Matrix", Year: 1999, TmdbID: "603",
 		Quality: quality, Revision: commonv1.Revision{Version: 2}, ReleaseGroup: "RlsGrp",
+		MediaInfo: probedMediaInfo,
 	}
 	episode := naming.Context{
 		Kind: commonv1.MediaKindEpisode, SeriesTitle: "The Series Title!", SeriesYear: 2010, TvdbID: "153021",
 		Season: 1, Episodes: []int{1}, EpisodeTitle: "Episode Title 1", Quality: quality, ReleaseGroup: "RlsGrp",
+		MediaInfo: probedMediaInfo,
 	}
 	anime := episode
 	anime.Absolute = []int{1}
@@ -110,6 +119,7 @@ func TestEveryPresetCollapsesEmptyOptionalTokens(t *testing.T) {
 		"episode title": func(c *naming.Context) { c.EpisodeTitle = "" },
 		"quality":       noQuality,
 		"release group": noGroup,
+		"mediainfo":     noMediaInfo,
 	}
 	album := naming.Context{
 		Kind: commonv1.MediaKindAlbum, ArtistName: "Radiohead", AlbumTitle: "OK Computer",
@@ -131,7 +141,7 @@ func TestEveryPresetCollapsesEmptyOptionalTokens(t *testing.T) {
 	cases := []presetCase{
 		{"movie folder", folder(commonv1.MediaKindMovie), movie, map[string]func(*naming.Context){"release year": noYear}},
 		{"movie file", file(commonv1.MediaKindMovie), movie, map[string]func(*naming.Context){
-			"release year": noYear, "quality": noQuality, "release group": noGroup,
+			"release year": noYear, "quality": noQuality, "release group": noGroup, "mediainfo": noMediaInfo,
 		}},
 		{"series folder", folder(commonv1.MediaKindSeries), episode, map[string]func(*naming.Context){
 			"series year": func(c *naming.Context) { c.SeriesYear = 0 },

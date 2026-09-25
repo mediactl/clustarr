@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	episodeFileStandardTemplate = "{Series TitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
-	episodeFileAnimeTemplate    = "{Series TitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00} - {absolute:000}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
-	episodeFileDailyTemplate    = "{Series TitleWithoutYear}{ (Series Year)} - {Air-Date}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
+	episodeFileStandardTemplate = "{Series TitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00}{ - Episode CleanTitle:90}{ [Quality Full]}{ [MediaInfo VideoDynamicRangeType]}{ [MediaInfo VideoCodec]}{-Release Group}"
+	episodeFileAnimeTemplate    = "{Series TitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00} - {absolute:000}{ - Episode CleanTitle:90}{ [Quality Full]}{ [MediaInfo VideoDynamicRangeType]}{ [MediaInfo VideoCodec]}{-Release Group}"
+	episodeFileDailyTemplate    = "{Series TitleWithoutYear}{ (Series Year)} - {Air-Date}{ - Episode CleanTitle:90}{ [Quality Full]}{ [MediaInfo VideoDynamicRangeType]}{ [MediaInfo VideoCodec]}{-Release Group}"
 )
 
 // formatAbsoluteRange joins anime absolute episode numbers, following the

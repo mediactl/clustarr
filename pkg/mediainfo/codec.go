@@ -17,41 +17,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package mediainfo
 
-import (
-	"strings"
-)
+import "github.com/mediactl/clustarr/pkg/naming"
 
 // FormatVideoCodec is Radarr's MediaInfoFormatter.FormatVideoCodec: the
-// probe names the codec, and the release title says whether an AVC or HEVC
-// stream was an x264/x265 encode, which the file itself cannot.
+// probe names the codec, and the release title says whether an AVC or
+// HEVC stream was an x264/x265 encode, which the file itself cannot.
+//
+// It delegates to naming.VideoCodecLabel (ruling R5,
+// docs/superpowers/sdd/2026-09-24-probe-driven-naming) so there is exactly
+// one implementation of the switch, shared by pkg/naming's
+// {MediaInfo VideoCodec}/{MediaInfo Simple}/{MediaInfo Full} tokens and by
+// this package's own callers.
 func FormatVideoCodec(codecName, videoProfile, releaseTitle string) string {
-	title := strings.ToLower(releaseTitle)
-	switch strings.ToLower(codecName) {
-	case "h264", "avc":
-		if strings.Contains(title, "x264") {
-			return "x264"
-		}
-		return "h264"
-	case "hevc", "h265":
-		if strings.Contains(title, "x265") {
-			return "x265"
-		}
-		return "h265"
-	case "av1":
-		return "AV1"
-	case "vp9":
-		return "VP9"
-	case "vc1":
-		return "VC1"
-	case "mpeg2video":
-		return "MPEG2"
-	case "mpeg4", "msmpeg4v3":
-		if strings.Contains(title, "divx") {
-			return "DivX"
-		}
-		return "XviD"
-	case "":
-		return ""
-	}
-	return strings.ToUpper(codecName)
+	return naming.VideoCodecLabel(codecName, videoProfile, releaseTitle)
 }
