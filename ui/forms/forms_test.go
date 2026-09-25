@@ -273,6 +273,23 @@ func TestBuildFillsReferenceChoices(t *testing.T) {
 	require.True(t, control(t, section(t, forms.Build(k, root, map[string]any{"path": "/data/media/movies"}, nil, forms.ModeEdit), "Folder"), "path").ReadOnly)
 }
 
+// The RootFolder form's Naming group carries the probe-driven naming
+// design's renameFiles switch (§5): a checkbox, labelled, defaulting to the
+// CRD's off (false) with no spec value and reflecting a spec value of true.
+func TestBuildRendersTheRootFolderRenameFilesSwitch(t *testing.T) {
+	k := kind(t, "rootfolders")
+	root := rootOf(t, k)
+
+	f := forms.Build(k, root, nil, nil, forms.ModeNew)
+	c := control(t, section(t, f, "Naming"), "naming.renameFiles")
+	require.Equal(t, forms.ControlCheckbox, c.Type)
+	require.Equal(t, "Rename files to their canonical names", c.Label)
+	require.False(t, c.Checked, "off by default (CRD default false)")
+
+	f = forms.Build(k, root, map[string]any{"naming": map[string]any{"renameFiles": true}}, nil, forms.ModeEdit)
+	require.True(t, control(t, section(t, f, "Naming"), "naming.renameFiles").Checked)
+}
+
 // Ensure fixes what a form cannot express: a torrent client needs an
 // empty torrent object for the CRD's rule, and never a usenet one.
 func TestEnsureCompletesADownloadClientSpec(t *testing.T) {

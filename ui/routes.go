@@ -62,6 +62,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/refresh", s.handleRefreshMetadata)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/rename", s.handleRenameItem)
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
 	mux.HandleFunc("GET /unmatched", s.handleUnmatched)
 	mux.HandleFunc("GET /events/unmatched", s.handleUnmatchedEvents)
@@ -368,6 +369,33 @@ func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearchNow(w http.ResponseWriter, r *http.Request) {
 	_, err := s.opts.Actions.SearchNow(r.Context(),
 		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"))
+	s.finishAction(w, r, err)
+}
+
+// handleRenameItem is the per-item "Rename" action (design
+// 2026-09-24-probe-driven-naming §5): POST
+// /library/{namespace}/{kind}/{name}/rename with a "rename" field of
+// "dryRun" or "apply". It resolves the item's own folder exactly as
+// "Refresh & Scan" does (itemFolder) and calls Options.Actions.RenameFiles
+// restricted to it -- an item with no folder on disk yet, or a "rename"
+// field naming neither mode, is ErrInvalid, so nothing is created.
+func (s *Server) handleRenameItem(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	mode := r.FormValue("rename")
+	if mode != "dryRun" && mode != "apply" {
+		s.finishAction(w, r, fmt.Errorf("%w: rename needs \"rename\"=dryRun or apply, got %q", actions.ErrInvalid, mode))
+		return
+	}
+	ns, kind, name := r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name")
+	root, sub, ok := s.itemFolder(r.Context(), ns, kind, name)
+	if !ok {
+		s.finishAction(w, r, fmt.Errorf("%w: %s %s/%s has no folder on disk yet", actions.ErrInvalid, kind, ns, name))
+		return
+	}
+	_, err := s.opts.Actions.RenameFiles(r.Context(), ns, root, sub, mode == "dryRun")
 	s.finishAction(w, r, err)
 }
 

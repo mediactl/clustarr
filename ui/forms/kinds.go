@@ -59,11 +59,16 @@ var kinds = []Kind{
 				"defaults.monitored", "defaults.monitorNewItems", "defaults.searchOnAdd", "defaults.minimumAvailability",
 				"defaults.seriesType", "defaults.seasonFolder", "defaults.tags",
 			}},
-			{Title: "Naming", Paths: []string{"naming.dialect", "naming.colonReplacement", "naming.multiEpisodeStyle", "naming.overrides"}, Advanced: true},
+			{Title: "Naming", Paths: []string{
+				"naming.dialect", "naming.colonReplacement", "naming.multiEpisodeStyle", "naming.overrides", "naming.renameFiles",
+			}, Advanced: true},
 			{Title: "Recycle bin", Paths: []string{"recycleBin.path", "recycleBin.cleanupDays"}, Advanced: true},
 			{Title: "Permissions", Paths: []string{"permissions.fileMode", "permissions.dirMode", "permissions.group"}, Advanced: true},
 		},
-		Labels: map[string]string{"scanSchedule": "Scan schedule (cron)", "minFreeBytes": "Minimum free bytes", "naming.overrides": "Naming token overrides"},
+		Labels: map[string]string{
+			"scanSchedule": "Scan schedule (cron)", "minFreeBytes": "Minimum free bytes", "naming.overrides": "Naming token overrides",
+			"naming.renameFiles": "Rename files to their canonical names",
+		},
 		Refs: map[string]Ref{
 			"defaults.qualityProfileRef": RefQualityProfiles, "defaults.transcodeProfileRef": RefTranscodeProfiles,
 			"defaults.subtitleProfileRef": RefSubtitleProfiles, "defaults.delayProfileRef": RefDelayProfiles,

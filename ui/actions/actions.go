@@ -204,6 +204,26 @@ func Rescan(
 	return RescanPath(ctx, c, namespace, rootFolder, "")
 }
 
+// validateScanRequest is the shared precondition of [RescanPath] and
+// [RenameFiles]: a namespace and a RootFolder name, and a subpath that is
+// either empty (the whole root) or a clean, relative folder beneath it. It
+// returns subpath cleaned ([path.Clean]) or [ErrInvalid] naming action in
+// its message, writing nothing either way.
+func validateScanRequest(namespace, rootFolder, subpath, action string) (string, error) {
+	if namespace == "" || rootFolder == "" {
+		return "", fmt.Errorf("%w: %s needs a namespace and a RootFolder name (got %q/%q)",
+			ErrInvalid, action, namespace, rootFolder)
+	}
+	if subpath == "" {
+		return "", nil
+	}
+	clean := path.Clean(subpath)
+	if path.IsAbs(subpath) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("%w: %s subpath %q is not a folder beneath the RootFolder", ErrInvalid, action, subpath)
+	}
+	return clean, nil
+}
+
 // RescanPath creates a LibraryScan of rootFolder restricted to subpath, a
 // folder beneath the root (Radarr's "Refresh & Scan" on one item rescans
 // that item's own folder); an empty subpath scans the whole root. The
@@ -216,21 +236,12 @@ func RescanPath(
 	ctx, span := tracing.Start(ctx, "ui.actions.RescanPath")
 	defer span.End()
 
-	if namespace == "" || rootFolder == "" {
-		err := fmt.Errorf("%w: rescan needs a namespace and a RootFolder name (got %q/%q)",
-			ErrInvalid, namespace, rootFolder)
+	clean, err := validateScanRequest(namespace, rootFolder, subpath, "rescan")
+	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
 	}
-	if subpath != "" {
-		clean := path.Clean(subpath)
-		if path.IsAbs(subpath) || clean == ".." || strings.HasPrefix(clean, "../") {
-			err := fmt.Errorf("%w: rescan subpath %q is not a folder beneath the RootFolder", ErrInvalid, subpath)
-			tracing.RecordError(span, err)
-			return nil, err
-		}
-		subpath = clean
-	}
+	subpath = clean
 
 	scan := &catalogv1alpha1.LibraryScan{
 		ObjectMeta: metav1.ObjectMeta{
@@ -248,6 +259,49 @@ func RescanPath(
 
 	logging.FromContext(ctx).Info("ui action: rescan requested",
 		"libraryScan", scan.Name, "namespace", namespace, "rootFolder", rootFolder, "subpath", subpath)
+	return scan, nil
+}
+
+// RenameFiles creates a LibraryScan of rootFolder restricted to subpath with
+// spec.rename set to dryRun or apply (design §5): "Rename (dry run)" and
+// "Rename" on the library page, and a per-item "Rename" whose subpath is the
+// item's own folder (the same folder [RescanPath] restricts a rescan to).
+// The subpath is validated exactly as [RescanPath] validates it, and the
+// scan carries only [LabelOrigin]=[OriginUI]. A subpath that is absolute or
+// climbs out of the root is [ErrInvalid] and writes nothing.
+func RenameFiles(
+	ctx context.Context, c Creator, namespace, rootFolder, subpath string, dryRun bool,
+) (*catalogv1alpha1.LibraryScan, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.RenameFiles")
+	defer span.End()
+
+	clean, err := validateScanRequest(namespace, rootFolder, subpath, "rename")
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	subpath = clean
+
+	rename := catalogv1alpha1.ScanRenameApply
+	if dryRun {
+		rename = catalogv1alpha1.ScanRenameDryRun
+	}
+	scan := &catalogv1alpha1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: rootFolder + "-",
+			Namespace:    namespace,
+			Labels:       map[string]string{LabelOrigin: OriginUI},
+		},
+		Spec: catalogv1alpha1.LibraryScanSpec{RootFolderRef: rootFolder, Subpath: subpath, Rename: rename},
+	}
+	if err := c.Create(ctx, scan, client.FieldOwner(FieldManager)); err != nil {
+		err = fmt.Errorf("actions: create rename LibraryScan of RootFolder %s/%s: %w", namespace, rootFolder, err)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+
+	logging.FromContext(ctx).Info("ui action: rename requested",
+		"libraryScan", scan.Name, "namespace", namespace, "rootFolder", rootFolder, "subpath", subpath, "rename", rename)
 	return scan, nil
 }
 
@@ -355,6 +409,16 @@ func (a *Actions) RescanPath(ctx context.Context, namespace, rootFolder, subpath
 		return nil, ErrNoWriter
 	}
 	return RescanPath(ctx, a.w, namespace, rootFolder, subpath)
+}
+
+// RenameFiles is [RenameFiles] over the Actions' writer.
+func (a *Actions) RenameFiles(
+	ctx context.Context, namespace, rootFolder, subpath string, dryRun bool,
+) (*catalogv1alpha1.LibraryScan, error) {
+	if a == nil || a.w == nil {
+		return nil, ErrNoWriter
+	}
+	return RenameFiles(ctx, a.w, namespace, rootFolder, subpath, dryRun)
 }
 
 // SetMonitored is [SetMonitored] over the Actions' writer.

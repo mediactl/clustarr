@@ -204,6 +204,44 @@ func TestRescanPathRestrictsTheScanToAFolder(t *testing.T) {
 	}
 }
 
+// TestRenameFilesCreatesALabelledLibraryScanWithRename: the "Rename (dry
+// run)"/"Rename" actions (design §5) create the same LibraryScan RescanPath
+// would, restricted to subpath, with spec.rename set to dryRun or apply; the
+// subpath is validated exactly as RescanPath validates it, and an absolute
+// or escaping subpath is refused without writing.
+func TestRenameFilesCreatesALabelledLibraryScanWithRename(t *testing.T) {
+	w := &fakeWriter{}
+	scan, err := actions.RenameFiles(t.Context(), w, "media", "movies", "Nerve (2016) {tmdb-328387}", true)
+	require.NoError(t, err)
+	require.Len(t, w.creates, 1)
+	require.Same(t, scan, w.creates[0].obj)
+	require.Equal(t, "movies-", scan.GenerateName)
+	require.Equal(t, "media", scan.Namespace)
+	require.Equal(t,
+		catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies", Subpath: "Nerve (2016) {tmdb-328387}", Rename: catalogv1alpha1.ScanRenameDryRun},
+		scan.Spec)
+	require.Equal(t, map[string]string{actions.LabelOrigin: actions.OriginUI}, scan.Labels)
+	require.Equal(t, actions.FieldManager, w.creates[0].opts.FieldManager)
+
+	w = &fakeWriter{}
+	scan, err = actions.RenameFiles(t.Context(), w, "media", "movies", "", false)
+	require.NoError(t, err)
+	require.Equal(t, catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies", Rename: catalogv1alpha1.ScanRenameApply}, scan.Spec,
+		"no subpath is a whole-root rename, apply when dryRun is false")
+
+	for _, bad := range []string{"../elsewhere", "/abs", "a/../../b"} {
+		w = &fakeWriter{}
+		_, err = actions.RenameFiles(t.Context(), w, "media", "movies", bad, true)
+		require.ErrorIs(t, err, actions.ErrInvalid, bad)
+		require.Empty(t, w.creates, bad)
+	}
+
+	w = &fakeWriter{}
+	_, err = actions.RenameFiles(t.Context(), w, "", "movies", "", true)
+	require.ErrorIs(t, err, actions.ErrInvalid)
+	require.Empty(t, w.creates)
+}
+
 func TestActionsRejectInvalidInputWithoutWriting(t *testing.T) {
 	cases := map[string]func(*fakeWriter) error{
 		"search: no namespace": func(w *fakeWriter) error {
@@ -271,6 +309,10 @@ func TestActionsWithNoWriterRefuse(t *testing.T) {
 			require.ErrorIs(t, err, actions.ErrNoWriter)
 			_, err = a.Rescan(t.Context(), "media", "movies")
 			require.ErrorIs(t, err, actions.ErrNoWriter)
+			_, err = a.RescanPath(t.Context(), "media", "movies", "")
+			require.ErrorIs(t, err, actions.ErrNoWriter)
+			_, err = a.RenameFiles(t.Context(), "media", "movies", "", true)
+			require.ErrorIs(t, err, actions.ErrNoWriter)
 			_, err = a.SetMonitored(t.Context(), "media", commonv1.MediaKindMovie, "x", true)
 			require.ErrorIs(t, err, actions.ErrNoWriter)
 		})
@@ -284,8 +326,12 @@ func TestActionsMethodsUseTheirWriter(t *testing.T) {
 	require.NoError(t, err)
 	_, err = a.Rescan(t.Context(), "media", "movies")
 	require.NoError(t, err)
+	_, err = a.RescanPath(t.Context(), "media", "movies", "sub")
+	require.NoError(t, err)
+	_, err = a.RenameFiles(t.Context(), "media", "movies", "sub", true)
+	require.NoError(t, err)
 	_, err = a.SetMonitored(t.Context(), "media", commonv1.MediaKindMovie, "x", false)
 	require.NoError(t, err)
-	require.Len(t, w.creates, 2)
+	require.Len(t, w.creates, 4)
 	require.Len(t, w.patches, 1)
 }

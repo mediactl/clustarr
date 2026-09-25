@@ -221,6 +221,16 @@ func TestMoviePageToolbarHasRadarrsActions(t *testing.T) {
 	require.NotContains(t, bar, `data-action="rescan"`, "the RootFolder rescan is the library page's, not the movie's")
 	require.NotContains(t, bar, `data-action="set-monitored"`, "monitoring is the bookmark on the title")
 	require.Contains(t, bar, `<svg`, "every toolbar button has its icon")
+
+	dryRun := requireTag(t, bar, `data-action="rename-dry-run"`, `data-slot="button"`, `type="submit"`)
+	require.Contains(t, dryRun, `data-toolbar-button`)
+	require.Contains(t, bar, `action="/library/default/movie/nerve/rename"`)
+	require.Contains(t, bar, `name="rename" value="dryRun"`)
+	require.Contains(t, bar, "Rename (dry run)")
+	apply := requireTag(t, bar, `data-action="rename-apply"`, `data-slot="button"`, `type="submit"`)
+	require.Contains(t, apply, `data-toolbar-button`)
+	require.Contains(t, bar, `name="rename" value="apply"`)
+	require.Regexp(t, `>\s*Rename\s*<`, bar, "the apply button reads plain \"Rename\"")
 }
 
 func TestMoviePageListsFilesExtrasAndTitles(t *testing.T) {
@@ -334,6 +344,62 @@ func TestRefreshAndScanSkipsTheScanForAnItemWithNoFolder(t *testing.T) {
 	require.Empty(t, scans.Items, "nothing on disk yet: the refresh happens, no scan is created")
 	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "nerve"}, &movie))
 	require.NotEmpty(t, movie.Annotations[catalogv1.AnnotationRefreshMetadata])
+}
+
+// TestRenameActionCreatesADryRunOrApplyScanOfTheMoviesFolder: the per-item
+// "Rename" actions (probe-driven naming design §5) create a LibraryScan of
+// the movie's own folder with spec.rename set to the posted mode, exactly as
+// "Refresh & Scan" restricts its rescan.
+func TestRenameActionCreatesADryRunOrApplyScanOfTheMoviesFolder(t *testing.T) {
+	srv, c := movieFixture(t, true)
+	rec := postForm(t, srv, "/library/default/movie/nerve/rename",
+		url.Values{"return": {"/library/default/movie/nerve"}, "rename": {"dryRun"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/library/default/movie/nerve", rec.Header().Get("Location"))
+
+	var scans catalogv1.LibraryScanList
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 1)
+	require.Equal(t, "movies", scans.Items[0].Spec.RootFolderRef)
+	require.Equal(t, "Nerve (2016) {tmdb-328387}", scans.Items[0].Spec.Subpath, "restricted to the movie's own folder")
+	require.Equal(t, catalogv1.ScanRenameDryRun, scans.Items[0].Spec.Rename)
+	require.Equal(t, actions.OriginUI, scans.Items[0].Labels[actions.LabelOrigin])
+
+	rec = postForm(t, srv, "/library/default/movie/nerve/rename",
+		url.Values{"return": {"/library/default/movie/nerve"}, "rename": {"apply"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Len(t, scans.Items, 2)
+	applied := scans.Items[0]
+	if applied.Spec.Rename != catalogv1.ScanRenameApply {
+		applied = scans.Items[1]
+	}
+	require.Equal(t, catalogv1.ScanRenameApply, applied.Spec.Rename)
+}
+
+func TestRenameActionRefusesAnItemWithNoFolder(t *testing.T) {
+	srv, c := movieFixture(t, true)
+	var movie catalogv1.Movie
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "nerve"}, &movie))
+	movie.Status.Path = ""
+	require.NoError(t, c.Update(t.Context(), &movie))
+
+	rec := postForm(t, srv, "/library/default/movie/nerve/rename",
+		url.Values{"return": {"/library/default/movie/nerve"}, "rename": {"dryRun"}}, false)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var scans catalogv1.LibraryScanList
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Empty(t, scans.Items, "nothing on disk yet: nothing is created")
+}
+
+func TestRenameActionRefusesAnUnknownMode(t *testing.T) {
+	srv, c := movieFixture(t, true)
+	rec := postForm(t, srv, "/library/default/movie/nerve/rename",
+		url.Values{"return": {"/library/default/movie/nerve"}, "rename": {"sideways"}}, false)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var scans catalogv1.LibraryScanList
+	require.NoError(t, c.List(t.Context(), &scans, client.InNamespace("default")))
+	require.Empty(t, scans.Items)
 }
 
 // TestSeriesPageHeroReadsTheSeriesMetadata: the series page shares the

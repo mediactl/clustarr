@@ -109,9 +109,12 @@ templ LibraryDetail(d Detail) {
 }
 
 // itemToolbar is the item page's toolbar: Radarr's "Refresh & Scan" (the
-// metadata refresh plus a scan of the item's own folder, when it has one)
-// and "Search <kind>". Monitoring is the bookmark on the title, as in
-// Radarr, not a toolbar button.
+// metadata refresh plus a scan of the item's own folder, when it has one),
+// "Search <kind>" and, for an item with a folder, the probe-driven naming
+// design's per-item "Rename" (§5): "Rename (dry run)" previews the move
+// without touching anything, "Rename" applies it, both restricted to the
+// item's own folder (handleRenameItem, ui/actions.RenameFiles). Monitoring
+// is the bookmark on the title, as in Radarr, not a toolbar button.
 templ itemToolbar(d Detail) {
 	@toolbar(nil) {
 		@toolbarGroup() {
@@ -121,6 +124,10 @@ templ itemToolbar(d Detail) {
 				@toolbarForm(libraryActionURL(d.Item, "refresh"), []Field{{"return", libraryDetailPath(d.Item)}}, "refresh-cw", "Refresh", "refresh-metadata", nil)
 			}
 			@toolbarForm(libraryActionURL(d.Item, "search"), []Field{{"return", libraryDetailPath(d.Item)}}, "search", "Search "+kindLabel(d.Item.Kind), "search-now", nil)
+			if d.CanScan {
+				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "dryRun"}}, "eye", "Rename (dry run)", "rename-dry-run", nil)
+				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "apply"}}, "file-symlink", "Rename", "rename-apply", nil)
+			}
 		}
 	}
 }
