@@ -195,11 +195,13 @@ templ breadcrumbs(crumbs []Crumb) {
 // shadcn's sidebar-07, replacing the top bar's tab strip): one sub-entry
 // per projection.Tab, the current one marked, each swapping the page body
 // through htmx (hx-select of #page-body, URL pushed) so the sidebar and
-// the top bar stay put. The component hides the sub-menu while the
-// sidebar is collapsed to icons; the Library entry itself still opens the
-// library then.
+// the top bar stay put -- and, since the sidebar sits outside that swap,
+// the sub-menu itself out of band (hx-select-oob of #library-subnav) so
+// the active mark follows the tab. The component hides the sub-menu while
+// the sidebar is collapsed to icons; the Library entry itself still opens
+// the library then.
 templ librarySubMenu(current projection.Tab) {
-	@sidebar.MenuSub() {
+	@sidebar.MenuSub(sidebar.MenuSubProps{ID: "library-subnav"}) {
 		for _, tab := range projection.Tabs() {
 			@sidebar.MenuSubItem() {
 				@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
@@ -208,9 +210,10 @@ templ librarySubMenu(current projection.Tab) {
 					Attributes: templ.Attributes{
 						"hx-get":      "/library/" + string(tab),
 						"hx-push-url": "true",
-						"hx-target":   "#page-body",
-						"hx-select":   "#page-body",
-						"hx-swap":     "outerHTML",
+						"hx-target":     "#page-body",
+						"hx-select":     "#page-body",
+						"hx-select-oob": "#library-subnav",
+						"hx-swap":       "outerHTML",
 					},
 				}) {
 					<span>{ tabLabel(tab) }</span>

@@ -666,9 +666,11 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 // shadcn's sidebar-07, replacing the top bar's tab strip): one sub-entry
 // per projection.Tab, the current one marked, each swapping the page body
 // through htmx (hx-select of #page-body, URL pushed) so the sidebar and
-// the top bar stay put. The component hides the sub-menu while the
-// sidebar is collapsed to icons; the Library entry itself still opens the
-// library then.
+// the top bar stay put -- and, since the sidebar sits outside that swap,
+// the sub-menu itself out of band (hx-select-oob of #library-subnav) so
+// the active mark follows the tab. The component hides the sub-menu while
+// the sidebar is collapsed to icons; the Library entry itself still opens
+// the library then.
 func librarySubMenu(current projection.Tab) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -734,7 +736,7 @@ func librarySubMenu(current projection.Tab) templ.Component {
 						var templ_7745c5c3_Var28 string
 						templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(tabLabel(tab))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 216, Col: 26}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 219, Col: 26}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 						if templ_7745c5c3_Err != nil {
@@ -750,11 +752,12 @@ func librarySubMenu(current projection.Tab) templ.Component {
 						Href:     "/library/" + string(tab),
 						IsActive: tab == current,
 						Attributes: templ.Attributes{
-							"hx-get":      "/library/" + string(tab),
-							"hx-push-url": "true",
-							"hx-target":   "#page-body",
-							"hx-select":   "#page-body",
-							"hx-swap":     "outerHTML",
+							"hx-get":        "/library/" + string(tab),
+							"hx-push-url":   "true",
+							"hx-target":     "#page-body",
+							"hx-select":     "#page-body",
+							"hx-select-oob": "#library-subnav",
+							"hx-swap":       "outerHTML",
 						},
 					}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
@@ -769,7 +772,7 @@ func librarySubMenu(current projection.Tab) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = sidebar.MenuSub().Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = sidebar.MenuSub(sidebar.MenuSubProps{ID: "library-subnav"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

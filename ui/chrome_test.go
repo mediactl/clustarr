@@ -97,10 +97,15 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	sub := strings.Index(sidebarHTML, `data-slot="sidebar-menu-sub"`)
 	require.Greater(t, sub, libraryEntry, "the sub-menu follows the Library entry")
 	require.Less(t, sub, pipelineEntry, "the sub-menu sits inside the Library item, before Pipeline")
+	requireTag(t, sidebarHTML, `data-slot="sidebar-menu-sub"`, `id="library-subnav"`)
 	require.Equal(t, 4, strings.Count(sidebarHTML, `data-slot="sidebar-menu-sub-button"`), "one sub-entry per library tab")
 	for _, tab := range projection.Tabs() {
+		// hx-select-oob swaps the sub-menu itself from the response too, so
+		// the active mark follows the tab although the sidebar sits outside
+		// the swapped page body.
 		entry := requireTag(t, sidebarHTML, `href="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`,
-			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-target="#page-body"`, `hx-swap="outerHTML"`)
+			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#library-subnav"`,
+			`hx-target="#page-body"`, `hx-swap="outerHTML"`)
 		require.NotRegexp(t, activeAttr, entry, "no library sub-entry is active on the pipeline page")
 	}
 	pageBody := strings.Index(body, `id="page-body"`)
@@ -142,7 +147,7 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	require.NotContains(t, body, `data-tui-tabs-trigger`, "the library has no tab strip; its media entries are the sidebar's")
 	for _, tab := range projection.Tabs() {
 		requireTag(t, body, `hx-get="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`, `href="/library/`+string(tab)+`"`,
-			`hx-push-url="true"`, `hx-select="#page-body"`, `hx-target="#page-body"`)
+			`hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#library-subnav"`, `hx-target="#page-body"`)
 	}
 	require.Less(t, strings.Index(body, `data-slot="sidebar-menu-sub-button"`), strings.Index(body, `data-slot="sidebar-inset"`), "the sub-entries are in the sidebar")
 	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`), "the TV sub-entry is active")
