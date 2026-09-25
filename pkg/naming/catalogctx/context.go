@@ -144,20 +144,22 @@ func File(c naming.Context, spec *catalogv1alpha1.MediaFileSpec, mi *commonv1.Me
 	return c
 }
 
-// ContainerExt maps mi's probed container to a file extension, in
-// ffprobe's own format_name vocabulary (comma-separated, not a MIME type
-// or single extension): matroska and webm are ffprobe's names for the two
-// Matroska-family containers, "mov,mp4,m4a,3gp,3g2,mj2" is ffprobe's one
-// format group for every ISO base media file format variant, and avi is
-// unambiguous. mi nil (not yet probed) or an unrecognised container falls
-// back to fallbackPath's own extension -- the source file's, before this
-// file's first probe.
+// ContainerExt maps mi's probed container to a file extension. It reads
+// both vocabularies a container arrives in: what pkg/mediainfo.Probe
+// actually records in MediaInfo.Container -- the probed file's own
+// extension, lowercased and without its dot (mediainfo's
+// containerFromPath) -- and ffprobe's format_name, a comma-separated
+// group ("matroska,webm" for both Matroska-family containers,
+// "mov,mp4,m4a,3gp,3g2,mj2" for every ISO base media file format variant).
+// mi nil (not yet probed) or an unrecognised container falls back to
+// fallbackPath's own extension -- the source file's, before this file's
+// first probe.
 func ContainerExt(mi *commonv1.MediaInfo, fallbackPath string) string {
 	if mi != nil {
 		switch mi.Container {
-		case "matroska", "webm":
+		case "mkv", "webm", "matroska", "matroska,webm":
 			return ".mkv"
-		case "mov,mp4,m4a,3gp,3g2,mj2":
+		case "mp4", "mov,mp4,m4a,3gp,3g2,mj2":
 			return ".mp4"
 		case "avi":
 			return ".avi"

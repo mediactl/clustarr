@@ -18,12 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package catalogctx_test
 
 import (
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
@@ -75,6 +77,9 @@ func TestImportAndRenameRenderTheSamePath(t *testing.T) {
 }
 
 func TestContainerExt(t *testing.T) {
+	require.Equal(t, ".mkv", catalogctx.ContainerExt(&commonv1.MediaInfo{Container: "mkv"}, "x.mp4"))
+	require.Equal(t, ".mp4", catalogctx.ContainerExt(&commonv1.MediaInfo{Container: "mp4"}, "x.mkv"))
+	require.Equal(t, ".mkv", catalogctx.ContainerExt(&commonv1.MediaInfo{Container: "matroska,webm"}, "x.mp4"))
 	require.Equal(t, ".mkv", catalogctx.ContainerExt(&commonv1.MediaInfo{Container: "matroska"}, "x.mp4"))
 	require.Equal(t, ".mkv", catalogctx.ContainerExt(&commonv1.MediaInfo{Container: "webm"}, "x.mp4"))
 	require.Equal(t, ".mp4", catalogctx.ContainerExt(&commonv1.MediaInfo{Container: "mov,mp4,m4a,3gp,3g2,mj2"}, "x.mkv"))
@@ -82,6 +87,19 @@ func TestContainerExt(t *testing.T) {
 	require.Equal(t, ".mp4", catalogctx.ContainerExt(nil, "x.mp4"))
 	require.Equal(t, ".ts", catalogctx.ContainerExt(&commonv1.MediaInfo{Container: "mpegts"}, "x.ts"),
 		"an unrecognised container falls back to the source path's own extension")
+}
+
+// TestContainerExtReadsWhatTheProbeRecords runs the real producer: a
+// literal MediaInfo{Container: "matroska"} is what ffprobe calls the
+// format, but not what pkg/mediainfo.Probe writes into MediaInfo.Container,
+// so only a real probe shows the mapping is reachable.
+func TestContainerExtReadsWhatTheProbeRecords(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not on PATH")
+	}
+	mi, _, err := mediainfo.Probe(t.Context(), "../../../test/data/mediainfo/sample_hevc_10bit.mkv")
+	require.NoError(t, err)
+	require.Equal(t, ".mkv", catalogctx.ContainerExt(mi, "x.mp4"), "container %q", mi.Container)
 }
 
 func TestMovieIsFalseWithoutMetadata(t *testing.T) {
