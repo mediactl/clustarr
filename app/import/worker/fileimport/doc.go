@@ -29,10 +29,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // quality, revision, format score, matched formats and release type frozen
 // at import (spec §8.4, CLAUDE.md's invariant). It never writes any part of
 // MediaFileStatus, which catalogarr owns in full and populates by probing
-// (spec §8.5). The one probe this worker makes is for a field it does own:
-// a music file's frozen quality, which is its codec and bitrate
-// (FrozenFileQuality, mediainfo.ProbeAudio) -- the result goes into
-// spec.quality and nowhere else.
+// (spec §8.5). The probes this worker makes serve fields it does own. A
+// music file's frozen quality is its codec and bitrate (FrozenFileQuality,
+// mediainfo.ProbeAudio). Every video import probes the file too
+// (probeVideo, mediainfo.Probe): the probe corrects the name-derived
+// quality's resolution and a false remux (quality.AugmentFromMediaInfo)
+// before the profile's Allowed check, so the profile judges, and
+// spec.quality freezes, the corrected quality; and the destination name is
+// rendered through catalogctx.File with it, so it carries the codec and
+// dynamic range. The probe result itself is never written -- status.
+// mediaInfo stays catalogarr's -- and a probe that fails or times out never
+// fails the import: the file imports under its name-derived quality and
+// its source extension, as it did before imports probed.
 //
 // It is also, uniquely, a cross-group status writer: it applies
 // Download.status.import under k8s.ManagerImportarr, the one field manager

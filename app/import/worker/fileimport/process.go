@@ -47,6 +47,14 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
+// videoProbeTimeout bounds probeVideo's two ffprobe runs (container, then
+// first frame). A healthy file answers in well under a second, even over a
+// network mount; one that hangs -- a stalled mount, a pathological file --
+// must not hold the import handler past its consumer's AckWait, so a
+// timeout is a probe failure like any other and the file imports under its
+// name.
+const videoProbeTimeout = 60 * time.Second
+
 // metricKindMovie is the bounded `kind` label on the import metrics, mirroring
 // app/import/worker/rescan's identical constant.
 const metricKindMovie = "movie"
@@ -404,9 +412,12 @@ func (pc *processConfig) processFile(
 // -- an unprobeable file imports under its name-derived quality and its
 // source extension, exactly as it did before imports probed, since every
 // MediaInfo block of a preset is optional -- so it is logged and nil
-// returned.
+// returned. The probe gets videoProbeTimeout, and running out of it is
+// such a failure.
 func probeVideo(ctx context.Context, srcPath, rel string) *commonv1.MediaInfo {
-	mi, _, err := mediainfo.Probe(ctx, srcPath)
+	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
+	defer cancel()
+	mi, _, err := mediainfo.Probe(pctx, srcPath)
 	if err != nil {
 		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
 			"source", rel, "error", err)
