@@ -34,6 +34,7 @@ import (
 
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
@@ -92,6 +93,9 @@ const plexExternalURLWarning = "the Plex Custom Metadata Provider (--plex-provid
 	"or --external-url is set (design spec §D.1)"
 
 // Options configures a [Server].
+// MetadataSearch is Options.MetadataSearch's type.
+type MetadataSearch func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error)
+
 type Options struct {
 	// BindAddress is the address the HTTP server listens on, e.g. ":8080".
 	// [Run] defaults it to [DefaultBindAddress] when empty.
@@ -151,6 +155,13 @@ type Options struct {
 	// the process" pattern a nil Reader already has for the library-scan
 	// detail page.
 	Artwork events.ObjectStore
+
+	// MetadataSearch asks catalogarr's metadata gateway to search one kind
+	// by title (Add New, 2026-09-29). cmd/clustarr binds it to
+	// rpc.catalogarr.metadata.search; the ui never holds a bus requester,
+	// so it can ask nothing else (ui/guard_test.go). nil renders the Add
+	// page's search as unavailable.
+	MetadataSearch MetadataSearch
 
 	// Plex configures the Plex Custom Metadata Provider (design spec §D):
 	// two read-only roots, /plex/movies and /plex/tv, over the same

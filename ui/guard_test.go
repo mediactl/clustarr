@@ -95,6 +95,10 @@ var neverWriteSelectors = map[string]bool{
 // grants (create on searches, libraryscans and the settings kinds, patch
 // on the catalog and settings kinds, delete on the settings kinds) -- and
 // are banned in every other file under ui/.
+// busSelectors are the bus calls ui/ must never make: the metadata search
+// reaches it as a function (Options.MetadataSearch), never as a requester.
+var busSelectors = map[string]bool{"Request": true, "Publish": true, "Serve": true}
+
 var actionWriteSelectors = map[string]bool{
 	"Create": true,
 	"Patch":  true,
@@ -174,6 +178,19 @@ func TestUINeverWrites(t *testing.T) {
 						"config/rbac/ui_role.yaml grants create and patch only, so this call could only "+
 						"fail in a cluster (and pass envtest, which does not enforce RBAC); ui/actions' "+
 						"package doc says why spec edits are merge patches, not applies",
+						f.path, c.line, c.name)
+				}
+			}
+		}
+	})
+
+	t.Run("no bus request, publish or serve anywhere in ui/", func(t *testing.T) {
+		for _, f := range files {
+			for _, c := range selectorCalls(f) {
+				if busSelectors[c.name] {
+					t.Errorf("%s:%d: calls .%s(...). The ui's only bus use is Options.MetadataSearch, which "+
+						"cmd/clustarr binds to rpc.catalogarr.metadata.search (Add New, 2026-09-29), plus the "+
+						"artwork object store's reads; it never holds a requester, so it can never pick a subject",
 						f.path, c.line, c.name)
 				}
 			}

@@ -249,7 +249,7 @@ func allServices(
 			// cancellation to stop its HTTP server. The same ctx bounds the
 			// cluster reader buildUICluster may build, so it stops on the
 			// same cancellation too. o is used for exactly one field of its
-			// own, o.NATSURL: buildUIArtwork connects ui's own read-only bus
+			// own, o.NATSURL: buildUIBus connects ui's own bus (reads, plus the metadata search)
 			// to the same JetStream endpoint every other service in this
 			// process shares.
 			//
@@ -259,7 +259,7 @@ func allServices(
 			// ui.Options left nil.
 			reader, waitForSync, acts := buildUICluster(ctx)
 			proj := buildUIProjection(ctx, reader)
-			artwork, closeBus := buildUIArtwork(ctx, o.NATSURL)
+			artwork, metadataSearch, closeBus := buildUIBus(ctx, o.NATSURL)
 			defer closeBus()
 			return runUI(ctx, ui.Options{
 				BindAddress:          uiAddr,
@@ -270,6 +270,7 @@ func allServices(
 				Actions:              acts,
 				Namespace:            o.Namespace,
 				Artwork:              artwork,
+				MetadataSearch:       metadataSearch,
 				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL),
 				Entries:              proj.Entries,
 				Subscribe:            proj.Subscribe,

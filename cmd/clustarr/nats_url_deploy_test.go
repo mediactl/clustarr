@@ -193,7 +193,8 @@ func TestBuildUIArtworkLogsAnUnconnectedBus(t *testing.T) {
 		}, funcr.Options{})
 		ctx := logr.NewContext(context.Background(), sink)
 
-		store, stop := buildUIArtwork(ctx, url)
+		store, search, stop := buildUIBus(ctx, url)
+		require.NotNil(t, search)
 		require.NotNil(t, store)
 		require.NotNil(t, stop)
 		stop()

@@ -33,6 +33,7 @@ import (
 	indexarr "github.com/mediactl/clustarr/app/indexer"
 	squasharr "github.com/mediactl/clustarr/app/squash"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -484,9 +485,11 @@ func buildUIProjection(ctx context.Context, reader client.Reader) *projection.Pr
 	return proj
 }
 
-// buildUIArtwork connects a bus under ui's own service name and returns the
+// buildUIBus connects a bus under ui's own service name and returns the
 // artwork object store ui/art.go's handleArt serves every image from --
-// B1's events.ObjectStore bound to events.BucketArtwork (Task B3).
+// B1's events.ObjectStore bound to events.BucketArtwork (Task B3) -- and
+// the metadata search Add New asks, bound here to
+// events.RPCMetadataSearch so the ui never holds a requester (2026-09-29).
 //
 // ui never imports pkg/k8s (ui/guard_test.go bans it): this is why the bus
 // is connected and bound here, in cmd/clustarr, and only the resulting
@@ -518,18 +521,23 @@ func buildUIProjection(ctx context.Context, reader client.Reader) *projection.Pr
 // The returned stop closes the connection; both call sites defer it around
 // runUI, so the connection is drained when ui shuts down rather than left
 // to the process exit. It is never nil.
-func buildUIArtwork(ctx context.Context, natsURL string) (events.ObjectStore, func()) {
+func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.MetadataSearch, func()) {
 	log := ctrl.LoggerFrom(ctx).WithName("ui")
 	bus, nc, err := k8s.ConnectBus(natsURL, "ui", k8s.WithBusHooks(obs.BusHooks()))
 	if err != nil {
-		log.Error(err, "connect ui to NATS; ui will serve placeholder art for every item")
-		return nil, func() {}
+		log.Error(err, "connect ui to NATS; ui will serve placeholder art and no metadata search")
+		return nil, nil, func() {}
 	}
 	if !nc.IsConnected() {
-		log.Info("NATS is not connected yet; /art and every Plex image will fail until it is -- "+
+		log.Info("NATS is not connected yet; /art, every Plex image and Add New's search will fail until it is -- "+
 			"check --nats-url or $"+natsURLEnv, "url", natsURL, "status", nc.Status().String())
 	}
-	return bus.ObjectStore(events.BucketArtwork), nc.Close
+	search := func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
+		var resp schema.MetadataResponse
+		err := bus.Request(ctx, events.RPCMetadataSearch, req, &resp)
+		return resp, err
+	}
+	return bus.ObjectStore(events.BucketArtwork), search, nc.Close
 }
 
 // buildUIPlexOptions builds ui.Options.Plex from --plex-provider and
@@ -591,7 +599,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		ctx := cmd.Context()
 		reader, waitForSync, acts := buildUICluster(ctx)
 		proj := buildUIProjection(ctx, reader)
-		artwork, closeBus := buildUIArtwork(ctx, natsURL)
+		artwork, metadataSearch, closeBus := buildUIBus(ctx, natsURL)
 		defer closeBus()
 		// Every cluster-derived field, in the same order as all.go's ui
 		// closure; ui_options_wiring_test.go executes both commands and fails
@@ -605,6 +613,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			Actions:              acts,
 			Namespace:            namespace,
 			Artwork:              artwork,
+			MetadataSearch:       metadataSearch,
 			Plex:                 buildUIPlexOptions(plexProvider, externalURL),
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,

@@ -36,7 +36,7 @@ type busSource struct {
 
 // busServiceSources are the service packages whose Run connects to the bus,
 // plus cmd/clustarr's own services.go, which connects ui's read-only bus
-// (Task B3, buildUIArtwork) -- ui itself is still absent: it has no bus of
+// (Task B3, buildUIBus) -- ui itself is still absent: it has no bus of
 // its own, and never imports pkg/k8s (ui/guard_test.go).
 var busServiceSources = []busSource{
 	{"app/catalog", filepath.Join("..", "..", "app/catalog", "run.go")},
