@@ -192,3 +192,22 @@ func TestAddPageOffersTheKindsOwnChoices(t *testing.T) {
 	require.Equal(t, http.StatusOK, page.Code)
 	requireThemedComponents(t, "/library/tv/add", page.Body.String())
 }
+
+// TestAFreshlyAddedItemDoesNotLandOnA404: the library view is rebuilt
+// every few seconds, so the item an add redirects to is in the cluster
+// before it is in the view. Its detail page says it is being added and
+// reloads, rather than answering 404 (final review, 2026-09-29).
+func TestAFreshlyAddedItemDoesNotLandOnA404(t *testing.T) {
+	fresh := &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "fight-club-x", Namespace: "library"},
+		Spec:       catalogv1.MovieSpec{TmdbID: 550, RootFolderRef: "movies", QualityProfileRef: "hd"},
+	}
+	srv, _ := addServer(t, hits(commonv1.MediaKindMovie), moviesRoot, hdProfile, fresh)
+	rec := get(t, srv, "/library/library/movie/fight-club-x")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "being added")
+	require.Contains(t, rec.Body.String(), `http-equiv="refresh"`)
+
+	require.Equal(t, http.StatusNotFound, get(t, srv, "/library/library/movie/no-such-movie").Code, "an item that does not exist is still 404")
+	require.Equal(t, http.StatusNotFound, get(t, srv, "/library/library/nonsense/fight-club-x").Code)
+}

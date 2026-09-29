@@ -97,6 +97,24 @@ templ AddPage(d AddPageData) {
 	}
 }
 
+// AddPending is the detail page of an item Add New just created, before
+// the library view shows it: it reloads until the item appears.
+templ AddPending(name string) {
+	@Shell(Chrome{Title: "Adding " + name, Crumbs: []Crumb{{Label: name}}}) {
+		<meta http-equiv="refresh" content="2"/>
+		@empty.Empty(empty.Props{Class: "border border-dashed py-8"}) {
+			@empty.Header() {
+				@empty.Title() {
+					{ name } is being added
+				}
+				@empty.Description() {
+					It will appear here in a few seconds.
+				}
+			}
+		}
+	}
+}
+
 templ AddResults(d AddResultsData) {
 	if d.Prompt {
 		<p class="text-sm text-muted-foreground">Type at least two characters.</p>

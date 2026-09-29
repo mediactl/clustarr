@@ -34,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // defaultAddSearchTimeout bounds one Add New metadata search (spec: 10 s).
@@ -275,4 +276,27 @@ func checked(r *http.Request, name string) bool {
 		}
 	}
 	return false
+}
+
+// justAdded reports whether the cluster holds the Add New kind item
+// namespace/name that the library view does not show yet: the view is
+// rebuilt every few seconds, and an add redirects to its item at once.
+func (s *Server) justAdded(ctx context.Context, namespace, kind, name string) bool {
+	if s.opts.Reader == nil {
+		return false
+	}
+	var obj client.Object
+	switch commonv1.MediaKind(kind) {
+	case commonv1.MediaKindMovie:
+		obj = &catalogv1.Movie{}
+	case commonv1.MediaKindSeries:
+		obj = &catalogv1.Series{}
+	case commonv1.MediaKindArtist:
+		obj = &catalogv1.Artist{}
+	case commonv1.MediaKindAuthor:
+		obj = &catalogv1.Author{}
+	default:
+		return false
+	}
+	return s.opts.Reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, obj) == nil
 }

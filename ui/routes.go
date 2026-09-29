@@ -281,6 +281,15 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 	item, ok := findLibraryItem(s.opts.Library(r.Context()),
 		r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("name"))
 	if !ok {
+		// An item Add New just created is in the cluster before the
+		// library view's next rebuild: say so and reload, not 404.
+		if s.justAdded(r.Context(), r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("name")) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := views.AddPending(r.PathValue("name")).Render(r.Context(), w); err != nil {
+				logging.FromContext(r.Context()).Error("render add pending page", "error", err)
+			}
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
