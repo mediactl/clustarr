@@ -34,6 +34,7 @@ type AddKind struct {
 	Kind        commonv1.MediaKind
 	Label       string
 	IDKey       string
+	RootKind    catalogv1.RootFolderKind
 	ProfileKind catalogv1.ProfileMediaKind
 	Monitor     []AddOption
 	MonitorNew  []AddOption
@@ -107,7 +108,7 @@ func AddPage(d AddPageData) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(d.Kind.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 64, Col: 75}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 65, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -324,7 +325,7 @@ func AddPending(name string) templ.Component {
 						var templ_7745c5c3_Var12 string
 						templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 110, Col: 11}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 111, Col: 11}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 						if templ_7745c5c3_Err != nil {
@@ -446,7 +447,7 @@ func AddResults(d AddResultsData) templ.Component {
 					var templ_7745c5c3_Var17 string
 					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(d.Kind.Label)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 126, Col: 21}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 127, Col: 21}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 					if templ_7745c5c3_Err != nil {
@@ -522,7 +523,7 @@ func AddResults(d AddResultsData) templ.Component {
 					var templ_7745c5c3_Var21 string
 					templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 135, Col: 13}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 136, Col: 13}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 					if templ_7745c5c3_Err != nil {
@@ -633,7 +634,7 @@ func AddResults(d AddResultsData) templ.Component {
 						var templ_7745c5c3_Var27 string
 						templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(d.Query)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 152, Col: 32}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 153, Col: 32}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 						if templ_7745c5c3_Err != nil {
@@ -734,7 +735,7 @@ func addHitCard(d AddResultsData, h AddHit) templ.Component {
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(h.Poster)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 169, Col: 23}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 170, Col: 23}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 					if templ_7745c5c3_Err != nil {
@@ -757,7 +758,7 @@ func addHitCard(d AddResultsData, h AddHit) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(h.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 174, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 175, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 				if templ_7745c5c3_Err != nil {
@@ -775,7 +776,7 @@ func addHitCard(d AddResultsData, h AddHit) templ.Component {
 					var templ_7745c5c3_Var33 string
 					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(h.Year))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 176, Col: 66}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 177, Col: 66}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 					if templ_7745c5c3_Err != nil {
@@ -794,7 +795,7 @@ func addHitCard(d AddResultsData, h AddHit) templ.Component {
 					var templ_7745c5c3_Var34 templ.SafeURL
 					templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(h.InLibrary))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 179, Col: 41}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 180, Col: 41}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 					if templ_7745c5c3_Err != nil {
@@ -884,7 +885,7 @@ func addForm(d AddResultsData, h AddHit) templ.Component {
 		var templ_7745c5c3_Var37 templ.SafeURL
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/library/" + string(d.Kind.Tab) + "/add"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 195, Col: 87}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 196, Col: 87}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 		if templ_7745c5c3_Err != nil {
@@ -897,7 +898,7 @@ func addForm(d AddResultsData, h AddHit) templ.Component {
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(h.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 196, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 197, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 		if templ_7745c5c3_Err != nil {
@@ -910,7 +911,7 @@ func addForm(d AddResultsData, h AddHit) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(h.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 197, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 198, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 		if templ_7745c5c3_Err != nil {
@@ -997,7 +998,7 @@ func addForm(d AddResultsData, h AddHit) templ.Component {
 			var templ_7745c5c3_Var41 string
 			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(h.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 216, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 217, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 			if templ_7745c5c3_Err != nil {
@@ -1065,7 +1066,7 @@ func addSelect(name, hitID, label string, opts []AddOption, def string) templ.Co
 				var templ_7745c5c3_Var45 string
 				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 226, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 227, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 				if templ_7745c5c3_Err != nil {
@@ -1159,7 +1160,7 @@ func addSelect(name, hitID, label string, opts []AddOption, def string) templ.Co
 								var templ_7745c5c3_Var51 string
 								templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 236, Col: 16}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 237, Col: 16}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 								if templ_7745c5c3_Err != nil {
@@ -1240,7 +1241,7 @@ func addCheck(name, hitID, label string, on bool) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue(name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 247, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 248, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 			if templ_7745c5c3_Err != nil {
@@ -1273,7 +1274,7 @@ func addCheck(name, hitID, label string, on bool) templ.Component {
 				var templ_7745c5c3_Var56 string
 				templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 250, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/add.templ`, Line: 251, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 				if templ_7745c5c3_Err != nil {

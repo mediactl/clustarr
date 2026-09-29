@@ -219,3 +219,32 @@ func TestAFreshlyAddedItemDoesNotLandOnA404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, get(t, srv, "/library/library/movie/no-such-movie").Code, "an item that does not exist is still 404")
 	require.Equal(t, http.StatusNotFound, get(t, srv, "/library/library/nonsense/fight-club-x").Code)
 }
+
+// TestAddOffersOnlyRootFoldersOfTheKind: an Author goes in a book root
+// folder, never an audiobook or comic one, which the rescan would read as
+// audiobooks or comics (final review, 2026-09-29).
+func TestAddOffersOnlyRootFoldersOfTheKind(t *testing.T) {
+	books := &catalogv1.RootFolder{ObjectMeta: metav1.ObjectMeta{Name: "books", Namespace: "media"}, Spec: catalogv1.RootFolderSpec{Path: "/data/media/books", Kind: catalogv1.RootFolderKindBook}}
+	audio := &catalogv1.RootFolder{ObjectMeta: metav1.ObjectMeta{Name: "audiobooks", Namespace: "media"}, Spec: catalogv1.RootFolderSpec{Path: "/data/media/audiobooks", Kind: catalogv1.RootFolderKindAudiobook}}
+	ebook := &catalogv1.QualityProfile{ObjectMeta: metav1.ObjectMeta{Name: "ebook"}, Spec: catalogv1.QualityProfileSpec{MediaKind: catalogv1.ProfileMediaKindBook, Cutoff: "e", Tiers: []catalogv1.Tier{{Name: "e", Qualities: []string{"EPUB"}}}}}
+	srv, _ := addServer(t, hits(commonv1.MediaKindAuthor, `{"IDs":{"olauthor":"OL21594A"},"Title":"Jane Austen"}`), books, audio, ebook)
+	body := get(t, srv, "/library/books/add/search?q=austen").Body.String()
+	require.Contains(t, body, `data-tui-select-value="media/books"`)
+	require.NotContains(t, body, "media/audiobooks")
+}
+
+// TestAddRefusesARootFolderThePageDidNotOffer: the posted root folder names
+// the item's namespace, so a hand-made POST must not be able to pick any
+// namespace or a root folder of another kind.
+func TestAddRefusesARootFolderThePageDidNotOffer(t *testing.T) {
+	srv, c := addServer(t, hits(commonv1.MediaKindMovie), moviesRoot, tvRoot, hdProfile)
+	for _, root := range []string{"kube-system/movies", "media/tv", "library/nope"} {
+		rec := post(t, srv, "/library/movies/add", url.Values{
+			"title": {"Fight Club"}, "id": {"550"}, "rootFolder": {root}, "qualityProfile": {"hd"}, "monitor": {"movieOnly"},
+		})
+		require.NotEqual(t, http.StatusSeeOther, rec.Code, root)
+	}
+	var list catalogv1.MovieList
+	require.NoError(t, c.List(t.Context(), &list))
+	require.Empty(t, list.Items)
+}

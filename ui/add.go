@@ -21,8 +21,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -47,7 +49,7 @@ const defaultAddSearchTimeout = 10 * time.Second
 // hits carry, the profile media kind, and the kind's own monitor choices.
 var addKinds = map[projection.Tab]views.AddKind{
 	projection.TabMovies: {
-		Tab: projection.TabMovies, Kind: commonv1.MediaKindMovie, Label: "Movie", IDKey: metadata.KeyTMDB,
+		Tab: projection.TabMovies, Kind: commonv1.MediaKindMovie, Label: "Movie", RootKind: catalogv1.RootFolderKindMovie, IDKey: metadata.KeyTMDB,
 		ProfileKind: catalogv1.ProfileMediaKindVideo,
 		Monitor: []views.AddOption{
 			{Value: "movieOnly", Label: "Movie only"},
@@ -56,7 +58,7 @@ var addKinds = map[projection.Tab]views.AddKind{
 		},
 	},
 	projection.TabTV: {
-		Tab: projection.TabTV, Kind: commonv1.MediaKindSeries, Label: "Series", IDKey: metadata.KeyTVDB,
+		Tab: projection.TabTV, Kind: commonv1.MediaKindSeries, Label: "Series", RootKind: catalogv1.RootFolderKindSeries, IDKey: metadata.KeyTVDB,
 		ProfileKind: catalogv1.ProfileMediaKindVideo,
 		Monitor: []views.AddOption{
 			{Value: "all", Label: "All episodes"},
@@ -72,7 +74,7 @@ var addKinds = map[projection.Tab]views.AddKind{
 		MonitorNew: []views.AddOption{{Value: "all", Label: "All"}, {Value: "none", Label: "None"}},
 	},
 	projection.TabMusic: {
-		Tab: projection.TabMusic, Kind: commonv1.MediaKindArtist, Label: "Artist", IDKey: metadata.KeyMBArtist,
+		Tab: projection.TabMusic, Kind: commonv1.MediaKindArtist, Label: "Artist", RootKind: catalogv1.RootFolderKindMusic, IDKey: metadata.KeyMBArtist,
 		ProfileKind: catalogv1.ProfileMediaKindMusic,
 		Monitor: []views.AddOption{
 			{Value: "all", Label: "All albums"},
@@ -86,7 +88,7 @@ var addKinds = map[projection.Tab]views.AddKind{
 		MonitorNew: []views.AddOption{{Value: "all", Label: "All"}, {Value: "none", Label: "None"}, {Value: "new", Label: "New"}},
 	},
 	projection.TabBooks: {
-		Tab: projection.TabBooks, Kind: commonv1.MediaKindAuthor, Label: "Author", IDKey: metadata.KeyOpenLibraryAuthor,
+		Tab: projection.TabBooks, Kind: commonv1.MediaKindAuthor, Label: "Author", RootKind: catalogv1.RootFolderKindBook, IDKey: metadata.KeyOpenLibraryAuthor,
 		ProfileKind: catalogv1.ProfileMediaKindBook,
 		Monitor: []views.AddOption{
 			{Value: "all", Label: "All books"},
@@ -114,16 +116,14 @@ func (s *Server) addKind(r *http.Request) (views.AddKind, bool) {
 	return k, ok
 }
 
-// addChoices lists the root folders of k's tab, each valued
-// "namespace/name" so the item is created beside its root folder, and the
-// quality profiles of k's media kind.
+// addChoices lists the root folders of k's own kind -- a book root for an
+// Author, never an audiobook or comic one, which the rescan would read as
+// its own kind -- each valued "namespace/name" so the item is created
+// beside its root folder, and the quality profiles of k's media kind.
 func (s *Server) addChoices(ctx context.Context, k views.AddKind) (roots, profiles []views.AddOption) {
-	kinds := projection.RootFolderKinds(k.Tab)
 	for _, rf := range s.listRootFolders(ctx) {
-		for _, want := range kinds {
-			if rf.Spec.Kind == want {
-				roots = append(roots, views.AddOption{Value: rf.Namespace + "/" + rf.Name, Label: rf.Name + " (" + rf.Spec.Path + ")"})
-			}
+		if rf.Spec.Kind == k.RootKind {
+			roots = append(roots, views.AddOption{Value: rf.Namespace + "/" + rf.Name, Label: rf.Name + " (" + rf.Spec.Path + ")"})
 		}
 	}
 	for _, qp := range s.listQualityProfiles(ctx) {
@@ -253,7 +253,18 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, path, http.StatusSeeOther)
 		return
 	}
-	ns, root, _ := strings.Cut(r.PostFormValue("rootFolder"), "/")
+	// The posted root folder names the item's namespace, so it must be one
+	// this page offers: a hand-made POST cannot pick any namespace, or a
+	// root folder of another kind.
+	posted := r.PostFormValue("rootFolder")
+	roots, _ := s.addChoices(r.Context(), k)
+	if !slices.ContainsFunc(roots, func(o views.AddOption) bool { return o.Value == posted }) {
+		err := fmt.Errorf("%w: %q is not a %s root folder", actions.ErrInvalid, posted, k.Label)
+		code, status := actionErrorCode(err)
+		s.renderAddPage(w, r, k, status, code, err.Error())
+		return
+	}
+	ns, root, _ := strings.Cut(posted, "/")
 	req := actions.AddRequest{
 		Kind: k.Kind, Namespace: ns, Title: r.PostFormValue("title"), ProviderID: id,
 		RootFolderRef: root, QualityProfileRef: r.PostFormValue("qualityProfile"),
