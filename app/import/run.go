@@ -39,6 +39,7 @@ import (
 	"strings"
 	"time"
 
+	toolscache "k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -246,35 +247,44 @@ func (o Options) Validate() error {
 // would simply never start.
 //
 // The controller role alone also caches MediaFiles without
-// status.mediaInfo ([stripMediaFileMediaInfo]): the rename controller
-// watches every MediaFile, and the library's probe results would otherwise
-// be most of what the `importarr` Deployment holds in memory. Nothing it
-// runs reads mediaInfo. A role that runs the workers too keeps the whole
-// object, as importarr-worker always has.
+// status.mediaInfo ([withoutMediaInfo]): the rename controller watches
+// every MediaFile, and the library's probe results would otherwise be most
+// of what the `importarr` Deployment holds in memory. Nothing it runs reads
+// mediaInfo. A role that runs the workers too keeps the whole object, as
+// importarr-worker always has.
 func (o Options) ManagerOptions() ctrl.Options {
 	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
 	if o.Role.RunsControllers() && !o.Role.RunsWorkers() {
 		if opts.Cache.ByObject == nil {
 			opts.Cache.ByObject = map[client.Object]cache.ByObject{}
 		}
-		opts.Cache.ByObject[&catalogv1alpha1.MediaFile{}] = cache.ByObject{Transform: stripMediaFileMediaInfo}
+		opts.Cache.ByObject[&catalogv1alpha1.MediaFile{}] = cache.ByObject{
+			Transform: withoutMediaInfo(opts.Cache.DefaultTransform),
+		}
 	}
 	return opts
 }
 
-// stripMediaFileMediaInfo is the controller role's cache transform for
-// MediaFile: it drops status.mediaInfo, and managedFields as every cache
-// does -- a per-object transform replaces the manager's DefaultTransform
-// rather than adding to it.
-func stripMediaFileMediaInfo(obj any) (any, error) {
-	obj, err := cache.TransformStripManagedFields()(obj)
-	if err != nil {
-		return obj, err
+// withoutMediaInfo is the controller role's cache transform for MediaFile:
+// the manager's DefaultTransform first, then status.mediaInfo dropped. A
+// per-object transform replaces DefaultTransform rather than adding to it
+// (controller-runtime's cache defaultConfig), so it is chained here, and
+// anything pkg/k8s.ManagerOptions adds to the default later still reaches
+// MediaFiles. With no default it strips managedFields, as every cache does.
+func withoutMediaInfo(next toolscache.TransformFunc) toolscache.TransformFunc {
+	if next == nil {
+		next = cache.TransformStripManagedFields()
 	}
-	if mf, ok := obj.(*catalogv1alpha1.MediaFile); ok {
-		mf.Status.MediaInfo = nil
+	return func(obj any) (any, error) {
+		obj, err := next(obj)
+		if err != nil {
+			return obj, err
+		}
+		if mf, ok := obj.(*catalogv1alpha1.MediaFile); ok {
+			mf.Status.MediaInfo = nil
+		}
+		return obj, nil
 	}
-	return obj, nil
 }
 
 // Run starts the manager and blocks until ctx is cancelled, which is what the

@@ -30,6 +30,10 @@ import (
 // EXDEV without needing two real filesystems in the test environment.
 var renameFunc = os.Rename
 
+// removeFunc unlinks [MoveNoReplace]'s source; overridden in white-box tests
+// to make that unlink fail.
+var removeFunc = os.Remove
+
 // MoveAtomic moves src to dst: rename(2) when both are on the same
 // filesystem, or copy-then-rename-then-remove-source when they are not
 // (EXDEV), finishing with an fsync of dst's parent directory.
@@ -75,6 +79,13 @@ var ErrExists = errors.New("fsops: destination exists")
 // LINK retried after its reply was lost), so the move is finished instead.
 // There is no cross-device fallback: link(2) fails with EXDEV, reported as
 // is.
+//
+// A failed unlink of src never costs the file its last name. A src that is
+// already gone means the move completed -- two callers that both found the
+// interrupted move above both unlink src, and one loses; an NFS REMOVE
+// retried after its reply was lost reports ENOENT too -- so that is
+// success. Any other failure removes dst again only while src still names
+// the same file; otherwise both names are left for the next call to finish.
 func MoveNoReplace(src, dst string) error {
 	if err := linkFunc(src, dst); err != nil {
 		if !errors.Is(err, fs.ErrExist) || !sameFile(src, dst) {
@@ -84,9 +95,13 @@ func MoveNoReplace(src, dst string) error {
 			return fmt.Errorf("fsops: move %s to %s: %w", src, dst, err)
 		}
 	}
-	if err := os.Remove(src); err != nil {
-		// Leave the one name the caller started with.
-		_ = os.Remove(dst)
+	if err := removeFunc(src); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// Leave the one name the caller started with, but only while src
+		// still is that file: removing dst otherwise could remove the
+		// file's last name.
+		if sameFile(src, dst) {
+			_ = os.Remove(dst)
+		}
 		return fmt.Errorf("fsops: move %s to %s: remove the source: %w", src, dst, err)
 	}
 	if err := fsyncDir(filepath.Dir(dst)); err != nil {

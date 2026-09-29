@@ -428,6 +428,48 @@ func TestReconcileHoldsWhileAScanWalksTheFolder(t *testing.T) {
 	assert.Equal(t, []string{"Normal Renamed renamed " + f.path + " to " + f.expected}, f.events())
 }
 
+// A scan's walk is its RootFolder's path joined with spec.subpath: a
+// subpath naming the file's folder, or only the file itself, holds the
+// rename; one naming a sibling whose name is a prefix of the folder's
+// ("Heat" beside "Heat (1995) {tmdb-949}") walks nothing of it and does not.
+func TestReconcileHoldsOnlyForAScanWhoseSubpathCoversTheFolder(t *testing.T) {
+	folder := "Heat (1995) {tmdb-949}"
+	cases := []struct {
+		name, ns, subpath string
+		holds             bool
+	}{
+		{name: "the file's folder", ns: "rename-scan-folder", subpath: folder, holds: true},
+		{name: "only the file", ns: "rename-scan-entry", subpath: filepath.Join(folder, "release.1080p.bluray.x264-grp.mkv"), holds: true},
+		{name: "a sibling-prefix folder", ns: "rename-scan-sibling", subpath: "Heat", holds: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := newFixture(t, ctx, tc.ns, fixtureOpts{renameFiles: ptr.To(true)})
+			require.NoError(t, os.MkdirAll(filepath.Join(f.root, "Heat"), 0o755))
+			require.Equal(t, filepath.Join(f.root, folder), filepath.Dir(f.path), "the fixture's folder")
+			require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.LibraryScan{
+				ObjectMeta: metav1.ObjectMeta{Name: "narrowed", Namespace: f.ns},
+				Spec:       catalogv1alpha1.LibraryScanSpec{RootFolderRef: "library", Subpath: tc.subpath},
+			}))
+			f.setScanPhase(t, ctx, "narrowed", catalogv1alpha1.ScanPhaseRunning)
+
+			if tc.holds {
+				assert.Equal(t, ctrl.Result{RequeueAfter: time.Minute}, f.reconcile(t, ctx))
+				assert.True(t, exists(f.path))
+				assert.False(t, exists(f.expected))
+				assert.Equal(t, []string{"Normal ScanInProgress not renamed yet: LibraryScan narrowed is walking the file's folder"},
+					f.events())
+				return
+			}
+			assert.Equal(t, ctrl.Result{}, f.reconcile(t, ctx))
+			assert.False(t, exists(f.path))
+			assert.True(t, exists(f.expected))
+			assert.Equal(t, []string{"Normal Renamed renamed " + f.path + " to " + f.expected}, f.events())
+		})
+	}
+}
+
 func (f *fixture) setScanPhase(t *testing.T, ctx context.Context, name string, phase catalogv1alpha1.ScanPhase) {
 	t.Helper()
 	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImportarr, catalogac.LibraryScan(name, f.ns).

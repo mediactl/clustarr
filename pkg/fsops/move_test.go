@@ -133,3 +133,102 @@ func TestMoveNoReplaceFinishesAnInterruptedMove(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "payload", string(got))
 }
+
+// A concurrent caller (or a retried NFS REMOVE) unlinks src between this
+// call's link and its unlink: the move is complete, and dst -- by then the
+// file's only name -- must survive.
+func TestMoveNoReplaceTreatsAVanishedSourceAsAFinishedMove(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	dst := filepath.Join(dir, "dst.mkv")
+	require.NoError(t, os.WriteFile(src, []byte("payload"), 0o664))
+
+	old := linkFunc
+	t.Cleanup(func() { linkFunc = old })
+	linkFunc = func(oldname, newname string) error {
+		if err := os.Link(oldname, newname); err != nil {
+			return err
+		}
+		return os.Remove(oldname) // the other caller wins the unlink
+	}
+
+	require.NoError(t, MoveNoReplace(src, dst))
+
+	_, err := os.Lstat(src)
+	require.True(t, os.IsNotExist(err), "the source is gone")
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err, "dst is the file's last name and must survive")
+	require.Equal(t, "payload", string(got))
+}
+
+// The unlink of src fails for another reason: dst is rolled back only while
+// src still names the same file, so the file always keeps a name.
+func TestMoveNoReplaceRollsBackOnlyWhileTheSourceIsTheSameFile(t *testing.T) {
+	cases := []struct {
+		name string
+		// unlink runs in place of removing src and returns its error.
+		unlink     func(t *testing.T, src string) error
+		wantDst    bool
+		wantSrc    string
+		wantDstStr string
+	}{
+		{
+			name:    "src still the same file: dst removed",
+			unlink:  func(*testing.T, string) error { return syscall.EACCES },
+			wantDst: false,
+			wantSrc: "payload",
+		},
+		{
+			name: "src replaced by another file: both names kept",
+			unlink: func(t *testing.T, src string) error {
+				require.NoError(t, os.Remove(src))
+				require.NoError(t, os.WriteFile(src, []byte("another"), 0o664))
+				return syscall.EIO
+			},
+			wantDst:    true,
+			wantSrc:    "another",
+			wantDstStr: "payload",
+		},
+		{
+			name: "src gone behind a non-ENOENT error: dst kept",
+			unlink: func(t *testing.T, src string) error {
+				require.NoError(t, os.Remove(src))
+				return syscall.EIO
+			},
+			wantDst:    true,
+			wantDstStr: "payload",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := filepath.Join(dir, "src.mkv")
+			dst := filepath.Join(dir, "dst.mkv")
+			require.NoError(t, os.WriteFile(src, []byte("payload"), 0o664))
+
+			old := removeFunc
+			t.Cleanup(func() { removeFunc = old })
+			removeFunc = func(name string) error {
+				require.Equal(t, src, name)
+				return tc.unlink(t, name)
+			}
+
+			require.Error(t, MoveNoReplace(src, dst))
+
+			got, err := os.ReadFile(dst)
+			if tc.wantDst {
+				require.NoError(t, err, "dst must be kept")
+				require.Equal(t, tc.wantDstStr, string(got))
+			} else {
+				require.True(t, os.IsNotExist(err), "dst must be rolled back")
+			}
+			got, err = os.ReadFile(src)
+			if tc.wantSrc == "" {
+				require.True(t, os.IsNotExist(err))
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.wantSrc, string(got))
+			}
+		})
+	}
+}

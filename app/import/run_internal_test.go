@@ -21,8 +21,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/fsops"
 )
 
@@ -98,4 +101,47 @@ func TestImportListsGetTheirBaseURLs(t *testing.T) {
 	d := newListWorker(nil, nil, DefaultOptions())
 	require.Empty(t, d.TraktBaseURL, "an unset Trakt base URL must leave the provider's own default")
 	require.Empty(t, d.PlexBaseURL, "an unset Plex base URL must leave the provider's own default")
+}
+
+// The controller role's MediaFile transform chains the manager's
+// DefaultTransform rather than replacing it, so whatever
+// pkg/k8s.ManagerOptions' default does -- stripping managedFields today --
+// still reaches MediaFiles; with no default it strips managedFields itself.
+func TestWithoutMediaInfoChainsTheDefaultTransform(t *testing.T) {
+	newMediaFile := func() *catalogv1alpha1.MediaFile {
+		return &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:          "heat",
+				ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "catalogarr"}},
+			},
+			Status: catalogv1alpha1.MediaFileStatus{
+				MediaInfo: &commonv1.MediaInfo{Width: 1920, Height: 1080},
+				ProbeHash: "hash",
+			},
+		}
+	}
+
+	t.Run("a default transform runs first", func(t *testing.T) {
+		labelling := func(obj any) (any, error) {
+			obj.(*catalogv1alpha1.MediaFile).Labels = map[string]string{"transformed": "by-default"}
+			return obj, nil
+		}
+		want := newMediaFile()
+		want.Labels = map[string]string{"transformed": "by-default"}
+		want.Status.MediaInfo = nil
+
+		got, err := withoutMediaInfo(labelling)(newMediaFile())
+		require.NoError(t, err)
+		require.Equal(t, want, got, "the default's change kept, managedFields left to it, mediaInfo dropped")
+	})
+
+	t.Run("no default strips managedFields", func(t *testing.T) {
+		want := newMediaFile()
+		want.ManagedFields = nil
+		want.Status.MediaInfo = nil
+
+		got, err := withoutMediaInfo(nil)(newMediaFile())
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	})
 }
