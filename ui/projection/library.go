@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -84,6 +85,12 @@ type LibraryItem struct {
 	// QualityProfileRef is spec.qualityProfileRef, or "" for a kind that
 	// inherits one (a Book with no profile of its own).
 	QualityProfileRef string
+
+	// ProviderID is the item's id at its metadata provider -- TMDB for a
+	// Movie, TVDB for a Series, MusicBrainz for an Artist, Open Library
+	// for an Author -- and "" for every other kind. Add New marks a search
+	// hit already in the library by it (2026-09-29).
+	ProviderID string
 }
 
 // Tab is one of the library page's tabs. Every parent kind belongs to
@@ -195,6 +202,7 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []Librar
 			Year:              card.year,
 			Poster:            card.poster,
 			QualityProfileRef: card.profile,
+			ProviderID:        card.providerID,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -216,6 +224,8 @@ type libraryCard struct {
 	year      int32
 	poster    string
 	profile   string
+	// providerID is LibraryItem.ProviderID.
+	providerID string
 }
 
 // describeLibraryItem reads one catalog item's card, and false for a kind
@@ -232,7 +242,8 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		c := libraryCard{
 			tab: TabMovies, monitored: monitoredOrDefault(v.Spec.Monitored),
 			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef,
-			poster: posterArt(commonv1.MediaKindMovie, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
+			poster:     posterArt(commonv1.MediaKindMovie, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
+			providerID: strconv.FormatInt(v.Spec.TmdbID, 10),
 		}
 		if md := v.Status.Metadata; md != nil {
 			c.year = md.Year
@@ -242,7 +253,8 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		c := libraryCard{
 			tab: TabTV, monitored: monitoredOrDefault(v.Spec.Monitored),
 			phase: string(v.Status.Phase), profile: v.Spec.QualityProfileRef,
-			poster: posterArt(commonv1.MediaKindSeries, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
+			poster:     posterArt(commonv1.MediaKindSeries, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
+			providerID: strconv.FormatInt(v.Spec.TvdbID, 10),
 		}
 		if md := v.Status.Metadata; md != nil {
 			c.year = md.Year
@@ -252,14 +264,16 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		c := libraryCard{
 			tab: TabMusic, monitored: monitoredOrDefault(v.Spec.Monitored),
 			hasFile: v.Status.AlbumFileCount > 0, profile: v.Spec.QualityProfileRef,
-			poster: posterArt(commonv1.MediaKindArtist, v.GetUID(), v.Status.Artwork, nil),
+			poster:     posterArt(commonv1.MediaKindArtist, v.GetUID(), v.Status.Artwork, nil),
+			providerID: v.Spec.MusicBrainzID,
 		}
 		return c, true
 	case *catalogv1.Author:
 		c := libraryCard{
 			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
 			hasFile: v.Status.BookFileCount > 0, profile: v.Spec.QualityProfileRef,
-			poster: posterArt(commonv1.MediaKindAuthor, v.GetUID(), v.Status.Artwork, nil),
+			poster:     posterArt(commonv1.MediaKindAuthor, v.GetUID(), v.Status.Artwork, nil),
+			providerID: v.Spec.OpenLibraryID,
 		}
 		return c, true
 	case *catalogv1.Book:

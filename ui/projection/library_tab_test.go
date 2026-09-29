@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -195,4 +196,34 @@ func TestRootFolderKindsCoverEveryKindOnce(t *testing.T) {
 		catalogv1.RootFolderKindAudiobook: projection.TabBooks,
 		catalogv1.RootFolderKindComic:     projection.TabBooks,
 	}, seen)
+}
+
+// TestLibraryItemsCarryTheirProviderID: Add New marks a search hit already
+// in the library by this id (2026-09-29).
+func TestLibraryItemsCarryTheirProviderID(t *testing.T) {
+	objs := []client.Object{
+		&catalogv1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "media", UID: "heat-uid"}, Spec: catalogv1.MovieSpec{TmdbID: 949}},
+		&catalogv1.Series{ObjectMeta: metav1.ObjectMeta{Name: "bb", Namespace: "media", UID: "bb-uid"}, Spec: catalogv1.SeriesSpec{TvdbID: 81189}},
+		&catalogv1.Artist{ObjectMeta: metav1.ObjectMeta{Name: "rh", Namespace: "media", UID: "rh-uid"}, Spec: catalogv1.ArtistSpec{MusicBrainzID: "a74b1b7f-71a5-4011-9441-d0b5e4122711"}},
+		&catalogv1.Author{ObjectMeta: metav1.ObjectMeta{Name: "ja", Namespace: "media", UID: "ja-uid"}, Spec: catalogv1.AuthorSpec{OpenLibraryID: "OL21594A"}},
+		&catalogv1.Comic{ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "media", UID: "saga-uid"}},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
+	proj := projection.New(fakeClient, time.Hour)
+	ctx := t.Context()
+	go func() { _ = proj.Run(ctx) }()
+
+	var items []projection.LibraryItem
+	require.Eventually(t, func() bool {
+		items = proj.Library(ctx)
+		return len(items) == len(objs)
+	}, 2*time.Second, 10*time.Millisecond)
+	got := map[string]string{}
+	for _, it := range items {
+		got[it.Ref.Name] = it.ProviderID
+	}
+	require.Equal(t, map[string]string{
+		"heat": "949", "bb": "81189", "rh": "a74b1b7f-71a5-4011-9441-d0b5e4122711", "ja": "OL21594A",
+		"saga": "", // no Add New for comics
+	}, got)
 }
