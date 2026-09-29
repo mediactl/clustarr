@@ -1,0 +1,26 @@
+{
+  "numFound": 7,
+  "docs": [
+    {
+      "key": "OL21594A",
+      "name": "Jane Austen",
+      "birth_date": "December 16, 1775",
+      "top_work": "Pride and Prejudice",
+      "work_count": 2225
+    },
+    {
+      "key": "OL16491845A",
+      "name": "Jane Austen,Jane Austen",
+      "birth_date": null,
+      "top_work": null,
+      "work_count": 0
+    },
+    {
+      "key": "OL3702263A",
+      "name": "Miss Helen Jane Austen",
+      "birth_date": null,
+      "top_work": "Road to Touba",
+      "work_count": 2
+    }
+  ]
+}
