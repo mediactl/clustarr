@@ -140,8 +140,14 @@ func profileTag(profileName, profileHash string) string {
 // failed, and one tagged with a stale (pre-edit) profile hash. The
 // TranscodeJob planner asks the same function, so a file this skips is one
 // it would skip too.
+//
+// A file another tool transcoded (status.mediaInfo.videoEncoder names an
+// ffmpeg HEVC or AV1 encoder, commonv1.MediaInfo.TranscodedElsewhere) is
+// already transcoded too, whatever this profile's revision: a transcoded
+// file is final (CLAUDE.md, "Transcoding"), and encoding Tdarr's output a
+// second time would only lose quality.
 func alreadyTranscoded(mf *catalogv1alpha1.MediaFile, tag string) bool {
-	return worker.HasProfileTag(mf, tag)
+	return worker.HasProfileTag(mf, tag) || mf.Status.MediaInfo.TranscodedElsewhere()
 }
 
 // probed reports whether mf has enough of a probe to plan a transcode from:

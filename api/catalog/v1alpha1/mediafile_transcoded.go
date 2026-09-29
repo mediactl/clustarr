@@ -32,7 +32,7 @@ package v1alpha1
 // automatic grab overwrite it -- leaving only a user's interactive grab or
 // manual import.
 //
-// A file is transcoded when either holds:
+// A file is transcoded when any of these holds:
 //
 //   - spec.original is false: catalogarr incorporated a transcode swap and
 //     took the file over (spec §8.5). It stays false for good, so a re-mux
@@ -41,6 +41,11 @@ package v1alpha1
 //     CLUSTARR_PROFILE container tag, read by the probe. This is what
 //     recognises a library file an earlier install transcoded, found by a
 //     rescan, whose MediaFile starts life with spec.original true.
+//   - status.mediaInfo.videoEncoder names a libavcodec HEVC or AV1 encoder
+//     (commonv1.MediaInfo.TranscodedElsewhere): another tool -- Tdarr, on
+//     the owner's library -- transcoded the file after release. squasharr
+//     is not the only thing that transcodes, and the owner's rule is about
+//     the file, not who made it (2026-09-29).
 //
 // status.transcode.profileTag deliberately does not count. A
 // replaceSource=false transcode records it on the SOURCE's MediaFile (so
@@ -60,5 +65,6 @@ func (mf *MediaFile) Transcoded() bool {
 	if mf.Spec.Original != nil && !*mf.Spec.Original {
 		return true
 	}
-	return mf.Status.MediaInfo != nil && mf.Status.MediaInfo.TranscodeProfile != ""
+	mi := mf.Status.MediaInfo
+	return mi != nil && (mi.TranscodeProfile != "" || mi.TranscodedElsewhere())
 }

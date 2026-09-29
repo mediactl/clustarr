@@ -132,6 +132,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: videoCodec
       type:
         scalar: string
+    - name: videoEncoder
+      type:
+        scalar: string
     - name: videoProfile
       type:
         scalar: string

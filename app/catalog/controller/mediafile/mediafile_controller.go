@@ -257,7 +257,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	ps := evaluateProbe(path, info.Size(), info.ModTime(), mf.Status.ProbeHash)
 
 	probed, changed, keptOutput := false, false, ""
-	if swap != nil || kept != nil || ps.Stale || mf.Status.ProbeHash == "" {
+	if swap != nil || kept != nil || probeDue(mf.Status.ProbeHash, mf.Status.ProbeVersion, ps) {
 		mi, _, probeErr := r.Probe(ctx, path)
 		if probeErr != nil {
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "ProbeFailed", "%s", probeErr)
@@ -338,6 +338,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 		known.ProbeHash = ps.Hash
 		known.ProbedAt = &now
+		known.ProbeVersion = mediainfo.ProbeVersion
 		known.MediaInfo = mi
 		probed = true
 
@@ -507,24 +508,26 @@ func staleTranscodeState(t *catalogv1alpha1.TranscodeState) *catalogv1alpha1.Tra
 // makes "declare everything this manager owns" the only thing the code can
 // express.
 type knownStatus struct {
-	ProbeHash string
-	ProbedAt  *metav1.Time
-	MediaInfo *commonv1.MediaInfo
-	Sidecars  []catalogv1alpha1.Sidecar
-	Transcode *catalogv1alpha1.TranscodeState
-	Naming    *catalogv1alpha1.NamingStatus
+	ProbeHash    string
+	ProbedAt     *metav1.Time
+	ProbeVersion int32
+	MediaInfo    *commonv1.MediaInfo
+	Sidecars     []catalogv1alpha1.Sidecar
+	Transcode    *catalogv1alpha1.TranscodeState
+	Naming       *catalogv1alpha1.NamingStatus
 }
 
 // statusOf seeds a knownStatus from the live object, so a reconcile that
 // recomputes nothing re-asserts everything.
 func statusOf(mf *catalogv1alpha1.MediaFile) *knownStatus {
 	return &knownStatus{
-		ProbeHash: mf.Status.ProbeHash,
-		ProbedAt:  mf.Status.ProbedAt,
-		MediaInfo: mf.Status.MediaInfo,
-		Sidecars:  mf.Status.Sidecars,
-		Transcode: mf.Status.Transcode,
-		Naming:    mf.Status.Naming,
+		ProbeHash:    mf.Status.ProbeHash,
+		ProbedAt:     mf.Status.ProbedAt,
+		ProbeVersion: mf.Status.ProbeVersion,
+		MediaInfo:    mf.Status.MediaInfo,
+		Sidecars:     mf.Status.Sidecars,
+		Transcode:    mf.Status.Transcode,
+		Naming:       mf.Status.Naming,
 	}
 }
 
@@ -541,6 +544,9 @@ func (k *knownStatus) statusAC(mf *catalogv1alpha1.MediaFile, conditions []metav
 	}
 	if k.ProbedAt != nil {
 		ac = ac.WithProbedAt(*k.ProbedAt)
+	}
+	if k.ProbeVersion > 0 {
+		ac = ac.WithProbeVersion(k.ProbeVersion)
 	}
 	if k.MediaInfo != nil {
 		ac = ac.WithMediaInfo(*k.MediaInfo)

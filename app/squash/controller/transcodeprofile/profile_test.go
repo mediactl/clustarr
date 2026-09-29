@@ -434,3 +434,15 @@ func TestManagedFilesDropsFilesWhoseItemIsGone(t *testing.T) {
 	}
 	assert.Equal(t, []string{"media/kept-movie", "media/kept-episode", "media/a-book"}, got)
 }
+
+// TestAlreadyTranscodedCountsATranscodeFromElsewhere: a file another tool
+// re-encoded to HEVC (Tdarr's QSV output) is transcoded and final, so no
+// profile queues it again.
+func TestAlreadyTranscodedCountsATranscodeFromElsewhere(t *testing.T) {
+	mf := movieFile("127-hours-2010", nil)
+	mf.Status.ProbeHash = "abc123"
+	mf.Status.MediaInfo = &commonv1.MediaInfo{VideoCodec: "hevc", VideoEncoder: "Lavc61.3.100 hevc_qsv"}
+	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
+	mf.Status.MediaInfo.VideoEncoder = "Lavc61.3.100 libx264"
+	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"), "an H.264 release made with ffmpeg is not a transcode")
+}

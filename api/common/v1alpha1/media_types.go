@@ -251,4 +251,14 @@ type MediaInfo struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=320
 	TranscodeProfile string `json:"transcodeProfile,omitempty"`
+
+	// VideoEncoder is the video stream's ENCODER tag, which ffmpeg writes
+	// when it encodes a stream ("Lavc61.3.100 hevc_qsv") and a release
+	// muxed from its own encode seldom carries. A libavcodec HEVC or AV1
+	// encoder here means the file was transcoded after release by some
+	// other tool (TranscodedElsewhere), and a transcoded file is final.
+	// pkg/mediainfo drops a value past the bound.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	VideoEncoder string `json:"videoEncoder,omitempty"`
 }

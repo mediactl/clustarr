@@ -215,6 +215,15 @@ type MediaFileStatus struct {
 	// +optional
 	ProbedAt *metav1.Time `json:"probedAt,omitempty"`
 
+	// ProbeVersion is the version of the probe that last described the
+	// file (pkg/mediainfo.ProbeVersion). A file probed by an older version
+	// is probed again, with probeHash unchanged: the hash is the file's
+	// identity to captionarr and squasharr, and its bytes did not change.
+	// Zero is a file probed before versions existed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ProbeVersion int32 `json:"probeVersion,omitempty"`
+
 	// MediaInfo is the technical description produced by the probe. Its
 	// transcodeProfile is the file's CLUSTARR_PROFILE tag: with it, or with
 	// spec.original false, the file is transcoded and final

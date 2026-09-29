@@ -47,3 +47,12 @@ func evaluateProbe(path string, statSize int64, statMod time.Time, currentHash s
 		Stale:     h != currentHash,
 	}
 }
+
+// probeDue reports whether the file must be probed: it never was, its
+// bytes changed (ps.Stale), or an older probe version described it and
+// missed a field this one records. The last leaves ps.Hash as it was, so
+// nothing that keys on the hash -- captionarr's subtitle history,
+// squasharr's source identity -- sees a different file.
+func probeDue(currentHash string, version int32, ps probeState) bool {
+	return currentHash == "" || ps.Stale || version < mediainfo.ProbeVersion
+}

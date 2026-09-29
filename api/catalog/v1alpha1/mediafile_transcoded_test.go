@@ -35,6 +35,14 @@ func TestMediaFileTranscoded(t *testing.T) {
 	}{
 		{name: "no file", mf: nil, want: false},
 		{name: "a fresh import: original unset (the CRD default, true), never probed", mf: &catalogv1alpha1.MediaFile{}, want: false},
+		{name: "original true, no tag, but ffmpeg re-encoded the video to HEVC (Tdarr)", mf: &catalogv1alpha1.MediaFile{
+			Spec:   catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)},
+			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{VideoCodec: "hevc", VideoEncoder: "Lavc61.3.100 hevc_qsv"}},
+		}, want: true},
+		{name: "an HEVC release with no encoder tag", mf: &catalogv1alpha1.MediaFile{
+			Spec:   catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)},
+			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{VideoCodec: "hevc"}},
+		}, want: false},
 		{name: "original true and probed without the tag", mf: &catalogv1alpha1.MediaFile{
 			Spec:   catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)},
 			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{VideoCodec: "h264"}},

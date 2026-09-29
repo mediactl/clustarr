@@ -63,6 +63,7 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 		mi.Height = int32(v.Height)
 		mi.FpsMilli = frameRateMilli(v.RFrameRate)
 		mi.VideoBitrateKbps = kbpsFromBitRate(v.BitRate)
+		mi.VideoEncoder = videoEncoder(v)
 	}
 	if raw.Dovi != nil {
 		profile, compat := raw.Dovi.Profile, raw.Dovi.BLSignalCompatibilityID
@@ -132,6 +133,35 @@ func FormatTag(raw *Raw, key string) string {
 		}
 	}
 	return value
+}
+
+// ProbeVersion is this probe's version, recorded in a MediaFile's
+// status.probeVersion. Raise it whenever the probe starts recording
+// something it did not before: every file probed by an older version is
+// probed once more, with its probeHash unchanged. 1 added videoEncoder
+// (2026-09-29).
+const ProbeVersion int32 = 1
+
+// MaxVideoEncoderLength is MediaInfo.VideoEncoder's MaxLength. A longer
+// value is dropped rather than failing the whole status apply.
+const MaxVideoEncoderLength = 256
+
+// videoEncoder is the video stream's ENCODER tag, trimmed: the key as
+// Matroska keeps it or as MP4's muxer lowercases it.
+func videoEncoder(v *ffprobe.Stream) string {
+	var enc string
+	for k, val := range v.TagList {
+		if s, ok := val.(string); ok && strings.EqualFold(k, "encoder") {
+			if enc == "" || k == "ENCODER" {
+				enc = s
+			}
+		}
+	}
+	enc = strings.TrimSpace(enc)
+	if len(enc) > MaxVideoEncoderLength {
+		return ""
+	}
+	return enc
 }
 
 // transcodeProfile is raw's CLUSTARR_PROFILE tag, trimmed, or "" when it has

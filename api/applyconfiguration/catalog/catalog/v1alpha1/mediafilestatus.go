@@ -38,6 +38,12 @@ type MediaFileStatusApplyConfiguration struct {
 	ProbeHash *string `json:"probeHash,omitempty"`
 	// ProbedAt is when the file was last probed.
 	ProbedAt *metav1.Time `json:"probedAt,omitempty"`
+	// ProbeVersion is the version of the probe that last described the
+	// file (pkg/mediainfo.ProbeVersion). A file probed by an older version
+	// is probed again, with probeHash unchanged: the hash is the file's
+	// identity to captionarr and squasharr, and its bytes did not change.
+	// Zero is a file probed before versions existed.
+	ProbeVersion *int32 `json:"probeVersion,omitempty"`
 	// MediaInfo is the technical description produced by the probe. Its
 	// transcodeProfile is the file's CLUSTARR_PROFILE tag: with it, or with
 	// spec.original false, the file is transcoded and final
@@ -94,6 +100,14 @@ func (b *MediaFileStatusApplyConfiguration) WithProbeHash(value string) *MediaFi
 // If called multiple times, the ProbedAt field is set to the value of the last call.
 func (b *MediaFileStatusApplyConfiguration) WithProbedAt(value metav1.Time) *MediaFileStatusApplyConfiguration {
 	b.ProbedAt = &value
+	return b
+}
+
+// WithProbeVersion sets the ProbeVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProbeVersion field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithProbeVersion(value int32) *MediaFileStatusApplyConfiguration {
+	b.ProbeVersion = &value
 	return b
 }
 

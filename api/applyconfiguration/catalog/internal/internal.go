@@ -2239,6 +2239,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: probeHash
       type:
         scalar: string
+    - name: probeVersion
+      type:
+        scalar: numeric
     - name: probedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -3995,6 +3998,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
     - name: videoCodec
+      type:
+        scalar: string
+    - name: videoEncoder
       type:
         scalar: string
     - name: videoProfile

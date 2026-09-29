@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,4 +94,22 @@ func TestToMediaInfoCapsStreamListsAtTheCRDsMaxItems(t *testing.T) {
 	require.Len(t, mi.Audio, MaxStreamsPerKind)
 	require.Len(t, mi.Subtitles, MaxStreamsPerKind)
 	assert.Equal(t, int32(1), mi.Audio[0].Index, "the first streams are kept, in order")
+}
+
+// TestToMediaInfoRecordsTheVideoEncoder: the video stream's ENCODER tag is
+// how a file some other tool re-encoded is told from a release
+// (MediaInfo.TranscodedElsewhere). Matroska keeps the key as written and
+// MP4's muxer lowercases it, so the lookup ignores case; a value past the
+// CRD's bound is dropped rather than failing the whole status apply.
+func TestToMediaInfoRecordsTheVideoEncoder(t *testing.T) {
+	probe := func(tags ffprobe.Tags) *commonv1.MediaInfo {
+		return toMediaInfo(&Raw{
+			Format:  &ffprobe.Format{Filename: "movie.mkv"},
+			Streams: []*ffprobe.Stream{{Index: 0, CodecType: "video", CodecName: "hevc", TagList: tags}},
+		})
+	}
+	assert.Equal(t, "Lavc61.3.100 hevc_qsv", probe(ffprobe.Tags{"ENCODER": "Lavc61.3.100 hevc_qsv"}).VideoEncoder)
+	assert.Equal(t, "Lavc60 libx264", probe(ffprobe.Tags{"encoder": " Lavc60 libx264 "}).VideoEncoder)
+	assert.Empty(t, probe(nil).VideoEncoder)
+	assert.Empty(t, probe(ffprobe.Tags{"ENCODER": strings.Repeat("x", MaxVideoEncoderLength+1)}).VideoEncoder)
 }
