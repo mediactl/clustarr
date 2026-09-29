@@ -703,7 +703,7 @@ func TestServeRPCHandlersCreateASpanPerVerb(t *testing.T) {
 
 type stubSeriesSearcher struct {
 	pkgmetadata.SeriesProvider // nil: only Name and SearchSeries are called
-	hit pkgmetadata.SearchHit
+	hit                        pkgmetadata.SearchHit
 }
 
 func (s stubSeriesSearcher) Name() string { return "tvdb" }
@@ -713,7 +713,7 @@ func (s stubSeriesSearcher) SearchSeries(context.Context, string) ([]pkgmetadata
 
 type stubAuthorSearcher struct {
 	pkgmetadata.BookProvider // nil: only Name and SearchAuthors are called
-	hit pkgmetadata.SearchHit
+	hit                      pkgmetadata.SearchHit
 }
 
 func (s stubAuthorSearcher) Name() string { return "openlibrary" }
