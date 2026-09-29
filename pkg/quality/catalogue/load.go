@@ -78,6 +78,7 @@ type formatJSON struct {
 	TrashIDs   map[string]string `json:"trashIds"`
 	Scores     map[string]int    `json:"scores"`
 	Group      string            `json:"group"`
+	Rename     bool              `json:"includeInRename"`
 	Conditions []conditionJSON   `json:"conditions"`
 }
 
@@ -104,7 +105,7 @@ func DecodeFormats(doc []byte) ([]*Format, error) {
 	}
 	formats := make([]*Format, 0, len(raw))
 	for _, rf := range raw {
-		f := &Format{Slug: rf.Slug, Name: rf.Name, TrashIDs: rf.TrashIDs, Scores: rf.Scores, Group: rf.Group}
+		f := &Format{Slug: rf.Slug, Name: rf.Name, TrashIDs: rf.TrashIDs, Scores: rf.Scores, Group: rf.Group, IncludeInRename: rf.Rename}
 		for _, rc := range rf.Conditions {
 			cond := Condition{
 				Kind: CondKind(rc.Kind), Name: rc.Name, Negate: rc.Negate, Required: rc.Required,

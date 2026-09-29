@@ -30,12 +30,8 @@ import (
 // tokens (VideoCodec, VideoBitDepth, AudioLanguages, SubtitleLanguages,
 // Simple, Full) plus AudioCodec/AudioChannels' default-stream selection.
 //
-// {MediaInfo AudioCodec} renders the stream's Codec field verbatim, the
-// same passthrough render_test.go's TestRenderSplitBracketAcrossTwoAdjacentTokens
-// already pins (it happens to feed an already-upper-case "EAC3", which
-// cannot distinguish passthrough from upper-casing); this test's fixture
-// uses a lower-case "eac3" to tell them apart, so the expectation here is
-// lower-case too, per the existing token's real, unchanged behaviour.
+// {MediaInfo AudioCodec} renders Radarr's label for the probe's codec
+// (AudioCodecLabel), not ffprobe's codec name: "EAC3", never "eac3".
 func TestMediaInfoTokensRenderFromTheProbe(t *testing.T) {
 	mi := commonv1.MediaInfo{
 		VideoCodec: "hevc", VideoBitDepth: 10, Hdr: commonv1.HdrFormatHDR10,
@@ -50,12 +46,12 @@ func TestMediaInfoTokensRenderFromTheProbe(t *testing.T) {
 	for tmpl, want := range map[string]string{
 		"{MediaInfo VideoCodec}":        "x265",
 		"{MediaInfo VideoBitDepth}":     "10",
-		"{MediaInfo AudioCodec}":        "eac3", // the default stream, not the first
+		"{MediaInfo AudioCodec}":        "EAC3", // the default stream, not the first
 		"{MediaInfo AudioChannels}":     "5.1",
 		"{MediaInfo AudioLanguages}":    "[JA+EN]",
 		"{MediaInfo SubtitleLanguages}": "[EN+ES]",
-		"{MediaInfo Simple}":            "x265 eac3",
-		"{MediaInfo Full}":              "x265 eac3 [JA+EN] [EN+ES]",
+		"{MediaInfo Simple}":            "x265 EAC3",
+		"{MediaInfo Full}":              "x265 EAC3 [JA+EN] [EN+ES]",
 	} {
 		got, err := e.Render(tmpl, c)
 		require.NoError(t, err, tmpl)
@@ -86,4 +82,43 @@ func TestVideoPresetsStateTheCodec(t *testing.T) {
 	got, err = naming.NewEngine(naming.Config{}).MovieFile(c)
 	require.NoError(t, err)
 	require.Equal(t, "Akira (1988) - [Bluray-1080p]", got, "a file never probed renders as before")
+}
+
+// TestAudioCodecLabelIsRadarrs: every (codec, profile) pair the probe
+// recorded across the owner's movie library (2026-09-29), against the
+// label Radarr gave the same file's name. Radarr names HE-AAC plain "AAC".
+// DTS:X and the rarer DTS profiles are Radarr's FormatAudioCodec, from
+// ffprobe's own profile names.
+func TestAudioCodecLabelIsRadarrs(t *testing.T) {
+	for _, tc := range []struct{ codec, profile, want string }{
+		{"aac", "LC", "AAC"},
+		{"aac", "HE-AAC", "AAC"},
+		{"ac3", "", "AC3"},
+		{"dts", "DTS", "DTS"},
+		{"dts", "DTS-HD MA", "DTS-HD MA"},
+		{"dts", "DTS-HD MA + DTS:X", "DTS-X"},
+		{"dts", "DTS-HD HRA", "DTS-HD HRA"},
+		{"dts", "DTS-ES", "DTS-ES"},
+		{"eac3", "", "EAC3"},
+		{"eac3", "Dolby Digital Plus + Dolby Atmos", "EAC3 Atmos"},
+		{"truehd", "", "TrueHD"},
+		{"truehd", "Dolby TrueHD + Dolby Atmos", "TrueHD Atmos"},
+		{"flac", "", "FLAC"},
+		{"mp3", "", "MP3"},
+		{"opus", "", "Opus"},
+		{"vorbis", "", "Vorbis"},
+		{"pcm_s16le", "", "PCM"},
+		{"pcm_s24le", "", "PCM"},
+		{"", "", ""},
+	} {
+		require.Equalf(t, tc.want, naming.AudioCodecLabel(tc.codec, tc.profile), "%s / %q", tc.codec, tc.profile)
+	}
+
+	e := naming.NewEngine(naming.Config{})
+	c := naming.Context{MediaInfo: commonv1.MediaInfo{Audio: []commonv1.AudioStream{
+		{Codec: "eac3", Profile: "Dolby Digital Plus + Dolby Atmos", Channels: 6, Default: true},
+	}}}
+	got, err := e.Render("{[MediaInfo AudioCodec}{ MediaInfo AudioChannels]}", c)
+	require.NoError(t, err)
+	require.Equal(t, "[EAC3 Atmos 5.1]", got)
 }

@@ -2,6 +2,7 @@
   {
     "slug": "amzn",
     "name": "AMZN",
+    "includeInRename": true,
     "trashIds": {"radarr": "b3b3a6ac74ecbd56bcdbefa4799fb9df"},
     "scores": {"default": 75, "anime-sonarr": 3},
     "group": "streamingBoost",

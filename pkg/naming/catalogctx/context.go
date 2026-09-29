@@ -34,12 +34,14 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 // EngineFor builds the naming engine a root folder's naming spec selects:
@@ -122,7 +124,10 @@ func Episode(s *catalogv1alpha1.Series, eps []catalogv1alpha1.Episode) (naming.C
 // technical description into c, returning the result: everything the
 // shared "{ - [Quality Full]}{ [MediaInfo VideoDynamicRangeType]}{
 // [MediaInfo VideoCodec]}{-Release Group}" segment of every video preset
-// needs, beyond the item identity Movie or Episode already set. spec is
+// needs, beyond the item identity Movie or Episode already set: the
+// matched formats by the names {Custom Formats} shows
+// (catalogue.NamesForRename), and a release title, falling back to the
+// file's own name. spec is
 // nil-safe -- a caller with no MediaFileSpec yet (there is none before the
 // first import) gets c back unchanged by this half of the merge. mi nil
 // (not yet probed) leaves c.MediaInfo exactly as it was, so a video
@@ -133,9 +138,15 @@ func File(c naming.Context, spec *catalogv1alpha1.MediaFileSpec, mi *commonv1.Me
 		c.Revision = spec.Revision
 		c.ReleaseGroup = spec.ReleaseGroup
 		c.Edition = spec.Edition
-		c.CustomFormats = spec.MatchedFormats
+		c.CustomFormats = catalogue.LoadedCatalogue().NamesForRename(spec.MatchedFormats)
 		if spec.ImportedFrom != nil {
 			c.ReleaseTitle = spec.ImportedFrom.ReleaseTitle
+		}
+		if c.ReleaseTitle == "" && spec.Path != "" {
+			// Radarr's GetSceneOrFileName: with no release title (a file a
+			// rescan found), the file's own name says whether it is an
+			// x264 or an h264 encode.
+			c.ReleaseTitle = strings.TrimSuffix(filepath.Base(spec.Path), filepath.Ext(spec.Path))
 		}
 	}
 	if mi != nil {

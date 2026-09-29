@@ -19,6 +19,7 @@ package catalogctx_test
 
 import (
 	"os/exec"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -212,4 +213,71 @@ func TestFileIsNilSafeOnSpecAndMediaInfo(t *testing.T) {
 
 	c := catalogctx.File(base, nil, nil)
 	require.Equal(t, base, c, "a nil spec and a nil probe leave c unchanged")
+}
+
+// TestFileRendersTheNamesRadarrGaveTheOwnersLibrary: two files from the
+// owner's movie library (2026-09-29), their frozen spec and probe as the
+// cluster holds them, under the owner's movieFile override with TRaSH's
+// audio and codec tokens. Each must render to the name Radarr gave it:
+// before, the matched formats rendered as slugs ("[amzn anime-amzn]") and a
+// rescanned file, which has no release title, lost "x264" for "h264".
+// Radarr reads the codec's encoder off the scene name or, failing that, the
+// file's own name (GetSceneOrFileName), and so does File.
+func TestFileRendersTheNamesRadarrGaveTheOwnersLibrary(t *testing.T) {
+	root := &catalogv1alpha1.RootFolder{Spec: catalogv1alpha1.RootFolderSpec{
+		Path: "/data/media/movies", Kind: catalogv1alpha1.RootFolderKindMovie,
+		Naming: catalogv1alpha1.NamingSpec{
+			Dialect: catalogv1alpha1.NamingDialectPlex, ColonReplacement: catalogv1alpha1.ColonReplacementDelete,
+			Overrides: map[string]string{"movieFile": "{Movie CleanTitle}{ (Release Year)} {tmdb-{TmdbId}} - " +
+				"{[Custom Formats]}{[Quality Full]}{[MediaInfo AudioCodec}{ MediaInfo AudioChannels]}" +
+				"{[MediaInfo VideoDynamicRangeType]}{[MediaInfo VideoCodec]}{-Release Group}"},
+		},
+	}}
+	for _, tc := range []struct {
+		title   string
+		year    int32
+		tmdb    int64
+		spec    catalogv1alpha1.MediaFileSpec
+		mi      commonv1.MediaInfo
+		current string
+	}{
+		{
+			title: "102 Minutes That Changed America", year: 2008, tmdb: 36130,
+			spec: catalogv1alpha1.MediaFileSpec{
+				Quality:        commonv1.Quality{Name: "WEBRip-1080p", Source: commonv1.SourceWebRip, Resolution: 1080, Modifier: commonv1.ModifierNone},
+				ReleaseGroup:   "CasStudio",
+				MatchedFormats: []string{"amzn", "anime-amzn"},
+			},
+			mi: commonv1.MediaInfo{
+				Container: "mkv", VideoCodec: "h264", VideoProfile: "High",
+				Audio: []commonv1.AudioStream{{Codec: "eac3", Channels: 2, Default: true}},
+			},
+			current: "102 Minutes That Changed America (2008) {tmdb-36130} - [AMZN][WEBRip-1080p][EAC3 2.0][x264]-CasStudio.mkv",
+		},
+		{
+			title: "Twelve Monkeys", year: 1995, tmdb: 63,
+			spec: catalogv1alpha1.MediaFileSpec{
+				Quality:      commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierNone},
+				ReleaseGroup: "Skazhutin",
+			},
+			mi: commonv1.MediaInfo{
+				Container: "mkv", VideoCodec: "h264", VideoProfile: "High",
+				Audio: []commonv1.AudioStream{{Codec: "flac", Channels: 6, Default: true}},
+			},
+			current: "Twelve Monkeys (1995) {tmdb-63} - [Bluray-1080p][FLAC 5.1][x264]-Skazhutin.mkv",
+		},
+	} {
+		movie := &catalogv1alpha1.Movie{
+			Spec:   catalogv1alpha1.MovieSpec{TmdbID: tc.tmdb},
+			Status: catalogv1alpha1.MovieStatus{Metadata: &catalogv1alpha1.MovieMetadata{Title: tc.title, Year: tc.year}},
+		}
+		base, ok := catalogctx.Movie(movie)
+		require.True(t, ok)
+		folder := "/data/media/movies/" + tc.title + " (" + strconv.Itoa(int(tc.year)) + ") {tmdb-" + strconv.FormatInt(tc.tmdb, 10) + "}/"
+		spec := tc.spec
+		spec.Path = folder + tc.current
+		dest, err := catalogctx.MovieFilePath(root, movie, catalogctx.File(base, &spec, &tc.mi), catalogctx.ContainerExt(&tc.mi, spec.Path))
+		require.NoError(t, err)
+		require.Equal(t, spec.Path, dest, "a file Radarr named is already current")
+	}
 }

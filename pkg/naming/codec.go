@@ -64,3 +64,67 @@ func VideoCodecLabel(codecName, videoProfile, releaseTitle string) string {
 	}
 	return strings.ToUpper(codecName)
 }
+
+// AudioCodecLabel is Radarr's MediaInfoFormatter.FormatAudioCodec over the
+// probe's codec name and profile, so {MediaInfo AudioCodec} reads "EAC3
+// Atmos" or "DTS-HD MA" as the files Radarr named do, not ffprobe's "eac3".
+// ffprobe names Atmos and DTS:X only in the profile ("Dolby Digital Plus +
+// Dolby Atmos", "DTS-HD MA + DTS:X"). Radarr names HE-AAC plain "AAC", and
+// so does this. An unrecognised codec renders as the probe named it.
+func AudioCodecLabel(codec, profile string) string {
+	atmos := strings.Contains(profile, "Atmos")
+	switch c := strings.ToLower(codec); {
+	case c == "":
+		return ""
+	case c == "aac":
+		return "AAC"
+	case c == "ac3":
+		return "AC3"
+	case c == "eac3" && atmos:
+		return "EAC3 Atmos"
+	case c == "eac3":
+		return "EAC3"
+	case c == "truehd" && atmos:
+		return "TrueHD Atmos"
+	case c == "truehd":
+		return "TrueHD"
+	case c == "dts":
+		return dtsLabel(profile)
+	case c == "flac":
+		return "FLAC"
+	case c == "alac":
+		return "ALAC"
+	case c == "mp3":
+		return "MP3"
+	case c == "mp2":
+		return "MP2"
+	case c == "opus":
+		return "Opus"
+	case c == "vorbis":
+		return "Vorbis"
+	case strings.HasPrefix(c, "pcm_"), strings.HasPrefix(c, "adpcm_"):
+		return "PCM"
+	case strings.HasPrefix(c, "wma"):
+		return "WMA"
+	}
+	return codec
+}
+
+// dtsLabel names a DTS stream by its profile, as Radarr does.
+func dtsLabel(profile string) string {
+	switch {
+	case strings.Contains(profile, "DTS:X"):
+		return "DTS-X"
+	case strings.HasPrefix(profile, "DTS-HD MA"):
+		return "DTS-HD MA"
+	case strings.HasPrefix(profile, "DTS-HD HRA"):
+		return "DTS-HD HRA"
+	case strings.HasPrefix(profile, "DTS-ES"):
+		return "DTS-ES"
+	case strings.HasPrefix(profile, "DTS Express"):
+		return "DTS Express"
+	case strings.HasPrefix(profile, "DTS 96/24"):
+		return "DTS 96/24"
+	}
+	return "DTS"
+}

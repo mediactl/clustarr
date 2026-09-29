@@ -45,6 +45,7 @@
   {
     "slug": "uncensored",
     "name": "Uncensored",
+    "includeInRename": true,
     "trashIds": {"radarr": "064af5f084a0a24458cc8ecd3220f93f"},
     "scores": {},
     "conditions": [
@@ -64,6 +65,7 @@
   {
     "slug": "v0",
     "name": "v0",
+    "includeInRename": true,
     "trashIds": {"radarr": "c259005cbaeb5ab44c06eddb4751e70c"},
     "scores": {"default": -51},
     "conditions": [
@@ -73,6 +75,7 @@
   {
     "slug": "v1",
     "name": "v1",
+    "includeInRename": true,
     "trashIds": {"radarr": "5f400539421b8fcf71d51e6384434573"},
     "scores": {"default": 1},
     "conditions": [
@@ -82,6 +85,7 @@
   {
     "slug": "v2",
     "name": "v2",
+    "includeInRename": true,
     "trashIds": {"radarr": "3df5e6dfef4b09bb6002f732bed5b774"},
     "scores": {"default": 2},
     "conditions": [
@@ -92,6 +96,7 @@
   {
     "slug": "v3",
     "name": "v3",
+    "includeInRename": true,
     "trashIds": {"radarr": "db92c27ba606996b146b57fbe6d09186"},
     "scores": {"default": 3},
     "conditions": [
@@ -102,6 +107,7 @@
   {
     "slug": "v4",
     "name": "v4",
+    "includeInRename": true,
     "trashIds": {"radarr": "d4e5e842fad129a3c097bdb2d20d31a0"},
     "scores": {"default": 4},
     "conditions": [
@@ -154,6 +160,7 @@
   {
     "slug": "vrv",
     "name": "VRV",
+    "includeInRename": true,
     "trashIds": {"radarr": "60f6d50cbd3cfc3e9a8c00e3a30c3114"},
     "scores": {"default": 10, "anime-sonarr": 3},
     "conditions": [

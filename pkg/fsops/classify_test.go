@@ -45,6 +45,23 @@ func TestIsExtraMatchesAKnownExtrasFolder(t *testing.T) {
 	require.False(t, fsops.IsExtra(fsops.KindVideo, fixtureRoot, fixtureRoot+"/Movie.Title.2024.1080p.WEB-DL.mkv"))
 }
 
+// TestIsExtraSkipsPlexsOwnVersions: Plex writes the copies its Optimize
+// feature makes under "<item folder>/Plex Versions/<profile>/", and Radarr's
+// disk scan excludes the folder. The owner's library had five such copies
+// tracked as MediaFiles (2026-09-29), one of them "Unknown-720p".
+func TestIsExtraSkipsPlexsOwnVersions(t *testing.T) {
+	const movies, tv = "/data/media/movies", "/data/media/tv"
+	require.True(t, fsops.IsExtra(fsops.KindVideo, movies,
+		movies+"/Twelve Monkeys (1995) {tmdb-63}/Plex Versions/Optimized for Mobile/12 Monkeys (1995).mp4"))
+	require.True(t, fsops.IsExtra(fsops.KindVideo, tv,
+		tv+"/Show (2020)/Season 01/plex versions/Optimized for TV/Show - S01E01.mp4"))
+	require.False(t, fsops.IsExtra(fsops.KindVideo, movies,
+		movies+"/Plex Versions (2020) {tmdb-1}/Plex Versions (2020) {tmdb-1} - [WEBDL-1080p].mkv"),
+		"a title that begins with the words is not the folder")
+	c := fsops.Classifier{Kind: fsops.KindVideo, Root: movies, SampleMaxBytes: fsops.DefaultSampleMaxBytes}
+	require.Equal(t, fsops.ClassExtra, c.Classify(movies+"/Heat (1995) {tmdb-949}/Plex Versions/Original Quality/Heat.mkv", 900*mib))
+}
+
 // TestIsExtraIsBoundedToTheRoot: the folders above the root -- and the
 // root's own name -- are the operator's layout, not the release's. Before
 // the bound, IsExtra walked every parent up to "/", so a whole library under

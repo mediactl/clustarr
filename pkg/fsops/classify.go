@@ -122,6 +122,13 @@ var extraDirs = map[string]bool{
 	"backdrops": true,
 }
 
+// serverDirs are folders a media server writes into the library for its
+// own use. "plex versions" holds the copies Plex's Optimize feature makes
+// ("<item folder>/Plex Versions/<profile>/"); Radarr's disk scan excludes
+// it too. They are not bonus content, but like extras they are not the
+// item's file, so IsExtra skips them.
+var serverDirs = map[string]bool{"plex versions": true}
+
 // IsExtra reports whether path, a file of kind, lives in a folder that
 // Jellyfin/Plex/Emby treat as bonus content -- the verified list from
 // docs/research/naming.md §A3's Jellyfin row: "behind the scenes", "deleted
@@ -129,7 +136,8 @@ var extraDirs = map[string]bool{
 // "clips", "extras", "trailers", "theme-music", "backdrops". (A parallel
 // filename-suffix convention, e.g. "-trailer", exists in Jellyfin/Kodi but
 // is not verified in the research notes, so it is deliberately not
-// implemented here rather than guessed.)
+// implemented here rather than guessed.) A media server's own folders
+// (serverDirs, Plex's "Plex Versions") are skipped the same way.
 //
 // Two bounds keep a guess about bonus content from silently dropping real
 // media:
@@ -158,7 +166,7 @@ func IsExtra(kind Kind, root, path string) bool {
 		return false
 	}
 	for dir := filepath.Dir(rel); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
-		if extraDirs[strings.ToLower(filepath.Base(dir))] {
+		if name := strings.ToLower(filepath.Base(dir)); extraDirs[name] || serverDirs[name] {
 			return true
 		}
 	}

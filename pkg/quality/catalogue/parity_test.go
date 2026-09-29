@@ -372,3 +372,51 @@ func TestFormatDoesNotClaimAnUnrepresentedApp(t *testing.T) {
 		})
 	}
 }
+
+// TestEveryEmbeddedFormatsRenameFlagMatchesItsCorpusSource: IncludeInRename
+// is TRaSH's includeCustomFormatWhenRenaming, for every app a Format lists.
+// It decides which formats {Custom Formats} names in a file name, so a flag
+// missing here drops "[AMZN]" from every file a rename touches.
+func TestEveryEmbeddedFormatsRenameFlagMatchesItsCorpusSource(t *testing.T) {
+	flags := map[string]bool{}
+	for _, app := range []string{"radarr", "sonarr"} {
+		dir := filepath.Join("..", "..", "..", "test", "data", "trash", "docs", "json", app, "cf")
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		for _, e := range entries {
+			doc, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			require.NoError(t, err)
+			var raw struct {
+				TrashID string `json:"trash_id"`
+				Rename  bool   `json:"includeCustomFormatWhenRenaming"`
+			}
+			require.NoError(t, json.Unmarshal(doc, &raw))
+			flags[app+"/"+raw.TrashID] = raw.Rename
+		}
+	}
+	renamed := 0
+	for slug, f := range catalogue.LoadedCatalogue().Formats {
+		for app, id := range f.TrashIDs {
+			want, ok := flags[app+"/"+id]
+			require.Truef(t, ok, "%s: no %s corpus file has trash_id %s", slug, app, id)
+			require.Equalf(t, want, f.IncludeInRename, "%s: includeInRename against %s's includeCustomFormatWhenRenaming", slug, app)
+		}
+		if f.IncludeInRename {
+			renamed++
+		}
+	}
+	require.Positive(t, renamed, "the corpus names some of the embedded formats in a file name (AMZN, the anime streaming services, Repack2)")
+}
+
+// TestNamesForRename: {Custom Formats} renders a MediaFile's matched
+// formats by name, only those the corpus includes when renaming, each name
+// once. A file matched "amzn" and "anime-amzn" (both named AMZN) and a tier
+// was named "[amzn anime-amzn]" before this (2026-09-29); Radarr named it
+// "[AMZN]".
+func TestNamesForRename(t *testing.T) {
+	c := catalogue.LoadedCatalogue()
+	require.Equal(t, []string{"AMZN"}, c.NamesForRename([]string{"amzn", "anime-amzn", "web-tier-01"}))
+	require.Equal(t, []string{"Repack2", "AMZN"}, c.NamesForRename([]string{"repack2", "amzn"}), "in the matched order")
+	require.Empty(t, c.NamesForRename([]string{"web-tier-01", "not-a-format"}), "a tier is not named, an unknown slug is dropped")
+	require.Empty(t, c.NamesForRename(nil))
+}

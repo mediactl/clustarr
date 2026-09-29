@@ -129,6 +129,9 @@ type Format struct {
 	Scores     map[string]int    // score set name -> score; "default" always present
 	Group      string            // "" (always active) or one of catalogv1alpha1's FormatGroup* constants
 	Conditions []Condition
+	// IncludeInRename is TRaSH's includeCustomFormatWhenRenaming: the
+	// format's Name appears in {Custom Formats} (NamesForRename).
+	IncludeInRename bool
 }
 
 // Catalogue is the full set of loaded custom formats.
@@ -136,6 +139,20 @@ type Catalogue struct {
 	Version   string
 	Formats   map[string]*Format // slug -> Format
 	Conflicts [][2]string        // pairs of slugs that must not both be enabled; empty in this bootstrap set
+}
+
+// NamesForRename renders matched format slugs for the {Custom Formats}
+// naming token, as Radarr does: the Name of each format included when
+// renaming, in the matched order, each name once (the Radarr and anime
+// copies of a streaming service share one). An unknown slug is dropped.
+func (c *Catalogue) NamesForRename(slugs []string) []string {
+	var names []string
+	for _, s := range slugs {
+		if f := c.Formats[s]; f != nil && f.IncludeInRename && !slices.Contains(names, f.Name) {
+			names = append(names, f.Name)
+		}
+	}
+	return names
 }
 
 // ItemContext supplies the facts a Condition needs that are not on the

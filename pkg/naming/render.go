@@ -327,7 +327,7 @@ func firstAudioCodec(mi commonv1.MediaInfo) string {
 	if !ok {
 		return ""
 	}
-	return a.Codec
+	return AudioCodecLabel(a.Codec, a.Profile)
 }
 
 // audioChannelLayout maps a raw channel count to the *arr channel-layout

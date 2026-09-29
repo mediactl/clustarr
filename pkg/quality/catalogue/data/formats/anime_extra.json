@@ -514,6 +514,7 @@
   {
     "slug": "vostfr",
     "name": "VOSTFR",
+    "includeInRename": true,
     "trashIds": {"radarr": "9172b2f683f6223e3a1846427b417a3d", "sonarr": "07a32f77690263bb9fda1842db7e273f"},
     "scores": {"default": -10000},
     "conditions": [
@@ -524,6 +525,7 @@
   {
     "slug": "anime-cr",
     "name": "CR",
+    "includeInRename": true,
     "trashIds": {"sonarr": "3e0b26604165f463f3e8e192261e7284"},
     "scores": {"anime-sonarr": 6},
     "conditions": [
@@ -535,6 +537,7 @@
   {
     "slug": "anime-dsnp",
     "name": "DSNP",
+    "includeInRename": true,
     "trashIds": {"sonarr": "89358767a60cc28783cdc3d0be9388a4"},
     "scores": {"anime-sonarr": 5},
     "conditions": [
@@ -546,6 +549,7 @@
   {
     "slug": "anime-nf",
     "name": "NF",
+    "includeInRename": true,
     "trashIds": {"sonarr": "d34870697c9db575f17700212167be23"},
     "scores": {"anime-sonarr": 4},
     "conditions": [
@@ -557,6 +561,7 @@
   {
     "slug": "anime-amzn",
     "name": "AMZN",
+    "includeInRename": true,
     "trashIds": {"sonarr": "d660701077794679fd59e8bdf4ce3a29"},
     "scores": {"anime-sonarr": 3},
     "conditions": [
@@ -568,6 +573,7 @@
   {
     "slug": "anime-funi",
     "name": "FUNi",
+    "includeInRename": true,
     "trashIds": {"sonarr": "1284d18e693de8efe0fe7d6b3e0b9170"},
     "scores": {"anime-sonarr": 2},
     "conditions": [
@@ -579,6 +585,7 @@
   {
     "slug": "anime-abema",
     "name": "ABEMA",
+    "includeInRename": true,
     "trashIds": {"sonarr": "a370d974bc7b80374de1d9ba7519760b"},
     "scores": {"anime-sonarr": 1},
     "conditions": [
@@ -590,6 +597,7 @@
   {
     "slug": "anime-adn",
     "name": "ADN",
+    "includeInRename": true,
     "trashIds": {"sonarr": "d54cd2bf1326287275b56bccedb72ee2"},
     "scores": {"anime-sonarr": 1},
     "conditions": [
@@ -601,6 +609,7 @@
   {
     "slug": "anime-b-global",
     "name": "B-Global",
+    "includeInRename": true,
     "trashIds": {"sonarr": "7dd31f3dee6d2ef8eeaa156e23c3857e"},
     "scores": {"anime-sonarr": 0},
     "conditions": [
@@ -612,6 +621,7 @@
   {
     "slug": "anime-bilibili",
     "name": "Bilibili",
+    "includeInRename": true,
     "trashIds": {"sonarr": "4c67ff059210182b59cdd41697b8cb08"},
     "scores": {"anime-sonarr": 0},
     "conditions": [
@@ -623,6 +633,7 @@
   {
     "slug": "anime-hidive",
     "name": "HIDIVE",
+    "includeInRename": true,
     "trashIds": {"sonarr": "570b03b3145a25011bf073274a407259"},
     "scores": {"anime-sonarr": 0},
     "conditions": [
@@ -634,6 +645,7 @@
   {
     "slug": "anime-wkn",
     "name": "WKN",
+    "includeInRename": true,
     "trashIds": {"sonarr": "e5e6405d439dcd1af90962538acd4fe0"},
     "scores": {"anime-sonarr": 0},
     "conditions": [
