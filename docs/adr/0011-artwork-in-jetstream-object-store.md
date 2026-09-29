@@ -140,3 +140,12 @@ the reaper has a gap or the cap needs raising. A second UI-like consumer
 needing these same images without a NATS connection of its own, which would
 argue for `ui/art.go`'s route (or an equivalent) becoming a shared library
 rather than duplicated per consumer.
+
+## Note (2026-09-29): search posters
+
+Add New's search hits have provider poster URLs and no artwork object.
+`GET /art/search` serves them: the ui fetches only a URL it signed, over
+https, from TMDB's, TVDB's, the Cover Art Archive's or Open Library's image
+host (a redirect too), only an image, capped at 5 MiB and kept for an hour.
+The browser still never loads a provider URL. This is the ui's first
+outbound HTTP; see `docs/superpowers/specs/2026-09-29-add-new-design.md`.

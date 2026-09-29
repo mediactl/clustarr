@@ -51,6 +51,10 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	// the real API reports "no such id" -- pkg/metadata maps it to
 	// metadata.ErrNotFound.
 	mux.HandleFunc("GET /find/{imdb}", serveFile(filepath.Join(recordedDir, "find_imdb_notfound.json"), logger))
+	// Add New's movie search (e2e scenario 19): every query answers the
+	// recorded "inception" search, whose second hit (613092) no other
+	// scenario owns.
+	mux.HandleFunc("GET /search/movie", serveFile(filepath.Join(recordedDir, "search_movie_inception.json"), logger))
 	// Fixture-owned movies: ids no recorded fixture uses, so a scenario can
 	// own a Movie outright instead of sharing Inception with every other
 	// scenario that plants tmdb-27205. They are embedded rather than read

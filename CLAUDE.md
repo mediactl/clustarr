@@ -59,6 +59,15 @@ In the TV pane, only series should be shown. Clicking a series should present a 
 
 Each item should show the cover art, monitored status and selected quality profile
 
+Each library page has an **Add New** (`/library/{tab}/add`, since
+2026-09-29): it searches its kind through catalogarr's metadata search RPC
+(TMDB movies, TVDB series, MusicBrainz artists, Open Library authors) and
+adds the chosen item through `ui/actions.AddItem`; an item the library
+already holds is found by `LibraryItem.ProviderID` and opened instead.
+Search posters are provider URLs, so they go through `/art/search` --
+signed by the ui, fetched only from the four providers' image hosts,
+capped and cached -- never straight to the browser (ADR-0011).
+
 ## Invariants — do not break these
 
 - **One controller-writer per resource.** The sole exception is `MediaFile`, and
@@ -102,10 +111,19 @@ Each item should show the cover art, monitored status and selected quality profi
   SubtitleProfile, TranscodeProfile, and ImportList from the Import Lists
   page) and create or patch the Secrets their
   credentials live in, never reading one (the role grants no get, list or
-  watch on secrets). So anything the UI does, `kubectl` can do.
-- **The UI may hold a read-only bus connection.** Since M7, `cmd/clustarr`'s
-  ui command calls `k8s.ConnectBus` and passes `Bus.ObjectStore(...)` into
-  `ui.Options.Artwork` to serve `/art`; `ui/` still never imports `pkg/k8s`.
+  watch on secrets) -- and, since Add New
+  (`docs/superpowers/specs/2026-09-29-add-new-design.md`), create a Movie,
+  Series, Artist or Author with spec only, named by `pkg/names` as
+  importarr names it (the role's `create` on those four). So anything the
+  UI does, `kubectl` can do.
+- **The UI may hold a bus connection for reads plus one request.** Since M7,
+  `cmd/clustarr`'s ui command calls `k8s.ConnectBus` and passes
+  `Bus.ObjectStore(...)` into `ui.Options.Artwork` to serve `/art`; since
+  Add New (2026-09-29) it also passes `ui.Options.MetadataSearch`, a
+  function it binds to `rpc.catalogarr.metadata.search`, so the ui never
+  holds a requester and can ask nothing else -- `TestUINeverWrites` bans
+  `Request`, `Publish` and `Serve` anywhere in `ui/`. `ui/` still never
+  imports `pkg/k8s`.
   `TestUINeverWrites`' AST guard extends its banned-selector list with every
   object-store write method (`Put`, `PutBytes`, `UpdateMeta`, `Seal`,
   `AddLink`, `Purge`) so a NATS write is caught the same way a Kubernetes
