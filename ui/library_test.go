@@ -461,7 +461,9 @@ func TestLibraryTabRendersItsOwnCardsWithArtYearAndProfile(t *testing.T) {
 	require.Contains(t, body, `data-year="2022"`)
 	require.Contains(t, body, `data-monitored="false"`)
 	require.Contains(t, body, `data-poster="none"`, "no poster yet renders a placeholder")
-	require.NotContains(t, body, `<img`, "no poster means no image tag")
+	inset := strings.Index(body, `data-slot="sidebar-inset"`)
+	require.Greater(t, inset, 0)
+	require.NotContains(t, body[inset:], `<img`, "no poster means no image tag in the page body (the sidebar's brand mark is outside it)")
 	require.Contains(t, body, `sse-connect="/events/library/tv?page=1&amp;per=50"`, "the stream carries the page's own window")
 	for _, tab := range projection.Tabs() {
 		require.Contains(t, body, fmt.Sprintf(`hx-get="/library/%s"`, tab), "every tab is reachable from the strip")

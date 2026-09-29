@@ -188,3 +188,22 @@ func TestStaticRouteServesTheJumpTracker(t *testing.T) {
 		require.Contains(t, rec.Body.String(), class, "ui/static/app.css lacks %s, which the draggable thumb wears; run `make css`", class)
 	}
 }
+
+// TestStaticRouteServesTheClustarrMark: the mark and its rasters are
+// embedded like every other static asset, under the types a browser needs
+// to use them as a favicon and a touch icon.
+func TestStaticRouteServesTheClustarrMark(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{})
+	for path, want := range map[string]struct{ contentType, prefix string }{
+		"/static/logo.svg":             {"image/svg+xml", "<svg"},
+		"/static/favicon.svg":          {"image/svg+xml", "<svg"},
+		"/static/favicon-32.png":       {"image/png", "\x89PNG"},
+		"/static/apple-touch-icon.png": {"image/png", "\x89PNG"},
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		require.Contains(t, rec.Header().Get("Content-Type"), want.contentType, path)
+		require.True(t, strings.HasPrefix(rec.Body.String(), want.prefix), "%s starts with %q", path, want.prefix)
+	}
+}

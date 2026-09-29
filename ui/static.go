@@ -32,11 +32,14 @@ import (
 // ui/views/layout.templ links, and the Open Sans face the Plex theme names
 // (ui/theme/plex.json): the latin and latin-ext variable woff2 subsets under
 // static/fonts, self-hosted so a page never fetches its text face from a
-// third party, with the OFL beside them. input.css itself is deliberately
-// not embedded or served -- it is a build-time input, consumed only by
-// `make css`, not a runtime asset.
+// third party, with the OFL beside them; and the Clustarr mark
+// (static/logo.svg, the sidebar brand) with its favicon and touch-icon
+// rasters (favicon.svg, favicon-32.png, apple-touch-icon.png), which
+// ui/views/layout.templ links from every page's head. input.css itself is
+// deliberately not embedded or served -- it is a build-time input, consumed
+// only by `make css`, not a runtime asset.
 //
-//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/jump.js static/settings.js static/fonts/*.woff2 static/js/*.js
+//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/jump.js static/settings.js static/fonts/*.woff2 static/js/*.js static/logo.svg static/favicon.svg static/favicon-32.png static/apple-touch-icon.png
 var staticFiles embed.FS
 
 // The distroless image has no /etc/mime.types, so Go's table would serve a

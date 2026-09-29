@@ -314,3 +314,30 @@ func TestLibraryScrollsInsteadOfPaging(t *testing.T) {
 	body = get("/library/movies?page=1&per=25")
 	require.NotContains(t, body, `data-load-prev`, "nothing earlier than the first page")
 }
+
+// TestLayoutCarriesTheClustarrMark: the mark (ui/static/logo.svg, derived
+// from the Servarr family mark in the theme's own palette, 2026-09-29) is
+// the page's favicon and touch icon and sits in the sidebar header beside
+// the wordmark, staying on its own when the sidebar collapses to icons.
+func TestLayoutCarriesTheClustarrMark(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry { return nil }})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+
+	headEnd := strings.Index(body, "</head>")
+	require.Greater(t, headEnd, 0)
+	head := body[:headEnd]
+	requireTag(t, head, `href="/static/favicon.svg"`, `rel="icon"`)
+	requireTag(t, head, `href="/static/favicon-32.png"`, `rel="icon"`)
+	requireTag(t, head, `href="/static/apple-touch-icon.png"`, `rel="apple-touch-icon"`)
+
+	inset := strings.Index(body, `data-slot="sidebar-inset"`)
+	require.Greater(t, inset, 0)
+	sidebarHTML := body[:inset]
+	brand := tagWith(t, sidebarHTML, `src="/static/logo.svg"`)
+	require.Contains(t, brand, `alt="Clustarr"`)
+	require.NotContains(t, brand, "collapsible=icon]:hidden", "the mark stays when the sidebar collapses; only the wordmark hides")
+	require.Contains(t, sidebarHTML, `class="group-data-[collapsible=icon]:hidden">Clustarr</span>`)
+}

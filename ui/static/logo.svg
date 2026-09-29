@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Clustarr">
+  <!-- Clustarr mark: a hub hexagon and six satellite hexagons on a dark disc,
+       derived from the Servarr family mark; colours are the UI theme's. -->
+  <circle cx="512.0" cy="512.0" r="512" fill="#1f2326"/>
+  <circle cx="512.0" cy="512.0" r="478" fill="none" stroke="#e5a00d" stroke-width="14"/>
+  <line x1="512.0" y1="340.0" x2="512.0" y2="268.0" stroke="#e5a00d" stroke-width="22" stroke-linecap="round"/>
+  <line x1="661.0" y1="426.0" x2="723.3" y2="390.0" stroke="#e5a00d" stroke-width="22" stroke-linecap="round"/>
+  <line x1="661.0" y1="598.0" x2="723.3" y2="634.0" stroke="#e5a00d" stroke-width="22" stroke-linecap="round"/>
+  <line x1="512.0" y1="684.0" x2="512.0" y2="756.0" stroke="#e5a00d" stroke-width="22" stroke-linecap="round"/>
+  <line x1="363.0" y1="598.0" x2="300.7" y2="634.0" stroke="#e5a00d" stroke-width="22" stroke-linecap="round"/>
+  <line x1="363.0" y1="426.0" x2="300.7" y2="390.0" stroke="#e5a00d" stroke-width="22" stroke-linecap="round"/>
+  <polygon points="512.0,362.0 641.9,437.0 641.9,587.0 512.0,662.0 382.1,587.0 382.1,437.0" fill="#e5a00d"/>
+  <polygon points="512.0,106.0 576.1,143.0 576.1,217.0 512.0,254.0 447.9,217.0 447.9,143.0" fill="#f4f4f5"/>
+  <polygon points="799.5,272.0 863.6,309.0 863.6,383.0 799.5,420.0 735.4,383.0 735.4,309.0" fill="#f4f4f5"/>
+  <polygon points="799.5,604.0 863.6,641.0 863.6,715.0 799.5,752.0 735.4,715.0 735.4,641.0" fill="#f4f4f5"/>
+  <polygon points="512.0,770.0 576.1,807.0 576.1,881.0 512.0,918.0 447.9,881.0 447.9,807.0" fill="#f4f4f5"/>
+  <polygon points="224.5,604.0 288.6,641.0 288.6,715.0 224.5,752.0 160.4,715.0 160.4,641.0" fill="#f4f4f5"/>
+  <polygon points="224.5,272.0 288.6,309.0 288.6,383.0 224.5,420.0 160.4,383.0 160.4,309.0" fill="#f4f4f5"/>
+</svg>
