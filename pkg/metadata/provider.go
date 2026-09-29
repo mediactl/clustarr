@@ -87,6 +87,20 @@ type SeriesProvider interface {
 	Updates(ctx context.Context, since time.Time) ([]string, error)
 }
 
+// SeriesSearcher is a SeriesProvider that can also search by title. It is
+// separate because SeriesProvider's methods are pinned to the design spec,
+// which gives it no search; the metadata search RPC asks each configured
+// series provider whether it is one (Add New, 2026-09-29).
+type SeriesSearcher interface {
+	SearchSeries(ctx context.Context, q string) ([]SearchHit, error)
+}
+
+// AuthorSearcher is a BookProvider that can also search authors by name,
+// which Add New's author add needs: SearchBooks finds works, not authors.
+type AuthorSearcher interface {
+	SearchAuthors(ctx context.Context, q string) ([]SearchHit, error)
+}
+
 // ArtistProvider fetches artists and their albums.
 type ArtistProvider interface {
 	Provider

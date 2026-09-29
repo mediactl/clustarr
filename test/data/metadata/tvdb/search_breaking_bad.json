@@ -1,0 +1,42 @@
+{
+  "status": "success",
+  "data": [
+    {
+      "objectID": "series-81189",
+      "tvdb_id": "81189",
+      "name": "Breaking Bad",
+      "year": "2008",
+      "image_url": "https://artworks.thetvdb.com/banners/posters/81189-10.jpg",
+      "thumbnail": "https://artworks.thetvdb.com/banners/posters/81189-10_t.jpg",
+      "type": "series",
+      "translations": {
+        "eng": "Breaking Bad",
+        "spa": "Breaking Bad"
+      }
+    },
+    {
+      "objectID": "series-306432",
+      "tvdb_id": "306432",
+      "name": "Breaking Band",
+      "year": "2016",
+      "image_url": "https://artworks.thetvdb.com/banners/images/missing/series.jpg",
+      "thumbnail": null,
+      "type": "series",
+      "translations": {
+        "eng": "Breaking Band"
+      }
+    },
+    {
+      "objectID": "series-348998",
+      "tvdb_id": "348998",
+      "name": "Breaking The Band",
+      "year": "2018",
+      "image_url": "https://artworks.thetvdb.com/banners/posters/5b22b772b154b.jpg",
+      "thumbnail": "https://artworks.thetvdb.com/banners/posters/5b22b772b154b_t.jpg",
+      "type": "series",
+      "translations": {
+        "eng": "Breaking The Band"
+      }
+    }
+  ]
+}
