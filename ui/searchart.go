@@ -110,7 +110,8 @@ func (a *searchArt) allowed(u *url.URL) bool { return u.Scheme == "https" && a.h
 
 func (a *searchArt) checkRedirect(req *http.Request, via []*http.Request) error {
 	u := req.URL
-	if len(via) >= 3 || !(a.allowed(u) || (u.Scheme == "https" && a.redirectHost(u.Host))) {
+	reachable := a.allowed(u) || (u.Scheme == "https" && a.redirectHost(u.Host))
+	if len(via) >= 3 || !reachable {
 		return errSearchArtRefused
 	}
 	return nil

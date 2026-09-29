@@ -29,6 +29,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -38,7 +40,6 @@ import (
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // defaultAddSearchTimeout bounds one Add New metadata search (spec: 10 s).

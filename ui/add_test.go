@@ -121,7 +121,7 @@ func TestAddSearchErrors(t *testing.T) {
 		search ui.MetadataSearch
 		want   string
 	}{
-		"not responding":   {slow, "Metadata search is not responding"},
+		"not responding": {slow, "Metadata search is not responding"},
 		"catalogarr down": {func(context.Context, schema.MetadataRequest) (schema.MetadataResponse, error) {
 			return schema.MetadataResponse{}, fmt.Errorf("natsbus: %q: %w", "rpc.catalogarr.metadata.search", events.ErrNoResponders)
 		}, "Metadata search is not responding"},
