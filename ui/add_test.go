@@ -181,11 +181,25 @@ func TestAddOfAnItemAlreadyInTheLibraryGoesToIt(t *testing.T) {
 	require.Empty(t, list.Items)
 }
 
+// TestAddRejectionRerendersTheForm: a rejected add shows the error with the
+// owner's search and choices as they were, the form open, so nothing is
+// typed or chosen twice (spec: Errors).
 func TestAddRejectionRerendersTheForm(t *testing.T) {
 	srv, _ := addServer(t, hits(commonv1.MediaKindMovie), moviesRoot, hdProfile)
-	rec := post(t, srv, "/library/movies/add", url.Values{"title": {"No Root"}, "id": {"550"}, "qualityProfile": {"hd"}, "monitor": {"movieOnly"}})
+	rec := post(t, srv, "/library/movies/add", url.Values{
+		"q": {"fight"}, "title": {"Fight Club"}, "id": {"550"}, "rootFolder": {"library/movies"},
+		"qualityProfile": {""}, "monitor": {"none"}, "minimumAvailability": {"inCinemas"},
+		"monitored": {"false"}, "searchOnAdd": {"false"},
+	})
 	require.NotEqual(t, http.StatusSeeOther, rec.Code)
-	requireTag(t, rec.Body.String(), `data-action-error=`, `data-slot="alert"`)
+	body := rec.Body.String()
+	requireTag(t, body, `data-action-error=`, `data-slot="alert"`)
+	requireTag(t, body, `name="q"`, `value="fight"`)
+	requireTag(t, body, `data-add-hit="550"`)
+	require.Regexp(t, `<details[^>]*\bopen\b`, body, "the rejected hit's form is open")
+	requireTag(t, body, `name="monitor"`, `value="none"`)
+	requireTag(t, body, `name="minimumAvailability"`, `value="inCinemas"`)
+	require.NotRegexp(t, `id="add-monitored-550"[^>]*\bchecked\b`, body, "an unticked box stays unticked")
 }
 
 func TestAddPageOffersTheKindsOwnChoices(t *testing.T) {

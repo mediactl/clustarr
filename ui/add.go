@@ -155,13 +155,15 @@ func (s *Server) handleAddPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderAddPage(w, r, k, http.StatusOK, "", "")
+	s.renderAddPage(w, r, k, http.StatusOK, views.AddPageData{})
 }
 
-func (s *Server) renderAddPage(w http.ResponseWriter, r *http.Request, k views.AddKind, status int, code, errMsg string) {
+// renderAddPage renders the Add New page from d, which carries the error
+// and the owner's search and form after a rejected add.
+func (s *Server) renderAddPage(w http.ResponseWriter, r *http.Request, k views.AddKind, status int, d views.AddPageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	d := views.AddPageData{Kind: k, Available: s.opts.MetadataSearch != nil, ErrorCode: code, Error: errMsg}
+	d.Kind, d.Available = k, s.opts.MetadataSearch != nil
 	if err := views.AddPage(d).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render add page", "error", err)
 	}
@@ -242,7 +244,7 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.renderAddPage(w, r, k, http.StatusBadRequest, "invalid", "The form could not be read.")
+		s.renderAddPage(w, r, k, http.StatusBadRequest, views.AddPageData{ErrorCode: "invalid", Error: "The form could not be read."})
 		return
 	}
 	id := r.PostFormValue("id")
@@ -259,9 +261,7 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 	posted := r.PostFormValue("rootFolder")
 	roots, _ := s.addChoices(r.Context(), k)
 	if !slices.ContainsFunc(roots, func(o views.AddOption) bool { return o.Value == posted }) {
-		err := fmt.Errorf("%w: %q is not a %s root folder", actions.ErrInvalid, posted, k.Label)
-		code, status := actionErrorCode(err)
-		s.renderAddPage(w, r, k, status, code, err.Error())
+		s.rejectAdd(w, r, k, fmt.Errorf("%w: %q is not a %s root folder", actions.ErrInvalid, posted, k.Label))
 		return
 	}
 	ns, root, _ := strings.Cut(posted, "/")
@@ -275,9 +275,7 @@ func (s *Server) handleAddCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	name, _, err := s.opts.Actions.AddItem(r.Context(), req)
 	if err != nil {
-		code, status := actionErrorCode(err)
-		logging.FromContext(r.Context()).Error("add rejected", "kind", k.Kind, "error", err, "code", code)
-		s.renderAddPage(w, r, k, status, code, err.Error())
+		s.rejectAdd(w, r, k, err)
 		return
 	}
 	http.Redirect(w, r, "/library/"+ns+"/"+string(k.Kind)+"/"+name, http.StatusSeeOther)
@@ -315,4 +313,18 @@ func (s *Server) justAdded(ctx context.Context, namespace, kind, name string) bo
 		return false
 	}
 	return s.opts.Reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, obj) == nil
+}
+
+// rejectAdd re-renders the Add New page with err and the owner's search and
+// form as they submitted them, the rejected hit's form open (spec: Errors).
+func (s *Server) rejectAdd(w http.ResponseWriter, r *http.Request, k views.AddKind, err error) {
+	code, status := actionErrorCode(err)
+	logging.FromContext(r.Context()).Error("add rejected", "kind", k.Kind, "error", err, "code", code)
+	id, q := r.PostFormValue("id"), r.PostFormValue("q")
+	res := &views.AddResultsData{
+		Kind: k, Query: q, OpenID: id, Posted: r.PostForm,
+		Hits: []views.AddHit{{ID: id, Title: r.PostFormValue("title")}},
+	}
+	res.RootFolders, res.Profiles = s.addChoices(r.Context(), k)
+	s.renderAddPage(w, r, k, status, views.AddPageData{ErrorCode: code, Error: err.Error(), Query: q, Results: res})
 }
