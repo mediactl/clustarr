@@ -108,6 +108,8 @@ type corpusFormat struct {
 	Name           string                `json:"name"`
 	TrashScores    map[string]float64    `json:"trash_scores"`
 	Specifications []corpusSpecification `json:"specifications"`
+	// IncludeInRename is TRaSH's includeCustomFormatWhenRenaming.
+	IncludeInRename bool `json:"includeCustomFormatWhenRenaming"`
 }
 
 // resolvedCondition is a manifestCondition after its value has been looked
@@ -146,4 +148,6 @@ type resolvedFormat struct {
 	Scores     []scoreEntry
 	Group      string
 	Conditions []resolvedCondition
+	// IncludeInRename is the first app's corpus includeCustomFormatWhenRenaming.
+	IncludeInRename bool
 }

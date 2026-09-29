@@ -97,13 +97,17 @@ func renderScores(scores []scoreEntry) string {
 
 // renderFormat renders one format fully expanded: one field per line, one
 // condition per line, matching formatJSON's own field order (Slug, Name,
-// TrashIDs, Scores, Group, Conditions) -- Group is omitted entirely when
-// empty (most formats carry no FormatGroup), never emitted as "".
+// TrashIDs, Scores, Group, Conditions), with includeInRename after Name --
+// Group and includeInRename are omitted entirely when empty or false (most
+// formats carry neither), never emitted as "" or false.
 func renderFormat(f resolvedFormat) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  {\n")
 	fmt.Fprintf(&b, "    \"slug\": %s,\n", jsonString(f.Slug))
 	fmt.Fprintf(&b, "    \"name\": %s,\n", jsonString(f.Name))
+	if f.IncludeInRename {
+		fmt.Fprintf(&b, "    \"includeInRename\": true,\n")
+	}
 	fmt.Fprintf(&b, "    \"trashIds\": %s,\n", renderTrashIDs(f.TrashIDs))
 	if f.Group != "" {
 		fmt.Fprintf(&b, "    \"scores\": %s,\n", renderScores(f.Scores))

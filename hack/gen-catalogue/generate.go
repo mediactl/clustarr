@@ -213,7 +213,7 @@ func resolveFormat(idx corpusIndexes, mf manifestFormat) (resolvedFormat, error)
 		scores = append(scores, scoreEntry(s))
 	}
 
-	rf := resolvedFormat{Slug: mf.Slug, Name: firstCF.Name, TrashIDs: mf.Apps, Scores: scores, Group: mf.Group}
+	rf := resolvedFormat{Slug: mf.Slug, Name: firstCF.Name, TrashIDs: mf.Apps, Scores: scores, Group: mf.Group, IncludeInRename: firstCF.IncludeInRename}
 	for _, mc := range mf.Conditions {
 		rc, err := resolveCondition(idx, mf.Apps, mc)
 		if err != nil {
