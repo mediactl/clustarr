@@ -20,7 +20,6 @@ package importlist
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -29,6 +28,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/names"
 )
 
 // FieldManager is the server-side-apply field manager every catalog-item
@@ -94,18 +94,14 @@ func mapMonitorNewItems(mode catalogv1alpha1.MonitorNewItemsMode) catalogv1alpha
 	return catalogv1alpha1.MonitorNewChildrenAll
 }
 
-// movieName is the deterministic name a Movie for tmdbID gets, matching
-// app/import/worker/rescan's own naming exactly (k8s.ChildName hashes
-// "movie"+tmdbID, not title) so a list sync and a library scan that
+// movieName is the deterministic name a Movie for tmdbID gets
+// (names.Movie), matching app/import/worker/rescan's own naming and the
+// UI's Add New exactly, so a list sync, a library scan and an add that
 // identify the same film always agree on one object.
-func movieName(title string, tmdbID int64) string {
-	return k8s.ChildName(title, "movie", strconv.FormatInt(tmdbID, 10))
-}
+func movieName(title string, tmdbID int64) string { return names.Movie(title, tmdbID) }
 
-// seriesName is movieName's series counterpart, hashing "series"+tvdbID.
-func seriesName(title string, tvdbID int64) string {
-	return k8s.ChildName(title, "series", strconv.FormatInt(tvdbID, 10))
-}
+// seriesName is movieName's series counterpart (names.Series).
+func seriesName(title string, tvdbID int64) string { return names.Series(title, tvdbID) }
 
 // catalogName is the name kind's item for id gets: movieName or seriesName.
 func catalogName(kind commonv1.MediaKind, title string, id int64) string {
