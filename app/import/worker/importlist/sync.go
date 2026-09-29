@@ -156,6 +156,13 @@ func syncKind(
 			newSnapshot = append(newSnapshot, prev)
 		}
 	}
+	var library map[int64]libraryItem
+	if autoAdd {
+		library, err = libraryByID(ctx, deps.Client, il.Namespace, il.Name, kind)
+		if err != nil {
+			return kindResult{fetched: int32(len(fetched)), excluded: excludedCount, err: err}
+		}
+	}
 	var added int32
 	for _, item := range included {
 		id, err := resolveRequiredID(ctx, deps, kind, item.ExternalIDs)
@@ -187,12 +194,28 @@ func syncKind(
 			continue
 		}
 
-		var objectName string
+		objectName := catalogName(kind, item.Title, id)
+		if held, ok := library[id]; ok {
+			if held.listRef != il.Name {
+				// Added by hand, by a library rescan or by another list:
+				// not this list's to change or remove. Radarr skips a list
+				// movie already in the library. Remembered as listed, so
+				// another list's syncLevel still sees it wanted.
+				log.Debug("importlist: already in the library, added elsewhere; leaving it",
+					"title", item.Title, "object", held.name, "addedBy", held.listRef)
+				newSnapshot = append(newSnapshot, StoredItem{
+					Item: item, ObjectKind: string(kind), ObjectName: held.name,
+					ResolvedID: id, ListedOnly: true,
+				})
+				continue
+			}
+			objectName = held.name
+		}
 		switch kind {
 		case commonv1.MediaKindMovie:
-			objectName, err = applyMovie(ctx, deps.Client, il.Namespace, il.Name, item, il.Spec.Defaults, id)
+			_, err = applyMovie(ctx, deps.Client, il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
 		case commonv1.MediaKindSeries:
-			objectName, err = applySeries(ctx, deps.Client, il.Namespace, il.Name, item, il.Spec.Defaults, id)
+			_, err = applySeries(ctx, deps.Client, il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
 		}
 		if err != nil {
 			log.Warn("importlist: could not apply catalog item; skipping entry",
@@ -285,8 +308,8 @@ func syncKind(
 
 // listedElsewhere returns the name of another enabled ImportList in il's
 // namespace whose last sync still remembers si's catalog object, or "" when
-// none does. Two lists naming the same film share one Movie (the name hashes
-// the TMDB id), so without this a list dropping it would unmonitor, remove
+// none does. Two lists naming the same film share one Movie (the second
+// finds the first's by TMDB id and records it as listed), so without this a list dropping it would unmonitor, remove
 // or -- under removeAndDelete -- recycle the files of something a second
 // list still wants.
 func listedElsewhere(

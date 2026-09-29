@@ -34,24 +34,22 @@ import (
 // FieldManager is the server-side-apply field manager every catalog-item
 // write in this package uses: k8s.ManagerImportarrWorker, not
 // k8s.ManagerImportarr. That constant's own doc comment names "an importarr
-// scan, list or file-import worker" as its three co-owners and explicitly
-// calls out that "the library-rescan worker also applies MovieSpec under
-// this name when it creates the Movie a scanned file is attributed to" --
-// this package is the "list" co-owner that same comment anticipates.
+// scan, list or file-import worker" as its three co-owners; this package is
+// the "list" one.
 //
-// Sharing one manager name with app/import/worker/rescan is deliberate, not
-// an oversight: a movie already in the library (created by a scan) that
-// also appears on a followed list, and a movie a list adds that a later
-// scan finds a file for, are the SAME Movie object under
-// [k8s.ChildName]'s deterministic naming (hash of "movie"+tmdbID, title-
-// independent) -- so the second writer is meant to update the first
-// writer's object, not collide with it. What CLAUDE.md's field-manager
-// gotchas warn against is a LATER apply that sends FEWER fields than an
-// earlier one silently releasing the difference; this package avoids that
-// by always sending its own complete, self-consistent field set on every
-// apply (see applyMovie/applySeries below), never a partial one, so it can
-// only ever gain ownership of a field rescan did not send, never release
-// one rescan is still asserting.
+// A list writes only the items it added itself. syncKind finds every item
+// already in the namespace by the provider id its kind is keyed on
+// (libraryByID) and leaves one it did not add -- added by hand, by a
+// library rescan or by another list -- exactly as it is, the way Radarr
+// skips a list movie already in the library. Before that rule a list
+// applied its defaults, under force, over any item of the same name, so it
+// took a hand-added item's root folder and profile, and two lists took one
+// Movie from each other on alternate syncs; and an item of the same id
+// under another title (item names hash the title as well as the id) got a
+// second, duplicate object. Every apply still sends this package's
+// complete, self-consistent field set (see applyMovie/applySeries), never a
+// partial one, since a narrower send from the same manager releases the
+// difference.
 const FieldManager = k8s.ManagerImportarrWorker
 
 // resolveMonitored applies the "item override, else list default" rule
@@ -111,15 +109,61 @@ func catalogName(kind commonv1.MediaKind, title string, id int64) string {
 	return movieName(title, id)
 }
 
-// applyMovie creates or updates the Movie item identifies, under
-// [FieldManager]. It always sends the complete set of fields this package
+// libraryItem is a catalog item already in the namespace.
+type libraryItem struct {
+	name string
+	// listRef is spec.source.importListRef: the list that added the item,
+	// or "" for one added by hand or by a library rescan.
+	listRef string
+}
+
+// libraryByID returns kind's items in namespace by the provider id the
+// kind is keyed on (tmdbID for a movie, tvdbID for a series), so a sync
+// finds an item whatever title it was named under. Where two items carry
+// one id, the one listName added wins, so the list keeps acting on its own.
+func libraryByID(
+	ctx context.Context, c client.Client, namespace, listName string, kind commonv1.MediaKind,
+) (map[int64]libraryItem, error) {
+	out := map[int64]libraryItem{}
+	put := func(id int64, name string, src *commonv1.AddSource) {
+		it := libraryItem{name: name}
+		if src != nil {
+			it.listRef = src.ImportListRef
+		}
+		if prev, ok := out[id]; ok && prev.listRef == listName {
+			return
+		}
+		out[id] = it
+	}
+	switch kind {
+	case commonv1.MediaKindMovie:
+		var l catalogv1alpha1.MovieList
+		if err := c.List(ctx, &l, client.InNamespace(namespace)); err != nil {
+			return nil, fmt.Errorf("importlist: list movies: %w", err)
+		}
+		for i := range l.Items {
+			put(l.Items[i].Spec.TmdbID, l.Items[i].Name, l.Items[i].Spec.Source)
+		}
+	case commonv1.MediaKindSeries:
+		var l catalogv1alpha1.SeriesList
+		if err := c.List(ctx, &l, client.InNamespace(namespace)); err != nil {
+			return nil, fmt.Errorf("importlist: list series: %w", err)
+		}
+		for i := range l.Items {
+			put(l.Items[i].Spec.TvdbID, l.Items[i].Name, l.Items[i].Spec.Source)
+		}
+	}
+	return out, nil
+}
+
+// applyMovie creates or updates the Movie named name, which item
+// identifies, under [FieldManager]. It always sends the complete set of fields this package
 // ever sets -- see FieldManager's doc comment for why a partial send would
 // be unsafe here.
 func applyMovie(
-	ctx context.Context, c client.Client, namespace, listName string,
+	ctx context.Context, c client.Client, namespace, listName, name string,
 	item importlist.Item, defaults catalogv1alpha1.ListDefaults, tmdbID int64,
 ) (string, error) {
-	name := movieName(item.Title, tmdbID)
 	spec := catalogac.MovieSpec().
 		WithTmdbID(tmdbID).
 		WithMonitored(resolveMonitored(item.Monitored, defaults.Monitored)).
@@ -147,10 +191,9 @@ func applyMovie(
 
 // applySeries is applyMovie's series counterpart.
 func applySeries(
-	ctx context.Context, c client.Client, namespace, listName string,
+	ctx context.Context, c client.Client, namespace, listName, name string,
 	item importlist.Item, defaults catalogv1alpha1.ListDefaults, tvdbID int64,
 ) (string, error) {
-	name := seriesName(item.Title, tvdbID)
 	spec := catalogac.SeriesSpec().
 		WithTvdbID(tvdbID).
 		WithMonitored(resolveMonitored(item.Monitored, defaults.Monitored)).
@@ -197,7 +240,7 @@ func unmonitorMovie(
 ) error {
 	item := si.Item
 	item.Monitored = boolPtr(false)
-	if _, err := applyMovie(ctx, c, namespace, listName, item, defaults, si.ResolvedID); err != nil {
+	if _, err := applyMovie(ctx, c, namespace, listName, si.ObjectName, item, defaults, si.ResolvedID); err != nil {
 		return fmt.Errorf("importlist: unmonitor movie %s: %w", si.ObjectName, err)
 	}
 	return nil
@@ -209,7 +252,7 @@ func unmonitorSeries(
 ) error {
 	item := si.Item
 	item.Monitored = boolPtr(false)
-	if _, err := applySeries(ctx, c, namespace, listName, item, defaults, si.ResolvedID); err != nil {
+	if _, err := applySeries(ctx, c, namespace, listName, si.ObjectName, item, defaults, si.ResolvedID); err != nil {
 		return fmt.Errorf("importlist: unmonitor series %s: %w", si.ObjectName, err)
 	}
 	return nil

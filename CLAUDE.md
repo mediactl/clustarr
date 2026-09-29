@@ -64,6 +64,11 @@ Each library page has an **Add New** (`/library/{tab}/add`, since
 (TMDB movies, TVDB series, MusicBrainz artists, Open Library authors) and
 adds the chosen item through `ui/actions.AddItem`; an item the library
 already holds is found by `LibraryItem.ProviderID` and opened instead.
+An import list likewise finds an item by provider id
+(`importlist.libraryByID`) and writes only the items it added itself:
+one added by hand, by a rescan or by another list is recorded as listed
+and never changed or removed by it (Radarr), since item names hash the
+title as well as the id.
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).
