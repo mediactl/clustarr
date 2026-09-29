@@ -1,0 +1,156 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package ui
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+)
+
+const (
+	// searchArtMaxBytes caps a proxied search poster.
+	searchArtMaxBytes = 5 << 20
+	// searchArtEntries and searchArtTTL bound the poster cache.
+	searchArtEntries = 256
+	searchArtTTL     = time.Hour
+)
+
+// searchArtHosts are the only hosts /art/search fetches from: the image
+// hosts of the providers Add New searches -- TMDB, TVDB, MusicBrainz's
+// Cover Art Archive and Open Library.
+var searchArtHosts = map[string]bool{
+	"image.tmdb.org":         true,
+	"artworks.thetvdb.com":   true,
+	"coverartarchive.org":    true,
+	"covers.openlibrary.org": true,
+}
+
+var errSearchArtRefused = errors.New("ui: search art: refused")
+
+type cachedArt struct {
+	body        []byte
+	contentType string
+	at          time.Time
+}
+
+// searchArt serves an Add New search hit's poster (GET /art/search) so the
+// browser never loads a provider URL (ADR-0011): a hit has a provider
+// poster URL and no artwork object. It fetches only a URL it signed
+// itself, only over https, only from searchArtHosts -- a redirect too --
+// only an image, and at most searchArtMaxBytes; it keeps the last
+// searchArtEntries for searchArtTTL. The signing key is per process, so a
+// signed URL is good until the ui restarts.
+type searchArt struct {
+	key    []byte
+	hosts  map[string]bool
+	client *http.Client
+	cache  *lru.Cache[string, cachedArt]
+}
+
+func newSearchArt() *searchArt {
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	cache, _ := lru.New[string, cachedArt](searchArtEntries)
+	a := &searchArt{key: key, hosts: searchArtHosts, cache: cache}
+	a.client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: a.checkRedirect}
+	return a
+}
+
+func (a *searchArt) allowed(u *url.URL) bool { return u.Scheme == "https" && a.hosts[u.Host] }
+
+func (a *searchArt) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 3 || !a.allowed(req.URL) {
+		return errSearchArtRefused
+	}
+	return nil
+}
+
+func (a *searchArt) sign(src string) string {
+	m := hmac.New(sha256.New, a.key)
+	_, _ = m.Write([]byte(src))
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+// URL is the ui path a template renders for a provider poster, or "" for
+// one it will not fetch, which the template shows as a placeholder.
+func (a *searchArt) URL(src string) string {
+	u, err := url.Parse(src)
+	if src == "" || err != nil || !a.allowed(u) {
+		return ""
+	}
+	return "/art/search?src=" + url.QueryEscape(src) + "&sig=" + a.sign(src)
+}
+
+func (a *searchArt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	src, sig := r.URL.Query().Get("src"), r.URL.Query().Get("sig")
+	u, err := url.Parse(src)
+	if err != nil || !a.allowed(u) || !hmac.Equal([]byte(sig), []byte(a.sign(src))) {
+		http.Error(w, "not a signed search poster", http.StatusForbidden)
+		return
+	}
+	art, ok := a.cache.Get(src)
+	if !ok || time.Since(art.at) > searchArtTTL {
+		art, err = a.fetch(r.Context(), src)
+		if err != nil {
+			logging.FromContext(r.Context()).Debug("search poster refused", "src", src, "error", err)
+			http.Error(w, "poster unavailable", http.StatusBadGateway)
+			return
+		}
+		a.cache.Add(src, art)
+	}
+	w.Header().Set("Content-Type", art.contentType)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	_, _ = w.Write(art.body)
+}
+
+func (a *searchArt) fetch(ctx context.Context, src string) (cachedArt, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
+	if err != nil {
+		return cachedArt{}, err
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return cachedArt{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	ct := resp.Header.Get("Content-Type")
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(ct, "image/") {
+		return cachedArt{}, errSearchArtRefused
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, searchArtMaxBytes+1))
+	if err != nil {
+		return cachedArt{}, err
+	}
+	if len(body) > searchArtMaxBytes {
+		return cachedArt{}, errSearchArtRefused
+	}
+	return cachedArt{body: body, contentType: ct, at: time.Now()}, nil
+}
