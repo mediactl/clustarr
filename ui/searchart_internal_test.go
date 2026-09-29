@@ -111,3 +111,20 @@ func TestSearchArtIsRouted(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/art/search?src=https://image.tmdb.org/x.jpg", nil))
 	require.Equal(t, http.StatusForbidden, rec.Code)
 }
+
+// TestSearchArtCacheIsBoundedInBytes: the cache fits the ui pod's memory
+// limit however large the posters are, not merely by entry count.
+func TestSearchArtCacheIsBoundedInBytes(t *testing.T) {
+	fetched := map[string]int{}
+	a, base := newTestSearchArt(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched[r.URL.Path]++
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 40))
+	}))
+	a.maxCacheBytes = 100
+	for _, p := range []string{"/a.jpg", "/b.jpg", "/c.jpg", "/a.jpg"} {
+		require.Equal(t, http.StatusOK, serveSearchArt(a, a.URL(base+p)).Code)
+	}
+	require.Equal(t, 2, fetched["/a.jpg"], "three 40-byte posters exceed 100 bytes, so the oldest was evicted")
+	require.LessOrEqual(t, a.cachedBytes, int64(100))
+}

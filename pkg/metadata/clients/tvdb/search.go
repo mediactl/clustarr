@@ -39,6 +39,7 @@ type searchResponse struct {
 		Name         string            `json:"name"`
 		Year         string            `json:"year"`
 		ImageURL     string            `json:"image_url"`
+		Thumbnail    string            `json:"thumbnail"`
 		Translations map[string]string `json:"translations"`
 	} `json:"data"`
 }
@@ -68,11 +69,17 @@ func (c *Client) SearchSeries(ctx context.Context, q string) ([]metadata.SearchH
 			title = t
 		}
 		year, _ := strconv.ParseInt(d.Year, 10, 32)
+		// A search card shows the poster at thumbnail size, and TheTVDB's
+		// full poster is ~450 KB: the thumbnail, when there is one.
+		poster := d.Thumbnail
+		if poster == "" {
+			poster = d.ImageURL
+		}
 		hits = append(hits, metadata.SearchHit{
 			IDs:    metadata.ExternalIDs{metadata.KeyTVDB: d.TVDBID},
 			Title:  title,
 			Year:   int32(year),
-			Poster: d.ImageURL,
+			Poster: poster,
 		})
 	}
 	return hits, nil

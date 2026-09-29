@@ -59,7 +59,8 @@ func TestSearchSeriesMapsTheRecordedResponse(t *testing.T) {
 	require.Equal(t, "81189", hits[0].IDs[metadata.KeyTVDB])
 	require.Equal(t, "Breaking Bad", hits[0].Title)
 	require.Equal(t, int32(2008), hits[0].Year)
-	require.Equal(t, "https://artworks.thetvdb.com/banners/posters/81189-10.jpg", hits[0].Poster)
+	require.Equal(t, "https://artworks.thetvdb.com/banners/posters/81189-10_t.jpg", hits[0].Poster,
+		"the thumbnail: a search card shows it at 80px, and the full poster is ~450 KB")
 }
 
 // TestSearchSeriesDropsAHitWithNoID: a hit the add form could not key an

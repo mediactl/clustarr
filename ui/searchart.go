@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -38,9 +39,12 @@ import (
 const (
 	// searchArtMaxBytes caps a proxied search poster.
 	searchArtMaxBytes = 5 << 20
-	// searchArtEntries and searchArtTTL bound the poster cache.
-	searchArtEntries = 256
-	searchArtTTL     = time.Hour
+	// searchArtEntries, searchArtCacheBytes and searchArtTTL bound the
+	// poster cache: by count, and by bytes so it fits the ui pod's 256Mi
+	// limit however large the posters are.
+	searchArtEntries    = 256
+	searchArtCacheBytes = 32 << 20
+	searchArtTTL        = time.Hour
 )
 
 // searchArtHosts are the only hosts /art/search fetches from: the image
@@ -73,13 +77,21 @@ type searchArt struct {
 	hosts  map[string]bool
 	client *http.Client
 	cache  *lru.Cache[string, cachedArt]
+
+	// mu guards cachedBytes, the bytes the cache holds, which Add keeps
+	// at or under maxCacheBytes by evicting the oldest.
+	mu            sync.Mutex
+	cachedBytes   int64
+	maxCacheBytes int64
 }
 
 func newSearchArt() *searchArt {
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
-	cache, _ := lru.New[string, cachedArt](searchArtEntries)
-	a := &searchArt{key: key, hosts: searchArtHosts, cache: cache}
+	a := &searchArt{key: key, hosts: searchArtHosts, maxCacheBytes: searchArtCacheBytes}
+	a.cache, _ = lru.NewWithEvict[string, cachedArt](searchArtEntries, func(_ string, v cachedArt) {
+		a.cachedBytes -= int64(len(v.body))
+	})
 	a.client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: a.checkRedirect}
 	return a
 }
@@ -124,7 +136,7 @@ func (a *searchArt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "poster unavailable", http.StatusBadGateway)
 			return
 		}
-		a.cache.Add(src, art)
+		a.store(src, art)
 	}
 	w.Header().Set("Content-Type", art.contentType)
 	w.Header().Set("Cache-Control", "private, max-age=3600")
@@ -153,4 +165,23 @@ func (a *searchArt) fetch(ctx context.Context, src string) (cachedArt, error) {
 		return cachedArt{}, errSearchArtRefused
 	}
 	return cachedArt{body: body, contentType: ct, at: time.Now()}, nil
+}
+
+// store caches art, evicting the oldest entries until the cache holds at
+// most maxCacheBytes. A poster larger than the whole budget is not kept.
+func (a *searchArt) store(src string, art cachedArt) {
+	size := int64(len(art.body))
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if size > a.maxCacheBytes {
+		return
+	}
+	a.cache.Remove(src)
+	for a.cachedBytes+size > a.maxCacheBytes {
+		if _, _, ok := a.cache.RemoveOldest(); !ok {
+			break
+		}
+	}
+	a.cachedBytes += size
+	a.cache.Add(src, art)
 }
