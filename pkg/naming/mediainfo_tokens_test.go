@@ -122,3 +122,28 @@ func TestAudioCodecLabelIsRadarrs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "[EAC3 Atmos 5.1]", got)
 }
+
+// TestVideoDynamicRangeTypeIsRadarrs: Radarr writes HDR10+ as "HDR10Plus"
+// (the owner's library, 2026-09-29), and its probe calls no stream below
+// 10 bits HDR (VideoFileInfoReader.GetHdrFormat): an 8-bit h264 file whose
+// transfer reads PQ was named without a range, and stays so.
+func TestVideoDynamicRangeTypeIsRadarrs(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	for _, tc := range []struct {
+		hdr   commonv1.HdrFormat
+		depth int32
+		want  string
+	}{
+		{commonv1.HdrFormatHDR10Plus, 10, "[HDR10Plus]"},
+		{commonv1.HdrFormatDolbyVisionHDR10Plus, 10, "[DV HDR10Plus]"},
+		{commonv1.HdrFormatDolbyVisionHDR10, 10, "[DV HDR10]"},
+		{commonv1.HdrFormatHDR10, 10, "[HDR10]"},
+		{commonv1.HdrFormatHDR10, 8, ""},
+		{commonv1.HdrFormatHDR10, 0, "[HDR10]"}, // an unmeasured depth is not a judgement
+	} {
+		c := naming.Context{MediaInfo: commonv1.MediaInfo{Hdr: tc.hdr, VideoBitDepth: tc.depth}}
+		got, err := e.Render("{[MediaInfo VideoDynamicRangeType]}", c)
+		require.NoError(t, err)
+		require.Equalf(t, tc.want, got, "%s at %d bits", tc.hdr, tc.depth)
+	}
+}

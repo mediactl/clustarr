@@ -348,7 +348,7 @@ func (w *Worker) importEpisodeFile(
 	// general gate for a caller that has not made that check itself.
 	nctx, _ := catalogctx.Episode(series, episodesFor(eps))
 	frozen := frozenRelease(parsed, matched, dl.Spec.Release.Title)
-	nctx = catalogctx.File(nctx, frozen, mi)
+	nctx = catalogctx.File(ctx, nctx, frozen, mi)
 	dest, derr := catalogctx.EpisodeFilePath(plan.rootFolder, series, nctx, catalogctx.ContainerExt(mi, srcPath))
 	if derr != nil {
 		return nil, fmt.Sprintf("%s: could not render a destination path: %v", rel, derr), nil

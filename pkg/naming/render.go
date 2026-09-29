@@ -222,7 +222,7 @@ var tokenFuncs = map[string]tokenEntry{
 	"absolute":                        {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
 	"episode cleantitle":              {fn: func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) }},
 	"quality full":                    {fn: func(c Context, _, _ int) string { return qualityFull(c.Quality, c.Revision) }},
-	"mediainfo videodynamicrangetype": {fn: func(c Context, _, _ int) string { return c.MediaInfo.Hdr.DisplayName() }},
+	"mediainfo videodynamicrangetype": {fn: videoDynamicRangeType},
 	"edition tags":                    {fn: func(c Context, _, _ int) string { return c.Edition }},
 	"custom formats":                  {fn: func(c Context, _, _ int) string { return strings.Join(c.CustomFormats, " ") }},
 	"series cleantitlewithoutyear":    {fn: func(c Context, _, _ int) string { return cleanTitle(c.SeriesTitle) }, colonSensitive: true},
@@ -258,6 +258,17 @@ var tokenFuncs = map[string]tokenEntry{
 	// chapter form "025.5", already formatted upstream.
 	"comic series title": {fn: func(c Context, _, _ int) string { return c.ComicSeriesTitle }},
 	"issue":              {fn: func(c Context, _, _ int) string { return c.IssueNumber }},
+}
+
+// videoDynamicRangeType renders {MediaInfo VideoDynamicRangeType}. Radarr's
+// probe calls no stream below 10 bits HDR (VideoFileInfoReader.GetHdrFormat),
+// so an 8-bit one renders none; a depth the probe did not measure (0) is
+// not a judgement and keeps the range.
+func videoDynamicRangeType(c Context, _, _ int) string {
+	if d := c.MediaInfo.VideoBitDepth; d > 0 && d < 10 {
+		return ""
+	}
+	return c.MediaInfo.Hdr.DisplayName()
 }
 
 // overrideOr looks up key in the engine's Config.Overrides, returning

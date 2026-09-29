@@ -30,9 +30,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package catalogctx
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -42,6 +44,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // EngineFor builds the naming engine a root folder's naming spec selects:
@@ -101,7 +104,8 @@ func Episode(s *catalogv1alpha1.Series, eps []catalogv1alpha1.Episode) (naming.C
 		EpisodeTitle: first.Status.Title,
 		Special:      first.Spec.SeasonNumber == 0,
 	}
-	absolute := s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+	c.Anime = s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+	absolute := c.Anime
 	for _, e := range eps {
 		c.Episodes = append(c.Episodes, int(e.Spec.EpisodeNumber))
 		if e.Status.AbsoluteNumber == nil || *e.Status.AbsoluteNumber == 0 {
@@ -132,27 +136,46 @@ func Episode(s *catalogv1alpha1.Series, eps []catalogv1alpha1.Episode) (naming.C
 // first import) gets c back unchanged by this half of the merge. mi nil
 // (not yet probed) leaves c.MediaInfo exactly as it was, so a video
 // preset's MediaInfo tokens render empty until a probe result exists.
-func File(c naming.Context, spec *catalogv1alpha1.MediaFileSpec, mi *commonv1.MediaInfo) naming.Context {
+func File(ctx context.Context, c naming.Context, spec *catalogv1alpha1.MediaFileSpec, mi *commonv1.MediaInfo) naming.Context {
 	if spec != nil {
 		c.Quality = spec.Quality
 		c.Revision = spec.Revision
 		c.ReleaseGroup = spec.ReleaseGroup
 		c.Edition = spec.Edition
-		c.CustomFormats = catalogue.LoadedCatalogue().NamesForRename(spec.MatchedFormats)
 		if spec.ImportedFrom != nil {
 			c.ReleaseTitle = spec.ImportedFrom.ReleaseTitle
 		}
 		if c.ReleaseTitle == "" && spec.Path != "" {
 			// Radarr's GetSceneOrFileName: with no release title (a file a
 			// rescan found), the file's own name says whether it is an
-			// x264 or an h264 encode.
+			// x264 or an h264 encode, and which service it came from.
 			c.ReleaseTitle = strings.TrimSuffix(filepath.Base(spec.Path), filepath.Ext(spec.Path))
 		}
+		c.CustomFormats = formatNames(ctx, c, spec.MatchedFormats)
 	}
 	if mi != nil {
 		c.MediaInfo = *mi
 	}
 	return c
+}
+
+// formatNames is what {Custom Formats} names: the frozen matched formats,
+// plus those named in a file that the release title matches now (Radarr
+// works them out again when it names a file), by display name, the anime
+// guide's only for an anime item.
+func formatNames(ctx context.Context, c naming.Context, frozen []string) []string {
+	cat := catalogue.LoadedCatalogue()
+	slugs := frozen
+	if c.ReleaseTitle != "" {
+		if r, err := release.Parse(c.ReleaseTitle, release.Options{Kind: c.Kind}); err == nil {
+			for _, s := range cat.RenameMatches(ctx, r, catalogue.ItemContext{ReleaseTitle: c.ReleaseTitle}) {
+				if !slices.Contains(slugs, s) {
+					slugs = append(slices.Clip(slugs), s)
+				}
+			}
+		}
+	}
+	return cat.NamesForRename(slugs, c.Anime)
 }
 
 // ContainerExt maps mi's probed container to a file extension. It reads

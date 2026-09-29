@@ -28,6 +28,7 @@ import (
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // corpusSpecification is one *arr CustomFormatSpecification as the vendored
@@ -190,6 +191,14 @@ var knownGaps = []knownGap{
 	{"anime-funi", "sonarr", "WEB", reasonGenericWebSource},
 	{"anime-hidive", "sonarr", "WEB", reasonGenericWebSource},
 	{"anime-wkn", "sonarr", "WEB", reasonGenericWebSource},
+	// The streaming services only Sonarr's corpus names (2026-09-29).
+	{"abema", "sonarr", "WEB", reasonGenericWebSource},
+	{"bglobal", "sonarr", "WEB", reasonGenericWebSource},
+	{"bilibili", "sonarr", "WEB", reasonGenericWebSource},
+	{"cr", "sonarr", "WEB", reasonGenericWebSource},
+	{"french-adn", "sonarr", "WEB", reasonGenericWebSource}, //nolint:misspell // ADN, as above
+	{"french-wkn", "sonarr", "WEB", reasonGenericWebSource},
+	{"hidive", "sonarr", "WEB", reasonGenericWebSource},
 	// anime-dsnp, anime-nf and anime-amzn are NOT listed here: their real
 	// upstream CFs only ever carry WEBDL/WEBRIP SourceSpecifications, never
 	// the generic "WEB" value, so there is no gap to document for them
@@ -413,10 +422,37 @@ func TestEveryEmbeddedFormatsRenameFlagMatchesItsCorpusSource(t *testing.T) {
 // once. A file matched "amzn" and "anime-amzn" (both named AMZN) and a tier
 // was named "[amzn anime-amzn]" before this (2026-09-29); Radarr named it
 // "[AMZN]".
+//
+// The anime families' formats name only an anime item: TRaSH's v2 matches
+// every Proper, so 54 of the owner's movies were proposed "[v2]" (2026-09-29)
+// that their Radarr, which had no anime formats, never wrote.
 func TestNamesForRename(t *testing.T) {
 	c := catalogue.LoadedCatalogue()
-	require.Equal(t, []string{"AMZN"}, c.NamesForRename([]string{"amzn", "anime-amzn", "web-tier-01"}))
-	require.Equal(t, []string{"Repack2", "AMZN"}, c.NamesForRename([]string{"repack2", "amzn"}), "in the matched order")
-	require.Empty(t, c.NamesForRename([]string{"web-tier-01", "not-a-format"}), "a tier is not named, an unknown slug is dropped")
-	require.Empty(t, c.NamesForRename(nil))
+	for _, anime := range []bool{false, true} {
+		require.Equal(t, []string{"AMZN"}, c.NamesForRename([]string{"amzn", "anime-amzn", "web-tier-01"}, anime))
+		require.Equal(t, []string{"Repack2", "AMZN"}, c.NamesForRename([]string{"repack2", "amzn"}, anime), "in the matched order")
+		require.Equal(t, []string{"NF"}, c.NamesForRename([]string{"anime-nf", "nf"}, anime))
+		require.Empty(t, c.NamesForRename([]string{"web-tier-01", "not-a-format"}, anime), "a tier is not named, an unknown slug is dropped")
+		require.Empty(t, c.NamesForRename(nil, anime))
+	}
+	require.Empty(t, c.NamesForRename([]string{"repack-proper", "v2"}, false), "no anime version tag on a film")
+	require.Equal(t, []string{"v2"}, c.NamesForRename([]string{"repack-proper", "v2"}, true))
+	require.Empty(t, c.NamesForRename([]string{"anime-nf"}, false), "the anime copy of a service is not what names a film")
+}
+
+// TestRenameMatches: a file's format names are found again when it is
+// named, from its release title or its own name, as Radarr's
+// FileNameBuilder does -- so a service added after a file was imported
+// still names it. "[PCOK]" from the owner's library (2026-09-29) had no
+// PCOK format when the file's formats were frozen.
+func TestRenameMatches(t *testing.T) {
+	c := catalogue.LoadedCatalogue()
+	name := "Bugonia (2025) {tmdb-701387} - [PCOK][WEBDL-1080p][EAC3 5.1][x264]-PiRaTeS"
+	r, err := release.Parse(name, release.Options{Kind: common.MediaKindMovie})
+	require.NoError(t, err)
+	got := c.RenameMatches(t.Context(), r, catalogue.ItemContext{ReleaseTitle: name})
+	require.Equal(t, []string{"pcok"}, got)
+	for _, slug := range got {
+		require.True(t, c.Formats[slug].IncludeInRename, "only formats named in a file")
+	}
 }

@@ -235,10 +235,23 @@ func TestEmbeddedAnimeExtraFamilyDecodes(t *testing.T) {
 // anything at all.
 func TestEmbeddedStreamingFamilyDecodes(t *testing.T) {
 	bySlug := decodeEmbeddedFamily(t, "streaming.json")
-	require.Len(t, bySlug, 1)
+	require.Len(t, bySlug, 68)
 	require.Equal(t, 75, bySlug["amzn"].Scores["default"], "Sonarr's non-zero score wins over Radarr's absent one; see this test's doc comment")
 	require.Equal(t, 3, bySlug["amzn"].Scores["anime-sonarr"])
 	require.Equal(t, "streamingBoost", bySlug["amzn"].Group)
+
+	// Every other streaming service (2026-09-29) is there to be named in a
+	// file ("[PCOK]", "[NF]"), not scored: no score set, no group, so a
+	// profile's Score adds nothing for it and no grab decision moves.
+	for slug, f := range bySlug {
+		if slug == "amzn" {
+			continue
+		}
+		require.Truef(t, f.IncludeInRename, "%s is named in a file", slug)
+		require.Emptyf(t, f.Scores, "%s scores nothing", slug)
+		require.Emptyf(t, f.Group, "%s is in no group", slug)
+	}
+	require.Equal(t, "PCOK", bySlug["pcok"].Name)
 }
 
 func TestEmbeddedAnimeFamilyDecodes(t *testing.T) {

@@ -88,13 +88,13 @@ func TestVideoDynamicRangeType(t *testing.T) {
 		commonv1.HdrFormatNone:                 "",
 		commonv1.HdrFormatPQ10:                 "PQ",
 		commonv1.HdrFormatHDR10:                "HDR10",
-		commonv1.HdrFormatHDR10Plus:            "HDR10+",
+		commonv1.HdrFormatHDR10Plus:            "HDR10Plus",
 		commonv1.HdrFormatHLG10:                "HLG",
 		commonv1.HdrFormatDolbyVision:          "DV",
 		commonv1.HdrFormatDolbyVisionHDR10:     "DV HDR10",
 		commonv1.HdrFormatDolbyVisionSDR:       "DV SDR",
 		commonv1.HdrFormatDolbyVisionHLG:       "DV HLG",
-		commonv1.HdrFormatDolbyVisionHDR10Plus: "DV HDR10+",
+		commonv1.HdrFormatDolbyVisionHDR10Plus: "DV HDR10Plus",
 	}
 	for in, want := range cases {
 		assert.Equal(t, want, VideoDynamicRangeType(in), in)

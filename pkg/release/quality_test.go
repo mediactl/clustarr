@@ -70,6 +70,17 @@ func TestParseQualityTagsMapsSourceResolutionModifierToRadarrNames(t *testing.T)
 			"sdtv with a 480p token", "Some.Show.S01E01.480p.HDTV.x264-GROUP",
 			commonv1.SourceTV, commonv1.Resolution480p, commonv1.ModifierNone, "SDTV",
 		},
+		// A Radarr-named library file carries its quality name, and a remux's
+		// names no source: Radarr's QualityParser reads a bare Remux as a
+		// Bluray remux. Two of the owner's files (2026-09-29) parsed Unknown.
+		{
+			"a Radarr file name's Remux-1080p", "Fear and Loathing in Las Vegas (1998) {tmdb-1878} - [Remux-1080p][DTS-HD MA 5.1][h265]-FraMeSToR",
+			commonv1.SourceBluray, commonv1.Resolution1080p, commonv1.ModifierRemux, "Remux-1080p",
+		},
+		{
+			"a Radarr file name's Remux-2160p", "Dune (2021) {tmdb-438631} - [Remux-2160p][TrueHD Atmos 7.1][DV HDR10][h265]-FraMeSToR",
+			commonv1.SourceBluray, commonv1.Resolution2160p, commonv1.ModifierRemux, "Remux-2160p",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

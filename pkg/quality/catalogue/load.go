@@ -50,6 +50,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -168,6 +169,7 @@ func LoadedCatalogue() *Catalogue {
 				return
 			}
 			for _, f := range fs {
+				f.Family = strings.TrimSuffix(e.Name(), ".json")
 				formats[f.Slug] = f
 			}
 		}

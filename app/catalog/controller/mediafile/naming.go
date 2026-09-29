@@ -153,7 +153,7 @@ func (r *Reconciler) renderNaming(ctx context.Context, mf *catalogv1alpha1.Media
 		return out, false
 	}
 
-	expected, err := owner.render(&root, catalogctx.File(owner.context, &spec, mi), catalogctx.ContainerExt(mi, spec.Path))
+	expected, err := owner.render(&root, catalogctx.File(ctx, owner.context, &spec, mi), catalogctx.ContainerExt(mi, spec.Path))
 	if err == nil && len(expected) > maxExpectedPathLen {
 		err = fmt.Errorf("the rendered path is %d bytes, over the %d status.naming.expectedPath holds", len(expected), maxExpectedPathLen)
 	}

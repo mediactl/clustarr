@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -46,7 +45,7 @@ func AugmentFromMediaInfo(q commonv1.Quality, mi *commonv1.MediaInfo) (commonv1.
 		return q, false
 	}
 	res, mod := q.Resolution, q.Modifier
-	if probed := mediainfo.ResolutionFromDimensions(mi.Width, mi.Height); probed != commonv1.ResolutionUnknown {
+	if probed := probedResolution(mi.Width, mi.Height); probed != commonv1.ResolutionUnknown {
 		res = probed
 	}
 	if q.Modifier == commonv1.ModifierRemux && mi.VideoBitrateKbps > 0 && mi.VideoBitrateKbps < remuxFloorKbps {
@@ -80,6 +79,26 @@ func AugmentFromMediaInfo(q commonv1.Quality, mi *commonv1.MediaInfo) (commonv1.
 		return q, false
 	}
 	return out, true
+}
+
+// probedResolution is Radarr's AugmentQualityFromMediaInfo bucketing: a
+// frame counts by its width or its height, so a scope encode -- 1280x536,
+// 1920x800 -- is the 720p or 1080p its width says, not the rung its height
+// alone would reach. Anything smaller is 480p.
+func probedResolution(width, height int32) int32 {
+	switch {
+	case width <= 0 || height <= 0:
+		return commonv1.ResolutionUnknown
+	case width >= 3200 || height >= 2100:
+		return commonv1.Resolution2160p
+	case width >= 1800 || height >= 1000:
+		return commonv1.Resolution1080p
+	case width >= 1200 || height >= 700:
+		return commonv1.Resolution720p
+	case width >= 1000 || height >= 560:
+		return commonv1.Resolution576p
+	}
+	return commonv1.Resolution480p
 }
 
 // findBySourceAndResolution places a probed (source, resolution, modifier)

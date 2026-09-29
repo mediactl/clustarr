@@ -22,11 +22,12 @@ package v1alpha1
 // naming token, ported from Radarr's
 // MediaInfoFormatter.FormatVideoDynamicRangeType.
 //
-// "DV HDR10", "HDR10+" and "HLG" are pinned by docs/research/naming.md
-// (the Radarr file-naming examples at lines 55 and 81 and the
-// MediaInfoResource field at line 443); the remainder follow Radarr's own
-// vocabulary ("PQ", "DV", "DV SDR", "DV HLG", "HDR10", "" for none), with
-// "DV HDR10+" composed from the DV prefix and the pinned "HDR10+".
+// "DV HDR10" and "HLG" are pinned by docs/research/naming.md (the Radarr
+// file-naming examples at lines 55 and 81); the remainder follow Radarr's
+// own vocabulary ("PQ", "DV", "DV SDR", "DV HLG", "HDR10", "" for none).
+// HDR10+ is "HDR10Plus", as Radarr wrote it into the owner's library
+// (2026-09-29), not the "HDR10+" the note's MediaInfoResource comment gives;
+// "DV HDR10Plus" is the DV prefix on it.
 //
 // This is a plain Go method, not part of the API surface: it carries no
 // kubebuilder markers and generates nothing.
@@ -34,13 +35,13 @@ var hdrDisplayName = map[HdrFormat]string{
 	HdrFormatNone:                 "",
 	HdrFormatPQ10:                 "PQ",
 	HdrFormatHDR10:                "HDR10",
-	HdrFormatHDR10Plus:            "HDR10+",
+	HdrFormatHDR10Plus:            "HDR10Plus",
 	HdrFormatHLG10:                "HLG",
 	HdrFormatDolbyVision:          "DV",
 	HdrFormatDolbyVisionHDR10:     "DV HDR10",
 	HdrFormatDolbyVisionSDR:       "DV SDR",
 	HdrFormatDolbyVisionHLG:       "DV HLG",
-	HdrFormatDolbyVisionHDR10Plus: "DV HDR10+",
+	HdrFormatDolbyVisionHDR10Plus: "DV HDR10Plus",
 }
 
 // DisplayName renders h as the {MediaInfo VideoDynamicRangeType} naming

@@ -66,7 +66,7 @@ func TestImportAndRenameRenderTheSamePath(t *testing.T) {
 	base, ok := catalogctx.Movie(movie)
 	require.True(t, ok, "Movie must be renderable once status.metadata.title is set")
 
-	c := catalogctx.File(base, spec, mi)
+	c := catalogctx.File(t.Context(), base, spec, mi)
 	ext := catalogctx.ContainerExt(mi, "source.mp4")
 	require.Equal(t, ".mkv", ext)
 
@@ -143,6 +143,7 @@ func TestEpisodeBuildsIdentityAndAggregatesNumbers(t *testing.T) {
 	require.False(t, c.Special)
 	require.Equal(t, []int{1, 2}, c.Episodes)
 	require.Empty(t, c.Absolute, "a non-anime series never carries an absolute segment")
+	require.False(t, c.Anime)
 
 	_, ok = catalogctx.Episode(series, nil)
 	require.False(t, ok, "no episodes means nothing to render")
@@ -211,7 +212,7 @@ func TestFileIsNilSafeOnSpecAndMediaInfo(t *testing.T) {
 	base, ok := catalogctx.Movie(movie)
 	require.True(t, ok)
 
-	c := catalogctx.File(base, nil, nil)
+	c := catalogctx.File(t.Context(), base, nil, nil)
 	require.Equal(t, base, c, "a nil spec and a nil probe leave c unchanged")
 }
 
@@ -240,6 +241,7 @@ func TestFileRendersTheNamesRadarrGaveTheOwnersLibrary(t *testing.T) {
 		spec    catalogv1alpha1.MediaFileSpec
 		mi      commonv1.MediaInfo
 		current string
+		want    string // current when empty
 	}{
 		{
 			title: "102 Minutes That Changed America", year: 2008, tmdb: 36130,
@@ -266,6 +268,38 @@ func TestFileRendersTheNamesRadarrGaveTheOwnersLibrary(t *testing.T) {
 			},
 			current: "Twelve Monkeys (1995) {tmdb-63} - [Bluray-1080p][FLAC 5.1][x264]-Skazhutin.mkv",
 		},
+		{
+			// No PCOK format existed when this file's formats were frozen
+			// (matchedFormats is empty); the name finds it again. Tdarr has
+			// since made the stream HEVC, so the codec tag moves to h265.
+			title: "Bugonia", year: 2025, tmdb: 701387,
+			spec: catalogv1alpha1.MediaFileSpec{
+				Quality:      commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: 1080, Modifier: commonv1.ModifierNone},
+				ReleaseGroup: "PiRaTeS",
+			},
+			mi: commonv1.MediaInfo{
+				Container: "mkv", VideoCodec: "hevc", VideoBitDepth: 10,
+				Audio: []commonv1.AudioStream{{Codec: "eac3", Channels: 6, Default: true}},
+			},
+			current: "Bugonia (2025) {tmdb-701387} - [PCOK][WEBDL-1080p][EAC3 5.1][x264]-PiRaTeS.mkv",
+			want:    "Bugonia (2025) {tmdb-701387} - [PCOK][WEBDL-1080p][EAC3 5.1][h265]-PiRaTeS.mkv",
+		},
+		{
+			// A Proper matched TRaSH's anime v2 format when it was frozen; a
+			// film is not named with it.
+			title: "After Hours", year: 1985, tmdb: 10843,
+			spec: catalogv1alpha1.MediaFileSpec{
+				Quality:        commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierNone},
+				Revision:       commonv1.Revision{Version: 2},
+				ReleaseGroup:   "playHD",
+				MatchedFormats: []string{"hd-bluray-tier-03", "repack-proper", "v2"},
+			},
+			mi: commonv1.MediaInfo{
+				Container: "mkv", VideoCodec: "h264", VideoBitDepth: 8,
+				Audio: []commonv1.AudioStream{{Codec: "ac3", Channels: 1, Default: true}},
+			},
+			current: "After Hours (1985) {tmdb-10843} - [Bluray-1080p Proper][AC3 1.0][x264]-playHD.mkv",
+		},
 	} {
 		movie := &catalogv1alpha1.Movie{
 			Spec:   catalogv1alpha1.MovieSpec{TmdbID: tc.tmdb},
@@ -276,8 +310,27 @@ func TestFileRendersTheNamesRadarrGaveTheOwnersLibrary(t *testing.T) {
 		folder := "/data/media/movies/" + tc.title + " (" + strconv.Itoa(int(tc.year)) + ") {tmdb-" + strconv.FormatInt(tc.tmdb, 10) + "}/"
 		spec := tc.spec
 		spec.Path = folder + tc.current
-		dest, err := catalogctx.MovieFilePath(root, movie, catalogctx.File(base, &spec, &tc.mi), catalogctx.ContainerExt(&tc.mi, spec.Path))
+		dest, err := catalogctx.MovieFilePath(root, movie, catalogctx.File(t.Context(), base, &spec, &tc.mi), catalogctx.ContainerExt(&tc.mi, spec.Path))
 		require.NoError(t, err)
-		require.Equal(t, spec.Path, dest, "a file Radarr named is already current")
+		want := spec.Path
+		if tc.want != "" {
+			want = folder + tc.want
+		}
+		require.Equal(t, want, dest)
 	}
+}
+
+// TestFileNamesAnAnimeEpisodeWithAnimeFormats: an anime series' episode is
+// named with the anime guide's formats, as Sonarr's anime naming is.
+func TestFileNamesAnAnimeEpisodeWithAnimeFormats(t *testing.T) {
+	series := &catalogv1alpha1.Series{
+		Spec:   catalogv1alpha1.SeriesSpec{TvdbID: 1, SeriesType: catalogv1alpha1.SeriesTypeAnime},
+		Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{Title: "Frieren", Year: 2023}},
+	}
+	eps := []catalogv1alpha1.Episode{{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 1, EpisodeNumber: 1}}}
+	base, ok := catalogctx.Episode(series, eps)
+	require.True(t, ok)
+	require.True(t, base.Anime)
+	spec := &catalogv1alpha1.MediaFileSpec{MatchedFormats: []string{"repack-proper", "v2"}}
+	require.Equal(t, []string{"v2"}, catalogctx.File(t.Context(), base, spec, nil).CustomFormats)
 }

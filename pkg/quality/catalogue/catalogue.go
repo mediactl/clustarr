@@ -132,7 +132,15 @@ type Format struct {
 	// IncludeInRename is TRaSH's includeCustomFormatWhenRenaming: the
 	// format's Name appears in {Custom Formats} (NamesForRename).
 	IncludeInRename bool
+	// Family is the data/formats file the format came from, without
+	// ".json"; LoadedCatalogue sets it.
+	Family string
 }
+
+// AnimeOnly reports whether f belongs to TRaSH's anime guide -- the anime
+// and anime_extra families: its tags ("v2", the anime copy of a service)
+// name only an anime item.
+func (f *Format) AnimeOnly() bool { return f.Family == "anime" || f.Family == "anime_extra" }
 
 // Catalogue is the full set of loaded custom formats.
 type Catalogue struct {
@@ -144,15 +152,34 @@ type Catalogue struct {
 // NamesForRename renders matched format slugs for the {Custom Formats}
 // naming token, as Radarr does: the Name of each format included when
 // renaming, in the matched order, each name once (the Radarr and anime
-// copies of a streaming service share one). An unknown slug is dropped.
-func (c *Catalogue) NamesForRename(slugs []string) []string {
+// copies of a streaming service share one). An anime-only format names
+// only an anime item. An unknown slug is dropped.
+func (c *Catalogue) NamesForRename(slugs []string, anime bool) []string {
 	var names []string
 	for _, s := range slugs {
-		if f := c.Formats[s]; f != nil && f.IncludeInRename && !slices.Contains(names, f.Name) {
-			names = append(names, f.Name)
+		f := c.Formats[s]
+		if f == nil || !f.IncludeInRename || (f.AnimeOnly() && !anime) || slices.Contains(names, f.Name) {
+			continue
 		}
+		names = append(names, f.Name)
 	}
 	return names
+}
+
+// RenameMatches is Match restricted to the formats named in a file:
+// Radarr's FileNameBuilder works a file's custom formats out again when
+// it names it, from the release title or the file's own name, so a format
+// added since the file was imported still names it. Nothing it returns is
+// scored; a MediaFile's frozen matchedFormats are untouched.
+func (c *Catalogue) RenameMatches(ctx context.Context, r *release.ParsedRelease, ic ItemContext) []string {
+	var slugs []string
+	for slug, f := range c.Formats {
+		if f.IncludeInRename && formatMatches(ctx, f, r, ic) {
+			slugs = append(slugs, slug)
+		}
+	}
+	sort.Strings(slugs)
+	return slugs
 }
 
 // ItemContext supplies the facts a Condition needs that are not on the

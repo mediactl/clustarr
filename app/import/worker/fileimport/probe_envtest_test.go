@@ -133,7 +133,7 @@ func TestAnImportIsQualifiedAndNamedFromItsProbe(t *testing.T) {
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: f.movieName}, &movie))
 	nctx, ok := catalogctx.Movie(&movie)
 	require.True(t, ok)
-	want, err := catalogctx.MovieFilePath(f.rootFolder, &movie, catalogctx.File(nctx, &mf.Spec, mi), catalogctx.ContainerExt(mi, fileName))
+	want, err := catalogctx.MovieFilePath(f.rootFolder, &movie, catalogctx.File(t.Context(), nctx, &mf.Spec, mi), catalogctx.ContainerExt(mi, fileName))
 	require.NoError(t, err)
 	assert.Equal(t, want, mf.Spec.Path)
 }

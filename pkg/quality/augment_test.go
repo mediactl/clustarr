@@ -101,6 +101,28 @@ func TestAugmentFromMediaInfoPlacesAProbedResolutionOnADefinedQuality(t *testing
 			named("HDTV-1080p", commonv1.SourceTV, commonv1.Resolution1080p, commonv1.ModifierNone), 720, 576,
 			named("SDTV", commonv1.SourceTV, commonv1.Resolution480p, commonv1.ModifierNone), true,
 		},
+		// Widescreen encodes from the owner's library (2026-09-29): Radarr
+		// buckets by width or height, so a scope 720p is still 720p.
+		{
+			"a 1280x536 scope WEBRip is still WEBRip-720p",
+			named("WEBRip-720p", commonv1.SourceWebRip, commonv1.Resolution720p, commonv1.ModifierNone), 1280, 536,
+			named("WEBRip-720p", commonv1.SourceWebRip, commonv1.Resolution720p, commonv1.ModifierNone), false,
+		},
+		{
+			"a 1280x544 scope Bluray is still Bluray-720p",
+			named("Bluray-720p", commonv1.SourceBluray, commonv1.Resolution720p, commonv1.ModifierNone), 1280, 544,
+			named("Bluray-720p", commonv1.SourceBluray, commonv1.Resolution720p, commonv1.ModifierNone), false,
+		},
+		{
+			"a 1920x696 scope Bluray is still Bluray-1080p",
+			named("Bluray-1080p", commonv1.SourceBluray, commonv1.Resolution1080p, commonv1.ModifierNone), 1920, 696,
+			named("Bluray-1080p", commonv1.SourceBluray, commonv1.Resolution1080p, commonv1.ModifierNone), false,
+		},
+		{
+			"a 3840x1600 scope WEB-DL named 1080p is WEBDL-2160p",
+			named("WEBDL-1080p", commonv1.SourceWebDL, commonv1.Resolution1080p, commonv1.ModifierNone), 3840, 1600,
+			named("WEBDL-2160p", commonv1.SourceWebDL, commonv1.Resolution2160p, commonv1.ModifierNone), true,
+		},
 		{
 			"a remux with no rung at or below keeps the name's quality",
 			named("Remux-1080p", commonv1.SourceBluray, commonv1.Resolution1080p, commonv1.ModifierRemux), 1280, 720,

@@ -26,7 +26,7 @@ import (
 )
 
 // TestHdrFormatDisplayName pins the {MediaInfo VideoDynamicRangeType}
-// token's vocabulary for every HdrFormat. "DV HDR10", "HDR10+" and "HLG"
+// token's vocabulary for every HdrFormat. "DV HDR10", "HDR10Plus" and "HLG"
 // are pinned by docs/research/naming.md (lines 55, 81, 443); the rest
 // follow Radarr's MediaInfoFormatter.FormatVideoDynamicRangeType.
 func TestHdrFormatDisplayName(t *testing.T) {
@@ -37,13 +37,13 @@ func TestHdrFormatDisplayName(t *testing.T) {
 		{commonv1.HdrFormatNone, ""},
 		{commonv1.HdrFormatPQ10, "PQ"},
 		{commonv1.HdrFormatHDR10, "HDR10"},
-		{commonv1.HdrFormatHDR10Plus, "HDR10+"},
+		{commonv1.HdrFormatHDR10Plus, "HDR10Plus"},
 		{commonv1.HdrFormatHLG10, "HLG"},
 		{commonv1.HdrFormatDolbyVision, "DV"},
 		{commonv1.HdrFormatDolbyVisionHDR10, "DV HDR10"},
 		{commonv1.HdrFormatDolbyVisionSDR, "DV SDR"},
 		{commonv1.HdrFormatDolbyVisionHLG, "DV HLG"},
-		{commonv1.HdrFormatDolbyVisionHDR10Plus, "DV HDR10+"},
+		{commonv1.HdrFormatDolbyVisionHDR10Plus, "DV HDR10Plus"},
 	}
 	assert.Len(t, tests, 10, "every HdrFormat constant must be covered")
 	for _, tt := range tests {

@@ -320,7 +320,7 @@ func (pc *processConfig) processFile(
 	}
 
 	frozen := frozenRelease(parsed, matched, pc.download.Spec.Release.Title)
-	nctx := catalogctx.File(pc.baseContext, frozen, mi)
+	nctx := catalogctx.File(ctx, pc.baseContext, frozen, mi)
 	dest, derr := catalogctx.MovieFilePath(pc.rootFolder, pc.movie, nctx, catalogctx.ContainerExt(mi, srcPath))
 	if derr != nil {
 		return nil, fmt.Sprintf("%s: could not render a destination path: %v", rel, derr), nil

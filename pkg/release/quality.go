@@ -289,6 +289,19 @@ func detectQuality(title string) (commonv1.Quality, error) {
 		}
 	}
 
+	if src == commonv1.SourceUnknown {
+		// Radarr's QualityParser reads a Remux that names no source as a
+		// Bluray remux: a library file Radarr named "[Remux-1080p]" says
+		// nothing else about its source.
+		remux, rerr := remuxRegex.MatchString(title)
+		if rerr != nil {
+			return commonv1.Quality{}, fmt.Errorf("release: quality: remux match: %w", rerr)
+		}
+		if remux {
+			src = commonv1.SourceBluray
+		}
+	}
+
 	if !resolutionFixed {
 		detected, derr := detectResolution(title)
 		if derr != nil {

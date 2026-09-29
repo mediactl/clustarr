@@ -143,11 +143,14 @@ type Context struct {
 	TvMazeID      string
 	Edition       string
 
-	SeriesTitle  string
-	SeriesYear   int
-	Season       int
-	Episodes     []int // sorted ascending, len >= 1
-	Absolute     []int // parallel to Episodes; nil when not anime
+	SeriesTitle string
+	SeriesYear  int
+	Season      int
+	Episodes    []int // sorted ascending, len >= 1
+	Absolute    []int // parallel to Episodes; nil when not anime
+	// Anime marks an anime series' episode: {Custom Formats} names the
+	// anime guide's formats ("v2") only for one.
+	Anime        bool
 	EpisodeTitle string
 	AirDate      *time.Time
 	Special      bool

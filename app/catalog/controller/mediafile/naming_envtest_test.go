@@ -95,7 +95,7 @@ func wantMoviePath(t *testing.T, ctx context.Context, c client.Client, mf *catal
 	require.True(t, ok, "setup: the movie has no metadata title")
 	spec := mf.Spec
 	spec.Quality, _ = quality.AugmentFromMediaInfo(spec.Quality, mf.Status.MediaInfo)
-	want, err := catalogctx.MovieFilePath(&root, &movie, catalogctx.File(base, &spec, mf.Status.MediaInfo),
+	want, err := catalogctx.MovieFilePath(&root, &movie, catalogctx.File(t.Context(), base, &spec, mf.Status.MediaInfo),
 		catalogctx.ContainerExt(mf.Status.MediaInfo, mf.Spec.Path))
 	require.NoError(t, err)
 	return want
@@ -215,7 +215,7 @@ func TestNamingEpisodeRendersThroughItsSeries(t *testing.T) {
 	require.True(t, ok)
 	spec := got.Spec
 	spec.Quality, _ = quality.AugmentFromMediaInfo(spec.Quality, got.Status.MediaInfo)
-	want, err := catalogctx.EpisodeFilePath(&root, &series, catalogctx.File(base, &spec, got.Status.MediaInfo),
+	want, err := catalogctx.EpisodeFilePath(&root, &series, catalogctx.File(t.Context(), base, &spec, got.Status.MediaInfo),
 		catalogctx.ContainerExt(got.Status.MediaInfo, got.Spec.Path))
 	require.NoError(t, err)
 
