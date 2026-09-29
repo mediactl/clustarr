@@ -130,9 +130,9 @@ func TestServeRPCSearchReportsUnsupportedKinds(t *testing.T) {
 	require.NoError(t, ServeRPC(bus, reg))
 
 	var resp schema.MetadataResponse
-	req := schema.MetadataRequest{Kind: commonv1.MediaKindSeries, Text: "anything"}
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, Text: "anything"}
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
-	require.NotEmpty(t, resp.Error, "SeriesProvider has no search method (spec-pinned; see pkg/metadata go doc)")
+	require.NotEmpty(t, resp.Error, "an episode is not searched by title; its series is")
 	require.Contains(t, resp.Error, "does not support kind")
 }
 
@@ -699,4 +699,62 @@ func TestServeRPCHandlersCreateASpanPerVerb(t *testing.T) {
 	} {
 		require.Positive(t, seen[name], "expected at least one ended span named %q, saw spans: %v", name, seen)
 	}
+}
+
+type stubSeriesSearcher struct {
+	pkgmetadata.SeriesProvider // nil: only Name and SearchSeries are called
+	hit pkgmetadata.SearchHit
+}
+
+func (s stubSeriesSearcher) Name() string { return "tvdb" }
+func (s stubSeriesSearcher) SearchSeries(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	return []pkgmetadata.SearchHit{s.hit}, nil
+}
+
+type stubAuthorSearcher struct {
+	pkgmetadata.BookProvider // nil: only Name and SearchAuthors are called
+	hit pkgmetadata.SearchHit
+}
+
+func (s stubAuthorSearcher) Name() string { return "openlibrary" }
+func (s stubAuthorSearcher) SearchAuthors(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	return []pkgmetadata.SearchHit{s.hit}, nil
+}
+
+// TestServeRPCSearchesSeriesAndAuthors: Add New's two new kinds, each
+// answered by the configured provider that can search them.
+func TestServeRPCSearchesSeriesAndAuthors(t *testing.T) {
+	reg := &pkgmetadata.Registry{
+		Series: []pkgmetadata.SeriesProvider{stubSeriesSearcher{hit: pkgmetadata.SearchHit{Title: "Breaking Bad", IDs: pkgmetadata.ExternalIDs{"tvdb": "81189"}}}},
+		Books:  []pkgmetadata.BookProvider{stubAuthorSearcher{hit: pkgmetadata.SearchHit{Title: "Jane Austen", IDs: pkgmetadata.ExternalIDs{"olauthor": "OL21594A"}}}},
+	}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	for kind, want := range map[commonv1.MediaKind]string{commonv1.MediaKindSeries: "Breaking Bad", commonv1.MediaKindAuthor: "Jane Austen"} {
+		var resp schema.MetadataResponse
+		require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, schema.MetadataRequest{Kind: kind, Text: "q"}, &resp))
+		require.Empty(t, resp.Error, kind)
+		require.Len(t, resp.Results, 1, kind)
+		var hit pkgmetadata.SearchHit
+		require.NoError(t, json.Unmarshal(resp.Results[0], &hit))
+		require.Equal(t, want, hit.Title)
+	}
+}
+
+type nonSearchingSeries struct{ pkgmetadata.SeriesProvider }
+
+func (nonSearchingSeries) Name() string { return "no-search" }
+
+// TestServeRPCSeriesSearchSkipsProvidersThatCannotSearch: a series
+// provider with no search is not a provider to search, so a registry of
+// only those says no provider is configured, as for any other kind.
+func TestServeRPCSeriesSearchSkipsProvidersThatCannotSearch(t *testing.T) {
+	reg := &pkgmetadata.Registry{Series: []pkgmetadata.SeriesProvider{nonSearchingSeries{}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, schema.MetadataRequest{Kind: commonv1.MediaKindSeries, Text: "q"}, &resp))
+	require.Contains(t, resp.Error, "no series metadata provider is configured")
 }

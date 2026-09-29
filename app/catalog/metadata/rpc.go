@@ -347,13 +347,14 @@ func lookupBooks(ctx context.Context, reg *pkgmetadata.Registry, req schema.Meta
 
 // search dispatches by kind. Only the kinds whose Provider interface (go doc
 // ./pkg/metadata) has a search method are supported: movie, artist, book,
-// comic. series has none (spec-pinned). album has none either: ArtistProvider
-// exposes SearchArtists (by text) and Albums(mbArtistID) (list, not search,
-// of a known artist's albums) but no SearchAlbums -- the brief's original
-// draft assumed one; there is no provider surface to route an album search
-// to, so it is reported as an unsupported kind exactly like series.
-// audiobook and author have none either (Audnexus/Open Library search is out
-// of scope).
+// comic -- plus series and author, which Add New (2026-09-29) searches
+// through the optional SeriesSearcher and AuthorSearcher a configured
+// provider may also implement (TVDB, Open Library), since SeriesProvider is
+// spec-pinned without one and SearchBooks finds works, not authors. album
+// has none: ArtistProvider exposes SearchArtists (by text) and
+// Albums(mbArtistID) (list, not search, of a known artist's albums) but no
+// SearchAlbums; there is no provider surface to route an album search to,
+// so it is reported as an unsupported kind. audiobook has none either.
 //
 // Three failures are told apart, because they send an operator to three
 // different places: a kind no provider interface can search (a caller
@@ -388,6 +389,16 @@ func search(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 			func(ctx context.Context, p pkgmetadata.ComicProvider) ([]pkgmetadata.SearchHit, error) {
 				return p.SearchVolumes(ctx, req.Text)
 			})
+	case commonv1.MediaKindSeries:
+		resp = searchFirst(ctx, req.Kind, "metadata.SeriesSearcher.SearchSeries", searchers[pkgmetadata.SeriesSearcher](reg.Series),
+			func(ctx context.Context, p namedSearcher[pkgmetadata.SeriesSearcher]) ([]pkgmetadata.SearchHit, error) {
+				return p.s.SearchSeries(ctx, req.Text)
+			})
+	case commonv1.MediaKindAuthor:
+		resp = searchFirst(ctx, req.Kind, "metadata.AuthorSearcher.SearchAuthors", searchers[pkgmetadata.AuthorSearcher](reg.Books),
+			func(ctx context.Context, p namedSearcher[pkgmetadata.AuthorSearcher]) ([]pkgmetadata.SearchHit, error) {
+				return p.s.SearchAuthors(ctx, req.Text)
+			})
 	default:
 		resp = schema.MetadataResponse{Kind: req.Kind, Error: fmt.Sprintf("metadata: search does not support kind %q", req.Kind)}
 	}
@@ -395,6 +406,27 @@ func search(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 		tracing.RecordError(span, errors.New(resp.Error))
 	}
 	return resp
+}
+
+// namedSearcher is a configured provider that can also search, keeping the
+// provider itself for searchFirst's messages and spans (its Name).
+type namedSearcher[S any] struct {
+	pkgmetadata.Provider
+	s S
+}
+
+// searchers keeps the providers, in priority order, that implement the
+// optional search S (pkgmetadata.SeriesSearcher, AuthorSearcher). None is
+// "no provider is configured to search", the answer a kind with no
+// provider at all gets.
+func searchers[S any, P pkgmetadata.Provider](providers []P) []namedSearcher[S] {
+	out := make([]namedSearcher[S], 0, len(providers))
+	for _, p := range providers {
+		if s, ok := any(p).(S); ok {
+			out = append(out, namedSearcher[S]{Provider: p, s: s})
+		}
+	}
+	return out
 }
 
 // searchFirst answers with the first provider, in priority order, whose
