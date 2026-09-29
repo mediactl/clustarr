@@ -5,8 +5,12 @@ import (
 	"strings"
 
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/input"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+	"github.com/mediactl/clustarr/ui/components/separator"
 	"github.com/mediactl/clustarr/ui/components/textarea"
 	"github.com/mediactl/clustarr/ui/forms"
 )
@@ -46,40 +50,57 @@ func (p FormPage) title() string {
 	return "Edit " + p.Form.Kind.Singular
 }
 
-// SettingsForm renders a kind's form: the object's name and namespace,
-// then the overlay's sections. A section with a When renders
-// data-show-when, a row list its rows and a template, a Secret entry a
-// password input that is never filled in: ui/static/settings.js does the
-// showing, adding, removing and confirming.
+// SettingsForm renders a kind's form (2026-09-29: shadcn-templ's
+// components on the theme's tokens throughout): the object's name and
+// namespace, then the overlay's sections, each a Card whose content is a
+// FieldGroup of Fields. A section with a When renders data-show-when, a row
+// list its rows and a template, a Secret entry a password input that is
+// never filled in: ui/static/settings.js does the showing, adding, removing
+// and confirming, and holds a required select component to the browser's
+// own required check.
 templ SettingsForm(p FormPage) {
 	@Layout("Settings") {
-		<h1 class="mb-1 text-2xl font-bold">{ p.title() }</h1>
-		if p.Form.Kind.Help != "" {
-			<p class="mb-6 max-w-3xl text-sm text-muted-foreground">{ p.Form.Kind.Help }</p>
-		}
+		<div class="mb-6 max-w-4xl space-y-1">
+			<h1 class="text-2xl font-semibold tracking-tight">{ p.title() }</h1>
+			if p.Form.Kind.Help != "" {
+				<p class="text-sm text-muted-foreground">{ p.Form.Kind.Help }</p>
+			}
+		</div>
 		if p.Error != "" {
-			<div class="mb-6">
+			<div class="mb-6 max-w-4xl">
 				@ActionError(p.ErrorCode, p.Error)
 			</div>
 		}
 		<form method="post" action={ templ.URL(p.Action) } data-settings-form class="max-w-4xl space-y-6">
 			<input type="hidden" name="return" value={ p.returnTo() }/>
-			<fieldset data-section="Object" class="rounded-lg border bg-card p-4">
-				<legend class="px-1 text-sm font-semibold">{ strings.ToUpper(p.Form.Kind.Singular[:1]) + p.Form.Kind.Singular[1:] }</legend>
-				<div class="grid gap-4 sm:grid-cols-2">
-					<div data-field class="space-y-1.5">
-						<label for="__name" class="text-sm font-medium">Name</label>
-						@input.Input(input.Props{ID: "__name", Name: "__name", Value: p.Name, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit, Placeholder: "a-dns-1123-name"})
-						<p class="text-xs text-muted-foreground">Lower-case letters, digits, dots and dashes. Cannot change once created.</p>
-					</div>
-					if p.Form.Kind.Namespaced {
-						<div data-field class="space-y-1.5">
-							<label for="__namespace" class="text-sm font-medium">Namespace</label>
-							@input.Input(input.Props{ID: "__namespace", Name: "__namespace", Value: p.Namespace, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit})
-						</div>
+			@card.Card(card.Props{Attributes: templ.Attributes{"data-section": "Object"}}) {
+				@card.Header() {
+					@card.Title() {
+						{ strings.ToUpper(p.Form.Kind.Singular[:1]) + p.Form.Kind.Singular[1:] }
 					}
-				</div>
-			</fieldset>
+				}
+				@card.Content() {
+					@field.Group(field.GroupProps{Class: "grid gap-4 sm:grid-cols-2"}) {
+						@field.Field(field.Props{Attributes: templ.Attributes{"data-field": true}}) {
+							@field.Label(field.LabelProps{For: "__name"}) {
+								Name
+							}
+							@input.Input(input.Props{ID: "__name", Name: "__name", Value: p.Name, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit, Placeholder: "a-dns-1123-name"})
+							@field.Description() {
+								Lower-case letters, digits, dots and dashes. Cannot change once created.
+							}
+						}
+						if p.Form.Kind.Namespaced {
+							@field.Field(field.Props{Attributes: templ.Attributes{"data-field": true}}) {
+								@field.Label(field.LabelProps{For: "__namespace"}) {
+									Namespace
+								}
+								@input.Input(input.Props{ID: "__namespace", Name: "__namespace", Value: p.Namespace, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit})
+							}
+						}
+					}
+				}
+			}
 			for _, s := range p.Form.Sections {
 				@formSection(s)
 			}
@@ -93,12 +114,15 @@ templ SettingsForm(p FormPage) {
 			</div>
 		</form>
 		if p.DeleteAction != "" {
-			<form method="post" action={ templ.URL(p.DeleteAction) } data-confirm={ fmt.Sprintf("Delete %s %q? This cannot be undone.", p.Form.Kind.Singular, p.Name) } class="mt-8 max-w-4xl border-t pt-6">
-				<input type="hidden" name="return" value={ p.returnTo() }/>
-				@button.Button(button.Props{Type: "submit", Variant: button.VariantDestructive}) {
-					Delete this { p.Form.Kind.Singular }
-				}
-			</form>
+			<div class="mt-8 max-w-4xl space-y-6">
+				@separator.Separator()
+				<form method="post" action={ templ.URL(p.DeleteAction) } data-confirm={ fmt.Sprintf("Delete %s %q? This cannot be undone.", p.Form.Kind.Singular, p.Name) }>
+					<input type="hidden" name="return" value={ p.returnTo() }/>
+					@button.Button(button.Props{Type: "submit", Variant: button.VariantDestructive}) {
+						Delete this { p.Form.Kind.Singular }
+					}
+				</form>
+			</div>
 		}
 	}
 }
@@ -111,27 +135,64 @@ func whenAttr(w *forms.When) string {
 	return w.Path + "=" + strings.Join(w.Values, "|")
 }
 
+// sectionAttrs are a section card's hooks: its title, its condition and
+// whether it is advanced.
+func sectionAttrs(s forms.Section) templ.Attributes {
+	a := templ.Attributes{"data-section": s.Title}
+	if s.When != nil {
+		a["data-show-when"] = whenAttr(s.When)
+	}
+	if s.Advanced {
+		a["data-advanced"] = true
+	}
+	return a
+}
+
 templ formSection(s forms.Section) {
-	<fieldset
-		data-section={ s.Title }
-		if s.When != nil {
-			data-show-when={ whenAttr(s.When) }
-		}
-		if s.Advanced {
-			data-advanced
-		}
-		class="rounded-lg border bg-card p-4"
-	>
-		<legend class="px-1 text-sm font-semibold">{ s.Title }</legend>
-		if s.Help != "" {
-			<p class="mb-3 text-xs text-muted-foreground">{ s.Help }</p>
-		}
-		<div class="grid gap-4 sm:grid-cols-2">
-			for _, c := range s.Controls {
-				@formControl(c)
+	@card.Card(card.Props{Attributes: sectionAttrs(s)}) {
+		@card.Header() {
+			@card.Title() {
+				{ s.Title }
 			}
-		</div>
-	</fieldset>
+			if s.Help != "" {
+				@card.Description() {
+					{ s.Help }
+				}
+			}
+		}
+		@card.Content() {
+			@field.Group(field.GroupProps{Class: "grid gap-4 sm:grid-cols-2"}) {
+				for _, c := range s.Controls {
+					@formControl(c)
+				}
+			}
+		}
+	}
+}
+
+// fieldAttrs are a Field's hooks: data-field, and its own condition (a
+// Secret entry shown for some provider types).
+func fieldAttrs(w *forms.When) templ.Attributes {
+	a := templ.Attributes{"data-field": true}
+	if w != nil {
+		a["data-show-when"] = whenAttr(w)
+	}
+	return a
+}
+
+// numberAttrs are a number input's bounds and step.
+func numberAttrs(c forms.Control) templ.Attributes {
+	a := templ.Attributes{}
+	if c.Min != nil {
+		a["min"] = number(*c.Min)
+	}
+	if c.Max != nil {
+		a["max"] = number(*c.Max)
+	}
+	if c.Step != "" {
+		a["step"] = c.Step
+	}
+	return a
 }
 
 // formControl renders one control by its type.
@@ -142,117 +203,106 @@ templ formControl(c forms.Control) {
 		case forms.ControlMap:
 			@mapControl(c)
 		case forms.ControlLines:
-			<div data-field class="space-y-1.5 sm:col-span-2" { whenAttrs(c.When)... }>
-				@fieldLabel(c)
+			@field.Field(field.Props{Class: "sm:col-span-2", Attributes: fieldAttrs(c.When)}) {
+				@fieldLabel(c, controlID(c.Name))
 				@textarea.Textarea(textarea.Props{ID: controlID(c.Name), Name: c.Name, Value: strings.Join(c.Lines, "\n"), Rows: 3, Placeholder: "one per line"})
 				@fieldHelp(c)
-			</div>
+			}
 		case forms.ControlCheckbox:
-			<div data-field class="flex items-start gap-3 pt-6" { whenAttrs(c.When)... }>
+			@field.Field(field.Props{Orientation: field.OrientationHorizontal, Class: "sm:pt-6", Attributes: fieldAttrs(c.When)}) {
 				<input type="hidden" name={ c.Name } value="false"/>
 				@checkbox.Checkbox(checkbox.Props{ID: controlID(c.Name), Name: c.Name, Value: "true", Checked: &c.Checked, Disabled: c.ReadOnly})
-				<div class="space-y-1">
-					<label for={ controlID(c.Name) } class="text-sm font-medium">{ c.Label }</label>
-					@fieldHelp(c)
-				</div>
-			</div>
-		case forms.ControlSelect:
-			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
-				@fieldLabel(c)
-				<select
-					id={ controlID(c.Name) }
-					name={ c.Name }
-					required?={ c.Required && !c.ReadOnly }
-					disabled?={ c.ReadOnly }
-					class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full min-w-0 rounded-md border bg-transparent px-2.5 py-1 text-sm shadow-xs outline-none focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50"
-				>
-					for _, o := range c.Options {
-						<option value={ o.Value } selected?={ o.Value == c.Value }>{ o.Label }</option>
+				@field.Content() {
+					@field.Label(field.LabelProps{For: controlID(c.Name)}) {
+						{ c.Label }
 					}
-				</select>
-				if c.ReadOnly {
-					// a disabled select posts nothing; its value rides a hidden input
-					<input type="hidden" name={ c.Name } value={ c.Value }/>
+					@fieldHelp(c)
 				}
+			}
+		case forms.ControlSelect:
+			@field.Field(field.Props{Attributes: fieldAttrs(c.When)}) {
+				// the label names the trigger, the component's focusable part
+				@fieldLabel(c, controlID(c.Name)+"-trigger")
+				@selectControl(c)
 				@fieldHelp(c)
-			</div>
+			}
 		case forms.ControlPassword:
-			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
-				@fieldLabel(c)
+			@field.Field(field.Props{Attributes: fieldAttrs(c.When)}) {
+				@fieldLabel(c, controlID(c.Name))
 				// Never required in the browser: on an edit a blank entry means
 				// "keep the stored one", and a missing entry is the consumer's
 				// DependencyNotReady to report.
-				<input
-					type="password"
-					id={ controlID(c.Name) }
-					name={ c.Name }
-					autocomplete="new-password"
-					placeholder="unchanged"
-					class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full min-w-0 rounded-md border bg-transparent px-2.5 py-1 text-sm shadow-xs outline-none focus-visible:ring-3"
-				/>
+				@input.Input(input.Props{ID: controlID(c.Name), Name: c.Name, Type: "password", Placeholder: "unchanged", Attributes: templ.Attributes{"autocomplete": "new-password"}})
 				@fieldHelp(c)
-			</div>
+			}
 		case forms.ControlNumber:
-			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
-				@fieldLabel(c)
-				<input
-					type="number"
-					id={ controlID(c.Name) }
-					name={ c.Name }
-					if c.Value != "" {
-						value={ c.Value }
-					}
-					if c.Placeholder != "" {
-						placeholder={ c.Placeholder }
-					}
-					if c.Min != nil {
-						min={ number(*c.Min) }
-					}
-					if c.Max != nil {
-						max={ number(*c.Max) }
-					}
-					if c.Step != "" {
-						step={ c.Step }
-					}
-					required?={ c.Required }
-					readonly?={ c.ReadOnly }
-					class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full min-w-0 rounded-md border bg-transparent px-2.5 py-1 text-sm shadow-xs outline-none focus-visible:ring-3 read-only:opacity-70"
-				/>
+			@field.Field(field.Props{Attributes: fieldAttrs(c.When)}) {
+				@fieldLabel(c, controlID(c.Name))
+				@input.Input(input.Props{ID: controlID(c.Name), Name: c.Name, Type: "number", Value: c.Value, Placeholder: c.Placeholder, Required: c.Required, ReadOnly: c.ReadOnly, Attributes: numberAttrs(c)})
 				@fieldHelp(c)
-			</div>
+			}
 		default:
-			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
-				@fieldLabel(c)
+			@field.Field(field.Props{Attributes: fieldAttrs(c.When)}) {
+				@fieldLabel(c, controlID(c.Name))
 				@input.Input(input.Props{ID: controlID(c.Name), Name: c.Name, Value: c.Value, Placeholder: c.Placeholder, Required: c.Required, ReadOnly: c.ReadOnly})
 				@fieldHelp(c)
-			</div>
+			}
 	}
 }
 
-templ fieldLabel(c forms.Control) {
-	<label for={ controlID(c.Name) } class="text-sm font-medium">
+// selectControl is a choice as shadcn-templ's select component: its hidden
+// input posts the value under the control's name, and its change event is
+// what settings.js re-reads the conditions on. A read-only (immutable)
+// choice is the component's Disabled: the trigger cannot open while the
+// hidden input, never disabled, still posts -- the component's own
+// ReadOnly renders a bare aria-readonly its script reads as not read-only.
+// An option with the empty value is the "unset" choice of an optional
+// field.
+templ selectControl(c forms.Control) {
+	@selectcomp.Select(selectcomp.Props{ID: controlID(c.Name), Name: c.Name, DefaultValue: c.Value, Required: c.Required && !c.ReadOnly, Disabled: c.ReadOnly}) {
+		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
+			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "—"})
+		}
+		@selectcomp.Content() {
+			@selectcomp.Group() {
+				for _, o := range c.Options {
+					@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+						{ o.Label }
+					}
+				}
+			}
+		}
+	}
+}
+
+templ fieldLabel(c forms.Control, target string) {
+	@field.Label(field.LabelProps{For: target}) {
 		{ c.Label }
 		if c.Required {
 			<span class="text-destructive" aria-hidden="true">*</span>
 		}
-	</label>
+	}
 }
 
 templ fieldHelp(c forms.Control) {
 	if c.Help != "" {
-		<p class="text-xs text-muted-foreground">{ c.Help }</p>
+		@field.Description() {
+			{ c.Help }
+		}
 	}
 }
 
 // rowsControl renders an array of objects: a row per element, each with
 // the item's controls and a Remove button, and a template for Add.
 templ rowsControl(c forms.Control) {
-	<div data-rows={ c.Name } class="space-y-3 sm:col-span-2 rounded-md border border-dashed p-3" { whenAttrs(c.When)... }>
-		<div class="flex items-center justify-between">
-			<div>
-				<span class="text-sm font-medium">{ c.Label }</span>
+	@field.Set(field.SetProps{Class: "gap-3 sm:col-span-2", Attributes: rowsAttrs("data-rows", c)}) {
+		<div class="flex items-start justify-between gap-4">
+			@field.Content() {
+				@field.Title() {
+					{ c.Label }
+				}
 				@fieldHelp(c)
-			</div>
+			}
 			@button.Button(button.Props{Type: "button", Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-add-row": true}}) {
 				Add
 			}
@@ -265,30 +315,46 @@ templ rowsControl(c forms.Control) {
 		<template data-row-template>
 			@formRow(c.Template)
 		</template>
-	</div>
+	}
+}
+
+// rowsAttrs are a row list's hooks: which list (data-rows or data-map)
+// and its condition.
+func rowsAttrs(hook string, c forms.Control) templ.Attributes {
+	a := templ.Attributes{hook: c.Name}
+	if c.When != nil {
+		a["data-show-when"] = whenAttr(c.When)
+	}
+	return a
 }
 
 templ formRow(controls []forms.Control) {
-	<div data-row class="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-3">
-		for _, rc := range controls {
-			@formControl(rc)
+	@card.Card(card.Props{Size: card.SizeSm, Class: "bg-muted/30", Attributes: templ.Attributes{"data-row": true}}) {
+		@card.Content() {
+			@field.Group(field.GroupProps{Class: "grid gap-3 sm:grid-cols-3"}) {
+				for _, rc := range controls {
+					@formControl(rc)
+				}
+			}
 		}
-		<div class="flex items-end sm:col-span-3">
+		@card.Footer(card.FooterProps{Class: "justify-end"}) {
 			@button.Button(button.Props{Type: "button", Size: button.SizeXs, Variant: button.VariantGhost, Attributes: templ.Attributes{"data-remove-row": true}}) {
 				Remove
 			}
-		</div>
-	</div>
+		}
+	}
 }
 
 // mapControl renders a string map as key/value rows.
 templ mapControl(c forms.Control) {
-	<div data-map={ c.Name } class="space-y-2 sm:col-span-2" { whenAttrs(c.When)... }>
-		<div class="flex items-center justify-between">
-			<div>
-				<span class="text-sm font-medium">{ c.Label }</span>
+	@field.Set(field.SetProps{Class: "gap-2 sm:col-span-2", Attributes: rowsAttrs("data-map", c)}) {
+		<div class="flex items-start justify-between gap-4">
+			@field.Content() {
+				@field.Title() {
+					{ c.Label }
+				}
 				@fieldHelp(c)
-			</div>
+			}
 			@button.Button(button.Props{Type: "button", Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-add-row": true}}) {
 				Add
 			}
@@ -301,26 +367,17 @@ templ mapControl(c forms.Control) {
 		<template data-row-template>
 			@mapRow(c.Name, "__i__", forms.Pair{})
 		</template>
-	</div>
+	}
 }
 
 templ mapRow(name, index string, pair forms.Pair) {
 	<div data-row class="flex items-center gap-2">
-		@input.Input(input.Props{Name: name + ".__k." + index, Value: pair.Key, Placeholder: "key", Class: "w-1/3"})
-		@input.Input(input.Props{Name: name + ".__v." + index, Value: pair.Value, Placeholder: "value"})
+		@input.Input(input.Props{Name: name + ".__k." + index, Value: pair.Key, Placeholder: "key", Class: "w-1/3", Attributes: templ.Attributes{"aria-label": "Key"}})
+		@input.Input(input.Props{Name: name + ".__v." + index, Value: pair.Value, Placeholder: "value", Attributes: templ.Attributes{"aria-label": "Value"}})
 		@button.Button(button.Props{Type: "button", Size: button.SizeXs, Variant: button.VariantGhost, Attributes: templ.Attributes{"data-remove-row": true}}) {
 			Remove
 		}
 	</div>
-}
-
-// whenAttrs is a control's own condition (a Secret entry shown for some
-// provider types), as attributes.
-func whenAttrs(w *forms.When) templ.Attributes {
-	if w == nil {
-		return nil
-	}
-	return templ.Attributes{"data-show-when": whenAttr(w)}
 }
 
 // controlID makes an input's id from its name; "__i__" stays so a cloned
@@ -333,15 +390,16 @@ func number(f float64) string {
 	return fmt.Sprintf("%v", f)
 }
 
-// configActions is the Edit link and Delete form on a Settings-page card.
-// namespace is "-" for a cluster-scoped kind, the form routes' placeholder.
+// configActions is the Edit link and Delete form on a Settings-page card,
+// for its footer. namespace is "-" for a cluster-scoped kind, the form
+// routes' placeholder.
 templ configActions(slug, namespace, name string) {
 	@configActionsTo(slug, namespace, name, settingsReturnPath)
 }
 
 // configActionsTo is configActions for a card on another page (the Import
 // Lists page, 2026-09-24): the edit form and the delete both return to
-// returnTo instead of the Settings page.
+// returnTo instead of the Settings page. It renders as the card's footer.
 templ configActionsTo(slug, namespace, name, returnTo string) {
 	{{ ns := namespace }}
 	if ns == "" {
@@ -351,7 +409,7 @@ templ configActionsTo(slug, namespace, name, returnTo string) {
 	if returnTo != settingsReturnPath {
 		{{ edit += "?return=" + returnTo }}
 	}
-	<div class="mt-3 flex items-center gap-2 border-t border-slate-800 pt-3">
+	@card.Footer(card.FooterProps{Class: "gap-2 border-t"}) {
 		@button.Button(button.Props{Href: edit, Size: button.SizeXs, Variant: button.VariantOutline}) {
 			Edit
 		}
@@ -361,5 +419,5 @@ templ configActionsTo(slug, namespace, name, returnTo string) {
 				Delete
 			}
 		</form>
-	</div>
+	}
 }

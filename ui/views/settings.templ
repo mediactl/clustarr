@@ -20,7 +20,14 @@ package views
 import (
 	"fmt"
 
+	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/empty"
+	"github.com/mediactl/clustarr/ui/components/input"
+	"github.com/mediactl/clustarr/ui/components/label"
+	corev1 "k8s.io/api/core/v1"
+
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -59,10 +66,10 @@ templ Settings(
 	transcodeProfiles []transcodev1.TranscodeProfile,
 ) {
 	@Layout("Settings") {
-		<h1 class="mb-4 text-2xl font-bold">Settings</h1>
+		<h1 class="mb-6 text-2xl font-semibold tracking-tight">Settings</h1>
 		@settingsSection("Root Folders", "rootfolders") {
 			if len(rootFolders) == 0 {
-				<p class="text-slate-400">No root folders configured.</p>
+				@settingsEmpty("No root folders configured.")
 			}
 			for _, rf := range rootFolders {
 				@rootFolderCard(rf)
@@ -70,7 +77,7 @@ templ Settings(
 		}
 		@settingsSection("Quality Profiles", "qualityprofiles") {
 			if len(qualityProfiles) == 0 {
-				<p class="text-slate-400">No quality profiles configured.</p>
+				@settingsEmpty("No quality profiles configured.")
 			}
 			for _, qp := range qualityProfiles {
 				@qualityProfileCard(qp)
@@ -78,7 +85,7 @@ templ Settings(
 		}
 		@settingsSection("Indexers", "indexers") {
 			if len(indexers) == 0 {
-				<p class="text-slate-400">No indexers configured.</p>
+				@settingsEmpty("No indexers configured.")
 			}
 			for _, idx := range indexers {
 				@indexerCard(idx)
@@ -86,7 +93,7 @@ templ Settings(
 		}
 		@settingsSection("Download Clients", "downloadclients") {
 			if len(downloadClients) == 0 {
-				<p class="text-slate-400">No download clients configured.</p>
+				@settingsEmpty("No download clients configured.")
 			}
 			for _, dc := range downloadClients {
 				@downloadClientSettingsCard(dc)
@@ -94,7 +101,7 @@ templ Settings(
 		}
 		@settingsSection("Metadata Providers", "metadataproviders") {
 			if len(metadataProviders) == 0 {
-				<p class="text-slate-400">No metadata providers configured.</p>
+				@settingsEmpty("No metadata providers configured.")
 			}
 			for _, mp := range metadataProviders {
 				@metadataProviderCard(mp)
@@ -102,7 +109,7 @@ templ Settings(
 		}
 		@settingsSection("Subtitle Providers", "subtitleproviders") {
 			if len(subtitleProviders) == 0 {
-				<p class="text-slate-400">No subtitle providers configured.</p>
+				@settingsEmpty("No subtitle providers configured.")
 			}
 			for _, sp := range subtitleProviders {
 				@subtitleProviderCard(sp)
@@ -110,7 +117,7 @@ templ Settings(
 		}
 		@settingsSection("Subtitle Profiles", "subtitleprofiles") {
 			if len(subtitleProfiles) == 0 {
-				<p class="text-slate-400">No subtitle profiles configured.</p>
+				@settingsEmpty("No subtitle profiles configured.")
 			}
 			for _, sp := range subtitleProfiles {
 				@subtitleProfileCard(sp)
@@ -118,7 +125,7 @@ templ Settings(
 		}
 		@settingsSection("Transcode Profiles", "transcodeprofiles") {
 			if len(transcodeProfiles) == 0 {
-				<p class="text-slate-400">No transcode profiles configured.</p>
+				@settingsEmpty("No transcode profiles configured.")
 			}
 			for _, tp := range transcodeProfiles {
 				@transcodeProfileCard(tp)
@@ -130,17 +137,105 @@ templ Settings(
 // settingsSection wraps one kind's cards under a heading, mirroring
 // downloads.templ's downloadClientsSection.
 templ settingsSection(title, slug string) {
-	<section class="mb-8" data-settings-kind={ slug }>
-		<div class="mb-2 flex items-center justify-between">
-			<h2 class="text-lg font-semibold">{ title }</h2>
+	<section class="mb-10" data-settings-kind={ slug }>
+		<div class="mb-3 flex items-center justify-between">
+			<h2 class="text-lg font-semibold tracking-tight">{ title }</h2>
 			@button.Button(button.Props{Href: "/settings/new/" + slug, Size: button.SizeSm, Variant: button.VariantOutline}) {
 				Add
 			}
 		</div>
-		<div class="grid gap-3 sm:grid-cols-2">
+		<div class="grid gap-4 sm:grid-cols-2">
 			{ children... }
 		</div>
 	</section>
+}
+
+// settingsEmpty is a section with nothing in it: the empty component
+// across the grid.
+templ settingsEmpty(message string) {
+	@empty.Empty(empty.Props{Class: "border border-dashed py-8 sm:col-span-2"}) {
+		@empty.Header() {
+			@empty.Description() {
+				{ message }
+			}
+		}
+	}
+}
+
+// settingsCard is one object on the Settings page (2026-09-29, the card
+// component): its name, a line of what it is, a badge in the header's
+// action slot, the quick edit form as content and the Edit and Delete
+// actions as footer. attrs are the card's data-* hooks.
+templ settingsCard(name string, attrs templ.Attributes, badges templ.Component, details templ.Component) {
+	@card.Card(card.Props{Size: card.SizeSm, Attributes: attrs}) {
+		@card.Header() {
+			@card.Title() {
+				{ name }
+			}
+			@card.Description() {
+				@details
+			}
+			@card.Action() {
+				<div class="flex flex-wrap items-center justify-end gap-1.5">
+					@badges
+				</div>
+			}
+		}
+		{ children... }
+	}
+}
+
+// detailLines are a card's description: one line each, muted.
+templ detailLines(lines ...string) {
+	for i, l := range lines {
+		if l != "" {
+			if i > 0 {
+				<br/>
+			}
+			<span class="break-all">{ l }</span>
+		}
+	}
+}
+
+// credentialsLine names a secretRef's Secret -- only its name, never a
+// value read from it.
+func credentialsLine(name string) string {
+	if name == "" {
+		return ""
+	}
+	return "credentials: Secret/" + name
+}
+
+// kindBadge is a neutral badge naming what an object is (a kind, a type).
+templ kindBadge(text string) {
+	if text != "" {
+		@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+			{ text }
+		}
+	}
+}
+
+// enabledBadge is an object's enabled state: secondary when on, outline
+// and muted when off.
+templ enabledBadge(enabled bool) {
+	if enabled {
+		@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+			{ enabledLabel(true) }
+		}
+	} else {
+		@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-muted-foreground"}) {
+			{ enabledLabel(false) }
+		}
+	}
+}
+
+// defaultBadge marks the default profile of its kind.
+templ defaultBadge(isDefault bool) {
+	if isDefault {
+		@badge.Badge() {
+			default
+		}
+	}
 }
 
 // rootFolderCard renders one RootFolder with an edit form for
@@ -149,41 +244,23 @@ templ settingsSection(title, slug string) {
 // safe leaf (ui/actions/settings.go's own doc comment on
 // SetRootFolderScanSchedule).
 templ rootFolderCard(rf catalogv1.RootFolder) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-root-folder={ rf.Namespace + "/" + rf.Name }
-		data-scan-schedule={ rf.Spec.ScanSchedule }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ rf.Name }</span>
-			<span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{ string(rf.Spec.Kind) }</span>
-		</div>
-		<p class="mt-1 text-xs text-slate-400">{ rf.Spec.Path }</p>
-		<form
-			method="post"
-			action={ templ.URL(fmt.Sprintf("/settings/rootfolders/%s/%s", rf.Namespace, rf.Name)) }
-			class="mt-3 flex items-center gap-2"
-		>
-			<input type="hidden" name="return" value={ settingsReturnPath }/>
-			<label class="text-xs text-slate-400" for={ "scanSchedule-" + rf.Name }>Scan schedule (cron)</label>
-			<input
-				type="text"
-				id={ "scanSchedule-" + rf.Name }
-				name="scanSchedule"
-				value={ rf.Spec.ScanSchedule }
-				placeholder="e.g. 0 3 * * *"
-				class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
-			/>
-			<button
-				type="submit"
-				data-action="save"
-				class="rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
-			>
-				Save
-			</button>
-		</form>
+	@settingsCard(rf.Name, templ.Attributes{"data-root-folder": rf.Namespace + "/" + rf.Name, "data-scan-schedule": rf.Spec.ScanSchedule}, kindBadge(string(rf.Spec.Kind)), detailLines(rf.Spec.Path)) {
+		@card.Content() {
+			<form method="post" action={ templ.URL(fmt.Sprintf("/settings/rootfolders/%s/%s", rf.Namespace, rf.Name)) } class="flex items-end gap-2">
+				<input type="hidden" name="return" value={ settingsReturnPath }/>
+				<div class="grid flex-1 gap-1.5">
+					@label.Label(label.Props{For: "scanSchedule-" + rf.Name, Class: "text-xs text-muted-foreground"}) {
+						Scan schedule (cron)
+					}
+					@input.Input(input.Props{ID: "scanSchedule-" + rf.Name, Name: "scanSchedule", Value: rf.Spec.ScanSchedule, Placeholder: "e.g. 0 3 * * *", Class: "h-8"})
+				</div>
+				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "save"}}) {
+					Save
+				}
+			</form>
+		}
 		@configActions("rootfolders", rf.Namespace, rf.Name)
-	</div>
+	}
 }
 
 // qualityProfileCard renders one QualityProfile with an edit form for
@@ -193,45 +270,38 @@ templ rootFolderCard(rf catalogv1.RootFolder) {
 // finishAction -> views.ActionError, per this task's "handle the rejection
 // visibly" instruction.
 templ qualityProfileCard(qp catalogv1.QualityProfile) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-quality-profile={ qp.Name }
-		data-built-in={ fmt.Sprintf("%t", qp.Spec.BuiltIn) }
-		data-upgrade-allowed={ fmt.Sprintf("%t", qualityProfileUpgradeAllowed(qp)) }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ qp.Name }</span>
-			if qp.Spec.BuiltIn {
-				<span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">built-in</span>
-			}
-		</div>
-		<p class="mt-1 text-xs text-slate-400">{ string(qp.Spec.MediaKind) } · cutoff { qp.Spec.Cutoff }</p>
-		<form
-			method="post"
-			action={ templ.URL(fmt.Sprintf("/settings/qualityprofiles/%s", qp.Name)) }
-			class="mt-3 flex items-center gap-2"
-		>
-			<input type="hidden" name="return" value={ settingsReturnPath }/>
-			<button
-				type="submit"
-				name="upgradeAllowed"
-				value={ fmt.Sprintf("%t", !qualityProfileUpgradeAllowed(qp)) }
-				data-action="set-upgrade-allowed"
-				class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
-			>
-				if qualityProfileUpgradeAllowed(qp) {
-					Disable upgrades
-				} else {
-					Enable upgrades
+	@settingsCard(qp.Name, templ.Attributes{"data-quality-profile": qp.Name, "data-built-in": fmt.Sprintf("%t", qp.Spec.BuiltIn), "data-upgrade-allowed": fmt.Sprintf("%t", qualityProfileUpgradeAllowed(qp))}, builtInBadge(qp.Spec.BuiltIn), detailLines(string(qp.Spec.MediaKind)+" · cutoff "+qp.Spec.Cutoff)) {
+		@card.Content() {
+			<form method="post" action={ templ.URL(fmt.Sprintf("/settings/qualityprofiles/%s", qp.Name)) }>
+				<input type="hidden" name="return" value={ settingsReturnPath }/>
+				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Variant: button.VariantSecondary, Attributes: templ.Attributes{"name": "upgradeAllowed", "value": fmt.Sprintf("%t", !qualityProfileUpgradeAllowed(qp)), "data-action": "set-upgrade-allowed"}}) {
+					if qualityProfileUpgradeAllowed(qp) {
+						Disable upgrades
+					} else {
+						Enable upgrades
+					}
 				}
-			</button>
-		</form>
+			</form>
+		}
 		@configActions("qualityprofiles", "", qp.Name)
-	</div>
+	}
+}
+
+templ builtInBadge(builtIn bool) {
+	if builtIn {
+		@kindBadge("built-in")
+	}
 }
 
 func qualityProfileUpgradeAllowed(qp catalogv1.QualityProfile) bool {
 	return qp.Spec.UpgradeAllowed == nil || *qp.Spec.UpgradeAllowed
+}
+
+func secretName(ref *corev1.LocalObjectReference) string {
+	if ref == nil {
+		return ""
+	}
+	return ref.Name
 }
 
 // indexerCard renders one Indexer with a combined edit form for
@@ -240,23 +310,12 @@ func qualityProfileUpgradeAllowed(qp catalogv1.QualityProfile) bool {
 // task's "never expose a Secret's contents" instruction -- there is no path
 // here that reads the Secret at all.
 templ indexerCard(idx indexv1.Indexer) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-indexer={ idx.Namespace + "/" + idx.Name }
-		data-enabled={ fmt.Sprintf("%t", indexerEnabled(idx)) }
-		data-priority={ fmt.Sprintf("%d", idx.Spec.Priority) }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ idx.Name }</span>
-			<span class={ enabledBadgeClass(indexerEnabled(idx)) }>{ enabledLabel(indexerEnabled(idx)) }</span>
-		</div>
-		<p class="mt-1 text-xs text-slate-400">{ idx.Spec.BaseURL }</p>
-		if idx.Spec.SecretRef != nil {
-			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ idx.Spec.SecretRef.Name }</p>
+	@settingsCard(idx.Name, templ.Attributes{"data-indexer": idx.Namespace + "/" + idx.Name, "data-enabled": fmt.Sprintf("%t", indexerEnabled(idx)), "data-priority": fmt.Sprintf("%d", idx.Spec.Priority)}, enabledBadge(indexerEnabled(idx)), detailLines(idx.Spec.BaseURL, credentialsLine(secretName(idx.Spec.SecretRef)))) {
+		@card.Content() {
+			@enabledPriorityForm(fmt.Sprintf("/settings/indexers/%s/%s", idx.Namespace, idx.Name), indexerEnabled(idx), idx.Spec.Priority, "indexer-"+idx.Name)
 		}
-		@enabledPriorityForm(fmt.Sprintf("/settings/indexers/%s/%s", idx.Namespace, idx.Name), indexerEnabled(idx), idx.Spec.Priority, "indexer-"+idx.Name)
 		@configActions("indexers", idx.Namespace, idx.Name)
-	</div>
+	}
 }
 
 func indexerEnabled(idx indexv1.Indexer) bool {
@@ -267,20 +326,12 @@ func indexerEnabled(idx indexv1.Indexer) bool {
 // Settings-page counterpart: same identifying data, plus the edit form
 // downloads.templ's read-only summary card has no reason to carry.
 templ downloadClientSettingsCard(dc downloadv1.DownloadClient) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-download-client={ dc.Namespace + "/" + dc.Name }
-		data-enabled={ fmt.Sprintf("%t", downloadClientEnabled(dc)) }
-		data-priority={ fmt.Sprintf("%d", dc.Spec.Priority) }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ dc.Name }</span>
-			<span class={ enabledBadgeClass(downloadClientEnabled(dc)) }>{ enabledLabel(downloadClientEnabled(dc)) }</span>
-		</div>
-		<p class="mt-1 text-xs text-slate-400">{ string(dc.Spec.Protocol) }</p>
-		@enabledPriorityForm(fmt.Sprintf("/settings/downloadclients/%s/%s", dc.Namespace, dc.Name), downloadClientEnabled(dc), dc.Spec.Priority, "downloadclient-"+dc.Name)
+	@settingsCard(dc.Name, templ.Attributes{"data-download-client": dc.Namespace + "/" + dc.Name, "data-enabled": fmt.Sprintf("%t", downloadClientEnabled(dc)), "data-priority": fmt.Sprintf("%d", dc.Spec.Priority)}, enabledBadge(downloadClientEnabled(dc)), detailLines(string(dc.Spec.Protocol))) {
+		@card.Content() {
+			@enabledPriorityForm(fmt.Sprintf("/settings/downloadclients/%s/%s", dc.Namespace, dc.Name), downloadClientEnabled(dc), dc.Spec.Priority, "downloadclient-"+dc.Name)
+		}
 		@configActions("downloadclients", dc.Namespace, dc.Name)
-	</div>
+	}
 }
 
 func downloadClientEnabled(dc downloadv1.DownloadClient) bool {
@@ -290,23 +341,12 @@ func downloadClientEnabled(dc downloadv1.DownloadClient) bool {
 // metadataProviderCard renders one MetadataProvider with the same
 // enabled/priority edit form as Indexer and DownloadClient.
 templ metadataProviderCard(mp catalogv1.MetadataProvider) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-metadata-provider={ mp.Namespace + "/" + mp.Name }
-		data-enabled={ fmt.Sprintf("%t", metadataProviderEnabled(mp)) }
-		data-priority={ fmt.Sprintf("%d", mp.Spec.Priority) }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ mp.Name }</span>
-			<span class={ enabledBadgeClass(metadataProviderEnabled(mp)) }>{ enabledLabel(metadataProviderEnabled(mp)) }</span>
-		</div>
-		<p class="mt-1 text-xs text-slate-400">{ string(mp.Spec.Type) }</p>
-		if mp.Spec.SecretRef != nil {
-			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ mp.Spec.SecretRef.Name }</p>
+	@settingsCard(mp.Name, templ.Attributes{"data-metadata-provider": mp.Namespace + "/" + mp.Name, "data-enabled": fmt.Sprintf("%t", metadataProviderEnabled(mp)), "data-priority": fmt.Sprintf("%d", mp.Spec.Priority)}, enabledBadge(metadataProviderEnabled(mp)), detailLines(string(mp.Spec.Type), credentialsLine(secretName(mp.Spec.SecretRef)))) {
+		@card.Content() {
+			@enabledPriorityForm(fmt.Sprintf("/settings/metadataproviders/%s/%s", mp.Namespace, mp.Name), metadataProviderEnabled(mp), mp.Spec.Priority, "metadataprovider-"+mp.Name)
 		}
-		@enabledPriorityForm(fmt.Sprintf("/settings/metadataproviders/%s/%s", mp.Namespace, mp.Name), metadataProviderEnabled(mp), mp.Spec.Priority, "metadataprovider-"+mp.Name)
 		@configActions("metadataproviders", mp.Namespace, mp.Name)
-	</div>
+	}
 }
 
 func metadataProviderEnabled(mp catalogv1.MetadataProvider) bool {
@@ -317,102 +357,54 @@ func metadataProviderEnabled(mp catalogv1.MetadataProvider) bool {
 // enabled/priority edit form as the other three; a nil spec.enabled reads as
 // its CRD default, true.
 templ subtitleProviderCard(sp subtitlev1.SubtitleProvider) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-subtitle-provider={ sp.Namespace + "/" + sp.Name }
-		data-enabled={ fmt.Sprintf("%t", sp.Spec.EnabledOrDefault()) }
-		data-priority={ fmt.Sprintf("%d", sp.Spec.Priority) }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ sp.Name }</span>
-			<span class={ enabledBadgeClass(sp.Spec.EnabledOrDefault()) }>{ enabledLabel(sp.Spec.EnabledOrDefault()) }</span>
-		</div>
-		<p class="mt-1 text-xs text-slate-400">{ string(sp.Spec.Type) }</p>
-		if sp.Spec.SecretRef != nil {
-			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ sp.Spec.SecretRef.Name }</p>
+	@settingsCard(sp.Name, templ.Attributes{"data-subtitle-provider": sp.Namespace + "/" + sp.Name, "data-enabled": fmt.Sprintf("%t", sp.Spec.EnabledOrDefault()), "data-priority": fmt.Sprintf("%d", sp.Spec.Priority)}, enabledBadge(sp.Spec.EnabledOrDefault()), detailLines(string(sp.Spec.Type), credentialsLine(secretName(sp.Spec.SecretRef)))) {
+		@card.Content() {
+			@enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.EnabledOrDefault(), sp.Spec.Priority, "subtitleprovider-"+sp.Name)
 		}
-		@enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.EnabledOrDefault(), sp.Spec.Priority, "subtitleprovider-"+sp.Name)
 		@configActions("subtitleproviders", sp.Namespace, sp.Name)
-	</div>
+	}
 }
 
 // subtitleProfileCard renders one SubtitleProfile (cluster-scoped) with an
 // edit form for spec.default.
 templ subtitleProfileCard(sp subtitlev1.SubtitleProfile) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-subtitle-profile={ sp.Name }
-		data-default={ fmt.Sprintf("%t", sp.Spec.Default) }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ sp.Name }</span>
-			if sp.Spec.Default {
-				<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">default</span>
-			}
-		</div>
-		<form
-			method="post"
-			action={ templ.URL(fmt.Sprintf("/settings/subtitleprofiles/%s", sp.Name)) }
-			class="mt-3"
-		>
-			<input type="hidden" name="return" value={ settingsReturnPath }/>
-			<button
-				type="submit"
-				name="default"
-				value={ fmt.Sprintf("%t", !sp.Spec.Default) }
-				data-action="set-default"
-				class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
-			>
-				if sp.Spec.Default {
-					Unset as default
-				} else {
-					Set as default
+	@settingsCard(sp.Name, templ.Attributes{"data-subtitle-profile": sp.Name, "data-default": fmt.Sprintf("%t", sp.Spec.Default)}, defaultBadge(sp.Spec.Default), detailLines(fmt.Sprintf("%d languages", len(sp.Spec.Languages)))) {
+		@card.Content() {
+			<form method="post" action={ templ.URL(fmt.Sprintf("/settings/subtitleprofiles/%s", sp.Name)) }>
+				<input type="hidden" name="return" value={ settingsReturnPath }/>
+				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Variant: button.VariantSecondary, Attributes: templ.Attributes{"name": "default", "value": fmt.Sprintf("%t", !sp.Spec.Default), "data-action": "set-default"}}) {
+					if sp.Spec.Default {
+						Unset as default
+					} else {
+						Set as default
+					}
 				}
-			</button>
-		</form>
+			</form>
+		}
 		@configActions("subtitleprofiles", "", sp.Name)
-	</div>
+	}
 }
 
 // transcodeProfileCard renders one TranscodeProfile (cluster-scoped) with an
 // edit form for spec.priority.
 templ transcodeProfileCard(tp transcodev1.TranscodeProfile) {
-	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
-		data-transcode-profile={ tp.Name }
-		data-priority={ fmt.Sprintf("%d", tp.Spec.Priority) }
-	>
-		<div class="flex items-center justify-between gap-4">
-			<span class="font-medium">{ tp.Name }</span>
-			if tp.Spec.Default {
-				<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">default</span>
-			}
-		</div>
-		<p class="mt-1 text-xs text-slate-400">{ string(tp.Spec.Hardware) } · { string(tp.Spec.Container) }</p>
-		<form
-			method="post"
-			action={ templ.URL(fmt.Sprintf("/settings/transcodeprofiles/%s", tp.Name)) }
-			class="mt-3 flex items-center gap-2"
-		>
-			<input type="hidden" name="return" value={ settingsReturnPath }/>
-			<label class="text-xs text-slate-400" for={ "priority-" + tp.Name }>Priority</label>
-			<input
-				type="number"
-				id={ "priority-" + tp.Name }
-				name="priority"
-				value={ fmt.Sprintf("%d", tp.Spec.Priority) }
-				class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
-			/>
-			<button
-				type="submit"
-				data-action="save"
-				class="rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
-			>
-				Save
-			</button>
-		</form>
+	@settingsCard(tp.Name, templ.Attributes{"data-transcode-profile": tp.Name, "data-priority": fmt.Sprintf("%d", tp.Spec.Priority)}, defaultBadge(tp.Spec.Default), detailLines(string(tp.Spec.Hardware)+" · "+string(tp.Spec.Container))) {
+		@card.Content() {
+			<form method="post" action={ templ.URL(fmt.Sprintf("/settings/transcodeprofiles/%s", tp.Name)) } class="flex items-end gap-2">
+				<input type="hidden" name="return" value={ settingsReturnPath }/>
+				<div class="grid gap-1.5">
+					@label.Label(label.Props{For: "priority-" + tp.Name, Class: "text-xs text-muted-foreground"}) {
+						Priority
+					}
+					@input.Input(input.Props{ID: "priority-" + tp.Name, Name: "priority", Type: "number", Value: fmt.Sprintf("%d", tp.Spec.Priority), Class: "h-8 w-24"})
+				</div>
+				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "save"}}) {
+					Save
+				}
+			</form>
+		}
 		@configActions("transcodeprofiles", "", tp.Name)
-	</div>
+	}
 }
 
 // enabledPriorityForm is the shared edit form for the four kinds whose
@@ -423,64 +415,33 @@ templ transcodeProfileCard(tp transcodev1.TranscodeProfile) {
 // clicking either both toggles enabled and saves whatever priority is
 // currently typed, in one merge patch.
 templ enabledPriorityForm(action string, enabled bool, priority int32, idPrefix string) {
-	<form method="post" action={ templ.URL(action) } class="mt-3 flex items-center gap-2">
+	<form method="post" action={ templ.URL(action) } class="flex items-end gap-2">
 		<input type="hidden" name="return" value={ settingsReturnPath }/>
-		<label class="text-xs text-slate-400" for={ "priority-" + idPrefix }>Priority</label>
-		<input
-			type="number"
-			id={ "priority-" + idPrefix }
-			name="priority"
-			value={ fmt.Sprintf("%d", priority) }
-			class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
-		/>
+		<div class="grid gap-1.5">
+			@label.Label(label.Props{For: "priority-" + idPrefix, Class: "text-xs text-muted-foreground"}) {
+				Priority
+			}
+			@input.Input(input.Props{ID: "priority-" + idPrefix, Name: "priority", Type: "number", Value: fmt.Sprintf("%d", priority), Class: "h-8 w-24"})
+		</div>
 		if enabled {
-			<button
-				type="submit"
-				name="enabled"
-				value="false"
-				data-action="disable"
-				class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
-			>
+			@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Variant: button.VariantSecondary, Attributes: templ.Attributes{"name": "enabled", "value": "false", "data-action": "disable"}}) {
 				Disable
-			</button>
+			}
 		} else {
-			<button
-				type="submit"
-				name="enabled"
-				value="true"
-				data-action="enable"
-				class="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600"
-			>
+			@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Variant: button.VariantSecondary, Attributes: templ.Attributes{"name": "enabled", "value": "true", "data-action": "enable"}}) {
 				Enable
-			</button>
+			}
 		}
-		<button
-			type="submit"
-			name="enabled"
-			value={ fmt.Sprintf("%t", enabled) }
-			data-action="save"
-			class="rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
-		>
+		@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"name": "enabled", "value": fmt.Sprintf("%t", enabled), "data-action": "save"}}) {
 			Save
-		</button>
+		}
 	</form>
 }
 
-// enabledLabel and enabledBadgeClass mirror downloads.templ's
-// clientEnabledLabel/clientEnabledBadgeClass for the identical
-// boolean-badge shape, generalised across every Settings-page kind rather
-// than duplicated per kind.
+// enabledLabel names an enabled state, as the badge reads it.
 func enabledLabel(enabled bool) string {
 	if enabled {
 		return "enabled"
 	}
 	return "disabled"
-}
-
-func enabledBadgeClass(enabled bool) string {
-	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
-	if enabled {
-		return base + "bg-emerald-500/20 text-emerald-300"
-	}
-	return base + "bg-slate-500/20 text-slate-300"
 }

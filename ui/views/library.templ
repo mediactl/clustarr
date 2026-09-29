@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/aspectratio"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
@@ -450,9 +451,15 @@ func choiceAttributes(attr string, c Choice) templ.Attributes {
 // reason ("no-writer", "invalid" or "failed") carried on data-action-error
 // (ruling R8), separate from message, which is the human-readable detail.
 templ ActionError(code, message string) {
-	<p data-action-error={ code } class="rounded-md border border-red-900 bg-red-950/50 p-4 text-sm text-red-300">
-		Action failed: { message }
-	</p>
+	@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"data-action-error": code, "role": "alert"}}) {
+		@icon.CircleAlert()
+		@alert.Title() {
+			Action failed
+		}
+		@alert.Description() {
+			{ message }
+		}
+	}
 }
 
 // tabLabel and tabClass render the tab strip: the label a person reads, and

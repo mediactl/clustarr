@@ -34,8 +34,10 @@
       if (!tpl || !list) return;
       var i = String(nextIndex(list));
       var frag = tpl.content.cloneNode(true);
-      frag.querySelectorAll('[name], [id], [for]').forEach(function (el) {
-        ['name', 'id', 'for'].forEach(function (attr) {
+      // aria-controls too: a select component finds its popup by it, so a
+      // clone that kept the template's would open the template's list.
+      frag.querySelectorAll('[name], [id], [for], [aria-controls]').forEach(function (el) {
+        ['name', 'id', 'for', 'aria-controls'].forEach(function (attr) {
           var v = el.getAttribute(attr);
           if (v && v.indexOf('__i__') >= 0) el.setAttribute(attr, v.split('__i__').join(i));
         });
@@ -89,13 +91,42 @@
 
   document.addEventListener('change', function (e) {
     if (e.target && e.target.name) applyConditions();
+    // a select component posts through a hidden input, which the browser's
+    // required check skips; a choice clears the mark requiredSelects set
+    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-tui-select-input')) {
+      var trigger = e.target.nextElementSibling;
+      if (trigger) trigger.removeAttribute('aria-invalid');
+    }
   });
+
+  // requiredSelects is the browser's required check for the select
+  // component: an empty required choice in a shown section marks its
+  // trigger invalid and takes focus, and the form does not submit.
+  function requiredSelects(form) {
+    var first = null;
+    // templ renders the flag bare (aria-required, no value)
+    form.querySelectorAll('[data-slot="select-trigger"][aria-required]:not([aria-required="false"])').forEach(function (trigger) {
+      var input = trigger.previousElementSibling;
+      if (!input || !input.hasAttribute('data-tui-select-input')) return;
+      if (trigger.closest('[hidden]')) return;
+      if (input.value === '') {
+        trigger.setAttribute('aria-invalid', 'true');
+        if (!first) first = trigger;
+      }
+    });
+    if (first) first.focus();
+    return !first;
+  }
   document.addEventListener('input', function (e) {
     if (e.target && e.target.name && e.target.tagName === 'SELECT') applyConditions();
   });
 
   document.addEventListener('submit', function (e) {
     var form = e.target;
+    if (form && form.hasAttribute && form.hasAttribute('data-settings-form') && !requiredSelects(form)) {
+      e.preventDefault();
+      return;
+    }
     if (form && form.hasAttribute && form.hasAttribute('data-confirm')) {
       if (!window.confirm(form.getAttribute('data-confirm'))) e.preventDefault();
     }
