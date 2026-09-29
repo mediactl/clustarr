@@ -80,10 +80,21 @@ func TestSearchArtRefusesWhatItMustNotFetch(t *testing.T) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		_, _ = w.Write(big)
 	})
+	// An off-allowlist host that is reachable, so only checkRedirect can
+	// stop the fetch: a DNS failure would pass the test whether or not it
+	// works (final review).
+	offHits := 0
+	off := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		offHits++
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("\x89PNG"))
+	}))
+	t.Cleanup(off.Close)
 	mux.HandleFunc("/away", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "https://example.invalid/x.jpg", http.StatusFound)
+		http.Redirect(w, r, off.URL+"/x.png", http.StatusFound)
 	})
 	a, base := newTestSearchArt(t, mux)
+	a.client.Transport = off.Client().Transport // trusts both test servers' certificates
 
 	require.Empty(t, a.URL("https://example.invalid/x.jpg"), "a host off the allowlist is never signed")
 	require.Empty(t, a.URL("http://"+strings.TrimPrefix(base, "https://")+"/p.jpg"), "plain http is never signed")
@@ -100,6 +111,37 @@ func TestSearchArtRefusesWhatItMustNotFetch(t *testing.T) {
 		rec := serveSearchArt(a, target)
 		require.NotEqual(t, http.StatusOK, rec.Code, name)
 		require.NotContains(t, rec.Body.String(), "<html>", name)
+	}
+	require.Zero(t, offHits, "the redirect's off-allowlist host is never fetched")
+}
+
+// TestSearchArtFollowsARedirectToTheArchive: Open Library author photos and
+// every Cover Art Archive image redirect to archive.org's storage hosts
+// (verified live, 2026-09-29), which a redirect may reach; a signed URL
+// still never starts there.
+func TestSearchArtFollowsARedirectToTheArchive(t *testing.T) {
+	archive := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("jpeg"))
+	}))
+	t.Cleanup(archive.Close)
+	archiveURL, err := url.Parse(archive.URL)
+	require.NoError(t, err)
+	a, base := newTestSearchArt(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, archive.URL+"/m_covers/1-M.jpg", http.StatusFound)
+	}))
+	a.client.Transport = archive.Client().Transport
+	a.redirectHost = func(host string) bool { return host == archiveURL.Host }
+	rec := serveSearchArt(a, a.URL(base+"/a/olid/OL1A-M.jpg"))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "jpeg", rec.Body.String())
+	require.Empty(t, a.URL(archive.URL+"/x.jpg"), "a redirect-only host is never signed")
+
+	for host, want := range map[string]bool{
+		"archive.org": true, "ia800100.us.archive.org": true,
+		"archive.org.evil.example": false, "notarchive.org": false,
+	} {
+		require.Equal(t, want, archiveHost(host), host)
 	}
 }
 

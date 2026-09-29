@@ -59,6 +59,14 @@ var searchArtHosts = map[string]bool{
 
 var errSearchArtRefused = errors.New("ui: search art: refused")
 
+// archiveHost reports whether host is archive.org or one of its storage
+// hosts, where Open Library author photos and every Cover Art Archive image
+// redirect (verified live, 2026-09-29). A redirect may reach one; a signed
+// URL never starts at one.
+func archiveHost(host string) bool {
+	return host == "archive.org" || strings.HasSuffix(host, ".archive.org")
+}
+
 type cachedArt struct {
 	body        []byte
 	contentType string
@@ -76,7 +84,9 @@ type searchArt struct {
 	key    []byte
 	hosts  map[string]bool
 	client *http.Client
-	cache  *lru.Cache[string, cachedArt]
+	// redirectHost is where a redirect may go beyond hosts: archiveHost.
+	redirectHost func(host string) bool
+	cache        *lru.Cache[string, cachedArt]
 
 	// mu guards cachedBytes, the bytes the cache holds, which Add keeps
 	// at or under maxCacheBytes by evicting the oldest.
@@ -88,7 +98,7 @@ type searchArt struct {
 func newSearchArt() *searchArt {
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
-	a := &searchArt{key: key, hosts: searchArtHosts, maxCacheBytes: searchArtCacheBytes}
+	a := &searchArt{key: key, hosts: searchArtHosts, redirectHost: archiveHost, maxCacheBytes: searchArtCacheBytes}
 	a.cache, _ = lru.NewWithEvict[string, cachedArt](searchArtEntries, func(_ string, v cachedArt) {
 		a.cachedBytes -= int64(len(v.body))
 	})
@@ -99,7 +109,8 @@ func newSearchArt() *searchArt {
 func (a *searchArt) allowed(u *url.URL) bool { return u.Scheme == "https" && a.hosts[u.Host] }
 
 func (a *searchArt) checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 3 || !a.allowed(req.URL) {
+	u := req.URL
+	if len(via) >= 3 || !(a.allowed(u) || (u.Scheme == "https" && a.redirectHost(u.Host))) {
 		return errSearchArtRefused
 	}
 	return nil
