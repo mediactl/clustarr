@@ -73,7 +73,9 @@ type that needs no key (`metadataprovider.SeedDefaults`: MusicBrainz,
 Cover Art Archive, Open Library, Audnexus, MangaDex, AniList, Kitsu,
 Anime-Lists) in its own namespace at start, create-only, skipping a type
 already configured under any name; `spec.enabled: false` turns one off,
-since a deleted seed returns at the next start.
+since a deleted seed returns at the next start. captionarr likewise seeds
+the default SubtitleProfile `english` (`subtitleprofile.SeedDefault`)
+when the cluster has no SubtitleProfile at all.
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).

@@ -745,8 +745,8 @@ rules:
   - subtitle.clustarr.io
   resources:
   - subtitleprofiles
-  - subtitleproviders
   verbs:
+  - create
   - get
   - list
   - watch
@@ -760,6 +760,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleproviders
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - subtitle.clustarr.io
   resources:

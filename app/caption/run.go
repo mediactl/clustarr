@@ -248,6 +248,11 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("captionarr: subtitleprofile: %w", err)
 	}
+	// An English default profile on a cluster that has none, so subtitles
+	// work without setup. Create-only; leader-elected.
+	if err := mgr.Add(&subtitleprofile.Bootstrap{Client: c, Namespace: o.Namespace}); err != nil {
+		return fmt.Errorf("captionarr: subtitleprofile bootstrap: %w", err)
+	}
 
 	provider := subtitleprovider.NewReconciler(c, bus.KV(events.BucketProviderThrottle), mgr.GetEventRecorder("subtitleprovider"))
 	provider.Secrets = mgr.GetAPIReader()
