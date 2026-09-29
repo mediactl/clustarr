@@ -114,6 +114,10 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 	require.NotRegexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), rescan, "a RootFolder of the tab's kind exists")
 	require.Regexp(t, regexp.MustCompile(`(?s)data-action="rescan"[^>]*>.*?<span>Rescan</span>`), bar, "the label is plain Rescan")
 
+	// Add New (2026-09-29): the page's own search-and-add, a link.
+	requireTag(t, bar, `data-action="add-new"`, `href="/library/movies/add"`, `data-slot="button"`)
+	require.Regexp(t, regexp.MustCompile(`(?s)data-action="add-new"[^>]*>.*?<span>Add New</span>`), bar)
+
 	require.Equal(t, 2, strings.Count(bar, `data-tui-dropdownmenu-trigger`), "a Sort trigger and a Filter trigger")
 	require.Regexp(t, regexp.MustCompile(`data-tui-dropdownmenu-trigger[^>]*>[^<]*(<[^>]*>[^<]*)*Sort`), bar)
 	require.Regexp(t, regexp.MustCompile(`data-tui-dropdownmenu-trigger[^>]*>[^<]*(<[^>]*>[^<]*)*Filter`), bar)

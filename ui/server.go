@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -359,6 +360,9 @@ type Server struct {
 	// searchArt serves Add New's search posters (GET /art/search) with a
 	// per-process signing key.
 	searchArt *searchArt
+
+	// addSearchTimeout bounds one Add New metadata search.
+	addSearchTimeout time.Duration
 }
 
 // NewServer builds a Server from opts and logs [authWarning] through the
@@ -417,7 +421,7 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Plex != nil && opts.Plex.ExternalURL == "" {
 		logging.FromContext(ctx).Warn(plexExternalURLWarning)
 	}
-	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt()}
+	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(), addSearchTimeout: defaultAddSearchTimeout}
 }
 
 // Handler returns the composed HTTP handler for every route this service

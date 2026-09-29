@@ -353,12 +353,44 @@ templ libraryToolbar(tab projection.Tab, tb LibraryToolbar, rootFolders []catalo
 	@toolbar(templ.Attributes{"data-current-sort": tb.Sort, "data-current-dir": tb.Dir, "data-current-filter": tb.Filter}) {
 		@toolbarGroup() {
 			@rescanForm(tab, len(rootFolders) > 0)
+			@addNewButton(tab)
 		}
 		@toolbarGroup() {
 			@viewMenu("Sort", "arrow-up-down", "Sort by", "data-sort", tb.Sorts)
 			@viewMenu("Filter", "funnel", "Filter", "data-filter", tb.Filters)
 		}
 	}
+}
+
+// addNewButton is the toolbar's "Add New" (2026-09-29): a link to the
+// tab's search-and-add page, Radarr's Movies > Add New.
+templ addNewButton(tab projection.Tab) {
+	@button.Button(button.Props{
+		Href:    "/library/" + string(tab) + "/add",
+		Variant: button.VariantGhost,
+		Class:   toolbarButtonClass,
+		Attributes: templ.Attributes{
+			"data-action":         "add-new",
+			"data-toolbar-button": true,
+			"title":               "Add a new " + addLabel(tab),
+		},
+	}) {
+		@icon.Icon("plus")()
+		<span>Add New</span>
+	}
+}
+
+// addLabel is what the tab's Add New adds.
+func addLabel(tab projection.Tab) string {
+	switch tab {
+	case projection.TabTV:
+		return "series"
+	case projection.TabMusic:
+		return "artist"
+	case projection.TabBooks:
+		return "author"
+	}
+	return "movie"
 }
 
 // rescanForm is the toolbar's "Rescan" (2026-09-24): one form posting the

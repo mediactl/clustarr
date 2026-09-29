@@ -1,0 +1,233 @@
+package views
+
+import (
+	"fmt"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/alert"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/empty"
+	"github.com/mediactl/clustarr/ui/components/field"
+	"github.com/mediactl/clustarr/ui/components/input"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// AddOption is one choice of an Add New select.
+type AddOption struct{ Value, Label string }
+
+// AddKind is Add New for one library tab (ui/add.go's addKinds).
+type AddKind struct {
+	Tab         projection.Tab
+	Kind        commonv1.MediaKind
+	Label       string
+	IDKey       string
+	ProfileKind catalogv1.ProfileMediaKind
+	Monitor     []AddOption
+	MonitorNew  []AddOption
+}
+
+// AddPageData is the Add New page: the search box, and the action error
+// of a rejected add.
+type AddPageData struct {
+	Kind      AddKind
+	Available bool
+	ErrorCode string
+	Error     string
+}
+
+// AddHit is one search result: InLibrary is the item's detail path when
+// the library already holds it, and Poster the /art/search path or "".
+type AddHit struct {
+	ID, Title, Poster, InLibrary string
+	Year                         int32
+}
+
+// AddResultsData is what one search renders.
+type AddResultsData struct {
+	Kind                  AddKind
+	Query                 string
+	Hits                  []AddHit
+	RootFolders, Profiles []AddOption
+	Prompt, NoProvider    bool
+	Error                 string
+}
+
+templ AddPage(d AddPageData) {
+	@Shell(Chrome{Title: "Add " + d.Kind.Label, Tab: d.Kind.Tab, Crumbs: []Crumb{{Label: tabLabel(d.Kind.Tab), Href: "/library/" + string(d.Kind.Tab)}, {Label: "Add New"}}}) {
+		<h1 class="mb-2 text-2xl font-semibold tracking-tight">Add { d.Kind.Label }</h1>
+		<p class="mb-6 text-sm text-muted-foreground">Search by title, then choose how to add it.</p>
+		if d.Error != "" {
+			<div class="mb-6">
+				@ActionError(d.ErrorCode, d.Error)
+			</div>
+		}
+		if !d.Available {
+			<div class="mb-6">
+				@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+					@alert.Title() {
+						Metadata search is not available
+					}
+					@alert.Description() {
+						The ui has no connection to catalogarr.
+					}
+				}
+			</div>
+		}
+		@input.Input(input.Props{
+			Type:        "search",
+			Name:        "q",
+			Placeholder: "Search for a " + d.Kind.Label + " by title",
+			Class:       "max-w-xl",
+			Attributes: templ.Attributes{
+				"aria-label":   "Search",
+				"autofocus":    true,
+				"hx-get":       "/library/" + string(d.Kind.Tab) + "/add/search",
+				"hx-trigger":   "input changed delay:400ms, search",
+				"hx-target":    "#add-results",
+				"hx-indicator": "#add-searching",
+			},
+		})
+		<p id="add-searching" class="htmx-indicator mt-2 text-sm text-muted-foreground">Searching…</p>
+		<div id="add-results" class="mt-6" data-add-results></div>
+	}
+}
+
+templ AddResults(d AddResultsData) {
+	if d.Prompt {
+		<p class="text-sm text-muted-foreground">Type at least two characters.</p>
+	} else if d.NoProvider {
+		@alert.Alert() {
+			@alert.Title() {
+				No { d.Kind.Label } metadata provider is configured
+			}
+			@alert.Description() {
+				Add one under <a class="text-primary underline" href="/settings">Settings</a> to search here.
+			}
+		}
+	} else if d.Error != "" {
+		@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"role": "alert"}}) {
+			@alert.Title() {
+				{ d.Error }
+			}
+		}
+	} else if len(d.Hits) == 0 {
+		@empty.Empty(empty.Props{Class: "border border-dashed py-8"}) {
+			@empty.Header() {
+				@empty.Title() {
+					No matches for “{ d.Query }”
+				}
+			}
+		}
+	} else {
+		<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+			for _, h := range d.Hits {
+				@addHitCard(d, h)
+			}
+		</div>
+	}
+}
+
+templ addHitCard(d AddResultsData, h AddHit) {
+	@card.Card(card.Props{Size: card.SizeSm, Attributes: templ.Attributes{"data-add-hit": h.ID}}) {
+		@card.Content(card.ContentProps{Class: "flex gap-4"}) {
+			if h.Poster != "" {
+				<img src={ h.Poster } alt="" loading="lazy" class="aspect-[2/3] w-20 shrink-0 rounded bg-muted object-cover"/>
+			} else {
+				<div class="aspect-[2/3] w-20 shrink-0 rounded bg-muted" aria-hidden="true"></div>
+			}
+			<div class="min-w-0 flex-1">
+				<p class="font-medium">{ h.Title }</p>
+				if h.Year > 0 {
+					<p class="text-sm text-muted-foreground">{ fmt.Sprint(h.Year) }</p>
+				}
+				if h.InLibrary != "" {
+					<a href={ templ.SafeURL(h.InLibrary) } class="mt-2 inline-block">
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+							In library
+						}
+					</a>
+				} else {
+					@addForm(d, h)
+				}
+			</div>
+		}
+	}
+}
+
+templ addForm(d AddResultsData, h AddHit) {
+	<details class="mt-2">
+		<summary class="cursor-pointer text-sm text-primary">Add</summary>
+		<form method="post" action={ templ.SafeURL("/library/" + string(d.Kind.Tab) + "/add") } class="mt-3 grid gap-3" data-settings-form>
+			<input type="hidden" name="title" value={ h.Title }/>
+			<input type="hidden" name="id" value={ h.ID }/>
+			@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, onlyValue(d.RootFolders))
+			@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, onlyValue(d.Profiles))
+			@addSelect("monitor", h.ID, "Monitor", d.Kind.Monitor, d.Kind.Monitor[0].Value)
+			switch d.Kind.Kind {
+				case commonv1.MediaKindMovie:
+					@addSelect("minimumAvailability", h.ID, "Minimum availability", []AddOption{{Value: "announced", Label: "Announced"}, {Value: "inCinemas", Label: "In cinemas"}, {Value: "released", Label: "Released"}}, "released")
+				case commonv1.MediaKindSeries:
+					@addSelect("seriesType", h.ID, "Series type", []AddOption{{Value: "standard", Label: "Standard"}, {Value: "daily", Label: "Daily"}, {Value: "anime", Label: "Anime"}}, "standard")
+					@addCheck("seasonFolder", h.ID, "Season folders", true)
+					@addCheck("searchCutoffUnmet", h.ID, "Search for cutoff unmet", false)
+			}
+			if len(d.Kind.MonitorNew) > 0 {
+				@addSelect("monitorNewItems", h.ID, "Monitor new items", d.Kind.MonitorNew, d.Kind.MonitorNew[0].Value)
+			}
+			@addCheck("monitored", h.ID, "Monitored", true)
+			@addCheck("searchOnAdd", h.ID, "Start search for missing", true)
+			<div>
+				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "add"}}) {
+					Add { h.Title }
+				}
+			</div>
+		</form>
+	</details>
+}
+
+templ addSelect(name, hitID, label string, opts []AddOption, def string) {
+	@field.Field() {
+		@field.Label(field.LabelProps{For: "add-" + name + "-" + hitID + "-trigger"}) {
+			{ label }
+		}
+		@selectcomp.Select(selectcomp.Props{ID: "add-" + name + "-" + hitID, Name: name, DefaultValue: def, Required: true}) {
+			@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
+				@selectcomp.Value(selectcomp.ValueProps{Placeholder: "—"})
+			}
+			@selectcomp.Content() {
+				@selectcomp.Group() {
+					for _, o := range opts {
+						@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+							{ o.Label }
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+templ addCheck(name, hitID, label string, on bool) {
+	@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+		<input type="hidden" name={ name } value="false"/>
+		@checkbox.Checkbox(checkbox.Props{ID: "add-" + name + "-" + hitID, Name: name, Value: "true", Checked: &on})
+		@field.Label(field.LabelProps{For: "add-" + name + "-" + hitID}) {
+			{ label }
+		}
+	}
+}
+
+// onlyValue preselects a root folder or profile only when there is exactly
+// one to choose; with several, a person picks deliberately, and
+// ui/static/settings.js's required-select check blocks an empty submit.
+func onlyValue(opts []AddOption) string {
+	if len(opts) == 1 {
+		return opts[0].Value
+	}
+	return ""
+}
