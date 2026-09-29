@@ -88,41 +88,41 @@ func TestGeneratedCSSCoversTemplateOnlyClasses(t *testing.T) {
 }
 
 // TestGeneratedCSSCoversLibraryPageClasses is Task G3-3's own addition to
-// TestGeneratedCSSCoversTemplateOnlyClasses' guard: border-red-900 is a
-// class ui/views/library.templ's ActionError component uses (the visible
-// actions.ErrNoWriter failure state this task's routes.go handlers render),
-// added new by this task rather than inherited from an earlier one, so its
-// presence in the committed app.css specifically proves the new .templ file
-// was included in the `make css` build that produced it.
+// TestGeneratedCSSCoversTemplateOnlyClasses' guard: its marker must be a
+// class only ui/views/library.templ uses, so its presence in the committed
+// app.css proves that file was included in the `make css` build that
+// produced it. It was border-red-900, ActionError's, until the settings
+// restyle (2026-09-29) made ActionError the alert component; the marker is
+// now aspect-[2/3], the library card's poster ratio.
 func TestGeneratedCSSCoversLibraryPageClasses(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.True(t, strings.Contains(rec.Body.String(), "border-red-900"),
-		"ui/static/app.css is missing .border-red-900, a class ui/views/library.templ's ActionError "+
-			"component uses; this means the committed app.css was not rebuilt with `make css` after "+
-			"library.templ was added")
+	require.True(t, strings.Contains(rec.Body.String(), `.aspect-\[2\/3\]`),
+		"ui/static/app.css is missing .aspect-[2/3], the class ui/views/library.templ's poster card uses; "+
+			"this means the committed app.css was not rebuilt with `make css` after library.templ changed")
 }
 
 // TestGeneratedCSSCoversImportListsPageClasses is Task G3-4's own addition
-// to TestGeneratedCSSCoversTemplateOnlyClasses' guard: border-amber-800 is a
-// class ui/views/importlists.templ's importListRow component uses for the
-// pending device-code authorization box (§A3.4's Trakt device-code flow),
-// added new by this task, so its presence in the committed app.css
-// specifically proves importlists.templ was included in the `make css`
-// build that produced it.
+// to TestGeneratedCSSCoversTemplateOnlyClasses' guard: its marker must be a
+// class only ui/views/importlists.templ uses, so its presence in the
+// committed app.css proves that file was included in the `make css` build.
+// It was border-amber-800, the pending device-code box's, until the
+// settings restyle (2026-09-29) made that box the alert component; the
+// marker is now font-mono, the device code itself (input.css defines only
+// the --font-mono variable, never the utility).
 func TestGeneratedCSSCoversImportListsPageClasses(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.True(t, strings.Contains(rec.Body.String(), "border-amber-800"),
-		"ui/static/app.css is missing .border-amber-800, a class ui/views/importlists.templ's "+
-			"importListRow component uses for the pending device-code authorization box; this means the "+
-			"committed app.css was not rebuilt with `make css` after importlists.templ was added")
+	require.True(t, strings.Contains(rec.Body.String(), ".font-mono{"),
+		"ui/static/app.css is missing .font-mono, the class ui/views/importlists.templ's device-code "+
+			"prompt uses; this means the committed app.css was not rebuilt with `make css` after "+
+			"importlists.templ changed")
 }
 
 // TestGeneratedCSSCoversManualAssignFormClasses is Task G3-4's follow-up
