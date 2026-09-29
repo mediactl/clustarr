@@ -68,7 +68,12 @@ An import list likewise finds an item by provider id
 (`importlist.libraryByID`) and writes only the items it added itself:
 one added by hand, by a rescan or by another list is recorded as listed
 and never changed or removed by it (Radarr), since item names hash the
-title as well as the id.
+title as well as the id. catalogarr seeds a MetadataProvider for every
+type that needs no key (`metadataprovider.SeedDefaults`: MusicBrainz,
+Cover Art Archive, Open Library, Audnexus, MangaDex, AniList, Kitsu,
+Anime-Lists) in its own namespace at start, create-only, skipping a type
+already configured under any name; `spec.enabled: false` turns one off,
+since a deleted seed returns at the next start.
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).

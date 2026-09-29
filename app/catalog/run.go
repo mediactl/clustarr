@@ -408,6 +408,13 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalogarr: metadataprovider: %w", err)
 	}
 
+	// The providers that need no key (MusicBrainz, Open Library, Cover Art
+	// Archive and the rest), so music, book and anime metadata work on a
+	// fresh install. Create-only; leader-elected like the profile seed.
+	if err := mgr.Add(&metadataprovider.Bootstrap{Client: c, Namespace: o.Namespace}); err != nil {
+		return fmt.Errorf("catalogarr: metadataprovider bootstrap: %w", err)
+	}
+
 	if err := searchctl.NewReconciler(c, bus,
 		mgr.GetEventRecorder("search"),
 	).SetupWithManager(mgr); err != nil {

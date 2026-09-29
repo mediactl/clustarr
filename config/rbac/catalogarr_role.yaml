@@ -94,7 +94,6 @@ rules:
   - catalog.clustarr.io
   resources:
   - delayprofiles
-  - metadataproviders
   - overlayprofiles
   - rootfolders
   verbs:
@@ -110,6 +109,15 @@ rules:
   - get
   - list
   - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - metadataproviders
+  verbs:
+  - create
+  - get
+  - list
   - watch
 - apiGroups:
   - catalog.clustarr.io
