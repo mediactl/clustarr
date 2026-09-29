@@ -19,6 +19,7 @@ package ui_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -32,6 +33,7 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/ui"
@@ -120,6 +122,9 @@ func TestAddSearchErrors(t *testing.T) {
 		want   string
 	}{
 		"not responding":   {slow, "Metadata search is not responding"},
+		"catalogarr down": {func(context.Context, schema.MetadataRequest) (schema.MetadataResponse, error) {
+			return schema.MetadataResponse{}, fmt.Errorf("natsbus: %q: %w", "rpc.catalogarr.metadata.search", events.ErrNoResponders)
+		}, "Metadata search is not responding"},
 		"no provider":      {answer(schema.MetadataResponse{Error: "metadata: no movie metadata provider is configured to search"}), `href="/settings"`},
 		"provider failure": {answer(schema.MetadataResponse{Error: "metadata: every movie search provider failed: tmdb: rate limited"}), "rate limited"},
 		"no hits":          {hits(commonv1.MediaKindMovie), "No matches"},
@@ -129,6 +134,9 @@ func TestAddSearchErrors(t *testing.T) {
 		ui.SetAddSearchTimeoutForTest(srv, 50*time.Millisecond)
 		rec := get(t, srv, "/library/movies/add/search?q=heat")
 		require.Contains(t, rec.Body.String(), tc.want, name)
+		if tc.want == "Metadata search is not responding" {
+			requireTag(t, rec.Body.String(), `data-action="retry-search"`, `hx-get="/library/movies/add/search?q=heat"`)
+		}
 	}
 	srv, _ := addServer(t, hits(commonv1.MediaKindMovie), moviesRoot, hdProfile)
 	require.NotContains(t, get(t, srv, "/library/movies/add/search?q=h").Body.String(), "No matches", "one character is not searched")

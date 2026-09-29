@@ -22,12 +22,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -183,8 +185,11 @@ func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		resp, err := s.opts.MetadataSearch(ctx, schema.MetadataRequest{Kind: k.Kind, Text: q})
 		switch {
-		case err != nil && (errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil):
+		case err != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, events.ErrNoResponders) || ctx.Err() != nil):
+			// Slow, or down: NATS answers "no responders" at once when
+			// nothing serves the subject.
 			res.Error = "Metadata search is not responding."
+			res.RetryURL = "/library/" + string(k.Tab) + "/add/search?q=" + url.QueryEscape(q)
 		case err != nil:
 			res.Error = clampMessage("Metadata search failed: " + err.Error())
 		case strings.Contains(resp.Error, "metadata provider is configured"):

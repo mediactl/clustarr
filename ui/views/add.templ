@@ -55,6 +55,8 @@ type AddResultsData struct {
 	RootFolders, Profiles []AddOption
 	Prompt, NoProvider    bool
 	Error                 string
+	// RetryURL, set when the search did not answer, re-runs it.
+	RetryURL string
 }
 
 templ AddPage(d AddPageData) {
@@ -131,6 +133,16 @@ templ AddResults(d AddResultsData) {
 		@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"role": "alert"}}) {
 			@alert.Title() {
 				{ d.Error }
+			}
+			if d.RetryURL != "" {
+				@alert.Description() {
+					@button.Button(button.Props{
+						Type: "button", Size: button.SizeSm, Variant: button.VariantOutline,
+						Attributes: templ.Attributes{"data-action": "retry-search", "hx-get": d.RetryURL, "hx-target": "#add-results"},
+					}) {
+						Retry
+					}
+				}
 			}
 		}
 	} else if len(d.Hits) == 0 {
