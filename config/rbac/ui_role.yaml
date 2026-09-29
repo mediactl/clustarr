@@ -22,7 +22,8 @@
 # Writes (Phase G ruling R2, docs/superpowers/plans/2026-09-23-phase-g-parity.md;
 # amendment §A3.2 and, for the Settings-page patches, the G3-4 note under
 # ruling R2): exactly what ui/actions' actions need and nothing else --
-# create on searches ("search now") and libraryscans ("rescan"), patch on
+# create on searches ("search now"), libraryscans ("rescan") and movies,
+# series, artists and authors ("Add New", 2026-09-29), patch on
 # the ten catalog kinds that have a spec.monitored ("monitor this"), and
 # patch on each of the eight Settings-page kinds (RootFolder, QualityProfile,
 # MetadataProvider, Indexer, DownloadClient, SubtitleProvider,
@@ -114,8 +115,12 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - artists
+  - authors
   - libraryscans
+  - movies
   - searches
+  - series
   verbs:
   - create
 - apiGroups:

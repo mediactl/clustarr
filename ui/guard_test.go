@@ -124,6 +124,9 @@ const bannedK8sImport = modulePrefix + "pkg/k8s"
 var actionsModuleImports = []string{
 	modulePrefix + "api/",
 	modulePrefix + "pkg/obs/",
+	// pkg/names imports only the standard library: Add New names an item
+	// exactly as importarr does (2026-09-29).
+	modulePrefix + "pkg/names",
 }
 
 // TestUINeverWrites is D3-4's AST guard, narrowed by ruling R2

@@ -78,6 +78,13 @@ var uiActionGrants = map[uiGrant]bool{
 	{"catalog.clustarr.io", "movies", "patch"}:        true,
 	{"catalog.clustarr.io", "series", "patch"}:        true,
 
+	// Add New (docs/superpowers/specs/2026-09-29-add-new-design.md): the
+	// library pages create the four addable kinds.
+	{"catalog.clustarr.io", "movies", "create"}:  true,
+	{"catalog.clustarr.io", "series", "create"}:  true,
+	{"catalog.clustarr.io", "artists", "create"}: true,
+	{"catalog.clustarr.io", "authors", "create"}: true,
+
 	// Task G3-4: the Settings page's edit forms, one patch grant per kind.
 	{"catalog.clustarr.io", "rootfolders", "patch"}:         true,
 	{"catalog.clustarr.io", "qualityprofiles", "patch"}:     true,

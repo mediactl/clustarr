@@ -132,7 +132,8 @@ type Grant struct {
 }
 
 // Grants returns every RBAC permission this package's actions need, and
-// nothing else: create on searches and libraryscans, patch on each catalog
+// nothing else: create on searches and libraryscans, create on each
+// [AddableKinds] kind (Add New, 2026-09-29), patch on each catalog
 // kind in [MediaKinds] ("monitor this", §A3.2), plus -- Task G3-4, the
 // Settings page -- patch on each kind [settingsGrants] (settings.go) names.
 // It is a declaration, not a computation -- the envtest proves the §A3.2
@@ -146,6 +147,9 @@ func Grants() []Grant {
 	grants := []Grant{
 		{Group: group, Resource: "libraryscans", Verb: "create"},
 		{Group: group, Resource: "searches", Verb: "create"},
+	}
+	for _, kind := range AddableKinds {
+		grants = append(grants, Grant{Group: group, Resource: monitorables[kind].resource, Verb: "create"})
 	}
 	for _, kind := range MediaKinds() {
 		grants = append(grants, Grant{Group: group, Resource: monitorables[kind].resource, Verb: "patch"})
