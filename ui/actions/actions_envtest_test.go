@@ -227,6 +227,63 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 		requireStatusStillOwnedBy(t, got, k8s.ManagerImportarr.String())
 	})
 
+	// TestUIManagerNeverOwnsStatus's "rename" subtest is rescan's sibling:
+	// RenameFiles creates the same kind of object (a LibraryScan) through
+	// the same Creator, so it needs the identical real-apiserver proof --
+	// exact managedFields ownership, no status entry -- plus the one thing
+	// rescan's subpath-less call cannot show, that spec.rename and
+	// spec.subpath (both sent, unlike rescan's omitted-when-empty subpath)
+	// land with the value RenameFiles asked for, not merely a field claim.
+	t.Run("rename", func(t *testing.T) {
+		for _, dryRun := range []bool{true, false} {
+			mode, want := "apply", catalogv1alpha1.ScanRenameApply
+			if dryRun {
+				mode, want = "dryRun", catalogv1alpha1.ScanRenameDryRun
+			}
+			t.Run(mode, func(t *testing.T) {
+				scan, err := actions.RenameFiles(ctx, rec, ns, "movies", "extras", dryRun)
+				require.NoError(t, err)
+				require.True(t, strings.HasPrefix(scan.Name, "movies-"), "generated name %q", scan.Name)
+				require.Equal(t, actions.OriginUI, scan.Labels[actions.LabelOrigin])
+				require.Equal(t, want, scan.Spec.Rename)
+
+				gvk := mustGVK(t, scan, scheme)
+				seedStatus(ctx, t, c, k8s.ManagerImportarr, gvk, scan.Name, ns)
+				got := getUnstructured(ctx, t, c, gvk, scan.Name, ns)
+
+				gotRename, found, err := unstructured.NestedString(got.Object, "spec", "rename")
+				require.NoError(t, err)
+				require.True(t, found, "spec.rename must be present on the object read back")
+				require.Equal(t, string(want), gotRename)
+
+				gotSubpath, found, err := unstructured.NestedString(got.Object, "spec", "subpath")
+				require.NoError(t, err)
+				require.True(t, found, "spec.subpath must be present on the object read back")
+				require.Equal(t, "extras", gotSubpath)
+
+				entry := requireOneUIEntry(t, got)
+				requireFieldsContain(t, entry, "f:metadata", "f:labels", "f:"+actions.LabelOrigin)
+				requireFieldsContain(t, entry, "f:spec", "f:rootFolderRef")
+				requireFieldsContain(t, entry, "f:spec", "f:subpath")
+				requireFieldsContain(t, entry, "f:spec", "f:rename")
+				// clustarr-ui also ends up owning "." (the spec struct itself,
+				// standard structured-merge-diff shape for a Create) and the
+				// two fields RenameFiles never sets -- mode and
+				// ttlSecondsAfterFinished -- because both carry a CRD default
+				// (+kubebuilder:default) and the typed Creator sends neither as
+				// JSON (the CLAUDE.md typed-client defaulting trap), so the
+				// apiserver fills them in and attributes them to whichever
+				// manager's Create request it was; harmless here since no
+				// other manager competes for them. requireSpecFieldsExactly
+				// still proves the negative that matters: nothing beyond this
+				// closed set, and in particular no status leaf.
+				requireSpecFieldsExactly(t, got, ".", "mode", "rename", "rootFolderRef", "subpath", "ttlSecondsAfterFinished")
+				requireNeverOnStatus(t, got)
+				requireStatusStillOwnedBy(t, got, k8s.ManagerImportarr.String())
+			})
+		}
+	})
+
 	// A sweep over every object of every kind the UI can touch, after all
 	// of the above: whatever path a write took, clustarr-ui is on no status.
 	// It counts what it inspected, so it cannot pass by looking at nothing.
@@ -250,8 +307,9 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 				requireNeverOnStatus(t, &list.Items[i])
 			}
 		}
-		require.Equal(t, len(actions.MediaKinds())+2, inspected,
-			"expected one clustarr-ui entry per catalog item patched plus the Search and the LibraryScan")
+		require.Equal(t, len(actions.MediaKinds())+4, inspected,
+			"expected one clustarr-ui entry per catalog item patched plus the Search, the rescan LibraryScan "+
+				"and the two rename LibraryScans (dryRun and apply)")
 	})
 
 	// This subtest asserted declared == used until Task G3-4 added
@@ -431,6 +489,37 @@ func requireUIOwnsExactly(t *testing.T, obj metav1.Object, want string) {
 	entry := requireOneUIEntry(t, obj)
 	require.JSONEq(t, want, entry.FieldsV1.GetRawString(),
 		"%s/%s: %s must own exactly this and nothing else", obj.GetNamespace(), obj.GetName(), actions.FieldManager)
+}
+
+// requireSpecFieldsExactly asserts the clustarr-ui entry's f:spec node owns
+// exactly the keys in want -- bare field names (auto-prefixed "f:") or the
+// literal "." that marks the spec struct itself as set -- and nothing else.
+// It is the same no-over-claim property requireUIOwnsExactly proves for a
+// pure spec merge patch, scoped to just the spec node so a create that also
+// touches metadata.labels (whose own fieldsV1 shape this need not predict)
+// can still prove its spec claim is exact.
+func requireSpecFieldsExactly(t *testing.T, obj metav1.Object, want ...string) {
+	t.Helper()
+	entry := requireOneUIEntry(t, obj)
+	fields := fieldsOf(t, entry)
+	specAny, ok := fields["f:spec"]
+	require.True(t, ok, "%s/%s: %s owns no f:spec at all", obj.GetNamespace(), obj.GetName(), actions.FieldManager)
+	spec, ok := specAny.(map[string]any)
+	require.True(t, ok, "%s/%s: f:spec is not an object: %#v", obj.GetNamespace(), obj.GetName(), specAny)
+	got := make([]string, 0, len(spec))
+	for k := range spec {
+		got = append(got, k)
+	}
+	wantKeys := make([]string, 0, len(want))
+	for _, w := range want {
+		if w == "." {
+			wantKeys = append(wantKeys, w)
+			continue
+		}
+		wantKeys = append(wantKeys, "f:"+w)
+	}
+	require.ElementsMatch(t, wantKeys, got,
+		"%s/%s: %s must own exactly these spec leaves and nothing else", obj.GetNamespace(), obj.GetName(), actions.FieldManager)
 }
 
 func requireStatusStillOwnedBy(t *testing.T, obj metav1.Object, manager string) {
