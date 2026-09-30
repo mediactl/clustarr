@@ -43,6 +43,9 @@ type Registry struct {
 	// computing what each provider still needs to be asked for rather than
 	// taking a single "first that answers" result the way Lookup does.
 	Ratings []RatingsProvider
+	// Taglines fill a series' tagline when its provider gave none, first
+	// answer wins.
+	Taglines []SeriesTaglineProvider
 }
 
 // Lookup fetches a single entity of kind, identified by ids, from the first

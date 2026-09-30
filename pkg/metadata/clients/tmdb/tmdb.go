@@ -589,6 +589,33 @@ func mapImages(a *rawtmdb.MovieImagesAppend, lang string) []metadata.Image {
 	return out
 }
 
+// SeriesTagline is a series' tagline from its TMDB tv record, in the
+// configured language, or "" when ids carry no TMDB id. TheTVDB, the series
+// provider, has none (spec 2026-09-30 §3.4).
+func (c *Client) SeriesTagline(ctx context.Context, ids metadata.ExternalIDs) (string, error) {
+	ctx, span := tracing.Start(ctx, "metadata.tmdb.SeriesTagline")
+	defer span.End()
+	raw := ids[metadata.KeyTMDB]
+	if raw == "" {
+		return "", nil
+	}
+	id, err := strconv.Atoi(raw)
+	if err != nil {
+		return "", fmt.Errorf("tmdb: invalid tv id %q: %w", raw, err)
+	}
+	if err := c.limiter.Wait(ctx); err != nil {
+		tracing.RecordError(span, err)
+		return "", err
+	}
+	d, err := c.raw.GetTVDetails(id, map[string]string{"language": c.languageFor(c.region)})
+	if err != nil {
+		mapped := c.mapError(err)
+		tracing.RecordError(span, mapped)
+		return "", mapped
+	}
+	return strings.TrimSpace(d.Tagline), nil
+}
+
 // addOriginalLanguage fetches the film once more in its original language
 // for the genre names and images Plex shows as originalTag and
 // OriginalImage. It is an enrichment: a failure keeps the first result.

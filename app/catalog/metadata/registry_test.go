@@ -175,6 +175,8 @@ func TestBuildRegistryWiresTMDBAsARatingsProviderToo(t *testing.T) {
 	require.Len(t, reg.Ratings, 1)
 	require.Equal(t, "tmdb", reg.Ratings[0].Name())
 	require.Equal(t, reg.Movies[0], reg.Ratings[0], "the same client instance fills both slots")
+	require.Len(t, reg.Taglines, 1, "tmdb's tv record is where a series' tagline comes from (full-metadata spec §3.4)")
+	require.Equal(t, reg.Movies[0], reg.Taglines[0])
 }
 
 // TestBuildRegistryWiresMDBListWithBothKeys proves an mdblist

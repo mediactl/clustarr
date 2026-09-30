@@ -168,3 +168,10 @@ type RatingsProvider interface {
 	RatingSources(kind commonv1.MediaKind) []string
 	Ratings(ctx context.Context, kind commonv1.MediaKind, ids ExternalIDs) (Ratings, error)
 }
+
+// SeriesTaglineProvider supplies a series' tagline, which the series
+// provider (TheTVDB) does not carry: TMDB's tv record does (spec 2026-09-30
+// §3.4). It returns "" with no error when ids name nothing it can look up.
+type SeriesTaglineProvider interface {
+	SeriesTagline(ctx context.Context, ids ExternalIDs) (string, error)
+}

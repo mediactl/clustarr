@@ -49,6 +49,7 @@ func (rec *recorded) client(t *testing.T) *tmdb.Client {
 		"/movie/105|en-US":    "movie-105.json",
 		"/movie/372058|en-US": "movie-372058.json",
 		"/movie/372058|ja":    "movie-372058-ja.json",
+		"/tv/57243|en-US":     "tv-57243.json",
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Path + "|" + r.URL.Query().Get("language")
@@ -169,4 +170,19 @@ func TestMovieFetchesItsOriginalLanguage(t *testing.T) {
 		}
 	}
 	assert.Positive(t, ja)
+}
+
+// A series comes from TVDB, which has no tagline; TMDB's tv record does
+// (spec 2026-09-30 §3.4), and the gateway asks for it by the TMDB id the
+// TVDB record carries.
+func TestSeriesTaglineComesFromTMDBsTVRecord(t *testing.T) {
+	rec := &recorded{}
+	tagline, err := rec.client(t).SeriesTagline(context.Background(), metadata.ExternalIDs{metadata.KeyTMDB: "57243"})
+	require.NoError(t, err)
+	assert.Equal(t, "Space. For all.", tagline)
+	assert.Equal(t, []string{"/tv/57243|en-US"}, rec.Requests())
+
+	tagline, err = rec.client(t).SeriesTagline(context.Background(), metadata.ExternalIDs{metadata.KeyTVDB: "78804"})
+	require.NoError(t, err, "no TMDB id: nothing to ask")
+	assert.Empty(t, tagline)
 }
