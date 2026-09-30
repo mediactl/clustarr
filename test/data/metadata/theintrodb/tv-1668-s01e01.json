@@ -1,0 +1,18 @@
+{
+    "tmdb_id": 1668,
+    "type": "tv",
+    "season": 1,
+    "episode": 1,
+    "intro": [
+        {
+            "start_ms": null,
+            "end_ms": 0
+        }
+    ],
+    "credits": [
+        {
+            "start_ms": 1358600,
+            "end_ms": 1364000
+        }
+    ]
+}

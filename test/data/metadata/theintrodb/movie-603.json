@@ -1,0 +1,10 @@
+{
+    "tmdb_id": 603,
+    "type": "movie",
+    "intro": [
+        {
+            "start_ms": null,
+            "end_ms": 40000
+        }
+    ]
+}
