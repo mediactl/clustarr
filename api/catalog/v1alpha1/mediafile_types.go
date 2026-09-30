@@ -248,6 +248,76 @@ type MediaFileStatus struct {
 	// release-time spec and the probe; importarr performs the rename.
 	// +optional
 	Naming *NamingStatus `json:"naming,omitempty"`
+
+	// Markers are the skip segments TheIntroDB publishes for this file,
+	// fetched by catalogarr's marker worker (field manager
+	// catalogarr-markers) with the probe's duration, and seeded into Plex
+	// by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
+	// +optional
+	Markers *FileMarkers `json:"markers,omitempty"`
+}
+
+// MarkersResult is how a file's last marker fetch ended.
+// +kubebuilder:validation:Enum=Found;NotFound;Error
+type MarkersResult string
+
+// Marker fetch results.
+const (
+	MarkersFound    MarkersResult = "Found"
+	MarkersNotFound MarkersResult = "NotFound"
+	MarkersError    MarkersResult = "Error"
+)
+
+// MarkerKind is a skip segment's kind, as TheIntroDB names it.
+// +kubebuilder:validation:Enum=intro;recap;credits;preview
+type MarkerKind string
+
+// Marker kinds.
+const (
+	MarkerIntro   MarkerKind = "intro"
+	MarkerRecap   MarkerKind = "recap"
+	MarkerCredits MarkerKind = "credits"
+	MarkerPreview MarkerKind = "preview"
+)
+
+// FileMarkers is a file's skip segments and how they were fetched.
+type FileMarkers struct {
+	// Result is Found, NotFound or Error.
+	Result MarkersResult `json:"result"`
+
+	// FetchedAt is when TheIntroDB was last asked.
+	FetchedAt metav1.Time `json:"fetchedAt"`
+
+	// ForProbeHash is status.probeHash when these were fetched: a new file
+	// at the same path fetches again.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	ForProbeHash string `json:"forProbeHash,omitempty"`
+
+	// DurationMs is the duration_ms sent: the probe's runtime.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	DurationMs int64 `json:"durationMs,omitempty"`
+
+	// Segments are ordered by start.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=20
+	Segments []MarkerSegment `json:"segments,omitempty"`
+
+	// Message says why the fetch ended NotFound or Error.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Message string `json:"message,omitempty"`
+}
+
+// MarkerSegment is one skip segment, in milliseconds from the file's start.
+type MarkerSegment struct {
+	Kind MarkerKind `json:"kind"`
+	// +kubebuilder:validation:Minimum=0
+	StartMs int64 `json:"startMs"`
+	// +kubebuilder:validation:Minimum=0
+	EndMs int64 `json:"endMs"`
 }
 
 // NamingStatus is catalogarr's proposal for a MediaFile's canonical path.

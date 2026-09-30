@@ -157,6 +157,12 @@ const (
 	// role's apply silently release the other's fields.
 	ManagerCatalogarrArtwork FieldManager = "catalogarr-artwork"
 
+	// ManagerCatalogarrMarkers is the metadata gateway's marker worker, the
+	// sole writer of MediaFile status.markers: disjoint from
+	// ManagerCatalogarr, which owns every other MediaFile status field, so
+	// neither apply releases the other's.
+	ManagerCatalogarrMarkers FieldManager = "catalogarr-markers"
+
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
 	//

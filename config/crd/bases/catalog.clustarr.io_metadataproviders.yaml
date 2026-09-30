@@ -177,6 +177,7 @@ spec:
                 - animelists
                 - mdblist
                 - omdb
+                - theintrodb
                 type: string
                 x-kubernetes-validations:
                 - message: type is immutable

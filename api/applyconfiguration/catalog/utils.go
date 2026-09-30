@@ -127,6 +127,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.EpisodeSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EpisodeStatus"):
 		return &catalogv1alpha1.EpisodeStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("FileMarkers"):
+		return &catalogv1alpha1.FileMarkersApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("FormatScore"):
 		return &catalogv1alpha1.FormatScoreApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GrabResult"):
@@ -163,6 +165,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.LibraryScanStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ListDefaults"):
 		return &catalogv1alpha1.ListDefaultsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MarkerSegment"):
+		return &catalogv1alpha1.MarkerSegmentApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MdbList"):
 		return &catalogv1alpha1.MdbListApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MediaFile"):

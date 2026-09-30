@@ -58,6 +58,11 @@ type MediaFileStatusApplyConfiguration struct {
 	// preset, rendered by catalogarr from the item's metadata, the
 	// release-time spec and the probe; importarr performs the rename.
 	Naming *NamingStatusApplyConfiguration `json:"naming,omitempty"`
+	// Markers are the skip segments TheIntroDB publishes for this file,
+	// fetched by catalogarr's marker worker (field manager
+	// catalogarr-markers) with the probe's duration, and seeded into Plex
+	// by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
+	Markers *FileMarkersApplyConfiguration `json:"markers,omitempty"`
 }
 
 // MediaFileStatusApplyConfiguration constructs a declarative configuration of the MediaFileStatus type for use with
@@ -145,5 +150,13 @@ func (b *MediaFileStatusApplyConfiguration) WithTranscode(value *TranscodeStateA
 // If called multiple times, the Naming field is set to the value of the last call.
 func (b *MediaFileStatusApplyConfiguration) WithNaming(value *NamingStatusApplyConfiguration) *MediaFileStatusApplyConfiguration {
 	b.Naming = value
+	return b
+}
+
+// WithMarkers sets the Markers field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Markers field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithMarkers(value *FileMarkersApplyConfiguration) *MediaFileStatusApplyConfiguration {
+	b.Markers = value
 	return b
 }

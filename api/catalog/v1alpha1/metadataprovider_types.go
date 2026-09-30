@@ -35,7 +35,7 @@ const (
 
 // MetadataProviderType is the upstream metadata service a provider talks to.
 //
-// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb
+// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb;theintrodb
 type MetadataProviderType string
 
 // Metadata provider types.
@@ -63,6 +63,10 @@ const (
 	// MetadataProviderOMDb is ratings-only (spec §C.2): imdb,
 	// rottenTomatoesCritic, metacritic. Takes secretRef key apiKey.
 	MetadataProviderOMDb MetadataProviderType = "omdb"
+	// MetadataProviderTheIntroDB supplies skip segments (intro, recap,
+	// credits, preview) per file; it needs no key, and an optional
+	// secretRef "apiKey" raises its limits.
+	MetadataProviderTheIntroDB MetadataProviderType = "theintrodb"
 )
 
 // Secret keys recognised in MetadataProviderSpec.SecretRef.

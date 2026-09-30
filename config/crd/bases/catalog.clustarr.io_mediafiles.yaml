@@ -364,6 +364,75 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              markers:
+                description: |-
+                  Markers are the skip segments TheIntroDB publishes for this file,
+                  fetched by catalogarr's marker worker (field manager
+                  catalogarr-markers) with the probe's duration, and seeded into Plex
+                  by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
+                properties:
+                  durationMs:
+                    description: 'DurationMs is the duration_ms sent: the probe''s
+                      runtime.'
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  fetchedAt:
+                    description: FetchedAt is when TheIntroDB was last asked.
+                    format: date-time
+                    type: string
+                  forProbeHash:
+                    description: |-
+                      ForProbeHash is status.probeHash when these were fetched: a new file
+                      at the same path fetches again.
+                    maxLength: 128
+                    type: string
+                  message:
+                    description: Message says why the fetch ended NotFound or Error.
+                    maxLength: 512
+                    type: string
+                  result:
+                    description: Result is Found, NotFound or Error.
+                    enum:
+                    - Found
+                    - NotFound
+                    - Error
+                    type: string
+                  segments:
+                    description: Segments are ordered by start.
+                    items:
+                      description: MarkerSegment is one skip segment, in milliseconds
+                        from the file's start.
+                      properties:
+                        endMs:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        kind:
+                          description: MarkerKind is a skip segment's kind, as TheIntroDB
+                            names it.
+                          enum:
+                          - intro
+                          - recap
+                          - credits
+                          - preview
+                          type: string
+                        startMs:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                      required:
+                      - endMs
+                      - kind
+                      - startMs
+                      type: object
+                    maxItems: 20
+                    type: array
+                    x-kubernetes-list-type: atomic
+                required:
+                - fetchedAt
+                - result
+                type: object
               mediaInfo:
                 description: |-
                   MediaInfo is the technical description produced by the probe. Its

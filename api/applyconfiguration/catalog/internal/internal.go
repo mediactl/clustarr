@@ -1599,6 +1599,30 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ExclusionKind
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.FileMarkers
+  map:
+    fields:
+    - name: durationMs
+      type:
+        scalar: numeric
+    - name: fetchedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: forProbeHash
+      type:
+        scalar: string
+    - name: message
+      type:
+        scalar: string
+    - name: result
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkersResult
+    - name: segments
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkerSegment
+          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.FormatScore
   map:
     fields:
@@ -2137,6 +2161,22 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MangaFlag
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkerKind
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkerSegment
+  map:
+    fields:
+    - name: endMs
+      type:
+        scalar: numeric
+    - name: kind
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkerKind
+    - name: startMs
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkersResult
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MdbList
   map:
     fields:
@@ -2245,6 +2285,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: markers
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.FileMarkers
     - name: mediaInfo
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaInfo
