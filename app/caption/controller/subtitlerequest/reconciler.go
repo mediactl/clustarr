@@ -523,7 +523,7 @@ func (r *Reconciler) plan(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequ
 		}
 	}
 	if len(dropped) > 0 {
-		log.Info("releasing items for languages the profile no longer wants", "langKeys", dropped)
+		log.Info("releasing items for languages the plan no longer wants", "langKeys", dropped)
 	}
 
 	phase := subtitlev1alpha1.SubtitleRequestPhaseSatisfied
