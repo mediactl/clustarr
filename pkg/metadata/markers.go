@@ -17,7 +17,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package metadata
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
+
+// ErrNoTitle is a MarkersProvider's ErrNotFound for a title it has
+// nothing for at all, as against one episode it lacks: every other
+// episode of the series would be NotFound too.
+var ErrNoTitle = fmt.Errorf("metadata: title not found: %w", ErrNotFound)
 
 // Segment is one skip segment of a media file, in milliseconds from its
 // start: an intro, a recap, the credits or a preview of the next episode.
@@ -46,7 +54,8 @@ type MarkersQuery struct {
 }
 
 // MarkersProvider supplies a file's skip segments (TheIntroDB). It returns
-// ErrNotFound when it has none for the title.
+// ErrNotFound when it has none for the file, and ErrNoTitle when it has
+// none for the title at all.
 type MarkersProvider interface {
 	Provider
 	Markers(ctx context.Context, q MarkersQuery) (Segments, error)

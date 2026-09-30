@@ -29,12 +29,14 @@ package theintrodb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -63,15 +65,23 @@ type Config struct {
 	BaseURL    string
 	Limiter    *rate.Limiter
 	UserAgent  string
-	// APIKey is optional; empty is anonymous.
-	APIKey string
+	// APIKeys are spent in order: each has an allowance of its own, and a
+	// key that is out rests until its reset while the next is used. None
+	// is anonymous.
+	APIKeys []string
+	// Now is the clock rest periods are measured against; nil is time.Now.
+	Now func() time.Time
 }
 
 // Client queries TheIntroDB.
 type Client struct {
 	h       *httpjson.Client
 	baseURL string
-	key     string
+	keys    []string // "" is anonymous
+	now     func() time.Time
+
+	mu        sync.Mutex
+	restUntil []time.Time // per key; zero is usable
 }
 
 // New builds a Client.
@@ -80,10 +90,25 @@ func New(cfg Config) (*Client, error) {
 	if base == "" {
 		base = DefaultBaseURL
 	}
+	var keys []string
+	for _, k := range cfg.APIKeys {
+		if k != "" {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		keys = []string{""}
+	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &Client{
-		h:       &httpjson.Client{Provider: "theintrodb", HTTP: cfg.HTTPClient, Limiter: cfg.Limiter, UserAgent: cfg.UserAgent},
-		baseURL: base,
-		key:     cfg.APIKey,
+		h:         &httpjson.Client{Provider: "theintrodb", HTTP: cfg.HTTPClient, Limiter: cfg.Limiter, UserAgent: cfg.UserAgent, Now: now},
+		baseURL:   base,
+		keys:      keys,
+		now:       now,
+		restUntil: make([]time.Time, len(keys)),
 	}, nil
 }
 
@@ -150,25 +175,91 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
-// get is httpjson's GetJSON, with a 429's wait read from the limit headers
-// when it carries no Retry-After.
+// get GETs rawURL with the first key not resting, moving to the next on a
+// 429 until every key rests, which is a *metadata.RateLimitedError naming
+// the soonest reset. A 429's wait is Retry-After, else the reset of the
+// spent limit, since the API sends no Retry-After (2026-09-30).
 func (c *Client) get(ctx context.Context, rawURL string, out any) error {
-	resp, err := c.h.Do(ctx, httpjson.Request{Method: http.MethodGet, URL: rawURL, Header: c.header()})
-	if err != nil {
-		return err
-	}
-	if err := c.h.Check(resp, rawURL); err != nil {
-		var rl *metadata.RateLimitedError
-		if errors.As(err, &rl) && rl.RetryAfter == 0 {
-			rl.RetryAfter = limitReset(resp.Header)
+	for {
+		i, ok := c.usableKey()
+		if !ok {
+			return &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: c.soonestReset()}
 		}
-		return err
+		resp, err := c.h.Do(ctx, httpjson.Request{Method: http.MethodGet, URL: rawURL, Header: c.header(c.keys[i])})
+		if err != nil {
+			return err
+		}
+		if err := c.h.Check(resp, rawURL); err != nil {
+			var rl *metadata.RateLimitedError
+			if errors.As(err, &rl) {
+				wait := rl.RetryAfter
+				if wait == 0 {
+					wait = limitReset(resp.Header)
+				}
+				c.rest(i, wait)
+				continue
+			}
+			if errors.Is(err, metadata.ErrNotFound) && noTitle(resp.Body) {
+				return fmt.Errorf("theintrodb: %s: %w", httpjson.Redact(rawURL), metadata.ErrNoTitle)
+			}
+			return err
+		}
+		if resp.Header.Get("X-Usagelimit-Remaining") == "0" {
+			c.rest(i, limitReset(resp.Header))
+		}
+		return c.h.Decode(resp.Body, out)
 	}
-	return c.h.Decode(resp.Body, out)
+}
+
+// restFallback is how long a key rests when TheIntroDB names no reset.
+const restFallback = time.Minute
+
+func (c *Client) usableKey() (int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.now()
+	for i, t := range c.restUntil {
+		if !now.Before(t) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (c *Client) rest(i int, d time.Duration) {
+	if d <= 0 {
+		d = restFallback
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.restUntil[i] = c.now().Add(d)
+}
+
+func (c *Client) soonestReset() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	soonest := c.restUntil[0]
+	for _, t := range c.restUntil[1:] {
+		if t.Before(soonest) {
+			soonest = t
+		}
+	}
+	return max(soonest.Sub(c.now()), 0)
+}
+
+// noTitle reports whether a 404's body says the title is missing, not
+// just the season or episode asked for ("media not found for provided
+// season/episode").
+func noTitle(body []byte) bool {
+	var e struct {
+		Error string `json:"error"`
+	}
+	return json.Unmarshal(body, &e) == nil && e.Error == "media not found"
 }
 
 // limitReset is the reset, in seconds, of the spent limit: the usage
 // allowance's, else the rate window's; zero when neither says it is spent.
+// A 200 reporting none remaining counts as spent.
 func limitReset(h http.Header) time.Duration {
 	for _, l := range []string{"X-Usagelimit", "X-Ratelimit"} {
 		if h.Get(l+"-Remaining") != "0" {
@@ -181,10 +272,10 @@ func limitReset(h http.Header) time.Duration {
 	return 0
 }
 
-func (c *Client) header() http.Header {
+func (c *Client) header(key string) http.Header {
 	h := http.Header{"Accept": []string{"application/json"}}
-	if c.key != "" {
-		h.Set("Authorization", "Bearer "+c.key)
+	if key != "" {
+		h.Set("Authorization", "Bearer "+key)
 	}
 	return h
 }
@@ -211,6 +302,20 @@ func resolve(raw []rawSegment, durationMs int64) []metadata.Segment {
 			continue
 		}
 		out = append(out, s)
+	}
+	return out
+}
+
+// Keys are a MetadataProvider Secret's keys: apiKey, then each line of
+// apiKeys, blank lines and repeats dropped.
+func Keys(apiKey, apiKeys string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, k := range append([]string{apiKey}, strings.Split(apiKeys, "\n")...) {
+		if k = strings.TrimSpace(k); k != "" && !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
 	}
 	return out
 }

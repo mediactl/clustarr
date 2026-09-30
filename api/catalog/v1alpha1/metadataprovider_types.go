@@ -65,7 +65,8 @@ const (
 	MetadataProviderOMDb MetadataProviderType = "omdb"
 	// MetadataProviderTheIntroDB supplies skip segments (intro, recap,
 	// credits, preview) per file; it needs no key, and an optional
-	// secretRef "apiKey" raises its limits.
+	// secretRef "apiKey" raises its limits. "apiKeys" adds more keys, one
+	// per line: each has an allowance of its own, spent in order.
 	MetadataProviderTheIntroDB MetadataProviderType = "theintrodb"
 )
 
@@ -75,8 +76,11 @@ const (
 	// MetadataSecretKeyAPIKeySecondary is an optional second key, read by
 	// mdblist only.
 	MetadataSecretKeyAPIKeySecondary = "apiKeySecondary"
-	MetadataSecretKeyPin             = "pin"
-	MetadataSecretKeyBearer          = "bearer"
+	// MetadataSecretKeyAPIKeys holds further keys, one per line, read by
+	// theintrodb only.
+	MetadataSecretKeyAPIKeys = "apiKeys"
+	MetadataSecretKeyPin     = "pin"
+	MetadataSecretKeyBearer  = "bearer"
 )
 
 // RateLimit caps how fast a provider may be called.

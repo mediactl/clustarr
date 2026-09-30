@@ -290,7 +290,7 @@ func buildSupplementary(spec catalogv1alpha1.MetadataProviderSpec, secret map[st
 	case catalogv1alpha1.MetadataProviderTheIntroDB:
 		c, err := theintrodb.New(theintrodb.Config{
 			HTTPClient: httpClient, BaseURL: baseURL(spec), Limiter: limiterFor(spec, theintrodb.DefaultRate, theintrodb.DefaultBurst), UserAgent: ua,
-			APIKey: string(secret[catalogv1alpha1.MetadataSecretKeyAPIKey]),
+			APIKeys: theintrodb.Keys(string(secret[catalogv1alpha1.MetadataSecretKeyAPIKey]), string(secret[catalogv1alpha1.MetadataSecretKeyAPIKeys])),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("theintrodb: %w", err)

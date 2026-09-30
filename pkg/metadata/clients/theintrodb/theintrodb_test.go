@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,6 +49,9 @@ func (rec *recorded) client(t *testing.T, key string) *theintrodb.Client {
 		"duration_ms=1380000&episode=1&season=1&tmdb_id=1668": "tv-1668-s01e01.json",
 		"episode=1&season=1&tvdb_id=81189":                    "tv-1396-s01e01.json",
 	}
+	status := map[string]string{
+		"episode=99&season=1&tvdb_id=81189": "notfound-episode.json",
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec.last = r
 		w.Header().Set("Content-Type", "application/json")
@@ -56,6 +61,9 @@ func (rec *recorded) client(t *testing.T, key string) *theintrodb.Client {
 		if r.URL.Path != "/v3/media" || !ok {
 			w.WriteHeader(http.StatusNotFound)
 			name = "notfound.json"
+			if n, ok := status[r.URL.Query().Encode()]; ok {
+				name = n
+			}
 		}
 		body, err := os.ReadFile("../../../../test/data/metadata/theintrodb/" + name)
 		require.NoError(t, err)
@@ -63,7 +71,7 @@ func (rec *recorded) client(t *testing.T, key string) *theintrodb.Client {
 	}))
 	t.Cleanup(srv.Close)
 	c, err := theintrodb.New(theintrodb.Config{
-		HTTPClient: srv.Client(), BaseURL: srv.URL, Limiter: metadata.NewLimiter(rate.Inf, 1), APIKey: key,
+		HTTPClient: srv.Client(), BaseURL: srv.URL, Limiter: metadata.NewLimiter(rate.Inf, 1), APIKeys: []string{key},
 	})
 	require.NoError(t, err)
 	return c
@@ -142,7 +150,11 @@ func limited(t *testing.T, headers map[string]string) *theintrodb.Client {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	t.Cleanup(srv.Close)
-	c, err := theintrodb.New(theintrodb.Config{HTTPClient: srv.Client(), BaseURL: srv.URL, Limiter: metadata.NewLimiter(rate.Inf, 1)})
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	c, err := theintrodb.New(theintrodb.Config{
+		HTTPClient: srv.Client(), BaseURL: srv.URL, Limiter: metadata.NewLimiter(rate.Inf, 1),
+		Now: func() time.Time { return at },
+	})
 	require.NoError(t, err)
 	return c
 }
@@ -177,4 +189,128 @@ func TestRetryAfterWinsOverTheLimitHeaders(t *testing.T) {
 	var rl *metadata.RateLimitedError
 	require.ErrorAs(t, err, &rl)
 	assert.Equal(t, 42*time.Second, rl.RetryAfter)
+}
+
+// TheIntroDB tells a title it lacks ("media not found") from a title it
+// has without the episode asked for (recorded 2026-09-30): only the first
+// is metadata.ErrNoTitle, which the marker worker remembers per series.
+func TestATitleTheServiceLacksIsErrNoTitle(t *testing.T) {
+	c := (&recorded{}).client(t, "")
+	_, err := c.Markers(context.Background(), metadata.MarkersQuery{
+		IDs: metadata.ExternalIDs{metadata.KeyTVDB: "393189"}, Season: 1, Episode: 1,
+	})
+	require.ErrorIs(t, err, metadata.ErrNoTitle)
+	require.ErrorIs(t, err, metadata.ErrNotFound)
+}
+
+func TestAnEpisodeTheServiceLacksIsOnlyNotFound(t *testing.T) {
+	c := (&recorded{}).client(t, "")
+	_, err := c.Markers(context.Background(), metadata.MarkersQuery{
+		IDs: metadata.ExternalIDs{metadata.KeyTVDB: "81189"}, Season: 1, Episode: 99,
+	})
+	require.ErrorIs(t, err, metadata.ErrNotFound)
+	assert.NotErrorIs(t, err, metadata.ErrNoTitle)
+}
+
+// keyed answers by the key sent: a key in spent is out of its usage
+// allowance (a 429, reset in 100 s), a key in last is on its last request
+// (200 with none remaining), anything else succeeds.
+type keyed struct {
+	mu    sync.Mutex
+	spent map[string]bool
+	last  map[string]bool
+	used  []string
+}
+
+func (k *keyed) client(t *testing.T, keys ...string) *theintrodb.Client {
+	t.Helper()
+	body, err := os.ReadFile("../../../../test/data/metadata/theintrodb/movie-603.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		k.mu.Lock()
+		k.used = append(k.used, key)
+		spent, last := k.spent[key], k.last[key]
+		k.mu.Unlock()
+		w.Header().Set("X-Usagelimit-Reset", "100")
+		switch {
+		case spent:
+			w.Header().Set("X-Usagelimit-Remaining", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+		case last:
+			w.Header().Set("X-Usagelimit-Remaining", "0")
+			_, _ = w.Write(body)
+		default:
+			w.Header().Set("X-Usagelimit-Remaining", "10")
+			_, _ = w.Write(body)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c, err := theintrodb.New(theintrodb.Config{
+		HTTPClient: srv.Client(), BaseURL: srv.URL, Limiter: metadata.NewLimiter(rate.Inf, 1), APIKeys: keys,
+	})
+	require.NoError(t, err)
+	return c
+}
+
+func (k *keyed) Used() []string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return append([]string(nil), k.used...)
+}
+
+var matrix = metadata.MarkersQuery{IDs: metadata.ExternalIDs{metadata.KeyTMDB: "603"}, DurationMs: 8160000}
+
+// Each key has an allowance of its own: a spent key rests until its reset
+// and the next one answers, in the same call.
+func TestASpentKeyGivesWayToTheNext(t *testing.T) {
+	k := &keyed{spent: map[string]bool{"a": true}}
+	c := k.client(t, "a", "b")
+	_, err := c.Markers(context.Background(), matrix)
+	require.NoError(t, err)
+	_, err = c.Markers(context.Background(), matrix)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b", "b"}, k.Used(), "a spent key is not asked again before its reset")
+}
+
+// A key's last request rests it before it is refused.
+func TestAKeyWithNoneRemainingRests(t *testing.T) {
+	k := &keyed{last: map[string]bool{"a": true}}
+	c := k.client(t, "a", "b")
+	for range 2 {
+		_, err := c.Markers(context.Background(), matrix)
+		require.NoError(t, err)
+	}
+	assert.Equal(t, []string{"a", "b"}, k.Used())
+}
+
+// Every key spent is rate limited until the soonest reset, and asks
+// nothing more meanwhile.
+func TestEveryKeySpentWaitsForTheSoonestReset(t *testing.T) {
+	k := &keyed{spent: map[string]bool{"a": true, "b": true}}
+	c := k.client(t, "a", "b")
+	_, err := c.Markers(context.Background(), matrix)
+	var rl *metadata.RateLimitedError
+	require.ErrorAs(t, err, &rl)
+	assert.InDelta(t, 100, rl.RetryAfter.Seconds(), 2)
+	_, err = c.Markers(context.Background(), matrix)
+	require.ErrorAs(t, err, &rl)
+	assert.Equal(t, []string{"a", "b"}, k.Used(), "no request while every key rests")
+}
+
+// No key is anonymous, and rests the same way.
+func TestNoKeyIsAnonymous(t *testing.T) {
+	k := &keyed{}
+	c := k.client(t)
+	_, err := c.Markers(context.Background(), matrix)
+	require.NoError(t, err)
+	assert.Equal(t, []string{""}, k.Used())
+}
+
+// A Secret's apiKey and apiKeys (one per line, blank lines and spaces
+// ignored) are the keys, in that order, each once.
+func TestKeysReadsApiKeyThenEachLineOfApiKeys(t *testing.T) {
+	assert.Equal(t, []string{"a", "b", "c"}, theintrodb.Keys("a", "b\n\n  c \r\na\n"))
+	assert.Equal(t, []string{"b"}, theintrodb.Keys("", "b"))
+	assert.Empty(t, theintrodb.Keys("", ""))
 }

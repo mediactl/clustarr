@@ -28,6 +28,10 @@ There are four optional arrays: `intro`, `recap`, `credits` and `preview`. Each 
 - `{"start_ms":null,"end_ms":0}` means "none" (Friends S01E01's intro).
 
 A title the service doesn't have returns 404 `{"error":"media not found"}`.
+A title it has, asked for a season or episode it lacks, returns 404
+`{"error":"media not found for provided season/episode"}` (both recorded
+2026-09-30). The marker worker tells the two apart: the first means no
+episode of the series is there.
 
 ## Limits
 
@@ -43,7 +47,14 @@ reading. Recorded on 2026-09-30:
 - `x-usagelimit-remaining: 0`;
 - `x-usagelimit-reset: 6945`, the seconds until the allowance returns.
 
-The client waits for the reset of whichever limit reads 0 remaining. A
+A keyed request's exhausted allowance answers 429 with a body naming the
+wait: `{"code":"usage_limit_exceeded","error":"Usage limit exceeded",
+"retry_after":"0.4 hours"}`.
+
+Each key has an allowance of its own: 1,000 for the owner's key, against
+500 anonymous on the same IP. The client waits for the reset of whichever
+limit reads 0 remaining, and with several keys spends the next one
+meanwhile. A
 throttled Ping marks the MetadataProvider `Throttled` and not Ready.
 
 An `Authorization` header is accepted; the client sends a key as `Bearer <key>`.

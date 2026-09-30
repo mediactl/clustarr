@@ -282,10 +282,14 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		if err != nil {
 			return err
 		}
+		more, err := optionalSecretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKeys)
+		if err != nil {
+			return err
+		}
 		cl, err := theintrodb.New(theintrodb.Config{
 			HTTPClient: httpClient, BaseURL: baseURL(p, theintrodb.DefaultBaseURL),
 			Limiter: supplementaryLimiter(p, theintrodb.DefaultRate, theintrodb.DefaultBurst), UserAgent: ua,
-			APIKey: key,
+			APIKeys: theintrodb.Keys(key, more),
 		})
 		if err != nil {
 			return fmt.Errorf("metadata: build theintrodb client for %s/%s: %w", p.Namespace, p.Name, err)
