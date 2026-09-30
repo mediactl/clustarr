@@ -20,6 +20,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -36,6 +37,25 @@ func deleteTriggerAttrs(ctx context.Context) templ.Attributes {
 	attrs["data-action"] = "delete"
 	attrs["data-toolbar-button"] = true
 	return attrs
+}
+
+// FilesFolder is the one folder the item's listed files are in when it is
+// not its resolved path, else "": a scanned movie's status.path is the
+// naming preset's folder, and importarr then removes the folder its file
+// is really in.
+func FilesFolder(d Detail) string {
+	dir := ""
+	for _, f := range d.Files {
+		fd := filepath.Dir(f.Path)
+		if f.Path == "" || (dir != "" && fd != dir) {
+			return ""
+		}
+		dir = fd
+	}
+	if dir == "" || dir == d.Path {
+		return ""
+	}
+	return dir
 }
 
 // deletable is whether the item's kind has the Delete button.
@@ -62,7 +82,9 @@ templ deleteDialog(d Detail) {
 					{ "Delete " + d.Item.Title }
 				}
 				@dialog.Description() {
-					if d.Path != "" {
+					if dir := FilesFolder(d); dir != "" {
+						<span data-delete-folder>{ dir }</span>
+					} else if d.Path != "" {
 						<span data-delete-folder>{ d.Path }</span>
 					}
 					if len(d.Files) > 0 {

@@ -93,6 +93,10 @@ type kindSpec struct {
 	// ("" and nil for Movie and Audiobook).
 	childKind   commonv1.MediaKind
 	newChildren func() client.ObjectList
+	// oneFolder is a kind whose files all sit in one folder (Movie,
+	// Audiobook): when status.path is not on disk, that folder is the
+	// item's (see Reconciler.target).
+	oneFolder bool
 	// exclusion is the ImportExclusion spec that keeps it out; ok false for
 	// a kind with none.
 	exclusion func(client.Object) (catalogv1alpha1.ImportExclusionSpec, bool)
@@ -127,6 +131,7 @@ func kinds() []kindSpec {
 			newList:       func() client.ObjectList { return &catalogv1alpha1.MovieList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Movie).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Movie).Status.Path },
+			oneFolder:     true,
 			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
 				m := o.(*catalogv1alpha1.Movie)
 				spec := catalogv1alpha1.ImportExclusionSpec{
@@ -189,6 +194,7 @@ func kinds() []kindSpec {
 			newList:       func() client.ObjectList { return &catalogv1alpha1.AudiobookList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Audiobook).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Audiobook).Status.Path },
+			oneFolder:     true,
 			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
 				ab := o.(*catalogv1alpha1.Audiobook)
 				return catalogv1alpha1.ImportExclusionSpec{

@@ -251,3 +251,29 @@ func TestAnotherItemsFolderInsideRefusesButOwnChildrenDoNot(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoDirExists(t, authorFolder)
 }
+
+// A scanned movie's status.path is the naming preset's folder, not the one
+// on disk (the scan pins no spec.folder for a movie): the delete uses the
+// folder its file is in, whole, when status.path is not there (final
+// review, finding 2). A file straight in the RootFolder has no folder of
+// its own, so only it goes.
+func TestAMovieWhoseResolvedFolderIsNotOnDiskUsesItsFilesFolder(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "Heat.1995.1080p.BluRay")
+	write(t, filepath.Join(real, "Heat.mkv"))
+	write(t, filepath.Join(real, "movie.nfo"))
+	mf := mediaFile("heat-file", heat, filepath.Join(real, "Heat.mkv"))
+	c := newClient(t, rootFolder(root), heatMovie(filepath.Join(root, "Heat (1995)"), catalogv1alpha1.DeleteFiles, false), &mf)
+	require.NoError(t, reconcileMovie(t, c))
+	assert.NoDirExists(t, real)
+	assert.DirExists(t, root)
+
+	flat := filepath.Join(root, "Ronin.mkv")
+	write(t, flat)
+	write(t, filepath.Join(root, "other.nfo"))
+	mf = mediaFile("heat-file", heat, flat)
+	c = newClient(t, rootFolder(root), heatMovie(filepath.Join(root, "Heat (1995)"), catalogv1alpha1.DeleteFiles, false), &mf)
+	require.NoError(t, reconcileMovie(t, c))
+	assert.NoFileExists(t, flat)
+	assert.FileExists(t, filepath.Join(root, "other.nfo"))
+}

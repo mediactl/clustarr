@@ -47,7 +47,9 @@ type Link struct {
 
 // FileRow is one row of the Files table: a MediaFile as Radarr lists it.
 type FileRow struct {
-	Name         string
+	Name string
+	// Path is the file's absolute path (the delete dialog names its folder).
+	Path         string
 	RelativePath string
 	VideoCodec   string
 	Audio        string

@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -190,7 +193,37 @@ func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, err
 			}
 		}
 	}
+	if r.kind.oneFolder && !onDisk(t.Folder) {
+		if d := sharedDir(t.Files); d != "" && fsops.StrictlyUnder(d, t.Root) {
+			t.Folder = d
+		}
+	}
 	return t, nil
+}
+
+// onDisk reports whether path names something that exists.
+func onDisk(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// sharedDir is the one directory every file is in, or "" when they are in
+// several or there are none. A scanned movie's status.path is the naming
+// preset's folder rather than the one on disk (the scan pins spec.folder
+// for a series, not a movie), so this is where such a movie really is.
+func sharedDir(files []catalogv1alpha1.MediaFile) string {
+	dir := ""
+	for _, mf := range files {
+		d := filepath.Dir(mf.Spec.Path)
+		if dir != "" && d != dir {
+			return ""
+		}
+		dir = d
+	}
+	return dir
 }
 
 // occupants are the folders the item's folder must not hold: every other

@@ -26,6 +26,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/views"
 )
 
 func deleteServer(t *testing.T, item projection.LibraryItem) *ui.Server {
@@ -72,4 +73,17 @@ func TestAPendingDeleteReadsDeletingAndAFailedOneOffersRetry(t *testing.T) {
 	body = detailPage(t, deleteServer(t, item), "/library/default/movie/heat")
 	require.Contains(t, section(t, body, `data-fact="status"`), "Delete failed: folder also holds media file ronin-file")
 	requireTag(t, body, `data-action="delete-retry"`)
+}
+
+// A scanned movie's files can sit in another folder than its resolved
+// path; the dialog names that folder too, since importarr removes it.
+func TestDeleteDialogNamesTheFilesFolderWhenItDiffers(t *testing.T) {
+	d := views.Detail{Path: "/data/media/movies/Heat (1995)", Files: []views.FileRow{
+		{Path: "/data/media/movies/Heat.1995.1080p/Heat.mkv"},
+	}}
+	require.Equal(t, "/data/media/movies/Heat.1995.1080p", views.FilesFolder(d))
+	d.Files[0].Path = "/data/media/movies/Heat (1995)/Heat.mkv"
+	require.Empty(t, views.FilesFolder(d), "the same folder is named once")
+	d.Files = append(d.Files, views.FileRow{Path: "/data/media/movies/Other/x.mkv"})
+	require.Empty(t, views.FilesFolder(d), "files in several folders name none")
 }
