@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -133,24 +134,28 @@ func TestAContainerSearchCompletesWhenItsChildrenFinish(t *testing.T) {
 
 	kids := children(t, c)
 	require.Len(t, kids, 2)
-	kids[0].Status = catalogv1alpha1.SearchStatus{
-		Phase:   catalogv1alpha1.SearchPhaseCompleted,
-		Grabbed: []catalogv1alpha1.GrabResult{{GUID: "g", DownloadRef: "the-idiot-abc"}},
-	}
-	require.NoError(t, c.Status().Update(context.Background(), &kids[0]))
+	setChildStatus(t, c, kids[0].Name, catalogac.SearchStatus().WithPhase(catalogv1alpha1.SearchPhaseCompleted).
+		WithGrabbed(catalogac.GrabResult().WithGUID("g").WithDownloadRef("the-idiot-abc")))
 	reconcileSearch(t, r, "dostoevsky-x")
 	p := parent(t, c)
 	require.Equal(t, catalogv1alpha1.SearchPhaseRunning, p.Status.Phase, "one child still running")
 	require.Equal(t, &catalogv1alpha1.SearchChildren{Total: 2, Running: 1, Completed: 1, Grabbed: 1}, p.Status.Children)
 
-	kids[1].Status = catalogv1alpha1.SearchStatus{Phase: catalogv1alpha1.SearchPhaseFailed}
-	require.NoError(t, c.Status().Update(context.Background(), &kids[1]))
+	setChildStatus(t, c, kids[1].Name, catalogac.SearchStatus().WithPhase(catalogv1alpha1.SearchPhaseFailed))
 	reconcileSearch(t, r, "dostoevsky-x")
 	p = parent(t, c)
 	require.Equal(t, catalogv1alpha1.SearchPhaseCompleted, p.Status.Phase)
 	require.NotNil(t, p.Status.FinishedAt)
 	require.NotNil(t, p.Status.StartedAt, "the completing apply still declares startedAt")
 	require.Equal(t, &catalogv1alpha1.SearchChildren{Total: 2, Completed: 1, Failed: 1, Grabbed: 1}, p.Status.Children)
+}
+
+// setChildStatus writes a child Search's status as its own writers do.
+func setChildStatus(t *testing.T, c client.Client, name string, st *catalogac.SearchStatusApplyConfiguration) {
+	t.Helper()
+	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogarrWorker,
+		catalogac.Search(name, "media").WithStatus(st))
+	require.NoError(t, err)
 }
 
 func TestAContainerSearchWithNothingWantedCompletesAtOnce(t *testing.T) {
@@ -179,8 +184,10 @@ func TestAContainerSearchOverTheCapCreatesNothing(t *testing.T) {
 func TestAChildSearchNeverExpiresOnItsOwn(t *testing.T) {
 	long := metav1.NewTime(time.Now().Add(-3 * time.Hour))
 	child := &catalogv1alpha1.Search{
-		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "media",
-			Labels: map[string]string{catalogv1alpha1.LabelParentSearch: "dostoevsky-x"}},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "child", Namespace: "media",
+			Labels: map[string]string{catalogv1alpha1.LabelParentSearch: "dostoevsky-x"},
+		},
 		Spec: catalogv1alpha1.SearchSpec{
 			MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "the-idiot"},
 			TTL:      metav1.Duration{Duration: time.Hour},
@@ -205,13 +212,19 @@ func TestWantedChild(t *testing.T) {
 		"book cutoff unmet": {book("b", "a", true, true, false), true},
 		"book at cutoff":    {book("b", "a", true, true, true), false},
 		"book unmonitored":  {book("b", "a", false, false, false), false},
-		"album partly missing": {&catalogv1alpha1.Album{Spec: catalogv1alpha1.AlbumSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.AlbumStatus{Tracks: tracks, TrackFileCount: 1, CutoffMet: true}}, true},
-		"album complete at cutoff": {&catalogv1alpha1.Album{Spec: catalogv1alpha1.AlbumSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.AlbumStatus{Tracks: tracks, TrackFileCount: 2, CutoffMet: true}}, false},
+		"album partly missing": {&catalogv1alpha1.Album{
+			Spec:   catalogv1alpha1.AlbumSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.AlbumStatus{Tracks: tracks, TrackFileCount: 1, CutoffMet: true},
+		}, true},
+		"album complete at cutoff": {&catalogv1alpha1.Album{
+			Spec:   catalogv1alpha1.AlbumSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.AlbumStatus{Tracks: tracks, TrackFileCount: 2, CutoffMet: true},
+		}, false},
 		"issue missing": {&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)}}, true},
-		"issue at cutoff": {&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{HasFile: true, CutoffMet: true}}, false},
+		"issue at cutoff": {&catalogv1alpha1.Issue{
+			Spec:   catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.IssueStatus{HasFile: true, CutoffMet: true},
+		}, false},
 	} {
 		require.Equal(t, tc.want, wantedChild(tc.obj), name)
 	}
