@@ -105,12 +105,42 @@ type Translation struct {
 	Overview string `json:"overview,omitempty"`
 }
 
+// PersonKind says which Plex people array a credit belongs in.
+type PersonKind string
+
+// Person kinds.
+const (
+	PersonCast     PersonKind = "cast"
+	PersonDirector PersonKind = "director"
+	PersonWriter   PersonKind = "writer"
+	PersonProducer PersonKind = "producer"
+)
+
 // Person is a cast or crew credit.
 type Person struct {
 	Name      string `json:"name"`
 	Role      string `json:"role,omitempty"`
 	Character string `json:"character,omitempty"`
 	ImageURL  string `json:"imageUrl,omitempty"`
+	// Kind files the credit under cast, director, writer or producer.
+	Kind PersonKind `json:"kind,omitempty"`
+	// Order is the billing order within its kind, 0 first.
+	Order int32 `json:"order,omitempty"`
+	// Job is the crew job as the provider names it ("Screenplay").
+	Job string `json:"job,omitempty"`
+}
+
+// SimilarRef is a title the provider recommends alongside an item.
+type SimilarRef struct {
+	Title string      `json:"title"`
+	Year  int32       `json:"year,omitempty"`
+	IDs   ExternalIDs `json:"ids,omitempty"`
+}
+
+// SeasonTypeRef names one of a series' episode orderings.
+type SeasonTypeRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Link is a typed external URL (homepage, wiki, social profile, ...).
@@ -229,6 +259,15 @@ type Movie struct {
 	AlternateTitles []AltTitle    `json:"alternateTitles,omitempty"`
 	Translations    []Translation `json:"translations,omitempty"`
 
+	// The full Plex Metadata Response (spec 2026-09-30).
+	Tagline        string          `json:"tagline,omitempty"`
+	Studios        []string        `json:"studios,omitempty"`
+	Countries      []string        `json:"countries,omitempty"`
+	Adult          bool            `json:"adult,omitempty"`
+	Certifications []Certification `json:"certifications,omitempty"`
+	OriginalGenres []string        `json:"originalGenres,omitempty"`
+	Similar        []SimilarRef    `json:"similar,omitempty"`
+
 	Provenance []Provenance `json:"provenance,omitempty"`
 }
 
@@ -316,6 +355,15 @@ type Series struct {
 	Seasons      []Season    `json:"seasons,omitempty"`
 	DefaultOrder SeasonOrder `json:"defaultOrder,omitempty"`
 	Episodes     []Episode   `json:"episodes,omitempty"`
+
+	// The full Plex Metadata Response (spec 2026-09-30).
+	Tagline        string          `json:"tagline,omitempty"`
+	Networks       []string        `json:"networks,omitempty"`
+	Studios        []string        `json:"studios,omitempty"`
+	Countries      []string        `json:"countries,omitempty"`
+	Certifications []Certification `json:"certifications,omitempty"`
+	OriginalGenres []string        `json:"originalGenres,omitempty"`
+	SeasonTypes    []SeasonTypeRef `json:"seasonTypes,omitempty"`
 
 	Provenance []Provenance `json:"provenance,omitempty"`
 }
