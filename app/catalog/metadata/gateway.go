@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
@@ -123,9 +124,24 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		return nil, fmt.Errorf("metadata: subscribe: %w", err)
 	}
 
+	// The marker worker (plex-analyze-bypass §3.4): each probed movie or
+	// episode file's skip segments, from the registry's Markers providers.
+	mspec, ok := events.Default().Consumer(events.ConsumerCatalogMarkers)
+	if !ok {
+		stopSub()
+		return nil, fmt.Errorf("metadata: consumer %q missing from the default topology", events.ConsumerCatalogMarkers)
+	}
+	mh := &markers.Handler{Reader: o.Reader, Client: o.Client, Providers: reg.Markers}
+	stopMarkers, err := o.Bus.Subscribe(ctx, mspec.Subscription(), mh.Handle)
+	if err != nil {
+		stopSub()
+		return nil, fmt.Errorf("metadata: subscribe %s: %w", events.ConsumerCatalogMarkers, err)
+	}
+
 	if err := ServeRPC(o.Bus, reg); err != nil {
 		stopSub()
+		stopMarkers()
 		return nil, err
 	}
-	return stopSub, nil
+	return func() { stopSub(); stopMarkers() }, nil
 }
