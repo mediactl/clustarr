@@ -128,3 +128,37 @@ func TestDesiredEpisodesNewEpisodeTakesItsSeasonOverride(t *testing.T) {
 	require.Len(t, got, 3)
 	assert.Equal(t, []bool{true, true, false}, []bool{*got[0].Monitored, *got[1].Monitored, *got[2].Monitored})
 }
+
+// Specials do not count toward the series (Sonarr's series statistics
+// leave season 0 out): the series' episode and file counts and its
+// airings come from the regular seasons alone. The Specials row keeps its
+// own counts and next airing.
+func TestRollupLeavesSpecialsOutOfTheSeriesTotals(t *testing.T) {
+	now := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *metav1.Time { t := metav1.NewTime(now.Add(d)); return &t }
+	ep := func(season int32, hasFile bool, air *metav1.Time) catalogv1alpha1.Episode {
+		e := episode("e", season, ptr.To(true))
+		e.Status.HasFile, e.Status.AirDate = hasFile, air
+		return e
+	}
+	got := series.Rollup([]catalogv1alpha1.Episode{
+		ep(0, true, at(-24*time.Hour)), // a special aired yesterday, on disk
+		ep(0, false, at(24*time.Hour)), // a special airing tomorrow
+		ep(1, true, at(-90*24*time.Hour)),
+		ep(1, false, at(30*24*time.Hour)),
+	}, now)
+	assert.Equal(t, int32(2), got.EpisodeCount)
+	assert.Equal(t, int32(1), got.EpisodeFileCount)
+	require.NotNil(t, got.PreviousAiring)
+	assert.Equal(t, now.Add(-90*24*time.Hour), got.PreviousAiring.UTC())
+	require.NotNil(t, got.NextAiring)
+	assert.Equal(t, now.Add(30*24*time.Hour), got.NextAiring.UTC())
+
+	require.Len(t, got.Seasons, 2)
+	specials := got.Seasons[0]
+	assert.Equal(t, int32(0), specials.Number)
+	assert.Equal(t, int32(2), specials.EpisodeCount)
+	assert.Equal(t, int32(1), specials.EpisodeFileCount)
+	require.NotNil(t, specials.NextAiring)
+	assert.Equal(t, now.Add(24*time.Hour), specials.NextAiring.UTC())
+}

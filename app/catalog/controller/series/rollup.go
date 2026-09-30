@@ -44,7 +44,11 @@ type SeriesRollup struct {
 // Rollup folds a Series' owned Episodes into the per-season status Sonarr
 // keeps: seasons sorted ascending by number (each monitored when any of its
 // episodes is), the total episode count, the
-// total episode-with-file count, and the airing dates. An episode counts as
+// total episode-with-file count, and the airing dates. The series' totals
+// and airings leave specials (season 0) out, as Sonarr's series statistics
+// do: a special counts toward the Specials season alone, so an extra or a
+// recently aired special never reads as the series' own progress or keeps
+// an ended series in the "recently ended" refresh bucket. An episode counts as
 // having its file by status.hasFile alone, never by its phase, so a
 // Transcoded episode (a final, transcoded file) counts exactly as an
 // Imported one does.
@@ -70,11 +74,17 @@ func Rollup(episodes []catalogv1alpha1.Episode, now time.Time) SeriesRollup {
 			bySeason[n] = s
 			order = append(order, n)
 		}
+		// Specials count toward their own season only, never the series.
+		special := n == 0
 		s.EpisodeCount++
-		out.EpisodeCount++
+		if !special {
+			out.EpisodeCount++
+		}
 		if ep.Status.HasFile {
 			s.EpisodeFileCount++
-			out.EpisodeFileCount++
+			if !special {
+				out.EpisodeFileCount++
+			}
 		}
 		if ptr.Deref(ep.Spec.Monitored, true) {
 			s.Monitored = true
@@ -85,10 +95,14 @@ func Rollup(episodes []catalogv1alpha1.Episode, now time.Time) SeriesRollup {
 		}
 		at := ep.Status.AirDate.Time
 		if at.Before(now) {
-			out.PreviousAiring = later(out.PreviousAiring, at)
+			if !special {
+				out.PreviousAiring = later(out.PreviousAiring, at)
+			}
 			continue
 		}
-		out.NextAiring = earlier(out.NextAiring, at)
+		if !special {
+			out.NextAiring = earlier(out.NextAiring, at)
+		}
 		s.NextAiring = earlier(s.NextAiring, at)
 	}
 

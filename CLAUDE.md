@@ -68,7 +68,10 @@ an episode toggled afterwards keeps its flag) and to the season's new
 episodes; and a series is added with `addOptions.monitor: none` -- the CRD
 default, the rescan's and Add New's first choice -- so nothing is searched
 until a season or an episode is turned on. The rescan's old `all` default
-queued 5,718 episode searches for a 147-show library.
+queued 5,718 episode searches for a 147-show library. Specials never count
+toward the series: `status.episodeCount`, `episodeFileCount`, `nextAiring`
+and `previousAiring` leave season 0 out (`series.Rollup`, as Sonarr's series
+statistics do), and only the Specials row of `status.seasons` counts them.
 
 Each item should show the cover art, monitored status and selected quality profile
 
