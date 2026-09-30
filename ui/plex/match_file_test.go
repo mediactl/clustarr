@@ -133,7 +133,8 @@ func TestMatchByFileFallsThrough(t *testing.T) {
 	orig, remake := fixtureMovie(), fixtureMovieRemake()
 	rel := movieRel(t, remake)
 	series, episodes := fixtureSeriesAndEpisodes()
-	objs := []client.Object{orig, remake, series,
+	objs := []client.Object{
+		orig, remake, series,
 		// The same relative path under two RootFolders, backing two movies.
 		mediaFile("a", commonv1.MediaKindMovie, orig.Name, "/data/media/movies/"+rel),
 		mediaFile("b", commonv1.MediaKindMovie, remake.Name, "/data/media/movies-4k/"+rel),
@@ -175,7 +176,8 @@ func TestMatchShowSeasonEpisodeByFile(t *testing.T) {
 	// episodes are S01E01..S01E03, S02E01..S02E03 in order.
 	single := episodeRel(t, series, 1, 1)
 	double := episodeRel(t, series, 2, 1, 2)
-	objs := []client.Object{series,
+	objs := []client.Object{
+		series,
 		mediaFile("s01e01", commonv1.MediaKindEpisode, episodes[0].Name, "/data/media/tv/"+single),
 		mediaFile("s02e0102", commonv1.MediaKindEpisode, episodes[3].Name, "/data/media/tv/"+double, episodes[4].Name),
 	}
