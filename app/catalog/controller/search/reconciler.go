@@ -52,6 +52,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -120,6 +121,12 @@ type Reconciler struct {
 	// dereferencing it -- because NewReconciler can only wire this
 	// opportunistically; see its doc comment.
 	Query QueryRPC
+
+	// APIReader reads uncached: the grabBest pick looks for a Download
+	// already in flight for its item right before it applies one (the
+	// lost-update rule). SetupWithManager sets mgr.GetAPIReader(); nil
+	// falls back to Client.
+	APIReader client.Reader
 }
 
 // NewReconciler builds a Search reconciler with the real clock and the project
@@ -162,6 +169,9 @@ func NewReconciler(c client.Client, bus events.Publisher, rec k8sevents.EventRec
 // that would panic-recover or spin the workqueue.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Scheme = mgr.GetScheme()
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("search").
 		For(&catalogv1alpha1.Search{}).
@@ -780,6 +790,18 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 			grabSource, manual := downloadv1alpha1.GrabSourceInteractive, true
 			if guid == best && !slices.Contains(s.Spec.Grab, guid) {
 				grabSource, manual = downloadv1alpha1.GrabSourceSearch, false
+				// The worker's "already queued" rejection predates a search
+				// that can take tens of seconds, in which an automatic grab
+				// or another container search may have grabbed the item:
+				// look again, uncached, before an automatic grab applies.
+				other, err := r.inFlightDownload(ctx, s, name)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if other != "" {
+					grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: "the item is already downloading as " + other}
+					continue
+				}
 			}
 			// Manual is set because a Search-CR grab IS an operator-forced grab:
 			// the user read status.results and picked this release by hand, so
@@ -829,6 +851,27 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
+}
+
+// inFlightDownload names a non-terminal Download for s's item other than
+// ours, read uncached, or "" when there is none.
+func (r *Reconciler) inFlightDownload(ctx context.Context, s *catalogv1alpha1.Search, ours string) (string, error) {
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	var list downloadv1alpha1.DownloadList
+	if err := reader.List(ctx, &list, client.InNamespace(s.Namespace)); err != nil {
+		return "", fmt.Errorf("list Downloads for %s: %w", s.Spec.MediaRef.Name, err)
+	}
+	for i := range list.Items {
+		dl := &list.Items[i]
+		if dl.Name != ours && dl.Spec.Target.Kind == s.Spec.MediaRef.Kind &&
+			dl.Spec.Target.Name == s.Spec.MediaRef.Name && rollup.DownloadNonTerminal(dl) {
+			return dl.Name, nil
+		}
+	}
+	return "", nil
 }
 
 // resolveTarget fetches the catalog item a grab is for, so the Download can

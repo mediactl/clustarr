@@ -43,7 +43,9 @@ search task. On its first reconcile the controller:
    are monitored and **missing or cutoff unmet** (the *arrs' Missing and
    Cutoff Unmet lists; owner's call, 2026-09-30): a book or issue with no
    file or below cutoff, an album with any track lacking a file or below
-   cutoff. One at cutoff is not searched at all;
+   cutoff. One at cutoff is not searched at all, nor one not released yet
+   (release date after now; an unknown date counts as released), as the
+   *arrs' Missing lists hold only what has come out;
 2. above `MaxContainerChildren` (200), fails the Search at once
    (`TooManyChildren`) and creates nothing;
 3. with none, completes at once ("no monitored books are missing or below cutoff");
@@ -58,7 +60,14 @@ parent, which counts its children by label: Running until every child is
 Completed or Failed, then Completed with `finishedAt` (this manager's, as in
 query mode, since no worker writes a container Search) and a condition
 "N searched, G grabbed, F failed". A child's grab counts when its
-`status.grabbed` holds an entry with a `downloadRef`.
+`status.grabbed` holds an entry with a `downloadRef`; a Completed child
+whose grabBest pick has no `status.grabbed` entry yet still counts as
+running, since its grab lands a reconcile later. Before a grabBest pick is
+applied, the controller lists the item's Downloads uncached and records an
+error instead when another is in flight: the worker's "already queued"
+check predates the search. The child tasks stay user-invoked, as a
+Search the person pressed is in Sonarr and Readarr, so delay profiles and
+the availability check do not hold them.
 
 A child never expires on its own TTL; it is deleted with its parent through
 the owner reference, so the parent's counts cannot lose one. A container

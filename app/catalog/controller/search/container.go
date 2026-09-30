@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -140,10 +141,13 @@ func (r *Reconciler) countChildren(ctx context.Context, s *catalogv1alpha1.Searc
 	n := catalogv1alpha1.SearchChildren{Total: int32(len(list.Items))}
 	for i := range list.Items {
 		child := &list.Items[i]
-		switch child.Status.Phase {
-		case catalogv1alpha1.SearchPhaseCompleted:
+		switch {
+		case child.Status.Phase == catalogv1alpha1.SearchPhaseCompleted && autoGrabPending(child):
+			// Its grab lands a reconcile after Completed (handleGrabs).
+			n.Running++
+		case child.Status.Phase == catalogv1alpha1.SearchPhaseCompleted:
 			n.Completed++
-		case catalogv1alpha1.SearchPhaseFailed:
+		case child.Status.Phase == catalogv1alpha1.SearchPhaseFailed:
 			n.Failed++
 		default:
 			n.Running++
@@ -179,6 +183,21 @@ func (r *Reconciler) countChildren(ctx context.Context, s *catalogv1alpha1.Searc
 	return ctrl.Result{RequeueAfter: SearchRunningTimeout}, nil
 }
 
+// autoGrabPending reports whether a Completed Search's grabBest pick has no
+// status.grabbed entry yet -- an entry holding an error counts as done.
+func autoGrabPending(s *catalogv1alpha1.Search) bool {
+	best := bestApproved(s)
+	if best == "" {
+		return false
+	}
+	for _, g := range s.Status.Grabbed {
+		if g.GUID == best {
+			return false
+		}
+	}
+	return true
+}
+
 // wantedChildren lists the container's monitored children that are missing
 // or below cutoff, sorted by name, and the plural noun for them.
 func (r *Reconciler) wantedChildren(ctx context.Context, s *catalogv1alpha1.Search) ([]containerChild, string, error) {
@@ -187,8 +206,9 @@ func (r *Reconciler) wantedChildren(ctx context.Context, s *catalogv1alpha1.Sear
 		kids []containerChild
 		noun string
 	)
+	now := r.now()
 	add := func(kind commonv1.MediaKind, obj client.Object) {
-		if wantedChild(obj) {
+		if wantedChild(obj, now) {
 			kids = append(kids, containerChild{kind: kind, name: obj.GetName()})
 		}
 	}
@@ -226,20 +246,36 @@ func (r *Reconciler) wantedChildren(ctx context.Context, s *catalogv1alpha1.Sear
 }
 
 // wantedChild reports whether a container's child is searched: monitored,
-// and missing (no file; for an album, any track without one) or below its
-// profile's cutoff -- the *arrs' Missing and Cutoff Unmet.
-func wantedChild(obj client.Object) bool {
+// released by now, and missing (no file; for an album, any track without
+// one) or below its profile's cutoff -- the *arrs' Missing and Cutoff Unmet,
+// which list only what has come out (release date <= now). An unknown date
+// counts as released: an Open Library work without one is nearly always an
+// old one.
+func wantedChild(obj client.Object, now time.Time) bool {
 	switch o := obj.(type) {
 	case *catalogv1alpha1.Book:
-		return monitored(o.Spec.Monitored) && (!o.Status.HasFile || !o.Status.CutoffMet)
+		var date *metav1.Time
+		if o.Status.Metadata != nil {
+			date = o.Status.Metadata.ReleaseDate
+		}
+		return monitored(o.Spec.Monitored) && released(date, now) && (!o.Status.HasFile || !o.Status.CutoffMet)
 	case *catalogv1alpha1.Album:
+		var date *metav1.Time
+		if o.Status.Metadata != nil {
+			date = o.Status.Metadata.ReleaseDate
+		}
 		missing := o.Status.TrackFileCount == 0 || int(o.Status.TrackFileCount) < len(o.Status.Tracks)
-		return monitored(o.Spec.Monitored) && (missing || !o.Status.CutoffMet)
+		return monitored(o.Spec.Monitored) && released(date, now) && (missing || !o.Status.CutoffMet)
 	case *catalogv1alpha1.Issue:
-		return monitored(o.Spec.Monitored) && (!o.Status.HasFile || !o.Status.CutoffMet)
+		return monitored(o.Spec.Monitored) && released(o.Status.Date, now) && (!o.Status.HasFile || !o.Status.CutoffMet)
 	default:
 		return false
 	}
+}
+
+// released reports whether date is unknown or not after now.
+func released(date *metav1.Time, now time.Time) bool {
+	return date == nil || !date.After(now)
 }
 
 // monitored reads a spec.monitored whose CRD default is true.

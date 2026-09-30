@@ -109,3 +109,28 @@ func TestGrabBestNeverGrabsARejectedRelease(t *testing.T) {
 	require.NoError(t, c.List(context.Background(), &dls))
 	require.Empty(t, dls.Items)
 }
+
+// TestGrabBestSkipsAnItemAlreadyDownloading: the worker's "already queued"
+// rejection is from before a search that can take tens of seconds; an
+// automatic grab or a second container search can land meanwhile, so the
+// auto-grab looks again, uncached, right before it applies (final review,
+// 2026-09-30). A person's spec.grab pick is not held back.
+func TestGrabBestSkipsAnItemAlreadyDownloading(t *testing.T) {
+	inFlight := &downloadv1alpha1.Download{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-idiot-other", Namespace: "media"},
+		Spec: downloadv1alpha1.DownloadSpec{
+			Target: commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "the-idiot"},
+		},
+		Status: downloadv1alpha1.DownloadStatus{Phase: downloadv1alpha1.DownloadPhaseDownloading},
+	}
+	r, c := fakeReconciler(t, completedBookSearch(release("best", true)), inFlight)
+	reconcileSearch(t, r, "the-idiot-x")
+
+	var dls downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(context.Background(), &dls))
+	require.Len(t, dls.Items, 1, "no second Download for the book")
+	var s catalogv1alpha1.Search
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "media", Name: "the-idiot-x"}, &s))
+	require.Len(t, s.Status.Grabbed, 1)
+	require.Contains(t, s.Status.Grabbed[0].Error, "the-idiot-other")
+}

@@ -221,11 +221,44 @@ func TestWantedChild(t *testing.T) {
 			Status: catalogv1alpha1.AlbumStatus{Tracks: tracks, TrackFileCount: 2, CutoffMet: true},
 		}, false},
 		"issue missing": {&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)}}, true},
+		// Not released yet is not missing, as the *arrs' Missing lists
+		// filter release date <= now (final review, 2026-09-30).
+		"book not released yet": {func() client.Object {
+			b := book("b", "a", true, false, false)
+			b.Status.Metadata = &catalogv1alpha1.BookMetadata{ReleaseDate: &metav1.Time{Time: time.Now().Add(30 * 24 * time.Hour)}}
+			return b
+		}(), false},
+		"issue not on sale yet": {&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.IssueStatus{Date: &metav1.Time{Time: time.Now().Add(24 * time.Hour)}}}, false},
 		"issue at cutoff": {&catalogv1alpha1.Issue{
 			Spec:   catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
 			Status: catalogv1alpha1.IssueStatus{HasFile: true, CutoffMet: true},
 		}, false},
 	} {
-		require.Equal(t, tc.want, wantedChild(tc.obj), name)
+		require.Equal(t, tc.want, wantedChild(tc.obj, time.Now()), name)
 	}
+}
+
+// TestAParentWaitsForAChildsAutoGrab: a child's grab lands one reconcile
+// after it turns Completed, so a Completed child whose best release is not
+// yet in status.grabbed still counts as running -- else the parent completed
+// before it and read "0 grabbed" (final review, 2026-09-30).
+func TestAParentWaitsForAChildsAutoGrab(t *testing.T) {
+	r, c := containerReconciler(t, authorSearch(), book("the-idiot", "dostoevsky", true, false, false))
+	reconcileSearch(t, r, "dostoevsky-x")
+	kid := children(t, c)[0]
+
+	setChildStatus(t, c, kid.Name, catalogac.SearchStatus().WithPhase(catalogv1alpha1.SearchPhaseCompleted).
+		WithResults(release("best", true)))
+	reconcileSearch(t, r, "dostoevsky-x")
+	p := parent(t, c)
+	require.Equal(t, catalogv1alpha1.SearchPhaseRunning, p.Status.Phase, "its grab is still to come")
+
+	setChildStatus(t, c, kid.Name, catalogac.SearchStatus().WithPhase(catalogv1alpha1.SearchPhaseCompleted).
+		WithResults(release("best", true)).
+		WithGrabbed(catalogac.GrabResult().WithGUID("best").WithDownloadRef("the-idiot-abc")))
+	reconcileSearch(t, r, "dostoevsky-x")
+	p = parent(t, c)
+	require.Equal(t, catalogv1alpha1.SearchPhaseCompleted, p.Status.Phase)
+	require.Equal(t, &catalogv1alpha1.SearchChildren{Total: 1, Completed: 1, Grabbed: 1}, p.Status.Children)
 }
