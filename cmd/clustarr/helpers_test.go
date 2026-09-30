@@ -81,11 +81,15 @@ type rendered struct {
 	claims          map[string]bool
 	roles           map[string]rbacv1.ClusterRole
 	bindings        []rbacv1.ClusterRoleBinding
+	secrets         map[string]corev1.Secret
 }
 
 func decodeRendered(t *testing.T, in []byte) rendered {
 	t.Helper()
-	r := rendered{serviceAccounts: map[string]bool{}, claims: map[string]bool{}, roles: map[string]rbacv1.ClusterRole{}}
+	r := rendered{
+		serviceAccounts: map[string]bool{}, claims: map[string]bool{},
+		roles: map[string]rbacv1.ClusterRole{}, secrets: map[string]corev1.Secret{},
+	}
 	dec := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(string(in)), 4096)
 	for {
 		var obj map[string]any
@@ -117,6 +121,10 @@ func decodeRendered(t *testing.T, in []byte) rendered {
 			var cr rbacv1.ClusterRole
 			into(&cr)
 			r.roles[cr.Name] = cr
+		case "Secret":
+			var sec corev1.Secret
+			into(&sec)
+			r.secrets[sec.Name] = sec
 		case "ClusterRoleBinding":
 			var crb rbacv1.ClusterRoleBinding
 			into(&crb)

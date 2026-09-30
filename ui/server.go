@@ -96,6 +96,10 @@ const plexExternalURLWarning = "the Plex Custom Metadata Provider (--plex-provid
 	"configured: every request to /plex/movies and /plex/tv will answer 503 until $CLUSTARR_EXTERNAL_URL " +
 	"or --external-url is set (design spec §D.1)"
 
+const artSigningKeyWarning = "no $CLUSTARR_ART_SIGNING_KEY is configured: the photo URLs the Plex provider " +
+	"hands Plex are signed with a per-process key, so every one Plex stored stops loading (403) when the ui " +
+	"restarts, and differs between replicas"
+
 // Options configures a [Server].
 // MetadataSearch is Options.MetadataSearch's type.
 type MetadataSearch func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error)
@@ -173,6 +177,14 @@ type Options struct {
 	// read-only bus connection, so ui never holds a KV handle it could write
 	// through (ui/guard_test.go). nil serves no people.
 	PlexExtended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
+
+	// ArtSigningKey signs the /art/search URLs the ui hands out. Plex
+	// stores the provider photo URLs it is given and loads them later, so
+	// the key must outlive the process and be shared by every replica:
+	// cmd/clustarr reads it from $CLUSTARR_ART_SIGNING_KEY, which the chart
+	// fills from a Secret it creates once. Empty signs with a per-process
+	// key, good until the ui restarts.
+	ArtSigningKey []byte
 
 	// Plex configures the Plex Custom Metadata Provider (design spec §D):
 	// two read-only roots, /plex/movies and /plex/tv, over the same
@@ -431,7 +443,10 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Plex != nil && opts.Plex.ExternalURL == "" {
 		logging.FromContext(ctx).Warn(plexExternalURLWarning)
 	}
-	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(), addSearchTimeout: defaultAddSearchTimeout}
+	if opts.Plex != nil && len(opts.ArtSigningKey) == 0 {
+		logging.FromContext(ctx).Warn(artSigningKeyWarning)
+	}
+	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(opts.ArtSigningKey), addSearchTimeout: defaultAddSearchTimeout}
 }
 
 // Handler returns the composed HTTP handler for every route this service

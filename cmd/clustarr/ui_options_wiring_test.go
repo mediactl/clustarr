@@ -177,3 +177,33 @@ func requireEveryUIOptionWired(t *testing.T, command string, o ui.Options) {
 				"return ErrNoWriter. Build it with actions.New over a client.Client.", command)
 	}
 }
+
+// Both ui commands sign Plex's photo URLs with the key the installer puts in
+// $CLUSTARR_ART_SIGNING_KEY, so the URLs Plex stores outlive a restart.
+func TestBothUICommandsReadTheArtSigningKey(t *testing.T) {
+	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
+	t.Setenv("KUBECONFIG", kubeconfig)
+	key := strings.Repeat("0123456789abcdef", 4)
+	t.Setenv(artSigningKeyEnv, key)
+
+	for _, argv := range [][]string{
+		{"ui", "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous"},
+		{"all", "--ui-auth-mode", "anonymous"},
+	} {
+		t.Run("clustarr "+argv[0], func(t *testing.T) {
+			require.Equal(t, []byte(key), captureUIOptions(t, argv...).ArtSigningKey)
+		})
+	}
+}
+
+func TestArtSigningKeyRefusesAShortKey(t *testing.T) {
+	t.Setenv(artSigningKeyEnv, "")
+	key, err := artSigningKey()
+	require.NoError(t, err)
+	require.Empty(t, key, "no key configured: the ui signs per process")
+
+	t.Setenv(artSigningKeyEnv, "short")
+	_, err = artSigningKey()
+	require.ErrorContains(t, err, artSigningKeyEnv)
+}

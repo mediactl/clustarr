@@ -636,6 +636,10 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		ctx := cmd.Context()
 		reader, waitForSync, acts := buildUICluster(ctx)
 		proj := buildUIProjection(ctx, reader, pipelineHistory)
+		signingKey, err := artSigningKey()
+		if err != nil {
+			return err
+		}
 		artwork, metadataSearch, plexExtended, closeBus := buildUIBus(ctx, natsURL)
 		defer closeBus()
 		// Every cluster-derived field, in the same order as all.go's ui
@@ -652,6 +656,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			Artwork:              artwork,
 			MetadataSearch:       metadataSearch,
 			PlexExtended:         plexExtended,
+			ArtSigningKey:        signingKey,
 			Plex:                 buildUIPlexOptions(plexProvider, externalURL),
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,

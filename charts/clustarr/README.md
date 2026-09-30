@@ -328,6 +328,15 @@ overlay, a private ingress class, or PMS itself running in-cluster), never
 through the public ingress `ui.auth.mode` already warns you to keep the
 rest of the UI off.
 
+**Photo URLs are signed with a kept Secret.** Cast photos, season posters
+and episode stills are provider-hosted, so the provider hands Plex signed
+`/art/search` URLs, and Plex stores them. The chart creates
+`<release>-ui-art-signing-key` once (64 random characters, carried over on
+upgrade and kept on uninstall, `helm.sh/resource-policy: keep`) and gives it
+to `ui` as `CLUSTARR_ART_SIGNING_KEY`, so a stored URL survives a restart
+and every replica verifies it. Deleting the Secret rotates the key: every
+photo URL Plex holds then answers `403` until Plex refreshes the item.
+
 **`ui.plex.enabled`** (default `true`) maps to `--plex-provider`. `false`
 unmounts `/plex` entirely -- a plain `404`, not the `503` below -- and
 silences the startup warning an empty `externalURL` would otherwise log.

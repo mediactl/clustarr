@@ -1,0 +1,27 @@
+{{/*
+The key the ui signs its /art/search URLs with ($CLUSTARR_ART_SIGNING_KEY).
+The Plex provider hands those URLs to Plex -- cast photos, season posters,
+episode stills -- and Plex stores them, so a key per pod broke every stored
+URL at each restart. Generated once, kept on upgrade by lookup, and kept on
+uninstall by resource-policy so a reinstall does not rotate it.
+*/}}
+{{- if .Values.ui.enabled }}
+{{- $name := printf "%s-ui-art-signing-key" (include "clustarr.fullname" .) }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $name }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  {{- if and $existing (index ($existing.data | default dict) "key") }}
+  key: {{ index $existing.data "key" }}
+  {{- else }}
+  key: {{ randAlphaNum 64 | b64enc }}
+  {{- end }}
+{{- end }}

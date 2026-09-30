@@ -78,8 +78,10 @@ type cachedArt struct {
 // poster URL and no artwork object. It fetches only a URL it signed
 // itself, only over https, only from searchArtHosts -- a redirect too --
 // only an image, and at most searchArtMaxBytes; it keeps the last
-// searchArtEntries for searchArtTTL. The signing key is per process, so a
-// signed URL is good until the ui restarts.
+// searchArtEntries for searchArtTTL. The signing key is Options.ArtSigningKey
+// when one is configured, so a signed URL outlives the process -- Plex
+// stores the photo URLs the provider hands it -- else per process, good
+// until the ui restarts.
 type searchArt struct {
 	key    []byte
 	hosts  map[string]bool
@@ -95,9 +97,11 @@ type searchArt struct {
 	maxCacheBytes int64
 }
 
-func newSearchArt() *searchArt {
-	key := make([]byte, 32)
-	_, _ = rand.Read(key)
+func newSearchArt(key []byte) *searchArt {
+	if len(key) == 0 {
+		key = make([]byte, 32)
+		_, _ = rand.Read(key)
+	}
 	a := &searchArt{key: key, hosts: searchArtHosts, redirectHost: archiveHost, maxCacheBytes: searchArtCacheBytes}
 	a.cache, _ = lru.NewWithEvict[string, cachedArt](searchArtEntries, func(_ string, v cachedArt) {
 		a.cachedBytes -= int64(len(v.body))

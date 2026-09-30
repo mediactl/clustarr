@@ -148,7 +148,31 @@ const (
 	// the chart side once D2 adds `ui.plex` to values.yaml, so this comment
 	// cannot drift out of sync with the chart again.
 	externalURLEnv = "CLUSTARR_EXTERNAL_URL"
+
+	// artSigningKeyEnv holds the key ui signs its /art/search URLs with
+	// (ui.Options.ArtSigningKey). It is an environment variable, never a
+	// flag, so the key stays out of the process list; the chart fills it
+	// from the Secret it creates once (templates/ui-art-signing-key.yaml).
+	artSigningKeyEnv = "CLUSTARR_ART_SIGNING_KEY"
 )
+
+// minArtSigningKeyBytes is the shortest ArtSigningKey accepted: HMAC-SHA256's
+// own block of entropy.
+const minArtSigningKeyBytes = 32
+
+// artSigningKey returns $CLUSTARR_ART_SIGNING_KEY, or nil when it is unset,
+// which leaves ui to sign with a per-process key. A key too short to sign
+// with is a startup error rather than a quietly weak signature.
+func artSigningKey() ([]byte, error) {
+	v := os.Getenv(artSigningKeyEnv)
+	if v == "" {
+		return nil, nil
+	}
+	if len(v) < minArtSigningKeyBytes {
+		return nil, fmt.Errorf("$%s is %d bytes; it must be at least %d", artSigningKeyEnv, len(v), minArtSigningKeyBytes)
+	}
+	return []byte(v), nil
+}
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.
 func envOr(name, fallback string) string {

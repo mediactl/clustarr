@@ -293,6 +293,14 @@ spec:
               fieldPath: metadata.namespace
         - name: NATS_URL
           value: {{ include "clustarr.natsUrl" $ | quote }}
+        # Signs the /art/search URLs the Plex provider hands Plex, which
+        # stores them: the key outlives the pod and is shared by every
+        # replica (templates/ui-art-signing-key.yaml).
+        - name: CLUSTARR_ART_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "clustarr.fullname" $ }}-ui-art-signing-key
+              key: key
         {{- with dig "resources" "limits" "memory" "" .Values.ui }}
         - name: GOMEMLIMIT
           value: {{ include "clustarr.gomemlimit" . | quote }}

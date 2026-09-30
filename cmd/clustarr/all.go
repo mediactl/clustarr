@@ -262,6 +262,10 @@ func allServices(
 			// ui.Options left nil.
 			reader, waitForSync, acts := buildUICluster(ctx)
 			proj := buildUIProjection(ctx, reader, plex.pipelineHistory)
+			signingKey, err := artSigningKey()
+			if err != nil {
+				return err
+			}
 			artwork, metadataSearch, plexExtended, closeBus := buildUIBus(ctx, o.NATSURL)
 			defer closeBus()
 			return runUI(ctx, ui.Options{
@@ -275,6 +279,7 @@ func allServices(
 				Artwork:              artwork,
 				MetadataSearch:       metadataSearch,
 				PlexExtended:         plexExtended,
+				ArtSigningKey:        signingKey,
 				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL),
 				Entries:              proj.Entries,
 				Subscribe:            proj.Subscribe,

@@ -101,6 +101,19 @@ spec:
         # command takes --nats-url to carrying this.
         - name: NATS_URL
           value: nats://nats.clustarr-system.svc:4222
+        # Signs the /art/search URLs the Plex provider hands Plex, which
+        # stores them, so the key must outlive the pod. Kustomize cannot
+        # generate a random one: create it once with
+        #   kubectl -n clustarr-system create secret generic ui-art-signing-key \
+        #     --from-literal=key="$(openssl rand -hex 32)"
+        # Without it the ui signs with a per-process key and warns at start
+        # (the chart creates its own; templates/ui-art-signing-key.yaml).
+        - name: CLUSTARR_ART_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ui-art-signing-key
+              key: key
+              optional: true
         # §12: GOMEMLIMIT = 80% of 256Mi, in bytes (see catalogarr.yaml).
         - name: GOMEMLIMIT
           value: "214748365"

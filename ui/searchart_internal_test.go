@@ -36,7 +36,7 @@ func newTestSearchArt(t *testing.T, h http.Handler) (*searchArt, string) {
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
-	a := newSearchArt()
+	a := newSearchArt(nil)
 	a.client = srv.Client()
 	a.client.CheckRedirect = a.checkRedirect
 	a.hosts = map[string]bool{u.Host: true}
@@ -169,4 +169,22 @@ func TestSearchArtCacheIsBoundedInBytes(t *testing.T) {
 	}
 	require.Equal(t, 2, fetched["/a.jpg"], "three 40-byte posters exceed 100 bytes, so the oldest was evicted")
 	require.LessOrEqual(t, a.cachedBytes, int64(100))
+}
+
+// Plex stores the photo URLs the provider hands it and loads them later, so
+// a URL signed before a restart, or by another replica, must still verify:
+// with ArtSigningKey set, every server signs alike. A per-process key made
+// every stored cast photo, season poster and episode still a 403 after each
+// deploy.
+func TestSearchArtURLsSurviveARestartWithAConfiguredKey(t *testing.T) {
+	key := []byte(strings.Repeat("k", 32))
+	src := "https://image.tmdb.org/t/p/w185/person.jpg"
+	before := NewServer(t.Context(), Options{ArtSigningKey: key}).searchArt
+	after := NewServer(t.Context(), Options{ArtSigningKey: key}).searchArt
+
+	target := before.URL(src)
+	require.NotEmpty(t, target)
+	require.Equal(t, target, after.URL(src), "a restarted server signs the same URL alike")
+	require.NotEqual(t, target, NewServer(t.Context(), Options{}).searchArt.URL(src),
+		"without a configured key the server keeps its own per-process key")
 }
