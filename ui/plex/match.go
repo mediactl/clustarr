@@ -84,7 +84,8 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 
 // match dispatches a decoded match request by its numeric type (research
 // §4's table), building every result as a full Metadata object (spec §D.4:
-// "results are full Metadata objects").
+// "results are full Metadata objects"). Every type asks rule 0, the file
+// (matchfile.go), before its guid and title rules.
 func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) []Metadata {
 	if !root.declares(req.Type) {
 		// A type another root declares (a show asked of the movies root):
@@ -96,6 +97,9 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 
 	switch req.Type {
 	case typeMovie:
+		if m, ok := movieByFile(idx, req.Filename); ok {
+			return []Metadata{buildMovieMetadata(root, h.opts.ExternalURL, m)}
+		}
 		movies := matchMovies(idx, req, manual)
 		out := make([]Metadata, len(movies))
 		for i, m := range movies {
@@ -104,6 +108,9 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		return out
 
 	case typeShow:
+		if s, ok := showByFile(idx, req.Filename); ok {
+			return []Metadata{buildShowMetadata(root, h.opts.ExternalURL, s, idx, includeChildren)}
+		}
 		shows := matchShows(idx, req.Title, req.Year, req.Guid, manual, !manual)
 		out := make([]Metadata, len(shows))
 		for i, s := range shows {
@@ -112,7 +119,10 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		return out
 
 	case typeSeason:
-		s := resolveShow(idx, req.ParentTitle, req.Year, req.Guid)
+		s, ok := showByFile(idx, req.Filename)
+		if !ok {
+			s = resolveShow(idx, req.ParentTitle, req.Year, req.Guid)
+		}
 		if s == nil || req.Index == nil {
 			return nil
 		}
@@ -123,6 +133,9 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		return []Metadata{md}
 
 	case typeEpisode:
+		if s, e, ok := episodeByFile(idx, req); ok {
+			return []Metadata{buildEpisodeMetadata(root, h.opts.ExternalURL, s, e)}
+		}
 		s := resolveShow(idx, req.GrandparentTitle, req.Year, req.Guid)
 		if s == nil {
 			return nil
