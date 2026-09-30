@@ -59,6 +59,8 @@ type FileRow struct {
 	ReleaseGroup string
 	Formats      []string
 	Score        int32
+	// Markers are the file's skip segments from TheIntroDB, as text.
+	Markers string
 }
 
 // ExtraRow is one extra file beside the media file: a sidecar subtitle.
@@ -399,6 +401,7 @@ templ filesSection(d Detail) {
 							@table.Head() { { "Quality" } }
 							@table.Head() { { "Release Group" } }
 							@table.Head() { { "Formats" } }
+							@table.Head() { { "Markers" } }
 							@table.Head(table.HeadProps{Class: "text-right"}) { { "Score" } }
 						}
 					}
@@ -429,6 +432,7 @@ templ filesSection(d Detail) {
 										}
 									</span>
 								}
+								@table.Cell(table.CellProps{Class: "text-xs text-muted-foreground"}) { { f.Markers } }
 								@table.Cell(table.CellProps{Class: "text-right"}) { { fmt.Sprint(f.Score) } }
 							}
 						}

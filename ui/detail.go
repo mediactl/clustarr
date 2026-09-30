@@ -240,6 +240,7 @@ func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.E
 			row.Audio = audioLabel(mi.Audio[0])
 		}
 	}
+	row.Markers = markersLabel(f.Status.Markers)
 	var extras []views.ExtraRow
 	for _, sc := range f.Status.Sidecars {
 		e := views.ExtraRow{Path: rel(sc.Path), Kind: "Subtitle", Language: sc.Language}
@@ -323,4 +324,32 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 		return "", "", false
 	}
 	return rootRef, rel, true
+}
+
+// markersLabel lists a file's skip segments as TheIntroDB gave them:
+// "intro 3:48–4:06, credits 57:11–58:00"; "" before the first fetch.
+func markersLabel(m *catalogv1.FileMarkers) string {
+	if m == nil {
+		return ""
+	}
+	switch m.Result {
+	case catalogv1.MarkersNotFound:
+		return "none on TheIntroDB"
+	case catalogv1.MarkersError:
+		return "TheIntroDB unavailable"
+	}
+	parts := make([]string, 0, len(m.Segments))
+	for _, s := range m.Segments {
+		parts = append(parts, string(s.Kind)+" "+clock(s.StartMs)+"–"+clock(s.EndMs))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// clock formats milliseconds as m:ss, or h:mm:ss from an hour.
+func clock(ms int64) string {
+	s := ms / 1000
+	if s >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", s/3600, s%3600/60, s%60)
+	}
+	return fmt.Sprintf("%d:%02d", s/60, s%60)
 }
