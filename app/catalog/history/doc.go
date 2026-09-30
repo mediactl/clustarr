@@ -45,8 +45,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // controller-writer per resource, MediaFile's spec/status split being the
 // sole, deliberate exception). Ruling R1
 // (docs/superpowers/plans/2026-09-23-phase-g-parity.md) replaces that
-// condition with a server-side-apply metadata annotation,
-// "clustarr.io/dead-lettered: <original-subject>@<RFC3339>", applied under
+// condition with a metadata annotation,
+// "clustarr.io/dead-lettered: <original-subject>@<RFC3339>", merge-patched
+// onto an existing object (never creating one) under
 // k8s.ManagerDLQProjector -- a manager that NEVER appears on a status
 // subresource, proved in dlq_envtest_test.go by a managedFields assertion,
 // not by trusting this comment. [DLQProjector] also emits a Warning Event on

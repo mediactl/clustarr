@@ -26,6 +26,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -108,7 +109,7 @@ func (d DLQDeps) now() time.Time {
 // and emits a Warning Event saying how to replay it. It never patches a
 // status subresource: every RBAC grant on a CR above is the main resource
 // only, with the "patch" verb and nothing else -- no get, no list, no watch,
-// because a blind server-side-apply PATCH needs none of them (the
+// because a merge PATCH needs none of them (the
 // get/list/watch the replay handler needs are its own, in replay.go).
 // dlq_envtest_test.go and replay_envtest_test.go assert both halves of that
 // against a real apiserver's managedFields, not just this comment.
@@ -204,6 +205,14 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 	switch {
 	case target.KindKnown():
 		applied, err := p.applyAnnotation(ctx, target, value, seq)
+		if apierrors.IsNotFound(err) {
+			// The item was deleted after its task was queued -- the usual
+			// reason a task dead-letters as "target no longer exists" --
+			// and there is nothing left to mark.
+			log.Info("dlqprojector: the dead letter's item no longer exists; nothing to annotate",
+				"kind", target.Kind, "name", target.Name, "namespace", target.Namespace)
+			return nil
+		}
 		if err != nil {
 			log.Error("dlqprojector: apply dead-letter annotation", "error", err)
 			return events.Retry(dlqRetry, err)
@@ -241,50 +250,37 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// applyAnnotation declares metadata.annotations[AnnotationDeadLettered] --
-// and, when seq is known, metadata.annotations[AnnotationDeadLetterSeq] --
-// under k8s.ManagerDLQProjector, and nothing else. It builds the apply body
-// from target.object() -- apiVersion, kind, namespace and name only -- so
-// server-side apply's per-leaf ownership tracking (see CLAUDE.md) means
-// this call can never claim, and therefore can never release, any other
-// field on the object: not another annotation, not a label, and
-// structurally not spec or status, since those subtrees never appear in the
-// patch body at all. Each apply is this manager's complete declaration, so
-// a dead letter whose sequence cannot be named releases (removes) an older
-// one's sequence rather than leaving it to describe the wrong message.
+// applyAnnotation sets metadata.annotations[AnnotationDeadLettered] and,
+// when seq is known, metadata.annotations[AnnotationDeadLetterSeq] -- or
+// removes an older sequence when it is not, so a stale one never describes
+// the wrong message -- under k8s.ManagerDLQProjector, and nothing else: the
+// body names those two annotations only, so no other annotation, label,
+// spec or status field can be touched.
 //
-// pkg/k8s.Apply is not used here: its generic constraint requires the
-// generated api/applyconfiguration type for the target Kind, chosen at
-// compile time, and this call's Kind is resolved at runtime from whichever
-// of ~17 possible kinds a dead letter names. The two client.PatchOptions
-// below are exactly the ones PatchStatus/Apply send (see pkg/k8s/patch.go);
-// this call is unstructured because the target's Go type is not known here,
-// not because it wants different apply semantics.
-//
-// It builds the request with client.RawPatch(types.ApplyPatchType, ...)
-// rather than the client.Apply sentinel: client.Apply is the same patch
-// type, but is deprecated in this controller-runtime version in favour of
-// client.Client.Apply(), which -- per the paragraph above -- cannot take an
-// unstructured object at all, so there is no non-deprecated replacement to
-// migrate to here.
+// It is a JSON merge patch, not a server-side apply: an apply to an object
+// that does not exist creates it, and a dead letter is often about an item
+// deleted since its task was queued -- the apply recreated each one as an
+// empty object that failed validation on every reconcile (50 Books on
+// kind-cluster-plex, 2026-09-29). A merge patch of a missing object is
+// NotFound, which the caller reads as "nothing to mark". It needs only
+// the patch verb the apply did.
 func (p *DLQProjector) applyAnnotation(ctx context.Context, t Target, value string, seq uint64) (*unstructured.Unstructured, error) {
 	if err := k8s.ManagerDLQProjector.Validate(); err != nil {
 		return nil, err
 	}
 	u := t.object()
-	annotations := map[string]string{AnnotationDeadLettered: value}
+	annotations := map[string]any{AnnotationDeadLettered: value, AnnotationDeadLetterSeq: nil}
 	if seq != 0 {
 		annotations[AnnotationDeadLetterSeq] = strconv.FormatUint(seq, 10)
 	}
-	u.SetAnnotations(annotations)
-	data, err := json.Marshal(u)
+	data, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": annotations}})
 	if err != nil {
-		return nil, fmt.Errorf("dlqprojector: marshal apply body for %s %s/%s: %w", t.Kind, t.Namespace, t.Name, err)
+		return nil, fmt.Errorf("dlqprojector: marshal patch for %s %s/%s: %w", t.Kind, t.Namespace, t.Name, err)
 	}
-	if err := p.Deps.Client.Patch(ctx, u, client.RawPatch(types.ApplyPatchType, data),
-		client.FieldOwner(k8s.ManagerDLQProjector.String()), client.ForceOwnership,
+	if err := p.Deps.Client.Patch(ctx, u, client.RawPatch(types.MergePatchType, data),
+		client.FieldOwner(k8s.ManagerDLQProjector.String()),
 	); err != nil {
-		return nil, fmt.Errorf("dlqprojector: apply %s on %s %s/%s: %w",
+		return nil, fmt.Errorf("dlqprojector: annotate %s on %s %s/%s: %w",
 			AnnotationDeadLettered, t.Kind, t.Namespace, t.Name, err)
 	}
 	return u, nil
