@@ -39,6 +39,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	anatorrent "github.com/anacrolix/torrent"
@@ -70,6 +71,13 @@ type Config struct {
 	// Add joins it with AddRequest.Category and AddRequest.Name to get each
 	// transfer's own directory; see [Client.Add].
 	DataDir string
+
+	// ScratchDir, if set, is where a transfer downloads before it is moved
+	// to <DataDir>/<category>/<name> once every wanted piece is verified
+	// (spec.torrent.scratch, qBittorrent's "keep incomplete torrents in");
+	// only then does it read Completed, and it seeds from DataDir. Empty
+	// downloads and seeds in DataDir, as before.
+	ScratchDir string
 
 	// ListenHost overrides the interface anacrolix listens on. Nil uses
 	// anacrolix's own default (every interface). Tests set this to
@@ -126,6 +134,13 @@ type session struct {
 
 	contentRoot string
 	addedAt     time.Time
+
+	// publishDir is where the transfer lives once complete; published is
+	// set once contentRoot is it (always, without Config.ScratchDir), and
+	// publishing while [Client.publish] moves it there.
+	publishDir string
+	published  bool
+	publishing bool
 
 	// selectionApplied is set once [applySelection] has marked the wanted
 	// files, which for a magnet is only after its metadata arrives. wanted
@@ -204,6 +219,10 @@ type Client struct {
 
 	// proxy is the SOCKS5 proxy's state, nil without one.
 	proxy *proxyState
+
+	// pubMu is held by [Client.publish] while it swaps a Torrent for its
+	// published copy, by [Client.Add], and for reading by [Client.lookup].
+	pubMu sync.RWMutex
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -322,7 +341,18 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 		return "", download.ErrPayloadMismatch
 	}
 
-	dir := filepath.Join(c.cfg.DataDir, req.Category, req.Name)
+	// With a scratch dir a transfer downloads there, unless it has already
+	// been published: the destination appears only by an atomic rename
+	// (fsops.MoveAtomic), so if it exists it is whole.
+	c.pubMu.Lock()
+	defer c.pubMu.Unlock()
+	pub := filepath.Join(c.cfg.DataDir, req.Category, req.Name)
+	dir, published := pub, true
+	if c.cfg.ScratchDir != "" {
+		if _, err := os.Stat(pub); err != nil {
+			dir, published = filepath.Join(c.cfg.ScratchDir, req.Category, req.Name), false
+		}
+	}
 	spec.Storage = storage.NewFile(dir)
 	if spec.DisplayName == "" {
 		spec.DisplayName = req.Name
@@ -351,6 +381,8 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	sess := c.sessionFor(id)
 	sess.mu.Lock()
 	sess.contentRoot = dir
+	sess.publishDir = pub
+	sess.published = published
 	sess.addedAt = addedAt
 	sess.activeSince = time.Now()
 	sess.paused = req.Paused
@@ -736,6 +768,9 @@ func (c *Client) sessionFor(id string) *session {
 // every method past Add needs both and every one of them reports
 // [download.ErrNotFound] the same way for an unknown or malformed id.
 func (c *Client) lookup(id string) (*anatorrent.Torrent, *session, error) {
+	// A publish swaps the Torrent under pubMu; lookup never sees the gap.
+	c.pubMu.RLock()
+	defer c.pubMu.RUnlock()
 	var ih metainfo.Hash
 	if err := ih.FromHexString(id); err != nil {
 		return nil, nil, download.ErrNotFound
@@ -802,4 +837,95 @@ func bytesPerSecond(deltaBytes int64, elapsed time.Duration) int64 {
 		return 0
 	}
 	return deltaBytes * int64(time.Second) / int64(elapsed)
+}
+
+// publish moves a complete transfer from the scratch dir to its publishDir
+// and re-adds it there, once (spec.torrent.scratch). Uploads stop while it
+// moves, so nothing reads or writes the files; the Torrent stays registered
+// until the move is done, and is then dropped and added again from the new
+// path under pubMu, so [Client.lookup] never finds it missing. The
+// per-transfer piece-completion store moves with the files, so the re-added
+// Torrent is complete at once. A move that fails is a local fault
+// (diskFull or writeError, never a blocklist) and leaves the scratch copy.
+func (c *Client) publish(id string) {
+	t, sess, err := c.lookup(id)
+	if err != nil {
+		return
+	}
+	sess.mu.Lock()
+	src, dst := sess.contentRoot, sess.publishDir
+	sess.mu.Unlock()
+	log := c.cfg.Logger
+	if log == nil {
+		log = slog.Default()
+	}
+
+	t.DisallowDataUpload()
+	fail := func(err error) {
+		reason := downloadv1alpha1.DownloadFailureWriteError
+		if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) {
+			reason = downloadv1alpha1.DownloadFailureDiskFull
+		}
+		sess.mu.Lock()
+		sess.failed = true
+		sess.failureReason = reason
+		sess.message = fmt.Sprintf("torrent: publish to %s: %v", dst, err)
+		sess.publishing = false
+		sess.mu.Unlock()
+		t.DisallowDataDownload()
+		log.Error("torrent: publish failed", "id", id, "reason", reason, "error", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		fail(err)
+		return
+	}
+	if err := fsops.MoveAtomic(src, dst); err != nil {
+		fail(err)
+		return
+	}
+	mi := t.Metainfo()
+	spec, err := anatorrent.TorrentSpecFromMetaInfoErr(&mi)
+	if err != nil {
+		fail(err)
+		return
+	}
+	spec.Storage = storage.NewFile(dst)
+	spec.DisplayName = t.Name()
+
+	c.pubMu.Lock()
+	t.Drop()
+	nt, _, err := c.cl.AddTorrentSpec(spec)
+	c.pubMu.Unlock()
+	if err != nil {
+		fail(err)
+		return
+	}
+
+	sess.mu.Lock()
+	sess.contentRoot = dst
+	sess.published = true
+	sess.publishing = false
+	wanted, paused, goalMet, prio := sess.wanted, sess.paused, sess.seedGoalMet, sess.priority
+	sess.mu.Unlock()
+	if wanted == nil {
+		nt.DownloadAll()
+	} else {
+		for i, f := range nt.Files() {
+			if i < len(wanted) && wanted[i] {
+				f.SetPriority(anatorrent.PiecePriorityNormal)
+			}
+		}
+	}
+	switch {
+	case paused:
+		nt.DisallowDataDownload()
+		nt.DisallowDataUpload()
+	case goalMet:
+		nt.DisallowDataUpload()
+	}
+	if prio != downloadv1alpha1.DownloadPriorityNormal {
+		c.applyPriorityBudget(nt, prio)
+	}
+	nt.SetOnWriteChunkError(sess.onWriteChunkError(nt))
+	log.Info("torrent: published", "id", id, "to", dst)
 }

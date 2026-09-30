@@ -165,6 +165,15 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 		item.Status = download.StatusFailed
 		item.FailureReason = sess.failureReason
 		item.Message = sess.message
+	case complete && !sess.published:
+		// Complete in the scratch dir: it reads Completed -- and is
+		// imported -- only once it has moved to publishDir.
+		item.Status = download.StatusDownloading
+		item.Stage = downloadv1alpha1.DownloadStagePublishing
+		if !sess.publishing {
+			sess.publishing = true
+			go c.publish(id)
+		}
 	case complete:
 		item.Status = download.StatusCompleted
 		if !sess.paused && t.Seeding() {

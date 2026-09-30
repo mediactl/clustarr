@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 )
 
@@ -54,4 +56,24 @@ func TestEngineRuntimeCarriesTheControllerOptions(t *testing.T) {
 	o.EngineServiceAccount = ""
 	require.ErrorContains(t, o.Validate(), "--engine-service-account",
 		"a controller that would stamp no ServiceAccount onto its engines was accepted")
+}
+
+// A torrent engine publishes to spec.torrent.publishDir, else
+// <data>/torrents as it always has, and has a working area only when
+// spec.torrent.scratch is set: the --scratch-dir flag always carries a
+// default, so its presence says nothing.
+func TestTorrentEngineDirs(t *testing.T) {
+	o := Options{DataDir: "/data", ScratchDir: "/scratch"}
+	pub, scratch := torrentEngineDirs(o, &downloadv1alpha1.TorrentSpec{})
+	require.Equal(t, "/data/torrents", pub)
+	require.Empty(t, scratch)
+
+	pub, scratch = torrentEngineDirs(o, &downloadv1alpha1.TorrentSpec{
+		PublishDir: "/data/complete", Scratch: &downloadv1alpha1.ScratchSpec{},
+	})
+	require.Equal(t, "/data/complete", pub)
+	require.Equal(t, "/scratch", scratch)
+
+	pub, _ = torrentEngineDirs(Options{DataDir: "/tmp/x"}, &downloadv1alpha1.TorrentSpec{})
+	require.Equal(t, "/tmp/x/torrents", pub, "the default follows --data-dir")
 }

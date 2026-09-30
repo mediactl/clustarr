@@ -474,8 +474,11 @@ func setupTorrentEngine(
 	// §6.3 / grabarr.DefaultDataDir's own doc comment: torrent content lives
 	// under <DataDir>/torrents/<category>/<download>, persisted re-attach
 	// state under <DataDir>/torrents/.state.
-	torrentDataDir := filepath.Join(o.DataDir, "torrents")
-	stateDir := filepath.Join(torrentDataDir, ".state")
+	// spec.torrent.publishDir and scratch (2026-09-30) move where content
+	// lives; the re-attach state stays put, so changing them never loses
+	// track of a transfer.
+	torrentDataDir, scratchDir := torrentEngineDirs(o, dc.Spec.Torrent)
+	stateDir := filepath.Join(o.DataDir, "torrents", ".state")
 
 	// spec.torrent.proxy: every byte through a SOCKS5 proxy, UDP included,
 	// and -- with hostnameLookup -- every public name resolved through it.
@@ -498,6 +501,7 @@ func setupTorrentEngine(
 	rawClient, err := dltorrent.New(dltorrent.Config{
 		Proxy:        pcfg,
 		DataDir:      torrentDataDir,
+		ScratchDir:   scratchDir,
 		ListenPort:   int(dc.Spec.Torrent.ListenPort),
 		NoDHT:        !enableDHT,
 		StallTimeout: torrent.StallTimeout(dc.Spec.Torrent),
@@ -620,4 +624,20 @@ func setupUsenetEngine(
 	}
 
 	return nil, cl.Close, nil
+}
+
+// torrentEngineDirs is where a torrent engine keeps content: publish is
+// spec.torrent.publishDir, else <DataDir>/torrents as always; scratch is
+// the working area (--scratch-dir, which the controller sets to
+// spec.torrent.scratch.path or the scratch mount) only when
+// spec.torrent.scratch is set, since the flag always carries a default.
+func torrentEngineDirs(o Options, t *downloadv1alpha1.TorrentSpec) (publish, scratch string) {
+	publish = filepath.Join(o.DataDir, "torrents")
+	if t != nil && t.PublishDir != "" {
+		publish = t.PublishDir
+	}
+	if t != nil && t.Scratch != nil {
+		scratch = o.ScratchDir
+	}
+	return publish, scratch
 }
