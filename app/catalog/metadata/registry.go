@@ -124,7 +124,8 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 				return err
 			}
 			pin, _ := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyPin)
-			reg.Series = append(reg.Series, tvdb.New(key, pin, httpClient, baseURL(p, "https://api4.thetvdb.com/v4"), limiter))
+			reg.Series = append(reg.Series, tvdb.New(key, pin, httpClient, baseURL(p, "https://api4.thetvdb.com/v4"), limiter).
+				WithLocale(p.Spec.Language, p.Spec.Region))
 		case catalogv1alpha1.MetadataProviderMusicBrainz:
 			cl, err := musicbrainz.New(p.Spec.ContactUserAgent, httpClient, baseURL(p, "https://musicbrainz.org/ws/2"), limiter)
 			if err != nil {

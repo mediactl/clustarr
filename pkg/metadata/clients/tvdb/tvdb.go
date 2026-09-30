@@ -28,8 +28,11 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	xlanguage "golang.org/x/text/language"
+	"golang.org/x/text/language/display"
 	"golang.org/x/time/rate"
 
 	"github.com/mediactl/clustarr/pkg/lang"
@@ -58,6 +61,31 @@ type Client struct {
 	apiKey  string
 	pin     string
 	limiter *rate.Limiter
+
+	// language is the ISO 639-2 language titles are kept in (WithLocale;
+	// titleLanguage when unset); region picks the certification.
+	language string
+	region   string
+}
+
+// WithLocale returns a copy of c that keeps titles in language (ISO 639-1,
+// the MetadataProvider's spec.language) and chooses certifications for
+// region (spec.region). The copy shares c's token cache.
+func (c *Client) WithLocale(language, region string) *Client {
+	cp := *c
+	if b, err := xlanguage.ParseBase(strings.ToLower(language)); err == nil {
+		cp.language = b.ISO3()
+	}
+	cp.region = strings.ToUpper(region)
+	return &cp
+}
+
+// titleLang is the ISO 639-2 language titles are kept in.
+func (c *Client) titleLang() string {
+	if c.language == "" {
+		return titleLanguage
+	}
+	return c.language
 }
 
 // New builds a Client. httpClient may be nil, in which case http.DefaultClient
@@ -133,7 +161,108 @@ type seriesExtendedResponse struct {
 			Names     []translation `json:"nameTranslations"`
 			Overviews []translation `json:"overviewTranslations"`
 		} `json:"translations"`
+		// The fields below serve the full Plex Metadata Response (spec
+		// 2026-09-30); their names are the ones recorded in
+		// test/data/metadata/tvdb/series-78804-extended.json.
+		OriginalNetwork *struct {
+			Name string `json:"name"`
+		} `json:"originalNetwork"`
+		LatestNetwork *struct {
+			Name string `json:"name"`
+		} `json:"latestNetwork"`
+		Companies []struct {
+			Name        string `json:"name"`
+			CompanyType struct {
+				CompanyTypeName string `json:"companyTypeName"`
+			} `json:"companyType"`
+		} `json:"companies"`
+		ContentRatings []struct {
+			Name    string `json:"name"`
+			Country string `json:"country"`
+		} `json:"contentRatings"`
+		Characters []rawCharacter `json:"characters"`
+		Seasons    []struct {
+			Number int32  `json:"number"`
+			Image  string `json:"image"`
+			Type   struct {
+				Type string `json:"type"`
+			} `json:"type"`
+		} `json:"seasons"`
+		SeasonTypes []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"seasonTypes"`
 	} `json:"data"`
+}
+
+// rawCharacter is one credit of a series or episode record: a character
+// played by a person, or a crew credit (Director, Writer, …) in peopleType.
+type rawCharacter struct {
+	Name         string `json:"name"`
+	PersonName   string `json:"personName"`
+	PeopleType   string `json:"peopleType"`
+	Image        string `json:"image"`
+	PersonImgURL string `json:"personImgURL"`
+	Sort         int32  `json:"sort"`
+}
+
+// artworkBase is TheTVDB's image host; an episode record's image is a path
+// on it.
+const artworkBase = "https://artworks.thetvdb.com"
+
+// mapCharacters files TheTVDB's characters under the Plex people arrays.
+func mapCharacters(chars []rawCharacter) []metadata.Person {
+	var out []metadata.Person
+	order := map[metadata.PersonKind]int32{}
+	for _, ch := range chars {
+		var kind metadata.PersonKind
+		switch ch.PeopleType {
+		case "Actor", "Guest Star":
+			kind = metadata.PersonCast
+		case "Director":
+			kind = metadata.PersonDirector
+		case "Writer":
+			kind = metadata.PersonWriter
+		case "Producer", "Executive Producer":
+			kind = metadata.PersonProducer
+		default:
+			continue
+		}
+		p := metadata.Person{Kind: kind, Name: ch.PersonName, ImageURL: ch.PersonImgURL}
+		if p.ImageURL == "" {
+			p.ImageURL = ch.Image
+		}
+		if kind == metadata.PersonCast {
+			p.Character = ch.Name
+			p.Order = ch.Sort
+		} else {
+			p.Job = ch.PeopleType
+			p.Order = order[kind]
+			order[kind]++
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// country converts TheTVDB's ISO 3166-1 alpha-3 code ("gbr") to alpha-2
+// ("GB") and the English name ("United Kingdom"); an unknown code comes
+// back upper-cased as both.
+func country(code string) (alpha2, name string) {
+	r, err := xlanguage.ParseRegion(code)
+	if err != nil {
+		up := strings.ToUpper(code)
+		return up, up
+	}
+	return r.String(), display.English.Regions().Name(r)
+}
+
+// absoluteArtwork makes an image path on TheTVDB's host absolute.
+func absoluteArtwork(u string) string {
+	if strings.HasPrefix(u, "/") {
+		return artworkBase + u
+	}
+	return u
 }
 
 // translation is one entry of a SeriesExtendedRecord's translations: a
@@ -190,10 +319,10 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	}
 
 	title, overview := raw.Data.Name, raw.Data.Overview
-	if t := primary(raw.Data.Translations.Names, titleLanguage); t.Name != "" {
+	if t := primary(raw.Data.Translations.Names, c.titleLang()); t.Name != "" {
 		title = t.Name
 	}
-	if t := primary(raw.Data.Translations.Overviews, titleLanguage); t.Overview != "" {
+	if t := primary(raw.Data.Translations.Overviews, c.titleLang()); t.Overview != "" {
 		overview = t.Overview
 	}
 	s := &metadata.Series{
@@ -246,9 +375,67 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	if t, ok := parseDate(raw.Data.LastAired); ok {
 		s.LastAired = &t
 	}
+	mapSeriesExtended(&raw, s, c.region)
 
 	logger.DebugContext(ctx, "tvdb: series fetched", "tvdb_id", tvdbID, "title", s.Title)
 	return s, nil
+}
+
+// mapSeriesExtended maps what the full Plex Metadata Response needs from a
+// series record: networks (original, latest, then every company TheTVDB
+// types a Network), production companies, the country of origin, per-country
+// content ratings, the cast, season posters for the aired order and the
+// season orderings TheTVDB offers.
+func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region string) {
+	d := &raw.Data
+	addNetwork := func(n string) {
+		if n != "" && !slices.Contains(s.Networks, n) {
+			s.Networks = append(s.Networks, n)
+		}
+	}
+	if d.OriginalNetwork != nil {
+		addNetwork(d.OriginalNetwork.Name)
+	}
+	if d.LatestNetwork != nil {
+		addNetwork(d.LatestNetwork.Name)
+	}
+	for _, co := range d.Companies {
+		switch co.CompanyType.CompanyTypeName {
+		case "Network":
+			addNetwork(co.Name)
+		case "Production Company", "Studio":
+			if !slices.Contains(s.Studios, co.Name) {
+				s.Studios = append(s.Studios, co.Name)
+			}
+		}
+	}
+	if len(s.Networks) > 0 {
+		s.Network = s.Networks[0]
+	}
+	origin := ""
+	if d.OriginalCountry != "" {
+		code, name := country(d.OriginalCountry)
+		origin = code
+		s.Countries = []string{name}
+	}
+	for _, cr := range d.ContentRatings {
+		code, _ := country(cr.Country)
+		if cr.Name != "" && !slices.ContainsFunc(s.Certifications, func(c metadata.Certification) bool { return c.Country == code }) {
+			s.Certifications = append(s.Certifications, metadata.Certification{Country: code, Rating: cr.Name})
+		}
+	}
+	s.Certification = metadata.PickCertification(s.Certifications, region, origin)
+	s.People = mapCharacters(d.Characters)
+	for _, se := range d.Seasons {
+		if se.Type.Type != "official" || se.Image == "" {
+			continue
+		}
+		n := se.Number
+		s.Images = append(s.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: se.Image, Season: &n})
+	}
+	for _, st := range d.SeasonTypes {
+		s.SeasonTypes = append(s.SeasonTypes, metadata.SeasonTypeRef{ID: st.Type, Name: st.Name})
+	}
 }
 
 // mapSeriesStatus maps TheTVDB's status.name to metadata.SeriesStatus.
@@ -290,6 +477,26 @@ type rawEpisode struct {
 	SeasonNumber   int32  `json:"seasonNumber"`
 	Number         int32  `json:"number"`
 	AbsoluteNumber *int32 `json:"absoluteNumber"`
+	// Image is the episode's still, a path on artworkBase.
+	Image string `json:"image"`
+}
+
+// EpisodePeople fetches one episode's guest cast and crew from
+// /episodes/{id}/extended (the full Plex Metadata Response's episode
+// Role, Director and Writer).
+func (c *Client) EpisodePeople(ctx context.Context, episodeID string) ([]metadata.Person, error) {
+	ctx, span := tracing.Start(ctx, "metadata.tvdb.EpisodePeople")
+	defer span.End()
+	var raw struct {
+		Data struct {
+			Characters []rawCharacter `json:"characters"`
+		} `json:"data"`
+	}
+	if err := c.doRequest(ctx, http.MethodGet, "/episodes/"+episodeID+"/extended", &raw); err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	return mapCharacters(raw.Data.Characters), nil
 }
 
 // Episodes fetches a series' episode list under the given season order
@@ -308,7 +515,7 @@ func (c *Client) Episodes(ctx context.Context, tvdbID string, order string) ([]m
 	logger := logging.FromContext(ctx)
 
 	base := "/series/" + tvdbID + "/episodes/" + order
-	translated, err := c.walkEpisodes(ctx, base+"/"+titleLanguage, tvdbID, order)
+	translated, err := c.walkEpisodes(ctx, base+"/"+c.titleLang(), tvdbID, order)
 	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
@@ -348,6 +555,9 @@ func (c *Client) Episodes(ctx context.Context, tvdbID string, order string) ([]m
 		}
 		if t, ok := parseDate(e.Aired); ok {
 			ep.AirDate = &t
+		}
+		if e.Image != "" {
+			ep.Image = &metadata.Image{Type: metadata.ImageTypeScreenshot, URL: absoluteArtwork(e.Image)}
 		}
 		episodes = append(episodes, ep)
 	}
