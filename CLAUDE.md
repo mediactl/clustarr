@@ -545,6 +545,18 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   off an object from the cached client sees none, silently. Read them
   through `mgr.GetAPIReader()`, as the grab worker's `appliedByGrabPath`
   does; the artwork envtests read them through a direct client.
+- **A watch's map function runs for every object at startup, and the
+  source is not synced until it has.** controller-runtime's `Kind` source
+  waits on `handlerRegistration.HasSynced`, and a cache's initial sync
+  delivers every object as a create, so an `EnqueueRequestsFromMapFunc`
+  that lists a namespace per event is O(watched × listed) before the
+  controller may start. captionarr's two Movie/Episode map functions each
+  listed every MediaFile: ~450 million deep copies on the owner's library
+  (16,450 items, 13,754 files), the Episode source never synced inside
+  `CacheSyncTimeout`, and captionarr crash-looped (2026-09-29; the "load
+  after a deploy" explanation recorded before was wrong). Look a
+  watched object's related objects up through a field index
+  (`app/caption/itemindex`), never a filtered namespace List.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.

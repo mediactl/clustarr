@@ -45,6 +45,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/datapath"
+	"github.com/mediactl/clustarr/app/caption/itemindex"
 	"github.com/mediactl/clustarr/app/caption/providerset"
 	"github.com/mediactl/clustarr/app/caption/status"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -753,6 +754,9 @@ func stringKeys(ks []subtitles.LangKey) []string {
 // Time-based work -- a search or an upgrade coming due -- is none of these,
 // and arrives through the RequeueAfter [requeueAfter] computes.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := itemindex.Register(context.Background(), mgr); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("subtitlerequest").
 		For(&subtitlev1alpha1.SubtitleRequest{}, builder.WithPredicates(k8s.Or(
@@ -789,17 +793,15 @@ func (r *Reconciler) mapItem(ctx context.Context, o client.Object) []reconcile.R
 	default:
 		return nil
 	}
-	var files catalogv1alpha1.MediaFileList
-	if err := r.Client.List(ctx, &files, client.InNamespace(o.GetNamespace())); err != nil {
+	// Through the item index, never a namespace-wide List: see itemindex.
+	files, err := itemindex.MediaFilesOf(ctx, r.Client, o.GetNamespace(), kind, o.GetName())
+	if err != nil {
 		logging.FromContext(ctx).Error("list MediaFiles for a catalog item change", "item", client.ObjectKeyFromObject(o), "err", err)
 		return nil
 	}
-	var out []reconcile.Request
-	for i := range files.Items {
-		mf := &files.Items[i]
-		if mf.Spec.MediaRef.Kind == kind && mf.Spec.MediaRef.Name == o.GetName() {
-			out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(mf)})
-		}
+	out := make([]reconcile.Request, 0, len(files))
+	for i := range files {
+		out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&files[i])})
 	}
 	return out
 }

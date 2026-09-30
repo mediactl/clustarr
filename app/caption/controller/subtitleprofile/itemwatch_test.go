@@ -29,6 +29,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/app/caption/itemindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -45,7 +46,9 @@ func TestItemWatchMapsOntoTheProfilesThatCouldWinItsFile(t *testing.T) {
 		Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "sd"}},
 	})
 	file := movieFile("arrival-2016", map[string]string{"tier": "hd"})
-	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(&def, &hd, &other, file).Build()
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
+		WithIndex(&catalogv1alpha1.MediaFile{}, itemindex.MediaFileByItem, itemindex.Extract).
+		WithObjects(&def, &hd, &other, file).Build()
 	r := NewReconciler(c, k8s.MustNewScheme(), nil)
 
 	names := func(o *catalogv1alpha1.Movie) []string {
