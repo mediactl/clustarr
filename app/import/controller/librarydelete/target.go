@@ -75,11 +75,20 @@ func (t Target) paths() []string {
 	return out
 }
 
+// Occupant is a path something other than the item stands on: another
+// item's folder, or a RootFolder.
+type Occupant struct {
+	// What names it in a refusal, e.g. "movie media/heat-2".
+	What string
+	Path string
+}
+
 // Check refuses, wrapping ErrRefused, a delete of files that would reach
 // outside the item: no RootFolder, a folder or path not strictly under it,
-// or a folder holding a MediaFile of another item (all is every MediaFile
-// in the namespace).
-func Check(t Target, all []catalogv1alpha1.MediaFile) error {
+// a folder holding a MediaFile of another item (all is every MediaFile in
+// the namespace), or a folder at or above an occupant -- another item's
+// folder or a RootFolder, which may hold files no MediaFile records yet.
+func Check(t Target, all []catalogv1alpha1.MediaFile, occupants []Occupant) error {
 	if t.Root == "" {
 		return fmt.Errorf("%w: the item's root folder is unknown", ErrRefused)
 	}
@@ -99,12 +108,22 @@ func Check(t Target, all []catalogv1alpha1.MediaFile) error {
 		if t.Owns(mf.Spec.MediaRef) {
 			continue
 		}
-		if fsops.StrictlyUnder(mf.Spec.Path, t.Folder) {
+		if atOrUnder(mf.Spec.Path, t.Folder) {
 			return fmt.Errorf("%w: folder %q also holds media file %s of %s %s",
 				ErrRefused, t.Folder, mf.Name, mf.Spec.MediaRef.Kind, mf.Spec.MediaRef.Name)
 		}
 	}
+	for _, o := range occupants {
+		if atOrUnder(o.Path, t.Folder) {
+			return fmt.Errorf("%w: folder %q also holds %s (%q)", ErrRefused, t.Folder, o.What, o.Path)
+		}
+	}
 	return nil
+}
+
+// atOrUnder reports whether path is dir or lies inside it.
+func atOrUnder(path, dir string) bool {
+	return path != "" && (filepath.Clean(path) == filepath.Clean(dir) || fsops.StrictlyUnder(path, dir))
 }
 
 // RemoveFromDisk removes the folder, recursively, and each recorded path

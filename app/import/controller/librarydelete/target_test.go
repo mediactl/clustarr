@@ -71,7 +71,7 @@ func TestRemoveFromDiskRemovesTheFolderAndPrunes(t *testing.T) {
 	write(t, filepath.Join(tgt.Folder, "movie.nfo"))
 	write(t, filepath.Join(tgt.Folder, "Extras", "trailer.mkv"))
 
-	require.NoError(t, Check(tgt, tgt.Files))
+	require.NoError(t, Check(tgt, tgt.Files, nil))
 	require.NoError(t, RemoveFromDisk(context.Background(), tgt))
 	assert.NoDirExists(t, tgt.Folder)
 	assert.NoDirExists(t, filepath.Join(root, "H"), "emptied parent pruned")
@@ -83,7 +83,7 @@ func TestCheckRefusesAFolderHoldingAnotherItemsFile(t *testing.T) {
 	tgt, mf := heatTarget(root)
 	other := mediaFile("ronin-file", commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "ronin"},
 		filepath.Join(tgt.Folder, "Ronin.mkv"))
-	err := Check(tgt, []catalogv1alpha1.MediaFile{mf, other})
+	err := Check(tgt, []catalogv1alpha1.MediaFile{mf, other}, nil)
 	require.ErrorIs(t, err, ErrRefused)
 	assert.Contains(t, err.Error(), "ronin-file")
 }
@@ -92,17 +92,17 @@ func TestCheckRefusesAPathOutsideTheRootFolder(t *testing.T) {
 	root := t.TempDir()
 	tgt, _ := heatTarget(root)
 	tgt.Files[0].Status.Sidecars = append(tgt.Files[0].Status.Sidecars, catalogv1alpha1.Sidecar{Path: "/etc/passwd"})
-	require.ErrorIs(t, Check(tgt, tgt.Files), ErrRefused)
+	require.ErrorIs(t, Check(tgt, tgt.Files, nil), ErrRefused)
 
 	tgt, _ = heatTarget(root)
 	tgt.Folder = root
-	require.ErrorIs(t, Check(tgt, tgt.Files), ErrRefused, "the RootFolder itself")
+	require.ErrorIs(t, Check(tgt, tgt.Files, nil), ErrRefused, "the RootFolder itself")
 }
 
 func TestCheckRefusesAnUnknownRootFolder(t *testing.T) {
 	tgt, _ := heatTarget(t.TempDir())
 	tgt.Root = ""
-	require.ErrorIs(t, Check(tgt, tgt.Files), ErrRefused)
+	require.ErrorIs(t, Check(tgt, tgt.Files, nil), ErrRefused)
 }
 
 // A multi-episode file names one episode and lists the others in keys: any
@@ -119,7 +119,7 @@ func TestCheckTreatsAPackFileAsTheSeries(t *testing.T) {
 		TargetKey(commonv1.MediaKindEpisode, "andor-s01e02"): true,
 	}}
 	assert.True(t, tgt.Owns(pack.Spec.MediaRef))
-	require.NoError(t, Check(tgt, []catalogv1alpha1.MediaFile{pack}))
+	require.NoError(t, Check(tgt, []catalogv1alpha1.MediaFile{pack}, nil))
 }
 
 func TestCheckWithNoFolderRemovesOnlyTheFiles(t *testing.T) {
@@ -128,7 +128,7 @@ func TestCheckWithNoFolderRemovesOnlyTheFiles(t *testing.T) {
 	tgt.Folder = ""
 	write(t, tgt.Files[0].Spec.Path)
 	write(t, filepath.Join(filepath.Dir(tgt.Files[0].Spec.Path), "movie.nfo"))
-	require.NoError(t, Check(tgt, tgt.Files))
+	require.NoError(t, Check(tgt, tgt.Files, nil))
 	require.NoError(t, RemoveFromDisk(context.Background(), tgt))
 	assert.NoFileExists(t, tgt.Files[0].Spec.Path)
 	assert.FileExists(t, filepath.Join(filepath.Dir(tgt.Files[0].Spec.Path), "movie.nfo"),
@@ -160,8 +160,37 @@ func TestRemoveFromDiskRemovesFilesOutsideTheFolder(t *testing.T) {
 	stray := filepath.Join(root, "loose", "Heat.old.mkv")
 	tgt.Files = append(tgt.Files, mediaFile("heat-old", heat, stray))
 	write(t, stray)
-	require.NoError(t, Check(tgt, tgt.Files))
+	require.NoError(t, Check(tgt, tgt.Files, nil))
 	require.NoError(t, RemoveFromDisk(context.Background(), tgt))
 	assert.NoFileExists(t, stray)
 	assert.NoDirExists(t, filepath.Join(root, "loose"))
+}
+
+// An item's folder can hold another item's folder, or a RootFolder, with
+// no MediaFile recorded there yet (never scanned, still importing): the
+// check refuses on any such path at or under the folder, not only on
+// recorded files (final review, finding 1).
+func TestCheckRefusesAFolderHoldingAnotherItemOrRootFolder(t *testing.T) {
+	root := t.TempDir()
+	tgt, mf := heatTarget(root)
+	for _, occ := range []Occupant{
+		{What: "movie media/heat-2", Path: filepath.Join(tgt.Folder, "Heat 2")},
+		{What: "root folder media/nested", Path: filepath.Join(tgt.Folder, "nested")},
+		{What: "audiobook media/same", Path: tgt.Folder},
+	} {
+		err := Check(tgt, []catalogv1alpha1.MediaFile{mf}, []Occupant{occ})
+		require.ErrorIs(t, err, ErrRefused, occ.What)
+		assert.Contains(t, err.Error(), occ.What)
+	}
+	require.NoError(t, Check(tgt, []catalogv1alpha1.MediaFile{mf},
+		[]Occupant{{What: "movie media/ronin", Path: filepath.Join(root, "Ronin (1998)")}}), "a sibling folder is fine")
+}
+
+// A MediaFile of another item whose path is the folder itself is refused
+// too.
+func TestCheckRefusesAnotherItemsFileAtTheFolderPath(t *testing.T) {
+	root := t.TempDir()
+	tgt, mf := heatTarget(root)
+	other := mediaFile("odd", commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "ronin"}, tgt.Folder)
+	require.ErrorIs(t, Check(tgt, []catalogv1alpha1.MediaFile{mf, other}, nil), ErrRefused)
 }

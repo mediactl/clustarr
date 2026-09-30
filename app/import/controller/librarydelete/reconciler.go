@@ -25,7 +25,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -120,7 +122,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err := r.List(ctx, &all, client.InNamespace(obj.GetNamespace())); err != nil {
 			return ctrl.Result{}, r.fail(ctx, obj, err)
 		}
-		if err := Check(t, all.Items); err != nil {
+		occupants, err := r.occupants(ctx, obj, t)
+		if err != nil {
+			return ctrl.Result{}, r.fail(ctx, obj, err)
+		}
+		if err := Check(t, all.Items, occupants); err != nil {
 			return ctrl.Result{}, r.fail(ctx, obj, err)
 		}
 	}
@@ -185,6 +191,41 @@ func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, err
 		}
 	}
 	return t, nil
+}
+
+// occupants are the folders the item's folder must not hold: every other
+// library item's status.path -- in any namespace, since two namespaces'
+// RootFolders may share a path -- except the item's own children, and
+// every RootFolder's spec.path.
+func (r *Reconciler) occupants(ctx context.Context, obj client.Object, t Target) ([]Occupant, error) {
+	var out []Occupant
+	for _, k := range append(kinds(), bookKind()) {
+		list := k.newList()
+		if err := r.List(ctx, list); err != nil {
+			return nil, fmt.Errorf("list %s: %w", k.kind, err)
+		}
+		if err := meta.EachListItem(list, func(o runtime.Object) error {
+			item := o.(client.Object)
+			own := item.GetNamespace() == obj.GetNamespace() && t.Keys[TargetKey(k.kind, item.GetName())]
+			if own {
+				return nil
+			}
+			if p := k.path(item); p != "" {
+				out = append(out, Occupant{What: fmt.Sprintf("%s %s/%s", k.kind, item.GetNamespace(), item.GetName()), Path: p})
+			}
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	var roots catalogv1alpha1.RootFolderList
+	if err := r.List(ctx, &roots); err != nil {
+		return nil, fmt.Errorf("list root folders: %w", err)
+	}
+	for _, rf := range roots.Items {
+		out = append(out, Occupant{What: fmt.Sprintf("root folder %s/%s", rf.Namespace, rf.Name), Path: rf.Spec.Path})
+	}
+	return out, nil
 }
 
 // metaList is the names in a typed list.

@@ -60,8 +60,10 @@ func rootFolder(path string) *catalogv1alpha1.RootFolder {
 
 func heatMovie(folder, mode string, exclude bool) *catalogv1alpha1.Movie {
 	m := &catalogv1alpha1.Movie{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "heat",
-			Annotations: map[string]string{catalogv1alpha1.AnnotationDelete: mode}},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "media", Name: "heat",
+			Annotations: map[string]string{catalogv1alpha1.AnnotationDelete: mode},
+		},
 		Spec:   catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies"},
 		Status: catalogv1alpha1.MovieStatus{Path: folder},
 	}
@@ -150,8 +152,10 @@ func TestDeleteSeriesTakesItsEpisodesFiles(t *testing.T) {
 	folder := filepath.Join(root, "Andor")
 	write(t, filepath.Join(folder, "S01E01.mkv"))
 	s := &catalogv1alpha1.Series{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "andor",
-			Annotations: map[string]string{catalogv1alpha1.AnnotationDelete: catalogv1alpha1.DeleteFiles}},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "media", Name: "andor",
+			Annotations: map[string]string{catalogv1alpha1.AnnotationDelete: catalogv1alpha1.DeleteFiles},
+		},
 		Spec:   catalogv1alpha1.SeriesSpec{TvdbID: 1, QualityProfileRef: "hd", RootFolderRef: "movies"},
 		Status: catalogv1alpha1.SeriesStatus{Path: folder},
 	}
@@ -174,9 +178,13 @@ func TestDeleteSeriesTakesItsEpisodesFiles(t *testing.T) {
 // A retry finds the exclusion it made before and carries on.
 func TestTheExclusionIsCreatedOnce(t *testing.T) {
 	root := t.TempDir()
-	existing := &catalogv1alpha1.ImportExclusion{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "heat"},
-		Spec: catalogv1alpha1.ImportExclusionSpec{Kind: catalogv1alpha1.ExclusionKindMovie,
-			ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyTMDB: "949"}}}
+	existing := &catalogv1alpha1.ImportExclusion{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "heat"},
+		Spec: catalogv1alpha1.ImportExclusionSpec{
+			Kind:        catalogv1alpha1.ExclusionKindMovie,
+			ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyTMDB: "949"},
+		},
+	}
 	c := newClient(t, rootFolder(root), heatMovie(filepath.Join(root, "Heat"), catalogv1alpha1.DeleteRecords, true), existing)
 	require.NoError(t, reconcileMovie(t, c))
 	var list catalogv1alpha1.ImportExclusionList
@@ -203,3 +211,43 @@ func TestDeleteRequestedPredicate(t *testing.T) {
 }
 
 var _ = os.Remove // keep os imported for write()
+
+// Another movie's folder inside this one, with no MediaFile recorded for
+// it, keeps the folder from being removed; an Author's own Books' folders
+// inside its folder do not.
+func TestAnotherItemsFolderInsideRefusesButOwnChildrenDoNot(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "Heat (1995)")
+	write(t, filepath.Join(folder, "Heat 2 (2026)", "unscanned.mkv"))
+	other := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "heat-2"},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 2, QualityProfileRef: "hd", RootFolderRef: "movies"},
+		Status:     catalogv1alpha1.MovieStatus{Path: filepath.Join(folder, "Heat 2 (2026)")},
+	}
+	c := newClient(t, rootFolder(root), heatMovie(folder, catalogv1alpha1.DeleteFiles, false), other)
+	require.NoError(t, reconcileMovie(t, c))
+	assert.FileExists(t, filepath.Join(folder, "Heat 2 (2026)", "unscanned.mkv"))
+	var m catalogv1alpha1.Movie
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "media", Name: "heat"}, &m))
+	assert.Contains(t, m.Annotations[catalogv1alpha1.AnnotationDeleteError], "heat-2")
+
+	authorFolder := filepath.Join(root, "Dostoevsky")
+	write(t, filepath.Join(authorFolder, "The Idiot", "idiot.epub"))
+	author := &catalogv1alpha1.Author{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "dostoevsky",
+			Annotations: map[string]string{catalogv1alpha1.AnnotationDelete: catalogv1alpha1.DeleteFiles}},
+		Spec:   catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL22242A", QualityProfileRef: "ebook", RootFolderRef: "movies"},
+		Status: catalogv1alpha1.AuthorStatus{Path: authorFolder},
+	}
+	ref := "dostoevsky"
+	book := &catalogv1alpha1.Book{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "the-idiot"},
+		Spec:       catalogv1alpha1.BookSpec{AuthorRef: &ref, WorkID: "OL1W"},
+		Status:     catalogv1alpha1.BookStatus{Path: filepath.Join(authorFolder, "The Idiot")},
+	}
+	c = newClient(t, rootFolder(root), author, book)
+	r := &Reconciler{Client: c, kind: kindFor(commonv1.MediaKindAuthor)}
+	_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "media", Name: "dostoevsky"}})
+	require.NoError(t, err)
+	assert.NoDirExists(t, authorFolder)
+}

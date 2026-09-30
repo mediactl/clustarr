@@ -83,8 +83,9 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // kindSpec is what the delete needs to know of one deletable kind.
 type kindSpec struct {
 	kind commonv1.MediaKind
-	// newObject is an empty object of the kind.
+	// newObject is an empty object of the kind, newList an empty list.
 	newObject func() client.Object
+	newList   func() client.ObjectList
 	// rootFolderRef and path read the item's RootFolder and status.path.
 	rootFolderRef func(client.Object) string
 	path          func(client.Object) string
@@ -98,6 +99,16 @@ type kindSpec struct {
 }
 
 const exclusionReason = "deleted from the library"
+
+// bookKind is a Book's path, for the occupant check only: a Book has its
+// own folder (under its Author's) but no Delete of its own.
+func bookKind() kindSpec {
+	return kindSpec{
+		kind:    commonv1.MediaKindBook,
+		newList: func() client.ObjectList { return &catalogv1alpha1.BookList{} },
+		path:    func(o client.Object) string { return o.(*catalogv1alpha1.Book).Status.Path },
+	}
+}
 
 func kindFor(kind commonv1.MediaKind) kindSpec {
 	for _, k := range kinds() {
@@ -113,12 +124,15 @@ func kinds() []kindSpec {
 		{
 			kind:          commonv1.MediaKindMovie,
 			newObject:     func() client.Object { return &catalogv1alpha1.Movie{} },
+			newList:       func() client.ObjectList { return &catalogv1alpha1.MovieList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Movie).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Movie).Status.Path },
 			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
 				m := o.(*catalogv1alpha1.Movie)
-				spec := catalogv1alpha1.ImportExclusionSpec{Kind: catalogv1alpha1.ExclusionKindMovie, Reason: exclusionReason,
-					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyTMDB: strconv.FormatInt(m.Spec.TmdbID, 10)}}
+				spec := catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindMovie, Reason: exclusionReason,
+					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyTMDB: strconv.FormatInt(m.Spec.TmdbID, 10)},
+				}
 				if md := m.Status.Metadata; md != nil {
 					spec.Title, spec.Year = md.Title, md.Year
 				}
@@ -128,14 +142,17 @@ func kinds() []kindSpec {
 		{
 			kind:          commonv1.MediaKindSeries,
 			newObject:     func() client.Object { return &catalogv1alpha1.Series{} },
+			newList:       func() client.ObjectList { return &catalogv1alpha1.SeriesList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Series).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Series).Status.Path },
 			childKind:     commonv1.MediaKindEpisode,
 			newChildren:   func() client.ObjectList { return &catalogv1alpha1.EpisodeList{} },
 			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
 				s := o.(*catalogv1alpha1.Series)
-				spec := catalogv1alpha1.ImportExclusionSpec{Kind: catalogv1alpha1.ExclusionKindSeries, Reason: exclusionReason,
-					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyTVDB: strconv.FormatInt(s.Spec.TvdbID, 10)}}
+				spec := catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindSeries, Reason: exclusionReason,
+					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyTVDB: strconv.FormatInt(s.Spec.TvdbID, 10)},
+				}
 				if md := s.Status.Metadata; md != nil {
 					spec.Title, spec.Year = md.Title, md.Year
 				}
@@ -145,6 +162,7 @@ func kinds() []kindSpec {
 		{
 			kind:          commonv1.MediaKindArtist,
 			newObject:     func() client.Object { return &catalogv1alpha1.Artist{} },
+			newList:       func() client.ObjectList { return &catalogv1alpha1.ArtistList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Artist).Status.Path },
 			childKind:     commonv1.MediaKindAlbum,
@@ -156,6 +174,7 @@ func kinds() []kindSpec {
 		{
 			kind:          commonv1.MediaKindAuthor,
 			newObject:     func() client.Object { return &catalogv1alpha1.Author{} },
+			newList:       func() client.ObjectList { return &catalogv1alpha1.AuthorList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Author).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Author).Status.Path },
 			childKind:     commonv1.MediaKindBook,
@@ -167,17 +186,21 @@ func kinds() []kindSpec {
 		{
 			kind:          commonv1.MediaKindAudiobook,
 			newObject:     func() client.Object { return &catalogv1alpha1.Audiobook{} },
+			newList:       func() client.ObjectList { return &catalogv1alpha1.AudiobookList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Audiobook).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Audiobook).Status.Path },
 			exclusion: func(o client.Object) (catalogv1alpha1.ImportExclusionSpec, bool) {
 				ab := o.(*catalogv1alpha1.Audiobook)
-				return catalogv1alpha1.ImportExclusionSpec{Kind: catalogv1alpha1.ExclusionKindAudiobook, Reason: exclusionReason,
-					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyASIN: ab.Spec.ASIN}}, true
+				return catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindAudiobook, Reason: exclusionReason,
+					ExternalIDs: map[string]string{catalogv1alpha1.ExclusionIDKeyASIN: ab.Spec.ASIN},
+				}, true
 			},
 		},
 		{
 			kind:          commonv1.MediaKindComic,
 			newObject:     func() client.Object { return &catalogv1alpha1.Comic{} },
+			newList:       func() client.ObjectList { return &catalogv1alpha1.ComicList{} },
 			rootFolderRef: func(o client.Object) string { return o.(*catalogv1alpha1.Comic).Spec.RootFolderRef },
 			path:          func(o client.Object) string { return o.(*catalogv1alpha1.Comic).Status.Path },
 			childKind:     commonv1.MediaKindIssue,
@@ -186,8 +209,10 @@ func kinds() []kindSpec {
 				cm := o.(*catalogv1alpha1.Comic)
 				// Source is comicvine or mangadex, the same words as the
 				// exclusion's id keys.
-				return catalogv1alpha1.ImportExclusionSpec{Kind: catalogv1alpha1.ExclusionKindComic, Reason: exclusionReason,
-					ExternalIDs: map[string]string{string(cm.Spec.Source): cm.Spec.SourceID}}, true
+				return catalogv1alpha1.ImportExclusionSpec{
+					Kind: catalogv1alpha1.ExclusionKindComic, Reason: exclusionReason,
+					ExternalIDs: map[string]string{string(cm.Spec.Source): cm.Spec.SourceID},
+				}, true
 			},
 		},
 	}
