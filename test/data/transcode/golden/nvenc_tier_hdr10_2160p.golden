@@ -35,7 +35,7 @@ vbr
 -multipass
 fullres
 -bf
-4
+8
 -b_ref_mode
 middle
 -spatial-aq
