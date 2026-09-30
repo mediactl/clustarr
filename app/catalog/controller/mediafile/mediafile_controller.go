@@ -646,11 +646,20 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForRootFolder),
 			builder.WithPredicates(rootFolderNamingChanged())).
 		WithOptions(controller.Options{
-			RecoverPanic:          ptr.To(true),
-			ReconciliationTimeout: 5 * time.Minute,
+			RecoverPanic:            ptr.To(true),
+			ReconciliationTimeout:   5 * time.Minute,
+			MaxConcurrentReconciles: MaxConcurrentReconciles,
 		}).
 		Complete(r)
 }
+
+// MaxConcurrentReconciles is how many MediaFiles are reconciled at once. A
+// reconcile may run ffprobe over the library mount -- about ten seconds on
+// the owner's NFS share -- and a RootFolder naming change or a
+// ProbeVersion bump enqueues every file, so a single worker took hours to
+// re-render 11,945 TV names (2026-09-30). The Reconciler holds no mutable
+// state, and controller-runtime never runs one key twice at once.
+const MaxConcurrentReconciles = 8
 
 // transcodeJobsOf lists the TranscodeJobs whose spec.mediaFileRef names mf,
 // once per reconcile: latestUnincorporatedTranscode and transcodeInFlight
