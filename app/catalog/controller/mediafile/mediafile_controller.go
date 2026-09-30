@@ -40,6 +40,8 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/markers"
+	clustarrevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -141,6 +143,9 @@ type Reconciler struct {
 	Recorder events.EventRecorder
 	Probe    ProbeFunc
 	Clock    func() time.Time
+	// Bus, when set, carries the markers fetch (app/catalog/markers) for a
+	// probed movie or episode file whose skip segments are due.
+	Bus clustarrevents.Publisher
 }
 
 // ProbeFunc matches mediainfo.Probe's signature so tests can substitute a
@@ -437,10 +442,35 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			"the transcoded file at %s changed on disk with no transcode to explain it; re-probed, compliance cleared", mf.Spec.Path)
 	}
 
+	res := withNamingRetry(ctrl.Result{}, retryNaming)
 	if transcoded || swap != nil {
-		return withNamingRetry(ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, retryNaming), nil
+		res = withNamingRetry(ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, retryNaming)
 	}
-	return withNamingRetry(ctrl.Result{}, retryNaming), nil
+	return r.followUpMarkers(ctx, &mf, known, now.Time, res)
+}
+
+// followUpMarkers publishes the file's markers fetch when it is due -- the
+// probe this reconcile may just have recorded counts -- and otherwise
+// requeues for when its last result lapses, keeping res's requeue when
+// that is sooner. A publish failure is the reconcile's error, so it
+// retries.
+func (r *Reconciler) followUpMarkers(ctx context.Context, mf *catalogv1alpha1.MediaFile, known *knownStatus, now time.Time, res ctrl.Result) (ctrl.Result, error) {
+	if r.Bus == nil {
+		return res, nil
+	}
+	cur := mf.DeepCopy()
+	cur.Status.ProbeHash, cur.Status.MediaInfo = known.ProbeHash, known.MediaInfo
+	due, in := markers.Due(cur, now)
+	if due {
+		if err := markers.Publish(ctx, r.Bus, cur, now); err != nil {
+			return res, err
+		}
+		return res, nil
+	}
+	if in > 0 && (res.RequeueAfter == 0 || in < res.RequeueAfter) {
+		res.RequeueAfter = in
+	}
+	return res, nil
 }
 
 // swapTarget decides what an unincorporated Succeeded TranscodeJob means for

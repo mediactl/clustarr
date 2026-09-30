@@ -107,6 +107,7 @@ const (
 	FilterIndexRSS             = "clustarr.work.indexarr.rss.>"
 	FilterCaptionFetch         = "clustarr.work.captionarr.fetch.>"
 	FilterCatalogArtworkFetch  = "clustarr.work.catalogarr.artwork.fetch.>"
+	FilterCatalogMarkers       = "clustarr.work.catalogarr.markers.>"
 	FilterCatalogArtworkRender = "clustarr.work.catalogarr.artwork.render.>"
 )
 
@@ -128,6 +129,7 @@ const (
 	ConsumerDLQProjector         = "clustarr-dlq-projector"
 	ConsumerCatalogArtworkFetch  = "catalogarr-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalogarr-artwork-render"
+	ConsumerCatalogMarkers       = "catalogarr-markers"
 )
 
 // Key/value bucket names. NATS bucket names may not contain dots.
@@ -296,6 +298,12 @@ func WorkGrabSubject(mediaKey string) string {
 // clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
 func WorkMetadataSubject(p Priority, mediaKey string) string {
 	return fmt.Sprintf("clustarr.work.catalogarr.metadata.%s.%s", tok(string(p)), tok(mediaKey))
+}
+
+// WorkMarkersSubject builds clustarr.work.catalogarr.markers.normal.<mediaKey>:
+// fetch one MediaFile's skip segments (schema.MarkersTask).
+func WorkMarkersSubject(mediaKey string) string {
+	return "clustarr.work.catalogarr.markers.normal." + tok(mediaKey)
 }
 
 // WorkWantedScanSubject builds

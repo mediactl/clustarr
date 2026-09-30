@@ -373,9 +373,9 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return err
 	}
 
-	if err := mediafile.NewReconciler(c, scheme,
-		mgr.GetEventRecorder("mediafile"),
-	).SetupWithManager(mgr); err != nil {
+	mfr := mediafile.NewReconciler(c, scheme, mgr.GetEventRecorder("mediafile"))
+	mfr.Bus = bus // the markers fetch (app/catalog/markers)
+	if err := mfr.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: mediafile: %w", err)
 	}
 

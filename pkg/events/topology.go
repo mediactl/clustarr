@@ -685,6 +685,17 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 32,
 		},
 		{
+			// The metadata gateway's marker worker (plex-analyze-bypass
+			// §3.4): one TheIntroDB GET per file, rate-limited in-process,
+			// so few in flight; a usage-limited provider naks with its
+			// reset, which the BackOff steps cover.
+			Name: ConsumerCatalogMarkers, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogMarkers},
+			AckWait: 60 * s, MaxDeliver: 8,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending: 8,
+		},
+		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,
 			Filters: []string{FilterAllEvents},
 			AckWait: 30 * s, MaxDeliver: 3,

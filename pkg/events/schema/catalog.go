@@ -253,6 +253,18 @@ type MetadataTask struct {
 // Schema implements Payload.
 func (MetadataTask) Schema() string { return "catalog.MetadataTask.v1" }
 
+// MarkersTask asks the metadata gateway's marker worker to fetch one
+// MediaFile's skip segments. Subject:
+// clustarr.work.catalogarr.markers.normal.<mediaKey>; the envelope key is
+// <namespace>/<name> of the MediaFile.
+type MarkersTask struct {
+	// MediaFile is the MediaFile's name.
+	MediaFile string `json:"mediaFile"`
+}
+
+// Schema implements Payload.
+func (MarkersTask) Schema() string { return "catalog.MarkersTask.v1" }
+
 // WantedScan asks the search workers to sweep a namespace for missing and
 // cutoff-unmet items. Subject:
 // clustarr.work.catalogarr.wantedscan.low.<namespace>.
