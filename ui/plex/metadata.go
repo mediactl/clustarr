@@ -239,6 +239,9 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 
 	if includeChildren {
 		md.Children = buildSeasonChildren(root, u, s, idx)
+		if u.otherOrder(s) {
+			md.Children = &ChildrenContainer{Metadata: []Metadata{}}
+		}
 	}
 	return md
 }
@@ -317,6 +320,9 @@ func buildSeasonMetadata(
 
 	if includeChildren {
 		md.Children = buildEpisodeChildren(root, u, s, number, idx)
+		if u.otherOrder(s) {
+			md.Children = &ChildrenContainer{Metadata: []Metadata{}}
+		}
 	}
 	return md, true
 }
@@ -482,13 +488,13 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 			h.enrichExtended(r.Context(), u, &md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
 		}
 
-		writeJSON(w, http.StatusOK, metadataContainerResponse{MediaContainer: MetadataContainer{
+		writeMetadata(w, customizationOf(r, nil), MetadataContainer{
 			Offset:     0,
 			TotalSize:  1,
 			Identifier: root.identifier,
 			Size:       1,
 			Metadata:   []Metadata{md},
-		}})
+		})
 	}
 }
 

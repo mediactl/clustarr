@@ -41,7 +41,7 @@ func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		h.writePage(w, root, items, parsePaging(r))
+		h.writePage(w, r, root, items, parsePaging(r))
 	}
 }
 
@@ -71,12 +71,15 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 		}
 
 		episodes := append([]*catalogv1.Episode(nil), idx.Episodes(s.UID)...)
+		if u.otherOrder(s) {
+			episodes = nil // no season data for an order clustarr does not store
+		}
 		sortEpisodes(episodes)
 		items := make([]Metadata, len(episodes))
 		for i, e := range episodes {
 			items[i] = buildEpisodeMetadata(root, u, s, e)
 		}
-		h.writePage(w, root, items, parsePaging(r))
+		h.writePage(w, r, root, items, parsePaging(r))
 	}
 }
 
@@ -97,6 +100,9 @@ func (h *handler) childrenOf(root rootDef, u urls, idx *projection.Index, rating
 		if !ok {
 			return nil, false
 		}
+		if u.otherOrder(s) {
+			return []Metadata{}, true
+		}
 		var episodes []*catalogv1.Episode
 		for _, e := range idx.Episodes(s.UID) {
 			if e.Spec.SeasonNumber == season {
@@ -114,6 +120,9 @@ func (h *handler) childrenOf(root rootDef, u urls, idx *projection.Index, rating
 	s, ok := idx.SeriesByUID(uid)
 	if !ok {
 		return nil, false
+	}
+	if u.otherOrder(s) {
+		return []Metadata{}, true
 	}
 	seasons := append([]catalogv1.SeasonStatus(nil), s.Status.Seasons...)
 	sort.Slice(seasons, func(i, j int) bool { return seasons[i].Number < seasons[j].Number })
@@ -143,15 +152,15 @@ func sortEpisodes(episodes []*catalogv1.Episode) {
 // writePage windows items to p and writes the MediaContainer response,
 // setting the paging response headers alongside the body's own
 // offset/totalSize (spec §D.2).
-func (h *handler) writePage(w http.ResponseWriter, root rootDef, items []Metadata, p pageRequest) {
+func (h *handler) writePage(w http.ResponseWriter, r *http.Request, root rootDef, items []Metadata, p pageRequest) {
 	window, total := windowMetadata(items, p)
 	window = nonNilMetadata(window)
 	setPagingHeaders(w, p.start, total)
-	writeJSON(w, http.StatusOK, metadataContainerResponse{MediaContainer: MetadataContainer{
+	writeMetadata(w, customizationOf(r, nil), MetadataContainer{
 		Offset:     p.start,
 		TotalSize:  total,
 		Identifier: root.identifier,
 		Size:       len(window),
 		Metadata:   window,
-	}})
+	})
 }

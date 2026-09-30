@@ -19,6 +19,7 @@ package plex
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"regexp"
 	"sort"
@@ -53,6 +54,9 @@ type matchRequest struct {
 	IncludeAdult     int    `json:"includeAdult,omitempty"`
 }
 
+// maxMatchBody caps a match request body; Plex's are a few hundred bytes.
+const maxMatchBody = 64 << 10
+
 // handleMatch answers POST {match key}/matches (spec §D.2, §D.4). No match
 // answers 200 with an empty Metadata array, never 404: research §4's return
 // codes reserve 404 for an unknown ratingKey on the metadata route, and
@@ -60,8 +64,14 @@ type matchRequest struct {
 // works if this provider answers cleanly rather than erroring.
 func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(io.LimitReader(r.Body, maxMatchBody))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "malformed match request body")
+			return
+		}
 		var req matchRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var body map[string]any
+		if json.Unmarshal(raw, &req) != nil || json.Unmarshal(raw, &body) != nil {
 			writeError(w, http.StatusBadRequest, "malformed match request body")
 			return
 		}
@@ -71,14 +81,18 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		results := nonNilMetadata(h.match(root, h.urlsFor(r), idx, req))
-		writeJSON(w, http.StatusOK, metadataContainerResponse{MediaContainer: MetadataContainer{
+		u := h.urlsFor(r)
+		if req.EpisodeOrder != "" {
+			u.episodeOrder = req.EpisodeOrder
+		}
+		results := nonNilMetadata(h.match(root, u, idx, req))
+		writeMetadata(w, customizationOf(r, body), MetadataContainer{
 			Offset:     0,
 			TotalSize:  len(results),
 			Identifier: root.identifier,
 			Size:       len(results),
 			Metadata:   results,
-		}})
+		})
 	}
 }
 

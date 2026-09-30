@@ -19,6 +19,7 @@ package plex_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -220,4 +221,68 @@ func TestOriginalLanguageFieldsOnlyWhenAskedInAnotherLanguage(t *testing.T) {
 	assert.NotContains(t, md, "originalTitle")
 	assert.NotContains(t, md, "OriginalImage")
 	assert.Equal(t, "jp/G", md["contentRating"], "the language's country when no X-Plex-Country")
+}
+
+// TestMatchHonoursResponseCustomizationInTheBody: Plex sends includeFields
+// and includeElements in a match request's JSON body.
+func TestMatchHonoursResponseCustomizationInTheBody(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	h := newFullHandler(t, nil, objs...)
+	rec := postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{
+		"type": 3, "parentTitle": "Harborview", "index": 1, "includeChildren": 1,
+		"includeElements": "Metadata,Children", "includeFields": "guid,title,index",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		MediaContainer struct {
+			Metadata []map[string]any `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	require.NoError(t, decodeJSON(rec.Body.Bytes(), &body))
+	season := body.MediaContainer.Metadata[0]
+	assert.ElementsMatch(t, []string{"guid", "title", "index", "ratingKey", "key", "type", "Children"}, keys(season))
+	child := season["Children"].(map[string]any)["Metadata"].([]any)[0].(map[string]any)
+	assert.ElementsMatch(t, []string{"guid", "title", "index", "ratingKey", "key", "type"}, keys(child))
+}
+
+// TestAnEpisodeOrderClustarrDoesNotStoreHasNoSeasons: the protocol says no
+// season data for an order the provider has none for.
+func TestAnEpisodeOrderClustarrDoesNotStoreHasNoSeasons(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes() // official, the default
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	h := newFullHandler(t, nil, objs...)
+	path := "/plex/tv/library/metadata/" + string(s.UID)
+
+	md := metadataOf(t, h, path+"?includeChildren=1&episodeOrder=official")
+	assert.NotEmpty(t, md["Children"].(map[string]any)["Metadata"])
+	md = metadataOf(t, h, path+"?includeChildren=1&episodeOrder=dvd")
+	assert.Empty(t, md["Children"].(map[string]any)["Metadata"])
+
+	rec := getJSON(t, h, path+"/children?episodeOrder=dvd")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `0`, string(mustField(t, rec.Body.Bytes(), "totalSize")))
+}
+
+func keys(m map[string]any) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func mustField(t *testing.T, body []byte, field string) []byte {
+	t.Helper()
+	var c struct {
+		MediaContainer map[string]json.RawMessage `json:"MediaContainer"`
+	}
+	require.NoError(t, json.Unmarshal(body, &c))
+	return c.MediaContainer[field]
 }

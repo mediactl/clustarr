@@ -41,6 +41,8 @@ type urls struct {
 	photo    func(string) string
 	// loc is the request's X-Plex-Country and X-Plex-Language.
 	loc locale
+	// episodeOrder is the order Plex asked seasons in, "" for the stored one.
+	episodeOrder string
 }
 
 // proxied is src through the photo proxy, "" when there is no proxy or no
@@ -54,7 +56,10 @@ func (u urls) proxied(src string) string {
 
 // urlsFor is the urls every builder of one request uses.
 func (h *handler) urlsFor(r *http.Request) urls {
-	return urls{external: h.opts.ExternalURL, photo: h.opts.PhotoURL, loc: localeOf(r)}
+	return urls{
+		external: h.opts.ExternalURL, photo: h.opts.PhotoURL, loc: localeOf(r),
+		episodeOrder: r.URL.Query().Get("episodeOrder"),
+	}
 }
 
 // PersonTag is one entry of a Role, Director, Producer or Writer array.
@@ -185,4 +190,11 @@ func similarGuid(s extended.Similar, idx *projection.Index) string {
 		return "tvdb://" + strconv.FormatInt(s.TvdbID, 10)
 	}
 	return ""
+}
+
+// otherOrder reports whether Plex asked for an episode order clustarr does
+// not store for s: the protocol says to return no season data then (spec
+// 2026-09-30 §5.5).
+func (u urls) otherOrder(s *catalogv1.Series) bool {
+	return u.episodeOrder != "" && u.episodeOrder != string(effectiveOrder(s))
 }
