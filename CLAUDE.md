@@ -165,10 +165,10 @@ capped and cached -- never straight to the browser (ADR-0011).
 - **The UI never writes status** and owns no CRD. User actions patch spec,
   create short-lived resources, or -- since the settings CRUD design
   (`docs/superpowers/specs/2026-09-24-settings-crud-design.md`) -- create,
-  patch and delete the nine Settings kinds (RootFolder, QualityProfile,
-  MetadataProvider, Indexer, DownloadClient, SubtitleProvider,
-  SubtitleProfile, TranscodeProfile, and ImportList from the Import Lists
-  page) and create or patch the Secrets their
+  patch and delete the ten Settings kinds (RootFolder, QualityProfile,
+  MetadataProvider, Indexer, IndexerProxy (2026-09-30), DownloadClient,
+  SubtitleProvider, SubtitleProfile, TranscodeProfile, and ImportList from
+  the Import Lists page) and create or patch the Secrets their
   credentials live in, never reading one (the role grants no get, list or
   watch on secrets) -- and, since Add New
   (`docs/superpowers/specs/2026-09-29-add-new-design.md`), create a Movie,
@@ -562,6 +562,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   /data/usenet/complete` (ADR-0014; `existingClaim`, `volumeName` and
   `accessModes` cover a claim of the operator's own). The controller
   refuses a path off the data mount with `Ready=False, InvalidSpec`.
+  Torrent clients have the same placements since 2026-09-30
+  (`spec.torrent.scratch`, `spec.torrent.publishDir`, default
+  `/data/torrents`): a transfer downloads in scratch and reads Completed
+  only once `pkg/download/torrent`'s publish has moved it to publishDir,
+  where it seeds; a storage class is a claim per StatefulSet replica
+  (volumeClaimTemplates, whose change replaces the StatefulSet keeping its
+  pods), and no scratch means download in place as before.
 - **A newznab .nzb is not byte-stable across fetches, so a payload hash
   cannot tell a re-add from a new transfer.** nzbgeek varies the obfuscated
   `title` and `password` metas on every download of the same release; the
