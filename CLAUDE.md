@@ -156,9 +156,21 @@ episode stills, `SeasonType` for the stored order, `theme` for shows, and
 the original-language title, genres and images when Plex asks in another
 language; people and similar titles come from the
 `clustarr-metadata-extended` KV document the metadata gateway writes per
-item (`pkg/metadata/extended`), which the ui reads through a closure, never
+item (`pkg/metadata/extended`; file-backed even on single-node NATS,
+`BucketSpec.Durable`, since a document is rebuilt only at the item's next
+refresh), which the ui reads through a closure under a 2 s deadline, never
 a KV handle; provider-hosted images go through the signed `/art/search`
-proxy. Response customization (`includeFields`/`excludeFields`/
+proxy, signed with `$CLUSTARR_ART_SIGNING_KEY` from the chart's kept
+`<release>-ui-art-signing-key` Secret, because Plex stores those URLs and a
+per-process key broke them at every restart. A Movie or Series document
+older than `pkg/metadata.SchemaVersion` (`status.metadata.schemaVersion`)
+is refreshed once, past the L2 cache (whose key carries the version), and
+stays ready meanwhile -- raise the version when the gateway learns a field.
+Images are chosen per (type, language) before the CRD's 50
+(`selectImages`), so the original language's and fanart.tv's survive;
+`contentRating` prefixes the country the gateway chose the certification
+from (`status.metadata.certificationCountry`), and a request naming no
+language is answered in `status.metadata.language`. Response customization (`includeFields`/`excludeFields`/
 `includeElements`/`excludeElements`, never dropping ratingKey, key, guid or
 type) and `episodeOrder` (no seasons for an order clustarr does not store)
 are honoured. Episode guest cast and crew are deferred: the gateway's pod
