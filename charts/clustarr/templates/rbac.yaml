@@ -804,6 +804,7 @@ rules:
   - subtitlerequests
   verbs:
   - create
+  - delete
   - get
   - list
   - patch

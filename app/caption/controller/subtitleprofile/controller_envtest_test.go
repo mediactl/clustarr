@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -55,13 +56,10 @@ func newTestClient(t *testing.T) client.Client {
 	return c
 }
 
-// movieFile creates a video-kind MediaFile. Unlike squasharr's
-// TranscodeProfile (which only creates a TranscodeJob for a PROBED file,
-// since pkg/transcode.Plan needs real MediaInfo), SubtitleProfile ensures a
-// SubtitleRequest for every eligible file regardless of probe state -- the
-// request's own planning is task F-4's job, not this controller's -- so
-// these fixtures deliberately never touch status.probeHash unless a test is
-// specifically about the probeHash watch.
+// movieFile creates a video-kind MediaFile, probed with one Japanese audio
+// track: since 2026-09-30 SubtitleProfile ensures a request only for a
+// probed file a subtitle may be wanted for (subtitlerequest.MayWant), and
+// every profile these tests build wants some language on Japanese audio.
 //
 // It creates the file's Movie too: a MediaFile whose item is gone is one an
 // import list's removeAndKeep left behind, and no profile selects it.
@@ -79,6 +77,13 @@ func movieFile(t *testing.T, ctx context.Context, c client.Client, ns, name stri
 		},
 	}
 	require.NoError(t, c.Create(ctx, mf))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, ns).WithStatus(
+		catalogac.MediaFileStatus().WithProbeHash("p-"+name).WithMediaInfo(commonv1.MediaInfo{
+			Container: "matroska", VideoCodec: "h264",
+			Audio: []commonv1.AudioStream{{Index: 1, Codec: "aac", Channels: 2, Language: "jpn", Default: true}},
+		})))
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mf), mf))
 	return mf
 }
 

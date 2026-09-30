@@ -62,6 +62,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/app/caption/controller/subtitlerequest"
 	"github.com/mediactl/clustarr/app/caption/itemindex"
 	captionarrstatus "github.com/mediactl/clustarr/app/caption/status"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -87,7 +88,7 @@ import (
 //
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
@@ -156,10 +157,39 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	matching, overlapped := selectFiles(&sp, profileList.Items, defaultWinner(profileList.Items), mfList.Items,
 		newItemSet(movies.Items, episodes.Items))
 
-	ensured := 0
+	var requests subtitlev1alpha1.SubtitleRequestList
+	if err := r.List(ctx, &requests); err != nil {
+		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list SubtitleRequests: %w", err)
+	}
+	existing := make(map[types.NamespacedName]*subtitlev1alpha1.SubtitleRequest, len(requests.Items))
+	for i := range requests.Items {
+		existing[client.ObjectKeyFromObject(&requests.Items[i])] = &requests.Items[i]
+	}
+
+	ensured, needNone, unprobed := 0, 0, 0
 	var ensureErrs []error
 	if !invalid {
 		for _, mf := range matching {
+			// A request only where a subtitle may be wanted: none for a file
+			// not probed yet (the probe watch brings it back), and none for
+			// one whose tagged audio proves the profile wants nothing -- 87%
+			// of the owner's library, whose requests were Satisfied with no
+			// items. subtitlerequest.MayWant is the request controller's own
+			// planner, so the two cannot disagree about a want.
+			if mf.Status.MediaInfo == nil {
+				unprobed++
+				continue
+			}
+			if !subtitlerequest.MayWant(sp.Spec, mf.Status.MediaInfo) {
+				needNone++
+				if sr, ok := existing[client.ObjectKeyFromObject(mf)]; ok && unneeded(sr) {
+					if err := r.Delete(ctx, sr, client.Preconditions{UID: &sr.UID}); client.IgnoreNotFound(err) != nil {
+						ensureErrs = append(ensureErrs, fmt.Errorf("subtitleprofile: delete unneeded SubtitleRequest %s: %w",
+							client.ObjectKeyFromObject(sr), err))
+					}
+				}
+				continue
+			}
 			if err := r.ensureSubtitleRequest(ctx, &sp, mf); err != nil {
 				ensureErrs = append(ensureErrs, err)
 				continue
@@ -191,7 +221,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	} else {
 		k8s.MarkFalse(&fresh, &conditions, subtitlev1alpha1.SubtitleProfileConditionInvalid, k8s.ReasonReconciled, "profile is valid")
 		k8s.MarkReady(&fresh, &conditions, true, k8s.ReasonReconciled,
-			"%d matching file(s), %d request(s) ensured this pass", len(matching), ensured)
+			"%d matching file(s): %d request(s) ensured, %d wanting none, %d not probed yet", len(matching), ensured, needNone, unprobed)
 	}
 	if overlapped {
 		k8s.MarkTrue(&fresh, &conditions, ConditionOverlap, ReasonSelectorOverlap,
@@ -214,6 +244,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, errors.Join(ensureErrs...)
 	}
 	return ctrl.Result{}, nil
+}
+
+// unneeded reports whether sr, for a file that now wants no subtitle, can be
+// deleted: it tracks nothing (no status.items) and carries no user override
+// in spec (languages, minScoreOverride, forceSearch), so deleting it loses
+// no history and no choice anyone made. Anything else is left to the
+// request controller.
+func unneeded(sr *subtitlev1alpha1.SubtitleRequest) bool {
+	return len(sr.Status.Items) == 0 && len(sr.Spec.Languages) == 0 &&
+		sr.Spec.MinScoreOverride == nil && !sr.Spec.ForceSearch && !k8s.IsDeleting(sr)
 }
 
 // ensureSubtitleRequest creates (or, idempotently, re-applies) the

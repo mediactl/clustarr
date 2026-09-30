@@ -352,3 +352,22 @@ func minScoreFor(kind commonv1alpha1.MediaKind, spec subtitlev1alpha1.SubtitlePr
 	// MaxScore is a few hundred and pct at most 100, so this never overflows.
 	return int32(subtitles.MinScore(kind, int(pct)))
 }
+
+// MayWant reports whether a SubtitleRequest under profile spec could want
+// any subtitle for a file probed as mi. It is false only when this
+// package's own plannerProfile and subtitles.Plan, given the file's tagged
+// audio languages and no existing subtitle at all, want nothing: an
+// existing sidecar or embedded track only ever removes a want, so none
+// could add one. Unknown audio -- no probe, no audio stream, or none tagged,
+// where the planner falls back to the item's original language, which only
+// the request controller reads -- is true. The SubtitleProfile controller
+// creates a request only when this is true.
+func MayWant(spec subtitlev1alpha1.SubtitleProfileSpec, mi *commonv1alpha1.MediaInfo) bool {
+	audio := audioLanguages(mi, "") // tagged streams only: no original-language fallback
+	if len(audio) == 0 {
+		return true
+	}
+	pp, _, _ := plannerProfile(spec, nil)
+	wanted, _ := subtitles.Plan(pp, audio, nil)
+	return len(wanted) > 0
+}
