@@ -165,6 +165,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("search").
 		For(&catalogv1alpha1.Search{}).
+		// A container Search owns its children (container.go): each
+		// child's change reconciles the parent, which counts them.
+		Owns(&catalogv1alpha1.Search{}).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
@@ -197,6 +200,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	switch {
 	case r.ttlExpired(s):
 		return r.deleteExpired(ctx, s)
+	case s.Spec.MediaRef != nil && catalogv1alpha1.ContainerKind(s.Spec.MediaRef.Kind):
+		return r.reconcileContainer(ctx, s)
 	case s.Status.Phase == "" && s.Spec.Query != nil:
 		return r.runQuery(ctx, s)
 	case s.Status.Phase == "":
@@ -238,6 +243,18 @@ type statusUpdate struct {
 	finishedAt      *metav1.Time
 	indexerOutcomes []catalogv1alpha1.IndexerOutcome
 	results         []commonv1.ReleaseDecision
+
+	// children is a container Search's count of its child Searches
+	// (container.go), carried forward on every apply like grabbed; a
+	// container Search's finishedAt is this manager's too, since no worker
+	// ever writes one.
+	children *catalogv1alpha1.SearchChildren
+}
+
+// isContainer reports whether s searches an author's, artist's or comic's
+// children rather than one item.
+func isContainer(s *catalogv1alpha1.Search) bool {
+	return s.Spec.MediaRef != nil && catalogv1alpha1.ContainerKind(s.Spec.MediaRef.Kind)
 }
 
 func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
@@ -259,6 +276,10 @@ func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
 		u.indexerOutcomes = append([]catalogv1alpha1.IndexerOutcome(nil), s.Status.IndexerOutcomes...)
 		u.results = append([]commonv1.ReleaseDecision(nil), s.Status.Results...)
 	}
+	if isContainer(s) {
+		u.finishedAt = s.Status.FinishedAt
+	}
+	u.children = s.Status.Children.DeepCopy()
 	return u
 }
 
@@ -309,6 +330,13 @@ func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *st
 		if u.finishedAt != nil {
 			statusAC = statusAC.WithFinishedAt(*u.finishedAt)
 		}
+	}
+	if isContainer(s) && u.finishedAt != nil {
+		statusAC = statusAC.WithFinishedAt(*u.finishedAt)
+	}
+	if c := u.children; c != nil {
+		statusAC = statusAC.WithChildren(catalogac.SearchChildren().WithTotal(c.Total).WithRunning(c.Running).
+			WithCompleted(c.Completed).WithFailed(c.Failed).WithGrabbed(c.Grabbed))
 	}
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
 		catalogac.Search(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
@@ -899,6 +927,12 @@ func (r *Reconciler) containerProfile(ctx context.Context, ns, name string, obj 
 // still running has no deadline: a Search is deleted once it has an answer,
 // never mid-flight.
 func (r *Reconciler) ttlDeadline(s *catalogv1alpha1.Search) time.Time {
+	if s.Labels[catalogv1alpha1.LabelParentSearch] != "" {
+		// A container Search's child goes with its parent (the owner
+		// reference), never on its own TTL, so the parent's counts cannot
+		// lose one.
+		return time.Time{}
+	}
 	ttl := s.Spec.TTL.Duration
 	if ttl <= 0 {
 		// The CRD defaults spec.ttl to 1h, but only when the field is

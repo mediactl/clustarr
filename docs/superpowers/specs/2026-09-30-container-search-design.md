@@ -39,11 +39,14 @@ search (TV wants season packs, a design of its own). The worker's
 A Search whose `spec.mediaRef.kind` is author, artist or comic publishes no
 search task. On its first reconcile the controller:
 
-1. lists the container's monitored children through the index (only
-   `spec.monitored` true);
+1. lists the container's children through the index and keeps those that
+   are monitored and **missing or cutoff unmet** (the *arrs' Missing and
+   Cutoff Unmet lists; owner's call, 2026-09-30): a book or issue with no
+   file or below cutoff, an album with any track lacking a file or below
+   cutoff. One at cutoff is not searched at all;
 2. above `MaxContainerChildren` (200), fails the Search at once
    (`TooManyChildren`) and creates nothing;
-3. with none, completes at once ("no monitored books");
+3. with none, completes at once ("no monitored books are missing or below cutoff");
 4. otherwise applies one child Search per child: named
    `k8s.ChildName(parent, kind+"/"+name)`, controller-owned by the parent,
    labelled `catalog.clustarr.io/parent-search=<parent>`, spec
@@ -73,6 +76,6 @@ kind-cluster-plex, auto-grabbed Downloads wait on the disabled client.
 
 Unit tests on the fake client: fan-out picks only monitored children and a
 repeat reconcile creates no duplicate; counts and phase follow the children;
-the cap creates nothing; zero children completes; `grabBest` grabs only an
+the cap creates nothing; zero children completes; only missing or cutoff-unmet children are searched; `grabBest` grabs only an
 approved result, once, as `search`/non-manual; a child never self-expires;
 the UI's container button label and the Search it creates.
