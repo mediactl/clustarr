@@ -430,11 +430,18 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 	s.Certification, s.CertificationCountry = cert.Rating, cert.Country
 	s.People = mapCharacters(d.Characters)
 	for _, se := range d.Seasons {
-		if se.Type.Type != "official" || se.Image == "" {
+		// The orders clustarr can store (spec.episodeOrder); TheTVDB's
+		// alternate and regional orders never number a season here.
+		switch se.Type.Type {
+		case "official", "dvd", "absolute":
+		default:
+			continue
+		}
+		if se.Image == "" {
 			continue
 		}
 		n := se.Number
-		s.Images = append(s.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: se.Image, Season: &n})
+		s.Images = append(s.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: se.Image, Season: &n, SeasonOrder: se.Type.Type})
 	}
 	for _, st := range d.SeasonTypes {
 		s.SeasonTypes = append(s.SeasonTypes, metadata.SeasonTypeRef{ID: st.Type, Name: st.Name})

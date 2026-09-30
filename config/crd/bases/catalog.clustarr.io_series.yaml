@@ -646,6 +646,13 @@ spec:
                       description: SeasonImage is one piece of artwork for a single
                         season of a series.
                       properties:
+                        order:
+                          description: |-
+                            Order is the episode order the season is numbered in (TheTVDB's
+                            season type: official, dvd or absolute); empty is official. The Plex
+                            provider shows the posters of the series' own order.
+                          maxLength: 32
+                          type: string
                         season:
                           description: Season is the season number the image belongs
                             to.

@@ -34,6 +34,10 @@ type SeasonImageApplyConfiguration struct {
 	Type *catalogv1alpha1.ImageType `json:"type,omitempty"`
 	// URL is where the image can be fetched.
 	URL *string `json:"url,omitempty"`
+	// Order is the episode order the season is numbered in (TheTVDB's
+	// season type: official, dvd or absolute); empty is official. The Plex
+	// provider shows the posters of the series' own order.
+	Order *string `json:"order,omitempty"`
 }
 
 // SeasonImageApplyConfiguration constructs a declarative configuration of the SeasonImage type for use with
@@ -63,5 +67,13 @@ func (b *SeasonImageApplyConfiguration) WithType(value catalogv1alpha1.ImageType
 // If called multiple times, the URL field is set to the value of the last call.
 func (b *SeasonImageApplyConfiguration) WithURL(value string) *SeasonImageApplyConfiguration {
 	b.URL = &value
+	return b
+}
+
+// WithOrder sets the Order field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Order field is set to the value of the last call.
+func (b *SeasonImageApplyConfiguration) WithOrder(value string) *SeasonImageApplyConfiguration {
+	b.Order = &value
 	return b
 }

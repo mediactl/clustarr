@@ -87,11 +87,18 @@ func TestSeriesMapsTheFullMetadataFields(t *testing.T) {
 	assert.Equal(t, "https://artworks.thetvdb.com/banners/person/297153/62107884.jpg", tennant.ImageURL)
 
 	var seasonOne *metadata.Image
+	orders := map[string]int{}
 	for i, img := range s.Images {
-		if img.Season != nil && *img.Season == 1 && img.Type == metadata.ImageTypePoster {
+		if img.Season == nil {
+			continue
+		}
+		orders[img.SeasonOrder]++
+		if *img.Season == 1 && img.Type == metadata.ImageTypePoster && img.SeasonOrder == "official" {
 			seasonOne = &s.Images[i]
 		}
 	}
+	assert.Equal(t, map[string]int{"official": 14, "dvd": 10}, orders,
+		"every stored order's season posters, each naming its order; alternate orders clustarr never stores are left out")
 	require.NotNil(t, seasonOne)
 	assert.Equal(t, "https://artworks.thetvdb.com/banners/seasons/5bbd0422a8706.jpg", seasonOne.URL)
 	assert.Contains(t, s.SeasonTypes, metadata.SeasonTypeRef{ID: "official", Name: "Aired Order"})

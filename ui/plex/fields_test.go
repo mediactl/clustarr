@@ -295,3 +295,17 @@ func TestShowThemeIsPlexsOwnThemeByTVDBID(t *testing.T) {
 	md := metadataOf(t, newFullHandler(t, nil, s), "/plex/tv/library/metadata/"+string(s.UID))
 	assert.Equal(t, "https://tvthemes.plexapp.com/298762.mp3", md["theme"])
 }
+
+// An episodeOrder clustarr never advertises -- a stale id from the show's
+// previous agent, or Plex's own -- is answered with the stored order's
+// seasons, not none: only an order clustarr knows and does not store is.
+func TestAnEpisodeOrderClustarrDoesNotKnowGetsTheStoredSeasons(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	h := newFullHandler(t, nil, objs...)
+	md := metadataOf(t, h, "/plex/tv/library/metadata/"+string(s.UID)+"?includeChildren=1&episodeOrder=tvdbAiring")
+	assert.NotEmpty(t, md["Children"].(map[string]any)["Metadata"])
+}

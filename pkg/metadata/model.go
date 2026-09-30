@@ -45,6 +45,10 @@ type Image struct {
 	// Season is set only for a season-specific image (a season poster or
 	// banner); nil for an image that belongs to the whole series.
 	Season *int32 `json:"season,omitempty"`
+	// SeasonOrder is the episode order a season image's season is numbered
+	// in (TheTVDB's season type: official, dvd, absolute); empty for a
+	// series image.
+	SeasonOrder string `json:"seasonOrder,omitempty"`
 }
 
 // Rating is a single source's rating of an entity, scaled by 100

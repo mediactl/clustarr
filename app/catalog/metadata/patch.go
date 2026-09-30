@@ -229,7 +229,11 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 			if !ok || len(ac.SeasonImages) >= 400 {
 				continue
 			}
-			ac.WithSeasonImages(catalogac.SeasonImage().WithSeason(*img.Season).WithType(t).WithURL(img.URL))
+			si := catalogac.SeasonImage().WithSeason(*img.Season).WithType(t).WithURL(img.URL)
+			if img.SeasonOrder != "" {
+				si.WithOrder(img.SeasonOrder)
+			}
+			ac.WithSeasonImages(si)
 			continue
 		}
 		own = append(own, img)

@@ -119,6 +119,13 @@ type SeasonImage struct {
 	// URL is where the image can be fetched.
 	// +required
 	URL string `json:"url"`
+
+	// Order is the episode order the season is numbered in (TheTVDB's
+	// season type: official, dvd or absolute); empty is official. The Plex
+	// provider shows the posters of the series' own order.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	Order string `json:"order,omitempty"`
 }
 
 // SeasonTypeRef names one of a series' episode orderings as the provider

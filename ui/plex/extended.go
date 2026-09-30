@@ -192,9 +192,12 @@ func similarGuid(s extended.Similar, idx *projection.Index) string {
 	return ""
 }
 
-// otherOrder reports whether Plex asked for an episode order clustarr does
-// not store for s: the protocol says to return no season data then (spec
-// 2026-09-30 §5.5).
+// otherOrder reports whether Plex asked for an episode order clustarr
+// knows and does not store for s: the protocol says to return no season
+// data then (spec 2026-09-30 §5.5). An id clustarr never advertises -- one
+// left from the show's previous agent, or Plex's own -- is answered with
+// the stored order, rather than a show with no seasons.
 func (u urls) otherOrder(s *catalogv1.Series) bool {
-	return u.episodeOrder != "" && u.episodeOrder != string(effectiveOrder(s))
+	_, known := orderNames[u.episodeOrder]
+	return known && u.episodeOrder != string(effectiveOrder(s))
 }

@@ -71,3 +71,20 @@ func TestWantsOriginalTakesTheDocumentsLanguageWhenPlexNamesNone(t *testing.T) {
 	assert.False(t, locale{Language: "ja"}.wantsOriginal("ja", "en"), "the request's own language wins")
 	assert.False(t, locale{}.wantsOriginal("", "de"), "no original language: nothing to add")
 }
+
+// A DVD-ordered series shows its DVD seasons' posters, falling back to the
+// aired order's for a season TheTVDB has no DVD poster for; a document from
+// before season posters named their order counts as the aired order's.
+func TestSeasonPostersFollowTheStoredOrder(t *testing.T) {
+	s := &catalogv1.Series{Spec: catalogv1.SeriesSpec{EpisodeOrder: catalogv1.EpisodeOrderDVD}, Status: catalogv1.SeriesStatus{
+		Metadata: &catalogv1.SeriesMetadata{SeasonImages: []catalogv1.SeasonImage{
+			{Season: 1, Type: catalogv1.ImageTypePoster, Order: "official", URL: "https://artworks.thetvdb.com/s1-aired.jpg"},
+			{Season: 1, Type: catalogv1.ImageTypePoster, Order: "dvd", URL: "https://artworks.thetvdb.com/s1-dvd.jpg"},
+			{Season: 2, Type: catalogv1.ImageTypePoster, URL: "https://artworks.thetvdb.com/s2-legacy.jpg"},
+		}},
+	}}
+	assert.Equal(t, "https://artworks.thetvdb.com/s1-dvd.jpg", seasonPoster(s, 1))
+	assert.Equal(t, "https://artworks.thetvdb.com/s2-legacy.jpg", seasonPoster(s, 2), "no DVD poster: the aired order's")
+	s.Spec.EpisodeOrder = ""
+	assert.Equal(t, "https://artworks.thetvdb.com/s1-aired.jpg", seasonPoster(s, 1))
+}

@@ -136,3 +136,14 @@ func TestDocumentsCarryTheLanguageTheyWereFetchedIn(t *testing.T) {
 	require.NotNil(t, sr.Language)
 	assert.Equal(t, "en", *sr.Language)
 }
+
+// A season poster keeps the episode order it belongs to.
+func TestSeasonImagesCarryTheirOrder(t *testing.T) {
+	one := int32(1)
+	sr := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Doctor Who", Images: []pkgmetadata.Image{
+		{Type: pkgmetadata.ImageTypePoster, URL: "https://artworks.thetvdb.com/s1-dvd.jpg", Season: &one, SeasonOrder: "dvd"},
+	}}, nil, time.Now())
+	require.Len(t, sr.SeasonImages, 1)
+	require.NotNil(t, sr.SeasonImages[0].Order)
+	assert.Equal(t, "dvd", *sr.SeasonImages[0].Order)
+}

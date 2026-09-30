@@ -3523,6 +3523,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonImage
   map:
     fields:
+    - name: order
+      type:
+        scalar: string
     - name: season
       type:
         scalar: numeric

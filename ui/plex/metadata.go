@@ -346,14 +346,30 @@ func seasonTitle(number int32) string {
 // seasonPoster is a season's own poster URL from status.metadata.
 // seasonImages, "" when there is none.
 func seasonPoster(s *catalogv1.Series, number int32) string {
-	if meta := s.Status.Metadata; meta != nil {
-		for _, img := range meta.SeasonImages {
-			if img.Season == number && img.Type == catalogv1.ImageTypePoster {
-				return img.URL
-			}
+	meta := s.Status.Metadata
+	if meta == nil {
+		return ""
+	}
+	// The series' own order's poster, else the aired order's; a poster
+	// written before posters named their order is the aired order's.
+	order := string(effectiveOrder(s))
+	var aired string
+	for _, img := range meta.SeasonImages {
+		if img.Season != number || img.Type != catalogv1.ImageTypePoster {
+			continue
+		}
+		o := img.Order
+		if o == "" {
+			o = string(catalogv1.EpisodeOrderOfficial)
+		}
+		if o == order {
+			return img.URL
+		}
+		if o == string(catalogv1.EpisodeOrderOfficial) && aired == "" {
+			aired = img.URL
 		}
 	}
-	return ""
+	return aired
 }
 
 // withAlt sets every image's alt text to title, as Plex's example does.
