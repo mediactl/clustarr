@@ -52,6 +52,7 @@ func TestDownloadNonTerminal(t *testing.T) {
 		{"failed", dl(downloadv1alpha1.DownloadPhaseFailed), false},
 		{"blocklisted", dl(downloadv1alpha1.DownloadPhaseBlocklisted), false},
 		{"removing", dl(downloadv1alpha1.DownloadPhaseRemoving), false},
+		{"labelled blocklisted before grabarr writes the phase", labelled(dl(downloadv1alpha1.DownloadPhaseDownloading)), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -129,4 +130,14 @@ func TestActiveDownload(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, "a", got.Name)
 	})
+}
+
+// labelled marks dl blocklisted the way grabarr does first, before it
+// publishes the blocklisted event and before its status apply writes the
+// phase: the redownload search that event starts read a Downloading
+// Download as queued and rejected every release that did not beat the
+// dead one (Godfather Part II, 2026-09-30: 0 of 100 approved).
+func labelled(dl *downloadv1alpha1.Download) *downloadv1alpha1.Download {
+	dl.Labels = map[string]string{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue}
+	return dl
 }

@@ -41,8 +41,17 @@ import (
 // worker's "is this target already queued" can never disagree about one
 // Download. DownloadOverlay is built on it too, so the item's phase reads
 // Downloading exactly while this reports true.
+//
+// A Download labelled blocklisted is terminal whatever its phase reads:
+// grabarr labels a release fault first, then publishes blocklisted, then
+// writes the phase, so the redownload search that event starts would
+// otherwise find the dead release still queued and reject every release
+// that does not beat it (2026-09-30).
 func DownloadNonTerminal(dl *downloadv1alpha1.Download) bool {
 	if dl == nil || dl.DeletionTimestamp != nil {
+		return false
+	}
+	if dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue {
 		return false
 	}
 	switch dl.Status.Phase {
