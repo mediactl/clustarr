@@ -68,6 +68,7 @@ var configConstructors = map[string]func() client.Object{
 	"metadataproviders": func() client.Object { return &catalogv1.MetadataProvider{} },
 	"importlists":       func() client.Object { return &catalogv1.ImportList{} },
 	"indexers":          func() client.Object { return &indexv1.Indexer{} },
+	"indexerproxies":    func() client.Object { return &indexv1.IndexerProxy{} },
 	"downloadclients":   func() client.Object { return &downloadv1.DownloadClient{} },
 	"subtitleproviders": func() client.Object { return &subtitlev1.SubtitleProvider{} },
 	"subtitleprofiles":  func() client.Object { return &subtitlev1.SubtitleProfile{} },

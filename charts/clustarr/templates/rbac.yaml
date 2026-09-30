@@ -934,6 +934,7 @@ rules:
 - apiGroups:
   - index.clustarr.io
   resources:
+  - indexerproxies
   - indexers
   verbs:
   - create

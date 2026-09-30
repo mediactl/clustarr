@@ -112,8 +112,13 @@ func TestSettingsPageRendersEachKindWithDataAttributes(t *testing.T) {
 		Spec:       transcodev1.TranscodeProfileSpec{Priority: 50},
 	}
 
+	indexerProxy := &indexv1.IndexerProxy{
+		ObjectMeta: metav1.ObjectMeta{Name: "vpn", Namespace: "default"},
+		Spec:       indexv1.IndexerProxySpec{Type: indexv1.IndexerProxyTypeSocks5, Host: "10.64.0.1", Port: 1080},
+	}
+
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		rootFolder, qualityProfile, indexer, downloadClient, metadataProvider, subtitleProvider, subtitleProfile, transcodeProfile,
+		rootFolder, qualityProfile, indexer, indexerProxy, downloadClient, metadataProvider, subtitleProvider, subtitleProfile, transcodeProfile,
 	).Build()
 
 	srv := ui.NewServer(t.Context(), ui.Options{Reader: reader})
@@ -132,6 +137,10 @@ func TestSettingsPageRendersEachKindWithDataAttributes(t *testing.T) {
 	require.Contains(t, body, `data-indexer="default/1337x"`)
 	require.Contains(t, body, `data-priority="25"`)
 	require.Contains(t, body, `action="/settings/indexers/default/1337x"`)
+
+	require.Contains(t, body, `data-indexer-proxy="default/vpn"`)
+	require.Contains(t, body, "socks5 · 10.64.0.1:1080")
+	require.Contains(t, body, `href="/settings/edit/indexerproxies/default/vpn"`)
 
 	require.Contains(t, body, `data-download-client="default/qbittorrent"`)
 	require.Contains(t, body, `action="/settings/downloadclients/default/qbittorrent"`)

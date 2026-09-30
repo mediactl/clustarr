@@ -75,6 +75,7 @@ var configKinds = []ConfigKind{
 	{Slug: "metadataproviders", Group: catalogv1alpha1.GroupVersion.Group, Version: catalogv1alpha1.GroupVersion.Version, Kind: "MetadataProvider", Resource: "metadataproviders", Namespaced: true},
 	{Slug: "importlists", Group: catalogv1alpha1.GroupVersion.Group, Version: catalogv1alpha1.GroupVersion.Version, Kind: "ImportList", Resource: "importlists", Namespaced: true},
 	{Slug: "indexers", Group: indexv1alpha1.GroupVersion.Group, Version: indexv1alpha1.GroupVersion.Version, Kind: "Indexer", Resource: "indexers", Namespaced: true},
+	{Slug: "indexerproxies", Group: indexv1alpha1.GroupVersion.Group, Version: indexv1alpha1.GroupVersion.Version, Kind: "IndexerProxy", Resource: "indexerproxies", Namespaced: true},
 	{Slug: "downloadclients", Group: downloadv1alpha1.GroupVersion.Group, Version: downloadv1alpha1.GroupVersion.Version, Kind: "DownloadClient", Resource: "downloadclients", Namespaced: true},
 	{Slug: "subtitleproviders", Group: subtitlev1alpha1.GroupVersion.Group, Version: subtitlev1alpha1.GroupVersion.Version, Kind: "SubtitleProvider", Resource: "subtitleproviders", Namespaced: true},
 	{Slug: "subtitleprofiles", Group: subtitlev1alpha1.GroupVersion.Group, Version: subtitlev1alpha1.GroupVersion.Version, Kind: "SubtitleProfile", Resource: "subtitleprofiles"},

@@ -413,3 +413,47 @@ func TestEnsureDropsAProxyWithNoHost(t *testing.T) {
 	k.Ensure(kept)
 	require.Contains(t, kept["torrent"], "proxy")
 }
+
+// spec.torrent.scratch and publishDir (2026-09-30) sit in a Storage group of
+// their own, shown for a torrent client, with usenet's labels.
+func TestBuildRendersTheTorrentStorage(t *testing.T) {
+	k := kind(t, "downloadclients")
+	spec := map[string]any{
+		"protocol": "torrent",
+		"torrent": map[string]any{
+			"publishDir": "/data/torrents/complete",
+			"scratch":    map[string]any{"path": "/data/torrents/incomplete"},
+		},
+	}
+	f := forms.Build(k, rootOf(t, k), spec, nil, forms.ModeEdit)
+
+	storage := section(t, f, "Storage")
+	require.Equal(t, &forms.When{Path: "protocol", Values: []string{"torrent"}}, storage.When)
+	require.Equal(t, "Publish directory", control(t, storage, "torrent.publishDir").Label)
+	require.Equal(t, "/data/torrents/complete", control(t, storage, "torrent.publishDir").Value)
+	require.Equal(t, "Scratch path (on the data volume)", control(t, storage, "torrent.scratch.path").Label)
+	require.Equal(t, "/data/torrents/incomplete", control(t, storage, "torrent.scratch.path").Value)
+}
+
+// IndexerProxy is a Settings kind (2026-09-30): type, host, port, timeout
+// and optional credentials; the selector stays kubectl-only, since a proxy
+// is attached by an Indexer's proxyRef.
+func TestBuildRendersTheIndexerProxyForm(t *testing.T) {
+	k := kind(t, "indexerproxies")
+	spec := map[string]any{"type": "socks5", "host": "10.64.0.1", "port": int64(1080), "secretRef": map[string]any{"name": "vpn"}}
+	f := forms.Build(k, rootOf(t, k), spec, nil, forms.ModeEdit)
+
+	proxy := section(t, f, "Proxy")
+	require.Equal(t, "socks5", control(t, proxy, "type").Value)
+	require.Equal(t, "10.64.0.1", control(t, proxy, "host").Value)
+	require.Equal(t, "1080", control(t, proxy, "port").Value)
+	require.NotNil(t, control(t, proxy, "requestTimeout"))
+	user := control(t, proxy, "__secret.secretRef.username")
+	require.False(t, user.Required, "a proxy may take no authentication")
+	require.Equal(t, forms.ControlPassword, control(t, proxy, "__secret.secretRef.password").Type)
+	for _, sec := range f.Sections {
+		for _, c := range sec.Controls {
+			require.NotContains(t, c.Name, "selector", "the selector is not a form field")
+		}
+	}
+}

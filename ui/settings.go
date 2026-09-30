@@ -53,6 +53,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		s.listRootFolders(ctx),
 		s.listQualityProfiles(ctx),
 		s.listIndexers(ctx),
+		s.listIndexerProxies(ctx),
 		downloadClients,
 		s.listMetadataProviders(ctx),
 		s.listSubtitleProviders(ctx),
@@ -88,6 +89,24 @@ func (s *Server) listIndexers(ctx context.Context) []indexv1.Indexer {
 	var list indexv1.IndexerList
 	if err := s.opts.Reader.List(ctx, &list); err != nil {
 		logging.FromContext(ctx).Error("list indexers", "error", err)
+		return nil
+	}
+	items := list.Items
+	sort.Slice(items, func(i, j int) bool {
+		return namespacedLess(items[i].Namespace, items[i].Name, items[j].Namespace, items[j].Name)
+	})
+	return items
+}
+
+// listIndexerProxies lists every IndexerProxy through Options.Reader, sorted
+// by namespace then name.
+func (s *Server) listIndexerProxies(ctx context.Context) []indexv1.IndexerProxy {
+	if s.opts.Reader == nil {
+		return nil
+	}
+	var list indexv1.IndexerProxyList
+	if err := s.opts.Reader.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Error("list indexer proxies", "error", err)
 		return nil
 	}
 	items := list.Items

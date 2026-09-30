@@ -27,6 +27,8 @@ import (
 	"github.com/mediactl/clustarr/ui/components/input"
 	"github.com/mediactl/clustarr/ui/components/label"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -59,6 +61,7 @@ templ Settings(
 	rootFolders []catalogv1.RootFolder,
 	qualityProfiles []catalogv1.QualityProfile,
 	indexers []indexv1.Indexer,
+	indexerProxies []indexv1.IndexerProxy,
 	downloadClients []downloadv1.DownloadClient,
 	metadataProviders []catalogv1.MetadataProvider,
 	subtitleProviders []subtitlev1.SubtitleProvider,
@@ -89,6 +92,14 @@ templ Settings(
 			}
 			for _, idx := range indexers {
 				@indexerCard(idx)
+			}
+		}
+		@settingsSection("Indexer Proxies", "indexerproxies") {
+			if len(indexerProxies) == 0 {
+				@settingsEmpty("No indexer proxies configured.")
+			}
+			for _, p := range indexerProxies {
+				@indexerProxyCard(p)
 			}
 		}
 		@settingsSection("Download Clients", "downloadclients") {
@@ -320,6 +331,31 @@ templ indexerCard(idx indexv1.Indexer) {
 
 func indexerEnabled(idx indexv1.Indexer) bool {
 	return idx.Spec.Enabled == nil || *idx.Spec.Enabled
+}
+
+// indexerProxyCard renders one IndexerProxy: its type and address, whether
+// the proxy controller reached it, and its Secret's name. An Indexer uses it
+// through its own Proxy choice (spec.proxyRef).
+templ indexerProxyCard(p indexv1.IndexerProxy) {
+	@settingsCard(p.Name, templ.Attributes{"data-indexer-proxy": p.Namespace + "/" + p.Name}, readyBadge(p.Status.Conditions), detailLines(fmt.Sprintf("%s · %s:%d", p.Spec.Type, p.Spec.Host, p.Spec.Port), credentialsLine(secretName(p.Spec.SecretRef)))) {
+		@configActions("indexerproxies", p.Namespace, p.Name)
+	}
+}
+
+// readyBadge is an object's Ready condition: nothing until the controller
+// has reported, then "ready" or "not ready".
+templ readyBadge(conds []metav1.Condition) {
+	if c := meta.FindStatusCondition(conds, "Ready"); c != nil {
+		if c.Status == metav1.ConditionTrue {
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+				ready
+			}
+		} else {
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Attributes: templ.Attributes{"title": c.Message}}) {
+				not ready
+			}
+		}
+	}
 }
 
 // downloadClientSettingsCard is downloads.templ's downloadClientCard's own

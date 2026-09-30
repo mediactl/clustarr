@@ -189,6 +189,20 @@ var kinds = []Kind{
 		},
 	},
 	{
+		ConfigKind: configKind("indexerproxies"),
+		Title:      "Indexer proxies", Singular: "indexer proxy",
+		Help: "An HTTP, SOCKS or FlareSolverr proxy indexer traffic goes through. Attach it by choosing it as an indexer's Proxy.",
+		Groups: []Group{
+			{Title: "Proxy", Paths: []string{"type", "host", "port", "requestTimeout", "secretRef"}},
+		},
+		Hidden: []string{"selector"},
+		Labels: map[string]string{"requestTimeout": "Request timeout", "secretRef": "Authentication"},
+		Secrets: []Secret{{Path: "secretRef", Keys: []Key{
+			{Key: "username", Label: "Username"},
+			{Key: "password", Label: "Password"},
+		}}},
+	},
+	{
 		ConfigKind: configKind("downloadclients"),
 		Title:      "Download clients", Singular: "download client",
 		Help: "An embedded torrent or usenet engine grabarr runs for you. The protocol cannot change once created.",
@@ -197,6 +211,9 @@ var kinds = []Kind{
 			{Title: "Torrent", When: whenTorrent, Paths: []string{
 				"torrent.listenPort", "torrent.publicIP", "torrent.maxActive", "torrent.downloadLimitBps", "torrent.uploadLimitBps",
 				"torrent.enableDHT", "torrent.enablePEX", "torrent.removeCompleted", "torrent.stallTimeout", "torrent.maxUnverifiedBytes", "torrent.seed",
+			}},
+			{Title: "Storage", When: whenTorrent, Help: "Keep incomplete torrents in a working area and move each to the publish directory when complete; with no working area a torrent downloads and seeds in the publish directory.", Paths: []string{
+				"torrent.publishDir", "torrent.scratch",
 			}},
 			{Title: "Proxy", When: whenTorrent, Paths: []string{
 				"torrent.proxy.type", "torrent.proxy.host", "torrent.proxy.port", "torrent.proxy.secretRef",
@@ -215,6 +232,9 @@ var kinds = []Kind{
 			"usenet.providers": "Servers", "usenet.providers[].quotaBytes": "Monthly quota (bytes)", "usenet.providers[].backup": "Backup server",
 			"usenet.abortHealthPercent": "Abort below health (%)", "usenet.scratch.sizeLimit": "Scratch size",
 			"usenet.publishDir": "Publish directory", "usenet.scratch.path": "Scratch path (on the data volume)",
+			"torrent.publishDir": "Publish directory", "torrent.scratch.path": "Scratch path (on the data volume)",
+			"torrent.scratch.sizeLimit": "Scratch size", "torrent.scratch.existingClaim": "Existing claim",
+			"torrent.scratch.volumeName":   "Persistent volume",
 			"usenet.scratch.existingClaim": "Existing claim", "usenet.scratch.volumeName": "Persistent volume",
 			"usenet.stallTimeout": "Stall timeout (no article completed)",
 			"torrent.proxy.type":  "Type", "torrent.proxy.host": "Host", "torrent.proxy.port": "Port",
