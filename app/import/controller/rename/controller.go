@@ -95,7 +95,8 @@ type Reconciler struct {
 
 // Reconcile renames one MediaFile's file when it is renameable
 // ([rescan.Renameable]) and the RootFolder its item is stored under sets
-// spec.naming.renameFiles.
+// spec.naming.renameFiles, or spec.naming.renameTranscoded for a file
+// squasharr transcoded -- that one in its own folder.
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "rename.Reconcile")
 	defer span.End()
@@ -108,8 +109,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if k8s.IsDeleting(&mf) || !rescan.Renameable(&mf) {
 		return ctrl.Result{}, nil
 	}
-	roots, enabled, err := r.renameEnabled(ctx, &mf)
-	if err != nil || !enabled {
+	roots, mode, err := r.renameMode(ctx, &mf)
+	if err != nil || mode == renameOff {
 		return ctrl.Result{}, err
 	}
 	scan, err := r.openScanOver(ctx, &mf, roots)
@@ -125,7 +126,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	}
 
-	out, err := rescan.RenameFile(ctx, r.Client, r.APIReader, &mf, false)
+	out, err := rescan.RenameFile(ctx, r.Client, r.APIReader, &mf, false, mode == renameInFolder)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -160,25 +161,55 @@ func (r *Reconciler) event(mf *catalogv1alpha1.MediaFile, eventType, reason, not
 	}
 }
 
-// renameEnabled reports whether the RootFolder mf's item is stored under
-// sets spec.naming.renameFiles, and returns the namespace's RootFolders.
-// They are listed first, from the cache: with the switch off everywhere --
-// the default -- the item is never looked up at all.
-func (r *Reconciler) renameEnabled(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]catalogv1alpha1.RootFolder, bool, error) {
+// renameMode is how a file may be renamed: not at all, to its whole
+// canonical path (renameFiles), or to its canonical file name in its own
+// folder (renameTranscoded, for a file squasharr transcoded).
+type renameMode int
+
+const (
+	renameOff renameMode = iota
+	renameWhole
+	renameInFolder
+)
+
+// renameMode reports how the RootFolder mf's item is stored under lets mf
+// be renamed -- renameFiles wins over renameTranscoded -- and returns the
+// namespace's RootFolders. They are listed first, from the cache: with both
+// switches off everywhere -- the default -- the item is never looked up at
+// all.
+func (r *Reconciler) renameMode(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]catalogv1alpha1.RootFolder, renameMode, error) {
 	var roots catalogv1alpha1.RootFolderList
 	if err := r.Client.List(ctx, &roots, client.InNamespace(mf.Namespace)); err != nil {
-		return nil, false, err
+		return nil, renameOff, err
 	}
-	on := func(rf catalogv1alpha1.RootFolder) bool { return rf.Spec.Naming.RenameFilesOrDefault() }
-	if !slices.ContainsFunc(roots.Items, on) {
-		return roots.Items, false, nil
+	modeOf := func(rf catalogv1alpha1.RootFolder) renameMode {
+		switch {
+		case rf.Spec.Naming.RenameFilesOrDefault():
+			return renameWhole
+		case rf.Spec.Naming.RenameTranscoded && transcodedHere(mf):
+			return renameInFolder
+		}
+		return renameOff
+	}
+	if !slices.ContainsFunc(roots.Items, func(rf catalogv1alpha1.RootFolder) bool { return modeOf(rf) != renameOff }) {
+		return roots.Items, renameOff, nil
 	}
 	ref, err := r.rootFolderRef(ctx, mf)
 	if err != nil || ref == "" {
-		return roots.Items, false, err
+		return roots.Items, renameOff, err
 	}
 	i := slices.IndexFunc(roots.Items, func(rf catalogv1alpha1.RootFolder) bool { return rf.Name == ref })
-	return roots.Items, i >= 0 && on(roots.Items[i]), nil
+	if i < 0 {
+		return roots.Items, renameOff, nil
+	}
+	return roots.Items, modeOf(roots.Items[i]), nil
+}
+
+// transcodedHere reports whether squasharr transcoded mf: catalogarr
+// records the swap's profile tag in status.transcode (status.mediaInfo,
+// which also carries it, is stripped from this controller's cache).
+func transcodedHere(mf *catalogv1alpha1.MediaFile) bool {
+	return mf.Status.Transcode != nil && mf.Status.Transcode.ProfileTag != ""
 }
 
 // openScanOver names a LibraryScan still in progress -- not Completed or
@@ -242,8 +273,10 @@ func (r *Reconciler) rootFolderRef(ctx context.Context, mf *catalogv1alpha1.Medi
 }
 
 // Predicate admits a MediaFile that is [rescan.Renameable] when it is first
-// seen, and on an update only when its conditions or its proposed path
-// changed: catalogarr rewrites status on every reconcile, and the rename's
+// seen, and on an update only when its conditions, its proposed path or its
+// transcode tag changed (a finished transcode is what renameTranscoded
+// renames after, and with a template naming no codec it changes nothing
+// else): catalogarr rewrites status on every reconcile, and the rename's
 // own spec apply changes neither, so neither loops the controller.
 func Predicate() predicate.Predicate {
 	renameable := func(o client.Object) bool {
@@ -259,11 +292,19 @@ func Predicate() predicate.Predicate {
 			}
 			nw := e.ObjectNew.(*catalogv1alpha1.MediaFile)
 			return !equality.Semantic.DeepEqual(old.Status.Conditions, nw.Status.Conditions) ||
-				expectedPath(old) != expectedPath(nw)
+				expectedPath(old) != expectedPath(nw) || transcodeTag(old) != transcodeTag(nw)
 		},
 		DeleteFunc:  func(event.DeleteEvent) bool { return false },
 		GenericFunc: func(event.GenericEvent) bool { return false },
 	}
+}
+
+// transcodeTag is mf's status.transcode.profileTag, or "".
+func transcodeTag(mf *catalogv1alpha1.MediaFile) string {
+	if mf.Status.Transcode == nil {
+		return ""
+	}
+	return mf.Status.Transcode.ProfileTag
 }
 
 // expectedPath is mf's status.naming.expectedPath, or "".

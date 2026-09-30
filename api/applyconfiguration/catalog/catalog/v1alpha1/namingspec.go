@@ -44,6 +44,14 @@ type NamingSpecApplyConfiguration struct {
 	// default: a library imported before codec tokens existed differs on
 	// every file. A LibraryScan with spec.rename runs a pass regardless.
 	RenameFiles *bool `json:"renameFiles,omitempty"`
+	// RenameTranscoded lets importarr rename a file squasharr transcoded
+	// (status.transcode.profileTag) to its canonical file name, in the
+	// folder it is already in, so a name that described the source codec
+	// ("[EAC3 5.1][h264]") does not outlive it. A canonical folder that
+	// differs ("Season 03" for "Season 3") is left alone: renaming only the
+	// transcoded files there would split a season. renameFiles, when on,
+	// renames every file its own way instead.
+	RenameTranscoded *bool `json:"renameTranscoded,omitempty"`
 }
 
 // NamingSpecApplyConfiguration constructs a declarative configuration of the NamingSpec type for use with
@@ -95,5 +103,13 @@ func (b *NamingSpecApplyConfiguration) WithOverrides(entries map[string]string) 
 // If called multiple times, the RenameFiles field is set to the value of the last call.
 func (b *NamingSpecApplyConfiguration) WithRenameFiles(value bool) *NamingSpecApplyConfiguration {
 	b.RenameFiles = &value
+	return b
+}
+
+// WithRenameTranscoded sets the RenameTranscoded field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RenameTranscoded field is set to the value of the last call.
+func (b *NamingSpecApplyConfiguration) WithRenameTranscoded(value bool) *NamingSpecApplyConfiguration {
+	b.RenameTranscoded = &value
 	return b
 }

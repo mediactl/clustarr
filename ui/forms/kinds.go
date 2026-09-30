@@ -61,13 +61,15 @@ var kinds = []Kind{
 			}},
 			{Title: "Naming", Paths: []string{
 				"naming.dialect", "naming.colonReplacement", "naming.multiEpisodeStyle", "naming.overrides", "naming.renameFiles",
+				"naming.renameTranscoded",
 			}, Advanced: true},
 			{Title: "Recycle bin", Paths: []string{"recycleBin.path", "recycleBin.cleanupDays"}, Advanced: true},
 			{Title: "Permissions", Paths: []string{"permissions.fileMode", "permissions.dirMode", "permissions.group"}, Advanced: true},
 		},
 		Labels: map[string]string{
 			"scanSchedule": "Scan schedule (cron)", "minFreeBytes": "Minimum free bytes", "naming.overrides": "Naming token overrides",
-			"naming.renameFiles": "Rename files to their canonical names",
+			"naming.renameFiles":      "Rename files to their canonical names",
+			"naming.renameTranscoded": "Rename transcoded files (in their own folder)",
 		},
 		Refs: map[string]Ref{
 			"defaults.qualityProfileRef": RefQualityProfiles, "defaults.transcodeProfileRef": RefTranscodeProfiles,

@@ -185,7 +185,7 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false)
+	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Moved: true}, out)
 
@@ -220,7 +220,7 @@ func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalogarr(t *testing.
 	require.NoError(t, err)
 	require.NoError(t, takeOver(ctx, f.c, f.ns, sf.name, info.Size(), info.ModTime()))
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false)
+	out, err := rescan.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false, false)
 	require.NoError(t, err)
 	require.True(t, out.Moved, "outcome %+v", out)
 	requireExists(t, sf.expected)
@@ -245,7 +245,7 @@ func TestRenameFileRefusesACollision(t *testing.T) {
 	mustWriteFile(t, sf.expected, 1234)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false)
+	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameCollision}, out)
 
@@ -268,7 +268,7 @@ func TestRenameFileRefusesAFileChangedInFlight(t *testing.T) {
 	restore := rescan.SetRenameBeforeMove(func() { require.NoError(t, os.Truncate(sf.path, 10)) })
 	defer restore()
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false)
+	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameChanged}, out)
 
@@ -285,7 +285,7 @@ func TestRenameFileDryRunTouchesNothing(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, true)
+	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, true, false)
 	require.NoError(t, err)
 	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameDryRun}, out)
 
@@ -341,7 +341,7 @@ func TestRenameFileHoldsWhatItMayNotMove(t *testing.T) {
 			f.seedNamingStatus(t, ctx, sf.name, tc.naming)
 			before := f.read(t, ctx, sf.name)
 
-			out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false)
+			out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, out.Reason)
 			assert.False(t, out.Moved)
@@ -372,7 +372,7 @@ func TestRenameFileMovesBackWhenTheMediaFileChangedInFlight(t *testing.T) {
 	})
 	defer restore()
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false)
+	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameChanged}, out)
 
@@ -396,7 +396,7 @@ func TestRenameFileRefusesATargetThatAppearsBeforeTheMove(t *testing.T) {
 	restore := rescan.SetRenameBeforeMove(func() { require.NoError(t, os.WriteFile(sf.expected, []byte("arrived late"), 0o644)) })
 	defer restore()
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false)
+	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameCollision}, out)
 
@@ -445,7 +445,7 @@ func TestRenameFileRollsForwardAnUnrecordedMove(t *testing.T) {
 			before := f.read(t, ctx, sf.name)
 			tc.crash(t, sf)
 
-			out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false)
+			out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
 			require.NoError(t, err)
 			after := f.read(t, ctx, sf.name)
 			if tc.want != "" {

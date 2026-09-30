@@ -193,6 +193,16 @@ type NamingSpec struct {
 	// +optional
 	// +kubebuilder:default=false
 	RenameFiles *bool `json:"renameFiles,omitempty"`
+
+	// RenameTranscoded lets importarr rename a file squasharr transcoded
+	// (status.transcode.profileTag) to its canonical file name, in the
+	// folder it is already in, so a name that described the source codec
+	// ("[EAC3 5.1][h264]") does not outlive it. A canonical folder that
+	// differs ("Season 03" for "Season 3") is left alone: renaming only the
+	// transcoded files there would split a season. renameFiles, when on,
+	// renames every file its own way instead.
+	// +optional
+	RenameTranscoded bool `json:"renameTranscoded,omitempty"`
 }
 
 // RecycleBin holds deleted files for a grace period instead of unlinking them.

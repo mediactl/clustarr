@@ -301,7 +301,7 @@ func TestSeriesTitleWithoutYearStripsTheProvidersYear(t *testing.T) {
 	for tmpl, want := range map[string]string{
 		"{Series TitleWithoutYear}{ (Series Year)}":      "Bluey (2018)",
 		"{Series CleanTitleWithoutYear}{ (Series Year)}": "Bluey (2018)",
-		"{Series Title}":                                 "Bluey (2018)",
+		"{Series Title}": "Bluey (2018)",
 	} {
 		got, err := e.Render(tmpl, c)
 		require.NoError(t, err)

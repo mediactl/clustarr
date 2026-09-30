@@ -112,6 +112,12 @@ var renameBeforeMove func()
 // the next call: spec.path is gone and the proposed path holds a file with
 // spec's fingerprint, so the apply is made without a move.
 //
+// With keepFolder, the target is the proposed file name in the file's own
+// folder, and a proposed folder that differs is not a reason to hold it:
+// the rename controller's renameTranscoded mode, which renames a transcoded
+// file without splitting its season or film folder. Without it, a proposed
+// path in another folder is [RenameHeld], as it has always been.
+//
 // A transcoded file (spec.original false) has its size, mtime and original
 // flag left out of the apply: catalogarr owns those once it incorporates a
 // swap.
@@ -121,7 +127,7 @@ var renameBeforeMove func()
 // best effort: a sidecar that cannot be moved is logged, never a failed
 // rename. catalogarr re-observes everything else on its own.
 func RenameFile(
-	ctx context.Context, c client.Client, api client.Reader, mf *catalogv1alpha1.MediaFile, dryRun bool,
+	ctx context.Context, c client.Client, api client.Reader, mf *catalogv1alpha1.MediaFile, dryRun, keepFolder bool,
 ) (RenameOutcome, error) {
 	var fresh catalogv1alpha1.MediaFile
 	if err := api.Get(ctx, client.ObjectKeyFromObject(mf), &fresh); err != nil {
@@ -138,6 +144,15 @@ func RenameFile(
 		return out, nil
 	}
 	out.To = n.ExpectedPath
+	if keepFolder {
+		// The canonical file name in the file's own folder: a canonical
+		// folder that differs ("Season 03" for "Season 3") is left alone.
+		out.To = filepath.Join(filepath.Dir(filepath.Clean(out.From)), filepath.Base(n.ExpectedPath))
+		if out.To == filepath.Clean(out.From) {
+			out.Reason = RenameNotCurrent
+			return out, nil
+		}
+	}
 	if filepath.Dir(out.To) != filepath.Dir(filepath.Clean(out.From)) {
 		out.Reason = RenameHeld
 		return out, nil
@@ -337,7 +352,7 @@ func (w *Worker) renamePass(ctx context.Context, m events.Message, st *scanState
 			return err
 		}
 		mf := &candidates[i]
-		out, err := RenameFile(ctx, w.Client, api, mf, dryRun)
+		out, err := RenameFile(ctx, w.Client, api, mf, dryRun, false)
 		entry := RenamedFile{From: out.From, To: out.To, Reason: out.Reason}
 		switch {
 		case err != nil:

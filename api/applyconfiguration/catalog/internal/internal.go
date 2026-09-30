@@ -2722,6 +2722,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: false
+    - name: renameTranscoded
+      type:
+        scalar: boolean
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.NamingStatus
   map:
     fields:
