@@ -100,6 +100,8 @@ func TestAddItemBuildsEachKindsSpec(t *testing.T) {
 	require.Equal(t, "OL21594A", au.Spec.OpenLibraryID)
 	require.False(t, *au.Spec.Monitored, "false is sent, not dropped")
 	require.Equal(t, catalogv1.AuthorMonitorMode("none"), au.Spec.AddOptions.Monitor)
+	require.Equal(t, []string{"en"}, au.Spec.MetadataProfile.AllowedLanguages,
+		"an added author lists only works with an English edition, not every translation catalogued as its own work")
 }
 
 // TestAddItemLandsOnTheExistingItem: adding what is already there -- twice

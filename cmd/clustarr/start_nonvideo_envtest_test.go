@@ -119,19 +119,20 @@ func startFakeMetadataProviders(t *testing.T) *fakeMetadataProviders {
 		}
 		return ""
 	})
-	serve(catalogv1alpha1.MetadataProviderOpenLibrary, func(p string, _ url.Values) string {
-		switch p {
-		case "/authors/" + nvAuthorOLID + ".json":
+	serve(catalogv1alpha1.MetadataProviderOpenLibrary, func(p string, q url.Values) string {
+		switch {
+		case p == "/authors/"+nvAuthorOLID+".json":
 			return "openlibrary/author_OL21594A.json"
-		case "/authors/" + nvAuthorOLID + "/works.json":
-			return "openlibrary/works_OL21594A.json"
-		case "/works/" + nvWorkID + ".json":
+		case p == "/works/"+nvWorkID+".json":
 			return "openlibrary/work_OL138052W.json"
 		// Client.Book also fetches the work's editions and fails the whole
 		// call if that fetch fails.
-		case "/works/" + nvWorkID + "/editions.json":
+		case p == "/works/"+nvWorkID+"/editions.json":
 			return "openlibrary/editions_OL138052W.json"
-		case "/search.json":
+		// Client.Books lists an author's works as an "author_key:" search.
+		case p == "/search.json" && strings.HasPrefix(q.Get("q"), "author_key:"):
+			return "openlibrary/search_works_author_OL21594A.json"
+		case p == "/search.json":
 			return "openlibrary/search_pride_and_prejudice.json"
 		}
 		return ""

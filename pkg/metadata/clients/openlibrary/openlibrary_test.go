@@ -103,52 +103,6 @@ func TestAuthorMapsAnOpenLibraryAuthorRecord(t *testing.T) {
 	require.True(t, a.Died.Equal(time.Date(1817, 7, 18, 0, 0, 0, 0, time.UTC)))
 }
 
-// TestBooksListsAnAuthorsWorks exercises /authors/{OLID}/works.json,
-// documented in docs/research/metadata.md §2.4. Each entry is a full work
-// record, and is mapped as fully as Book maps one -- it used to yield ids
-// and a title only.
-func TestBooksListsAnAuthorsWorks(t *testing.T) {
-	body, err := os.ReadFile("../../../../test/data/metadata/openlibrary/works_OL21594A.json")
-	require.NoError(t, err)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/authors/OL21594A/works.json", r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(body)
-	}))
-	defer srv.Close()
-
-	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
-
-	books, err := c.Books(context.Background(), "OL21594A")
-
-	require.NoError(t, err)
-	require.Len(t, books, 1)
-	b := books[0]
-	require.Equal(t, "Pride and Prejudice", b.Title)
-	require.Equal(t, "OL138052W", b.IDs[metadata.KeyOpenLibraryWork])
-	require.Equal(t, []string{"OL21594A"}, b.AuthorIDs)
-	require.Contains(t, b.Overview, "Elizabeth Bennet")
-	require.Equal(t, []string{"Fiction", "England", "Social classes"}, b.Subjects)
-	require.NotNil(t, b.FirstPublished)
-	require.True(t, b.FirstPublished.Equal(time.Date(1813, 1, 1, 0, 0, 0, 0, time.UTC)))
-	require.Empty(t, b.Editions, "Books does not spend a request per work on editions")
-}
-
-func TestBooksToleratesALegacyAuthorShapeAndFallsBackToTheListedAuthor(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"entries":[{"key":"/works/OL1W","title":"Odd","authors":[{"author":"/authors/OL9A"}]}]}`))
-	}))
-	defer srv.Close()
-	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
-
-	books, err := c.Books(context.Background(), "OL21594A")
-
-	require.NoError(t, err, "one oddly-shaped author reference must not fail the whole listing")
-	require.Len(t, books, 1)
-	require.Equal(t, []string{"OL21594A"}, books[0].AuthorIDs)
-}
-
 // openLibraryServer serves the work and its editions fixture, recording
 // the editions request's query.
 func openLibraryServer(t *testing.T, work []byte, editionsQuery *string) *httptest.Server {

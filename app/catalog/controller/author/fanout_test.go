@@ -137,6 +137,18 @@ func TestMatchesProfile(t *testing.T) {
 		assert.True(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{Language: "fre"}, {Language: "eng"}}}), "present, one matching language: included")
 	})
 
+	t.Run("AllowedLanguages: a listing's Languages decide when it carries no editions", func(t *testing.T) {
+		// Open Library's author listing gives each work the languages it
+		// has editions in, without the editions themselves, so a Russian
+		// work with no English edition -- a translation catalogued as its
+		// own work -- is dropped by an English-only profile.
+		p := catalogv1alpha1.BookMetadataProfile{AllowedLanguages: []string{"en"}}
+		assert.False(t, author.MatchesProfile(p, metadata.Book{Languages: []string{"ru", "he"}}), "no English edition: excluded")
+		assert.True(t, author.MatchesProfile(p, metadata.Book{Languages: []string{"ru", "en"}}), "an English edition: included")
+		assert.True(t, author.MatchesProfile(catalogv1alpha1.BookMetadataProfile{AllowedLanguages: []string{"eng"}},
+			metadata.Book{Languages: []string{"en"}}), "ISO 639-2 in the profile matches BCP-47 in the listing")
+	})
+
 	t.Run("MinPages: absent Editions included, present-and-below-threshold excluded", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{MinPages: 200}
 		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "absent: included, not excluded on missing edition data")

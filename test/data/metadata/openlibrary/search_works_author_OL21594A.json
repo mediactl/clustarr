@@ -1,0 +1,15 @@
+{
+ "numFound": 1,
+ "start": 0,
+ "docs": [
+  {
+   "key": "/works/OL138052W",
+   "title": "Pride and Prejudice",
+   "first_publish_year": 1813,
+   "subject": ["Fiction", "England", "Social classes"],
+   "author_key": ["OL21594A"],
+   "language": ["eng", "fre"],
+   "editions": {"numFound": 1, "start": 0, "docs": [{"key": "/books/OL3355576M", "title": "Pride and Prejudice", "language": ["eng"]}]}
+  }
+ ]
+}

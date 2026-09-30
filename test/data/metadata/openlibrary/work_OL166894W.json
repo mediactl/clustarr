@@ -1,0 +1,20 @@
+{
+ "key": "/works/OL166894W",
+ "title": "Преступление и наказание",
+ "authors": [
+  {
+   "author": {
+    "key": "/authors/OL22242A"
+   },
+   "type": {
+    "key": "/type/author_role"
+   }
+  }
+ ],
+ "first_publish_date": "1884",
+ "subjects": [
+  "English Translations",
+  "Russian literature",
+  "Novela psicológica"
+ ]
+}

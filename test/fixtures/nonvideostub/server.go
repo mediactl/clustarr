@@ -45,6 +45,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ComicVineAPIKey is the key this stub accepts on ComicVine's api_key query
@@ -84,8 +85,6 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 		serveFile(filepath.Join(recordedDir, "openlibrary", "isbn_9780141439518.json"), logger))
 	mux.HandleFunc("GET /openlibrary/authors/OL21594A.json",
 		serveFile(filepath.Join(recordedDir, "openlibrary", "author_OL21594A.json"), logger))
-	mux.HandleFunc("GET /openlibrary/authors/OL21594A/works.json",
-		serveFile(filepath.Join(recordedDir, "openlibrary", "works_OL21594A.json"), logger))
 	mux.HandleFunc("GET /openlibrary/works/OL138052W.json",
 		serveFile(filepath.Join(recordedDir, "openlibrary", "work_OL138052W.json"), logger))
 	// Client.Book additionally fetches this work's editions (openlibrary.go:
@@ -94,8 +93,15 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	// query string does not affect net/http's ServeMux path match.
 	mux.HandleFunc("GET /openlibrary/works/OL138052W/editions.json",
 		serveFile(filepath.Join(recordedDir, "openlibrary", "editions_OL138052W.json"), logger))
-	mux.HandleFunc("GET /openlibrary/search.json",
-		serveFile(filepath.Join(recordedDir, "openlibrary", "search_pride_and_prejudice.json"), logger))
+	// One path, two callers: Client.Books lists an author's works as a
+	// search for "author_key:<olid>"; SearchBooks is a title search.
+	mux.HandleFunc("GET /openlibrary/search.json", func(w http.ResponseWriter, r *http.Request) {
+		name := "search_pride_and_prejudice.json"
+		if strings.HasPrefix(r.URL.Query().Get("q"), "author_key:") {
+			name = "search_works_author_OL21594A.json"
+		}
+		serveFile(filepath.Join(recordedDir, "openlibrary", name), logger)(w, r)
+	})
 
 	// Audnexus: base "/audnexus".
 	mux.HandleFunc("GET /audnexus/books/B0036I54I6",

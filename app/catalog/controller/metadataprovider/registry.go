@@ -161,7 +161,8 @@ func addToRegistry(reg *metadata.Registry, spec catalogv1alpha1.MetadataProvider
 		}
 		reg.Artists = append(reg.Artists, c)
 	case catalogv1alpha1.MetadataProviderOpenLibrary:
-		reg.Books = append(reg.Books, openlibrary.New(spec.ContactUserAgent, httpClient, baseURL(spec), limiterFor(spec, limits.OpenLibrary, limits.OpenLibraryBurst)))
+		reg.Books = append(reg.Books, openlibrary.New(spec.ContactUserAgent, httpClient, baseURL(spec), limiterFor(spec, limits.OpenLibrary, limits.OpenLibraryBurst)).
+			WithLanguage(spec.Language))
 	case catalogv1alpha1.MetadataProviderComicVine:
 		reg.Comics = append(reg.Comics, comicvine.New(string(secret["apiKey"]), httpClient, baseURL(spec), limiterFor(spec, limits.ComicVine, limits.ComicVineBurst)))
 	case catalogv1alpha1.MetadataProviderAudnexus:

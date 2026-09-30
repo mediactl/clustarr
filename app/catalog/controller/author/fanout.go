@@ -23,6 +23,7 @@ import (
 	"time"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/metadata"
 )
 
@@ -163,8 +164,19 @@ func MatchesProfile(p catalogv1alpha1.BookMetadataProfile, b metadata.Book) bool
 	if p.SkipSeriesSecondary && len(b.Series) > 0 && isSeriesSecondaryOnly(b.Series) {
 		return false
 	}
-	if len(p.AllowedLanguages) > 0 && len(b.Editions) > 0 && !anyEditionInLanguages(b.Editions, p.AllowedLanguages) {
-		return false
+	if len(p.AllowedLanguages) > 0 {
+		switch {
+		case len(b.Editions) > 0:
+			if !anyEditionInLanguages(b.Editions, p.AllowedLanguages) {
+				return false
+			}
+		case len(b.Languages) > 0:
+			// A listing that knows the work's edition languages without its
+			// editions (Open Library's author works search).
+			if !anyInLanguages(b.Languages, p.AllowedLanguages) {
+				return false
+			}
+		}
 	}
 	if p.MinPages > 0 && len(b.Editions) > 0 && !anyEditionHasMinPages(b.Editions, p.MinPages) {
 		return false
@@ -204,16 +216,35 @@ func isSeriesSecondaryOnly(links []metadata.SeriesLink) bool {
 }
 
 func anyEditionInLanguages(editions []metadata.Edition, allowed []string) bool {
+	langs := make([]string, 0, len(editions))
+	for _, ed := range editions {
+		langs = append(langs, ed.Language)
+	}
+	return anyInLanguages(langs, allowed)
+}
+
+// anyInLanguages reports whether any of langs is allowed, comparing both
+// through pkg/lang so a profile's "eng" matches a listing's BCP-47 "en".
+func anyInLanguages(langs, allowed []string) bool {
 	set := make(map[string]bool, len(allowed))
 	for _, l := range allowed {
-		set[l] = true
+		set[normalizedLang(l)] = true
 	}
-	for _, ed := range editions {
-		if set[ed.Language] {
+	for _, l := range langs {
+		if l != "" && set[normalizedLang(l)] {
 			return true
 		}
 	}
 	return false
+}
+
+// normalizedLang is l as pkg/lang's BCP-47, or l itself when it resolves
+// to none.
+func normalizedLang(l string) string {
+	if t, ok := lang.Normalize(l); ok {
+		return string(t)
+	}
+	return l
 }
 
 func anyEditionHasMinPages(editions []metadata.Edition, minPages int32) bool {

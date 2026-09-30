@@ -243,7 +243,7 @@ func TestNonVideoAuthorBookManualImport(t *testing.T) {
 			break
 		}
 	}
-	require.NotNil(t, book, "Author %s fanned out no Book (test/data/metadata/openlibrary/works_OL21594A.json)", author.Name)
+	require.NotNil(t, book, "Author %s fanned out no Book (test/data/metadata/openlibrary/search_works_author_OL21594A.json)", author.Name)
 
 	relSubpath := filepath.Join(author.Name, "book.epub")
 	fullPath := filepath.Join(rf.Spec.Path, relSubpath)

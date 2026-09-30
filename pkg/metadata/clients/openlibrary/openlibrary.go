@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -50,12 +52,57 @@ const defaultBaseURL = "https://openlibrary.org"
 // consumer.
 const editionsLimit = 100
 
+// booksLimit is how many works Books lists for an author: the most
+// edition-rich first, the size of the works.json page it replaced.
+const booksLimit = 50
+
+// defaultWikidataURL is where Author reads an author's name in the
+// client's language (WithLanguage).
+const defaultWikidataURL = "https://www.wikidata.org"
+
 // Client is a metadata.BookProvider backed by Open Library.
 type Client struct {
-	http      *http.Client
-	baseURL   string
-	userAgent string
-	limiter   *rate.Limiter
+	http        *http.Client
+	baseURL     string
+	userAgent   string
+	limiter     *rate.Limiter
+	language    string // primary BCP-47 subtag, "" for none (WithLanguage)
+	wikidataURL string
+}
+
+// WithLanguage makes the client prefer names and titles in language (a
+// BCP-47 or ISO 639 code; MetadataProvider.spec.language, default "en"),
+// the way TMDB is asked for language=en: Open Library catalogues a work
+// under whatever title it was entered with -- Dostoevsky's novels are
+// "Преступление и наказание" and "Братья Карамазовы" -- and an author under
+// any spelling ("Fiódor Dostoievski"). Books titles each work by its
+// edition in that language (the search API's lang), Book by its most
+// common edition title in it, and Author takes Wikidata's label in it. An
+// empty or unresolvable language keeps the catalogued titles.
+func (c *Client) WithLanguage(language string) *Client {
+	c.language = ""
+	if t, ok := lang.Normalize(language); ok {
+		c.language = primaryTag(string(t))
+	}
+	return c
+}
+
+// WithWikidataBaseURL overrides Wikidata's host, for tests.
+func (c *Client) WithWikidataBaseURL(u string) *Client {
+	c.wikidataURL = u
+	return c
+}
+
+// primaryTag is l's primary language subtag, lower-cased: "pt-BR" -> "pt".
+func primaryTag(l string) string {
+	return strings.ToLower(strings.SplitN(l, "-", 2)[0])
+}
+
+// inLanguage reports whether the Open Library language code code (ISO
+// 639-2, "eng") is the client's language.
+func (c *Client) inLanguage(code string) bool {
+	t, ok := lang.Normalize(strings.TrimPrefix(code, "/languages/"))
+	return ok && c.language != "" && primaryTag(string(t)) == c.language
 }
 
 // New builds a Client. userAgent must identify the application and a
@@ -72,7 +119,7 @@ func New(userAgent string, httpClient *http.Client, baseURL string, limiter *rat
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	return &Client{http: hc, baseURL: baseURL, userAgent: userAgent, limiter: limiter}
+	return &Client{http: hc, baseURL: baseURL, userAgent: userAgent, limiter: limiter, wikidataURL: defaultWikidataURL}
 }
 
 // Name identifies this provider for logging and metrics.
@@ -142,6 +189,9 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		Bio       json.RawMessage `json:"bio"`
 		BirthDate string          `json:"birth_date"`
 		DeathDate string          `json:"death_date"`
+		RemoteIDs struct {
+			Wikidata string `json:"wikidata"`
+		} `json:"remote_ids"`
 	}
 	if err := c.doGet(ctx, "/authors/"+olid+".json", &raw); err != nil {
 		tracing.RecordError(span, err)
@@ -160,7 +210,42 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	if t, ok := parseLenientDate(raw.DeathDate); ok {
 		a.Died = &t
 	}
+	if c.language != "" && wikidataQID.MatchString(raw.RemoteIDs.Wikidata) {
+		name, err := c.wikidataLabel(ctx, raw.RemoteIDs.Wikidata)
+		switch {
+		case err != nil:
+			// The Open Library name stands; a label is a nicety, never a
+			// reason to fail the author.
+			logger.DebugContext(ctx, "openlibrary: wikidata label unavailable", "olid", olid,
+				"wikidata", raw.RemoteIDs.Wikidata, "error", err)
+		case name != "":
+			a.Name = name
+		}
+	}
 	return a, nil
+}
+
+// wikidataQID is a Wikidata item id.
+var wikidataQID = regexp.MustCompile(`^Q[0-9]+$`)
+
+// wikidataLabel is Wikidata item qid's label in the client's language, ""
+// when it has none.
+func (c *Client) wikidataLabel(ctx context.Context, qid string) (string, error) {
+	q := url.Values{
+		"action": {"wbgetentities"}, "ids": {qid}, "props": {"labels"},
+		"languages": {c.language}, "format": {"json"},
+	}
+	var raw struct {
+		Entities map[string]struct {
+			Labels map[string]struct {
+				Value string `json:"value"`
+			} `json:"labels"`
+		} `json:"entities"`
+	}
+	if err := c.doGetURL(ctx, c.wikidataURL+"/w/api.php?"+q.Encode(), &raw); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(raw.Entities[qid].Labels[c.language].Value), nil
 }
 
 // workRecord is Open Library's work record, as returned by
@@ -218,31 +303,99 @@ func mapWork(w workRecord, fallbackAuthor string) metadata.Book {
 	return b
 }
 
-// Books lists the works credited to authorID (an Open Library author id):
-// one page of /authors/{OLID}/works.json at Open Library's default page
-// size, each mapped with the same fields Book maps from a work record --
-// title, overview, subjects, authors and first-publication date. Editions
-// are not fetched per work here (that is one more request per work); Book
-// fetches them.
+// Books lists the works credited to authorID (an Open Library author id)
+// through Open Library's search -- one request, the booksLimit most
+// edition-rich works first -- with each work's title, subjects, authors,
+// first-publication year and the languages it has editions in (Languages,
+// which a metadata profile's allowedLanguages reads). With a language
+// (WithLanguage) each work is titled by its edition in that language, the
+// one the search's lang picks. Editions are not listed per work here (that
+// is one more request per work); Book fetches them.
+//
+// It replaced /authors/{OLID}/works.json, which lists works in no useful
+// order and under their catalogued titles only: an English reader adding
+// Dostoevsky got 49 works in eleven languages and scripts (2026-09-30).
 func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, error) {
 	ctx, span := tracing.Start(ctx, "metadata.openlibrary.Books")
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
-	var raw struct {
-		Entries []workRecord `json:"entries"`
+	q := url.Values{
+		"q":      {"author_key:" + authorID},
+		"sort":   {"editions"},
+		"limit":  {strconv.Itoa(booksLimit)},
+		"fields": {"key,title,first_publish_year,subject,author_key,language,editions,editions.key,editions.title,editions.language"},
 	}
-	if err := c.doGet(ctx, "/authors/"+authorID+"/works.json", &raw); err != nil {
+	if c.language != "" {
+		q.Set("lang", c.language)
+	}
+	var raw struct {
+		Docs []searchWork `json:"docs"`
+	}
+	if err := c.doGet(ctx, "/search.json?"+q.Encode(), &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "openlibrary: author works fetch failed", "olid", authorID, "error", err)
+		logger.ErrorContext(ctx, "openlibrary: author works search failed", "olid", authorID, "error", err)
 		return nil, err
 	}
 
-	books := make([]metadata.Book, 0, len(raw.Entries))
-	for _, e := range raw.Entries {
-		books = append(books, mapWork(e, authorID))
+	books := make([]metadata.Book, 0, len(raw.Docs))
+	for _, w := range raw.Docs {
+		books = append(books, c.mapSearchWork(w, authorID))
 	}
 	return books, nil
+}
+
+// searchWork is one work of Open Library's /search.json, with the fields
+// Books asks for (verified against the live API).
+type searchWork struct {
+	Key              string   `json:"key"`
+	Title            string   `json:"title"`
+	FirstPublishYear int      `json:"first_publish_year"`
+	Subject          []string `json:"subject"`
+	AuthorKey        []string `json:"author_key"`
+	Language         []string `json:"language"` // ISO 639-2: "eng"
+	Editions         struct {
+		Docs []struct {
+			Title    string   `json:"title"`
+			Language []string `json:"language"`
+		} `json:"docs"`
+	} `json:"editions"`
+}
+
+// mapSearchWork converts a search hit into the normalized Book. The title
+// is the work's edition in the client's language when the search found
+// one, else the work's own; fallbackAuthor is credited when the hit names
+// no author.
+func (c *Client) mapSearchWork(w searchWork, fallbackAuthor string) metadata.Book {
+	b := metadata.Book{
+		IDs:       metadata.ExternalIDs{metadata.KeyOpenLibraryWork: strings.TrimPrefix(w.Key, "/works/")},
+		AuthorIDs: w.AuthorKey,
+		Title:     w.Title,
+		Subjects:  w.Subject,
+	}
+	if len(b.AuthorIDs) == 0 && fallbackAuthor != "" {
+		b.AuthorIDs = []string{fallbackAuthor}
+	}
+	if w.FirstPublishYear > 0 {
+		t := time.Date(w.FirstPublishYear, 1, 1, 0, 0, 0, 0, time.UTC)
+		b.FirstPublished = &t
+	}
+	for _, code := range w.Language {
+		if t, ok := lang.Normalize(code); ok && !slices.Contains(b.Languages, string(t)) {
+			b.Languages = append(b.Languages, string(t))
+		}
+	}
+	for _, ed := range w.Editions.Docs {
+		title := strings.TrimSpace(ed.Title)
+		if title == "" || !slices.ContainsFunc(ed.Language, c.inLanguage) {
+			continue
+		}
+		if !strings.EqualFold(title, strings.TrimSpace(w.Title)) {
+			b.Title = title
+		}
+		break
+	}
+	return b
 }
 
 // Book fetches a single work (ids[metadata.KeyOpenLibraryWork]) and one page
@@ -298,8 +451,45 @@ func (c *Client) Book(ctx context.Context, ids metadata.ExternalIDs) (*metadata.
 		b.Editions = append(b.Editions, ed)
 	}
 
+	if title := c.editionTitle(b.Title, eds.Entries); title != "" {
+		b.Title = title
+	}
+
 	logger.DebugContext(ctx, "openlibrary: work fetched", "olid", workID, "title", b.Title, "editions", len(b.Editions))
 	return &b, nil
+}
+
+// editionTitle is the title a work catalogued as workTitle takes in the
+// client's language: its most common edition title in that language (the
+// first seen on a tie), or "" to keep workTitle -- no language, no edition
+// in it, or workTitle already one of those titles. Books picks its title
+// the same way from the search's edition, so a refresh keeps it.
+func (c *Client) editionTitle(workTitle string, editions []editionResponse) string {
+	if c.language == "" {
+		return ""
+	}
+	counts := map[string]int{}
+	var order []string
+	for _, e := range editions {
+		title := strings.TrimSpace(e.Title)
+		if title == "" || len(e.Languages) == 0 || !c.inLanguage(e.Languages[0].Key) {
+			continue
+		}
+		if strings.EqualFold(title, strings.TrimSpace(workTitle)) {
+			return ""
+		}
+		if counts[title] == 0 {
+			order = append(order, title)
+		}
+		counts[title]++
+	}
+	best := ""
+	for _, t := range order {
+		if counts[t] > counts[best] {
+			best = t
+		}
+	}
+	return best
 }
 
 // editionResponse is Open Library's edition record, as returned by
@@ -450,10 +640,19 @@ func parseLenientDate(s string) (time.Time, bool) {
 // every other status is answered from the status alone, its body never
 // read.
 func (c *Client) doGet(ctx context.Context, path string, out any) error {
+	return c.doGetURL(ctx, c.baseURL+path, out)
+}
+
+// doGetURL is doGet against an absolute URL (Wikidata's, for Author).
+func (c *Client) doGetURL(ctx context.Context, rawURL string, out any) error {
+	path := rawURL
+	if u, err := url.Parse(rawURL); err == nil {
+		path = u.Path // errors name the path, never a query
+	}
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return fmt.Errorf("openlibrary: build request: %w", err)
 	}

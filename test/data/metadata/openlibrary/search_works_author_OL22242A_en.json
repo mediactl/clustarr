@@ -1,0 +1,343 @@
+{
+ "numFound": 2825,
+ "start": 0,
+ "numFoundExact": true,
+ "num_found": 2825,
+ "documentation_url": "https://openlibrary.org/dev/docs/api/search",
+ "q": "author_key:OL22242A",
+ "offset": null,
+ "docs": [
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1866,
+   "key": "/works/OL166894W",
+   "language": [
+    "gre",
+    "fin",
+    "spa",
+    "pol",
+    "ukr",
+    "yid",
+    "eng",
+    "est",
+    "rus",
+    "fre",
+    "amh",
+    "por",
+    "chi",
+    "dut",
+    "heb",
+    "cze",
+    "rum",
+    "jpn",
+    "ita",
+    "dan",
+    "hin",
+    "ger"
+   ],
+   "title": "Преступление и наказание",
+   "subject": [
+    "English Translations",
+    "Russian literature",
+    "Novela psicológica"
+   ],
+   "editions": {
+    "numFound": 1178,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL37044740M",
+      "title": "Crime and Punishment",
+      "language": [
+       "eng"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1864,
+   "key": "/works/OL21025633W",
+   "language": [
+    "rum",
+    "por",
+    "rus",
+    "eng",
+    "ger",
+    "fre",
+    "spa",
+    "ita",
+    "chi"
+   ],
+   "title": "Записки изъ подполья",
+   "subject": [
+    "Fiction",
+    "History",
+    "General"
+   ],
+   "editions": {
+    "numFound": 837,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL46541738M",
+      "title": "Notes from the underground",
+      "language": [
+       "eng"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1874,
+   "key": "/works/OL166925W",
+   "language": [
+    "pan",
+    "yid",
+    "pol",
+    "lit",
+    "dan",
+    "rus",
+    "eng",
+    "ger",
+    "por",
+    "fre",
+    "spa",
+    "fin",
+    "ita",
+    "chi",
+    "jpn"
+   ],
+   "title": "Идиот",
+   "subject": [
+    "Notebooks, sketchbooks",
+    "Fiction, general",
+    "Russia in fiction"
+   ],
+   "editions": {
+    "numFound": 437,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL6974856M",
+      "title": "The Idiot",
+      "language": [
+       "eng"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1866,
+   "key": "/works/OL166923W",
+   "language": [
+    "und",
+    "por",
+    "rus",
+    "eng",
+    "ger",
+    "fre",
+    "spa",
+    "ita",
+    "chi",
+    "dut"
+   ],
+   "title": "Игрокъ",
+   "subject": [
+    "Translations into English",
+    "Continental european fiction (fictional works by one author)",
+    "Gamblers"
+   ],
+   "editions": {
+    "numFound": 413,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL37044738M",
+      "title": "The Gambler",
+      "language": [
+       "eng"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1880,
+   "key": "/works/OL10432709W",
+   "language": [
+    "jpn",
+    "ita",
+    "swe",
+    "gre",
+    "yid",
+    "eng",
+    "bul",
+    "und",
+    "fin",
+    "rus",
+    "dan",
+    "fre",
+    "vie",
+    "spa",
+    "pol",
+    "por",
+    "ger",
+    "tur"
+   ],
+   "title": "Братья Карамазовы",
+   "subject": [
+    "Literature - Classics / Criticism",
+    "Russian",
+    "Literature: Classics"
+   ],
+   "editions": {
+    "numFound": 393,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL37044481M",
+      "title": "The Brothers Karamazov",
+      "language": [
+       "eng"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1846,
+   "key": "/works/OL15724251W",
+   "language": [
+    "fre",
+    "dan",
+    "spa",
+    "rus",
+    "ger",
+    "und",
+    "eng",
+    "por"
+   ],
+   "title": "Двойник",
+   "subject": [
+    "Fiction",
+    "Doppelgängers",
+    "Translations into English"
+   ],
+   "editions": {
+    "numFound": 184,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL22591363M",
+      "title": "DOUBLE: A ST PETERSBURG POEM; TRANS. BY HUGH APLIN.",
+      "language": [
+       "und",
+       "eng"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1871,
+   "key": "/works/OL166971W",
+   "language": [
+    "rum",
+    "por",
+    "rus",
+    "ger",
+    "eng",
+    "fre",
+    "tur",
+    "spa",
+    "ita",
+    "cze",
+    "chi",
+    "dut"
+   ],
+   "title": "Бѣсы",
+   "subject": [
+    "Fiction",
+    "Russian fiction",
+    "Politics in fiction"
+   ],
+   "editions": {
+    "numFound": 171,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL26444176M",
+      "title": "The Possessed",
+      "language": [
+       "eng"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "author_key": [
+    "OL22242A"
+   ],
+   "first_publish_year": 1846,
+   "key": "/works/OL16444720W",
+   "language": [
+    "yid",
+    "per",
+    "rus",
+    "eng",
+    "ger"
+   ],
+   "title": "Бедные люди",
+   "subject": [
+    "Continental european fiction (fictional works by one author)",
+    "Fiction",
+    "Translations into English"
+   ],
+   "editions": {
+    "numFound": 145,
+    "start": 0,
+    "numFoundExact": true,
+    "docs": [
+     {
+      "key": "/books/OL37044739M",
+      "title": "Poor Folk",
+      "language": [
+       "eng"
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

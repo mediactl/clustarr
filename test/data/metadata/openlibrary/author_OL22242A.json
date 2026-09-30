@@ -1,0 +1,22 @@
+{
+ "key": "/authors/OL22242A",
+ "name": "Fiódor Dostoievski",
+ "personal_name": "Fyodor Mikhaylovich Dostoyevsky",
+ "birth_date": "11 November 1821",
+ "death_date": "9 February 1881",
+ "remote_ids": {
+  "viaf": "104023256",
+  "wikidata": "Q991",
+  "isni": "0000000121462392",
+  "bookbrainz": "1c0a811c-8af6-4cd3-b1b0-801a7b533939",
+  "musicbrainz": "08dd4a10-f7c8-4da8-a724-8d261ebbd9e4",
+  "goodreads": "3137322",
+  "imdb": "nm0234502",
+  "lc_naf": "n79029930",
+  "librarything": "dostoevskyfyodor",
+  "librivox": "439",
+  "project_gutenberg": "314",
+  "opac_sbn": "CFIV001049",
+  "amazon": "B00Q2HTFX8"
+ }
+}

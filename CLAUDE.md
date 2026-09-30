@@ -79,6 +79,13 @@ when the cluster has no SubtitleProfile at all, with `audioExclude` so
 only media whose audio is not English is searched; a file with untagged or
 unprobed audio counts as its item's original language (the Movie's or the
 Series' `status.metadata.originalLanguage`, `subtitlerequest.audioLanguages`).
+Books take English titles as movies and TV do (2026-09-30): the Open
+Library client (`WithLanguage`, from MetadataProvider `spec.language`)
+lists an author's works through its search API with `lang`, titles each
+by its edition in that language (and `Book` by its most common edition
+title, so a refresh keeps it), names the author by Wikidata's label, and
+gives each work `Languages` so `metadataProfile.allowedLanguages` can drop
+translations catalogued as works of their own; Add New sets it to `en`.
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).

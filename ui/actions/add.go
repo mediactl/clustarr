@@ -157,12 +157,21 @@ func buildItem(req AddRequest) (client.Object, error) {
 				AddOptions: catalogv1alpha1.AuthorAddOptions{
 					Monitor: catalogv1alpha1.AuthorMonitorMode(req.Monitor), SearchForMissing: req.SearchOnAdd,
 				},
-				Source: source,
+				MetadataProfile: catalogv1alpha1.BookMetadataProfile{AllowedLanguages: []string{addedAuthorLanguage}},
+				Source:          source,
 			},
 		}, nil
 	}
 	return nil, fmt.Errorf("%w: %q is not a kind Add New adds", ErrInvalid, req.Kind)
 }
+
+// addedAuthorLanguage is the one language an author added here lists works
+// in (spec.metadataProfile.allowedLanguages): the MetadataProvider's
+// default language, the one titles are fetched in. Open Library catalogues
+// translations as works of their own -- Dostoevsky came in eleven languages
+// -- and without it every one became a Book. An owner reading another
+// language edits the author.
+const addedAuthorLanguage = "en"
 
 // positiveID parses a TMDB or TVDB id, which is a positive integer.
 func positiveID(s string) (int64, error) {
