@@ -43,10 +43,16 @@ import (
 
 // classFor is the class a Planned job dispatches to when it does not choose
 // one per dispatch -- a pinned job, or an auto one whose plan encodes nothing
-// (assignClasses gives an auto job that encodes ChooseClass's): the plan's
-// encoder's class (a remux takes a CPU slot), and CPU once a fallback reason
-// is recorded or with no plan to read one from (spec §18.5).
-func (r *Reconciler) classFor(tj *transcodev1alpha1.TranscodeJob, _ *transcodev1alpha1.TranscodeProfile) transcodev1alpha1.Hardware {
+// (assignClasses gives an auto job that encodes ChooseClass's). A job pinned
+// to a GPU class goes to that class whatever its plan: a remux copies the
+// video, so the GPU pool runs it, and a plan only the CPU can encode never
+// reaches dispatch (skipCPUPlanUnderGPUPin). Otherwise it is the plan's
+// encoder's class (an auto job's remux takes a CPU slot), and CPU once a
+// fallback reason is recorded or with no plan to read one from (spec §18.5).
+func (r *Reconciler) classFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) transcodev1alpha1.Hardware {
+	if g := pinnedGPU(tj, tp); g != "" {
+		return g
+	}
 	if tj.Status.FallbackReason != "" || tj.Status.Plan == nil {
 		return transcodev1alpha1.HardwareCPU
 	}
@@ -136,10 +142,13 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	}
 
 	var replanned *planning
-	if tj.Status.Plan == nil || hardwareForEncoder(tj.Status.Plan.Encoder) != class {
+	if !planRunsIn(tj.Status.Plan, class) {
 		p, fail := planFor(&tj, tp, &mf, &class)
+		if fail == nil {
+			p = skipCPUPlanUnderGPUPin(&tj, tp, p)
+		}
 		if fail != nil || p.result.Decision == transcode.DecisionSkip || p.result.Decision == transcode.DecisionReject ||
-			hardwareForEncoder(encoderName(p.result)) != class {
+			!planRunsIn(statusPlan(p.result), class) {
 			return r.keepPlanned(ctx, key, tj.Status.Attempts, tp, class, p, fail)
 		}
 		replanned = &p
@@ -336,4 +345,51 @@ func (r *Reconciler) poolNameFor(ctx context.Context, tj *transcodev1alpha1.Tran
 		return "", err
 	}
 	return pool.Name(poolKeyFor(tp, class)), nil
+}
+
+// pinnedGPU is the GPU class tj is pinned to -- its own spec.hardware, else
+// its profile's, as isAutoFor reads them -- or "" for auto, cpu or no pin.
+func pinnedGPU(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) transcodev1alpha1.Hardware {
+	var h transcodev1alpha1.Hardware
+	switch {
+	case tj.Spec.Hardware != nil:
+		h = *tj.Spec.Hardware
+	case tp != nil:
+		h = tp.Spec.Hardware
+	}
+	if h == transcodev1alpha1.HardwareNVIDIA || h == transcodev1alpha1.HardwareIntel {
+		return h
+	}
+	return ""
+}
+
+// planRunsIn reports whether plan p can run in class's pool: a plan that
+// encodes no video (a remux copies it) runs in any, and one that encodes
+// only in its encoder's.
+func planRunsIn(p *transcodev1alpha1.Plan, class transcodev1alpha1.Hardware) bool {
+	if p == nil {
+		return false
+	}
+	return !encodesVideo(p) || hardwareForEncoder(p.Encoder) == class
+}
+
+// skipCPUPlanUnderGPUPin turns an encode only the CPU can run into a skip
+// with a reason when tj is pinned to a GPU class: the pin means the job never
+// goes to cpu, and the planner gives some sources (Dolby Vision) no hardware
+// encoder, so such a job could otherwise only wait in Planned forever. An
+// auto job's plan is returned as it is. p.result is copied, never mutated.
+func skipCPUPlanUnderGPUPin(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile, p planning) planning {
+	g := pinnedGPU(tj, tp)
+	if g == "" || p.result == nil || p.result.Decision != transcode.DecisionEncode {
+		return p
+	}
+	enc := encoderName(p.result)
+	if hardwareForEncoder(enc) == g {
+		return p
+	}
+	res := *p.result
+	res.Decision = transcode.DecisionSkip
+	res.Reason = fmt.Sprintf("the profile runs only on %s, and this source can only be encoded with %s (%s)", g, enc, p.result.Reason)
+	p.result = &res
+	return p
 }
