@@ -16,8 +16,12 @@ of the owner's proxy.
   "The Lock and Key");
 - a word with a capital after its first letter (NASA, McCarthy, iPhone) or a
   digit is left exactly as it is;
-- each part of a hyphenated word is cased on its own ("self-portrait" →
-  "Self-Portrait");
+- each part of a hyphenated word is a word: the first capitalised, the rest
+  by the same rules ("Self-Portrait", "Man-of-War", "World-War-II");
+- a full stop, semicolon, `?` or `!`, and an opening bracket or quote, start
+  a new title too ("… Man. The Meek One", "The Adolescent (A Raw Youth)");
+- a title in capitals throughout is cased from lower case ("WAR AND PEACE"
+  → "War and Peace"), and an Irish O' capitalises the name ("O'Brien");
 - the first letter after an apostrophe is not capitalised ("uncle's" →
   "Uncle's");
 - a strict Roman numeral (I–XXXIX, CL…: `^(x{0,3})(ix|iv|v?i{0,3})$`, not

@@ -50,8 +50,16 @@ var (
 // lowercased everywhere else, even when s capitalised them; each part of a
 // hyphenated word capitalised; a strict Roman numeral uppercased. A word
 // with a capital after its first letter (NASA, McCarthy, iPhone) or a digit
-// is kept exactly as it is, and so is every space and punctuation mark.
+// is kept exactly as it is -- unless the whole title is in capitals, which
+// is cased from lower case -- and so is every space and punctuation mark.
+// A colon, a dash, a full stop, a semicolon, or an opening bracket or quote
+// starts a new title.
 func Title(s string) string {
+	// A title in capitals throughout is shouting, not acronyms: case it
+	// from lower case ("WAR AND PEACE" -> "War and Peace").
+	if strings.IndexFunc(s, unicode.IsLower) < 0 {
+		s = strings.ToLower(s)
+	}
 	parts := tokens.FindAllString(s, -1)
 	first, last := -1, -1
 	for i, p := range parts {
@@ -71,7 +79,9 @@ func Title(s string) string {
 			continue
 		}
 		lead, core, trail := splitPunct(p)
-		force := i == first || i == last || afterBreak
+		// An opening bracket or quote starts a title of its own:
+		// "The Adolescent (A Raw Youth)".
+		force := i == first || i == last || afterBreak || strings.ContainsAny(lead, "([{\"“‘")
 		b.WriteString(lead)
 		b.WriteString(caseWord(core, force))
 		b.WriteString(trail)
@@ -80,7 +90,9 @@ func Title(s string) string {
 			// like a colon; any other bare punctuation leaves it as it was.
 			afterBreak = afterBreak || strings.ContainsAny(p, "-–—")
 		} else {
-			afterBreak = strings.ContainsAny(trail, ":–—")
+			// A colon, a dash or a sentence's end ("... Man. The Meek
+			// One", "The Landlady; The Gambler") starts a new title.
+			afterBreak = strings.ContainsAny(trail, ":–—.;?!")
 		}
 	}
 	return b.String()
@@ -92,11 +104,11 @@ func caseWord(w string, force bool) string {
 		return w
 	}
 	if strings.Contains(w, "-") {
+		// Each part is a word: the first capitalised, the rest by the
+		// same rules ("Man-of-War", "Up-to-Date", "World-War-II").
 		hs := strings.Split(w, "-")
 		for i, h := range hs {
-			if h != "" && !keep(h) {
-				hs[i] = capitalise(h)
-			}
+			hs[i] = caseWord(h, i == 0)
 		}
 		return strings.Join(hs, "-")
 	}
@@ -106,6 +118,10 @@ func caseWord(w string, force bool) string {
 	}
 	if minor[lower] && !force {
 		return lower
+	}
+	// An Irish O' capitalises the name after it: "O'Brien".
+	if strings.HasPrefix(lower, "o'") && len(w) > 2 {
+		return "O'" + capitalise(w[2:])
 	}
 	return capitalise(w)
 }

@@ -47,6 +47,16 @@ func TestTitle(t *testing.T) {
 		"what it is up to":                 "What It Is Up To",
 		"McCarthy's the road":              "McCarthy's the Road",
 		"":                                 "",
+		// Shapes from the owner's library (final review, 2026-09-30).
+		"the dream of a ridiculous man. the meek one": "The Dream of a Ridiculous Man. The Meek One",
+		"the landlady; the gambler":                   "The Landlady; The Gambler",
+		"the adolescent (a raw youth)":                "The Adolescent (A Raw Youth)",
+		"the man-of-war":                              "The Man-of-War",
+		"up-to-date guide":                            "Up-to-Date Guide",
+		"world-war-ii":                                "World-War-II",
+		"o'brien's war":                               "O'Brien's War",
+		"O'brien's war":                               "O'Brien's War",
+		"WAR AND PEACE":                               "War and Peace",
 	} {
 		assert.Equal(t, want, textcase.Title(in), "Title(%q)", in)
 	}
