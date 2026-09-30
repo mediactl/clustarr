@@ -578,6 +578,14 @@ spec:
                     description: InCinemas is the theatrical release date.
                     format: date-time
                     type: string
+                  language:
+                    description: |-
+                      Language is the BCP-47 language the metadata was fetched in (the
+                      MetadataProvider's spec.language, "en" by default): the language of
+                      Title and Overview. The Plex provider answers a request naming no
+                      language as though it named this one.
+                    maxLength: 35
+                    type: string
                   originalGenres:
                     description: |-
                       OriginalGenres are Genres in the film's original language, in the

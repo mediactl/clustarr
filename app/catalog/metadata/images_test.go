@@ -124,3 +124,15 @@ func TestDocumentsCarryTheChosenCertificationsCountry(t *testing.T) {
 	require.NotNil(t, sr.CertificationCountry)
 	assert.Equal(t, "US", *sr.CertificationCountry)
 }
+
+// The gateway records the language each document was fetched in, which the
+// Plex provider answers a request naming no language in.
+func TestDocumentsCarryTheLanguageTheyWereFetchedIn(t *testing.T) {
+	mv := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Weekend", Language: "de"}, nil, time.Now())
+	require.NotNil(t, mv.Language)
+	assert.Equal(t, "de", *mv.Language)
+
+	sr := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Firefly", Language: "en"}, nil, time.Now())
+	require.NotNil(t, sr.Language)
+	assert.Equal(t, "en", *sr.Language)
+}

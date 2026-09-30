@@ -145,7 +145,7 @@ func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 		}
 		md.StudioTags = tags(meta.Studios)
 		md.Country = tags(meta.Countries)
-		if u.loc.wantsOriginal(meta.OriginalLanguage) {
+		if u.loc.wantsOriginal(meta.OriginalLanguage, meta.Language) {
 			// Asked in another language than the film's own (spec
 			// 2026-09-30 §5.3): its original title, genres and images.
 			md.OriginalTitle = meta.OriginalTitle
@@ -226,7 +226,7 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 		}
 		md.StudioTags = tags(meta.Studios)
 		md.Country = tags(meta.Countries)
-		if u.loc.wantsOriginal(meta.OriginalLanguage) {
+		if u.loc.wantsOriginal(meta.OriginalLanguage, meta.Language) {
 			md.Genre = withOriginalTags(md.Genre, meta.OriginalGenres)
 			md.OriginalImage = originalImages(u, meta.Images, meta.OriginalLanguage, meta.Title)
 		}

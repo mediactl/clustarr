@@ -236,6 +236,7 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 	}
 
 	m := mapMovie(d, region)
+	m.Language = c.baseLanguage()
 	if d.OriginalLanguage != "" && d.OriginalLanguage != base {
 		c.addOriginalLanguage(ctx, id, d.OriginalLanguage, m)
 	}

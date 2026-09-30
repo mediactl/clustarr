@@ -332,6 +332,7 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 		Overview:         overview,
 		Status:           mapSeriesStatus(raw.Data.Status.Name),
 		OriginalLanguage: originalLanguage(raw.Data.OriginalLanguage),
+		Language:         originalLanguage(c.titleLang()),
 		AirTime:          raw.Data.AirsTime,
 		Runtime:          raw.Data.AverageRuntime,
 	}

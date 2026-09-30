@@ -67,6 +67,7 @@ func TestSeriesMapsTheFullMetadataFields(t *testing.T) {
 	assert.Equal(t, []metadata.Certification{{Country: "US", Rating: "TV-PG"}}, s.Certifications)
 	assert.Equal(t, "TV-PG", s.Certification)
 	assert.Equal(t, "US", s.CertificationCountry)
+	assert.Equal(t, "en", s.Language, "the language the titles were fetched in, as BCP-47")
 
 	var cast []metadata.Person
 	for _, p := range s.People {

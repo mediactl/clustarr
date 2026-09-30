@@ -540,6 +540,14 @@ spec:
                       type: object
                     maxItems: 50
                     type: array
+                  language:
+                    description: |-
+                      Language is the BCP-47 language the metadata was fetched in (the
+                      MetadataProvider's spec.language, "en" by default): the language of
+                      Title and Overview. The Plex provider answers a request naming no
+                      language as though it named this one.
+                    maxLength: 35
+                    type: string
                   network:
                     description: Network is the broadcaster or streaming service.
                     type: string

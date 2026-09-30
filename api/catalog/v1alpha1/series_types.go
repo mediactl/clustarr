@@ -192,6 +192,14 @@ type SeriesMetadata struct {
 	// +optional
 	Certification string `json:"certification,omitempty"`
 
+	// Language is the BCP-47 language the metadata was fetched in (the
+	// MetadataProvider's spec.language, "en" by default): the language of
+	// Title and Overview. The Plex provider answers a request naming no
+	// language as though it named this one.
+	// +optional
+	// +kubebuilder:validation:MaxLength=35
+	Language string `json:"language,omitempty"`
+
 	// CertificationCountry is the ISO 3166-1 alpha-2 country Certification
 	// was chosen from (the region's, else the origin's, else the US), which
 	// the Plex provider prefixes the rating with outside the US.

@@ -105,9 +105,15 @@ func prefixed(c catalogv1.Certification) string {
 
 // wantsOriginal reports whether the request is in a language other than
 // the item's original one, so the original-language fields are due. A
-// request without a language is taken as English, the gateway's default.
-func (loc locale) wantsOriginal(originalLanguage string) bool {
+// request naming no language is answered as the document was written, in
+// documentLanguage -- the language the gateway fetched it in, the
+// MetadataProvider's spec.language (spec 2026-09-30 §5.3) -- and a document
+// from before the gateway recorded it counts as English, its default.
+func (loc locale) wantsOriginal(originalLanguage, documentLanguage string) bool {
 	lang := loc.Language
+	if lang == "" {
+		lang = documentLanguage
+	}
 	if lang == "" {
 		lang = "en"
 	}

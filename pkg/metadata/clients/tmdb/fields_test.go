@@ -98,6 +98,7 @@ func TestWeekendGetsItsCertification(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "18", m.Certification, "no region: the origin country's rating")
 	assert.Equal(t, "GB", m.CertificationCountry, "the chosen rating's own country, which Plex's contentRating prefixes")
+	assert.Equal(t, "en", m.Language, "the language the document was fetched in")
 	assert.Contains(t, m.Certifications, metadata.Certification{Country: "GB", Rating: "18"})
 	assert.Contains(t, m.Certifications, metadata.Certification{Country: "US", Rating: "NR"})
 

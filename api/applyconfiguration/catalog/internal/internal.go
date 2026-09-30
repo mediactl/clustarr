@@ -2507,6 +2507,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: inCinemas
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: language
+      type:
+        scalar: string
     - name: originalGenres
       type:
         list:
@@ -3693,6 +3696,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
           elementRelationship: atomic
+    - name: language
+      type:
+        scalar: string
     - name: network
       type:
         scalar: string

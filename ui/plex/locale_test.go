@@ -60,3 +60,14 @@ func TestLocaleHeaderBeatsQuery(t *testing.T) {
 
 	assert.Equal(t, locale{}, localeOf(httptest.NewRequest("GET", "/x", nil)))
 }
+
+// A request with no language is answered as the document was written: in
+// the language the gateway fetched it in (spec 2026-09-30 §5.3, "as for
+// spec.language"), not in English.
+func TestWantsOriginalTakesTheDocumentsLanguageWhenPlexNamesNone(t *testing.T) {
+	assert.True(t, locale{}.wantsOriginal("en", "de"), "a German install asked in nothing: the English original is due")
+	assert.False(t, locale{}.wantsOriginal("ja", "ja"), "a Japanese install asked in nothing: the document is already original")
+	assert.True(t, locale{}.wantsOriginal("ja", ""), "a document from before the gateway recorded its language: English")
+	assert.False(t, locale{Language: "ja"}.wantsOriginal("ja", "en"), "the request's own language wins")
+	assert.False(t, locale{}.wantsOriginal("", "de"), "no original language: nothing to add")
+}

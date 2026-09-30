@@ -245,6 +245,7 @@ type Movie struct {
 	Ratings Ratings  `json:"ratings,omitempty"`
 
 	Certification        string        `json:"certification,omitempty"`
+	Language             string        `json:"language,omitempty"`             // BCP-47, the language Title and Overview were fetched in
 	CertificationCountry string        `json:"certificationCountry,omitempty"` // the country Certification was chosen from
 	ReleaseDates         []ReleaseDate `json:"releaseDates,omitempty"`
 
@@ -346,6 +347,7 @@ type Series struct {
 
 	Genres               []string `json:"genres,omitempty"`
 	Certification        string   `json:"certification,omitempty"`
+	Language             string   `json:"language,omitempty"`             // BCP-47, the language Title and Overview were fetched in
 	CertificationCountry string   `json:"certificationCountry,omitempty"` // the country Certification was chosen from
 	Ratings              Ratings  `json:"ratings,omitempty"`
 

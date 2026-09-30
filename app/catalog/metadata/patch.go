@@ -112,6 +112,7 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 		WithOverview(m.Overview).
 		WithCertification(m.Certification).
 		WithCertificationCountry(m.CertificationCountry).
+		WithLanguage(m.Language).
 		WithYear(m.Year).
 		WithSecondaryYear(m.SecondaryYear).
 		WithRuntimeMinutes(m.Runtime).
@@ -204,6 +205,7 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 		WithOverview(s.Overview).
 		WithCertification(s.Certification).
 		WithCertificationCountry(s.CertificationCountry).
+		WithLanguage(s.Language).
 		WithOriginalLanguage(s.OriginalLanguage).
 		WithYear(s.Year).
 		WithRuntimeMinutes(s.Runtime).
