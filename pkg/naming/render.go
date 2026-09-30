@@ -225,17 +225,19 @@ var tokenFuncs = map[string]tokenEntry{
 	"mediainfo videodynamicrangetype": {fn: videoDynamicRangeType},
 	"edition tags":                    {fn: func(c Context, _, _ int) string { return c.Edition }},
 	"custom formats":                  {fn: func(c Context, _, _ int) string { return strings.Join(c.CustomFormats, " ") }},
-	"series cleantitlewithoutyear":    {fn: func(c Context, _, _ int) string { return cleanTitle(c.SeriesTitle) }, colonSensitive: true},
+	"series cleantitlewithoutyear":    {fn: func(c Context, _, _ int) string { return cleanTitle(withoutYear(c.SeriesTitle)) }, colonSensitive: true},
 	// Sonarr's {Series Title} and {Series TitleWithoutYear}: the title as the
 	// metadata provider spells it, apostrophes included ("Bob's Burgers"). The
 	// series folder and episode file presets use TitleWithoutYear, so a new
 	// show keeps its apostrophes on disk -- a deliberate departure, at the
 	// project owner's request (2026-09-23), from TRaSH's recommended
 	// {Series CleanTitleWithoutYear} (docs/research/naming.md), which strips
-	// them. CleanTitle stays available for anyone who wants that. SeriesTitle
-	// carries no year, so the two render the same.
+	// them. CleanTitle stays available for anyone who wants that. The
+	// WithoutYear tokens strip a trailing "(YYYY)", as Sonarr's do: TVDB
+	// titles a show sharing its name with another "Bluey (2018)", and the
+	// templates append {(Series Year)} themselves (2026-09-30).
 	"series title":            {fn: func(c Context, _, _ int) string { return c.SeriesTitle }, colonSensitive: true},
-	"series titlewithoutyear": {fn: func(c Context, _, _ int) string { return c.SeriesTitle }, colonSensitive: true},
+	"series titlewithoutyear": {fn: func(c Context, _, _ int) string { return withoutYear(c.SeriesTitle) }, colonSensitive: true},
 	"series year":             {fn: func(c Context, _, _ int) string { return yearString(c.SeriesYear) }},
 	"tvdbid":                  {fn: func(c Context, _, _ int) string { return c.TvdbID }},
 	"air-date": {fn: func(c Context, _, _ int) string {
@@ -419,4 +421,13 @@ func joinNonEmpty(sep string, parts ...string) string {
 		}
 	}
 	return strings.Join(kept, sep)
+}
+
+// trailingYear is a provider's disambiguating year at the end of a title:
+// "Bluey (2018)".
+var trailingYear = regexp.MustCompile(`\s*\(\d{4}\)$`)
+
+// withoutYear is title without a trailing "(YYYY)".
+func withoutYear(title string) string {
+	return trailingYear.ReplaceAllString(title, "")
 }

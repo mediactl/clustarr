@@ -289,3 +289,30 @@ func TestSeriesFolderKeepsApostrophes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Bobs Burgers", clean)
 }
+
+// TVDB titles a show that shares its name with another by appending the
+// year ("Bluey (2018)"), and the templates append {(Series Year)} too, so
+// the owner's library would have been renamed to "Bluey 2018 (2018) -
+// S03E09". Sonarr's TitleWithoutYear tokens strip a trailing "(YYYY)";
+// {Series Title} keeps the provider's spelling.
+func TestSeriesTitleWithoutYearStripsTheProvidersYear(t *testing.T) {
+	e := naming.NewEngine(naming.Config{Dialect: naming.DialectPlex})
+	c := naming.Context{SeriesTitle: "Bluey (2018)", SeriesYear: 2018, TvdbID: "353546"}
+	for tmpl, want := range map[string]string{
+		"{Series TitleWithoutYear}{ (Series Year)}":      "Bluey (2018)",
+		"{Series CleanTitleWithoutYear}{ (Series Year)}": "Bluey (2018)",
+		"{Series Title}":                                 "Bluey (2018)",
+	} {
+		got, err := e.Render(tmpl, c)
+		require.NoError(t, err)
+		require.Equal(t, want, got, tmpl)
+	}
+	got, err := e.SeriesFolder(c)
+	require.NoError(t, err)
+	require.Equal(t, "Bluey (2018) {tvdb-353546}", got)
+
+	c.SeriesTitle = "1923"
+	got, err = e.Render("{Series TitleWithoutYear}", c)
+	require.NoError(t, err)
+	require.Equal(t, "1923", got, "a title that is a year is not stripped")
+}
