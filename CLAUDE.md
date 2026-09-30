@@ -179,12 +179,20 @@ Skip segments come from TheIntroDB (2026-09-30,
 `docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): a
 probed movie or episode MediaFile whose `status.markers` are due
 (`app/catalog/markers.Due`: never fetched, a new probe hash, Found older
-than 30 days, NotFound than 7, Error than 1) publishes a
+than 30 days, Error than 1, NotFound than 7 the first time, then 30, then
+90 once TheIntroDB has had nothing for 90 days, from
+`status.markers.notFoundSince`) publishes a
 `catalogarr-markers` task from its reconciler; the metadata gateway's
 marker worker asks the keyless `theintrodb` MetadataProvider (a movie by
 TMDB id, an episode by its series' TVDB id, season and episode -- only in
 the aired order TheIntroDB numbers) with the probe's duration and writes
-`status.markers` alone, under `catalogarr-markers`. cluster-plex seeds them
+`status.markers` alone, under `catalogarr-markers`. A series TheIntroDB
+lacks outright (`metadata.ErrNoTitle`, its `"media not found"` as against
+`"... for provided season/episode"`) answers its other episodes without a
+request for 24 hours; a file holding several episodes is not asked. Each
+key's allowance is its own: Secret `apiKey`, plus `apiKeys` one per line,
+spent in order, a spent key resting until its reset; the provider is
+probed every 6 hours, since its probe is a counted lookup. cluster-plex seeds them
 into Plex, with the probe's streams, straight into Plex's database: Plex's
 API can write neither (the spec's §2 is the proof).
 The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex
