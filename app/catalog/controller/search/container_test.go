@@ -228,8 +228,10 @@ func TestWantedChild(t *testing.T) {
 			b.Status.Metadata = &catalogv1alpha1.BookMetadata{ReleaseDate: &metav1.Time{Time: time.Now().Add(30 * 24 * time.Hour)}}
 			return b
 		}(), false},
-		"issue not on sale yet": {&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
-			Status: catalogv1alpha1.IssueStatus{Date: &metav1.Time{Time: time.Now().Add(24 * time.Hour)}}}, false},
+		"issue not on sale yet": {&catalogv1alpha1.Issue{
+			Spec:   catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Status: catalogv1alpha1.IssueStatus{Date: &metav1.Time{Time: time.Now().Add(24 * time.Hour)}},
+		}, false},
 		"issue at cutoff": {&catalogv1alpha1.Issue{
 			Spec:   catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
 			Status: catalogv1alpha1.IssueStatus{HasFile: true, CutoffMet: true},
