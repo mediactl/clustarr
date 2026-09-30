@@ -48,6 +48,24 @@ A transcoded media file should be the final destination. If we detect a transcod
 
 The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag), or a transcode squasharr did not make: `status.mediaInfo.videoEncoder` naming an ffmpeg HEVC or AV1 encoder (`commonv1.MediaInfo.TranscodedElsewhere`; Tdarr's `Lavc… hevc_qsv` on the owner's library, 2026-09-29) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every automatic upgrade of it as `TranscodedFinal` (spec §4.2), and squasharr never queues it again. A probe that learns a new field raises `mediainfo.ProbeVersion`, which re-probes every file once through `status.probeVersion` -- never by changing `probeHash`, which captionarr and squasharr read as the file's identity.
 
+Backlogs are not an object per file (2026-09-30,
+`docs/superpowers/specs/2026-09-30-backlog-windowing-and-encoder-limits-design.md`):
+a TranscodeProfile keeps at most `--job-window` (32) non-terminal
+TranscodeJobs, the next matching files by name, and retires a Succeeded job
+after `--job-retention` (24h) once its MediaFile was re-probed (catalogarr
+reads the Succeeded job to incorporate the swap, so it must outlive that);
+a SubtitleRequest exists only for a probed file a subtitle may be wanted for
+(`subtitlerequest.MayWant`, the request controller's own planner on the
+tagged audio). Plans honour the encoding device's own limits: a pool worker
+measures its encoder by trial encodes (`transcode.ProbeLimits`; hevc_nvenc
+names its maximum B-frames and clips its lookahead), plans
+min(profile, limit) with each clamp in the Planned message, and publishes
+the node's limits to `clustarr-progress` `encoder-limits.<class>`, which the
+controller plans with and TranscodeProfile `status.encoderLimits` shows.
+NVENC caps its bitrate at `video.nvenc.maxBitratePercent` (70) of the
+source's, read from the probe summary's `videoBitrateKbps` (mkvmerge's BPS
+tag for Matroska).
+
 ## UI
 
 The library's media types -- Movies, TV, Music, Books -- are the Library
