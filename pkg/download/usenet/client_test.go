@@ -255,6 +255,41 @@ func TestRetryPassRecoversAnArticleThatWasMissingAtFirst(t *testing.T) {
 	require.Equal(t, bytes.Join(parts, nil), got, "the recovered article lands at its offset")
 }
 
+// The retry pass is for the few articles a release that is otherwise there
+// lacks. A release not one of whose articles arrived has been taken down
+// (both Godfather Part II releases on frugal, 2026-09-30: 100% 430 on the
+// main and bonus servers), and the pass spent three minutes on one
+// connection asking again before the job failed. So every article here is
+// missing once -- a gap the pass would close -- and the job fails anyway.
+func TestNoRetryPassWhenNoArticleArrived(t *testing.T) {
+	srv := newStubServer(t)
+	var parts [][]byte
+	for i := range 8 {
+		parts = append(parts, partPayload(byte(i+1), 400))
+	}
+	nzb := buildNZB(t, srv, "Taken.Down", []fileSpec{{name: "movie.mkv", parts: parts}})
+	for i := range parts {
+		srv.refuseTimes[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 1
+	}
+	// The first article is asked twice in the first pass, by the
+	// first-article sweep and again by its batch.
+	srv.refuseTimes["f0-p0@clustarr.test"] = 2
+
+	c, _, _ := newTestClient(t, Config{
+		Providers:    []Provider{srv.provider("solo", 2, 1)},
+		HealthAction: downloadv1alpha1.HealthActionDelete,
+	})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Taken.Down", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusFailed, it.Status, "message: %s", it.Message)
+	require.Equal(t, downloadv1alpha1.DownloadFailureMissingArticles, it.FailureReason)
+	for i := range parts {
+		require.Zero(t, srv.servedCount(fmt.Sprintf("f0-p%d@clustarr.test", i)), "article %d was asked for again", i)
+	}
+}
+
 // A few missing articles are tolerated as SABnzbd does -- but bare content
 // with holes must not be published as whole: with no par2 and no archive
 // to judge it, the job stops at post-processing for the operator.

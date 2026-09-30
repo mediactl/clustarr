@@ -321,6 +321,18 @@ func (j *job) retryFailed(ctx context.Context) error {
 	type seg struct{ fi, si int }
 	var failed []seg
 	j.mu.Lock()
+	arrived := 0
+	for _, b := range j.done {
+		arrived += b.count()
+	}
+	if arrived == 0 {
+		// Not one article of the release arrived: it has been taken down,
+		// not caught in a gap, and asking again only delays the verdict
+		// (three minutes on one connection for a 28 GB release, 2026-09-30).
+		// A post too new to have propagated is waitForPropagation's case.
+		j.mu.Unlock()
+		return nil
+	}
 	for fi, b := range j.failedSegs {
 		for si := range j.nzb.Files[fi].Segments {
 			if b.has(si) {
