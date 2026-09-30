@@ -499,6 +499,25 @@ func TestBuildBookMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
 	require.Len(t, ac.Editions, 100, "BookMetadata.Editions: +kubebuilder:validation:MaxItems=100")
 }
 
+// TestBuildBookMetadataACTitleCasesEnglishTitles: Open Library catalogues
+// many works in sentence or lower case ("The eternal husband", "My uncle's
+// dream"); an English or untagged book is written in title case, and a
+// book in another language keeps its own capitalisation.
+func TestBuildBookMetadataACTitleCasesEnglishTitles(t *testing.T) {
+	for _, tc := range []struct {
+		title     string
+		languages []string
+		want      string
+	}{
+		{"The eternal husband", nil, "The Eternal Husband"},
+		{"notes from the underground", []string{"en", "fr"}, "Notes from the Underground"},
+		{"beyaz geceler", []string{"tr"}, "beyaz geceler"},
+	} {
+		ac := buildBookMetadataAC(&pkgmetadata.Book{Title: tc.title, Languages: tc.languages}, time.Now())
+		require.Equal(t, tc.want, *ac.Title, "title %q, languages %v", tc.title, tc.languages)
+	}
+}
+
 func TestBuildAudiobookMetadataACMapsFields(t *testing.T) {
 	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 	releaseDate := time.Date(2020, 3, 24, 0, 0, 0, 0, time.UTC)

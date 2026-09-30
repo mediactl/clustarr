@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metadata
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -27,6 +28,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/textcase"
 )
 
 // mapImageType maps pkg/metadata's image roles onto catalog.clustarr.io's
@@ -416,6 +418,19 @@ func buildAuthorMetadataAC(a *pkgmetadata.Author, now time.Time) *catalogac.Auth
 	return ac
 }
 
+// bookTitle is b's title in English title case (textcase.Title) when the
+// book is English or carries no language, and as catalogued otherwise:
+// Open Library holds many works in sentence or lower case ("The eternal
+// husband"), and other languages capitalise by rules of their own. It is
+// applied here, on every render, so an answer already in the metadata
+// cache is cased too; a Book's name is its work id, so nothing is renamed.
+func bookTitle(b *pkgmetadata.Book) string {
+	if len(b.Languages) > 0 && !slices.Contains(b.Languages, "en") {
+		return b.Title
+	}
+	return textcase.Title(b.Title)
+}
+
 // buildBookMetadataAC maps a fetched provider Book onto BookStatus.metadata.
 // See buildAlbumMetadataAC's doc comment for the field-manager split this
 // shares with Album. pkg/metadata.Book carries no top-level Subtitle or
@@ -426,7 +441,7 @@ func buildAuthorMetadataAC(a *pkgmetadata.Author, now time.Time) *catalogac.Auth
 // Books() listing entry carries none.
 func buildBookMetadataAC(b *pkgmetadata.Book, now time.Time) *catalogac.BookMetadataApplyConfiguration {
 	ac := catalogac.BookMetadata().
-		WithTitle(b.Title).
+		WithTitle(bookTitle(b)).
 		WithOverview(b.Overview).
 		WithExternalIDs(b.IDs).
 		WithRefreshedAt(metav1.NewTime(now))

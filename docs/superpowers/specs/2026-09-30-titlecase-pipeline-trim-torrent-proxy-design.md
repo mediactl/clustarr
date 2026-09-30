@@ -10,7 +10,8 @@ of the owner's proxy.
 - the first word, the last word and the first word after `:`, `—`, `–` or
   ` - ` are capitalised;
 - articles, short conjunctions and short prepositions (a, an, the, and, but,
-  or, nor, for, as, at, by, in, of, on, to, up, via, vs, v) are lowercased
+  or, nor, for, so, yet, as, at, by, in, of, off, on, per, to, via, vs, from,
+  into, onto, upon, with, than) are lowercased
   anywhere else, even when the source capitalised them ("The Lock And Key" →
   "The Lock and Key");
 - a word with a capital after its first letter (NASA, McCarthy, iPhone) or a
