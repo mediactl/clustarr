@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -78,6 +79,12 @@ func TestATranscodedFileIsRenamedInItsOwnFolder(t *testing.T) {
 		"Bluey (2018) - S03E09 - Curry Quest [WEBDL-1080p]-NTb.mkv", true)
 	untouched := file("s03e20", "Bluey (2018) - S03E20 - Driving [WEBDL-1080p][EAC3 5.1][h264]-NTb.mkv",
 		"Bluey (2018) - S03E20 - Driving [WEBDL-1080p]-NTb.mkv", false)
+	// A transcoded file whose status.transcode was cleared (a rename read as
+	// a change of its bytes, before bytesChanged) still reads spec.original
+	// false, which catalogarr sets at the swap and never resets.
+	lostRecord := file("s03e21", "Bluey (2018) - S03E21 - Bob Bilby [WEBDL-1080p][EAC3 5.1][h264]-NTb.mkv",
+		"Bluey (2018) - S03E21 - Bob Bilby [WEBDL-1080p]-NTb.mkv", false)
+	lostRecord.Spec.Original = ptr.To(false)
 
 	root := &catalogv1alpha1.RootFolder{
 		ObjectMeta: metav1.ObjectMeta{Name: "tv", Namespace: "media"},
@@ -95,10 +102,10 @@ func TestATranscodedFileIsRenamedInItsOwnFolder(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
 		WithStatusSubresource(&catalogv1alpha1.MediaFile{}).
-		WithObjects(root, series, ep("s03e09"), ep("s03e20"), done, untouched).Build()
+		WithObjects(root, series, ep("s03e09"), ep("s03e20"), ep("s03e21"), done, untouched, lostRecord).Build()
 	r := &Reconciler{Client: c, APIReader: c}
 
-	for _, name := range []string{"s03e09", "s03e20"} {
+	for _, name := range []string{"s03e09", "s03e20", "s03e21"} {
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "media", Name: name}})
 		require.NoError(t, err)
 	}
@@ -106,6 +113,8 @@ func TestATranscodedFileIsRenamedInItsOwnFolder(t *testing.T) {
 		"the transcoded file carries its canonical name, in Season 3")
 	assert.NoFileExists(t, done.Spec.Path)
 	assert.FileExists(t, untouched.Spec.Path, "a file nobody transcoded keeps its name")
+	assert.FileExists(t, filepath.Join(season, "Bluey (2018) - S03E21 - Bob Bilby [WEBDL-1080p]-NTb.mkv"),
+		"spec.original false is a transcode too")
 }
 
 // A finished transcode wakes the rename: with a template that names no

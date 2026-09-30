@@ -205,10 +205,17 @@ func (r *Reconciler) renameMode(ctx context.Context, mf *catalogv1alpha1.MediaFi
 	return roots.Items, modeOf(roots.Items[i]), nil
 }
 
-// transcodedHere reports whether squasharr transcoded mf: catalogarr
-// records the swap's profile tag in status.transcode (status.mediaInfo,
-// which also carries it, is stripped from this controller's cache).
+// transcodedHere reports whether squasharr transcoded mf: spec.original is
+// false -- catalogarr sets it when it incorporates a swap and never resets
+// it -- or status.transcode records the swap's profile tag.
+// (status.mediaInfo, which carries the tag too, is stripped from this
+// controller's cache.) spec.original comes first because status.transcode
+// can be cleared while the file stays a transcode: a rename read as a
+// change of its bytes did that before catalogarr's bytesChanged.
 func transcodedHere(mf *catalogv1alpha1.MediaFile) bool {
+	if mf.Spec.Original != nil && !*mf.Spec.Original {
+		return true
+	}
 	return mf.Status.Transcode != nil && mf.Status.Transcode.ProfileTag != ""
 }
 
