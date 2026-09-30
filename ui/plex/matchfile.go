@@ -135,3 +135,16 @@ func episodeByFile(idx *projection.Index, req matchRequest) (*catalogv1.Series, 
 	}
 	return nil, nil, false
 }
+
+// leadWith puts first at the head of rest, dropping it from rest: a manual
+// match (Plex's "Fix Match") lists the file's item first and the title
+// search's other candidates after it.
+func leadWith[T interface{ GetUID() types.UID }](first T, rest []T) []T {
+	out := []T{first}
+	for _, r := range rest {
+		if r.GetUID() != first.GetUID() {
+			out = append(out, r)
+		}
+	}
+	return out
+}

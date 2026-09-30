@@ -207,3 +207,86 @@ func TestMatchShowSeasonEpisodeByFile(t *testing.T) {
 	})
 	require.Equal(t, []string{string(episodes[0].UID)}, matchedRatingKeys(t, rec.Body.Bytes()), "the file's only episode")
 }
+
+// TestMatchByFileNeverPicksBetweenTwoItems: the same relative path backs a
+// different item under each of two RootFolders. Rule 0 must answer nothing,
+// so a title that matches neither returns nothing -- preferring either file
+// would return an item.
+func TestMatchByFileNeverPicksBetweenTwoItems(t *testing.T) {
+	orig, remake := fixtureMovie(), fixtureMovieRemake()
+	rel := movieRel(t, remake)
+	series, episodes := fixtureSeriesAndEpisodes()
+	other := series.DeepCopy()
+	other.Name, other.UID = "harborview-2", "55555555-5555-5555-5555-555555555555"
+	otherEp := episodes[0].DeepCopy()
+	otherEp.Name, otherEp.UID = "harborview-2-s01e01", "66666666-6666-6666-6666-666666666666"
+	otherEp.OwnerReferences[0].Name, otherEp.OwnerReferences[0].UID = other.Name, other.UID
+	epRel := episodeRel(t, series, 1, 1)
+
+	objs := []client.Object{
+		orig, remake, series, other, otherEp,
+		mediaFile("a", commonv1.MediaKindMovie, orig.Name, "/data/media/movies/"+rel),
+		mediaFile("b", commonv1.MediaKindMovie, remake.Name, "/data/media/movies-4k/"+rel),
+		mediaFile("c", commonv1.MediaKindEpisode, episodes[0].Name, "/data/media/tv/"+epRel),
+		mediaFile("d", commonv1.MediaKindEpisode, otherEp.Name, "/data/media/tv-4k/"+epRel),
+	}
+	for _, e := range episodes {
+		objs = append(objs, e)
+	}
+	h := newTestHandler(t, externalURLFixture, objs...)
+
+	rec := postJSON(t, h, "/plex/movies/library/metadata/matches", map[string]any{
+		"type": 1, "title": "Nothing Like This", "filename": rel,
+	})
+	require.Empty(t, matchedRatingKeys(t, rec.Body.Bytes()), "two movies share the path")
+	rec = postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{
+		"type": 2, "title": "Nothing Like This", "filename": epRel,
+	})
+	require.Empty(t, matchedRatingKeys(t, rec.Body.Bytes()), "two series share the path")
+}
+
+// TestAnEpisodeFileNeverAnswersAMovieRequest: a Movie and an Episode share
+// a name, so without the kind filter the episode's file would resolve to
+// the movie.
+func TestAnEpisodeFileNeverAnswersAMovieRequest(t *testing.T) {
+	m := fixtureMovie()
+	series, episodes := fixtureSeriesAndEpisodes()
+	ep := episodes[0].DeepCopy()
+	ep.Name = m.Name
+	objs := []client.Object{
+		m, series, ep,
+		mediaFile("ep", commonv1.MediaKindEpisode, ep.Name, "/data/media/tv/Show/Season 01/x.mkv"),
+	}
+	h := newTestHandler(t, externalURLFixture, objs...)
+	rec := postJSON(t, h, "/plex/movies/library/metadata/matches", map[string]any{
+		"type": 1, "title": "Nothing Like This", "filename": "Show/Season 01/x.mkv",
+	})
+	require.Empty(t, matchedRatingKeys(t, rec.Body.Bytes()))
+}
+
+// TestFixMatchListsTheFilesItemFirstAndStillSearchesTheTitle: Plex's "Fix
+// Match" (manual=1) is how a user overrides a match, so the file's item
+// leads the list but the title search still offers the others.
+func TestFixMatchListsTheFilesItemFirstAndStillSearchesTheTitle(t *testing.T) {
+	orig, remake := fixtureMovie(), fixtureMovieRemake()
+	rel := movieRel(t, remake)
+	h := newTestHandler(t, externalURLFixture, orig, remake,
+		mediaFile("remake-file", commonv1.MediaKindMovie, remake.Name, "/data/media/movies/"+rel))
+	rec := postJSON(t, h, "/plex/movies/library/metadata/matches", map[string]any{
+		"type": 1, "title": "Skyfall Protocol", "filename": rel, "manual": 1,
+	})
+	require.Equal(t, []string{string(remakeMovieUID), string(movieUID)}, matchedRatingKeys(t, rec.Body.Bytes()),
+		"the file's item first, the other title after, no duplicate")
+
+	series, episodes := fixtureSeriesAndEpisodes()
+	epRel := episodeRel(t, series, 1, 1)
+	objs := []client.Object{series, mediaFile("s01e01", commonv1.MediaKindEpisode, episodes[0].Name, "/data/media/tv/"+epRel)}
+	for _, e := range episodes {
+		objs = append(objs, e)
+	}
+	h = newTestHandler(t, externalURLFixture, objs...)
+	rec = postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{
+		"type": 2, "title": "Harborview", "filename": epRel, "manual": 1,
+	})
+	require.Equal(t, []string{string(seriesUID)}, matchedRatingKeys(t, rec.Body.Bytes()), "the same show is not listed twice")
+}

@@ -52,8 +52,11 @@ Rule 0 runs before the guid rule, for every match type.
        request's `parentIndex` and `index`. If none does, it takes the
        file's only Episode when there is exactly one.
 5. **Decide:**
-   - **Exactly one item** is the answer: the single result, whether
-     `manual` is 0 or 1.
+   - **Exactly one item** is the answer: the single result for an
+     automatic match (`manual` 0). For Plex's "Fix Match" (`manual` 1) it
+     leads the list and the title search's other candidates follow it, so a
+     user can still override clustarr's record (amended 2026-09-30 at the
+     final review).
    - **More than one distinct item** is ambiguous, and so is none. Fall
      through to the existing guid and title rules unchanged. Ambiguity can
      come from two RootFolders holding the same relative path, or a suffix

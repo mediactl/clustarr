@@ -97,10 +97,16 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 
 	switch req.Type {
 	case typeMovie:
-		if m, ok := movieByFile(idx, req.Filename); ok {
-			return []Metadata{buildMovieMetadata(root, h.opts.ExternalURL, m)}
+		fileMovie, byFile := movieByFile(idx, req.Filename)
+		if byFile && !manual {
+			return []Metadata{buildMovieMetadata(root, h.opts.ExternalURL, fileMovie)}
 		}
 		movies := matchMovies(idx, req, manual)
+		if byFile {
+			// Fix Match: the file's item leads, the title search still
+			// offers the rest, so a user can override clustarr's record.
+			movies = leadWith(fileMovie, movies)
+		}
 		out := make([]Metadata, len(movies))
 		for i, m := range movies {
 			out[i] = buildMovieMetadata(root, h.opts.ExternalURL, m)
@@ -108,10 +114,14 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		return out
 
 	case typeShow:
-		if s, ok := showByFile(idx, req.Filename); ok {
-			return []Metadata{buildShowMetadata(root, h.opts.ExternalURL, s, idx, includeChildren)}
+		fileShow, byFile := showByFile(idx, req.Filename)
+		if byFile && !manual {
+			return []Metadata{buildShowMetadata(root, h.opts.ExternalURL, fileShow, idx, includeChildren)}
 		}
 		shows := matchShows(idx, req.Title, req.Year, req.Guid, manual, !manual)
+		if byFile {
+			shows = leadWith(fileShow, shows)
+		}
 		out := make([]Metadata, len(shows))
 		for i, s := range shows {
 			out[i] = buildShowMetadata(root, h.opts.ExternalURL, s, idx, includeChildren)
