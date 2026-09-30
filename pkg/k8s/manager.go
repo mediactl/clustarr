@@ -28,6 +28,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -175,6 +176,21 @@ func (o Options) UsesBus() bool { return strings.TrimSpace(o.NATSURL) != "" }
 // fails the readiness probe long before this elapses.
 const CacheSyncTimeout = 10 * time.Minute
 
+// The leader-election lease timings, longer than controller-runtime's
+// 15 s / 10 s / 2 s so a leader rides out an etcd stall instead of exiting.
+// On kind-cluster-plex an image load into the node, which shares a disk with
+// etcd, stalled its WAL fsync for up to 15 s (2026-09-30); controller-runtime
+// times a lease request out at RenewDeadline/2 -- 5 s by default -- so every
+// leader-elected service lost its lease at once and crash-looped. Renewing
+// within 45 s gives each request 22.5 s. The cost is failover after a leader
+// dies without releasing: up to LeaseDuration. A graceful shutdown releases
+// at once (LeaderElectionReleaseOnCancel).
+const (
+	LeaseDuration = 60 * time.Second
+	RenewDeadline = 45 * time.Second
+	RetryPeriod   = 5 * time.Second
+)
+
 // ManagerOptions renders ctrl.Options for a manager.
 //
 // leaderElectionID is §2's `<service>.clustarr.io`. leaderElect is passed
@@ -204,6 +220,9 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		LeaderElectionID:              leaderElectionID,
 		LeaderElectionNamespace:       o.leaderElectionNamespace(),
 		LeaderElectionReleaseOnCancel: true,
+		LeaseDuration:                 ptr.To(LeaseDuration),
+		RenewDeadline:                 ptr.To(RenewDeadline),
+		RetryPeriod:                   ptr.To(RetryPeriod),
 		GracefulShutdownTimeout:       &shutdown,
 		Controller:                    config.Controller{CacheSyncTimeout: CacheSyncTimeout},
 		// Every cache strips managedFields: on a real library they are a

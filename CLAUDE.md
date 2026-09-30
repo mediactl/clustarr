@@ -604,6 +604,15 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   after a deploy" explanation recorded before was wrong). Look a
   watched object's related objects up through a field index
   (`app/caption/itemindex`), never a filtered namespace List.
+- **On kind, loading an image into the node stalls etcd, and every lease
+  with it.** `kind load docker-image` unpacks gigabytes into the node's
+  containerd store, which shares a disk with etcd; etcd's WAL fsync then
+  took 3-15 s (2026-09-30), kube-controller-manager and kube-scheduler
+  restarted ~50 times, and every leader-elected service exited "leader
+  election lost" (controller-runtime times a lease request out at
+  RenewDeadline/2, 5 s by default). `pkg/k8s.ManagerOptions` sets the lease
+  to 60 s / 45 s / 5 s (`k8s.LeaseDuration`, `RenewDeadline`,
+  `RetryPeriod`), and a deploy loads only images whose inputs changed.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.

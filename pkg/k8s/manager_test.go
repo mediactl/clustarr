@@ -71,6 +71,27 @@ func TestManagerOptionsLeaderElection(t *testing.T) {
 	}
 }
 
+// The lease rides out an etcd stall. On kind-cluster-plex an image load
+// into the node stalled etcd's WAL fsync for up to 15 s (2026-09-30), and
+// with controller-runtime's defaults (renew 10 s, so a 5 s request timeout)
+// every leader-elected service lost its lease and exited. controller-runtime
+// derives the lease request timeout as RenewDeadline/2.
+func TestManagerOptionsLeaseRidesOutAnEtcdStall(t *testing.T) {
+	opts := DefaultOptions().ManagerOptions("catalogarr.clustarr.io", true)
+	if opts.LeaseDuration == nil || opts.RenewDeadline == nil || opts.RetryPeriod == nil {
+		t.Fatal("the lease timings are left at controller-runtime's defaults")
+	}
+	if *opts.LeaseDuration != LeaseDuration || *opts.RenewDeadline != RenewDeadline || *opts.RetryPeriod != RetryPeriod {
+		t.Errorf("lease %v renew %v retry %v", *opts.LeaseDuration, *opts.RenewDeadline, *opts.RetryPeriod)
+	}
+	if *opts.RenewDeadline/2 < 20*time.Second {
+		t.Errorf("a lease request times out after %v, inside a measured 15 s etcd stall plus margin", *opts.RenewDeadline/2)
+	}
+	if !(*opts.RetryPeriod < *opts.RenewDeadline && *opts.RenewDeadline < *opts.LeaseDuration) {
+		t.Error("client-go needs retry < renew deadline < lease duration")
+	}
+}
+
 func TestManagerOptionsLeaderElectionNamespaceOverride(t *testing.T) {
 	o := DefaultOptions()
 	o.Namespace = "pod-namespace"
