@@ -107,4 +107,17 @@ func TestEnsureSingleNodeTopologyFitsTheKindServersLimits(t *testing.T) {
 	if got := status.(*jetstream.ObjectBucketStatus).StreamInfo().Config.MaxBytes; got != events.ArtworkMaxBytes {
 		t.Fatalf("artwork object store MaxBytes = %d, want %d", got, events.ArtworkMaxBytes)
 	}
+
+	// So did the extended metadata bucket, which must survive a restart.
+	kv, err := bus.JetStream().KeyValue(ctx, events.BucketMetadataExtended)
+	if err != nil {
+		t.Fatalf("bucket %s: %v", events.BucketMetadataExtended, err)
+	}
+	kvStatus, err := kv.Status(ctx)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if got := kvStatus.(*jetstream.KeyValueBucketStatus).StreamInfo().Config.Storage; got != jetstream.FileStorage {
+		t.Fatalf("%s storage = %v, want file", events.BucketMetadataExtended, got)
+	}
 }

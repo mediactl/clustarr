@@ -109,6 +109,21 @@ func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
 	}
 }
 
+// The extended metadata bucket stays on file storage on a single node: its
+// documents are rebuilt only at each item's next refresh, weeks apart, so a
+// memory bucket loses every item's people with any NATS restart, and it has
+// no TTL to keep it inside the shared memory store.
+func TestForSingleNodeKeepsDurableBucketsOnFile(t *testing.T) {
+	for _, b := range Default().ForSingleNode().Buckets {
+		want := StorageMemory
+		if b.Name == BucketMetadataExtended {
+			want = StorageFile
+		}
+		assert.Equal(t, want, b.Storage, "bucket %s storage on a single node", b.Name)
+		assert.Equal(t, 1, b.Replicas, "bucket %s replicas", b.Name)
+	}
+}
+
 // Scaling must keep the relative sizing the production topology chose rather
 // than flattening every stream to one cap.
 func TestForSingleNodeKeepsRelativeStreamSizing(t *testing.T) {

@@ -158,6 +158,11 @@ type BucketSpec struct {
 	// LimitMarkerTTL is how long tombstones for TTL-expired keys are kept.
 	// A non-zero value is required for per-key TTL (KV WithTTL) to work.
 	LimitMarkerTTL time.Duration
+
+	// Durable keeps the bucket on file storage in ForSingleNode. It is for a
+	// bucket whose contents are not rebuilt soon after a NATS restart and
+	// that has no TTL bounding it inside the memory store.
+	Durable bool
 }
 
 // ObjectStoreSpec is the declarative configuration of one object-store
@@ -225,7 +230,7 @@ const singleNodeMemoryBudget = 64 * MiB
 
 // ForSingleNode returns a copy of t with one replica per stream, bucket and
 // object store, and memory storage for the streams and buckets; object
-// stores stay on file storage (see the loop below). It is what tests and
+// stores and Durable buckets stay on file storage (see the loops below). It is what tests and
 // single-node dev clusters apply; production applies Default unchanged.
 //
 // Stream MaxBytes is scaled to fit singleNodeMemoryBudget, keeping the
@@ -243,7 +248,9 @@ func (t Topology) ForSingleNode() Topology {
 	scaleToBudget(out.Streams, singleNodeMemoryBudget, singleNodeMinStreamBytes)
 	for i := range out.Buckets {
 		out.Buckets[i].Replicas = 1
-		out.Buckets[i].Storage = StorageMemory
+		if !out.Buckets[i].Durable {
+			out.Buckets[i].Storage = StorageMemory
+		}
 	}
 	// Object stores keep their file storage: the artwork bucket reserves
 	// 5 GiB (ArtworkMaxBytes), which no single node's memory store holds --
@@ -802,6 +809,10 @@ func defaultBuckets() []BucketSpec {
 			LimitMarkerTTL: marker,
 		}
 	}
+	durable := func(s BucketSpec) BucketSpec {
+		s.Durable = true
+		return s
+	}
 	return []BucketSpec{
 		b(BucketLeases, 0, "Double-grab guard; keys are created, never put."),
 		b(BucketPending, 7*24*time.Hour, "Best pending candidate per media key."),
@@ -810,7 +821,10 @@ func defaultBuckets() []BucketSpec {
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),
 		b(BucketMetadataCache, 30*24*time.Hour, "L2 metadata cache."),
-		b(BucketMetadataExtended, 0, "People and similar titles per catalog item, for the Plex provider."),
+		// Durable: a document is rebuilt only at its item's next refresh,
+		// weeks apart, so a memory bucket on a single node would lose every
+		// item's people with each NATS restart.
+		durable(b(BucketMetadataExtended, 0, "People and similar titles per catalog item, for the Plex provider.")),
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
 		b(BucketTranscodeLeases, TranscodeLeaseTTL,
 			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; squasharr writes cancel markers."),
