@@ -44,6 +44,15 @@ func fetched(result catalogv1alpha1.MarkersResult, hash string, ago time.Duratio
 	return &catalogv1alpha1.FileMarkers{Result: result, ForProbeHash: hash, FetchedAt: metav1.NewTime(now.Add(-ago))}
 }
 
+// notFound is a NotFound fetched ago, when TheIntroDB had had nothing for
+// missing already.
+func notFound(missing, ago time.Duration, now time.Time) *catalogv1alpha1.FileMarkers {
+	m := fetched(catalogv1alpha1.MarkersNotFound, "hash-1", ago, now)
+	since := metav1.NewTime(m.FetchedAt.Add(-missing))
+	m.NotFoundSince = &since
+	return m
+}
+
 func TestDue(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	day := 24 * time.Hour
@@ -62,6 +71,11 @@ func TestDue(t *testing.T) {
 		{"found 30 days ago", file(commonv1.MediaKindMovie, true, fetched(catalogv1alpha1.MarkersFound, "hash-1", 30*day, now)), true, 0},
 		{"not found 6 days ago", file(commonv1.MediaKindEpisode, true, fetched(catalogv1alpha1.MarkersNotFound, "hash-1", 6*day, now)), false, day},
 		{"not found 7 days ago", file(commonv1.MediaKindEpisode, true, fetched(catalogv1alpha1.MarkersNotFound, "hash-1", 7*day, now)), true, 0},
+		{"missing a week when last asked: monthly", file(commonv1.MediaKindEpisode, true, notFound(7*day, 29*day, now)), false, day},
+		{"missing a week when last asked, a month ago", file(commonv1.MediaKindEpisode, true, notFound(7*day, 30*day, now)), true, 0},
+		{"missing 89 days when last asked: still monthly", file(commonv1.MediaKindEpisode, true, notFound(89*day, 30*day, now)), true, 0},
+		{"missing 90 days when last asked: quarterly", file(commonv1.MediaKindEpisode, true, notFound(90*day, 30*day, now)), false, 60 * day},
+		{"missing 90 days when last asked, a quarter ago", file(commonv1.MediaKindEpisode, true, notFound(90*day, 90*day, now)), true, 0},
 		{"an error 2 hours ago", file(commonv1.MediaKindEpisode, true, fetched(catalogv1alpha1.MarkersError, "hash-1", 2*time.Hour, now)), false, 22 * time.Hour},
 		{"an error a day ago", file(commonv1.MediaKindEpisode, true, fetched(catalogv1alpha1.MarkersError, "hash-1", day, now)), true, 0},
 	}

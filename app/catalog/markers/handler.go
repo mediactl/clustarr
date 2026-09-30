@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -74,7 +75,18 @@ type Handler struct {
 	// Client.
 	Apply  func(ctx context.Context, ac *catalogac.MediaFileApplyConfiguration) error
 	Client client.Client
+
+	// absent remembers, for SeriesAbsentTTL, each series the provider has
+	// nothing for at all (metadata.ErrNoTitle), keyed by its query id, so
+	// its other episodes are not asked about one by one.
+	mu     sync.Mutex
+	absent map[string]time.Time
 }
+
+// SeriesAbsentTTL is how long a series the provider lacks answers for its
+// other episodes without a request. The gateway runs one replica, and a
+// restart costs one request per series.
+const SeriesAbsentTTL = 24 * time.Hour
 
 // Handle implements events.Handler.
 func (h *Handler) Handle(ctx context.Context, m events.Message) error {
@@ -102,7 +114,14 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	q, err := h.query(ctx, &mf)
 	var segs metadata.Segments
 	if err == nil {
-		segs, err = h.ask(ctx, q)
+		if h.seriesAbsent(q, now) {
+			err = fmt.Errorf("the series is not on TheIntroDB: %w: %w", errNotAsked, metadata.ErrNotFound)
+		} else {
+			segs, err = h.ask(ctx, q)
+			if errors.Is(err, metadata.ErrNoTitle) {
+				h.rememberAbsent(q, now)
+			}
+		}
 	}
 	var rl *metadata.RateLimitedError
 	if errors.As(err, &rl) {
@@ -133,7 +152,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	case err == nil:
 		ac.WithResult(catalogv1alpha1.MarkersFound).WithSegments(segmentACs(segs)...)
 	case errors.Is(err, metadata.ErrNotFound):
-		ac.WithResult(catalogv1alpha1.MarkersNotFound)
+		ac.WithResult(catalogv1alpha1.MarkersNotFound).WithNotFoundSince(metav1.NewTime(notFoundSince(&mf, now)))
 		if errors.Is(err, errNotAsked) { // decided here, so say why
 			ac.WithMessage(clamp(err.Error()))
 		}
@@ -142,6 +161,51 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		ac.WithResult(catalogv1alpha1.MarkersError).WithMessage(clamp(err.Error()))
 	}
 	return h.apply(ctx, catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(catalogac.MediaFileStatus().WithMarkers(ac)))
+}
+
+// notFoundSince is when the provider first had nothing for mf's probe: the
+// last result's, when it was a NotFound for the same probe, else now.
+func notFoundSince(mf *catalogv1alpha1.MediaFile, now time.Time) time.Time {
+	prev := mf.Status.Markers
+	if prev == nil || prev.Result != catalogv1alpha1.MarkersNotFound || prev.ForProbeHash != mf.Status.ProbeHash {
+		return now
+	}
+	if prev.NotFoundSince != nil {
+		return prev.NotFoundSince.Time
+	}
+	return prev.FetchedAt.Time
+}
+
+// seriesKey names an episode query's series; "" for a movie.
+func seriesKey(q metadata.MarkersQuery) string {
+	if q.Season == 0 && q.Episode == 0 {
+		return ""
+	}
+	return metadata.KeyTVDB + ":" + q.IDs[metadata.KeyTVDB]
+}
+
+func (h *Handler) seriesAbsent(q metadata.MarkersQuery, now time.Time) bool {
+	k := seriesKey(q)
+	if k == "" {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	at, ok := h.absent[k]
+	return ok && now.Sub(at) < SeriesAbsentTTL
+}
+
+func (h *Handler) rememberAbsent(q metadata.MarkersQuery, now time.Time) {
+	k := seriesKey(q)
+	if k == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.absent == nil {
+		h.absent = map[string]time.Time{}
+	}
+	h.absent[k] = now
 }
 
 // query names the file to TheIntroDB: a movie by its TMDB id, an episode by

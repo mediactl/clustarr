@@ -309,6 +309,12 @@ type FileMarkers struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
 	Message string `json:"message,omitempty"`
+
+	// NotFoundSince is when TheIntroDB first had nothing for this probe,
+	// on a NotFound result: the longer it has had nothing, the less often
+	// it is asked again (markers.Due).
+	// +optional
+	NotFoundSince *metav1.Time `json:"notFoundSince,omitempty"`
 }
 
 // MarkerSegment is one skip segment, in milliseconds from the file's start.

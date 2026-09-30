@@ -391,6 +391,13 @@ spec:
                     description: Message says why the fetch ended NotFound or Error.
                     maxLength: 512
                     type: string
+                  notFoundSince:
+                    description: |-
+                      NotFoundSince is when TheIntroDB first had nothing for this probe,
+                      on a NotFound result: the longer it has had nothing, the less often
+                      it is asked again (markers.Due).
+                    format: date-time
+                    type: string
                   result:
                     description: Result is Found, NotFound or Error.
                     enum:

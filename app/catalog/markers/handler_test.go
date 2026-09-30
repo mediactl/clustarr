@@ -230,3 +230,71 @@ func TestAFileKeyedToItsOwnEpisodeIsAsked(t *testing.T) {
 	require.NoError(t, handler(objs, p, &applied).Handle(context.Background(), task(t, "bb-file")))
 	assert.Len(t, p.asked, 1)
 }
+
+// A NotFound keeps the time TheIntroDB first had nothing for this probe,
+// which Due backs off from; a new probe starts it over.
+func TestANotFoundKeepsWhenItWasFirstMissing(t *testing.T) {
+	first := metav1.NewTime(now.Add(-40 * 24 * time.Hour))
+	objs := episodeWorld("")
+	objs[2].(*catalogv1alpha1.MediaFile).Status.Markers = &catalogv1alpha1.FileMarkers{
+		Result: catalogv1alpha1.MarkersNotFound, ForProbeHash: "h1",
+		FetchedAt: metav1.NewTime(now.Add(-30 * 24 * time.Hour)), NotFoundSince: &first,
+	}
+	var applied []*catalogac.MediaFileApplyConfiguration
+	require.NoError(t, handler(objs, &stubProvider{err: metadata.ErrNotFound}, &applied).Handle(context.Background(), task(t, "bb-file")))
+	require.Len(t, applied, 1)
+	assert.True(t, first.Equal(applied[0].Status.Markers.NotFoundSince))
+
+	objs = episodeWorld("")
+	applied = nil
+	require.NoError(t, handler(objs, &stubProvider{err: metadata.ErrNotFound}, &applied).Handle(context.Background(), task(t, "bb-file")))
+	require.Len(t, applied, 1)
+	require.NotNil(t, applied[0].Status.Markers.NotFoundSince)
+	assert.True(t, now.Equal(applied[0].Status.Markers.NotFoundSince.Time), "the first NotFound starts the clock")
+}
+
+// A Found result carries no notFoundSince.
+func TestAFoundHasNoNotFoundSince(t *testing.T) {
+	var applied []*catalogac.MediaFileApplyConfiguration
+	require.NoError(t, handler(episodeWorld(""), &stubProvider{}, &applied).Handle(context.Background(), task(t, "bb-file")))
+	require.Len(t, applied, 1)
+	assert.Nil(t, applied[0].Status.Markers.NotFoundSince)
+}
+
+// A series TheIntroDB has nothing for is asked about once: its other
+// episodes are NotFound without a request, saying why.
+func TestASeriesTheProviderLacksIsAskedOnce(t *testing.T) {
+	objs := episodeWorld("")
+	ep2 := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Name: "bb-s01e02", Namespace: "media"}}
+	ep2.Spec.SeriesRef, ep2.Spec.SeasonNumber, ep2.Spec.EpisodeNumber = "bb", 1, 2
+	mf2 := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "bb-file-2", Namespace: "media", UID: "u2"}}
+	mf2.Spec.MediaRef = commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "bb-s01e02"}
+	mf2.Status.ProbeHash = "h2"
+	mf2.Status.MediaInfo = &commonv1.MediaInfo{RuntimeMillis: 3480000}
+	p := &stubProvider{err: metadata.ErrNoTitle}
+	var applied []*catalogac.MediaFileApplyConfiguration
+	h := handler(append(objs, ep2, mf2), p, &applied)
+	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
+	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file-2")))
+	assert.Len(t, p.asked, 1)
+	require.Len(t, applied, 2)
+	assert.Equal(t, catalogv1alpha1.MarkersNotFound, *applied[1].Status.Markers.Result)
+	assert.Contains(t, *applied[1].Status.Markers.Message, "series")
+}
+
+// An episode the provider lacks says nothing about the rest of the series.
+func TestAnEpisodeTheProviderLacksDoesNotSkipTheSeries(t *testing.T) {
+	objs := episodeWorld("")
+	ep2 := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Name: "bb-s01e02", Namespace: "media"}}
+	ep2.Spec.SeriesRef, ep2.Spec.SeasonNumber, ep2.Spec.EpisodeNumber = "bb", 1, 2
+	mf2 := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "bb-file-2", Namespace: "media", UID: "u2"}}
+	mf2.Spec.MediaRef = commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "bb-s01e02"}
+	mf2.Status.ProbeHash = "h2"
+	mf2.Status.MediaInfo = &commonv1.MediaInfo{RuntimeMillis: 3480000}
+	p := &stubProvider{err: metadata.ErrNotFound}
+	var applied []*catalogac.MediaFileApplyConfiguration
+	h := handler(append(objs, ep2, mf2), p, &applied)
+	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
+	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file-2")))
+	assert.Len(t, p.asked, 2)
+}

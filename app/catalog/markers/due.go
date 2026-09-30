@@ -29,12 +29,36 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
-// How long each result stands before the file is asked about again.
+// How long each result stands before the file is asked about again. A
+// NotFound stands NotFoundTTL the first time, then longer the longer
+// TheIntroDB has had nothing (notFoundTTL): most of a library is never
+// added, and re-asking it weekly spent more than a key's allowance.
 const (
 	FoundTTL    = 30 * 24 * time.Hour
 	NotFoundTTL = 7 * 24 * time.Hour
 	ErrorTTL    = 24 * time.Hour
+
+	missingLong      = 90 * 24 * time.Hour
+	missingLongTTL   = 90 * 24 * time.Hour
+	missingRepeatTTL = 30 * 24 * time.Hour
 )
+
+// notFoundTTL is how long a NotFound stands, from how long TheIntroDB had
+// had nothing when it was fetched: a week the first time, a month after,
+// a quarter once missing for 90 days.
+func notFoundTTL(m *catalogv1alpha1.FileMarkers) time.Duration {
+	if m.NotFoundSince == nil {
+		return NotFoundTTL
+	}
+	switch missing := m.FetchedAt.Sub(m.NotFoundSince.Time); {
+	case missing >= missingLong:
+		return missingLongTTL
+	case missing >= NotFoundTTL:
+		return missingRepeatTTL
+	default:
+		return NotFoundTTL
+	}
+}
 
 // Due reports whether mf needs its markers fetched now and, when it does
 // not, how long until it will. Only a probed movie or episode file has
@@ -57,7 +81,7 @@ func Due(mf *catalogv1alpha1.MediaFile, now time.Time) (bool, time.Duration) {
 	case catalogv1alpha1.MarkersFound:
 		ttl = FoundTTL
 	case catalogv1alpha1.MarkersNotFound:
-		ttl = NotFoundTTL
+		ttl = notFoundTTL(m)
 	}
 	left := m.FetchedAt.Add(ttl).Sub(now)
 	if left <= 0 {

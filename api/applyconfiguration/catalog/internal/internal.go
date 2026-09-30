@@ -1614,6 +1614,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: message
       type:
         scalar: string
+    - name: notFoundSince
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: result
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkersResult

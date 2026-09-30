@@ -42,6 +42,10 @@ type FileMarkersApplyConfiguration struct {
 	Segments []MarkerSegmentApplyConfiguration `json:"segments,omitempty"`
 	// Message says why the fetch ended NotFound or Error.
 	Message *string `json:"message,omitempty"`
+	// NotFoundSince is when TheIntroDB first had nothing for this probe,
+	// on a NotFound result: the longer it has had nothing, the less often
+	// it is asked again (markers.Due).
+	NotFoundSince *v1.Time `json:"notFoundSince,omitempty"`
 }
 
 // FileMarkersApplyConfiguration constructs a declarative configuration of the FileMarkers type for use with
@@ -100,5 +104,13 @@ func (b *FileMarkersApplyConfiguration) WithSegments(values ...*MarkerSegmentApp
 // If called multiple times, the Message field is set to the value of the last call.
 func (b *FileMarkersApplyConfiguration) WithMessage(value string) *FileMarkersApplyConfiguration {
 	b.Message = &value
+	return b
+}
+
+// WithNotFoundSince sets the NotFoundSince field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NotFoundSince field is set to the value of the last call.
+func (b *FileMarkersApplyConfiguration) WithNotFoundSince(value v1.Time) *FileMarkersApplyConfiguration {
+	b.NotFoundSince = &value
 	return b
 }
