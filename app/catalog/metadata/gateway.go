@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
@@ -62,6 +61,10 @@ type Options struct {
 	HTTPClient *http.Client
 	L1Size     int
 	Clock      clockwork.Clock
+	// Markers starts the marker worker (plex-analyze-bypass §3.4) over the
+	// registry's Markers providers: app/catalog/run.go binds markers.Setup.
+	// Nil starts none.
+	Markers func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (stop func(), err error)
 	// Artwork fetches artwork originals after each metadata fetch (spec
 	// §B.4). Nil fetches none -- status.artwork is still re-declared on
 	// every apply, never omitted.
@@ -124,18 +127,12 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		return nil, fmt.Errorf("metadata: subscribe: %w", err)
 	}
 
-	// The marker worker (plex-analyze-bypass §3.4): each probed movie or
-	// episode file's skip segments, from the registry's Markers providers.
-	mspec, ok := events.Default().Consumer(events.ConsumerCatalogMarkers)
-	if !ok {
-		stopSub()
-		return nil, fmt.Errorf("metadata: consumer %q missing from the default topology", events.ConsumerCatalogMarkers)
-	}
-	mh := &markers.Handler{Reader: o.Reader, Client: o.Client, Providers: reg.Markers}
-	stopMarkers, err := o.Bus.Subscribe(ctx, mspec.Subscription(), mh.Handle)
-	if err != nil {
-		stopSub()
-		return nil, fmt.Errorf("metadata: subscribe %s: %w", events.ConsumerCatalogMarkers, err)
+	stopMarkers := func() {}
+	if o.Markers != nil {
+		if stopMarkers, err = o.Markers(ctx, reg.Markers); err != nil {
+			stopSub()
+			return nil, fmt.Errorf("metadata: %w", err)
+		}
 	}
 
 	if err := ServeRPC(o.Bus, reg); err != nil {

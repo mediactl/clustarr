@@ -56,6 +56,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/markers"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
@@ -65,6 +66,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -782,6 +784,9 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 			Bus:        bus,
 			HTTPClient: defaultHTTPClient,
 			Artwork:    fetcher,
+			Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
+				return markers.Setup(ctx, markers.Options{Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}, providers)
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("catalogarr: metadata gateway: %w", err)
