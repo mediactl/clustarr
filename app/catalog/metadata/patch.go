@@ -148,10 +148,7 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 		}
 		ac.WithReleaseDates(rdac)
 	}
-	for _, img := range m.Images {
-		if len(ac.Images) >= 50 {
-			break
-		}
+	for _, img := range selectImages(m.Images, maxItemImages) {
 		if ic, ok := imageAC(img); ok {
 			ac.WithImages(ic)
 		}
@@ -219,6 +216,7 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 	if len(s.Genres) > 0 {
 		ac.WithGenres(capStrings(s.Genres, 30)...) // SeriesMetadata.Genres: +kubebuilder:validation:MaxItems=30
 	}
+	var own []pkgmetadata.Image
 	for _, img := range s.Images {
 		if img.Season != nil {
 			// A season's artwork (spec 2026-09-30 §3.4) goes to
@@ -230,9 +228,9 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 			ac.WithSeasonImages(catalogac.SeasonImage().WithSeason(*img.Season).WithType(t).WithURL(img.URL))
 			continue
 		}
-		if len(ac.Images) >= 50 {
-			continue
-		}
+		own = append(own, img)
+	}
+	for _, img := range selectImages(own, maxItemImages) {
 		if ic, ok := imageAC(img); ok {
 			ac.WithImages(ic)
 		}
@@ -673,6 +671,61 @@ func buildComicMetadataAC(v *pkgmetadata.ComicVolume, now time.Time) *catalogac.
 // every other builder in this file, rather than an if/ok pair per release.
 // imageAC renders one image with its language; an image type outside the
 // CRD's enum is left out.
+// maxItemImages is MovieMetadata's and SeriesMetadata's Images MaxItems.
+const maxItemImages = 50
+
+// imagesPerKey is how many images of one type in one language selectImages
+// keeps. Plex offers a few of each to choose from; TMDB lists dozens.
+const imagesPerKey = 5
+
+// selectImages chooses at most limit images the CRD can hold, in their
+// original order, so that every type in every language is represented:
+// first the first image of each (type, language), then up to imagesPerKey
+// of each. Taking the first limit instead let one prolific source crowd out
+// the rest -- Your Name's English and untagged TMDB posters alone filled
+// fifty, so none of its Japanese images (Plex's OriginalImage) and none of
+// fanart.tv's, appended after TMDB's, reached status. A URL is kept once,
+// and an image outside the CRD's type enum is never counted.
+func selectImages(imgs []pkgmetadata.Image, limit int) []pkgmetadata.Image {
+	type key struct {
+		t    pkgmetadata.ImageType
+		lang string
+	}
+	eligible := make([]bool, len(imgs))
+	seen := make(map[string]bool, len(imgs))
+	for i, img := range imgs {
+		if _, ok := mapImageType(img.Type); !ok || img.URL == "" || seen[img.URL] {
+			continue
+		}
+		seen[img.URL] = true
+		eligible[i] = true
+	}
+	chosen := make([]bool, len(imgs))
+	per := map[key]int{}
+	n := 0
+	for pass := 1; pass <= 2; pass++ {
+		for i, img := range imgs {
+			k := key{img.Type, img.Language}
+			if n >= limit || !eligible[i] || chosen[i] {
+				continue
+			}
+			if (pass == 1 && per[k] > 0) || per[k] >= imagesPerKey {
+				continue
+			}
+			chosen[i] = true
+			per[k]++
+			n++
+		}
+	}
+	out := make([]pkgmetadata.Image, 0, n)
+	for i, img := range imgs {
+		if chosen[i] {
+			out = append(out, img)
+		}
+	}
+	return out
+}
+
 func imageAC(img pkgmetadata.Image) (*catalogac.ImageApplyConfiguration, bool) {
 	t, ok := mapImageType(img.Type)
 	if !ok {

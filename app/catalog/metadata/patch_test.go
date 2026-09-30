@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metadata
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -76,7 +77,9 @@ func TestBuildMovieMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
 	m := &pkgmetadata.Movie{Title: "Padded"}
 	for i := 0; i < 80; i++ {
 		m.AlternateTitles = append(m.AlternateTitles, pkgmetadata.AltTitle{Title: "Alt"})
-		m.Images = append(m.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+		m.Images = append(m.Images, pkgmetadata.Image{
+			Type: pkgmetadata.ImageTypePoster, URL: "https://x/" + strconv.Itoa(i) + ".jpg", Language: "l" + strconv.Itoa(i),
+		})
 	}
 	for i := 0; i < 70; i++ {
 		m.ReleaseDates = append(m.ReleaseDates, pkgmetadata.ReleaseDate{Country: "US", Type: pkgmetadata.ReleaseTypeTheatrical, Date: time.Now()})
