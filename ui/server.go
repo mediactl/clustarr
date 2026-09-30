@@ -425,7 +425,11 @@ func NewServer(ctx context.Context, opts Options) *Server {
 }
 
 // Handler returns the composed HTTP handler for every route this service
-// exposes.
+// exposes, behind the standard library's cross-origin protection: a
+// state-changing request a browser marks cross-site (Sec-Fetch-Site, or an
+// Origin that is not the Host) is refused with 403, so no other page can
+// post the ui's actions -- a library delete with files is permanent.
+// Same-origin requests and non-browser clients pass; GETs are untouched.
 func (s *Server) Handler() http.Handler {
-	return s.routes()
+	return http.NewCrossOriginProtection().Handler(s.routes())
 }

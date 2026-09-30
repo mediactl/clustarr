@@ -18,6 +18,9 @@ package ui_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -86,4 +89,25 @@ func TestDeleteDialogNamesTheFilesFolderWhenItDiffers(t *testing.T) {
 	require.Empty(t, views.FilesFolder(d), "the same folder is named once")
 	d.Files = append(d.Files, views.FileRow{Path: "/data/media/movies/Other/x.mkv"})
 	require.Empty(t, views.FilesFolder(d), "files in several folders name none")
+}
+
+// A page on another site cannot post the ui's actions -- a delete with
+// files is permanent (final review, finding 3). Same-origin browser posts
+// and non-browser clients still reach the handler.
+func TestTheUIRefusesCrossSitePosts(t *testing.T) {
+	srv := deleteServer(t, projection.LibraryItem{Ref: types.NamespacedName{Namespace: "default", Name: "heat"},
+		Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "Heat"})
+	send := func(site string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/library/default/movie/heat/delete", strings.NewReader("files=true"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if site != "" {
+			req.Header.Set("Sec-Fetch-Site", site)
+		}
+		srv.Handler().ServeHTTP(rec, req)
+		return rec.Code
+	}
+	require.Equal(t, http.StatusForbidden, send("cross-site"))
+	require.NotEqual(t, http.StatusForbidden, send("same-origin"))
+	require.NotEqual(t, http.StatusForbidden, send(""))
 }
