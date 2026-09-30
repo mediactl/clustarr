@@ -395,8 +395,11 @@ calls was not observed (**UNVERIFIED** beyond what the docs imply):
 - Whether PMS needs `ratingKey`/`key` in a match result or derives everything
   from `guid`; whether `thumb`/`art` or `Image[]` drives artwork; image sizes.
 - How PMS behaves when `originallyAvailableAt` is `""` (the example emits it).
-- Whether PMS sends `filename` for movies in practice (docs: support not
-  required, may be sent).
+- ~~Whether PMS sends `filename`~~ -- answered: it does, "the relative path
+  to the base folder configured for the library", and for a show or season
+  the first episode's file (Plex staff, forums.plex.tv/t/934384 post #36).
+  `ui/plex` matches by it first (rule 0,
+  `docs/superpowers/specs/2026-09-30-plex-provider-filename-match-design.md`).
 - Any request timeout or retry policy on the PMS side.
 - Whether an `http://` (non-TLS) provider URL is accepted; the example runs on
   `http://localhost:3000` and the announcement says "locally running".
@@ -439,7 +442,8 @@ legal) — and parsed back. The guid is then
 `key` values follow the example: `/library/metadata/<rk>` for movies and
 episodes, `/library/metadata/<rk>/children` for series and seasons.
 
-**Matching against clustarr's spec/status.** Type 1 with `guid`
+**Matching against clustarr's spec/status.** First by file: `filename` suffix against `MediaFile.spec.path`, answering
+only when it names exactly one item. Type 1 with `guid`
 `tmdb://N` → `Movie.spec.tmdbID`; `imdb://ttN` → `status.metadata.externalIDs`;
 else `title` + `year` (±1, as `pkg/decision/identity.go` already does). Type
 2 `tvdb://N` → `Series.spec.tvdbID`, `tmdb://`/`imdb://` via

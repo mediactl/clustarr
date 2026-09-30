@@ -148,6 +148,13 @@ skips a folder whose id an ImportExclusion names (unmatched `excluded`).
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).
+The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex
+names first (2026-09-30, rule 0 in `ui/plex/matchfile.go`): `filename`,
+relative to Plex's library folder, is matched as a path suffix of
+`MediaFile.spec.path` (`projection.Index.FilesEndingWith`) and answers only
+when it resolves to exactly one item; a path two items share, an unknown
+file or an unsafe name falls through to the guid and title rules, so the
+provider never guesses between two items.
 
 ## Invariants — do not break these
 
