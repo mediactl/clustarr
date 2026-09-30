@@ -115,6 +115,14 @@ whose titles are the same book (`bookKey`: case, punctuation, articles,
 subtitle, brackets, byline, volume and edition words) into the
 most-published one, and with a language lists no work it cannot title in
 it (only-Cyrillic volumes).
+Each library item's page has **Delete**
+(`docs/superpowers/specs/2026-09-30-library-delete-design.md`, 2026-09-30):
+the ui only patches `catalog.clustarr.io/delete` (`files` or `records`)
+and `delete-add-exclusion`; importarr's `librarydelete` controller removes
+the folder permanently for `files` (never the RootFolder, refusing a path
+outside it or a folder holding another item's MediaFile), deletes the
+MediaFiles and then the item, or writes `delete-error`. The library scan
+skips a folder whose id an ImportExclusion names (unmatched `excluded`).
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).

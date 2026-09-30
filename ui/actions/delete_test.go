@@ -36,8 +36,10 @@ func TestRequestDeleteWritesTheAnnotations(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, catalogv1alpha1.AddToScheme(scheme))
 	movie := &catalogv1alpha1.Movie{
-		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "default",
-			Annotations: map[string]string{catalogv1alpha1.AnnotationDeleteError: "refused", "keep": "me"}},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "heat", Namespace: "default",
+			Annotations: map[string]string{catalogv1alpha1.AnnotationDeleteError: "refused", "keep": "me"},
+		},
 		Spec: catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies"},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(movie).Build()

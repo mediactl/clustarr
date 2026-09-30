@@ -128,6 +128,9 @@ templ itemToolbar(d Detail) {
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "dryRun"}}, "eye", "Rename (dry run)", "rename-dry-run", nil)
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "apply"}}, "file-symlink", "Rename", "rename-apply", nil)
 			}
+			if deletable(d) && d.Item.DeleteMode == "" {
+				@deleteDialog(d)
+			}
 		}
 	}
 }
@@ -214,6 +217,9 @@ templ hero(d Detail) {
 							<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
 							{ statusLabel(li) }
 						</span>
+						if li.DeleteError != "" {
+							@deleteRetry(d)
+						}
 					}
 					if li.QualityProfileRef != "" {
 						@fact("profile", "Quality Profile") {
@@ -309,6 +315,11 @@ templ neighbours(d Detail) {
 // statusLabel is Radarr's Status fact: the file's state in words.
 func statusLabel(li projection.LibraryItem) string {
 	switch projection.LibraryStatus(li) {
+	case "deleting":
+		if li.DeleteError != "" {
+			return "Delete failed: " + li.DeleteError
+		}
+		return "Deleting"
 	case "cutoff-unmet":
 		return "Cutoff Unmet"
 	case "downloaded":

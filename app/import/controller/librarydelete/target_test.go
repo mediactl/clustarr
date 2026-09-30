@@ -110,8 +110,10 @@ func TestCheckRefusesAnUnknownRootFolder(t *testing.T) {
 func TestCheckTreatsAPackFileAsTheSeries(t *testing.T) {
 	root := t.TempDir()
 	folder := filepath.Join(root, "Andor")
-	pack := mediaFile("pack", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "andor-s01e01",
-		Keys: []string{"andor-s01e01", "andor-s01e02"}}, filepath.Join(folder, "S01E01-E02.mkv"))
+	pack := mediaFile("pack", commonv1.MediaRef{
+		Kind: commonv1.MediaKindEpisode, Name: "andor-s01e01",
+		Keys: []string{"andor-s01e01", "andor-s01e02"},
+	}, filepath.Join(folder, "S01E01-E02.mkv"))
 	tgt := Target{Root: root, Folder: folder, Keys: map[string]bool{
 		TargetKey(commonv1.MediaKindSeries, "andor"):         true,
 		TargetKey(commonv1.MediaKindEpisode, "andor-s01e02"): true,

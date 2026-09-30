@@ -67,6 +67,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/refresh", s.handleRefreshMetadata)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/rename", s.handleRenameItem)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/delete", s.handleRequestDelete)
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
 	mux.HandleFunc("GET /unmatched", s.handleUnmatched)
 	mux.HandleFunc("GET /events/unmatched", s.handleUnmatchedEvents)
@@ -351,6 +352,22 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.finishAction(w, r, err)
+}
+
+// handleRequestDelete is the Delete dialog (docs/superpowers/specs/
+// 2026-09-30-library-delete-design.md): POST
+// /library/{namespace}/{kind}/{name}/delete with "files" and "exclude"
+// ("true" when ticked), calling Options.Actions.RequestDelete; importarr
+// carries it out. The outcome is finishAction's.
+func (s *Server) handleRequestDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	_, err := s.opts.Actions.RequestDelete(r.Context(), r.PathValue("namespace"),
+		commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"),
+		r.FormValue("files") == "true", r.FormValue("exclude") == "true")
 	s.finishAction(w, r, err)
 }
 

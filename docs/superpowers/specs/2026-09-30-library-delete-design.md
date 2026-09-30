@@ -112,7 +112,8 @@ does, and a scan may add it back.
 - A **Delete** button in each item page's header (movie, series, artist,
   author, audiobook and comic pages), destructive style.
 - It opens the existing `dialog` component: the item's title, the folder
-  that will be removed, its file count and size (from its MediaFiles),
+  that will be removed, its file count and size where the page lists its
+  files (a movie's),
   a **Delete files and folders** checkbox (off) that, when ticked, shows
   "This permanently deletes the folder and cannot be undone.", the
   exclusion checkbox (kinds with an ExclusionKind only, off), and

@@ -1753,6 +1753,8 @@ func stripeColour(status string) string {
 		return "bg-sky-500"
 	case "missing":
 		return "bg-red-500"
+	case "deleting":
+		return "bg-slate-400"
 	default:
 		return "bg-slate-500"
 	}

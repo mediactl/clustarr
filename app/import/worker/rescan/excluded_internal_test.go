@@ -49,8 +49,10 @@ func TestCreateSeriesSkipsAnExcludedFolder(t *testing.T) {
 	w := &Worker{Client: c, Bus: bus}
 	st := &scanState{
 		scan: &catalogv1alpha1.LibraryScan{ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: "scan"}},
-		root: &catalogv1alpha1.RootFolder{ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: "shows"},
-			Spec: catalogv1alpha1.RootFolderSpec{Defaults: catalogv1alpha1.RootDefaults{QualityProfileRef: "hd"}}},
+		root: &catalogv1alpha1.RootFolder{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: "shows"},
+			Spec:       catalogv1alpha1.RootFolderSpec{Defaults: catalogv1alpha1.RootDefaults{QualityProfileRef: "hd"}},
+		},
 	}
 	got, err := w.createSeries(ctx, st, "Andor (2022) {tvdb-393189}/S01E01.mkv", &SeriesCandidate{TvdbID: 393189, Title: "Andor"})
 	require.NoError(t, err)

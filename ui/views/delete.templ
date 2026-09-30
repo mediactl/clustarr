@@ -1,0 +1,109 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"context"
+	"fmt"
+	"slices"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/icon"
+)
+
+// deleteTriggerAttrs are the Delete toolbar button's attributes: the
+// dialog trigger's plus the toolbar's own.
+func deleteTriggerAttrs(ctx context.Context) templ.Attributes {
+	attrs := dialog.Trigger(ctx)
+	attrs["data-action"] = "delete"
+	attrs["data-toolbar-button"] = true
+	return attrs
+}
+
+// deletable is whether the item's kind has the Delete button.
+func deletable(d Detail) bool { return slices.Contains(catalogv1.DeletableKinds(), d.Item.Kind) }
+
+// excludable is whether the dialog offers "Add import list exclusion".
+func excludable(d Detail) bool {
+	_, ok := catalogv1.ExclusionKindFor(d.Item.Kind)
+	return ok
+}
+
+// deleteDialog is the toolbar's Delete button and its confirmation
+// (docs/superpowers/specs/2026-09-30-library-delete-design.md): the folder,
+// the files where the page lists them, and the two checkboxes, both off.
+templ deleteDialog(d Detail) {
+	@dialog.Dialog(dialog.Props{ID: "delete-" + d.Item.Ref.Name}) {
+		@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: deleteTriggerAttrs(ctx)}) {
+			@icon.Icon("trash-2")()
+			<span>Delete</span>
+		}
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ "Delete " + d.Item.Title }
+				}
+				@dialog.Description() {
+					if d.Path != "" {
+						<span data-delete-folder>{ d.Path }</span>
+					}
+					if len(d.Files) > 0 {
+						<span data-delete-files>{ fmt.Sprintf(" -- %d file(s), %s", len(d.Files), formatBytes(totalSize(d.Files))) }</span>
+					}
+				}
+			}
+			<form method="post" action={ templ.URL(libraryActionURL(d.Item, "delete")) } class="space-y-3">
+				<input type="hidden" name="return" value={ "/library/" + string(d.Item.Tab) }/>
+				<label class="flex items-start gap-2">
+					@checkbox.Checkbox(checkbox.Props{ID: "delete-files-" + d.Item.Ref.Name, Name: "files", Value: "true"})
+					<span>
+						Delete files and folders
+						<span class="block text-xs text-destructive">This permanently deletes the folder and cannot be undone.</span>
+					</span>
+				</label>
+				if excludable(d) {
+					<label class="flex items-center gap-2">
+						@checkbox.Checkbox(checkbox.Props{ID: "delete-exclude-" + d.Item.Ref.Name, Name: "exclude", Value: "true"})
+						<span>Add import list exclusion</span>
+					</label>
+				}
+				@dialog.Footer() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "delete-confirm"}}) { Delete }
+				}
+			</form>
+		}
+	}
+}
+
+// deleteRetry re-sends a failed request as it was.
+templ deleteRetry(d Detail) {
+	<form method="post" action={ templ.URL(libraryActionURL(d.Item, "delete")) } class="inline">
+		<input type="hidden" name="return" value={ libraryDetailPath(d.Item) }/>
+		if d.Item.DeleteMode == catalogv1.DeleteFiles {
+			<input type="hidden" name="files" value="true"/>
+		}
+		if d.Item.DeleteExclude {
+			<input type="hidden" name="exclude" value="true"/>
+		}
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": "delete-retry"}}) { Retry }
+	</form>
+}
