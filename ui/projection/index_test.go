@@ -141,3 +141,50 @@ func TestIndexLookups(t *testing.T) {
 		require.Len(t, idx.AllSeries(), 1)
 	})
 }
+
+// TestIndexFilesEndingWith is the lookup ui/plex's rule 0 reads: a path
+// relative to some folder above the file, matched only at a "/" boundary,
+// over movie and episode MediaFiles only.
+func TestIndexFilesEndingWith(t *testing.T) {
+	file := func(name string, kind commonv1.MediaKind, p string) *catalogv1.MediaFile {
+		return &catalogv1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: catalogv1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: kind, Name: "item-" + name},
+				Path:     p,
+			},
+		}
+	}
+	heat := file("heat", commonv1.MediaKindMovie, "/data/media/movies/Heat (1995)/Heat (1995).mkv")
+	other := file("other", commonv1.MediaKindMovie, "/data/media/other/Heat (1995)/Heat (1995).mkv")
+	album := file("album", commonv1.MediaKindAlbum, "/data/media/music/Heat (1995)/Heat (1995).mkv")
+	movie := &catalogv1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "item-heat", Namespace: "default", UID: "m1"}}
+	episode := &catalogv1.Episode{ObjectMeta: metav1.ObjectMeta{Name: "ep", Namespace: "default", UID: "e1"}}
+
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).
+		WithObjects(heat, other, album, movie, episode).Build()
+	idx, err := projection.BuildIndex(context.Background(), c)
+	require.NoError(t, err)
+
+	names := func(fs []*catalogv1.MediaFile) []string {
+		var out []string
+		for _, f := range fs {
+			out = append(out, f.Name)
+		}
+		return out
+	}
+	require.ElementsMatch(t, []string{"heat"}, names(idx.FilesEndingWith("movies/Heat (1995)/Heat (1995).mkv")))
+	require.ElementsMatch(t, []string{"heat", "other"}, names(idx.FilesEndingWith("Heat (1995)/Heat (1995).mkv")),
+		"a relative path two folders share names both; the album never")
+	require.Empty(t, idx.FilesEndingWith("at (1995).mkv"), "a suffix must start at a path boundary")
+	require.Empty(t, idx.FilesEndingWith("nope.mkv"))
+
+	m, ok := idx.MovieByName("default", "item-heat")
+	require.True(t, ok)
+	require.Equal(t, movie.UID, m.UID)
+	_, ok = idx.MovieByName("elsewhere", "item-heat")
+	require.False(t, ok, "names are per namespace")
+	e, ok := idx.EpisodeByName("default", "ep")
+	require.True(t, ok)
+	require.Equal(t, episode.UID, e.UID)
+}

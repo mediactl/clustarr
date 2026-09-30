@@ -20,7 +20,9 @@ package projection
 import (
 	"context"
 	"fmt"
+	"path"
 	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -244,8 +246,10 @@ func searchRank(s *catalogv1.Search) int {
 
 // Index is the lookup ui/plex needs over the catalog's Movie, Series and
 // Episode objects: by object UID (Plex's ratingKey, D.3), by the external
-// ids a Plex match request's guid carries (tmdb, tvdb, imdb -- D.4), and a
-// series' episodes (for the /children and /grandchildren routes, D.2). It is
+// ids a Plex match request's guid carries (tmdb, tvdb, imdb -- D.4), a
+// series' episodes (for the /children and /grandchildren routes, D.2), and
+// the movie and episode files by path suffix (rule 0 of the filename-match
+// spec, 2026-09-30). It is
 // built on demand (BuildIndex) rather than riding the shared Projection
 // ticker: unlike the streamed pages, the Plex provider is an occasional,
 // unauthenticated protocol call from Plex Media Server, not an open SSE
@@ -276,6 +280,16 @@ type Index struct {
 	// episodeSeries is episodesBySeries' reverse: one Episode's UID to its
 	// owning Series' UID, for [Index.SeriesOfEpisode].
 	episodeSeries map[types.UID]types.UID
+
+	// movieByName and episodeByName key the same objects by namespace and
+	// name: a MediaFile's spec.mediaRef names its item that way, not by
+	// UID.
+	movieByName   map[types.NamespacedName]*catalogv1.Movie
+	episodeByName map[types.NamespacedName]*catalogv1.Episode
+
+	// filesByBase buckets every movie and episode MediaFile by its file's
+	// base name, for [Index.FilesEndingWith].
+	filesByBase map[string][]*catalogv1.MediaFile
 }
 
 // BuildIndex lists every Movie, Series and Episode once each and returns the
@@ -296,6 +310,9 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		imdbSeries:       map[string]*catalogv1.Series{},
 		episodesBySeries: map[types.UID][]*catalogv1.Episode{},
 		episodeSeries:    map[types.UID]types.UID{},
+		movieByName:      map[types.NamespacedName]*catalogv1.Movie{},
+		episodeByName:    map[types.NamespacedName]*catalogv1.Episode{},
+		filesByBase:      map[string][]*catalogv1.MediaFile{},
 	}
 	if r == nil {
 		return idx, nil
@@ -308,6 +325,7 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 	for i := range movies.Items {
 		m := &movies.Items[i]
 		idx.movies[m.UID] = m
+		idx.movieByName[types.NamespacedName{Namespace: m.Namespace, Name: m.Name}] = m
 		if m.Spec.TmdbID != 0 {
 			idx.tmdbMovies[m.Spec.TmdbID] = m
 		}
@@ -345,10 +363,29 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 	for i := range episodes.Items {
 		ep := &episodes.Items[i]
 		idx.episodes[ep.UID] = ep
+		idx.episodeByName[types.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}] = ep
 		if owner, ok := controllingOwnerUID(ep); ok {
 			idx.episodesBySeries[owner] = append(idx.episodesBySeries[owner], ep)
 			idx.episodeSeries[ep.UID] = owner
 		}
+	}
+
+	var files catalogv1.MediaFileList
+	if err := r.List(ctx, &files, opts...); err != nil {
+		return nil, fmt.Errorf("projection: list media files: %w", err)
+	}
+	for i := range files.Items {
+		f := &files.Items[i]
+		switch f.Spec.MediaRef.Kind {
+		case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
+		default:
+			continue
+		}
+		if f.Spec.Path == "" {
+			continue
+		}
+		base := path.Base(f.Spec.Path)
+		idx.filesByBase[base] = append(idx.filesByBase[base], f)
 	}
 
 	return idx, nil
@@ -474,4 +511,31 @@ func (idx *Index) SeriesOfEpisode(episodeUID types.UID) (*catalogv1.Series, bool
 	}
 	s, ok := idx.series[owner]
 	return s, ok
+}
+
+// FilesEndingWith returns the movie and episode MediaFiles whose spec.path
+// ends with "/"+rel. rel is a clean relative path to the file from some
+// folder above it, as Plex names a match request's file relative to its
+// own library folder; the caller cleans and vets it.
+func (idx *Index) FilesEndingWith(rel string) []*catalogv1.MediaFile {
+	suffix := "/" + rel
+	var out []*catalogv1.MediaFile
+	for _, f := range idx.filesByBase[path.Base(rel)] {
+		if strings.HasSuffix(f.Spec.Path, suffix) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// MovieByName returns the Movie a MediaFile's spec.mediaRef names.
+func (idx *Index) MovieByName(namespace, name string) (*catalogv1.Movie, bool) {
+	m, ok := idx.movieByName[types.NamespacedName{Namespace: namespace, Name: name}]
+	return m, ok
+}
+
+// EpisodeByName returns the Episode a MediaFile's spec.mediaRef names.
+func (idx *Index) EpisodeByName(namespace, name string) (*catalogv1.Episode, bool) {
+	e, ok := idx.episodeByName[types.NamespacedName{Namespace: namespace, Name: name}]
+	return e, ok
 }
