@@ -335,3 +335,19 @@ func TestActionsMethodsUseTheirWriter(t *testing.T) {
 	require.Len(t, w.creates, 4)
 	require.Len(t, w.patches, 1)
 }
+
+// TestSearchNowOnAContainerGrabsTheBest: Search on an author, artist or
+// comic page is Readarr's and Lidarr's "search monitored": its child
+// Searches grab their best release; an item's own Search stays a results
+// list.
+func TestSearchNowOnAContainerGrabsTheBest(t *testing.T) {
+	for kind, want := range map[commonv1.MediaKind]bool{
+		commonv1.MediaKindAuthor: true, commonv1.MediaKindArtist: true, commonv1.MediaKindComic: true,
+		commonv1.MediaKindBook: false, commonv1.MediaKindMovie: false,
+	} {
+		w := &fakeWriter{}
+		s, err := actions.SearchNow(t.Context(), w, "media", kind, "x")
+		require.NoError(t, err)
+		require.Equal(t, want, s.Spec.GrabBest, "kind %s", kind)
+	}
+}

@@ -125,7 +125,7 @@ templ itemToolbar(d Detail) {
 			} else {
 				@toolbarForm(libraryActionURL(d.Item, "refresh"), []Field{{"return", libraryDetailPath(d.Item)}}, "refresh-cw", "Refresh", "refresh-metadata", nil)
 			}
-			@toolbarForm(libraryActionURL(d.Item, "search"), []Field{{"return", libraryDetailPath(d.Item)}}, "search", "Search "+kindLabel(d.Item.Kind), "search-now", nil)
+			@toolbarForm(libraryActionURL(d.Item, "search"), []Field{{"return", libraryDetailPath(d.Item)}}, "search", searchLabel(d.Item.Kind), "search-now", nil)
 			if d.CanScan {
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "dryRun"}}, "eye", "Rename (dry run)", "rename-dry-run", nil)
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "apply"}}, "file-symlink", "Rename", "rename-apply", nil)
@@ -138,6 +138,23 @@ templ itemToolbar(d Detail) {
 }
 
 // kindLabel is the kind as Radarr names it in a button.
+// searchLabel is the toolbar's Search button: "Search Movie" on an item,
+// and on an author, artist or comic "Search Monitored Books/Albums/Issues",
+// since that Search fans out into the container's missing or cutoff-unmet
+// items and grabs the best release of each.
+func searchLabel(kind commonv1.MediaKind) string {
+	switch kind {
+	case commonv1.MediaKindAuthor:
+		return "Search Monitored Books"
+	case commonv1.MediaKindArtist:
+		return "Search Monitored Albums"
+	case commonv1.MediaKindComic:
+		return "Search Monitored Issues"
+	default:
+		return "Search " + kindLabel(kind)
+	}
+}
+
 func kindLabel(kind commonv1.MediaKind) string {
 	switch kind {
 	case commonv1.MediaKindMovie:
