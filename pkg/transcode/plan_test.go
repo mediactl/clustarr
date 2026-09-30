@@ -328,3 +328,39 @@ func TestPlanRejectsASourceAtTheSummarysStreamCap(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanExpectsThePixelFormatFfprobeReportsOnAGPUEncode pins the verify
+// expectation for the GPU tiers to what ffprobe reads back from their
+// output. hevc_nvenc is fed p010le, a surface layout; the 10-bit HEVC
+// stream it writes decodes, and probes, as yuv420p10le -- so expecting
+// p010le failed every NVENC encode at verify (exit 4), after the encode.
+func TestPlanExpectsThePixelFormatFfprobeReportsOnAGPUEncode(t *testing.T) {
+	info := transcode.MediaInfo{
+		Path:   "/media/Movie (2020)/Movie (2020).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video: []transcode.VideoStream{{
+			Codec: "h264", PixFmt: "yuv420p", Width: 1920, Height: 1080,
+			FrameRate: transcode.Rational{Num: 24, Den: 1},
+		}},
+		Audio: []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},
+	}
+	for _, tc := range []struct {
+		hardware transcode.Hardware
+		tier     transcode.Tier
+	}{
+		{transcode.HardwareNVIDIA, transcode.TierNVENC},
+		{transcode.HardwareIntel, transcode.TierVAAPI},
+	} {
+		t.Run(string(tc.tier), func(t *testing.T) {
+			profile := defaultProfile()
+			profile.Hardware = tc.hardware
+			profile.Video.NVENC = transcode.NVENCSpec{Preset: "p5", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle"}
+			caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{tc.tier: true}}
+			p, err := transcode.Plan(info, profile, caps, transcode.PlanMeta{ProfileName: "p", ProfileHash: "deadbeef", Threads: 4})
+			require.NoError(t, err)
+			require.Equal(t, transcode.DecisionEncode, p.Decision)
+			require.Equal(t, tc.tier, p.Tier)
+			require.Equal(t, "yuv420p10le", p.Expect.PixelFormat)
+		})
+	}
+}

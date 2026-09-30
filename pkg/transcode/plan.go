@@ -676,10 +676,14 @@ func containerFormatName(c Container) string {
 	return "matroska"
 }
 
+// outputPixFmt is the pixel format ffprobe reads back from the output. The
+// GPU tiers encode from p010le surfaces, a memory layout rather than a
+// stream format: their 10-bit HEVC decodes as yuv420p10le, which is what
+// the verifier sees.
 func outputPixFmt(tier Tier, v VideoSpec) string {
 	switch tier {
 	case TierNVENC, TierVAAPI:
-		return "p010le"
+		return "yuv420p10le"
 	default:
 		return v.PixelFormat
 	}
