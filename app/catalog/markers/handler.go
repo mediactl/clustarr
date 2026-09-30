@@ -50,13 +50,13 @@ const maxMessage = 512
 // errNotAsked is a NotFound decided without asking a provider.
 var errNotAsked = errors.New("not asked")
 
-// errNoProvider is a gateway whose registry has no markers provider: the
-// seeded theintrodb MetadataProvider can land after the gateway built it.
-// noProviderRetry waits for the gateway's next start without recording a
-// result, which would park the file for ErrorTTL.
+// errNoProvider is a gateway whose registry has no markers provider: a
+// disabled theintrodb, or the seed landing after the gateway built its
+// registry. The task is acked without a result, so the file stays due and
+// its next reconcile (a resync, or catalogarr's next start) publishes it
+// again; a retry would cycle every due file to the dead-letter stream, and
+// an Error would park it for ErrorTTL.
 var errNoProvider = errors.New("no markers provider is configured")
-
-const noProviderRetry = 30 * time.Minute
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles;movies;episodes;series,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=patch
@@ -109,7 +109,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return events.Retry(rl.RetryAfter, err) // a limit is not a result
 	}
 	if errors.Is(err, errNoProvider) {
-		return events.Retry(noProviderRetry, err) // the registry, not the file, is missing something
+		return nil // the registry, not the file, is missing something
 	}
 
 	// The lost-update rule: the file is read again just before the apply,
@@ -158,6 +158,10 @@ func (h *Handler) query(ctx context.Context, mf *catalogv1alpha1.MediaFile) (met
 		}
 		q.IDs = metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(mv.Spec.TmdbID, 10)}
 	case commonv1.MediaKindEpisode:
+		if others := otherEpisodes(mf.Spec.MediaRef); others > 0 {
+			return q, fmt.Errorf("the file holds %d more episodes, whose segments TheIntroDB times per episode: %w: %w",
+				others, errNotAsked, metadata.ErrNotFound)
+		}
 		var ep catalogv1alpha1.Episode
 		if err := h.Reader.Get(ctx, key, &ep); err != nil {
 			return q, err
@@ -176,6 +180,17 @@ func (h *Handler) query(ctx context.Context, mf *catalogv1alpha1.MediaFile) (met
 		return q, fmt.Errorf("%s files have no markers: %w: %w", mf.Spec.MediaRef.Kind, errNotAsked, metadata.ErrNotFound)
 	}
 	return q, nil
+}
+
+// otherEpisodes counts the episodes a file's ref names besides its own.
+func otherEpisodes(ref commonv1.MediaRef) int {
+	n := 0
+	for _, k := range ref.Keys {
+		if k != ref.Name {
+			n++
+		}
+	}
+	return n
 }
 
 // ask takes the first provider's answer; NotFound from every one is

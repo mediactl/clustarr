@@ -193,15 +193,40 @@ func TestTheMarkersManagerIsOnePatchStatusAccepts(t *testing.T) {
 	require.NoError(t, k8s.ManagerCatalogarrMarkers.Validate())
 }
 
-// No markers provider in the registry -- the gateway built it before the
-// seeded theintrodb provider existed -- is a retry, not a result: an Error
-// would park every file for a day.
-func TestNoProviderRetriesWithoutRecording(t *testing.T) {
+// No markers provider in the registry -- a disabled theintrodb, or the
+// gateway built before the seed existed -- is neither a result nor a
+// retry: an Error would park every file for a day, and a retry cycles
+// every due file to the dead-letter stream. The task is acked; the file
+// stays due, and its next reconcile publishes it again.
+func TestNoProviderAcksWithoutRecording(t *testing.T) {
 	var applied []*catalogac.MediaFileApplyConfiguration
 	h := handler(episodeWorld(""), &stubProvider{}, &applied)
 	h.Providers = nil
-	err := h.Handle(context.Background(), task(t, "bb-file"))
-	var retry *events.RetryError
-	require.ErrorAs(t, err, &retry)
+	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
 	assert.Empty(t, applied)
+}
+
+// A file holding several episodes is not asked about: its duration is
+// theirs together, so the first episode's open-ended credits would run to
+// the file's end -- a final "Skip Credits" over the second episode.
+func TestAMultiEpisodeFileIsNotAsked(t *testing.T) {
+	objs := episodeWorld("")
+	objs[2].(*catalogv1alpha1.MediaFile).Spec.MediaRef.Keys = []string{"bb-s01e01", "bb-s01e02"}
+	p := &stubProvider{}
+	var applied []*catalogac.MediaFileApplyConfiguration
+	require.NoError(t, handler(objs, p, &applied).Handle(context.Background(), task(t, "bb-file")))
+	assert.Empty(t, p.asked)
+	require.Len(t, applied, 1)
+	assert.Equal(t, catalogv1alpha1.MarkersNotFound, *applied[0].Status.Markers.Result)
+	assert.Contains(t, *applied[0].Status.Markers.Message, "episodes")
+}
+
+// A pack's key naming only the file's own episode is still one episode.
+func TestAFileKeyedToItsOwnEpisodeIsAsked(t *testing.T) {
+	objs := episodeWorld("")
+	objs[2].(*catalogv1alpha1.MediaFile).Spec.MediaRef.Keys = []string{"bb-s01e01"}
+	p := &stubProvider{}
+	var applied []*catalogac.MediaFileApplyConfiguration
+	require.NoError(t, handler(objs, p, &applied).Handle(context.Background(), task(t, "bb-file")))
+	assert.Len(t, p.asked, 1)
 }
