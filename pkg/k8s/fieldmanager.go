@@ -310,6 +310,7 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogarrGrab,
 		ManagerCatalogarrFanout,
 		ManagerCatalogarrArtwork,
+		ManagerCatalogarrMarkers,
 		ManagerImportarr,
 		ManagerImportarrWorker,
 		ManagerIndexarr,

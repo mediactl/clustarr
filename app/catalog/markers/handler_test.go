@@ -185,3 +185,23 @@ func TestAFileNoLongerDueIsLeftAlone(t *testing.T) {
 	assert.Empty(t, p.asked, "a redelivered or duplicate task for a fresh file asks nothing")
 	assert.Empty(t, applied)
 }
+
+// The handler applies as catalogarr-markers through k8s.PatchStatus, which
+// refuses a manager missing from k8s.FieldManagers: every apply failed
+// that way on the first deploy while the injected Apply hid it here.
+func TestTheMarkersManagerIsOnePatchStatusAccepts(t *testing.T) {
+	require.NoError(t, k8s.ManagerCatalogarrMarkers.Validate())
+}
+
+// No markers provider in the registry -- the gateway built it before the
+// seeded theintrodb provider existed -- is a retry, not a result: an Error
+// would park every file for a day.
+func TestNoProviderRetriesWithoutRecording(t *testing.T) {
+	var applied []*catalogac.MediaFileApplyConfiguration
+	h := handler(episodeWorld(""), &stubProvider{}, &applied)
+	h.Providers = nil
+	err := h.Handle(context.Background(), task(t, "bb-file"))
+	var retry *events.RetryError
+	require.ErrorAs(t, err, &retry)
+	assert.Empty(t, applied)
+}

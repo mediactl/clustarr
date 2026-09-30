@@ -50,6 +50,14 @@ const maxMessage = 512
 // errNotAsked is a NotFound decided without asking a provider.
 var errNotAsked = errors.New("not asked")
 
+// errNoProvider is a gateway whose registry has no markers provider: the
+// seeded theintrodb MetadataProvider can land after the gateway built it.
+// noProviderRetry waits for the gateway's next start without recording a
+// result, which would park the file for ErrorTTL.
+var errNoProvider = errors.New("no markers provider is configured")
+
+const noProviderRetry = 30 * time.Minute
+
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles;movies;episodes;series,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=patch
 
@@ -99,6 +107,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	var rl *metadata.RateLimitedError
 	if errors.As(err, &rl) {
 		return events.Retry(rl.RetryAfter, err) // a limit is not a result
+	}
+	if errors.Is(err, errNoProvider) {
+		return events.Retry(noProviderRetry, err) // the registry, not the file, is missing something
 	}
 
 	// The lost-update rule: the file is read again just before the apply,
@@ -171,7 +182,7 @@ func (h *Handler) query(ctx context.Context, mf *catalogv1alpha1.MediaFile) (met
 // NotFound, and any other failure is the error.
 func (h *Handler) ask(ctx context.Context, q metadata.MarkersQuery) (metadata.Segments, error) {
 	if len(h.Providers) == 0 {
-		return metadata.Segments{}, fmt.Errorf("no markers provider is configured: %w", errNotAsked)
+		return metadata.Segments{}, errNoProvider
 	}
 	var last error
 	for _, p := range h.Providers {
