@@ -476,6 +476,13 @@ type AddRequest struct {
 	// "persisted cumulative counters"). Nil means none. Ignored by a usenet
 	// client, which never seeds, and when the transfer already exists.
 	SeedHistory *SeedHistory
+
+	// ContentRoot, when set, is where an earlier run of the engine kept this
+	// transfer (its last reported Item.ContentRoot). A client that still
+	// finds it there resumes it in place instead of starting in its current
+	// layout -- a torrent client whose publishDir or scratch changed would
+	// otherwise download every transfer again and orphan the old copies.
+	ContentRoot string
 }
 
 // SeedHistory is a torrent's seeding so far; see [AddRequest.SeedHistory].

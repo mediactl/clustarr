@@ -67,6 +67,12 @@ type descriptor struct {
 	// goal back on the swarm. Nil until a poll has seen any seeding, and in
 	// a descriptor written before it existed.
 	Seed *seedRecord `json:"seed,omitempty"`
+
+	// ContentRoot is where the transfer's content last was
+	// (download.Item.ContentRoot): a publish moves it out of scratch, and a
+	// re-attach hands it back (AddRequest.ContentRoot) so a changed
+	// publishDir or scratch resumes it there rather than downloading again.
+	ContentRoot string `json:"contentRoot,omitempty"`
 }
 
 // seedRecord is the persisted half of a torrent's seeding. Every field only
@@ -221,9 +227,13 @@ func updateDescriptorState(stateDir, id string, st descriptorState, now time.Tim
 		return fmt.Errorf("torrent: decode descriptor for %s: %w", id, err)
 	}
 	seed, seedDue := nextSeedRecord(d.Seed, st.Item, now)
+	moved := st.Item.ContentRoot != "" && st.Item.ContentRoot != d.ContentRoot
 	if d.Paused == st.Paused && seedCriteriaEqual(d.SeedCriteria, st.SeedCriteria) &&
-		d.Priority == st.Priority && !seedDue {
+		d.Priority == st.Priority && !seedDue && !moved {
 		return nil
+	}
+	if moved {
+		d.ContentRoot = st.Item.ContentRoot
 	}
 	d.Paused = st.Paused
 	d.SeedCriteria = st.SeedCriteria
@@ -325,6 +335,7 @@ func (l loadedDescriptor) addRequest() download.AddRequest {
 		WantFile:         l.Desc.Selection.selector(),
 		AddedAt:          l.Desc.AddedAt,
 		SeedHistory:      l.Desc.Seed.history(),
+		ContentRoot:      l.Desc.ContentRoot,
 	}
 	return req
 }

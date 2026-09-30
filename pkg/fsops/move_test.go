@@ -69,6 +69,47 @@ func TestMoveAtomicFallsBackOnEXDEVAndLeavesNoPartial(t *testing.T) {
 	require.True(t, os.IsNotExist(err), ".partial must not remain")
 }
 
+// A directory crosses filesystems too: the usenet and torrent engines
+// publish a whole transfer directory from a scratch volume onto /data
+// (2026-09-30: every non-path scratch placement failed the publish with
+// EISDIR). It is copied whole under .partial -- clearing one a failed
+// attempt left -- and renamed into place, so dst appears only complete.
+func TestMoveAtomicMovesADirectoryAcrossFilesystems(t *testing.T) {
+	old := renameFunc
+	t.Cleanup(func() { renameFunc = old })
+	calls := 0
+	renameFunc = func(o, n string) error {
+		calls++
+		if calls == 1 {
+			return &os.LinkError{Op: "rename", Err: syscall.EXDEV}
+		}
+		return os.Rename(o, n)
+	}
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "scratch", "movie")
+	dst := filepath.Join(dir, "data", "movie")
+	require.NoError(t, os.MkdirAll(filepath.Join(src, "Subs"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "movie.mkv"), []byte("video"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "Subs", "en.srt"), []byte("subs"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dst+".partial", "stale"), 0o755))
+
+	require.NoError(t, MoveAtomic(src, dst))
+
+	got, err := os.ReadFile(filepath.Join(dst, "movie.mkv"))
+	require.NoError(t, err)
+	require.Equal(t, "video", string(got))
+	got, err = os.ReadFile(filepath.Join(dst, "Subs", "en.srt"))
+	require.NoError(t, err)
+	require.Equal(t, "subs", string(got))
+	_, err = os.Stat(filepath.Join(dst, "stale"))
+	require.True(t, os.IsNotExist(err), "a stale .partial is cleared, not merged")
+	_, err = os.Stat(src)
+	require.True(t, os.IsNotExist(err), "the source directory is removed")
+	_, err = os.Stat(dst + ".partial")
+	require.True(t, os.IsNotExist(err))
+}
+
 func TestMoveNoReplaceMovesAFile(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.mkv")

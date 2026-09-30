@@ -30,6 +30,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/download"
 )
 
 // TestLoadDescriptorsOnAFreshStateDirIsEmptyNotAnError proves a brand new
@@ -159,4 +160,22 @@ func TestLoadDescriptorsSkipsACorruptEntryAndKeepsTheRest(t *testing.T) {
 	require.Len(t, errs, 1, "exactly the corrupt entry should have failed to load")
 	require.Len(t, got, 1, "the good entry must still load")
 	assert.Equal(t, "good", got[0].ID)
+}
+
+// A descriptor records where the transfer's content is now (a publish moves
+// it out of scratch), and hands it back on re-attach, so a changed
+// publishDir or scratch resumes it in place instead of downloading again.
+func TestUpdateDescriptorStateRecordsTheContentRoot(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, saveDescriptor(dir, "id1", nil, descriptor{Name: "movie", Magnet: "magnet:?xt=urn:btih:id1"}))
+
+	require.NoError(t, updateDescriptorState(dir, "id1", descriptorState{
+		Item: download.Item{ContentRoot: "/data/torrents/movies/movie"},
+	}, time.Now()))
+
+	got, errs := loadDescriptors(dir)
+	require.Empty(t, errs)
+	require.Len(t, got, 1)
+	assert.Equal(t, "/data/torrents/movies/movie", got[0].Desc.ContentRoot)
+	assert.Equal(t, "/data/torrents/movies/movie", got[0].addRequest().ContentRoot)
 }

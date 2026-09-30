@@ -34,9 +34,10 @@ var renameFunc = os.Rename
 // to make that unlink fail.
 var removeFunc = os.Remove
 
-// MoveAtomic moves src to dst: rename(2) when both are on the same
-// filesystem, or copy-then-rename-then-remove-source when they are not
-// (EXDEV), finishing with an fsync of dst's parent directory.
+// MoveAtomic moves src -- a file or a directory -- to dst: rename(2) when
+// both are on the same filesystem, or copy-then-rename-then-remove-source
+// when they are not (EXDEV), finishing with an fsync of dst's parent
+// directory.
 func MoveAtomic(src, dst string) error {
 	if err := renameFunc(src, dst); err == nil {
 		return fsyncDir(filepath.Dir(dst))
@@ -44,19 +45,36 @@ func MoveAtomic(src, dst string) error {
 		return fmt.Errorf("fsops: rename %s to %s: %w", src, dst, err)
 	}
 
+	info, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("fsops: stat %s: %w", src, err)
+	}
 	tmp := dst + ".partial"
-	if err := copyFile(context.Background(), src, tmp); err != nil {
+	if info.IsDir() {
+		// A whole transfer directory from a scratch volume onto the data
+		// volume (both engines' publish). It is copied under .partial --
+		// clearing one an interrupted attempt left, never merging into it --
+		// then renamed, so dst appears only complete: an engine that finds
+		// dst after a restart may trust it.
+		if err := os.RemoveAll(tmp); err != nil {
+			return fmt.Errorf("fsops: clear %s: %w", tmp, err)
+		}
+		if err := CopyDir(context.Background(), src, tmp, nil); err != nil {
+			_ = os.RemoveAll(tmp)
+			return fmt.Errorf("fsops: copy %s to %s: %w", src, tmp, err)
+		}
+	} else if err := copyFile(context.Background(), src, tmp); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: copy %s to %s: %w", src, tmp, err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
+		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("fsops: rename %s to %s: %w", tmp, dst, err)
 	}
 	if err := fsyncDir(filepath.Dir(dst)); err != nil {
 		return err
 	}
-	if err := os.Remove(src); err != nil {
+	if err := os.RemoveAll(src); err != nil {
 		return fmt.Errorf("fsops: remove source %s after move: %w", src, err)
 	}
 	return nil

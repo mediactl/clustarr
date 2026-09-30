@@ -141,6 +141,9 @@ type session struct {
 	publishDir string
 	published  bool
 	publishing bool
+	// removed is set by [Client.Remove], under pubMu, so a publish in
+	// flight re-adds nothing.
+	removed bool
 
 	// selectionApplied is set once [applySelection] has marked the wanted
 	// files, which for a magnet is only after its metadata arrives. wanted
@@ -348,10 +351,14 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	defer c.pubMu.Unlock()
 	pub := filepath.Join(c.cfg.DataDir, req.Category, req.Name)
 	dir, published := pub, true
-	if c.cfg.ScratchDir != "" {
-		if _, err := os.Stat(pub); err != nil {
-			dir, published = filepath.Join(c.cfg.ScratchDir, req.Category, req.Name), false
-		}
+	switch {
+	case req.ContentRoot != "" && exists(req.ContentRoot):
+		// Where an earlier run kept it, before publishDir or scratch moved:
+		// resumed in place, published unless it is still in scratch.
+		dir = req.ContentRoot
+		published = c.cfg.ScratchDir == "" || !fsops.StrictlyUnder(dir, c.cfg.ScratchDir)
+	case c.cfg.ScratchDir != "" && !exists(pub):
+		dir, published = filepath.Join(c.cfg.ScratchDir, req.Category, req.Name), false
 	}
 	spec.Storage = storage.NewFile(dir)
 	if spec.DisplayName == "" {
@@ -569,9 +576,22 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 		return err
 	}
 
+	// Serialised with a publish's swap: after this, a publish in flight
+	// sees removed and re-adds nothing.
+	c.pubMu.Lock()
+	defer c.pubMu.Unlock()
 	sess.mu.Lock()
 	contentRoot := sess.contentRoot
+	sess.removed = true
+	// Mid-publish the files may be at either end of the move.
+	var publishing string
+	if sess.publishing {
+		publishing = sess.publishDir
+	}
 	sess.mu.Unlock()
+	if cur, ok := c.cl.Torrent(t.InfoHash()); ok {
+		t = cur
+	}
 
 	// Drop closes the per-torrent storage (including the piece-completion
 	// store) before returning, so it is safe to remove the directory
@@ -587,12 +607,27 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 		// entry to the same inode, so removing contentRoot here does not
 		// touch it -- nothing further is needed to honour "files already
 		// hard-linked into the library survive" from the interface doc.
-		if err := os.RemoveAll(contentRoot); err != nil {
-			return fmt.Errorf("torrent: remove %s: delete data: %w", id, err)
+		for _, dir := range []string{contentRoot, publishing} {
+			if dir == "" {
+				continue
+			}
+			if err := os.RemoveAll(dir); err != nil {
+				return fmt.Errorf("torrent: remove %s: delete data: %w", id, err)
+			}
 		}
 	}
 	return nil
 }
+
+// exists reports whether path is there.
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// afterPublishMove runs between a publish's move and its swap; tests
+// replace it to act inside that window.
+var afterPublishMove = func() {}
 
 // Close implements [download.Client.Close].
 func (c *Client) Close() error {
@@ -883,16 +918,40 @@ func (c *Client) publish(id string) {
 		fail(err)
 		return
 	}
+	// From here the files are at dst: a Remove deletes them there.
+	sess.mu.Lock()
+	sess.contentRoot = dst
+	sess.mu.Unlock()
+	afterPublishMove()
 	mi := t.Metainfo()
 	spec, err := anatorrent.TorrentSpecFromMetaInfoErr(&mi)
 	if err != nil {
 		fail(err)
 		return
 	}
+	if !spec.InfoHashV2.Ok {
+		// Metainfo reports an empty, non-nil piece-layer map for a v1
+		// torrent, and re-adding with it fails every multi-piece file ("no
+		// piece root set") -- every real release. v2 torrents need them.
+		spec.PieceLayers = nil
+	}
 	spec.Storage = storage.NewFile(dst)
 	spec.DisplayName = t.Name()
 
 	c.pubMu.Lock()
+	sess.mu.Lock()
+	removed := sess.removed
+	if !removed {
+		// The new Torrent's stats start from zero; what was uploaded from
+		// scratch still counts (UploadedBytes, the ratio goal).
+		stats := t.Stats()
+		sess.priorUploaded += stats.BytesWrittenData.Int64()
+	}
+	sess.mu.Unlock()
+	if removed {
+		c.pubMu.Unlock()
+		return
+	}
 	t.Drop()
 	nt, _, err := c.cl.AddTorrentSpec(spec)
 	c.pubMu.Unlock()
