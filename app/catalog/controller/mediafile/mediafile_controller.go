@@ -342,7 +342,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		known.MediaInfo = mi
 		probed = true
 
-		if swap == nil && kept == nil && transcoded && ps.Stale && mf.Status.ProbeHash != "" {
+		if swap == nil && kept == nil && transcoded && bytesChanged(&mf, ps) && mf.Status.ProbeHash != "" {
+			// A rename (naming.renameTranscoded) moves the same bytes:
+			// the probe is stale by path alone, and the verdict stands.
 			// The bytes of a file catalogarr already took over changed, and
 			// no newer Succeeded TranscodeJob explains it (a re-mux, a hand
 			// edit, a restore from backup). The size and mtime are

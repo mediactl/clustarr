@@ -22,7 +22,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
@@ -59,4 +62,25 @@ func TestProbeDueForAnOlderProbeVersion(t *testing.T) {
 	assert.False(t, probeDue(current, mediainfo.ProbeVersion, ps), "probed by this version, unchanged")
 	assert.True(t, probeDue("", mediainfo.ProbeVersion, ps), "never probed")
 	assert.Positive(t, mediainfo.ProbeVersion)
+}
+
+// A transcoded file renamed in place (naming.renameTranscoded) moved, it did
+// not change: the probe hash names the path, so it is stale, but the size
+// and mtime catalogarr recorded are the file's still. Reading the rename as
+// a change cleared status.transcode, and the file no longer counted as
+// transcoded, so it was never renamed again (Bluey S03E20, 2026-09-30).
+func TestAMoveIsNotAChangeOfTheBytes(t *testing.T) {
+	mod := time.Date(2026, 9, 30, 11, 39, 0, 0, time.UTC)
+	mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{
+		Path: "/data/tv/Bluey/Season 3/old.mkv", SizeBytes: 420 << 20, ModTime: metav1.NewTime(mod),
+	}}
+	old := evaluateProbe(mf.Spec.Path, mf.Spec.SizeBytes, mod, "")
+	mf.Status.ProbeHash = old.Hash
+
+	moved := evaluateProbe("/data/tv/Bluey/Season 3/new.mkv", 420<<20, mod, mf.Status.ProbeHash)
+	require.True(t, moved.Stale, "fixture: a new path is a new probe hash")
+	assert.False(t, bytesChanged(mf, moved), "a rename keeps size and mtime")
+
+	assert.True(t, bytesChanged(mf, evaluateProbe(mf.Spec.Path, 421<<20, mod, mf.Status.ProbeHash)), "new size")
+	assert.True(t, bytesChanged(mf, evaluateProbe(mf.Spec.Path, 420<<20, mod.Add(time.Hour), mf.Status.ProbeHash)), "new mtime")
 }

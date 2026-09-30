@@ -22,6 +22,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
@@ -55,4 +56,17 @@ func evaluateProbe(path string, statSize int64, statMod time.Time, currentHash s
 // squasharr's source identity -- sees a different file.
 func probeDue(currentHash string, version int32, ps probeState) bool {
 	return currentHash == "" || ps.Stale || version < mediainfo.ProbeVersion
+}
+
+// bytesChanged reports whether the file's bytes changed since mf recorded
+// them: a stale probe whose size or mtime (to the second, as a stat round
+// trips through metav1.Time) differs from spec.sizeBytes and spec.modTime.
+// A probe hash names the path, so a rename or move alone is stale too, but
+// it moves the same bytes, keeping both -- not a change.
+func bytesChanged(mf *catalogv1alpha1.MediaFile, ps probeState) bool {
+	if !ps.Stale {
+		return false
+	}
+	return ps.SizeBytes != mf.Spec.SizeBytes ||
+		!ps.ModTime.UTC().Truncate(time.Second).Equal(mf.Spec.ModTime.UTC().Truncate(time.Second))
 }
