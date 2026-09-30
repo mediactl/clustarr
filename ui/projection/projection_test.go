@@ -19,6 +19,7 @@ package projection_test
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -749,4 +750,30 @@ func TestProjectedTurnsTrueOnTheFirstCompletedRound(t *testing.T) {
 		require.Eventually(t, p.Projected, 5*time.Second, 10*time.Millisecond,
 			"a ui with no cluster never becomes Ready")
 	})
+}
+
+// TestProjectionTrimsThePipelineToItsHistory: the pipeline keeps in-flight
+// entries and only the newest WithPipelineHistory results -- the owner's
+// page listed all ~16,000 catalog items before.
+func TestProjectionTrimsThePipelineToItsHistory(t *testing.T) {
+	var objs []client.Object
+	for i, day := range []int{1, 3, 2} {
+		objs = append(objs, &catalogv1.Episode{ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf("episode-%d", i), Namespace: "default", UID: types.UID(fmt.Sprintf("ep-%d", i)),
+			CreationTimestamp: metav1.NewTime(time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC)),
+		}})
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
+
+	proj := projection.New(fakeClient, time.Hour, projection.WithPipelineHistory(2))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = proj.Run(ctx) }()
+	ch, unsub := proj.Subscribe()
+	defer unsub()
+
+	got := receiveNonEmpty(t, ch, 2*time.Second)
+	require.Len(t, got, 2, "two results kept of three")
+	require.Equal(t, "episode-1", got[0].Ref.Name, "the newest result first")
+	require.Equal(t, "episode-2", got[1].Ref.Name)
 }

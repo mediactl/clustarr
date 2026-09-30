@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // allProcessServiceName is every service's Tracing.ServiceName under `clustarr
@@ -59,14 +60,16 @@ const allProcessServiceName = "clustarr"
 // reasoning devIndexPath below already applies to indexarr's IndexPath.
 const devEngineImage = "ghcr.io/mediactl/clustarr/media:dev"
 
-// uiPlexArgs bundles allServices' optional Plex provider settings (design
-// spec §D.1), so it can take them as a single variadic parameter rather
+// uiArgs bundles allServices' optional ui settings -- the Plex provider
+// (design spec §D.1) and the pipeline's history (--ui-pipeline-history) --
+// so it can take them as a single variadic parameter rather
 // than adding two required ones to a function with call sites outside this
 // file's own control (cmd/clustarr/start_envtest_test.go, a file this task
 // does not own -- see D1's own concurrency note).
-type uiPlexArgs struct {
-	provider    bool
-	externalURL string
+type uiArgs struct {
+	provider        bool
+	externalURL     string
+	pipelineHistory int
 }
 
 // devFacadeBindAddress is `clustarr all`'s address for indexarr's Torznab
@@ -102,14 +105,14 @@ const devFacadeBindAddress = ":9696"
 // same "on, no external URL" state those flags' own defaults produce.
 func allServices(
 	lo *logging.Options, to *tracing.Options, indexDSN string, uiAddr string, uiAuthMode ui.AuthMode,
-	uiPlex ...uiPlexArgs,
+	uiOpts ...uiArgs,
 ) []struct {
 	name string
 	run  func(ctx context.Context, o k8s.Options) error
 } {
-	plex := uiPlexArgs{provider: true}
-	if len(uiPlex) > 0 {
-		plex = uiPlex[0]
+	plex := uiArgs{provider: true, pipelineHistory: projection.DefaultPipelineHistory}
+	if len(uiOpts) > 0 {
+		plex = uiOpts[0]
 	}
 	tr := *to
 	tr.ServiceName = allProcessServiceName
@@ -258,7 +261,7 @@ func allServices(
 			// commands and fails on any func, pointer or interface field of
 			// ui.Options left nil.
 			reader, waitForSync, acts := buildUICluster(ctx)
-			proj := buildUIProjection(ctx, reader)
+			proj := buildUIProjection(ctx, reader, plex.pipelineHistory)
 			artwork, metadataSearch, closeBus := buildUIBus(ctx, o.NATSURL)
 			defer closeBus()
 			return runUI(ctx, ui.Options{
@@ -312,6 +315,7 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var uiAuthMode string
 	var uiPlexProvider bool
 	var uiExternalURL string
+	var uiPipelineHistory int
 	cmd.Flags().StringVar(&indexDSN, "index-dsn", envOr(indexDSNEnv, ""),
 		"Postgres DSN for the release index. Non-empty selects Postgres and ignores the dev SQLite "+
 			"index path. Defaults to $"+indexDSNEnv+".")
@@ -329,6 +333,10 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		"Absolute base every thumb, art and Image[].url the Plex provider hands Plex is built on. "+
 			"Defaults to $"+externalURLEnv+". Required for --plex-provider to serve anything but 503.")
 
+	cmd.Flags().IntVar(&uiPipelineHistory, "ui-pipeline-history", projection.DefaultPipelineHistory,
+		"How many results ui's pipeline page keeps beside its in-flight entries (`clustarr ui`'s "+
+			"--pipeline-history); 0 shows in-flight entries only.")
+
 	// Leader election buys nothing in a single process that already runs one
 	// of each controller, and would only add a Lease per service to clean up.
 	if err := cmd.Flags().MarkHidden("leader-elect"); err != nil {
@@ -341,7 +349,7 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		base.BusSingleNode = true
 
 		services := allServices(lo, to, indexDSN, uiAddr, ui.AuthMode(uiAuthMode),
-			uiPlexArgs{provider: uiPlexProvider, externalURL: uiExternalURL})
+			uiArgs{provider: uiPlexProvider, externalURL: uiExternalURL, pipelineHistory: uiPipelineHistory})
 		optionsFor := make([]k8s.Options, len(services))
 		for i, svc := range services {
 			o := base

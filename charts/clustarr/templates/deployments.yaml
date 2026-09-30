@@ -280,7 +280,7 @@ spec:
       - name: ui
         image: {{ include "clustarr.image" (dict "root" $ "which" "controller") }}
         imagePullPolicy: {{ $.Values.image.pullPolicy }}
-        {{- $uiArgs := list "ui" (printf "--auth-mode=%s" .Values.ui.auth.mode) (printf "--plex-provider=%t" .Values.ui.plex.enabled) }}
+        {{- $uiArgs := list "ui" (printf "--auth-mode=%s" .Values.ui.auth.mode) (printf "--plex-provider=%t" .Values.ui.plex.enabled) (printf "--pipeline-history=%d" (int .Values.ui.pipelineHistory)) }}
         {{- with .Values.ui.plex.externalURL }}
         {{- $uiArgs = append $uiArgs (printf "--external-url=%s" .) }}
         {{- end }}

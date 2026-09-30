@@ -84,8 +84,9 @@ spec:
         # example) or as a further --external-url arg. See
         # charts/clustarr/README.md's "Plex provider" section before setting
         # it on anything but a private, cluster-internal network -- the
-        # provider is unauthenticated by protocol.
-        args: ["ui", "--auth-mode=anonymous", "--plex-provider=true"]
+        # provider is unauthenticated by protocol. --pipeline-history is the
+        # binary's default, named for the same reason as --plex-provider.
+        args: ["ui", "--auth-mode=anonymous", "--plex-provider=true", "--pipeline-history=100"]
         env:
         - name: POD_NAMESPACE
           valueFrom:

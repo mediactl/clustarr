@@ -426,6 +426,10 @@ ui:
   # and never be exposed directly (amendment §A3.5).
   auth:
     mode: anonymous
+  # How many results the pipeline page keeps beside its in-flight entries
+  # (--pipeline-history), newest first: two pages at the default page size.
+  # 0 shows in-flight entries only. Nothing in the cluster is deleted.
+  pipelineHistory: 100
   # The Plex Custom Metadata Provider (design spec §D;
   # docs/research/plex-metadata-provider.md): served read-only by this ui
   # process at /plex/movies and /plex/tv. It is unauthenticated by the Plex

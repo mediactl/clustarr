@@ -475,8 +475,8 @@ func buildUICluster(ctx context.Context) (client.Reader, func(context.Context) b
 // identical: Projection already treats a nil reader as "project nothing"
 // (ui/projection/projection.go), the same as ui.Options.Entries being unset
 // ever meant.
-func buildUIProjection(ctx context.Context, reader client.Reader) *projection.Projection {
-	proj := projection.New(reader, projection.DefaultInterval)
+func buildUIProjection(ctx context.Context, reader client.Reader, history int) *projection.Projection {
+	proj := projection.New(reader, projection.DefaultInterval, projection.WithPipelineHistory(history))
 	go func() {
 		if err := proj.Run(ctx); err != nil && ctx.Err() == nil {
 			ctrl.LoggerFrom(ctx).WithName("ui").Error(err, "pipeline projection loop stopped")
@@ -562,6 +562,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var natsURL string
 	var plexProvider bool
 	var externalURL string
+	var pipelineHistory int
 
 	cmd := &cobra.Command{
 		Use:   "ui",
@@ -595,10 +596,14 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			"e.g. https://clustarr.example.com. Defaults to $"+externalURLEnv+". Required for "+
 			"--plex-provider to serve anything but 503.")
 
+	cmd.Flags().IntVar(&pipelineHistory, "pipeline-history", projection.DefaultPipelineHistory,
+		"How many results the pipeline page keeps beside its in-flight entries, newest first "+
+			"(two pages at the default page size); 0 shows in-flight entries only.")
+
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
 		reader, waitForSync, acts := buildUICluster(ctx)
-		proj := buildUIProjection(ctx, reader)
+		proj := buildUIProjection(ctx, reader, pipelineHistory)
 		artwork, metadataSearch, closeBus := buildUIBus(ctx, natsURL)
 		defer closeBus()
 		// Every cluster-derived field, in the same order as all.go's ui

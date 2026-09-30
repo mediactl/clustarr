@@ -53,6 +53,53 @@ import (
 // Failure and blocked states are checked before anything else, per the
 // brief.
 func Project(item client.Object, related Related) Entry {
+	entry := project(item, related)
+	if entry.Stage.Settled() {
+		entry.Since = settledAt(item, related)
+	}
+	return entry
+}
+
+// settledAt is when a settled item reached its result: the newest activity
+// among its Downloads (created, completed, imported), TranscodeJobs
+// (finished), SubtitleRequests (a subtitle written), MediaFile and Search
+// (created), or the item's own creation when it has none. The pipeline
+// page orders its results by it (Trim), so an item added long ago and
+// imported yesterday reads as yesterday's result.
+func settledAt(item client.Object, related Related) time.Time {
+	at := item.GetCreationTimestamp().Time
+	seen := func(t *metav1.Time) {
+		if t != nil && t.After(at) {
+			at = t.Time
+		}
+	}
+	for i := range related.Downloads {
+		d := &related.Downloads[i]
+		seen(&d.CreationTimestamp)
+		seen(d.Status.CompletedAt)
+		if d.Status.Import != nil {
+			seen(d.Status.Import.ImportedAt)
+		}
+	}
+	for i := range related.Jobs {
+		seen(related.Jobs[i].Status.FinishedAt)
+	}
+	for i := range related.Subtitles {
+		for j := range related.Subtitles[i].Status.Items {
+			seen(related.Subtitles[i].Status.Items[j].DownloadedAt)
+		}
+	}
+	if related.MediaFile != nil {
+		seen(&related.MediaFile.CreationTimestamp)
+	}
+	if related.Search != nil {
+		seen(&related.Search.CreationTimestamp)
+	}
+	return at
+}
+
+// project derives the entry; Project sets a settled entry's Since after it.
+func project(item client.Object, related Related) Entry {
 	desc := describeItem(item)
 
 	entry := Entry{

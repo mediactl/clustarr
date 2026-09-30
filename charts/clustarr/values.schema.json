@@ -284,6 +284,7 @@
             }
           }
         },
+        "pipelineHistory": {"type": "integer", "minimum": 0, "description": "Results the pipeline page keeps beside its in-flight entries (--pipeline-history); 0 shows in-flight entries only."},
         "plex": {
           "type": "object",
           "additionalProperties": false,

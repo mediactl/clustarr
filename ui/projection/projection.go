@@ -59,6 +59,9 @@ const DefaultInterval = 5 * time.Second
 type Projection struct {
 	reader   client.Reader
 	interval time.Duration
+	// history is how many settled pipeline entries a round keeps
+	// (pipeline.Trim); WithPipelineHistory sets it.
+	history int
 
 	// projected is set once the first round has completed; see Projected.
 	projected atomic.Bool
@@ -82,16 +85,36 @@ type Projection struct {
 // that does not exist; [Entries] and [Subscribe] both stay legal to call,
 // they just never see any rows. Nothing here starts anything; call [Run] to
 // begin projecting.
-func New(r client.Reader, interval time.Duration) *Projection {
-	return &Projection{
+func New(r client.Reader, interval time.Duration, opts ...Option) *Projection {
+	p := &Projection{
 		reader:         r,
 		interval:       interval,
+		history:        DefaultPipelineHistory,
 		subs:           make(map[chan []pipeline.Entry]struct{}),
 		downloadSubs:   make(map[chan []downloadv1.Download]struct{}),
 		librarySubs:    make(map[chan []LibraryItem]struct{}),
 		unmatchedSubs:  make(map[chan []UnmatchedEntry]struct{}),
 		importListSubs: make(map[chan []ImportListEntry]struct{}),
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
+}
+
+// DefaultPipelineHistory is how many results the pipeline page keeps
+// beside its in-flight entries: two pages at paging.DefaultPer. The page
+// is for what is happening and what just finished; the history stream is
+// the record.
+const DefaultPipelineHistory = 100
+
+// Option configures a Projection.
+type Option func(*Projection)
+
+// WithPipelineHistory keeps the n newest settled pipeline entries
+// (pipeline.Trim); 0 keeps in-flight entries only.
+func WithPipelineHistory(n int) Option {
+	return func(p *Projection) { p.history = n }
 }
 
 // Run computes the projection immediately and then again every interval,
@@ -394,6 +417,9 @@ func (p *Projection) project(
 	// newest-first by when each entered its current stage, so whatever just
 	// moved is at the top.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Since.After(entries[j].Since) })
+	// Then only the in-flight entries and the newest results
+	// (--pipeline-history): one entry per catalog item was ~16,000 rows.
+	entries = pipeline.Trim(entries, p.history)
 
 	// Sorted by name for the same reason ui/routes.go's listDownloads sorts
 	// its own, independent List the same way: a stable render, here across
