@@ -57,12 +57,11 @@ var _ net.PacketConn = (*PacketConn)(nil)
 // ListenPacket opens a UDP association through the proxy. It returns
 // ErrUDPUnsupported when the proxy refuses the command.
 func (p Proxy) ListenPacket(ctx context.Context) (*PacketConn, error) {
-	udp, err := net.ListenUDP("udp", nil)
+	pc, err := p.newPacketConn()
 	if err != nil {
-		return nil, fmt.Errorf("socks5: listen udp: %w", err)
+		return nil, err
 	}
-	pc := &PacketConn{p: p, udp: udp, closed: make(chan struct{})}
-	pc.bufs.New = func() any { b := make([]byte, maxDatagram); return &b }
+	udp := pc.udp
 	ctrl, relay, err := p.associate(ctx)
 	if err != nil {
 		_ = udp.Close()
@@ -71,6 +70,31 @@ func (p Proxy) ListenPacket(ctx context.Context) (*PacketConn, error) {
 	pc.ctrl = ctrl
 	pc.relay.Store(relay)
 	go pc.watch(ctrl)
+	return pc, nil
+}
+
+// NewPacketConn returns a PacketConn at once and associates in the
+// background, retrying as after a dropped control connection; datagrams
+// written before the association is up are dropped. It is for a caller
+// that may not wait on a dial -- anacrolix opens a UDP tracker's socket
+// under its client lock -- or fail: a proxy that refuses UDP ASSOCIATE
+// leaves it a socket that never delivers.
+func (p Proxy) NewPacketConn() (*PacketConn, error) {
+	pc, err := p.newPacketConn()
+	if err != nil {
+		return nil, err
+	}
+	go pc.reassociate(0)
+	return pc, nil
+}
+
+func (p Proxy) newPacketConn() (*PacketConn, error) {
+	udp, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		return nil, fmt.Errorf("socks5: listen udp: %w", err)
+	}
+	pc := &PacketConn{p: p, udp: udp, closed: make(chan struct{})}
+	pc.bufs.New = func() any { b := make([]byte, maxDatagram); return &b }
 	return pc, nil
 }
 
@@ -190,7 +214,12 @@ func readReplyAddr(r io.Reader) (net.IP, int, error) {
 // watch waits for ctrl to close and re-associates until pc is closed.
 func (pc *PacketConn) watch(ctrl net.Conn) {
 	_, _ = io.Copy(io.Discard, ctrl)
-	wait := pc.p.retry()
+	pc.reassociate(pc.p.retry())
+}
+
+// reassociate associates after wait, backing off to a minute, until it
+// succeeds (and hands the new control connection to watch) or pc closes.
+func (pc *PacketConn) reassociate(wait time.Duration) {
 	for {
 		pc.relay.Store(nil)
 		select {
@@ -202,7 +231,7 @@ func (pc *PacketConn) watch(ctrl net.Conn) {
 		c, relay, err := pc.p.associate(ctx)
 		cancel()
 		if err != nil {
-			wait = min(wait*2, time.Minute)
+			wait = min(max(wait*2, pc.p.retry()), time.Minute)
 			continue
 		}
 		pc.mu.Lock()

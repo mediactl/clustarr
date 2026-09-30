@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,7 @@ func newProxiedClient(t *testing.T, srv *socks5test.Server, udp bool) (*Client, 
 	var warned []warning
 	cfg := loopbackConfig(t)
 	cfg.NoDHT = false
+	cfg.DisableTrackers = false // as in production: trackers are where UDP leaks and panics were
 	cfg.ListenPort = 42069
 	cfg.Proxy = &ProxyConfig{
 		Proxy:           socks5.Proxy{Addr: srv.Addr()},
@@ -116,8 +118,13 @@ func TestProxiedClientWithoutUDPSupportWarns(t *testing.T) {
 	require.Empty(t, c.cl.DhtServers())
 	require.Len(t, *warned, 1)
 	require.Equal(t, ReasonProxyUDPUnavailable, (*warned)[0].reason)
-	_, err := c.udpTrackerPacketConn("udp", ":0")
-	require.Error(t, err, "a UDP tracker is never announced to directly")
+	pc, err := c.udpTrackerPacketConn("udp", ":0")
+	require.NoError(t, err, "anacrolix panics on an error here")
+	require.IsType(t, &blackHole{}, pc, "a UDP tracker is never announced to directly")
+	n, err := pc.WriteTo([]byte("announce"), &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4), Port: 1337})
+	require.NoError(t, err)
+	require.Equal(t, 8, n, "dropped, as UDP may")
+	require.NoError(t, pc.Close())
 }
 
 func waitComplete(t *testing.T, c *Client, payload []byte, seeder *anatorrent.Client) {
@@ -141,4 +148,58 @@ func waitComplete(t *testing.T, c *Client, payload []byte, seeder *anatorrent.Cl
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// TestAUDPTrackerNeverPanicsTheEngine: anacrolix opens a UDP tracker's
+// socket while it adds the torrent, under its client lock, and panics on
+// any error (initTrackerClient's panicif.Err) -- so TrackerListenPacket
+// must never fail, whatever the proxy does with UDP. Nearly every public
+// torrent lists a udp:// tracker, and re-attach re-adds them all.
+func TestAUDPTrackerNeverPanicsTheEngine(t *testing.T) {
+	magnet := "magnet:?xt=urn:btih:" + strings.Repeat("ab", 20) + "&tr=udp%3A%2F%2Ftracker.example.org%3A1337%2Fannounce"
+	for name, tc := range map[string]struct {
+		udp     bool
+		refused bool
+	}{
+		"udp off":     {udp: false},
+		"udp refused": {udp: true, refused: true},
+		"udp on":      {udp: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := socks5test.NewServer(t)
+			srv.NoUDP = tc.refused
+			c, _ := newProxiedClient(t, srv, tc.udp)
+			_, err := c.Add(context.Background(), download.AddRequest{Name: "udp-tracker", Magnet: magnet})
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestAUDPTrackerSocketDoesNotWaitForTheProxy: the tracker's socket is
+// opened under anacrolix's client lock, so it must return at once and
+// associate in the background, not spend a dial and a handshake there.
+func TestAUDPTrackerSocketDoesNotWaitForTheProxy(t *testing.T) {
+	srv := socks5test.NewServer(t)
+	c, _ := newProxiedClient(t, srv, true)
+
+	silent, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = silent.Close() })
+	go func() {
+		for {
+			conn, err := silent.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() }) // accepts, never answers
+		}
+	}()
+	c.proxy.cfg.Proxy.Addr = silent.Addr().String()
+
+	start := time.Now()
+	pc, err := c.udpTrackerPacketConn("udp4", ":0")
+	require.NoError(t, err)
+	require.NotNil(t, pc)
+	require.Less(t, time.Since(start), 500*time.Millisecond)
+	require.NoError(t, pc.Close())
 }

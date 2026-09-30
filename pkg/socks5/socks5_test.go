@@ -219,3 +219,25 @@ func TestPingNeedsAnAnsweringProxy(t *testing.T) {
 	require.NoError(t, ln.Close())
 	require.Error(t, socks5.Proxy{Addr: addr}.Ping(context.Background()))
 }
+
+// TestNewPacketConnAssociatesInTheBackground: NewPacketConn returns before
+// any association exists -- a caller under a lock must not wait on a dial
+// -- and datagrams flow once the background association is up.
+func TestNewPacketConnAssociatesInTheBackground(t *testing.T) {
+	srv := socks5test.NewServer(t)
+	echo := echoUDP(t)
+	pc, err := socks5.Proxy{Addr: srv.Addr(), RetryInterval: 20 * time.Millisecond}.NewPacketConn()
+	require.NoError(t, err)
+	defer func() { _ = pc.Close() }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_, err = pc.WriteTo([]byte("late"), echo)
+		require.NoError(t, err)
+		if got, _, err := readFrom(t, pc, 100*time.Millisecond); err == nil {
+			require.Equal(t, "late", got)
+			return
+		}
+	}
+	t.Fatal("the background association never came up")
+}

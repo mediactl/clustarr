@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -145,16 +147,76 @@ func (ps *proxyState) associate() (*socks5.PacketConn, error) {
 }
 
 // udpTrackerPacketConn is ClientConfig.TrackerListenPacket for a proxied
-// client: each UDP tracker client gets its own association, and with none
-// available the announce fails rather than leaving directly.
+// client. anacrolix calls it while adding a torrent, under its client
+// lock, and panics on an error (initTrackerClient), so it never fails and
+// never waits: each UDP tracker gets an association made in the background
+// (socks5.Proxy.NewPacketConn), or -- with no UDP through the proxy -- a
+// socket that sends nothing, so the announce times out rather than leaving
+// directly.
 func (c *Client) udpTrackerPacketConn(_, _ string) (net.PacketConn, error) {
-	if c.proxy == nil || !c.proxy.udpOK.Load() {
-		return nil, errors.New("torrent: UDP trackers are off: the proxy carries no UDP")
+	if c.proxy != nil && c.proxy.udpOK.Load() {
+		if pc, err := c.proxy.cfg.Proxy.NewPacketConn(); err == nil {
+			return pc, nil
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), associateTimeout)
-	defer cancel()
-	return c.proxy.cfg.Proxy.ListenPacket(ctx)
+	return newBlackHole(), nil
 }
+
+// blackHole is a PacketConn that drops every datagram written to it and
+// delivers none: a UDP tracker's socket when the proxy carries no UDP.
+type blackHole struct {
+	closed chan struct{}
+	once   sync.Once
+	mu     sync.Mutex
+	dl     time.Time
+}
+
+func newBlackHole() *blackHole { return &blackHole{closed: make(chan struct{})} }
+
+func (b *blackHole) ReadFrom([]byte) (int, net.Addr, error) {
+	b.mu.Lock()
+	dl := b.dl
+	b.mu.Unlock()
+	var timeout <-chan time.Time
+	if !dl.IsZero() {
+		t := time.NewTimer(time.Until(dl))
+		defer t.Stop()
+		timeout = t.C
+	}
+	select {
+	case <-b.closed:
+		return 0, nil, net.ErrClosed
+	case <-timeout:
+		return 0, nil, os.ErrDeadlineExceeded
+	}
+}
+
+func (b *blackHole) WriteTo(p []byte, _ net.Addr) (int, error) {
+	select {
+	case <-b.closed:
+		return 0, net.ErrClosed
+	default:
+		return len(p), nil
+	}
+}
+
+func (b *blackHole) Close() error {
+	b.once.Do(func() { close(b.closed) })
+	return nil
+}
+
+func (b *blackHole) LocalAddr() net.Addr { return &net.UDPAddr{IP: net.IPv4zero} }
+
+func (b *blackHole) SetDeadline(t time.Time) error { return b.SetReadDeadline(t) }
+
+func (b *blackHole) SetReadDeadline(t time.Time) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.dl = t
+	return nil
+}
+
+func (b *blackHole) SetWriteDeadline(time.Time) error { return nil }
 
 // tcpDialer dials peers with CONNECT through the proxy.
 type tcpDialer struct{ p socks5.Proxy }
