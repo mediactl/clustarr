@@ -23,33 +23,37 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
 
-// ImageApplyConfiguration represents a declarative configuration of the Image type for use
+// SeasonImageApplyConfiguration represents a declarative configuration of the SeasonImage type for use
 // with apply.
 //
-// Image is one artwork URL published by a metadata provider.
-type ImageApplyConfiguration struct {
+// SeasonImage is one piece of artwork for a single season of a series.
+type SeasonImageApplyConfiguration struct {
+	// Season is the season number the image belongs to.
+	Season *int32 `json:"season,omitempty"`
 	// Type classifies the image.
 	Type *catalogv1alpha1.ImageType `json:"type,omitempty"`
 	// URL is where the image can be fetched.
 	URL *string `json:"url,omitempty"`
-	// Language is the ISO 639-1 language of any text in the image, empty for
-	// an image with none. The metadata gateway keeps the configured
-	// language's images and the original language's side by side, so the
-	// Plex provider can answer OriginalImage (spec 2026-09-30
-	// plex-full-metadata-response §3.2).
-	Language *string `json:"language,omitempty"`
 }
 
-// ImageApplyConfiguration constructs a declarative configuration of the Image type for use with
+// SeasonImageApplyConfiguration constructs a declarative configuration of the SeasonImage type for use with
 // apply.
-func Image() *ImageApplyConfiguration {
-	return &ImageApplyConfiguration{}
+func SeasonImage() *SeasonImageApplyConfiguration {
+	return &SeasonImageApplyConfiguration{}
+}
+
+// WithSeason sets the Season field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Season field is set to the value of the last call.
+func (b *SeasonImageApplyConfiguration) WithSeason(value int32) *SeasonImageApplyConfiguration {
+	b.Season = &value
+	return b
 }
 
 // WithType sets the Type field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Type field is set to the value of the last call.
-func (b *ImageApplyConfiguration) WithType(value catalogv1alpha1.ImageType) *ImageApplyConfiguration {
+func (b *SeasonImageApplyConfiguration) WithType(value catalogv1alpha1.ImageType) *SeasonImageApplyConfiguration {
 	b.Type = &value
 	return b
 }
@@ -57,15 +61,7 @@ func (b *ImageApplyConfiguration) WithType(value catalogv1alpha1.ImageType) *Ima
 // WithURL sets the URL field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the URL field is set to the value of the last call.
-func (b *ImageApplyConfiguration) WithURL(value string) *ImageApplyConfiguration {
+func (b *SeasonImageApplyConfiguration) WithURL(value string) *SeasonImageApplyConfiguration {
 	b.URL = &value
-	return b
-}
-
-// WithLanguage sets the Language field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Language field is set to the value of the last call.
-func (b *ImageApplyConfiguration) WithLanguage(value string) *ImageApplyConfiguration {
-	b.Language = &value
 	return b
 }

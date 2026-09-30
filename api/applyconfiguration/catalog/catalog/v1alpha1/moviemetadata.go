@@ -76,6 +76,22 @@ type MovieMetadataApplyConfiguration struct {
 	// Ratings lists the scores gathered from the enabled ratings providers,
 	// one entry per source (pkg/metadata.RatingsProvider).
 	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Tagline is the film's promotional line (TMDB tagline).
+	Tagline *string `json:"tagline,omitempty"`
+	// Studios are the production companies, in TMDB's order; the first is
+	// the Plex provider's "studio".
+	Studios []string `json:"studios,omitempty"`
+	// Countries are the production countries' full names.
+	Countries []string `json:"countries,omitempty"`
+	// Adult is TMDB's adult flag; the Plex provider's isAdult.
+	Adult *bool `json:"adult,omitempty"`
+	// Certifications are the film's age ratings, one per country: that
+	// country's theatrical certification, else its first. Certification is
+	// the one chosen for the configured region.
+	Certifications []CertificationApplyConfiguration `json:"certifications,omitempty"`
+	// OriginalGenres are Genres in the film's original language, in the
+	// same order, when that language differs from the configured one.
+	OriginalGenres []string `json:"originalGenres,omitempty"`
 }
 
 // MovieMetadataApplyConfiguration constructs a declarative configuration of the MovieMetadata type for use with
@@ -273,6 +289,65 @@ func (b *MovieMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConf
 			panic("nil value passed to WithRatings")
 		}
 		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithTagline sets the Tagline field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Tagline field is set to the value of the last call.
+func (b *MovieMetadataApplyConfiguration) WithTagline(value string) *MovieMetadataApplyConfiguration {
+	b.Tagline = &value
+	return b
+}
+
+// WithStudios adds the given value to the Studios field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Studios field.
+func (b *MovieMetadataApplyConfiguration) WithStudios(values ...string) *MovieMetadataApplyConfiguration {
+	for i := range values {
+		b.Studios = append(b.Studios, values[i])
+	}
+	return b
+}
+
+// WithCountries adds the given value to the Countries field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Countries field.
+func (b *MovieMetadataApplyConfiguration) WithCountries(values ...string) *MovieMetadataApplyConfiguration {
+	for i := range values {
+		b.Countries = append(b.Countries, values[i])
+	}
+	return b
+}
+
+// WithAdult sets the Adult field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Adult field is set to the value of the last call.
+func (b *MovieMetadataApplyConfiguration) WithAdult(value bool) *MovieMetadataApplyConfiguration {
+	b.Adult = &value
+	return b
+}
+
+// WithCertifications adds the given value to the Certifications field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Certifications field.
+func (b *MovieMetadataApplyConfiguration) WithCertifications(values ...*CertificationApplyConfiguration) *MovieMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithCertifications")
+		}
+		b.Certifications = append(b.Certifications, *values[i])
+	}
+	return b
+}
+
+// WithOriginalGenres adds the given value to the OriginalGenres field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the OriginalGenres field.
+func (b *MovieMetadataApplyConfiguration) WithOriginalGenres(values ...string) *MovieMetadataApplyConfiguration {
+	for i := range values {
+		b.OriginalGenres = append(b.OriginalGenres, values[i])
 	}
 	return b
 }

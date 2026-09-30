@@ -445,6 +445,39 @@ spec:
                     description: Certification is the content rating in the configured
                       region.
                     type: string
+                  certifications:
+                    description: |-
+                      Certifications are the series' age ratings, one per country (TVDB
+                      contentRatings). Certification is the one chosen for the configured
+                      region.
+                    items:
+                      description: Certification is one country's age rating for an
+                        item.
+                      properties:
+                        country:
+                          description: Country is the ISO 3166-1 alpha-2 code the
+                            rating applies in.
+                          type: string
+                        rating:
+                          description: |-
+                            Rating is the certification as that country writes it ("R", "15",
+                            "FSK 12").
+                          type: string
+                      required:
+                      - country
+                      - rating
+                      type: object
+                    maxItems: 60
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - country
+                    x-kubernetes-list-type: map
+                  countries:
+                    description: Countries are the countries of origin, as full names.
+                    items:
+                      type: string
+                    maxItems: 5
+                    type: array
                   externalIDs:
                     additionalProperties:
                       type: string
@@ -470,6 +503,14 @@ spec:
                       description: Image is one artwork URL published by a metadata
                         provider.
                       properties:
+                        language:
+                          description: |-
+                            Language is the ISO 639-1 language of any text in the image, empty for
+                            an image with none. The metadata gateway keeps the configured
+                            language's images and the original language's side by side, so the
+                            Plex provider can answer OriginalImage (spec 2026-09-30
+                            plex-full-metadata-response §3.2).
+                          type: string
                         type:
                           description: Type classifies the image.
                           enum:
@@ -495,6 +536,22 @@ spec:
                   network:
                     description: Network is the broadcaster or streaming service.
                     type: string
+                  networks:
+                    description: |-
+                      Networks are the networks the series aired on, original first; Network
+                      stays the first of them.
+                    items:
+                      type: string
+                    maxItems: 5
+                    type: array
+                  originalGenres:
+                    description: |-
+                      OriginalGenres are Genres in the series' original language, in the
+                      same order, when that language differs from the configured one.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
                   originalLanguage:
                     description: OriginalLanguage is the BCP-47 tag of the original
                       language.
@@ -554,6 +611,64 @@ spec:
                       minutes.
                     format: int32
                     type: integer
+                  seasonImages:
+                    description: |-
+                      SeasonImages are per-season artwork (TVDB season posters and
+                      backgrounds). They live here rather than on status.seasons so the
+                      Series controller stays the only writer of status.seasons.
+                    items:
+                      description: SeasonImage is one piece of artwork for a single
+                        season of a series.
+                      properties:
+                        season:
+                          description: Season is the season number the image belongs
+                            to.
+                          format: int32
+                          type: integer
+                        type:
+                          description: Type classifies the image.
+                          enum:
+                          - poster
+                          - fanart
+                          - banner
+                          - logo
+                          - clearart
+                          - thumb
+                          - screenshot
+                          - disc
+                          - headshot
+                          type: string
+                        url:
+                          description: URL is where the image can be fetched.
+                          type: string
+                      required:
+                      - season
+                      - type
+                      - url
+                      type: object
+                    maxItems: 400
+                    type: array
+                  seasonTypes:
+                    description: SeasonTypes are the episode orderings the provider
+                      offers.
+                    items:
+                      description: |-
+                        SeasonTypeRef names one of a series' episode orderings as the provider
+                        calls it (TVDB seasonTypes: "official" is "Aired Order").
+                      properties:
+                        id:
+                          description: ID is the ordering's identifier, e.g. "official",
+                            "dvd", "absolute".
+                          type: string
+                        name:
+                          description: Name is the ordering's human-readable name.
+                          type: string
+                      required:
+                      - id
+                      - name
+                      type: object
+                    maxItems: 10
+                    type: array
                   sortTitle:
                     description: SortTitle is the title used for sorting.
                     type: string
@@ -563,6 +678,17 @@ spec:
                     - continuing
                     - ended
                     - upcoming
+                    type: string
+                  studios:
+                    description: Studios are the production companies (TVDB companies).
+                    items:
+                      type: string
+                    maxItems: 10
+                    type: array
+                  tagline:
+                    description: |-
+                      Tagline is the series' promotional line (TMDB tv, when a TMDB id and
+                      key exist).
                     type: string
                   title:
                     description: Title is the localised title.

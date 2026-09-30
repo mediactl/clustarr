@@ -1067,6 +1067,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: search
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Certification
+  map:
+    fields:
+    - name: country
+      type:
+        scalar: string
+    - name: rating
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Chapter
   map:
     fields:
@@ -1552,6 +1561,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hasFile
       type:
         scalar: boolean
+    - name: images
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
+          elementRelationship: atomic
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -1608,6 +1623,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
   map:
     fields:
+    - name: language
+      type:
+        scalar: string
     - name: type
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageType
@@ -2434,6 +2452,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MovieMetadata
   map:
     fields:
+    - name: adult
+      type:
+        scalar: boolean
     - name: alternateTitles
       type:
         list:
@@ -2443,9 +2464,23 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: certification
       type:
         scalar: string
+    - name: certifications
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Certification
+          elementRelationship: associative
+          keys:
+          - country
     - name: collection
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.CollectionRef
+    - name: countries
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: digitalRelease
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -2469,6 +2504,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: inCinemas
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: originalGenres
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: originalLanguage
       type:
         scalar: string
@@ -2510,6 +2551,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: status
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MovieReleaseStatus
+    - name: studios
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: tagline
+      type:
+        scalar: string
     - name: title
       type:
         scalar: string
@@ -3090,6 +3140,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ReleaseDate
   map:
     fields:
+    - name: certification
+      type:
+        scalar: string
     - name: country
       type:
         scalar: string
@@ -3458,6 +3511,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: startedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonImage
+  map:
+    fields:
+    - name: season
+      type:
+        scalar: numeric
+    - name: type
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageType
+    - name: url
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSpec
   map:
     fields:
@@ -3492,6 +3557,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: sizeBytes
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonTypeRef
+  map:
+    fields:
+    - name: id
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Series
   map:
     fields:
@@ -3576,6 +3650,20 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: certification
       type:
         scalar: string
+    - name: certifications
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Certification
+          elementRelationship: associative
+          keys:
+          - country
+    - name: countries
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: externalIDs
       type:
         map:
@@ -3599,6 +3687,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: network
       type:
         scalar: string
+    - name: networks
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: originalGenres
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: originalLanguage
       type:
         scalar: string
@@ -3619,12 +3719,33 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: runtimeMinutes
       type:
         scalar: numeric
+    - name: seasonImages
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonImage
+          elementRelationship: atomic
+    - name: seasonTypes
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonTypeRef
+          elementRelationship: atomic
     - name: sortTitle
       type:
         scalar: string
     - name: status
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesRunStatus
+    - name: studios
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: tagline
+      type:
+        scalar: string
     - name: title
       type:
         scalar: string

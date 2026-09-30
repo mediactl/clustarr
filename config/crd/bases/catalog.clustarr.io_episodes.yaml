@@ -256,6 +256,42 @@ spec:
               hasFile:
                 description: HasFile is true while a MediaFile backs the episode.
                 type: boolean
+              images:
+                description: Images are the episode's stills (type screenshot), from
+                  TVDB.
+                items:
+                  description: Image is one artwork URL published by a metadata provider.
+                  properties:
+                    language:
+                      description: |-
+                        Language is the ISO 639-1 language of any text in the image, empty for
+                        an image with none. The metadata gateway keeps the configured
+                        language's images and the original language's side by side, so the
+                        Plex provider can answer OriginalImage (spec 2026-09-30
+                        plex-full-metadata-response §3.2).
+                      type: string
+                    type:
+                      description: Type classifies the image.
+                      enum:
+                      - poster
+                      - fanart
+                      - banner
+                      - logo
+                      - clearart
+                      - thumb
+                      - screenshot
+                      - disc
+                      - headshot
+                      type: string
+                    url:
+                      description: URL is where the image can be fetched.
+                      type: string
+                  required:
+                  - type
+                  - url
+                  type: object
+                maxItems: 4
+                type: array
               lastSearchedAt:
                 description: LastSearchedAt is when the episode was last searched
                   for.

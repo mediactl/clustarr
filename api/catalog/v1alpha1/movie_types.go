@@ -178,6 +178,11 @@ type ReleaseDate struct {
 	// Date is the release date.
 	// +required
 	Date metav1.Time `json:"date"`
+
+	// Certification is the age rating that release carried in its country
+	// (TMDB release_dates), empty when TMDB records none.
+	// +optional
+	Certification string `json:"certification,omitempty"`
 }
 
 // CollectionRef identifies the TMDB collection a movie belongs to.
@@ -289,6 +294,40 @@ type MovieMetadata struct {
 	// +listType=map
 	// +listMapKey=source
 	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Tagline is the film's promotional line (TMDB tagline).
+	// +optional
+	Tagline string `json:"tagline,omitempty"`
+
+	// Studios are the production companies, in TMDB's order; the first is
+	// the Plex provider's "studio".
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	Studios []string `json:"studios,omitempty"`
+
+	// Countries are the production countries' full names.
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	Countries []string `json:"countries,omitempty"`
+
+	// Adult is TMDB's adult flag; the Plex provider's isAdult.
+	// +optional
+	Adult bool `json:"adult,omitempty"`
+
+	// Certifications are the film's age ratings, one per country: that
+	// country's theatrical certification, else its first. Certification is
+	// the one chosen for the configured region.
+	// +optional
+	// +kubebuilder:validation:MaxItems=60
+	// +listType=map
+	// +listMapKey=country
+	Certifications []Certification `json:"certifications,omitempty"`
+
+	// OriginalGenres are Genres in the film's original language, in the
+	// same order, when that language differs from the configured one.
+	// +optional
+	// +kubebuilder:validation:MaxItems=30
+	OriginalGenres []string `json:"originalGenres,omitempty"`
 }
 
 // MovieSpec defines the desired state of Movie.

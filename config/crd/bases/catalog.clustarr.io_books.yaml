@@ -378,6 +378,14 @@ spec:
                       description: Image is one artwork URL published by a metadata
                         provider.
                       properties:
+                        language:
+                          description: |-
+                            Language is the ISO 639-1 language of any text in the image, empty for
+                            an image with none. The metadata gateway keeps the configured
+                            language's images and the original language's side by side, so the
+                            Plex provider can answer OriginalImage (spec 2026-09-30
+                            plex-full-metadata-response §3.2).
+                          type: string
                         type:
                           description: Type classifies the image.
                           enum:

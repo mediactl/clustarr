@@ -51,6 +51,8 @@ type EpisodeStatusApplyConfiguration struct {
 	SceneNumbering *SceneNumberingApplyConfiguration `json:"sceneNumbering,omitempty"`
 	// FinaleType marks a season or series finale, e.g. "season" or "series".
 	FinaleType *string `json:"finaleType,omitempty"`
+	// Images are the episode's stills (type screenshot), from TVDB.
+	Images []ImageApplyConfiguration `json:"images,omitempty"`
 	// Phase is the coarse lifecycle state of the episode.
 	Phase *catalogv1alpha1.EpisodePhase `json:"phase,omitempty"`
 	// HasFile is true while a MediaFile backs the episode.
@@ -161,6 +163,19 @@ func (b *EpisodeStatusApplyConfiguration) WithSceneNumbering(value *SceneNumberi
 // If called multiple times, the FinaleType field is set to the value of the last call.
 func (b *EpisodeStatusApplyConfiguration) WithFinaleType(value string) *EpisodeStatusApplyConfiguration {
 	b.FinaleType = &value
+	return b
+}
+
+// WithImages adds the given value to the Images field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Images field.
+func (b *EpisodeStatusApplyConfiguration) WithImages(values ...*ImageApplyConfiguration) *EpisodeStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithImages")
+		}
+		b.Images = append(b.Images, *values[i])
+	}
 	return b
 }
 

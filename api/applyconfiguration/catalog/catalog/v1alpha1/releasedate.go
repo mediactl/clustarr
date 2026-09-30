@@ -35,6 +35,9 @@ type ReleaseDateApplyConfiguration struct {
 	Type *int32 `json:"type,omitempty"`
 	// Date is the release date.
 	Date *v1.Time `json:"date,omitempty"`
+	// Certification is the age rating that release carried in its country
+	// (TMDB release_dates), empty when TMDB records none.
+	Certification *string `json:"certification,omitempty"`
 }
 
 // ReleaseDateApplyConfiguration constructs a declarative configuration of the ReleaseDate type for use with
@@ -64,5 +67,13 @@ func (b *ReleaseDateApplyConfiguration) WithType(value int32) *ReleaseDateApplyC
 // If called multiple times, the Date field is set to the value of the last call.
 func (b *ReleaseDateApplyConfiguration) WithDate(value v1.Time) *ReleaseDateApplyConfiguration {
 	b.Date = &value
+	return b
+}
+
+// WithCertification sets the Certification field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Certification field is set to the value of the last call.
+func (b *ReleaseDateApplyConfiguration) WithCertification(value string) *ReleaseDateApplyConfiguration {
+	b.Certification = &value
 	return b
 }

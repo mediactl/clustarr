@@ -245,6 +245,54 @@ type SeriesMetadata struct {
 	// +listType=map
 	// +listMapKey=source
 	Ratings []Rating `json:"ratings,omitempty"`
+
+	// Tagline is the series' promotional line (TMDB tv, when a TMDB id and
+	// key exist).
+	// +optional
+	Tagline string `json:"tagline,omitempty"`
+
+	// Networks are the networks the series aired on, original first; Network
+	// stays the first of them.
+	// +optional
+	// +kubebuilder:validation:MaxItems=5
+	Networks []string `json:"networks,omitempty"`
+
+	// Studios are the production companies (TVDB companies).
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	Studios []string `json:"studios,omitempty"`
+
+	// Countries are the countries of origin, as full names.
+	// +optional
+	// +kubebuilder:validation:MaxItems=5
+	Countries []string `json:"countries,omitempty"`
+
+	// Certifications are the series' age ratings, one per country (TVDB
+	// contentRatings). Certification is the one chosen for the configured
+	// region.
+	// +optional
+	// +kubebuilder:validation:MaxItems=60
+	// +listType=map
+	// +listMapKey=country
+	Certifications []Certification `json:"certifications,omitempty"`
+
+	// OriginalGenres are Genres in the series' original language, in the
+	// same order, when that language differs from the configured one.
+	// +optional
+	// +kubebuilder:validation:MaxItems=30
+	OriginalGenres []string `json:"originalGenres,omitempty"`
+
+	// SeasonImages are per-season artwork (TVDB season posters and
+	// backgrounds). They live here rather than on status.seasons so the
+	// Series controller stays the only writer of status.seasons.
+	// +optional
+	// +kubebuilder:validation:MaxItems=400
+	SeasonImages []SeasonImage `json:"seasonImages,omitempty"`
+
+	// SeasonTypes are the episode orderings the provider offers.
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	SeasonTypes []SeasonTypeRef `json:"seasonTypes,omitempty"`
 }
 
 // SeriesSpec defines the desired state of Series.

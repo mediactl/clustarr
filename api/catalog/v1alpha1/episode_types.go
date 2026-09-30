@@ -161,6 +161,11 @@ type EpisodeStatus struct {
 	// +optional
 	FinaleType string `json:"finaleType,omitempty"`
 
+	// Images are the episode's stills (type screenshot), from TVDB.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	Images []Image `json:"images,omitempty"`
+
 	// Phase is the coarse lifecycle state of the episode.
 	// +optional
 	Phase EpisodePhase `json:"phase,omitempty"`

@@ -454,6 +454,9 @@ spec:
               metadata:
                 description: Metadata is the cached provider metadata.
                 properties:
+                  adult:
+                    description: Adult is TMDB's adult flag; the Plex provider's isAdult.
+                    type: boolean
                   alternateTitles:
                     description: AlternateTitles lists other titles the movie is released
                       under.
@@ -465,6 +468,33 @@ spec:
                     description: Certification is the content rating in the configured
                       region.
                     type: string
+                  certifications:
+                    description: |-
+                      Certifications are the film's age ratings, one per country: that
+                      country's theatrical certification, else its first. Certification is
+                      the one chosen for the configured region.
+                    items:
+                      description: Certification is one country's age rating for an
+                        item.
+                      properties:
+                        country:
+                          description: Country is the ISO 3166-1 alpha-2 code the
+                            rating applies in.
+                          type: string
+                        rating:
+                          description: |-
+                            Rating is the certification as that country writes it ("R", "15",
+                            "FSK 12").
+                          type: string
+                      required:
+                      - country
+                      - rating
+                      type: object
+                    maxItems: 60
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - country
+                    x-kubernetes-list-type: map
                   collection:
                     description: Collection is the TMDB collection the movie belongs
                       to.
@@ -479,6 +509,12 @@ spec:
                     required:
                     - tmdbID
                     type: object
+                  countries:
+                    description: Countries are the production countries' full names.
+                    items:
+                      type: string
+                    maxItems: 10
+                    type: array
                   digitalRelease:
                     description: DigitalRelease is the digital release date.
                     format: date-time
@@ -501,6 +537,14 @@ spec:
                       description: Image is one artwork URL published by a metadata
                         provider.
                       properties:
+                        language:
+                          description: |-
+                            Language is the ISO 639-1 language of any text in the image, empty for
+                            an image with none. The metadata gateway keeps the configured
+                            language's images and the original language's side by side, so the
+                            Plex provider can answer OriginalImage (spec 2026-09-30
+                            plex-full-metadata-response §3.2).
+                          type: string
                         type:
                           description: Type classifies the image.
                           enum:
@@ -527,6 +571,14 @@ spec:
                     description: InCinemas is the theatrical release date.
                     format: date-time
                     type: string
+                  originalGenres:
+                    description: |-
+                      OriginalGenres are Genres in the film's original language, in the
+                      same order, when that language differs from the configured one.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
                   originalLanguage:
                     description: OriginalLanguage is the BCP-47 tag of the original
                       language.
@@ -594,6 +646,11 @@ spec:
                       description: ReleaseDate is one regional release date reported
                         by TMDB.
                       properties:
+                        certification:
+                          description: |-
+                            Certification is the age rating that release carried in its country
+                            (TMDB release_dates), empty when TMDB records none.
+                          type: string
                         country:
                           description: Country is the ISO 3166-1 country code of the
                             release.
@@ -641,6 +698,17 @@ spec:
                     - announced
                     - inCinemas
                     - released
+                    type: string
+                  studios:
+                    description: |-
+                      Studios are the production companies, in TMDB's order; the first is
+                      the Plex provider's "studio".
+                    items:
+                      type: string
+                    maxItems: 10
+                    type: array
+                  tagline:
+                    description: Tagline is the film's promotional line (TMDB tagline).
                     type: string
                   title:
                     description: Title is the localised title.

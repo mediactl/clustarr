@@ -67,6 +67,29 @@ type SeriesMetadataApplyConfiguration struct {
 	// Ratings lists the scores gathered from the enabled ratings providers,
 	// one entry per source (pkg/metadata.RatingsProvider).
 	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
+	// Tagline is the series' promotional line (TMDB tv, when a TMDB id and
+	// key exist).
+	Tagline *string `json:"tagline,omitempty"`
+	// Networks are the networks the series aired on, original first; Network
+	// stays the first of them.
+	Networks []string `json:"networks,omitempty"`
+	// Studios are the production companies (TVDB companies).
+	Studios []string `json:"studios,omitempty"`
+	// Countries are the countries of origin, as full names.
+	Countries []string `json:"countries,omitempty"`
+	// Certifications are the series' age ratings, one per country (TVDB
+	// contentRatings). Certification is the one chosen for the configured
+	// region.
+	Certifications []CertificationApplyConfiguration `json:"certifications,omitempty"`
+	// OriginalGenres are Genres in the series' original language, in the
+	// same order, when that language differs from the configured one.
+	OriginalGenres []string `json:"originalGenres,omitempty"`
+	// SeasonImages are per-season artwork (TVDB season posters and
+	// backgrounds). They live here rather than on status.seasons so the
+	// Series controller stays the only writer of status.seasons.
+	SeasonImages []SeasonImageApplyConfiguration `json:"seasonImages,omitempty"`
+	// SeasonTypes are the episode orderings the provider offers.
+	SeasonTypes []SeasonTypeRefApplyConfiguration `json:"seasonTypes,omitempty"`
 }
 
 // SeriesMetadataApplyConfiguration constructs a declarative configuration of the SeriesMetadata type for use with
@@ -230,6 +253,93 @@ func (b *SeriesMetadataApplyConfiguration) WithRatings(values ...*RatingApplyCon
 			panic("nil value passed to WithRatings")
 		}
 		b.Ratings = append(b.Ratings, *values[i])
+	}
+	return b
+}
+
+// WithTagline sets the Tagline field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Tagline field is set to the value of the last call.
+func (b *SeriesMetadataApplyConfiguration) WithTagline(value string) *SeriesMetadataApplyConfiguration {
+	b.Tagline = &value
+	return b
+}
+
+// WithNetworks adds the given value to the Networks field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Networks field.
+func (b *SeriesMetadataApplyConfiguration) WithNetworks(values ...string) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		b.Networks = append(b.Networks, values[i])
+	}
+	return b
+}
+
+// WithStudios adds the given value to the Studios field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Studios field.
+func (b *SeriesMetadataApplyConfiguration) WithStudios(values ...string) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		b.Studios = append(b.Studios, values[i])
+	}
+	return b
+}
+
+// WithCountries adds the given value to the Countries field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Countries field.
+func (b *SeriesMetadataApplyConfiguration) WithCountries(values ...string) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		b.Countries = append(b.Countries, values[i])
+	}
+	return b
+}
+
+// WithCertifications adds the given value to the Certifications field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Certifications field.
+func (b *SeriesMetadataApplyConfiguration) WithCertifications(values ...*CertificationApplyConfiguration) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithCertifications")
+		}
+		b.Certifications = append(b.Certifications, *values[i])
+	}
+	return b
+}
+
+// WithOriginalGenres adds the given value to the OriginalGenres field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the OriginalGenres field.
+func (b *SeriesMetadataApplyConfiguration) WithOriginalGenres(values ...string) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		b.OriginalGenres = append(b.OriginalGenres, values[i])
+	}
+	return b
+}
+
+// WithSeasonImages adds the given value to the SeasonImages field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SeasonImages field.
+func (b *SeriesMetadataApplyConfiguration) WithSeasonImages(values ...*SeasonImageApplyConfiguration) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSeasonImages")
+		}
+		b.SeasonImages = append(b.SeasonImages, *values[i])
+	}
+	return b
+}
+
+// WithSeasonTypes adds the given value to the SeasonTypes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SeasonTypes field.
+func (b *SeriesMetadataApplyConfiguration) WithSeasonTypes(values ...*SeasonTypeRefApplyConfiguration) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSeasonTypes")
+		}
+		b.SeasonTypes = append(b.SeasonTypes, *values[i])
 	}
 	return b
 }

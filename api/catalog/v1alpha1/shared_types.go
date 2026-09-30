@@ -84,6 +84,53 @@ type Image struct {
 	// URL is where the image can be fetched.
 	// +required
 	URL string `json:"url"`
+
+	// Language is the ISO 639-1 language of any text in the image, empty for
+	// an image with none. The metadata gateway keeps the configured
+	// language's images and the original language's side by side, so the
+	// Plex provider can answer OriginalImage (spec 2026-09-30
+	// plex-full-metadata-response §3.2).
+	// +optional
+	Language string `json:"language,omitempty"`
+}
+
+// Certification is one country's age rating for an item.
+type Certification struct {
+	// Country is the ISO 3166-1 alpha-2 code the rating applies in.
+	// +required
+	Country string `json:"country"`
+
+	// Rating is the certification as that country writes it ("R", "15",
+	// "FSK 12").
+	// +required
+	Rating string `json:"rating"`
+}
+
+// SeasonImage is one piece of artwork for a single season of a series.
+type SeasonImage struct {
+	// Season is the season number the image belongs to.
+	// +required
+	Season int32 `json:"season"`
+
+	// Type classifies the image.
+	// +required
+	Type ImageType `json:"type"`
+
+	// URL is where the image can be fetched.
+	// +required
+	URL string `json:"url"`
+}
+
+// SeasonTypeRef names one of a series' episode orderings as the provider
+// calls it (TVDB seasonTypes: "official" is "Aired Order").
+type SeasonTypeRef struct {
+	// ID is the ordering's identifier, e.g. "official", "dvd", "absolute".
+	// +required
+	ID string `json:"id"`
+
+	// Name is the ordering's human-readable name.
+	// +required
+	Name string `json:"name"`
 }
 
 // MinimumAvailability is the point in a release cycle at which an item becomes

@@ -89,6 +89,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.BookStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CacheTTL"):
 		return &catalogv1alpha1.CacheTTLApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Certification"):
+		return &catalogv1alpha1.CertificationApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Chapter"):
 		return &catalogv1alpha1.ChapterApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CollectionOpts"):
@@ -247,10 +249,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.SearchSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SearchStatus"):
 		return &catalogv1alpha1.SearchStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeasonImage"):
+		return &catalogv1alpha1.SeasonImageApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonSpec"):
 		return &catalogv1alpha1.SeasonSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonStatus"):
 		return &catalogv1alpha1.SeasonStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeasonTypeRef"):
+		return &catalogv1alpha1.SeasonTypeRefApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Series"):
 		return &catalogv1alpha1.SeriesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeriesAddOptions"):
