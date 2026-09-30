@@ -286,3 +286,12 @@ func mustField(t *testing.T, body []byte, field string) []byte {
 	require.NoError(t, json.Unmarshal(body, &c))
 	return c.MediaContainer[field]
 }
+
+// TestShowThemeIsPlexsOwnThemeByTVDBID: Plex's own TV theme host serves an
+// MP3 per TVDB id (verified reachable 2026-09-30), the one source of theme
+// music there is.
+func TestShowThemeIsPlexsOwnThemeByTVDBID(t *testing.T) {
+	s, _ := fixtureSeriesAndEpisodes()
+	md := metadataOf(t, newFullHandler(t, nil, s), "/plex/tv/library/metadata/"+string(s.UID))
+	assert.Equal(t, "https://tvthemes.plexapp.com/298762.mp3", md["theme"])
+}

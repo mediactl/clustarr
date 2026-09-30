@@ -478,7 +478,19 @@ falling back to `status.airDate == date`. `manual: 1` returns a ranked list.
 on every type and `SeriesMetadata` has **no first-aired date** — it must be
 added to the gateway (TVDB and TMDB both provide it) or derived from the
 earliest Episode `airDate`; a synthesised season takes its earliest episode's
-`airDate`. **Optional fields with no clustarr source:** `Rating[]` (no ratings
+`airDate`. **Update 2026-09-30 (spec 2026-09-30 plex-full-metadata-response):** every
+field below now has a source except `backgroundSquare` -- ratings (M7),
+cast and crew (TMDB credits; TVDB characters; stored in the
+clustarr-metadata-extended KV document, not a CRD), tagline, studios,
+countries and per-country certifications (TMDB, TVDB), similar titles (TMDB
+recommendations), `isAdult` (TMDB adult), season posters (TVDB seasons),
+episode stills (TVDB episode image), and `theme` for shows from Plex's own
+`https://tvthemes.plexapp.com/<tvdbID>.mp3`, verified reachable (HTTP 200,
+audio/mpeg) on 2026-09-30; movies have no theme source. `backgroundSquare`
+has no source in TMDB, TVDB or fanart.tv and is not emitted. The original
+paragraph follows for the record.
+
+**Optional fields with no clustarr source:** `Rating[]` (no ratings
 in `MovieMetadata`/`SeriesMetadata`/`EpisodeStatus`, and the badge list is
 closed to `imdb`/`themoviedb`/`rottentomatoes` anyway), `Role`/`Director`/
 `Writer`/`Producer` (no cast or crew), `tagline`, `Country[]`, `theme`,

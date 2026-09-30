@@ -232,6 +232,11 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 		}
 	}
 	md.SeasonType = seasonTypes(s)
+	if s.Spec.TvdbID != 0 {
+		// Plex's own TV theme host, by TVDB id: the only theme-music source
+		// there is (verified 2026-09-30); movies have none.
+		md.Theme = "https://tvthemes.plexapp.com/" + itoa64(s.Spec.TvdbID) + ".mp3"
+	}
 
 	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay}
 	md.Thumb, md.Art = thumbAndArt(u.external, af)

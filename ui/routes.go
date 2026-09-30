@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -93,9 +94,20 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 
 	if s.opts.Plex != nil {
+		external := strings.TrimSuffix(s.opts.Plex.ExternalURL, "/")
 		mux.Handle("/plex/", plex.Handler(plex.Options{
 			ExternalURL: s.opts.Plex.ExternalURL,
 			Index:       s.plexIndex.Get,
+			Extended:    s.opts.PlexExtended,
+			// Provider-hosted images (person photos, season posters,
+			// episode stills) go through the signed /art/search proxy,
+			// made absolute for Plex; never hot-linked (ADR-0011).
+			PhotoURL: func(src string) string {
+				if p := s.searchArt.URL(src); p != "" && external != "" {
+					return external + p
+				}
+				return ""
+			},
 		}))
 	}
 

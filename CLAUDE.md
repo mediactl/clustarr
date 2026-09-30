@@ -148,6 +148,21 @@ skips a folder whose id an ImportExclusion names (unmatched `excluded`).
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).
+The Plex provider answers with the full Metadata Response (2026-09-30,
+`docs/superpowers/specs/2026-09-30-plex-full-metadata-response-design.md`):
+tagline, studios, countries, per-country certifications (`contentRating`
+by `X-Plex-Country`, `cc/rating` outside the US), `isAdult`, season posters,
+episode stills, `SeasonType` for the stored order, `theme` for shows, and
+the original-language title, genres and images when Plex asks in another
+language; people and similar titles come from the
+`clustarr-metadata-extended` KV document the metadata gateway writes per
+item (`pkg/metadata/extended`), which the ui reads through a closure, never
+a KV handle; provider-hosted images go through the signed `/art/search`
+proxy. Response customization (`includeFields`/`excludeFields`/
+`includeElements`/`excludeElements`, never dropping ratingKey, key, guid or
+type) and `episodeOrder` (no seasons for an order clustarr does not store)
+are honoured. Episode guest cast and crew are deferred: the gateway's pod
+has no Episode index to find a series' file-backed episodes.
 The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex
 names first (2026-09-30, rule 0 in `ui/plex/matchfile.go`): `filename`,
 relative to Plex's library folder, is matched as a path suffix of
@@ -676,6 +691,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   leaves the DHT, uTP and UDP trackers off with a `ProxyUDPUnavailable`
   Event, never direct. anacrolix/utp stalls ~1.5 s on a first burst with or
   without a proxy; its proxy test skips under `-race` for that reason.
+- **No Movie had a certification until 2026-09-30.**
+  `tmdb.mapReleaseDates` parsed each release's certification into the
+  client model and nothing promoted one to `Movie.Certification`, and the
+  gateway passed an empty region to every lookup, so Plex showed no content
+  rating for any film. `metadata.PickCertification` now chooses the
+  region's, else the origin country's, else the US one, from
+  `CertificationsFromReleases`. The recorded fixture shows why the origin
+  step exists and why it does not always decide: Weekend (2011) carries GB
+  18 and US NR, so a US-region install shows NR. TVDB episodes likewise
+  never carried their own id, so `Episode.status.tvdbID` was 0 everywhere.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.

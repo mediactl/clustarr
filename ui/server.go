@@ -31,11 +31,14 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
@@ -163,6 +166,13 @@ type Options struct {
 	// so it can ask nothing else (ui/guard_test.go). nil renders the Add
 	// page's search as unavailable.
 	MetadataSearch MetadataSearch
+
+	// PlexExtended reads an item's people and similar titles from the
+	// clustarr-metadata-extended bucket for the Plex provider (full-metadata
+	// spec 2026-09-30 §4). cmd/clustarr builds it as a closure over the ui's
+	// read-only bus connection, so ui never holds a KV handle it could write
+	// through (ui/guard_test.go). nil serves no people.
+	PlexExtended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 
 	// Plex configures the Plex Custom Metadata Provider (design spec §D):
 	// two read-only roots, /plex/movies and /plex/tv, over the same

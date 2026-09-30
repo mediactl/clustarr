@@ -19,14 +19,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	captionarr "github.com/mediactl/clustarr/app/caption"
 	catalogarr "github.com/mediactl/clustarr/app/catalog"
 	grabarr "github.com/mediactl/clustarr/app/grab"
@@ -36,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -532,12 +536,12 @@ func buildUIProjection(ctx context.Context, reader client.Reader, history int) *
 // The returned stop closes the connection; both call sites defer it around
 // runUI, so the connection is drained when ui shuts down rather than left
 // to the process exit. It is never nil.
-func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.MetadataSearch, func()) {
+func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.MetadataSearch, uiPlexExtended, func()) {
 	log := ctrl.LoggerFrom(ctx).WithName("ui")
 	bus, nc, err := k8s.ConnectBus(natsURL, "ui", k8s.WithBusHooks(obs.BusHooks()))
 	if err != nil {
 		log.Error(err, "connect ui to NATS; ui will serve placeholder art and no metadata search")
-		return nil, nil, func() {}
+		return nil, nil, nil, func() {}
 	}
 	if !nc.IsConnected() {
 		log.Info("NATS is not connected yet; /art, every Plex image and Add New's search will fail until it is -- "+
@@ -548,8 +552,25 @@ func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.Met
 		err := bus.Request(ctx, events.RPCMetadataSearch, req, &resp)
 		return resp, err
 	}
-	return bus.ObjectStore(events.BucketArtwork), search, nc.Close
+	// The extended-metadata read is a closure over Get alone: ui is handed
+	// no KV handle it could write through (ui/guard_test.go).
+	kv := bus.KV(events.BucketMetadataExtended)
+	extendedRead := func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error) {
+		e, err := kv.Get(ctx, extended.Key(kind, uid))
+		if errors.Is(err, events.ErrKeyNotFound) {
+			return extended.Doc{}, false, nil
+		}
+		if err != nil {
+			return extended.Doc{}, false, err
+		}
+		d, err := extended.Decode(e.Value)
+		return d, err == nil, err
+	}
+	return bus.ObjectStore(events.BucketArtwork), search, extendedRead, nc.Close
 }
+
+// uiPlexExtended is ui.Options.PlexExtended's type.
+type uiPlexExtended = func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 
 // buildUIPlexOptions builds ui.Options.Plex from --plex-provider and
 // --external-url, shared by `clustarr ui` and `clustarr all`. nil (feature
@@ -615,7 +636,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		ctx := cmd.Context()
 		reader, waitForSync, acts := buildUICluster(ctx)
 		proj := buildUIProjection(ctx, reader, pipelineHistory)
-		artwork, metadataSearch, closeBus := buildUIBus(ctx, natsURL)
+		artwork, metadataSearch, plexExtended, closeBus := buildUIBus(ctx, natsURL)
 		defer closeBus()
 		// Every cluster-derived field, in the same order as all.go's ui
 		// closure; ui_options_wiring_test.go executes both commands and fails
@@ -630,6 +651,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			Namespace:            namespace,
 			Artwork:              artwork,
 			MetadataSearch:       metadataSearch,
+			PlexExtended:         plexExtended,
 			Plex:                 buildUIPlexOptions(plexProvider, externalURL),
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,

@@ -262,7 +262,7 @@ func allServices(
 			// ui.Options left nil.
 			reader, waitForSync, acts := buildUICluster(ctx)
 			proj := buildUIProjection(ctx, reader, plex.pipelineHistory)
-			artwork, metadataSearch, closeBus := buildUIBus(ctx, o.NATSURL)
+			artwork, metadataSearch, plexExtended, closeBus := buildUIBus(ctx, o.NATSURL)
 			defer closeBus()
 			return runUI(ctx, ui.Options{
 				BindAddress:          uiAddr,
@@ -274,6 +274,7 @@ func allServices(
 				Namespace:            o.Namespace,
 				Artwork:              artwork,
 				MetadataSearch:       metadataSearch,
+				PlexExtended:         plexExtended,
 				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL),
 				Entries:              proj.Entries,
 				Subscribe:            proj.Subscribe,
