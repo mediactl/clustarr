@@ -48,6 +48,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/importexclusion"
 	importlistctrl "github.com/mediactl/clustarr/app/import/controller/importlist"
+	"github.com/mediactl/clustarr/app/import/controller/librarydelete"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
 	"github.com/mediactl/clustarr/app/import/controller/rename"
 	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
@@ -439,6 +440,14 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Bus:    bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: importexclusion: %w", err)
+	}
+
+	// The library delete (docs/superpowers/specs/2026-09-30-library-delete-
+	// design.md): carries out catalog.clustarr.io/delete on a library item,
+	// removing its folder on disk for "files", so it runs here, where the
+	// library is mounted, under the lease.
+	if err := librarydelete.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("importarr: librarydelete: %w", err)
 	}
 
 	// The ImportList controller (plan task G1-3): schedules one

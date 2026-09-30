@@ -23,11 +23,7 @@ rules:
   - catalog.clustarr.io
   resources:
   - albums
-  - artists
-  - audiobooks
-  - authors
   - books
-  - comics
   - episodes
   - issues
   - qualityprofiles
@@ -38,9 +34,22 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - importexclusions
-  - rootfolders
+  - artists
+  - audiobooks
+  - authors
+  - comics
   verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - importexclusions
+  verbs:
+  - create
   - get
   - list
   - patch
@@ -81,6 +90,16 @@ rules:
   verbs:
   - create
   - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - rootfolders
+  verbs:
   - get
   - list
   - patch
