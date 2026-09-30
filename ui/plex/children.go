@@ -73,7 +73,7 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 		sortEpisodes(episodes)
 		items := make([]Metadata, len(episodes))
 		for i, e := range episodes {
-			items[i] = buildEpisodeMetadata(root, h.opts.ExternalURL, s, e)
+			items[i] = buildEpisodeMetadata(root, h.urls(), s, e)
 		}
 		h.writePage(w, root, items, parsePaging(r))
 	}
@@ -105,7 +105,7 @@ func (h *handler) childrenOf(root rootDef, idx *projection.Index, ratingKey stri
 		sortEpisodes(episodes)
 		out := make([]Metadata, len(episodes))
 		for i, e := range episodes {
-			out[i] = buildEpisodeMetadata(root, h.opts.ExternalURL, s, e)
+			out[i] = buildEpisodeMetadata(root, h.urls(), s, e)
 		}
 		return out, true
 	}
@@ -118,7 +118,7 @@ func (h *handler) childrenOf(root rootDef, idx *projection.Index, ratingKey stri
 	sort.Slice(seasons, func(i, j int) bool { return seasons[i].Number < seasons[j].Number })
 	out := make([]Metadata, 0, len(seasons))
 	for _, season := range seasons {
-		md, ok := buildSeasonMetadata(root, h.opts.ExternalURL, s, season.Number, idx, false)
+		md, ok := buildSeasonMetadata(root, h.urls(), s, season.Number, idx, false)
 		if ok {
 			out = append(out, md)
 		}

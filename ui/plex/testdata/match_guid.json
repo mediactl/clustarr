@@ -23,11 +23,13 @@
         "Image": [
           {
             "type": "coverPoster",
-            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/poster?v=overlaydigest1"
+            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/poster?v=overlaydigest1",
+            "alt": "Skyfall Protocol"
           },
           {
             "type": "background",
-            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/fanart?v=fanartdigest1"
+            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/fanart?v=fanartdigest1",
+            "alt": "Skyfall Protocol"
           }
         ],
         "Genre": [
@@ -78,3 +80,4 @@
     ]
   }
 }
+

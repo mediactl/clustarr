@@ -106,12 +106,19 @@ func buildImages(externalURL string, af artworkFor) []Image {
 	return out
 }
 
-// buildEpisodeImages is [buildImages]' episode counterpart (research §5.2's
-// screenshot/snapshot, spec §D.5's "screenshot as snapshot when stored").
-// EpisodeStatus carries no artwork field today (api/catalog/v1alpha1/episode_types.go),
-// so this never has anything to report; it exists so the day that field is
-// added, only this function changes.
-func buildEpisodeImages(string, *catalogv1.Episode) []Image {
+// buildEpisodeImages is [buildImages]' episode counterpart: the episode's
+// still (status.images, type screenshot) as Plex's snapshot, through the
+// photo proxy since a still is a provider URL with no artwork object (spec
+// 2026-09-30 §5.1).
+func buildEpisodeImages(u urls, e *catalogv1.Episode) []Image {
+	for _, img := range e.Status.Images {
+		if img.Type != catalogv1.ImageTypeScreenshot {
+			continue
+		}
+		if url := u.proxied(img.URL); url != "" {
+			return []Image{{Type: plexImageSnapshot, URL: url, Alt: e.Status.Title}}
+		}
+	}
 	return nil
 }
 

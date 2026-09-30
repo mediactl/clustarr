@@ -23,6 +23,7 @@ import (
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -48,14 +49,18 @@ type Metadata struct {
 	Title                 string `json:"title"`
 	OriginallyAvailableAt string `json:"originallyAvailableAt"`
 
-	Thumb         string `json:"thumb,omitempty"`
-	Art           string `json:"art,omitempty"`
-	ContentRating string `json:"contentRating,omitempty"`
-	OriginalTitle string `json:"originalTitle,omitempty"`
-	TitleSort     string `json:"titleSort,omitempty"`
-	Year          int32  `json:"year,omitempty"`
-	Summary       string `json:"summary,omitempty"`
-	IsAdult       bool   `json:"isAdult,omitempty"`
+	Thumb string `json:"thumb,omitempty"`
+	Art   string `json:"art,omitempty"`
+	// ParentArt and GrandparentArt appear in Plex's example responses
+	// though not its tables: the season's and the show's background.
+	ParentArt      string `json:"parentArt,omitempty"`
+	GrandparentArt string `json:"grandparentArt,omitempty"`
+	ContentRating  string `json:"contentRating,omitempty"`
+	OriginalTitle  string `json:"originalTitle,omitempty"`
+	TitleSort      string `json:"titleSort,omitempty"`
+	Year           int32  `json:"year,omitempty"`
+	Summary        string `json:"summary,omitempty"`
+	IsAdult        bool   `json:"isAdult,omitempty"`
 
 	Duration int64  `json:"duration,omitempty"`
 	Tagline  string `json:"tagline,omitempty"`
@@ -78,13 +83,21 @@ type Metadata struct {
 	GrandparentThumb     string `json:"grandparentThumb,omitempty"`
 	ParentIndex          *int32 `json:"parentIndex,omitempty"`
 
-	Image      []Image         `json:"Image,omitempty"`
-	Genre      []Tag           `json:"Genre,omitempty"`
-	Guids      []GuidRef       `json:"Guid,omitempty"`
-	Collection []CollectionRef `json:"Collection,omitempty"`
-	Country    []Tag           `json:"Country,omitempty"`
-	Network    []Tag           `json:"Network,omitempty"`
-	Rating     []RatingObj     `json:"Rating,omitempty"`
+	Image         []Image         `json:"Image,omitempty"`
+	OriginalImage []Image         `json:"OriginalImage,omitempty"`
+	Genre         []Tag           `json:"Genre,omitempty"`
+	Guids         []GuidRef       `json:"Guid,omitempty"`
+	Collection    []CollectionRef `json:"Collection,omitempty"`
+	Country       []Tag           `json:"Country,omitempty"`
+	Network       []Tag           `json:"Network,omitempty"`
+	Rating        []RatingObj     `json:"Rating,omitempty"`
+	StudioTags    []Tag           `json:"Studio,omitempty"`
+	Role          []PersonTag     `json:"Role,omitempty"`
+	Director      []PersonTag     `json:"Director,omitempty"`
+	Producer      []PersonTag     `json:"Producer,omitempty"`
+	Writer        []PersonTag     `json:"Writer,omitempty"`
+	Similar       []SimilarTag    `json:"Similar,omitempty"`
+	SeasonType    []SeasonType    `json:"SeasonType,omitempty"`
 
 	Children *ChildrenContainer `json:"Children,omitempty"`
 }
@@ -100,7 +113,7 @@ type ChildrenContainer struct {
 func int32ptr(v int32) *int32 { return &v }
 
 // buildMovieMetadata builds a movie's Metadata object (spec §D.5).
-func buildMovieMetadata(root rootDef, externalURL string, m *catalogv1.Movie) Metadata {
+func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 	key := RatingKey(m.UID)
 	md := Metadata{
 		RatingKey: key,
@@ -126,11 +139,18 @@ func buildMovieMetadata(root rootDef, externalURL string, m *catalogv1.Movie) Me
 		if meta.Collection != nil {
 			md.Collection = []CollectionRef{movieCollectionRef(*meta.Collection)}
 		}
+		md.Tagline = meta.Tagline
+		md.IsAdult = meta.Adult
+		if len(meta.Studios) > 0 {
+			md.Studio = meta.Studios[0]
+		}
+		md.StudioTags = tags(meta.Studios)
+		md.Country = tags(meta.Countries)
 	}
 
 	af := artworkFor{kind: commonv1.MediaKindMovie, uid: m.UID, artwork: m.Status.Artwork, overlay: m.Status.Overlay}
-	md.Thumb, md.Art = thumbAndArt(externalURL, af)
-	md.Image = buildImages(externalURL, af)
+	md.Thumb, md.Art = thumbAndArt(u.external, af)
+	md.Image = withAlt(buildImages(u.external, af), md.Title)
 	return md
 }
 
@@ -166,7 +186,7 @@ func movieCollectionRef(c catalogv1.CollectionRef) CollectionRef {
 // buildShowMetadata builds a series' Metadata object (a Plex "show", spec
 // §D.5). includeChildren populates Children with one Metadata per season
 // (research §5.2: "a show returns its seasons").
-func buildShowMetadata(root rootDef, externalURL string, s *catalogv1.Series, idx *projection.Index, includeChildren bool) Metadata {
+func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projection.Index, includeChildren bool) Metadata {
 	key := RatingKey(s.UID)
 	md := Metadata{
 		RatingKey: key,
@@ -190,28 +210,38 @@ func buildShowMetadata(root rootDef, externalURL string, s *catalogv1.Series, id
 		md.Genre = genres(meta.Genres)
 		md.Guids = guidRefs(meta.ExternalIDs)
 		md.Network = networkTag(meta.Network)
+		if len(meta.Networks) > 0 {
+			md.Network = tags(meta.Networks)
+		}
 		md.Rating = ratings(meta.Ratings)
+		md.Tagline = meta.Tagline
+		if len(meta.Studios) > 0 {
+			md.Studio = meta.Studios[0]
+		}
+		md.StudioTags = tags(meta.Studios)
+		md.Country = tags(meta.Countries)
 	}
+	md.SeasonType = seasonTypes(s)
 
 	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay}
-	md.Thumb, md.Art = thumbAndArt(externalURL, af)
-	md.Image = buildImages(externalURL, af)
+	md.Thumb, md.Art = thumbAndArt(u.external, af)
+	md.Image = withAlt(buildImages(u.external, af), md.Title)
 
 	if includeChildren {
-		md.Children = buildSeasonChildren(root, externalURL, s, idx)
+		md.Children = buildSeasonChildren(root, u, s, idx)
 	}
 	return md
 }
 
 // buildSeasonChildren builds a show's Children block: one Metadata per
 // season in status.seasons, sorted by number.
-func buildSeasonChildren(root rootDef, externalURL string, s *catalogv1.Series, idx *projection.Index) *ChildrenContainer {
+func buildSeasonChildren(root rootDef, u urls, s *catalogv1.Series, idx *projection.Index) *ChildrenContainer {
 	seasons := append([]catalogv1.SeasonStatus(nil), s.Status.Seasons...)
 	sort.Slice(seasons, func(i, j int) bool { return seasons[i].Number < seasons[j].Number })
 
 	out := make([]Metadata, 0, len(seasons))
 	for _, season := range seasons {
-		md, ok := buildSeasonMetadata(root, externalURL, s, season.Number, idx, false)
+		md, ok := buildSeasonMetadata(root, u, s, season.Number, idx, false)
 		if ok {
 			out = append(out, md)
 		}
@@ -225,7 +255,7 @@ func buildSeasonChildren(root rootDef, externalURL string, s *catalogv1.Series, 
 // when number names a season the Series' own status.seasons does not carry
 // (an out-of-range request).
 func buildSeasonMetadata(
-	root rootDef, externalURL string, s *catalogv1.Series, number int32, idx *projection.Index, includeChildren bool,
+	root rootDef, u urls, s *catalogv1.Series, number int32, idx *projection.Index, includeChildren bool,
 ) (Metadata, bool) {
 	var season *catalogv1.SeasonStatus
 	for i := range s.Status.Seasons {
@@ -264,12 +294,19 @@ func buildSeasonMetadata(
 	}
 
 	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay}
-	md.Thumb, md.Art = thumbAndArt(externalURL, af)
+	md.Thumb, md.Art = thumbAndArt(u.external, af)
 	md.ParentThumb = md.Thumb
-	md.Image = buildImages(externalURL, af)
+	md.ParentArt = md.Art
+	md.Image = withAlt(buildImages(u.external, af), md.Title)
+	if poster := u.proxied(seasonPoster(s, number)); poster != "" {
+		// The season's own poster (spec 2026-09-30 §5.1), through the photo
+		// proxy since it is a provider URL with no artwork object.
+		md.Thumb = poster
+		md.Image = replaceImage(md.Image, plexImageCoverPoster, Image{Type: plexImageCoverPoster, URL: poster, Alt: md.Title})
+	}
 
 	if includeChildren {
-		md.Children = buildEpisodeChildren(root, externalURL, s, number, idx)
+		md.Children = buildEpisodeChildren(root, u, s, number, idx)
 	}
 	return md, true
 }
@@ -279,7 +316,42 @@ func buildSeasonMetadata(
 // as specials; this provider names it the same as any other number, since
 // nothing in research or spec asks for a "Specials" special case.
 func seasonTitle(number int32) string {
+	if number == 0 {
+		return "Specials"
+	}
 	return "Season " + itoa64(int64(number))
+}
+
+// seasonPoster is a season's own poster URL from status.metadata.
+// seasonImages, "" when there is none.
+func seasonPoster(s *catalogv1.Series, number int32) string {
+	if meta := s.Status.Metadata; meta != nil {
+		for _, img := range meta.SeasonImages {
+			if img.Season == number && img.Type == catalogv1.ImageTypePoster {
+				return img.URL
+			}
+		}
+	}
+	return ""
+}
+
+// withAlt sets every image's alt text to title, as Plex's example does.
+func withAlt(images []Image, title string) []Image {
+	for i := range images {
+		images[i].Alt = title
+	}
+	return images
+}
+
+// replaceImage swaps the image of type t for img, or appends img.
+func replaceImage(images []Image, t string, img Image) []Image {
+	for i := range images {
+		if images[i].Type == t {
+			images[i] = img
+			return images
+		}
+	}
+	return append(images, img)
 }
 
 // seasonAvailableDate is a season's originallyAvailableAt (spec §D.5): the
@@ -302,7 +374,7 @@ func seasonAvailableDate(episodes []*catalogv1.Episode, seasonNumber int32) stri
 
 // buildEpisodeChildren builds a season's Children block: every episode of
 // s owned by that season number, sorted by episode number.
-func buildEpisodeChildren(root rootDef, externalURL string, s *catalogv1.Series, seasonNumber int32, idx *projection.Index) *ChildrenContainer {
+func buildEpisodeChildren(root rootDef, u urls, s *catalogv1.Series, seasonNumber int32, idx *projection.Index) *ChildrenContainer {
 	var episodes []*catalogv1.Episode
 	for _, e := range idx.Episodes(s.UID) {
 		if e.Spec.SeasonNumber == seasonNumber {
@@ -313,13 +385,13 @@ func buildEpisodeChildren(root rootDef, externalURL string, s *catalogv1.Series,
 
 	out := make([]Metadata, len(episodes))
 	for i, e := range episodes {
-		out[i] = buildEpisodeMetadata(root, externalURL, s, e)
+		out[i] = buildEpisodeMetadata(root, u, s, e)
 	}
 	return &ChildrenContainer{Size: len(out), Metadata: out}
 }
 
 // buildEpisodeMetadata builds one episode's Metadata object (spec §D.5).
-func buildEpisodeMetadata(root rootDef, externalURL string, s *catalogv1.Series, e *catalogv1.Episode) Metadata {
+func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv1.Episode) Metadata {
 	key := RatingKey(e.UID)
 	seriesKey := RatingKey(s.UID)
 	seasonKey := SeasonKey(s.UID, e.Spec.SeasonNumber)
@@ -329,7 +401,10 @@ func buildEpisodeMetadata(root rootDef, externalURL string, s *catalogv1.Series,
 	}
 
 	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay}
-	parentThumb, _ := thumbAndArt(externalURL, af)
+	parentThumb, seriesArt := thumbAndArt(u.external, af)
+	if poster := u.proxied(seasonPoster(s, e.Spec.SeasonNumber)); poster != "" {
+		parentThumb = poster
+	}
 
 	md := Metadata{
 		RatingKey: key,
@@ -361,7 +436,15 @@ func buildEpisodeMetadata(root rootDef, externalURL string, s *catalogv1.Series,
 	if e.Status.RuntimeMinutes > 0 {
 		md.Duration = int64(e.Status.RuntimeMinutes) * 60000
 	}
-	md.Image = buildEpisodeImages(externalURL, e)
+	md.ParentArt = seriesArt
+	md.GrandparentArt = seriesArt
+	if meta := s.Status.Metadata; meta != nil {
+		md.ContentRating = meta.Certification
+	}
+	md.Image = buildEpisodeImages(u, e)
+	if len(md.Image) > 0 {
+		md.Thumb = md.Image[0].URL
+	}
 	return md
 }
 
@@ -378,6 +461,14 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 		if !ok {
 			http.NotFound(w, r)
 			return
+		}
+		switch md.Type {
+		case metadataTypeMovie:
+			h.enrichExtended(r.Context(), &md, commonv1.MediaKindMovie, types.UID(md.RatingKey), idx)
+		case metadataTypeShow:
+			h.enrichExtended(r.Context(), &md, commonv1.MediaKindSeries, types.UID(md.RatingKey), idx)
+		case metadataTypeEpisode:
+			h.enrichExtended(r.Context(), &md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
 		}
 
 		writeJSON(w, http.StatusOK, metadataContainerResponse{MediaContainer: MetadataContainer{
@@ -406,7 +497,7 @@ func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey
 		if !ok {
 			return Metadata{}, false
 		}
-		return buildSeasonMetadata(root, h.opts.ExternalURL, s, season, idx, includeChildren)
+		return buildSeasonMetadata(root, h.urls(), s, season, idx, includeChildren)
 	}
 
 	obj, ok := idx.ByUID(uid)
@@ -415,15 +506,15 @@ func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey
 	}
 	switch v := obj.(type) {
 	case *catalogv1.Movie:
-		return buildMovieMetadata(root, h.opts.ExternalURL, v), true
+		return buildMovieMetadata(root, h.urls(), v), true
 	case *catalogv1.Series:
-		return buildShowMetadata(root, h.opts.ExternalURL, v, idx, includeChildren), true
+		return buildShowMetadata(root, h.urls(), v, idx, includeChildren), true
 	case *catalogv1.Episode:
 		s, ok := idx.SeriesOfEpisode(v.UID)
 		if !ok {
 			return Metadata{}, false
 		}
-		return buildEpisodeMetadata(root, h.opts.ExternalURL, s, v), true
+		return buildEpisodeMetadata(root, h.urls(), s, v), true
 	default:
 		return Metadata{}, false
 	}

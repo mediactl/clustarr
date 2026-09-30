@@ -115,6 +115,14 @@ func decodeJSON(body []byte, v any) error {
 
 func requireGolden(t *testing.T, rec *httptest.ResponseRecorder, name string) {
 	t.Helper()
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		// Rewrite the golden from the response; review the diff before
+		// committing -- a golden is only as good as its review.
+		var pretty bytes.Buffer
+		require.NoError(t, json.Indent(&pretty, rec.Body.Bytes(), "", "  "))
+		pretty.WriteByte('\n')
+		require.NoError(t, os.WriteFile("testdata/"+name+".json", pretty.Bytes(), 0o644))
+	}
 	golden, err := os.ReadFile("testdata/" + name + ".json")
 	require.NoError(t, err, "read testdata/%s.json", name)
 	require.JSONEq(t, string(golden), rec.Body.String(), "response for %s did not match its golden", name)

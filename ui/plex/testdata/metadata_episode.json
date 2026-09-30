@@ -12,6 +12,9 @@
         "type": "episode",
         "title": "The Tide Comes In",
         "originallyAvailableAt": "2018-03-04",
+        "parentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+        "grandparentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+        "contentRating": "TV-14",
         "summary": "An episode of Harborview.",
         "duration": 2700000,
         "parentRatingKey": "22222222-2222-2222-2222-222222222222-s01",
@@ -32,3 +35,4 @@
     ]
   }
 }
+

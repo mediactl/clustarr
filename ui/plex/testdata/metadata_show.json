@@ -22,11 +22,13 @@
         "Image": [
           {
             "type": "coverPoster",
-            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1"
+            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+            "alt": "Harborview"
           },
           {
             "type": "background",
-            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1"
+            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+            "alt": "Harborview"
           }
         ],
         "Genre": [
@@ -72,6 +74,14 @@
             "value": 7.6
           }
         ],
+        "SeasonType": [
+          {
+            "id": "official",
+            "source": "tvdb",
+            "tag": "Aired Order",
+            "title": "TheTVDB (Aired Order)"
+          }
+        ],
         "Children": {
           "size": 2,
           "Metadata": [
@@ -84,6 +94,7 @@
               "originallyAvailableAt": "2018-03-04",
               "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
               "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+              "parentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
               "year": 2018,
               "parentRatingKey": "22222222-2222-2222-2222-222222222222",
               "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
@@ -95,11 +106,13 @@
               "Image": [
                 {
                   "type": "coverPoster",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1"
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+                  "alt": "Season 1"
                 },
                 {
                   "type": "background",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1"
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+                  "alt": "Season 1"
                 }
               ]
             },
@@ -112,6 +125,7 @@
               "originallyAvailableAt": "2019-04-07",
               "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
               "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+              "parentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
               "year": 2018,
               "parentRatingKey": "22222222-2222-2222-2222-222222222222",
               "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
@@ -123,11 +137,13 @@
               "Image": [
                 {
                   "type": "coverPoster",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1"
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+                  "alt": "Season 2"
                 },
                 {
                   "type": "background",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1"
+                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+                  "alt": "Season 2"
                 }
               ]
             }
@@ -137,3 +153,4 @@
     ]
   }
 }
+

@@ -99,7 +99,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 	case typeMovie:
 		fileMovie, byFile := movieByFile(idx, req.Filename)
 		if byFile && !manual {
-			return []Metadata{buildMovieMetadata(root, h.opts.ExternalURL, fileMovie)}
+			return []Metadata{buildMovieMetadata(root, h.urls(), fileMovie)}
 		}
 		movies := matchMovies(idx, req, manual)
 		if byFile {
@@ -109,14 +109,14 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		}
 		out := make([]Metadata, len(movies))
 		for i, m := range movies {
-			out[i] = buildMovieMetadata(root, h.opts.ExternalURL, m)
+			out[i] = buildMovieMetadata(root, h.urls(), m)
 		}
 		return out
 
 	case typeShow:
 		fileShow, byFile := showByFile(idx, req.Filename)
 		if byFile && !manual {
-			return []Metadata{buildShowMetadata(root, h.opts.ExternalURL, fileShow, idx, includeChildren)}
+			return []Metadata{buildShowMetadata(root, h.urls(), fileShow, idx, includeChildren)}
 		}
 		shows := matchShows(idx, req.Title, req.Year, req.Guid, manual, !manual)
 		if byFile {
@@ -124,7 +124,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		}
 		out := make([]Metadata, len(shows))
 		for i, s := range shows {
-			out[i] = buildShowMetadata(root, h.opts.ExternalURL, s, idx, includeChildren)
+			out[i] = buildShowMetadata(root, h.urls(), s, idx, includeChildren)
 		}
 		return out
 
@@ -136,7 +136,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		if s == nil || req.Index == nil {
 			return nil
 		}
-		md, ok := buildSeasonMetadata(root, h.opts.ExternalURL, s, *req.Index, idx, includeChildren)
+		md, ok := buildSeasonMetadata(root, h.urls(), s, *req.Index, idx, includeChildren)
 		if !ok {
 			return nil
 		}
@@ -144,7 +144,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 
 	case typeEpisode:
 		if s, e, ok := episodeByFile(idx, req); ok {
-			return []Metadata{buildEpisodeMetadata(root, h.opts.ExternalURL, s, e)}
+			return []Metadata{buildEpisodeMetadata(root, h.urls(), s, e)}
 		}
 		s := resolveShow(idx, req.GrandparentTitle, req.Year, req.Guid)
 		if s == nil {
@@ -154,7 +154,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		if e == nil {
 			return nil
 		}
-		return []Metadata{buildEpisodeMetadata(root, h.opts.ExternalURL, s, e)}
+		return []Metadata{buildEpisodeMetadata(root, h.urls(), s, e)}
 
 	default:
 		return nil

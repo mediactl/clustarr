@@ -23,6 +23,10 @@ import (
 	"net/http"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/types"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -46,6 +50,17 @@ type Options struct {
 	// Index returns the current catalog lookup every non-root route reads
 	// through.
 	Index IndexFunc
+
+	// Extended reads an item's people and similar titles from the
+	// clustarr-metadata-extended bucket (pkg/metadata/extended); ok is false
+	// when the item has no document. Nil reads none. ui/ is handed this
+	// closure, never a KV handle, so it cannot write (TestUINeverWrites).
+	Extended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (doc extended.Doc, ok bool, err error)
+
+	// PhotoURL turns a provider-hosted image URL into an absolute URL
+	// served by the ui's signed /art/search proxy. Nil drops person photos,
+	// season posters and episode stills.
+	PhotoURL func(src string) string
 }
 
 // Handler returns the composed HTTP handler for both provider roots,
