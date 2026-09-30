@@ -175,6 +175,18 @@ language is answered in `status.metadata.language`. Response customization (`inc
 type) and `episodeOrder` (no seasons for an order clustarr does not store)
 are honoured. Episode guest cast and crew are deferred: the gateway's pod
 has no Episode index to find a series' file-backed episodes.
+Skip segments come from TheIntroDB (2026-09-30,
+`docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): a
+probed movie or episode MediaFile whose `status.markers` are due
+(`app/catalog/markers.Due`: never fetched, a new probe hash, Found older
+than 30 days, NotFound than 7, Error than 1) publishes a
+`catalogarr-markers` task from its reconciler; the metadata gateway's
+marker worker asks the keyless `theintrodb` MetadataProvider (a movie by
+TMDB id, an episode by its series' TVDB id, season and episode -- only in
+the aired order TheIntroDB numbers) with the probe's duration and writes
+`status.markers` alone, under `catalogarr-markers`. cluster-plex seeds them
+into Plex, with the probe's streams, straight into Plex's database: Plex's
+API can write neither (the spec's §2 is the proof).
 The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex
 names first (2026-09-30, rule 0 in `ui/plex/matchfile.go`): `filename`,
 relative to Plex's library folder, is matched as a path suffix of
