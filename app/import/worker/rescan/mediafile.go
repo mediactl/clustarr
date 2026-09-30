@@ -252,6 +252,14 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 	created := movieName == ""
 	profile, originalLanguage := st.root.Spec.Defaults.QualityProfileRef, ""
 	if created {
+		if ex, ok, err := w.excluded(ctx, catalogv1alpha1.ExclusionIDKeyTMDB, strconv.FormatInt(result.TmdbID, 10)); err != nil {
+			return err
+		} else if ok {
+			st.unmatched(rel, CodeExcluded, fmt.Sprintf(
+				"excluded: the file names TMDB id %d, which import exclusion %s/%s keeps out",
+				result.TmdbID, ex.Namespace, ex.Name), nil, now)
+			return nil
+		}
 		if profile == "" {
 			// Movie.spec.qualityProfileRef is required, so a movie cannot
 			// be created without one. Saying so beats applying an object

@@ -227,6 +227,14 @@ func (w *Worker) handleEpisodeFile(ctx context.Context, st *scanState, path, rel
 // again. Series.spec.qualityProfileRef is required, so a root folder with no
 // default one records the file as unmatched and creates nothing (nil).
 func (w *Worker) createSeries(ctx context.Context, st *scanState, rel string, want *SeriesCandidate) (*SeriesCandidate, error) {
+	if ex, ok, err := w.excluded(ctx, catalogv1alpha1.ExclusionIDKeyTVDB, strconv.FormatInt(want.TvdbID, 10)); err != nil {
+		return nil, err
+	} else if ok {
+		st.unmatched(rel, CodeExcluded, fmt.Sprintf(
+			"excluded: the series folder carries TheTVDB id %d, which import exclusion %s/%s keeps out",
+			want.TvdbID, ex.Namespace, ex.Name), nil, w.now())
+		return nil, nil
+	}
 	profile := st.root.Spec.Defaults.QualityProfileRef
 	if profile == "" {
 		st.unmatched(rel, CodeNoQualityProfile, fmt.Sprintf(
