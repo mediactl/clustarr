@@ -36,7 +36,7 @@ const DefaultContactUserAgent = "Clustarr ( https://github.com/mediactl/clustarr
 // KeylessTypes are the provider types that work without credentials, each
 // seeded by SeedDefaults: music (MusicBrainz, Cover Art Archive), books
 // (Open Library), audiobooks (Audnexus), manga (MangaDex) and the anime id
-// resolvers (AniList, Kitsu, Anime-Lists).
+// resolvers (AniList, Kitsu, Anime-Lists), and TheIntroDB's skip segments.
 var KeylessTypes = []catalogv1alpha1.MetadataProviderType{
 	catalogv1alpha1.MetadataProviderMusicBrainz,
 	catalogv1alpha1.MetadataProviderCoverArt,
@@ -46,6 +46,7 @@ var KeylessTypes = []catalogv1alpha1.MetadataProviderType{
 	catalogv1alpha1.MetadataProviderAniList,
 	catalogv1alpha1.MetadataProviderKitsu,
 	catalogv1alpha1.MetadataProviderAnimeLists,
+	catalogv1alpha1.MetadataProviderTheIntroDB,
 }
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders,verbs=create

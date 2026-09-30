@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/theintrodb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
 )
@@ -187,6 +188,9 @@ func addToRegistry(reg *metadata.Registry, spec catalogv1alpha1.MetadataProvider
 		if a.ratings != nil {
 			reg.Ratings = append(reg.Ratings, a.ratings)
 		}
+		if a.markers != nil {
+			reg.Markers = append(reg.Markers, a.markers)
+		}
 	}
 	return nil
 }
@@ -206,7 +210,8 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 		catalogv1alpha1.MetadataProviderHardcover, catalogv1alpha1.MetadataProviderMetron,
 		catalogv1alpha1.MetadataProviderAniList, catalogv1alpha1.MetadataProviderKitsu,
 		catalogv1alpha1.MetadataProviderAnimeLists,
-		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb:
+		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
+		catalogv1alpha1.MetadataProviderTheIntroDB:
 		return true
 	default:
 		return false
@@ -223,6 +228,7 @@ type supplementary struct {
 	comics   metadata.ComicProvider
 	resolver metadata.IDResolver
 	ratings  metadata.RatingsProvider
+	markers  metadata.MarkersProvider
 	ping     func(context.Context) error
 }
 
@@ -281,6 +287,15 @@ func buildSupplementary(spec catalogv1alpha1.MetadataProviderSpec, secret map[st
 			return nil, fmt.Errorf("mdblist requires secretRef key %s: %w", catalogv1alpha1.MetadataSecretKeyAPIKey, err)
 		}
 		return &supplementary{ratings: c, ping: c.Ping}, nil
+	case catalogv1alpha1.MetadataProviderTheIntroDB:
+		c, err := theintrodb.New(theintrodb.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(spec), Limiter: limiterFor(spec, theintrodb.DefaultRate, theintrodb.DefaultBurst), UserAgent: ua,
+			APIKey: string(secret[catalogv1alpha1.MetadataSecretKeyAPIKey]),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("theintrodb: %w", err)
+		}
+		return &supplementary{markers: c, ping: c.Ping}, nil
 	case catalogv1alpha1.MetadataProviderOMDb:
 		// Ruling R5 (spec §C.3): the CRD enum member and secretRef shape
 		// exist, but no client is written against no recorded response

@@ -43,7 +43,7 @@ var creds = map[string][]byte{
 // shapes were recorded, builds a client and fills exactly the Registry
 // slots its client serves.
 func TestEveryProviderTypeBuildsAClient(t *testing.T) {
-	type slots struct{ artwork, books, comics, resolvers, ratings int }
+	type slots struct{ artwork, books, comics, resolvers, ratings, markers int }
 	tests := []struct {
 		typ  catalogv1alpha1.MetadataProviderType
 		want slots
@@ -57,12 +57,13 @@ func TestEveryProviderTypeBuildsAClient(t *testing.T) {
 		{catalogv1alpha1.MetadataProviderKitsu, slots{resolvers: 1}},
 		{catalogv1alpha1.MetadataProviderAnimeLists, slots{resolvers: 1}},
 		{catalogv1alpha1.MetadataProviderMDBList, slots{ratings: 1}},
+		{catalogv1alpha1.MetadataProviderTheIntroDB, slots{markers: 1}},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.typ), func(t *testing.T) {
 			reg := &metadata.Registry{}
 			require.NoError(t, addToRegistry(reg, catalogv1alpha1.MetadataProviderSpec{Type: tt.typ}, creds, http.DefaultClient))
-			require.Equal(t, tt.want, slots{len(reg.Artwork), len(reg.Books), len(reg.Comics), len(reg.Resolvers), len(reg.Ratings)})
+			require.Equal(t, tt.want, slots{len(reg.Artwork), len(reg.Books), len(reg.Comics), len(reg.Resolvers), len(reg.Ratings), len(reg.Markers)})
 			require.Empty(t, reg.Movies)
 			require.Empty(t, reg.Series)
 			require.Empty(t, reg.Artists)

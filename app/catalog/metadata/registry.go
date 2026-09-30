@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/theintrodb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -117,7 +118,7 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 			// spec §3.2).
 			cl = cl.WithLocale(p.Spec.Language, p.Spec.Region)
 			reg.Movies = append(reg.Movies, cl)
-			reg.Ratings = append(reg.Ratings, cl) // spec §C.2: tmdb declares its own source from the fetch it already performs.
+			reg.Ratings = append(reg.Ratings, cl)   // spec §C.2: tmdb declares its own source from the fetch it already performs.
 			reg.Taglines = append(reg.Taglines, cl) // full-metadata spec §3.4: a series' tagline, which TVDB lacks.
 		case catalogv1alpha1.MetadataProviderTVDB:
 			key, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
@@ -175,7 +176,8 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 		catalogv1alpha1.MetadataProviderHardcover, catalogv1alpha1.MetadataProviderMetron,
 		catalogv1alpha1.MetadataProviderAniList, catalogv1alpha1.MetadataProviderKitsu,
 		catalogv1alpha1.MetadataProviderAnimeLists,
-		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb:
+		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
+		catalogv1alpha1.MetadataProviderTheIntroDB:
 		return true
 	default:
 		return false
@@ -275,6 +277,20 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 			return fmt.Errorf("metadata: build mdblist client for %s/%s: %w", p.Namespace, p.Name, err)
 		}
 		reg.Ratings = append(reg.Ratings, cl)
+	case catalogv1alpha1.MetadataProviderTheIntroDB:
+		key, err := optionalSecretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
+		if err != nil {
+			return err
+		}
+		cl, err := theintrodb.New(theintrodb.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(p, theintrodb.DefaultBaseURL),
+			Limiter: supplementaryLimiter(p, theintrodb.DefaultRate, theintrodb.DefaultBurst), UserAgent: ua,
+			APIKey: key,
+		})
+		if err != nil {
+			return fmt.Errorf("metadata: build theintrodb client for %s/%s: %w", p.Namespace, p.Name, err)
+		}
+		reg.Markers = append(reg.Markers, cl)
 	case catalogv1alpha1.MetadataProviderAniList:
 		reg.Resolvers = append(reg.Resolvers, anilist.New(anilist.Config{
 			HTTPClient: httpClient, BaseURL: baseURL(p, anilist.DefaultBaseURL),

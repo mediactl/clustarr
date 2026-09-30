@@ -46,6 +46,8 @@ type Registry struct {
 	// Taglines fill a series' tagline when its provider gave none, first
 	// answer wins.
 	Taglines []SeriesTaglineProvider
+	// Markers supply a file's skip segments (TheIntroDB), first answer wins.
+	Markers []MarkersProvider
 }
 
 // Lookup fetches a single entity of kind, identified by ids, from the first

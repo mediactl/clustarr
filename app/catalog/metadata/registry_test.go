@@ -351,3 +351,26 @@ func TestBuildRegistrySkipsAProviderWhoseCredentialsAreMissing(t *testing.T) {
 	_, err = secretValue(context.Background(), c, providers[3], catalogv1alpha1.MetadataSecretKeyAPIKey)
 	require.ErrorIs(t, err, ErrProviderCredentials)
 }
+
+// TheIntroDB needs no key: a provider without a secretRef still builds and
+// fills the Markers slot, and one with a key builds too.
+func TestBuildRegistryWiresTheIntroDBWithOrWithoutAKey(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "introdb-key", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("k")},
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+	for name, ref := range map[string]*corev1.LocalObjectReference{"anonymous": nil, "keyed": {Name: "introdb-key"}} {
+		t.Run(name, func(t *testing.T) {
+			reg, err := BuildRegistry(context.Background(), c, []catalogv1alpha1.MetadataProvider{{
+				ObjectMeta: metav1.ObjectMeta{Name: "theintrodb", Namespace: "clustarr"},
+				Spec: catalogv1alpha1.MetadataProviderSpec{
+					Type: catalogv1alpha1.MetadataProviderTheIntroDB, Enabled: enabled(), SecretRef: ref,
+				},
+			}}, http.DefaultClient)
+			require.NoError(t, err)
+			require.Len(t, reg.Markers, 1)
+			require.Equal(t, "theintrodb", reg.Markers[0].Name())
+		})
+	}
+}
