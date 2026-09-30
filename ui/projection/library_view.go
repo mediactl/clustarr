@@ -38,6 +38,9 @@ import (
 // delayed or not), "missing" (monitored, nothing on disk) or
 // "unmonitored".
 func LibraryStatus(li LibraryItem) string {
+	if li.DeleteMode != "" {
+		return "deleting"
+	}
 	if li.Kind == commonv1.MediaKindSeries {
 		return seriesStatus(li)
 	}

@@ -205,3 +205,10 @@ func TestJumpLetterFilesTitles(t *testing.T) {
 		require.Equal(t, want, projection.JumpLetter(title), title)
 	}
 }
+
+func TestLibraryStatusReadsDeletingFirst(t *testing.T) {
+	item := projection.LibraryItem{HasFile: true, Monitored: true, Phase: "Imported", DeleteMode: "files"}
+	require.Equal(t, "deleting", projection.LibraryStatus(item))
+	item.Kind = "series"
+	require.Equal(t, "deleting", projection.LibraryStatus(item))
+}

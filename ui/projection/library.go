@@ -76,6 +76,13 @@ type LibraryItem struct {
 	// status is read from them (see [LibraryStatus]).
 	MissingEpisodes, DownloadingEpisodes int32
 
+	// DeleteMode is the item's catalog.clustarr.io/delete ("files" or
+	// "records"), "" when no delete is pending; DeleteExclude its
+	// delete-add-exclusion and DeleteError importarr's delete-error.
+	DeleteMode    string
+	DeleteExclude bool
+	DeleteError   string
+
 	// Tab is the library tab the item's kind belongs to; see [Tab].
 	Tab Tab
 	// Year is status.metadata.year where the kind has one, else 0.
@@ -197,7 +204,11 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []Librar
 		if !ok {
 			continue
 		}
+		ann := item.GetAnnotations()
 		out = append(out, LibraryItem{
+			DeleteMode:          ann[catalogv1.AnnotationDelete],
+			DeleteExclude:       ann[catalogv1.AnnotationDeleteAddExclusion] == "true",
+			DeleteError:         ann[catalogv1.AnnotationDeleteError],
 			Ref:                 entries[i].Ref,
 			Kind:                entries[i].Kind,
 			Title:               entries[i].Title,
