@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -159,7 +158,7 @@ func recycleMediaFiles(
 		// Check every path before moving any, so a MediaFile with one
 		// out-of-root sidecar is left whole rather than half recycled.
 		for _, p := range paths {
-			if !strictlyUnder(p, root) {
+			if !fsops.StrictlyUnder(p, root) {
 				return fmt.Errorf("%w: media file %s path %q, root folder %s is %q",
 					ErrOutsideRootFolder, mf.Name, p, rf.Name, root)
 			}
@@ -177,7 +176,7 @@ func recycleMediaFiles(
 		if err := c.Delete(ctx, mf); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("delete media file %s: %w", mf.Name, err)
 		}
-		pruneEmptyDirs(root, filepath.Dir(mf.Spec.Path))
+		fsops.PruneEmptyDirs(root, filepath.Dir(mf.Spec.Path))
 	}
 	return nil
 }
@@ -190,29 +189,4 @@ func recycle(bin, path string) (string, error) {
 		return "", nil
 	}
 	return fsops.Recycle(bin, path)
-}
-
-// strictlyUnder reports whether path names something inside root, and not
-// root itself, once both are cleaned. Both must be absolute.
-func strictlyUnder(path, root string) bool {
-	if !filepath.IsAbs(path) || !filepath.IsAbs(root) {
-		return false
-	}
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
-	if err != nil || rel == "." || rel == ".." {
-		return false
-	}
-	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-// pruneEmptyDirs removes dir and then each parent while it is empty, stopping
-// at the first directory that is not empty (os.Remove refuses one) and never
-// removing root or anything outside it.
-func pruneEmptyDirs(root, dir string) {
-	for strictlyUnder(dir, root) {
-		if err := os.Remove(dir); err != nil {
-			return
-		}
-		dir = filepath.Dir(dir)
-	}
 }

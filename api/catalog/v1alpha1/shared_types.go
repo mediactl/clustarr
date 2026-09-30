@@ -307,3 +307,24 @@ type AltTitle struct {
 	// +optional
 	SceneSeason *int32 `json:"sceneSeason,omitempty"`
 }
+
+// The library delete request (docs/superpowers/specs/
+// 2026-09-30-library-delete-design.md). The ui, or kubectl, sets
+// AnnotationDelete on a library item; importarr's librarydelete controller
+// carries it out and deletes the item, or writes AnnotationDeleteError.
+const (
+	// AnnotationDelete asks for the item to be deleted: DeleteRecords
+	// removes the item and its MediaFile records, DeleteFiles its folder
+	// and files on disk as well, permanently.
+	AnnotationDelete = "catalog.clustarr.io/delete"
+	// AnnotationDeleteAddExclusion, "true", also creates an ImportExclusion
+	// for the item before it goes.
+	AnnotationDeleteAddExclusion = "catalog.clustarr.io/delete-add-exclusion"
+	// AnnotationDeleteError is why a delete was refused or failed; importarr
+	// writes it, and a new request clears it.
+	AnnotationDeleteError = "catalog.clustarr.io/delete-error"
+
+	// DeleteFiles and DeleteRecords are AnnotationDelete's two values.
+	DeleteFiles   = "files"
+	DeleteRecords = "records"
+)

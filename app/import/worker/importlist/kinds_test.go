@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/fsops"
 )
 
 func TestUnyieldableKinds(t *testing.T) {
@@ -94,7 +95,7 @@ func TestStrictlyUnder(t *testing.T) {
 		{"/data/media/movies/a.mkv", "", false},
 	}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, strictlyUnder(tc.path, tc.root), "%q under %q", tc.path, tc.root)
+		assert.Equal(t, tc.want, fsops.StrictlyUnder(tc.path, tc.root), "%q under %q", tc.path, tc.root)
 	}
 }
 
@@ -106,12 +107,12 @@ func TestPruneEmptyDirsStopsAtANonEmptyDirAndNeverTakesTheRoot(t *testing.T) {
 	require.NoError(t, os.MkdirAll(gone, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(keep, "x.nfo"), nil, 0o600))
 
-	pruneEmptyDirs(root, gone)
+	fsops.PruneEmptyDirs(root, gone)
 	assert.NoDirExists(t, gone)
 	assert.DirExists(t, keep, "Season 01 still holds a file")
 
 	require.NoError(t, os.Remove(filepath.Join(keep, "x.nfo")))
-	pruneEmptyDirs(root, keep)
+	fsops.PruneEmptyDirs(root, keep)
 	assert.NoDirExists(t, filepath.Join(root, "Series"))
 	assert.DirExists(t, root, "the root folder itself is never removed")
 }
