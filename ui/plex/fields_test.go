@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -189,6 +190,24 @@ func TestNoExtendedDocMeansNoPeopleAndAnErrorIsNotAFailure(t *testing.T) {
 			assert.NotContains(t, md, "Similar")
 		})
 	}
+}
+
+// The extended document is read under a deadline of its own: a stalled
+// bus costs Plex its people, never the whole metadata request.
+func TestTheExtendedReadHasADeadlineOfItsOwn(t *testing.T) {
+	m := fixtureMovie()
+	var deadline time.Duration
+	ext := func(ctx context.Context, _ commonv1.MediaKind, _ types.UID) (extended.Doc, bool, error) {
+		dl, ok := ctx.Deadline()
+		if ok {
+			deadline = time.Until(dl)
+		}
+		return extended.Doc{}, false, context.DeadlineExceeded
+	}
+	md := metadataOf(t, newFullHandler(t, ext, m), "/plex/movies/library/metadata/"+string(m.UID))
+	assert.NotEmpty(t, md["title"], "the rest of the response still answers")
+	assert.Positive(t, deadline, "the read carries a deadline")
+	assert.LessOrEqual(t, deadline, plex.ExtendedReadTimeout)
 }
 
 // TestOriginalLanguageFieldsOnlyWhenAskedInAnotherLanguage: Your Name is

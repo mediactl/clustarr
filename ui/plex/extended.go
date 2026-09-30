@@ -21,6 +21,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -135,6 +136,11 @@ func seasonTypes(s *catalogv1.Series) []SeasonType {
 	return []SeasonType{{ID: id, Source: "tvdb", Tag: name, Title: "TheTVDB (" + name + ")"}}
 }
 
+// ExtendedReadTimeout bounds the extended-document read on every metadata
+// request, so a stalled bus costs Plex the item's people and similar
+// titles, never the whole response.
+const ExtendedReadTimeout = 2 * time.Second
+
 // enrichExtended adds the people and similar titles from the item's
 // extended-metadata document (pkg/metadata/extended). A missing document,
 // or one that cannot be read, is no people -- never an error: Plex should
@@ -143,7 +149,9 @@ func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind
 	if h.opts.Extended == nil {
 		return
 	}
-	doc, ok, err := h.opts.Extended(ctx, kind, uid)
+	rctx, cancel := context.WithTimeout(ctx, ExtendedReadTimeout)
+	defer cancel()
+	doc, ok, err := h.opts.Extended(rctx, kind, uid)
 	if err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "plex: read the extended metadata document", "kind", kind, "error", err)
 		return
