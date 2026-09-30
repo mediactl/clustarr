@@ -91,6 +91,38 @@ var GPUResource = map[transcodev1alpha1.Hardware]corev1.ResourceName{
 	transcodev1alpha1.HardwareIntel:  "gpu.intel.com/i915",
 }
 
+// GPUPoolRequests is what a GPU pool pod requests, whatever the profile's
+// resources: the encode runs on the GPU, leaving the CPU demux, decode,
+// audio and mux, and a profile's resources are sized for x265 (spec.resources
+// defaults to 8 cores). Requested in full they reserved most of a node for a
+// pod that uses a fraction of it and left the node's other pools
+// unschedulable. The profile's limits stay the ceiling, and a request is
+// capped at a lower limit (gpuRequests).
+var GPUPoolRequests = corev1.ResourceList{
+	corev1.ResourceCPU:    resource.MustParse("500m"),
+	corev1.ResourceMemory: resource.MustParse("512Mi"),
+}
+
+// gpuRequests sets res's CPU and memory requests to [GPUPoolRequests], each
+// capped at res's own limit for it, so the request is never above the
+// limit the apiserver would refuse it against. The limits are untouched:
+// they, not the request, give ThreadsFromResources its value, so the
+// planned argv is unchanged.
+func gpuRequests(res *corev1.ResourceRequirements) {
+	req := make(corev1.ResourceList, len(res.Requests)+len(GPUPoolRequests))
+	for name, q := range res.Requests {
+		req[name] = q.DeepCopy()
+	}
+	for name, want := range GPUPoolRequests {
+		q := want.DeepCopy()
+		if limit, ok := res.Limits[name]; ok && limit.Cmp(q) < 0 {
+			q = limit.DeepCopy()
+		}
+		req[name] = q
+	}
+	res.Requests = req
+}
+
 // Config is everything about a pool that does not come from the
 // TranscodeProfile: deployment-level settings threaded in from flags.
 type Config struct {
@@ -381,6 +413,7 @@ func applyHardware(pod *corev1.PodSpec, tp *transcodev1alpha1.TranscodeProfile, 
 	res := &pod.Containers[0].Resources
 	switch class {
 	case transcodev1alpha1.HardwareNVIDIA:
+		gpuRequests(res)
 		AddGPU(res, GPUResource[transcodev1alpha1.HardwareNVIDIA], gpuCount)
 		pod.Containers[0].Env = append(pod.Containers[0].Env,
 			corev1.EnvVar{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "video,compute,utility"})
@@ -391,6 +424,7 @@ func applyHardware(pod *corev1.PodSpec, tp *transcodev1alpha1.TranscodeProfile, 
 		pod.RuntimeClassName = ptr.To(rc)
 		pod.Affinity = RequireNodeLabel(cfg.NodeLabel(class))
 	case transcodev1alpha1.HardwareIntel:
+		gpuRequests(res)
 		AddGPU(res, GPUResource[transcodev1alpha1.HardwareIntel], gpuCount)
 		pod.Affinity = RequireNodeLabel(cfg.NodeLabel(class))
 		if len(cfg.IntelRenderGroups) > 0 {

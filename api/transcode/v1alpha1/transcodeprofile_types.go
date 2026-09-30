@@ -480,6 +480,9 @@ type TranscodeProfileSpec struct {
 	// Go client always sends this struct, so the controller also floors an
 	// entirely empty value (no limits, no requests) to the same default when
 	// it builds the Job: an encode with no resources at all is never meant.
+	// A GPU pool (nvidia, intel) keeps these limits but requests only cpu
+	// 500m and memory 512Mi (each capped at its limit), since its encode
+	// runs on the GPU; the cpu pool requests these resources as they are.
 	// +optional
 	// +kubebuilder:default={limits:{cpu:"8",memory:"4Gi"}}
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`

@@ -228,3 +228,38 @@ func TestTemplatePodsRunWithoutAServiceAccountToken(t *testing.T) {
 		assert.Equal(t, []string{"--data-dir", "/data"}, pod.Containers[0].Args[:2])
 	}
 }
+
+// A GPU pool pod requests only a minimal CPU and memory share: the encode
+// runs on the GPU, and the profile's resources are sized for x265 (8 cores
+// by default), so requesting them reserved 8 of a node's CPUs for a pod
+// that uses a fraction of one and left the other pools unschedulable. The
+// profile's limits stay as the ceiling (decode and audio may burst), a
+// request never exceeds a lower limit, and the CPU pool keeps the profile's
+// resources as they are.
+func TestGPUPoolsRequestAMinimalShare(t *testing.T) {
+	tp := profile()
+	tp.Spec.Resources = corev1.ResourceRequirements{
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourceMemory: resource.MustParse("256Mi")},
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6")},
+	}
+	for _, hw := range []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel} {
+		t.Run(string(hw), func(t *testing.T) {
+			res := Template(tp, hw, Config{Image: "cpu:1"}).Spec.Containers[0].Resources
+			assert.True(t, res.Requests.Cpu().Equal(GPUPoolRequests[corev1.ResourceCPU]), "cpu request %s", res.Requests.Cpu())
+			assert.True(t, res.Requests.Memory().Equal(resource.MustParse("256Mi")),
+				"a memory request above the profile's limit is capped at it, got %s", res.Requests.Memory())
+			assert.True(t, res.Limits.Cpu().Equal(resource.MustParse("8")), "the profile's limit stays the ceiling")
+			assert.True(t, res.Limits.Memory().Equal(resource.MustParse("256Mi")))
+		})
+	}
+	cpu := Template(tp, transcodev1alpha1.HardwareCPU, Config{Image: "cpu:1"}).Spec.Containers[0].Resources
+	assert.True(t, cpu.Requests.Cpu().Equal(resource.MustParse("6")), "the cpu pool keeps the profile's request")
+	_, hasMem := cpu.Requests[corev1.ResourceMemory]
+	assert.False(t, hasMem)
+
+	// The default profile (limits only) requests 8 CPUs implicitly; a GPU
+	// pool states its minimal request explicitly instead.
+	def := Template(profile(), transcodev1alpha1.HardwareNVIDIA, Config{Image: "cpu:1"}).Spec.Containers[0].Resources
+	assert.True(t, def.Requests.Cpu().Equal(GPUPoolRequests[corev1.ResourceCPU]))
+	assert.True(t, def.Requests.Memory().Equal(GPUPoolRequests[corev1.ResourceMemory]))
+}
