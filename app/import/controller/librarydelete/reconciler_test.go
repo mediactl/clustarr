@@ -234,8 +234,10 @@ func TestAnotherItemsFolderInsideRefusesButOwnChildrenDoNot(t *testing.T) {
 	authorFolder := filepath.Join(root, "Dostoevsky")
 	write(t, filepath.Join(authorFolder, "The Idiot", "idiot.epub"))
 	author := &catalogv1alpha1.Author{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "dostoevsky",
-			Annotations: map[string]string{catalogv1alpha1.AnnotationDelete: catalogv1alpha1.DeleteFiles}},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "media", Name: "dostoevsky",
+			Annotations: map[string]string{catalogv1alpha1.AnnotationDelete: catalogv1alpha1.DeleteFiles},
+		},
 		Spec:   catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL22242A", QualityProfileRef: "ebook", RootFolderRef: "movies"},
 		Status: catalogv1alpha1.AuthorStatus{Path: authorFolder},
 	}

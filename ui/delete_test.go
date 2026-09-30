@@ -95,8 +95,10 @@ func TestDeleteDialogNamesTheFilesFolderWhenItDiffers(t *testing.T) {
 // files is permanent (final review, finding 3). Same-origin browser posts
 // and non-browser clients still reach the handler.
 func TestTheUIRefusesCrossSitePosts(t *testing.T) {
-	srv := deleteServer(t, projection.LibraryItem{Ref: types.NamespacedName{Namespace: "default", Name: "heat"},
-		Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "Heat"})
+	srv := deleteServer(t, projection.LibraryItem{
+		Ref:  types.NamespacedName{Namespace: "default", Name: "heat"},
+		Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "Heat",
+	})
 	send := func(site string) int {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/library/default/movie/heat/delete", strings.NewReader("files=true"))
@@ -114,8 +116,10 @@ func TestTheUIRefusesCrossSitePosts(t *testing.T) {
 
 // A pending or failed delete can be cancelled from the page.
 func TestAPendingOrFailedDeleteCanBeCancelled(t *testing.T) {
-	item := projection.LibraryItem{Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
-		Tab: projection.TabMovies, Title: "Heat", DeleteMode: "files"}
+	item := projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
+		Tab: projection.TabMovies, Title: "Heat", DeleteMode: "files",
+	}
 	body := detailPage(t, deleteServer(t, item), "/library/default/movie/heat")
 	requireTag(t, body, `data-action="delete-cancel"`)
 	requireTag(t, body, `action="/library/default/movie/heat/delete/cancel"`)

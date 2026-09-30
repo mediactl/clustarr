@@ -94,9 +94,13 @@ func TestAMovieFileWithAnExcludedTMDBIDCreatesNothing(t *testing.T) {
 	w := &Worker{Client: c, Bus: bus}
 	st := &scanState{
 		scan: &catalogv1alpha1.LibraryScan{ObjectMeta: metav1.ObjectMeta{Namespace: "films", Name: "scan"}},
-		root: &catalogv1alpha1.RootFolder{ObjectMeta: metav1.ObjectMeta{Namespace: "films", Name: "movies"},
-			Spec: catalogv1alpha1.RootFolderSpec{Path: root, Kind: catalogv1alpha1.RootFolderKindMovie,
-				Defaults: catalogv1alpha1.RootDefaults{QualityProfileRef: "hd"}}},
+		root: &catalogv1alpha1.RootFolder{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "films", Name: "movies"},
+			Spec: catalogv1alpha1.RootFolderSpec{
+				Path: root, Kind: catalogv1alpha1.RootFolderKindMovie,
+				Defaults: catalogv1alpha1.RootDefaults{QualityProfileRef: "hd"},
+			},
+		},
 	}
 	require.NoError(t, w.attributeMediaFile(ctx, st, path, info, nil))
 	var list catalogv1alpha1.MovieList
