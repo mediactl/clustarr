@@ -243,6 +243,21 @@ var schemaYAML = typed.YAMLObject(`types:
   scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.DolbyVisionMode
   scalar: string
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.EncoderLimit
+  map:
+    fields:
+    - name: class
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware
+    - name: maxBFrames
+      type:
+        scalar: numeric
+    - name: maxLookahead
+      type:
+        scalar: numeric
+    - name: node
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.GPUSpec
   map:
     fields:
@@ -696,6 +711,15 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: encoderLimits
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.EncoderLimit
+          elementRelationship: associative
+          keys:
+          - class
+          - node
     - name: hash
       type:
         scalar: string

@@ -58,6 +58,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	squasharrstatus "github.com/mediactl/clustarr/app/squash/status"
 	"github.com/mediactl/clustarr/app/squash/task"
+	busevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -104,6 +105,10 @@ type Reconciler struct {
 	Retention time.Duration
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// Progress is the clustarr-progress bucket GPU pool workers publish
+	// their measured encoder limits to (task.PublishEncoderLimits), shown
+	// as status.encoderLimits; nil shows none.
+	Progress busevents.KV
 }
 
 // NewReconciler builds a Reconciler.
@@ -262,6 +267,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		k8s.MarkFalse(&fresh, &conditions, ConditionOverlap, ReasonNoOverlap, "no selector overlap with another profile")
 	}
 
+	fresh.Status.EncoderLimits = r.encoderLimits(ctx)
 	err = squasharrstatus.PatchProfile(ctx, r.Client, k8s.ManagerSquasharr, &fresh,
 		func(ac *transcodeac.TranscodeProfileStatusApplyConfiguration) {
 			ac.WithObservedGeneration(fresh.Generation).
@@ -283,6 +289,44 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{RequeueAfter: min(r.Retention, time.Hour)}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// maxEncoderLimits is status.encoderLimits' MaxItems.
+const maxEncoderLimits = 16
+
+// encoderLimits is status.encoderLimits: every GPU class's fresh per-node
+// entries (task.ReadEncoderLimitsByNode), sorted by class then node and
+// capped. An unreadable bucket shows none rather than failing the pass.
+func (r *Reconciler) encoderLimits(ctx context.Context) []transcodev1alpha1.EncoderLimit {
+	if r.Progress == nil {
+		return nil
+	}
+	now := time.Now()
+	if r.Now != nil {
+		now = r.Now()
+	}
+	var out []transcodev1alpha1.EncoderLimit
+	for _, class := range []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareIntel, transcodev1alpha1.HardwareNVIDIA} {
+		nodes, err := task.ReadEncoderLimitsByNode(ctx, r.Progress, string(class), now)
+		if err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot read the encoder limits", "class", class, "error", err)
+			continue
+		}
+		names := make([]string, 0, len(nodes))
+		for n := range nodes {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			out = append(out, transcodev1alpha1.EncoderLimit{
+				Class: class, Node: n, MaxBFrames: nodes[n].MaxBFrames, MaxLookahead: nodes[n].MaxLookahead,
+			})
+		}
+	}
+	if len(out) > maxEncoderLimits {
+		out = out[:maxEncoderLimits]
+	}
+	return out
 }
 
 // countOpen counts profile's TranscodeJobs not yet terminal -- no phase,

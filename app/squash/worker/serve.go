@@ -172,6 +172,9 @@ func (r *pullRetry) wait(ctx context.Context, op string, cause error) (giveUp bo
 // successful pull in between.
 func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	s := &server{o: o.withDefaults()}
+	if s.o.limits == nil {
+		s.o.limits = newLimitsCache(s.o.Telemetry, o.Class, o.Node)
+	}
 	s.clock = s.o.Clock
 	ps, ok := bus.(events.PullSubscriber)
 	if !ok {

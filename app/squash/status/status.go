@@ -248,13 +248,29 @@ func PatchCAS(ctx context.Context, c client.Client, job *transcodev1alpha1.Trans
 // observedGeneration, all four are sent unconditionally rather than omitted
 // at their zero value. There is no "this profile legitimately has no hash
 // yet" state the way an unassigned Download legitimately has no engine.
+//
+// EncoderLimits is seeded here too, from st, and a caller changes it by
+// setting the status it seeds from -- never through the mutate: the
+// generated WithEncoderLimits appends, as WithConditions does, so a seeded
+// list plus a mutated one would duplicate every entry.
 func ProfileFields(st transcodev1alpha1.TranscodeProfileStatus) *transcodeac.TranscodeProfileStatusApplyConfiguration {
-	return transcodeac.TranscodeProfileStatus().
+	ac := transcodeac.TranscodeProfileStatus().
 		WithObservedGeneration(st.ObservedGeneration).
 		WithHash(st.Hash).
 		WithMatchingFiles(st.MatchingFiles).
 		WithPendingJobs(st.PendingJobs).
 		WithRunningJobs(st.RunningJobs)
+	for _, l := range st.EncoderLimits {
+		e := transcodeac.EncoderLimit().WithClass(l.Class).WithNode(l.Node)
+		if l.MaxBFrames != nil {
+			e.WithMaxBFrames(*l.MaxBFrames)
+		}
+		if l.MaxLookahead != nil {
+			e.WithMaxLookahead(*l.MaxLookahead)
+		}
+		ac.WithEncoderLimits(e)
+	}
+	return ac
 }
 
 // PatchProfile applies a complete TranscodeProfile status declaration under

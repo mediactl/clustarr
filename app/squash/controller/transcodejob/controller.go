@@ -532,7 +532,7 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 		return ctrl.Result{RequeueAfter: requeueWaiting}, nil
 	}
 
-	p, fail := planFor(tj, profile, &mf, tj.Spec.Hardware)
+	p, fail := planFor(tj, profile, &mf, tj.Spec.Hardware, r.encoderLimits(ctx, tj, profile, tj.Spec.Hardware))
 	if fail != nil {
 		r.fail(tj, st, fail.reason, "%s", fail.msg)
 		return ctrl.Result{}, nil
@@ -565,7 +565,7 @@ type planFailure struct{ reason, msg string }
 // status.plan.argsHash is the hash of the argv the worker renders for the
 // same class.
 func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
-	mf *catalogv1alpha1.MediaFile, hardware *transcodev1alpha1.Hardware,
+	mf *catalogv1alpha1.MediaFile, hardware *transcodev1alpha1.Hardware, limits map[transcode.Tier]transcode.Limits,
 ) (planning, *planFailure) {
 	source := tj.Spec.SourcePath
 	if source == "" {
@@ -580,7 +580,9 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 	if err != nil {
 		return planning{}, &planFailure{ReasonPlanError, fmt.Sprintf("planning failed: %v", err)}
 	}
-	result, err := transcode.Plan(info, worker.ProfileSpec(tp.Spec, hardware), allEncoders(),
+	caps := allEncoders()
+	caps.Limits = limits
+	result, err := transcode.Plan(info, worker.ProfileSpec(tp.Spec, hardware), caps,
 		transcode.PlanMeta{
 			ProfileName: tp.Name, ProfileHash: tp.Status.Hash,
 			Threads: pool.Threads(tp), OutputPath: outPath,

@@ -387,6 +387,9 @@ func Run(ctx context.Context, o Options) error {
 func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 	profiles := transcodeprofile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"))
 	profiles.Window, profiles.Retention = o.JobWindow, o.JobRetention
+	if bus != nil {
+		profiles.Progress = bus.KV(events.BucketProgress)
+	}
 	if err := profiles.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("squasharr: transcodeprofile: %w", err)
 	}

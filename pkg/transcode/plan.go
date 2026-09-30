@@ -315,6 +315,14 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 			reason += ", profile 7 dual-layer Dolby Vision downgraded to HDR10 (enhancement layer dropped)"
 		}
 		plan.Reason = reason
+		// The encoding device's own limits (ProbeLimits): the profile's
+		// values are what was asked for, the plan renders what the device
+		// can do, and the reason -- the job's Planned message -- says so.
+		var notes []string
+		profile.Video, notes = caps.Limits[plan.Tier].Apply(plan.Tier, profile.Video)
+		if len(notes) > 0 {
+			plan.Reason += "; " + strings.Join(notes, ", ")
+		}
 	}
 
 	renderPlan(plan, info, profile, meta, class)

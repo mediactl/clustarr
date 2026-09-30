@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -28,7 +30,11 @@ import (
 
 // Capabilities reports which of the four tiers' hardware encoders are
 // present in this node's ffmpeg build.
-type Capabilities struct{ Encoders map[Tier]bool }
+type Capabilities struct {
+	Encoders map[Tier]bool
+	// Limits are each tier's device limits (ProbeLimits); a tier with none is unlimited.
+	Limits map[Tier]Limits
+}
 
 // encoderLine is the ffmpeg encoder name each tier's line in `ffmpeg
 // -encoders` output carries.
@@ -80,4 +86,103 @@ func FallbackTier(want Tier, caps Capabilities) (Tier, bool) {
 		return TierVAAPI, true
 	}
 	return want, false
+}
+
+// Limits are an encoder's device limits, measured on the pod that encodes
+// (ProbeLimits). A nil field is no known limit.
+type Limits struct {
+	MaxBFrames   *int32 `json:"maxBFrames,omitempty"`
+	MaxLookahead *int32 `json:"maxLookahead,omitempty"`
+}
+
+var (
+	maxBFramesRE    = regexp.MustCompile(`Max B-frames \d+ exceed (\d+)`)
+	lookaheadClipRE = regexp.MustCompile(`Clipping lookahead depth to (\d+)`)
+)
+
+// ParseMaxBFrames reads hevc_nvenc's refusal of a B-frame count its device
+// cannot encode -- "Max B-frames 8 exceed 5" -- and returns the maximum.
+func ParseMaxBFrames(stderr string) (int32, bool) { return parseFirstInt(maxBFramesRE, stderr) }
+
+// ParseLookaheadClip reads hevc_nvenc's warning that it clipped
+// -rc-lookahead -- "Clipping lookahead depth to 54 (from 64)" -- and returns
+// the depth it used.
+func ParseLookaheadClip(stderr string) (int32, bool) { return parseFirstInt(lookaheadClipRE, stderr) }
+
+func parseFirstInt(re *regexp.Regexp, s string) (int32, bool) {
+	m := re.FindStringSubmatch(s)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(m[1], 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return int32(n), true
+}
+
+// ProbeLimits measures tier's device limits for the values v asks for, by
+// trial encodes of a tiny synthetic clip on this process's own device: at
+// most two runs of well under a second each. Only hevc_nvenc is measured --
+// libx265 has no device limits, and QSV's and VAAPI's refusals have not been
+// read off real hardware yet -- so every other tier returns no limits
+// without running anything. A trial that fails for any reason other than a
+// named limit (no device, no driver) is an error: nothing was measured.
+func ProbeLimits(ctx context.Context, ffmpegPath string, tier Tier, v VideoSpec) (Limits, error) {
+	if tier != TierNVENC {
+		return Limits{}, nil
+	}
+	ctx, span := tracing.Start(ctx, "transcode.probe_limits")
+	defer span.End()
+
+	var l Limits
+	bf := v.BFrames
+	out, err := nvencTrial(ctx, ffmpegPath, bf, v.RCLookahead)
+	if max, ok := ParseMaxBFrames(out); ok && max < bf {
+		l.MaxBFrames, bf = &max, max
+		out, err = nvencTrial(ctx, ffmpegPath, bf, v.RCLookahead)
+	}
+	if err != nil {
+		tracing.RecordError(span, err)
+		return Limits{}, fmt.Errorf("transcode: probe %s limits: %w: %s", tier, err, strings.TrimSpace(out))
+	}
+	if depth, ok := ParseLookaheadClip(out); ok && depth < v.RCLookahead {
+		l.MaxLookahead = &depth
+	}
+	return l, nil
+}
+
+// nvencTrial encodes ten frames of a 256x256 test pattern with hevc_nvenc at
+// bFrames and lookahead, discarding the output, and returns ffmpeg's
+// warnings and errors.
+func nvencTrial(ctx context.Context, ffmpegPath string, bFrames, lookahead int32) (string, error) {
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, ffmpegPath, "-hide_banner", "-nostdin", "-loglevel", "warning",
+		"-f", "lavfi", "-i", "testsrc2=size=256x256:rate=25", "-frames:v", "10",
+		"-pix_fmt", "p010le", "-c:v", "hevc_nvenc", "-profile:v", "main10",
+		"-bf", strconv.Itoa(int(bFrames)), "-rc-lookahead", strconv.Itoa(int(lookahead)),
+		"-f", "null", "-")
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stderr.String(), err
+}
+
+// Apply clamps v to l for tier, returning the clamped spec and one note per
+// value it lowered ("bFrames 8 → 5 (device limit)"). Only hevc_nvenc reads
+// bFrames and rcLookahead from v under a device limit; every other tier's
+// spec is returned as it is.
+func (l Limits) Apply(tier Tier, v VideoSpec) (VideoSpec, []string) {
+	if tier != TierNVENC {
+		return v, nil
+	}
+	var notes []string
+	clamp := func(name string, val *int32, limit *int32) {
+		if limit != nil && *val > *limit {
+			notes = append(notes, fmt.Sprintf("%s %d → %d (device limit)", name, *val, *limit))
+			*val = *limit
+		}
+	}
+	clamp("bFrames", &v.BFrames, l.MaxBFrames)
+	clamp("rcLookahead", &v.RCLookahead, l.MaxLookahead)
+	return v, notes
 }

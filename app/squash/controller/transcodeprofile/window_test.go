@@ -27,13 +27,18 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/task"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
 // A profile keeps at most Window non-terminal TranscodeJobs, taking new
@@ -109,4 +114,32 @@ func TestAProfileKeepsAWindowOfJobsAndRetiresIncorporatedSuccesses(t *testing.T)
 	sort.Strings(got)
 	assert.Equal(t, []string{"a", "b", "fresh-done", "unincorporated"}, got,
 		"one new job fills the window of 2 (a is already Planned), by name; c and d wait; the incorporated old success is retired")
+}
+
+// status.encoderLimits shows the device limits each GPU node measured and
+// published, per class and node: what plans for that class use.
+func TestAProfileShowsThePublishedEncoderLimits(t *testing.T) {
+	ctx := context.Background()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
+	kv := bus.KV(events.BucketProgress)
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "nvidia", "laptop",
+		transcode.Limits{MaxBFrames: ptr.To[int32](5), MaxLookahead: ptr.To[int32](54)}, time.Now()))
+
+	tp := &transcodev1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "hevc"}}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
+		WithStatusSubresource(&transcodev1alpha1.TranscodeProfile{}).WithObjects(tp).Build()
+	r := NewReconciler(c, k8s.MustNewScheme(), nil)
+	r.Progress = kv
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "hevc"}})
+	require.NoError(t, err)
+	var got transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "hevc"}, &got))
+	require.Len(t, got.Status.EncoderLimits, 1)
+	l := got.Status.EncoderLimits[0]
+	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, l.Class)
+	assert.Equal(t, "laptop", l.Node)
+	assert.Equal(t, ptr.To[int32](5), l.MaxBFrames)
+	assert.Equal(t, ptr.To[int32](54), l.MaxLookahead)
 }

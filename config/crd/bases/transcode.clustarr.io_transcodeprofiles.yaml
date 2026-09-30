@@ -662,7 +662,6 @@ spec:
             description: TranscodeProfileStatus defines the observed state of TranscodeProfile.
             properties:
               conditions:
-                description: Conditions holds Ready and Invalid.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -721,6 +720,53 @@ spec:
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
+                x-kubernetes-list-type: map
+              encoderLimits:
+                description: |-
+                  Conditions holds Ready and Invalid.
+                  EncoderLimits are the encoder device limits each GPU node measured by
+                  trial encodes and published within the last ten minutes, per class and
+                  node. Plans for a class render min(spec, the tightest limit here), and
+                  each clamp is named in the job's Planned message. Empty while no GPU
+                  pool of this cluster has published.
+                items:
+                  description: EncoderLimit is one GPU node's measured encoder device
+                    limits.
+                  properties:
+                    class:
+                      description: Class is the hardware class of the node's pool.
+                      enum:
+                      - cpu
+                      - nvidia
+                      - intel
+                      - auto
+                      type: string
+                    maxBFrames:
+                      description: |-
+                        MaxBFrames is the most B-frames the device encodes, when a profile
+                        asked for more; absent is no limit known.
+                      format: int32
+                      type: integer
+                    maxLookahead:
+                      description: |-
+                        MaxLookahead is the deepest rate-control lookahead the device uses,
+                        when a profile asked for more; absent is no limit known.
+                      format: int32
+                      type: integer
+                    node:
+                      description: Node is the node the limits were measured on.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                  - class
+                  - node
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - class
+                - node
                 x-kubernetes-list-type: map
               hash:
                 description: |-

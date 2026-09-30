@@ -144,6 +144,10 @@ type Options struct {
 	// Verifier overrides transcode.NewVerifier(FFprobePath). Tests only.
 	Verifier Verifier
 
+	// limits is the pool worker's measured device limits, set by Serve
+	// (newLimitsCache); nil plans with the profile's values as they are.
+	limits *limitsCache
+
 	// Now overrides time.Now. Tests only.
 	Now func() time.Time
 
@@ -386,11 +390,16 @@ func (r *runner) run(ctx context.Context) error {
 		// Plan would call this a reject, but a missing encoder is this
 		// node's ffmpeg build, not the source: another pod may land on a
 		// node that has it.
-		if _, ok := transcode.FallbackTier(want, caps); !ok {
+		tier, ok := transcode.FallbackTier(want, caps)
+		if !ok {
 			if gpuTier(want) {
 				return gpuUnavailable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
 			}
 			return retriable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
+		}
+		// This device's own limits: Plan renders min(profile, limit).
+		if r.o.limits != nil {
+			caps.Limits = r.o.limits.forTier(ctx, r.o.FFmpegPath, tier, profile.Video)
 		}
 	}
 	plan, err := transcode.Plan(info, profile, caps, transcode.PlanMeta{

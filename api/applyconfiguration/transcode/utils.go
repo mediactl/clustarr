@@ -41,6 +41,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &transcodev1alpha1.ChunkSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CRFTable"):
 		return &transcodev1alpha1.CRFTableApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EncoderLimit"):
+		return &transcodev1alpha1.EncoderLimitApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GPUSpec"):
 		return &transcodev1alpha1.GPUSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("HDRSpec"):

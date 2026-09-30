@@ -143,7 +143,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 
 	var replanned *planning
 	if !planRunsIn(tj.Status.Plan, class) {
-		p, fail := planFor(&tj, tp, &mf, &class)
+		p, fail := planFor(&tj, tp, &mf, &class, r.encoderLimits(ctx, &tj, tp, &class))
 		if fail == nil {
 			p = skipCPUPlanUnderGPUPin(&tj, tp, p)
 		}
@@ -392,4 +392,43 @@ func skipCPUPlanUnderGPUPin(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1a
 	res.Reason = fmt.Sprintf("the profile runs only on %s, and this source can only be encoded with %s (%s)", g, enc, p.result.Reason)
 	p.result = &res
 	return p
+}
+
+// classTiers are the tiers a GPU class's pool encodes with.
+var classTiers = map[transcodev1alpha1.Hardware][]transcode.Tier{
+	transcodev1alpha1.HardwareNVIDIA: {transcode.TierNVENC},
+	transcodev1alpha1.HardwareIntel:  {transcode.TierQSV, transcode.TierVAAPI},
+}
+
+// encoderLimits is Capabilities.Limits for planning tj under tp for
+// hardware (nil: the job's own class, else its profile's): the device limits
+// the class's pool workers published (task.ReadEncoderLimits), so the plan
+// the controller records is the one a worker renders. A cpu or auto plan, a
+// class nobody published for, or an unreadable bucket is no limits -- the
+// worker's own plan, which always has its device's, is what runs.
+func (r *Reconciler) encoderLimits(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
+	hardware *transcodev1alpha1.Hardware,
+) map[transcode.Tier]transcode.Limits {
+	class := tp.Spec.Hardware
+	switch {
+	case hardware != nil:
+		class = *hardware
+	case tj.Spec.Hardware != nil:
+		class = *tj.Spec.Hardware
+	}
+	tiers := classTiers[class]
+	if len(tiers) == 0 || r.Bus == nil {
+		return nil
+	}
+	l, err := task.ReadEncoderLimits(ctx, r.Bus.KV(events.BucketProgress), string(class), r.now().Time)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "transcodejob: cannot read the encoder limits; planning with the profile's values",
+			"class", class, "error", err)
+		return nil
+	}
+	out := make(map[transcode.Tier]transcode.Limits, len(tiers))
+	for _, tier := range tiers {
+		out[tier] = l
+	}
+	return out
 }

@@ -121,6 +121,29 @@ type CRFTable struct {
 	HDROffset *int32 `json:"hdrOffset,omitempty"`
 }
 
+// EncoderLimit is one GPU node's measured encoder device limits.
+type EncoderLimit struct {
+	// Class is the hardware class of the node's pool.
+	// +required
+	Class Hardware `json:"class"`
+
+	// Node is the node the limits were measured on.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Node string `json:"node"`
+
+	// MaxBFrames is the most B-frames the device encodes, when a profile
+	// asked for more; absent is no limit known.
+	// +optional
+	MaxBFrames *int32 `json:"maxBFrames,omitempty"`
+
+	// MaxLookahead is the deepest rate-control lookahead the device uses,
+	// when a profile asked for more; absent is no limit known.
+	// +optional
+	MaxLookahead *int32 `json:"maxLookahead,omitempty"`
+}
+
 // NVENCSpec tunes the NVIDIA NVENC encoder (hardware=nvidia).
 type NVENCSpec struct {
 	// Preset is the NVENC preset (p1 fastest .. p7 slowest).
@@ -570,6 +593,18 @@ type TranscodeProfileStatus struct {
 	RunningJobs int32 `json:"runningJobs,omitempty"`
 
 	// Conditions holds Ready and Invalid.
+	// EncoderLimits are the encoder device limits each GPU node measured by
+	// trial encodes and published within the last ten minutes, per class and
+	// node. Plans for a class render min(spec, the tightest limit here), and
+	// each clamp is named in the job's Planned message. Empty while no GPU
+	// pool of this cluster has published.
+	// +optional
+	// +listType=map
+	// +listMapKey=class
+	// +listMapKey=node
+	// +kubebuilder:validation:MaxItems=16
+	EncoderLimits []EncoderLimit `json:"encoderLimits,omitempty"`
+
 	// +optional
 	// +listType=map
 	// +listMapKey=type

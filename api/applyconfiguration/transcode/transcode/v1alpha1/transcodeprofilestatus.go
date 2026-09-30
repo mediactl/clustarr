@@ -40,7 +40,13 @@ type TranscodeProfileStatusApplyConfiguration struct {
 	// RunningJobs is the number of TranscodeJobs for this profile currently running.
 	RunningJobs *int32 `json:"runningJobs,omitempty"`
 	// Conditions holds Ready and Invalid.
-	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// EncoderLimits are the encoder device limits each GPU node measured by
+	// trial encodes and published within the last ten minutes, per class and
+	// node. Plans for a class render min(spec, the tightest limit here), and
+	// each clamp is named in the job's Planned message. Empty while no GPU
+	// pool of this cluster has published.
+	EncoderLimits []EncoderLimitApplyConfiguration `json:"encoderLimits,omitempty"`
+	Conditions    []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 
 // TranscodeProfileStatusApplyConfiguration constructs a declarative configuration of the TranscodeProfileStatus type for use with
@@ -86,6 +92,19 @@ func (b *TranscodeProfileStatusApplyConfiguration) WithPendingJobs(value int32) 
 // If called multiple times, the RunningJobs field is set to the value of the last call.
 func (b *TranscodeProfileStatusApplyConfiguration) WithRunningJobs(value int32) *TranscodeProfileStatusApplyConfiguration {
 	b.RunningJobs = &value
+	return b
+}
+
+// WithEncoderLimits adds the given value to the EncoderLimits field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the EncoderLimits field.
+func (b *TranscodeProfileStatusApplyConfiguration) WithEncoderLimits(values ...*EncoderLimitApplyConfiguration) *TranscodeProfileStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithEncoderLimits")
+		}
+		b.EncoderLimits = append(b.EncoderLimits, *values[i])
+	}
 	return b
 }
 
