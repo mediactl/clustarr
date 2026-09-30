@@ -32,6 +32,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -649,19 +650,48 @@ func (r *Reconciler) fail(ctx context.Context, s *catalogv1alpha1.Search, reason
 // "guid is not in status.results" for every entry. An entry that previously errored is retried, which
 // is what makes flipping spec.override to true work without editing spec.grab.
 func (r *Reconciler) grabsPending(s *catalogv1alpha1.Search) bool {
-	if len(s.Spec.Grab) == 0 {
+	guids := grabGUIDs(s)
+	if len(guids) == 0 {
 		return false
 	}
 	done := make(map[string]catalogv1alpha1.GrabResult, len(s.Status.Grabbed))
 	for _, g := range s.Status.Grabbed {
 		done[g.GUID] = g
 	}
-	for _, guid := range s.Spec.Grab {
+	for _, guid := range guids {
 		if g, ok := done[guid]; !ok || g.Error != "" {
 			return true
 		}
 	}
 	return false
+}
+
+// grabGUIDs is what a Completed Search grabs: spec.grab, then -- with
+// spec.grabBest -- the top-ranked approved result, which is status.results'
+// first approved entry (the worker writes them ranked). Only an approved
+// release is taken: a temporary rejection ("already queued", "not yet
+// available") is a person's call on an interactive Search, never an
+// automatic grab's.
+func grabGUIDs(s *catalogv1alpha1.Search) []string {
+	guids := append([]string(nil), s.Spec.Grab...)
+	if best := bestApproved(s); best != "" && !slices.Contains(guids, best) {
+		guids = append(guids, best)
+	}
+	return guids
+}
+
+// bestApproved is spec.grabBest's pick, or "" without one.
+func bestApproved(s *catalogv1alpha1.Search) string {
+	if !s.Spec.GrabBest || s.Spec.MediaRef == nil {
+		// A query-mode Search has no item to grab for.
+		return ""
+	}
+	for _, r := range s.Status.Results {
+		if r.Approved {
+			return r.GUID
+		}
+	}
+	return ""
 }
 
 // handleGrabs turns spec.grab into Download objects -- spec §8.2's "Search-CR
@@ -675,6 +705,8 @@ func (r *Reconciler) grabsPending(s *catalogv1alpha1.Search) bool {
 // passes and applying different ones would be rejected loudly.
 func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search) (ctrl.Result, error) {
 	log := logging.FromContext(ctx)
+	guids := grabGUIDs(s)
+	best := bestApproved(s)
 	grabbed := make(map[string]catalogv1alpha1.GrabResult, len(s.Status.Grabbed))
 	for _, g := range s.Status.Grabbed {
 		grabbed[g.GUID] = g
@@ -688,7 +720,7 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 		// query-mode object (SearchSpec's CEL rule makes query and
 		// mediaRef mutually exclusive). Report the gap per guid, like
 		// every other grab rejection here, instead of reaching either.
-		for _, guid := range s.Spec.Grab {
+		for _, guid := range guids {
 			if existing, done := grabbed[guid]; done && existing.Error == "" {
 				continue
 			}
@@ -703,7 +735,7 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 			return ctrl.Result{}, err
 		}
 
-		for _, guid := range s.Spec.Grab {
+		for _, guid := range guids {
 			if existing, done := grabbed[guid]; done && existing.Error == "" {
 				continue
 			}
@@ -714,6 +746,13 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 			}
 
 			name := k8s.ChildName(s.Spec.MediaRef.Name, guid)
+			// spec.grabBest's pick is the automatic search's grab, not a
+			// person's: grabbedBy search, and not manual, so the importer
+			// keeps its upgrade comparison.
+			grabSource, manual := downloadv1alpha1.GrabSourceInteractive, true
+			if guid == best && !slices.Contains(s.Spec.Grab, guid) {
+				grabSource, manual = downloadv1alpha1.GrabSourceSearch, false
+			}
 			// Manual is set because a Search-CR grab IS an operator-forced grab:
 			// the user read status.results and picked this release by hand, so
 			// the importer treats the import as that person's decision (see
@@ -728,8 +767,8 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 				WithSource(toDownloadSourceAC(BuildDownloadSource(got.Release))).
 				WithRelease(got.Release).
 				WithTarget(*s.Spec.MediaRef).
-				WithGrabbedBy(downloadv1alpha1.GrabSourceInteractive).
-				WithManual(true)
+				WithGrabbedBy(grabSource).
+				WithManual(manual)
 			if qualityProfileRef != "" {
 				specAC = specAC.WithQualityProfileRef(qualityProfileRef)
 			}
@@ -754,8 +793,8 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 	}
 
 	u := newStatusUpdate(s)
-	u.grabbed = make([]catalogv1alpha1.GrabResult, 0, len(s.Spec.Grab))
-	for _, guid := range s.Spec.Grab {
+	u.grabbed = make([]catalogv1alpha1.GrabResult, 0, len(guids))
+	for _, guid := range guids {
 		u.grabbed = append(u.grabbed, grabbed[guid])
 	}
 	if err := r.apply(ctx, s, u); err != nil {
