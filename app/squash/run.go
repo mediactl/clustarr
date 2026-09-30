@@ -28,6 +28,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -202,6 +203,15 @@ type Options struct {
 	NodeLabelNVIDIA string
 	NodeLabelIntel  string
 
+	// JobWindow is the most non-terminal TranscodeJobs a profile keeps
+	// (--job-window): the next files, not one job per matching file. 0 is
+	// no limit.
+	JobWindow int
+
+	// JobRetention is how long a Succeeded TranscodeJob is kept once its
+	// MediaFile has been re-probed (--job-retention). 0 keeps it for good.
+	JobRetention time.Duration
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -222,8 +232,17 @@ func DefaultOptions() Options {
 		DataClaimName:   pool.DefaultDataClaimName,
 		NodeLabelNVIDIA: pool.DefaultNodeLabelNVIDIA,
 		NodeLabelIntel:  pool.DefaultNodeLabelIntel,
+		JobWindow:       DefaultJobWindow,
+		JobRetention:    DefaultJobRetention,
 	}
 }
+
+// DefaultJobWindow and DefaultJobRetention are --job-window's and
+// --job-retention's defaults.
+const (
+	DefaultJobWindow    = 32
+	DefaultJobRetention = 24 * time.Hour
+)
 
 // Validate checks the options before anything touches the cluster.
 func (o Options) Validate() error {
@@ -366,9 +385,9 @@ func Run(ctx context.Context, o Options) error {
 // clustarr.evt.transcode.job.* history events (§5); Leases is the bucket
 // withdrawal writes its cancel markers to.
 func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
-	if err := transcodeprofile.NewReconciler(
-		mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"),
-	).SetupWithManager(mgr); err != nil {
+	profiles := transcodeprofile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"))
+	profiles.Window, profiles.Retention = o.JobWindow, o.JobRetention
+	if err := profiles.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("squasharr: transcodeprofile: %w", err)
 	}
 	rec := &transcodejob.Reconciler{

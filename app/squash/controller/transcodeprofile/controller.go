@@ -36,6 +36,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -94,6 +95,15 @@ type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
+
+	// Window is the most non-terminal TranscodeJobs a profile keeps; 0 is
+	// no limit.
+	Window int
+	// Retention is how long a Succeeded TranscodeJob is kept once its
+	// MediaFile has been probed since; 0 keeps it for good.
+	Retention time.Duration
+	// Now is the clock; nil is time.Now.
+	Now func() time.Time
 }
 
 // NewReconciler builds a Reconciler.
@@ -158,7 +168,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		jobsByName[client.ObjectKeyFromObject(&jobList.Items[i])] = &jobList.Items[i]
 	}
 
-	created := 0
+	// The window: at most r.Window of this profile's jobs are not terminal,
+	// and new ones are taken in name order, so a profile holds the next few
+	// files rather than one job per matching file (10-20k objects per
+	// re-roll on the owner's library). The rest wait, counted in status.
+	sort.Slice(matching, func(i, j int) bool {
+		return matching[i].Namespace+"/"+matching[i].Name < matching[j].Namespace+"/"+matching[j].Name
+	})
+	open := countOpen(jobList.Items, tp.Name)
+	created, waiting := 0, 0
 	var createErrs []error
 	if !invalid {
 		tag := profileTag(tp.Name, hash)
@@ -195,13 +213,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 					"sourceProbeHash", old.Spec.SourceProbeHash, "probeHash", mf.Status.ProbeHash)
 				continue
 			}
+			if _, exists := jobsByName[key]; exists {
+				continue // its spec is immutable: there is nothing to re-apply
+			}
+			if r.Window > 0 && open >= r.Window {
+				waiting++
+				continue
+			}
 			if err := r.ensureTranscodeJob(ctx, &tp, mf, hash); err != nil {
 				createErrs = append(createErrs, err)
 				continue
 			}
 			created++
+			open++
 		}
 	}
+	createErrs = append(createErrs, r.retireSucceeded(ctx, jobList.Items, tp.Name, mfList.Items)...)
 	if len(createErrs) > 0 {
 		log.Error("create TranscodeJob", "error", errors.Join(createErrs...))
 	}
@@ -226,7 +253,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	} else {
 		k8s.MarkFalse(&fresh, &conditions, transcodev1alpha1.TranscodeProfileConditionInvalid, k8s.ReasonReconciled, "profile is valid")
 		k8s.MarkReady(&fresh, &conditions, true, k8s.ReasonReconciled,
-			"%d matching file(s), %d job(s) created this pass", len(matching), created)
+			"%d matching file(s), %d job(s) created this pass, %d waiting for the window of %d", len(matching), created, waiting, r.Window)
 	}
 	if overlapped {
 		k8s.MarkTrue(&fresh, &conditions, ConditionOverlap, ReasonSelectorOverlap,
@@ -250,7 +277,74 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if len(createErrs) > 0 {
 		return ctrl.Result{}, errors.Join(createErrs...)
 	}
+	if r.Retention > 0 {
+		// Nothing else wakes a profile when a Succeeded job ages past its
+		// retention.
+		return ctrl.Result{RequeueAfter: min(r.Retention, time.Hour)}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// countOpen counts profile's TranscodeJobs not yet terminal -- no phase,
+// Pending, Planned, Queued or Running -- that are not being deleted: the
+// jobs the window holds.
+func countOpen(jobs []transcodev1alpha1.TranscodeJob, profile string) int {
+	n := 0
+	for i := range jobs {
+		tj := &jobs[i]
+		if tj.Spec.ProfileRef != profile || k8s.IsDeleting(tj) {
+			continue
+		}
+		switch tj.Status.Phase {
+		case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed,
+			transcodev1alpha1.TranscodeJobPhaseSkipped:
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+// retireSucceeded deletes profile's Succeeded TranscodeJobs that finished
+// more than r.Retention ago and whose MediaFile was probed since. catalogarr
+// incorporates a transcode swap by reading the Succeeded job
+// (latestUnincorporatedTranscode, probedAt before finishedAt), so a job is
+// kept until that probe has happened; afterwards the output's
+// CLUSTARR_PROFILE tag keeps the file from being selected again and the
+// history sink holds the job's events. Failed and Skipped jobs stay: the
+// first for the operator, the second as the record that stops the file
+// being planned again.
+func (r *Reconciler) retireSucceeded(ctx context.Context, jobs []transcodev1alpha1.TranscodeJob, profile string,
+	files []catalogv1alpha1.MediaFile,
+) []error {
+	if r.Retention <= 0 {
+		return nil
+	}
+	now := time.Now()
+	if r.Now != nil {
+		now = r.Now()
+	}
+	probedAt := make(map[types.NamespacedName]*metav1.Time, len(files))
+	for i := range files {
+		probedAt[client.ObjectKeyFromObject(&files[i])] = files[i].Status.ProbedAt
+	}
+	var errs []error
+	for i := range jobs {
+		tj := &jobs[i]
+		done := tj.Status.FinishedAt
+		if tj.Spec.ProfileRef != profile || tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseSucceeded ||
+			done == nil || now.Sub(done.Time) < r.Retention || k8s.IsDeleting(tj) {
+			continue
+		}
+		probed := probedAt[types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}]
+		if probed == nil || !probed.After(done.Time) {
+			continue // catalogarr has not read it yet
+		}
+		if err := r.Delete(ctx, tj, client.Preconditions{UID: &tj.UID}); client.IgnoreNotFound(err) != nil {
+			errs = append(errs, fmt.Errorf("transcodeprofile: retire TranscodeJob %s: %w", client.ObjectKeyFromObject(tj), err))
+		}
+	}
+	return errs
 }
 
 // catalogItems lists, once per reconcile, every Movie and Episode that

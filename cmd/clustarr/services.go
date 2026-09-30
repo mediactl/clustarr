@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -248,6 +249,8 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		renderGroups    string
 		labelNVIDIA     string
 		labelIntel      string
+		jobWindow       int
+		jobRetention    time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -290,6 +293,12 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			"while a Ready node carries it with allocatable gpu.intel.com/i915, and intel pools are held to it. "+
 			"Defaults to $"+gpuNodeLabelIntelEnv+".")
 
+	cmd.Flags().IntVar(&jobWindow, "job-window", defaults.JobWindow,
+		"Most TranscodeJobs a profile keeps that have not finished: it holds the next files, not one job per "+
+			"matching file. 0 is no limit.")
+	cmd.Flags().DurationVar(&jobRetention, "job-retention", defaults.JobRetention,
+		"How long a Succeeded TranscodeJob is kept once its MediaFile has been re-probed. 0 keeps it for good.")
+
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		budget, err := squasharr.ParseSlots(slots)
 		if err != nil {
@@ -310,6 +319,8 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			IntelRenderGroups: gids,
 			NodeLabelNVIDIA:   labelNVIDIA,
 			NodeLabelIntel:    labelIntel,
+			JobWindow:         jobWindow,
+			JobRetention:      jobRetention,
 			Logging:           *lo,
 			Tracing:           tracingFor(to, squasharr.ServiceName),
 		})
