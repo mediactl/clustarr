@@ -93,3 +93,49 @@ func (a *Actions) RequestDelete(
 	}
 	return RequestDelete(ctx, a.w, namespace, kind, name, files, exclude)
 }
+
+// CancelDelete withdraws a pending or refused library delete: a merge patch
+// removing the three delete annotations under [FieldManager]. A delete
+// importarr has already carried out is not undone; one it is carrying out
+// finishes.
+func CancelDelete(
+	ctx context.Context, p Patcher, namespace string, kind commonv1.MediaKind, name string,
+) (client.Object, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.CancelDelete")
+	defer span.End()
+
+	if err := validateItem(namespace, kind, name); err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	raw, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]any{
+		catalogv1alpha1.AnnotationDelete:             nil,
+		catalogv1alpha1.AnnotationDeleteAddExclusion: nil,
+		catalogv1alpha1.AnnotationDeleteError:        nil,
+	}}})
+	if err != nil {
+		err = fmt.Errorf("actions: encode delete cancel patch: %w", err)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	obj := monitorables[kind].newObject()
+	obj.SetNamespace(namespace)
+	obj.SetName(name)
+	if err := p.Patch(ctx, obj, client.RawPatch(types.MergePatchType, raw), client.FieldOwner(FieldManager)); err != nil {
+		err = fmt.Errorf("actions: cancel delete of %s %s/%s: %w", kind, namespace, name, err)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	logging.FromContext(ctx).Info("ui action: delete cancelled", "namespace", namespace, "kind", string(kind), "name", name)
+	return obj, nil
+}
+
+// CancelDelete is [CancelDelete] over the Actions' own client.
+func (a *Actions) CancelDelete(
+	ctx context.Context, namespace string, kind commonv1.MediaKind, name string,
+) (client.Object, error) {
+	if a == nil || a.w == nil {
+		return nil, ErrNoWriter
+	}
+	return CancelDelete(ctx, a.w, namespace, kind, name)
+}

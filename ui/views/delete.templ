@@ -129,3 +129,11 @@ templ deleteRetry(d Detail) {
 		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": "delete-retry"}}) { Retry }
 	</form>
 }
+
+// deleteCancel withdraws a pending or refused request.
+templ deleteCancel(d Detail) {
+	<form method="post" action={ templ.URL(libraryActionURL(d.Item, "delete/cancel")) } class="inline">
+		<input type="hidden" name="return" value={ libraryDetailPath(d.Item) }/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantGhost, Attributes: templ.Attributes{"data-action": "delete-cancel"}}) { Cancel }
+	</form>
+}

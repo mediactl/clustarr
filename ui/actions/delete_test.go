@@ -67,3 +67,24 @@ func TestRequestDeleteWritesTheAnnotations(t *testing.T) {
 	_, err = actions.RequestDelete(ctx, c, "default", commonv1.MediaKindEpisode, "x", true, false)
 	require.True(t, errors.Is(err, actions.ErrInvalid), "an episode is deleted with its series: %v", err)
 }
+
+// Cancel clears a pending or refused request, so a refused "files" delete
+// can be withdrawn, or re-asked as "records", from the ui (final review,
+// finding 4).
+func TestCancelDeleteClearsTheRequest(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, catalogv1alpha1.AddToScheme(scheme))
+	movie := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "default", Annotations: map[string]string{
+			catalogv1alpha1.AnnotationDelete: "files", catalogv1alpha1.AnnotationDeleteAddExclusion: "true",
+			catalogv1alpha1.AnnotationDeleteError: "refused", "keep": "me",
+		}},
+		Spec: catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(movie).Build()
+	_, err := actions.CancelDelete(context.Background(), c, "default", commonv1.MediaKindMovie, "heat")
+	require.NoError(t, err)
+	var m catalogv1alpha1.Movie
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "heat"}, &m))
+	require.Equal(t, map[string]string{"keep": "me"}, m.Annotations)
+}

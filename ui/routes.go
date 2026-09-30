@@ -68,6 +68,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/refresh", s.handleRefreshMetadata)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/rename", s.handleRenameItem)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/delete", s.handleRequestDelete)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/delete/cancel", s.handleCancelDelete)
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
 	mux.HandleFunc("GET /unmatched", s.handleUnmatched)
 	mux.HandleFunc("GET /events/unmatched", s.handleUnmatchedEvents)
@@ -368,6 +369,19 @@ func (s *Server) handleRequestDelete(w http.ResponseWriter, r *http.Request) {
 	_, err := s.opts.Actions.RequestDelete(r.Context(), r.PathValue("namespace"),
 		commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"),
 		r.FormValue("files") == "true", r.FormValue("exclude") == "true")
+	s.finishAction(w, r, err)
+}
+
+// handleCancelDelete withdraws a pending or refused delete: POST
+// /library/{namespace}/{kind}/{name}/delete/cancel, calling
+// Options.Actions.CancelDelete; the outcome is finishAction's.
+func (s *Server) handleCancelDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	_, err := s.opts.Actions.CancelDelete(r.Context(), r.PathValue("namespace"),
+		commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"))
 	s.finishAction(w, r, err)
 }
 

@@ -111,3 +111,15 @@ func TestTheUIRefusesCrossSitePosts(t *testing.T) {
 	require.NotEqual(t, http.StatusForbidden, send("same-origin"))
 	require.NotEqual(t, http.StatusForbidden, send(""))
 }
+
+// A pending or failed delete can be cancelled from the page.
+func TestAPendingOrFailedDeleteCanBeCancelled(t *testing.T) {
+	item := projection.LibraryItem{Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
+		Tab: projection.TabMovies, Title: "Heat", DeleteMode: "files"}
+	body := detailPage(t, deleteServer(t, item), "/library/default/movie/heat")
+	requireTag(t, body, `data-action="delete-cancel"`)
+	requireTag(t, body, `action="/library/default/movie/heat/delete/cancel"`)
+	item.DeleteError = "refused"
+	body = detailPage(t, deleteServer(t, item), "/library/default/movie/heat")
+	requireTag(t, body, `data-action="delete-cancel"`)
+}
