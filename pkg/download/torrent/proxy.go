@@ -66,7 +66,7 @@ type proxyState struct {
 
 // configureProxy points acfg's HTTP traffic at the proxy and, with
 // PeerConnections, takes away every local socket: no TCP or uTP listener,
-// no built-in DHT. Nothing is accepted and WebTorrent (WebRTC's STUN/ICE
+// no built-in DHT; without UDP, no local UDP socket either way. Nothing is accepted and WebTorrent (WebRTC's STUN/ICE
 // cannot be proxied) is off either way.
 func configureProxy(acfg *anatorrent.ClientConfig, pcfg ProxyConfig, trackerPacketConn func(network, addr string) (net.PacketConn, error)) {
 	u := pcfg.Proxy.URL()
@@ -77,6 +77,11 @@ func configureProxy(acfg *anatorrent.ClientConfig, pcfg ProxyConfig, trackerPack
 	acfg.DisableWebtorrent = true
 	if pcfg.PeerConnections {
 		acfg.DisableTCP = true
+	}
+	// Every local UDP socket is off either way: with PeerConnections the
+	// DHT and uTP come back on associations (attachProxy); without it, udp
+	// false still promises no UDP leaves except through the proxy.
+	if pcfg.PeerConnections || !pcfg.UDP {
 		acfg.DisableUTP = true
 		acfg.NoDHT = true
 	}

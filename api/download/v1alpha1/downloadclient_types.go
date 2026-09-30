@@ -211,10 +211,12 @@ type TorrentProxy struct {
 	PeerConnections *bool `json:"peerConnections,omitempty"`
 
 	// UDP carries the DHT, uTP and UDP trackers through the proxy's UDP
-	// ASSOCIATE, as libtorrent does. When the proxy refuses it, or UDP is
-	// false, those three stay off -- never direct -- and the engine records
-	// a ProxyUDPUnavailable Event on the DownloadClient. Needs
-	// peerConnections.
+	// ASSOCIATE, as libtorrent does. False, or a proxy that refuses UDP
+	// ASSOCIATE, leaves those three off -- never direct, even with
+	// peerConnections false -- and a refusal records a ProxyUDPUnavailable
+	// Event on the DownloadClient. With peerConnections false and udp true,
+	// the DHT and uTP run directly, like the peers, and only UDP trackers go
+	// through the proxy.
 	// +optional
 	// +kubebuilder:default=true
 	UDP *bool `json:"udp,omitempty"`

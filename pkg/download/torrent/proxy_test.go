@@ -203,3 +203,23 @@ func TestAUDPTrackerSocketDoesNotWaitForTheProxy(t *testing.T) {
 	require.Less(t, time.Since(start), 500*time.Millisecond)
 	require.NoError(t, pc.Close())
 }
+
+// TestUDPOffMeansNoUDPEvenForDirectPeers: with peers dialled directly
+// (peerConnections false) and udp false, the engine still runs no DHT and
+// no uTP -- udp false promises nothing UDP leaves except through the proxy.
+func TestUDPOffMeansNoUDPEvenForDirectPeers(t *testing.T) {
+	srv := socks5test.NewServer(t)
+	cfg := loopbackConfig(t)
+	cfg.NoDHT = false
+	cfg.Proxy = &ProxyConfig{Proxy: socks5.Proxy{Addr: srv.Addr()}, PeerConnections: false, UDP: false}
+	raw, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = raw.Close() })
+	c := raw.(*Client)
+
+	require.Empty(t, c.cl.DhtServers())
+	for _, l := range c.cl.Listeners() {
+		require.NotContains(t, l.Addr().Network(), "udp", "no uTP socket")
+	}
+	require.NotEmpty(t, c.cl.Listeners(), "TCP peers are still dialled and listened for directly")
+}
