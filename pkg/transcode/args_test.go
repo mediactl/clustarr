@@ -507,3 +507,42 @@ func TestArgsGoldenRemuxContainerMKVToMP4(t *testing.T) {
 	require.Equal(t, []string{"+faststart+use_metadata_tags"}, movflags,
 		"one -movflags, both flags joined: use_metadata_tags is what keeps CLUSTARR_PROFILE in an mp4")
 }
+
+// NVENC's HEVC encoder takes at most 4 B-frames (NV_ENC_CAPS_NUM_MAX_BFRAMES
+// on Turing through Ada); asked for more it refuses to open, as "No capable
+// devices found". The profile's bFrames defaults to libx265's 8, so every
+// NVENC encode on the owner's RTX 2070 failed (2026-09-30). NVENC gets
+// min(bFrames, 4); libx265 keeps the profile's value.
+func TestNVENCClampsBFramesToItsMaximum(t *testing.T) {
+	bf := func(args []string) string {
+		for i, a := range args {
+			if a == "-bf" && i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+		return ""
+	}
+	info := transcode.MediaInfo{
+		Path:   "/media/movies/Example (2019)/Example (2019).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video:  []transcode.VideoStream{exampleSDRVideo()},
+		Audio:  []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},
+	}
+	for _, tc := range []struct {
+		hw      transcode.Hardware
+		bframes int32
+		want    string
+	}{
+		{transcode.HardwareNVIDIA, 8, "4"},
+		{transcode.HardwareNVIDIA, 2, "2"},
+		{transcode.HardwareCPU, 8, "8"},
+	} {
+		profile := defaultProfile()
+		profile.Hardware = tc.hw
+		profile.Video.BFrames = tc.bframes
+		profile.Video.NVENC = transcode.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle"}
+		plan, err := transcode.Plan(info, profile, testCaps, testMeta)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, bf(transcode.Args(plan)), "%s with bFrames %d", tc.hw, tc.bframes)
+	}
+}

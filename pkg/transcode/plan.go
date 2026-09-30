@@ -604,6 +604,13 @@ func cpuVideoArgs(v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisi
 	return args
 }
 
+// nvencMaxBFrames is the most consecutive B-frames NVENC's HEVC encoder
+// accepts (NV_ENC_CAPS_NUM_MAX_BFRAMES, 4 on Turing through Ada). Asked for
+// more, it refuses to open the session and ffmpeg reports "No capable
+// devices found" -- which every NVENC encode did while the profile's
+// libx265-sized default of 8 was passed through (2026-09-30, RTX 2070).
+const nvencMaxBFrames = 4
+
 func nvencVideoArgs(v VideoSpec) []string {
 	return []string{
 		"-c:v", "hevc_nvenc",
@@ -613,7 +620,7 @@ func nvencVideoArgs(v VideoSpec) []string {
 		"-cq", strconv.Itoa(int(v.NVENC.CQ)),
 		"-b:v", "0",
 		"-multipass", v.NVENC.Multipass,
-		"-bf", strconv.Itoa(int(v.BFrames)),
+		"-bf", strconv.Itoa(int(min(v.BFrames, nvencMaxBFrames))),
 		"-b_ref_mode", v.NVENC.BRefMode,
 		"-spatial-aq", "1",
 		"-temporal-aq", "1",
