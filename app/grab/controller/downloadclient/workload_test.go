@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package downloadclient
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -28,6 +29,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -81,7 +84,7 @@ func TestBuildStatefulSetShape(t *testing.T) {
 	dc.Spec.Torrent.ListenPort = 51413
 	owner := fakeOwnerRef()
 
-	sts := buildStatefulSet(dc, "sab-engine", "ghcr.io/x/engine:dev", "/data", "clustarr-data", EngineRuntime{}, owner)
+	sts := buildStatefulSet(dc, "sab-engine", "ghcr.io/x/engine:dev", "/data", "clustarr-data", EngineRuntime{}, nil, owner)
 
 	require.NotNil(t, sts.Name)
 	assert.Equal(t, "sab-engine", *sts.Name)
@@ -127,7 +130,7 @@ func TestBuildStatefulSetShape(t *testing.T) {
 
 func TestBuildStatefulSetDefaultsListenPort(t *testing.T) {
 	dc := torrentClient("sab", 1)
-	sts := buildStatefulSet(dc, "sab-engine", "img", "/data", "clustarr-data", EngineRuntime{}, fakeOwnerRef())
+	sts := buildStatefulSet(dc, "sab-engine", "img", "/data", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	c := sts.Spec.Template.Spec.Containers[0]
 	require.Len(t, c.Ports, 1)
 	assert.Equal(t, int32(defaultListenPort), *c.Ports[0].ContainerPort)
@@ -333,7 +336,7 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	usenet := usenetClient("nzb")
 	usenet.Spec.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")}
 
-	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "clustarr-data", rt, fakeOwnerRef())
+	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "clustarr-data", rt, nil, fakeOwnerRef())
 	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 
 	for name, tc := range map[string]struct {
@@ -362,7 +365,7 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 
 	t.Run("no memory limit, no bus settings", func(t *testing.T) {
 		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "clustarr-data",
-			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, fakeOwnerRef())
+			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
 		c := bare.Spec.Template.Spec.Containers[0]
 		assert.Equal(t, map[string]string{"POD_NAMESPACE": "fieldRef:metadata.namespace"}, envOf(c.Env),
 			"GOMEMLIMIT, NATS_URL and UMASK are set only when there is something to set them to")
@@ -373,4 +376,33 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		r := NewReconciler(nil, nil, "/data", "/scratch", "img")
 		assert.Equal(t, DefaultEngineServiceAccount, r.Engine.ServiceAccountName)
 	})
+}
+
+// TestTorrentEngineHashCoversTheProxyAndItsSecret: the torrent engine reads
+// spec.torrent.proxy and its Secret at start, so both roll the engine; a
+// torrent client without a proxy keeps the hash it had.
+func TestTorrentEngineHashCoversTheProxyAndItsSecret(t *testing.T) {
+	plain := torrentClient("frugal", 1)
+	before := engineConfigHash(plain, nil)
+	require.Equal(t, before, engineConfigHash(plain, map[string]string{}), "no Secret digests, no change")
+
+	proxied := plain.DeepCopy()
+	proxied.Spec.Torrent.Proxy = &downloadv1alpha1.TorrentProxy{
+		Host: "10.64.0.1", Port: 1080, SecretRef: &corev1.LocalObjectReference{Name: "mullvad"},
+	}
+	withProxy := engineConfigHash(proxied, nil)
+	require.NotEqual(t, before, withProxy)
+	require.NotEqual(t, withProxy, engineConfigHash(proxied, map[string]string{"mullvad": "digest-a"}))
+	require.NotEqual(t,
+		engineConfigHash(proxied, map[string]string{"mullvad": "digest-a"}),
+		engineConfigHash(proxied, map[string]string{"mullvad": "digest-b"}), "a rotated proxy password rolls the engine")
+
+	sc := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mullvad", Namespace: "default"},
+		Data:       map[string][]byte{"username": []byte("u")},
+	}).Build()
+	r := &Reconciler{Client: sc, SecretReader: sc}
+	got, err := r.secretDigests(context.Background(), proxied)
+	require.NoError(t, err)
+	require.Contains(t, got, "mullvad", "the proxy's Secret is digested like a usenet provider's")
 }

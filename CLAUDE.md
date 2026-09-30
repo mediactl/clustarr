@@ -613,6 +613,24 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   RenewDeadline/2, 5 s by default). `pkg/k8s.ManagerOptions` sets the lease
   to 60 s / 45 s / 5 s (`k8s.LeaseDuration`, `RenewDeadline`,
   `RetryPeriod`), and a deploy loads only images whose inputs changed.
+- **A torrent engine behind a SOCKS5 proxy (`spec.torrent.proxy`,
+  2026-09-30) must not leak by UDP or by DNS, and Go's library covers
+  neither.** `golang.org/x/net/proxy` speaks CONNECT only, so `pkg/socks5`
+  implements UDP ASSOCIATE itself; the proxied engine opens no local socket
+  (anacrolix `DisableTCP`/`DisableUTP`/`NoDHT`, no incoming, no WebTorrent)
+  and adds a CONNECT dialer, a DHT server and a pure-Go uTP dialer on UDP
+  associations, and a listener that only names `listenPort` for announces.
+  anacrolix resolves a UDP tracker's host (`net.ResolveUDPAddr`) and the DHT
+  its bootstrap routers before any packet reaches a PacketConn, and the
+  pod's `ndots:5` plus the host's search domain sent `tracker.org.appkins.io`
+  to the node's resolver, so the engine process swaps `net.DefaultResolver`
+  for `socks5.Proxy.Resolver`, which routes each query by its question name:
+  cluster names to cluster DNS, everything else over TCP through the proxy
+  to `dnsServer` (Mullvad's SOCKS server refuses its own resolver
+  `10.64.0.1:53`, hence `1.1.1.1:53`). A proxy that refuses UDP ASSOCIATE
+  leaves the DHT, uTP and UDP trackers off with a `ProxyUDPUnavailable`
+  Event, never direct. anacrolix/utp stalls ~1.5 s on a first burst with or
+  without a proxy; its proxy test skips under `-race` for that reason.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.

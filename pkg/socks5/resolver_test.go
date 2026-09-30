@@ -29,6 +29,7 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 
 	"github.com/mediactl/clustarr/pkg/socks5"
+	"github.com/mediactl/clustarr/pkg/socks5/socks5test"
 )
 
 // dnsServer is a DNS-over-TCP server answering every A question with ip
@@ -105,14 +106,14 @@ func TestIsClusterName(t *testing.T) {
 
 // resolverUnderTest wires a Proxy's resolver to a fake cluster DNS and a
 // fake public DNS that the in-test SOCKS server reaches as 1.1.1.1:53.
-func resolverUnderTest(t *testing.T) (*net.Resolver, *dnsServer, *dnsServer, *server) {
+func resolverUnderTest(t *testing.T) (*net.Resolver, *dnsServer, *dnsServer, *socks5test.Server) {
 	t.Helper()
 	cluster := newDNSServer(t, [4]byte{10, 96, 0, 1}, 30)
 	public := newDNSServer(t, [4]byte{93, 184, 216, 34}, 300)
-	srv := newServer(t)
-	srv.hosts["1.1.1.1:53"] = public.addr
+	srv := socks5test.NewServer(t)
+	srv.Hosts["1.1.1.1:53"] = public.addr
 	var d net.Dialer
-	r := socks5.Proxy{Addr: srv.addr()}.Resolver("1.1.1.1:53", func(ctx context.Context, _, _ string) (net.Conn, error) {
+	r := socks5.Proxy{Addr: srv.Addr()}.Resolver("1.1.1.1:53", func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return d.DialContext(ctx, "tcp", cluster.addr)
 	})
 	return r, cluster, public, srv
@@ -131,7 +132,7 @@ func TestResolverRoutesByName(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "93.184.216.34", ips[0].String(), "a public name is answered through the proxy")
 	require.Equal(t, int64(1), cluster.queries.Load(), "cluster DNS never saw the public name")
-	require.Contains(t, srv.connected(), "1.1.1.1:53")
+	require.Contains(t, srv.Connected(), "1.1.1.1:53")
 }
 
 func TestResolverCachesPublicAnswersByTTL(t *testing.T) {

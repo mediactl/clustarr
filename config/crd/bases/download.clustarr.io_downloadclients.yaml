@@ -265,6 +265,90 @@ spec:
                     format: int64
                     minimum: 0
                     type: integer
+                  proxy:
+                    description: |-
+                      Proxy sends the engine's traffic through a SOCKS5 proxy, as
+                      qBittorrent's Connection > Proxy Server does: trackers, webseeds, the
+                      engine's own .torrent fetches and, with peerConnections, every peer
+                      connection -- UDP included, through the proxy's UDP ASSOCIATE. With a
+                      proxy the engine accepts no incoming connection and runs no WebTorrent
+                      (WebRTC cannot be proxied). Absent means no proxy. The engine reads it
+                      at start, so a change rolls the engine pods.
+                    properties:
+                      dnsServer:
+                        default: 1.1.1.1:53
+                        description: |-
+                          DNSServer is the resolver queried through the proxy for public names,
+                          host:port. Mullvad's SOCKS server refuses its own resolver
+                          (10.64.0.1:53), so the default is a public one.
+                        maxLength: 261
+                        type: string
+                      host:
+                        description: Host is the proxy's address or name ("Host").
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                      hostnameLookup:
+                        default: true
+                        description: |-
+                          HostnameLookup resolves names through the proxy ("Perform hostname
+                          lookup via proxy"): a connection by name is sent to the proxy
+                          unresolved, and every name the engine resolves itself (UDP trackers,
+                          DHT bootstrap) goes over TCP through the proxy to dnsServer. Cluster
+                          names (no dot, or ending in cluster.local, .svc or .local) are still
+                          resolved by cluster DNS.
+                        type: boolean
+                      peerConnections:
+                        default: true
+                        description: |-
+                          PeerConnections connects to peers through the proxy ("Use proxy for
+                          peer connections"). False proxies trackers, webseeds and fetches only,
+                          and peers are dialled directly.
+                        type: boolean
+                      port:
+                        description: Port is the proxy's port ("Port").
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
+                      secretRef:
+                        description: |-
+                          SecretRef names a Secret in the same namespace with the proxy's
+                          credentials ("Authentication"), keys username and password. Absent
+                          means the proxy is offered no authentication. The engine reads it at
+                          start; a change to its data rolls the engine at the controller's next
+                          periodic reconcile.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      type:
+                        default: socks5
+                        description: Type is the proxy protocol ("Type").
+                        enum:
+                        - socks5
+                        type: string
+                      udp:
+                        default: true
+                        description: |-
+                          UDP carries the DHT, uTP and UDP trackers through the proxy's UDP
+                          ASSOCIATE, as libtorrent does. When the proxy refuses it, or UDP is
+                          false, those three stay off -- never direct -- and the engine records
+                          a ProxyUDPUnavailable Event on the DownloadClient. Needs
+                          peerConnections.
+                        type: boolean
+                    required:
+                    - host
+                    - port
+                    type: object
                   publicIP:
                     description: |-
                       PublicIP is the address advertised to peers and trackers when the engine

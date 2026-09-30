@@ -290,7 +290,13 @@ func (r *Reconciler) reconcileWorkload(
 ) (desired, replicas, readyReplicas int32, err error) {
 	switch dc.Spec.Protocol {
 	case commonv1alpha1.ProtocolTorrent:
-		sts := buildStatefulSet(dc, workloadName, r.EngineImage, r.DataDir, r.DataClaimName, r.Engine, ownerRef)
+		// The proxy's Secret is read at start, like a usenet provider's, and
+		// a read failure aborts the apply for the same reason as below.
+		secrets, err := r.secretDigests(ctx, dc)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		sts := buildStatefulSet(dc, workloadName, r.EngineImage, r.DataDir, r.DataClaimName, r.Engine, secrets, ownerRef)
 		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, sts); err != nil {
 			return 0, 0, 0, fmt.Errorf("downloadclient: apply StatefulSet %s: %w", workloadName, err)
 		}
@@ -423,16 +429,16 @@ func setEngineReadyCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]
 // "could not read" would restart the engine on an apiserver blip, and again
 // when the read recovered.
 func (r *Reconciler) secretDigests(ctx context.Context, dc *downloadv1alpha1.DownloadClient) (map[string]string, error) {
-	if dc.Spec.Usenet == nil || len(dc.Spec.Usenet.Providers) == 0 {
+	names := engineSecretNames(dc)
+	if len(names) == 0 {
 		return nil, nil
 	}
 	reader := r.SecretReader
 	if reader == nil {
 		reader = r.Client
 	}
-	out := make(map[string]string, len(dc.Spec.Usenet.Providers))
-	for _, p := range dc.Spec.Usenet.Providers {
-		name := p.SecretRef.Name
+	out := make(map[string]string, len(names))
+	for _, name := range names {
 		if _, done := out[name]; done || name == "" {
 			continue
 		}
@@ -442,12 +448,27 @@ func (r *Reconciler) secretDigests(ctx context.Context, dc *downloadv1alpha1.Dow
 		case apierrors.IsNotFound(err):
 			out[name] = "absent"
 		case err != nil:
-			return nil, fmt.Errorf("downloadclient: read provider Secret %s/%s: %w", dc.Namespace, name, err)
+			return nil, fmt.Errorf("downloadclient: read engine Secret %s/%s: %w", dc.Namespace, name, err)
 		default:
 			out[name] = secretDataDigest(s.Data)
 		}
 	}
 	return out, nil
+}
+
+// engineSecretNames names every Secret dc's engine reads at start: each
+// usenet provider's, or the torrent proxy's.
+func engineSecretNames(dc *downloadv1alpha1.DownloadClient) []string {
+	var names []string
+	if dc.Spec.Usenet != nil {
+		for _, p := range dc.Spec.Usenet.Providers {
+			names = append(names, p.SecretRef.Name)
+		}
+	}
+	if t := dc.Spec.Torrent; t != nil && t.Proxy != nil && t.Proxy.SecretRef != nil {
+		names = append(names, t.Proxy.SecretRef.Name)
+	}
+	return names
 }
 
 // secretDataDigest hashes a Secret's data -- keys sorted, and every key and

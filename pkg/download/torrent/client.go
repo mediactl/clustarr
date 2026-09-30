@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,6 +104,10 @@ type Config struct {
 	// Zero disables stall detection -- the zero value, so a Config built
 	// without it (every test before gap fix Y2) behaves as it always did.
 	StallTimeout time.Duration
+
+	// Proxy, if set, sends the client's traffic through a SOCKS5 proxy
+	// (proxy.go).
+	Proxy *ProxyConfig
 
 	// Logger, if set, receives anacrolix's internal log lines. anacrolix
 	// takes a single *slog.Logger at construction rather than one per call,
@@ -197,6 +202,9 @@ type Client struct {
 	// restores after [Client.SetPriority] moves a torrent off high or low.
 	defaultConns int
 
+	// proxy is the SOCKS5 proxy's state, nil without one.
+	proxy *proxyState
+
 	mu       sync.Mutex
 	sessions map[string]*session
 }
@@ -227,17 +235,25 @@ func New(cfg Config) (download.Client, error) {
 		acfg.Slogger = cfg.Logger
 	}
 
+	c := &Client{cfg: cfg, sessions: make(map[string]*session)}
+	if cfg.Proxy != nil {
+		c.proxy = &proxyState{cfg: *cfg.Proxy}
+		configureProxy(acfg, *cfg.Proxy, c.udpTrackerPacketConn)
+	}
+
 	cl, err := anatorrent.NewClient(acfg)
 	if err != nil {
 		return nil, fmt.Errorf("torrent: new anacrolix client: %w", err)
 	}
-
-	return &Client{
-		cl:           cl,
-		cfg:          cfg,
-		defaultConns: acfg.EstablishedConnsPerTorrent,
-		sessions:     make(map[string]*session),
-	}, nil
+	c.cl = cl
+	c.defaultConns = acfg.EstablishedConnsPerTorrent
+	if c.proxy != nil {
+		if err := c.attachProxy(c.proxy, !cfg.NoDHT, cfg.ListenPort); err != nil {
+			_ = c.Close()
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 // Info implements [download.Client.Info].
@@ -548,10 +564,17 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 
 // Close implements [download.Client.Close].
 func (c *Client) Close() error {
-	if errs := c.cl.Close(); len(errs) > 0 {
-		return errors.Join(errs...)
+	errs := c.cl.Close()
+	if c.proxy != nil {
+		// Last opened, first closed: a DHT server panics when its socket
+		// closes under it, so the server goes before its association.
+		for i := len(c.proxy.closers) - 1; i >= 0; i-- {
+			if err := c.proxy.closers[i](); err != nil && !errors.Is(err, net.ErrClosed) {
+				errs = append(errs, err)
+			}
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // resolveSpec turns req's payload into an anacrolix TorrentSpec. It never

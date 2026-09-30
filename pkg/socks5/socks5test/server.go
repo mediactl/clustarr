@@ -15,7 +15,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package socks5_test
+// Package socks5test is a SOCKS5 server for tests.
+package socks5test
 
 import (
 	"encoding/binary"
@@ -27,40 +28,41 @@ import (
 	"testing"
 )
 
-// server is a SOCKS5 server written from RFC 1928 and RFC 1929, for tests
+// Server is a SOCKS5 server written from RFC 1928 and RFC 1929, for tests
 // only: no-auth or username/password, CONNECT (a hostname is looked up in
 // hosts, never in DNS) and UDP ASSOCIATE with a real relay socket. It
 // records what it was asked, so a test can see what the client sent.
-type server struct {
-	t        *testing.T
+type Server struct {
+	t        testing.TB
 	ln       net.Listener
-	username string
-	password string
-	hosts    map[string]string // "name:port" -> "ip:port"
-	// noUDP answers UDP ASSOCIATE with 0x07 (command not supported).
-	noUDP bool
-	// unspecifiedRelay answers UDP ASSOCIATE with 0.0.0.0 and the relay's
+	Username string
+	Password string
+	Hosts    map[string]string // "name:port" -> "ip:port"
+	// NoUDP answers UDP ASSOCIATE with 0x07 (command not supported).
+	NoUDP bool
+	// UnspecifiedRelay answers UDP ASSOCIATE with 0.0.0.0 and the relay's
 	// port, as some proxies do.
-	unspecifiedRelay bool
+	UnspecifiedRelay bool
 
-	mu        sync.Mutex
-	connects  []string
-	controls  []net.Conn
-	relays    []*net.UDPConn
-	lastPeer  *net.UDPAddr
-	lastRelay *net.UDPConn
+	mu           sync.Mutex
+	connects     []string
+	associations int
+	controls     []net.Conn
+	relays       []*net.UDPConn
+	lastPeer     *net.UDPAddr
+	lastRelay    *net.UDPConn
 }
 
-func newServer(t *testing.T) *server {
+func NewServer(t testing.TB) *Server {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &server{t: t, ln: ln, hosts: map[string]string{}}
+	s := &Server{t: t, ln: ln, Hosts: map[string]string{}}
 	t.Cleanup(func() {
 		_ = ln.Close()
-		s.dropControl()
+		s.DropControl()
 	})
 	go func() {
 		for {
@@ -74,17 +76,26 @@ func newServer(t *testing.T) *server {
 	return s
 }
 
-func (s *server) addr() string { return s.ln.Addr().String() }
+// Addr is the server's host:port.
+func (s *Server) Addr() string { return s.ln.Addr().String() }
 
-func (s *server) connected() []string {
+// Associations is how many UDP associations the server has granted.
+func (s *Server) Associations() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.associations
+}
+
+// Connected lists every CONNECT target asked for, as sent.
+func (s *Server) Connected() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.connects...)
 }
 
-// dropControl closes every UDP ASSOCIATE control connection and its relay,
+// DropControl closes every UDP ASSOCIATE control connection and its relay,
 // as a proxy restart would.
-func (s *server) dropControl() {
+func (s *Server) DropControl() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, c := range s.controls {
@@ -96,9 +107,9 @@ func (s *server) dropControl() {
 	s.controls, s.relays, s.lastRelay, s.lastPeer = nil, nil, nil, nil
 }
 
-// sendRaw sends b from the newest relay to the client's UDP address, header
+// SendRaw sends b from the newest relay to the client's UDP address, header
 // and all, so a test can hand the client a malformed datagram.
-func (s *server) sendRaw(b []byte) {
+func (s *Server) SendRaw(b []byte) {
 	s.mu.Lock()
 	r, p := s.lastRelay, s.lastPeer
 	s.mu.Unlock()
@@ -108,7 +119,7 @@ func (s *server) sendRaw(b []byte) {
 	_, _ = r.WriteToUDP(b, p)
 }
 
-func (s *server) serve(c net.Conn) {
+func (s *Server) serve(c net.Conn) {
 	keep := false
 	defer func() {
 		if !keep {
@@ -124,7 +135,7 @@ func (s *server) serve(c net.Conn) {
 		return
 	}
 	want := byte(0x00)
-	if s.username != "" {
+	if s.Username != "" {
 		want = 0x02
 	}
 	ok := false
@@ -152,7 +163,7 @@ func (s *server) serve(c net.Conn) {
 	case 0x01:
 		s.connect(c, dst)
 	case 0x03:
-		if s.noUDP {
+		if s.NoUDP {
 			_, _ = c.Write([]byte{5, 0x07, 0, 1, 0, 0, 0, 0, 0, 0})
 			return
 		}
@@ -163,7 +174,7 @@ func (s *server) serve(c net.Conn) {
 	}
 }
 
-func (s *server) authenticate(c net.Conn) bool {
+func (s *Server) authenticate(c net.Conn) bool {
 	var v [2]byte
 	if _, err := io.ReadFull(c, v[:]); err != nil {
 		return false
@@ -180,7 +191,7 @@ func (s *server) authenticate(c net.Conn) bool {
 	if _, err := io.ReadFull(c, p); err != nil {
 		return false
 	}
-	if string(u) != s.username || string(p) != s.password {
+	if string(u) != s.Username || string(p) != s.Password {
 		_, _ = c.Write([]byte{1, 1})
 		return false
 	}
@@ -188,12 +199,12 @@ func (s *server) authenticate(c net.Conn) bool {
 	return true
 }
 
-func (s *server) connect(c net.Conn, dst string) {
+func (s *Server) connect(c net.Conn, dst string) {
 	s.mu.Lock()
 	s.connects = append(s.connects, dst)
 	s.mu.Unlock()
 	target := dst
-	if mapped, ok := s.hosts[dst]; ok {
+	if mapped, ok := s.Hosts[dst]; ok {
 		target = mapped
 	}
 	up, err := net.Dial("tcp", target)
@@ -207,19 +218,20 @@ func (s *server) connect(c net.Conn, dst string) {
 	_, _ = io.Copy(c, up)
 }
 
-func (s *server) associate(c net.Conn) {
+func (s *Server) associate(c net.Conn) {
 	relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		_ = c.Close()
 		return
 	}
 	s.mu.Lock()
+	s.associations++
 	s.controls = append(s.controls, c)
 	s.relays = append(s.relays, relay)
 	s.mu.Unlock()
 
 	ip := relay.LocalAddr().(*net.UDPAddr).IP.To4()
-	if s.unspecifiedRelay {
+	if s.UnspecifiedRelay {
 		ip = net.IPv4zero.To4()
 	}
 	reply := append([]byte{5, 0, 0, 1}, ip...)
@@ -248,7 +260,7 @@ func (s *server) associate(c net.Conn) {
 			if err != nil {
 				continue
 			}
-			if mapped, ok := s.hosts[dst]; ok {
+			if mapped, ok := s.Hosts[dst]; ok {
 				dst = mapped
 			}
 			to, err := net.ResolveUDPAddr("udp", dst)

@@ -336,7 +336,7 @@ const EngineConfigHashAnnotation = "download.clustarr.io/engine-config-hash"
 
 // engineConfigHash hashes what the engine for dc reads at start
 // ([engineStartConfig]), with secrets the digest of each Secret it reads
-// ([Reconciler.secretDigests]; nil for a torrent engine, which reads none).
+// ([Reconciler.secretDigests]: the usenet providers', or the torrent proxy's).
 // JSON is a stable encoding here: struct fields render in declaration order
 // and map keys sorted.
 func engineConfigHash(dc *downloadv1alpha1.DownloadClient, secrets map[string]string) string {
@@ -363,7 +363,7 @@ func engineConfigHash(dc *downloadv1alpha1.DownloadClient, secrets map[string]st
 //     health floor and action, propagationDelay, downloadTimeout) and
 //     spec.categories, which the usenet engine resolves once at construction.
 //
-// The usenet providers' Secrets are read at start too, so their data is in
+// The usenet providers' Secrets, and the torrent proxy's, are read at start too, so their data is in
 // the hash as well, one digest per Secret: a rotated password restarts the
 // engine like any spec change, at the next reconcile (Z1 follow-up; see
 // [Reconciler.secretDigests] for how they are read, and why they are not
@@ -380,7 +380,8 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]s
 		t.RemoveCompleted = nil
 		return struct {
 			Torrent *downloadv1alpha1.TorrentSpec `json:"torrent"`
-		}{t}
+			Secrets map[string]string             `json:"secrets,omitempty"`
+		}{t, secrets}
 	case dc.Spec.Usenet != nil:
 		return struct {
 			Usenet     *downloadv1alpha1.UsenetSpec `json:"usenet"`
@@ -623,13 +624,13 @@ func buildScratchPVC(dc *downloadv1alpha1.DownloadClient, owner *metav1ac.OwnerR
 // shared volume, not on a per-ordinal PVC, so the StatefulSet's only reason to
 // exist is the stable "<workload>-<ordinal>" pod identity re-attach depends
 // on, not per-pod storage.
-func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, dataClaimName string, rt EngineRuntime, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
+func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, dataClaimName string, rt EngineRuntime, secrets map[string]string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
 	labels := selectorLabels(dc)
 	container := torrentContainer(dc, image, dataDir, rt)
 	spec := appsv1ac.StatefulSetSpec().
 		WithReplicas(torrentReplicas(dc)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(engineConfigHash(dc, nil), labels, podSpecAC(dc, container, dataClaimName, rt)))
+		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), labels, podSpecAC(dc, container, dataClaimName, rt)))
 
 	return appsv1ac.StatefulSet(name, dc.Namespace).
 		WithLabels(labels).

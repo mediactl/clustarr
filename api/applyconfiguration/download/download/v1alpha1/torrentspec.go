@@ -72,6 +72,14 @@ type TorrentSpecApplyConfiguration struct {
 	// at start, so a change rolls the engine pods: their template carries a
 	// hash of every setting read at start.
 	StallTimeout *v1.Duration `json:"stallTimeout,omitempty"`
+	// Proxy sends the engine's traffic through a SOCKS5 proxy, as
+	// qBittorrent's Connection > Proxy Server does: trackers, webseeds, the
+	// engine's own .torrent fetches and, with peerConnections, every peer
+	// connection -- UDP included, through the proxy's UDP ASSOCIATE. With a
+	// proxy the engine accepts no incoming connection and runs no WebTorrent
+	// (WebRTC cannot be proxied). Absent means no proxy. The engine reads it
+	// at start, so a change rolls the engine pods.
+	Proxy *TorrentProxyApplyConfiguration `json:"proxy,omitempty"`
 }
 
 // TorrentSpecApplyConfiguration constructs a declarative configuration of the TorrentSpec type for use with
@@ -165,5 +173,13 @@ func (b *TorrentSpecApplyConfiguration) WithRemoveCompleted(value bool) *Torrent
 // If called multiple times, the StallTimeout field is set to the value of the last call.
 func (b *TorrentSpecApplyConfiguration) WithStallTimeout(value v1.Duration) *TorrentSpecApplyConfiguration {
 	b.StallTimeout = &value
+	return b
+}
+
+// WithProxy sets the Proxy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Proxy field is set to the value of the last call.
+func (b *TorrentSpecApplyConfiguration) WithProxy(value *TorrentProxyApplyConfiguration) *TorrentSpecApplyConfiguration {
+	b.Proxy = value
 	return b
 }

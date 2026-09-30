@@ -708,6 +708,40 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: volumeName
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.TorrentProxy
+  map:
+    fields:
+    - name: dnsServer
+      type:
+        scalar: string
+      default: 1.1.1.1:53
+    - name: host
+      type:
+        scalar: string
+    - name: hostnameLookup
+      type:
+        scalar: boolean
+      default: true
+    - name: peerConnections
+      type:
+        scalar: boolean
+      default: true
+    - name: port
+      type:
+        scalar: numeric
+    - name: secretRef
+      type:
+        namedType: io.k8s.api.core.v1.LocalObjectReference
+    - name: type
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.TorrentProxyType
+      default: socks5
+    - name: udp
+      type:
+        scalar: boolean
+      default: true
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.TorrentProxyType
+  scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.TorrentSpec
   map:
     fields:
@@ -734,6 +768,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 134217728
+    - name: proxy
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.TorrentProxy
     - name: publicIP
       type:
         scalar: string

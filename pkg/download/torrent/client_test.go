@@ -78,7 +78,7 @@ func loopbackConfig(t *testing.T) Config {
 // newSeeder starts a bare anacrolix client (not wrapped by this package)
 // seeding content from dir, and returns it alongside the .torrent payload a
 // download.Client under test can Add.
-func newSeeder(t *testing.T, content []byte) (seeder *anatorrent.Client, payload []byte) {
+func newSeeder(t *testing.T, content []byte, opts ...func(*anatorrent.ClientConfig)) (seeder *anatorrent.Client, payload []byte) {
 	t.Helper()
 
 	seedDir := t.TempDir()
@@ -96,6 +96,9 @@ func newSeeder(t *testing.T, content []byte) (seeder *anatorrent.Client, payload
 	acfg.DisableTrackers = true
 	acfg.DataDir = seedDir
 	acfg.Seed = true
+	for _, o := range opts {
+		o(acfg)
+	}
 
 	seeder, err = anatorrent.NewClient(acfg)
 	require.NoError(t, err)

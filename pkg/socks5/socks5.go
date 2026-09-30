@@ -78,6 +78,24 @@ func (p Proxy) URL() *url.URL {
 	return u
 }
 
+// Ping connects to the proxy and completes the greeting (and
+// authentication, when configured), then hangs up: the torrent engine's
+// readiness check.
+func (p Proxy) Ping(ctx context.Context) error {
+	var d net.Dialer
+	c, err := d.DialContext(ctx, "tcp", p.Addr)
+	if err != nil {
+		return fmt.Errorf("socks5: dial %s: %w", p.Addr, err)
+	}
+	defer func() { _ = c.Close() }()
+	deadline := time.Now().Add(10 * time.Second)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
+		deadline = dl
+	}
+	_ = c.SetDeadline(deadline)
+	return p.greet(c)
+}
+
 func (p Proxy) retry() time.Duration {
 	if p.RetryInterval > 0 {
 		return p.RetryInterval

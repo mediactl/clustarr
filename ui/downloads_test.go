@@ -249,3 +249,23 @@ func TestDownloadsNavLinkIsOnEveryPage(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
 	require.Contains(t, rec.Body.String(), `href="/pipeline"`)
 }
+
+// TestDownloadsPageShowsATorrentClientsProxy: a proxied client says so,
+// and whether UDP goes through it.
+func TestDownloadsPageShowsATorrentClientsProxy(t *testing.T) {
+	udpOff := false
+	c := downloadv1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "frugal", Namespace: "default"},
+		Spec: downloadv1.DownloadClientSpec{Protocol: commonv1.ProtocolTorrent, Torrent: &downloadv1.TorrentSpec{
+			Proxy: &downloadv1.TorrentProxy{Host: "10.64.0.1", Port: 1080},
+		}},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, views.Downloads(paging.Paginate(0, 1, paging.DefaultPer), nil, []downloadv1.DownloadClient{c}).Render(context.Background(), &buf))
+	require.Contains(t, buf.String(), "via SOCKS5 10.64.0.1:1080 (UDP)")
+
+	c.Spec.Torrent.Proxy.UDP = &udpOff
+	buf.Reset()
+	require.NoError(t, views.Downloads(paging.Paginate(0, 1, paging.DefaultPer), nil, []downloadv1.DownloadClient{c}).Render(context.Background(), &buf))
+	require.Contains(t, buf.String(), "via SOCKS5 10.64.0.1:1080<")
+}

@@ -198,6 +198,10 @@ var kinds = []Kind{
 				"torrent.listenPort", "torrent.publicIP", "torrent.maxActive", "torrent.downloadLimitBps", "torrent.uploadLimitBps",
 				"torrent.enableDHT", "torrent.enablePEX", "torrent.removeCompleted", "torrent.stallTimeout", "torrent.maxUnverifiedBytes", "torrent.seed",
 			}},
+			{Title: "Proxy", When: whenTorrent, Paths: []string{
+				"torrent.proxy.type", "torrent.proxy.host", "torrent.proxy.port", "torrent.proxy.secretRef",
+				"torrent.proxy.hostnameLookup", "torrent.proxy.dnsServer", "torrent.proxy.peerConnections", "torrent.proxy.udp",
+			}},
 			{Title: "Usenet", When: whenUsenet, Paths: []string{
 				"usenet.providers", "usenet.postProcess", "usenet.propagationDelay", "usenet.preCheck", "usenet.abortHealthPercent",
 				"usenet.healthAction", "usenet.downloadTimeout", "usenet.stallTimeout", "usenet.publishDir", "usenet.scratch",
@@ -213,10 +217,19 @@ var kinds = []Kind{
 			"usenet.publishDir": "Publish directory", "usenet.scratch.path": "Scratch path (on the data volume)",
 			"usenet.scratch.existingClaim": "Existing claim", "usenet.scratch.volumeName": "Persistent volume",
 			"usenet.stallTimeout": "Stall timeout (no article completed)",
+			"torrent.proxy.type":  "Type", "torrent.proxy.host": "Host", "torrent.proxy.port": "Port",
+			"torrent.proxy.secretRef":       "Authentication",
+			"torrent.proxy.hostnameLookup":  "Perform hostname lookup via proxy",
+			"torrent.proxy.dnsServer":       "DNS server (queried through the proxy)",
+			"torrent.proxy.peerConnections": "Use proxy for peer connections",
+			"torrent.proxy.udp":             "Proxy UDP (DHT, uTP, UDP trackers)",
 		},
 		Secrets: []Secret{{Path: "usenet.providers[].secretRef", Keys: []Key{
 			{Key: "username", Label: "Username", Required: true},
 			{Key: "password", Label: "Password", Required: true},
+		}}, {Path: "torrent.proxy.secretRef", Keys: []Key{
+			{Key: "username", Label: "Username"},
+			{Key: "password", Label: "Password"},
 		}}},
 		ReadOnlyOnEdit: []string{"protocol"},
 		Ensure: func(spec map[string]any) {

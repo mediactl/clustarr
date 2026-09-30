@@ -28,6 +28,7 @@ package grabarr
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -476,8 +477,26 @@ func setupTorrentEngine(
 	torrentDataDir := filepath.Join(o.DataDir, "torrents")
 	stateDir := filepath.Join(torrentDataDir, ".state")
 
+	// spec.torrent.proxy: every byte through a SOCKS5 proxy, UDP included,
+	// and -- with hostnameLookup -- every public name resolved through it.
+	// net.DefaultResolver is this engine process's alone (the engine runs
+	// in its own pod; `clustarr all` runs none), and cluster names still go
+	// to cluster DNS, so NATS and the apiserver are reached as before.
+	recorder := mgr.GetEventRecorder("grabarr-engine")
+	pcfg, err := torrentProxy(ctx, mgr.GetAPIReader(), &dc, func(reason, message string) {
+		logging.FromContext(ctx).WarnContext(ctx, "torrent engine proxy", "reason", reason, "message", message)
+		recorder.Eventf(&dc, nil, corev1.EventTypeWarning, reason, "Start", "%s", message)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if pcfg != nil && dc.Spec.Torrent.Proxy.HostnameLookupOrDefault() {
+		net.DefaultResolver = pcfg.Proxy.Resolver(dc.Spec.Torrent.Proxy.DNSServerOrDefault(), nil)
+	}
+
 	enableDHT := dc.Spec.Torrent.EnableDHT == nil || *dc.Spec.Torrent.EnableDHT
 	rawClient, err := dltorrent.New(dltorrent.Config{
+		Proxy:        pcfg,
 		DataDir:      torrentDataDir,
 		ListenPort:   int(dc.Spec.Torrent.ListenPort),
 		NoDHT:        !enableDHT,
@@ -500,11 +519,12 @@ func setupTorrentEngine(
 	}
 
 	r := &torrent.Reconciler{
-		Client:   mgr.GetClient(),
-		Engine:   e,
-		EngineID: o.Engine,
-		StateDir: stateDir,
-		Resolver: torrent.NewBusIndexerResolver(bus),
+		Client:     mgr.GetClient(),
+		HTTPClient: proxyHTTPClient(pcfg),
+		Engine:     e,
+		EngineID:   o.Engine,
+		StateDir:   stateDir,
+		Resolver:   torrent.NewBusIndexerResolver(bus),
 		// Uncached: the Episodes a pack targets are read once per Download,
 		// at its first Add, for file selection -- not worth an Episode
 		// informer in every engine pod.
@@ -542,7 +562,7 @@ func setupTorrentEngine(
 		return nil, nil, fmt.Errorf("grabarr: torrent progress publisher: %w", err)
 	}
 
-	return e.HealthzCheck, rawClient.Close, nil
+	return proxyReadiness(e.HealthzCheck, pcfg), rawClient.Close, nil
 }
 
 // setupUsenetEngine builds the embedded pkg/download/usenet client -- which

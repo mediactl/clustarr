@@ -139,6 +139,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get
 package torrent

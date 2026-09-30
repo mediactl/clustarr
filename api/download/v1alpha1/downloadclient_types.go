@@ -136,6 +136,88 @@ type TorrentSpec struct {
 	// +optional
 	// +kubebuilder:default="24h"
 	StallTimeout *metav1.Duration `json:"stallTimeout,omitempty"`
+
+	// Proxy sends the engine's traffic through a SOCKS5 proxy, as
+	// qBittorrent's Connection > Proxy Server does: trackers, webseeds, the
+	// engine's own .torrent fetches and, with peerConnections, every peer
+	// connection -- UDP included, through the proxy's UDP ASSOCIATE. With a
+	// proxy the engine accepts no incoming connection and runs no WebTorrent
+	// (WebRTC cannot be proxied). Absent means no proxy. The engine reads it
+	// at start, so a change rolls the engine pods.
+	// +optional
+	Proxy *TorrentProxy `json:"proxy,omitempty"`
+}
+
+// TorrentProxyType is the proxy protocol. Only SOCKS5 is implemented.
+// +kubebuilder:validation:Enum=socks5
+type TorrentProxyType string
+
+// TorrentProxyTypeSOCKS5 is a SOCKS5 proxy (RFC 1928).
+const TorrentProxyTypeSOCKS5 TorrentProxyType = "socks5"
+
+// DefaultProxyDNSServer is TorrentProxy.DNSServer's default.
+const DefaultProxyDNSServer = "1.1.1.1:53"
+
+// TorrentProxy is a torrent engine's proxy, in qBittorrent's terms.
+type TorrentProxy struct {
+	// Type is the proxy protocol ("Type").
+	// +optional
+	// +kubebuilder:default=socks5
+	Type TorrentProxyType `json:"type,omitempty"`
+
+	// Host is the proxy's address or name ("Host").
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Host string `json:"host"`
+
+	// Port is the proxy's port ("Port").
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
+
+	// SecretRef names a Secret in the same namespace with the proxy's
+	// credentials ("Authentication"), keys username and password. Absent
+	// means the proxy is offered no authentication. The engine reads it at
+	// start; a change to its data rolls the engine at the controller's next
+	// periodic reconcile.
+	// +optional
+	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+
+	// HostnameLookup resolves names through the proxy ("Perform hostname
+	// lookup via proxy"): a connection by name is sent to the proxy
+	// unresolved, and every name the engine resolves itself (UDP trackers,
+	// DHT bootstrap) goes over TCP through the proxy to dnsServer. Cluster
+	// names (no dot, or ending in cluster.local, .svc or .local) are still
+	// resolved by cluster DNS.
+	// +optional
+	// +kubebuilder:default=true
+	HostnameLookup *bool `json:"hostnameLookup,omitempty"`
+
+	// DNSServer is the resolver queried through the proxy for public names,
+	// host:port. Mullvad's SOCKS server refuses its own resolver
+	// (10.64.0.1:53), so the default is a public one.
+	// +optional
+	// +kubebuilder:default="1.1.1.1:53"
+	// +kubebuilder:validation:MaxLength=261
+	DNSServer string `json:"dnsServer,omitempty"`
+
+	// PeerConnections connects to peers through the proxy ("Use proxy for
+	// peer connections"). False proxies trackers, webseeds and fetches only,
+	// and peers are dialled directly.
+	// +optional
+	// +kubebuilder:default=true
+	PeerConnections *bool `json:"peerConnections,omitempty"`
+
+	// UDP carries the DHT, uTP and UDP trackers through the proxy's UDP
+	// ASSOCIATE, as libtorrent does. When the proxy refuses it, or UDP is
+	// false, those three stay off -- never direct -- and the engine records
+	// a ProxyUDPUnavailable Event on the DownloadClient. Needs
+	// peerConnections.
+	// +optional
+	// +kubebuilder:default=true
+	UDP *bool `json:"udp,omitempty"`
 }
 
 // DefaultStallTimeout is TorrentSpec.StallTimeout's default, restated for a

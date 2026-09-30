@@ -368,3 +368,28 @@ func TestImportListChoiceShapesTheProvider(t *testing.T) {
 	k.Choice.Shape(spec, "")
 	require.Equal(t, map[string]any{"plex": map[string]any{}, "kinds": []any{"movie"}}, spec, "no choice leaves the spec alone")
 }
+
+// TestBuildRendersTheTorrentProxy: a torrent client's proxy is its own
+// group in qBittorrent's words, and its credentials go through the Secret
+// path, both optional (Mullvad's proxy takes none).
+func TestBuildRendersTheTorrentProxy(t *testing.T) {
+	k := kind(t, "downloadclients")
+	spec := map[string]any{
+		"protocol": "torrent",
+		"torrent": map[string]any{"proxy": map[string]any{
+			"host": "10.64.0.1", "port": int64(1080), "secretRef": map[string]any{"name": "mullvad"},
+		}},
+	}
+	f := forms.Build(k, rootOf(t, k), spec, nil, forms.ModeEdit)
+
+	proxy := section(t, f, "Proxy")
+	require.Equal(t, &forms.When{Path: "protocol", Values: []string{"torrent"}}, proxy.When)
+	require.Equal(t, "10.64.0.1", control(t, proxy, "torrent.proxy.host").Value)
+	require.Equal(t, "1080", control(t, proxy, "torrent.proxy.port").Value)
+	require.Equal(t, "Perform hostname lookup via proxy", control(t, proxy, "torrent.proxy.hostnameLookup").Label)
+	require.Equal(t, "Use proxy for peer connections", control(t, proxy, "torrent.proxy.peerConnections").Label)
+	require.Equal(t, "Proxy UDP (DHT, uTP, UDP trackers)", control(t, proxy, "torrent.proxy.udp").Label)
+	user := control(t, proxy, "__secret.torrent.proxy.secretRef.username")
+	require.False(t, user.Required, "a proxy may take no authentication")
+	require.Equal(t, forms.ControlPassword, control(t, proxy, "__secret.torrent.proxy.secretRef.password").Type)
+}

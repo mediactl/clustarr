@@ -63,6 +63,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &downloadv1alpha1.PostProcessSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ScratchSpec"):
 		return &downloadv1alpha1.ScratchSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("TorrentProxy"):
+		return &downloadv1alpha1.TorrentProxyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TorrentSpec"):
 		return &downloadv1alpha1.TorrentSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("UsenetHealth"):

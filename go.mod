@@ -9,6 +9,7 @@ require (
 	github.com/a-h/templ v0.3.1020
 	github.com/anacrolix/generics v0.1.1-0.20251125230353-15d98d46693b
 	github.com/anacrolix/torrent v1.61.0
+	github.com/anacrolix/utp v0.1.0
 	github.com/asticode/go-astisub v0.45.0
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/cyruzin/golang-tmdb v1.9.4
@@ -73,7 +74,6 @@ require (
 	github.com/anacrolix/stm v0.5.0 // indirect
 	github.com/anacrolix/sync v0.5.5-0.20251119100342-d78dd1f686f1 // indirect
 	github.com/anacrolix/upnp v0.1.4 // indirect
-	github.com/anacrolix/utp v0.1.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/andybalholm/cascadia v1.3.4 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect

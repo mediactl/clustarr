@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/socks5"
+	"github.com/mediactl/clustarr/pkg/socks5/socks5test"
 )
 
 func echoTCP(t *testing.T) string {
@@ -77,25 +78,25 @@ func roundTrip(t *testing.T, c net.Conn) {
 }
 
 func TestDialContextSendsHostnameUnresolved(t *testing.T) {
-	srv := newServer(t)
-	srv.hosts["tracker.example:80"] = echoTCP(t)
+	srv := socks5test.NewServer(t)
+	srv.Hosts["tracker.example:80"] = echoTCP(t)
 
-	c, err := socks5.Proxy{Addr: srv.addr()}.DialContext(context.Background(), "tcp", "tracker.example:80")
+	c, err := socks5.Proxy{Addr: srv.Addr()}.DialContext(context.Background(), "tcp", "tracker.example:80")
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 	roundTrip(t, c)
-	require.Equal(t, []string{"tracker.example:80"}, srv.connected(), "the proxy is sent the name, not an address")
+	require.Equal(t, []string{"tracker.example:80"}, srv.Connected(), "the proxy is sent the name, not an address")
 }
 
 func TestDialContextWithUsernamePassword(t *testing.T) {
-	srv := newServer(t)
-	srv.username, srv.password = "user", "secret"
+	srv := socks5test.NewServer(t)
+	srv.Username, srv.Password = "user", "secret"
 	target := echoTCP(t)
 
-	_, err := socks5.Proxy{Addr: srv.addr(), Username: "user", Password: "wrong"}.DialContext(context.Background(), "tcp", target)
+	_, err := socks5.Proxy{Addr: srv.Addr(), Username: "user", Password: "wrong"}.DialContext(context.Background(), "tcp", target)
 	require.Error(t, err)
 
-	c, err := socks5.Proxy{Addr: srv.addr(), Username: "user", Password: "secret"}.DialContext(context.Background(), "tcp", target)
+	c, err := socks5.Proxy{Addr: srv.Addr(), Username: "user", Password: "secret"}.DialContext(context.Background(), "tcp", target)
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 	roundTrip(t, c)
@@ -116,9 +117,9 @@ func readFrom(t *testing.T, pc net.PacketConn, d time.Duration) (string, net.Add
 }
 
 func TestPacketConnRoundTrip(t *testing.T) {
-	srv := newServer(t)
+	srv := socks5test.NewServer(t)
 	echo := echoUDP(t)
-	pc, err := socks5.Proxy{Addr: srv.addr()}.ListenPacket(context.Background())
+	pc, err := socks5.Proxy{Addr: srv.Addr()}.ListenPacket(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = pc.Close() }()
 
@@ -131,9 +132,9 @@ func TestPacketConnRoundTrip(t *testing.T) {
 }
 
 func TestPacketConnDropsForeignSourceAndFragments(t *testing.T) {
-	srv := newServer(t)
+	srv := socks5test.NewServer(t)
 	echo := echoUDP(t)
-	pc, err := socks5.Proxy{Addr: srv.addr()}.ListenPacket(context.Background())
+	pc, err := socks5.Proxy{Addr: srv.Addr()}.ListenPacket(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = pc.Close() }()
 	_, err = pc.WriteTo([]byte("first"), echo)
@@ -151,7 +152,7 @@ func TestPacketConnDropsForeignSourceAndFragments(t *testing.T) {
 	// A fragment from the relay (FRAG 1): no reassembly, so dropped.
 	frag := append([]byte{0, 0, 1, 1}, echo.IP.To4()...)
 	frag = binary.BigEndian.AppendUint16(frag, uint16(echo.Port))
-	srv.sendRaw(append(frag, "fragment"...))
+	srv.SendRaw(append(frag, "fragment"...))
 
 	_, err = pc.WriteTo([]byte("second"), echo)
 	require.NoError(t, err)
@@ -161,10 +162,10 @@ func TestPacketConnDropsForeignSourceAndFragments(t *testing.T) {
 }
 
 func TestPacketConnUnspecifiedRelayUsesProxyHost(t *testing.T) {
-	srv := newServer(t)
-	srv.unspecifiedRelay = true
+	srv := socks5test.NewServer(t)
+	srv.UnspecifiedRelay = true
 	echo := echoUDP(t)
-	pc, err := socks5.Proxy{Addr: srv.addr()}.ListenPacket(context.Background())
+	pc, err := socks5.Proxy{Addr: srv.Addr()}.ListenPacket(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = pc.Close() }()
 
@@ -176,20 +177,20 @@ func TestPacketConnUnspecifiedRelayUsesProxyHost(t *testing.T) {
 }
 
 func TestListenPacketRefusedIsErrUDPUnsupported(t *testing.T) {
-	srv := newServer(t)
-	srv.noUDP = true
-	_, err := socks5.Proxy{Addr: srv.addr()}.ListenPacket(context.Background())
+	srv := socks5test.NewServer(t)
+	srv.NoUDP = true
+	_, err := socks5.Proxy{Addr: srv.Addr()}.ListenPacket(context.Background())
 	require.True(t, errors.Is(err, socks5.ErrUDPUnsupported), "got %v", err)
 }
 
 func TestPacketConnReassociatesAfterControlDrop(t *testing.T) {
-	srv := newServer(t)
+	srv := socks5test.NewServer(t)
 	echo := echoUDP(t)
-	pc, err := socks5.Proxy{Addr: srv.addr(), RetryInterval: 20 * time.Millisecond}.ListenPacket(context.Background())
+	pc, err := socks5.Proxy{Addr: srv.Addr(), RetryInterval: 20 * time.Millisecond}.ListenPacket(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = pc.Close() }()
 
-	srv.dropControl()
+	srv.DropControl()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -202,4 +203,19 @@ func TestPacketConnReassociatesAfterControlDrop(t *testing.T) {
 		}
 	}
 	t.Fatal("no datagram came back after the control connection dropped")
+}
+
+func TestPingNeedsAnAnsweringProxy(t *testing.T) {
+	srv := socks5test.NewServer(t)
+	require.NoError(t, socks5.Proxy{Addr: srv.Addr()}.Ping(context.Background()))
+
+	srv.Username, srv.Password = "user", "secret"
+	require.Error(t, socks5.Proxy{Addr: srv.Addr()}.Ping(context.Background()), "a proxy that will not take our method is not ready")
+	require.NoError(t, socks5.Proxy{Addr: srv.Addr(), Username: "user", Password: "secret"}.Ping(context.Background()))
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	require.Error(t, socks5.Proxy{Addr: addr}.Ping(context.Background()))
 }

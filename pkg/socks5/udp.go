@@ -100,37 +100,45 @@ func (p Proxy) associate(ctx context.Context) (net.Conn, *net.UDPAddr, error) {
 	return c, relay, nil
 }
 
-func (p Proxy) handshakeUDP(c net.Conn) (*net.UDPAddr, error) {
+// greet negotiates the method and, for username/password, authenticates.
+func (p Proxy) greet(c net.Conn) error {
 	method := byte(0x00)
 	if p.Username != "" {
 		method = 0x02
 	}
 	if _, err := c.Write([]byte{5, 1, method}); err != nil {
-		return nil, fmt.Errorf("socks5: greeting: %w", err)
+		return fmt.Errorf("socks5: greeting: %w", err)
 	}
 	var sel [2]byte
 	if _, err := io.ReadFull(c, sel[:]); err != nil {
-		return nil, fmt.Errorf("socks5: greeting: %w", err)
+		return fmt.Errorf("socks5: greeting: %w", err)
 	}
 	if sel[0] != 5 || sel[1] != method {
-		return nil, fmt.Errorf("socks5: proxy refused authentication method %#x", method)
+		return fmt.Errorf("socks5: proxy refused authentication method %#x", method)
 	}
 	if method == 0x02 {
 		if len(p.Username) > 255 || len(p.Password) > 255 {
-			return nil, errors.New("socks5: username or password longer than 255 bytes")
+			return errors.New("socks5: username or password longer than 255 bytes")
 		}
 		req := append([]byte{1, byte(len(p.Username))}, p.Username...)
 		req = append(append(req, byte(len(p.Password))), p.Password...)
 		if _, err := c.Write(req); err != nil {
-			return nil, fmt.Errorf("socks5: authenticate: %w", err)
+			return fmt.Errorf("socks5: authenticate: %w", err)
 		}
 		var st [2]byte
 		if _, err := io.ReadFull(c, st[:]); err != nil {
-			return nil, fmt.Errorf("socks5: authenticate: %w", err)
+			return fmt.Errorf("socks5: authenticate: %w", err)
 		}
 		if st[1] != 0 {
-			return nil, errors.New("socks5: proxy rejected the username or password")
+			return errors.New("socks5: proxy rejected the username or password")
 		}
+	}
+	return nil
+}
+
+func (p Proxy) handshakeUDP(c net.Conn) (*net.UDPAddr, error) {
+	if err := p.greet(c); err != nil {
+		return nil, err
 	}
 	// UDP ASSOCIATE from 0.0.0.0:0: the address we will send from is not
 	// known behind NAT, so the proxy takes it from the first datagram.
