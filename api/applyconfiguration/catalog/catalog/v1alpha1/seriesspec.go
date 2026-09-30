@@ -38,7 +38,10 @@ type SeriesSpecApplyConfiguration struct {
 	// MonitorNewItems says what happens to seasons and episodes discovered
 	// after the series was added.
 	MonitorNewItems *catalogv1alpha1.MonitorNewChildrenMode `json:"monitorNewItems,omitempty"`
-	// Seasons overrides monitoring per season.
+	// Seasons overrides monitoring per season. A change to an entry sets
+	// spec.monitored on every episode of that season once (Sonarr's season
+	// toggle), and a new episode of the season takes the override rather
+	// than monitorNewItems.
 	Seasons []SeasonSpecApplyConfiguration `json:"seasons,omitempty"`
 	// SeasonFolder stores each season in its own folder.
 	SeasonFolder *bool `json:"seasonFolder,omitempty"`

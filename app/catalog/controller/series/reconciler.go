@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/version"
 )
@@ -367,13 +368,22 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		r.normal(s, "EpisodesAdded", "created %d Episode(s)", fan.created)
 	}
 
+	// A changed season override sets its episodes' spec.monitored (Sonarr's
+	// season toggle). It works from the Episodes this pass knows, the RPC
+	// having failed or not, and a failure keeps the previous record so the
+	// next pass retries it.
+	episodes, cascadeErr := r.cascadeSeasons(ctx, s, fan.episodes)
+	if cascadeErr != nil {
+		r.warn(s, "SeasonMonitorFailed", "setting a season's episodes monitored failed: %s", cascadeErr.Error())
+	}
+
 	// The rollup is taken over the POST-fan-out Episodes: what this very
 	// reconcile created and the air dates it just applied, not the list read
 	// before the RPC. The pre-fan-out list was only right after a second
 	// reconcile, and that one came only if a new Episode's Create happened to
 	// wake this controller.
-	roll := Rollup(fan.episodes, now)
-	statusAC = statusAC.WithSeasons(seasonACs(roll.Seasons)...).
+	roll := Rollup(episodes, now)
+	statusAC = statusAC.WithSeasons(seasonACs(withApplied(roll.Seasons, s, cascadeErr == nil))...).
 		WithEpisodeCount(roll.EpisodeCount).
 		WithEpisodeFileCount(roll.EpisodeFileCount)
 	if roll.NextAiring != nil {
@@ -396,6 +406,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		r.normal(s, string(phase), "phase %s -> %s", s.Status.Phase, phase)
 	}
 
+	if cascadeErr != nil {
+		return ctrl.Result{}, cascadeErr
+	}
 	if syncErr != nil {
 		return ctrl.Result{RequeueAfter: episodeSyncRPCBackoff}, nil
 	}
@@ -415,9 +428,13 @@ func seasonACs(seasons []catalogv1alpha1.SeasonStatus) []*catalogac.SeasonStatus
 	out := make([]*catalogac.SeasonStatusApplyConfiguration, 0, len(seasons))
 	for _, ssn := range seasons {
 		ac := catalogac.SeasonStatus().
-			WithNumber(ssn.Number).WithEpisodeCount(ssn.EpisodeCount).WithEpisodeFileCount(ssn.EpisodeFileCount)
+			WithNumber(ssn.Number).WithMonitored(ssn.Monitored).
+			WithEpisodeCount(ssn.EpisodeCount).WithEpisodeFileCount(ssn.EpisodeFileCount)
 		if ssn.NextAiring != nil {
 			ac = ac.WithNextAiring(*ssn.NextAiring)
+		}
+		if ssn.AppliedMonitored != nil {
+			ac = ac.WithAppliedMonitored(*ssn.AppliedMonitored)
 		}
 		out = append(out, ac)
 	}
@@ -456,6 +473,47 @@ func reassertKnownStatus(statusAC *catalogac.SeriesStatusApplyConfiguration, s *
 		statusAC = statusAC.WithPreviousAiring(*s.Status.PreviousAiring)
 	}
 	return statusAC
+}
+
+// cascadeSeasons sets spec.monitored on every episode SeasonCascade names,
+// as a merge patch of that one field under k8s.ManagerCatalogarrSeries (the
+// manager this reconciler writes its Episodes with), and returns episodes
+// with the new flags, for the rollup. On a failed patch it returns the
+// episodes as far as it got and the error.
+func (r *Reconciler) cascadeSeasons(
+	ctx context.Context, s *catalogv1alpha1.Series, episodes []catalogv1alpha1.Episode,
+) ([]catalogv1alpha1.Episode, error) {
+	changes := SeasonCascade(s, episodes)
+	if len(changes) == 0 {
+		return episodes, nil
+	}
+	want := make(map[string]bool, len(changes))
+	for _, ch := range changes {
+		want[ch.Name] = ch.Monitored
+	}
+	out := make([]catalogv1alpha1.Episode, len(episodes))
+	copy(out, episodes)
+	set := 0
+	for i := range out {
+		v, ok := want[out[i].Name]
+		if !ok {
+			continue
+		}
+		patch := fmt.Appendf(nil, `{"spec":{"monitored":%t}}`, v)
+		obj := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: s.Namespace, Name: out[i].Name}}
+		if err := r.Patch(ctx, obj, client.RawPatch(types.MergePatchType, patch), client.FieldOwner(k8s.ManagerCatalogarrSeries)); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return out, fmt.Errorf("set episode %s monitored=%t: %w", out[i].Name, v, err)
+		}
+		out[i].Spec.Monitored = ptr.To(v)
+		set++
+	}
+	logging.FromContext(ctx).Info("series: season override applied to its episodes",
+		"series", s.Name, "namespace", s.Namespace, "episodes", set)
+	r.normal(s, "SeasonMonitored", "set %d episode(s) per spec.seasons", set)
+	return out, nil
 }
 
 // fanOut is what syncEpisodes reports: whether the fan-out completed, how

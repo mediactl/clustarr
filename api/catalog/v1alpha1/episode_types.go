@@ -105,9 +105,10 @@ type EpisodeSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="episodeNumber is immutable"
 	EpisodeNumber int32 `json:"episodeNumber"`
 
-	// Monitored enables automatic searching for this episode. The Series
-	// controller sets it at creation and per the series' monitorNewItems; after
-	// that it belongs to the user.
+	// Monitored enables automatic searching for this episode, which also
+	// needs its Series monitored. The Series controller sets it at creation
+	// (per addOptions.monitor, a season override or monitorNewItems) and
+	// when a season override changes; otherwise it belongs to the user.
 	// +optional
 	// +kubebuilder:default=true
 	Monitored *bool `json:"monitored,omitempty"`

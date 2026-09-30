@@ -162,6 +162,7 @@ func TestHandleCreatesASeriesFromTheTvdbIDInItsFolder(t *testing.T) {
 	assert.Equal(t, "web-1080p", s.Spec.QualityProfileRef)
 	assert.Equal(t, f.rf.Name, s.Spec.RootFolderRef)
 	assert.Equal(t, ptr.To(bobs), s.Spec.Folder, "pinned to the folder it was found in")
+	assert.Equal(t, catalogv1alpha1.SeriesMonitorNone, s.Spec.AddOptions.Monitor, "nothing monitored until the owner turns a season on")
 	assert.Equal(t, ptr.To(false), s.Spec.AddOptions.SearchForMissing, "no search for what is already on disk")
 	assert.Equal(t, ptr.To(false), s.Spec.AddOptions.SearchForCutoffUnmet)
 	assert.Equal(t, string(rescan.FieldManager), managerFor(t, s.ManagedFields, "", "spec.tvdbID"))

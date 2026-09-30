@@ -31,9 +31,10 @@ type EpisodeSpecApplyConfiguration struct {
 	SeasonNumber *int32 `json:"seasonNumber,omitempty"`
 	// EpisodeNumber is the episode number within the season.
 	EpisodeNumber *int32 `json:"episodeNumber,omitempty"`
-	// Monitored enables automatic searching for this episode. The Series
-	// controller sets it at creation and per the series' monitorNewItems; after
-	// that it belongs to the user.
+	// Monitored enables automatic searching for this episode, which also
+	// needs its Series monitored. The Series controller sets it at creation
+	// (per addOptions.monitor, a season override or monitorNewItems) and
+	// when a season override changes; otherwise it belongs to the user.
 	Monitored *bool `json:"monitored,omitempty"`
 }
 

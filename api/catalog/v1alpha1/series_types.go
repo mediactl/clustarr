@@ -110,9 +110,16 @@ type SeasonStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	Number int32 `json:"number"`
 
-	// Monitored mirrors the effective monitored flag of the season.
+	// Monitored is true when any of the season's episodes is monitored.
 	// +optional
 	Monitored bool `json:"monitored,omitempty"`
+
+	// AppliedMonitored is the spec.seasons override the Series controller
+	// last set on every episode of the season. A season override is applied
+	// once per change, as Sonarr's season toggle is, so an episode toggled
+	// on its own afterwards keeps its own flag.
+	// +optional
+	AppliedMonitored *bool `json:"appliedMonitored,omitempty"`
 
 	// EpisodeCount is the number of episodes in the season.
 	// +optional
@@ -134,9 +141,10 @@ type SeasonStatus struct {
 // SeriesAddOptions are applied exactly once, when the series is first
 // reconciled; status.addOptionsApplied records that this has happened.
 type SeriesAddOptions struct {
-	// Monitor selects which episodes start out monitored.
+	// Monitor selects which episodes start out monitored. The default,
+	// none, searches nothing until a season or an episode is turned on.
 	// +optional
-	// +kubebuilder:default=all
+	// +kubebuilder:default=none
 	Monitor SeriesMonitorMode `json:"monitor,omitempty"`
 
 	// IgnoreEpisodesWithFiles leaves episodes that already have a file unmonitored.
@@ -262,7 +270,10 @@ type SeriesSpec struct {
 	// +kubebuilder:default=all
 	MonitorNewItems MonitorNewChildrenMode `json:"monitorNewItems,omitempty"`
 
-	// Seasons overrides monitoring per season.
+	// Seasons overrides monitoring per season. A change to an entry sets
+	// spec.monitored on every episode of that season once (Sonarr's season
+	// toggle), and a new episode of the season takes the override rather
+	// than monitorNewItems.
 	// +optional
 	// +listType=map
 	// +listMapKey=number

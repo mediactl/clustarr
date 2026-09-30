@@ -29,7 +29,8 @@ import (
 // SeriesAddOptions are applied exactly once, when the series is first
 // reconciled; status.addOptionsApplied records that this has happened.
 type SeriesAddOptionsApplyConfiguration struct {
-	// Monitor selects which episodes start out monitored.
+	// Monitor selects which episodes start out monitored. The default,
+	// none, searches nothing until a season or an episode is turned on.
 	Monitor *catalogv1alpha1.SeriesMonitorMode `json:"monitor,omitempty"`
 	// IgnoreEpisodesWithFiles leaves episodes that already have a file unmonitored.
 	IgnoreEpisodesWithFiles *bool `json:"ignoreEpisodesWithFiles,omitempty"`

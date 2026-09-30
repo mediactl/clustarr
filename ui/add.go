@@ -61,7 +61,10 @@ var addKinds = map[projection.Tab]views.AddKind{
 	projection.TabTV: {
 		Tab: projection.TabTV, Kind: commonv1.MediaKindSeries, Label: "Series", RootKind: catalogv1.RootFolderKindSeries, IDKey: metadata.KeyTVDB,
 		ProfileKind: catalogv1.ProfileMediaKindVideo,
+		// None first, so it is the default: a series searches nothing
+		// until the owner turns a season or an episode on.
 		Monitor: []views.AddOption{
+			{Value: "none", Label: "None"},
 			{Value: "all", Label: "All episodes"},
 			{Value: "future", Label: "Future episodes"},
 			{Value: "missing", Label: "Missing episodes"},
@@ -70,7 +73,6 @@ var addKinds = map[projection.Tab]views.AddKind{
 			{Value: "lastSeason", Label: "Last season"},
 			{Value: "pilot", Label: "Pilot"},
 			{Value: "recent", Label: "Recent episodes"},
-			{Value: "none", Label: "None"},
 		},
 		MonitorNew: []views.AddOption{{Value: "all", Label: "All"}, {Value: "none", Label: "None"}},
 	},

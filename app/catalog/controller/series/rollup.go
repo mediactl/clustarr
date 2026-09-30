@@ -42,7 +42,8 @@ type SeriesRollup struct {
 }
 
 // Rollup folds a Series' owned Episodes into the per-season status Sonarr
-// keeps: seasons sorted ascending by number, the total episode count, the
+// keeps: seasons sorted ascending by number (each monitored when any of its
+// episodes is), the total episode count, the
 // total episode-with-file count, and the airing dates. An episode counts as
 // having its file by status.hasFile alone, never by its phase, so a
 // Transcoded episode (a final, transcoded file) counts exactly as an
@@ -74,6 +75,9 @@ func Rollup(episodes []catalogv1alpha1.Episode, now time.Time) SeriesRollup {
 		if ep.Status.HasFile {
 			s.EpisodeFileCount++
 			out.EpisodeFileCount++
+		}
+		if ptr.Deref(ep.Spec.Monitored, true) {
+			s.Monitored = true
 		}
 
 		if ep.Status.AirDate == nil || !ptr.Deref(ep.Spec.Monitored, true) {

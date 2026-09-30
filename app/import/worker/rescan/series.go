@@ -254,7 +254,8 @@ func (w *Worker) createSeries(ctx context.Context, st *scanState, rel string, wa
 // (spec.folder), so it resolves to where its files already are rather than
 // to the name the naming preset would give it, and neither add-time search
 // runs: its files are already on disk, as applyMovie's searchForMovie=false
-// says for a movie.
+// says for a movie. It monitors no episode (monitor none): the owner turns
+// on the seasons they want searched.
 func (w *Worker) applySeries(ctx context.Context, st *scanState, c SeriesCandidate) error {
 	ac := catalogac.Series(c.Name, st.scan.Namespace).WithSpec(
 		catalogac.SeriesSpec().
@@ -263,6 +264,7 @@ func (w *Worker) applySeries(ctx context.Context, st *scanState, c SeriesCandida
 			WithRootFolderRef(st.root.Name).
 			WithFolder(c.Folder).
 			WithAddOptions(catalogac.SeriesAddOptions().
+				WithMonitor(catalogv1alpha1.SeriesMonitorNone).
 				WithSearchForMissing(false).
 				WithSearchForCutoffUnmet(false)),
 	)

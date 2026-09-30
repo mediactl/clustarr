@@ -130,7 +130,8 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		if runtime == 0 && s.Status.Metadata != nil {
 			runtime = s.Status.Metadata.RuntimeMinutes
 		}
-		snap.Target.Monitored = ptr.Deref(e.Spec.Monitored, true)
+		// Sonarr's MonitoredEpisodeSpecification: the series as well.
+		snap.Target.Monitored = ptr.Deref(e.Spec.Monitored, true) && ptr.Deref(s.Spec.Monitored, true)
 		snap.Target.Available = episodeAvailable(&e, w.now())
 		snap.Target.RuntimeMinutes = int(runtime)
 		// pkg/decision reads an episode's runtime from EpisodeRuntimes, not

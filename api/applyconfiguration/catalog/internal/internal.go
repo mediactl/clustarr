@@ -3444,6 +3444,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonStatus
   map:
     fields:
+    - name: appliedMonitored
+      type:
+        scalar: boolean
     - name: episodeCount
       type:
         scalar: numeric
@@ -3492,7 +3495,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: monitor
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesMonitorMode
-      default: all
+      default: none
     - name: searchForCutoffUnmet
       type:
         scalar: boolean

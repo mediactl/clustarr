@@ -83,8 +83,10 @@ spec:
                       a file unmonitored.
                     type: boolean
                   monitor:
-                    default: all
-                    description: Monitor selects which episodes start out monitored.
+                    default: none
+                    description: |-
+                      Monitor selects which episodes start out monitored. The default,
+                      none, searches nothing until a season or an episode is turned on.
                     enum:
                     - all
                     - future
@@ -191,7 +193,11 @@ spec:
                 description: SeasonFolder stores each season in its own folder.
                 type: boolean
               seasons:
-                description: Seasons overrides monitoring per season.
+                description: |-
+                  Seasons overrides monitoring per season. A change to an entry sets
+                  spec.monitored on every episode of that season once (Sonarr's season
+                  toggle), and a new episode of the season takes the override rather
+                  than monitorNewItems.
                 items:
                   description: SeasonSpec turns monitoring on or off for one season.
                   properties:
@@ -616,6 +622,13 @@ spec:
                 items:
                   description: SeasonStatus is the observed state of one season.
                   properties:
+                    appliedMonitored:
+                      description: |-
+                        AppliedMonitored is the spec.seasons override the Series controller
+                        last set on every episode of the season. A season override is applied
+                        once per change, as Sonarr's season toggle is, so an episode toggled
+                        on its own afterwards keeps its own flag.
+                      type: boolean
                     episodeCount:
                       description: EpisodeCount is the number of episodes in the season.
                       format: int32
@@ -626,8 +639,8 @@ spec:
                       format: int32
                       type: integer
                     monitored:
-                      description: Monitored mirrors the effective monitored flag
-                        of the season.
+                      description: Monitored is true when any of the season's episodes
+                        is monitored.
                       type: boolean
                     nextAiring:
                       description: NextAiring is when the next episode of the season

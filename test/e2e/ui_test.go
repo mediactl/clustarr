@@ -618,7 +618,7 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 		t.Run("write action", func(t *testing.T) {
 			body, status, err := httpPostForm(ctx, pageClient,
 				base+"/library/"+movie.Namespace+"/"+string(commonv1.MediaKindMovie)+"/"+movie.Name+"/monitor",
-				url.Values{"monitored": {"false"}})
+				url.Values{"monitored": {"true"}})
 			require.NoError(t, err)
 			if skipIfNoWriter(t, status, body) {
 				return
@@ -684,7 +684,7 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 
 		t.Run("season toggle", func(t *testing.T) {
 			body, status, err := httpPostForm(ctx, pageClient, fmt.Sprintf("%s%s/seasons/%d/monitor", base, seriesPath, season),
-				url.Values{"monitored": {"false"}})
+				url.Values{"monitored": {"true"}})
 			require.NoError(t, err)
 			if skipIfNoWriter(t, status, body) {
 				return
@@ -700,8 +700,30 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 				}
 			}
 			require.NotNil(t, got, "spec.seasons must hold the toggled season: %+v", after.Spec.Seasons)
-			require.False(t, *got)
+			require.True(t, *got)
 			requireNoUIManager(t, "Series", &after)
+
+			// A series starts with no episode monitored (addOptions.monitor
+			// none); turning the season on monitors each of its episodes,
+			// through the Series controller.
+			waitFor(t, ctx, 2*time.Minute, "every episode of the toggled season monitored", func(ctx context.Context) (bool, error) {
+				var eps catalogv1alpha1.EpisodeList
+				if err := k8sClient.List(ctx, &eps, client.InNamespace(series.Namespace)); err != nil {
+					//nolint:nilerr // keep polling
+					return false, nil
+				}
+				n := 0
+				for _, ep := range eps.Items {
+					if ep.Spec.SeriesRef != series.Name || ep.Spec.SeasonNumber != season {
+						continue
+					}
+					n++
+					if ep.Spec.Monitored == nil || !*ep.Spec.Monitored {
+						return false, nil
+					}
+				}
+				return n > 0, nil
+			}, describeSeries(client.ObjectKeyFromObject(series)))
 		})
 	})
 

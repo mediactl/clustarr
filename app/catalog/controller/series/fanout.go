@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/utils/ptr"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
 )
@@ -196,6 +198,8 @@ func DesiredEpisodes(
 		runStatus = s.Status.Metadata.Status
 	}
 
+	overrides := SeasonOverrides(s)
+
 	seen = make(map[key]bool, len(episodes))
 	out := make([]DesiredEpisode, 0, len(episodes))
 	for _, ep := range episodes {
@@ -208,7 +212,13 @@ func DesiredEpisodes(
 		name := EpisodeName(s.Name, s.Spec.SeriesType, ep.SeasonNumber, ep.EpisodeNumber, ep.AirDate)
 
 		var monitored *bool
+		override, overridden := overrides[ep.SeasonNumber]
 		switch {
+		case !existingNames[name] && overridden:
+			// A season override decides a new episode of its season,
+			// ahead of the add-time mode and monitorNewItems (Sonarr's
+			// GetMonitoredStatus reads the season's flag first).
+			monitored = ptr.To(override)
 		case !addOptionsApplied:
 			v := InitialEpisodeMonitored(s.Spec.AddOptions.Monitor,
 				EpisodeCandidate{SeasonNumber: ep.SeasonNumber, EpisodeNumber: ep.EpisodeNumber, AirDate: ep.AirDate},

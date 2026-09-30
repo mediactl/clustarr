@@ -302,6 +302,16 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		return err
 	}
 
+	if srch == nil && !snap.Target.Monitored {
+		// An automatic search grabs only for a monitored item (the *arrs'
+		// Monitored*Specification): a task queued before the owner turned
+		// the item, its season or its series off is dropped here rather
+		// than spending an indexer query. A search the owner asked for
+		// through a Search object is never gated.
+		w.log(ctx).Debug("search: the item is not monitored; skipping an automatic search")
+		return nil
+	}
+
 	profile, err := w.resolveProfile(ctx, snap.QualityProfileRef)
 	if err != nil {
 		var de *events.DiscardError

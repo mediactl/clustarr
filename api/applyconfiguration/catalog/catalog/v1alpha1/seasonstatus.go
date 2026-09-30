@@ -30,8 +30,13 @@ import (
 type SeasonStatusApplyConfiguration struct {
 	// Number is the season number; 0 is the specials season.
 	Number *int32 `json:"number,omitempty"`
-	// Monitored mirrors the effective monitored flag of the season.
+	// Monitored is true when any of the season's episodes is monitored.
 	Monitored *bool `json:"monitored,omitempty"`
+	// AppliedMonitored is the spec.seasons override the Series controller
+	// last set on every episode of the season. A season override is applied
+	// once per change, as Sonarr's season toggle is, so an episode toggled
+	// on its own afterwards keeps its own flag.
+	AppliedMonitored *bool `json:"appliedMonitored,omitempty"`
 	// EpisodeCount is the number of episodes in the season.
 	EpisodeCount *int32 `json:"episodeCount,omitempty"`
 	// EpisodeFileCount is the number of episodes with an imported file.
@@ -61,6 +66,14 @@ func (b *SeasonStatusApplyConfiguration) WithNumber(value int32) *SeasonStatusAp
 // If called multiple times, the Monitored field is set to the value of the last call.
 func (b *SeasonStatusApplyConfiguration) WithMonitored(value bool) *SeasonStatusApplyConfiguration {
 	b.Monitored = &value
+	return b
+}
+
+// WithAppliedMonitored sets the AppliedMonitored field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AppliedMonitored field is set to the value of the last call.
+func (b *SeasonStatusApplyConfiguration) WithAppliedMonitored(value bool) *SeasonStatusApplyConfiguration {
+	b.AppliedMonitored = &value
 	return b
 }
 

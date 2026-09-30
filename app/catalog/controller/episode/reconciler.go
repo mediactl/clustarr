@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -71,6 +72,13 @@ const (
 	// QualityProfileRef of its own, so the reverse hop from an edited
 	// profile runs profile -> Series -> Episodes.
 	seriesByQualityProfileIndexKey = ".spec.qualityProfileRef"
+
+	// episodeBySeriesIndexKey indexes Episode by its Series
+	// (spec.seriesRef), for the hops from a Series to its Episodes. It is
+	// this package's own index, under its own name: the Series controller
+	// registers ".spec.seriesRef" on Episode, and a second registration
+	// under that name is an "indexer conflict" at startup.
+	episodeBySeriesIndexKey = "episode.spec.seriesRef"
 )
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch;update;patch
@@ -145,6 +153,16 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		}); err != nil {
 		return err
 	}
+	if err := idx.IndexField(ctx, &catalogv1alpha1.Episode{}, episodeBySeriesIndexKey,
+		func(o client.Object) []string {
+			ep, ok := o.(*catalogv1alpha1.Episode)
+			if !ok || ep.Spec.SeriesRef == "" {
+				return nil
+			}
+			return []string{ep.Spec.SeriesRef}
+		}); err != nil {
+		return err
+	}
 	return idx.IndexField(ctx, &catalogv1alpha1.Series{}, seriesByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			s, ok := o.(*catalogv1alpha1.Series)
@@ -206,6 +224,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(mediaFilePredicate())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
+		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.mapSeries), builder.WithPredicates(seriesMonitoredChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
@@ -302,15 +321,10 @@ func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile
 // it.
 //
 // QualityProfile is CLUSTER-scoped while Series is namespaced, so the Series
-// List deliberately carries no client.InNamespace. The second hop filters a
-// namespace-scoped Episode List in Go rather than using the
-// ".spec.seriesRef" index: that index exists, but it is registered by the
-// SERIES controller (series/reconciler.go's episodeBySeriesRefIndexKey), and
-// a second IndexField call for the same (type, field) on one manager cache
-// is a hard "indexer conflict" error at startup. Reaching across packages to
-// share the key would couple this controller's setup to another's
-// registration order for no gain on what is a cold path -- profiles are
-// edited by hand, not by a controller.
+// List deliberately carries no client.InNamespace. The second hop reads
+// episodeBySeriesIndexKey: a namespace List filtered in Go ran once per
+// Series for every QualityProfile the cache's initial sync delivered, the
+// O(watched x listed) map function CLAUDE.md warns about.
 func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []reconcile.Request {
 	qp, ok := o.(*catalogv1alpha1.QualityProfile)
 	if !ok {
@@ -321,19 +335,45 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 		return nil
 	}
 	var reqs []reconcile.Request
-	for _, s := range seriesList.Items {
-		var episodes catalogv1alpha1.EpisodeList
-		if err := r.List(ctx, &episodes, client.InNamespace(s.Namespace)); err != nil {
-			continue
-		}
-		for _, ep := range episodes.Items {
-			if ep.Spec.SeriesRef != s.Name {
-				continue
-			}
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}})
-		}
+	for i := range seriesList.Items {
+		reqs = append(reqs, r.mapSeries(ctx, &seriesList.Items[i])...)
 	}
 	return reqs
+}
+
+// mapSeries is every Episode of a Series, through episodeBySeriesIndexKey:
+// turning the Series' monitoring on or off changes each one's phase.
+func (r *Reconciler) mapSeries(ctx context.Context, o client.Object) []reconcile.Request {
+	s, ok := o.(*catalogv1alpha1.Series)
+	if !ok {
+		return nil
+	}
+	var episodes catalogv1alpha1.EpisodeList
+	if err := r.List(ctx, &episodes, client.InNamespace(s.Namespace), client.MatchingFields{episodeBySeriesIndexKey: s.Name}); err != nil {
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(episodes.Items))
+	for _, ep := range episodes.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}})
+	}
+	return reqs
+}
+
+// seriesMonitoredChanged passes a Series update that turns its monitoring
+// on or off, and nothing else: not the initial sync's creates (the Episode
+// source enqueues every Episode already), and no other edit, which changes
+// no Episode's phase.
+func seriesMonitoredChanged() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			o, okOld := e.ObjectOld.(*catalogv1alpha1.Series)
+			n, okNew := e.ObjectNew.(*catalogv1alpha1.Series)
+			return okOld && okNew && ptr.Deref(o.Spec.Monitored, true) != ptr.Deref(n.Spec.Monitored, true)
+		},
+	}
 }
 
 // Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
@@ -396,6 +436,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	series, err := r.getSeries(ctx, ep)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	// Sonarr searches an episode only when its series is monitored too.
+	if series != nil && !ptr.Deref(series.Spec.Monitored, true) {
+		monitored = false
 	}
 	profile, profileProblem, err := r.resolveProfile(ctx, ep, series)
 	if err != nil {

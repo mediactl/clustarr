@@ -56,6 +56,19 @@ Library `sidebar.MenuItem`, since 2026-09-24; before that a tab strip in
 the top bar). Each sub-entry swaps the page body through htmx so the
 sidebar stays put.
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
+Series monitoring is Sonarr's (2026-09-29): an episode is searched only
+when its Series and the episode itself are monitored (the Episode
+reconciler reads its Series, a Series' `spec.monitored` change wakes its
+episodes, and the search worker drops an automatic task for an item no
+longer monitored, as the *arrs' Monitored*Specification does); a season
+toggle writes `spec.seasons[n].monitored`, which the
+Series controller applies once to every episode of the season
+(`series.SeasonCascade`, recorded in `status.seasons[].appliedMonitored`, so
+an episode toggled afterwards keeps its flag) and to the season's new
+episodes; and a series is added with `addOptions.monitor: none` -- the CRD
+default, the rescan's and Add New's first choice -- so nothing is searched
+until a season or an episode is turned on. The rescan's old `all` default
+queued 5,718 episode searches for a 147-show library.
 
 Each item should show the cover art, monitored status and selected quality profile
 
