@@ -33,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/time/rate"
 
@@ -52,9 +53,11 @@ const defaultBaseURL = "https://openlibrary.org"
 // consumer.
 const editionsLimit = 100
 
-// booksLimit is how many works Books lists for an author: the most
-// edition-rich first, the size of the works.json page it replaced.
-const booksLimit = 50
+// booksLimit is how many works Books asks the search for, the most
+// edition-rich first. Open Library holds several works for one book, so
+// about half collapse into another (bookKey): 100 works gave Dostoevsky
+// about fifty books.
+const booksLimit = 100
 
 // defaultWikidataURL is where Author reads an author's name in the
 // client's language (WithLanguage).
@@ -324,7 +327,7 @@ func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, e
 		"q":      {"author_key:" + authorID},
 		"sort":   {"editions"},
 		"limit":  {strconv.Itoa(booksLimit)},
-		"fields": {"key,title,first_publish_year,subject,author_key,language,editions,editions.key,editions.title,editions.language"},
+		"fields": {"key,title,first_publish_year,subject,author_key,author_name,language,editions,editions.key,editions.title,editions.language"},
 	}
 	if c.language != "" {
 		q.Set("lang", c.language)
@@ -338,11 +341,143 @@ func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, e
 		return nil, err
 	}
 
+	// One Book per book: Open Library holds many works for one -- The
+	// Idiot four times, The Brothers Karamazov five (2026-09-30) -- and
+	// the search's edition-count order puts the one to keep first.
+	//
+	// A work is a duplicate when either its chosen or its catalogued title
+	// names a book already listed: an edition mistagged English ("Der
+	// Idiot. Roman" on a work catalogued as "The idiot") is still another
+	// Idiot. And with a language, a work with no title a reader of it can
+	// use -- only Cyrillic, "Братья Карамазовы 1/2" -- is a translation or a
+	// volume of a book listed already, so it is not listed.
 	books := make([]metadata.Book, 0, len(raw.Docs))
+	seen := make(map[string]bool, 2*len(raw.Docs))
 	for _, w := range raw.Docs {
-		books = append(books, c.mapSearchWork(w, authorID))
+		b := c.mapSearchWork(w, authorID)
+		if c.language != "" && !c.readable(b.Title) {
+			continue
+		}
+		keys := []string{bookKey(b.Title, w.AuthorName), bookKey(w.Title, w.AuthorName)}
+		if keys[0] == "" {
+			keys[0] = w.Key // a title with nothing to compare never merges
+		}
+		if seen[keys[0]] || (keys[1] != "" && seen[keys[1]]) {
+			continue
+		}
+		for _, k := range keys {
+			if k != "" {
+				seen[k] = true
+			}
+		}
+		books = append(books, b)
 	}
 	return books, nil
+}
+
+// latinScript are the languages written in the Latin alphabet, as primary
+// BCP-47 subtags: a title in one of them has a Latin letter.
+var latinScript = map[string]bool{
+	"af": true, "ca": true, "cs": true, "cy": true, "da": true, "de": true, "en": true, "es": true,
+	"et": true, "eu": true, "fi": true, "fr": true, "ga": true, "gl": true, "hr": true, "hu": true,
+	"id": true, "is": true, "it": true, "lt": true, "lv": true, "ms": true, "nb": true, "nl": true,
+	"nn": true, "no": true, "pl": true, "pt": true, "ro": true, "sk": true, "sl": true, "sq": true,
+	"sv": true, "sw": true, "tl": true, "tr": true, "vi": true,
+}
+
+// readable reports whether title can be in the client's language: for a
+// Latin-script language, it has a Latin letter. Other scripts are not
+// judged.
+func (c *Client) readable(title string) bool {
+	if !latinScript[c.language] {
+		return true
+	}
+	for _, r := range title {
+		if unicode.Is(unicode.Latin, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// bookTitleNoise is what bookKey drops from a title before comparing:
+// bracketed notes ("(Signet Classics)", "[Illustrated]"), and everything
+// from a subtitle's or a translator note's ":" or ";" on.
+var (
+	bookBracketed = regexp.MustCompile(`\([^)]*\)|\[[^\]]*\]`)
+	bookSubtitle  = regexp.MustCompile(`(\s/\s|[:;]).*$`)
+	bookNonWord   = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+	bookVolume    = regexp.MustCompile(`\s(volume|vol|part|book)\s+([0-9]+|[ivx]+)$`)
+)
+
+// bookEditionWords are marketing words an edition's title carries that do
+// not make it another book: "Double Annotated", "Idiot Illustrated".
+var bookEditionWords = map[string]bool{
+	"annotated": true, "illustrated": true, "unabridged": true, "abridged": true, "edition": true,
+}
+
+// bookKey is what makes two works the same book: the title lower-cased,
+// without brackets, subtitle (after ":", ";" or " / "), punctuation,
+// articles, a trailing byline ("by <author>"), a trailing
+// "Volume 1" or edition words. "The Idiot", "Idiot", "the idiot" and "The
+// idiot (The Modern library of the world's best books)" are all "idiot";
+// "Brothers Karamazov by Fyodor Dostoevsky" and "The Brothers Karamazov
+// Volume 1 [EasyRead Large Edition]" are "brothers karamazov".
+func bookKey(title string, authors []string) string {
+	t := strings.ToLower(title)
+	t = bookBracketed.ReplaceAllString(t, " ")
+	t = bookSubtitle.ReplaceAllString(t, "")
+	t = strings.Join(strings.Fields(bookNonWord.ReplaceAllString(t, " ")), " ")
+	t = bookVolume.ReplaceAllString(t, "")
+	words := strings.Fields(t)
+	// A trailing "by ..." is a byline when it names the author, or when
+	// two or more title words precede it: the record may spell the author
+	// in another script ("Brothers Karamazov by Fyodor Dostoevsky" on a
+	// work crediting "Фёдор Михайлович Достоевский"), while a title that
+	// is itself "X by Y" is short -- "Stand by Me".
+	if i := slices.Index(words, "by"); i >= 2 || (i > 0 && namesAnAuthor(words[i+1:], authors)) {
+		words = words[:i]
+	}
+	kept := words[:0]
+	for _, w := range words {
+		if len(words) > 1 && (w == "the" || w == "a" || w == "an") {
+			continue
+		}
+		kept = append(kept, w)
+	}
+	for len(kept) > 1 && bookEditionWords[kept[len(kept)-1]] {
+		kept = kept[:len(kept)-1]
+	}
+	return strings.Join(kept, " ")
+}
+
+// namesAnAuthor reports whether words (lower-case, after a title's "by")
+// name one of authors: a word shares its first four letters with a word of
+// an author's name, since transliterations differ past that -- a title's
+// "by Fyodor Dostoevsky" names Open Library's "Fiódor Dostoievski". "Stand
+// by Me" names nobody.
+func namesAnAuthor(words, authors []string) bool {
+	prefix := func(w string) string {
+		r := []rune(w)
+		if len(r) < 4 {
+			return ""
+		}
+		return string(r[:4])
+	}
+	for _, a := range authors {
+		for _, n := range strings.Fields(strings.ToLower(bookNonWord.ReplaceAllString(a, " "))) {
+			p := prefix(n)
+			if p == "" {
+				continue
+			}
+			for _, w := range words {
+				if prefix(w) == p {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // searchWork is one work of Open Library's /search.json, with the fields
@@ -353,6 +488,7 @@ type searchWork struct {
 	FirstPublishYear int      `json:"first_publish_year"`
 	Subject          []string `json:"subject"`
 	AuthorKey        []string `json:"author_key"`
+	AuthorName       []string `json:"author_name"`
 	Language         []string `json:"language"` // ISO 639-2: "eng"
 	Editions         struct {
 		Docs []struct {
@@ -387,7 +523,7 @@ func (c *Client) mapSearchWork(w searchWork, fallbackAuthor string) metadata.Boo
 	}
 	for _, ed := range w.Editions.Docs {
 		title := strings.TrimSpace(ed.Title)
-		if title == "" || !slices.ContainsFunc(ed.Language, c.inLanguage) {
+		if title == "" || !slices.ContainsFunc(ed.Language, c.inLanguage) || !c.readable(title) {
 			continue
 		}
 		if !strings.EqualFold(title, strings.TrimSpace(w.Title)) {
@@ -472,7 +608,7 @@ func (c *Client) editionTitle(workTitle string, editions []editionResponse) stri
 	var order []string
 	for _, e := range editions {
 		title := strings.TrimSpace(e.Title)
-		if title == "" || len(e.Languages) == 0 || !c.inLanguage(e.Languages[0].Key) {
+		if title == "" || len(e.Languages) == 0 || !c.inLanguage(e.Languages[0].Key) || !c.readable(title) {
 			continue
 		}
 		if strings.EqualFold(title, strings.TrimSpace(workTitle)) {

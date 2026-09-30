@@ -24,6 +24,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -70,7 +71,7 @@ func TestBooksListsAnAuthorsWorksUnderTheirEnglishTitles(t *testing.T) {
 	books, err := newClient(srv).WithLanguage("en").Books(context.Background(), "OL22242A")
 
 	require.NoError(t, err)
-	for _, want := range []string{"q=author_key%3AOL22242A", "lang=en", "sort=editions", "limit=50", "editions.title"} {
+	for _, want := range []string{"q=author_key%3AOL22242A", "lang=en", "sort=editions", "limit=100", "editions.title"} {
 		require.Contains(t, query, want)
 	}
 	require.Len(t, books, 8)
@@ -226,4 +227,99 @@ func TestBookTakesItsMostCommonEditionTitleInTheClientsLanguage(t *testing.T) {
 	b, err = newClient(pp).WithLanguage("en").Book(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL138052W"})
 	require.NoError(t, err)
 	require.Equal(t, "Pride and Prejudice", b.Title)
+}
+
+// Open Library holds many works for one book -- The Idiot four times
+// ("The Idiot", "Idiot", "the idiot", "The idiot (The Modern library of the
+// world's best books)"), The Brothers Karamazov five -- and each would be a
+// Book of its own. Books lists each once, as its most-published work (the
+// search's sort), under that work's English title.
+func TestBooksListsEachBookOnceAsItsMostPublishedWork(t *testing.T) {
+	body := fixture(t, "search_works_author_OL22242A_en_100.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	books, err := newClient(srv).WithLanguage("en").Books(context.Background(), "OL22242A")
+	require.NoError(t, err)
+
+	byTitle := map[string][]string{}
+	for _, b := range books {
+		k := strings.ToLower(b.Title)
+		byTitle[k] = append(byTitle[k], b.IDs[metadata.KeyOpenLibraryWork])
+	}
+	for title, work := range map[string]string{
+		"the idiot":              "OL166925W",
+		"crime and punishment":   "OL166894W",
+		"the brothers karamazov": "OL10432709W",
+		"poor folk":              "OL16444720W",
+		"the possessed":          "OL166971W",
+	} {
+		require.Equalf(t, []string{work}, byTitle[title], "%q is one Book, its most-published work", title)
+	}
+	for _, b := range books {
+		for _, dup := range []string{"idiot", "brothers karamazov", "double", "double annotated", "poor folk annotated", "grand inquisitor", "gambler", "possessed", "house of the dead"} {
+			require.NotEqualf(t, dup, strings.ToLower(b.Title), "%s is a second work of a book already listed", b.IDs[metadata.KeyOpenLibraryWork])
+		}
+	}
+	require.Less(t, len(books), 70, "100 works, far fewer books")
+
+	// Nor as "Brothers Karamazov by Fyodor Dostoevsky", "Brothers
+	// Karamazov / Fyodor Dostoevsky" or "The Brothers Karamazov Volume 1
+	// [EasyRead Large Edition]"; nor Notes from the Underground twice.
+	var karamazov, underground int
+	for _, b := range books {
+		title := strings.ToLower(b.Title)
+		if strings.Contains(title, "karamazov") {
+			karamazov++
+		}
+		if strings.HasPrefix(title, "notes from") {
+			underground++
+		}
+	}
+	require.Equal(t, 1, karamazov, "one Brothers Karamazov")
+	require.Equal(t, 1, underground, "one Notes from Underground")
+
+	// A work with no title in the reader's language -- only Cyrillic,
+	// like the Karamazov volumes "Братья Карамазовы 1/2" -- is a
+	// translation or a volume of a book listed already; an edition
+	// mistagged English ("Der Idiot. Roman" on a work catalogued as "The
+	// idiot") is still that work's book.
+	for _, b := range books {
+		require.Truef(t, hasLatinLetter(b.Title), "%s is listed under %q, no English title", b.IDs[metadata.KeyOpenLibraryWork], b.Title)
+		require.NotEqual(t, "Der Idiot. Roman", b.Title)
+	}
+}
+
+func hasLatinLetter(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Latin, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// Collapsing never merges two books: a short "X by Y" title, a collection
+// and its title story, and two parts' distinct titles all stay listed.
+func TestBooksKeepsDistinctBooksWithSimilarTitles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"docs":[
+			{"key":"/works/OL1W","title":"Stand by Me","author_name":["Stephen King"]},
+			{"key":"/works/OL2W","title":"Stand","author_name":["Stephen King"]},
+			{"key":"/works/OL3W","title":"An Honest Thief","author_name":["Fyodor Dostoevsky"]},
+			{"key":"/works/OL4W","title":"An Honest Thief, and Other Stories","author_name":["Fyodor Dostoevsky"]},
+			{"key":"/works/OL5W","title":"Uncle's Dream","author_name":["Fyodor Dostoevsky"]},
+			{"key":"/works/OL6W","title":"Uncle's Dream and the Permanent Husband","author_name":["Fyodor Dostoevsky"]}
+		]}`))
+	}))
+	defer srv.Close()
+
+	books, err := newClient(srv).WithLanguage("en").Books(context.Background(), "OL1A")
+
+	require.NoError(t, err)
+	require.Len(t, books, 6)
 }

@@ -86,6 +86,12 @@ by its edition in that language (and `Book` by its most common edition
 title, so a refresh keeps it), names the author by Wikidata's label, and
 gives each work `Languages` so `metadataProfile.allowedLanguages` can drop
 translations catalogued as works of their own; Add New sets it to `en`.
+One book is one Book: Open Library holds many works per book (19 for The
+Brothers Karamazov in Dostoevsky's top 100), so `Books` collapses works
+whose titles are the same book (`bookKey`: case, punctuation, articles,
+subtitle, brackets, byline, volume and edition words) into the
+most-published one, and with a language lists no work it cannot title in
+it (only-Cyrillic volumes).
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).
