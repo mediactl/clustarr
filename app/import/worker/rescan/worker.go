@@ -354,6 +354,9 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return w.abort(ctx, m, st, err)
 	}
 	st.manual = manual
+	if handled, err := w.scanMissingFolder(ctx, st); handled || err != nil {
+		return err
+	}
 	if manual != nil {
 		hasMedia, err := w.walkHoldsMedia(ctx, st)
 		if err != nil {
