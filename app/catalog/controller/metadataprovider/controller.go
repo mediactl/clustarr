@@ -111,7 +111,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		k8s.MarkReady(&mp, &conditions, false, k8s.ReasonReconcileError, "%s", probeErr.Error())
 	}
 
-	return r.patch(ctx, &mp, conditions, result.QuotaRemaining, ctrl.Result{RequeueAfter: reprobeInterval})
+	return r.patch(ctx, &mp, conditions, result.QuotaRemaining, ctrl.Result{RequeueAfter: reprobeAfter(mp.Spec.Type, probeErr)})
 }
 
 func (r *Reconciler) patch(ctx context.Context, mp *catalogv1alpha1.MetadataProvider, conditions []metav1.Condition, quotaRemaining *int32, result ctrl.Result) (ctrl.Result, error) {
@@ -167,4 +167,22 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&catalogv1alpha1.MetadataProvider{}, builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
+}
+
+// theIntroDBReprobe is TheIntroDB's probe interval: its probe is a real
+// lookup, counted against the key's allowance.
+const theIntroDBReprobe = 6 * time.Hour
+
+// reprobeAfter is when a provider of typ is probed again after probeErr:
+// its interval, or a throttled provider's reset when that is sooner.
+func reprobeAfter(typ catalogv1alpha1.MetadataProviderType, probeErr error) time.Duration {
+	every := reprobeInterval
+	if typ == catalogv1alpha1.MetadataProviderTheIntroDB {
+		every = theIntroDBReprobe
+	}
+	var rl *metadata.RateLimitedError
+	if errors.As(probeErr, &rl) && rl.RetryAfter > 0 && rl.RetryAfter < every {
+		return rl.RetryAfter
+	}
+	return every
 }
