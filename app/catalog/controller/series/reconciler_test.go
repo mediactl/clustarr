@@ -1239,3 +1239,50 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 	assert.Nil(t, got.Status.NextAiring)
 	assert.Nil(t, got.Status.PreviousAiring)
 }
+
+// TestSeriesEpisodeStillIsWrittenAndReleased: an episode's still reaches
+// status.images alongside the fields already there, and a refresh without
+// one releases it (full-metadata spec §3.5).
+func TestSeriesEpisodeStillIsWrittenAndReleased(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	require.NoError(t, c.Create(ctx, testNamespace("still-ns")))
+	require.NoError(t, c.Create(ctx, testRootFolder("still-ns", "tv-root", "/data/media/tv")))
+
+	requester := &fakeEpisodeRPC{episodes: []metadata.Episode{{
+		SeasonNumber: 1, EpisodeNumber: 1, Title: "Rose", Runtime: 45,
+		Image: &metadata.Image{Type: metadata.ImageTypeScreenshot, URL: "https://artworks.thetvdb.com/banners/episodes/78804/64e9f6d45a0b7.jpg"},
+	}}}
+	bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
+	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
+	s := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "still-series", Namespace: "still-ns"},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 78804, QualityProfileRef: "none", RootFolderRef: "tv-root",
+			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+		},
+	}
+	require.NoError(t, c.Create(ctx, s))
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "still-ns", Name: "still-series"}}
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	epKey := types.NamespacedName{Namespace: "still-ns", Name: "still-series-s01e01"}
+	var ep catalogv1alpha1.Episode
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, epKey, &ep) == nil && len(ep.Status.Images) == 1
+	}, 5*time.Second, 10*time.Millisecond, "the still never landed")
+	assert.Equal(t, catalogv1alpha1.ImageTypeScreenshot, ep.Status.Images[0].Type)
+	assert.Equal(t, "Rose", ep.Status.Title)
+
+	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Rose", Runtime: 44}}
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, epKey, &ep) == nil && ep.Status.RuntimeMinutes == 44
+	}, 5*time.Second, 10*time.Millisecond, "the refresh never landed")
+	assert.Empty(t, ep.Status.Images, "a still the provider no longer sends is released")
+	assert.Equal(t, "Rose", ep.Status.Title)
+}

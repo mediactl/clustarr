@@ -68,16 +68,17 @@ type Client struct {
 	region   string
 }
 
-// WithLocale returns a copy of c that keeps titles in language (ISO 639-1,
-// the MetadataProvider's spec.language) and chooses certifications for
-// region (spec.region). The copy shares c's token cache.
+// WithLocale sets the language titles are kept in (ISO 639-1, the
+// MetadataProvider's spec.language) and the region certifications are
+// chosen for (spec.region), and returns c. It sets them in place rather
+// than copying, because c holds its token cache behind a mutex; call it
+// before the client is shared.
 func (c *Client) WithLocale(language, region string) *Client {
-	cp := *c
 	if b, err := xlanguage.ParseBase(strings.ToLower(language)); err == nil {
-		cp.language = b.ISO3()
+		c.language = b.ISO3()
 	}
-	cp.region = strings.ToUpper(region)
-	return &cp
+	c.region = strings.ToUpper(region)
+	return c
 }
 
 // titleLang is the ISO 639-2 language titles are kept in.
@@ -546,6 +547,7 @@ func (c *Client) Episodes(ctx context.Context, tvdbID string, order string) ([]m
 	episodes := make([]metadata.Episode, 0, len(translated))
 	for _, e := range translated {
 		ep := metadata.Episode{
+			IDs:            metadata.ExternalIDs{metadata.KeyTVDB: strconv.FormatInt(e.ID, 10)},
 			SeasonNumber:   e.SeasonNumber,
 			EpisodeNumber:  e.Number,
 			AbsoluteNumber: e.AbsoluteNumber,

@@ -696,6 +696,9 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 	if d.AbsoluteNumber != nil {
 		statusAC = statusAC.WithAbsoluteNumber(*d.AbsoluteNumber)
 	}
+	if d.Still != "" {
+		statusAC = statusAC.WithImages(catalogac.Image().WithType(catalogv1alpha1.ImageTypeScreenshot).WithURL(d.Still))
+	}
 
 	// k8s.ManagerCatalogarrSeries, not k8s.ManagerCatalogarr: this reconciler
 	// writes an Episode it owns but does not itself compute the phase for,

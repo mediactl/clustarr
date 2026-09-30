@@ -64,6 +64,11 @@ type DesiredEpisode struct {
 	// TmdbID (app/catalog/metadata/patch.go).
 	TvdbID int64
 
+	// Still is the episode's still image URL, "" for none. It is always
+	// sent when set and omitted when not, so a still the provider stops
+	// publishing is released (full-metadata spec §3.5).
+	Still string
+
 	// Monitored is non-nil on the first fan-out (addOptionsApplied == false,
 	// decided by InitialEpisodeMonitored) and for a brand-new episode
 	// appearing after add (decided by spec.monitorNewItems == all/none). It
@@ -245,7 +250,16 @@ func DesiredEpisodes(
 			Name: name, SeasonNumber: ep.SeasonNumber, EpisodeNumber: ep.EpisodeNumber,
 			AbsoluteNumber: ep.AbsoluteNumber, Title: ep.Title, Overview: ep.Overview,
 			AirDate: ep.AirDate, RuntimeMinutes: ep.Runtime, TvdbID: tvdbID, Monitored: monitored,
+			Still: still(ep.Image),
 		})
 	}
 	return out
+}
+
+// still is an episode image's URL, "" for none.
+func still(img *metadata.Image) string {
+	if img == nil {
+		return ""
+	}
+	return img.URL
 }

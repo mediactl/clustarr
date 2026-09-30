@@ -104,6 +104,7 @@ func TestEpisodesCarryTheirStill(t *testing.T) {
 			require.NotNil(t, e.Image)
 			assert.Equal(t, metadata.ImageTypeScreenshot, e.Image.Type)
 			assert.Equal(t, "https://artworks.thetvdb.com/banners/episodes/78804/64e9f6d45a0b7.jpg", e.Image.URL)
+			assert.Equal(t, "295294", e.IDs[metadata.KeyTVDB], "the episode's own TVDB id, which Episode status.tvdbID reads")
 			return
 		}
 	}
