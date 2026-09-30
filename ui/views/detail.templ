@@ -318,6 +318,13 @@ func statusLabel(li projection.LibraryItem) string {
 		return "Downloaded"
 	case "downloading":
 		return "Downloading"
+	case "unmonitored":
+		// A series with nothing on disk and nothing wanted. A movie keeps
+		// Radarr's word for an unmonitored item without a file, Missing.
+		if li.Kind == commonv1.MediaKindSeries {
+			return "Unmonitored"
+		}
+		return "Missing"
 	default:
 		return "Missing"
 	}

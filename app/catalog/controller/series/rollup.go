@@ -36,6 +36,11 @@ type SeriesRollup struct {
 	// EpisodeCount and EpisodeFileCount are the series totals.
 	EpisodeCount, EpisodeFileCount int32
 
+	// MissingEpisodeCount counts episodes in phase Wanted and
+	// DownloadingEpisodeCount those Downloading or Delayed, specials left
+	// out of both.
+	MissingEpisodeCount, DownloadingEpisodeCount int32
+
 	// NextAiring and PreviousAiring are the series' next and most recent
 	// airings; nil when there is none.
 	NextAiring, PreviousAiring *metav1.Time
@@ -88,6 +93,14 @@ func Rollup(episodes []catalogv1alpha1.Episode, now time.Time) SeriesRollup {
 		}
 		if ptr.Deref(ep.Spec.Monitored, true) {
 			s.Monitored = true
+		}
+		if !special {
+			switch ep.Status.Phase {
+			case catalogv1alpha1.EpisodePhaseWanted:
+				out.MissingEpisodeCount++
+			case catalogv1alpha1.EpisodePhaseDownloading, catalogv1alpha1.EpisodePhaseDelayed:
+				out.DownloadingEpisodeCount++
+			}
 		}
 
 		if ep.Status.AirDate == nil || !ptr.Deref(ep.Spec.Monitored, true) {

@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -226,4 +227,50 @@ func TestLibraryItemsCarryTheirProviderID(t *testing.T) {
 		"heat": "949", "bb": "81189", "rh": "a74b1b7f-71a5-4011-9441-d0b5e4122711", "ja": "OL21594A",
 		"saga": "", // no Add New for comics
 	}, got)
+}
+
+// A series' card reads its status from its episodes, as Sonarr's does: a
+// series with every monitored, aired episode on disk is Downloaded, one
+// with a gap Missing, one with a grab in flight Downloading, and one with
+// nothing on disk and nothing wanted Unmonitored. Before, every monitored
+// series read Missing: a Series has no hasFile and its phase is only
+// Ready, so the movie rule fell through (147 of 147 on kind-cluster-plex,
+// 35 of them complete).
+func TestSeriesCardsReadTheirStatusFromTheirEpisodes(t *testing.T) {
+	series := func(name string, files, missing, downloading int32) *catalogv1.Series {
+		return &catalogv1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media", UID: types.UID(name + "-uid")},
+			Spec:       catalogv1.SeriesSpec{TvdbID: 1},
+			Status: catalogv1.SeriesStatus{
+				Phase: catalogv1.SeriesPhaseReady, EpisodeCount: 10, EpisodeFileCount: files,
+				MissingEpisodeCount: missing, DownloadingEpisodeCount: downloading,
+			},
+		}
+	}
+	objs := []client.Object{
+		series("complete", 10, 0, 0),
+		series("gaps", 7, 3, 0),
+		series("grabbing", 7, 2, 1),
+		series("quiet", 0, 0, 0),
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
+	proj := projection.New(fakeClient, time.Hour)
+	ctx := t.Context()
+	go func() { _ = proj.Run(ctx) }()
+
+	var items []projection.LibraryItem
+	require.Eventually(t, func() bool {
+		items = proj.Library(ctx)
+		return len(items) == len(objs)
+	}, 2*time.Second, 10*time.Millisecond)
+	status := map[string]string{}
+	missing := map[string]bool{}
+	for _, it := range items {
+		status[it.Ref.Name] = projection.LibraryStatus(it)
+		missing[it.Ref.Name] = projection.FilterMissing.Matches(it)
+	}
+	require.Equal(t, map[string]string{
+		"complete": "downloaded", "gaps": "missing", "grabbing": "downloading", "quiet": "unmonitored",
+	}, status)
+	require.Equal(t, map[string]bool{"complete": false, "gaps": true, "grabbing": true, "quiet": false}, missing)
 }

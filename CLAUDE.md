@@ -72,6 +72,13 @@ queued 5,718 episode searches for a 147-show library. Specials never count
 toward the series: `status.episodeCount`, `episodeFileCount`, `nextAiring`
 and `previousAiring` leave season 0 out (`series.Rollup`, as Sonarr's series
 statistics do), and only the Specials row of `status.seasons` counts them.
+A series' library status is read from its episodes
+(`projection.seriesStatus`): Downloading while an episode's grab is in
+flight, Missing while `status.missingEpisodeCount` (monitored, aired, no
+file -- phase Wanted) is above zero, Downloaded once files are on disk and
+nothing is missing, else Unmonitored. A Series has no file of its own and
+its phase is only Ready, Pending or Unmonitored, so the movie rule read
+every monitored series as Missing until 2026-09-30.
 
 Each item should show the cover art, monitored status and selected quality profile
 

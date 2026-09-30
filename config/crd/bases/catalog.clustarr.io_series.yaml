@@ -392,6 +392,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              downloadingEpisodeCount:
+                description: |-
+                  DownloadingEpisodeCount is the number of episodes with a download in
+                  flight or a grab pending (phase Downloading or Delayed), specials
+                  left out.
+                format: int32
+                type: integer
               episodeCount:
                 description: EpisodeCount is the number of Episode objects owned by
                   the series.
@@ -565,6 +572,13 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              missingEpisodeCount:
+                description: |-
+                  MissingEpisodeCount is the number of episodes Sonarr counts missing:
+                  monitored (with the series), aired and without a file -- phase
+                  Wanted. Specials are left out, as from every series total.
+                format: int32
+                type: integer
               nextAiring:
                 description: NextAiring is when the next episode airs.
                 format: date-time

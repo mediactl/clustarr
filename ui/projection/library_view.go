@@ -22,6 +22,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // The library toolbar's view (design 2026-09-24, after Radarr's): a sort
@@ -36,6 +38,9 @@ import (
 // delayed or not), "missing" (monitored, nothing on disk) or
 // "unmonitored".
 func LibraryStatus(li LibraryItem) string {
+	if li.Kind == commonv1.MediaKindSeries {
+		return seriesStatus(li)
+	}
 	switch {
 	case li.HasFile && (li.Phase == "CutoffUnmet" || li.Phase == "CutoffUnevaluated"):
 		return "cutoff-unmet"
@@ -45,6 +50,26 @@ func LibraryStatus(li LibraryItem) string {
 		return "downloading"
 	case li.Monitored:
 		return "missing"
+	default:
+		return "unmonitored"
+	}
+}
+
+// seriesStatus is a Series' LibraryStatus, Sonarr's reading of its
+// episodes: Downloading while an episode's grab is in flight, Missing while
+// a monitored, aired episode has no file, Downloaded once files are on disk
+// and nothing is missing, and Unmonitored with nothing on disk and nothing
+// wanted. A Series has no file of its own and its phase is only Ready,
+// Pending or Unmonitored, so the rule for the other kinds read every
+// monitored series as Missing.
+func seriesStatus(li LibraryItem) string {
+	switch {
+	case li.DownloadingEpisodes > 0:
+		return "downloading"
+	case li.MissingEpisodes > 0:
+		return "missing"
+	case li.HasFile:
+		return "downloaded"
 	default:
 		return "unmonitored"
 	}
@@ -169,9 +194,16 @@ func (f LibraryFilter) Matches(li LibraryItem) bool {
 		return li.Monitored
 	case FilterUnmonitored:
 		return !li.Monitored
-	case FilterMissing:
-		return li.Monitored && !li.HasFile
-	case FilterWanted:
+	case FilterMissing, FilterWanted:
+		if li.Kind == commonv1.MediaKindSeries {
+			// A series is missing, and wanted, while any episode is
+			// (Sonarr's Wanted > Missing): episodes are counted missing
+			// only once aired, and only while their series is monitored.
+			return li.MissingEpisodes > 0 || li.DownloadingEpisodes > 0
+		}
+		if f == FilterMissing {
+			return li.Monitored && !li.HasFile
+		}
 		return li.Monitored && !li.HasFile && li.Phase != "Pending" && li.Phase != "Unavailable"
 	case FilterCutoffUnmet:
 		return li.Monitored && LibraryStatus(li) == "cutoff-unmet"

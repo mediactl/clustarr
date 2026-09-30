@@ -160,12 +160,30 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("series").
 		For(&catalogv1alpha1.Series{}, builder.WithPredicates(seriesPredicate())).
-		Owns(&catalogv1alpha1.Episode{}, builder.WithPredicates(k8s.StatusFieldChanged(func(o client.Object) bool {
-			ep, ok := o.(*catalogv1alpha1.Episode)
-			return ok && ep.Status.HasFile
-		}))).
+		Owns(&catalogv1alpha1.Episode{}, builder.WithPredicates(episodeRollupChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
+}
+
+// episodeRollupKey is what of an Episode the rollup reads that the Episode
+// controller writes: its file, and its phase for the missing and
+// downloading counts.
+type episodeRollupKey struct {
+	hasFile bool
+	phase   catalogv1alpha1.EpisodePhase
+}
+
+// episodeRollupChanged wakes the Series when an owned Episode's file or
+// phase changes, and not on this reconciler's own writes to its Episodes
+// (title, overview, air date), which would loop it.
+func episodeRollupChanged() predicate.Predicate {
+	return k8s.StatusFieldChanged(func(o client.Object) episodeRollupKey {
+		ep, ok := o.(*catalogv1alpha1.Episode)
+		if !ok {
+			return episodeRollupKey{}
+		}
+		return episodeRollupKey{hasFile: ep.Status.HasFile, phase: ep.Status.Phase}
+	})
 }
 
 // seriesPredicate wakes this controller on a spec change (GenerationChanged)
@@ -385,7 +403,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	roll := Rollup(episodes, now)
 	statusAC = statusAC.WithSeasons(seasonACs(withApplied(roll.Seasons, s, cascadeErr == nil))...).
 		WithEpisodeCount(roll.EpisodeCount).
-		WithEpisodeFileCount(roll.EpisodeFileCount)
+		WithEpisodeFileCount(roll.EpisodeFileCount).
+		WithMissingEpisodeCount(roll.MissingEpisodeCount).
+		WithDownloadingEpisodeCount(roll.DownloadingEpisodeCount)
 	if roll.NextAiring != nil {
 		statusAC = statusAC.WithNextAiring(*roll.NextAiring)
 	}
@@ -466,6 +486,8 @@ func reassertKnownStatus(statusAC *catalogac.SeriesStatusApplyConfiguration, s *
 	statusAC = statusAC.WithSeasons(seasonACs(s.Status.Seasons)...)
 	statusAC = statusAC.WithEpisodeCount(s.Status.EpisodeCount)
 	statusAC = statusAC.WithEpisodeFileCount(s.Status.EpisodeFileCount)
+	statusAC = statusAC.WithMissingEpisodeCount(s.Status.MissingEpisodeCount)
+	statusAC = statusAC.WithDownloadingEpisodeCount(s.Status.DownloadingEpisodeCount)
 	if s.Status.NextAiring != nil {
 		statusAC = statusAC.WithNextAiring(*s.Status.NextAiring)
 	}

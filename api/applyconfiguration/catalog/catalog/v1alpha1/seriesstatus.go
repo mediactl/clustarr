@@ -48,6 +48,14 @@ type SeriesStatusApplyConfiguration struct {
 	EpisodeCount *int32 `json:"episodeCount,omitempty"`
 	// EpisodeFileCount is the number of episodes with an imported file.
 	EpisodeFileCount *int32 `json:"episodeFileCount,omitempty"`
+	// MissingEpisodeCount is the number of episodes Sonarr counts missing:
+	// monitored (with the series), aired and without a file -- phase
+	// Wanted. Specials are left out, as from every series total.
+	MissingEpisodeCount *int32 `json:"missingEpisodeCount,omitempty"`
+	// DownloadingEpisodeCount is the number of episodes with a download in
+	// flight or a grab pending (phase Downloading or Delayed), specials
+	// left out.
+	DownloadingEpisodeCount *int32 `json:"downloadingEpisodeCount,omitempty"`
 	// NextAiring is when the next episode airs.
 	NextAiring *metav1.Time `json:"nextAiring,omitempty"`
 	// PreviousAiring is when the most recent episode aired.
@@ -147,6 +155,22 @@ func (b *SeriesStatusApplyConfiguration) WithEpisodeCount(value int32) *SeriesSt
 // If called multiple times, the EpisodeFileCount field is set to the value of the last call.
 func (b *SeriesStatusApplyConfiguration) WithEpisodeFileCount(value int32) *SeriesStatusApplyConfiguration {
 	b.EpisodeFileCount = &value
+	return b
+}
+
+// WithMissingEpisodeCount sets the MissingEpisodeCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MissingEpisodeCount field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithMissingEpisodeCount(value int32) *SeriesStatusApplyConfiguration {
+	b.MissingEpisodeCount = &value
+	return b
+}
+
+// WithDownloadingEpisodeCount sets the DownloadingEpisodeCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadingEpisodeCount field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithDownloadingEpisodeCount(value int32) *SeriesStatusApplyConfiguration {
+	b.DownloadingEpisodeCount = &value
 	return b
 }
 

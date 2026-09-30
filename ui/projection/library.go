@@ -70,6 +70,12 @@ type LibraryItem struct {
 	// child-file counts instead -- see [describeLibraryItem]).
 	HasFile bool
 
+	// MissingEpisodes and DownloadingEpisodes are a Series' counts of
+	// episodes missing (monitored, aired, no file) and with a grab in
+	// flight, specials left out; zero for every other kind. A Series'
+	// status is read from them (see [LibraryStatus]).
+	MissingEpisodes, DownloadingEpisodes int32
+
 	// Tab is the library tab the item's kind belongs to; see [Tab].
 	Tab Tab
 	// Year is status.metadata.year where the kind has one, else 0.
@@ -192,17 +198,19 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []Librar
 			continue
 		}
 		out = append(out, LibraryItem{
-			Ref:               entries[i].Ref,
-			Kind:              entries[i].Kind,
-			Title:             entries[i].Title,
-			Monitored:         card.monitored,
-			Phase:             card.phase,
-			HasFile:           card.hasFile,
-			Tab:               card.tab,
-			Year:              card.year,
-			Poster:            card.poster,
-			QualityProfileRef: card.profile,
-			ProviderID:        card.providerID,
+			Ref:                 entries[i].Ref,
+			Kind:                entries[i].Kind,
+			Title:               entries[i].Title,
+			Monitored:           card.monitored,
+			Phase:               card.phase,
+			HasFile:             card.hasFile,
+			MissingEpisodes:     card.missing,
+			DownloadingEpisodes: card.downloading,
+			Tab:                 card.tab,
+			Year:                card.year,
+			Poster:              card.poster,
+			QualityProfileRef:   card.profile,
+			ProviderID:          card.providerID,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -221,9 +229,12 @@ type libraryCard struct {
 	monitored bool
 	phase     string
 	hasFile   bool
-	year      int32
-	poster    string
-	profile   string
+	// missing and downloading are LibraryItem's MissingEpisodes and
+	// DownloadingEpisodes.
+	missing, downloading int32
+	year                 int32
+	poster               string
+	profile              string
 	// providerID is LibraryItem.ProviderID.
 	providerID string
 }
@@ -253,6 +264,8 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		c := libraryCard{
 			tab: TabTV, monitored: monitoredOrDefault(v.Spec.Monitored),
 			phase: string(v.Status.Phase), profile: v.Spec.QualityProfileRef,
+			hasFile: v.Status.EpisodeFileCount > 0,
+			missing: v.Status.MissingEpisodeCount, downloading: v.Status.DownloadingEpisodeCount,
 			poster:     posterArt(commonv1.MediaKindSeries, v.GetUID(), v.Status.Artwork, v.Status.Overlay),
 			providerID: strconv.FormatInt(v.Spec.TvdbID, 10),
 		}

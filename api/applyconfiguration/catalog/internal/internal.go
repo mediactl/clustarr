@@ -3704,6 +3704,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: downloadingEpisodeCount
+      type:
+        scalar: numeric
     - name: episodeCount
       type:
         scalar: numeric
@@ -3716,6 +3719,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesMetadata
+    - name: missingEpisodeCount
+      type:
+        scalar: numeric
     - name: nextAiring
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time

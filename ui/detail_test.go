@@ -414,3 +414,30 @@ func TestSeriesPageHeroReadsTheSeriesMetadata(t *testing.T) {
 	require.Contains(t, body, ">2022<")
 	require.NotContains(t, body, `data-section="files"`, "a series' files live on its seasons")
 }
+
+// A series with nothing on disk and nothing wanted -- every series right
+// after it is added, since nothing is monitored by default -- reads
+// Unmonitored on its page, not Missing; one with every wanted episode on
+// disk reads Downloaded.
+func TestSeriesPageStatusReadsItsEpisodes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		hasFile bool
+		missing int32
+		want    string
+	}{
+		{"quiet", false, 0, "Unmonitored"},
+		{"complete", true, 0, "Downloaded"},
+		{"gaps", true, 2, "Missing"},
+	} {
+		item := projection.LibraryItem{
+			Ref: types.NamespacedName{Namespace: "default", Name: tc.name}, Kind: commonv1.MediaKindSeries, Tab: projection.TabTV,
+			Title: tc.name, Monitored: true, Phase: "Ready", HasFile: tc.hasFile, MissingEpisodes: tc.missing,
+		}
+		srv := ui.NewServer(t.Context(), ui.Options{
+			Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
+		})
+		body := detailPage(t, srv, "/library/default/series/"+tc.name)
+		require.Contains(t, section(t, body, `data-fact="status"`), tc.want, tc.name)
+	}
+}

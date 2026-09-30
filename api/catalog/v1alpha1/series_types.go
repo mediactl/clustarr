@@ -382,6 +382,18 @@ type SeriesStatus struct {
 	// +optional
 	EpisodeFileCount int32 `json:"episodeFileCount,omitempty"`
 
+	// MissingEpisodeCount is the number of episodes Sonarr counts missing:
+	// monitored (with the series), aired and without a file -- phase
+	// Wanted. Specials are left out, as from every series total.
+	// +optional
+	MissingEpisodeCount int32 `json:"missingEpisodeCount,omitempty"`
+
+	// DownloadingEpisodeCount is the number of episodes with a download in
+	// flight or a grab pending (phase Downloading or Delayed), specials
+	// left out.
+	// +optional
+	DownloadingEpisodeCount int32 `json:"downloadingEpisodeCount,omitempty"`
+
 	// NextAiring is when the next episode airs.
 	// +optional
 	NextAiring *metav1.Time `json:"nextAiring,omitempty"`

@@ -162,3 +162,27 @@ func TestRollupLeavesSpecialsOutOfTheSeriesTotals(t *testing.T) {
 	require.NotNil(t, specials.NextAiring)
 	assert.Equal(t, now.Add(24*time.Hour), specials.NextAiring.UTC())
 }
+
+// The series counts its missing episodes -- phase Wanted -- and those with a
+// download in flight or a grab pending, specials left out, so the library
+// can tell a complete series from one with gaps.
+func TestRollupCountsMissingAndDownloadingEpisodes(t *testing.T) {
+	ep := func(season int32, phase catalogv1alpha1.EpisodePhase) catalogv1alpha1.Episode {
+		e := episode("e", season, ptr.To(true))
+		e.Status.Phase = phase
+		return e
+	}
+	got := series.Rollup([]catalogv1alpha1.Episode{
+		ep(0, catalogv1alpha1.EpisodePhaseWanted),
+		ep(0, catalogv1alpha1.EpisodePhaseDownloading),
+		ep(1, catalogv1alpha1.EpisodePhaseWanted),
+		ep(1, catalogv1alpha1.EpisodePhaseWanted),
+		ep(1, catalogv1alpha1.EpisodePhaseDownloading),
+		ep(1, catalogv1alpha1.EpisodePhaseDelayed),
+		ep(1, catalogv1alpha1.EpisodePhaseImported),
+		ep(2, catalogv1alpha1.EpisodePhaseUnmonitored),
+		ep(2, catalogv1alpha1.EpisodePhaseUnaired),
+	}, time.Now())
+	assert.Equal(t, int32(2), got.MissingEpisodeCount)
+	assert.Equal(t, int32(2), got.DownloadingEpisodeCount)
+}
