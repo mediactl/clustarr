@@ -188,3 +188,21 @@ func TestSearchArtURLsSurviveARestartWithAConfiguredKey(t *testing.T) {
 	require.NotEqual(t, target, NewServer(t.Context(), Options{}).searchArt.URL(src),
 		"without a configured key the server keeps its own per-process key")
 }
+
+// The Plex provider's photo URLs are the signed /art/search path made
+// absolute on the external URL, only for a host the proxy fetches from, and
+// none without an external URL Plex could reach.
+func TestPlexPhotoURLSignsOnlyAllowedHostsOnTheExternalURL(t *testing.T) {
+	a := newSearchArt([]byte(strings.Repeat("k", 32)))
+	photo := plexPhotoURL(a, "https://clustarr.example/")
+
+	src := "https://image.tmdb.org/t/p/w185/person.jpg"
+	got := photo(src)
+	require.True(t, strings.HasPrefix(got, "https://clustarr.example/art/search?src="), got)
+	require.Equal(t, "https://clustarr.example"+a.URL(src), got)
+
+	require.Empty(t, photo("https://evil.example/x.jpg"), "a host the proxy does not fetch from")
+	require.Empty(t, photo("http://image.tmdb.org/t/p/w185/person.jpg"), "not https")
+	require.Empty(t, photo(""))
+	require.Empty(t, plexPhotoURL(a, "")(src), "no external URL: nothing Plex could load")
+}

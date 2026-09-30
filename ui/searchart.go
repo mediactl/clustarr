@@ -201,3 +201,16 @@ func (a *searchArt) store(src string, art cachedArt) {
 	a.cachedBytes += size
 	a.cache.Add(src, art)
 }
+
+// plexPhotoURL is the Plex provider's PhotoURL: a provider-hosted image's
+// signed /art/search path, made absolute on externalURL so Plex can load
+// it, or "" for an image the proxy will not fetch or with no external URL.
+func plexPhotoURL(a *searchArt, externalURL string) func(src string) string {
+	external := strings.TrimSuffix(externalURL, "/")
+	return func(src string) string {
+		if p := a.URL(src); p != "" && external != "" {
+			return external + p
+		}
+		return ""
+	}
+}
