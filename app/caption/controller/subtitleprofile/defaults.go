@@ -34,8 +34,10 @@ const DefaultProfileName = "english"
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleprofiles,verbs=create
 
 // SeedDefault creates, in namespace, the default SubtitleProfile "english"
-// -- English wanted for every movie and episode no other profile selects,
-// every other field at the CRD's defaults -- when the cluster has no
+// -- English wanted for every movie and episode no other profile selects
+// whose audio is not already English (audioExclude, Bazarr's usual setup;
+// untagged audio counts as the item's original language), every other
+// field at the CRD's defaults -- when the cluster has no
 // SubtitleProfile at all. Profiles are cluster-wide (spec.default is the
 // cluster default), so any profile, in any namespace, means the owner has
 // set subtitles up and nothing is created. It only ever creates; once the
@@ -58,7 +60,7 @@ func SeedDefault(ctx context.Context, c client.Client, namespace string) error {
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: DefaultProfileName},
 		Spec: subtitlev1alpha1.SubtitleProfileSpec{
 			Default:   true,
-			Languages: []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}},
+			Languages: []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en", AudioExclude: true}},
 		},
 	}
 	if err := client.IgnoreAlreadyExists(c.Create(ctx, p)); err != nil {

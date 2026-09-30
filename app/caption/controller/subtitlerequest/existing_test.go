@@ -69,7 +69,7 @@ func TestISO6392StreamLanguagesCountAsExisting(t *testing.T) {
 	existing := buildExisting(mi, subtitlev1alpha1.EmbeddedSpec{}, "Movie.mkv", names, langs, nil)
 	assert.Equal(t, []string{"en", "fr:forced", "it"}, keysOf(existing))
 
-	wanted, cutoffMet := subtitles.Plan(pp, audioLanguages(mi), existingKeys(existing))
+	wanted, cutoffMet := subtitles.Plan(pp, audioLanguages(mi, ""), existingKeys(existing))
 	assert.False(t, cutoffMet)
 	assert.Equal(t, []subtitles.LangKey{"de", "es"}, wanted,
 		"an eng/fre stream or an .ita. sidecar must satisfy en/fr/it; only de and es are genuinely missing")
@@ -85,8 +85,8 @@ func TestISO6392AudioTripsAudioExclude(t *testing.T) {
 		{Key: "de", Language: "de", HI: subtitlev1alpha1.HIPolicyPrefer},
 	}, Cutoff: ptr.To("de")}
 	pp, _, _ := plannerProfile(spec, nil)
-	assert.Equal(t, []string{"fr"}, audioLanguages(mi), "und is dropped, fre becomes fr")
-	wanted, _ := subtitles.Plan(pp, audioLanguages(mi), nil)
+	assert.Equal(t, []string{"fr"}, audioLanguages(mi, ""), "und is dropped, fre becomes fr")
+	wanted, _ := subtitles.Plan(pp, audioLanguages(mi, ""), nil)
 	assert.Equal(t, []subtitles.LangKey{"de"}, wanted,
 		"French audio must exclude fr, and no English audio must drop the audioOnlyInclude en")
 }

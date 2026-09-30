@@ -47,7 +47,8 @@ func TestSeedDefaultCreatesAnEnglishDefaultProfile(t *testing.T) {
 	require.Equal(t, "english", p.Name)
 	require.True(t, p.Spec.Default)
 	require.Nil(t, p.Spec.Selector)
-	require.Equal(t, []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}}, p.Spec.Languages)
+	require.Equal(t, []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en", AudioExclude: true}}, p.Spec.Languages,
+		"English is wanted only where the audio is not already English")
 }
 
 // A cluster where the owner has any subtitle profile, in any namespace,

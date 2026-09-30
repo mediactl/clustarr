@@ -75,7 +75,10 @@ Anime-Lists) in its own namespace at start, create-only, skipping a type
 already configured under any name; `spec.enabled: false` turns one off,
 since a deleted seed returns at the next start. captionarr likewise seeds
 the default SubtitleProfile `english` (`subtitleprofile.SeedDefault`)
-when the cluster has no SubtitleProfile at all.
+when the cluster has no SubtitleProfile at all, with `audioExclude` so
+only media whose audio is not English is searched; a file with untagged or
+unprobed audio counts as its item's original language (the Movie's or the
+Series' `status.metadata.originalLanguage`, `subtitlerequest.audioLanguages`).
 Search posters are provider URLs, so they go through `/art/search` --
 signed by the ui, fetched only from the four providers' image hosts,
 capped and cached -- never straight to the browser (ADR-0011).

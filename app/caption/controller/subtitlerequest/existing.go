@@ -263,15 +263,24 @@ func existingKeys(ex []subtitlev1alpha1.ExistingSub) []subtitles.Existing {
 }
 
 // audioLanguages is the file's audio-track languages, normalised, for the
-// planner's audioExclude/audioOnlyInclude. An unresolvable tag is dropped:
-// "und" audio neither excludes nor includes anything.
-func audioLanguages(mi *commonv1alpha1.MediaInfo) []string {
-	if mi == nil {
-		return nil
-	}
+// planner's audioExclude/audioOnlyInclude. An unresolvable tag is dropped.
+// A file whose audio names no language at all -- untagged, "und", or never
+// probed -- is taken to be in originalLanguage, its item's original
+// language from the metadata provider: 2,571 of the owner's 13,754 video
+// files carry no usable audio tag (2026-09-30), and without this an
+// English film among them wanted English subtitles under audioExclude. A
+// tagged track always wins over the metadata; "" assumes nothing.
+func audioLanguages(mi *commonv1alpha1.MediaInfo, originalLanguage string) []string {
 	var out []string
-	for _, a := range mi.Audio {
-		if l, ok := normalizeLang(a.Language); ok && !slices.Contains(out, l) {
+	if mi != nil {
+		for _, a := range mi.Audio {
+			if l, ok := normalizeLang(a.Language); ok && !slices.Contains(out, l) {
+				out = append(out, l)
+			}
+		}
+	}
+	if len(out) == 0 {
+		if l, ok := normalizeLang(originalLanguage); ok {
 			out = append(out, l)
 		}
 	}

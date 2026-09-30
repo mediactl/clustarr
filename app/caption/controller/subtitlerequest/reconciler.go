@@ -143,6 +143,9 @@ type inputs struct {
 	// task with writing an embedded track out; read only while the
 	// profile's spec.embedded.extract is on ([extractableStreams]).
 	extractors []providerset.Entry
+	// originalLanguage is the item's original language ([Reconciler.originalLanguage]),
+	// what [audioLanguages] assumes of a file whose audio is untagged.
+	originalLanguage string
 }
 
 // task is one fetch task this reconcile decided to publish.
@@ -271,7 +274,7 @@ func (r *Reconciler) gather(ctx context.Context, sr *subtitlev1alpha1.SubtitleRe
 			message: fmt.Sprintf("%s is not in %s", base, dir),
 		}, nil
 	}
-	in := &inputs{mf: &mf, profile: profile, dirNames: names}
+	in := &inputs{mf: &mf, profile: profile, dirNames: names, originalLanguage: r.originalLanguage(ctx, &mf)}
 	if profile.Spec.Embedded.ExtractOrDefault() {
 		var providers subtitlev1alpha1.SubtitleProviderList
 		if err := r.Client.List(ctx, &providers, client.InNamespace(sr.Namespace)); err != nil {
@@ -309,6 +312,34 @@ func (r *Reconciler) itemGone(ctx context.Context, mf *catalogv1alpha1.MediaFile
 		return nil, fmt.Errorf("subtitlerequest: get %s %s: %w", mf.Spec.MediaRef.Kind, key.Name, err)
 	}
 	return nil, nil
+}
+
+// originalLanguage is the original language the metadata provider gave
+// mf's item: the Movie's, or the Episode's Series'. It is "" when the item,
+// its series or its metadata cannot be read -- the fallback then assumes
+// nothing, which is the behaviour before it existed.
+func (r *Reconciler) originalLanguage(ctx context.Context, mf *catalogv1alpha1.MediaFile) string {
+	key := types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}
+	switch mf.Spec.MediaRef.Kind {
+	case commonv1alpha1.MediaKindMovie:
+		var m catalogv1alpha1.Movie
+		if err := r.Client.Get(ctx, key, &m); err != nil || m.Status.Metadata == nil {
+			return ""
+		}
+		return m.Status.Metadata.OriginalLanguage
+	case commonv1alpha1.MediaKindEpisode:
+		var ep catalogv1alpha1.Episode
+		if err := r.Client.Get(ctx, key, &ep); err != nil || ep.Spec.SeriesRef == "" {
+			return ""
+		}
+		var s catalogv1alpha1.Series
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: ep.Spec.SeriesRef}, &s); err != nil ||
+			s.Status.Metadata == nil {
+			return ""
+		}
+		return s.Status.Metadata.OriginalLanguage
+	}
+	return ""
 }
 
 // resolveProfile returns spec.profileRef's SubtitleProfile, or the one
@@ -363,7 +394,7 @@ func (r *Reconciler) plan(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequ
 	pp, unknownKeys, profileLangs := plannerProfile(profile.Spec, sr.Spec.Languages)
 	extract := extractableStreams(ctx, mf.Status.MediaInfo, profile.Spec.Embedded, in.extractors)
 	existing := buildExisting(mf.Status.MediaInfo, profile.Spec.Embedded, filepath.Base(mf.Spec.Path), in.dirNames, profileLangs, extract)
-	wantedKeys, cutoffMet := subtitles.Plan(pp, audioLanguages(mf.Status.MediaInfo), existingKeys(existing))
+	wantedKeys, cutoffMet := subtitles.Plan(pp, audioLanguages(mf.Status.MediaInfo, in.originalLanguage), existingKeys(existing))
 
 	wanted := make(map[string]bool, len(wantedKeys))
 	for _, k := range wantedKeys {
