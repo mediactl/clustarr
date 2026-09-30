@@ -154,7 +154,8 @@ func TestSearchNowCreatesALabelledSearchForTheItem(t *testing.T) {
 	require.Equal(t, map[string]string{actions.LabelOrigin: actions.OriginUI}, s.Labels)
 	require.Equal(t, catalogv1alpha1.SearchSpec{
 		MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix-1999"},
-	}, s.Spec, "everything but mediaRef is left to the CRD's defaults")
+		GrabBest: true,
+	}, s.Spec, "everything but mediaRef and grabBest is left to the CRD's defaults")
 	require.Equal(t, catalogv1alpha1.SearchStatus{}, s.Status)
 	require.Equal(t, actions.FieldManager, w.creates[0].opts.FieldManager)
 }
@@ -336,18 +337,20 @@ func TestActionsMethodsUseTheirWriter(t *testing.T) {
 	require.Len(t, w.patches, 1)
 }
 
-// TestSearchNowOnAContainerGrabsTheBest: Search on an author, artist or
-// comic page is Readarr's and Lidarr's "search monitored": its child
-// Searches grab their best release; an item's own Search stays a results
-// list.
-func TestSearchNowOnAContainerGrabsTheBest(t *testing.T) {
-	for kind, want := range map[commonv1.MediaKind]bool{
-		commonv1.MediaKindAuthor: true, commonv1.MediaKindArtist: true, commonv1.MediaKindComic: true,
-		commonv1.MediaKindBook: false, commonv1.MediaKindMovie: false,
+// TestSearchNowGrabsTheBest: Search on an item's page is Radarr's and
+// Sonarr's automatic search, grabbing the best approved release -- the ui
+// has no results list to pick one from, so a Search without grabBest found
+// releases and grabbed none (2026-09-30). On an author, artist or comic
+// page it is Readarr's and Lidarr's "search monitored", whose child
+// Searches grab theirs.
+func TestSearchNowGrabsTheBest(t *testing.T) {
+	for _, kind := range []commonv1.MediaKind{
+		commonv1.MediaKindAuthor, commonv1.MediaKindArtist, commonv1.MediaKindComic,
+		commonv1.MediaKindBook, commonv1.MediaKindMovie, commonv1.MediaKindEpisode, commonv1.MediaKindAlbum,
 	} {
 		w := &fakeWriter{}
 		s, err := actions.SearchNow(t.Context(), w, "media", kind, "x")
 		require.NoError(t, err)
-		require.Equal(t, want, s.Spec.GrabBest, "kind %s", kind)
+		require.True(t, s.Spec.GrabBest, "kind %s", kind)
 	}
 }

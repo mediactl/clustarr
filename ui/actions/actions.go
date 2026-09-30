@@ -166,8 +166,9 @@ func Grants() []Grant {
 // The Search is named "<name>-<random>" (generateName; the apiserver
 // truncates a long prefix itself), carries [LabelOrigin]=[OriginUI], and
 // leaves every other spec field to its CRD default -- limit 100, TTL 1h, all
-// indexers -- except grabBest, set for an author, artist or comic. Whether the named item exists is the Search controller's
-// question to answer in the Search's status, not this function's.
+// indexers -- except grabBest, which it always sets. Whether the named item
+// exists is the Search controller's question to answer in the Search's
+// status, not this function's.
 func SearchNow(
 	ctx context.Context, c Creator, namespace string, kind commonv1.MediaKind, name string,
 ) (*catalogv1alpha1.Search, error) {
@@ -187,11 +188,12 @@ func SearchNow(
 		},
 		Spec: catalogv1alpha1.SearchSpec{
 			MediaRef: &commonv1.MediaRef{Kind: kind, Name: name},
-			// On an author, artist or comic it is Readarr's and Lidarr's
-			// "search monitored": the Search fans out into its missing or
-			// cutoff-unmet items, and each grabs its best release. An
-			// item's own Search stays a results list to pick from.
-			GrabBest: catalogv1alpha1.ContainerKind(kind),
+			// On an item it is Radarr's and Sonarr's automatic search,
+			// grabbing the best approved release: the ui lists no results
+			// to pick from. On an author, artist or comic it is Readarr's
+			// and Lidarr's "search monitored": the Search fans out into
+			// its missing or cutoff-unmet items, and each grabs its best.
+			GrabBest: true,
 		},
 	}
 	if err := c.Create(ctx, search, client.FieldOwner(FieldManager)); err != nil {

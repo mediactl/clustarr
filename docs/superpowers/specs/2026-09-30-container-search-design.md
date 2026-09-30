@@ -77,8 +77,11 @@ Search is never failed as stuck: its children time out on their own.
 
 On Author, Artist and Comic pages the button reads "Search monitored
 books / albums / issues" and creates the parent Search with
-`grabBest: true`. Book, Album and Issue pages keep the interactive search
-(results list, no auto-grab). While Downloads are paused on
+`grabBest: true`. An item's own page (movie, episode, book, album, issue)
+sets `grabBest` too, as Radarr's and Sonarr's Search does: this design first
+said those pages kept an interactive results list, but the ui renders no
+Search results, so a movie search found 35 approved releases and grabbed
+none (corrected 2026-09-30). While Downloads are paused on
 kind-cluster-plex, auto-grabbed Downloads wait on the disabled client.
 
 ## Tests
