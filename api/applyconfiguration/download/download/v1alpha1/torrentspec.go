@@ -80,6 +80,22 @@ type TorrentSpecApplyConfiguration struct {
 	// (WebRTC cannot be proxied). Absent means no proxy. The engine reads it
 	// at start, so a change rolls the engine pods.
 	Proxy *TorrentProxyApplyConfiguration `json:"proxy,omitempty"`
+	// Scratch keeps a torrent in a working area while it downloads, as
+	// qBittorrent's "keep incomplete torrents in" does: once every wanted
+	// piece is verified the engine moves it to publishDir and seeds it from
+	// there, and only then does the Download read Completed. The placements
+	// are the usenet engine's (ScratchSpec); a controller-made claim is one
+	// per replica, a volumeName needs replicas 1, and an existingClaim is
+	// mounted by every replica, so it must be ReadWriteMany when there are
+	// more. Absent means no working area: a torrent downloads and seeds in
+	// publishDir, as before. The engine reads it at start.
+	Scratch *ScratchSpecApplyConfiguration `json:"scratch,omitempty"`
+	// PublishDir is where torrents live once complete (with scratch) or
+	// throughout (without), as <publishDir>/<category>/<name>; unset means
+	// /data/torrents. It must be an absolute path under the data mount (the
+	// controller refuses one that is not), so the importer can hard-link
+	// it. The engine reads it at start.
+	PublishDir *string `json:"publishDir,omitempty"`
 }
 
 // TorrentSpecApplyConfiguration constructs a declarative configuration of the TorrentSpec type for use with
@@ -181,5 +197,21 @@ func (b *TorrentSpecApplyConfiguration) WithStallTimeout(value v1.Duration) *Tor
 // If called multiple times, the Proxy field is set to the value of the last call.
 func (b *TorrentSpecApplyConfiguration) WithProxy(value *TorrentProxyApplyConfiguration) *TorrentSpecApplyConfiguration {
 	b.Proxy = value
+	return b
+}
+
+// WithScratch sets the Scratch field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Scratch field is set to the value of the last call.
+func (b *TorrentSpecApplyConfiguration) WithScratch(value *ScratchSpecApplyConfiguration) *TorrentSpecApplyConfiguration {
+	b.Scratch = value
+	return b
+}
+
+// WithPublishDir sets the PublishDir field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PublishDir field is set to the value of the last call.
+func (b *TorrentSpecApplyConfiguration) WithPublishDir(value string) *TorrentSpecApplyConfiguration {
+	b.PublishDir = &value
 	return b
 }

@@ -98,3 +98,62 @@ func TestScratchPlacementsAreMutuallyExclusive(t *testing.T) {
 		require.Error(t, err, bad.name)
 	}
 }
+
+// TestTorrentScratchPlacements holds spec.torrent.scratch to the same
+// exclusions, plus the torrent rule: a volumeName binds one claim to one
+// PV, so it needs replicas 1 (2026-09-30).
+func TestTorrentScratchPlacements(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test` to install the CRDs")
+	}
+
+	env := &envtest.Environment{
+		CRDDirectoryPaths:     []string{"../../config/crd/bases"},
+		ErrorIfCRDPathMissing: true,
+	}
+	cfg, err := env.Start()
+	require.NoError(t, err, "start envtest")
+	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+
+	dyn, err := dynamic.NewForConfig(cfg)
+	require.NoError(t, err)
+	gvr := schema.GroupVersionResource{Group: "download.clustarr.io", Version: "v1alpha1", Resource: "downloadclients"}
+	ctx := context.Background()
+
+	client := func(name string, replicas int64, torrent map[string]any) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "download.clustarr.io/v1alpha1",
+			"kind":       "DownloadClient",
+			"metadata":   map[string]any{"name": name, "namespace": "default"},
+			"spec":       map[string]any{"protocol": "torrent", "replicas": replicas, "torrent": torrent},
+		}}
+	}
+
+	for _, ok := range []struct {
+		name     string
+		replicas int64
+		torrent  map[string]any
+	}{
+		{"path", 3, map[string]any{"scratch": map[string]any{"path": "/data/torrents/incomplete"}, "publishDir": "/data/torrents/complete"}},
+		{"class-per-replica", 3, map[string]any{"scratch": map[string]any{"storageClassName": "local-path"}}},
+		{"existing-claim", 2, map[string]any{"scratch": map[string]any{"existingClaim": "nas"}}},
+		{"volume-name-one-replica", 1, map[string]any{"scratch": map[string]any{"volumeName": "pv"}}},
+		{"no-scratch", 1, map[string]any{}},
+	} {
+		_, err := dyn.Resource(gvr).Namespace("default").Create(ctx, client(ok.name, ok.replicas, ok.torrent), metav1.CreateOptions{})
+		require.NoError(t, err, ok.name)
+	}
+
+	for _, bad := range []struct {
+		name     string
+		replicas int64
+		torrent  map[string]any
+	}{
+		{"volume-name-two-replicas", 2, map[string]any{"scratch": map[string]any{"volumeName": "pv"}}},
+		{"path-and-class", 1, map[string]any{"scratch": map[string]any{"path": "/data/x", "storageClassName": "nfs"}}},
+		{"relative-publish-dir", 1, map[string]any{"publishDir": "torrents/complete"}},
+	} {
+		_, err := dyn.Resource(gvr).Namespace("default").Create(ctx, client(bad.name, bad.replicas, bad.torrent), metav1.CreateOptions{})
+		require.Error(t, err, bad.name)
+	}
+}

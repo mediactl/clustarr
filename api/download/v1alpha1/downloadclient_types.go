@@ -146,6 +146,28 @@ type TorrentSpec struct {
 	// at start, so a change rolls the engine pods.
 	// +optional
 	Proxy *TorrentProxy `json:"proxy,omitempty"`
+
+	// Scratch keeps a torrent in a working area while it downloads, as
+	// qBittorrent's "keep incomplete torrents in" does: once every wanted
+	// piece is verified the engine moves it to publishDir and seeds it from
+	// there, and only then does the Download read Completed. The placements
+	// are the usenet engine's (ScratchSpec); a controller-made claim is one
+	// per replica, a volumeName needs replicas 1, and an existingClaim is
+	// mounted by every replica, so it must be ReadWriteMany when there are
+	// more. Absent means no working area: a torrent downloads and seeds in
+	// publishDir, as before. The engine reads it at start.
+	// +optional
+	Scratch *ScratchSpec `json:"scratch,omitempty"`
+
+	// PublishDir is where torrents live once complete (with scratch) or
+	// throughout (without), as <publishDir>/<category>/<name>; unset means
+	// /data/torrents. It must be an absolute path under the data mount (the
+	// controller refuses one that is not), so the importer can hard-link
+	// it. The engine reads it at start.
+	// +optional
+	// +kubebuilder:validation:MaxLength=4096
+	// +kubebuilder:validation:Pattern=`^/`
+	PublishDir string `json:"publishDir,omitempty"`
 }
 
 // TorrentProxyType is the proxy protocol. Only SOCKS5 is implemented.
@@ -461,6 +483,7 @@ type UsenetSpec struct {
 //
 // +kubebuilder:validation:XValidation:rule="self.protocol == 'torrent' ? (has(self.torrent) && !has(self.usenet)) : (has(self.usenet) && !has(self.torrent))",message="torrent must be set for protocol torrent and usenet for protocol usenet, never both"
 // +kubebuilder:validation:XValidation:rule="self.protocol != 'usenet' || !has(self.replicas) || self.replicas == 1",message="usenet clients must have replicas == 1 in v1alpha1"
+// +kubebuilder:validation:XValidation:rule="!has(self.torrent) || !has(self.torrent.scratch) || !has(self.torrent.scratch.volumeName) || !has(self.replicas) || self.replicas == 1",message="torrent.scratch.volumeName binds one claim to one volume, so it needs replicas == 1"
 type DownloadClientSpec struct {
 	// Protocol selects which engine this client runs. It is immutable: change
 	// the protocol by creating a new DownloadClient.

@@ -356,6 +356,16 @@ spec:
                       PublicIP is the address advertised to peers and trackers when the engine
                       cannot discover it, e.g. behind NAT or a gateway. Unset means autodetect.
                     type: string
+                  publishDir:
+                    description: |-
+                      PublishDir is where torrents live once complete (with scratch) or
+                      throughout (without), as <publishDir>/<category>/<name>; unset means
+                      /data/torrents. It must be an absolute path under the data mount (the
+                      controller refuses one that is not), so the importer can hard-link
+                      it. The engine reads it at start.
+                    maxLength: 4096
+                    pattern: ^/
+                    type: string
                   removeCompleted:
                     default: true
                     description: |-
@@ -366,6 +376,81 @@ spec:
                       false keeps every imported torrent on the engine, uploading nothing
                       once its goal is met. The engine reads it on every reconcile.
                     type: boolean
+                  scratch:
+                    description: |-
+                      Scratch keeps a torrent in a working area while it downloads, as
+                      qBittorrent's "keep incomplete torrents in" does: once every wanted
+                      piece is verified the engine moves it to publishDir and seeds it from
+                      there, and only then does the Download read Completed. The placements
+                      are the usenet engine's (ScratchSpec); a controller-made claim is one
+                      per replica, a volumeName needs replicas 1, and an existingClaim is
+                      mounted by every replica, so it must be ReadWriteMany when there are
+                      more. Absent means no working area: a torrent downloads and seeds in
+                      publishDir, as before. The engine reads it at start.
+                    properties:
+                      accessModes:
+                        description: |-
+                          AccessModes of the claim the controller creates. Empty means
+                          ReadWriteOnce.
+                        items:
+                          type: string
+                        maxItems: 3
+                        type: array
+                      existingClaim:
+                        description: |-
+                          ExistingClaim mounts this PersistentVolumeClaim, in the same
+                          namespace, as the scratch volume as it is. The controller creates
+                          nothing and sizeLimit does not apply.
+                        maxLength: 253
+                        type: string
+                      path:
+                        description: |-
+                          Path uses this directory on the engine's shared data volume as the
+                          working area instead of mounting a scratch volume at all, for example
+                          "/data/usenet/incomplete". It must be an absolute path under the data
+                          mount (the controller refuses one that is not), and it must be on the
+                          same filesystem as publishDir so publishing is one atomic rename.
+                          Transfers, their manifests and checkpoints then survive a pod restart
+                          and resume, at the cost of doing assembly and repair over that volume.
+                        maxLength: 4096
+                        pattern: ^/
+                        type: string
+                      sizeLimit:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        default: 50Gi
+                        description: |-
+                          SizeLimit is the capacity of the scratch volume. A Go client always
+                          sends a Quantity, so the DownloadClient controller floors a zero one to
+                          this default: a zero-byte scratch volume has no coherent meaning.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storageClassName:
+                        description: |-
+                          StorageClassName selects the StorageClass of the claim the controller
+                          creates for the scratch volume. Unset, with no other placement, means
+                          an emptyDir backed by node storage is used instead of a PVC.
+                        type: string
+                      volumeName:
+                        description: |-
+                          VolumeName binds the claim the controller creates to this existing
+                          PersistentVolume (static binding), for example an NFS volume already
+                          provisioned by hand. Set accessModes to ReadWriteMany for such a
+                          volume. Without storageClassName the claim asks for no class, so no
+                          dynamic provisioner competes for it.
+                        maxLength: 253
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: scratch.path excludes existingClaim, storageClassName
+                        and volumeName
+                      rule: '!has(self.path) || (!has(self.existingClaim) && !has(self.storageClassName)
+                        && !has(self.volumeName))'
+                    - message: scratch.existingClaim excludes storageClassName and
+                        volumeName
+                      rule: '!has(self.existingClaim) || (!has(self.storageClassName)
+                        && !has(self.volumeName))'
                   seed:
                     default:
                       inactiveTime: 24h
@@ -689,6 +774,10 @@ spec:
             - message: usenet clients must have replicas == 1 in v1alpha1
               rule: self.protocol != 'usenet' || !has(self.replicas) || self.replicas
                 == 1
+            - message: torrent.scratch.volumeName binds one claim to one volume, so
+                it needs replicas == 1
+              rule: '!has(self.torrent) || !has(self.torrent.scratch) || !has(self.torrent.scratch.volumeName)
+                || !has(self.replicas) || self.replicas == 1'
           status:
             description: DownloadClientStatus defines the observed state of DownloadClient.
             properties:

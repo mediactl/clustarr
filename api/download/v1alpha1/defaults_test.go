@@ -46,3 +46,11 @@ func TestTorrentProxyDefaults(t *testing.T) {
 	require.False(t, p.UDPOrDefault())
 	require.Equal(t, "9.9.9.9:53", p.DNSServerOrDefault())
 }
+
+// Torrents have always been written under /data/torrents; publishDir unset
+// keeps them there.
+func TestTorrentPublishDirOrDefault(t *testing.T) {
+	require.Equal(t, "/data/torrents", (&downloadv1alpha1.TorrentSpec{}).PublishDirOrDefault())
+	require.Equal(t, "/data/complete", (&downloadv1alpha1.TorrentSpec{PublishDir: "/data/complete"}).PublishDirOrDefault())
+	require.Equal(t, "/data/torrents", (*downloadv1alpha1.TorrentSpec)(nil).PublishDirOrDefault())
+}

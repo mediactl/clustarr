@@ -774,10 +774,16 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: publicIP
       type:
         scalar: string
+    - name: publishDir
+      type:
+        scalar: string
     - name: removeCompleted
       type:
         scalar: boolean
       default: true
+    - name: scratch
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ScratchSpec
     - name: seed
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.SeedCriteria

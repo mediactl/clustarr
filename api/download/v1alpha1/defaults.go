@@ -54,3 +54,15 @@ func (p TorrentProxy) DNSServerOrDefault() string {
 func (p TorrentProxy) Address() string {
 	return net.JoinHostPort(p.Host, strconv.Itoa(int(p.Port)))
 }
+
+// DefaultTorrentPublishDir is where torrents have always been written.
+const DefaultTorrentPublishDir = "/data/torrents"
+
+// PublishDirOrDefault is spec.torrent.publishDir, or
+// [DefaultTorrentPublishDir] when it is unset (or t is nil).
+func (t *TorrentSpec) PublishDirOrDefault() string {
+	if t == nil || t.PublishDir == "" {
+		return DefaultTorrentPublishDir
+	}
+	return t.PublishDir
+}
