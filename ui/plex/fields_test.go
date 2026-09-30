@@ -189,3 +189,35 @@ func TestNoExtendedDocMeansNoPeopleAndAnErrorIsNotAFailure(t *testing.T) {
 		})
 	}
 }
+
+// TestOriginalLanguageFieldsOnlyWhenAskedInAnotherLanguage: Your Name is
+// Japanese; asked in English, Plex gets the Japanese title, genres and
+// images as the original-language fields, and asked in Japanese it gets
+// none of them.
+func TestOriginalLanguageFieldsOnlyWhenAskedInAnotherLanguage(t *testing.T) {
+	m := fixtureMovie()
+	m.Status.Metadata.OriginalLanguage = "ja"
+	m.Status.Metadata.OriginalTitle = "君の名は。"
+	m.Status.Metadata.Genres = []string{"Animation", "Drama"}
+	m.Status.Metadata.OriginalGenres = []string{"アニメーション", "ドラマ"}
+	m.Status.Metadata.Images = append(m.Status.Metadata.Images,
+		catalogv1.Image{Type: catalogv1.ImageTypePoster, URL: "https://image.tmdb.org/t/p/w500/ja.jpg", Language: "ja"})
+	m.Status.Metadata.Certifications = []catalogv1.Certification{{Country: "JP", Rating: "G"}, {Country: "US", Rating: "PG"}}
+	m.Status.Metadata.Certification = "PG"
+	h := newFullHandler(t, nil, m)
+	path := "/plex/movies/library/metadata/" + string(m.UID)
+
+	md := metadataOf(t, h, path+"?X-Plex-Language=en-US")
+	assert.Equal(t, "君の名は。", md["originalTitle"])
+	assert.Equal(t, []any{
+		map[string]any{"tag": "Animation", "originalTag": "アニメーション"},
+		map[string]any{"tag": "Drama", "originalTag": "ドラマ"},
+	}, md["Genre"])
+	assert.Equal(t, []any{map[string]any{"type": "coverPoster", "url": photoURL("https://image.tmdb.org/t/p/w500/ja.jpg"), "alt": "君の名は。"}}, md["OriginalImage"])
+	assert.Equal(t, "PG", md["contentRating"])
+
+	md = metadataOf(t, h, path+"?X-Plex-Language=ja-JP")
+	assert.NotContains(t, md, "originalTitle")
+	assert.NotContains(t, md, "OriginalImage")
+	assert.Equal(t, "jp/G", md["contentRating"], "the language's country when no X-Plex-Country")
+}

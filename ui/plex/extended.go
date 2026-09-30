@@ -19,6 +19,7 @@ package plex
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -38,6 +39,8 @@ import (
 type urls struct {
 	external string
 	photo    func(string) string
+	// loc is the request's X-Plex-Country and X-Plex-Language.
+	loc locale
 }
 
 // proxied is src through the photo proxy, "" when there is no proxy or no
@@ -49,7 +52,10 @@ func (u urls) proxied(src string) string {
 	return u.photo(src)
 }
 
-func (h *handler) urls() urls { return urls{external: h.opts.ExternalURL, photo: h.opts.PhotoURL} }
+// urlsFor is the urls every builder of one request uses.
+func (h *handler) urlsFor(r *http.Request) urls {
+	return urls{external: h.opts.ExternalURL, photo: h.opts.PhotoURL, loc: localeOf(r)}
+}
 
 // PersonTag is one entry of a Role, Director, Producer or Writer array.
 type PersonTag struct {
@@ -128,7 +134,7 @@ func seasonTypes(s *catalogv1.Series) []SeasonType {
 // extended-metadata document (pkg/metadata/extended). A missing document,
 // or one that cannot be read, is no people -- never an error: Plex should
 // still get everything else.
-func (h *handler) enrichExtended(ctx context.Context, md *Metadata, kind commonv1.MediaKind, uid types.UID, idx *projection.Index) {
+func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind commonv1.MediaKind, uid types.UID, idx *projection.Index) {
 	if h.opts.Extended == nil {
 		return
 	}
@@ -140,7 +146,6 @@ func (h *handler) enrichExtended(ctx context.Context, md *Metadata, kind commonv
 	if !ok {
 		return
 	}
-	u := h.urls()
 	people := func(ps []extended.Person, crew bool) []PersonTag {
 		if len(ps) == 0 {
 			return nil

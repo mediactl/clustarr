@@ -124,10 +124,9 @@ func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 
 	if meta := m.Status.Metadata; meta != nil {
 		md.Title = meta.Title
-		md.OriginalTitle = meta.OriginalTitle
 		md.TitleSort = meta.SortTitle
 		md.Summary = meta.Overview
-		md.ContentRating = meta.Certification
+		md.ContentRating = contentRating(meta.Certifications, meta.Certification, u.loc)
 		md.Year = meta.Year
 		md.OriginallyAvailableAt = movieAvailableDate(meta)
 		if meta.RuntimeMinutes > 0 {
@@ -146,6 +145,13 @@ func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 		}
 		md.StudioTags = tags(meta.Studios)
 		md.Country = tags(meta.Countries)
+		if u.loc.wantsOriginal(meta.OriginalLanguage) {
+			// Asked in another language than the film's own (spec
+			// 2026-09-30 §5.3): its original title, genres and images.
+			md.OriginalTitle = meta.OriginalTitle
+			md.Genre = withOriginalTags(md.Genre, meta.OriginalGenres)
+			md.OriginalImage = originalImages(u, meta.Images, meta.OriginalLanguage, meta.OriginalTitle)
+		}
 	}
 
 	af := artworkFor{kind: commonv1.MediaKindMovie, uid: m.UID, artwork: m.Status.Artwork, overlay: m.Status.Overlay}
@@ -199,7 +205,7 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 		md.Title = meta.Title
 		md.TitleSort = meta.SortTitle
 		md.Summary = meta.Overview
-		md.ContentRating = meta.Certification
+		md.ContentRating = contentRating(meta.Certifications, meta.Certification, u.loc)
 		md.Year = meta.Year
 		if meta.FirstAired != nil {
 			md.OriginallyAvailableAt = meta.FirstAired.UTC().Format("2006-01-02")
@@ -220,6 +226,10 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 		}
 		md.StudioTags = tags(meta.Studios)
 		md.Country = tags(meta.Countries)
+		if u.loc.wantsOriginal(meta.OriginalLanguage) {
+			md.Genre = withOriginalTags(md.Genre, meta.OriginalGenres)
+			md.OriginalImage = originalImages(u, meta.Images, meta.OriginalLanguage, meta.Title)
+		}
 	}
 	md.SeasonType = seasonTypes(s)
 
@@ -439,7 +449,7 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 	md.ParentArt = seriesArt
 	md.GrandparentArt = seriesArt
 	if meta := s.Status.Metadata; meta != nil {
-		md.ContentRating = meta.Certification
+		md.ContentRating = contentRating(meta.Certifications, meta.Certification, u.loc)
 	}
 	md.Image = buildEpisodeImages(u, e)
 	if len(md.Image) > 0 {
@@ -457,18 +467,19 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		md, ok := h.resolveMetadata(root, idx, r.PathValue("ratingKey"), r.URL.Query().Get("includeChildren") == "1")
+		u := h.urlsFor(r)
+		md, ok := h.resolveMetadata(root, u, idx, r.PathValue("ratingKey"), r.URL.Query().Get("includeChildren") == "1")
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
 		switch md.Type {
 		case metadataTypeMovie:
-			h.enrichExtended(r.Context(), &md, commonv1.MediaKindMovie, types.UID(md.RatingKey), idx)
+			h.enrichExtended(r.Context(), u, &md, commonv1.MediaKindMovie, types.UID(md.RatingKey), idx)
 		case metadataTypeShow:
-			h.enrichExtended(r.Context(), &md, commonv1.MediaKindSeries, types.UID(md.RatingKey), idx)
+			h.enrichExtended(r.Context(), u, &md, commonv1.MediaKindSeries, types.UID(md.RatingKey), idx)
 		case metadataTypeEpisode:
-			h.enrichExtended(r.Context(), &md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
+			h.enrichExtended(r.Context(), u, &md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
 		}
 
 		writeJSON(w, http.StatusOK, metadataContainerResponse{MediaContainer: MetadataContainer{
@@ -484,7 +495,7 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 // resolveMetadata looks ratingKey up in idx and builds its Metadata object,
 // false when ratingKey names nothing this index knows or names a type root
 // does not declare ([rootDef.declares]).
-func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey string, includeChildren bool) (Metadata, bool) {
+func (h *handler) resolveMetadata(root rootDef, u urls, idx *projection.Index, ratingKey string, includeChildren bool) (Metadata, bool) {
 	uid, season, isSeason, ok := ParseRatingKey(ratingKey)
 	if !ok {
 		return Metadata{}, false
@@ -497,7 +508,7 @@ func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey
 		if !ok {
 			return Metadata{}, false
 		}
-		return buildSeasonMetadata(root, h.urls(), s, season, idx, includeChildren)
+		return buildSeasonMetadata(root, u, s, season, idx, includeChildren)
 	}
 
 	obj, ok := idx.ByUID(uid)
@@ -506,15 +517,15 @@ func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey
 	}
 	switch v := obj.(type) {
 	case *catalogv1.Movie:
-		return buildMovieMetadata(root, h.urls(), v), true
+		return buildMovieMetadata(root, u, v), true
 	case *catalogv1.Series:
-		return buildShowMetadata(root, h.urls(), v, idx, includeChildren), true
+		return buildShowMetadata(root, u, v, idx, includeChildren), true
 	case *catalogv1.Episode:
 		s, ok := idx.SeriesOfEpisode(v.UID)
 		if !ok {
 			return Metadata{}, false
 		}
-		return buildEpisodeMetadata(root, h.urls(), s, v), true
+		return buildEpisodeMetadata(root, u, s, v), true
 	default:
 		return Metadata{}, false
 	}
@@ -534,4 +545,42 @@ func providerType(obj any) int {
 	default:
 		return 0
 	}
+}
+
+// withOriginalTags pairs each genre with its original-language name, when
+// the gateway recorded one per genre in the same order.
+func withOriginalTags(genre []Tag, originals []string) []Tag {
+	if len(originals) != len(genre) {
+		return genre
+	}
+	for i := range genre {
+		genre[i].OriginalTag = originals[i]
+	}
+	return genre
+}
+
+// originalImages are the item's images in its original language, through
+// the photo proxy (they are provider URLs), as Plex's OriginalImage.
+func originalImages(u urls, images []catalogv1.Image, lang, alt string) []Image {
+	var out []Image
+	for _, img := range images {
+		if img.Language != lang {
+			continue
+		}
+		t, ok := plexImageTypes[img.Type]
+		if !ok {
+			continue
+		}
+		if url := u.proxied(img.URL); url != "" {
+			out = append(out, Image{Type: t, URL: url, Alt: alt})
+		}
+	}
+	return out
+}
+
+// plexImageTypes maps the catalog's image types onto Plex's.
+var plexImageTypes = map[catalogv1.ImageType]string{
+	catalogv1.ImageTypePoster: plexImageCoverPoster,
+	catalogv1.ImageTypeFanart: plexImageBackground,
+	catalogv1.ImageTypeLogo:   plexImageClearLogo,
 }

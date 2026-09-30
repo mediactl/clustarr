@@ -71,7 +71,7 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		results := nonNilMetadata(h.match(root, idx, req))
+		results := nonNilMetadata(h.match(root, h.urlsFor(r), idx, req))
 		writeJSON(w, http.StatusOK, metadataContainerResponse{MediaContainer: MetadataContainer{
 			Offset:     0,
 			TotalSize:  len(results),
@@ -86,7 +86,7 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 // §4's table), building every result as a full Metadata object (spec §D.4:
 // "results are full Metadata objects"). Every type asks rule 0, the file
 // (matchfile.go), before its guid and title rules.
-func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) []Metadata {
+func (h *handler) match(root rootDef, u urls, idx *projection.Index, req matchRequest) []Metadata {
 	if !root.declares(req.Type) {
 		// A type another root declares (a show asked of the movies root):
 		// no match, the same empty container as an unknown title.
@@ -99,7 +99,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 	case typeMovie:
 		fileMovie, byFile := movieByFile(idx, req.Filename)
 		if byFile && !manual {
-			return []Metadata{buildMovieMetadata(root, h.urls(), fileMovie)}
+			return []Metadata{buildMovieMetadata(root, u, fileMovie)}
 		}
 		movies := matchMovies(idx, req, manual)
 		if byFile {
@@ -109,14 +109,14 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		}
 		out := make([]Metadata, len(movies))
 		for i, m := range movies {
-			out[i] = buildMovieMetadata(root, h.urls(), m)
+			out[i] = buildMovieMetadata(root, u, m)
 		}
 		return out
 
 	case typeShow:
 		fileShow, byFile := showByFile(idx, req.Filename)
 		if byFile && !manual {
-			return []Metadata{buildShowMetadata(root, h.urls(), fileShow, idx, includeChildren)}
+			return []Metadata{buildShowMetadata(root, u, fileShow, idx, includeChildren)}
 		}
 		shows := matchShows(idx, req.Title, req.Year, req.Guid, manual, !manual)
 		if byFile {
@@ -124,7 +124,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		}
 		out := make([]Metadata, len(shows))
 		for i, s := range shows {
-			out[i] = buildShowMetadata(root, h.urls(), s, idx, includeChildren)
+			out[i] = buildShowMetadata(root, u, s, idx, includeChildren)
 		}
 		return out
 
@@ -136,7 +136,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		if s == nil || req.Index == nil {
 			return nil
 		}
-		md, ok := buildSeasonMetadata(root, h.urls(), s, *req.Index, idx, includeChildren)
+		md, ok := buildSeasonMetadata(root, u, s, *req.Index, idx, includeChildren)
 		if !ok {
 			return nil
 		}
@@ -144,7 +144,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 
 	case typeEpisode:
 		if s, e, ok := episodeByFile(idx, req); ok {
-			return []Metadata{buildEpisodeMetadata(root, h.urls(), s, e)}
+			return []Metadata{buildEpisodeMetadata(root, u, s, e)}
 		}
 		s := resolveShow(idx, req.GrandparentTitle, req.Year, req.Guid)
 		if s == nil {
@@ -154,7 +154,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		if e == nil {
 			return nil
 		}
-		return []Metadata{buildEpisodeMetadata(root, h.urls(), s, e)}
+		return []Metadata{buildEpisodeMetadata(root, u, s, e)}
 
 	default:
 		return nil

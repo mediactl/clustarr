@@ -36,7 +36,7 @@ func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		items, ok := h.childrenOf(root, idx, r.PathValue("ratingKey"))
+		items, ok := h.childrenOf(root, h.urlsFor(r), idx, r.PathValue("ratingKey"))
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -53,6 +53,7 @@ func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 // episodes) already serves the equivalent request.
 func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		u := h.urlsFor(r)
 		idx, ok := h.index(w, r)
 		if !ok {
 			return
@@ -73,7 +74,7 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 		sortEpisodes(episodes)
 		items := make([]Metadata, len(episodes))
 		for i, e := range episodes {
-			items[i] = buildEpisodeMetadata(root, h.urls(), s, e)
+			items[i] = buildEpisodeMetadata(root, u, s, e)
 		}
 		h.writePage(w, root, items, parsePaging(r))
 	}
@@ -85,7 +86,7 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 // the paged listing; a season's own Children block
 // ([buildSeasonChildren]/[buildEpisodeChildren]) is for the unpaged,
 // includeChildren=1 case on GET .../{ratingKey} instead.
-func (h *handler) childrenOf(root rootDef, idx *projection.Index, ratingKey string) ([]Metadata, bool) {
+func (h *handler) childrenOf(root rootDef, u urls, idx *projection.Index, ratingKey string) ([]Metadata, bool) {
 	uid, season, isSeason, ok := ParseRatingKey(ratingKey)
 	if !ok {
 		return nil, false
@@ -105,7 +106,7 @@ func (h *handler) childrenOf(root rootDef, idx *projection.Index, ratingKey stri
 		sortEpisodes(episodes)
 		out := make([]Metadata, len(episodes))
 		for i, e := range episodes {
-			out[i] = buildEpisodeMetadata(root, h.urls(), s, e)
+			out[i] = buildEpisodeMetadata(root, u, s, e)
 		}
 		return out, true
 	}
@@ -118,7 +119,7 @@ func (h *handler) childrenOf(root rootDef, idx *projection.Index, ratingKey stri
 	sort.Slice(seasons, func(i, j int) bool { return seasons[i].Number < seasons[j].Number })
 	out := make([]Metadata, 0, len(seasons))
 	for _, season := range seasons {
-		md, ok := buildSeasonMetadata(root, h.urls(), s, season.Number, idx, false)
+		md, ok := buildSeasonMetadata(root, u, s, season.Number, idx, false)
 		if ok {
 			out = append(out, md)
 		}
