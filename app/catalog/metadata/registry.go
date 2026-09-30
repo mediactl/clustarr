@@ -112,6 +112,10 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 			if err != nil {
 				return fmt.Errorf("metadata: build tmdb client for %s/%s: %w", p.Namespace, p.Name, err)
 			}
+			// spec.language and spec.region: the gateway calls Movie with
+			// no region, so the client's own locale decides (full-metadata
+			// spec §3.2).
+			cl = cl.WithLocale(p.Spec.Language, p.Spec.Region)
 			reg.Movies = append(reg.Movies, cl)
 			reg.Ratings = append(reg.Ratings, cl) // spec §C.2: tmdb declares its own source from the fetch it already performs.
 		case catalogv1alpha1.MetadataProviderTVDB:

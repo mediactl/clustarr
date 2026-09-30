@@ -72,6 +72,30 @@ type Client struct {
 	raw     *rawtmdb.Client
 	capture *statusCapture
 	limiter *rate.Limiter
+
+	// language and region are the MetadataProvider's spec.language and
+	// spec.region (WithLocale); empty means English and no region.
+	language string
+	region   string
+}
+
+// WithLocale returns a copy of c that fetches in language (ISO 639-1) and
+// uses region (ISO 3166-1) whenever Movie is called with none -- the
+// MetadataProvider's spec.language and spec.region, which the registry
+// passes through (the metadata gateway calls Movie with region "").
+func (c *Client) WithLocale(language, region string) *Client {
+	cp := *c
+	cp.language = strings.ToLower(language)
+	cp.region = strings.ToUpper(region)
+	return &cp
+}
+
+// baseLanguage is the ISO 639-1 language this client fetches in.
+func (c *Client) baseLanguage() string {
+	if c.language == "" {
+		return "en"
+	}
+	return c.language
 }
 
 // libraryBaseURL is golang-tmdb v1.9.4's own defaultBaseURL: every request
@@ -195,9 +219,14 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 		return nil, err
 	}
 
+	if region == "" {
+		region = c.region
+	}
+	base := c.baseLanguage()
 	d, err := c.raw.GetMovieDetails(id, map[string]string{
-		"language":           languageFor(region),
-		"append_to_response": "release_dates,external_ids,alternative_titles",
+		"language":               c.languageFor(region),
+		"append_to_response":     "release_dates,external_ids,alternative_titles,credits,recommendations,images",
+		"include_image_language": base + ",null",
 	})
 	if err != nil {
 		mapped := c.mapError(err)
@@ -207,6 +236,9 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 	}
 
 	m := mapMovie(d, region)
+	if d.OriginalLanguage != "" && d.OriginalLanguage != base {
+		c.addOriginalLanguage(ctx, id, d.OriginalLanguage, m)
+	}
 	logger.DebugContext(ctx, "tmdb: movie fetched", "tmdb_id", tmdbID, "title", m.Title)
 	return m, nil
 }
@@ -436,7 +468,146 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 		m.Images = append(m.Images, metadata.Image{Type: metadata.ImageTypeFanart, URL: backdropBaseURL + d.BackdropPath})
 	}
 
+	m.Tagline = d.Tagline
+	m.Adult = d.Adult
+	for _, pc := range d.ProductionCompanies {
+		m.Studios = append(m.Studios, pc.Name)
+	}
+	for _, pc := range d.ProductionCountries {
+		m.Countries = append(m.Countries, pc.Name)
+	}
+	m.Certifications = metadata.CertificationsFromReleases(releaseDates)
+	m.Certification = metadata.PickCertification(m.Certifications, region, originCountry(d))
+	m.People = mapCredits(d)
+	m.Similar = mapRecommendations(d)
+	m.Images = append(m.Images, mapImages(d.MovieImagesAppend, "")...)
+
 	return m
+}
+
+// profileBaseURL is TMDB's image CDN at a portrait size for a person's
+// photo (research note §2.1).
+const profileBaseURL = "https://image.tmdb.org/t/p/w185"
+
+// originCountry is the film's country of origin: TMDB's origin_country,
+// else its first production country.
+func originCountry(d *rawtmdb.MovieDetails) string {
+	if len(d.OriginCountry) > 0 {
+		return d.OriginCountry[0]
+	}
+	if len(d.ProductionCountries) > 0 {
+		return d.ProductionCountries[0].Iso3166_1
+	}
+	return ""
+}
+
+// mapCredits files TMDB's append_to_response credits under the Plex people
+// arrays: the cast in billing order, then directors, writers (the whole
+// Writing department) and producers.
+func mapCredits(d *rawtmdb.MovieDetails) []metadata.Person {
+	// d.Credits is a promoted field reached through the embedded pointer.
+	if d.MovieCreditsAppend == nil || d.Credits.MovieCredits == nil {
+		return nil
+	}
+	photo := func(path string) string {
+		if path == "" {
+			return ""
+		}
+		return profileBaseURL + path
+	}
+	var out []metadata.Person
+	for _, c := range d.Credits.Cast {
+		out = append(out, metadata.Person{
+			Kind: metadata.PersonCast, Name: c.Name, Character: c.Character,
+			Order: int32(c.Order), ImageURL: photo(c.ProfilePath),
+		})
+	}
+	order := map[metadata.PersonKind]int32{}
+	for _, c := range d.Credits.Crew {
+		var kind metadata.PersonKind
+		switch {
+		case c.Job == "Director":
+			kind = metadata.PersonDirector
+		case c.Department == "Writing":
+			kind = metadata.PersonWriter
+		case c.Job == "Producer" || c.Job == "Executive Producer":
+			kind = metadata.PersonProducer
+		default:
+			continue
+		}
+		out = append(out, metadata.Person{
+			Kind: kind, Name: c.Name, Job: c.Job, Order: order[kind], ImageURL: photo(c.ProfilePath),
+		})
+		order[kind]++
+	}
+	return out
+}
+
+// mapRecommendations maps TMDB's recommendations into the titles Plex
+// shows as Similar.
+func mapRecommendations(d *rawtmdb.MovieDetails) []metadata.SimilarRef {
+	if d.MovieRecommendationsAppend == nil || d.Recommendations == nil || d.Recommendations.MovieRecommendationsResults == nil {
+		return nil
+	}
+	var out []metadata.SimilarRef
+	for _, r := range d.Recommendations.Results {
+		ref := metadata.SimilarRef{Title: r.Title, IDs: metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(r.ID, 10)}}
+		if y, ok := parseYear(r.ReleaseDate); ok {
+			ref.Year = y
+		}
+		out = append(out, ref)
+	}
+	return out
+}
+
+// mapImages maps TMDB's append_to_response images -- posters, backdrops and
+// logos -- each with the language TMDB tags it with. lang overrides an
+// untagged image's language, for the original-language call. The single
+// poster and backdrop mapMovie adds first stay the default choice.
+func mapImages(a *rawtmdb.MovieImagesAppend, lang string) []metadata.Image {
+	if a == nil || a.Images == nil {
+		return nil
+	}
+	var out []metadata.Image
+	add := func(t metadata.ImageType, base string, imgs []rawtmdb.MovieImage) {
+		for _, img := range imgs {
+			if img.FilePath == "" {
+				continue
+			}
+			l := img.Iso639_1
+			if l == "" {
+				l = lang
+			}
+			out = append(out, metadata.Image{Type: t, URL: base + img.FilePath, Language: l, Width: img.Width, Height: img.Height})
+		}
+	}
+	add(metadata.ImageTypeLogo, backdropBaseURL, a.Images.Logos)
+	add(metadata.ImageTypePoster, posterBaseURL, a.Images.Posters)
+	add(metadata.ImageTypeFanart, backdropBaseURL, a.Images.Backdrops)
+	return out
+}
+
+// addOriginalLanguage fetches the film once more in its original language
+// for the genre names and images Plex shows as originalTag and
+// OriginalImage. It is an enrichment: a failure keeps the first result.
+func (c *Client) addOriginalLanguage(ctx context.Context, id int, lang string, m *metadata.Movie) {
+	logger := logging.FromContext(ctx)
+	if err := c.limiter.Wait(ctx); err != nil {
+		return
+	}
+	d, err := c.raw.GetMovieDetails(id, map[string]string{
+		"language":               lang,
+		"append_to_response":     "images",
+		"include_image_language": lang,
+	})
+	if err != nil {
+		logger.DebugContext(ctx, "tmdb: original-language fetch failed; keeping the first", "tmdb_id", id, "error", c.mapError(err))
+		return
+	}
+	for _, g := range d.Genres {
+		m.OriginalGenres = append(m.OriginalGenres, g.Name)
+	}
+	m.Images = append(m.Images, mapImages(d.MovieImagesAppend, lang)...)
 }
 
 // mapAlternativeTitles maps TMDB's append_to_response alternative_titles
@@ -491,20 +662,23 @@ func mapReleaseDates(d *rawtmdb.MovieDetails) []metadata.ReleaseDate {
 }
 
 // defaultLanguage is TMDB's own default locale, used whenever no region is
-// given.
+// given and the configured language is English.
 const defaultLanguage = "en-US"
 
 // languageFor derives a TMDB "language" query value (the
-// ISO-639-1-ISO-3166-1 form TMDB expects, e.g. "en-GB") from a region code.
-// This client only ever requests English localisations -- there is no
-// per-language configuration yet, only per-region -- so region "" or "US"
-// both produce the same defaultLanguage, and any other two-letter region
-// becomes "en-<REGION>".
-func languageFor(region string) string {
+// ISO-639-1-ISO-3166-1 form TMDB expects, e.g. "en-GB") from the configured
+// language (WithLocale, English by default) and a region code: region ""
+// with English is defaultLanguage, and any region becomes
+// "<language>-<REGION>".
+func (c *Client) languageFor(region string) string {
+	lang := c.baseLanguage()
 	if region == "" {
-		return defaultLanguage
+		if lang == "en" {
+			return defaultLanguage
+		}
+		return lang
 	}
-	return "en-" + region
+	return lang + "-" + region
 }
 
 // parseYear extracts the year from a TMDB "YYYY-MM-DD" release_date.
