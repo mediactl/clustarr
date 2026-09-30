@@ -239,6 +239,14 @@ var kinds = []Kind{
 				if _, ok := spec["torrent"]; !ok {
 					spec["torrent"] = map[string]any{}
 				}
+				// The proxy's switches post true on every save, so a client
+				// without a proxy decodes one with no host, which the CRD
+				// refuses; no host is no proxy, and clearing it removes one.
+				if t, ok := spec["torrent"].(map[string]any); ok {
+					if p, ok := t["proxy"].(map[string]any); ok && p["host"] == nil {
+						delete(t, "proxy")
+					}
+				}
 			case "usenet":
 				delete(spec, "torrent")
 				if _, ok := spec["usenet"]; !ok {

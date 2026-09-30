@@ -393,3 +393,23 @@ func TestBuildRendersTheTorrentProxy(t *testing.T) {
 	require.False(t, user.Required, "a proxy may take no authentication")
 	require.Equal(t, forms.ControlPassword, control(t, proxy, "__secret.torrent.proxy.secretRef.password").Type)
 }
+
+// TestEnsureDropsAProxyWithNoHost: the proxy's three switches post true
+// whenever the form renders, so a torrent client saved without a proxy
+// decoded as a proxy with no host or port, which the CRD refuses. A proxy
+// without a host is no proxy -- and emptying the host is how one is removed.
+func TestEnsureDropsAProxyWithNoHost(t *testing.T) {
+	k := kind(t, "downloadclients")
+	spec := map[string]any{"protocol": "torrent", "torrent": map[string]any{
+		"listenPort": int64(42069),
+		"proxy":      map[string]any{"hostnameLookup": true, "peerConnections": true, "udp": true},
+	}}
+	k.Ensure(spec)
+	require.Equal(t, map[string]any{"protocol": "torrent", "torrent": map[string]any{"listenPort": int64(42069)}}, spec)
+
+	kept := map[string]any{"protocol": "torrent", "torrent": map[string]any{
+		"proxy": map[string]any{"host": "10.64.0.1", "port": int64(1080)},
+	}}
+	k.Ensure(kept)
+	require.Contains(t, kept["torrent"], "proxy")
+}
