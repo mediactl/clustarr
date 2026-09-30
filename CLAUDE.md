@@ -64,7 +64,11 @@ the node's limits to `clustarr-progress` `encoder-limits.<class>`, which the
 controller plans with and TranscodeProfile `status.encoderLimits` shows.
 NVENC caps its bitrate at `video.nvenc.maxBitratePercent` (70) of the
 source's, read from the probe summary's `videoBitrateKbps` (mkvmerge's BPS
-tag for Matroska).
+tag for Matroska). A RootFolder's `naming.renameTranscoded` renames a file
+squasharr transcoded (`status.transcode.profileTag`) to its canonical file
+name in the folder it is already in (`rescan.RenameFile`'s keepFolder), so
+a season is never split between "Season 3" and "Season 03"; `renameFiles`
+renames every file its own way and wins when both are on.
 
 ## UI
 
