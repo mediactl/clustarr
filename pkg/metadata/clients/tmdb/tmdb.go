@@ -477,7 +477,8 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 		m.Countries = append(m.Countries, pc.Name)
 	}
 	m.Certifications = metadata.CertificationsFromReleases(releaseDates)
-	m.Certification = metadata.PickCertification(m.Certifications, region, originCountry(d))
+	cert := metadata.PickCertification(m.Certifications, region, originCountry(d))
+	m.Certification, m.CertificationCountry = cert.Rating, cert.Country
 	m.People = mapCredits(d)
 	m.Similar = mapRecommendations(d)
 	m.Images = append(m.Images, mapImages(d.MovieImagesAppend, "")...)

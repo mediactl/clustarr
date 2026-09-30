@@ -97,6 +97,7 @@ func TestWeekendGetsItsCertification(t *testing.T) {
 	m, err := c.Movie(context.Background(), "79120", "")
 	require.NoError(t, err)
 	assert.Equal(t, "18", m.Certification, "no region: the origin country's rating")
+	assert.Equal(t, "GB", m.CertificationCountry, "the chosen rating's own country, which Plex's contentRating prefixes")
 	assert.Contains(t, m.Certifications, metadata.Certification{Country: "GB", Rating: "18"})
 	assert.Contains(t, m.Certifications, metadata.Certification{Country: "US", Rating: "NR"})
 
@@ -107,6 +108,7 @@ func TestWeekendGetsItsCertification(t *testing.T) {
 	m, err = c.WithLocale("en", "US").Movie(context.Background(), "79120", "")
 	require.NoError(t, err)
 	assert.Equal(t, "NR", m.Certification, "the configured region wins when it has a rating")
+	assert.Equal(t, "US", m.CertificationCountry)
 }
 
 func TestMovieMapsTheFullMetadataFields(t *testing.T) {

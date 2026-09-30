@@ -425,7 +425,8 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 			s.Certifications = append(s.Certifications, metadata.Certification{Country: code, Rating: cr.Name})
 		}
 	}
-	s.Certification = metadata.PickCertification(s.Certifications, region, origin)
+	cert := metadata.PickCertification(s.Certifications, region, origin)
+	s.Certification, s.CertificationCountry = cert.Rating, cert.Country
 	s.People = mapCharacters(d.Characters)
 	for _, se := range d.Seasons {
 		if se.Type.Type != "official" || se.Image == "" {

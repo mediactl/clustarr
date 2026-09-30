@@ -2464,6 +2464,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: certification
       type:
         scalar: string
+    - name: certificationCountry
+      type:
+        scalar: string
     - name: certifications
       type:
         list:
@@ -2540,6 +2543,9 @@ var schemaYAML = typed.YAMLObject(`types:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ReleaseDate
           elementRelationship: atomic
     - name: runtimeMinutes
+      type:
+        scalar: numeric
+    - name: schemaVersion
       type:
         scalar: numeric
     - name: secondaryYear
@@ -3650,6 +3656,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: certification
       type:
         scalar: string
+    - name: certificationCountry
+      type:
+        scalar: string
     - name: certifications
       type:
         list:
@@ -3717,6 +3726,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: runtimeMinutes
+      type:
+        scalar: numeric
+    - name: schemaVersion
       type:
         scalar: numeric
     - name: seasonImages

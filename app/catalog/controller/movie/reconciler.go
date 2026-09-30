@@ -411,8 +411,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		stale = now.Sub(m.Status.Metadata.RefreshedAt.Time) >= ttl
 	}
 	metaReady := !stale
+	// A recent document the gateway wrote before it learned a field is
+	// refreshed once, at once, and the item stays ready meanwhile: every
+	// item in an upgraded library would otherwise drop to Pending together.
+	outdated := !stale && m.Status.Metadata.SchemaVersion < metadata.SchemaVersion
 
-	if stale {
+	if stale || outdated {
 		// The envelope key is the <namespace>/<name> routing key every
 		// worker parses to recover the namespace; the media key is the
 		// subject token. They are not interchangeable -- the media key
@@ -426,7 +430,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 			return ctrl.Result{}, err
 		}
 		env := &events.Envelope{
-			ID:     events.MsgIDForObject(string(m.UID), m.Generation, "metadata"),
+			ID:     events.MsgIDForObject(string(m.UID), m.Generation, metadata.RefreshPurpose(outdated)),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
 			Source: "catalogarr@" + version.String(),
@@ -451,7 +455,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 			return ctrl.Result{}, pubErr
 		}
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionQueueFull, "Published", "metadata task published")
-		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		if outdated {
+			k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionMetadataReady, "Upgrading",
+				"metadata schema %d is older than %d; refreshing once", m.Status.Metadata.SchemaVersion, metadata.SchemaVersion)
+		} else {
+			k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		}
 	} else {
 		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")
 	}

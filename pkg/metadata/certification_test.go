@@ -45,9 +45,10 @@ func TestCertificationsFromReleasesPrefersTheatrical(t *testing.T) {
 // UK-only film like Weekend (2011) its rating instead of none.
 func TestPickCertificationFallsBackRegionOriginUS(t *testing.T) {
 	certs := []metadata.Certification{{Country: "GB", Rating: "18"}, {Country: "US", Rating: "R"}}
-	assert.Equal(t, "18", metadata.PickCertification(certs, "GB", "US"))
-	assert.Equal(t, "R", metadata.PickCertification(certs, "FR", "US"))
-	assert.Equal(t, "18", metadata.PickCertification(certs[:1], "FR", "GB"), "a UK-only film")
-	assert.Equal(t, "R", metadata.PickCertification(certs[1:], "FR", "GB"), "US last")
-	assert.Equal(t, "", metadata.PickCertification(nil, "US", "US"))
+	gb, us := metadata.Certification{Country: "GB", Rating: "18"}, metadata.Certification{Country: "US", Rating: "R"}
+	assert.Equal(t, gb, metadata.PickCertification(certs, "GB", "US"))
+	assert.Equal(t, us, metadata.PickCertification(certs, "FR", "US"))
+	assert.Equal(t, gb, metadata.PickCertification(certs[:1], "FR", "GB"), "a UK-only film")
+	assert.Equal(t, us, metadata.PickCertification(certs[1:], "FR", "GB"), "US last")
+	assert.Equal(t, metadata.Certification{}, metadata.PickCertification(nil, "US", "US"))
 }

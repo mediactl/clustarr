@@ -56,20 +56,21 @@ func CertificationsFromReleases(rds []ReleaseDate) []Certification {
 	return out
 }
 
-// PickCertification chooses the rating to show: the region's, else the
+// PickCertification chooses the rating to show, with the country it is
+// from: the region's, else the
 // origin country's, else the US one, else none. Without the origin step a
 // film released only in its own country (Weekend, 2011, UK) had no rating
 // under the default US region.
-func PickCertification(certs []Certification, region, origin string) string {
+func PickCertification(certs []Certification, region, origin string) Certification {
 	for _, c := range []string{region, origin, "US"} {
 		if c == "" {
 			continue
 		}
 		for _, cert := range certs {
 			if cert.Country == c {
-				return cert.Rating
+				return cert
 			}
 		}
 	}
-	return ""
+	return Certification{}
 }

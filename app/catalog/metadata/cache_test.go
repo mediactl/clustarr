@@ -84,7 +84,7 @@ func TestKVCacheMissThenHitThenExpiry(t *testing.T) {
 
 func TestCacheKeyIsDeterministicAndSortedByIDKey(t *testing.T) {
 	ids := pkgmetadata.ExternalIDs{pkgmetadata.KeyIMDb: "tt1375666", pkgmetadata.KeyTMDB: "27205"}
-	require.Equal(t, "movie.imdb=tt1375666_tmdb=27205", cacheKey(commonv1.MediaKindMovie, ids))
+	require.Equal(t, "movie.v1.imdb=tt1375666_tmdb=27205", cacheKey(commonv1.MediaKindMovie, ids))
 	// Order of the input map must not affect the key.
 	ids2 := pkgmetadata.ExternalIDs{pkgmetadata.KeyTMDB: "27205", pkgmetadata.KeyIMDb: "tt1375666"}
 	require.Equal(t, cacheKey(commonv1.MediaKindMovie, ids), cacheKey(commonv1.MediaKindMovie, ids2))

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,7 +91,8 @@ func (c *kvCache) Set(ctx context.Context, key string, v any, ttl time.Duration)
 
 var _ pkgmetadata.Cache = (*kvCache)(nil)
 
-// cacheKey builds an item-level cache key: <kind>.<sorted k=v external ids>.
+// cacheKey builds an item-level cache key:
+// <kind>.v<schema version>.<sorted k=v external ids>.
 // See this task's "Judgment calls" for why this deliberately drops the
 // <provider> segment the spec's KV table literally shows.
 //
@@ -117,5 +119,8 @@ func cacheKey(kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs) string {
 	for _, k := range keys {
 		parts = append(parts, events.KVKeyToken(k)+"="+events.KVKeyToken(ids[k]))
 	}
-	return events.KVKeyToken(string(kind)) + "." + strings.Join(parts, "_")
+	// The schema version keeps a refresh an outdated document asks for
+	// from being answered by a document cached before the gateway learned
+	// the field (pkg/metadata.SchemaVersion).
+	return events.KVKeyToken(string(kind)) + ".v" + strconv.Itoa(int(pkgmetadata.SchemaVersion)) + "." + strings.Join(parts, "_")
 }

@@ -289,8 +289,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		stale = now.Sub(s.Status.Metadata.RefreshedAt.Time) >= ttl
 	}
 	metaReady := !stale
+	// A recent document the gateway wrote before it learned a field is
+	// refreshed once, at once, and the item stays ready meanwhile: every
+	// item in an upgraded library would otherwise drop to Pending together.
+	outdated := !stale && s.Status.Metadata.SchemaVersion < metadata.SchemaVersion
 
-	if stale {
+	if stale || outdated {
 		// The envelope key is the <namespace>/<name> routing key every
 		// worker parses to recover the namespace; the media key is the
 		// subject token. They are not interchangeable -- the media key
@@ -304,7 +308,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 			return ctrl.Result{}, err
 		}
 		env := &events.Envelope{
-			ID:     events.MsgIDForObject(string(s.UID), s.Generation, "metadata"),
+			ID:     events.MsgIDForObject(string(s.UID), s.Generation, metadata.RefreshPurpose(outdated)),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
 			Source: "catalogarr@" + version.String(),
@@ -329,7 +333,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 			return ctrl.Result{}, pubErr
 		}
 		k8s.MarkFalse(s, &conditions, conditionQueueFull, "Published", "metadata task published")
-		k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		if outdated {
+			k8s.MarkTrue(s, &conditions, catalogv1alpha1.SeriesConditionMetadataReady, "Upgrading",
+				"metadata schema %d is older than %d; refreshing once", s.Status.Metadata.SchemaVersion, metadata.SchemaVersion)
+		} else {
+			k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionMetadataReady, "Refreshing", "metadata refresh requested")
+		}
 	} else {
 		k8s.MarkTrue(s, &conditions, catalogv1alpha1.SeriesConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")
 	}

@@ -28,13 +28,26 @@ import (
 
 func TestContentRatingPrefixesOutsideTheUS(t *testing.T) {
 	certs := []catalogv1.Certification{{Country: "GB", Rating: "18"}, {Country: "US", Rating: "R"}}
-	assert.Equal(t, "R", contentRating(certs, "R", locale{Country: "US"}))
-	assert.Equal(t, "gb/18", contentRating(certs, "R", locale{Country: "GB"}))
-	assert.Equal(t, "gb/18", contentRating(certs[:1], "18", locale{Country: "FR"}), "no FR rating: the stored one, prefixed with its country")
-	assert.Equal(t, "R", contentRating(certs[1:], "R", locale{Country: "FR"}))
-	assert.Equal(t, "R", contentRating(certs, "R", locale{}), "no country asked: the stored rating")
-	assert.Equal(t, "PG", contentRating(nil, "PG", locale{}), "no list: the stored rating as it is")
-	assert.Equal(t, "", contentRating(nil, "", locale{Country: "GB"}))
+	us, gb := certs[1], certs[0]
+	assert.Equal(t, "R", contentRating(certs, us, locale{Country: "US"}))
+	assert.Equal(t, "gb/18", contentRating(certs, us, locale{Country: "GB"}))
+	assert.Equal(t, "gb/18", contentRating(certs[:1], gb, locale{Country: "FR"}), "no FR rating: the stored one, prefixed with its country")
+	assert.Equal(t, "R", contentRating(certs[1:], us, locale{Country: "FR"}))
+	assert.Equal(t, "R", contentRating(certs, us, locale{}), "no country asked: the stored rating")
+	assert.Equal(t, "PG", contentRating(nil, catalogv1.Certification{Rating: "PG"}, locale{}), "no list: the stored rating as it is")
+	assert.Equal(t, "", contentRating(nil, catalogv1.Certification{}, locale{Country: "GB"}))
+}
+
+// The stored rating is prefixed with the country the gateway chose it for,
+// not the first country that happens to share its value: Ireland and the UK
+// both rate films "15", and a GB install listing IE first was shown "ie/15".
+func TestContentRatingPrefixesTheStoredRatingsOwnCountry(t *testing.T) {
+	certs := []catalogv1.Certification{{Country: "IE", Rating: "15"}, {Country: "GB", Rating: "15"}}
+	stored := catalogv1.Certification{Country: "GB", Rating: "15"}
+	assert.Equal(t, "gb/15", contentRating(certs, stored, locale{Country: "FR"}))
+	assert.Equal(t, "gb/15", contentRating(certs, stored, locale{}))
+	assert.Equal(t, "ie/15", contentRating(certs, catalogv1.Certification{Rating: "15"}, locale{}),
+		"a document written before the gateway stored the country falls back to the first match")
 }
 
 func TestLocaleHeaderBeatsQuery(t *testing.T) {

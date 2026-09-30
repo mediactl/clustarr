@@ -222,6 +222,13 @@ type MovieMetadata struct {
 	// +optional
 	Certification string `json:"certification,omitempty"`
 
+	// CertificationCountry is the ISO 3166-1 alpha-2 country Certification
+	// was chosen from (the region's, else the origin's, else the US), which
+	// the Plex provider prefixes the rating with outside the US.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2
+	CertificationCountry string `json:"certificationCountry,omitempty"`
+
 	// Year is the release year.
 	// +optional
 	Year int32 `json:"year,omitempty"`
@@ -286,6 +293,16 @@ type MovieMetadata struct {
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
 	RefreshedAt metav1.Time `json:"refreshedAt,omitempty"`
+
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion
+	// when it wrote this document. The gateway raises it when it learns a
+	// field, and the item's reconciler refreshes an item whose document is
+	// older once, keeping it ready meanwhile, rather than leaving it
+	// without the new field until its RefreshTTL -- weeks for a released
+	// film.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
 
 	// Ratings lists the scores gathered from the enabled ratings providers,
 	// one entry per source (pkg/metadata.RatingsProvider).

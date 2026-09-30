@@ -192,6 +192,13 @@ type SeriesMetadata struct {
 	// +optional
 	Certification string `json:"certification,omitempty"`
 
+	// CertificationCountry is the ISO 3166-1 alpha-2 country Certification
+	// was chosen from (the region's, else the origin's, else the US), which
+	// the Plex provider prefixes the rating with outside the US.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2
+	CertificationCountry string `json:"certificationCountry,omitempty"`
+
 	// OriginalLanguage is the BCP-47 tag of the original language.
 	// +optional
 	OriginalLanguage string `json:"originalLanguage,omitempty"`
@@ -232,6 +239,16 @@ type SeriesMetadata struct {
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
 	RefreshedAt metav1.Time `json:"refreshedAt,omitempty"`
+
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion
+	// when it wrote this document. The gateway raises it when it learns a
+	// field, and the item's reconciler refreshes an item whose document is
+	// older once, keeping it ready meanwhile, rather than leaving it
+	// without the new field until its RefreshTTL -- weeks for a released
+	// film.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SchemaVersion int32 `json:"schemaVersion,omitempty"`
 
 	// FirstAired is the date the series first aired, from TVDB firstAired or
 	// TMDB first_air_date. Plex requires it.

@@ -468,6 +468,13 @@ spec:
                     description: Certification is the content rating in the configured
                       region.
                     type: string
+                  certificationCountry:
+                    description: |-
+                      CertificationCountry is the ISO 3166-1 alpha-2 country Certification
+                      was chosen from (the region's, else the origin's, else the US), which
+                      the Plex provider prefixes the rating with outside the US.
+                    maxLength: 2
+                    type: string
                   certifications:
                     description: |-
                       Certifications are the film's age ratings, one per country: that
@@ -677,6 +684,17 @@ spec:
                   runtimeMinutes:
                     description: RuntimeMinutes is the runtime in minutes.
                     format: int32
+                    type: integer
+                  schemaVersion:
+                    description: |-
+                      SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion
+                      when it wrote this document. The gateway raises it when it learns a
+                      field, and the item's reconciler refreshes an item whose document is
+                      older once, keeping it ready meanwhile, rather than leaving it
+                      without the new field until its RefreshTTL -- weeks for a released
+                      film.
+                    format: int32
+                    minimum: 0
                     type: integer
                   secondaryYear:
                     description: |-

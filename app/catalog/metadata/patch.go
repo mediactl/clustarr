@@ -111,6 +111,7 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 		WithOriginalLanguage(m.OriginalLanguage).
 		WithOverview(m.Overview).
 		WithCertification(m.Certification).
+		WithCertificationCountry(m.CertificationCountry).
 		WithYear(m.Year).
 		WithSecondaryYear(m.SecondaryYear).
 		WithRuntimeMinutes(m.Runtime).
@@ -155,7 +156,7 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 	}
 	// The full Plex Metadata Response (spec 2026-09-30 §3.3), each list at
 	// its CRD MaxItems.
-	ac.WithTagline(m.Tagline).WithAdult(m.Adult)
+	ac.WithTagline(m.Tagline).WithAdult(m.Adult).WithSchemaVersion(pkgmetadata.SchemaVersion)
 	if len(m.Studios) > 0 {
 		ac.WithStudios(capStrings(m.Studios, 10)...)
 	}
@@ -202,6 +203,7 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 		WithAirTime(s.AirTime).
 		WithOverview(s.Overview).
 		WithCertification(s.Certification).
+		WithCertificationCountry(s.CertificationCountry).
 		WithOriginalLanguage(s.OriginalLanguage).
 		WithYear(s.Year).
 		WithRuntimeMinutes(s.Runtime).
@@ -235,7 +237,7 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 			ac.WithImages(ic)
 		}
 	}
-	ac.WithTagline(s.Tagline)
+	ac.WithTagline(s.Tagline).WithSchemaVersion(pkgmetadata.SchemaVersion)
 	if len(s.Networks) > 0 {
 		ac.WithNetworks(capStrings(s.Networks, 5)...)
 	}

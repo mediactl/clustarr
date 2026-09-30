@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -89,4 +90,37 @@ func TestMovieImagesKeepEveryLanguageAndEveryProvider(t *testing.T) {
 	assert.Positive(t, byLang["en"], "the configured language's images survive the cap")
 	assert.True(t, banner, "an artwork provider's image appended after TMDB's survives the cap")
 	assert.Equal(t, *ac.Images[0].Type, catalogv1alpha1.ImageTypePoster, "the lead poster stays first")
+}
+
+// The gateway stamps every Movie and Series document with the current
+// schema version; one it left unstamped would read as outdated for ever and
+// refresh on every reconcile.
+func TestMovieAndSeriesDocumentsCarryTheSchemaVersion(t *testing.T) {
+	mv := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Weekend"}, nil, time.Now())
+	require.NotNil(t, mv.SchemaVersion)
+	assert.Equal(t, pkgmetadata.SchemaVersion, *mv.SchemaVersion)
+
+	sr := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Firefly"}, nil, time.Now())
+	require.NotNil(t, sr.SchemaVersion)
+	assert.Equal(t, pkgmetadata.SchemaVersion, *sr.SchemaVersion)
+}
+
+// The L2 cache key carries the schema version, so the one refresh an
+// outdated document asks for is never answered from a document cached
+// before the gateway learned the field.
+func TestCacheKeyCarriesTheSchemaVersion(t *testing.T) {
+	ids := pkgmetadata.ExternalIDs{"tmdb": "79120"}
+	assert.Contains(t, cacheKey("Movie", ids), ".v"+strconv.Itoa(int(pkgmetadata.SchemaVersion))+".")
+}
+
+// The gateway records the country of the certification it chose, which the
+// Plex provider prefixes the rating with outside the US.
+func TestDocumentsCarryTheChosenCertificationsCountry(t *testing.T) {
+	mv := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Weekend", Certification: "18", CertificationCountry: "GB"}, nil, time.Now())
+	require.NotNil(t, mv.CertificationCountry)
+	assert.Equal(t, "GB", *mv.CertificationCountry)
+
+	sr := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Firefly", Certification: "TV-14", CertificationCountry: "US"}, nil, time.Now())
+	require.NotNil(t, sr.CertificationCountry)
+	assert.Equal(t, "US", *sr.CertificationCountry)
 }

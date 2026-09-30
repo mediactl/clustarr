@@ -55,6 +55,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -261,6 +262,70 @@ func TestMovieReconcilerRealController(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testRootFolder("avail-ns", "movies-root", "/data/media/movies")))
 	require.NoError(t, c.Create(ctx, testRootFolder("selfloop-ns", "movies-root", "/data/media/movies")))
 	require.NoError(t, c.Create(ctx, testRootFolder("delayed-ns", "movies-root", "/data/media/movies")))
+	require.NoError(t, c.Create(ctx, testNamespace("outdated-ns")))
+	require.NoError(t, c.Create(ctx, testRootFolder("outdated-ns", "movies-root", "/data/media/movies")))
+
+	// A document the gateway wrote before it learned a field (a lower
+	// status.metadata.schemaVersion) is refreshed once, at once, rather
+	// than at the item's RefreshTTL -- weeks for a released film, which
+	// left every upgraded library without the full Plex response -- and
+	// the movie stays ready meanwhile instead of every item in the library
+	// dropping to Pending together.
+	t.Run("an outdated metadata document is refreshed once and the movie stays ready", func(t *testing.T) {
+		mediaKey := events.MediaKey(string(commonv1.MediaKindMovie), "outdated-ns", "weekend")
+		received := make(chan *events.Envelope, 4)
+		stop, err := bus.Subscribe(ctx, events.Subscription{
+			Stream:  events.StreamWorkCatalogarr,
+			Durable: "test-watcher-weekend",
+			Filters: []string{events.WorkMetadataSubject(events.PriorityNormal, mediaKey)},
+		}, func(_ context.Context, m events.Message) error {
+			received <- m.Envelope()
+			return nil
+		})
+		require.NoError(t, err)
+		defer stop()
+
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "weekend", Namespace: "outdated-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 79120, QualityProfileRef: "none", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+			catalogac.Movie(m.Name, m.Namespace).WithStatus(
+				catalogac.MovieStatus().WithMetadata(
+					catalogac.MovieMetadata().WithTitle("Weekend").WithYear(2011).
+						WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()).
+						WithSchemaVersion(metadata.SchemaVersion-1),
+				),
+			))
+		require.NoError(t, err)
+
+		// Drain the create-time task (published before the document
+		// existed), then expect the one the outdated document asks for.
+		deadline := time.After(10 * time.Second)
+		var got catalogv1alpha1.Movie
+		for published := false; !published; {
+			select {
+			case <-received:
+				require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "outdated-ns", Name: "weekend"}, &got))
+				published = got.Status.Metadata != nil && got.Status.Metadata.Title == "Weekend"
+			case <-deadline:
+				t.Fatal("an outdated document published no MetadataTask")
+			}
+		}
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "outdated-ns", Name: "weekend"}, &got); err != nil {
+				return false
+			}
+			return got.Status.Phase == catalogv1alpha1.MoviePhaseWanted
+		}, 10*time.Second, 20*time.Millisecond, "an outdated but recent document keeps the movie ready")
+		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionMetadataReady)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	})
 
 	// The grab worker's status.pendingGrab write must both WAKE this
 	// controller and be folded into Phase. Neither was true before: Phase

@@ -41,6 +41,10 @@ type MovieMetadataApplyConfiguration struct {
 	Overview *string `json:"overview,omitempty"`
 	// Certification is the content rating in the configured region.
 	Certification *string `json:"certification,omitempty"`
+	// CertificationCountry is the ISO 3166-1 alpha-2 country Certification
+	// was chosen from (the region's, else the origin's, else the US), which
+	// the Plex provider prefixes the rating with outside the US.
+	CertificationCountry *string `json:"certificationCountry,omitempty"`
 	// Year is the release year.
 	Year *int32 `json:"year,omitempty"`
 	// SecondaryYear is a second year the film is known by, where the
@@ -73,6 +77,13 @@ type MovieMetadataApplyConfiguration struct {
 	AlternateTitles []string `json:"alternateTitles,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
+	// SchemaVersion is the metadata gateway's pkg/metadata.SchemaVersion
+	// when it wrote this document. The gateway raises it when it learns a
+	// field, and the item's reconciler refreshes an item whose document is
+	// older once, keeping it ready meanwhile, rather than leaving it
+	// without the new field until its RefreshTTL -- weeks for a released
+	// film.
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
 	// Ratings lists the scores gathered from the enabled ratings providers,
 	// one entry per source (pkg/metadata.RatingsProvider).
 	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
@@ -145,6 +156,14 @@ func (b *MovieMetadataApplyConfiguration) WithOverview(value string) *MovieMetad
 // If called multiple times, the Certification field is set to the value of the last call.
 func (b *MovieMetadataApplyConfiguration) WithCertification(value string) *MovieMetadataApplyConfiguration {
 	b.Certification = &value
+	return b
+}
+
+// WithCertificationCountry sets the CertificationCountry field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CertificationCountry field is set to the value of the last call.
+func (b *MovieMetadataApplyConfiguration) WithCertificationCountry(value string) *MovieMetadataApplyConfiguration {
+	b.CertificationCountry = &value
 	return b
 }
 
@@ -277,6 +296,14 @@ func (b *MovieMetadataApplyConfiguration) WithAlternateTitles(values ...string) 
 // If called multiple times, the RefreshedAt field is set to the value of the last call.
 func (b *MovieMetadataApplyConfiguration) WithRefreshedAt(value v1.Time) *MovieMetadataApplyConfiguration {
 	b.RefreshedAt = &value
+	return b
+}
+
+// WithSchemaVersion sets the SchemaVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaVersion field is set to the value of the last call.
+func (b *MovieMetadataApplyConfiguration) WithSchemaVersion(value int32) *MovieMetadataApplyConfiguration {
+	b.SchemaVersion = &value
 	return b
 }
 

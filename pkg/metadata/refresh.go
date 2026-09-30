@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metadata
 
 import (
+	"strconv"
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -92,4 +93,27 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 	default:
 		return 24 * time.Hour
 	}
+}
+
+// SchemaVersion is the version of the Movie and Series documents the
+// metadata gateway writes (status.metadata.schemaVersion). Raise it when the
+// gateway learns a field: an item whose document is older is refreshed once,
+// bypassing the L2 cache (whose key carries it), instead of lacking the new
+// field until its RefreshTTL -- weeks for a released film -- the way
+// mediainfo.ProbeVersion re-probes files.
+//
+//	1: the full Plex Metadata Response (2026-09-30): tagline, studios,
+//	   countries, certifications, people, season posters, stills.
+const SchemaVersion int32 = 1
+
+// RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
+// task. The refresh an outdated document asks for has one of its own, per
+// SchemaVersion: under the plain "metadata" id the bus would drop it as a
+// duplicate of the generation's last refresh while that id is still in the
+// stream's duplicate window.
+func RefreshPurpose(outdated bool) string {
+	if outdated {
+		return "metadata-schema" + strconv.Itoa(int(SchemaVersion))
+	}
+	return "metadata"
 }

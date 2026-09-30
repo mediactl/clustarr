@@ -244,8 +244,9 @@ type Movie struct {
 	Genres  []string `json:"genres,omitempty"`
 	Ratings Ratings  `json:"ratings,omitempty"`
 
-	Certification string        `json:"certification,omitempty"`
-	ReleaseDates  []ReleaseDate `json:"releaseDates,omitempty"`
+	Certification        string        `json:"certification,omitempty"`
+	CertificationCountry string        `json:"certificationCountry,omitempty"` // the country Certification was chosen from
+	ReleaseDates         []ReleaseDate `json:"releaseDates,omitempty"`
 
 	InCinemas       *time.Time  `json:"inCinemas,omitempty"`
 	DigitalRelease  *time.Time  `json:"digitalRelease,omitempty"`
@@ -343,9 +344,10 @@ type Series struct {
 	LastAired  *time.Time `json:"lastAired,omitempty"`
 	NextAired  *time.Time `json:"nextAired,omitempty"`
 
-	Genres        []string `json:"genres,omitempty"`
-	Certification string   `json:"certification,omitempty"`
-	Ratings       Ratings  `json:"ratings,omitempty"`
+	Genres               []string `json:"genres,omitempty"`
+	Certification        string   `json:"certification,omitempty"`
+	CertificationCountry string   `json:"certificationCountry,omitempty"` // the country Certification was chosen from
+	Ratings              Ratings  `json:"ratings,omitempty"`
 
 	Images []Image  `json:"images,omitempty"`
 	People []Person `json:"people,omitempty"`

@@ -58,9 +58,10 @@ func localeOf(r *http.Request) locale {
 
 // contentRating chooses the rating Plex shows: the requested country's
 // when the item has one, else the stored certification the metadata
-// gateway chose for the configured region. A rating from outside the US is
-// written "<cc>/<rating>" in lower case, as the protocol requires.
-func contentRating(certs []catalogv1.Certification, stored string, loc locale) string {
+// gateway chose for the configured region, prefixed with the country it
+// chose it from. A rating from outside the US is written "<cc>/<rating>" in
+// lower case, as the protocol requires.
+func contentRating(certs []catalogv1.Certification, stored catalogv1.Certification, loc locale) string {
 	if loc.Country != "" {
 		for _, c := range certs {
 			if c.Country == loc.Country {
@@ -68,25 +69,29 @@ func contentRating(certs []catalogv1.Certification, stored string, loc locale) s
 			}
 		}
 	}
-	if stored == "" {
+	if stored.Rating == "" {
 		return ""
 	}
-	// The stored rating's own country: the US when it has that rating (a
-	// region-less install falls back to the US last), else the first match.
+	if stored.Country != "" {
+		return prefixed(stored)
+	}
+	// A document written before the gateway recorded the country: the US
+	// when it has that rating (a region-less install falls back to the US
+	// last), else the first country that does.
 	var match *catalogv1.Certification
 	for i := range certs {
-		if certs[i].Rating != stored {
+		if certs[i].Rating != stored.Rating {
 			continue
 		}
 		if certs[i].Country == "US" {
-			return stored
+			return stored.Rating
 		}
 		if match == nil {
 			match = &certs[i]
 		}
 	}
 	if match == nil {
-		return stored
+		return stored.Rating
 	}
 	return prefixed(*match)
 }

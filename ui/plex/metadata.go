@@ -126,7 +126,7 @@ func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 		md.Title = meta.Title
 		md.TitleSort = meta.SortTitle
 		md.Summary = meta.Overview
-		md.ContentRating = contentRating(meta.Certifications, meta.Certification, u.loc)
+		md.ContentRating = contentRating(meta.Certifications, catalogv1.Certification{Country: meta.CertificationCountry, Rating: meta.Certification}, u.loc)
 		md.Year = meta.Year
 		md.OriginallyAvailableAt = movieAvailableDate(meta)
 		if meta.RuntimeMinutes > 0 {
@@ -205,7 +205,7 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 		md.Title = meta.Title
 		md.TitleSort = meta.SortTitle
 		md.Summary = meta.Overview
-		md.ContentRating = contentRating(meta.Certifications, meta.Certification, u.loc)
+		md.ContentRating = contentRating(meta.Certifications, catalogv1.Certification{Country: meta.CertificationCountry, Rating: meta.Certification}, u.loc)
 		md.Year = meta.Year
 		if meta.FirstAired != nil {
 			md.OriginallyAvailableAt = meta.FirstAired.UTC().Format("2006-01-02")
@@ -460,7 +460,7 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 	md.ParentArt = seriesArt
 	md.GrandparentArt = seriesArt
 	if meta := s.Status.Metadata; meta != nil {
-		md.ContentRating = contentRating(meta.Certifications, meta.Certification, u.loc)
+		md.ContentRating = contentRating(meta.Certifications, catalogv1.Certification{Country: meta.CertificationCountry, Rating: meta.Certification}, u.loc)
 	}
 	md.Image = buildEpisodeImages(u, e)
 	if len(md.Image) > 0 {
