@@ -354,7 +354,7 @@ func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta Plan
 	} else {
 		switch plan.Tier {
 		case TierNVENC:
-			plan.VideoArgs = nvencVideoArgs(profile.Video)
+			plan.VideoArgs = nvencVideoArgs(profile.Video, v0)
 		case TierQSV:
 			plan.HWInit = qsvHWInit()
 			// hevc_qsv refuses profile main10 on the NV12 surfaces an 8-bit
@@ -604,8 +604,13 @@ func cpuVideoArgs(v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisi
 	return args
 }
 
-func nvencVideoArgs(v VideoSpec) []string {
-	return []string{
+// nvencVideoArgs renders hevc_nvenc's arguments for source video stream v0.
+// Constant quality (-cq) is the target, capped by v.NVENC.MaxBitratePercent
+// of v0's bitrate: NVENC's constant quality has no ceiling of its own, and on
+// a low-bitrate source it spent more bits than the source had (a 1.3 Mbps
+// WEBRip came out at 3.9 Mbps, 2026-09-30). -bufsize is twice -maxrate.
+func nvencVideoArgs(v VideoSpec, v0 VideoStream) []string {
+	args := []string{
 		"-c:v", "hevc_nvenc",
 		"-preset", v.NVENC.Preset,
 		"-tune", v.NVENC.Tune,
@@ -622,6 +627,11 @@ func nvencVideoArgs(v VideoSpec) []string {
 		"-tier", "high",
 		"-pix_fmt", "p010le",
 	}
+	if pct := v.NVENC.MaxBitratePercent; pct > 0 && v0.BitRateKbps > 0 {
+		maxKbps := int64(v0.BitRateKbps) * int64(pct) / 100
+		args = append(args, "-maxrate", fmt.Sprintf("%dk", maxKbps), "-bufsize", fmt.Sprintf("%dk", 2*maxKbps))
+	}
+	return args
 }
 
 func qsvHWInit() []string {

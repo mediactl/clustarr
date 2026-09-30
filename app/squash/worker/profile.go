@@ -75,6 +75,7 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 			NVENC: transcode.NVENCSpec{
 				Preset: v.NVENC.Preset, Tune: v.NVENC.Tune, CQ: v.NVENC.CQ,
 				Multipass: v.NVENC.Multipass, BRefMode: v.NVENC.BRefMode,
+				MaxBitratePercent: ptr.Deref(v.NVENC.MaxBitratePercent, DefaultNVENCMaxBitratePercent),
 			},
 			QSV: transcode.QSVSpec{
 				GlobalQuality: v.QSV.GlobalQuality, Preset: v.QSV.Preset, LookAheadDepth: v.QSV.LookAheadDepth,
@@ -162,6 +163,10 @@ func MinDuration(p transcodev1alpha1.PolicySpec) time.Duration {
 	}
 	return p.MinDuration.Duration
 }
+
+// DefaultNVENCMaxBitratePercent mirrors video.nvenc.maxBitratePercent's CRD
+// default, for a nil pointer.
+const DefaultNVENCMaxBitratePercent = 70
 
 // DefaultMaxOutputToSourcePercent mirrors policy.maxOutputToSourcePercent's
 // +kubebuilder:default=100.

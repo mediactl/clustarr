@@ -141,6 +141,7 @@ type VideoStream struct {
 	PixFmt                                                string
 	BitDepth                                              int32
 	Width, Height                                         int32
+	BitRateKbps                                           int32 // the probe summary's videoBitrateKbps, first video stream only
 	FrameRate                                             Rational
 	FieldOrder                                            string // "progressive"|"tt"|"bb"|"tb"|"bt"
 	ColorRange, ColorPrimaries, ColorTransfer, ColorSpace string
@@ -251,15 +252,16 @@ func FromSummary(path string, mi *commonv1.MediaInfo) (MediaInfo, error) {
 	}
 
 	v := VideoStream{
-		Codec:     mi.VideoCodec,
-		Profile:   mi.VideoProfile,
-		PixFmt:    mi.PixelFormat,
-		BitDepth:  mi.VideoBitDepth,
-		Width:     mi.Width,
-		Height:    mi.Height,
-		FrameRate: Rational{Num: int64(mi.FpsMilli), Den: 1000},
-		Duration:  duration,
-		HDR:       HDRInfo{Format: mi.Hdr},
+		Codec:       mi.VideoCodec,
+		Profile:     mi.VideoProfile,
+		PixFmt:      mi.PixelFormat,
+		BitDepth:    mi.VideoBitDepth,
+		Width:       mi.Width,
+		Height:      mi.Height,
+		BitRateKbps: mi.VideoBitrateKbps,
+		FrameRate:   Rational{Num: int64(mi.FpsMilli), Den: 1000},
+		Duration:    duration,
+		HDR:         HDRInfo{Format: mi.Hdr},
 	}
 	colour := hdrColour(mi.Hdr)
 	v.ColorPrimaries, v.ColorTransfer, v.ColorSpace, v.ColorRange = colour.primaries, colour.transfer, colour.space, colour.rng
@@ -370,6 +372,9 @@ func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 				vs.ColorTransfer = firstNonEmpty(raw.ColorTransfer, s.ColorTransfer)
 				vs.ColorSpace = firstNonEmpty(raw.ColorSpace, s.ColorSpace)
 				vs.BitDepth = mi.VideoBitDepth
+				// The summary's, not raw's bit_rate: a Matroska stream has
+				// none, and the NVENC cap must read what FromSummary reads.
+				vs.BitRateKbps = mi.VideoBitrateKbps
 				vs.HDR = HDRInfo{
 					Format:           mi.Hdr,
 					MasteringDisplay: raw.MasteringDisplay,

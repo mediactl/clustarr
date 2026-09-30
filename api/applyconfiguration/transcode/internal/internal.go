@@ -293,6 +293,10 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 24
+    - name: maxBitratePercent
+      type:
+        scalar: numeric
+      default: 70
     - name: multipass
       type:
         scalar: string

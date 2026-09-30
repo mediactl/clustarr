@@ -147,6 +147,18 @@ type NVENCSpec struct {
 	// +optional
 	// +kubebuilder:default="middle"
 	BRefMode string `json:"bRefMode,omitempty"`
+
+	// MaxBitratePercent caps the encode at this percentage of the source's
+	// video bitrate, as -maxrate (and twice that as -bufsize), with cq still
+	// the quality target below it. NVENC's constant quality has no ceiling,
+	// and on a low-bitrate source it spends more bits than the source had.
+	// 0 is no cap, as is a source whose bitrate the probe does not know. A
+	// pointer so a Go client can send 0; unset is 70.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=70
+	MaxBitratePercent *int32 `json:"maxBitratePercent,omitempty"`
 }
 
 // QSVSpec tunes the Intel Quick Sync encoder (hardware=intel).

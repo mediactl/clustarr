@@ -234,6 +234,23 @@ func TestFromSummaryAndFromProbeRenderTheSameArgs(t *testing.T) {
 			assert.Equal(t, fromProbe.Decision, fromSummary.Decision)
 			assert.Equal(t, transcode.Args(fromProbe), transcode.Args(fromSummary))
 			assert.Equal(t, transcode.ArgsHash(fromProbe), transcode.ArgsHash(fromSummary))
+
+			// NVENC's bitrate cap is a share of the source's video
+			// bitrate: both paths must read the same one, or the argv the
+			// controller records differs from the one the worker runs.
+			nv := fastProfile()
+			nv.Hardware = transcode.HardwareNVIDIA
+			nv.Video.NVENC = transcode.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle", MaxBitratePercent: 70}
+			nvCaps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierNVENC: true}}
+			live.Video[0].Codec, stored.Video[0].Codec = "h264", "h264" // make it encode
+			fromProbe, err = transcode.Plan(live, nv, nvCaps, testMeta)
+			require.NoError(t, err)
+			fromSummary, err = transcode.Plan(stored, nv, nvCaps, testMeta)
+			require.NoError(t, err)
+			require.Equal(t, transcode.TierNVENC, fromSummary.Tier)
+			assert.Positive(t, stored.Video[0].BitRateKbps, "the probe derives a video bitrate for the generated file")
+			assert.Contains(t, transcode.Args(fromSummary), "-maxrate")
+			assert.Equal(t, transcode.Args(fromProbe), transcode.Args(fromSummary))
 		})
 	}
 

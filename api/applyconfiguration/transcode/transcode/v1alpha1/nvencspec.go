@@ -34,6 +34,13 @@ type NVENCSpecApplyConfiguration struct {
 	Multipass *string `json:"multipass,omitempty"`
 	// BRefMode is the NVENC B-frame reference mode.
 	BRefMode *string `json:"bRefMode,omitempty"`
+	// MaxBitratePercent caps the encode at this percentage of the source's
+	// video bitrate, as -maxrate (and twice that as -bufsize), with cq still
+	// the quality target below it. NVENC's constant quality has no ceiling,
+	// and on a low-bitrate source it spends more bits than the source had.
+	// 0 is no cap, as is a source whose bitrate the probe does not know. A
+	// pointer so a Go client can send 0; unset is 70.
+	MaxBitratePercent *int32 `json:"maxBitratePercent,omitempty"`
 }
 
 // NVENCSpecApplyConfiguration constructs a declarative configuration of the NVENCSpec type for use with
@@ -79,5 +86,13 @@ func (b *NVENCSpecApplyConfiguration) WithMultipass(value string) *NVENCSpecAppl
 // If called multiple times, the BRefMode field is set to the value of the last call.
 func (b *NVENCSpecApplyConfiguration) WithBRefMode(value string) *NVENCSpecApplyConfiguration {
 	b.BRefMode = &value
+	return b
+}
+
+// WithMaxBitratePercent sets the MaxBitratePercent field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxBitratePercent field is set to the value of the last call.
+func (b *NVENCSpecApplyConfiguration) WithMaxBitratePercent(value int32) *NVENCSpecApplyConfiguration {
+	b.MaxBitratePercent = &value
 	return b
 }

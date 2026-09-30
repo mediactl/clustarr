@@ -51,6 +51,9 @@ type NVENCSpec struct {
 	Preset, Tune        string
 	CQ                  int32
 	Multipass, BRefMode string
+	// MaxBitratePercent caps the encode at this share of the source's
+	// video bitrate (VideoStream.BitRateKbps) as -maxrate; 0 is no cap.
+	MaxBitratePercent int32
 }
 
 // QSVSpec tunes the Intel Quick Sync encoder (hardware=intel).

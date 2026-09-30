@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -112,4 +115,33 @@ func TestToMediaInfoRecordsTheVideoEncoder(t *testing.T) {
 	assert.Equal(t, "Lavc60 libx264", probe(ffprobe.Tags{"encoder": " Lavc60 libx264 "}).VideoEncoder)
 	assert.Empty(t, probe(nil).VideoEncoder)
 	assert.Empty(t, probe(ffprobe.Tags{"ENCODER": strings.Repeat("x", MaxVideoEncoderLength+1)}).VideoEncoder)
+}
+
+// loadProbe reads a recorded `ffprobe -show_format -show_streams` JSON
+// under test/data/mediainfo.
+func loadProbe(t *testing.T, name string) *Raw {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "test", "data", "mediainfo", name))
+	require.NoError(t, err)
+	var pd ffprobe.ProbeData
+	require.NoError(t, json.Unmarshal(b, &pd))
+	return &Raw{Format: pd.Format, Streams: pd.Streams}
+}
+
+// TestVideoBitrateFromAMatroskaFile: a Matroska stream carries no bit_rate
+// -- 11,182 of the owner's 12,449 probed files read 0, so the NVENC bitrate
+// cap had nothing to cap from -- but mkvmerge records the stream's average
+// as its BPS statistics tag. With neither, the container's bitrate less the
+// audio streams' is the estimate. The input is a real WEB-DL's probe.
+func TestVideoBitrateFromAMatroskaFile(t *testing.T) {
+	raw := loadProbe(t, "ffprobe_mkv_webdl_bps.json")
+	require.Empty(t, raw.Streams[0].BitRate, "fixture: a Matroska video stream has no bit_rate")
+	assert.Equal(t, int32(4134), toMediaInfo(raw).VideoBitrateKbps, "mkvmerge's BPS tag")
+
+	delete(raw.Streams[0].TagList, "BPS")
+	assert.Equal(t, int32((4327758-189375)/1000), toMediaInfo(raw).VideoBitrateKbps,
+		"no tag: the container's bitrate less the audio's")
+
+	raw.Format.BitRate = ""
+	assert.Zero(t, toMediaInfo(raw).VideoBitrateKbps, "nothing to derive it from")
 }

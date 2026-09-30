@@ -364,3 +364,49 @@ func TestPlanExpectsThePixelFormatFfprobeReportsOnAGPUEncode(t *testing.T) {
 		})
 	}
 }
+
+// TestNVENCCapsTheBitrateAtAShareOfTheSources: NVENC's constant quality has
+// no ceiling, so a low-bitrate source (a 1.3 Mbps WEBRip) came out at 3.9
+// Mbps, 265% of the source, and maxOutputToSourcePercent refused it after
+// the whole encode. The cap is maxBitratePercent of the source's video
+// bitrate as -maxrate, with twice that as -bufsize; with no bitrate known,
+// or a percent of 0, there is none.
+func TestNVENCCapsTheBitrateAtAShareOfTheSources(t *testing.T) {
+	info := transcode.MediaInfo{
+		Path:   "/media/Show (1968)/S06E40.mkv",
+		Format: transcode.FormatInfo{Duration: 29 * time.Minute},
+		Video: []transcode.VideoStream{{
+			Codec: "h264", PixFmt: "yuv420p", Width: 1546, Height: 1078, BitRateKbps: 1299,
+			FrameRate: transcode.Rational{Num: 30000, Den: 1001},
+		}},
+		Audio: []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},
+	}
+	caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierNVENC: true}}
+	plan := func(info transcode.MediaInfo, percent int32) []string {
+		profile := defaultProfile()
+		profile.Hardware = transcode.HardwareNVIDIA
+		profile.Video.NVENC = transcode.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle", MaxBitratePercent: percent}
+		p, err := transcode.Plan(info, profile, caps, transcode.PlanMeta{ProfileName: "p", ProfileHash: "h", Threads: 1})
+		require.NoError(t, err)
+		require.Equal(t, transcode.TierNVENC, p.Tier)
+		return p.VideoArgs
+	}
+
+	args := plan(info, 70)
+	got, ok := argAfter(args, "-maxrate")
+	require.True(t, ok, "no -maxrate in %v", args)
+	require.Equal(t, "909k", got, "70% of 1299 kbps")
+	got, _ = argAfter(args, "-bufsize")
+	require.Equal(t, "1818k", got)
+	got, _ = argAfter(args, "-cq")
+	require.Equal(t, "24", got, "constant quality stays the target under the cap")
+
+	_, ok = argAfter(plan(info, 0), "-maxrate")
+	require.False(t, ok, "a percent of 0 turns the cap off")
+
+	unknown := info
+	unknown.Video = append([]transcode.VideoStream(nil), info.Video...)
+	unknown.Video[0].BitRateKbps = 0
+	_, ok = argAfter(plan(unknown, 70), "-maxrate")
+	require.False(t, ok, "no known bitrate, no cap")
+}

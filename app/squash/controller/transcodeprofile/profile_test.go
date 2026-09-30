@@ -50,7 +50,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 			KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
 			MaxRateKbps: ptr.To[int32](20000), BufSizeKbps: ptr.To[int32](40000),
 			ExtraX265Params: map[string]string{"no-sao": "1"},
-			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle"},
+			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle", MaxBitratePercent: ptr.To[int32](70)},
 			QSV:             transcodev1alpha1.QSVSpec{GlobalQuality: 22, Preset: "veryslow", LookAheadDepth: 40},
 		},
 		Audio: transcodev1alpha1.AudioSpec{

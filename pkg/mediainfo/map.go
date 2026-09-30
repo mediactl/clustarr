@@ -62,7 +62,7 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 		mi.Width = int32(v.Width)
 		mi.Height = int32(v.Height)
 		mi.FpsMilli = frameRateMilli(v.RFrameRate)
-		mi.VideoBitrateKbps = kbpsFromBitRate(v.BitRate)
+		mi.VideoBitrateKbps = videoBitrateKbps(raw, v)
 		mi.VideoEncoder = videoEncoder(v)
 	}
 	if raw.Dovi != nil {
@@ -139,8 +139,50 @@ func FormatTag(raw *Raw, key string) string {
 // status.probeVersion. Raise it whenever the probe starts recording
 // something it did not before: every file probed by an older version is
 // probed once more, with its probeHash unchanged. 1 added videoEncoder
-// (2026-09-29).
-const ProbeVersion int32 = 1
+// (2026-09-29); 2 derives videoBitrateKbps for Matroska, whose streams carry
+// no bit_rate (2026-09-30).
+const ProbeVersion int32 = 2
+
+// videoBitrateKbps is video stream v's average bitrate: its bit_rate, else
+// mkvmerge's BPS statistics tag (a Matroska stream carries no bit_rate), else
+// the container's bitrate less every audio stream's, else 0. The NVENC
+// bitrate cap is a share of it, so it must be derived identically wherever a
+// plan is made -- the controller's stored summary and the worker's live
+// probe are both this function's output.
+func videoBitrateKbps(raw *Raw, v *ffprobe.Stream) int32 {
+	if k := streamKbps(v); k > 0 {
+		return k
+	}
+	if raw.Format == nil {
+		return 0
+	}
+	total := kbpsFromBitRate(raw.Format.BitRate)
+	if total <= 0 {
+		return 0
+	}
+	for _, s := range raw.Streams {
+		if s.CodecType == string(ffprobe.StreamAudio) {
+			total -= streamKbps(s)
+		}
+	}
+	return max(total, 0)
+}
+
+// streamKbps is s's bit_rate, else its mkvmerge BPS tag ("BPS", or
+// "BPS-eng" from mkvmerge before v25), in kbps; 0 when it has neither.
+func streamKbps(s *ffprobe.Stream) int32 {
+	if k := kbpsFromBitRate(s.BitRate); k > 0 {
+		return k
+	}
+	for _, key := range []string{"BPS", "BPS-eng"} {
+		if v, ok := s.TagList[key].(string); ok {
+			if k := kbpsFromBitRate(v); k > 0 {
+				return k
+			}
+		}
+	}
+	return 0
+}
 
 // MaxVideoEncoderLength is MediaInfo.VideoEncoder's MaxLength. A longer
 // value is dropped rather than failing the whole status apply.

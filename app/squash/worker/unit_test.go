@@ -183,7 +183,7 @@ func TestProfileSpecCarriesEveryField(t *testing.T) {
 			Preset: "slow", Tune: &tune, KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
 			MaxRateKbps: ptr.To[int32](1), BufSizeKbps: ptr.To[int32](2),
 			ExtraX265Params: map[string]string{"a": "b"},
-			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle"},
+			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle", MaxBitratePercent: ptr.To[int32](50)},
 			QSV:             transcodev1alpha1.QSVSpec{GlobalQuality: 22, Preset: "veryslow", LookAheadDepth: 40},
 		},
 		Audio: transcodev1alpha1.AudioSpec{
@@ -258,6 +258,7 @@ func TestPointerDefaultsMatchTheGeneratedCRD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, DefaultMinDuration, d)
 	assert.EqualValues(t, DefaultMaxOutputToSourcePercent, defaultAt("policy", "maxOutputToSourcePercent"))
+	assert.EqualValues(t, DefaultNVENCMaxBitratePercent, defaultAt("video", "nvenc", "maxBitratePercent"))
 }
 
 // G4-0 made every other defaulted-true bool in the spec a pointer, plus
@@ -276,6 +277,7 @@ func TestProfileSpecAppliesPointerDefaults(t *testing.T) {
 	assert.True(t, unset.Verify.PacketCount)
 	assert.Equal(t, time.Minute, unset.Policy.MinDuration)
 	assert.Equal(t, int32(100), unset.Policy.MaxOutputToSourcePercent)
+	assert.Equal(t, int32(70), unset.Video.NVENC.MaxBitratePercent)
 
 	off := ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{
 		Audio:     transcodev1alpha1.AudioSpec{DropCommentary: ptr.To(false)},
@@ -285,6 +287,7 @@ func TestProfileSpecAppliesPointerDefaults(t *testing.T) {
 			MinDuration: &metav1.Duration{}, MaxOutputToSourcePercent: ptr.To[int32](0),
 		},
 		Verify: transcodev1alpha1.VerifySpec{PacketCount: ptr.To(false)},
+		Video:  transcodev1alpha1.VideoSpec{NVENC: transcodev1alpha1.NVENCSpec{MaxBitratePercent: ptr.To[int32](0)}},
 	}, nil)
 	assert.False(t, off.Audio.DropCommentary)
 	assert.False(t, off.Subtitles.CopyText)
@@ -295,6 +298,7 @@ func TestProfileSpecAppliesPointerDefaults(t *testing.T) {
 	assert.False(t, off.Verify.PacketCount)
 	assert.Zero(t, off.Policy.MinDuration)
 	assert.Zero(t, off.Policy.MaxOutputToSourcePercent)
+	assert.Zero(t, off.Video.NVENC.MaxBitratePercent, "0 turns the NVENC cap off")
 }
 
 // An auto profile with no class chosen yet plans for CPU. Its profile hash is
