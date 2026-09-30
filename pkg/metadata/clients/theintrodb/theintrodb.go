@@ -22,17 +22,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // It needs no key: anonymous callers get 30 requests per 10 s and a usage
 // allowance (x-usagelimit-*), and a key, sent as a Bearer token, raises
-// both. A 429 is a metadata.RateLimitedError carrying the server's
-// Retry-After, through httpjson.
+// both. A 429 is a metadata.RateLimitedError: it carries the server's
+// Retry-After, or, since the API sends none (2026-09-30), the reset of
+// whichever limit is spent.
 package theintrodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -129,7 +132,7 @@ func (c *Client) Markers(ctx context.Context, q metadata.MarkersQuery) (metadata
 		v.Set("duration_ms", strconv.FormatInt(q.DurationMs, 10))
 	}
 	var raw rawMedia
-	if err := c.h.GetJSON(ctx, c.baseURL+"/v3/media?"+v.Encode(), c.header(), &raw); err != nil {
+	if err := c.get(ctx, c.baseURL+"/v3/media?"+v.Encode(), &raw); err != nil {
 		tracing.RecordError(span, err)
 		return metadata.Segments{}, err
 	}
@@ -145,6 +148,37 @@ func (c *Client) Markers(ctx context.Context, q metadata.MarkersQuery) (metadata
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.Markers(ctx, metadata.MarkersQuery{IDs: metadata.ExternalIDs{metadata.KeyTMDB: pingTMDB}})
 	return err
+}
+
+// get is httpjson's GetJSON, with a 429's wait read from the limit headers
+// when it carries no Retry-After.
+func (c *Client) get(ctx context.Context, rawURL string, out any) error {
+	resp, err := c.h.Do(ctx, httpjson.Request{Method: http.MethodGet, URL: rawURL, Header: c.header()})
+	if err != nil {
+		return err
+	}
+	if err := c.h.Check(resp, rawURL); err != nil {
+		var rl *metadata.RateLimitedError
+		if errors.As(err, &rl) && rl.RetryAfter == 0 {
+			rl.RetryAfter = limitReset(resp.Header)
+		}
+		return err
+	}
+	return c.h.Decode(resp.Body, out)
+}
+
+// limitReset is the reset, in seconds, of the spent limit: the usage
+// allowance's, else the rate window's; zero when neither says it is spent.
+func limitReset(h http.Header) time.Duration {
+	for _, l := range []string{"X-Usagelimit", "X-Ratelimit"} {
+		if h.Get(l+"-Remaining") != "0" {
+			continue
+		}
+		if secs, err := strconv.Atoi(h.Get(l + "-Reset")); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return 0
 }
 
 func (c *Client) header() http.Header {

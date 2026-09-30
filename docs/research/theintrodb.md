@@ -37,6 +37,15 @@ These are the anonymous limits, read from the response headers:
 - `x-usagelimit-limit: 500`;
 - `x-usagelimit-specificmedia-limit: 2000`.
 
+An exhausted allowance is a 429 with no `Retry-After` and no body worth
+reading. Recorded on 2026-09-30:
+
+- `x-usagelimit-remaining: 0`;
+- `x-usagelimit-reset: 6945`, the seconds until the allowance returns.
+
+The client waits for the reset of whichever limit reads 0 remaining. A
+throttled Ping marks the MetadataProvider `Throttled` and not Ready.
+
 An `Authorization` header is accepted; the client sends a key as `Bearer <key>`.
 
 ## Coverage

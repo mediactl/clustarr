@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -129,4 +130,51 @@ func TestTheKeyIsABearerTokenAndNeverInAnError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "Bearer s3cret-key", rec.last.Header.Get("Authorization"))
 	assert.NotContains(t, err.Error(), "s3cret-key")
+}
+
+// limited serves one 429 with the given headers.
+func limited(t *testing.T, headers map[string]string) *theintrodb.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		for k, v := range headers {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := theintrodb.New(theintrodb.Config{HTTPClient: srv.Client(), BaseURL: srv.URL, Limiter: metadata.NewLimiter(rate.Inf, 1)})
+	require.NoError(t, err)
+	return c
+}
+
+// An exhausted usage allowance is a 429 with no Retry-After (recorded
+// live, 2026-09-30): the wait is the allowance's reset, in seconds, not
+// the caller's backoff.
+func TestAnExhaustedUsageAllowanceWaitsForItsReset(t *testing.T) {
+	c := limited(t, map[string]string{
+		"X-Ratelimit-Limit": "30", "X-Ratelimit-Remaining": "29", "X-Ratelimit-Reset": "10",
+		"X-Usagelimit-Limit": "500", "X-Usagelimit-Remaining": "0", "X-Usagelimit-Reset": "6945",
+	})
+	_, err := c.Markers(context.Background(), metadata.MarkersQuery{IDs: metadata.ExternalIDs{metadata.KeyTMDB: "603"}})
+	var rl *metadata.RateLimitedError
+	require.ErrorAs(t, err, &rl)
+	assert.Equal(t, 6945*time.Second, rl.RetryAfter)
+}
+
+func TestAnExhaustedRateWindowWaitsForItsReset(t *testing.T) {
+	c := limited(t, map[string]string{
+		"X-Ratelimit-Remaining": "0", "X-Ratelimit-Reset": "10", "X-Usagelimit-Remaining": "12", "X-Usagelimit-Reset": "6945",
+	})
+	_, err := c.Markers(context.Background(), metadata.MarkersQuery{IDs: metadata.ExternalIDs{metadata.KeyTMDB: "603"}})
+	var rl *metadata.RateLimitedError
+	require.ErrorAs(t, err, &rl)
+	assert.Equal(t, 10*time.Second, rl.RetryAfter)
+}
+
+func TestRetryAfterWinsOverTheLimitHeaders(t *testing.T) {
+	c := limited(t, map[string]string{"Retry-After": "42", "X-Usagelimit-Remaining": "0", "X-Usagelimit-Reset": "6945"})
+	_, err := c.Markers(context.Background(), metadata.MarkersQuery{IDs: metadata.ExternalIDs{metadata.KeyTMDB: "603"}})
+	var rl *metadata.RateLimitedError
+	require.ErrorAs(t, err, &rl)
+	assert.Equal(t, 42*time.Second, rl.RetryAfter)
 }
