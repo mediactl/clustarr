@@ -47,6 +47,14 @@ type SearchSpecApplyConfiguration struct {
 	Grab []string `json:"grab,omitempty"`
 	// Override allows grabbing results that were permanently rejected.
 	Override *bool `json:"override,omitempty"`
+	// GrabBest grabs the top-ranked approved result once the results are
+	// in, as the automatic search would: Readarr's and Lidarr's "search
+	// monitored". A release with any rejection, temporary included, is
+	// never grabbed this way, so an item already queued, downloading or at
+	// cutoff is not grabbed again. The Download is grabbedBy search and not
+	// manual, so the importer applies its upgrade rules. A Search on an
+	// author, artist or comic passes it to each child Search.
+	GrabBest *bool `json:"grabBest,omitempty"`
 	// TTL is how long the Search object lives after it completes. A Go
 	// client (the UI's "search now" among them) always sends a Duration, so
 	// the Search controller floors a zero (or negative) one to this default
@@ -129,6 +137,14 @@ func (b *SearchSpecApplyConfiguration) WithGrab(values ...string) *SearchSpecApp
 // If called multiple times, the Override field is set to the value of the last call.
 func (b *SearchSpecApplyConfiguration) WithOverride(value bool) *SearchSpecApplyConfiguration {
 	b.Override = &value
+	return b
+}
+
+// WithGrabBest sets the GrabBest field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GrabBest field is set to the value of the last call.
+func (b *SearchSpecApplyConfiguration) WithGrabBest(value bool) *SearchSpecApplyConfiguration {
+	b.GrabBest = &value
 	return b
 }
 

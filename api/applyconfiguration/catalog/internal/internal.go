@@ -3322,6 +3322,24 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: status
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchChildren
+  map:
+    fields:
+    - name: completed
+      type:
+        scalar: numeric
+    - name: failed
+      type:
+        scalar: numeric
+    - name: grabbed
+      type:
+        scalar: numeric
+    - name: running
+      type:
+        scalar: numeric
+    - name: total
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchList
   map:
     fields:
@@ -3357,6 +3375,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
           elementRelationship: atomic
+    - name: grabBest
+      type:
+        scalar: boolean
     - name: indexerRefs
       type:
         list:
@@ -3389,6 +3410,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchStatus
   map:
     fields:
+    - name: children
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchChildren
     - name: conditions
       type:
         list:

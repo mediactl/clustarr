@@ -143,6 +143,16 @@ type SearchSpec struct {
 	// +optional
 	Override bool `json:"override,omitempty"`
 
+	// GrabBest grabs the top-ranked approved result once the results are
+	// in, as the automatic search would: Readarr's and Lidarr's "search
+	// monitored". A release with any rejection, temporary included, is
+	// never grabbed this way, so an item already queued, downloading or at
+	// cutoff is not grabbed again. The Download is grabbedBy search and not
+	// manual, so the importer applies its upgrade rules. A Search on an
+	// author, artist or comic passes it to each child Search.
+	// +optional
+	GrabBest bool `json:"grabBest,omitempty"`
+
 	// TTL is how long the Search object lives after it completes. A Go
 	// client (the UI's "search now" among them) always sends a Duration, so
 	// the Search controller floors a zero (or negative) one to this default
@@ -150,6 +160,47 @@ type SearchSpec struct {
 	// +optional
 	// +kubebuilder:default="1h"
 	TTL metav1.Duration `json:"ttl,omitempty"`
+}
+
+// SearchChildren counts a container Search's child Searches: one per
+// monitored book, album or issue of the author, artist or comic it names.
+type SearchChildren struct {
+	// Total is how many child Searches the container Search created.
+	Total int32 `json:"total"`
+	// Running is how many have not finished.
+	// +optional
+	Running int32 `json:"running,omitempty"`
+	// Completed is how many finished with results.
+	// +optional
+	Completed int32 `json:"completed,omitempty"`
+	// Failed is how many failed.
+	// +optional
+	Failed int32 `json:"failed,omitempty"`
+	// Grabbed is how many created a Download.
+	// +optional
+	Grabbed int32 `json:"grabbed,omitempty"`
+}
+
+// LabelParentSearch names the container Search a child Search was created
+// by. A child is owned by that Search, deleted with it, and never expires
+// on its own TTL.
+const LabelParentSearch = "catalog.clustarr.io/parent-search"
+
+// MaxContainerChildren caps a container Search's fan-out: more monitored
+// children than this fails the Search and creates nothing.
+const MaxContainerChildren = 200
+
+// ContainerKind reports whether a Search on kind fans out into its
+// monitored children -- an author's books, an artist's albums, a comic's
+// issues -- rather than searching for the item itself. A series is not one:
+// television wants season packs, which this fan-out does not do.
+func ContainerKind(kind commonv1.MediaKind) bool {
+	switch kind {
+	case commonv1.MediaKindAuthor, commonv1.MediaKindArtist, commonv1.MediaKindComic:
+		return true
+	default:
+		return false
+	}
 }
 
 // SearchStatus describes the observed state of Search.
@@ -197,6 +248,11 @@ type SearchStatus struct {
 	// +listMapKey=guid
 	// +kubebuilder:validation:MaxItems=50
 	Grabbed []GrabResult `json:"grabbed,omitempty"`
+
+	// Children counts a container Search's child Searches (author, artist
+	// or comic); absent on any other Search.
+	// +optional
+	Children *SearchChildren `json:"children,omitempty"`
 }
 
 // +kubebuilder:object:root=true

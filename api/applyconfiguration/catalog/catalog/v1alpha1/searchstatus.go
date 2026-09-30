@@ -47,6 +47,9 @@ type SearchStatusApplyConfiguration struct {
 	Results []commonv1alpha1.ReleaseDecision `json:"results,omitempty"`
 	// Grabbed reports what happened to each requested grab.
 	Grabbed []GrabResultApplyConfiguration `json:"grabbed,omitempty"`
+	// Children counts a container Search's child Searches (author, artist
+	// or comic); absent on any other Search.
+	Children *SearchChildrenApplyConfiguration `json:"children,omitempty"`
 }
 
 // SearchStatusApplyConfiguration constructs a declarative configuration of the SearchStatus type for use with
@@ -133,5 +136,13 @@ func (b *SearchStatusApplyConfiguration) WithGrabbed(values ...*GrabResultApplyC
 		}
 		b.Grabbed = append(b.Grabbed, *values[i])
 	}
+	return b
+}
+
+// WithChildren sets the Children field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Children field is set to the value of the last call.
+func (b *SearchStatusApplyConfiguration) WithChildren(value *SearchChildrenApplyConfiguration) *SearchStatusApplyConfiguration {
+	b.Children = value
 	return b
 }

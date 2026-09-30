@@ -241,6 +241,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.SceneNumberingApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Search"):
 		return &catalogv1alpha1.SearchApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SearchChildren"):
+		return &catalogv1alpha1.SearchChildrenApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SearchSpec"):
 		return &catalogv1alpha1.SearchSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SearchStatus"):

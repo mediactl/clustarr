@@ -81,6 +81,16 @@ spec:
                   type: string
                 maxItems: 50
                 type: array
+              grabBest:
+                description: |-
+                  GrabBest grabs the top-ranked approved result once the results are
+                  in, as the automatic search would: Readarr's and Lidarr's "search
+                  monitored". A release with any rejection, temporary included, is
+                  never grabbed this way, so an item already queued, downloading or at
+                  cutoff is not grabbed again. The Download is grabbedBy search and not
+                  manual, so the importer applies its upgrade rules. A Search on an
+                  author, artist or comic passes it to each child Search.
+                type: boolean
               indexerRefs:
                 description: |-
                   IndexerRefs restricts the search to these Indexers; empty means all
@@ -184,6 +194,35 @@ spec:
           status:
             description: SearchStatus describes the observed state of Search.
             properties:
+              children:
+                description: |-
+                  Children counts a container Search's child Searches (author, artist
+                  or comic); absent on any other Search.
+                properties:
+                  completed:
+                    description: Completed is how many finished with results.
+                    format: int32
+                    type: integer
+                  failed:
+                    description: Failed is how many failed.
+                    format: int32
+                    type: integer
+                  grabbed:
+                    description: Grabbed is how many created a Download.
+                    format: int32
+                    type: integer
+                  running:
+                    description: Running is how many have not finished.
+                    format: int32
+                    type: integer
+                  total:
+                    description: Total is how many child Searches the container Search
+                      created.
+                    format: int32
+                    type: integer
+                required:
+                - total
+                type: object
               conditions:
                 description: Conditions represent the latest available observations
                   of the search's state.
