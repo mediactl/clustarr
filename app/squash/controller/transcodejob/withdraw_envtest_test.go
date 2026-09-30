@@ -340,7 +340,7 @@ func TestDeleteAfterALostQueuedWriteWithdrawsTheUnrecordedAttempt(t *testing.T) 
 	remaining.Store(1)
 	r.Client = failQueuedWrite{Client: c, remaining: remaining}
 
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "heat-hevc"}})
+	_, err := transcodejob.ReconcileAndAdmitForTest(ctx, r, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "heat-hevc"}})
 	require.Error(t, err, "the lost Queued write surfaces as a reconcile error")
 	lost := getTJ(t, c, ns, "heat-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, lost.Status.Phase)

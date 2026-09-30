@@ -274,13 +274,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, stepErr
 	}
 
-	// Admission runs after this job's status has landed, on every
-	// non-terminal pass -- including the one that just made this job
-	// Planned, which dispatches it when a slot is free.
-	if err := r.admit(ctx); err != nil {
-		tracing.RecordError(span, err)
-		return ctrl.Result{}, err
-	}
+	// Admission follows this job's status write on every non-terminal pass
+	// -- including the one that just made this job Planned, which it
+	// dispatches when a slot is free -- but as the one admission request,
+	// not inline: admission lists every TranscodeJob uncached, so running it
+	// in each job's reconcile made a re-roll of thousands of jobs quadratic
+	// (an 11 MB list per job, about two jobs a second through the single
+	// worker, 2026-09-30). The workqueue dedups the request, so a burst of
+	// reconciles runs one pass.
+	r.wakeAdmission()
 	return res, nil
 }
 
