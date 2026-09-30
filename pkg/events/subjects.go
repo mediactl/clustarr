@@ -139,6 +139,10 @@ const (
 	BucketIndexerLimits    = "clustarr-indexer-limits"
 	BucketProviderThrottle = "clustarr-provider-throttle"
 	BucketMetadataCache    = "clustarr-metadata-cache"
+	// BucketMetadataExtended holds the people and similar titles per
+	// catalog item that the Plex provider shows and no CRD carries (spec
+	// 2026-09-30 plex-full-metadata-response §4).
+	BucketMetadataExtended = "clustarr-metadata-extended"
 	BucketProgress         = "clustarr-progress"
 	BucketImportList       = "clustarr-importlist"
 	BucketDedup            = "clustarr-dedup"

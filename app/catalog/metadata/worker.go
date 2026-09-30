@@ -35,6 +35,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/extended"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -62,6 +64,11 @@ type Handler struct {
 	// Bus receives the RenderOverlay task every artwork pass ends with. Nil
 	// publishes none.
 	Bus events.Publisher
+
+	// Extended is the clustarr-metadata-extended bucket: every successful
+	// movie or series refresh replaces the item's people and similar titles
+	// there (pkg/metadata/extended). Nil writes none.
+	Extended events.KV
 
 	Now func() time.Time // nil = time.Now
 }
@@ -322,7 +329,35 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		tracing.RecordError(span, err)
 		return fmt.Errorf("metadata: patch status.metadata and status.artwork: %w", err)
 	}
+	h.writeExtended(ctx, task.MediaRef.Kind, target, result)
 	return nil
+}
+
+// writeExtended replaces the item's extended-metadata document. Like the
+// cache write, a failure is recorded and never fails the task: status is
+// what the rest of the system depends on, and the next refresh rewrites
+// the document.
+func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, target client.Object, result any) {
+	if h.Extended == nil {
+		return
+	}
+	var doc extended.Doc
+	switch v := result.(type) {
+	case *pkgmetadata.Movie:
+		doc = extended.FromPeople(v.People, v.Similar)
+	case *pkgmetadata.Series:
+		doc = extended.FromPeople(v.People, nil)
+	default:
+		return
+	}
+	b, err := extended.Encode(doc)
+	if err == nil {
+		_, err = h.Extended.Put(ctx, extended.Key(kind, target.GetUID()), b)
+	}
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "metadata: write the extended document (non-fatal)",
+			"kind", kind, "name", target.GetName(), "error", err)
+	}
 }
 
 // imagesOf reads a rendered status.metadata.images back as API values, the

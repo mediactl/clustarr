@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
+
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,10 +38,12 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
+	"github.com/mediactl/clustarr/pkg/metadata/extended"
 )
 
 // newTestClient mirrors pkg/k8s/patch_envtest_test.go's helper: an
@@ -669,4 +673,46 @@ func TestHandlerRecordsWeekendsFullMetadata(t *testing.T) {
 	require.Equal(t, "A (sort of) love story between two guys over a cold weekend in October.", md.Tagline)
 	require.Equal(t, []string{"United Kingdom"}, md.Countries)
 	require.NotEmpty(t, md.Studios)
+}
+
+// TestHandlerWritesTheExtendedDocument: after a movie refresh the people
+// and similar titles land in the clustarr-metadata-extended document under
+// the Movie's UID, never in its status.
+func TestHandlerWritesTheExtendedDocument(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hext", "weekend"
+	newMovie(t, ctx, c, ns, name, 79120)
+	body, err := os.ReadFile("../../../test/data/metadata/tmdb/movie-79120.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
+	require.NoError(t, err)
+
+	bus := membus.New(clockwork.NewRealClock())
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	kv := bus.KV(events.BucketMetadataExtended)
+	h := &metadata.Handler{
+		Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}},
+		Cache: noopCache{}, Extended: kv,
+	}
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	e, err := kv.Get(ctx, extended.Key(commonv1.MediaKindMovie, got.UID))
+	require.NoError(t, err)
+	doc, err := extended.Decode(e.Value)
+	require.NoError(t, err)
+	require.Len(t, doc.Role, 16)
+	require.Equal(t, "Andrew Haigh", doc.Director[0].Name)
+	require.Len(t, doc.Similar, 20)
 }

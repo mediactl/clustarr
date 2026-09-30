@@ -810,6 +810,7 @@ func defaultBuckets() []BucketSpec {
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),
 		b(BucketMetadataCache, 30*24*time.Hour, "L2 metadata cache."),
+		b(BucketMetadataExtended, 0, "People and similar titles per catalog item, for the Plex provider."),
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
 		b(BucketTranscodeLeases, TranscodeLeaseTTL,
 			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; squasharr writes cancel markers."),
