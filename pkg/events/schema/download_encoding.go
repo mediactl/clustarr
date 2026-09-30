@@ -29,9 +29,13 @@ import (
 const DownloadEncodingGzip = "gzip"
 
 // MaxDownloadWireBytes is the most DownloadResponse.Bytes may carry on the
-// wire, compressed or not: base64 makes it about 5.34 MiB, which leaves the
-// envelope room under the broker's 8Mi max_payload.
-const MaxDownloadWireBytes = 4 << 20
+// wire, compressed or not: 5.75 MiB, which base64 makes about 7.67 MiB and
+// leaves over 256 KiB of the broker's 8Mi max_payload for the envelope and
+// headers (natsbus.TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload sends
+// it through a real server; 6.25 MiB is refused). At gzip's ~4.3x on an
+// .nzb that is about a 25 MiB .nzb, a ~180 GB release. zstd would add ~9%
+// in Go (measured 2026-09-30), not worth a second codec.
+const MaxDownloadWireBytes = 23 << 18
 
 // downloadCompressAbove is the body size ForWire starts compressing at: a
 // .torrent or a small .nzb is sent as it is.

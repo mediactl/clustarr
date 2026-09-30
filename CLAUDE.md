@@ -520,8 +520,10 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   hit it. The bus reply now gzips a body over 1 MiB
   (`schema.DownloadResponse.ForWire`, `encoding: gzip`; NZB XML compresses
   about four times), refuses one still over `schema.MaxDownloadWireBytes`
-  compressed, and both engines read it through `DownloadResponse.Payload`;
-  indexarr reads up to 32 MiB raw, the usenet engine's own cap.
+  (5.75 MiB) compressed, and both engines read it through
+  `DownloadResponse.Payload`; indexarr reads up to 32 MiB raw, the usenet
+  engine's own cap. A real-server test holds the budget to the broker's
+  8Mi, envelope included.
 - **A par2 set named `name.vol-01.par2`..`vol-07.par2` carries no block
   counts, and the usenet engine read it as unrepairable.** `par2VolumeRE`
   only knew `vol000+01`, so those volumes classified as *index* files with

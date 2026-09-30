@@ -20,7 +20,9 @@ package natsbus_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +32,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // TestServeReportsAReplyTheServerRefuses pins the failure found on the
@@ -100,5 +103,64 @@ func TestServeReportsAReplyTheServerRefuses(t *testing.T) {
 		t.Fatalf("Request error = %q, want it to name %q", err, nats.ErrMaxPayload)
 	case elapsed > 5*time.Second:
 		t.Fatalf("Request took %s to fail; the error reply should be immediate", elapsed)
+	}
+}
+
+// TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload sends the largest
+// rpc.indexarr.download reply indexarr will send -- schema.MaxDownloadWireBytes
+// of incompressible body, base64 in JSON, plus the reply's headers --
+// through a real server capped at the broker's 8Mi (config/nats), and
+// requires it to arrive whole. The budget was raised to use that room on
+// 2026-09-30; this is the only test that sees the real framing.
+func TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload(t *testing.T) {
+	const brokerMaxPayload = 8 << 20
+
+	srv, err := natsserver.NewServer(&natsserver.Options{
+		ServerName: "clustarr-download-budget", Host: "127.0.0.1", Port: -1,
+		MaxPayload: brokerMaxPayload, NoLog: true, NoSigs: true,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	go srv.Start()
+	if !srv.ReadyForConnections(20 * time.Second) {
+		t.Fatal("embedded NATS server did not become ready")
+	}
+	t.Cleanup(srv.Shutdown)
+	nc, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(nc.Close)
+	bus, err := natsbus.New(nc)
+	if err != nil {
+		t.Fatalf("natsbus.New: %v", err)
+	}
+	t.Cleanup(func() { _ = bus.Close() })
+
+	body := make([]byte, schema.MaxDownloadWireBytes)
+	r := rand.New(rand.NewPCG(5, 6))
+	for i := range body {
+		body[i] = byte(r.Uint32())
+	}
+	reply, err := json.Marshal(schema.DownloadResponse{
+		Bytes: body, ContentType: "application/x-nzb", Encoding: schema.DownloadEncodingGzip,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := bus.Serve(events.RPCIndexDownload, events.QueueGroupIndexarr,
+		func(context.Context, []byte) ([]byte, error) { return reply, nil }); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var got schema.DownloadResponse
+	if err := bus.Request(ctx, events.RPCIndexDownload, schema.DownloadRequest{GUID: "g"}, &got); err != nil {
+		t.Fatalf("a full-budget reply (%d bytes of JSON) did not cross an 8Mi broker: %v", len(reply), err)
+	}
+	if !bytes.Equal(got.Bytes, body) {
+		t.Fatal("the reply's body changed on the way")
 	}
 }

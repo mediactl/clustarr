@@ -110,6 +110,12 @@ func TestDownloadResponsePayloadRefusesAnUnknownEncoding(t *testing.T) {
 
 // The wire budget still fits one NATS message after base64 and the
 // envelope, as app/indexer/download's inline cap did before.
+// It uses most of that room -- about 25 MiB of .nzb at gzip's 4.3x -- with
+// a margin kept for the envelope and headers; natsbus's
+// TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload proves it on a real
+// server.
 func TestMaxDownloadWireBytesFitsOneNATSMessage(t *testing.T) {
-	require.Less(t, base64.StdEncoding.EncodedLen(MaxDownloadWireBytes)+4<<10, 8<<20)
+	const brokerMaxPayload, margin = 8 << 20, 256 << 10
+	require.LessOrEqual(t, base64.StdEncoding.EncodedLen(MaxDownloadWireBytes)+margin, brokerMaxPayload)
+	require.GreaterOrEqual(t, MaxDownloadWireBytes, 23<<18, "at least 5.75 MiB: the broker's room, not the old 4 MiB")
 }
