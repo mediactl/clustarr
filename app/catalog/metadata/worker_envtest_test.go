@@ -622,3 +622,51 @@ func TestHandlerBypassesTheCacheOnAForcedRefresh(t *testing.T) {
 	require.Equal(t, catalogv1alpha1.ImageTypePoster, got.Status.Metadata.Images[0].Type)
 	require.Equal(t, "https://image.tmdb.org/t/p/w500/inception.jpg", got.Status.Metadata.Images[0].URL)
 }
+
+// TestHandlerRecordsWeekendsFullMetadata runs the recorded TMDB record for
+// Weekend (2011) through the real client and the gateway, against a Movie
+// that already has status.metadata: the new fields arrive and the earlier
+// ones stay -- the certification most of all, which no Movie ever had.
+func TestHandlerRecordsWeekendsFullMetadata(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hfull", "weekend"
+	newMovie(t, ctx, c, ns, name, 79120)
+
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
+	var err error
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+
+	seed := &metadata.Handler{
+		Client: c, Reader: c,
+		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{failIfCalledMovieProvider{t: t}}},
+		Cache:    &fakeCache{movie: &pkgmetadata.Movie{Title: "Weekend", Genres: []string{"Drama"}}},
+	}
+	require.NoError(t, seed.Handle(ctx, testMessage{env: env}))
+
+	body, err := os.ReadFile("../../../test/data/metadata/tmdb/movie-79120.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
+	require.NoError(t, err)
+	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}}
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	md := got.Status.Metadata
+	require.NotNil(t, md)
+	require.Equal(t, "Weekend", md.Title)
+	require.Equal(t, []string{"Drama", "Romance"}, md.Genres)
+	require.Equal(t, "18", md.Certification)
+	require.Contains(t, md.Certifications, catalogv1alpha1.Certification{Country: "GB", Rating: "18"})
+	require.Equal(t, "A (sort of) love story between two guys over a cold weekend in October.", md.Tagline)
+	require.Equal(t, []string{"United Kingdom"}, md.Countries)
+	require.NotEmpty(t, md.Studios)
+}

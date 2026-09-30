@@ -141,19 +141,34 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 		if len(ac.ReleaseDates) >= 60 {
 			break
 		}
-		ac.WithReleaseDates(catalogac.ReleaseDate().
-			WithCountry(rd.Country).WithType(int32(rd.Type)).WithDate(metav1.NewTime(rd.Date)))
+		rdac := catalogac.ReleaseDate().
+			WithCountry(rd.Country).WithType(int32(rd.Type)).WithDate(metav1.NewTime(rd.Date))
+		if rd.Certification != "" {
+			rdac.WithCertification(rd.Certification)
+		}
+		ac.WithReleaseDates(rdac)
 	}
 	for _, img := range m.Images {
 		if len(ac.Images) >= 50 {
 			break
 		}
-		t, ok := mapImageType(img.Type)
-		if !ok {
-			continue
+		if ic, ok := imageAC(img); ok {
+			ac.WithImages(ic)
 		}
-		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
 	}
+	// The full Plex Metadata Response (spec 2026-09-30 §3.3), each list at
+	// its CRD MaxItems.
+	ac.WithTagline(m.Tagline).WithAdult(m.Adult)
+	if len(m.Studios) > 0 {
+		ac.WithStudios(capStrings(m.Studios, 10)...)
+	}
+	if len(m.Countries) > 0 {
+		ac.WithCountries(capStrings(m.Countries, 10)...)
+	}
+	if len(m.OriginalGenres) > 0 {
+		ac.WithOriginalGenres(capStrings(m.OriginalGenres, 30)...)
+	}
+	ac.WithCertifications(certificationsAC(m.Certifications)...)
 	for _, at := range m.AlternateTitles {
 		if len(ac.AlternateTitles) >= 50 {
 			break
@@ -205,14 +220,42 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 		ac.WithGenres(capStrings(s.Genres, 30)...) // SeriesMetadata.Genres: +kubebuilder:validation:MaxItems=30
 	}
 	for _, img := range s.Images {
-		if len(ac.Images) >= 50 {
-			break
-		}
-		t, ok := mapImageType(img.Type)
-		if !ok {
+		if img.Season != nil {
+			// A season's artwork (spec 2026-09-30 §3.4) goes to
+			// seasonImages, never to the series' own images.
+			t, ok := mapImageType(img.Type)
+			if !ok || len(ac.SeasonImages) >= 400 {
+				continue
+			}
+			ac.WithSeasonImages(catalogac.SeasonImage().WithSeason(*img.Season).WithType(t).WithURL(img.URL))
 			continue
 		}
-		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
+		if len(ac.Images) >= 50 {
+			continue
+		}
+		if ic, ok := imageAC(img); ok {
+			ac.WithImages(ic)
+		}
+	}
+	ac.WithTagline(s.Tagline)
+	if len(s.Networks) > 0 {
+		ac.WithNetworks(capStrings(s.Networks, 5)...)
+	}
+	if len(s.Studios) > 0 {
+		ac.WithStudios(capStrings(s.Studios, 10)...)
+	}
+	if len(s.Countries) > 0 {
+		ac.WithCountries(capStrings(s.Countries, 5)...)
+	}
+	if len(s.OriginalGenres) > 0 {
+		ac.WithOriginalGenres(capStrings(s.OriginalGenres, 30)...)
+	}
+	ac.WithCertifications(certificationsAC(s.Certifications)...)
+	for _, st := range s.SeasonTypes {
+		if len(ac.SeasonTypes) >= 10 {
+			break
+		}
+		ac.WithSeasonTypes(catalogac.SeasonTypeRef().WithID(st.ID).WithName(st.Name))
 	}
 	for _, at := range s.AlternateTitles {
 		if len(ac.AlternateTitles) >= 100 {
@@ -628,6 +671,35 @@ func buildComicMetadataAC(v *pkgmetadata.ComicVolume, now time.Time) *catalogac.
 // idOf returns ids[key], or "" when absent -- a small helper so
 // buildAlbumMetadataAC's release loop reads as one expression per field like
 // every other builder in this file, rather than an if/ok pair per release.
+// imageAC renders one image with its language; an image type outside the
+// CRD's enum is left out.
+func imageAC(img pkgmetadata.Image) (*catalogac.ImageApplyConfiguration, bool) {
+	t, ok := mapImageType(img.Type)
+	if !ok {
+		return nil, false
+	}
+	ic := catalogac.Image().WithType(t).WithURL(img.URL)
+	if img.Language != "" {
+		ic.WithLanguage(img.Language)
+	}
+	return ic, true
+}
+
+// certificationsAC renders the per-country certifications, one per country
+// (the CRD's listMapKey) and at most 60 (its MaxItems).
+func certificationsAC(certs []pkgmetadata.Certification) []*catalogac.CertificationApplyConfiguration {
+	seen := map[string]bool{}
+	var out []*catalogac.CertificationApplyConfiguration
+	for _, c := range certs {
+		if len(out) >= 60 || c.Country == "" || c.Rating == "" || seen[c.Country] {
+			continue
+		}
+		seen[c.Country] = true
+		out = append(out, catalogac.Certification().WithCountry(c.Country).WithRating(c.Rating))
+	}
+	return out
+}
+
 func idOf(ids pkgmetadata.ExternalIDs, key string) string {
 	return ids[key]
 }

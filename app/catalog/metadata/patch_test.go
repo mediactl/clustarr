@@ -675,3 +675,63 @@ func TestBuildBookMetadataACMapsImages(t *testing.T) {
 	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
 	require.Equal(t, "https://covers.openlibrary.org/b/id/9411873-L.jpg", *ac.Images[0].URL)
 }
+
+// TestBuildMovieMetadataACWritesTheFullMetadataFields covers the fields the
+// full Plex Metadata Response added (spec 2026-09-30 §3), each at its cap.
+func TestBuildMovieMetadataACWritesTheFullMetadataFields(t *testing.T) {
+	var studios, genres []string
+	for range 40 {
+		studios = append(studios, "studio")
+		genres = append(genres, "genre")
+	}
+	var certs []pkgmetadata.Certification
+	for i := range 70 {
+		certs = append(certs, pkgmetadata.Certification{Country: string(rune('A'+i/26)) + string(rune('A'+i%26)), Rating: "R"})
+	}
+	m := &pkgmetadata.Movie{
+		Title: "Weekend", Tagline: "tag", Adult: true, Certification: "18",
+		Studios: studios, Countries: studios, OriginalGenres: genres, Certifications: certs,
+		ReleaseDates: []pkgmetadata.ReleaseDate{{Country: "GB", Type: 3, Date: time.Now(), Certification: "18"}},
+		Images:       []pkgmetadata.Image{{Type: pkgmetadata.ImageTypeLogo, URL: "u", Language: "en"}},
+	}
+	ac := buildMovieMetadataAC(m, nil, time.Now())
+	require.Equal(t, "tag", *ac.Tagline)
+	require.True(t, *ac.Adult)
+	require.Equal(t, "18", *ac.Certification)
+	require.Len(t, ac.Studios, 10)
+	require.Len(t, ac.Countries, 10)
+	require.Len(t, ac.OriginalGenres, 30)
+	require.Len(t, ac.Certifications, 60)
+	require.Equal(t, "AA", *ac.Certifications[0].Country, "in order")
+	require.Equal(t, "18", *ac.ReleaseDates[0].Certification)
+	require.Equal(t, "en", *ac.Images[0].Language)
+}
+
+// TestBuildSeriesMetadataACSplitsSeasonImages: an image with a season goes
+// to seasonImages, never to images.
+func TestBuildSeriesMetadataACSplitsSeasonImages(t *testing.T) {
+	one := int32(1)
+	s := &pkgmetadata.Series{
+		Title: "Doctor Who", Network: "BBC One", Networks: []string{"BBC One", "BBC Two", "BBC Four", "a", "b", "c"},
+		Studios: []string{"BBC Studios"}, Countries: []string{"United Kingdom"}, Tagline: "tag",
+		Certifications: []pkgmetadata.Certification{{Country: "US", Rating: "TV-PG"}}, Certification: "TV-PG",
+		Images: []pkgmetadata.Image{
+			{Type: pkgmetadata.ImageTypePoster, URL: "series-poster"},
+			{Type: pkgmetadata.ImageTypePoster, URL: "season-1", Season: &one},
+		},
+		SeasonTypes: []pkgmetadata.SeasonTypeRef{{ID: "official", Name: "Aired Order"}},
+	}
+	ac := buildSeriesMetadataAC(s, nil, time.Now())
+	require.Len(t, ac.Networks, 5)
+	require.Equal(t, []string{"BBC Studios"}, ac.Studios)
+	require.Equal(t, []string{"United Kingdom"}, ac.Countries)
+	require.Equal(t, "tag", *ac.Tagline)
+	require.Equal(t, "TV-PG", *ac.Certification)
+	require.Len(t, ac.Certifications, 1)
+	require.Len(t, ac.Images, 1)
+	require.Equal(t, "series-poster", *ac.Images[0].URL)
+	require.Len(t, ac.SeasonImages, 1)
+	require.EqualValues(t, 1, *ac.SeasonImages[0].Season)
+	require.Equal(t, "season-1", *ac.SeasonImages[0].URL)
+	require.Equal(t, "official", *ac.SeasonTypes[0].ID)
+}
