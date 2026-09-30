@@ -48,9 +48,9 @@ func TestDue(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	day := 24 * time.Hour
 	tests := []struct {
-		name     string
-		mf       *catalogv1alpha1.MediaFile
-		due      bool
+		name      string
+		mf        *catalogv1alpha1.MediaFile
+		due       bool
 		recheckIn time.Duration
 	}{
 		{"an unprobed file waits for its probe", file(commonv1.MediaKindEpisode, false, nil), false, 0},

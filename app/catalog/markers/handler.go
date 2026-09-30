@@ -213,8 +213,10 @@ func segmentACs(s metadata.Segments) []*catalogac.MarkerSegmentApplyConfiguratio
 		kind catalogv1alpha1.MarkerKind
 		list []metadata.Segment
 	}{
-		{catalogv1alpha1.MarkerIntro, s.Intro}, {catalogv1alpha1.MarkerRecap, s.Recap},
-		{catalogv1alpha1.MarkerCredits, s.Credits}, {catalogv1alpha1.MarkerPreview, s.Preview},
+		{catalogv1alpha1.MarkerIntro, s.Intro},
+		{catalogv1alpha1.MarkerRecap, s.Recap},
+		{catalogv1alpha1.MarkerCredits, s.Credits},
+		{catalogv1alpha1.MarkerPreview, s.Preview},
 	} {
 		for _, x := range k.list {
 			all = append(all, seg{k.kind, x})
