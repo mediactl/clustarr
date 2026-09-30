@@ -24,9 +24,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -84,7 +86,7 @@ func TestBuildStatefulSetShape(t *testing.T) {
 	dc.Spec.Torrent.ListenPort = 51413
 	owner := fakeOwnerRef()
 
-	sts := buildStatefulSet(dc, "sab-engine", "ghcr.io/x/engine:dev", "/data", "clustarr-data", EngineRuntime{}, nil, owner)
+	sts := buildStatefulSet(dc, "sab-engine", "ghcr.io/x/engine:dev", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, owner)
 
 	require.NotNil(t, sts.Name)
 	assert.Equal(t, "sab-engine", *sts.Name)
@@ -130,7 +132,7 @@ func TestBuildStatefulSetShape(t *testing.T) {
 
 func TestBuildStatefulSetDefaultsListenPort(t *testing.T) {
 	dc := torrentClient("sab", 1)
-	sts := buildStatefulSet(dc, "sab-engine", "img", "/data", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
+	sts := buildStatefulSet(dc, "sab-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	c := sts.Spec.Template.Spec.Containers[0]
 	require.Len(t, c.Ports, 1)
 	assert.Equal(t, int32(defaultListenPort), *c.Ports[0].ContainerPort)
@@ -336,7 +338,7 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	usenet := usenetClient("nzb")
 	usenet.Spec.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")}
 
-	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "clustarr-data", rt, nil, fakeOwnerRef())
+	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 
 	for name, tc := range map[string]struct {
@@ -364,7 +366,7 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	}
 
 	t.Run("no memory limit, no bus settings", func(t *testing.T) {
-		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "clustarr-data",
+		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data",
 			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
 		c := bare.Spec.Template.Spec.Containers[0]
 		assert.Equal(t, map[string]string{"POD_NAMESPACE": "fieldRef:metadata.namespace"}, envOf(c.Env),
@@ -405,4 +407,144 @@ func TestTorrentEngineHashCoversTheProxyAndItsSecret(t *testing.T) {
 	got, err := r.secretDigests(context.Background(), proxied)
 	require.NoError(t, err)
 	require.Contains(t, got, "mullvad", "the proxy's Secret is digested like a usenet provider's")
+}
+
+// torrentScratch renders a torrent client with scratch set, 3 replicas unless
+// the placement needs one.
+func torrentScratch(replicas int32, sc downloadv1alpha1.ScratchSpec) (*downloadv1alpha1.DownloadClient, *appsv1ac.StatefulSetApplyConfiguration) {
+	dc := torrentClient("qb", replicas)
+	dc.Spec.Torrent.Scratch = &sc
+	return dc, buildStatefulSet(dc, "qb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
+}
+
+func volumeNames(sts *appsv1ac.StatefulSetApplyConfiguration) []string {
+	var out []string
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		out = append(out, *v.Name)
+	}
+	return out
+}
+
+func mountAt(c corev1ac.ContainerApplyConfiguration, name string) string {
+	for _, m := range c.VolumeMounts {
+		if *m.Name == name {
+			return *m.MountPath
+		}
+	}
+	return ""
+}
+
+// Without scratch a torrent engine is exactly what it was: no scratch
+// volume, no claim template, no --scratch-dir.
+func TestTorrentWithoutScratchIsUnchanged(t *testing.T) {
+	dc := torrentClient("qb", 2)
+	sts := buildStatefulSet(dc, "qb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
+	assert.Empty(t, sts.Spec.VolumeClaimTemplates)
+	assert.NotContains(t, volumeNames(sts), scratchVolumeName)
+	assert.NotContains(t, sts.Spec.Template.Spec.Containers[0].Args[0], "--scratch-dir")
+	assert.False(t, needsScratchClaim(dc))
+}
+
+// A storage class gives every replica a claim of its own: one RWO claim
+// shared by three pods would leave two unschedulable.
+func TestTorrentScratchStorageClassIsAClaimPerReplica(t *testing.T) {
+	class := "local-path"
+	dc, sts := torrentScratch(3, downloadv1alpha1.ScratchSpec{StorageClassName: &class, SizeLimit: resource.MustParse("200Gi")})
+
+	require.Len(t, sts.Spec.VolumeClaimTemplates, 1)
+	tpl := sts.Spec.VolumeClaimTemplates[0]
+	assert.Equal(t, scratchVolumeName, *tpl.Name)
+	assert.Equal(t, "local-path", *tpl.Spec.StorageClassName)
+	assert.Equal(t, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, tpl.Spec.AccessModes)
+	assert.Equal(t, resource.MustParse("200Gi"), (*tpl.Spec.Resources.Requests)[corev1.ResourceStorage])
+	assert.NotContains(t, volumeNames(sts), scratchVolumeName, "the claim template supplies the volume")
+	assert.False(t, needsScratchClaim(dc), "no single claim for a per-replica placement")
+
+	c := sts.Spec.Template.Spec.Containers[0]
+	assert.Equal(t, "/scratch", mountAt(c, scratchVolumeName))
+	assert.Contains(t, c.Args[0], "--scratch-dir /scratch")
+}
+
+func TestTorrentScratchPathIsADirectoryOnTheDataMount(t *testing.T) {
+	dc, sts := torrentScratch(3, downloadv1alpha1.ScratchSpec{Path: "/data/torrents/incomplete"})
+	assert.Empty(t, sts.Spec.VolumeClaimTemplates)
+	assert.NotContains(t, volumeNames(sts), scratchVolumeName)
+	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[0], "--scratch-dir /data/torrents/incomplete")
+	assert.False(t, needsScratchClaim(dc))
+}
+
+func TestTorrentScratchVolumeNameIsOneBoundClaim(t *testing.T) {
+	dc, sts := torrentScratch(1, downloadv1alpha1.ScratchSpec{VolumeName: "nas-pv"})
+	require.True(t, needsScratchClaim(dc))
+	pvc := buildScratchPVC(dc, fakeOwnerRef())
+	assert.Equal(t, "qb-scratch", *pvc.Name)
+	assert.Equal(t, "nas-pv", *pvc.Spec.VolumeName)
+	assert.Empty(t, sts.Spec.VolumeClaimTemplates)
+	assert.Contains(t, volumeNames(sts), scratchVolumeName)
+	assert.Equal(t, "/scratch", mountAt(sts.Spec.Template.Spec.Containers[0], scratchVolumeName))
+}
+
+func TestTorrentScratchExistingClaimIsMountedByEveryReplica(t *testing.T) {
+	dc, sts := torrentScratch(2, downloadv1alpha1.ScratchSpec{ExistingClaim: "nas-rwx"})
+	assert.False(t, needsScratchClaim(dc))
+	assert.Empty(t, sts.Spec.VolumeClaimTemplates)
+	var claim string
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		if *v.Name == scratchVolumeName {
+			claim = *v.PersistentVolumeClaim.ClaimName
+		}
+	}
+	assert.Equal(t, "nas-rwx", claim)
+}
+
+func TestTorrentScratchWithNoPlacementIsAnEmptyDir(t *testing.T) {
+	_, sts := torrentScratch(1, downloadv1alpha1.ScratchSpec{})
+	var sized bool
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		if *v.Name == scratchVolumeName {
+			require.NotNil(t, v.EmptyDir)
+			sized = v.EmptyDir.SizeLimit != nil && v.EmptyDir.SizeLimit.Equal(resource.MustParse(defaultScratchSize))
+		}
+	}
+	assert.True(t, sized)
+}
+
+func TestValidateEngineDirsCoversTorrent(t *testing.T) {
+	dc := torrentClient("qb", 1)
+	require.NoError(t, validateEngineDirs(dc, "/data"))
+	dc.Spec.Torrent.Scratch = &downloadv1alpha1.ScratchSpec{Path: "/data/torrents/incomplete"}
+	dc.Spec.Torrent.PublishDir = "/data/torrents/complete"
+	require.NoError(t, validateEngineDirs(dc, "/data"))
+
+	dc.Spec.Torrent.Scratch.Path = "/srv/incomplete"
+	require.ErrorContains(t, validateEngineDirs(dc, "/data"), "spec.torrent.scratch.path")
+	dc.Spec.Torrent.Scratch.Path = "/data/torrents/incomplete"
+	dc.Spec.Torrent.PublishDir = "/srv/complete"
+	require.ErrorContains(t, validateEngineDirs(dc, "/data"), "spec.torrent.publishDir")
+}
+
+// A StatefulSet's volumeClaimTemplates cannot change in place, so a change
+// to them means the StatefulSet is replaced (orphaning its pods, which the
+// new one adopts and rolls).
+func TestClaimTemplatesChanged(t *testing.T) {
+	class := "local-path"
+	_, with := torrentScratch(2, downloadv1alpha1.ScratchSpec{StorageClassName: &class})
+	_, without := torrentScratch(2, downloadv1alpha1.ScratchSpec{Path: "/data/x"})
+
+	live := func(sts *appsv1ac.StatefulSetApplyConfiguration) *appsv1.StatefulSet {
+		out := &appsv1.StatefulSet{}
+		for _, tpl := range sts.Spec.VolumeClaimTemplates {
+			pvc := corev1.PersistentVolumeClaim{}
+			pvc.Name = *tpl.Name
+			pvc.Spec.StorageClassName = tpl.Spec.StorageClassName
+			pvc.Spec.AccessModes = tpl.Spec.AccessModes
+			pvc.Spec.Resources.Requests = *tpl.Spec.Resources.Requests
+			out.Spec.VolumeClaimTemplates = append(out.Spec.VolumeClaimTemplates, pvc)
+		}
+		return out
+	}
+	assert.False(t, claimTemplatesChanged(live(with), with))
+	assert.False(t, claimTemplatesChanged(live(without), without))
+	assert.True(t, claimTemplatesChanged(live(without), with))
+	assert.True(t, claimTemplatesChanged(live(with), without))
 }

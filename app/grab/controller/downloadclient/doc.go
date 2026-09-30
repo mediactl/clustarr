@@ -131,7 +131,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch

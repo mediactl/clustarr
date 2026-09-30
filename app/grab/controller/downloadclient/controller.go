@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -296,7 +297,16 @@ func (r *Reconciler) reconcileWorkload(
 		if err != nil {
 			return 0, 0, 0, err
 		}
-		sts := buildStatefulSet(dc, workloadName, r.EngineImage, r.DataDir, r.DataClaimName, r.Engine, secrets, ownerRef)
+		if needsScratchClaim(dc) {
+			pvc := buildScratchPVC(dc, ownerRef)
+			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, pvc); err != nil {
+				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)
+			}
+		}
+		sts := buildStatefulSet(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, secrets, ownerRef)
+		if err := r.replaceForClaimTemplates(ctx, dc.Namespace, workloadName, sts); err != nil {
+			return 0, 0, 0, err
+		}
 		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, sts); err != nil {
 			return 0, 0, 0, fmt.Errorf("downloadclient: apply StatefulSet %s: %w", workloadName, err)
 		}
@@ -518,4 +528,30 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(mapDownloadToClient)).
 		WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
+}
+
+// replaceForClaimTemplates deletes the torrent StatefulSet name, orphaning
+// its pods, when the apply would change its volumeClaimTemplates, which the
+// apiserver refuses to update in place (spec.torrent.scratch turned to or
+// from a storage class, or resized). The apply that follows creates it
+// again; the new StatefulSet adopts the running pods by their labels and
+// rolls them, as `kubectl delete --cascade=orphan` then apply would.
+func (r *Reconciler) replaceForClaimTemplates(ctx context.Context, namespace, name string, desired *appsv1ac.StatefulSetApplyConfiguration) error {
+	var live appsv1.StatefulSet
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &live); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("downloadclient: get StatefulSet %s: %w", name, err)
+	}
+	if !claimTemplatesChanged(&live, desired) {
+		return nil
+	}
+	logging.FromContext(ctx).Info("downloadclient: scratch claim template changed; replacing the StatefulSet, keeping its pods",
+		"statefulset", name)
+	if err := r.Client.Delete(ctx, &live, client.PropagationPolicy(metav1.DeletePropagationOrphan),
+		client.Preconditions{UID: &live.UID}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("downloadclient: replace StatefulSet %s: %w", name, err)
+	}
+	return nil
 }

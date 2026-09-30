@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -415,7 +416,7 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]s
 // and should feel free to change this rather than treat it as load-bearing.
 // What IS load-bearing is the shape grabarr.Options.Engine documents:
 // "<client>-<ordinal>".
-func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
+func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratchDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
 	// DownloadClientSpec's CEL rule guarantees spec.torrent is set whenever
 	// protocol==torrent for any object that reached the apiserver, but this
 	// still guards the nil case rather than dereferencing it directly: a unit
@@ -427,6 +428,22 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string
 	script := fmt.Sprintf(
 		`ordinal=${HOSTNAME##*-}; exec %s grabarr --role torrent-engine --data-dir %s --engine %s-${ordinal}`,
 		clustarrBinary, dataDir, dc.Name)
+	mounts := []*corev1ac.VolumeMountApplyConfiguration{
+		corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
+		corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir),
+	}
+	// spec.torrent.scratch: the working area a torrent downloads in before
+	// the engine moves it to publishDir. A path is a directory on the data
+	// mount; every other placement is the scratch volume at scratchDir.
+	if sc := scratchSpec(dc); sc != nil {
+		dir := scratchDir
+		if sc.Path != "" {
+			dir = sc.Path
+		} else {
+			mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir))
+		}
+		script += " --scratch-dir " + dir
+	}
 	if rt.BusSingleNode {
 		script += " --nats-single-node"
 	}
@@ -443,10 +460,7 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string
 		WithEnv(engineEnv(dc, rt)...).
 		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
 		WithSecurityContext(containerSecurityContextAC()).
-		WithVolumeMounts(
-			corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
-			corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir),
-		)
+		WithVolumeMounts(mounts...)
 }
 
 // usenetContainer builds the usenet engine's container. Usenet clients are
@@ -506,9 +520,6 @@ func engineDirs(dc *downloadv1alpha1.DownloadClient, scratchDir string) (scratch
 // could not see the result. CEL cannot check this, since the mount point is
 // a controller flag, not a spec value.
 func validateEngineDirs(dc *downloadv1alpha1.DownloadClient, dataDir string) error {
-	if dc.Spec.Usenet == nil {
-		return nil
-	}
 	check := func(field, dir string) error {
 		if dir == "" {
 			return nil
@@ -516,6 +527,17 @@ func validateEngineDirs(dc *downloadv1alpha1.DownloadClient, dataDir string) err
 		if !underDir(dataDir, dir) {
 			return fmt.Errorf("downloadclient: %s %q is not under the data mount %q", field, dir, dataDir)
 		}
+		return nil
+	}
+	if t := dc.Spec.Torrent; t != nil {
+		if t.Scratch != nil {
+			if err := check("spec.torrent.scratch.path", t.Scratch.Path); err != nil {
+				return err
+			}
+		}
+		return check("spec.torrent.publishDir", t.PublishDir)
+	}
+	if dc.Spec.Usenet == nil {
 		return nil
 	}
 	if dc.Spec.Usenet.Scratch != nil {
@@ -537,10 +559,34 @@ func underDir(root, dir string) bool {
 // [defaultScratchSize] -- restated for the same in-memory-object reason
 // [torrentReplicas] restates the replicas floor.
 func scratchSize(dc *downloadv1alpha1.DownloadClient) resource.Quantity {
-	if dc.Spec.Usenet != nil && dc.Spec.Usenet.Scratch != nil && !dc.Spec.Usenet.Scratch.SizeLimit.IsZero() {
-		return dc.Spec.Usenet.Scratch.SizeLimit
+	if sc := scratchSpec(dc); sc != nil && !sc.SizeLimit.IsZero() {
+		return sc.SizeLimit
 	}
 	return resource.MustParse(defaultScratchSize)
+}
+
+// scratchSpec is the client's working-area placement: spec.usenet.scratch or
+// spec.torrent.scratch. For a torrent client nil means no working area at
+// all (a torrent downloads in publishDir); for usenet nil still means an
+// emptyDir ([scratchVolume]).
+func scratchSpec(dc *downloadv1alpha1.DownloadClient) *downloadv1alpha1.ScratchSpec {
+	switch {
+	case dc.Spec.Usenet != nil:
+		return dc.Spec.Usenet.Scratch
+	case dc.Spec.Torrent != nil:
+		return dc.Spec.Torrent.Scratch
+	}
+	return nil
+}
+
+// scratchPerReplica reports whether a torrent client's working area is a
+// claim per replica (volumeClaimTemplates): a storage class with no volume
+// to bind. One ReadWriteOnce claim shared by several StatefulSet pods would
+// leave all but one unschedulable.
+func scratchPerReplica(dc *downloadv1alpha1.DownloadClient) bool {
+	sc := scratchSpec(dc)
+	return dc.Spec.Torrent != nil && sc != nil && sc.Path == "" && sc.ExistingClaim == "" &&
+		sc.StorageClassName != nil && sc.VolumeName == ""
 }
 
 // scratchVolume returns the usenet pod's scratch volume: a PersistentVolumeClaim
@@ -550,9 +596,10 @@ func scratchSize(dc *downloadv1alpha1.DownloadClient) resource.Quantity {
 // "nil = emptyDir backed by node storage", so this branches on nil-ness, not
 // on any other signal.
 func scratchVolume(dc *downloadv1alpha1.DownloadClient) *corev1ac.VolumeApplyConfiguration {
-	var sc *downloadv1alpha1.ScratchSpec
-	if dc.Spec.Usenet != nil {
-		sc = dc.Spec.Usenet.Scratch
+	sc := scratchSpec(dc)
+	if dc.Spec.Torrent != nil && (sc == nil || scratchPerReplica(dc)) {
+		// No working area, or one the StatefulSet's claim template supplies.
+		return nil
 	}
 	switch {
 	case sc != nil && sc.Path != "":
@@ -574,10 +621,10 @@ func scratchVolume(dc *downloadv1alpha1.DownloadClient) *corev1ac.VolumeApplyCon
 // itself: a storageClassName asks a provisioner for one, a volumeName binds
 // one to an existing PersistentVolume.
 func needsScratchClaim(dc *downloadv1alpha1.DownloadClient) bool {
-	if dc.Spec.Usenet == nil || dc.Spec.Usenet.Scratch == nil {
+	sc := scratchSpec(dc)
+	if sc == nil || scratchPerReplica(dc) {
 		return false
 	}
-	sc := dc.Spec.Usenet.Scratch
 	return sc.Path == "" && sc.ExistingClaim == "" && (sc.StorageClassName != nil || sc.VolumeName != "")
 }
 
@@ -588,10 +635,7 @@ func needsScratchClaim(dc *downloadv1alpha1.DownloadClient) bool {
 func buildScratchPVC(dc *downloadv1alpha1.DownloadClient, owner *metav1ac.OwnerReferenceApplyConfiguration) *corev1ac.PersistentVolumeClaimApplyConfiguration {
 	size := scratchSize(dc)
 	modes := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
-	var sc *downloadv1alpha1.ScratchSpec
-	if dc.Spec.Usenet != nil {
-		sc = dc.Spec.Usenet.Scratch
-	}
+	sc := scratchSpec(dc)
 	if sc != nil && len(sc.AccessModes) > 0 {
 		modes = sc.AccessModes
 	}
@@ -624,13 +668,32 @@ func buildScratchPVC(dc *downloadv1alpha1.DownloadClient, owner *metav1ac.OwnerR
 // shared volume, not on a per-ordinal PVC, so the StatefulSet's only reason to
 // exist is the stable "<workload>-<ordinal>" pod identity re-attach depends
 // on, not per-pod storage.
-func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, dataClaimName string, rt EngineRuntime, secrets map[string]string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
+//
+// spec.torrent.scratch adds the working area: a claim per ordinal through
+// volumeClaimTemplates for a storage class ([scratchPerReplica]), else the
+// volume [scratchVolume] renders.
+func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, secrets map[string]string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
 	labels := selectorLabels(dc)
-	container := torrentContainer(dc, image, dataDir, rt)
+	container := torrentContainer(dc, image, dataDir, scratchDir, rt)
 	spec := appsv1ac.StatefulSetSpec().
 		WithReplicas(torrentReplicas(dc)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), labels, podSpecAC(dc, container, dataClaimName, rt)))
+		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
+	if scratchPerReplica(dc) {
+		sc := scratchSpec(dc)
+		modes := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+		if len(sc.AccessModes) > 0 {
+			modes = sc.AccessModes
+		}
+		spec = spec.WithVolumeClaimTemplates(corev1ac.PersistentVolumeClaim(scratchVolumeName, "").
+			WithLabels(labels).
+			WithSpec(corev1ac.PersistentVolumeClaimSpec().
+				WithStorageClassName(*sc.StorageClassName).
+				WithAccessModes(modes...).
+				WithResources(corev1ac.VolumeResourceRequirements().WithRequests(corev1.ResourceList{
+					corev1.ResourceStorage: scratchSize(dc),
+				}))))
+	}
 
 	return appsv1ac.StatefulSet(name, dc.Namespace).
 		WithLabels(labels).
@@ -666,4 +729,34 @@ func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, 
 		WithLabels(labels).
 		WithOwnerReferences(owner).
 		WithSpec(spec)
+}
+
+// claimTemplatesChanged reports whether the StatefulSet desired would change
+// live's volumeClaimTemplates, which the apiserver refuses to update in
+// place: the scratch claim's presence, class, access modes or size.
+func claimTemplatesChanged(live *appsv1.StatefulSet, desired *appsv1ac.StatefulSetApplyConfiguration) bool {
+	want := desired.Spec.VolumeClaimTemplates
+	have := live.Spec.VolumeClaimTemplates
+	if len(want) != len(have) {
+		return true
+	}
+	for i := range want {
+		w, h := want[i], have[i]
+		if *w.Name != h.Name || !equalStringPtr(w.Spec.StorageClassName, h.Spec.StorageClassName) ||
+			!slices.Equal(w.Spec.AccessModes, h.Spec.AccessModes) {
+			return true
+		}
+		ws, hs := (*w.Spec.Resources.Requests)[corev1.ResourceStorage], h.Spec.Resources.Requests[corev1.ResourceStorage]
+		if ws.Cmp(hs) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func equalStringPtr(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
