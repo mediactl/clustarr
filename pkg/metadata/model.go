@@ -472,6 +472,8 @@ type Book struct {
 
 	Editions []Edition `json:"editions,omitempty"`
 
+	Images []Image `json:"images,omitempty"`
+
 	// Languages are the BCP-47 languages the work has editions in, when a
 	// listing knows them without carrying the editions themselves (Open
 	// Library's author works listing). A metadata profile's

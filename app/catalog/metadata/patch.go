@@ -490,6 +490,16 @@ func buildBookMetadataAC(b *pkgmetadata.Book, now time.Time) *catalogac.BookMeta
 		}
 		ac.WithEditions(edAC)
 	}
+	for _, img := range b.Images {
+		if len(ac.Images) >= 50 { // BookMetadata.Images: +kubebuilder:validation:MaxItems=50
+			break
+		}
+		t, ok := mapImageType(img.Type)
+		if !ok {
+			continue
+		}
+		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
+	}
 	return ac
 }
 

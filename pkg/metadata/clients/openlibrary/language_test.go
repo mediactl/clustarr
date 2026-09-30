@@ -323,3 +323,67 @@ func TestBooksKeepsDistinctBooksWithSimilarTitles(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, books, 6)
 }
+
+// An author's poster is the first of the record's photos, by cover id
+// (Open Library marks a deleted photo -1); the record carries no other
+// image, so an author without photos has none.
+func TestAuthorPosterIsTheFirstPhoto(t *testing.T) {
+	var asked int
+	srv := authorServer(t, false, &asked)
+	defer srv.Close()
+
+	a, err := newClient(srv).Author(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryAuthor: "OL22242A"})
+
+	require.NoError(t, err)
+	require.Equal(t, []metadata.Image{{
+		Type: metadata.ImageTypePoster,
+		URL:  "https://covers.openlibrary.org/a/id/14356956-L.jpg",
+	}}, a.Images)
+}
+
+func TestAuthorPosterSkipsDeletedPhotos(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want []metadata.Image
+	}{
+		"deleted first": {
+			`{"key":"/authors/OL1A","name":"A","photos":[-1,42]}`,
+			[]metadata.Image{{Type: metadata.ImageTypePoster, URL: "https://covers.openlibrary.org/a/id/42-L.jpg"}},
+		},
+		"only deleted": {`{"key":"/authors/OL1A","name":"A","photos":[-1]}`, nil},
+		"none":         {`{"key":"/authors/OL1A","name":"A"}`, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			a, err := newClient(srv).Author(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryAuthor: "OL1A"})
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, a.Images)
+		})
+	}
+}
+
+// A book's poster is its work's first cover, else the first cover among
+// the editions fetched with it: the Pride and Prejudice fixture's work has
+// no covers, its editions do. Before 2026-09-30 no Book had a cover.
+func TestBookPosterIsTheWorksCoverElseAnEditions(t *testing.T) {
+	for workID, want := range map[string]string{
+		"OL166894W": "https://covers.openlibrary.org/b/id/9411873-L.jpg",
+		"OL138052W": "https://covers.openlibrary.org/b/id/14568556-L.jpg",
+	} {
+		t.Run(workID, func(t *testing.T) {
+			srv := bookServer(t, workID)
+			defer srv.Close()
+
+			b, err := newClient(srv).Book(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryWork: workID})
+
+			require.NoError(t, err)
+			require.Equal(t, []metadata.Image{{Type: metadata.ImageTypePoster, URL: want}}, b.Images)
+		})
+	}
+}

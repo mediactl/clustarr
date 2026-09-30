@@ -192,6 +192,7 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		Bio       json.RawMessage `json:"bio"`
 		BirthDate string          `json:"birth_date"`
 		DeathDate string          `json:"death_date"`
+		Photos    []int           `json:"photos"`
 		RemoteIDs struct {
 			Wikidata string `json:"wikidata"`
 		} `json:"remote_ids"`
@@ -206,6 +207,13 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		IDs:      metadata.ExternalIDs{metadata.KeyOpenLibraryAuthor: olid},
 		Name:     raw.Name,
 		Overview: decodeOpenLibraryText(raw.Bio),
+	}
+	for _, id := range raw.Photos {
+		// Open Library leaves -1 where a photo was deleted.
+		if id > 0 {
+			a.Images = []metadata.Image{{Type: metadata.ImageTypePoster, URL: authorPhotoURLByID(id)}}
+			break
+		}
 	}
 	if t, ok := parseLenientDate(raw.BirthDate); ok {
 		a.Born = &t
@@ -262,6 +270,7 @@ type workRecord struct {
 	Description      json.RawMessage `json:"description"`
 	Subjects         []string        `json:"subjects"`
 	FirstPublishDate string          `json:"first_publish_date"`
+	Covers           []int64         `json:"covers"`
 	// Authors is [{"author": {"key": "/authors/OL..."}, "type": {...}}].
 	// Each author is kept raw and decoded leniently by authorIDs: one
 	// oddly-shaped legacy record must not fail a whole works listing.
@@ -302,6 +311,13 @@ func mapWork(w workRecord, fallbackAuthor string) metadata.Book {
 	}
 	if t, ok := parseLenientDate(w.FirstPublishDate); ok {
 		b.FirstPublished = &t
+	}
+	for _, id := range w.Covers {
+		// Open Library leaves -1 where a cover was deleted.
+		if id > 0 {
+			b.Images = []metadata.Image{{Type: metadata.ImageTypePoster, URL: coverURLByID(id)}}
+			break
+		}
 	}
 	return b
 }
@@ -585,6 +601,9 @@ func (c *Client) Book(ctx context.Context, ids metadata.ExternalIDs) (*metadata.
 			b.FirstPublished = &t
 		}
 		b.Editions = append(b.Editions, ed)
+		if len(b.Images) == 0 {
+			b.Images = ed.Images
+		}
 	}
 
 	if title := c.editionTitle(b.Title, eds.Entries); title != "" {
@@ -725,6 +744,12 @@ var _ metadata.BookProvider = (*Client)(nil)
 // cover id (the "covers" array on an edition or "cover_i" on a search hit).
 func coverURLByID(id int64) string {
 	return fmt.Sprintf("https://covers.openlibrary.org/b/id/%d-L.jpg", id)
+}
+
+// authorPhotoURLByID is the large rendition of an author photo, which Open
+// Library serves from the covers host under /a/ as it does covers under /b/.
+func authorPhotoURLByID(id int) string {
+	return fmt.Sprintf("https://covers.openlibrary.org/a/id/%d-L.jpg", id)
 }
 
 // openLibraryText is a value that Open Library sometimes returns as a bare

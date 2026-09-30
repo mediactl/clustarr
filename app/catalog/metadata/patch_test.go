@@ -660,3 +660,18 @@ func TestBuildMovieMetadataACCarriesSecondaryYear(t *testing.T) {
 	require.EqualValues(t, 2021, *ac.Year)
 	require.EqualValues(t, 2020, *ac.SecondaryYear)
 }
+
+// A Book's images reach status.metadata.images, which the gateway's
+// artwork fetch reads; they were never rendered before 2026-09-30.
+func TestBuildBookMetadataACMapsImages(t *testing.T) {
+	b := &pkgmetadata.Book{
+		Title:  "Crime and Punishment",
+		Images: []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://covers.openlibrary.org/b/id/9411873-L.jpg"}},
+	}
+
+	ac := buildBookMetadataAC(b, time.Now())
+
+	require.Len(t, ac.Images, 1)
+	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+	require.Equal(t, "https://covers.openlibrary.org/b/id/9411873-L.jpg", *ac.Images[0].URL)
+}
