@@ -514,7 +514,14 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   (`TestServeReportsAReplyTheServerRefuses`). Operational trap on top: a
   `max_payload` reload updates the server, but a connected nats.go client
   keeps the `INFO` it read at connect, so the publisher (indexarr) had to
-  be restarted before the raised limit took effect.
+  be restarted before the raised limit took effect. The inline cap itself
+  (4 MiB raw) then refused The Godfather's 1080p .nzb (2026-09-30): an
+  .nzb grows with the release, about 3.8 MB for 28 GB, so any large encode
+  hit it. The bus reply now gzips a body over 1 MiB
+  (`schema.DownloadResponse.ForWire`, `encoding: gzip`; NZB XML compresses
+  about four times), refuses one still over `schema.MaxDownloadWireBytes`
+  compressed, and both engines read it through `DownloadResponse.Payload`;
+  indexarr reads up to 32 MiB raw, the usenet engine's own cap.
 - **A par2 set named `name.vol-01.par2`..`vol-07.par2` carries no block
   counts, and the usenet engine read it as unrepairable.** `par2VolumeRE`
   only knew `vol000+01`, so those volumes classified as *index* files with

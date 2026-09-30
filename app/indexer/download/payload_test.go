@@ -19,7 +19,6 @@ package download
 
 import (
 	"bytes"
-	"encoding/base64"
 	"io"
 	"os"
 	"strings"
@@ -33,13 +32,17 @@ import (
 // reply is ONE NATS message; the broker's max_payload is 8Mi. An 8 MiB body
 // would fail AFTER the fetch, having already spent a possibly one-shot
 // download link.
-func TestMaxPayloadFitsOneNATSMessage(t *testing.T) {
-	const brokerMaxPayload = 8 << 20
-	encoded := base64.StdEncoding.EncodedLen(MaxPayloadBytes)
-	const envelopeOverhead = 4 << 10
-	require.Less(t, encoded+envelopeOverhead, brokerMaxPayload,
-		"a full-size body must marshal into one NATS message")
-	require.Greater(t, MaxPayloadBytes, 1<<20, "1 MiB would reject real .nzb files")
+// The raw cap is the usenet engine's own, not the broker's: the reply
+// crosses the bus gzipped (schema.DownloadResponse.ForWire), whose wire
+// budget schema.TestMaxDownloadWireBytesFitsOneNATSMessage holds to the
+// broker. The Godfather's .nzb was over the old 4 MiB inline cap
+// (2026-09-30).
+func TestReadPayloadAcceptsALargeNZB(t *testing.T) {
+	body := bytes.Repeat([]byte("n"), 5<<20)
+	got, err := readPayload(io.NopCloser(bytes.NewReader(body)))
+	require.NoError(t, err)
+	require.Len(t, got, 5<<20)
+	require.Equal(t, 32<<20, MaxPayloadBytes, "the usenet engine's cap on a resolved .nzb")
 }
 
 // TestBrokerMaxPayloadIsStillEightMebibytes reads the broker's own config, so
@@ -48,7 +51,7 @@ func TestBrokerMaxPayloadIsStillEightMebibytes(t *testing.T) {
 	raw, err := os.ReadFile("../../../config/nats/configmap.yaml")
 	require.NoError(t, err)
 	require.Contains(t, string(raw), "max_payload: 8Mi",
-		"the broker's max_payload changed; re-derive MaxPayloadBytes from it")
+		"the broker's max_payload changed; re-derive schema.MaxDownloadWireBytes from it")
 }
 
 func TestReadPayloadCapsTheBody(t *testing.T) {

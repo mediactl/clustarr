@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package usenet_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -188,4 +189,19 @@ func TestResolveRejectsUnsupportedSource(t *testing.T) {
 	_, err := r.Resolve(t.Context(), "media", downloadv1alpha1.DownloadSource{TorrentURL: &torrentURL})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, usenetengine.ErrUnsupportedSource)
+}
+
+// indexarr gzips a large .nzb for the bus (schema.DownloadResponse.ForWire);
+// the engine reads it back through Payload, whole.
+func TestResolveIndexerDownloadDecompressesAGzipReply(t *testing.T) {
+	want := bytes.Repeat([]byte("<segment>x@y</segment>\n"), 100_000)
+	rpc := &fakeRequester{resp: schema.DownloadResponse{Bytes: want}.ForWire()}
+	require.Equal(t, schema.DownloadEncodingGzip, rpc.resp.Encoding, "the fixture must cross compressed")
+	r := &usenetengine.Resolver{RPC: rpc}
+
+	got, err := r.Resolve(t.Context(), "media", downloadv1alpha1.DownloadSource{
+		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }

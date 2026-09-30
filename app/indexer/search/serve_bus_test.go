@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search_test
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"sync/atomic"
@@ -273,6 +274,35 @@ func TestServeDispatchesTheOtherTwoVerbs(t *testing.T) {
 	var q schema.QueryResponse
 	require.NoError(t, bus.Request(ctx, events.RPCIndexQuery, schema.QueryRequest{Text: "hello"}, &q))
 	require.Equal(t, int64(5), q.Total)
+}
+
+// A large .nzb crosses the bus gzipped (schema.DownloadResponse.ForWire),
+// and the requester reads it back byte for byte through Payload; the
+// facade, which calls Download in-process, still gets it raw.
+func TestServeCompressesALargeDownloadPayload(t *testing.T) {
+	ctx := t.Context()
+	bus := newBus(t)
+	body := bytes.Repeat([]byte("<segment bytes=\"716800\" number=\"1\">x@y</segment>\n"), 100_000)
+
+	svc := &search.Service{
+		Client:    fakeClientWith(usenetIndexer()),
+		ClientFor: stubClientFor(stub{}),
+		Download: func(context.Context, schema.DownloadRequest) schema.DownloadResponse {
+			return schema.DownloadResponse{Bytes: body, ContentType: "application/x-nzb"}
+		},
+	}
+	stop, err := search.Serve(ctx, bus, svc)
+	require.NoError(t, err)
+	t.Cleanup(stop)
+
+	var dl schema.DownloadResponse
+	require.NoError(t, bus.Request(ctx, events.RPCIndexDownload,
+		schema.DownloadRequest{IndexerRef: schema.Ref{Namespace: "media", Name: "nzbgeek"}, GUID: "abc"}, &dl))
+	require.Equal(t, schema.DownloadEncodingGzip, dl.Encoding)
+	require.Less(t, len(dl.Bytes), len(body))
+	got, err := dl.Payload(32 << 20)
+	require.NoError(t, err)
+	require.Equal(t, body, got)
 }
 
 func TestServeRefusesAnIncompleteService(t *testing.T) {

@@ -289,7 +289,7 @@ func (s *Service) classify(
 	// ALONE, before the body is touched, so a one-shot link is not spent on
 	// bytes we would refuse.
 	if res.ContentLen > MaxPayloadBytes {
-		log.Info("app/indexer/download: body exceeds the broker payload budget; handing back the link",
+		log.Info("app/indexer/download: body exceeds the payload cap; handing back the link",
 			"contentLength", res.ContentLen, "max", MaxPayloadBytes)
 		return schema.DownloadResponse{RedirectURL: res.FinalURL.String()}, resultRedirect
 	}

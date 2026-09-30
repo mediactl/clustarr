@@ -80,7 +80,7 @@ func (f *engineFetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult,
 	}
 	defer func() { _ = rc.Close() }()
 	// The engine already buffers under its own 8 MiB cap; this re-reads
-	// under THIS package's payload cap so the broker budget holds.
+	// under THIS package's payload cap, which the bus reply compresses under.
 	body, err := readPayload(rc)
 	if err != nil {
 		return nil, err

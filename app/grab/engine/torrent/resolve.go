@@ -136,7 +136,12 @@ func resolveSource(ctx context.Context, httpClient *http.Client, resolver Indexe
 		}
 		switch {
 		case len(resp.Bytes) > 0:
-			out.Payload = resp.Bytes
+			// A large body crosses the bus gzipped (DownloadResponse.ForWire).
+			payload, err := resp.Payload(maxPayloadBytes)
+			if err != nil {
+				return resolved{}, fmt.Errorf("torrent: indexer payload: %w", err)
+			}
+			out.Payload = payload
 			return out, nil
 		case resp.MagnetURL != "":
 			out.Magnet = resp.MagnetURL

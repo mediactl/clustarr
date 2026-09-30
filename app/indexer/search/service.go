@@ -405,7 +405,9 @@ func (s *Service) handleDownload(ctx context.Context, data []byte) ([]byte, erro
 			Error: "indexarr: download verb is not configured",
 		})
 	}
-	return json.Marshal(s.Download(ctx, req))
+	// Compressed here, at the bus, and nowhere else: the Torznab facade
+	// calls Download in-process and serves the raw body.
+	return json.Marshal(s.Download(ctx, req).ForWire())
 }
 
 func (s *Service) handleQuery(ctx context.Context, data []byte) ([]byte, error) {

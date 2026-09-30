@@ -328,6 +328,10 @@ type DownloadResponse struct {
 	// ContentType is the MIME type of Bytes.
 	ContentType string `json:"contentType,omitempty"`
 
+	// Encoding is how Bytes is compressed on the wire: empty for none, or
+	// DownloadEncodingGzip. Read Bytes through Payload, never directly.
+	Encoding string `json:"encoding,omitempty"`
+
 	// Error is the failure message when the fetch failed.
 	Error string `json:"error,omitempty"`
 }

@@ -142,3 +142,14 @@ func TestResolveSourceExpectedInfoHashCarriesThrough(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", got.ExpectedInfoHash)
 }
+
+func TestResolveSourceIndexerDownloadDecompressesAGzipReply(t *testing.T) {
+	want := bytes.Repeat([]byte("d8:announce"), 200_000)
+	resolver := &FakeIndexerResolver{Response: schema.DownloadResponse{Bytes: want}.ForWire()}
+	require.Equal(t, schema.DownloadEncodingGzip, resolver.Response.Encoding, "the fixture must cross compressed")
+	got, err := resolveSource(context.Background(), nil, resolver, "ns-a", downloadv1alpha1.DownloadSource{
+		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "myindexer", GUID: "guid-1"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, want, got.Payload)
+}

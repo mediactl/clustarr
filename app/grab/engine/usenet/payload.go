@@ -117,7 +117,12 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id downloadv1a
 	case resp.Error != "":
 		return nil, fmt.Errorf("usenetengine: indexarr: %s", resp.Error)
 	case len(resp.Bytes) > 0:
-		return resp.Bytes, nil
+		// A large .nzb crosses the bus gzipped (DownloadResponse.ForWire).
+		b, err := resp.Payload(r.maxBytes())
+		if err != nil {
+			return nil, fmt.Errorf("usenetengine: indexarr payload for %s/%s: %w", id.IndexerRef, id.GUID, err)
+		}
+		return b, nil
 	case resp.RedirectURL != "":
 		return r.fetchURL(ctx, resp.RedirectURL)
 	case resp.MagnetURL != "":

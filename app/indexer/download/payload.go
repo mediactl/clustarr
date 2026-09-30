@@ -25,17 +25,18 @@ import (
 	"mime"
 )
 
-// MaxPayloadBytes bounds a proxied .torrent/.nzb body. See
-// TestMaxPayloadFitsOneNATSMessage for the arithmetic: base64 expands a body
-// by 4/3, the whole DownloadResponse is one NATS message, and the broker's
-// max_payload is 8Mi (config/nats/configmap.yaml:20). 4 MiB encodes to about
-// 5.34 MiB and leaves room for the envelope, while sitting far above any real
-// .torrent and above all but pathological .nzb files.
+// MaxPayloadBytes bounds a proxied .torrent/.nzb body: the usenet engine's
+// own cap on a resolved .nzb. It is not the broker's budget. The bus reply
+// gzips a body over 1 MiB (schema.DownloadResponse.ForWire, applied by
+// app/indexer/search's responder) and refuses one still over
+// schema.MaxDownloadWireBytes compressed; the Torznab facade serves the raw
+// body over HTTP. It was 4 MiB inline until 2026-09-30, when The
+// Godfather's 1080p .nzb went over it -- .nzb size grows with the release,
+// about 3.8 MB for 28 GB, so it was never only the pathological ones.
 //
 // This is deliberately NOT pkg/torznab's maxResponseBodyBytes (8 MiB): that
-// cap bounds an XML document that is parsed and discarded, this one bounds
-// bytes that must survive a round trip through the broker.
-const MaxPayloadBytes = 4 << 20
+// cap bounds an XML document that is parsed and discarded.
+const MaxPayloadBytes = 32 << 20
 
 // ErrResponseTooLarge follows the pkg/torznab convention (client.go:176): a
 // package-level max, an io.LimitReader(body, max+1) and a sentinel, so
