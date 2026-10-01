@@ -19,13 +19,17 @@ package grab
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -57,6 +61,12 @@ import (
 //     and Episode reconcilers recompute Phase=Delayed from pendingGrab under
 //     k8s.ManagerCatalogarr, woken by the status.pendingGrab arm of their own
 //     predicates.
+//
+// A grab its Indexer's spec.limits.grabLimit refuses is held the same way,
+// until the instant the window next has room (holdForGrabLimit), so a caller
+// with one release -- the RSS matcher -- loses nothing to a full window. The
+// Sink, which has the ranked list, tries the next release on another indexer
+// first (decide with holdOnLimit false).
 func Decide(
 	ctx context.Context,
 	d Deps,
@@ -64,18 +74,73 @@ func Decide(
 	delay catalogv1alpha1.DelayProfileSpec,
 	a Approved,
 ) error {
+	return decide(ctx, d, profile, delay, a, true)
+}
+
+// decide is Decide, with a grab-limit refusal either held for its retry
+// instant (holdOnLimit) or returned as the *GrabLimitError for the caller.
+func decide(
+	ctx context.Context,
+	d Deps,
+	profile quality.Profile,
+	delay catalogv1alpha1.DelayProfileSpec,
+	a Approved,
+	holdOnLimit bool,
+) error {
 	ctx, span := tracing.Start(ctx, "grab.Decide")
 	defer span.End()
 
-	now := d.now()
 	idx, ok := profile.Index(a.Release.Quality)
 	atTopTier := ok && idx == 0
 	wait := DelayFor(delay, a.Release.Protocol)
 
 	if wait <= 0 || Bypasses(delay, atTopTier, a.Release.FormatScore) {
-		return performGrab(ctx, d, a.Namespace, a.Target, a.Keys, a.Release, a.GrabbedBy)
+		err := performGrab(ctx, d, a.Namespace, a.Target, a.Keys, a.Release, a.GrabbedBy)
+		var limited *GrabLimitError
+		if holdOnLimit && errors.As(err, &limited) {
+			return holdForGrabLimit(ctx, d, profile, a, limited.RetryAt)
+		}
+		return err
 	}
 
+	if err := hold(ctx, d, profile, a, func(firstSeen time.Time) time.Time { return firstSeen.Add(wait) }, ""); err != nil {
+		return err
+	}
+	metrics.SearchDecisionsTotal.WithLabelValues(string(a.Target.Kind), "delayed", string(a.Release.Protocol)).Inc()
+	return nil
+}
+
+// holdForGrabLimit holds a grab its Indexer refused until retryAt, when the
+// grab window next has room: the same pending entry, scheduled GrabTask and
+// status.pendingGrab as a DelayProfile's hold, so the item reads Delayed with
+// the instant it will be grabbed, and the scheduled delivery re-reads the
+// entry -- by then possibly a better release -- and grabs it.
+//
+// The Msg-Id carries the retry instant: the broker would otherwise absorb
+// this schedule into a delay's own "<mediaKey>:<firstSeen>" within its
+// dedup window, and nothing would fire at retryAt.
+func holdForGrabLimit(ctx context.Context, d Deps, profile quality.Profile, a Approved, retryAt time.Time) error {
+	logging.FromContext(ctx).Info("grab: the indexer is at its grab limit; holding the grab until its window has room",
+		"indexer", a.Release.IndexerRef, "release", a.Release.Title, "retryAt", retryAt)
+	return hold(ctx, d, profile, a, func(time.Time) time.Time { return retryAt }, grabLimitMsgIDSuffix(retryAt))
+}
+
+func grabLimitMsgIDSuffix(retryAt time.Time) string {
+	return fmt.Sprintf(":grablimit:%d", retryAt.Unix())
+}
+
+// hold is the delayed half of Decide: CAS keep-best a into clustarr-pending,
+// schedule the GrabTask for grabAt(firstSeen) under Msg-Id
+// "<mediaKey>:<firstSeen unix><idSuffix>", and record status.pendingGrab.
+func hold(
+	ctx context.Context,
+	d Deps,
+	profile quality.Profile,
+	a Approved,
+	grabAt func(firstSeen time.Time) time.Time,
+	idSuffix string,
+) error {
+	now := d.now()
 	// Reject an ungrabbable target before touching the KV bucket: writing a
 	// pending entry nothing will ever grab is worse than refusing.
 	statusTargets, err := StatusTargets(a.Target, a.Keys)
@@ -92,19 +157,34 @@ func Decide(
 	if err != nil {
 		return err
 	}
-	grabAt := kept.FirstSeen.Add(wait)
+	return schedule(ctx, d, a.Namespace, statusTargets, mediaKey, kept, grabAt(kept.FirstSeen), idSuffix)
+}
 
-	schemaName, data, err := schema.Encode(schema.GrabTask{MediaRef: a.Target, Keys: a.Keys})
+// schedule publishes the GrabTask for the pending entry kept, held until at,
+// under Msg-Id "<mediaKey>:<firstSeen unix><idSuffix>", and records
+// status.pendingGrab on every status target.
+func schedule(
+	ctx context.Context,
+	d Deps,
+	ns string,
+	statusTargets []commonv1.MediaRef,
+	mediaKey string,
+	kept pendingValue,
+	at time.Time,
+	idSuffix string,
+) error {
+	now := d.now()
+	schemaName, data, err := schema.Encode(schema.GrabTask{MediaRef: kept.Target, Keys: kept.Keys})
 	if err != nil {
 		return err
 	}
-	msgID := fmt.Sprintf("%s:%d", mediaKey, kept.FirstSeen.Unix())
+	msgID := fmt.Sprintf("%s:%d%s", mediaKey, kept.FirstSeen.Unix(), idSuffix)
 	env := &events.Envelope{
 		ID:     msgID,
 		Type:   "catalog.GrabTask",
 		Schema: schemaName,
 		Source: "catalogarr-worker@" + version.String(),
-		Key:    a.Namespace + "/" + a.Target.Name,
+		Key:    ns + "/" + kept.Target.Name,
 		Time:   now,
 		Data:   data,
 	}
@@ -114,20 +194,20 @@ func Decide(
 	// caused it, which is precisely the trace an operator asks for.
 	tracing.Inject(ctx, env)
 	if _, err := d.Bus.Publish(ctx, events.WorkGrabSubject(mediaKey), env,
-		events.WithScheduleAt(grabAt), events.WithMsgID(msgID)); err != nil {
+		events.WithScheduleAt(at), events.WithMsgID(msgID)); err != nil {
 		return fmt.Errorf("grab: publish scheduled grab for %s: %w", mediaKey, err)
 	}
 
 	pg := &catalogv1alpha1.PendingGrab{
 		ReleaseTitle: kept.Release.Title,
 		Protocol:     kept.Release.Protocol,
-		GrabAt:       metav1.NewTime(grabAt),
+		GrabAt:       metav1.NewTime(at),
 	}
 	for _, st := range statusTargets {
 		// The whole worker-owned status set is re-declared, not just
 		// pendingGrab, and only if nothing wrote the object since it was
 		// read: see workerStatus and updateWorkerStatus.
-		err := updateWorkerStatus(ctx, d.Client, a.Namespace, st, func(ws *workerStatus) bool {
+		err := updateWorkerStatus(ctx, d.Client, ns, st, func(ws *workerStatus) bool {
 			ws.PendingGrab = pg
 			return true
 		})
@@ -136,6 +216,5 @@ func Decide(
 		}
 	}
 
-	metrics.SearchDecisionsTotal.WithLabelValues(string(a.Target.Kind), "delayed", string(a.Release.Protocol)).Inc()
 	return nil
 }

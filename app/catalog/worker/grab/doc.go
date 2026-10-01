@@ -35,6 +35,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // which may by then hold a better release than the one that created it -- and
 // performs the grab.
 //
+// # Indexer grab limits
+//
+// performGrab reserves the release's grab on its Indexer's grab ring in
+// clustarr-indexer-limits (app/indexer/limits) just before it creates the
+// Download, and an Indexer at spec.limits.grabLimit refuses it with a
+// *GrabLimitError, having taken nothing. The Sink then tries the
+// next-ranked approved release on a different indexer; when none remains,
+// and on the scheduled and RSS paths, which hold one candidate, the grab is
+// held exactly as a delayed grab is -- pending entry, scheduled GrabTask,
+// status.pendingGrab -- until the instant the full window next has room. The
+// ring is keyed by GUID, so indexarr's download verb and its direct-grab
+// counter, meeting the same release later, count it once between them.
+//
 // # Field-manager split
 //
 // This package writes status under k8s.ManagerCatalogarrGrab and applies

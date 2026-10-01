@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -99,6 +100,14 @@ type Sink struct {
 // profile. ranked is the search worker's output, best first; anything not
 // approved is ignored, and an empty list is a successful no-op.
 //
+// A release whose Indexer is at spec.limits.grabLimit is passed over for the
+// next-ranked approved release on a DIFFERENT indexer -- another release from
+// the same one would be refused alike -- as Sonarr moves on to the next
+// decision when a grab fails. When every approved release's indexer is full,
+// the grab is held, like a delayed grab, for the earliest instant one of
+// them has room, with that indexer's best release (rank breaks a tie); the
+// scheduled delivery grabs whatever is the pending candidate by then.
+//
 // grabbedBy is what the Download will record as spec.grabbedBy: the search
 // worker passes redownload for a search a failed Download triggered (spec
 // §8.3, app/catalog/worker/redownload) and search otherwise. Empty means
@@ -116,10 +125,11 @@ func (s Sink) Deliver(
 		grabbedBy = downloadv1alpha1.GrabSourceSearch
 	}
 	log := logging.FromContext(ctx).With("item", target.Name)
-	best, ok := firstApproved(ranked)
-	if !ok {
+	approved := allApproved(ranked)
+	if len(approved) == 0 {
 		return nil
 	}
+	best := approved[0]
 	if s.ResolveProfile == nil || s.ResolveDelay == nil {
 		log.Warn("grab: sink is not fully wired; dropping an approved release")
 		return nil
@@ -151,31 +161,68 @@ func (s Sink) Deliver(
 		return err
 	}
 
-	err = Decide(ctx, s.Deps, profile, delaySpec, Approved{
-		Namespace: ns,
-		Target:    commonv1.MediaRef{Kind: target.Kind, Name: target.Name},
-		Keys:      target.Keys,
-		Release:   best.ReleaseInfo,
-		GrabbedBy: grabbedBy,
-	})
-	if errors.Is(err, ErrDuplicateGrab) {
-		// Another path got there first. Acknowledge: the search is done
-		// either way, and performGrab has already cleared
-		// status.pendingGrab so the item does not strand at Delayed.
-		log.Debug("grab: already grabbed elsewhere")
-		return nil
-	}
-	return err
-}
-
-// firstApproved returns the best approved decision. The search worker already
-// ranked the list best first, so this is a scan for the first Approved rather
-// than a second ordering.
-func firstApproved(ranked []commonv1.ReleaseDecision) (commonv1.ReleaseDecision, bool) {
-	for _, d := range ranked {
-		if d.Approved {
-			return d, true
+	approvedFor := func(d commonv1.ReleaseDecision) Approved {
+		return Approved{
+			Namespace: ns,
+			Target:    commonv1.MediaRef{Kind: target.Kind, Name: target.Name},
+			Keys:      target.Keys,
+			Release:   d.ReleaseInfo,
+			GrabbedBy: grabbedBy,
 		}
 	}
-	return commonv1.ReleaseDecision{}, false
+
+	// refused holds each full indexer's best release, in rank order.
+	var refused []refusal
+	full := map[string]bool{}
+	for _, d := range approved {
+		if full[d.IndexerRef] {
+			continue // its indexer already refused a better release
+		}
+		err = decide(ctx, s.Deps, profile, delaySpec, approvedFor(d), false)
+		var limited *GrabLimitError
+		switch {
+		case errors.As(err, &limited):
+			log.Info("grab: the indexer is at its grab limit; trying the next release on another",
+				"indexer", d.IndexerRef, "release", d.Title, "retryAt", limited.RetryAt)
+			full[d.IndexerRef] = true
+			refused = append(refused, refusal{decision: d, retryAt: limited.RetryAt})
+			continue
+		case errors.Is(err, ErrDuplicateGrab):
+			// Another path got there first. Acknowledge: the search is done
+			// either way, and performGrab has already cleared
+			// status.pendingGrab so the item does not strand at Delayed.
+			log.Debug("grab: already grabbed elsewhere")
+			return nil
+		}
+		return err
+	}
+
+	// Every approved release's indexer is at its grab limit. Hold the one
+	// whose indexer has room soonest.
+	soonest := refused[0]
+	for _, r := range refused[1:] {
+		if r.retryAt.Before(soonest.retryAt) {
+			soonest = r
+		}
+	}
+	return holdForGrabLimit(ctx, s.Deps, profile, approvedFor(soonest.decision), soonest.retryAt)
+}
+
+// refusal is an approved release its indexer's grab limit refused, and when
+// that indexer's window next has room.
+type refusal struct {
+	decision commonv1.ReleaseDecision
+	retryAt  time.Time
+}
+
+// allApproved returns the approved decisions in the search worker's rank
+// order, best first.
+func allApproved(ranked []commonv1.ReleaseDecision) []commonv1.ReleaseDecision {
+	var out []commonv1.ReleaseDecision
+	for _, d := range ranked {
+		if d.Approved {
+			out = append(out, d)
+		}
+	}
+	return out
 }

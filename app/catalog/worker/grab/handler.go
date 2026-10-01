@@ -202,6 +202,26 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			}
 			return nil
 		}
+		var limited *GrabLimitError
+		if errors.As(err, &limited) {
+			// The candidate's Indexer is at spec.limits.grabLimit. Keep the
+			// entry and schedule this task again for the instant its window
+			// has room, then acknowledge: a nak would spend the consumer's
+			// five deliveries on a window that may be a day long, and dead
+			// letter a release nothing is wrong with. performGrab took
+			// nothing on the refusal, so there is nothing to undo.
+			statusTargets, stErr := StatusTargets(pv.Target, pv.Keys)
+			if stErr != nil {
+				return events.Discard("grab: pending candidate has no status target", stErr)
+			}
+			if err := schedule(ctx, h.Deps, ns, statusTargets, mediaKey, pv, limited.RetryAt,
+				grabLimitMsgIDSuffix(limited.RetryAt)); err != nil {
+				return events.Retry(grabRetry, err)
+			}
+			log.Info("grab: the indexer is at its grab limit; the grab is held until its window has room",
+				"indexer", limited.Indexer, "retryAt", limited.RetryAt)
+			return nil
+		}
 		var discard *events.DiscardError
 		if errors.As(err, &discard) {
 			// A discarded grab will never be retried, so its candidate must

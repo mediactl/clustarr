@@ -104,6 +104,10 @@ func (d Deps) liveReader() client.Reader {
 // the deterministically named Download with an ownerRef, clear the consumed
 // pendingGrab, publish release.grabbed.
 //
+// It returns a *GrabLimitError, having taken nothing, when the release's
+// Indexer is at spec.limits.grabLimit (reserveGrab); the caller decides
+// whether another release or a later attempt follows.
+//
 // It returns ErrDuplicateGrab -- which callers acknowledge rather than retry
 // -- from both guards: the lease (another automatic grab holds the item) and
 // the Download lookup (a path that takes no lease, such as a Search CR's
@@ -191,6 +195,16 @@ func performGrab(
 	}
 
 	if !resume {
+		// The grab limit, last of the checks before the Download: a refused
+		// grab must leave nothing behind but its released leases, and a
+		// resumed one already holds its slot (the ring is keyed by GUID).
+		if err := reserveGrab(ctx, d, ns, release); err != nil {
+			releaseLeases(ctx, kv, acquired)
+			if errors.Is(err, ErrGrabLimitReached) {
+				metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "grabLimited", string(release.Protocol)).Inc()
+			}
+			return err
+		}
 		if err := createDownload(ctx, d, ns, downloadName, owner, target, keys, release, source, grabbedBy, statusTargets, items); err != nil {
 			releaseLeases(ctx, kv, acquired)
 			return err
