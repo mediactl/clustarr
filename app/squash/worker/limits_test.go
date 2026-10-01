@@ -111,3 +111,30 @@ func TestTheWorkerMeasuresNVDECOnceAndPublishesIt(t *testing.T) {
 	}
 	assert.Nil(t, failing.forTier(ctx, ffmpeg, transcode.TierNVENC, transcode.VideoSpec{})[transcode.TierNVENC].NVDEC)
 }
+
+// A measurement cut short by its task's cancellation (squasharr withdrew
+// the task) is not a measurement: the next task measures again, rather
+// than the pod deciding from the static list for the rest of its life
+// (kind-cluster-plex, 2026-10-01).
+func TestACancelledNVDECMeasurementIsRetried(t *testing.T) {
+	ffmpeg := filepath.Join(t.TempDir(), "ffmpeg")
+	require.NoError(t, os.WriteFile(ffmpeg, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	probes := 0
+	c := newLimitsCache(nil, "nvidia", "laptop")
+	c.probeDecoders = func(ctx context.Context, _ string) (transcode.Decoders, error) {
+		probes++
+		if err := ctx.Err(); err != nil {
+			return transcode.Decoders{}, err
+		}
+		return transcode.Decoders{Formats: map[string]bool{"h264:8": true}}, nil
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.Nil(t, c.nvdec(cancelled, ffmpeg))
+	got := c.nvdec(context.Background(), ffmpeg)
+	require.NotNil(t, got, "the next task measures again")
+	assert.True(t, got.Formats["h264:8"])
+	assert.Equal(t, 2, probes)
+	c.nvdec(context.Background(), ffmpeg)
+	assert.Equal(t, 2, probes, "a real measurement is kept")
+}

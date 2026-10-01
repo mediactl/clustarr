@@ -96,13 +96,15 @@ func (c *limitsCache) forTier(ctx context.Context, ffmpeg string, tier transcode
 
 // nvdec is what this device's NVDEC decodes, measured on the first call: a
 // failed measurement is logged and left unmeasured (nil), so Plan decides
-// from the static list, and is not retried under this process.
+// from the static list, and is not retried under this process -- unless it
+// failed because its task was cancelled (squasharr withdrew it), which
+// says nothing about the device, so the next task measures again.
 func (c *limitsCache) nvdec(ctx context.Context, ffmpeg string) *transcode.Decoders {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.decoded {
-		c.decoded = true
 		d, err := c.probeDecoders(ctx, ffmpeg)
+		c.decoded = err == nil || ctx.Err() == nil
 		if err != nil {
 			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: could not measure what NVDEC decodes; deciding from the static list",
 				"error", err)
