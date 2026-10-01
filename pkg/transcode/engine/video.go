@@ -115,6 +115,7 @@ func videoStage(v standard.VideoPlan) stageFunc {
 				gcfg := ffgo.FilterGraphConfig{
 					Width: sc.src.Width, Height: sc.src.Height, PixelFmt: ffgo.PixelFormat(f.Format()),
 					TimeBase: sd.TimeBase(), FrameRate: sc.src.FrameRate, Filters: v.Filter, HWFramesCtx: f.HWFramesCtx(),
+					SAR: sc.src.SampleAspectRatio,
 				}
 				if needsDevice(v.Filter) {
 					gcfg.HWDevice = sc.opts.HWDevice
@@ -221,6 +222,8 @@ func openVideoEncoder(sc *stageContext, v standard.VideoPlan, graph *ffgo.Filter
 	cfg := ffgo.VideoEncoderConfig{
 		EncoderName: v.Encoder, Width: sc.src.Width, Height: sc.src.Height, FrameRate: sc.src.FrameRate,
 		PixelFormat: ffgo.PixelFormatYUV420P10LE(), HWFramesCtx: graph.OutputHWFramesCtx(), CodecOptions: opts,
+		// An anamorphic source's pixel aspect (a 16:9 DVD's 32:27) is kept.
+		SampleAspectRatio: sc.src.SampleAspectRatio,
 	}
 	enc, err := ffgo.NewVideoStreamEncoder(ffgo.VideoStreamEncoderConfig{
 		VideoEncoderConfig: cfg, TimeBase: graphTimeBase(sc), SideData: encSide, GlobalHeader: true,

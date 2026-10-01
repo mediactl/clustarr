@@ -162,3 +162,16 @@ func TestHDR10KeepsItsMetadataOnNVENC(t *testing.T) {
 	assert.Contains(t, stream, "Content light level metadata")
 	assert.Contains(t, entries(t, out, "-show_entries", "stream=color_transfer"), "color_transfer=smpte2084")
 }
+
+// An anamorphic source (a 16:9 DVD: 720x480 at 32:27) keeps its pixel
+// aspect, or it would play squeezed to 3:2.
+func TestAnAnamorphicSourceKeepsItsAspect(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	src := filepath.Join(t.TempDir(), "dvd.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=720x480:rate=25:duration=1,setsar=32/27", "-c:v", "mpeg2video", src)
+	out := filepath.Join(t.TempDir(), "o.mkv")
+	_, err := Run(context.Background(), encodePlan(cpuVideo("sdr", standard.ColorTags{})), src, out, Options{})
+	require.NoError(t, err)
+	assert.Contains(t, entries(t, out, "-show_entries", "stream=sample_aspect_ratio"), "sample_aspect_ratio=32:27")
+}
