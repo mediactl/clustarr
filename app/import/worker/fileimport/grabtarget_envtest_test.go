@@ -37,15 +37,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// The grab path (X4a) creates a Download whose spec.target is the Book
-// itself -- {kind: book, name}, no keys -- with the book's own
-// qualityProfileRef, which is empty when the book inherits its author's.
-// Its completed download imports under the author's folder by pkg/naming's
-// book preset, against the author's profile and root folder, and the
-// MediaFile backs the Book.
-func TestHandleImportsACompletedDownloadOfABook(t *testing.T) {
+// newBook is an author with metadata, its own book root folder and an EPUB
+// and AZW3 profile, and one book of theirs with metadata.
+func (f *fixture) newBook(t *testing.T) (*catalogv1alpha1.RootFolder, *catalogv1alpha1.Book) {
+	t.Helper()
 	ctx := context.Background()
-	f := newFixture(t, "fi-book")
 	rf := f.newRoot(t, "books", catalogv1alpha1.RootFolderKindBook)
 	profile := f.nonVideoProfile(t, catalogv1alpha1.ProfileMediaKindBook, "EPUB", "AZW3")
 
@@ -72,6 +68,19 @@ func TestHandleImportsACompletedDownloadOfABook(t *testing.T) {
 		return f.c.Get(ctx, client.ObjectKeyFromObject(author), &a) == nil && a.Status.Metadata != nil &&
 			f.c.Get(ctx, client.ObjectKeyFromObject(book), &b) == nil && b.Status.Metadata != nil
 	})
+	return rf, book
+}
+
+// The grab path (X4a) creates a Download whose spec.target is the Book
+// itself -- {kind: book, name}, no keys -- with the book's own
+// qualityProfileRef, which is empty when the book inherits its author's.
+// Its completed download imports under the author's folder by pkg/naming's
+// book preset, against the author's profile and root folder, and the
+// MediaFile backs the Book.
+func TestHandleImportsACompletedDownloadOfABook(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "fi-book")
+	rf, book := f.newBook(t)
 
 	contentRoot := dataDir(t, "scratch")
 	mustWriteSparseFile(t, filepath.Join(contentRoot, "Ursula K. Le Guin - The Dispossessed (1974) [EPUB]",
@@ -86,7 +95,7 @@ func TestHandleImportsACompletedDownloadOfABook(t *testing.T) {
 	require.Len(t, got.Imported, 1)
 	dest := got.Imported[0].DestPath
 	assert.Equal(t, filepath.Join(rf.Spec.Path, "Ursula K. Le Guin", "The Dispossessed", "Ursula K. Le Guin.epub"), dest)
-	_, err = os.Stat(dest)
+	_, err := os.Stat(dest)
 	require.NoError(t, err)
 
 	var mf catalogv1alpha1.MediaFile

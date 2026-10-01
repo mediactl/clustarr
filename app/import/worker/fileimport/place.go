@@ -35,7 +35,18 @@ import (
 var errWouldOverwrite = errors.New("would overwrite")
 
 // placeFile imports src (whose stat is srcInfo) to dest, never destroying
-// what dest already holds.
+// what dest already holds, and never anywhere but strictly under root, the
+// RootFolder's path.
+//
+// The containment check is the import's own, beside the one pkg/naming
+// makes while it renders: every placement of every kind goes through here,
+// and a destination outside the library -- a folder override or a rendered
+// folder that climbs out of it, a root folder that is not absolute -- is a
+// fault in the item or the root folder's configuration, not in the release.
+// It is refused as errBlocked, before anything is written or recycled, so
+// the walk stops and the Download reads Blocked naming the path at once,
+// rather than retrying, and rather than a per-file rejection that would
+// read as a bad release and have grabarr blocklist it and delete its data.
 //
 // fsops.Import renames a copy over an existing dest, so a file already at a
 // library path -- the previous import of the same item under the same
@@ -46,7 +57,10 @@ var errWouldOverwrite = errors.New("would overwrite")
 // new one after. A dest that already IS src (a redelivery after the link
 // landed) is left as it is; re-importing it would turn a hard link into a
 // copy and bin a file that is not being replaced.
-func placeFile(ctx context.Context, bin, src string, srcInfo os.FileInfo, dest string, mode fsops.ImportMode) error {
+func placeFile(ctx context.Context, root, bin, src string, srcInfo os.FileInfo, dest string, mode fsops.ImportMode) error {
+	if !fsops.StrictlyUnder(dest, root) {
+		return blocked("refused to place %s at %s, which is not inside root folder path %q", filepath.Base(src), dest, root)
+	}
 	if di, err := os.Stat(dest); err == nil {
 		if os.SameFile(di, srcInfo) {
 			return nil

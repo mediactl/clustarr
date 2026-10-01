@@ -103,7 +103,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (MediaRef.Track).
 //
 // No import renames a file over one already at its destination without
-// linking the old one into the recycle bin first (placeFile).
+// linking the old one into the recycle bin first, and none places a file
+// anywhere but strictly under its RootFolder's path (placeFile); a
+// destination outside it stops the import as Blocked, not as a rejection
+// of the release.
 //
 // A transcoded file is final (CLAUDE.md, "Transcoding"): a movie's or
 // episode's existing file that catalogv1alpha1.(*MediaFile).Transcoded
@@ -113,7 +116,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (transcoded.go), checked before the upgrade comparison. The gate, the
 // upgrade comparison and the replacement act on every MediaFile the item
 // has, and a movie's are listed through the API reader
-// (Worker.APIReader), so a swap recorded a moment ago is not missed.
+// (Worker.APIReader), so a swap recorded a moment ago is not missed --
+// except that the gates skip this import's own file from an earlier
+// delivery that died before it wrote status.import (ownEarlierAttempt in
+// dedup.go): against itself a file is never an upgrade, and a redelivery
+// that rejected its own import had grabarr blocklist the release and delete
+// its data.
 //
 // An item that holds one file -- a movie, a book, an issue, an episode --
 // gets one file from a download however many the download carries for it

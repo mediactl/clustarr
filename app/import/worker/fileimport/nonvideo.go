@@ -123,8 +123,10 @@ func (w *Worker) importNonVideo(
 
 	outcome, walkErr := w.runNonVideo(ctx, m, dl, plan, manual)
 	if walkErr != nil {
-		if w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, walkErr.Error())
+		// errBlocked (a placement outside the root folder) is no better on
+		// a redelivery, so it is reported at once.
+		if errors.Is(walkErr, errBlocked) || w.finalAttempt(m) {
+			return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, blockedMessage(walkErr))
 		}
 		return fmt.Errorf("fileimport: import %s/%s: %w", dl.Namespace, dl.Name, walkErr)
 	}
@@ -291,15 +293,20 @@ func (w *Worker) importNonVideoFile(
 			rel, kind, strings.ToLower(filepath.Ext(srcPath)), AnnotationImportOverride), nil
 	}
 
+	// The item's files but this import's own from an earlier delivery
+	// (ownEarlierAttempt): an album's tracks a delivery placed before it
+	// died are not files the album "already has", and a book's file is no
+	// upgrade over itself.
+	compared := comparedFiles(plan.existing, dl)
 	var current *catalogv1alpha1.MediaFile
-	if len(plan.existing) > 0 {
-		current = &plan.existing[0]
+	if len(compared) > 0 {
+		current = &compared[0]
 	}
 	if current != nil && !manual {
 		if !singleFileKind(kind) {
 			return nil, fmt.Sprintf("%s: %s %s already has %d file(s); adding to or replacing a multi-file item "+
 				"needs a manual import (spec.manual, or %s=true)",
-				rel, kind, plan.ref.Name, len(plan.existing), AnnotationImportOverride), nil
+				rel, kind, plan.ref.Name, len(compared), AnnotationImportOverride), nil
 		}
 		verdict := plan.profile.UpgradeDecision(
 			quality.Candidate{Quality: current.Spec.Quality, Revision: current.Spec.Revision},
@@ -321,7 +328,7 @@ func (w *Worker) importNonVideoFile(
 	if dl.Status.CanMoveFiles {
 		mode = fsops.ImportMove
 	}
-	if err := placeFile(ctx, plan.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
+	if err := placeFile(ctx, plan.rootFolder.Spec.Path, plan.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
 		if errors.Is(err, errWouldOverwrite) {
 			return nil, fmt.Sprintf("%s: %v", rel, err), nil
 		}
@@ -359,12 +366,14 @@ func (w *Worker) importNonVideoFile(
 
 	// A single-file item's previous file is replaced here, file by file; an
 	// album's or an audiobook's are replaced as a set once the whole walk
-	// has run (supersede).
+	// has run (supersede). A file already gone from disk still has its
+	// MediaFile removed, as the movie and episode paths do.
 	if current != nil && singleFileKind(kind) && !*recycledOld && current.Spec.Path != dest {
-		if _, err := fsops.Recycle(fsops.RecycleBinPath(plan.rootFolder.Spec.RecycleBin.Path), current.Spec.Path); err != nil {
+		bin := fsops.RecycleBinPath(plan.rootFolder.Spec.RecycleBin.Path)
+		if _, err := fsops.Recycle(bin, current.Spec.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			log.Warn("fileimport: could not recycle the replaced file; leaving it in place",
 				"path", current.Spec.Path, "error", err)
-		} else if err := w.Client.Delete(ctx, current); err != nil {
+		} else if err := w.Client.Delete(ctx, current); client.IgnoreNotFound(err) != nil {
 			log.Warn("fileimport: could not delete the replaced media file object",
 				"mediaFile", current.Name, "error", err)
 		}

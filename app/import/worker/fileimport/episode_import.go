@@ -108,8 +108,10 @@ func (w *Worker) importEpisodes(
 
 	outcome, walkErr := w.runEpisodes(ctx, m, dl, plan, manual)
 	if walkErr != nil {
-		if w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, walkErr.Error())
+		// errBlocked (a placement outside the root folder) is no better on
+		// a redelivery, so it is reported at once.
+		if errors.Is(walkErr, errBlocked) || w.finalAttempt(m) {
+			return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, blockedMessage(walkErr))
 		}
 		return fmt.Errorf("fileimport: import %s/%s: %w", dl.Namespace, dl.Name, walkErr)
 	}
@@ -326,16 +328,19 @@ func (w *Worker) importEpisodeFile(
 	if err != nil {
 		return nil, "", err
 	}
+	// The gates skip this import's own file from an earlier delivery, as
+	// the movie path's do (ownEarlierAttempt).
+	compared := comparedFiles(existing, dl)
 	// A transcoded file is final: only a person's choice replaces it
 	// (transcoded.go), whichever of the covered episodes it backs.
-	for i := range existing {
-		if r := transcodedRejection(rel, &existing[i], dl, manual); r != "" {
+	for i := range compared {
+		if r := transcodedRejection(rel, &compared[i], dl, manual); r != "" {
 			return nil, r, nil
 		}
 	}
 	if !manual {
 		candidate := quality.Candidate{Quality: parsed.Quality, Revision: parsed.Revision, FormatScore: score}
-		for _, mf := range existing {
+		for _, mf := range compared {
 			current := quality.Candidate{Quality: mf.Spec.Quality, Revision: mf.Spec.Revision, FormatScore: int(mf.Spec.FormatScore)}
 			if verdict := plan.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade {
 				return nil, fmt.Sprintf("%s: %s (%s)", rel, verdictMessage(verdict), mf.Spec.MediaRef.Name), nil
@@ -363,7 +368,7 @@ func (w *Worker) importEpisodeFile(
 	if dl.Status.CanMoveFiles {
 		mode = fsops.ImportMove
 	}
-	if err := placeFile(ctx, plan.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
+	if err := placeFile(ctx, plan.rootFolder.Spec.Path, plan.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
 		if errors.Is(err, errWouldOverwrite) {
 			return nil, fmt.Sprintf("%s: %v", rel, err), nil
 		}

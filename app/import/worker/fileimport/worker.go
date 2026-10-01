@@ -319,8 +319,10 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 
 	outcome, walkErr := pc.run(ctx)
 	if walkErr != nil {
-		if w.finalAttempt(m) {
-			return w.finishBlocked(ctx, &dl, outcome.imported, outcome.rejections, walkErr.Error())
+		// errBlocked (a placement outside the root folder) is no better on
+		// a redelivery, so it is reported at once.
+		if errors.Is(walkErr, errBlocked) || w.finalAttempt(m) {
+			return w.finishBlocked(ctx, &dl, outcome.imported, outcome.rejections, blockedMessage(walkErr))
 		}
 		return fmt.Errorf("fileimport: import %s/%s: %w", ns, name, walkErr)
 	}

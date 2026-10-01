@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"time"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
@@ -79,4 +81,63 @@ func recordImport(ctx context.Context, kv events.KV, uid string, mediaFileRefs [
 		return fmt.Errorf("fileimport: record dedup fingerprint: %w", err)
 	}
 	return nil
+}
+
+// ownEarlierAttempt reports whether mf is the file this very import placed
+// on an earlier delivery of the same task: the delivery applied mf, then
+// died -- the pod was killed, or the status.import write failed -- before
+// status.import or the dedup record above was written, so the redelivery
+// finds no trace of its own work but mf among the item's existing files.
+//
+// Such a file is not one the import would replace, so the transcoded and
+// upgrade gates must not compare against it. Compared against itself, a
+// file is never an upgrade: every file was rejected, status.import read
+// downloadv1alpha1.ImportMessageEveryFileRejected, and grabarr took that
+// for a bad release -- blocklisted it, searched again and had the engine
+// delete the download's data.
+//
+// Identity is the Download, not the path: mf records the Download that
+// imported it (spec.importedFrom.downloadRef), and a redelivery may render
+// another path for the same file (a probe that timed out on the first
+// attempt and answers on the second names the codec). A Download's name is
+// reused when a release is grabbed again for the same target
+// (k8s.ChildName(target, guid)), so the file must also have been imported
+// no earlier than this Download was created: one an earlier Download of the
+// same name imported is compared like any other. Both stamps are whole
+// seconds, so the same second counts as after.
+//
+// A file squasharr has transcoded since -- catalogarr took spec.original
+// over as false, or its probe read the CLUSTARR_PROFILE tag -- is no longer
+// what the import placed, and stays under the gates: the transcode is final,
+// and re-placing the source over it would undo it.
+func ownEarlierAttempt(mf *catalogv1alpha1.MediaFile, dl *downloadv1alpha1.Download) bool {
+	src := mf.Spec.ImportedFrom
+	if src == nil || src.DownloadRef == "" || src.DownloadRef != dl.Name {
+		return false
+	}
+	if src.ImportedAt.IsZero() || src.ImportedAt.Before(&dl.CreationTimestamp) {
+		return false
+	}
+	if mf.Spec.Original != nil && !*mf.Spec.Original {
+		return false
+	}
+	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
+		return false
+	}
+	return true
+}
+
+// comparedFiles is existing without the files ownEarlierAttempt claims for
+// dl: the files an import's gates judge it against. It never aliases
+// existing, which the movie and episode replacement steps still walk whole,
+// so an earlier attempt's file at a path this attempt no longer renders is
+// replaced like any other.
+func comparedFiles(existing []catalogv1alpha1.MediaFile, dl *downloadv1alpha1.Download) []catalogv1alpha1.MediaFile {
+	out := make([]catalogv1alpha1.MediaFile, 0, len(existing))
+	for i := range existing {
+		if !ownEarlierAttempt(&existing[i], dl) {
+			out = append(out, existing[i])
+		}
+	}
+	return out
 }

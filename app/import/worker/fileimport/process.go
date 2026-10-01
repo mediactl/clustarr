@@ -292,12 +292,16 @@ func (pc *processConfig) processFile(
 	}
 	score, matched := pc.profile.Score(ctx, pc.worker.Catalogue, parsed, ic)
 
+	// The gates judge the file against every one the movie has but this
+	// import's own, placed by an earlier delivery that died before it could
+	// say so (ownEarlierAttempt): against itself, a file is never an upgrade.
+	compared := comparedFiles(pc.existing, pc.download)
 	// A transcoded file is final: only a person's choice replaces it
 	// (transcoded.go), whichever of the movie's files it is. Checked before
 	// the upgrade comparison, so the rejection says why rather than
 	// reporting a quality verdict.
-	for i := range pc.existing {
-		if r := transcodedRejection(rel, &pc.existing[i], pc.download, pc.manual); r != "" {
+	for i := range compared {
+		if r := transcodedRejection(rel, &compared[i], pc.download, pc.manual); r != "" {
 			return nil, r, nil
 		}
 	}
@@ -305,13 +309,13 @@ func (pc *processConfig) processFile(
 	// over each, as an episode file must over each file it replaces.
 	if !pc.manual {
 		candidate := quality.Candidate{Quality: parsed.Quality, Revision: parsed.Revision, FormatScore: score}
-		for i := range pc.existing {
-			mf := &pc.existing[i]
+		for i := range compared {
+			mf := &compared[i]
 			current := quality.Candidate{
 				Quality: mf.Spec.Quality, Revision: mf.Spec.Revision, FormatScore: int(mf.Spec.FormatScore),
 			}
 			if verdict := pc.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade {
-				if len(pc.existing) > 1 {
+				if len(compared) > 1 {
 					return nil, fmt.Sprintf("%s: %s (MediaFile %s)", rel, verdictMessage(verdict), mf.Name), nil
 				}
 				return nil, fmt.Sprintf("%s: %s", rel, verdictMessage(verdict)), nil
@@ -335,7 +339,7 @@ func (pc *processConfig) processFile(
 	if pc.download.Status.CanMoveFiles {
 		mode = fsops.ImportMove
 	}
-	if err := placeFile(ctx, pc.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
+	if err := placeFile(ctx, pc.rootFolder.Spec.Path, pc.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
 		if errors.Is(err, errWouldOverwrite) {
 			return nil, fmt.Sprintf("%s: %v", rel, err), nil
 		}

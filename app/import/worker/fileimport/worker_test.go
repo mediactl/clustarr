@@ -19,10 +19,15 @@ package fileimport
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -70,6 +75,76 @@ func TestDedupKey(t *testing.T) {
 	// Distinct inputs must never collapse onto the same key -- KVKeyToken's
 	// own injectivity contract, exercised through this package's use of it.
 	require.NotEqual(t, DedupKey("a:b"), DedupKey("a,b"))
+}
+
+// TestOwnEarlierAttempt pins what makes an existing MediaFile this
+// import's own work from an earlier delivery, which the gates skip, and
+// what keeps one under them.
+func TestOwnEarlierAttempt(t *testing.T) {
+	created := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	dl := &downloadv1alpha1.Download{ObjectMeta: metav1.ObjectMeta{
+		Name: "matrix-dl", CreationTimestamp: metav1.NewTime(created),
+	}}
+	file := func(edit func(*catalogv1alpha1.MediaFile)) *catalogv1alpha1.MediaFile {
+		mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{
+			Path:     "/data/media/movies/The Matrix (1999)/The Matrix (1999).mkv",
+			Original: ptr.To(true),
+			ImportedFrom: &catalogv1alpha1.ImportSource{
+				DownloadRef: "matrix-dl", ImportedAt: metav1.NewTime(created.Add(time.Hour)),
+			},
+		}}
+		if edit != nil {
+			edit(mf)
+		}
+		return mf
+	}
+	cases := []struct {
+		name string
+		mf   *catalogv1alpha1.MediaFile
+		want bool
+	}{
+		{name: "imported by this Download after it was created", mf: file(nil), want: true},
+		{name: "imported in the second the Download was created", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Spec.ImportedFrom.ImportedAt = metav1.NewTime(created)
+		}), want: true},
+		{name: "original unset, as an import before spec.original existed", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Spec.Original = nil
+		}), want: true},
+		{name: "probed as an ffmpeg HEVC encode: the release itself", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Status.MediaInfo = &commonv1.MediaInfo{VideoEncoder: "Lavc60.31.102 libx265"}
+		}), want: true},
+		{name: "another Download's", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Spec.ImportedFrom.DownloadRef = "other-dl"
+		})},
+		{name: "an earlier Download's of the same name", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Spec.ImportedFrom.ImportedAt = metav1.NewTime(created.Add(-time.Second))
+		})},
+		{name: "no import time recorded", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Spec.ImportedFrom.ImportedAt = metav1.Time{}
+		})},
+		{name: "found by a rescan, imported by no Download", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Spec.ImportedFrom = nil
+		})},
+		{name: "transcoded since: the swap took spec.original", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Spec.Original = ptr.To(false)
+		})},
+		{name: "transcoded since: the probe read the CLUSTARR_PROFILE tag", mf: file(func(mf *catalogv1alpha1.MediaFile) {
+			mf.Status.MediaInfo = &commonv1.MediaInfo{TranscodeProfile: "hevc-main10@0123"}
+		})},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			require.Equal(t, c.want, ownEarlierAttempt(c.mf, dl))
+		})
+	}
+
+	existing := []catalogv1alpha1.MediaFile{*file(nil), *cases[4].mf}
+	existing[0].Name, existing[1].Name = "own", "other"
+	compared := comparedFiles(existing, dl)
+	require.Len(t, compared, 1)
+	require.Equal(t, "other", compared[0].Name)
+	require.Equal(t, "own", existing[0].Name, "comparedFiles never reorders or overwrites the caller's slice")
+	require.Equal(t, "other", existing[1].Name)
 }
 
 func TestTargetKey(t *testing.T) {
