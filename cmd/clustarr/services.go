@@ -277,9 +277,9 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	cmd.Flags().StringVar(&workerImage, "worker-image", envOr(workerImageEnv, defaults.WorkerImage),
 		"Image the controller stamps onto every transcode pool, nvidia's included (the NVIDIA runtime injects "+
 			"the driver). Required for --role controller. Defaults to $"+workerImageEnv+".")
-	cmd.Flags().StringVar(&workerEngine, "worker-engine", envOr(workerEngineEnv, "ffmpeg"),
-		"Engine squasharr plans transcodes for: ffmpeg (the ffmpeg executable) or ffgo (in-process). "+
-			"Defaults to $"+workerEngineEnv+".")
+	cmd.Flags().StringVar(&workerEngine, "worker-engine", envOr(workerEngineEnv, "ffgo"),
+		"Engine squasharr plans transcodes for: ffgo (in-process, the default) or ffmpeg (the ffmpeg "+
+			"executable, until it is deleted). Defaults to $"+workerEngineEnv+".")
 	cmd.Flags().StringVar(&dataClaim, "data-claim", envOr(dataClaimEnv, defaults.DataClaimName),
 		"RWX PersistentVolumeClaim transcode Jobs mount at --data-dir. Defaults to $"+dataClaimEnv+".")
 	cmd.Flags().StringVar(&renderGroups, "intel-render-groups", envOr(intelRenderGroupsEnv, ""),

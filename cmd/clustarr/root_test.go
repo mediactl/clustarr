@@ -21,6 +21,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // TestEveryServiceHasASubcommand is Task A7's acceptance check for the
@@ -45,4 +48,13 @@ func TestVersionHasNoShorthand(t *testing.T) {
 	f := NewRootCommand().Flags().Lookup("version")
 	require.NotNil(t, f)
 	require.Empty(t, f.Shorthand)
+}
+
+// The in-process engine is the default (ffgo Phase 5): squasharr plans for
+// it unless --worker-engine, or $CLUSTARR_WORKER_ENGINE, says ffmpeg.
+func TestTheWorkerEngineDefaultsToFFgo(t *testing.T) {
+	t.Setenv(workerEngineEnv, "")
+	f := newSquasharrCommand(&logging.Options{}, &tracing.Options{}).Flags().Lookup("worker-engine")
+	require.NotNil(t, f)
+	require.Equal(t, "ffgo", f.DefValue)
 }

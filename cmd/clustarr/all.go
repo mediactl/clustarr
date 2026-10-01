@@ -223,7 +223,7 @@ func allServices(
 			// transcode Job it creates, exactly as grabarr's stamps an
 			// engine image above; the same env-then-dev-default fallback.
 			d.WorkerImage = envOr(workerImageEnv, devEngineImage)
-			d.WorkerEngine = envOr(workerEngineEnv, "")
+			d.WorkerEngine = envOr(workerEngineEnv, "ffgo")
 			d.Logging = *lo
 			d.Tracing = tr
 			return runSquasharr(ctx, d)
