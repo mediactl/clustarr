@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
+	"github.com/mediactl/clustarr/pkg/redact"
 )
 
 // defaultTimeout matches Indexer.spec.timeout's default in
@@ -100,10 +101,10 @@ type Client struct {
 func NewClient(baseURL, apikey string, opts ...ClientOption) (*Client, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("torznab: parse base URL %q: %w", baseURL, err)
+		return nil, fmt.Errorf("torznab: parse base URL %q: %w", redact.URL(baseURL), redact.Err(err))
 	}
 	if u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("torznab: base URL %q must be absolute", baseURL)
+		return nil, fmt.Errorf("torznab: base URL %q must be absolute", redact.URL(baseURL))
 	}
 
 	c := &Client{
@@ -127,7 +128,7 @@ func (c *Client) do(ctx context.Context, values url.Values) (*http.Response, err
 	ctx, span := tracing.Start(ctx, "torznab.request")
 	defer span.End()
 
-	logging.FromContext(ctx).Debug("torznab: request", "url", c.baseURL.String(), "t", values.Get("t"))
+	logging.FromContext(ctx).Debug("torznab: request", "url", redact.URL(c.baseURL.String()), "t", values.Get("t"))
 
 	// An already-cancelled or expired context never issues a request; this
 	// is what makes cancellation propagate out of Search/Caps unwrapped.
@@ -150,14 +151,21 @@ func (c *Client) do(ctx context.Context, values url.Values) (*http.Response, err
 	u := *c.baseURL
 	u.RawQuery = values.Encode()
 
+	// Both errors below are a *url.Error quoting the whole request URL,
+	// ?apikey= included, and they reach Indexer status conditions, Events,
+	// status.lastFailure and spans. redact.Err drops the query from it and
+	// keeps the *url.Error and its cause, so errors.Is(ctx errors) and
+	// net.Error's Timeout still work for every caller.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
+		err = redact.Err(err)
 		tracing.RecordError(span, err)
 		return nil, err
 	}
 
 	resp, err := c.hc.Do(req)
 	if err != nil {
+		err = redact.Err(err)
 		tracing.RecordError(span, err)
 		return nil, err
 	}

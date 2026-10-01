@@ -21,8 +21,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -287,4 +289,58 @@ func mustOpen(t *testing.T, path string) *os.File {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close() })
 	return f
+}
+
+// A transport failure must not carry the API key. http.Client.Do returns a
+// *url.Error quoting the whole request URL, ?apikey= included, and the
+// error reaches Indexer status conditions, Events, status.lastFailure and
+// spans. The cause, and the *url.Error itself, must survive.
+func TestClientTransportErrorCarriesNoAPIKey(t *testing.T) {
+	const key = "s3cret-apikey-value"
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close() // every request is now refused
+
+	c, err := torznab.NewClient(srv.URL+"/api", key)
+	require.NoError(t, err)
+
+	_, err = c.Search(context.Background(), torznab.Query{Type: torznab.ModeSearch, Q: "heat"})
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), key)
+	require.Contains(t, err.Error(), srv.Listener.Addr().String(), "the host stays, for diagnosis")
+	var ue *url.Error
+	require.ErrorAs(t, err, &ue)
+
+	_, err = c.Caps(context.Background())
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), key)
+}
+
+func TestClientTimeoutCarriesNoAPIKeyAndStaysADeadline(t *testing.T) {
+	const key = "s3cret-apikey-value"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c, err := torznab.NewClient(srv.URL, key)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err = c.Search(ctx, torznab.Query{Type: torznab.ModeSearch})
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), key)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	var ne net.Error
+	require.ErrorAs(t, err, &ne)
+	require.True(t, ne.Timeout())
+}
+
+func TestNewClientErrorCarriesNoCredentials(t *testing.T) {
+	_, err := torznab.NewClient("https://user:s3cret@idx.example/%zz?apikey=s3cret", "k")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "s3cret")
+	_, err = torznab.NewClient("/relative?apikey=s3cret", "k")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "s3cret")
 }
