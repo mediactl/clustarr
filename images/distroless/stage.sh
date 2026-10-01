@@ -46,6 +46,22 @@ trace "$sys"/libnss_dns.so.2 "$sys"/libnss_files.so.2 "$sys"/libresolv.so.2
 # shellcheck disable=SC2086
 [ -z "${EXTRA_DLOPEN:-}" ] || trace $EXTRA_DLOPEN
 
+# Notices: the copyright file of every Debian package a staged file came
+# from (glibc, libstdc++, libva, the iHD driver, ...), and the licences the
+# build stages put in /usr/share/licenses (FFmpeg and its source, ffgo,
+# clustarr).
+find "$dst" -type f | while read -r f; do
+	p=${f#"$dst"}
+	pkg=$(dpkg -S "$p" 2>/dev/null || dpkg -S "/usr${p#/usr}" 2>/dev/null || dpkg -S "${p#/usr}" 2>/dev/null || true)
+	pkg=${pkg%%:*}
+	pkg=${pkg%%,*}
+	[ -n "$pkg" ] && [ -f "/usr/share/doc/$pkg/copyright" ] || continue
+	mkdir -p "$dst/usr/share/doc/$pkg"
+	cp "/usr/share/doc/$pkg/copyright" "$dst/usr/share/doc/$pkg/copyright"
+done
+mkdir -p "$dst/usr/share"
+cp -r /usr/share/licenses "$dst/usr/share/"
+
 mkdir -p "$dst/etc/ssl/certs" "$dst/data" "$dst/scratch" "$dst/tmp"
 cp /etc/ssl/certs/ca-certificates.crt "$dst/etc/ssl/certs/"
 echo 'hosts: files dns' >"$dst/etc/nsswitch.conf"

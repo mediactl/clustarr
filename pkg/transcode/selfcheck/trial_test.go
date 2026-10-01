@@ -19,6 +19,8 @@ package selfcheck
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/obinnaokechukwu/ffgo"
@@ -62,4 +64,18 @@ func TestTrialOnTheCPUIsTheCheck(t *testing.T) {
 	r, err := Trial(context.Background(), ClassCPU, t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, r.Trials)
+}
+
+// Phase 2 review #2: /sys/class/drm is the host's in a container; a node
+// the container was not given must not be chosen (VAAPI then falls back to
+// X11, and BtbN's libX11 stub aborts the process).
+func TestIntelRenderNodeIgnoresANodeTheContainerDoesNotHave(t *testing.T) {
+	sys, dev := t.TempDir(), t.TempDir()
+	for _, n := range []struct{ name, vendor string }{{"renderD128", "0x8086"}, {"renderD129", "0x10de"}, {"renderD130", "0x8086"}} {
+		require.NoError(t, os.MkdirAll(filepath.Join(sys, n.name, "device"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(sys, n.name, "device", "vendor"), []byte(n.vendor+"\n"), 0o644))
+	}
+	assert.Equal(t, "", intelRenderNode(sys, dev), "no node in /dev/dri")
+	require.NoError(t, os.WriteFile(filepath.Join(dev, "renderD130"), nil, 0o666))
+	assert.Equal(t, filepath.Join(dev, "renderD130"), intelRenderNode(sys, dev), "the Intel node the container has")
 }

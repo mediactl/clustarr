@@ -197,6 +197,7 @@ docker-selfcheck-distroless: ## Run --self-check in each distroless transcoder i
 	  docker run --rm --read-only --cap-drop=ALL --user 1000:1000 $$n:dev --self-check=$$c >/dev/null; \
 	  if docker run --rm --entrypoint /bin/sh $$n:dev -c true 2>/dev/null; then echo "$$n:dev has a shell" >&2; exit 1; fi; \
 	  docker run --rm --entrypoint /bin/sh $$n-debug:dev -c true; \
+	  docker run --rm --entrypoint /bin/sh $$n-debug:dev -c 'set -e; for f in /usr/share/licenses/ffmpeg/LICENSE.txt /usr/share/licenses/ffmpeg/SOURCE /usr/share/licenses/clustarr/LICENSE /usr/share/licenses/ffgo/LICENSE /usr/share/doc/libc6/copyright; do test -s $$f || { echo "missing notice $$f" >&2; exit 1; }; done'; \
 	  echo "ok"; \
 	done
 

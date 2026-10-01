@@ -14,6 +14,7 @@ require (
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/cyruzin/golang-tmdb v1.9.4
 	github.com/dlclark/regexp2 v1.12.0
+	github.com/ebitengine/purego v0.9.1
 	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/go-logr/logr v1.4.4
 	github.com/goccy/go-yaml v1.19.2
@@ -93,7 +94,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect

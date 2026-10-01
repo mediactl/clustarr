@@ -62,14 +62,14 @@ jobs:
           # The distroless transcoders (FROM scratch); named -distroless until
           # the pools switch to them (ffgo Phase 3/4), so the live tags above
           # are untouched.
-          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: amd64, runner: ubuntu-24.04 }
-          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm }
-          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04 }
-          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: arm64, runner: ubuntu-24.04-arm }
-          - { image: transcoder-cuda-distroless, suffix: /transcoder-cuda-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-cuda, arch: amd64, runner: ubuntu-24.04 }
-          - { image: transcoder-cuda-distroless-debug, suffix: /transcoder-cuda-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-cuda-debug, arch: amd64, runner: ubuntu-24.04 }
-          - { image: transcoder-intel-distroless, suffix: /transcoder-intel-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel, arch: amd64, runner: ubuntu-24.04 }
-          - { image: transcoder-intel-distroless-debug, suffix: /transcoder-intel-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel-debug, arch: amd64, runner: ubuntu-24.04 }
+          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: amd64, runner: ubuntu-24.04, class: cpu }
+          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
+          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04, class: cpu }
+          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
+          - { image: transcoder-cuda-distroless, suffix: /transcoder-cuda-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-cuda, arch: amd64, runner: ubuntu-24.04, class: cuda }
+          - { image: transcoder-cuda-distroless-debug, suffix: /transcoder-cuda-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-cuda-debug, arch: amd64, runner: ubuntu-24.04, class: cuda }
+          - { image: transcoder-intel-distroless, suffix: /transcoder-intel-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel, arch: amd64, runner: ubuntu-24.04, class: intel }
+          - { image: transcoder-intel-distroless-debug, suffix: /transcoder-intel-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel-debug, arch: amd64, runner: ubuntu-24.04, class: intel }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04 }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm }
     env:
@@ -111,6 +111,30 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.vars.outputs.image }}
+
+      # The distroless transcoders are self-checked before they are pushed:
+      # the image that ships is the image that passed (build cache shared
+      # with the push below).
+      - name: Build ${{ matrix.image }} for its self-check
+        if: matrix.class != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/${{ matrix.arch }}
+          build-args: VERSION=${{ steps.vars.outputs.version }}
+          load: true
+          tags: selfcheck/${{ matrix.image }}:ci
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+      - name: Self-check ${{ matrix.image }}
+        if: matrix.class != ''
+        env:
+          IMAGE: selfcheck/${{ matrix.image }}:ci
+          CLASS: ${{ matrix.class }}
+        run: docker run --rm --read-only --cap-drop=ALL --user 1000:1000 "$IMAGE" --self-check="$CLASS"
 
       - name: Build (and push by digest outside pull requests)
         id: build

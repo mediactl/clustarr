@@ -27,7 +27,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
+	"github.com/ebitengine/purego"
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/obinnaokechukwu/ffgo/avcodec"
 	"github.com/obinnaokechukwu/ffgo/avfilter"
@@ -55,6 +57,31 @@ var Needs = map[Class]Need{
 	ClassCPU:   {Encoders: []string{"libx265", "aac"}},
 	ClassCUDA:  {Encoders: []string{"libx265", "aac", "hevc_nvenc"}, Filters: []string{"scale_cuda", "hwupload"}},
 	ClassIntel: {Encoders: []string{"libx265", "aac", "hevc_qsv", "hevc_vaapi"}, Filters: []string{"vpp_qsv", "scale_vaapi", "hwupload"}},
+}
+
+// RuntimeLib is a library a class's image must be able to load at run
+// time, with the symbols it must export: what nothing's DT_NEEDED names
+// because FFmpeg (BtbN's library stubs), libva or libvpl dlopen it.
+type RuntimeLib struct {
+	// Name is a soname or a path; $VAR is expanded from the environment.
+	Name    string
+	Symbols []string
+}
+
+// RuntimeLibs is each class's run-time libraries. Intel's are what
+// transcoder-intel stages for BtbN's libva stubs (which call libva 2.21's
+// vaMapBuffer2: with Debian 12's libva 2.17 they abort the process), the
+// iHD driver libva loads, and both QSV runtimes the libvpl dispatcher
+// loads. NVIDIA's driver libraries are the container toolkit's to inject,
+// so the CUDA class has none here; its trial opens the device.
+var RuntimeLibs = map[Class][]RuntimeLib{
+	ClassIntel: {
+		{Name: "libva.so.2", Symbols: []string{"vaInitialize", "vaMapBuffer2"}},
+		{Name: "libva-drm.so.2", Symbols: []string{"vaGetDisplayDRM"}},
+		{Name: "$LIBVA_DRIVERS_PATH/iHD_drv_video.so"},
+		{Name: "libmfx-gen.so.1.2"},
+		{Name: "libmfxhw64.so.1"},
+	},
 }
 
 // Report is what a check found; it is printed as JSON by --self-check.
@@ -110,6 +137,11 @@ func Check(ctx context.Context, class Class) (Report, error) {
 	for _, name := range need.Filters {
 		if !r.Filters[name] {
 			return r, fmt.Errorf("selfcheck: filter %s is not in this FFmpeg", name)
+		}
+	}
+	for _, lib := range RuntimeLibs[class] {
+		if err := loadRuntimeLib(lib); err != nil {
+			return r, fmt.Errorf("selfcheck: %w", err)
 		}
 	}
 	if err := encodeX265(); err != nil {
@@ -181,6 +213,23 @@ func encodeAAC() error {
 	}
 	if n == 0 {
 		return errors.New("no packets")
+	}
+	return nil
+}
+
+// loadRuntimeLib dlopens lib with every symbol resolved now and looks up
+// the symbols it must export. The handle stays open: unloading a VA
+// driver or a QSV runtime the process may use again buys nothing.
+func loadRuntimeLib(lib RuntimeLib) error {
+	name := os.ExpandEnv(lib.Name)
+	h, err := purego.Dlopen(name, purego.RTLD_NOW|purego.RTLD_LOCAL)
+	if err != nil {
+		return fmt.Errorf("run-time library %s: %w", name, err)
+	}
+	for _, sym := range lib.Symbols {
+		if _, err := purego.Dlsym(h, sym); err != nil {
+			return fmt.Errorf("run-time library %s lacks %s: %w", name, sym, err)
+		}
 	}
 	return nil
 }

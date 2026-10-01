@@ -79,3 +79,27 @@ func TestCheckFailsWhenTheShimDoesNotMatch(t *testing.T) {
 	require.Error(t, err, string(out))
 	assert.Contains(t, string(out), "shim")
 }
+
+// Phase 2 review #1: an Intel image's VAAPI driver and QSV runtimes are
+// dlopen'ed, so finding the encoders by name proves nothing about them; the
+// check loads each library the class needs and the libva entry points
+// BtbN's stubs call, and names the first that is missing.
+func TestCheckNamesAMissingRuntimeLibrary(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	old := RuntimeLibs[ClassCPU]
+	t.Cleanup(func() { RuntimeLibs[ClassCPU] = old })
+	RuntimeLibs[ClassCPU] = []RuntimeLib{{Name: "libno-such-runtime.so.9"}}
+	_, err := Check(context.Background(), ClassCPU)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "libno-such-runtime.so.9")
+}
+
+func TestCheckNamesAMissingSymbol(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	old := RuntimeLibs[ClassCPU]
+	t.Cleanup(func() { RuntimeLibs[ClassCPU] = old })
+	RuntimeLibs[ClassCPU] = []RuntimeLib{{Name: "libc.so.6", Symbols: []string{"vaMapBuffer2_not_in_libc"}}}
+	_, err := Check(context.Background(), ClassCPU)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "vaMapBuffer2_not_in_libc")
+}

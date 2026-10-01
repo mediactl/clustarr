@@ -309,14 +309,24 @@ func onDevice(t ffgo.HWDeviceType, node, clip string, gpuDecode bool, filters, e
 }
 
 // IntelRenderNode is the first DRM render node whose PCI vendor is Intel
-// (0x8086), or "": a node with both an Intel iGPU and an NVIDIA card has
-// two, and only Intel's takes VAAPI and QSV.
-func IntelRenderNode() string {
-	nodes, _ := filepath.Glob("/sys/class/drm/renderD*")
+// (0x8086) and that this container has and can open, or "": a node with
+// both an Intel iGPU and an NVIDIA card has two, and only Intel's takes
+// VAAPI and QSV. /sys/class/drm is the host's even in a container, so a
+// node the device plugin did not mount is passed over -- opening VAAPI on
+// it falls back to X11, and BtbN's libX11 stub aborts the process.
+func IntelRenderNode() string { return intelRenderNode("/sys/class/drm", "/dev/dri") }
+
+func intelRenderNode(sys, dev string) string {
+	nodes, _ := filepath.Glob(filepath.Join(sys, "renderD*"))
 	for _, n := range nodes {
 		v, err := os.ReadFile(filepath.Join(n, "device", "vendor"))
-		if err == nil && strings.TrimSpace(string(v)) == "0x8086" {
-			return "/dev/dri/" + filepath.Base(n)
+		if err != nil || strings.TrimSpace(string(v)) != "0x8086" {
+			continue
+		}
+		node := filepath.Join(dev, filepath.Base(n))
+		if f, err := os.OpenFile(node, os.O_RDWR, 0); err == nil {
+			_ = f.Close()
+			return node
 		}
 	}
 	return ""
