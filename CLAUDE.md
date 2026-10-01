@@ -207,7 +207,8 @@ and ending themes, black/entropy/edge/scroll statistics of end frames, chapter
 names (Intro Skipper's patterns), and PaddleOCR text density on ONNX
 Runtime through purego only when the cheaper signals are weak. Fingerprints
 are cached in the `clustarr-fingerprints` object store and raw results in the
-`clustarr-segments` bucket; the metadata gateway merges them into
+`clustarr-segments` bucket; its work and TheIntroDB's ride the durable
+`CLUSTARR_WORK_SEGMENTARR` stream (gotcha below); the metadata gateway merges them into
 `status.markers.segments` (each tagged `source` and `confidence`) under
 TheIntroDB per kind, then chapters, then analysis at 60 or more, through
 `app/catalog/segmenting.Applier` -- the one compare-and-swap path TheIntroDB's
@@ -547,6 +548,18 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   passed. natsbus now naks for `d - (BackOff[n-1] - BackOff[0])`
   (`natsbus.nakDelay`), and the contract test measures the real gap between
   deliveries on both buses.
+- **On single-node NATS a work stream is a few MiB of memory with
+  discard-oldest, and a feature that queues by the thousand silently drops
+  its neighbours' work.** `ForSingleNode` scales every stream into a 64 MiB
+  memory budget (catalogarr's 1 GiB became 7.2 MiB), and `AllowMsgSchedules`
+  forces `DiscardOld`. On 2026-10-01 TheIntroDB's tasks rescheduled to the
+  allowance reset (5,028) plus segment detection's analysis tasks filled
+  `CLUSTARR_WORK_CATALOGARR`, and 12,161 messages -- catalogarr's own
+  searches, grabs and metadata work among them -- were discarded without an
+  error; the analysis queue's ack floor read as 842 tasks done for 7
+  results. Such work gets its own stream marked `StreamSpec.Durable`
+  (file-backed at full size, outside the memory budget):
+  `CLUSTARR_WORK_SEGMENTARR`, 256 MiB, `clustarr.work.segmentarr.>`.
 - **A Helm hook with no delete policy defaults to `before-hook-creation`,
   which destroys anything holding data.** A `post-install,post-upgrade`
   hook carrying no `helm.sh/hook-delete-policy` annotation is deleted and

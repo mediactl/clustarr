@@ -84,6 +84,13 @@ type StreamSpec struct {
 	DenyDelete        bool
 	Compression       bool
 	AllowMsgSchedules bool
+
+	// Durable keeps the stream on file storage, at full size, in
+	// ForSingleNode, outside the memory budget: for work that runs to
+	// thousands of messages, which the scaled memory share cannot hold
+	// without its discard-oldest dropping them -- or, worse, another
+	// service's work beside them.
+	Durable bool
 }
 
 // ConsumerSpec is the declarative configuration of one durable pull consumer.
@@ -242,13 +249,23 @@ const singleNodeMemoryBudget = 64 * MiB
 func (t Topology) ForSingleNode() Topology {
 	out := t.clone()
 
+	var memory []StreamSpec
+	var memoryAt []int
 	for i := range out.Streams {
 		out.Streams[i].Replicas = 1
-		out.Streams[i].Storage = StorageMemory
 		out.Streams[i].Compression = false
 		out.Streams[i].DenyDelete = false
+		if out.Streams[i].Durable {
+			continue
+		}
+		out.Streams[i].Storage = StorageMemory
+		memory = append(memory, out.Streams[i])
+		memoryAt = append(memoryAt, i)
 	}
-	scaleToBudget(out.Streams, singleNodeMemoryBudget, singleNodeMinStreamBytes)
+	scaleToBudget(memory, singleNodeMemoryBudget, singleNodeMinStreamBytes)
+	for j, i := range memoryAt {
+		out.Streams[i] = memory[j]
+	}
 	for i := range out.Buckets {
 		out.Buckets[i].Replicas = 1
 		if !out.Buckets[i].Durable {
@@ -528,6 +545,10 @@ func defaultStreams() []StreamSpec {
 	// the limit is an alarm, not a routine event. Publishers still handle
 	// ErrQueueFull, which remains reachable on any stream an operator
 	// configures with DiscardNew.
+	durableStream := func(s StreamSpec) StreamSpec {
+		s.Durable = true
+		return s
+	}
 	work := func(name, filter string, maxBytes int64) StreamSpec {
 		return StreamSpec{
 			Name:              name,
@@ -577,6 +598,12 @@ func defaultStreams() []StreamSpec {
 		work(StreamWorkImportarr, FilterWorkImportarr, 512*MiB),
 		work(StreamWorkIndexarr, FilterWorkIndexarr, 256*MiB),
 		work(StreamWorkCaptionarr, FilterWorkCaptionarr, 256*MiB),
+		// Skip-segment work (spec 2026-10-01 segment detection): TheIntroDB's
+		// fetches, rescheduled by the thousand to its allowance's reset, and
+		// segment detection's plans, tasks and results. Durable: on a single
+		// node they filled catalogarr's memory work stream, whose
+		// discard-oldest then dropped catalogarr's own work.
+		durableStream(work(StreamWorkSegmentarr, FilterWorkSegmentarr, 256*MiB)),
 		{
 			Name:        StreamWorkSquasharr,
 			Description: "Transcode tasks squasharr admitted, and the workers' status events.",
@@ -694,7 +721,7 @@ func defaultConsumers() []ConsumerSpec {
 			// message naked onto the BackOff holds its slot while it waits,
 			// and 8 such (the first deploy's refused applies) stalled the
 			// whole queue for up to an hour.
-			Name: ConsumerCatalogMarkers, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogMarkers, Stream: StreamWorkSegmentarr,
 			Filters: []string{FilterCatalogMarkers},
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
@@ -703,7 +730,7 @@ func defaultConsumers() []ConsumerSpec {
 		{
 			// Segment detection (spec 2026-10-01 §4.2): catalogarr's planner
 			// turns a season's (or a movie's) plan into one analysis task.
-			Name: ConsumerCatalogSegmentsPlan, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogSegmentsPlan, Stream: StreamWorkSegmentarr,
 			Filters: []string{FilterCatalogSegmentsPlan},
 			AckWait: 60 * s, MaxDeliver: 5,
 			BackOff:       []time.Duration{30 * s, 2 * m},
@@ -712,7 +739,7 @@ func defaultConsumers() []ConsumerSpec {
 		{
 			// segmentarr-worker: a season task decodes and analyzes up to
 			// minutes of ffmpeg work, heartbeating with InProgress.
-			Name: ConsumerSegmentarrAnalyze, Stream: StreamWorkCatalogarr,
+			Name: ConsumerSegmentarrAnalyze, Stream: StreamWorkSegmentarr,
 			Filters: []string{FilterCatalogSegmentsAnalyze},
 			AckWait: 30 * m, MaxDeliver: 3,
 			BackOff:       []time.Duration{1 * m, 10 * m},
@@ -721,7 +748,7 @@ func defaultConsumers() []ConsumerSpec {
 		{
 			// catalogarr records each file's result and merges it into
 			// status.markers.
-			Name: ConsumerCatalogSegmentsResult, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogSegmentsResult, Stream: StreamWorkSegmentarr,
 			Filters: []string{FilterCatalogSegmentsResult},
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},

@@ -91,6 +91,10 @@ func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
 
 	var total int64
 	for _, s := range single.Streams {
+		if s.Durable { // kept on file, at full size, outside the budget
+			assert.Equal(t, StorageFile, s.Storage, "durable stream %s stays on file", s.Name)
+			continue
+		}
 		assert.Equal(t, StorageMemory, s.Storage, "stream %s must be memory-backed", s.Name)
 		assert.Positive(t, s.MaxBytes, "stream %s reserves nothing and would reject its first publish", s.Name)
 		total += s.MaxBytes

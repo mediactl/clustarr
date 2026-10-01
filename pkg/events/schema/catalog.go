@@ -255,7 +255,7 @@ func (MetadataTask) Schema() string { return "catalog.MetadataTask.v1" }
 
 // MarkersTask asks the metadata gateway's marker worker to fetch one
 // MediaFile's skip segments. Subject:
-// clustarr.work.catalogarr.markers.normal.<mediaKey>; the envelope key is
+// clustarr.work.segmentarr.markers.normal.<mediaKey>; the envelope key is
 // <namespace>/<name> of the MediaFile.
 type MarkersTask struct {
 	// MediaFile is the MediaFile's name.

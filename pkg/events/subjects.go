@@ -39,6 +39,9 @@ const (
 	StreamWorkIndexarr   = "CLUSTARR_WORK_INDEXARR"
 	StreamWorkCaptionarr = "CLUSTARR_WORK_CAPTIONARR"
 	StreamWorkSquasharr  = "CLUSTARR_WORK_SQUASHARR"
+	// StreamWorkSegmentarr carries skip-segment work: TheIntroDB's marker
+	// fetches and segment detection's plans, analysis tasks and results.
+	StreamWorkSegmentarr = "CLUSTARR_WORK_SEGMENTARR"
 	StreamDLQ            = "CLUSTARR_DLQ"
 
 	// StreamAdvisories keeps JetStream's MAX_DELIVERIES advisories until a
@@ -95,6 +98,7 @@ const (
 	FilterWorkIndexarr        = "clustarr.work.indexarr.>"
 	FilterWorkCaptionarr      = "clustarr.work.captionarr.>"
 	FilterWorkSquasharr       = "clustarr.work.transcode.>"
+	FilterWorkSegmentarr      = "clustarr.work.segmentarr.>"
 	FilterTranscodeResults    = "clustarr.work.transcode.result.>"
 	FilterAllDLQ              = "clustarr.dlq.>"
 	FilterCatalogSearch       = "clustarr.work.catalogarr.search.>"
@@ -107,12 +111,12 @@ const (
 	FilterIndexRSS            = "clustarr.work.indexarr.rss.>"
 	FilterCaptionFetch        = "clustarr.work.captionarr.fetch.>"
 	FilterCatalogArtworkFetch = "clustarr.work.catalogarr.artwork.fetch.>"
-	FilterCatalogMarkers      = "clustarr.work.catalogarr.markers.>"
+	FilterCatalogMarkers      = "clustarr.work.segmentarr.markers.>"
 	// Segment detection (spec 2026-10-01): a season's or a movie's plan,
 	// the analysis task the worker takes, and each file's result.
-	FilterCatalogSegmentsPlan    = "clustarr.work.catalogarr.segments-plan.>"
-	FilterCatalogSegmentsAnalyze = "clustarr.work.catalogarr.segments-analyze.>"
-	FilterCatalogSegmentsResult  = "clustarr.work.catalogarr.segments-result.>"
+	FilterCatalogSegmentsPlan    = "clustarr.work.segmentarr.plan.>"
+	FilterCatalogSegmentsAnalyze = "clustarr.work.segmentarr.analyze.>"
+	FilterCatalogSegmentsResult  = "clustarr.work.segmentarr.result.>"
 	FilterCatalogArtworkRender   = "clustarr.work.catalogarr.artwork.render.>"
 )
 
@@ -323,28 +327,28 @@ func WorkMetadataSubject(p Priority, mediaKey string) string {
 }
 
 // WorkSegmentsPlanSubject builds
-// clustarr.work.catalogarr.segments-plan.normal.<key>: plan one season's or
+// clustarr.work.segmentarr.plan.normal.<key>: plan one season's or
 // movie's segment analysis (schema.SegmentsPlanTask).
 func WorkSegmentsPlanSubject(key string) string {
-	return "clustarr.work.catalogarr.segments-plan.normal." + tok(key)
+	return "clustarr.work.segmentarr.plan.normal." + tok(key)
 }
 
 // WorkSegmentsAnalyzeSubject builds
-// clustarr.work.catalogarr.segments-analyze.normal.<key>.
+// clustarr.work.segmentarr.analyze.normal.<key>.
 func WorkSegmentsAnalyzeSubject(key string) string {
-	return "clustarr.work.catalogarr.segments-analyze.normal." + tok(key)
+	return "clustarr.work.segmentarr.analyze.normal." + tok(key)
 }
 
 // WorkSegmentsResultSubject builds
-// clustarr.work.catalogarr.segments-result.normal.<key>.
+// clustarr.work.segmentarr.result.normal.<key>.
 func WorkSegmentsResultSubject(key string) string {
-	return "clustarr.work.catalogarr.segments-result.normal." + tok(key)
+	return "clustarr.work.segmentarr.result.normal." + tok(key)
 }
 
-// WorkMarkersSubject builds clustarr.work.catalogarr.markers.normal.<mediaKey>:
+// WorkMarkersSubject builds clustarr.work.segmentarr.markers.normal.<mediaKey>:
 // fetch one MediaFile's skip segments (schema.MarkersTask).
 func WorkMarkersSubject(mediaKey string) string {
-	return "clustarr.work.catalogarr.markers.normal." + tok(mediaKey)
+	return "clustarr.work.segmentarr.markers.normal." + tok(mediaKey)
 }
 
 // WorkWantedScanSubject builds

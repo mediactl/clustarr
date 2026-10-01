@@ -21,7 +21,7 @@ import commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 
 // SegmentsPlanTask asks catalogarr's planner to build one analysis task:
 // a season's (Series and Season) or a movie's file (Movie, the MediaFile's
-// name). Subject: clustarr.work.catalogarr.segments-plan.normal.<key>.
+// name). Subject: clustarr.work.segmentarr.plan.normal.<key>.
 type SegmentsPlanTask struct {
 	Namespace string `json:"namespace"`
 	Series    string `json:"series,omitempty"`
@@ -50,7 +50,7 @@ type AnalyzeFile struct {
 
 // AnalyzeTask is segmentarr-worker's task: a season's files in episode
 // order (Kind episode) or one movie's (Kind movie). Subject:
-// clustarr.work.catalogarr.segments-analyze.normal.<key>.
+// clustarr.work.segmentarr.analyze.normal.<key>.
 type AnalyzeTask struct {
 	Namespace string        `json:"namespace"`
 	Key       string        `json:"key"`
@@ -71,7 +71,7 @@ type SegmentJSON struct {
 }
 
 // SegmentsResult is one file's analysis, from segmentarr-worker. Subject:
-// clustarr.work.catalogarr.segments-result.normal.<key>; the envelope key
+// clustarr.work.segmentarr.result.normal.<key>; the envelope key
 // is <namespace>/<name> of the MediaFile.
 type SegmentsResult struct {
 	MediaFile string        `json:"mediaFile"`
