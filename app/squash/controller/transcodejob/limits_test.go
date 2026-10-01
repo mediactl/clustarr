@@ -75,5 +75,44 @@ func TestTheControllerPlansWithThePublishedDeviceLimits(t *testing.T) {
 	assert.Equal(t, "upload", p.plan.Video.Decode, "the device measured no NVDEC for it")
 
 	cpu := transcodev1alpha1.HardwareCPU
-	assert.Nil(t, r.encoderLimits(ctx, tj, tp, &cpu), "a cpu plan reads no GPU class's limits")
+	assert.Zero(t, r.encoderLimits(ctx, tj, tp, &cpu), "a cpu plan reads no GPU class's limits")
+}
+
+// An Intel pod plans with the tier it measured (QSV where its runtime
+// works, else VAAPI; Phase 4 minor M1). The controller plans with the tier
+// the class's healthy pods published, so status.plan names the encoder the
+// worker runs and the plan hashes alike; with none published it plans QSV.
+func TestTheControllerPlansIntelWithTheTierItsPodsMeasured(t *testing.T) {
+	ctx := context.Background()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
+	r := &Reconciler{Bus: bus}
+	tp := &transcodev1alpha1.TranscodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "hevc-mkv"},
+		Spec:       transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareIntel},
+		Status:     transcodev1alpha1.TranscodeProfileStatus{Hash: "abcdef0123"},
+	}
+	tj := &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "m-abcdef01", Namespace: "media"},
+		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: "m", ProfileRef: "hevc-mkv", SourcePath: "/data/movies/M/M.mkv"},
+	}
+	mf := &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: "media"},
+		Spec:       catalogv1alpha1.MediaFileSpec{Path: "/data/movies/M/M.mkv", SizeBytes: 4 << 30},
+		Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{
+			Container: "mkv", VideoCodec: "h264", PixelFormat: "yuv420p", VideoBitDepth: 8,
+			Width: 1920, Height: 1080, FpsMilli: 24000, RuntimeMillis: 2 * 60 * 60 * 1000,
+			Audio: []commonv1.AudioStream{{Index: 1, Codec: "aac", Channels: 2, Language: "eng", Default: true}},
+		}},
+	}
+
+	p, fail := planFor(tj, tp, mf, nil, r.encoderLimits(ctx, tj, tp, nil))
+	require.Nil(t, fail)
+	assert.Equal(t, "hevc_qsv", p.plan.Video.Encoder, "nothing published: the class's default tier")
+
+	require.NoError(t, task.PublishMeasurement(ctx, bus.KV(events.BucketProgress), "intel", task.Reporter("nuc", "pool-1"),
+		transcode.Measurement{Tier: transcode.TierVAAPI}, nil, time.Now()))
+	p, fail = planFor(tj, tp, mf, nil, r.encoderLimits(ctx, tj, tp, nil))
+	require.Nil(t, fail)
+	assert.Equal(t, "hevc_vaapi", p.plan.Video.Encoder, "the pods measured VAAPI")
 }

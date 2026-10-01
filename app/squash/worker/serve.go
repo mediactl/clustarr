@@ -185,7 +185,7 @@ func (r *pullRetry) wait(ctx context.Context, op string, cause error) (giveUp bo
 func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	s := &server{o: o.withDefaults()}
 	if s.o.limits == nil {
-		s.o.limits = newLimitsCache(s.o.Telemetry, o.Class, o.Node)
+		s.o.limits = newLimitsCache(s.o.Telemetry, o.Class, o.Node, o.PodName)
 	}
 	s.clock = s.o.Clock
 	ps, ok := bus.(events.PullSubscriber)
@@ -255,7 +255,7 @@ func (s *server) measureUntilHealthy(ctx context.Context) (transcode.Measurement
 		if err != nil && errors.Is(mctx.Err(), context.DeadlineExceeded) {
 			err = fmt.Errorf("%w: measuring the %s device took longer than %s", transcode.ErrDeviceUnavailable, class, s.o.MeasureTimeout)
 		}
-		s.o.limits.publishHealth(ctx, m.Limits, err)
+		s.o.limits.publishHealth(ctx, m, err)
 		if err == nil {
 			log.InfoContext(ctx, "squasharr worker: measured the device", "class", class, "tier", m.Tier)
 			return m, nil
@@ -280,7 +280,7 @@ func (s *server) keepReportFresh(ctx context.Context, m transcode.Measurement) {
 		case <-ctx.Done():
 			return
 		case <-s.clock.After(s.o.RemeasureEvery):
-			s.o.limits.publishHealth(ctx, m.Limits, nil)
+			s.o.limits.publishHealth(ctx, m, nil)
 		}
 	}
 }

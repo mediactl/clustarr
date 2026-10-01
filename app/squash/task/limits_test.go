@@ -137,3 +137,67 @@ func TestEncoderLimitsMergePerNodeAndDropStaleNodes(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.NVDEC.Formats["av1:8"], "the laptop's entry is stale: only the server's counts")
 }
+
+// Two pool pods of one class can run on one node (two profiles' pools).
+// Each reports under its own key (task.Reporter), so neither overwrites the
+// other: the node reads healthy while any of its fresh reports is, and its
+// limits are the tightest of them.
+func TestTwoPodsOnOneNodeKeepTheirOwnReports(t *testing.T) {
+	ctx := context.Background()
+	kv := progressKV(t)
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	a, b := task.Reporter("gpu-node", "pool-a-1"), task.Reporter("gpu-node", "pool-b-1")
+	assert.Equal(t, "gpu-node/pool-a-1", a)
+	assert.Equal(t, "gpu-node", task.Reporter("gpu-node", ""), "a worker that knows no pod name reports as its node")
+
+	require.NoError(t, task.PublishEncoderHealth(ctx, kv, "nvidia", b,
+		transcode.Limits{NVDEC: &transcode.Decoders{Formats: map[string]bool{"av1:8": true}}}, nil, now))
+	require.NoError(t, task.PublishEncoderHealth(ctx, kv, "nvidia", a,
+		transcode.Limits{NVDEC: &transcode.Decoders{Formats: map[string]bool{"av1:8": false}}},
+		errors.New("transcode: the GPU device could not be opened"), now.Add(time.Second)))
+
+	health, err := task.ReadEncoderHealth(ctx, kv, "nvidia", now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]task.NodeHealth{"gpu-node": {Healthy: true}}, health,
+		"the later unhealthy report does not erase the healthy pod's")
+	byNode, err := task.ReadEncoderLimitsByNode(ctx, kv, "nvidia", now.Add(time.Minute))
+	require.NoError(t, err)
+	require.Len(t, byNode, 1)
+	assert.False(t, byNode["gpu-node"].NVDEC.Formats["av1:8"], "the node's limits are its pods' tightest")
+
+	// The healthy pod goes away; only the unhealthy one keeps reporting.
+	require.NoError(t, task.PublishEncoderHealth(ctx, kv, "nvidia", a, transcode.Limits{},
+		errors.New("transcode: the GPU device could not be opened"), now.Add(task.EncoderLimitsFresh)))
+	health, err = task.ReadEncoderHealth(ctx, kv, "nvidia", now.Add(task.EncoderLimitsFresh+time.Minute))
+	require.NoError(t, err)
+	assert.False(t, health["gpu-node"].Healthy)
+	assert.Equal(t, "transcode: the GPU device could not be opened", health["gpu-node"].Error)
+}
+
+// A pod publishes the tier it measured (Intel: QSV, else VAAPI). The class
+// plans with the tier every fresh healthy report names; when they disagree,
+// or none names one, there is no measured tier and the controller plans
+// its default.
+func TestTheClassesMeasuredTierIsTheOneEveryHealthyPodNames(t *testing.T) {
+	ctx := context.Background()
+	kv := progressKV(t)
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
+	tier, err := task.ReadEncoderTier(ctx, kv, "intel", now)
+	require.NoError(t, err)
+	assert.Empty(t, tier, "nothing published")
+
+	require.NoError(t, task.PublishMeasurement(ctx, kv, "intel", task.Reporter("nuc", "p1"),
+		transcode.Measurement{Tier: transcode.TierVAAPI}, nil, now))
+	require.NoError(t, task.PublishMeasurement(ctx, kv, "intel", task.Reporter("nuc2", "p2"),
+		transcode.Measurement{Tier: transcode.TierQSV}, errors.New("no device"), now))
+	tier, err = task.ReadEncoderTier(ctx, kv, "intel", now)
+	require.NoError(t, err)
+	assert.Equal(t, transcode.TierVAAPI, tier, "an unhealthy pod's tier does not count")
+
+	require.NoError(t, task.PublishMeasurement(ctx, kv, "intel", task.Reporter("nuc3", "p3"),
+		transcode.Measurement{Tier: transcode.TierQSV}, nil, now))
+	tier, err = task.ReadEncoderTier(ctx, kv, "intel", now)
+	require.NoError(t, err)
+	assert.Empty(t, tier, "healthy pods that disagree name no single tier")
+}

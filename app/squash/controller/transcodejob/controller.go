@@ -567,7 +567,7 @@ type planFailure struct{ reason, msg string }
 // limits the class's pods published, as the worker's own plan is, so
 // status.plan.planHash is the hash of the plan the worker runs.
 func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
-	mf *catalogv1alpha1.MediaFile, hardware *transcodev1alpha1.Hardware, limits map[transcode.Tier]transcode.Limits,
+	mf *catalogv1alpha1.MediaFile, hardware *transcodev1alpha1.Hardware, dev device,
 ) (planning, *planFailure) {
 	source := tj.Spec.SourcePath
 	if source == "" {
@@ -590,8 +590,11 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 		return p, nil
 	}
 	tier := worker.StandardTier(worker.ProfileHardware(tp.Spec, hardware))
+	if dev.tier != "" {
+		tier = dev.tier // what the class's pods measured: the worker plans with it too
+	}
 	p.plan = standard.Plan(info, worker.StandardProfile(tp.Name, tp.Status.Hash, tp.Spec),
-		standard.Hardware{Tier: tier, Limits: limits[tier]})
+		standard.Hardware{Tier: tier, Limits: dev.limits[tier]})
 	return p, nil
 }
 

@@ -28,26 +28,27 @@ import (
 )
 
 // limitsCache publishes what this pool pod measured of its device
-// (Engine.Measure) under its node in clustarr-progress
-// encoder-limits.<class>, which the controller plans with and
-// TranscodeProfile status.encoderLimits shows (spec §4).
+// (Engine.Measure) under its own key (task.Reporter: node and pod) in
+// clustarr-progress encoder-limits.<class>, which the controller plans with
+// and TranscodeProfile status.encoderLimits shows by node (spec §4).
 type limitsCache struct {
-	kv          events.KV // clustarr-progress; nil publishes nothing
-	class, node string
+	kv              events.KV // clustarr-progress; nil publishes nothing
+	class, reporter string
 }
 
-func newLimitsCache(kv events.KV, class, node string) *limitsCache {
-	return &limitsCache{kv: kv, class: class, node: node}
+func newLimitsCache(kv events.KV, class, node, pod string) *limitsCache {
+	return &limitsCache{kv: kv, class: class, reporter: task.Reporter(node, pod)}
 }
 
-// publishHealth publishes this node's measured limits l with its device's
-// health: unhealthy nil is healthy, anything else why the pod cannot use
-// the device. With no clustarr-progress bucket it publishes nothing.
-func (c *limitsCache) publishHealth(ctx context.Context, l transcode.Limits, unhealthy error) {
+// publishHealth publishes this pod's measurement m -- its device's limits
+// and the tier it encodes with -- with the device's health: unhealthy nil
+// is healthy, anything else why the pod cannot use the device. With no
+// clustarr-progress bucket it publishes nothing.
+func (c *limitsCache) publishHealth(ctx context.Context, m transcode.Measurement, unhealthy error) {
 	if c == nil || c.kv == nil {
 		return
 	}
-	if err := task.PublishEncoderHealth(ctx, c.kv, c.class, c.node, l, unhealthy, time.Now()); err != nil {
+	if err := task.PublishMeasurement(ctx, c.kv, c.class, c.reporter, m, unhealthy, time.Now()); err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: could not publish the device's health", "error", err)
 	}
 }

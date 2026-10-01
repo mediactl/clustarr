@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -384,15 +385,16 @@ var classTiers = map[transcodev1alpha1.Hardware][]transcode.Tier{
 	transcodev1alpha1.HardwareIntel:  {transcode.TierQSV, transcode.TierVAAPI},
 }
 
-// encoderLimits is Capabilities.Limits for planning tj under tp for
-// hardware (nil: the job's own class, else its profile's): the device limits
-// the class's pool workers published (task.ReadEncoderLimits), so the plan
-// the controller records is the one a worker renders. A cpu or auto plan, a
-// class nobody published for, or an unreadable bucket is no limits -- the
-// worker's own plan, which always has its device's, is what runs.
+// encoderLimits is the device for planning tj under tp for hardware (nil:
+// the job's own class, else its profile's): the limits and the tier the
+// class's pool workers published (task.ReadEncoderLimits,
+// task.ReadEncoderTier), so the plan the controller records is the one a
+// worker makes. A cpu or auto plan, a class nobody published for, or an
+// unreadable bucket is no device -- the worker's own plan, which always has
+// its device's, is what runs.
 func (r *Reconciler) encoderLimits(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
 	hardware *transcodev1alpha1.Hardware,
-) map[transcode.Tier]transcode.Limits {
+) device {
 	class := tp.Spec.Hardware
 	switch {
 	case hardware != nil:
@@ -402,17 +404,31 @@ func (r *Reconciler) encoderLimits(ctx context.Context, tj *transcodev1alpha1.Tr
 	}
 	tiers := classTiers[class]
 	if len(tiers) == 0 || r.Bus == nil {
-		return nil
+		return device{}
 	}
-	l, err := task.ReadEncoderLimits(ctx, r.Bus.KV(events.BucketProgress), string(class), r.now().Time)
+	kv := r.Bus.KV(events.BucketProgress)
+	l, err := task.ReadEncoderLimits(ctx, kv, string(class), r.now().Time)
 	if err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "transcodejob: cannot read the encoder limits; planning with the profile's values",
 			"class", class, "error", err)
-		return nil
+		return device{}
 	}
-	out := make(map[transcode.Tier]transcode.Limits, len(tiers))
+	d := device{limits: make(map[transcode.Tier]transcode.Limits, len(tiers))}
 	for _, tier := range tiers {
-		out[tier] = l
+		d.limits[tier] = l
 	}
-	return out
+	// The tier the class's pods measured they encode with (Intel: QSV, or
+	// VAAPI where the QSV runtime does not work), so the plan names the
+	// encoder the worker runs.
+	if tier, err := task.ReadEncoderTier(ctx, kv, string(class), r.now().Time); err == nil && slices.Contains(tiers, tier) {
+		d.tier = tier
+	}
+	return d
+}
+
+// device is what a class's pods published of their device: the tier they
+// measured ("" when none, or they disagree) and the limits by tier.
+type device struct {
+	tier   transcode.Tier
+	limits map[transcode.Tier]transcode.Limits
 }

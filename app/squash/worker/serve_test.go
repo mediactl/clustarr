@@ -1114,6 +1114,17 @@ func TestAPodRecoversWhenItsDeviceOpens(t *testing.T) {
 	health, err := task.ReadEncoderHealth(h.ctx, progress, "cpu", h.clock.Now())
 	require.NoError(t, err)
 	assert.Equal(t, task.NodeHealth{Healthy: true}, health["n1"])
+	// It reports as this pod on its node (two pools' pods on one node keep
+	// their own reports) and names the tier it measured, which the
+	// controller plans with.
+	tier, err := task.ReadEncoderTier(h.ctx, progress, "cpu", h.clock.Now())
+	require.NoError(t, err)
+	assert.Equal(t, transcode.TierCPUx265, tier)
+	entry, err := progress.Get(h.ctx, task.EncoderLimitsKey("cpu"))
+	require.NoError(t, err)
+	var limits task.EncoderLimits
+	require.NoError(t, json.Unmarshal(entry.Value, &limits))
+	assert.Contains(t, limits.Nodes, task.Reporter("n1", "pool-abc"))
 	h.release <- Outcome{Code: ExitOK}
 	h.next(task.EventFinished)
 }

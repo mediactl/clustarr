@@ -22,6 +22,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -45,20 +48,39 @@ func EncoderLimitsKey(class string) string {
 	return "encoder-limits." + events.KVKeyToken(class)
 }
 
-// EncoderLimits is the value under EncoderLimitsKey: each node's limits and
-// when it measured them.
+// EncoderLimits is the value under EncoderLimitsKey: each reporter's limits
+// and when it measured them. A reporter is a pool pod, "<node>/<pod>"
+// (Reporter), so two pods of one class on one node keep their own reports;
+// an entry keyed by a bare node is a worker that predates pod keys.
 type EncoderLimits struct {
 	Nodes map[string]NodeLimits `json:"nodes"`
 }
 
-// NodeLimits is one node's measured device limits, and whether its device
-// could be used at all (spec §4): Healthy absent, from a worker that
-// predates health, reads as healthy.
+// NodeLimits is one reporter's measured device limits, the tier it
+// measured it encodes with, and whether its device could be used at all
+// (spec §4): Healthy absent, from a worker that predates health, reads as
+// healthy.
 type NodeLimits struct {
 	transcode.Limits
-	MeasuredAt time.Time `json:"measuredAt"`
-	Healthy    *bool     `json:"healthy,omitempty"`
-	Error      string    `json:"error,omitempty"`
+	Tier       transcode.Tier `json:"tier,omitempty"`
+	MeasuredAt time.Time      `json:"measuredAt"`
+	Healthy    *bool          `json:"healthy,omitempty"`
+	Error      string         `json:"error,omitempty"`
+}
+
+// Reporter is the key a pool pod publishes under: its node and its pod, or
+// the node alone when the pod's name is unknown.
+func Reporter(node, pod string) string {
+	if pod == "" {
+		return node
+	}
+	return node + "/" + pod
+}
+
+// nodeOf is the node a reporter key names.
+func nodeOf(reporter string) string {
+	node, _, _ := strings.Cut(reporter, "/")
+	return node
 }
 
 // NodeHealth is one node's last report of its device.
@@ -71,19 +93,26 @@ type NodeHealth struct {
 // TranscodeProfile status field that shows it is capped at 256.
 const MaxHealthMessage = 256
 
-// PublishEncoderLimits merges node's limits l, measured at now, into
+// PublishEncoderLimits merges reporter's limits l, measured at now, into
 // class's key with compare-and-swap, dropping any entry older than
 // EncoderLimitsFresh, so concurrent workers of one class never overwrite
-// each other's nodes.
-func PublishEncoderLimits(ctx context.Context, kv events.KV, class, node string, l transcode.Limits, now time.Time) error {
-	return PublishEncoderHealth(ctx, kv, class, node, l, nil, now)
+// each other's reports.
+func PublishEncoderLimits(ctx context.Context, kv events.KV, class, reporter string, l transcode.Limits, now time.Time) error {
+	return PublishEncoderHealth(ctx, kv, class, reporter, l, nil, now)
 }
 
 // PublishEncoderHealth is PublishEncoderLimits with the device's health: a
-// nil unhealthy is a healthy device, anything else the reason this node's
-// pod cannot use it, which the controller reads (ReadEncoderHealth) to send
-// the class no work while every node reports one.
-func PublishEncoderHealth(ctx context.Context, kv events.KV, class, node string, l transcode.Limits, unhealthy error, now time.Time) error {
+// nil unhealthy is a healthy device, anything else the reason this
+// reporter's pod cannot use it, which the controller reads
+// (ReadEncoderHealth) to send the class no work while every report is one.
+func PublishEncoderHealth(ctx context.Context, kv events.KV, class, reporter string, l transcode.Limits, unhealthy error, now time.Time) error {
+	return PublishMeasurement(ctx, kv, class, reporter, transcode.Measurement{Limits: l}, unhealthy, now)
+}
+
+// PublishMeasurement is PublishEncoderHealth with the tier the pod measured
+// it encodes with, which the controller plans with (ReadEncoderTier).
+func PublishMeasurement(ctx context.Context, kv events.KV, class, node string, m transcode.Measurement, unhealthy error, now time.Time) error {
+	l := m.Limits
 	key := EncoderLimitsKey(class)
 	healthy, msg := unhealthy == nil, ""
 	if unhealthy != nil {
@@ -112,7 +141,7 @@ func PublishEncoderHealth(ctx context.Context, kv events.KV, class, node string,
 			// measured on this node.
 			mine = tightest(prev.Limits, l)
 		}
-		next := EncoderLimits{Nodes: map[string]NodeLimits{node: {Limits: mine, MeasuredAt: now, Healthy: &healthy, Error: msg}}}
+		next := EncoderLimits{Nodes: map[string]NodeLimits{node: {Limits: mine, Tier: m.Tier, MeasuredAt: now, Healthy: &healthy, Error: msg}}}
 		for n, nl := range cur.Nodes {
 			if n != node && now.Sub(nl.MeasuredAt) < EncoderLimitsFresh {
 				next.Nodes[n] = nl
@@ -184,7 +213,8 @@ func narrowestDecoders(a, b *transcode.Decoders) *transcode.Decoders {
 	return out
 }
 
-// ReadEncoderLimitsByNode is class's fresh entries, by node.
+// ReadEncoderLimitsByNode is class's fresh entries, by node: a node's pods'
+// limits merged to the tightest.
 func ReadEncoderLimitsByNode(ctx context.Context, kv events.KV, class string, now time.Time) (map[string]transcode.Limits, error) {
 	key := EncoderLimitsKey(class)
 	entry, err := kv.Get(ctx, key)
@@ -199,17 +229,24 @@ func ReadEncoderLimitsByNode(ctx context.Context, kv events.KV, class string, no
 		return nil, fmt.Errorf("task: decode %s: %w", key, err)
 	}
 	out := make(map[string]transcode.Limits, len(cur.Nodes))
-	for n, nl := range cur.Nodes {
-		if now.Sub(nl.MeasuredAt) < EncoderLimitsFresh {
-			out[n] = nl.Limits
+	for r, nl := range cur.Nodes {
+		if now.Sub(nl.MeasuredAt) >= EncoderLimitsFresh {
+			continue
+		}
+		if prev, ok := out[nodeOf(r)]; ok {
+			out[nodeOf(r)] = tightest(prev, nl.Limits)
+		} else {
+			out[nodeOf(r)] = nl.Limits
 		}
 	}
 	return out, nil
 }
 
-// ReadEncoderHealth is each node's last health report for class, among the
-// nodes that published within EncoderLimitsFresh of now: no entry is no
-// report, which the controller reads as "not known to be unhealthy".
+// ReadEncoderHealth is each node's health for class, from the reports its
+// pods published within EncoderLimitsFresh of now: healthy while any of
+// them is, else the first unhealthy report's error (by reporter, so the
+// choice is stable). No entry is no report, which the controller reads as
+// "not known to be unhealthy".
 func ReadEncoderHealth(ctx context.Context, kv events.KV, class string, now time.Time) (map[string]NodeHealth, error) {
 	key := EncoderLimitsKey(class)
 	entry, err := kv.Get(ctx, key)
@@ -224,15 +261,54 @@ func ReadEncoderHealth(ctx context.Context, kv events.KV, class string, now time
 		return nil, fmt.Errorf("task: decode %s: %w", key, err)
 	}
 	out := map[string]NodeHealth{}
-	for n, nl := range cur.Nodes {
-		if now.Sub(nl.MeasuredAt) < EncoderLimitsFresh {
-			out[n] = NodeHealth{Healthy: nl.Healthy == nil || *nl.Healthy, Error: nl.Error}
+	reporters := slices.Sorted(maps.Keys(cur.Nodes))
+	for _, r := range reporters {
+		nl := cur.Nodes[r]
+		if now.Sub(nl.MeasuredAt) >= EncoderLimitsFresh {
+			continue
 		}
+		h := NodeHealth{Healthy: nl.Healthy == nil || *nl.Healthy, Error: nl.Error}
+		if h.Healthy {
+			h.Error = ""
+		}
+		if prev, ok := out[nodeOf(r)]; ok && (prev.Healthy || !h.Healthy) {
+			continue // a healthy report, or the first unhealthy one, stands
+		}
+		out[nodeOf(r)] = h
 	}
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// ReadEncoderTier is the tier class's pods measured they encode with: the
+// one every fresh healthy report names, or "" when none names one or they
+// disagree, and the controller plans the class's default tier.
+func ReadEncoderTier(ctx context.Context, kv events.KV, class string, now time.Time) (transcode.Tier, error) {
+	key := EncoderLimitsKey(class)
+	entry, err := kv.Get(ctx, key)
+	if errors.Is(err, events.ErrKeyNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("task: read %s: %w", key, err)
+	}
+	var cur EncoderLimits
+	if err := json.Unmarshal(entry.Value, &cur); err != nil {
+		return "", fmt.Errorf("task: decode %s: %w", key, err)
+	}
+	var tier transcode.Tier
+	for _, nl := range cur.Nodes {
+		if now.Sub(nl.MeasuredAt) >= EncoderLimitsFresh || (nl.Healthy != nil && !*nl.Healthy) || nl.Tier == "" {
+			continue
+		}
+		if tier != "" && tier != nl.Tier {
+			return "", nil
+		}
+		tier = nl.Tier
+	}
+	return tier, nil
 }
 
 // clampMessage cuts s to at most max bytes on a rune boundary.
