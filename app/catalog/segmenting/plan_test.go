@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/segments"
 )
 
 func ep(name string, season, number int32) *catalogv1alpha1.Episode {
@@ -143,7 +144,7 @@ func TestPlannerBuildsTheSeasonTask(t *testing.T) {
 	sr := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Name: "andor", Namespace: "media"}}
 	analyzed := probed("e1", "andor-s01e01", "h1")
 	analyzed.Status.Markers = &catalogv1alpha1.FileMarkers{Analysis: &catalogv1alpha1.SegmentAnalysis{
-		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "h1", Version: 1, AnalyzedAt: metav1.NewTime(now),
+		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "h1", Version: segments.AnalyzerVersion, AnalyzedAt: metav1.NewTime(now),
 	}}
 	c := plannerClient(sr,
 		ep("andor-s01e02", 1, 2), ep("andor-s01e01", 1, 1), ep("andor-s02e01", 2, 1),
@@ -174,7 +175,7 @@ func TestPlannerAsksNothingWhenNoFileIsDue(t *testing.T) {
 	sr := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Name: "andor", Namespace: "media"}}
 	analyzed := probed("e1", "andor-s01e01", "h1")
 	analyzed.Status.Markers = &catalogv1alpha1.FileMarkers{Analysis: &catalogv1alpha1.SegmentAnalysis{
-		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "h1", Version: 1, AnalyzedAt: metav1.NewTime(now),
+		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "h1", Version: segments.AnalyzerVersion, AnalyzedAt: metav1.NewTime(now),
 	}}
 	b := bus(t, clockwork.NewRealClock())
 	got := collect(t, b, events.ConsumerSegmentarrAnalyze)

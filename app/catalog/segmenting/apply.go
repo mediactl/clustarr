@@ -25,6 +25,7 @@ package segmenting
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -68,15 +69,6 @@ type Applier struct {
 // maxConflicts is how many times a Conflict is redone from a fresh read.
 const maxConflicts = 5
 
-// raw is a file's analysis as kept in the segments bucket: what the merge
-// needs when TheIntroDB's side changes, since analysis segments that lose
-// to TheIntroDB are not in status.
-type raw struct {
-	ProbeHash string             `json:"probeHash"`
-	Version   int32              `json:"version"`
-	Segments  []segments.Segment `json:"segments"`
-}
-
 // ApplyMerged writes key's status.markers: TheIntroDB's bookkeeping (from
 // tid, else as it stands), the analysis bookkeeping (from an, else as it
 // stands), and the segments merged by precedence -- TheIntroDB's from tid or
@@ -100,8 +92,12 @@ func (a *Applier) ApplyMerged(ctx context.Context, key client.ObjectKey, tid *Th
 		if (tid != nil && tid.ForProbeHash != mf.Status.ProbeHash) || (an != nil && an.ForProbeHash != mf.Status.ProbeHash) {
 			return nil // the file was re-probed: its new probe asks again
 		}
+		markers, err := a.markers(ctx, &mf, tid, an)
+		if err != nil {
+			return err
+		}
 		ac := catalogac.MediaFile(mf.Name, mf.Namespace).WithResourceVersion(mf.ResourceVersion).
-			WithStatus(catalogac.MediaFileStatus().WithMarkers(a.markers(ctx, &mf, tid, an)))
+			WithStatus(catalogac.MediaFileStatus().WithMarkers(markers))
 		if err = a.Apply(ctx, ac); err == nil || !apierrors.IsConflict(err) {
 			return err
 		}
@@ -109,7 +105,13 @@ func (a *Applier) ApplyMerged(ctx context.Context, key client.ObjectKey, tid *Th
 	return err
 }
 
+// store keeps an's segments in the bucket. An Error is not stored: what the
+// last good analysis of the probe found stands, and the worker, seeing no
+// record for this probe and version, analyzes the file again when it is due.
 func (a *Applier) store(ctx context.Context, key client.ObjectKey, an *AnalysisUpdate) error {
+	if an.Result == catalogv1alpha1.MarkersError {
+		return nil
+	}
 	var mf catalogv1alpha1.MediaFile
 	if err := a.Reader.Get(ctx, key, &mf); err != nil {
 		return client.IgnoreNotFound(err)
@@ -117,7 +119,7 @@ func (a *Applier) store(ctx context.Context, key client.ObjectKey, an *AnalysisU
 	if an.ForProbeHash != mf.Status.ProbeHash {
 		return nil
 	}
-	b, err := json.Marshal(raw{ProbeHash: an.ForProbeHash, Version: an.Version, Segments: an.Segments})
+	b, err := json.Marshal(segments.Record{ProbeHash: an.ForProbeHash, Version: an.Version, Result: string(an.Result), Segments: an.Segments})
 	if err != nil {
 		return err
 	}
@@ -128,23 +130,28 @@ func (a *Applier) store(ctx context.Context, key client.ObjectKey, an *AnalysisU
 }
 
 // stored is mf's analysis segments from the bucket, for its current probe.
-func (a *Applier) stored(ctx context.Context, mf *catalogv1alpha1.MediaFile) []segments.Segment {
+// A missing record is none; a failed read is an error, retried, never read
+// as "never analyzed", which would drop them from status and Plex.
+func (a *Applier) stored(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]segments.Segment, error) {
 	if a.KV == nil {
-		return nil
+		return nil, nil
 	}
 	e, err := a.KV.Get(ctx, events.KVKeyToken(string(mf.UID)))
+	if errors.Is(err, events.ErrKeyNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil // ErrKeyNotFound: never analyzed; anything else: the next write merges again
+		return nil, fmt.Errorf("segmenting: read %s's analysis: %w", mf.Name, err)
 	}
-	var r raw
+	var r segments.Record
 	if json.Unmarshal(e.Value, &r) != nil || r.ProbeHash != mf.Status.ProbeHash {
-		return nil
+		return nil, nil
 	}
-	return r.Segments
+	return r.Segments, nil
 }
 
 // markers renders the complete status.markers this manager owns.
-func (a *Applier) markers(ctx context.Context, mf *catalogv1alpha1.MediaFile, tid *TheIntroDBUpdate, an *AnalysisUpdate) *catalogac.FileMarkersApplyConfiguration {
+func (a *Applier) markers(ctx context.Context, mf *catalogv1alpha1.MediaFile, tid *TheIntroDBUpdate, an *AnalysisUpdate) (*catalogac.FileMarkersApplyConfiguration, error) {
 	cur := mf.Status.Markers
 	if cur == nil {
 		cur = &catalogv1alpha1.FileMarkers{}
@@ -153,16 +160,26 @@ func (a *Applier) markers(ctx context.Context, mf *catalogv1alpha1.MediaFile, ti
 
 	theintrodb := theIntroDBSegments(cur)
 	if tid != nil {
-		theintrodb = tid.Segments
+		// An Error changes nothing TheIntroDB found for this probe: its
+		// segments stand for the Error's day, as they did before merging.
+		if tid.Result != catalogv1alpha1.MarkersError || cur.ForProbeHash != mf.Status.ProbeHash {
+			theintrodb = tid.Segments
+		}
 		withTheIntroDB(ac, tid.Result, tid.FetchedAt, tid.ForProbeHash, tid.DurationMs, tid.Message, tid.NotFoundSince)
 	} else if cur.Result != "" {
 		withTheIntroDB(ac, cur.Result, cur.FetchedAt, cur.ForProbeHash, cur.DurationMs, cur.Message, cur.NotFoundSince)
 	}
 
-	analysed := a.stored(ctx, mf)
+	analysed, err := a.stored(ctx, mf)
+	if err != nil {
+		return nil, err
+	}
 	switch {
-	case an != nil:
+	case an != nil && an.Result != catalogv1alpha1.MarkersError:
 		analysed = an.Segments
+		ac.WithAnalysis(analysisAC(an.Result, an.AnalyzedAt, an.ForProbeHash, an.Version, an.Message))
+	case an != nil:
+		ac.WithAnalysis(analysisAC(an.Result, an.AnalyzedAt, an.ForProbeHash, an.Version, an.Message))
 		ac.WithAnalysis(analysisAC(an.Result, an.AnalyzedAt, an.ForProbeHash, an.Version, an.Message))
 	case cur.Analysis != nil:
 		c := cur.Analysis
@@ -173,7 +190,7 @@ func (a *Applier) markers(ctx context.Context, mf *catalogv1alpha1.MediaFile, ti
 		ac.WithSegments(catalogac.MarkerSegment().WithKind(s.Kind).WithStartMs(s.StartMs).WithEndMs(s.EndMs).
 			WithSource(s.Source).WithConfidence(s.Confidence))
 	}
-	return ac
+	return ac, nil
 }
 
 // theIntroDBSegments are status's TheIntroDB segments: tagged so, or

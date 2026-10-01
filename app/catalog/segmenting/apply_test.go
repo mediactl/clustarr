@@ -19,6 +19,7 @@ package segmenting_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -190,4 +191,50 @@ func TestAResultIsRecordedAndMerged(t *testing.T) {
 	e, err := r.kv.Get(context.Background(), events.KVKeyToken("uid-1"))
 	require.NoError(t, err, "the raw result is kept for later merges")
 	assert.Contains(t, string(e.Value), "h1")
+}
+
+// A transient TheIntroDB failure changes nothing it found before: its
+// segments stay in status (and so in Plex) for the Error's day.
+func TestATheIntroDBErrorKeepsItsSegments(t *testing.T) {
+	mf := mediaFile(&catalogv1alpha1.FileMarkers{
+		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "h1", FetchedAt: metav1.NewTime(now),
+		Segments: []catalogv1alpha1.MarkerSegment{{Kind: catalogv1alpha1.MarkerIntro, StartMs: 60_000, EndMs: 90_000, Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: 100}},
+	})
+	r := newRig(t, mf)
+	tid := &segmenting.TheIntroDBUpdate{Result: catalogv1alpha1.MarkersError, FetchedAt: metav1.NewTime(now), ForProbeHash: "h1", Message: "502"}
+	require.NoError(t, r.a.ApplyMerged(context.Background(), client.ObjectKeyFromObject(mf), tid, nil))
+	m := last(t, r)
+	assert.Equal(t, catalogv1alpha1.MarkersError, *m.Result)
+	assert.Equal(t, catalogv1alpha1.SegmentSourceTheIntroDB, segs(m)[catalogv1alpha1.MarkerIntro])
+}
+
+type failingKV struct {
+	events.KV
+	err error
+}
+
+func (f failingKV) Get(context.Context, string) (events.Entry, error) { return events.Entry{}, f.err }
+
+// A segments-bucket read that fails is retried, never read as "never
+// analyzed": that would drop the analysis segments from status and Plex
+// until TheIntroDB's next refresh, weeks off.
+func TestAFailedBucketReadIsRetriedNotErased(t *testing.T) {
+	r := newRig(t, mediaFile(nil))
+	r.a.KV = failingKV{KV: r.kv, err: errors.New("nats: timeout")}
+	tid := &segmenting.TheIntroDBUpdate{Result: catalogv1alpha1.MarkersNotFound, FetchedAt: metav1.NewTime(now), ForProbeHash: "h1"}
+	require.Error(t, r.a.ApplyMerged(context.Background(), client.ObjectKey{Namespace: "media", Name: "andor-s01e02"}, tid, nil))
+	assert.Empty(t, r.applied)
+}
+
+// An analysis Error keeps what the last good analysis of the probe found.
+func TestAnAnalysisErrorKeepsTheStoredSegments(t *testing.T) {
+	r := newRig(t, mediaFile(nil))
+	key := client.ObjectKey{Namespace: "media", Name: "andor-s01e02"}
+	require.NoError(t, r.a.ApplyMerged(context.Background(), key, nil, analysis(credits(catalogv1alpha1.SegmentSourceAnalysis))))
+	failed := &segmenting.AnalysisUpdate{
+		Result: catalogv1alpha1.MarkersError, AnalyzedAt: metav1.NewTime(now), ForProbeHash: "h1",
+		Version: segments.AnalyzerVersion, Message: "decode: ffmpeg: timeout",
+	}
+	require.NoError(t, r.a.ApplyMerged(context.Background(), key, nil, failed))
+	assert.Equal(t, catalogv1alpha1.SegmentSourceAnalysis, segs(last(t, r))[catalogv1alpha1.MarkerCredits])
 }
