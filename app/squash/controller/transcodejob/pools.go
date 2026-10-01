@@ -207,10 +207,11 @@ func (r *Reconciler) holding(stored map[string]*batchv1.Job, profiles map[string
 // pods than active ones: a pool whose every pod is Ready has none waiting for
 // a node, and costs no pod list.
 //
-// Each auto job Queued on the pool -- dispatched, not yet claimed -- is
-// withdrawn and returned to Planned with a fallbackReason naming the pool
-// (reroute), which keeps it on cpu from then on. A pinned job is left where
-// it is: a pinned class never falls back. The pool, with nothing dispatched
+// Each auto or gpu job Queued on the pool -- dispatched, not yet claimed --
+// is withdrawn and returned to Planned (reroute): an auto job with a
+// fallbackReason naming the pool, which keeps it on cpu from then on; a gpu
+// job without one, so it goes to another GPU class, or waits for one. A
+// pinned job is left where it is: a pinned class never falls back. The pool, with nothing dispatched
 // to it any more, suspends in the same pass (pools).
 func (r *Reconciler) rerouteUnschedulable(ctx context.Context, stored map[string]*batchv1.Job,
 	profiles map[string]*transcodev1alpha1.TranscodeProfile, tjs []transcodev1alpha1.TranscodeJob,
@@ -258,11 +259,11 @@ func (r *Reconciler) rerouteUnschedulable(ctx context.Context, stored map[string
 		for i := range tjs {
 			tj := &tjs[i]
 			if tj.Spec.ProfileRef != tp.Name || tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseQueued ||
-				tj.Status.Hardware != k.Class || !isAutoFor(tj, tp) ||
+				tj.Status.Hardware != k.Class || !choosesClassFor(tj, tp) ||
 				k8s.IsDeleting(tj) || (tj.Spec.Suspend != nil && *tj.Spec.Suspend) {
 				continue // a pinned job waits for its class; a deleting or paused one has its own path
 			}
-			ok, err := r.reroute(ctx, tj, reason)
+			ok, err := r.reroute(ctx, tj, reason, gpuOnlyFor(tj, tp))
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -314,7 +315,12 @@ func unschedulableSince(pods []corev1.Pod) time.Time {
 // next-step table ignores -- so a write that refused a Running job would
 // leave it Running with no worker, for good. What it will not touch is a job
 // that moved on to another attempt or out of dispatch meanwhile.
-func (r *Reconciler) reroute(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, reason string) (bool, error) {
+//
+// keepGPU is a gpu job's (gpuOnlyFor): it is requeued with no
+// fallbackReason, which would pin cpu, so admission chooses again among the
+// GPU classes still usable -- the one it left is marked unschedulable or
+// unusable, so another, or cpu when none is.
+func (r *Reconciler) reroute(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, reason string, keepGPU bool) (bool, error) {
 	if err := r.withdraw(ctx, tj); err != nil {
 		return false, fmt.Errorf("transcodejob: withdraw %s from an unschedulable pool: %w", client.ObjectKeyFromObject(tj), err)
 	}
@@ -325,8 +331,13 @@ func (r *Reconciler) reroute(ctx context.Context, tj *transcodev1alpha1.Transcod
 				return false
 			}
 			st.Phase, st.WorkerPod, st.Progress, st.NextAttemptAt = transcodev1alpha1.TranscodeJobPhasePlanned, "", nil, nil
-			st.FallbackReason = truncate(reason, maxFallbackReason)
-			st.Message = truncate(fmt.Sprintf("attempt %d withdrawn: %s; requeued for cpu", attempt, reason), maxMessage)
+			if keepGPU {
+				st.FallbackReason = ""
+				st.Message = truncate(fmt.Sprintf("attempt %d withdrawn: %s; requeued for another GPU", attempt, reason), maxMessage)
+			} else {
+				st.FallbackReason = truncate(reason, maxFallbackReason)
+				st.Message = truncate(fmt.Sprintf("attempt %d withdrawn: %s; requeued for cpu", attempt, reason), maxMessage)
+			}
 			k8s.MarkFalse(live, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonPoolUnschedulable,
 				"%s", st.Message)
 			return true

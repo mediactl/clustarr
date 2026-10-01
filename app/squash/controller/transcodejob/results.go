@@ -244,12 +244,12 @@ func dispatched(p transcodev1alpha1.TranscodeJobPhase) bool {
 }
 
 // isAuto reports whether tj chooses its class per dispatch (spec §18.5):
-// isAutoFor, reading the profile only when the job's own spec.hardware does
+// choosesClassFor (auto or gpu), reading the profile only when the job's own spec.hardware does
 // not decide. A profile that cannot be read is an error, not a guess: the
 // answer decides between a CPU fallback and a retry.
 func (r *Reconciler) isAuto(ctx context.Context, tj *transcodev1alpha1.TranscodeJob) (bool, error) {
 	if tj.Spec.Hardware != nil && *tj.Spec.Hardware != "" {
-		return isAutoFor(tj, nil), nil
+		return choosesClassFor(tj, nil), nil
 	}
 	tp, ok, err := r.profile(ctx, tj)
 	if err != nil {
@@ -260,5 +260,5 @@ func (r *Reconciler) isAuto(ctx context.Context, tj *transcodev1alpha1.Transcode
 	if !ok {
 		return false, nil
 	}
-	return isAutoFor(tj, tp), nil
+	return choosesClassFor(tj, tp), nil
 }

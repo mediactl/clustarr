@@ -308,7 +308,7 @@ func (r *Reconciler) keepPlanned(ctx context.Context, key types.NamespacedName, 
 			return true
 		}
 		r.recordPlan(tj, st, p, tp.Spec.Container)
-		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && isAutoFor(tj, tp) {
+		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && choosesClassFor(tj, tp) {
 			st.FallbackReason = truncate(fmt.Sprintf("a plan for %s encodes with %s, which needs no GPU", class, st.Plan.Encoder),
 				maxFallbackReason)
 			st.Message = truncate(st.FallbackReason+"; it goes to cpu", maxMessage)
@@ -353,7 +353,7 @@ func (r *Reconciler) poolNameFor(ctx context.Context, tj *transcodev1alpha1.Tran
 }
 
 // pinnedGPU is the GPU class tj is pinned to -- its own spec.hardware, else
-// its profile's, as isAutoFor reads them -- or "" for auto, cpu or no pin.
+// its profile's, as hardwareFor reads them -- or "" for auto, gpu, cpu or no pin.
 func pinnedGPU(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) transcodev1alpha1.Hardware {
 	var h transcodev1alpha1.Hardware
 	switch {

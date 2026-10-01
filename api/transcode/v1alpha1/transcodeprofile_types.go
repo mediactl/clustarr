@@ -36,7 +36,7 @@ const (
 
 // Hardware selects the encoder backend a transcode runs on.
 //
-// +kubebuilder:validation:Enum=cpu;nvidia;intel;auto
+// +kubebuilder:validation:Enum=cpu;nvidia;intel;auto;gpu
 type Hardware string
 
 // Hardware backends.
@@ -47,6 +47,14 @@ const (
 	// HardwareAuto prefers a GPU class with a labelled GPU node and a free slot,
 	// else cpu, chosen per task at dispatch (spec §18.5).
 	HardwareAuto Hardware = "auto"
+	// HardwareGPU is auto that never encodes on the CPU for want of a free
+	// GPU slot (2026-10-01): a GPU class with a labelled node and a free
+	// slot, in auto's order, else the job waits, Planned. It goes to cpu
+	// only when no GPU class can take it at all -- no labelled GPU node,
+	// every GPU pool unschedulable or reported unusable -- or a GPU already
+	// refused it (status.fallbackReason); a remux, which encodes nothing,
+	// takes a cpu slot as under auto.
+	HardwareGPU Hardware = "gpu"
 )
 
 // TranscodeProfile condition types.
@@ -208,7 +216,9 @@ type TranscodeProfileSpec struct {
 	Quality *int32 `json:"quality,omitempty"`
 
 	// Hardware is the encoder backend: auto is chosen per task, with CPU
-	// fallback; cpu, nvidia and intel are pinned and never fall back.
+	// fallback; gpu is chosen per task among the GPU classes and waits for
+	// a free one rather than encode on the CPU; cpu, nvidia and intel are
+	// pinned and never fall back.
 	// +optional
 	// +kubebuilder:default="auto"
 	Hardware Hardware `json:"hardware,omitempty"`

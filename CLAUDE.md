@@ -89,6 +89,16 @@ every fresh report is unhealthy. That engine lives in
 `app/squash/worker/inprocess`, imported only by `cmd/squasharr-worker`: `cmd/clustarr`
 must never link ffgo or purego, which make it a dynamic binary the distroless controller
 image cannot start (`TestClustarrNeverLinksADynamicLoader`).
+`hardware: gpu` (2026-10-01) is `auto` without the CPU overflow: a job
+takes NVIDIA, then Intel, and waits Planned ("waiting for a free GPU slot")
+when both are busy, rather than encode with libx265; it goes to cpu only
+when no GPU class is usable at all or a GPU already refused it
+(`fallbackReason`), a remux still takes a cpu slot, and a reroute off an
+unschedulable or unusable GPU pool leaves it no `fallbackReason`
+(`transcodejob.ChooseClass`'s `gpuOnly`, `choosesClassFor`/`gpuOnlyFor`).
+How this cluster's GPU nodes are set up -- the NVIDIA device plugin and
+runtime class, NFD with Intel's rules and Intel's GPU plugin -- is
+`docs/gpu-nodes.md`.
 **There is no CUDA image** (2026-10-01, `docs/adr/0015-no-cuda-image.md`):
 every pool, nvidia's included, runs the one image `--worker-image` names
 (chart `image.transcoder`, built `FROM scratch` by `images/Dockerfile.transcoder`).

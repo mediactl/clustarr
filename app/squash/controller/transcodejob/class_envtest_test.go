@@ -857,3 +857,85 @@ func TestAQueuedAutoJobLeavesAClassReportedUnhealthy(t *testing.T) {
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase)
 	assert.Contains(t, got.Status.FallbackReason, "driver mismatch")
 }
+
+// TestAGPUJobWaitsForAGPUSlotNotACPUOne is hardware: gpu (2026-10-01): with
+// the one nvidia slot taken, the second gpu job stays Planned, saying it
+// waits for a GPU, although a cpu slot is free; an auto job in its place
+// would have taken the cpu slot (TestAutoFallsBackToCPUWithoutAGPUNodeOrSlot).
+func TestAGPUJobWaitsForAGPUSlotNotACPUOne(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-gpu-wait"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	newProfile(t, c, "hevc", "hash1", func(tp *transcodev1alpha1.TranscodeProfile) {
+		tp.Spec.Hardware = transcodev1alpha1.HardwareGPU
+	})
+	nvidiaNode(t, c, "gpu-1", "1")
+	newMediaFile(t, c, ns, "a", "p-a", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "b", "p-b", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "a-hevc", "a", "hevc", "p-a", nil)
+	newTJ(t, c, ns, "b-hevc", "b", "hevc", "p-b", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 1})
+
+	reconcileTJ(t, r, ns, "a-hevc")
+	reconcileTJ(t, r, ns, "b-hevc")
+	admitPass(t, r)
+
+	var queued, waiting *transcodev1alpha1.TranscodeJob
+	for _, name := range []string{"a-hevc", "b-hevc"} {
+		tj := getTJ(t, c, ns, name)
+		if tj.Status.Phase == transcodev1alpha1.TranscodeJobPhaseQueued {
+			queued = tj
+		} else {
+			waiting = tj
+		}
+	}
+	require.NotNil(t, queued, "one gpu job takes the nvidia slot")
+	require.NotNil(t, waiting, "the other is not dispatched")
+	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, queued.Status.Hardware)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, waiting.Status.Phase)
+	assert.Equal(t, "waiting for a free GPU slot (hardware: gpu)", waiting.Status.Message)
+	assert.Empty(t, waiting.Status.FallbackReason)
+}
+
+// TestAGPUJobRoutedOffAnUnschedulablePoolKeepsNoFallback: a gpu job
+// withdrawn from an unschedulable GPU pool returns to Planned without a
+// fallbackReason -- which would pin cpu -- so admission chooses again among
+// the GPU classes still usable. Here none is (the only GPU's pool is marked
+// unschedulable), so it goes to cpu, as a job no GPU can take does.
+func TestAGPUJobRoutedOffAnUnschedulablePoolKeepsNoFallback(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-gpu-reroute"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", func(tp *transcodev1alpha1.TranscodeProfile) {
+		tp.Spec.Hardware = transcodev1alpha1.HardwareGPU
+	})
+	nvidiaNode(t, c, "gpu-1", "1")
+	newMediaFile(t, c, ns, "a", "p-a", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "a-hevc", "a", "hevc", "p-a", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 0, "nvidia": 1})
+	r.Admin = r.Bus.(events.StreamAdmin)
+
+	reconcileTJ(t, r, ns, "a-hevc")
+	a := getTJ(t, c, ns, "a-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, a.Status.Phase, "message: %s", a.Status.Message)
+	require.Equal(t, transcodev1alpha1.HardwareNVIDIA, a.Status.Hardware)
+
+	gpuPool := getPool(t, c, tp, transcodev1alpha1.HardwareNVIDIA)
+	setPoolRunning(t, c, gpuPool, 1)
+	gpuPool = getPool(t, c, tp, transcodev1alpha1.HardwareNVIDIA)
+	unschedulablePod(t, c, gpuPool, "pool-pod-1", time.Now().Add(-11*time.Minute))
+	admitPass(t, r)
+
+	a = getTJ(t, c, ns, "a-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, a.Status.Phase, "message: %s", a.Status.Message)
+	assert.Empty(t, a.Status.FallbackReason, "a gpu job is not pinned to cpu by a reroute")
+	assert.Contains(t, a.Status.Message, "requeued for another GPU")
+
+	r.Slots["cpu"] = 1
+	admitPass(t, r)
+	a = getTJ(t, c, ns, "a-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, a.Status.Phase, "message: %s", a.Status.Message)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, a.Status.Hardware, "no GPU class is usable while the pool is marked")
+}

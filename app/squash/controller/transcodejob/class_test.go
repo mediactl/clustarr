@@ -45,19 +45,66 @@ func TestChooseClass(t *testing.T) {
 		nodes, unsched map[transcodev1alpha1.Hardware]bool
 		free           map[transcodev1alpha1.Hardware]int32
 		fallback       bool
+		gpuOnly        bool
 		want           transcodev1alpha1.Hardware
 	}{
-		{"nvidia first", both, nil, slots, false, nv},
-		{"intel when nvidia is full", both, nil, map[transcodev1alpha1.Hardware]int32{nv: 0, in: 1, cpu: 2}, false, in},
-		{"cpu when every GPU slot is full", both, nil, map[transcodev1alpha1.Hardware]int32{cpu: 2}, false, cpu},
-		{"cpu without a GPU node", nil, nil, slots, false, cpu},
-		{"intel without an nvidia node", map[transcodev1alpha1.Hardware]bool{in: true}, nil, slots, false, in},
-		{"skip an unschedulable pool", both, map[transcodev1alpha1.Hardware]bool{nv: true}, slots, false, in},
-		{"a fallback reason pins cpu", both, nil, slots, true, cpu},
-		{"an over-budget class is full, not free", both, nil, map[transcodev1alpha1.Hardware]int32{nv: -1, in: 0}, false, cpu},
+		{"nvidia first", both, nil, slots, false, false, nv},
+		{"intel when nvidia is full", both, nil, map[transcodev1alpha1.Hardware]int32{nv: 0, in: 1, cpu: 2}, false, false, in},
+		{"cpu when every GPU slot is full", both, nil, map[transcodev1alpha1.Hardware]int32{cpu: 2}, false, false, cpu},
+		{"cpu without a GPU node", nil, nil, slots, false, false, cpu},
+		{"intel without an nvidia node", map[transcodev1alpha1.Hardware]bool{in: true}, nil, slots, false, false, in},
+		{"skip an unschedulable pool", both, map[transcodev1alpha1.Hardware]bool{nv: true}, slots, false, false, in},
+		{"a fallback reason pins cpu", both, nil, slots, true, false, cpu},
+		{"an over-budget class is full, not free", both, nil, map[transcodev1alpha1.Hardware]int32{nv: -1, in: 0}, false, false, cpu},
+		// hardware: gpu (2026-10-01): any GPU, never the CPU for want of a
+		// slot -- "" is "wait" -- but the CPU when no GPU class can be used
+		// at all, or a GPU already refused the job (its fallback reason).
+		{"gpu: nvidia first", both, nil, slots, false, true, nv},
+		{"gpu: intel when nvidia is full", both, nil, map[transcodev1alpha1.Hardware]int32{nv: 0, in: 1, cpu: 2}, false, true, in},
+		{"gpu: waits when every GPU slot is full", both, nil, map[transcodev1alpha1.Hardware]int32{cpu: 2}, false, true, ""},
+		{"gpu: waits for a full intel when nvidia is unschedulable", both, map[transcodev1alpha1.Hardware]bool{nv: true}, map[transcodev1alpha1.Hardware]int32{nv: 1, cpu: 2}, false, true, ""},
+		{"gpu: cpu without a GPU node", nil, nil, slots, false, true, cpu},
+		{"gpu: cpu when every GPU pool is unschedulable", both, both, slots, false, true, cpu},
+		{"gpu: a fallback reason pins cpu", both, nil, slots, true, true, cpu},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, ChooseClass(tc.nodes, tc.unsched, tc.free, tc.fallback))
+			assert.Equal(t, tc.want, ChooseClass(tc.nodes, tc.unsched, tc.free, tc.fallback, tc.gpuOnly))
+		})
+	}
+}
+
+// choosesClassFor is the jobs that pick their class per dispatch: auto and
+// gpu, from the job's own spec.hardware or else its profile's; gpuOnlyFor is
+// the ones that never take a CPU slot for want of a GPU one.
+func TestChoosesClassForAutoAndGPU(t *testing.T) {
+	hw := func(h transcodev1alpha1.Hardware) *transcodev1alpha1.Hardware { return &h }
+	tp := func(h transcodev1alpha1.Hardware) *transcodev1alpha1.TranscodeProfile {
+		p := &transcodev1alpha1.TranscodeProfile{}
+		p.Spec.Hardware = h
+		return p
+	}
+	job := func(h *transcodev1alpha1.Hardware) *transcodev1alpha1.TranscodeJob {
+		j := &transcodev1alpha1.TranscodeJob{}
+		j.Spec.Hardware = h
+		return j
+	}
+	for _, tc := range []struct {
+		name          string
+		tj            *transcodev1alpha1.TranscodeJob
+		tp            *transcodev1alpha1.TranscodeProfile
+		chooses, only bool
+	}{
+		{"an auto profile", job(nil), tp(transcodev1alpha1.HardwareAuto), true, false},
+		{"an empty profile is the CRD default, auto", job(nil), tp(""), true, false},
+		{"a gpu profile", job(nil), tp(transcodev1alpha1.HardwareGPU), true, true},
+		{"a pinned profile", job(nil), tp(transcodev1alpha1.HardwareNVIDIA), false, false},
+		{"a job's own gpu over a pinned profile", job(hw(transcodev1alpha1.HardwareGPU)), tp(transcodev1alpha1.HardwareCPU), true, true},
+		{"a job's own pin over a gpu profile", job(hw(transcodev1alpha1.HardwareIntel)), tp(transcodev1alpha1.HardwareGPU), false, false},
+		{"a deleted profile", job(nil), nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.chooses, choosesClassFor(tc.tj, tc.tp), "choosesClassFor")
+			assert.Equal(t, tc.only, gpuOnlyFor(tc.tj, tc.tp), "gpuOnlyFor")
 		})
 	}
 }
@@ -76,6 +123,7 @@ func TestAssignClasses(t *testing.T) {
 		return tp
 	}
 	auto, pinned := profile("auto", transcodev1alpha1.HardwareAuto), profile("pinned", nv)
+	gpuOnly := profile("gpu", transcodev1alpha1.HardwareGPU)
 	other := profile("other", transcodev1alpha1.HardwareAuto)
 	encode := func(encoder string) *transcodev1alpha1.Plan {
 		return &transcodev1alpha1.Plan{Mode: transcodev1alpha1.PlanModeTranscode, Encoder: encoder}
@@ -105,6 +153,33 @@ func TestAssignClasses(t *testing.T) {
 			gpu:    gpu,
 			want:   map[string]string{"ns/high": "nvidia", "ns/low": "cpu"},
 			admits: []string{"ns/high", "ns/low"},
+		},
+		{
+			name:   "a gpu job waits for the GPU slot rather than taking a cpu one",
+			cands:  []candidate{cand("first", gpuOnly, 9, encode("libx265"), ""), cand("second", gpuOnly, 1, encode("libx265"), "")},
+			gpu:    gpu,
+			want:   map[string]string{"ns/first": "nvidia", "ns/second": "held"},
+			admits: []string{"ns/first"},
+		},
+		{
+			name:   "a gpu job a GPU already refused goes to cpu",
+			cands:  []candidate{cand("refused", gpuOnly, 9, encode("libx265"), "nvenc failed")},
+			gpu:    gpu,
+			want:   map[string]string{"ns/refused": "cpu"},
+			admits: []string{"ns/refused"},
+		},
+		{
+			name:   "a gpu profile's remux takes a cpu slot",
+			cands:  []candidate{cand("remux", gpuOnly, 9, &transcodev1alpha1.Plan{Mode: transcodev1alpha1.PlanModeRemuxOnly, Encoder: "copy"}, "")},
+			gpu:    gpu,
+			want:   map[string]string{"ns/remux": "cpu"},
+			admits: []string{"ns/remux"},
+		},
+		{
+			name:   "a gpu job with no GPU node goes to cpu",
+			cands:  []candidate{cand("nogpu", gpuOnly, 9, encode("libx265"), "")},
+			want:   map[string]string{"ns/nogpu": "cpu"},
+			admits: []string{"ns/nogpu"},
 		},
 		{
 			name:    "a dispatched job's slot is not free",

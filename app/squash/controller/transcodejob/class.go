@@ -35,36 +35,73 @@ import (
 // order spec §18.5 gives them: nvidia, then intel. cpu is what is left.
 var gpuClasses = []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel}
 
-// ChooseClass picks an auto job's class (spec §18.5): the first GPU class, in
-// priority order, with a labelled GPU node, a free slot and a schedulable
-// pool; else cpu. A recorded fallback reason pins cpu.
+// ChooseClass picks the class of a job that chooses one per dispatch (spec
+// §18.5): the first GPU class, in priority order, with a labelled GPU node,
+// a free slot and a schedulable pool; else cpu. A recorded fallback reason
+// pins cpu.
+//
+// gpuOnly is hardware: gpu (2026-10-01): when a GPU class could take the job
+// but none has a free slot, the answer is "" -- wait -- rather than cpu. It
+// is still cpu when no GPU class is usable at all (no labelled node, or
+// every pool unschedulable), since the job would otherwise wait for good.
 //
 // free counts this pass's own dispatches: the caller takes a slot from it
 // for each job it expects admission to dispatch, so the next job sees what
 // is left.
 func ChooseClass(gpuNodes, unschedulable map[transcodev1alpha1.Hardware]bool,
-	free map[transcodev1alpha1.Hardware]int32, fallback bool,
+	free map[transcodev1alpha1.Hardware]int32, fallback, gpuOnly bool,
 ) transcodev1alpha1.Hardware {
-	if !fallback {
-		for _, c := range gpuClasses {
-			if gpuNodes[c] && free[c] > 0 && !unschedulable[c] {
-				return c
-			}
+	if fallback {
+		return transcodev1alpha1.HardwareCPU
+	}
+	usable := false
+	for _, c := range gpuClasses {
+		if !gpuNodes[c] || unschedulable[c] {
+			continue
 		}
+		usable = true
+		if free[c] > 0 {
+			return c
+		}
+	}
+	if gpuOnly && usable {
+		return ""
 	}
 	return transcodev1alpha1.HardwareCPU
 }
 
-// isAutoFor reports whether tj chooses its class per dispatch under its
-// profile tp: its own spec.hardware when set, else the profile's, where empty
-// is the CRD default, auto. A nil tp (a deleted profile) pins nothing that
-// can be asked about, so it is not auto.
-func isAutoFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) bool {
+// hardwareFor is the hardware tj asks for under its profile tp: its own
+// spec.hardware when set, else the profile's, where empty is the CRD
+// default, auto. A nil tp (a deleted profile) asks for nothing.
+func hardwareFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) transcodev1alpha1.Hardware {
 	if tj.Spec.Hardware != nil && *tj.Spec.Hardware != "" {
-		return *tj.Spec.Hardware == transcodev1alpha1.HardwareAuto
+		return *tj.Spec.Hardware
 	}
-	return tp != nil && (tp.Spec.Hardware == transcodev1alpha1.HardwareAuto || tp.Spec.Hardware == "")
+	if tp == nil {
+		return ""
+	}
+	if tp.Spec.Hardware == "" {
+		return transcodev1alpha1.HardwareAuto
+	}
+	return tp.Spec.Hardware
 }
+
+// choosesClassFor reports whether tj chooses its class per dispatch under
+// its profile tp: auto or gpu, from hardwareFor. A deleted profile pins
+// nothing that can be asked about, so it does not.
+func choosesClassFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) bool {
+	hw := hardwareFor(tj, tp)
+	return hw == transcodev1alpha1.HardwareAuto || hw == transcodev1alpha1.HardwareGPU
+}
+
+// gpuOnlyFor reports whether tj waits for a GPU slot rather than take a cpu
+// one: hardware gpu.
+func gpuOnlyFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) bool {
+	return hardwareFor(tj, tp) == transcodev1alpha1.HardwareGPU
+}
+
+// waitingForGPU is the message a gpu job admission passes over carries.
+const waitingForGPU = "waiting for a free GPU slot (hardware: gpu)"
 
 // encodesVideo reports whether plan p runs a video encoder, which is all a
 // GPU is for: a remux copies the video and takes a CPU slot
@@ -124,8 +161,12 @@ func (r *Reconciler) assignClasses(cands []candidate, running []Slot, gpu map[tr
 
 	for _, c := range ordered {
 		class := r.classFor(c.tj, c.tp)
-		if isAutoFor(c.tj, c.tp) && encodesVideo(c.tj.Status.Plan) {
-			class = ChooseClass(gpu, r.unschedulableFor(c.tp), free, c.tj.Status.FallbackReason != "")
+		if choosesClassFor(c.tj, c.tp) && encodesVideo(c.tj.Status.Plan) {
+			class = ChooseClass(gpu, r.unschedulableFor(c.tp), free, c.tj.Status.FallbackReason != "", gpuOnlyFor(c.tj, c.tp))
+		}
+		if class == "" {
+			holds = append(holds, heldJob{tj: c.tj, msg: waitingForGPU})
+			continue
 		}
 		if msg, ok := held[poolKeyFor(c.tp, class)]; ok {
 			holds = append(holds, heldJob{tj: c.tj, msg: msg})
@@ -223,11 +264,11 @@ func (r *Reconciler) rerouteUnhealthy(ctx context.Context, profiles map[string]*
 		tj := &tjs[i]
 		msg, ok := unhealthy[tj.Status.Hardware]
 		tp := profiles[tj.Spec.ProfileRef]
-		if !ok || tp == nil || tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseQueued || !isAutoFor(tj, tp) ||
+		if !ok || tp == nil || tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseQueued || !choosesClassFor(tj, tp) ||
 			k8s.IsDeleting(tj) || (tj.Spec.Suspend != nil && *tj.Spec.Suspend) {
 			continue
 		}
-		done, err := r.reroute(ctx, tj, msg)
+		done, err := r.reroute(ctx, tj, msg, gpuOnlyFor(tj, tp))
 		if err != nil {
 			errs = append(errs, err)
 			continue

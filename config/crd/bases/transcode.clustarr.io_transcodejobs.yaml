@@ -82,6 +82,7 @@ spec:
                 - nvidia
                 - intel
                 - auto
+                - gpu
                 type: string
               mediaFileRef:
                 description: MediaFileRef is the name of the MediaFile (same namespace)
@@ -218,6 +219,7 @@ spec:
                 - nvidia
                 - intel
                 - auto
+                - gpu
                 type: string
               jobRef:
                 description: |-

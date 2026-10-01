@@ -33,15 +33,18 @@ import (
 )
 
 // ProfileHardware is the class a profile's job plans for: the job's
-// spec.hardware when it pins one, else the profile's; auto with no class
-// chosen yet plans for the CPU. The TranscodeJob controller and the worker
+// spec.hardware when it pins one, else the profile's; auto or gpu with no
+// class chosen yet plans for the CPU. The TranscodeJob controller and the worker
 // both ask here, so their plans hash alike.
 func ProfileHardware(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcodev1alpha1.Hardware) transcode.Hardware {
 	hw := spec.Hardware
-	if hardware != nil && *hardware != "" && *hardware != transcodev1alpha1.HardwareAuto {
+	choose := func(h transcodev1alpha1.Hardware) bool {
+		return h == transcodev1alpha1.HardwareAuto || h == transcodev1alpha1.HardwareGPU
+	}
+	if hardware != nil && *hardware != "" && !choose(*hardware) {
 		hw = *hardware
 	}
-	if hw == transcodev1alpha1.HardwareAuto || hw == "" {
+	if choose(hw) || hw == "" {
 		hw = transcodev1alpha1.HardwareCPU
 	}
 	return transcode.Hardware(hw)

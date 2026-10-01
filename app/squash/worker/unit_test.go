@@ -179,6 +179,14 @@ func TestProfileHardwareTakesTheJobsOverride(t *testing.T) {
 	spec.Hardware = transcodev1alpha1.HardwareAuto
 	assert.Equal(t, transcode.HardwareCPU, ProfileHardware(spec, nil), "auto with no class chosen plans for the CPU")
 	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(spec, ptr.To(transcodev1alpha1.HardwareNVIDIA)), "a chosen class overrides auto")
+	// gpu (2026-10-01) is auto that never takes a CPU slot for want of a GPU
+	// one: before a class is chosen it plans, and hashes, as auto does.
+	spec.Hardware = transcodev1alpha1.HardwareGPU
+	assert.Equal(t, transcode.HardwareCPU, ProfileHardware(spec, nil), "gpu with no class chosen plans for the CPU")
+	assert.Equal(t, transcode.HardwareIntel, ProfileHardware(spec, ptr.To(transcodev1alpha1.HardwareIntel)), "a chosen class overrides gpu")
+	gpu := transcodev1alpha1.HardwareGPU
+	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareNVIDIA}, &gpu),
+		"a gpu override of a pinned profile defers to it, as auto does")
 }
 
 // StandardProfile carries every field the standard reads, with its default.
