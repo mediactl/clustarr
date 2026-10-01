@@ -1035,13 +1035,21 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(terminal, "avail-ns", downloadv1alpha1.DownloadPhaseFailed))
 		require.NoError(t, err)
 
-		require.Never(t, func() bool {
+		hasRef := func() bool {
 			var got catalogv1alpha1.Movie
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "sicario"}, &got); err != nil {
 				return false
 			}
 			return got.Status.ActiveDownloadRef != nil
-		}, time.Second, 50*time.Millisecond)
+		}
+		// The terminal Download is created before its status can say
+		// Failed, and a just-created "" phase is in flight
+		// (rollup.DownloadNonTerminal), so a reconcile in that window may
+		// set the ref, rightly, until the Failed status lands. Settle
+		// first: the stranger never goes terminal, so had it set the ref
+		// this wait would fail too.
+		require.Eventually(t, func() bool { return !hasRef() }, 10*time.Second, 50*time.Millisecond)
+		require.Never(t, hasRef, time.Second, 50*time.Millisecond)
 	})
 
 	// The DLQ projector's annotation is folded into a DeadLettered
