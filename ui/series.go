@@ -80,7 +80,7 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	episodes, err := s.listEpisodes(r.Context(), ns)
+	episodes, err := s.listEpisodes(r.Context(), ns, name)
 	if err != nil {
 		logging.FromContext(r.Context()).Error("list episodes for season page", "error", err)
 		http.Error(w, "could not list episodes", http.StatusInternalServerError)
@@ -194,15 +194,18 @@ func (s *Server) getSeries(ctx context.Context, ref types.NamespacedName) (*cata
 	return &series, true
 }
 
-// listEpisodes lists a namespace's Episodes through the reader. Filtering
-// by series and season happens in memory (episodeRows): the list is served
-// from the cache, and a field index is worth adding only if this shows up.
-func (s *Server) listEpisodes(ctx context.Context, namespace string) ([]catalogv1.Episode, error) {
+// listEpisodes lists one series' Episodes through the reader, selected by
+// spec.seriesRef: the ui cache's index (NewClusterReader), or Episode's
+// selectable field on a raw client. Every Episode in the namespace was
+// listed and deep-copied per season expand -- 15,630 on the owner's
+// library. The season filter stays in memory (episodeRows).
+func (s *Server) listEpisodes(ctx context.Context, namespace, series string) ([]catalogv1.Episode, error) {
 	if s.opts.Reader == nil {
 		return nil, nil
 	}
 	var list catalogv1.EpisodeList
-	if err := s.opts.Reader.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+	if err := s.opts.Reader.List(ctx, &list, client.InNamespace(namespace),
+		client.MatchingFields{EpisodeSeriesRefField: series}); err != nil {
 		return nil, err
 	}
 	return list.Items, nil

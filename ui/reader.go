@@ -126,6 +126,9 @@ func NewClusterReader(
 	if err != nil {
 		return nil, nil, fmt.Errorf("ui: build cluster cache: %w", err)
 	}
+	if err := c.IndexField(ctx, &catalogv1alpha1.Episode{}, EpisodeSeriesRefField, IndexEpisodeBySeriesRef); err != nil {
+		return nil, nil, fmt.Errorf("ui: index episodes by series: %w", err)
+	}
 
 	go func() {
 		if err := c.Start(ctx); err != nil && ctx.Err() == nil {
@@ -134,4 +137,20 @@ func NewClusterReader(
 	}()
 
 	return c, c.WaitForCacheSync, nil
+}
+
+// EpisodeSeriesRefField selects a Series' Episodes: the field index
+// [NewClusterReader] registers on its cache, spelled as the apiserver
+// spells Episode's selectable field (+kubebuilder:selectablefield on
+// .spec.seriesRef, no leading dot), so one client.MatchingFields reads the
+// index on the ui's cache and the fieldSelector on a raw client.
+const EpisodeSeriesRefField = "spec.seriesRef"
+
+// IndexEpisodeBySeriesRef is [EpisodeSeriesRefField]'s extractor.
+func IndexEpisodeBySeriesRef(o client.Object) []string {
+	ep, ok := o.(*catalogv1alpha1.Episode)
+	if !ok || ep.Spec.SeriesRef == "" {
+		return nil
+	}
+	return []string{ep.Spec.SeriesRef}
 }

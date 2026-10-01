@@ -46,6 +46,12 @@ import (
 // card the projection would build for it.
 func seriesFixture(t *testing.T) (*ui.Server, projection.LibraryItem) {
 	t.Helper()
+	return seriesFixtureOver(t, func(r client.Reader) client.Reader { return r })
+}
+
+// seriesFixtureOver is seriesFixture with the server's reader wrapped.
+func seriesFixtureOver(t *testing.T, wrap func(client.Reader) client.Reader) (*ui.Server, projection.LibraryItem) {
+	t.Helper()
 	aired := metav1.NewTime(time.Date(2022, time.September, 21, 0, 0, 0, 0, time.UTC))
 	series := &catalogv1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "andor", Namespace: "default"},
@@ -81,16 +87,50 @@ func seriesFixture(t *testing.T) (*ui.Server, projection.LibraryItem) {
 		episode("andor-s01e01", 1, 1, "Kassa", true),
 		episode("andor-s02e01", 2, 1, "One Year Later", false),
 		other,
-	).Build()
+	).WithIndex(&catalogv1.Episode{}, ui.EpisodeSeriesRefField, ui.IndexEpisodeBySeriesRef).Build()
 	item := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "andor"}, Kind: commonv1.MediaKindSeries,
 		Tab: projection.TabTV, Title: "Andor", Year: 2022, QualityProfileRef: "web-1080p", Monitored: true,
 	}
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Reader:  reader,
+		Reader:  wrap(reader),
 		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
 	})
 	return srv, item
+}
+
+// episodeSelectors records the field selector of every Episode List.
+type episodeSelectors struct {
+	client.Reader
+	got []string
+}
+
+func (r *episodeSelectors) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*catalogv1.EpisodeList); ok {
+		lo := (&client.ListOptions{}).ApplyOptions(opts)
+		sel := ""
+		if lo.FieldSelector != nil {
+			sel = lo.FieldSelector.String()
+		}
+		r.got = append(r.got, sel)
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
+
+// Expanding a season lists that series' episodes, selected by
+// spec.seriesRef (the ui cache's index, Episode's selectable field on the
+// apiserver), not every Episode in the namespace -- 15,630 on the owner's
+// library, deep-copied per expand.
+func TestSeasonRouteSelectsTheSeriesEpisodes(t *testing.T) {
+	rec := &episodeSelectors{}
+	srv, _ := seriesFixtureOver(t, func(r client.Reader) client.Reader { rec.Reader = r; return rec })
+	req := httptest.NewRequest(http.MethodGet, "/library/default/series/andor/seasons/1", nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, []string{ui.EpisodeSeriesRefField + "=andor"}, rec.got, "the namespace's episodes were listed, not the series'")
+	require.Equal(t, 2, strings.Count(w.Body.String(), `data-episode=`))
 }
 
 // A series' page lists one season component per season the rollup knows,

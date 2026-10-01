@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -184,4 +185,63 @@ func TestNewClusterReaderSeesRealObjects(t *testing.T) {
 	require.Empty(t, seen.ManagedFields, "the cached copy carries no managedFields")
 
 	require.True(t, waitForSync(ctx), "WaitForCacheSync must report true once the informer above has synced")
+}
+
+// TestNewClusterReaderSelectsEpisodesBySeries: the ui's cache answers a
+// spec.seriesRef selection from the index NewClusterReader registers, and
+// a raw client gets the same answer from Episode's selectable field, so
+// one MatchingFields serves both.
+func TestNewClusterReaderSelectsEpisodesBySeries(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
+	}
+	env := &envtest.Environment{CRDDirectoryPaths: []string{"../config/crd/bases"}, ErrorIfCRDPathMissing: true}
+	cfg, err := env.Start()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	scheme, err := ui.NewReaderScheme()
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	writer, err := client.New(cfg, client.Options{Scheme: scheme})
+	require.NoError(t, err)
+	for _, ep := range []struct {
+		name, series string
+		number       int32
+	}{{"andor-s01e01", "andor", 1}, {"andor-s01e02", "andor", 2}, {"silo-s01e01", "silo", 1}} {
+		require.NoError(t, writer.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: ep.name, Namespace: "default"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: ep.series, SeasonNumber: 1, EpisodeNumber: ep.number},
+		}))
+	}
+
+	reader, _, err := ui.NewClusterReader(ctx, cfg, scheme)
+	require.NoError(t, err)
+
+	names := func(c client.Reader) ([]string, error) {
+		var list catalogv1alpha1.EpisodeList
+		if err := c.List(ctx, &list, client.InNamespace("default"),
+			client.MatchingFields{ui.EpisodeSeriesRefField: "andor"}); err != nil {
+			return nil, err
+		}
+		var out []string
+		for i := range list.Items {
+			out = append(out, list.Items[i].Name)
+		}
+		sort.Strings(out)
+		return out, nil
+	}
+	want := []string{"andor-s01e01", "andor-s01e02"}
+
+	var got []string
+	require.Eventually(t, func() bool {
+		got, err = names(reader)
+		return err == nil && len(got) == len(want)
+	}, 10*time.Second, 50*time.Millisecond, "the ui cache never answered the selection: is the index registered?")
+	require.Equal(t, want, got)
+
+	got, err = names(writer)
+	require.NoError(t, err, "the apiserver refused the selector: Episode's selectable field and the index name disagree")
+	require.Equal(t, want, got)
 }
