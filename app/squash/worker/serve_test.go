@@ -32,11 +32,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -1059,6 +1061,10 @@ func (e *measuringEngine) Measure(context.Context, transcode.Hardware) (transcod
 
 func (e *measuringEngine) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (string, error) {
 	return "", errors.New("not used")
+}
+
+func (e *measuringEngine) Probe(context.Context, string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw, error) {
+	return nil, nil, errors.New("not used")
 }
 
 func (e *measuringEngine) Verify(context.Context, string, string, standard.Expectation) (*transcode.Report, error) {

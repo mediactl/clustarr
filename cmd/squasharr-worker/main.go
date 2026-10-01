@@ -90,9 +90,15 @@ func run(args []string, getenv func(string) string) int {
 		}
 	}()
 
-	if err := worker.CheckFFmpeg(worker.Options{}); err != nil {
-		log.ErrorContext(ctx, "not available", "error", err)
-		return worker.WorkerExitRetriable
+	// The in-process engine needs FFmpeg 9 and its ffgo shim and runs no
+	// binary; without it, the pod is the argv engine's and needs ffmpeg and
+	// ffprobe on PATH.
+	eng, engErr := inprocess.New()
+	if engErr != nil {
+		if err := worker.CheckFFmpeg(worker.Options{}); err != nil {
+			log.ErrorContext(ctx, "neither engine is available", "inProcess", engErr, "error", err)
+			return worker.WorkerExitRetriable
+		}
 	}
 	nc, err := nats.Connect(need["NATS_URL"], nats.Name("squasharr-worker/"+need["POD_NAME"]))
 	if err != nil {
@@ -117,8 +123,8 @@ func run(args []string, getenv func(string) string) int {
 	// The in-process engine (--worker-engine=ffgo) needs FFmpeg 9 and its
 	// ffgo shim: without them this pod runs argv tasks only, and an ffgo
 	// task it takes is retriable, waiting for a pod that can.
-	if eng, err := inprocess.New(); err != nil {
-		log.WarnContext(ctx, "the in-process engine is unavailable; ffgo tasks are retried elsewhere", "error", err)
+	if engErr != nil {
+		log.WarnContext(ctx, "the in-process engine is unavailable; ffgo tasks are retried elsewhere", "error", engErr)
 	} else {
 		opts.Engine = eng
 	}

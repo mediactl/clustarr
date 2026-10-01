@@ -49,6 +49,12 @@ const MaxStreamsPerKind = 64
 // colour primaries/transfer/matrix, master-display/max-cll, channel
 // layout, per-chapter detail) stay on raw; see this task's "Why Raw
 // carries..." note.
+// FromRaw maps raw to the MediaFile status summary with the same rules
+// Probe applies to ffprobe's output: a probe that fills Raw another way
+// (the squasharr worker's in-process probe, which has no ffprobe) gets the
+// same HDR, Dolby Vision, audio and subtitle classification.
+func FromRaw(raw *Raw) *commonv1.MediaInfo { return toMediaInfo(raw) }
+
 func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 	mi := &commonv1.MediaInfo{
 		Container:     containerFromPath(raw.Format.Filename),

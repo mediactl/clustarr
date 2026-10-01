@@ -32,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -306,8 +307,12 @@ func CheckFFmpeg(o Options) error {
 func (r *runner) run(ctx context.Context) error {
 	log := logging.FromContext(ctx)
 
-	if err := CheckFFmpeg(r.o); err != nil {
-		return err
+	// Only the argv engine runs the binaries; the in-process engine probes,
+	// encodes and verifies through ffgo, and its image carries neither.
+	if r.t.Engine != task.EngineFFgo || r.o.Engine == nil {
+		if err := CheckFFmpeg(r.o); err != nil {
+			return err
+		}
 	}
 
 	source := r.t.SourcePath
@@ -372,7 +377,7 @@ func (r *runner) run(ctx context.Context) error {
 	}
 
 	// 3. Probe, capabilities, plan, space.
-	mi, raw, err := mediainfo.Probe(ctx, local)
+	mi, raw, err := r.probe(ctx, local)
 	if err != nil {
 		return invalidSource("squasharr worker: probe source: %w", err)
 	}
@@ -647,7 +652,7 @@ func (r *runner) producedEarlier(ctx context.Context, sw swap, tag string) (bool
 	} else if err != nil {
 		return false, retriable("squasharr worker: stat output: %w", err)
 	}
-	_, raw, err := mediainfo.Probe(ctx, sw.localOut)
+	_, raw, err := r.probe(ctx, sw.localOut)
 	if err == nil && raw != nil && raw.Format != nil && formatTag(raw, "CLUSTARR_PROFILE") == tag {
 		logging.FromContext(ctx).InfoContext(ctx,
 			"squasharr worker: the output already carries this profile's tag; an earlier attempt placed it", "output", sw.out)
@@ -749,7 +754,7 @@ func (r *runner) encode(ctx context.Context, plan *transcode.PlanResult, duratio
 func (r *runner) alreadySwappedOrChanged(ctx context.Context, sourceSize int64,
 	source, local string, st os.FileInfo, tag string,
 ) error {
-	_, raw, err := mediainfo.Probe(ctx, local)
+	_, raw, err := r.probe(ctx, local)
 	if err == nil && raw != nil && raw.Format != nil {
 		if got := formatTag(raw, "CLUSTARR_PROFILE"); got == tag {
 			logging.FromContext(ctx).InfoContext(ctx,
@@ -774,7 +779,7 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 		OutputSizeBytes:       st.Size(),
 		OutputToSourcePercent: sizePercent(st.Size(), sourceSize),
 	}
-	if mi, _, err := mediainfo.Probe(ctx, local); err == nil {
+	if mi, _, err := r.probe(ctx, local); err == nil {
 		res.MediaInfo = mi
 	} else {
 		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: probing the output for status.result failed", "error", err)
@@ -785,6 +790,16 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 		metrics.TranscodeSizeRatio.WithLabelValues(r.tier, r.resolution).Observe(float64(st.Size()) / float64(sourceSize))
 	}
 	return nil
+}
+
+// probe reads path through the in-process engine when this pod has one
+// (no ffprobe in its image), else through ffprobe: both apply
+// pkg/mediainfo's mapping, so the worker reads a file as catalogarr does.
+func (r *runner) probe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
+	if r.o.Engine != nil {
+		return r.o.Engine.Probe(ctx, path)
+	}
+	return mediainfo.Probe(ctx, path)
 }
 
 // applyProgress reports one progress sample through o.OnProgress, when the

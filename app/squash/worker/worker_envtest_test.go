@@ -970,7 +970,12 @@ func TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps(t *testing.T) {
 	eng, err := inprocess.New()
 	require.NoError(t, err)
 	opts.Engine = eng
+	// The transcoder image carries no ffmpeg and no ffprobe: the in-process
+	// engine needs neither, for the encode or for any probe.
+	path := os.Getenv("PATH")
+	require.NoError(t, os.Setenv("PATH", t.TempDir()))
 	out := Process(ctx, tk, opts)
+	require.NoError(t, os.Setenv("PATH", path))
 	require.NoError(t, out.Err)
 	require.Equal(t, ExitOK, out.Code)
 	codec, tag := videoCodec(t, f.local)
@@ -1031,6 +1036,10 @@ func (e fakeEngine) Verify(context.Context, string, string, standard.Expectation
 	return e.report, nil
 }
 
+func (e fakeEngine) Probe(ctx context.Context, path string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw, error) {
+	return mediainfo.Probe(ctx, path)
+}
+
 func (e fakeEngine) Measure(context.Context, transcode.Hardware) (transcode.Measurement, error) {
 	return transcode.Measurement{Tier: transcode.TierCPUx265}, nil
 }
@@ -1048,6 +1057,10 @@ func (e *recordingEngine) Encode(_ context.Context, plan standard.Result, _ tran
 
 func (e *recordingEngine) Verify(context.Context, string, string, standard.Expectation) (*transcode.Report, error) {
 	return nil, errors.New("not reached")
+}
+
+func (e *recordingEngine) Probe(ctx context.Context, path string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw, error) {
+	return mediainfo.Probe(ctx, path)
 }
 
 func (e *recordingEngine) Measure(context.Context, transcode.Hardware) (transcode.Measurement, error) {
