@@ -43,6 +43,7 @@ import (
 	"github.com/jonboulle/clockwork"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // pollInterval is how often a subscription looks for work it can claim. The
@@ -53,7 +54,8 @@ const pollInterval = 2 * time.Millisecond
 
 // options is the resolved effect of a list of Option values.
 type options struct {
-	hooks events.Hooks
+	hooks       events.Hooks
+	serveLimits events.ServeLimits
 }
 
 // Option configures the bus. It mirrors natsbus's functional-option style.
@@ -63,6 +65,12 @@ type Option func(*options)
 // receive. The default is the zero events.Hooks, which are no-ops.
 func WithHooks(h events.Hooks) Option {
 	return func(o *options) { o.hooks = h }
+}
+
+// WithServeLimits bounds each Serve call's handlers, as natsbus's option of
+// the same name does. A zero field takes its default.
+func WithServeLimits(l events.ServeLimits) Option {
+	return func(o *options) { o.serveLimits = l }
 }
 
 // Bus is an in-process events.Bus.
@@ -436,14 +444,23 @@ func (b *Bus) settle(ctx context.Context, msg *message, sub events.Subscription,
 
 // deadLetter copies the message to the dead-letter stream before the delivery
 // is terminated. A failure to publish the copy is not fatal: terminating
-// anyway is better than redelivering a message the handler has refused.
+// anyway is better than redelivering a message the handler has refused. It is
+// logged, as natsbus logs it, since that line is then the only record left.
 func (b *Bus) deadLetter(ctx context.Context, msg *message, durable, reason string) {
 	subject, env := events.DeadLetter(msg, durable, reason)
 	pubCtx := ctx
 	if pubCtx.Err() != nil {
 		pubCtx = context.Background()
 	}
-	_, _ = b.Publish(pubCtx, subject, env)
+	if _, err := b.Publish(pubCtx, subject, env); err != nil {
+		logging.FromContext(ctx).Error("bus: dead-letter copy not stored; message terminated without one",
+			"durable", durable,
+			"msg_id", msg.Envelope().ID,
+			"schema", msg.Envelope().Schema,
+			"dlq_subject", subject,
+			"reason", reason,
+			"error", err)
+	}
 }
 
 // Serve registers an in-process responder.
@@ -458,8 +475,11 @@ func (b *Bus) Serve(subject, queue string,
 	if b.closed {
 		return events.ErrClosed
 	}
-	b.responders[subject] = append(b.responders[subject],
-		&responder{subject: subject, queue: queue, handle: h})
+	limits := b.opts.serveLimits.WithDefaults()
+	b.responders[subject] = append(b.responders[subject], &responder{
+		subject: subject, queue: queue, handle: h,
+		limits: limits, gate: events.NewServeGate(limits), done: b.done,
+	})
 	return nil
 }
 

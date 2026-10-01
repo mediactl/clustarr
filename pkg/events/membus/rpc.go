@@ -23,6 +23,7 @@ import (
 	"fmt"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // responder is one in-process request/reply handler.
@@ -30,10 +31,24 @@ type responder struct {
 	subject string
 	queue   string
 	handle  func(ctx context.Context, data []byte) ([]byte, error)
+	limits  events.ServeLimits
+	gate    *events.ServeGate
+	done    <-chan struct{}
 }
 
 // call encodes in, runs the handler on its own goroutine so a slow responder
 // cannot outlive the caller's context, and decodes the reply into out.
+//
+// It keeps natsbus's Serve rules (pkg/events/serve.go): the request is
+// admitted through the responder's gate or refused with
+// events.ErrResponderBusy, waits for a handler slot no longer than its
+// caller does, and is never run once the caller has given up. The handler
+// gets the caller's context, so its deadline is the caller's, as natsbus
+// derives it from events.HeaderTimeout. A panic is logged with its stack and
+// answered with events.ErrResponderFailed. A handler error reaches the
+// caller as an *events.ResponderError carrying only its one-line text --
+// what natsbus can carry over the wire -- so errors.Is never finds the
+// handler's own sentinels here either.
 //
 // reqEnv carries whatever Bus.Request's BeforePublish call stamped on the
 // request. call runs AfterReceive on it before starting the handler, so the
@@ -53,6 +68,13 @@ func (r *responder) call(ctx context.Context, reqEnv *events.Envelope, hooks eve
 		req = b
 	}
 
+	leave, ok := r.gate.Admit()
+	if !ok {
+		return fmt.Errorf("membus: %s: %w", r.subject, &events.ResponderError{
+			Code: events.ServiceErrorBusy, Message: events.BusyMessage(r.limits),
+		})
+	}
+
 	hctx := hooks.RunAfterReceive(ctx, reqEnv)
 
 	type result struct {
@@ -61,7 +83,29 @@ func (r *responder) call(ctx context.Context, reqEnv *events.Envelope, hooks eve
 	}
 	ch := make(chan result, 1)
 	go func() {
-		data, err := r.handle(hctx, req)
+		defer leave()
+		// Stop waiting for a slot when the bus closes, as natsbus's Close
+		// cancels its responders' contexts.
+		wctx, cancel := context.WithCancel(hctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-r.done:
+				cancel()
+			case <-wctx.Done():
+			}
+		}()
+		release, err := r.gate.Acquire(wctx)
+		if err != nil {
+			// The caller has given up before a slot freed: run nothing.
+			return
+		}
+		defer release()
+		data, stack, err := events.CallResponder(wctx, r.handle, req)
+		if stack != nil {
+			logging.FromContext(wctx).Error("bus: responder handler panicked",
+				"subject", r.subject, "error", err, "stack", string(stack))
+		}
 		ch <- result{data: data, err: err}
 	}()
 
@@ -70,7 +114,9 @@ func (r *responder) call(ctx context.Context, reqEnv *events.Envelope, hooks eve
 		return ctx.Err()
 	case res := <-ch:
 		if res.err != nil {
-			return fmt.Errorf("membus: %s: %w", r.subject, res.err)
+			return fmt.Errorf("membus: %s: %w", r.subject, &events.ResponderError{
+				Code: events.ServiceErrorFailed, Message: events.OneLine(res.err),
+			})
 		}
 		switch v := out.(type) {
 		case nil:

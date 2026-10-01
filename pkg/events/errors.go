@@ -35,6 +35,18 @@ var (
 	// subject.
 	ErrNoResponders = errors.New("events: no responders")
 
+	// ErrResponderFailed is returned by Request, through a
+	// *ResponderError, when the responder's handler returned an error or
+	// panicked. The handler's own error chain does not survive the wire,
+	// so on no bus does errors.Is find the handler's sentinels: see
+	// ResponderError.
+	ErrResponderFailed = errors.New("events: responder failed")
+
+	// ErrResponderBusy is returned by Request, through a *ResponderError,
+	// when every handler slot and queue place of the responder was taken
+	// (ServeLimits). Nothing ran; the request may be retried.
+	ErrResponderBusy = errors.New("events: responder busy")
+
 	// ErrStreamNotFound is returned when a subscription names a stream that
 	// EnsureTopology has not created.
 	ErrStreamNotFound = errors.New("events: stream not found")

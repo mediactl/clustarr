@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -60,6 +61,7 @@ type options struct {
 	apiPrefix      string
 	requestTimeout time.Duration
 	hooks          events.Hooks
+	serveLimits    events.ServeLimits
 }
 
 // Option configures the bus.
@@ -81,6 +83,14 @@ func WithRequestTimeout(d time.Duration) Option {
 	return func(o *options) { o.requestTimeout = d }
 }
 
+// WithServeLimits bounds each Serve call's handlers: how many run at once
+// and how many requests wait for a slot before one is refused with
+// events.ErrResponderBusy. A zero field takes its default
+// (events.DefaultServeConcurrency, events.DefaultServeQueue).
+func WithServeLimits(l events.ServeLimits) Option {
+	return func(o *options) { o.serveLimits = l }
+}
+
 // WithHooks installs the observability hooks called around every publish and
 // receive. The default is the zero events.Hooks, which are no-ops.
 func WithHooks(h events.Hooks) Option {
@@ -100,6 +110,11 @@ type Bus struct {
 	objectStores map[string]jetstream.ObjectStore
 	responders   []*nats.Subscription
 	subs         []*subscription
+
+	// serveCtx parents every responder's handler context; Close cancels it,
+	// so handlers still running or waiting for a slot stop with the bus.
+	serveCtx    context.Context
+	serveCancel context.CancelFunc
 }
 
 var _ events.Bus = (*Bus)(nil)
@@ -129,7 +144,10 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 	if err != nil {
 		return nil, fmt.Errorf("natsbus: open jetstream: %w", err)
 	}
+	serveCtx, serveCancel := context.WithCancel(context.Background())
 	return &Bus{
+		serveCtx:     serveCtx,
+		serveCancel:  serveCancel,
 		nc:           nc,
 		js:           js,
 		opts:         o,
@@ -166,6 +184,7 @@ func (b *Bus) Close() error {
 	responders, subs := b.responders, b.subs
 	b.responders, b.subs = nil, nil
 	b.mu.Unlock()
+	b.serveCancel()
 
 	for _, s := range subs {
 		s.halt()
@@ -420,20 +439,51 @@ func (b *Bus) deadLetter(ctx context.Context, msg events.Message, durable, reaso
 		pubCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 	}
-	_, _ = b.Publish(pubCtx, subject, env)
+	if _, err := b.Publish(pubCtx, subject, env); err != nil {
+		// The delivery is terminated regardless, so this log line is the
+		// only record left of the message: say which one and why.
+		logging.FromContext(ctx).Error("bus: dead-letter copy not stored; message terminated without one",
+			"durable", durable,
+			"msg_id", msg.Envelope().ID,
+			"schema", msg.Envelope().Schema,
+			"dlq_subject", subject,
+			"reason", reason,
+			"error", err)
+	}
 }
 
+// Service error headers, as the NATS micro framework names them.
+const (
+	headerServiceError     = "Nats-Service-Error"
+	headerServiceErrorCode = "Nats-Service-Error-Code"
+)
+
 // respondError answers a request with a header-only service error, the
-// shape Request turns back into an error on the caller's side. It carries no
-// body, so it fits under any max_payload.
-func respondError(m *nats.Msg, err error) {
+// shape Request turns back into an *events.ResponderError on the caller's
+// side. It carries no body, so it fits under any max_payload, and its text
+// is folded onto one line, since a header value cannot carry a line break.
+func respondError(m *nats.Msg, code int, msg string) {
 	reply := &nats.Msg{Subject: m.Reply, Header: nats.Header{}}
-	reply.Header.Set("Nats-Service-Error", err.Error())
-	reply.Header.Set("Nats-Service-Error-Code", "500")
+	reply.Header.Set(headerServiceError, msg)
+	reply.Header.Set(headerServiceErrorCode, strconv.Itoa(code))
 	_ = m.RespondMsg(reply)
 }
 
 // Serve registers a queue-group responder on core NATS.
+//
+// nats.go calls a subscription's callback for one message at a time, so the
+// callback never runs the handler and never blocks: it admits the request
+// through the Serve's events.ServeGate, or refuses it at once with
+// events.ErrResponderBusy, and hands it to a goroutine that waits for a
+// handler slot. Up to the gate's limits run and wait at once; see
+// pkg/events/serve.go for the rules and why.
+//
+// A handler's deadline is the caller's remaining time (events.HeaderTimeout,
+// measured from receipt), capped at the bus's request timeout, which alone
+// bounds a request that carries none. A request whose caller's time runs out
+// before a slot frees is dropped unrun and unanswered. A handler that panics
+// is logged with its stack and answered with events.ErrResponderFailed, and
+// the responder keeps serving.
 func (b *Bus) Serve(subject, queue string,
 	h func(ctx context.Context, data []byte) ([]byte, error),
 ) error {
@@ -444,43 +494,38 @@ func (b *Bus) Serve(subject, queue string,
 	}
 	b.mu.Unlock()
 
+	limits := b.opts.serveLimits.WithDefaults()
+	gate := events.NewServeGate(limits)
 	cb := func(m *nats.Msg) {
-		ctx := context.Background()
-		if b.opts.requestTimeout > 0 {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, b.opts.requestTimeout)
-			defer cancel()
-		}
-		// AfterReceive mirrors the subscribe path (see handle): extract
-		// whatever Request's BeforePublish call stamped in HeaderTrace, so
-		// the handler's own spans and any outbound provider calls it makes
-		// are children of the caller's trace rather than orphaned roots.
-		reqEnv := &events.Envelope{}
+		var callerLeft time.Duration
+		hasCaller := false
 		if m.Header != nil {
-			if tp := m.Header.Get(events.HeaderTrace); tp != "" {
-				reqEnv.Trace = tp
-			}
+			callerLeft, hasCaller = events.ParseTimeout(m.Header.Get(events.HeaderTimeout))
 		}
-		ctx = b.opts.hooks.RunAfterReceive(ctx, reqEnv)
-
-		data, err := h(ctx, m.Data)
-		if err != nil {
-			respondError(m, err)
+		timeout, bounded, expired := events.HandlerTimeout(b.opts.requestTimeout, callerLeft, hasCaller)
+		if expired {
+			logging.FromContext(b.serveCtx).Debug("bus: request dropped: its caller's deadline had passed",
+				"subject", m.Subject)
 			return
 		}
-		if err := m.Respond(data); err != nil {
-			// The connection refused to send the reply -- nats.ErrMaxPayload
-			// when the body is over the server's max_payload -- and the
-			// requester would otherwise wait out its whole deadline with
-			// nothing to say why (2026-09-24: a 1.3 MB .nzb against the
-			// Helm chart's 1 MiB default stranded every usenet grab as
-			// "context deadline exceeded"). A header-only error reply always
-			// fits, so the requester fails at once and names the cause.
-			logging.FromContext(ctx).Error("bus: reply not sent",
-				"subject", subject, "bytes", len(data), "err", err)
-			respondError(m, fmt.Errorf("natsbus: reply of %d bytes to %q not sent: %w",
-				len(data), subject, err))
+		leave, ok := gate.Admit()
+		if !ok {
+			logging.FromContext(b.serveCtx).Warn("bus: request refused: responder busy",
+				"subject", m.Subject, "concurrency", limits.Concurrency, "queue", limits.Queue)
+			respondError(m, events.ServiceErrorBusy, events.BusyMessage(limits))
+			return
 		}
+		ctx, cancel := b.serveCtx, context.CancelFunc(func() {})
+		if bounded {
+			// Measured from now, receipt, so a request that waits for a
+			// slot spends its caller's time waiting, not on top of it.
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+		}
+		go func() {
+			defer leave()
+			defer cancel()
+			b.respond(ctx, gate, subject, m, h)
+		}()
 	}
 
 	var (
@@ -499,6 +544,57 @@ func (b *Bus) Serve(subject, queue string,
 	b.responders = append(b.responders, sub)
 	b.mu.Unlock()
 	return nil
+}
+
+// respond waits for a handler slot, runs h on one admitted request and
+// answers it.
+func (b *Bus) respond(ctx context.Context, gate *events.ServeGate, subject string,
+	m *nats.Msg, h func(ctx context.Context, data []byte) ([]byte, error),
+) {
+	release, err := gate.Acquire(ctx)
+	if err != nil {
+		// The caller has given up (or the bus closed) before a slot
+		// freed: nobody is listening for an answer, so run nothing.
+		logging.FromContext(ctx).Debug("bus: request dropped: no handler slot before its deadline",
+			"subject", m.Subject, "error", err)
+		return
+	}
+	defer release()
+
+	// AfterReceive mirrors the subscribe path (see handle): extract
+	// whatever Request's BeforePublish call stamped in HeaderTrace, so
+	// the handler's own spans and any outbound provider calls it makes
+	// are children of the caller's trace rather than orphaned roots.
+	reqEnv := &events.Envelope{}
+	if m.Header != nil {
+		if tp := m.Header.Get(events.HeaderTrace); tp != "" {
+			reqEnv.Trace = tp
+		}
+	}
+	ctx = b.opts.hooks.RunAfterReceive(ctx, reqEnv)
+
+	data, stack, err := events.CallResponder(ctx, h, m.Data)
+	if stack != nil {
+		logging.FromContext(ctx).Error("bus: responder handler panicked",
+			"subject", subject, "error", err, "stack", string(stack))
+	}
+	if err != nil {
+		respondError(m, events.ServiceErrorFailed, events.OneLine(err))
+		return
+	}
+	if err := m.Respond(data); err != nil {
+		// The connection refused to send the reply -- nats.ErrMaxPayload
+		// when the body is over the server's max_payload -- and the
+		// requester would otherwise wait out its whole deadline with
+		// nothing to say why (2026-09-24: a 1.3 MB .nzb against the
+		// Helm chart's 1 MiB default stranded every usenet grab as
+		// "context deadline exceeded"). A header-only error reply always
+		// fits, so the requester fails at once and names the cause.
+		logging.FromContext(ctx).Error("bus: reply not sent",
+			"subject", subject, "bytes", len(data), "err", err)
+		respondError(m, events.ServiceErrorFailed, events.OneLine(
+			fmt.Errorf("natsbus: reply of %d bytes to %q not sent: %w", len(data), subject, err)))
+	}
 }
 
 // Request sends in to subject and decodes the single reply into out.
@@ -541,10 +637,14 @@ func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 
 	reqEnv := &events.Envelope{}
 	b.opts.hooks.RunBeforePublish(ctx, reqEnv)
-	msg := &nats.Msg{Subject: subject, Data: data}
+	msg := &nats.Msg{Subject: subject, Data: data, Header: nats.Header{}}
 	if reqEnv.Trace != "" {
-		msg.Header = nats.Header{}
 		msg.Header.Set(events.HeaderTrace, reqEnv.Trace)
+	}
+	// Tell the responder how long this caller will wait, so it neither
+	// runs a handler past that nor starts one after it (Serve).
+	if left, ok := events.FormatTimeout(ctx); ok {
+		msg.Header.Set(events.HeaderTimeout, left)
 	}
 
 	reply, err := b.nc.RequestMsgWithContext(ctx, msg)
@@ -554,8 +654,10 @@ func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 		}
 		return fmt.Errorf("natsbus: request %q: %w", subject, err)
 	}
-	if msg := reply.Header.Get("Nats-Service-Error"); msg != "" {
-		return fmt.Errorf("natsbus: %s: %s", subject, msg)
+	if msg := reply.Header.Get(headerServiceError); msg != "" {
+		code, _ := strconv.Atoi(reply.Header.Get(headerServiceErrorCode))
+		return fmt.Errorf("natsbus: %s: %w", subject,
+			&events.ResponderError{Code: code, Message: msg})
 	}
 	switch v := out.(type) {
 	case nil:

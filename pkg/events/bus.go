@@ -201,11 +201,15 @@ type StreamAdmin interface {
 type Requester interface {
 	// Request encodes in as JSON, sends it to subject and decodes the single
 	// reply into out. It returns ErrNoResponders when nothing is serving the
-	// subject and the context error on deadline.
+	// subject and the context error on deadline. A responder's failure is
+	// an *ResponderError matching ErrResponderFailed (the handler erred or
+	// panicked) or ErrResponderBusy (no slot or queue place), carrying only
+	// the handler's text, never its error chain (serve.go).
 	Request(ctx context.Context, subject string, in, out any) error
 
 	// Serve registers h as a responder on subject inside queue group queue.
-	// Handlers run until the bus is closed.
+	// Handlers run until the bus is closed, concurrently up to the bus's
+	// ServeLimits, each no longer than its caller waits (serve.go).
 	Serve(subject, queue string, h func(ctx context.Context, data []byte) ([]byte, error)) error
 }
 

@@ -100,6 +100,14 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("ObjectStoreDeleteThenGet", func(t *testing.T) { testObjectStoreDeleteThenGet(t, newBus) })
 	t.Run("ObjectStoreListByPrefix", func(t *testing.T) { testObjectStoreListByPrefix(t, newBus) })
 	t.Run("RequestReply", func(t *testing.T) { testRequestReply(t, newBus) })
+	t.Run("RequestReplyHandlersRunConcurrently", func(t *testing.T) { testServeConcurrency(t, newBus) })
+	t.Run("RequestReplyPanicKeepsServing", func(t *testing.T) { testServePanic(t, newBus) })
+	t.Run("RequestReplyErrorSemantics", func(t *testing.T) { testServeErrorSemantics(t, newBus) })
+	t.Run("RequestReplyExpiredCallerIsNotRun", func(t *testing.T) { testServeExpiredCaller(t, newBus) })
+	t.Run("RequestReplySaturatedIsBusy", func(t *testing.T) { testServeBusy(t, newBus) })
+	t.Run("RequestReplyHandlerDeadlineFollowsCaller", func(t *testing.T) {
+		testServeDeadlineFollowsCaller(t, newBus)
+	})
 	t.Run("UnknownSubject", func(t *testing.T) { testUnknownSubject(t, newBus) })
 }
 
