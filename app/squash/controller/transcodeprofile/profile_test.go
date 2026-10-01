@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeprofile
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -41,6 +43,7 @@ import (
 // correct converter must carry into the hash.
 func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 	return transcodev1alpha1.TranscodeProfileSpec{
+		Quality:   ptr.To[int32](30),
 		Container: transcodev1alpha1.ContainerMKV,
 		Hardware:  transcodev1alpha1.HardwareCPU,
 		Video: transcodev1alpha1.VideoSpec{
@@ -446,4 +449,15 @@ func TestAlreadyTranscodedCountsATranscodeFromElsewhere(t *testing.T) {
 	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
 	mf.Status.MediaInfo.VideoEncoder = "Lavc61.3.100 libx264"
 	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"), "an H.264 release made with ffmpeg is not a transcode")
+}
+
+// quality was added after files were tagged with their profile's hash: a
+// profile that does not set it must hash exactly as before, or every
+// transcoded file would read as untranscoded and be done again (spec §5).
+func TestAnUnsetQualityLeavesTheHashAsItWas(t *testing.T) {
+	s := renderSpec()
+	s.Quality = nil
+	b, err := json.Marshal(worker.ProfileSpec(s, nil))
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), `"Quality":`, "an unset quality must not reach the hashed JSON")
 }

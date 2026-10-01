@@ -33,3 +33,14 @@ func TestHDROffsetOrDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestQualityOrDefault(t *testing.T) {
+	for _, c := range []struct {
+		in   *int32
+		want int32
+	}{{nil, 24}, {ptr.To[int32](0), 0}, {ptr.To[int32](30), 30}} {
+		if got := (&TranscodeProfileSpec{Quality: c.in}).QualityOrDefault(); got != c.want {
+			t.Errorf("QualityOrDefault(%v) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}

@@ -289,9 +289,27 @@ spec:
                       type: object
                     maxItems: 200
                     type: array
+                  decode:
+                    description: |-
+                      Decode is where the video is decoded: cpu, nvdec, upload (CPU decode
+                      uploaded to the GPU), vaapi or qsv (in-process engine plans).
+                    enum:
+                    - cpu
+                    - nvdec
+                    - upload
+                    - vaapi
+                    - qsv
+                    type: string
                   encoder:
                     description: Encoder is the ffmpeg encoder selected (for example
                       libx265, hevc_nvenc).
+                    type: string
+                  engine:
+                    description: 'Engine runs this plan: ffmpeg (the argv engine)
+                      or ffgo (in-process).'
+                    enum:
+                    - ffmpeg
+                    - ffgo
                     type: string
                   hdrMode:
                     description: HDRMode is the HDR handling chosen for this source.
@@ -304,6 +322,12 @@ spec:
                     - remuxOnly
                     - skip
                     type: string
+                  planHash:
+                    description: |-
+                      PlanHash is the in-process engine's plan hash (sha256 of the plan's
+                      JSON); the worker compares its own plan's with it, as ArgsHash.
+                    maxLength: 64
+                    type: string
                   skipReason:
                     description: SkipReason explains a skip decision.
                     type: string
@@ -315,6 +339,13 @@ spec:
                       type: integer
                     maxItems: 200
                     type: array
+                  videoAction:
+                    description: VideoAction is copy or encode (in-process engine
+                      plans).
+                    enum:
+                    - copy
+                    - encode
+                    type: string
                   videoArgs:
                     description: VideoArgs are the rendered ffmpeg video arguments.
                     items:

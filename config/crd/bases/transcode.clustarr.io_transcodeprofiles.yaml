@@ -333,6 +333,20 @@ spec:
                   runs first.
                 format: int32
                 type: integer
+              quality:
+                description: |-
+                  Quality is the standard's one quality setting (0 best, 51 smallest),
+                  mapped to each encoder's own control by a code table: libx265 crf,
+                  hevc_nvenc qp (quality - 1, under constqp), hevc_qsv global_quality,
+                  hevc_vaapi qp. Read by the in-process engine (--worker-engine=ffgo);
+                  the argv engine reads video.crf. Unset means 24 (QualityOrDefault).
+                  It has no CRD default on purpose: the apiserver would write 24 into
+                  every stored profile, changing every profile's status.hash and so
+                  re-transcoding every file already tagged with it.
+                format: int32
+                maximum: 51
+                minimum: 0
+                type: integer
               resources:
                 default:
                   limits:

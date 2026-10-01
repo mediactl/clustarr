@@ -28,6 +28,18 @@ package v1alpha1
 // The policy pointers' defaults are read in app/squash/worker (ReplaceSource,
 // MaxOutputToSourcePercent, ...), which predates this file.
 
+// DefaultQuality is an unset TranscodeProfileSpec.quality (no CRD default:
+// see the field).
+const DefaultQuality int32 = 24
+
+// QualityOrDefault is spec.quality; unset means DefaultQuality.
+func (s *TranscodeProfileSpec) QualityOrDefault() int32 {
+	if s == nil || s.Quality == nil {
+		return DefaultQuality
+	}
+	return *s.Quality
+}
+
 // DefaultHDROffset mirrors CRFTable.hdrOffset's +kubebuilder:default.
 const DefaultHDROffset int32 = -1
 

@@ -185,6 +185,28 @@ type Plan struct {
 	// ArgsHash is a hash of the rendered arguments.
 	// +optional
 	ArgsHash string `json:"argsHash,omitempty"`
+
+	// Engine runs this plan: ffmpeg (the argv engine) or ffgo (in-process).
+	// +optional
+	// +kubebuilder:validation:Enum=ffmpeg;ffgo
+	Engine string `json:"engine,omitempty"`
+
+	// PlanHash is the in-process engine's plan hash (sha256 of the plan's
+	// JSON); the worker compares its own plan's with it, as ArgsHash.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	PlanHash string `json:"planHash,omitempty"`
+
+	// VideoAction is copy or encode (in-process engine plans).
+	// +optional
+	// +kubebuilder:validation:Enum=copy;encode
+	VideoAction string `json:"videoAction,omitempty"`
+
+	// Decode is where the video is decoded: cpu, nvdec, upload (CPU decode
+	// uploaded to the GPU), vaapi or qsv (in-process engine plans).
+	// +optional
+	// +kubebuilder:validation:Enum=cpu;nvdec;upload;vaapi;qsv
+	Decode string `json:"decode,omitempty"`
 }
 
 // Progress is the worker's encode progress, patched at most every 10 s.

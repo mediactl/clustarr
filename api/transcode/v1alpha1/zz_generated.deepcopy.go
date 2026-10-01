@@ -578,6 +578,11 @@ func (in *TranscodeProfileSpec) DeepCopyInto(out *TranscodeProfileSpec) {
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Quality != nil {
+		in, out := &in.Quality, &out.Quality
+		*out = new(int32)
+		**out = **in
+	}
 	in.Video.DeepCopyInto(&out.Video)
 	in.Audio.DeepCopyInto(&out.Audio)
 	in.Subtitles.DeepCopyInto(&out.Subtitles)

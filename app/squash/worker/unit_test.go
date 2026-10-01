@@ -175,6 +175,7 @@ func TestProcessLogsWithTheTaskJob(t *testing.T) {
 func TestProfileSpecCarriesEveryField(t *testing.T) {
 	tune := "grain"
 	spec := transcodev1alpha1.TranscodeProfileSpec{
+		Quality:   ptr.To[int32](30),
 		Container: transcodev1alpha1.ContainerMP4,
 		Hardware:  transcodev1alpha1.HardwareNVIDIA,
 		Video: transcodev1alpha1.VideoSpec{

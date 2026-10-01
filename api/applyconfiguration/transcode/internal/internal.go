@@ -366,7 +366,13 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioPlan
           elementRelationship: atomic
+    - name: decode
+      type:
+        scalar: string
     - name: encoder
+      type:
+        scalar: string
+    - name: engine
       type:
         scalar: string
     - name: hdrMode
@@ -375,6 +381,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: mode
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.PlanMode
+    - name: planHash
+      type:
+        scalar: string
     - name: skipReason
       type:
         scalar: string
@@ -384,6 +393,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: numeric
           elementRelationship: atomic
+    - name: videoAction
+      type:
+        scalar: string
     - name: videoArgs
       type:
         list:
@@ -700,6 +712,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 50
+    - name: quality
+      type:
+        scalar: numeric
     - name: resources
       type:
         namedType: io.k8s.api.core.v1.ResourceRequirements

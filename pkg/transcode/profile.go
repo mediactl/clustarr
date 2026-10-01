@@ -156,6 +156,10 @@ type VerifySpec struct {
 // (Resources.Limits[cpu], fed via the Downward API per note §3.7) is passed
 // explicitly as PlanMeta.Threads instead of smuggled through this struct.
 type ProfileSpec struct {
+	// Quality is the standard's quality (the in-process engine's); nil when
+	// the profile does not set it, and then absent from the hashed JSON, so
+	// profiles that predate it keep their hash and their files stay tagged.
+	Quality   *int32 `json:"Quality,omitempty"`
 	Container Container
 	Hardware  Hardware
 	Video     VideoSpec

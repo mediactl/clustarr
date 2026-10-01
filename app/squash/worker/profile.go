@@ -53,6 +53,7 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 	}
 	v := spec.Video
 	return transcode.ProfileSpec{
+		Quality:   spec.Quality,
 		Container: transcode.Container(spec.Container),
 		Hardware:  transcode.Hardware(hw),
 		Video: transcode.VideoSpec{

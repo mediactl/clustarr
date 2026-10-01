@@ -40,6 +40,15 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	Selector *v1.LabelSelectorApplyConfiguration `json:"selector,omitempty"`
 	// Container is the output container.
 	Container *transcodev1alpha1.Container `json:"container,omitempty"`
+	// Quality is the standard's one quality setting (0 best, 51 smallest),
+	// mapped to each encoder's own control by a code table: libx265 crf,
+	// hevc_nvenc qp (quality - 1, under constqp), hevc_qsv global_quality,
+	// hevc_vaapi qp. Read by the in-process engine (--worker-engine=ffgo);
+	// the argv engine reads video.crf. Unset means 24 (QualityOrDefault).
+	// It has no CRD default on purpose: the apiserver would write 24 into
+	// every stored profile, changing every profile's status.hash and so
+	// re-transcoding every file already tagged with it.
+	Quality *int32 `json:"quality,omitempty"`
 	// Hardware is the encoder backend: auto is chosen per task, with CPU
 	// fallback; cpu, nvidia and intel are pinned and never fall back.
 	Hardware *transcodev1alpha1.Hardware `json:"hardware,omitempty"`
@@ -120,6 +129,14 @@ func (b *TranscodeProfileSpecApplyConfiguration) WithSelector(value *v1.LabelSel
 // If called multiple times, the Container field is set to the value of the last call.
 func (b *TranscodeProfileSpecApplyConfiguration) WithContainer(value transcodev1alpha1.Container) *TranscodeProfileSpecApplyConfiguration {
 	b.Container = &value
+	return b
+}
+
+// WithQuality sets the Quality field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Quality field is set to the value of the last call.
+func (b *TranscodeProfileSpecApplyConfiguration) WithQuality(value int32) *TranscodeProfileSpecApplyConfiguration {
+	b.Quality = &value
 	return b
 }
 

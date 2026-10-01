@@ -44,6 +44,16 @@ type PlanApplyConfiguration struct {
 	SubtitleTracks []int32 `json:"subtitleTracks,omitempty"`
 	// ArgsHash is a hash of the rendered arguments.
 	ArgsHash *string `json:"argsHash,omitempty"`
+	// Engine runs this plan: ffmpeg (the argv engine) or ffgo (in-process).
+	Engine *string `json:"engine,omitempty"`
+	// PlanHash is the in-process engine's plan hash (sha256 of the plan's
+	// JSON); the worker compares its own plan's with it, as ArgsHash.
+	PlanHash *string `json:"planHash,omitempty"`
+	// VideoAction is copy or encode (in-process engine plans).
+	VideoAction *string `json:"videoAction,omitempty"`
+	// Decode is where the video is decoded: cpu, nvdec, upload (CPU decode
+	// uploaded to the GPU), vaapi or qsv (in-process engine plans).
+	Decode *string `json:"decode,omitempty"`
 }
 
 // PlanApplyConfiguration constructs a declarative configuration of the Plan type for use with
@@ -122,5 +132,37 @@ func (b *PlanApplyConfiguration) WithSubtitleTracks(values ...int32) *PlanApplyC
 // If called multiple times, the ArgsHash field is set to the value of the last call.
 func (b *PlanApplyConfiguration) WithArgsHash(value string) *PlanApplyConfiguration {
 	b.ArgsHash = &value
+	return b
+}
+
+// WithEngine sets the Engine field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Engine field is set to the value of the last call.
+func (b *PlanApplyConfiguration) WithEngine(value string) *PlanApplyConfiguration {
+	b.Engine = &value
+	return b
+}
+
+// WithPlanHash sets the PlanHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PlanHash field is set to the value of the last call.
+func (b *PlanApplyConfiguration) WithPlanHash(value string) *PlanApplyConfiguration {
+	b.PlanHash = &value
+	return b
+}
+
+// WithVideoAction sets the VideoAction field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the VideoAction field is set to the value of the last call.
+func (b *PlanApplyConfiguration) WithVideoAction(value string) *PlanApplyConfiguration {
+	b.VideoAction = &value
+	return b
+}
+
+// WithDecode sets the Decode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Decode field is set to the value of the last call.
+func (b *PlanApplyConfiguration) WithDecode(value string) *PlanApplyConfiguration {
+	b.Decode = &value
 	return b
 }

@@ -496,6 +496,19 @@ type TranscodeProfileSpec struct {
 	// +kubebuilder:default="mkv"
 	Container Container `json:"container,omitempty"`
 
+	// Quality is the standard's one quality setting (0 best, 51 smallest),
+	// mapped to each encoder's own control by a code table: libx265 crf,
+	// hevc_nvenc qp (quality - 1, under constqp), hevc_qsv global_quality,
+	// hevc_vaapi qp. Read by the in-process engine (--worker-engine=ffgo);
+	// the argv engine reads video.crf. Unset means 24 (QualityOrDefault).
+	// It has no CRD default on purpose: the apiserver would write 24 into
+	// every stored profile, changing every profile's status.hash and so
+	// re-transcoding every file already tagged with it.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=51
+	Quality *int32 `json:"quality,omitempty"`
+
 	// Hardware is the encoder backend: auto is chosen per task, with CPU
 	// fallback; cpu, nvidia and intel are pinned and never fall back.
 	// +optional
