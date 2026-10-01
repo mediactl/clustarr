@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 	"text/template"
 	"text/template/parse"
@@ -157,12 +156,18 @@ type Config struct {
 // files.
 var funcMap = template.FuncMap{
 	"join": strings.Join,
+	// re_replace runs pattern and repl as .NET does (regex.go), like the
+	// re_replace filter.
 	"re_replace": func(value, pattern, repl string) (string, error) {
-		re, err := regexp.Compile(pattern)
+		re, err := compileRegex(pattern)
 		if err != nil {
 			return "", fmt.Errorf("cardigann: re_replace: %w", err)
 		}
-		return re.ReplaceAllString(value, repl), nil
+		out, err := regexReplaceAll(re, value, repl)
+		if err != nil {
+			return "", fmt.Errorf("cardigann: re_replace: %w", err)
+		}
+		return out, nil
 	},
 }
 

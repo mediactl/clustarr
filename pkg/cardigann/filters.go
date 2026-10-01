@@ -90,24 +90,22 @@ func filterQuerystring(_ context.Context, value string, args []string, _ *Templa
 	return u.Query().Get(arg(args, 0)), nil
 }
 
+// filterRegexp and filterReReplace run the pattern as the .NET regex
+// Prowlarr compiles it as (regex.go).
 func filterRegexp(_ context.Context, value string, args []string, _ *TemplateContext) (string, error) {
-	re, err := regexp.Compile(arg(args, 0))
+	re, err := compileRegex(arg(args, 0))
 	if err != nil {
 		return "", fmt.Errorf("cardigann: regexp: %w", err)
 	}
-	m := re.FindStringSubmatch(value)
-	switch {
-	case len(m) > 1:
-		return m[1], nil
-	case len(m) == 1:
-		return m[0], nil
-	default:
-		return "", nil
+	out, err := regexMatchGroup1(re, value)
+	if err != nil {
+		return "", fmt.Errorf("cardigann: regexp: %w", err)
 	}
+	return out, nil
 }
 
 func filterReReplace(_ context.Context, value string, args []string, tc *TemplateContext) (string, error) {
-	re, err := regexp.Compile(arg(args, 0))
+	re, err := compileRegex(arg(args, 0))
 	if err != nil {
 		return "", fmt.Errorf("cardigann: re_replace: %w", err)
 	}
@@ -115,7 +113,11 @@ func filterReReplace(_ context.Context, value string, args []string, tc *Templat
 	if err != nil {
 		return "", fmt.Errorf("cardigann: re_replace: replacement: %w", err)
 	}
-	return re.ReplaceAllString(value, repl), nil
+	out, err := regexReplaceAll(re, value, repl)
+	if err != nil {
+		return "", fmt.Errorf("cardigann: re_replace: %w", err)
+	}
+	return out, nil
 }
 
 func filterSplit(_ context.Context, value string, args []string, _ *TemplateContext) (string, error) {
