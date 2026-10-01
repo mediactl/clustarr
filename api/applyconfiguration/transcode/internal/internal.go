@@ -276,12 +276,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: healthy
       type:
         scalar: boolean
-    - name: maxBFrames
-      type:
-        scalar: numeric
-    - name: maxLookahead
-      type:
-        scalar: numeric
     - name: message
       type:
         scalar: string
@@ -363,9 +357,6 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.Plan
   map:
     fields:
-    - name: argsHash
-      type:
-        scalar: string
     - name: audioTracks
       type:
         list:
@@ -402,12 +393,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: videoAction
       type:
         scalar: string
-    - name: videoArgs
-      type:
-        list:
-          elementType:
-            scalar: string
-          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.PlanMode
   scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.PolicySpec

@@ -167,11 +167,6 @@ type Plan struct {
 	// +optional
 	HDRMode string `json:"hdrMode,omitempty"`
 
-	// VideoArgs are the rendered ffmpeg video arguments.
-	// +optional
-	// +kubebuilder:validation:MaxItems=200
-	VideoArgs []string `json:"videoArgs,omitempty"`
-
 	// AudioTracks is the per-track audio plan.
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
@@ -182,17 +177,15 @@ type Plan struct {
 	// +kubebuilder:validation:MaxItems=200
 	SubtitleTracks []int32 `json:"subtitleTracks,omitempty"`
 
-	// ArgsHash is a hash of the rendered arguments.
-	// +optional
-	ArgsHash string `json:"argsHash,omitempty"`
-
-	// Engine runs this plan: ffmpeg (the argv engine) or ffgo (in-process).
+	// Engine runs this plan: ffgo (in-process). ffmpeg is a plan recorded by
+	// the argv engine, deleted in ffgo Phase 5; such a job is planned again
+	// at dispatch.
 	// +optional
 	// +kubebuilder:validation:Enum=ffmpeg;ffgo
 	Engine string `json:"engine,omitempty"`
 
 	// PlanHash is the in-process engine's plan hash (sha256 of the plan's
-	// JSON); the worker compares its own plan's with it, as ArgsHash.
+	// JSON); the worker compares its own plan's with it.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	PlanHash string `json:"planHash,omitempty"`

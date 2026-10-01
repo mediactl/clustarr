@@ -81,7 +81,6 @@ func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transco
 		Deadline:        metav1.Duration{Duration: ActiveDeadline(tp.Spec)},
 	}
 	if tj.Status.Plan != nil {
-		t.ArgsHash = tj.Status.Plan.ArgsHash
 		t.Engine = tj.Status.Plan.Engine
 		t.PlanHash = tj.Status.Plan.PlanHash
 	}

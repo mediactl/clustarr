@@ -83,40 +83,6 @@ func containerChange(source string, container transcodev1alpha1.Container) (src,
 	return src, want, src != want
 }
 
-// allEncoders is the capability set the controller plans against. The
-// controller cannot run `ffmpeg -encoders` on a GPU node it is not on, and
-// the budget for a tier -- including a zero one -- is admission's business,
-// not the planner's: a job for a tier with no slots waits in Queued rather
-// than being rejected, so a GPU node that is merely down does not turn a
-// library's worth of jobs Skipped. The worker plans again against its real
-// capabilities (ProbeCapabilities) and can still reject there.
-func allEncoders() transcode.Capabilities {
-	return transcode.Capabilities{Encoders: map[transcode.Tier]bool{
-		transcode.TierCPUx265: true,
-		transcode.TierNVENC:   true,
-		transcode.TierQSV:     true,
-		transcode.TierVAAPI:   true,
-	}}
-}
-
-// encoderName is the ffmpeg encoder a tier renders against, recorded as
-// status.plan.encoder. A remux-only plan copies video and records "copy".
-func encoderName(p *transcode.PlanResult) string {
-	if p.Decision == transcode.DecisionRemuxOnly {
-		return "copy"
-	}
-	switch p.Tier {
-	case transcode.TierNVENC:
-		return "hevc_nvenc"
-	case transcode.TierQSV:
-		return "hevc_qsv"
-	case transcode.TierVAAPI:
-		return "hevc_vaapi"
-	default:
-		return "libx265"
-	}
-}
-
 // hardwareForEncoder maps status.plan.encoder back to the slot class the Job
 // is budgeted against. "copy" (remux-only) needs no GPU, so it takes a CPU
 // slot even under a GPU profile -- holding the one NVIDIA slot to copy a
@@ -132,24 +98,12 @@ func hardwareForEncoder(encoder string) transcodev1alpha1.Hardware {
 	}
 }
 
-// statusPlan renders a skip, remuxOnly or encode PlanResult as the CRD's
-// status.plan. A reject decision is never rendered: per ruling R1 it lands as
-// phase Skipped with status.plan unset, because PlanMode has no reject value.
-// planEngine is the engine a recorded plan was made for.
-func planEngine(p *transcodev1alpha1.Plan) string {
-	if p != nil && p.Engine == task.EngineFFgo {
-		return task.EngineFFgo
-	}
-	return task.EngineFFmpeg
-}
-
-// statusPlanOf records p: the standard plan for the in-process engine,
-// else the argv plan.
+// statusPlanOf records p's plan as status.plan; a refused job records none.
 func statusPlanOf(p planning) *transcodev1alpha1.Plan {
-	if p.std != nil {
-		return standardStatusPlan(p.std)
+	if p.reject != "" {
+		return nil
 	}
-	return statusPlan(p.result)
+	return standardStatusPlan(&p.plan)
 }
 
 // standardStatusPlan is status.plan for the in-process engine: its hash,
@@ -175,34 +129,6 @@ func standardStatusPlan(s *standard.Result) *transcodev1alpha1.Plan {
 	}
 	out.AudioTracks = capList(out.AudioTracks)
 	out.SubtitleTracks = capList(s.Subtitles)
-	return out
-}
-
-func statusPlan(p *transcode.PlanResult) *transcodev1alpha1.Plan {
-	if p.Decision == transcode.DecisionSkip {
-		return &transcodev1alpha1.Plan{Mode: transcodev1alpha1.PlanModeSkip, SkipReason: p.Reason}
-	}
-	out := &transcodev1alpha1.Plan{
-		Encoder:  encoderName(p),
-		Mode:     transcodev1alpha1.PlanModeTranscode,
-		HDRMode:  p.HDR.Mode,
-		ArgsHash: transcode.ArgsHash(p),
-	}
-	if p.Decision == transcode.DecisionRemuxOnly {
-		out.Mode = transcodev1alpha1.PlanModeRemuxOnly
-	}
-	out.VideoArgs = capList(p.VideoArgs)
-	for _, a := range p.Audio {
-		out.AudioTracks = append(out.AudioTracks, transcodev1alpha1.AudioPlan{
-			SourceIndex: a.SourceIndex,
-			Action:      transcodev1alpha1.AudioAction(a.Action),
-			Codec:       a.Codec,
-			BitrateKbps: a.BitrateKbps,
-			Default:     a.Default,
-		})
-	}
-	out.AudioTracks = capList(out.AudioTracks)
-	out.SubtitleTracks = capList(p.Subtitles)
 	return out
 }
 

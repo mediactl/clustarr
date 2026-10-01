@@ -323,7 +323,7 @@ func (r *Reconciler) encoderLimits(ctx context.Context) []transcodev1alpha1.Enco
 		sort.Strings(names)
 		for _, n := range names {
 			l := transcodev1alpha1.EncoderLimit{
-				Class: class, Node: n, MaxBFrames: nodes[n].MaxBFrames, MaxLookahead: nodes[n].MaxLookahead,
+				Class: class, Node: n,
 				NVDEC: nodes[n].NVDEC.Decodable(),
 			}
 			if h, ok := health[n]; ok {

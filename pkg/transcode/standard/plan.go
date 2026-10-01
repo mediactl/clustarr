@@ -35,6 +35,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -49,6 +50,9 @@ type Profile struct {
 	Languages               []string
 	NeverTranscodeModifiers []string
 	Container               transcode.Container
+	// MinDuration skips a source shorter than it (policy.minDuration):
+	// trailers, extras, samples. Zero considers every file.
+	MinDuration time.Duration
 }
 
 // Hardware is the encoding device: the pool class's tier and its limits.
@@ -153,6 +157,12 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if p.Container == "" {
 		p.Container = transcode.ContainerMKV
 	}
+	if tag := formatTag(info.Tags, "CLUSTARR_PROFILE"); tag != "" && tag == p.Tags["CLUSTARR_PROFILE"] {
+		return skip(p, "this profile already wrote this file (CLUSTARR_PROFILE "+tag+")")
+	}
+	if d := info.Format.Duration; profile.MinDuration > 0 && d > 0 && d < profile.MinDuration {
+		return skip(p, fmt.Sprintf("the source is %s long, under policy.minDuration %s", d.Round(time.Second), profile.MinDuration))
+	}
 	if info.Modifier != "" && slices.Contains(profile.NeverTranscodeModifiers, info.Modifier) {
 		return skip(p, fmt.Sprintf("the source's %s modifier is never transcoded (policy.neverTranscodeModifiers)", info.Modifier))
 	}
@@ -204,6 +214,9 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	}
 	p.Decision = DecisionEncode
 	p.Reason = "encode to HEVC Main 10"
+	if eight {
+		p.Reason = "encode to HEVC Main (8-bit: SDR at 1080p or less)"
+	}
 	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
 	return p
 }
@@ -382,3 +395,17 @@ func containerOf(format string) transcode.Container {
 }
 
 func itoa(v int32) string { return strconv.Itoa(int(v)) }
+
+// formatTag is tags' key compared without regard to case: Matroska keeps a
+// tag's key as written, other muxers may change its case.
+func formatTag(tags map[string]string, key string) string {
+	if v, ok := tags[key]; ok {
+		return v
+	}
+	for k, v := range tags {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return ""
+}

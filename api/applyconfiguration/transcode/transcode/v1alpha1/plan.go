@@ -36,18 +36,16 @@ type PlanApplyConfiguration struct {
 	SkipReason *string `json:"skipReason,omitempty"`
 	// HDRMode is the HDR handling chosen for this source.
 	HDRMode *string `json:"hdrMode,omitempty"`
-	// VideoArgs are the rendered ffmpeg video arguments.
-	VideoArgs []string `json:"videoArgs,omitempty"`
 	// AudioTracks is the per-track audio plan.
 	AudioTracks []AudioPlanApplyConfiguration `json:"audioTracks,omitempty"`
 	// SubtitleTracks lists the source subtitle stream indexes to copy.
 	SubtitleTracks []int32 `json:"subtitleTracks,omitempty"`
-	// ArgsHash is a hash of the rendered arguments.
-	ArgsHash *string `json:"argsHash,omitempty"`
-	// Engine runs this plan: ffmpeg (the argv engine) or ffgo (in-process).
+	// Engine runs this plan: ffgo (in-process). ffmpeg is a plan recorded by
+	// the argv engine, deleted in ffgo Phase 5; such a job is planned again
+	// at dispatch.
 	Engine *string `json:"engine,omitempty"`
 	// PlanHash is the in-process engine's plan hash (sha256 of the plan's
-	// JSON); the worker compares its own plan's with it, as ArgsHash.
+	// JSON); the worker compares its own plan's with it.
 	PlanHash *string `json:"planHash,omitempty"`
 	// VideoAction is copy or encode (in-process engine plans).
 	VideoAction *string `json:"videoAction,omitempty"`
@@ -94,16 +92,6 @@ func (b *PlanApplyConfiguration) WithHDRMode(value string) *PlanApplyConfigurati
 	return b
 }
 
-// WithVideoArgs adds the given value to the VideoArgs field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the VideoArgs field.
-func (b *PlanApplyConfiguration) WithVideoArgs(values ...string) *PlanApplyConfiguration {
-	for i := range values {
-		b.VideoArgs = append(b.VideoArgs, values[i])
-	}
-	return b
-}
-
 // WithAudioTracks adds the given value to the AudioTracks field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the AudioTracks field.
@@ -124,14 +112,6 @@ func (b *PlanApplyConfiguration) WithSubtitleTracks(values ...int32) *PlanApplyC
 	for i := range values {
 		b.SubtitleTracks = append(b.SubtitleTracks, values[i])
 	}
-	return b
-}
-
-// WithArgsHash sets the ArgsHash field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ArgsHash field is set to the value of the last call.
-func (b *PlanApplyConfiguration) WithArgsHash(value string) *PlanApplyConfiguration {
-	b.ArgsHash = &value
 	return b
 }
 

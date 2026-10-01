@@ -185,6 +185,11 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 
 	muxCh := make(chan muxItem, o.QueueDepth*max(len(slots), 1))
 	setupCh := make(chan setupItem, len(slots))
+	// headerDone closes once the muxer has read every encoder's parameters
+	// and written the header: a stage's setup waits for it, so a stage that
+	// reaches the end of a tiny input cannot close its encoder while the
+	// muxer still reads it (a freed codec context, and SIGSEGV).
+	headerDone := make(chan struct{})
 	routes := map[int]chan *ffgo.Packet{} // source stream index → encode stage
 	copies := map[int]int{}               // source stream index → copy slot
 	var producers sync.WaitGroup
@@ -202,6 +207,11 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 			setup: func(src ffgo.EncodedStreamSource) error {
 				select {
 				case setupCh <- setupItem{slot: i, src: src}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				select {
+				case <-headerDone:
 					return nil
 				case <-ctx.Done():
 					return ctx.Err()
@@ -250,7 +260,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 		close(muxCh)
 	}()
 
-	res, muxErr := mux(ctx, m, d, plan, slots, muxCh, setupCh, o)
+	res, muxErr := mux(ctx, m, d, plan, slots, muxCh, setupCh, o, output, headerDone)
 	if muxErr != nil {
 		fe.set(muxErr)
 	}
@@ -343,7 +353,7 @@ func startShifts(d *ffgo.Decoder) map[int]int64 {
 // mux waits for every encoded stream's encoder (holding packets that
 // arrive meanwhile), writes the header, then writes packets as they come.
 func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []slot,
-	muxCh <-chan muxItem, setupCh <-chan setupItem, o Options,
+	muxCh <-chan muxItem, setupCh <-chan setupItem, o Options, output string, headerDone chan<- struct{},
 ) (Result, error) {
 	var res Result
 	waiting := 0
@@ -371,6 +381,7 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 	if err := addStreams(m, d, plan, slots, srcs); err != nil {
 		return res, &Error{Stage: "mux", Err: err}
 	}
+	close(headerDone)
 
 	durMillis := d.Duration().Milliseconds()
 	start := time.Now()
@@ -381,6 +392,14 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 			return
 		}
 		p := transcode.Progress{Frame: res.Frames, OutTimeMillis: outMillis}
+		// What the muxer has written so far (the file grows as it writes),
+		// and the output's bit rate over the time it covers.
+		if st, err := os.Stat(output); err == nil {
+			p.OutputBytes = st.Size()
+			if outMillis > 0 {
+				p.BitrateKbps = int32(st.Size() * 8 / outMillis)
+			}
+		}
 		if el := time.Since(start).Seconds(); el > 0 {
 			p.SpeedMilli = int32(float64(outMillis) / el)
 			p.FPSMilli = int32(float64(res.Frames) * 1000 / el)

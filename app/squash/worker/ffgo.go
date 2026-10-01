@@ -65,7 +65,8 @@ func StandardProfile(name, hash string, spec transcodev1alpha1.TranscodeProfileS
 	return standard.Profile{
 		Name: name, Hash: hash, Quality: spec.QualityOrDefault(),
 		Languages: spec.Audio.Languages, NeverTranscodeModifiers: spec.Policy.NeverTranscodeModifiers,
-		Container: transcode.Container(spec.Container),
+		Container:   transcode.Container(spec.Container),
+		MinDuration: MinDuration(spec.Policy),
 	}
 }
 
@@ -88,11 +89,6 @@ func StandardTier(profile transcode.ProfileSpec) transcode.Tier {
 // ffgoJob plans with the standard and encodes in-process on ffgo.
 func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap, local string) (encodeJob, error) {
 	log := logging.FromContext(ctx)
-	if r.o.Engine == nil {
-		// cmd/squasharr-worker logged why at start (no FFmpeg 9, no shim):
-		// the task waits for a pod that can run it rather than failing here.
-		return encodeJob{}, retriable("squasharr worker: this pod has no in-process engine (the transcoder-distroless image carries FFmpeg 9 and the ffgo shim)")
-	}
 	profile := ProfileSpec(r.t.Profile.Spec, r.t.Profile.Hardware)
 	m, err := r.measurement(ctx, profile.Hardware)
 	if err != nil {

@@ -80,11 +80,6 @@ const (
 	// the squasharr Deployment.
 	workerImageEnv = "CLUSTARR_WORKER_IMAGE"
 
-	// workerEngineEnv is --worker-engine's default: the engine squasharr
-	// plans transcodes for (ffmpeg or ffgo). The chart sets it from
-	// squasharr.workerEngine when given.
-	workerEngineEnv = "CLUSTARR_WORKER_ENGINE"
-
 	// gpuNodeLabelNVIDIAEnv and gpuNodeLabelIntelEnv override the node label
 	// (set to "true") that marks a GPU node of each class, the defaults for
 	// --gpu-node-label-nvidia and --gpu-node-label-intel. Like

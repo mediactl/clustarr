@@ -45,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // gpuNode creates a Ready node carrying label=true and gpus of res
@@ -168,22 +169,18 @@ func TestAutoGoesToTheGPUPoolWhenOneIsFree(t *testing.T) {
 	tk := tasks[0]
 	assert.Equal(t, "nvidia", tk.Class)
 	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, *tk.Profile.Hardware)
-	assert.Equal(t, got.Status.Plan.ArgsHash, tk.ArgsHash, "the task carries the plan the job records")
+	assert.Equal(t, got.Status.Plan.PlanHash, tk.PlanHash, "the task carries the plan the job records")
 	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "cpu", 300*time.Millisecond))
 
-	// The argsHash is the worker's for this task: the same profile, class,
-	// threads and output, from the same probe, with NVENC present.
+	// The planHash is the worker's for this task: the standard's plan for
+	// the same profile, from the same probe, on the class's tier.
 	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(mf), mf))
 	info, err := transcode.FromSummary(tk.SourcePath, mf.Status.MediaInfo)
 	require.NoError(t, err)
-	info.Format.SizeBytes = mf.Spec.SizeBytes
-	caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierCPUx265: true, transcode.TierNVENC: true}}
-	wp, err := transcode.Plan(info, worker.ProfileSpec(tk.Profile.Spec, tk.Profile.Hardware), caps, transcode.PlanMeta{
-		ProfileName: tk.Profile.Name, ProfileHash: tk.Profile.Hash, Threads: pool.Threads(tp), OutputPath: tk.OutputPath,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, transcode.TierNVENC, wp.Tier)
-	assert.Equal(t, transcode.ArgsHash(wp), tk.ArgsHash, "status.plan.argsHash is the hash of the argv the nvidia worker runs")
+	tier := worker.StandardTier(worker.ProfileSpec(tk.Profile.Spec, tk.Profile.Hardware))
+	assert.Equal(t, transcode.TierNVENC, tier)
+	wp := standard.Plan(info, worker.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec), standard.Hardware{Tier: tier})
+	assert.Equal(t, wp.Hash(), tk.PlanHash, "status.plan.planHash is the hash of the plan the nvidia worker runs")
 
 	gpuPool := getPool(t, c, tp, transcodev1alpha1.HardwareNVIDIA)
 	assert.Equal(t, pool.DefaultNodeLabelNVIDIA, appliedConstraint(t, gpuPool),
@@ -281,7 +278,7 @@ func TestAGPUEncodeFailureMovesAnAutoJobToCPU(t *testing.T) {
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase, "message: %s", tj.Status.Message)
 	require.Equal(t, transcodev1alpha1.HardwareNVIDIA, tj.Status.Hardware)
 	require.EqualValues(t, 1, tj.Status.Attempts)
-	gpuHash := tj.Status.Plan.ArgsHash
+	gpuHash := tj.Status.Plan.PlanHash
 	require.Len(t, takeTasks(t, r.Bus, tp.UID, "nvidia", 5*time.Second), 1)
 
 	require.NoError(t, deliver(t, r, tj, claimed(1, "pool-gpu")))
@@ -297,11 +294,11 @@ func TestAGPUEncodeFailureMovesAnAutoJobToCPU(t *testing.T) {
 	assert.Equal(t, transcodev1alpha1.HardwareCPU, tj.Status.Hardware)
 	assert.EqualValues(t, 2, tj.Status.Attempts)
 	assert.Equal(t, "libx265", tj.Status.Plan.Encoder, "re-planned for cpu in the Queued write")
-	assert.NotEqual(t, gpuHash, tj.Status.Plan.ArgsHash)
+	assert.NotEqual(t, gpuHash, tj.Status.Plan.PlanHash)
 	cpuTasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
 	require.Len(t, cpuTasks, 1)
 	assert.EqualValues(t, 2, cpuTasks[0].Attempt)
-	assert.Equal(t, tj.Status.Plan.ArgsHash, cpuTasks[0].ArgsHash, "the cpu task carries the cpu plan's argsHash")
+	assert.Equal(t, tj.Status.Plan.PlanHash, cpuTasks[0].PlanHash, "the cpu task carries the cpu plan's argsHash")
 
 	// A retriable failure on cpu: the retry is cpu again, with the GPU free.
 	require.NoError(t, deliver(t, r, tj, claimed(2, "pool-cpu")))
@@ -506,7 +503,7 @@ func TestAnUnschedulableGPUPoolReroutesItsQueuedJobs(t *testing.T) {
 	cpuTasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
 	require.Len(t, cpuTasks, 1)
 	assert.EqualValues(t, 2, cpuTasks[0].Attempt)
-	assert.Equal(t, a.Status.Plan.ArgsHash, cpuTasks[0].ArgsHash)
+	assert.Equal(t, a.Status.Plan.PlanHash, cpuTasks[0].PlanHash)
 
 	// The pinned job finishes; nothing is dispatched to the pool, and it
 	// suspends.
@@ -677,49 +674,18 @@ func TestARerouteRacingAClaimDoesNotWedgeTheJob(t *testing.T) {
 	require.Len(t, takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second), 1)
 }
 
-// TestAReplanThatCannotUseTheChosenClassPublishesNothing covers the
-// re-plan's other outcomes (dispatch, keepPlanned). A Dolby Vision source,
-// which no hardware encoder writes, planned for the nvidia class admission
-// chose, still encodes with libx265: nothing is published to the GPU pool,
-// and the job stays Planned with that plan and a fallbackReason, so the next
-// pass sends it to cpu. And a re-plan that decides to skip -- here the
-// profile was edited after the job was planned -- is recorded Skipped, as
-// plan records a skip, with nothing published.
-func TestAReplanThatCannotUseTheChosenClassPublishesNothing(t *testing.T) {
+// A job planned while no slot was free, then its profile edited to skip it
+// (policy.minDuration over the source's length): the re-plan at dispatch
+// records the skip, and publishes nothing.
+func TestAReplanThatSkipsPublishesNothing(t *testing.T) {
 	_, c := startEnv(t)
 	const ns = "tj-replan"
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
-	tp := newProfile(t, c, "hevc", "hash1", func(p *transcodev1alpha1.TranscodeProfile) {
-		p.Spec.HDR.DolbyVision = transcodev1alpha1.DolbyVisionDowngradeToHDR10
-	})
-	dv := dolbyVisionProbe()
-	dv.VideoProfile, dv.PixelFormat, dv.VideoBitDepth = "Main", "yuv420p", 8 // not compliant: encoded
-	newMediaFile(t, c, ns, "dv", "p-dv", &dv)
-	newTJ(t, c, ns, "dv-hevc", "dv", "hevc", "p-dv", nil)
+	tp := newProfile(t, c, "hevc", "hash1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
 	nvidiaNode(t, c, "gpu-1", "1")
 
-	reconcileTJ(t, r, ns, "dv-hevc")
-	got := getTJ(t, c, ns, "dv-hevc")
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase, "message: %s", got.Status.Message)
-	assert.Zero(t, got.Status.Attempts, "nothing was dispatched")
-	assert.Equal(t, "libx265", got.Status.Plan.Encoder)
-	assert.Contains(t, got.Status.FallbackReason, "a plan for nvidia encodes with libx265")
-	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "nvidia", 300*time.Millisecond))
-
-	reconcileTJ(t, r, ns, "dv-hevc")
-	got = getTJ(t, c, ns, "dv-hevc")
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
-	assert.Equal(t, transcodev1alpha1.HardwareCPU, got.Status.Hardware)
-	assert.EqualValues(t, 1, got.Status.Attempts)
-	cpuTasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
-	require.Len(t, cpuTasks, 1)
-	assert.Equal(t, got.Status.Plan.ArgsHash, cpuTasks[0].ArgsHash)
-
-	// A job planned for cpu while no slot was free, then its profile edited
-	// to skip it: the re-plan for nvidia records the skip, and publishes
-	// nothing.
 	newMediaFile(t, c, ns, "short", "p-short", ptr.To(h264Probe()))
 	newTJ(t, c, ns, "short-hevc", "short", "hevc", "p-short", nil)
 	slots := r.Slots
@@ -738,6 +704,7 @@ func TestAReplanThatCannotUseTheChosenClassPublishesNothing(t *testing.T) {
 	assert.Equal(t, transcodev1alpha1.PlanModeSkip, short.Status.Plan.Mode)
 	assert.Zero(t, short.Status.Attempts)
 	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "nvidia", 300*time.Millisecond))
+	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "cpu", 300*time.Millisecond))
 }
 
 // claimOnPublish is a bus whose first task publish is claimed at once: the
@@ -806,7 +773,7 @@ func TestADispatchAdoptedFirstStillRecordsItsReplan(t *testing.T) {
 
 	tasks := takeTasks(t, inner, tp.UID, "nvidia", 5*time.Second)
 	require.Len(t, tasks, 1)
-	assert.Equal(t, got.Status.Plan.ArgsHash, tasks[0].ArgsHash)
+	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash)
 }
 
 // A GPU class whose pods all report its device unusable gets no work

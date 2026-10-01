@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,8 +101,36 @@ func requireCluster(t *testing.T) client.Client {
 	return testClient
 }
 
+// testEngine is the in-process engine every Process call runs on, nil
+// when this host has no FFmpeg 9 with its shim (testEngineErr says why).
+var testEngine, testEngineErr = func() (Engine, error) {
+	e, err := inprocess.New()
+	if err != nil {
+		return nil, err
+	}
+	return e, nil
+}()
+
+// countingEngine counts the encodes it runs, to prove a path never encodes.
+type countingEngine struct {
+	Engine
+	encodes atomic.Int32
+}
+
+func (e *countingEngine) Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, input, output string,
+	progress func(transcode.Progress),
+) (string, error) {
+	e.encodes.Add(1)
+	return e.Engine.Encode(ctx, plan, tier, input, output, progress)
+}
+
+// requireFFmpeg skips without the ffmpeg and ffprobe that make and inspect
+// the fixtures, or without the in-process engine that transcodes them.
 func requireFFmpeg(t *testing.T) {
 	t.Helper()
+	if testEngineErr != nil {
+		t.Skipf("no in-process engine: %v", testEngineErr)
+	}
 	if _, err := os.Stat(ffmpegBin); err != nil {
 		t.Skip("ffmpeg not present on this box")
 	}
@@ -274,8 +303,7 @@ func (f *fixture) createJob(t *testing.T, c client.Client, probeHash string) {
 
 func (f *fixture) options() Options {
 	return Options{
-		DataDir:    f.dataDir,
-		FFmpegPath: ffmpegBin, FFprobePath: ffprobeBin,
+		DataDir: f.dataDir, Engine: testEngine,
 		Threads: 2, ProgressInterval: 50 * time.Millisecond,
 	}
 }
@@ -414,42 +442,6 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 	assert.Nil(t, tj.Status.Progress)
 }
 
-// R2/R4: a failed verification exits 4 and leaves the source exactly as it
-// was -- not recycled, not replaced, no output left beside it.
-func TestRunExitsFourAndLeavesTheSourceUntouchedWhenVerificationFails(t *testing.T) {
-	c := requireCluster(t)
-	requireFFmpeg(t)
-	f := newFixture(t, c)
-
-	o := f.options()
-	o.Verifier = failingVerifier{real: transcode.NewVerifier(ffprobeBin)}
-	out := f.processWith(t, c, o)
-	require.Error(t, out.Err)
-	require.Equal(t, ExitVerifyFailed, out.Code)
-	assert.Contains(t, out.Err.Error(), "stream count")
-
-	f.requireSourceUntouched(t)
-	seed, err := os.ReadFile(f.seed)
-	require.NoError(t, err)
-	assert.True(t, bytes.Equal(f.original, seed))
-	assert.Nil(t, out.Result, "a failed job has no result")
-}
-
-// failingVerifier runs the real verifier against the real output, then
-// reports a problem, so the worker's handling of a genuine Report is what
-// is exercised.
-type failingVerifier struct{ real transcode.Verifier }
-
-func (v failingVerifier) Verify(ctx context.Context, src, dst string, exp transcode.Expectation) (*transcode.Report, error) {
-	r, err := v.real.Verify(ctx, src, dst, exp)
-	if err != nil {
-		return nil, err
-	}
-	r.OK = false
-	r.Problems = append(r.Problems, "stream count 1, want 2")
-	return r, nil
-}
-
 // R3: a source whose probe hash does not match the plan exits 3 BEFORE
 // ffmpeg ever runs. ffmpeg is a wrapper that leaves a marker when invoked,
 // so "before" is proven rather than inferred from the output's absence.
@@ -462,21 +454,15 @@ func TestRunExitsThreeBeforeRunningFFmpegWhenTheSourceChanged(t *testing.T) {
 	require.NoError(t, c.Delete(context.Background(), f.get(t, c)))
 	f.createJob(t, c, "0123456789abcdef0123456789abcdef01234567")
 
-	marker := filepath.Join(t.TempDir(), "ffmpeg-ran")
-	wrapper := filepath.Join(t.TempDir(), "ffmpeg")
-	require.NoError(t, os.WriteFile(wrapper,
-		[]byte("#!/bin/sh\ntouch '"+marker+"'\nexec "+ffmpegBin+" \"$@\"\n"), 0o755))
-
+	eng := &countingEngine{Engine: testEngine}
 	o := f.options()
-	o.FFmpegPath = wrapper
+	o.Engine = eng
 	out := f.processWith(t, c, o)
 	require.Error(t, out.Err)
 	require.Equal(t, ExitInvalidSource, out.Code)
 	assert.Contains(t, out.Err.Error(), "changed since it was planned")
 	assert.Equal(t, task.ReasonSourceChanged, out.Reason)
-
-	_, statErr := os.Stat(marker)
-	assert.True(t, os.IsNotExist(statErr), "ffmpeg must never have been invoked")
+	assert.Zero(t, eng.encodes.Load(), "nothing may have been encoded")
 	f.requireSourceUntouched(t)
 }
 
@@ -532,21 +518,15 @@ func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testin
 	swapped, err := os.ReadFile(f.local)
 	require.NoError(t, err)
 
-	// The retry: same TranscodeJob, a wrapped ffmpeg that would leave a
-	// marker if it ran.
-	marker := filepath.Join(t.TempDir(), "ffmpeg-ran")
-	wrapper := filepath.Join(t.TempDir(), "ffmpeg")
-	require.NoError(t, os.WriteFile(wrapper,
-		[]byte("#!/bin/sh\ntouch '"+marker+"'\nexec "+ffmpegBin+" \"$@\"\n"), 0o755))
+	// The retry: same TranscodeJob, an engine that counts its encodes.
+	eng := &countingEngine{Engine: testEngine}
 	o := f.options()
-	o.FFmpegPath = wrapper
+	o.Engine = eng
 
 	out2 := f.processWith(t, c, o)
 	require.NoError(t, out2.Err)
 	require.Equal(t, ExitOK, out2.Code)
-
-	_, statErr := os.Stat(marker)
-	assert.True(t, os.IsNotExist(statErr), "the retry must not transcode again")
+	assert.Zero(t, eng.encodes.Load(), "the retry must not transcode again")
 	now, err := os.ReadFile(f.local)
 	require.NoError(t, err)
 	assert.True(t, bytes.Equal(swapped, now), "the swapped-in output must be left as it is")
@@ -1007,7 +987,9 @@ func TestAnFFgoTaskOnAWorkerWithoutTheEngineIsRetriable(t *testing.T) {
 	require.NoError(t, err)
 	tk.Engine = task.EngineFFgo
 
-	out := Process(ctx, tk, f.options()) // no Engine
+	opts := f.options()
+	opts.Engine = nil
+	out := Process(ctx, tk, opts)
 	require.Error(t, out.Err)
 	assert.Equal(t, ExitRetriable, out.Code)
 	assert.Contains(t, out.Err.Error(), "in-process engine")
@@ -1098,7 +1080,7 @@ func TestTheFFgoJobUsesTheMeasuredTier(t *testing.T) {
 // The in-process engine's failures reach the same exit codes, reasons and
 // stderr tail as the argv engine's, and every one leaves the source as it
 // was with no part file behind.
-func TestTheInProcessEnginesFailuresAreClassifiedAsTheArgvEnginesAre(t *testing.T) {
+func TestTheEnginesFailuresAreClassified(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
 	for name, tc := range map[string]struct {

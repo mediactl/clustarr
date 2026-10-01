@@ -4,13 +4,16 @@
 #   ghcr.io/<owner>/<repo>                    controller      (images/Dockerfile.controller)
 #   ghcr.io/<owner>/<repo>/media              media           (images/Dockerfile.media)
 #   ghcr.io/<owner>/<repo>/transcoder         transcoder      (images/Dockerfile.transcoder, target transcoder; every pool, nvidia's included)
+#   ghcr.io/<owner>/<repo>/transcoder-debug   the same plus a busybox (target transcoder-debug)
 #   ghcr.io/<owner>/<repo>/e2e-fixtures       e2e fixture services (images/Dockerfile.e2e-fixtures)
 #   oci://ghcr.io/<owner>/<repo>/charts       the clustarr Helm chart
 #
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): the NVIDIA
 # container runtime injects the driver's libraries into an nvidia pool's pod.
 # transcoder-cuda and transcoder-cuda-distroless(-debug) were last published
-# on 2026-10-01.
+# on 2026-10-01; transcoder-distroless(-debug), which became transcoder when
+# the Wolfi transcoder and its ffmpeg executable were deleted (ffgo Phase 5),
+# on the same day.
 #
 # Pull requests build every image and lint the chart, and publish nothing.
 # A push to main publishes the images as :main and :sha-<short>. A tag
@@ -60,15 +63,11 @@ jobs:
           - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, target: "", arch: arm64, runner: ubuntu-24.04-arm }
           - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, target: "", arch: amd64, runner: ubuntu-24.04 }
           - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, target: "", arch: arm64, runner: ubuntu-24.04-arm }
-          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: amd64, runner: ubuntu-24.04 }
-          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm }
-          # The distroless transcoders (FROM scratch); named -distroless until
-          # the pools switch to them (ffgo Phase 3/4), so the live tags above
-          # are untouched.
-          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
-          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
-          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
-          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
+          # The transcoders (FROM scratch) are self-checked for each class.
+          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
+          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
+          - { image: transcoder-debug, suffix: /transcoder-debug, dockerfile: images/Dockerfile.transcoder, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
+          - { image: transcoder-debug, suffix: /transcoder-debug, dockerfile: images/Dockerfile.transcoder, target: transcoder-debug, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04 }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm }
     env:
@@ -111,7 +110,7 @@ jobs:
         with:
           images: ${{ steps.vars.outputs.image }}
 
-      # The distroless transcoders are self-checked before they are pushed:
+      # The transcoders are self-checked before they are pushed:
       # the image that ships is the image that passed (build cache shared
       # with the push below).
       - name: Build ${{ matrix.image }} for its self-check
@@ -168,7 +167,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Underscores, not hyphens: image names contain hyphens, so a pattern
-          # like digests-transcoder-* would also match transcoder-distroless's digests.
+          # like digests-transcoder-* would also match transcoder-debug's digests.
           name: digests_${{ matrix.image }}_${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
@@ -189,8 +188,7 @@ jobs:
           - { image: controller, suffix: "" }
           - { image: media, suffix: /media }
           - { image: transcoder, suffix: /transcoder }
-          - { image: transcoder-distroless, suffix: /transcoder-distroless }
-          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug }
+          - { image: transcoder-debug, suffix: /transcoder-debug }
           - { image: e2e-fixtures, suffix: /e2e-fixtures }
     steps:
       - name: Download digests

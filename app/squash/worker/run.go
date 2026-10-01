@@ -22,21 +22,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -96,23 +92,12 @@ func TraceParent(ctx context.Context) string {
 // the Downward API would then report the node's CPUs.
 const CPULimitEnv = "CLUSTARR_CPU_LIMIT"
 
-// Verifier is what the worker needs from transcode.Verifier; an interface
-// only so a test can make a real output fail verification.
-type Verifier interface {
-	Verify(ctx context.Context, src, dst string, exp transcode.Expectation) (*transcode.Report, error)
-}
-
 // Options configures one [Process] call.
 type Options struct {
 	// DataDir is where the /data volume is mounted in this process. Every
 	// path in a CRD is a logical /data path and is mapped through it; in a
 	// Job pod it is /data and the mapping is the identity.
 	DataDir string
-
-	// FFmpegPath and FFprobePath default to "ffmpeg" and "ffprobe" on PATH.
-	// pkg/mediainfo.Probe always uses "ffprobe" from PATH.
-	FFmpegPath  string
-	FFprobePath string
 
 	// Threads is x265's pool size, normally [ThreadsFromEnv]. Zero lets
 	// pkg/transcode leave pools= unset.
@@ -141,9 +126,6 @@ type Options struct {
 	// PodName names this worker's Pod in the telemetry (WorkerRef); empty
 	// leaves it out.
 	PodName string
-
-	// Verifier overrides transcode.NewVerifier(FFprobePath). Tests only.
-	Verifier Verifier
 
 	// limits is the pool worker's measured device limits, set by Serve
 	// (newLimitsCache); nil plans with the profile's values as they are.
@@ -191,17 +173,8 @@ func (o Options) withDefaults() Options {
 	if o.DataDir == "" {
 		o.DataDir = LogicalDataRoot
 	}
-	if o.FFmpegPath == "" {
-		o.FFmpegPath = "ffmpeg"
-	}
-	if o.FFprobePath == "" {
-		o.FFprobePath = "ffprobe"
-	}
 	if o.ProgressInterval <= 0 {
 		o.ProgressInterval = DefaultProgressInterval
-	}
-	if o.Verifier == nil {
-		o.Verifier = transcode.NewVerifier(o.FFprobePath)
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -285,34 +258,13 @@ type runner struct {
 	speedMilli       int32
 }
 
-// CheckFFmpeg verifies o.FFmpegPath and o.FFprobePath (and "ffprobe" on
-// PATH, which pkg/mediainfo.Probe always uses) are runnable. A missing
-// binary is retriable -- it is the image, not the task's inputs -- and a
-// caller that orchestrates around Process (cmd/squasharr-worker, before it
-// serves) should call this before doing anything else, so a missing binary
-// is never misclassified by whatever its other setup (a lease claim)
-// happens to fail with first. [Process] also
-// checks, so calling it here is an optimization, not a requirement for
-// correctness.
-func CheckFFmpeg(o Options) error {
-	o = o.withDefaults()
-	for _, bin := range []string{o.FFmpegPath, o.FFprobePath, "ffprobe"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			return retriable("squasharr worker: %s not available: %w", bin, err)
-		}
-	}
-	return nil
-}
-
 func (r *runner) run(ctx context.Context) error {
 	log := logging.FromContext(ctx)
 
-	// Only the argv engine runs the binaries; the in-process engine probes,
-	// encodes and verifies through ffgo, and its image carries neither.
-	if r.t.Engine != task.EngineFFgo || r.o.Engine == nil {
-		if err := CheckFFmpeg(r.o); err != nil {
-			return err
-		}
+	if r.o.Engine == nil {
+		// cmd/squasharr-worker logged why at start (no FFmpeg 9, no shim):
+		// the task waits for a pod that can run it rather than failing here.
+		return retriable("squasharr worker: this pod has no in-process engine (the transcoder image carries FFmpeg 9 and the ffgo shim)")
 	}
 
 	source := r.t.SourcePath
@@ -391,12 +343,7 @@ func (r *runner) run(ctx context.Context) error {
 		r.resolution = resolutionClass(info.Video[0].Height)
 	}
 
-	var job encodeJob
-	if r.t.Engine == task.EngineFFgo {
-		job, err = r.ffgoJob(ctx, info, sw, local)
-	} else {
-		job, err = r.argvJob(ctx, info, sw, local)
-	}
+	job, err := r.ffgoJob(ctx, info, sw, local)
 	if err != nil {
 		return err
 	}
@@ -497,74 +444,6 @@ type encodeJob struct {
 	part   string
 	encode func(ctx context.Context) error
 	verify func(ctx context.Context) (*transcode.Report, error)
-}
-
-// argvJob plans with pkg/transcode and encodes with the ffmpeg executable.
-func (r *runner) argvJob(ctx context.Context, info transcode.MediaInfo, sw swap, local string) (encodeJob, error) {
-	log := logging.FromContext(ctx)
-	caps, err := transcode.ProbeCapabilities(ctx, r.o.FFmpegPath)
-	if err != nil {
-		return encodeJob{}, retriable("squasharr worker: %w", err)
-	}
-	profile := ProfileSpec(r.t.Profile.Spec, r.t.Profile.Hardware)
-	if len(info.Video) > 0 {
-		want, err := transcode.SelectTier(profile, info)
-		if err != nil {
-			return encodeJob{}, invalidSource("squasharr worker: %w", err)
-		}
-		// Plan would call this a reject, but a missing encoder is this
-		// node's ffmpeg build, not the source: another pod may land on a
-		// node that has it.
-		tier, ok := transcode.FallbackTier(want, caps)
-		if !ok {
-			if gpuTier(want) {
-				return encodeJob{}, gpuUnavailable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
-			}
-			return encodeJob{}, retriable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
-		}
-		// This device's own limits: Plan renders min(profile, limit).
-		if r.o.limits != nil {
-			caps.Limits = r.o.limits.forTier(ctx, r.o.FFmpegPath, tier, profile.Video)
-		}
-	}
-	plan, err := transcode.Plan(info, profile, caps, transcode.PlanMeta{
-		ProfileName: r.t.Profile.Name, ProfileHash: r.t.Profile.Hash, Threads: r.o.Threads, OutputPath: sw.localOut,
-	})
-	if err != nil {
-		return encodeJob{}, invalidSource("squasharr worker: plan: %w", err)
-	}
-	r.compareWithRecordedPlan(ctx, r.t.ArgsHash, plan)
-
-	// The physical scratch file this attempt writes to is unique per job
-	// and attempt (final review I2a), substituted only now -- after the
-	// parity check above already compared the worker's plan against
-	// status.plan.argsHash using the generic <stem>.part.<ext> path
-	// transcode.Plan rendered from an OutputPath the controller can
-	// reproduce without knowing the attempt. The controller never sees
-	// this path, only that hash, so mutating plan.Output here changes
-	// nothing it needs to reproduce, while making sure a withdrawn
-	// attempt's cleanup -- it learns of cancellation only at its next 20s
-	// renewal -- can never unlink a different attempt's in-progress file,
-	// and an old- and a new-hash job for the same source never encode into
-	// the same inode.
-	plan.Output = uniquePartPath(plan.Output, r.t.Job.UID, r.t.Attempt)
-	if plan.Decision == transcode.DecisionSkip || plan.Decision == transcode.DecisionReject {
-		// The controller planned this file for work from the stored probe
-		// of the same bytes. Exiting 0 would report a transcode that never
-		// happened, and catalogarr would incorporate it as a swap.
-		return encodeJob{}, invalidSource("squasharr worker: live plan is %s (%s), not the work the controller planned", plan.Decision, plan.Reason)
-	}
-	r.tier = string(plan.Tier)
-	log.InfoContext(ctx, "squasharr worker: planned", "decision", plan.Decision, "tier", plan.Tier, "reason", plan.Reason)
-
-	durationMillis := info.Format.Duration.Milliseconds()
-	return encodeJob{
-		part:   plan.Output,
-		encode: func(ctx context.Context) error { return r.encode(ctx, plan, durationMillis) },
-		verify: func(ctx context.Context) (*transcode.Report, error) {
-			return r.o.Verifier.Verify(ctx, local, plan.Output, plan.Expect)
-		},
-	}, nil
 }
 
 // beforeSwap runs o.BeforeSwap, the pool worker's pre-swap lease reassert
@@ -681,70 +560,6 @@ func (r *runner) finishElsewhere(ctx context.Context, sw swap, plannedHash strin
 	return r.finish(ctx, sw.out, sw.localOut, sourceSize)
 }
 
-// compareWithRecordedPlan checks the argv about to run against the
-// controller's status.plan.argsHash, carried onto the task as ArgsHash by
-// BuildTask. They are built by the same renderer from the same bytes
-// (transcode.FromSummary/FromProbe) with the same thread count
-// ([CPULimitEnv]), so a difference means the two were given different
-// inputs -- a /data mounted elsewhere, an image with a different ffprobe, a
-// LimitRange that changed the pod's CPU limit -- and is logged, never fatal:
-// the worker's own plan, from the live file, is the one that runs. An empty
-// recorded value (no plan recorded yet) skips the comparison.
-func (r *runner) compareWithRecordedPlan(ctx context.Context, recorded string, plan *transcode.PlanResult) {
-	if recorded == "" {
-		return
-	}
-	got := transcode.ArgsHash(plan)
-	trace.SpanFromContext(ctx).SetAttributes(attribute.Bool("transcode.args_match_plan", got == recorded))
-	if got != recorded {
-		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: the argv differs from the one status.plan records",
-			"planArgsHash", recorded, "argsHash", got)
-	}
-}
-
-// encode runs ffmpeg with throttled progress applies.
-func (r *runner) encode(ctx context.Context, plan *transcode.PlanResult, durationMillis int64) error {
-	metrics.TranscodeJobsActive.WithLabelValues(r.tier).Inc()
-	defer metrics.TranscodeJobsActive.WithLabelValues(r.tier).Dec()
-	r.started = r.o.Now()
-
-	rep := newProgressReporter(r.o.ProgressInterval, durationMillis, r.o.Now, r.applyProgress)
-	var pod *schema.Ref
-	if r.o.PodName != "" {
-		pod = &schema.Ref{Namespace: r.t.Job.Namespace, Name: r.o.PodName}
-	}
-	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval, r.t.Job, pod, durationMillis, r.o.Now)
-	rep.start(ctx)
-	tel.start(ctx)
-	runErr := transcode.NewRunner(r.o.FFmpegPath).Run(ctx, plan, func(p transcode.Progress) {
-		rep.observe(p)
-		tel.observe(p)
-	})
-	// A cancelled ctx cannot carry the final apply; the pod is going away.
-	rep.stop(ctx)
-	tel.stop(ctx)
-	if p, ok := rep.last(); ok {
-		r.speedMilli = p.SpeedMilli
-	}
-
-	if runErr == nil {
-		return nil
-	}
-	var re *transcode.RunError
-	if errors.As(runErr, &re) {
-		r.applyStderrTail(re.StderrTail)
-	}
-	// A non-zero ffmpeg exit may be a bad source, but equally OOM, a node
-	// drain, a GPU fault. On a GPU tier that is worth naming
-	// (task.ReasonGPUEncodeFailed) so a redispatching pool can route the
-	// next attempt to a different class; on the CPU tier there is nowhere
-	// else to route it, so it stays retriable exactly as before.
-	if gpuTier(plan.Tier) {
-		return gpuEncodeFailed(fmt.Errorf("squasharr worker: ffmpeg: %w", runErr))
-	}
-	return retriable("squasharr worker: ffmpeg: %w", runErr)
-}
-
 // alreadySwappedOrChanged handles a source whose probe hash no longer
 // matches the plan. Either an earlier attempt of this Job swapped the
 // output in and died before recording it -- the file then carries this
@@ -792,14 +607,11 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 	return nil
 }
 
-// probe reads path through the in-process engine when this pod has one
-// (no ffprobe in its image), else through ffprobe: both apply
-// pkg/mediainfo's mapping, so the worker reads a file as catalogarr does.
+// probe reads path through the in-process engine (its image has no
+// ffprobe), with pkg/mediainfo's mapping, so the worker reads a file as
+// catalogarr does.
 func (r *runner) probe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
-	if r.o.Engine != nil {
-		return r.o.Engine.Probe(ctx, path)
-	}
-	return mediainfo.Probe(ctx, path)
+	return r.o.Engine.Probe(ctx, path)
 }
 
 // applyProgress reports one progress sample through o.OnProgress, when the

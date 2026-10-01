@@ -51,7 +51,7 @@ func TestBuildTask(t *testing.T) {
 	mf.Spec.SizeBytes = 42
 	tj := &transcodev1alpha1.TranscodeJob{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tj", UID: "juid"}}
 	tj.Spec.SourceProbeHash = "ph"
-	tj.Status.Plan = &transcodev1alpha1.Plan{ArgsHash: "ah"}
+	tj.Status.Plan = &transcodev1alpha1.Plan{Engine: "ffgo", PlanHash: "ph"}
 
 	got, err := BuildTask(tj, tp, mf, folders, 3, transcodev1alpha1.HardwareNVIDIA)
 	require.NoError(t, err)
@@ -62,7 +62,8 @@ func TestBuildTask(t *testing.T) {
 	assert.Empty(t, got.OutputRoot)
 	assert.Equal(t, int32(3), got.Attempt)
 	assert.Equal(t, "nvidia", got.Class)
-	assert.Equal(t, "ah", got.ArgsHash)
+	assert.Equal(t, "ph", got.PlanHash)
+	assert.Equal(t, "ffgo", got.Engine)
 	assert.Equal(t, int64(42), got.SourceSizeBytes)
 	assert.Equal(t, 3*time.Hour, got.Deadline.Duration)
 	assert.Equal(t, "juid", got.Job.UID)

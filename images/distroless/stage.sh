@@ -2,8 +2,9 @@
 # Stages into $1 exactly what the transcoder loads, for a FROM-scratch image.
 #
 # lddtree follows each file's DT_NEEDED tree: the worker (a purego binary,
-# so it brings the dynamic linker and libc), the ffgo shim, every FFmpeg
-# library and, until Phase 5, the ffmpeg and ffprobe executables. What no
+# so it brings the dynamic linker and libc), the ffgo shim and every FFmpeg
+# library -- never the ffmpeg or ffprobe executables, which the worker does
+# not run (ffgo Phase 5), and which the last step refuses. What no
 # DT_NEEDED names, because it is dlopen'ed, is traced explicitly: glibc's
 # NSS plugins here, and the caller's EXTRA_DLOPEN (the Intel runtime).
 set -eu
@@ -34,7 +35,7 @@ mkdir -p "$dst/usr/lib" "$dst/usr/lib64" "$dst/usr/bin"
 ln -sfn usr/lib "$dst/lib"
 ln -sfn usr/lib64 "$dst/lib64"
 
-trace /usr/bin/squasharr-worker /usr/bin/ffmpeg /usr/bin/ffprobe /usr/lib/libffshim.so
+trace /usr/bin/squasharr-worker /usr/lib/libffshim.so
 for f in /usr/lib/libav*.so.* /usr/lib/libsw*.so.* /usr/lib/libpostproc.so.*; do
 	[ -e "$f" ] && [ ! -L "$f" ] && trace "$f"
 done
@@ -69,3 +70,12 @@ printf 'root:x:0:0:root:/root:/sbin/nologin\nclustarr:x:1000:1000::/nonexistent:
 printf 'root:x:0:\nclustarr:x:1000:\n' >"$dst/etc/group"
 chown 1000:1000 "$dst/data" "$dst/scratch"
 chmod 1777 "$dst/tmp"
+
+# The worker runs FFmpeg in-process; an executable here would be dead
+# weight at best, and at worst a path back to exec'ing it.
+for f in ffmpeg ffprobe; do
+	if [ -n "$(find "$dst" -name "$f" \( -type f -o -type l \) | head -n1)" ]; then
+		echo "stage.sh: $f was staged; the transcoder image carries no FFmpeg executable" >&2
+		exit 1
+	fi
+done

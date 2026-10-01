@@ -152,8 +152,8 @@ jobs:
       - name: make test
         run: make test
 
-  distroless:
-    name: distroless ${{ matrix.target }} (${{ matrix.arch }})
+  transcoder:
+    name: transcoder ${{ matrix.target }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -177,13 +177,13 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: images/Dockerfile.transcoder-distroless
+          file: images/Dockerfile.transcoder
           target: ${{ matrix.target }}
           platforms: linux/${{ matrix.arch }}
           load: true
           tags: selfcheck/${{ matrix.target }}:ci
-          cache-from: type=gha,scope=distroless-${{ matrix.target }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=distroless-${{ matrix.target }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=transcoder-${{ matrix.target }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=transcoder-${{ matrix.target }}-${{ matrix.arch }}
 
       # Every library the class needs must load and every encoder and filter
       # must be found, as the pool pods run it: a missing library fails here,

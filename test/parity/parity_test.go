@@ -17,14 +17,15 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package parity is the ffgo parity harness (spec §5 Rollout): the argv
-// engine and the in-process standard, both on NVENC, over a clip of every
-// file class from the owner's library (hack/parity-clips.sh), each output
-// probed and checked. The standard's output must keep what spec §1 keeps
-// -- every subtitle, attachment and chapter, HDR10's mastering metadata,
-// Dolby Vision 7 and 8.1 as HDR10, every kept audio track direct-play or
-// AAC, the duration -- and every difference from the argv engine's output
-// is printed, with both engines' times.
+// Package parity is the ffgo parity harness (spec §5 Rollout): the
+// in-process standard on NVENC over a clip of every file class from the
+// owner's library (hack/parity-clips.sh), each output probed and checked.
+// The output must keep what spec §1 keeps -- every subtitle, attachment and
+// chapter, HDR10's mastering metadata, Dolby Vision 7 and 8.1 as HDR10,
+// every kept audio track direct-play or AAC, the duration -- and each
+// class's time is printed. (Until the argv engine was deleted it ran beside
+// the standard and every difference was printed; the spec's Rollout section
+// records that comparison.)
 //
 //	CLUSTARR_PARITY_DIR=~/parity go test -tags parity -v ./test/parity/
 package parity
@@ -71,16 +72,6 @@ func TestParity(t *testing.T) {
 	require.NoError(t, err)
 	var spec transcodev1alpha1.TranscodeProfileSpec
 	require.NoError(t, json.Unmarshal(raw, &spec))
-	nv := transcodev1alpha1.HardwareNVIDIA
-	argvProfile := worker.ProfileSpec(spec, &nv)
-	caps, err := transcode.ProbeCapabilities(ctx, "ffmpeg")
-	require.NoError(t, err)
-	lim, err := transcode.ProbeLimits(ctx, "ffmpeg", transcode.TierNVENC, argvProfile.Video)
-	require.NoError(t, err)
-	if dec, err := transcode.ProbeDecoders(ctx, "ffmpeg"); err == nil {
-		lim.NVDEC = &dec
-	}
-	caps.Limits = map[transcode.Tier]transcode.Limits{transcode.TierNVENC: lim}
 	measured, err := inprocess.Engine{}.Measure(ctx, transcode.HardwareNVIDIA)
 	require.NoError(t, err)
 
@@ -100,20 +91,6 @@ func TestParity(t *testing.T) {
 			require.NoError(t, err)
 			info.Path = clip
 
-			argvOut, argvSecs := filepath.Join(out, class+".argv.mkv"), 0.0
-			ap, err := transcode.Plan(info, argvProfile, caps, transcode.PlanMeta{
-				ProfileName: "hevc-mkv", ProfileHash: "parity", Threads: 4, OutputPath: argvOut,
-			})
-			require.NoError(t, err)
-			argvDecision := string(ap.Decision)
-			if ap.Decision == transcode.DecisionEncode || ap.Decision == transcode.DecisionRemuxOnly {
-				start := time.Now()
-				if err := transcode.NewRunner("ffmpeg").Run(ctx, ap, func(transcode.Progress) {}); err != nil {
-					t.Errorf("argv engine: %v", err)
-				}
-				argvSecs, argvOut = time.Since(start).Seconds(), ap.Output
-			}
-
 			sp := standard.Plan(info, worker.StandardProfile("hevc-mkv", "parity", spec),
 				standard.Hardware{Tier: transcode.TierNVENC, Limits: measured.Limits})
 			stdOut, stdSecs := filepath.Join(out, class+".standard.mkv"), 0.0
@@ -124,17 +101,13 @@ func TestParity(t *testing.T) {
 				}
 				stdSecs = time.Since(start).Seconds()
 				checkStandard(t, srcMI, srcRaw, sp, stdOut)
-				if argvSecs > 0 {
-					compare(t, argvOut, stdOut)
-				}
 			}
 			rows = append(rows, strings.Join([]string{
-				class, argvDecision, string(sp.Decision),
-				secs(argvSecs), secs(stdSecs), sp.Video.Encoder + "/" + sp.Video.Decode,
+				class, string(sp.Decision), secs(stdSecs), sp.Video.Encoder + "/" + sp.Video.Decode,
 			}, "\t"))
 		})
 	}
-	t.Logf("\nclass\targv\tstandard\targv s\tstandard s\tencoder/decode\n%s", strings.Join(rows, "\n"))
+	t.Logf("\nclass\tdecision\tseconds\tencoder/decode\n%s", strings.Join(rows, "\n"))
 }
 
 // checkStandard holds the standard's output to spec §1 against its source.
@@ -178,32 +151,6 @@ func checkStandard(t *testing.T, src *commonv1.MediaInfo, srcRaw *mediainfo.Raw,
 	if d := got.RuntimeMillis - src.RuntimeMillis; d > 1000 || d < -1000 {
 		t.Errorf("runtime %d ms, source %d ms", got.RuntimeMillis, src.RuntimeMillis)
 	}
-}
-
-// compare logs every difference between the two engines' outputs that spec
-// §5 names: stream layout, codecs, colour, chapters, attachments, duration.
-func compare(t *testing.T, argvOut, stdOut string) {
-	t.Helper()
-	a, _, err := mediainfo.Probe(context.Background(), argvOut)
-	if err != nil {
-		t.Errorf("probe the argv output: %v", err)
-		return
-	}
-	s, _, err := mediainfo.Probe(context.Background(), stdOut)
-	require.NoError(t, err)
-	diff := func(what string, x, y any) {
-		if x != y {
-			t.Logf("argv vs standard: %s %v vs %v", what, x, y)
-		}
-	}
-	diff("video", a.VideoCodec+"/"+a.PixelFormat, s.VideoCodec+"/"+s.PixelFormat)
-	diff("hdr", a.Hdr, s.Hdr)
-	diff("audio tracks", len(a.Audio), len(s.Audio))
-	diff("subtitles", len(a.Subtitles), len(s.Subtitles))
-	diff("attachments", a.Attachments, s.Attachments)
-	diff("chapters", a.Chapters, s.Chapters)
-	diff("runtime ms", a.RuntimeMillis, s.RuntimeMillis)
-	diff("video kbps", a.VideoBitrateKbps, s.VideoBitrateKbps)
 }
 
 func secs(s float64) string {

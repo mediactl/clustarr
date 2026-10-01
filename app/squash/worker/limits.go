@@ -19,7 +19,6 @@ package worker
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/mediactl/clustarr/app/squash/task"
@@ -28,93 +27,17 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
-// limitsCache holds this pool worker's measured device limits, one
-// measurement per (tier, requested bFrames, requested rcLookahead): a trial
-// encode is about a second and a device does not change under a running
-// process. Every lookup republishes the node's entry (task.
-// PublishEncoderLimits), which keeps it fresh for the controller for as long
-// as the pool takes tasks. What the device's NVDEC decodes is measured once
-// per process, the first time the NVENC tier is asked for, and rides along
-// with every NVENC tier's limits.
+// limitsCache publishes what this pool pod measured of its device
+// (Engine.Measure) under its node in clustarr-progress
+// encoder-limits.<class>, which the controller plans with and
+// TranscodeProfile status.encoderLimits shows (spec §4).
 type limitsCache struct {
 	kv          events.KV // clustarr-progress; nil publishes nothing
 	class, node string
-	// probeDecoders is transcode.ProbeDecoders; tests replace it.
-	probeDecoders func(ctx context.Context, ffmpeg string) (transcode.Decoders, error)
-
-	mu       sync.Mutex
-	byValue  map[limitsKey]transcode.Limits
-	decoders *transcode.Decoders // nil until measured, or when the measurement failed
-	decoded  bool                // the measurement ran
-}
-
-type limitsKey struct {
-	tier               transcode.Tier
-	bFrames, lookahead int32
 }
 
 func newLimitsCache(kv events.KV, class, node string) *limitsCache {
-	return &limitsCache{
-		kv: kv, class: class, node: node, probeDecoders: transcode.ProbeDecoders,
-		byValue: map[limitsKey]transcode.Limits{},
-	}
-}
-
-// forTier is Capabilities.Limits for a plan on tier asking for v: the
-// measured limits, or none when the measurement failed -- the encode then
-// runs with the profile's values, as it did before limits were measured,
-// and the failure is logged.
-func (c *limitsCache) forTier(ctx context.Context, ffmpeg string, tier transcode.Tier, v transcode.VideoSpec) map[transcode.Tier]transcode.Limits {
-	key := limitsKey{tier: tier, bFrames: v.BFrames, lookahead: v.RCLookahead}
-	c.mu.Lock()
-	l, ok := c.byValue[key]
-	c.mu.Unlock()
-	if !ok {
-		measured, err := transcode.ProbeLimits(ctx, ffmpeg, tier, v)
-		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: could not measure the encoder's limits; using the profile's values",
-				"tier", tier, "error", err)
-			return nil
-		}
-		l = measured
-		c.mu.Lock()
-		c.byValue[key] = l
-		c.mu.Unlock()
-		logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: measured the encoder's limits",
-			"tier", tier, "maxBFrames", l.MaxBFrames, "maxLookahead", l.MaxLookahead)
-	}
-	if tier == transcode.TierNVENC {
-		l.NVDEC = c.nvdec(ctx, ffmpeg)
-	}
-	if c.kv != nil && tier != transcode.TierCPUx265 {
-		if err := task.PublishEncoderLimits(ctx, c.kv, c.class, c.node, l, time.Now()); err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: could not publish the encoder's limits", "error", err)
-		}
-	}
-	return map[transcode.Tier]transcode.Limits{tier: l}
-}
-
-// nvdec is what this device's NVDEC decodes, measured on the first call: a
-// failed measurement is logged and left unmeasured (nil), so Plan decides
-// from the static list, and is not retried under this process -- unless it
-// failed because its task was cancelled (squasharr withdrew it), which
-// says nothing about the device, so the next task measures again.
-func (c *limitsCache) nvdec(ctx context.Context, ffmpeg string) *transcode.Decoders {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.decoded {
-		d, err := c.probeDecoders(ctx, ffmpeg)
-		c.decoded = err == nil || ctx.Err() == nil
-		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: could not measure what NVDEC decodes; deciding from the static list",
-				"error", err)
-		} else {
-			c.decoders = &d
-			logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: measured what NVDEC decodes",
-				"decodes", d.Decodable())
-		}
-	}
-	return c.decoders
+	return &limitsCache{kv: kv, class: class, node: node}
 }
 
 // publishHealth publishes this node's measured limits l with its device's

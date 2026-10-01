@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // TestStatusPlanIsTheArgvTheWorkerRenders closes the gap-fix item "the HDR
@@ -129,21 +130,16 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			cfg := pool.Config{Image: "transcoder:test"}
 			t.Setenv(worker.CPULimitEnv, cpuLimitEnv(t, pool.Template(tp, class, cfg)))
 
-			// The worker's own path, as app/squash/worker.Process takes it.
+			// The worker's own path, as app/squash/worker.Process takes it:
+			// the standard's plan from its live probe, on its class's tier.
 			info, err := transcode.FromProbe(mi, raw)
 			require.NoError(t, err)
 			info.Path = src
-			caps, err := transcode.ProbeCapabilities(ctx, "/usr/bin/ffmpeg")
-			require.NoError(t, err)
-			plan, err := transcode.Plan(info, worker.ProfileSpec(tk.Profile.Spec, tk.Profile.Hardware), caps, transcode.PlanMeta{
-				ProfileName: tk.Profile.Name, ProfileHash: tk.Profile.Hash, Threads: worker.ThreadsFromEnv(), OutputPath: tk.OutputPath,
-			})
-			require.NoError(t, err)
-			require.Equal(t, transcode.DecisionEncode, plan.Decision)
-
-			assert.Equal(t, tj.Status.Plan.VideoArgs, plan.VideoArgs, "the recorded video arguments are the worker's")
-			assert.Equal(t, tj.Status.Plan.ArgsHash, transcode.ArgsHash(plan), "status.plan.argsHash is the worker's argv")
-			assert.Contains(t, strings.Join(plan.VideoArgs, " "), "hdr10=1")
+			plan := standard.Plan(info, worker.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec),
+				standard.Hardware{Tier: worker.StandardTier(worker.ProfileSpec(tk.Profile.Spec, tk.Profile.Hardware))})
+			require.Equal(t, standard.DecisionEncode, plan.Decision)
+			assert.Equal(t, tj.Status.Plan.PlanHash, plan.Hash(), "status.plan.planHash is the worker's plan")
+			assert.Equal(t, "hdr10", plan.Video.HDR)
 		})
 	}
 }

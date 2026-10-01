@@ -59,6 +59,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
+	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
 func startEnv(t *testing.T) (*rest.Config, client.Client) {
@@ -374,7 +375,7 @@ func TestDispatchPublishesTheTaskThenQueues(t *testing.T) {
 	assert.Equal(t, pool.Name(pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}), *got.Status.JobRef)
 	require.NotNil(t, got.Status.Plan)
 	assert.Equal(t, "libx265", got.Status.Plan.Encoder)
-	assert.Len(t, got.Status.Plan.ArgsHash, 64)
+	assert.Len(t, got.Status.Plan.PlanHash, 64)
 	assert.Equal(t, got.Generation, got.Status.ObservedGeneration)
 	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned))
 	cond := k8s.FindCondition(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated)
@@ -386,7 +387,7 @@ func TestDispatchPublishesTheTaskThenQueues(t *testing.T) {
 	require.Len(t, tasks, 1, "Queued means the task is on the queue")
 	tk := tasks[0]
 	assert.Equal(t, schema.Ref{Namespace: ns, Name: "heat-hevc", UID: string(got.UID)}, tk.Job)
-	assert.Equal(t, got.Status.Plan.ArgsHash, tk.ArgsHash)
+	assert.Equal(t, got.Status.Plan.PlanHash, tk.PlanHash)
 	assert.EqualValues(t, 1, tk.Attempt)
 	assert.Equal(t, "cpu", tk.Class)
 	assert.Equal(t, "/data/media/movies/heat.mkv", tk.SourcePath)
@@ -409,13 +410,15 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
-	newProfile(t, c, "strict", "hash2", func(p *transcodev1alpha1.TranscodeProfile) {
-		p.Spec.HDR.DolbyVision = transcodev1alpha1.DolbyVisionReject
-	})
 	newMediaFile(t, c, ns, "compliant", "p1", ptr.To(compliantProbe()))
-	newMediaFile(t, c, ns, "dovi", "p2", ptr.To(dolbyVisionProbe()))
+	// At the stored summary's stream cap: the one refusal left.
+	crowded := compliantProbe()
+	for i := len(crowded.Audio); i < transcode.MaxStreamsPerKind; i++ {
+		crowded.Audio = append(crowded.Audio, commonv1.AudioStream{Index: int32(i + 1), Codec: "aac", Channels: 2})
+	}
+	newMediaFile(t, c, ns, "crowded", "p2", &crowded)
 	newTJ(t, c, ns, "compliant-hevc", "compliant", "hevc", "p1", nil)
-	newTJ(t, c, ns, "dovi-strict", "dovi", "strict", "p2", nil)
+	newTJ(t, c, ns, "crowded-hevc", "crowded", "hevc", "p2", nil)
 
 	r := newReconciler(t, c, map[string]int32{"cpu": 10})
 
@@ -425,7 +428,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, tj.Status.Phase)
 		require.NotNil(t, tj.Status.Plan)
 		assert.Equal(t, transcodev1alpha1.PlanModeSkip, tj.Status.Plan.Mode)
-		assert.Equal(t, "already compliant with profile", tj.Status.Plan.SkipReason)
+		assert.Equal(t, "already HEVC Main 10 with Apple TV direct-play audio", tj.Status.Plan.SkipReason)
 		assert.Nil(t, tj.Status.JobRef)
 		assert.NotNil(t, tj.Status.FinishedAt)
 		cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
@@ -435,11 +438,11 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	})
 
 	t.Run("reject", func(t *testing.T) {
-		reconcileTJ(t, r, ns, "dovi-strict")
-		tj := getTJ(t, c, ns, "dovi-strict")
+		reconcileTJ(t, r, ns, "crowded-hevc")
+		tj := getTJ(t, c, ns, "crowded-hevc")
 		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, tj.Status.Phase)
 		assert.Nil(t, tj.Status.Plan, "R1: a reject leaves status.plan unset")
-		assert.Contains(t, tj.Status.Message, "Dolby Vision")
+		assert.Contains(t, tj.Status.Message, "audio streams")
 		assert.Nil(t, tj.Status.JobRef)
 		assert.Nil(t, k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionFailed),
 			"R1: a reject is not a failure")
@@ -447,7 +450,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		require.NotNil(t, cond)
 		assert.Equal(t, metav1.ConditionFalse, cond.Status)
 		assert.Equal(t, transcodejob.ReasonRejected, cond.Reason)
-		assert.Contains(t, cond.Message, "reject")
+		assert.Contains(t, cond.Message, "probe summary")
 	})
 
 	// A file squasharr already wrote under this profile is not transcoded
@@ -496,7 +499,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 			}
 			assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, tj.Status.Phase, "message: %s", tj.Status.Message)
 			require.NotNil(t, tj.Status.Plan)
-			assert.Equal(t, "tagged with current profile hash", tj.Status.Plan.SkipReason)
+			assert.Contains(t, tj.Status.Plan.SkipReason, "this profile already wrote this file")
 		})
 	}
 
@@ -1397,10 +1400,10 @@ func TestTerminalMetricsObservedOnce(t *testing.T) {
 	assert.Equal(t, sizeBefore+1, histogramCount(t, metrics.TranscodeSizeRatio, "cpu", "hd"))
 }
 
-// With --worker-engine=ffgo the controller plans with the standard and
-// records it: engine, the plan hash the worker compares, what happens to
-// the video and where it is decoded; the task carries the engine and hash.
-func TestTheInProcessEngineRecordsTheStandardPlan(t *testing.T) {
+// The controller plans with the standard and records it: engine, the plan
+// hash the worker compares, what happens to the video and where it is
+// decoded; the task carries the engine and hash.
+func TestTheControllerRecordsTheStandardPlan(t *testing.T) {
 	_, c := startEnv(t)
 	const ns = "tj-ffgo"
 	newNamespace(t, c, ns)
@@ -1409,7 +1412,6 @@ func TestTheInProcessEngineRecordsTheStandardPlan(t *testing.T) {
 	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
-	r.Engine = "ffgo"
 
 	reconcileTJ(t, r, ns, "heat-hevc")
 	got := getTJ(t, c, ns, "heat-hevc")
@@ -1417,7 +1419,6 @@ func TestTheInProcessEngineRecordsTheStandardPlan(t *testing.T) {
 	require.NotNil(t, got.Status.Plan)
 	assert.Equal(t, "ffgo", got.Status.Plan.Engine)
 	assert.Len(t, got.Status.Plan.PlanHash, 64)
-	assert.Empty(t, got.Status.Plan.ArgsHash, "no argv for the in-process engine")
 	assert.Equal(t, "libx265", got.Status.Plan.Encoder)
 	assert.Equal(t, "encode", got.Status.Plan.VideoAction)
 	assert.Equal(t, "cpu", got.Status.Plan.Decode)
@@ -1428,11 +1429,10 @@ func TestTheInProcessEngineRecordsTheStandardPlan(t *testing.T) {
 	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash)
 }
 
-// The argv planner rejects Dolby Vision under the default passthrough
-// policy, or gives it only libx265; the standard encodes its HDR10 base
-// layer on the profile's GPU like any HDR10 source (spec §5), so the
-// in-process engine keeps neither verdict.
-func TestTheInProcessEngineEncodesDolbyVisionOnTheProfilesGPU(t *testing.T) {
+// The standard encodes a Dolby Vision 8.1 source's HDR10 base layer on the
+// profile's GPU like any HDR10 source (spec §5): the deleted argv planner
+// rejected it under the default passthrough policy.
+func TestTheStandardEncodesDolbyVisionOnTheProfilesGPU(t *testing.T) {
 	_, c := startEnv(t)
 	const ns = "tj-ffgo-dv"
 	newNamespace(t, c, ns)
@@ -1443,7 +1443,6 @@ func TestTheInProcessEngineEncodesDolbyVisionOnTheProfilesGPU(t *testing.T) {
 	newMediaFile(t, c, ns, "dune", "probe1", ptr.To(dolbyVisionProbe()))
 	newTJ(t, c, ns, "dune-hevc", "dune", "hevc-nv", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"nvidia": 0})
-	r.Engine = "ffgo"
 
 	reconcileTJ(t, r, ns, "dune-hevc")
 	got := getTJ(t, c, ns, "dune-hevc")
@@ -1453,29 +1452,34 @@ func TestTheInProcessEngineEncodesDolbyVisionOnTheProfilesGPU(t *testing.T) {
 	assert.Equal(t, "hdr10", got.Status.Plan.HDRMode)
 }
 
-// A job planned for one engine and dispatched under another is planned
-// again for the controller's: flipping --worker-engine needs no clean-up.
-func TestAJobPlannedForTheOtherEngineIsReplannedAtDispatch(t *testing.T) {
+// A job whose recorded plan the deleted argv engine made (engine ffmpeg) is
+// planned again with the standard at dispatch: upgrading needs no clean-up.
+func TestAJobRecordedWithAnArgvPlanIsReplannedAtDispatch(t *testing.T) {
 	_, c := startEnv(t)
-	const ns = "tj-engine-flip"
+	ctx := context.Background()
+	const ns = "tj-argv-plan"
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
-	argv := newReconciler(t, c, map[string]int32{"cpu": 0}) // plans, admits nothing
-	reconcileTJ(t, argv, ns, "heat-hevc")
+	planner := newReconciler(t, c, map[string]int32{"cpu": 0}) // plans, admits nothing
+	reconcileTJ(t, planner, ns, "heat-hevc")
 	got := getTJ(t, c, ns, "heat-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase)
-	require.NotEmpty(t, got.Status.Plan.ArgsHash)
+
+	// What a job planned before the argv engine was deleted carries.
+	got.Status.Plan = &transcodev1alpha1.Plan{Engine: "ffmpeg", Mode: transcodev1alpha1.PlanModeTranscode, Encoder: "libx265"}
+	require.NoError(t, squasharrstatus.Patch(ctx, c, k8s.ManagerSquasharr, got, nil))
 
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
-	r.Engine = "ffgo"
 	reconcileTJ(t, r, ns, "heat-hevc")
 	got = getTJ(t, c, ns, "heat-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
 	assert.Equal(t, "ffgo", got.Status.Plan.Engine)
+	assert.Len(t, got.Status.Plan.PlanHash, 64)
 	tasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "ffgo", tasks[0].Engine)
+	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash)
 }

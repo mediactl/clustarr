@@ -262,12 +262,6 @@ func ProfileFields(st transcodev1alpha1.TranscodeProfileStatus) *transcodeac.Tra
 		WithRunningJobs(st.RunningJobs)
 	for _, l := range st.EncoderLimits {
 		e := transcodeac.EncoderLimit().WithClass(l.Class).WithNode(l.Node)
-		if l.MaxBFrames != nil {
-			e.WithMaxBFrames(*l.MaxBFrames)
-		}
-		if l.MaxLookahead != nil {
-			e.WithMaxLookahead(*l.MaxLookahead)
-		}
 		if len(l.NVDEC) > 0 {
 			e.WithNVDEC(l.NVDEC...)
 		}
@@ -336,17 +330,11 @@ func planAC(p *transcodev1alpha1.Plan) *transcodeac.PlanApplyConfiguration {
 	if p.HDRMode != "" {
 		ac = ac.WithHDRMode(p.HDRMode)
 	}
-	if len(p.VideoArgs) > 0 {
-		ac = ac.WithVideoArgs(p.VideoArgs...)
-	}
 	for _, t := range p.AudioTracks {
 		ac = ac.WithAudioTracks(audioPlanAC(t))
 	}
 	if len(p.SubtitleTracks) > 0 {
 		ac = ac.WithSubtitleTracks(p.SubtitleTracks...)
-	}
-	if p.ArgsHash != "" {
-		ac = ac.WithArgsHash(p.ArgsHash)
 	}
 	if p.Engine != "" {
 		ac = ac.WithEngine(p.Engine)

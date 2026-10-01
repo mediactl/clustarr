@@ -254,9 +254,6 @@ spec:
               plan:
                 description: Plan is the planner's rendered decision.
                 properties:
-                  argsHash:
-                    description: ArgsHash is a hash of the rendered arguments.
-                    type: string
                   audioTracks:
                     description: AudioTracks is the per-track audio plan.
                     items:
@@ -305,8 +302,10 @@ spec:
                       libx265, hevc_nvenc).
                     type: string
                   engine:
-                    description: 'Engine runs this plan: ffmpeg (the argv engine)
-                      or ffgo (in-process).'
+                    description: |-
+                      Engine runs this plan: ffgo (in-process). ffmpeg is a plan recorded by
+                      the argv engine, deleted in ffgo Phase 5; such a job is planned again
+                      at dispatch.
                     enum:
                     - ffmpeg
                     - ffgo
@@ -325,7 +324,7 @@ spec:
                   planHash:
                     description: |-
                       PlanHash is the in-process engine's plan hash (sha256 of the plan's
-                      JSON); the worker compares its own plan's with it, as ArgsHash.
+                      JSON); the worker compares its own plan's with it.
                     maxLength: 64
                     type: string
                   skipReason:
@@ -346,12 +345,6 @@ spec:
                     - copy
                     - encode
                     type: string
-                  videoArgs:
-                    description: VideoArgs are the rendered ffmpeg video arguments.
-                    items:
-                      type: string
-                    maxItems: 200
-                    type: array
                 type: object
               progress:
                 description: Progress is the worker-reported encode progress.

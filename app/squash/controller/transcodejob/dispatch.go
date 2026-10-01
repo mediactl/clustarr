@@ -38,7 +38,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
-	"github.com/mediactl/clustarr/pkg/transcode/standard"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -143,13 +142,11 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	}
 
 	var replanned *planning
-	if !planRunsIn(tj.Status.Plan, class) || planEngine(tj.Status.Plan) != r.engine() {
-		p, fail := planFor(&tj, tp, &mf, &class, r.encoderLimits(ctx, &tj, tp, &class), r.engine())
-		if fail == nil {
-			p = skipCPUPlanUnderGPUPin(&tj, tp, p)
-		}
-		if fail != nil || p.result.Decision == transcode.DecisionSkip || p.result.Decision == transcode.DecisionReject ||
-			!planRunsIn(statusPlanOf(p), class) {
+	// A plan recorded by the deleted argv engine (no engine, or ffmpeg) is
+	// planned again with the standard, as one for another class is.
+	if !planRunsIn(tj.Status.Plan, class) || tj.Status.Plan.Engine != task.EngineFFgo {
+		p, fail := planFor(&tj, tp, &mf, &class, r.encoderLimits(ctx, &tj, tp, &class))
+		if fail != nil || p.skips() || !planRunsIn(statusPlanOf(p), class) {
 			return r.keepPlanned(ctx, key, tj.Status.Attempts, tp, class, p, fail)
 		}
 		replanned = &p
@@ -372,34 +369,6 @@ func planRunsIn(p *transcodev1alpha1.Plan, class transcodev1alpha1.Hardware) boo
 		return false
 	}
 	return !encodesVideo(p) || hardwareForEncoder(p.Encoder) == class
-}
-
-// skipCPUPlanUnderGPUPin turns an encode only the CPU can run into a skip
-// with a reason when tj is pinned to a GPU class: the pin means the job never
-// goes to cpu, and the planner gives some sources (Dolby Vision) no hardware
-// encoder, so such a job could otherwise only wait in Planned forever. An
-// auto job's plan is returned as it is. p.result is copied, never mutated.
-func skipCPUPlanUnderGPUPin(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile, p planning) planning {
-	g := pinnedGPU(tj, tp)
-	if g == "" || p.result == nil || p.result.Decision != transcode.DecisionEncode {
-		return p
-	}
-	enc := encoderName(p.result)
-	if p.std != nil {
-		enc = p.std.Video.Encoder
-	}
-	if hardwareForEncoder(enc) == g {
-		return p
-	}
-	res := *p.result
-	res.Decision = transcode.DecisionSkip
-	res.Reason = fmt.Sprintf("the profile runs only on %s, and this source can only be encoded with %s (%s)", g, enc, p.result.Reason)
-	p.result = &res
-	if p.std != nil { // recorded as the skip it now is, not the encode it was
-		std := standard.Result{Decision: standard.DecisionSkip, Reason: res.Reason, Container: p.std.Container, Tags: p.std.Tags}
-		p.std = &std
-	}
-	return p
 }
 
 // classTiers are the tiers a GPU class's pool encodes with.

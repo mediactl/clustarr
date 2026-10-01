@@ -174,32 +174,26 @@ docker-build: ## Build controller, media and transcoder images.
 
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): nvidia pools run
 # the transcoder image, the NVIDIA container runtime injecting the driver.
+# The transcoder is FROM scratch; its -debug twin adds a busybox.
+TRANSCODER_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/transcoder-debug:dev
+# The classes the transcoder image is self-checked for: it serves every
+# pool, cpu, nvidia and intel (ADR 0015).
+TRANSCODER_CLASSES ?= cpu cuda intel
 
-# The distroless transcoders (FROM scratch, images/Dockerfile.transcoder-distroless):
-# target:class pairs to self-check (transcoder serves every pool, cpu, nvidia
-# and intel, ADR 0015); each target, and its -debug twin, is built once.
-DISTROLESS_TARGETS ?= transcoder:cpu transcoder:cuda transcoder:intel
-DISTROLESS_BUILDS = $(sort $(foreach tc,$(DISTROLESS_TARGETS),$(firstword $(subst :, ,$(tc)))))
-DISTROLESS_REPO ?= ghcr.io/mediactl/clustarr
+.PHONY: docker-build-transcoder
+docker-build-transcoder: ## Build the transcoder image and its -debug twin.
+	docker build -f images/Dockerfile.transcoder --target transcoder -t $(TRANSCODER_IMG) .
+	docker build -f images/Dockerfile.transcoder --target transcoder-debug -t $(TRANSCODER_DEBUG_IMG) .
 
-.PHONY: docker-build-distroless
-docker-build-distroless: ## Build the distroless transcoder images and their -debug twins.
-	@set -e; for t in $(DISTROLESS_BUILDS); do \
-	  for v in $$t $$t-debug; do \
-	    docker build -f images/Dockerfile.transcoder-distroless --target $$v -t $(DISTROLESS_REPO)/$$(echo $$v | sed 's/^transcoder/transcoder-distroless/;s/-distroless-intel/-intel-distroless/'):dev . ; \
-	  done; done
-
-.PHONY: docker-selfcheck-distroless
-docker-selfcheck-distroless: ## Run --self-check in each distroless transcoder image as the pool pods run it.
-	@set -e; for tc in $(DISTROLESS_TARGETS); do t=$${tc%%:*}; c=$${tc##*:}; \
-	  n=$(DISTROLESS_REPO)/$$(echo $$t | sed 's/^transcoder/transcoder-distroless/;s/-distroless-intel/-intel-distroless/'); \
-	  echo "== $$n:dev ($$c)"; \
-	  docker run --rm --read-only --cap-drop=ALL --user 1000:1000 $$n:dev --self-check=$$c >/dev/null; \
-	  if docker run --rm --entrypoint /bin/sh $$n:dev -c true 2>/dev/null; then echo "$$n:dev has a shell" >&2; exit 1; fi; \
-	  docker run --rm --entrypoint /bin/sh $$n-debug:dev -c true; \
-	  docker run --rm --entrypoint /bin/sh $$n-debug:dev -c 'set -e; for f in /usr/share/licenses/ffmpeg/LICENSE.txt /usr/share/licenses/ffmpeg/SOURCE /usr/share/licenses/clustarr/LICENSE /usr/share/licenses/ffgo/LICENSE /usr/share/doc/libc6/copyright; do test -s $$f || { echo "missing notice $$f" >&2; exit 1; }; done'; \
-	  echo "ok"; \
-	done
+.PHONY: docker-selfcheck-transcoder
+docker-selfcheck-transcoder: ## Run --self-check in the transcoder image as the pool pods run it.
+	@set -e; for c in $(TRANSCODER_CLASSES); do \
+	  echo "== $(TRANSCODER_IMG) ($$c)"; \
+	  docker run --rm --read-only --cap-drop=ALL --user 1000:1000 $(TRANSCODER_IMG) --self-check=$$c >/dev/null; \
+	done; \
+	if docker run --rm --entrypoint /bin/sh $(TRANSCODER_IMG) -c true 2>/dev/null; then echo "$(TRANSCODER_IMG) has a shell" >&2; exit 1; fi; \
+	docker run --rm --entrypoint /bin/sh $(TRANSCODER_DEBUG_IMG) -c 'set -e; for f in /usr/share/licenses/ffmpeg/LICENSE.txt /usr/share/licenses/ffmpeg/SOURCE /usr/share/licenses/clustarr/LICENSE /usr/share/licenses/ffgo/LICENSE /usr/share/doc/libc6/copyright; do test -s $$f || { echo "missing notice $$f" >&2; exit 1; }; done; for f in /usr/bin/ffmpeg /usr/bin/ffprobe; do ! test -e $$f || { echo "$$f is in the image" >&2; exit 1; }; done'; \
+	echo "ok"
 
 ##@ Test
 

@@ -40,7 +40,7 @@ import (
 type Engine struct{}
 
 // New loads FFmpeg and checks it can run the engine: FFmpeg 9 with an ffgo
-// shim built for it, which the transcoder-distroless image carries. The
+// shim built for it, which the transcoder image carries. The
 // error names what is missing; the worker then runs no ffgo task.
 func New() (Engine, error) {
 	if err := ffgo.Init(); err != nil {

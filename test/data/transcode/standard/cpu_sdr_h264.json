@@ -1,6 +1,6 @@
 {
   "Decision": "encode",
-  "Reason": "encode to HEVC Main 10",
+  "Reason": "encode to HEVC Main (8-bit: SDR at 1080p or less)",
   "Container": "mkv",
   "Video": {
     "SourceIndex": 0,

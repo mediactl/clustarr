@@ -479,7 +479,7 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 }
 
 // TestSquasharrIntelRenderGroups holds X14's --intel-render-groups (the
-// flag images/Dockerfile.transcoder's header names) to squasharr.Options: from
+// supplementary groups an Intel pool pod needs for /dev/dri) to squasharr.Options: from
 // the flag, from $CLUSTARR_INTEL_RENDER_GROUPS (which the chart sets), empty
 // by default because the host render GID varies per install, and a typo
 // refused at startup rather than at every Job's pod creation.

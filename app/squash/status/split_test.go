@@ -64,17 +64,17 @@ func fullJobStatus() transcodev1alpha1.TranscodeJobStatus {
 		ObservedGeneration: 3,
 		Phase:              transcodev1alpha1.TranscodeJobPhaseRunning,
 		Plan: &transcodev1alpha1.Plan{
-			Encoder: "libx265",
-			Mode:    transcodev1alpha1.PlanModeTranscode,
-			HDRMode: "hdr10",
-			VideoArgs: []string{
-				"-c:v", "libx265", "-crf", "22",
-			},
+			Encoder:     "libx265",
+			Mode:        transcodev1alpha1.PlanModeTranscode,
+			HDRMode:     "hdr10",
+			Engine:      "ffgo",
+			VideoAction: "encode",
+			Decode:      "nvdec",
 			AudioTracks: []transcodev1alpha1.AudioPlan{
 				{SourceIndex: 1, Action: transcodev1alpha1.AudioActionEncode, Codec: "aac", BitrateKbps: 128, Default: true},
 			},
 			SubtitleTracks: []int32{2, 3},
-			ArgsHash:       "deadbeef",
+			PlanHash:       "deadbeef",
 		},
 		JobRef:         &jobRef,
 		Attempts:       1,
@@ -221,10 +221,10 @@ func TestProfileFieldsResendsEveryEncoderLimitLeaf(t *testing.T) {
 	st := fullProfileStatus()
 	st.EncoderLimits = []transcodev1alpha1.EncoderLimit{{
 		Class: transcodev1alpha1.HardwareNVIDIA, Node: "n1",
-		MaxBFrames: ptr.To[int32](5), MaxLookahead: ptr.To[int32](54), NVDEC: []string{"h264:8", "hevc:10"},
+		NVDEC: []string{"h264:8", "hevc:10"}, Healthy: ptr.To(false), Message: "no /dev/nvidia0",
 	}}
 	ac := status.ProfileFields(st)
 	require.Len(t, ac.EncoderLimits, 1)
-	assert.Equal(t, []string{"Class", "MaxBFrames", "MaxLookahead", "NVDEC", "Node"}, setFields(&ac.EncoderLimits[0]))
+	assert.Equal(t, []string{"Class", "Healthy", "Message", "NVDEC", "Node"}, setFields(&ac.EncoderLimits[0]))
 	assert.Equal(t, []string{"h264:8", "hevc:10"}, ac.EncoderLimits[0].NVDEC)
 }

@@ -160,6 +160,34 @@ func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "Dockerfile.media-cuda stays gone")
 }
 
+// The transcoder image carries no ffmpeg or ffprobe executable: the worker
+// runs every transcode and probe in-process (ffgo Phase 5), and
+// app/squash's TestTheWorkerNeverExecsFFmpeg keeps it from exec'ing one.
+// Neither the Dockerfile nor stage.sh may put one in the image, and
+// stage.sh's last step refuses one that arrives some other way (a package
+// the Intel runtime pulls in, say). The Wolfi image that carried them, the
+// last to be named transcoder before this one, stays gone.
+func TestTheTranscoderImageCarriesNoFFmpegExecutable(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+	installs := regexp.MustCompile(`(?m)^[^#\n]*(/usr/bin/ff(mpeg|probe)|bin/ff(mpeg|probe)\s+\S*/usr/bin)`)
+	for _, f := range []string{"images/Dockerfile.transcoder", "images/distroless/stage.sh"} {
+		b, err := os.ReadFile(filepath.Join(root, f))
+		require.NoError(t, err)
+		if m := installs.Find(b); m != nil {
+			t.Errorf("%s puts an FFmpeg executable in the transcoder image: %q", f, m)
+		}
+	}
+	stage, err := os.ReadFile(filepath.Join(root, "images", "distroless", "stage.sh"))
+	require.NoError(t, err)
+	assert.Regexp(t, `(?s)for f in ffmpeg ffprobe; do.*exit 1`, string(stage), "stage.sh refuses a staged ffmpeg or ffprobe")
+	_, err = os.Stat(filepath.Join(root, "images", "Dockerfile.transcoder-distroless"))
+	assert.True(t, os.IsNotExist(err), "Dockerfile.transcoder-distroless became Dockerfile.transcoder")
+	df, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.transcoder"))
+	require.NoError(t, err)
+	assert.Regexp(t, `(?im)^FROM\s+scratch\s+AS\s+transcoder\s*$`, string(df), "the transcoder is the FROM-scratch image")
+}
+
 // Every pool, Intel's included, runs the one transcoder image (ADR 0015),
 // so that image carries the Intel media runtime -- the iHD VAAPI driver
 // and both QSV runtimes, which nothing injects at run time the way the
@@ -167,7 +195,7 @@ func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
 func TestTheOneTranscoderImageCarriesTheIntelStack(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
-	b, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.transcoder-distroless"))
+	b, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.transcoder"))
 	require.NoError(t, err)
 	df := string(b)
 	assert.NotRegexp(t, `(?im)^FROM\s+\S+\s+AS\s+transcoder-intel`, df, "no Intel-only target")

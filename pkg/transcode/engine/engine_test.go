@@ -20,11 +20,13 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -139,4 +141,41 @@ func TestAnUnreadableInputNamesTheStage(t *testing.T) {
 	var e *Error
 	require.True(t, errors.As(err, &e), "%v", err)
 	assert.Equal(t, "demux", e.Stage)
+}
+
+// Progress carries what the worker's telemetry and status report: bytes
+// written so far and the output's bit rate, as ffmpeg's -progress did.
+func TestProgressReportsTheOutputsSizeAndBitRate(t *testing.T) {
+	src := everythingClip(t, 3)
+	out := filepath.Join(t.TempDir(), "out.part.mkv")
+	var last transcode.Progress
+	_, err := Run(context.Background(), remuxPlan(), src, out, Options{Progress: func(p transcode.Progress) { last = p }})
+	require.NoError(t, err)
+	st, err := os.Stat(out)
+	require.NoError(t, err)
+	assert.Equal(t, st.Size(), last.OutputBytes, "the last report is the finished file")
+	assert.Positive(t, last.BitrateKbps)
+}
+
+// A stage that encodes a tiny input to the end must not close its encoder
+// before the muxer has read its parameters to write the header: the
+// muxer's AddEncoderStream then read a freed codec context and the process
+// died with SIGSEGV (seen under load, in the worker's measurement trials).
+func TestATinyInputNeverRacesTheMuxer(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	src := filepath.Join(t.TempDir(), "tiny.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=64x64:rate=25", "-frames:v", "5", "-c:v", "libx264", src)
+	plan := encodePlan(standard.VideoPlan{Encoder: "libx265", Options: fastX265, Decode: "cpu", Filter: "format=yuv420p10le", HDR: "sdr"})
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	for i := range 64 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := Run(context.Background(), plan, src, filepath.Join(dir, fmt.Sprintf("o%d.mkv", i)), Options{})
+			assert.NoError(t, err)
+		}()
+	}
+	wg.Wait()
 }

@@ -154,23 +154,10 @@ func ReadEncoderLimits(ctx context.Context, kv events.KV, class string, now time
 	return out, nil
 }
 
-// tightest is, per limit, the lower of a's and b's, and the formats both
-// decode (narrowestDecoders); a limit only one of them knows is kept.
+// tightest is the formats both a and b decode (narrowestDecoders): a job
+// may land on any node of the class.
 func tightest(a, b transcode.Limits) transcode.Limits {
-	pick := func(x, y *int32) *int32 {
-		switch {
-		case x == nil:
-			return y
-		case y == nil || *x <= *y:
-			return x
-		default:
-			return y
-		}
-	}
-	return transcode.Limits{
-		MaxBFrames: pick(a.MaxBFrames, b.MaxBFrames), MaxLookahead: pick(a.MaxLookahead, b.MaxLookahead),
-		NVDEC: narrowestDecoders(a.NVDEC, b.NVDEC),
-	}
+	return transcode.Limits{NVDEC: narrowestDecoders(a.NVDEC, b.NVDEC)}
 }
 
 // narrowestDecoders is, per format, decodable only when every side that

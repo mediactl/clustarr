@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -153,14 +152,14 @@ func (h *recordingHandler) WithGroup(string) slog.Handler { return h }
 // anything else -- run() logs off this ctx throughout, and once Process
 // used to read Options.JobName/Namespace to do exactly this before it lost
 // that pair, every worker log line silently stopped carrying the job.
-// Asserting this holds even when Process fails immediately (an FFmpegPath
-// nothing can run) proves logging.With runs unconditionally before run(),
-// not only on some success path.
+// Asserting this holds even when Process fails immediately (no engine)
+// proves logging.With runs unconditionally before run(), not only on some
+// success path.
 func TestProcessLogsWithTheTaskJob(t *testing.T) {
 	h := &recordingHandler{}
 	ctx := logging.NewContext(context.Background(), slog.New(h))
 	tk := task.Task{Job: schema.Ref{Namespace: "media", Name: "film-hevc"}}
-	Process(ctx, tk, Options{FFmpegPath: filepath.Join(t.TempDir(), "no-such-ffmpeg")})
+	Process(ctx, tk, Options{})
 
 	h.mu.Lock()
 	defer h.mu.Unlock()

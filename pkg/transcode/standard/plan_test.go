@@ -258,3 +258,29 @@ func TestMP4KeepsOnlyWhatItCanCarry(t *testing.T) {
 	assert.Equal(t, []int32{0, 1, 2}, mkv.Subtitles)
 	assert.True(t, mkv.Attachments)
 }
+
+// A file this profile already wrote (its CLUSTARR_PROFILE tag is this
+// profile and hash) is never transcoded again, whatever else the standard
+// would do with it.
+func TestAFileThisProfileWroteIsSkipped(t *testing.T) {
+	in := info(h264, audio(0, "truehd", 8, "7.1", "eng"))
+	in.Tags = map[string]string{"CLUSTARR_PROFILE": profile.Name + "@" + profile.Hash}
+	p := Plan(in, profile, cpu)
+	assert.Equal(t, DecisionSkip, p.Decision)
+	assert.Contains(t, p.Reason, "already wrote")
+
+	in.Tags["CLUSTARR_PROFILE"] = profile.Name + "@older"
+	assert.Equal(t, DecisionEncode, Plan(in, profile, cpu).Decision, "another hash's output is not this profile's")
+}
+
+// policy.minDuration (kept by the owner's API cut) skips a source shorter
+// than it: trailers, extras, samples.
+func TestASourceShorterThanMinDurationIsSkipped(t *testing.T) {
+	p := profile
+	p.MinDuration = 2 * time.Hour
+	got := Plan(info(h264, eac3), p, cpu) // an hour long
+	assert.Equal(t, DecisionSkip, got.Decision)
+	assert.Contains(t, got.Reason, "policy.minDuration")
+	p.MinDuration = time.Minute
+	assert.Equal(t, DecisionEncode, Plan(info(h264, eac3), p, cpu).Decision)
+}

@@ -779,18 +779,6 @@ spec:
                         last measured it (spec §4); false sends the class no work while every
                         node reports so. Absent is a report from a worker that predates it.
                       type: boolean
-                    maxBFrames:
-                      description: |-
-                        MaxBFrames is the most B-frames the device encodes, when a profile
-                        asked for more; absent is no limit known.
-                      format: int32
-                      type: integer
-                    maxLookahead:
-                      description: |-
-                        MaxLookahead is the deepest rate-control lookahead the device uses,
-                        when a profile asked for more; absent is no limit known.
-                      format: int32
-                      type: integer
                     message:
                       description: Message is why the device could not be used, when
                         Healthy is false.

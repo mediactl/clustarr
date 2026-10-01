@@ -58,12 +58,10 @@ type Task struct {
 	OutputPath      string     `json:"outputPath"`
 	Root            RootFolder `json:"root"`
 	OutputRoot      string     `json:"outputRoot,omitempty"`
-	ArgsHash        string     `json:"argsHash,omitempty"`
-	// Engine is the engine the recorded plan was made for: EngineFFmpeg
-	// (the argv engine, also when empty) or EngineFFgo (in-process).
+	// Engine is the engine the recorded plan was made for: EngineFFgo.
 	Engine string `json:"engine,omitempty"`
-	// PlanHash is the in-process engine's recorded plan hash, compared as
-	// ArgsHash is.
+	// PlanHash is the recorded plan's hash; the worker compares its own
+	// plan's with it.
 	PlanHash string          `json:"planHash,omitempty"`
 	Deadline metav1.Duration `json:"deadline"`
 }

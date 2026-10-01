@@ -32,12 +32,6 @@ type EncoderLimitApplyConfiguration struct {
 	Class *transcodev1alpha1.Hardware `json:"class,omitempty"`
 	// Node is the node the limits were measured on.
 	Node *string `json:"node,omitempty"`
-	// MaxBFrames is the most B-frames the device encodes, when a profile
-	// asked for more; absent is no limit known.
-	MaxBFrames *int32 `json:"maxBFrames,omitempty"`
-	// MaxLookahead is the deepest rate-control lookahead the device uses,
-	// when a profile asked for more; absent is no limit known.
-	MaxLookahead *int32 `json:"maxLookahead,omitempty"`
 	// NVDEC are the source formats, as codec:bitDepth ("h264:8",
 	// "hevc:10"), the node's decoder was measured to decode; the nvidia tier
 	// decodes those on the GPU. Absent is none measured or none decodable,
@@ -70,22 +64,6 @@ func (b *EncoderLimitApplyConfiguration) WithClass(value transcodev1alpha1.Hardw
 // If called multiple times, the Node field is set to the value of the last call.
 func (b *EncoderLimitApplyConfiguration) WithNode(value string) *EncoderLimitApplyConfiguration {
 	b.Node = &value
-	return b
-}
-
-// WithMaxBFrames sets the MaxBFrames field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the MaxBFrames field is set to the value of the last call.
-func (b *EncoderLimitApplyConfiguration) WithMaxBFrames(value int32) *EncoderLimitApplyConfiguration {
-	b.MaxBFrames = &value
-	return b
-}
-
-// WithMaxLookahead sets the MaxLookahead field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the MaxLookahead field is set to the value of the last call.
-func (b *EncoderLimitApplyConfiguration) WithMaxLookahead(value int32) *EncoderLimitApplyConfiguration {
-	b.MaxLookahead = &value
 	return b
 }
 

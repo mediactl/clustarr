@@ -18,16 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcode
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // The NVENC tier decodes on the GPU (NVDEC) when the source is a format the
@@ -110,8 +103,7 @@ type nvdecSample struct {
 	key, encoder, pixFmt string
 }
 
-// NVDECSample is one format ProbeDecoders and the in-process measurement
-// try on NVDEC: its Decoders key and the software encoder and pixel format
+// NVDECSample is one format the in-process measurement tries on NVDEC: its Decoders key and the software encoder and pixel format
 // that make a sample of it.
 type NVDECSample struct{ Key, Encoder, PixFmt string }
 
@@ -124,7 +116,7 @@ func NVDECSampleFormats() []NVDECSample {
 	return out
 }
 
-// nvdecSamples are the formats ProbeDecoders tries. H.264 10-bit is tried
+// nvdecSamples are the formats a device's NVDEC is measured on. H.264 10-bit is tried
 // so a device that does decode it is used; VC-1 has no encoder to make a
 // sample with and stays on the static list.
 var nvdecSamples = []nvdecSample{
@@ -137,85 +129,4 @@ var nvdecSamples = []nvdecSample{
 	{"av1:8", "libsvtav1", "yuv420p"},
 	{"av1:10", "libsvtav1", "yuv420p10le"},
 	{"mpeg2video:8", "mpeg2video", "yuv420p"},
-}
-
-// ProbeDecoders measures which formats this process's GPU decodes, by
-// encoding a five-frame sample of each in software and decoding it with
-// exactly the input options and filter the NVENC tier renders
-// ([nvdecInputArgs], scale_cuda), into hevc_nvenc. A format whose sample
-// cannot be made is left unmeasured; one whose decode fails is false. Every
-// trial failing is a measurement too -- a node with no working NVDEC encodes
-// as it did before NVDEC was used -- so ProbeDecoders errors only when it
-// cannot run at all.
-func ProbeDecoders(ctx context.Context, ffmpegPath string) (Decoders, error) {
-	ctx, span := tracing.Start(ctx, "transcode.probe_decoders")
-	defer span.End()
-	dir, err := os.MkdirTemp("", "clustarr-nvdec-")
-	if err != nil {
-		tracing.RecordError(span, err)
-		return Decoders{}, fmt.Errorf("transcode: probe decoders: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-
-	d := Decoders{Formats: map[string]bool{}}
-	for _, s := range nvdecSamples {
-		sample := filepath.Join(dir, strings.ReplaceAll(s.key, ":", "-")+".mkv")
-		if _, err := runFFmpeg(ctx, ffmpegPath, "-hide_banner", "-nostdin", "-loglevel", "error",
-			"-f", "lavfi", "-i", "testsrc2=size=256x256:rate=25", "-frames:v", "5",
-			"-pix_fmt", s.pixFmt, "-c:v", s.encoder, "-y", sample); err != nil {
-			continue // no encoder for this format here: unmeasured
-		}
-		args := append([]string{"-hide_banner", "-nostdin", "-loglevel", "error"}, nvdecInputArgs(4)...)
-		args = append(args, "-i", sample, "-vf", nvdecScaleFilter, "-c:v", "hevc_nvenc", "-f", "null", "-")
-		_, err := runFFmpeg(ctx, ffmpegPath, args...)
-		if ctx.Err() != nil {
-			return Decoders{}, ctx.Err()
-		}
-		d.Formats[s.key] = err == nil
-	}
-	return d, nil
-}
-
-func runFFmpeg(ctx context.Context, ffmpegPath string, args ...string) (string, error) {
-	var stderr strings.Builder
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stderr.String(), err
-}
-
-// nvdecScaleFilter converts decoded frames to the 10-bit surfaces
-// hevc_nvenc's main10 encodes from, on the GPU: the -pix_fmt p010le the
-// software path uses would make ffmpeg copy every frame back to the CPU.
-const nvdecScaleFilter = "scale_cuda=format=p010le"
-
-// nvdecScale is the GPU conversion for an encode at v: nvdecScaleFilter,
-// or NV12 for the 8-bit target.
-func nvdecScale(v VideoSpec) string { return "scale_cuda=format=" + gpuFormat(v, "p010le") }
-
-// gpuFormat is the surface format a GPU tier encodes from: tenBit (the
-// filter's own name for P010), or nv12 for the 8-bit target.
-func gpuFormat(v VideoSpec, tenBit string) string {
-	if eightBit(v) {
-		return "nv12"
-	}
-	return tenBit
-}
-
-// nvdecInputArgs are the input options that decode on NVDEC and keep frames
-// in GPU memory. extra is -extra_hw_frames: hevc_nvenc holds a frame for
-// every lookahead and B-frame slot, and a decoder surface pool sized for the
-// stream's own references alone runs out under it.
-func nvdecInputArgs(extra int32) []string {
-	return []string{
-		"-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
-		"-extra_hw_frames", strconv.Itoa(int(extra)),
-	}
-}
-
-// nvdecExtraFrames is the -extra_hw_frames for an encode at v: one surface
-// per lookahead frame and B-frame, and four more for the encoder's own
-// pipelining.
-func nvdecExtraFrames(v VideoSpec) int32 {
-	return v.RCLookahead + v.BFrames + 4
 }

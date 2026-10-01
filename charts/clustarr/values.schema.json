@@ -246,7 +246,7 @@
         "workerEngine": {
           "type": "string",
           "enum": ["", "ffmpeg", "ffgo"],
-          "description": "squasharr --worker-engine: the engine transcodes are planned for -- ffmpeg (the ffmpeg executable) or ffgo (in-process, the fixed standard). Empty uses the binary's default, ffmpeg."
+          "description": "Ignored: squasharr transcodes in-process only since ffgo Phase 5 deleted the ffmpeg engine and --worker-engine. Accepted so values written before then still render; to be removed."
         },
         "resources": { "$ref": "#/$defs/resources" },
         "nodeSelector": { "type": "object" },

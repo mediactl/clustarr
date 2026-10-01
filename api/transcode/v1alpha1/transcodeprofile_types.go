@@ -133,16 +133,6 @@ type EncoderLimit struct {
 	// +kubebuilder:validation:MaxLength=253
 	Node string `json:"node"`
 
-	// MaxBFrames is the most B-frames the device encodes, when a profile
-	// asked for more; absent is no limit known.
-	// +optional
-	MaxBFrames *int32 `json:"maxBFrames,omitempty"`
-
-	// MaxLookahead is the deepest rate-control lookahead the device uses,
-	// when a profile asked for more; absent is no limit known.
-	// +optional
-	MaxLookahead *int32 `json:"maxLookahead,omitempty"`
-
 	// NVDEC are the source formats, as codec:bitDepth ("h264:8",
 	// "hevc:10"), the node's decoder was measured to decode; the nvidia tier
 	// decodes those on the GPU. Absent is none measured or none decodable,

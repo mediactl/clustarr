@@ -32,7 +32,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -118,8 +117,10 @@ func TestTheJobDeclarationIsComplete(t *testing.T) {
 					WithEncoder("libx265").
 					WithMode(transcodev1alpha1.PlanModeTranscode).
 					WithHDRMode("hdr10").
-					WithVideoArgs("-c:v", "libx265", "-crf", "22").
-					WithArgsHash("deadbeef")).
+					WithEngine("ffgo").
+					WithPlanHash("deadbeef").
+					WithVideoAction("encode").
+					WithDecode("nvdec")).
 				WithJobRef(jobRef).
 				WithAttempts(1).
 				WithStartedAt(now).
@@ -189,8 +190,10 @@ func TestTheJobDeclarationIsComplete(t *testing.T) {
 		assert.Equal(t, "libx265", p.Encoder, "released plan.encoder")
 		assert.Equal(t, transcodev1alpha1.PlanModeTranscode, p.Mode, "released plan.mode")
 		assert.Equal(t, "hdr10", p.HDRMode, "released plan.hdrMode")
-		assert.Equal(t, []string{"-c:v", "libx265", "-crf", "22"}, p.VideoArgs, "released plan.videoArgs")
-		assert.Equal(t, "deadbeef", p.ArgsHash, "released plan.argsHash")
+		assert.Equal(t, "ffgo", p.Engine, "released plan.engine")
+		assert.Equal(t, "deadbeef", p.PlanHash, "released plan.planHash")
+		assert.Equal(t, "encode", p.VideoAction, "released plan.videoAction")
+		assert.Equal(t, "nvdec", p.Decode, "released plan.decode")
 	}
 	if pr := afterEvent.Status.Progress; assert.NotNil(t, pr, "released status.progress") {
 		assert.EqualValues(t, 42, pr.Percent, "released progress.percent")
@@ -328,7 +331,7 @@ func TestTheProfileManagerDeclarationIsComplete(t *testing.T) {
 	// EncoderLimits is seeded from the status PatchProfile reads, never set
 	// through the mutate (ProfileFields), so the steady state carries one.
 	tp.Status.EncoderLimits = []transcodev1alpha1.EncoderLimit{
-		{Class: transcodev1alpha1.HardwareNVIDIA, Node: "gpu-1", MaxBFrames: ptr.To[int32](4)},
+		{Class: transcodev1alpha1.HardwareNVIDIA, Node: "gpu-1", NVDEC: []string{"h264:8"}},
 	}
 
 	require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerSquasharr, tp,
@@ -371,7 +374,7 @@ func TestTheProfileManagerDeclarationIsComplete(t *testing.T) {
 	assert.EqualValues(t, 3, after.Status.RunningJobs, "the re-apply did not update runningJobs")
 	if assert.Len(t, after.Status.EncoderLimits, 1, "the re-apply released encoderLimits") {
 		assert.Equal(t, "gpu-1", after.Status.EncoderLimits[0].Node)
-		assert.Equal(t, ptr.To[int32](4), after.Status.EncoderLimits[0].MaxBFrames, "the re-apply released a limit's leaf")
+		assert.Equal(t, []string{"h264:8"}, after.Status.EncoderLimits[0].NVDEC, "the re-apply released a limit's leaf")
 	}
 	if assert.Len(t, after.Status.Conditions, 1, "the re-apply released conditions") {
 		assert.Equal(t, "Ready", after.Status.Conditions[0].Reason)
