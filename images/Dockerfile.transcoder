@@ -66,6 +66,10 @@
 #   runtimeClassName and request nvidia.com/gpu (§6.4).
 #
 # Neither target contains par2: the worker never runs it.
+#
+# Successor: images/Dockerfile.transcoder-distroless (FROM scratch, FFmpeg in
+# process through ffgo). This file serves the live pools until they switch
+# (ffgo Phase 3/4) and is deleted in Phase 5.
 
 ARG GO_VERSION=1.27
 ARG FFMPEG_BRANCH=9.0

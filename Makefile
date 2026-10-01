@@ -177,6 +177,29 @@ docker-build: ## Build controller, media and transcoder images.
 docker-build-cuda: ## Build the CUDA transcoder image (amd64).
 	docker build -f images/Dockerfile.transcoder --target transcoder-cuda -t $(TRANSCODER_CUDA_IMG) .
 
+# The distroless transcoders (FROM scratch, images/Dockerfile.transcoder-distroless):
+# target:class pairs; each -debug twin is built beside its target.
+DISTROLESS_TARGETS ?= transcoder:cpu transcoder-cuda:cuda
+DISTROLESS_REPO ?= ghcr.io/mediactl/clustarr
+
+.PHONY: docker-build-distroless
+docker-build-distroless: ## Build the distroless transcoder images and their -debug twins.
+	@set -e; for tc in $(DISTROLESS_TARGETS); do t=$${tc%%:*}; \
+	  for v in $$t $$t-debug; do \
+	    docker build -f images/Dockerfile.transcoder-distroless --target $$v -t $(DISTROLESS_REPO)/$$(echo $$v | sed 's/^transcoder/transcoder-distroless/;s/-distroless-\(cuda\|intel\)/-\1-distroless/'):dev . ; \
+	  done; done
+
+.PHONY: docker-selfcheck-distroless
+docker-selfcheck-distroless: ## Run --self-check in each distroless transcoder image as the pool pods run it.
+	@set -e; for tc in $(DISTROLESS_TARGETS); do t=$${tc%%:*}; c=$${tc##*:}; \
+	  n=$(DISTROLESS_REPO)/$$(echo $$t | sed 's/^transcoder/transcoder-distroless/;s/-distroless-\(cuda\|intel\)/-\1-distroless/'); \
+	  echo "== $$n:dev ($$c)"; \
+	  docker run --rm --read-only --cap-drop=ALL --user 1000:1000 $$n:dev --self-check=$$c >/dev/null; \
+	  if docker run --rm --entrypoint /bin/sh $$n:dev -c true 2>/dev/null; then echo "$$n:dev has a shell" >&2; exit 1; fi; \
+	  docker run --rm --entrypoint /bin/sh $$n-debug:dev -c true; \
+	  echo "ok"; \
+	done
+
 ##@ Test
 
 .PHONY: test

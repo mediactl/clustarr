@@ -1,0 +1,125 @@
+# syntax=docker/dockerfile:1.7
+#
+# ghcr.io/mediactl/clustarr/transcoder[-intel|-cuda]-distroless -- the
+# squasharr worker on FFmpeg 9.0, in images built FROM scratch (spec
+# docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md §5 and its
+# 2026-10-01 amendment). Targets:
+#
+#   transcoder        CPU; amd64 and arm64
+#   transcoder-intel  plus Intel's VAAPI driver and QSV runtimes; amd64
+#   transcoder-cuda   NVIDIA's driver libraries are injected by the NVIDIA
+#                     container toolkit at run time; amd64
+#   <target>-debug    the same plus a static busybox, for kubectl exec
+#
+#   docker build -f images/Dockerfile.transcoder-distroless --target transcoder -t ghcr.io/mediactl/clustarr/transcoder-distroless:dev .
+#
+# Nothing in the final images is copied by hand that lddtree can trace:
+# images/distroless/stage.sh follows the DT_NEEDED tree of everything the
+# worker loads (the worker is a purego binary, so it brings ld-linux and
+# libc), and names what is dlopen'ed (glibc's NSS plugins; the Intel
+# runtime). Today's images/Dockerfile.transcoder serves the live pools
+# until the pools switch (Phase 3/4) and is deleted in Phase 5; until then
+# these images also carry ffmpeg and ffprobe for the argv engine.
+#
+# FFmpeg is BtbN's 9.0 shared GPL build (FFMPEG_URL / FFMPEG_SHA256 pin
+# one): NVENC/NVDEC and the CUDA filters (built with clang), VAAPI through
+# libva (dlopen'ed), and the libvpl dispatcher (linked in). Its libraries
+# and the ffgo shim, compiled against the same tarball's headers, live in
+# /usr/lib, which the dynamic linker searches without an ld.so.cache.
+
+ARG GO_VERSION=1.27
+ARG FFMPEG_BRANCH=9.0
+
+# ---------------------------------------------------------------------------
+# build: the worker (CGO_ENABLED=0) and the ffgo shim's source
+# ---------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+WORKDIR /src
+ENV CGO_ENABLED=0 GOFLAGS=-trimpath
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
+      -o /out/squasharr-worker ./cmd/squasharr-worker \
+ && mkdir -p /out/ffgo \
+ && cp -r "$(go list -m -f '{{.Dir}}' github.com/obinnaokechukwu/ffgo)/shim" /out/ffgo/
+
+# ---------------------------------------------------------------------------
+# ffmpeg: BtbN's shared build into /usr, and the shim against its headers
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS ffmpeg
+ARG TARGETARCH
+ARG FFMPEG_BRANCH
+ARG FFMPEG_URL=""
+ARG FFMPEG_SHA256=""
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils gcc libc6-dev \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/ffgo/shim /src/shim
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) a=linux64 ;; \
+      arm64) a=linuxarm64 ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    url="${FFMPEG_URL:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n${FFMPEG_BRANCH}-latest-${a}-gpl-shared-${FFMPEG_BRANCH}.tar.xz}"; \
+    curl -fsSL -o /tmp/ff.tar.xz "${url}"; \
+    if [ -n "${FFMPEG_SHA256}" ]; then echo "${FFMPEG_SHA256}  /tmp/ff.tar.xz" | sha256sum -c -; fi; \
+    mkdir -p /opt/ffmpeg; \
+    tar -xJf /tmp/ff.tar.xz --strip-components=1 -C /opt/ffmpeg; \
+    mkdir -p /out/usr/lib /out/usr/bin; \
+    cp -a /opt/ffmpeg/lib/lib*.so* /out/usr/lib/; \
+    install -m0755 /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe /out/usr/bin/; \
+    gcc -shared -fPIC -O2 -Wall -DFFSHIM_HAVE_AVDEVICE=1 -DFFSHIM_HAVE_AVFILTER=1 \
+      -I/opt/ffmpeg/include -o /out/usr/lib/libffshim.so /src/shim/ffshim.c \
+      -L/opt/ffmpeg/lib -lavutil -lavcodec -lavformat -lavdevice -lavfilter; \
+    LD_LIBRARY_PATH=/out/usr/lib /out/usr/bin/ffmpeg -hide_banner -version | head -n1
+
+# ---------------------------------------------------------------------------
+# staging: lddtree everything the worker loads into /staging
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS staging-base
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pax-utils ca-certificates gcc \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=ffmpeg /out/ /
+COPY --from=build /out/squasharr-worker /usr/bin/squasharr-worker
+COPY images/distroless/stage.sh /stage.sh
+
+FROM staging-base AS staging
+RUN /stage.sh /staging
+
+# ---------------------------------------------------------------------------
+# transcoder: FROM scratch
+# ---------------------------------------------------------------------------
+FROM scratch AS transcoder
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr-transcoder"
+COPY --from=staging /staging/ /
+ENV FFGO_SHIM_DIR=/usr/lib \
+    LIBVA_MESSAGING_LEVEL=1
+VOLUME ["/data"]
+USER 1000:1000
+ENTRYPOINT ["/usr/bin/squasharr-worker"]
+
+FROM transcoder AS transcoder-debug
+COPY --from=busybox:1.37-musl /bin/ /bin/
+
+# ---------------------------------------------------------------------------
+# transcoder-cuda: the toolkit injects the driver's libraries at run time
+# ---------------------------------------------------------------------------
+FROM transcoder AS transcoder-cuda
+LABEL org.opencontainers.image.title="clustarr-transcoder-cuda"
+# NVENC/NVDEC need the `video` capability beside the CUDA defaults.
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+
+FROM transcoder-cuda AS transcoder-cuda-debug
+COPY --from=busybox:1.37-musl /bin/ /bin/
