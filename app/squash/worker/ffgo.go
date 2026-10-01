@@ -22,7 +22,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -31,6 +33,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -93,7 +96,8 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	}
 	tier := m.Tier
 	hw := standard.Hardware{Tier: tier, Limits: m.Limits}
-	plan := standard.Plan(info, StandardProfile(r.t.Profile.Name, r.t.Profile.Hash, r.t.Profile.Spec), hw)
+	profile := StandardProfile(r.t.Profile.Name, r.t.Profile.Hash, r.t.Profile.Spec)
+	plan := standard.Plan(info, profile, hw)
 	if plan.Decision == standard.DecisionSkip {
 		return encodeJob{}, invalidSource("squasharr worker: live plan is skip (%s), not the work the controller planned", plan.Reason)
 	}
@@ -101,6 +105,10 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 		got := plan.Hash()
 		trace.SpanFromContext(ctx).SetAttributes(attribute.Bool("transcode.plan_matches_recorded", got == r.t.PlanHash))
 		if got != r.t.PlanHash {
+			if lost := plannedHDRLost(info, profile, hw, plan, r.t.PlanHash); lost != "" {
+				return encodeJob{}, retriable("squasharr worker: the source was planned as %s but its live probe reads SDR; "+
+					"refusing to encode HDR as SDR (the next attempt probes again)", lost)
+			}
 			log.WarnContext(ctx, "squasharr worker: the plan differs from the one status.plan records",
 				"planHash", r.t.PlanHash, "localPlanHash", got)
 		}
@@ -108,16 +116,110 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	plan = withX265Pools(plan, r.o.Threads)
 	r.tier = string(tier)
 	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.Job.UID, r.t.Attempt)
+	sweepEarlierAttempts(ctx, part)
 	log.InfoContext(ctx, "squasharr worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
 		"encoder", plan.Video.Encoder, "decode", plan.Video.Decode, "reason", plan.Reason)
 	durationMillis := info.Format.Duration.Milliseconds()
 	return encodeJob{
-		part:   part,
-		encode: func(ctx context.Context) error { return r.encodeFFgo(ctx, plan, tier, local, part, durationMillis) },
+		part: part,
+		encode: func(ctx context.Context) error {
+			if err := r.encodeFFgo(ctx, plan, tier, local, part, durationMillis); err != nil {
+				return err
+			}
+			// On stable storage before it is verified and renamed over the
+			// source: a crash after the rename must not leave the library's
+			// name on unwritten blocks, and a delayed write error the
+			// muxer's close did not report surfaces here, while the
+			// original is still the library's file.
+			if err := syncPart(part); err != nil {
+				removePart(ctx, part)
+				return retriable("squasharr worker: the output could not be made durable: %w", err)
+			}
+			return nil
+		},
 		verify: func(ctx context.Context) (*transcode.Report, error) {
 			return r.o.Engine.Verify(ctx, local, part, plan.Expect)
 		},
 	}, nil
+}
+
+// syncPart fsyncs the encoded part file; a variable so a test can see when
+// it runs and make it fail.
+var syncPart = fsops.SyncFile
+
+// hdrReadings are the HDR formats a source the controller planned as HDR
+// may have had, by the plan each makes: HDR10 (PQ10 and HDR10+ plan
+// alike), HLG, and Dolby Vision with an HDR10 or HLG base layer.
+var hdrReadings = []commonv1.HdrFormat{
+	commonv1.HdrFormatHDR10, commonv1.HdrFormatHLG10,
+	commonv1.HdrFormatDolbyVisionHDR10, commonv1.HdrFormatDolbyVisionHLG,
+}
+
+// plannedHDRLost is the HDR mode ("hdr10", "hlg") the recorded plan was
+// made for when the live probe reads the source lower -- an SDR encode
+// where the controller's probe of the same file read HDR -- and "" when it
+// does not. The task carries only the recorded plan's hash, so the source
+// is planned again as each HDR reading, and the one whose hash is the
+// recorded one names what the controller saw. A plan that differs for any
+// other reason (the device's limits, a profile edit) matches none and is
+// only logged, as before; the colour check in Verify is the last guard.
+func plannedHDRLost(info transcode.MediaInfo, profile standard.Profile, hw standard.Hardware,
+	live standard.Result, recorded string,
+) string {
+	if live.Decision != standard.DecisionEncode || live.Video.HDR != "sdr" {
+		return ""
+	}
+	vi := int(live.Video.SourceIndex)
+	if vi < 0 || vi >= len(info.Video) {
+		return ""
+	}
+	for _, f := range hdrReadings {
+		as := info
+		as.Video = slices.Clone(info.Video)
+		as.Video[vi].HDR.Format = f
+		if p := standard.Plan(as, profile, hw); p.Video.HDR != "sdr" && p.Hash() == recorded {
+			return p.Video.HDR
+		}
+	}
+	return ""
+}
+
+// sweepEarlierAttempts removes the part files this job's earlier attempts
+// left beside the output -- an attempt OOM-killed, or lost with its node,
+// never reaches its own cleanup -- before this attempt writes its own.
+// The caller holds this job's lease for this attempt (Serve), which fences
+// every earlier one, so such a file is no longer being written. Only that
+// is removed: a regular file of exactly the per-attempt form
+// (fsops.ParseTranscodePart) for the same output stem and job, with a lower
+// attempt number. A later attempt's, another job's (another profile's
+// transcode of the same file), another source's and anything that is not a
+// regular file -- a symlink is never followed -- stay; importarr's rescan
+// sweeps an abandoned job's (app/import/worker/rescan). Best effort: a file
+// that cannot be removed is logged, never a reason to fail the task.
+func sweepEarlierAttempts(ctx context.Context, part string) {
+	log := logging.FromContext(ctx)
+	cur, ok := fsops.ParseTranscodePart(part)
+	if !ok {
+		return
+	}
+	dir := filepath.Dir(part)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.WarnContext(ctx, "squasharr worker: listing the output's folder for earlier attempts' part files failed", "dir", dir, "error", err)
+		return
+	}
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		p, ok := fsops.ParseTranscodePart(path)
+		if !ok || !e.Type().IsRegular() || p.Stem != cur.Stem || p.JobUID8 != cur.JobUID8 || p.Attempt >= cur.Attempt {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.WarnContext(ctx, "squasharr worker: removing an earlier attempt's part file failed", "path", path, "error", err)
+			continue
+		}
+		log.InfoContext(ctx, "squasharr worker: removed an earlier attempt's part file", "path", path, "attempt", p.Attempt)
+	}
 }
 
 // withX265Pools sizes libx265's thread pool to the pod's threads, as the

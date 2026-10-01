@@ -330,8 +330,18 @@ func (r *runner) run(ctx context.Context) error {
 
 	// 3. Probe, capabilities, plan, space.
 	mi, raw, err := r.probe(ctx, local)
+	if errors.Is(err, mediainfo.ErrIncompleteProbe) {
+		return retriable("squasharr worker: probe source: %w", err)
+	}
 	if err != nil {
 		return invalidSource("squasharr worker: probe source: %w", err)
+	}
+	// Without the first frame the source's HDR format is unknown, whatever
+	// its stream says (ffgo reads no stream colour tags), and this run would
+	// write a final file: refuse rather than encode it as SDR. The next
+	// attempt probes again.
+	if raw != nil && raw.FrameErr != nil {
+		return retriable("squasharr worker: the source's first video frame could not be read, so its HDR format is unknown: %w", raw.FrameErr)
 	}
 	info, err := transcode.FromProbe(mi, raw)
 	if err != nil {
