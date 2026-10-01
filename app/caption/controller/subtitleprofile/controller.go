@@ -139,26 +139,34 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	invalid, invalidReason, invalidMessage := validateProfile(&sp, profileList.Items)
 	wanted := wantedKeys(sp.Spec)
 
+	// The four library-sized Lists below are read straight from the cache,
+	// without a deep copy (client.UnsafeDisableDeepCopy, a no-op on a raw
+	// client): on the owner's library they are tens of thousands of
+	// objects per reconcile. Nothing in this reconcile writes to any of
+	// them -- selectFiles, MayWant, newItemSet, unneeded and
+	// requestCurrent only read, and the delete and the apply below are
+	// built from fresh objects -- and nothing may: they are the cache's
+	// own copies.
 	var mfList catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &mfList); err != nil {
+	if err := r.List(ctx, &mfList, client.UnsafeDisableDeepCopy); err != nil {
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list MediaFiles: %w", err)
 	}
 	// Once per reconcile, the items those files may reference: a MediaFile
 	// whose Movie or Episode is gone -- one an import list's removeAndKeep
 	// left behind -- is not selected (itemSet.manages).
 	var movies catalogv1alpha1.MovieList
-	if err := r.List(ctx, &movies); err != nil {
+	if err := r.List(ctx, &movies, client.UnsafeDisableDeepCopy); err != nil {
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list Movies: %w", err)
 	}
 	var episodes catalogv1alpha1.EpisodeList
-	if err := r.List(ctx, &episodes); err != nil {
+	if err := r.List(ctx, &episodes, client.UnsafeDisableDeepCopy); err != nil {
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list Episodes: %w", err)
 	}
 	matching, overlapped := selectFiles(&sp, profileList.Items, defaultWinner(profileList.Items), mfList.Items,
 		newItemSet(movies.Items, episodes.Items))
 
 	var requests subtitlev1alpha1.SubtitleRequestList
-	if err := r.List(ctx, &requests); err != nil {
+	if err := r.List(ctx, &requests, client.UnsafeDisableDeepCopy); err != nil {
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list SubtitleRequests: %w", err)
 	}
 	existing := make(map[types.NamespacedName]*subtitlev1alpha1.SubtitleRequest, len(requests.Items))
@@ -183,11 +191,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			if !subtitlerequest.MayWant(sp.Spec, mf.Status.MediaInfo) {
 				needNone++
 				if sr, ok := existing[client.ObjectKeyFromObject(mf)]; ok && unneeded(sr) {
-					if err := r.Delete(ctx, sr, client.Preconditions{UID: &sr.UID}); client.IgnoreNotFound(err) != nil {
+					// Deleted through a fresh object, never the cache's own.
+					gone := &subtitlev1alpha1.SubtitleRequest{ObjectMeta: metav1.ObjectMeta{Name: sr.Name, Namespace: sr.Namespace}}
+					uid := sr.UID
+					if err := r.Delete(ctx, gone, client.Preconditions{UID: &uid}); client.IgnoreNotFound(err) != nil {
 						ensureErrs = append(ensureErrs, fmt.Errorf("subtitleprofile: delete unneeded SubtitleRequest %s: %w",
 							client.ObjectKeyFromObject(sr), err))
 					}
 				}
+				continue
+			}
+			if r.requestCurrent(existing[client.ObjectKeyFromObject(mf)], &sp, mf) {
+				ensured++
 				continue
 			}
 			if err := r.ensureSubtitleRequest(ctx, &sp, mf); err != nil {
@@ -254,6 +269,41 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 func unneeded(sr *subtitlev1alpha1.SubtitleRequest) bool {
 	return len(sr.Status.Items) == 0 && len(sr.Spec.Languages) == 0 &&
 		sr.Spec.MinScoreOverride == nil && !sr.Spec.ForceSearch && !k8s.IsDeleting(sr)
+}
+
+// requestCurrent reports whether sr already carries exactly the declaration
+// ensureSubtitleRequest would apply for mf under sp -- mediaFileRef, the
+// winning profileRef, and mf's controller owner reference as the one
+// owner -- so that apply would change nothing and is skipped. About ten
+// thousand no-op applies per profile reconcile on the owner's library.
+//
+// Skipping is safe because that apply is the whole of k8s.ManagerCaptionarr's
+// Apply-operation entry on SubtitleRequest's main resource: nothing else
+// applies it under that manager (the request controller's forceSearch
+// reset is a merge patch, an Update entry of its own, and status is a
+// subresource), and no version of this controller ever applied more. So
+// an apply whose values the object already holds releases nothing and
+// sets nothing; at most it would claim ownership of a value someone else
+// wrote, which changes no value and which the next differing reconcile
+// claims anyway, by force. Equality is judged on the object read this
+// reconcile, so a change under it -- another profileRef, a replaced
+// MediaFile's new UID, a second owner -- is applied as before; a cache a
+// moment behind defers that to the next reconcile, as a missed apply
+// always did.
+func (r *Reconciler) requestCurrent(sr *subtitlev1alpha1.SubtitleRequest, sp *subtitlev1alpha1.SubtitleProfile, mf *catalogv1alpha1.MediaFile) bool {
+	if sr == nil || k8s.IsDeleting(sr) || sr.Spec.MediaFileRef != mf.Name || sr.Spec.ProfileRef != sp.Name ||
+		len(sr.OwnerReferences) != 1 {
+		return false
+	}
+	// The same reference ensureSubtitleRequest renders (k8s.OwnerReferenceAC
+	// is this, as an apply configuration).
+	want, err := k8s.OwnerReference(mf, r.Scheme)
+	if err != nil {
+		return false // ensureSubtitleRequest reports it
+	}
+	got := sr.OwnerReferences[0]
+	return got.APIVersion == want.APIVersion && got.Kind == want.Kind && got.Name == want.Name && got.UID == want.UID &&
+		ptr.Equal(got.Controller, want.Controller) && ptr.Equal(got.BlockOwnerDeletion, want.BlockOwnerDeletion)
 }
 
 // ensureSubtitleRequest creates (or, idempotently, re-applies) the
