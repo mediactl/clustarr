@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeprofile
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -128,6 +131,42 @@ func TestTheHashCoversOnlyTheStandardsInputs(t *testing.T) {
 
 	assert.NotEqual(t, baseHash, worker.ProfileHashAt(base, standard.Version+1), "a new standard.Version moves every hash")
 	assert.Equal(t, baseHash, worker.ProfileHashAt(base, standard.Version))
+}
+
+// The two lists are sets -- a language is kept or not, a modifier skips or
+// not -- so neither their order nor nil versus empty is a different
+// profile. The canonical order is descending, which leaves the CRD default
+// modifiers {"remux","brdisk"} as they are, and with them every profile
+// hash already stored and tagged.
+func TestTheHashTreatsItsListsAsSets(t *testing.T) {
+	a, b := renderSpec(), renderSpec()
+	a.Audio.Languages, b.Audio.Languages = []string{"eng", "fre"}, []string{"fre", "eng", "eng"}
+	a.Policy.NeverTranscodeModifiers, b.Policy.NeverTranscodeModifiers = []string{"remux", "brdisk"}, []string{"brdisk", "remux"}
+	assert.Equal(t, profileHash(a), profileHash(b), "order and duplicates are not a different profile")
+
+	a.Audio.Languages, b.Audio.Languages = nil, []string{}
+	assert.Equal(t, profileHash(a), profileHash(b), "an empty list is an unset one")
+
+	stable := renderSpec()
+	stable.Policy.NeverTranscodeModifiers = []string{"remux", "brdisk"}
+	before := sha256Hex(t, struct {
+		Version                  int
+		Quality                  int32
+		Container                transcodev1alpha1.Container
+		Languages                []string
+		NeverTranscodeModifiers  []string
+		MinDuration              time.Duration
+		MaxOutputToSourcePercent int32
+	}{standard.Version, 30, transcodev1alpha1.ContainerMKV, []string{"eng"}, []string{"remux", "brdisk"}, time.Minute, 100})
+	assert.Equal(t, before, profileHash(stable), "the CRD default's hash is the one already stored")
+}
+
+func sha256Hex(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // Unset and the default are the same profile, so they are the same hash: a

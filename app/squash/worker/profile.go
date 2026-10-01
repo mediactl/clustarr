@@ -21,6 +21,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
+	"strings"
 	"time"
 
 	"k8s.io/utils/ptr"
@@ -43,6 +45,19 @@ func ProfileHardware(spec transcodev1alpha1.TranscodeProfileSpec, hardware *tran
 		hw = transcodev1alpha1.HardwareCPU
 	}
 	return transcode.Hardware(hw)
+}
+
+// asSet is a list the hash reads as a set: deduplicated, empty as nil, in
+// descending order -- any fixed order makes the hash order-independent, and
+// descending leaves the CRD default modifiers {"remux","brdisk"} as they are,
+// so no hash already stored and tagged changed when sets came in.
+func asSet(l []string) []string {
+	if len(l) == 0 {
+		return nil
+	}
+	out := slices.Clone(l)
+	slices.SortFunc(out, func(a, b string) int { return strings.Compare(b, a) })
+	return slices.Compact(out)
 }
 
 // ProfileHash is a profile's status.hash: [ProfileHashAt] the standard's
@@ -79,7 +94,7 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 		MinDuration              time.Duration
 		MaxOutputToSourcePercent int32
 	}{
-		version, spec.QualityOrDefault(), container, spec.Audio.Languages, spec.Policy.NeverTranscodeModifiers,
+		version, spec.QualityOrDefault(), container, asSet(spec.Audio.Languages), asSet(spec.Policy.NeverTranscodeModifiers),
 		MinDuration(spec.Policy), MaxOutputToSourcePercent(spec.Policy),
 	})
 	sum := sha256.Sum256(b)
