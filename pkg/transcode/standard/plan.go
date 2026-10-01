@@ -118,6 +118,17 @@ type Expectation struct {
 	VideoStreams, AudioStreams, SubtitleStreams int32
 	VideoCodec, PixelFormat                     string
 	DurationMillis                              int64
+
+	// Transfer and Primaries are the colour an HDR output must carry, by
+	// FFmpeg's names (smpte2084 or arib-std-b67; bt2020); empty for SDR,
+	// whose colour Verify does not check. MasteringDisplay and
+	// ContentLight: the output must carry HDR10's static metadata, because
+	// the source's first frame does. All four follow from Video.HDR and the
+	// source's own metadata, which the stored summary the controller plans
+	// from does not hold, so they are left out of Hash (json "-"): the
+	// controller's plan and the worker's must still hash alike.
+	Transfer, Primaries            string `json:"-"`
+	MasteringDisplay, ContentLight bool   `json:"-"`
 }
 
 // Result is the standard's decision for one file: what Plan returns and
@@ -198,6 +209,12 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		VideoStreams: 1, AudioStreams: int32(len(p.Audio)), SubtitleStreams: int32(len(p.Subtitles)),
 		VideoCodec: "hevc", PixelFormat: "yuv420p10le",
 		DurationMillis: info.Format.Duration.Milliseconds(),
+	}
+
+	if c := colorTags(hdr); c.Transfer != "" {
+		p.Expect.Transfer, p.Expect.Primaries = c.Transfer, c.Primaries
+		p.Expect.MasteringDisplay = hdr == "hdr10" && v.HDR.MasteringDisplay != nil
+		p.Expect.ContentLight = hdr == "hdr10" && v.HDR.ContentLight != nil
 	}
 
 	eight := transcode.EightBitTarget(v)
