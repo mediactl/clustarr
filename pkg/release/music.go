@@ -63,15 +63,15 @@ func parseMusic(title string) (*ParsedRelease, error) {
 		return parseMusicLidarr(title)
 	}
 
-	artist := strings.TrimSpace(m.GroupByName("artist").String())
-	album := strings.TrimSpace(m.GroupByName("album").String())
+	artist := strings.TrimSpace(groupString(m, "artist"))
+	album := strings.TrimSpace(groupString(m, "album"))
 	year, err := atoiGroup(m, "year")
 	if err != nil {
 		return nil, err
 	}
 
 	info := &MusicInfo{Artist: artist, Album: album, Year: year}
-	readMusicFormat(info, strings.Fields(m.GroupByName("fmt").String()))
+	readMusicFormat(info, strings.Fields(groupString(m, "fmt")))
 
 	return &ParsedRelease{
 		Title:       artist + " - " + album,
@@ -100,10 +100,16 @@ func readMusicFormat(info *MusicInfo, tokens []string) {
 				info.SampleBits = int32(bits)
 			}
 		default:
+			// A "kbps" suffix names a bitrate outright; a bare number is
+			// one only up to maxBareBitrateKbps. (strings.TrimSuffix alone
+			// returned a bare number unchanged, so every bare number --
+			// a scene name's year among them -- was read as kbps.)
 			if canonical, ok := musicCodecCanonical[lower]; ok {
 				info.Codec = canonical
-			} else if kbps, convErr := strconv.Atoi(strings.TrimSuffix(lower, "kbps")); convErr == nil {
-				info.BitrateKbps = int32(kbps)
+			} else if digits, suffixed := strings.CutSuffix(lower, "kbps"); suffixed {
+				if kbps, convErr := strconv.ParseInt(digits, 10, 32); convErr == nil && kbps > 0 {
+					info.BitrateKbps = int32(kbps)
+				}
 			} else if kbps, convErr := strconv.Atoi(lower); convErr == nil && kbps > 0 && kbps <= maxBareBitrateKbps {
 				info.BitrateKbps = int32(kbps)
 			}
@@ -207,22 +213,21 @@ func parseMusicLidarr(title string) (*ParsedRelease, error) {
 		if g := m.GroupByName("discography"); g != nil && len(g.Captures) > 0 {
 			return nil, fmt.Errorf("%w: %q", errDiscography, title)
 		}
-		artist, err := lidarrName(m.GroupByName("artist").String())
+		artist, err := lidarrName(groupString(m, "artist"))
 		if err != nil {
 			return nil, err
 		}
-		album, err := lidarrName(m.GroupByName("album").String())
+		album, err := lidarrName(groupString(m, "album"))
 		if err != nil {
 			return nil, err
 		}
 		if artist == "" || album == "" {
 			return nil, fmt.Errorf("release: %q names no artist and album", title)
 		}
-		year := lidarrYear(m.GroupByName("releaseyear").String())
+		year := lidarrYear(groupString(m, "releaseyear"))
 
 		info := &MusicInfo{Artist: artist, Album: album, Year: year}
-		albumGroup := m.GroupByName("album")
-		tail := simple[albumGroup.Index+albumGroup.Length:]
+		tail := textAfterGroup(simple, m, "album")
 		readMusicFormat(info, strings.FieldsFunc(tail, func(r rune) bool {
 			return r == '-' || r == '_' || r == '.' || r == ' ' || r == '[' || r == ']' || r == '(' || r == ')'
 		}))

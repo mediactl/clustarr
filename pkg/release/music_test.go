@@ -113,3 +113,96 @@ func TestParseMusicRefusesADiscography(t *testing.T) {
 		require.ErrorIs(t, err, errDiscography, title)
 	}
 }
+
+// TestParseMusicTitlesWithoutAYear: several of Lidarr's album shapes carry
+// no releaseyear group ("Artist - Album [something]"), so the parser must
+// read an absent group as no year rather than dereference it. Each of these
+// panicked, and a panic in one release aborted the whole album search.
+func TestParseMusicTitlesWithoutAYear(t *testing.T) {
+	tests := []struct {
+		title         string
+		artist, album string
+		codec         string
+		kbps          int32
+	}{
+		{"Radiohead - OK Computer [FLAC]", "Radiohead", "OK Computer", "FLAC", 0},
+		{"Pink Floyd - The Wall (Deluxe Edition)", "Pink Floyd", "The Wall", "", 0},
+		{"Daft Punk - Discovery (Remastered) [MP3 320]", "Daft Punk", "Discovery", "MP3", 320},
+		{"Radiohead-OK_Computer-[FLAC]", "Radiohead", "OK Computer", "FLAC", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			p, err := Parse(tt.title, Options{Kind: commonv1.MediaKindAlbum})
+			require.NoError(t, err)
+			require.NotNil(t, p.Music)
+			assert.Equal(t, tt.artist, p.Music.Artist)
+			assert.Equal(t, tt.album, p.Music.Album)
+			assert.Zero(t, p.Music.Year)
+			assert.Zero(t, p.Year)
+			assert.Equal(t, tt.codec, p.Music.Codec)
+			assert.Equal(t, tt.kbps, p.Music.BitrateKbps)
+			assert.Equal(t, tt.artist+" - "+tt.album, p.Title)
+		})
+	}
+}
+
+// TestParseMusicNonASCIINames: regexp2 reports a group's Index and Length in
+// runes, so the format tokens after the album must be read from the title's
+// runes, not its bytes. Read as a byte offset, "Beyoncé-4-..." started the
+// tail one byte early, inside the album, and read the album "4" as 4 kbps.
+func TestParseMusicNonASCIINames(t *testing.T) {
+	tests := []struct {
+		title         string
+		artist, album string
+		year          int
+		codec         string
+		kbps          int32
+	}{
+		{"Björk - Homogenic [FLAC]", "Björk", "Homogenic", 0, "FLAC", 0},
+		{"Sigur Rós - Ágætis byrjun [MP3 320]", "Sigur Rós", "Ágætis byrjun", 0, "MP3", 320},
+		{"Beyoncé-4-WEB-FLAC-2011-GRP", "Beyoncé", "4", 2011, "FLAC", 0},
+		{"Mötley_Crüe-Dr_Feelgood-WEB-FLAC-1989-GRP", "Mötley Crüe", "Dr Feelgood", 1989, "FLAC", 0},
+		{"Кино-Группа_крови-WEB-MP3-1988-GRP", "Кино", "Группа крови", 1988, "MP3", 0},
+		{"坂本龍一 - 戦場のメリークリスマス (1983) [FLAC]", "坂本龍一", "戦場のメリークリスマス", 1983, "FLAC", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			p, err := Parse(tt.title, Options{Kind: commonv1.MediaKindAlbum})
+			require.NoError(t, err)
+			require.NotNil(t, p.Music)
+			assert.Equal(t, tt.artist, p.Music.Artist)
+			assert.Equal(t, tt.album, p.Music.Album)
+			assert.Equal(t, tt.year, p.Music.Year)
+			assert.Equal(t, tt.codec, p.Music.Codec)
+			assert.Equal(t, tt.kbps, p.Music.BitrateKbps)
+		})
+	}
+}
+
+// TestParseMusicReadsNoYearAsABitrate: a bare number is a bitrate only up to
+// maxBareBitrateKbps; a scene name's year ("-2015-") is not 2015 kbps. A
+// number with a "kbps" suffix is a bitrate whatever its size.
+func TestParseMusicReadsNoYearAsABitrate(t *testing.T) {
+	tests := []struct {
+		title string
+		year  int
+		kbps  int32
+	}{
+		{"Muse-Drones-WEB-2015-GRP", 2015, 0},
+		{"Muse-Drones-WEB-FLAC-2015-GRP", 2015, 0},
+		{"Daft_Punk-Discovery-WEB-320-2001-GRP", 2001, 320},
+		{"Daft_Punk-Discovery-WEB-320kbps-2001-GRP", 2001, 320},
+		{"Daft Punk - Discovery (2001) [MP3 256kbps]", 2001, 256},
+		{"Daft Punk - Discovery (2001) [FLAC 1411kbps]", 2001, 1411},
+		{"Daft Punk - Discovery (2001) [MP3 2001]", 2001, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			p, err := Parse(tt.title, Options{Kind: commonv1.MediaKindAlbum})
+			require.NoError(t, err)
+			require.NotNil(t, p.Music)
+			assert.Equal(t, tt.year, p.Music.Year)
+			assert.Equal(t, tt.kbps, p.Music.BitrateKbps)
+		})
+	}
+}

@@ -161,11 +161,63 @@ func finishSeries(title string, p *ParsedRelease) *ParsedRelease {
 	return p
 }
 
+// groupString is the named capture group's text, or "" when the pattern
+// has no such group: regexp2's GroupByName returns nil for a name the
+// pattern does not declare, and a cascade of patterns (Lidarr's album
+// shapes) does not declare the same groups in each. Every read of a named
+// group in this package goes through it.
+func groupString(m *regexp2.Match, name string) string {
+	g := m.GroupByName(name)
+	if g == nil {
+		return ""
+	}
+	return g.String()
+}
+
+// groupCaptures is every capture of the named group (a repeated group
+// captures once per repetition), or none when the pattern has no such group.
+func groupCaptures(m *regexp2.Match, name string) []regexp2.Capture {
+	g := m.GroupByName(name)
+	if g == nil {
+		return nil
+	}
+	return g.Captures
+}
+
+// textAfterGroup is text after the named group's capture, or "" when the
+// pattern has no such group or it captured nothing.
+func textAfterGroup(text string, m *regexp2.Match, name string) string {
+	g := m.GroupByName(name)
+	if g == nil || len(g.Captures) == 0 {
+		return ""
+	}
+	return runesAfter(text, g.Index+g.Length)
+}
+
+// textAfterMatch is text after m's whole match.
+func textAfterMatch(text string, m *regexp2.Match) string {
+	return runesAfter(text, m.Index+m.Length)
+}
+
+// runesAfter is text from rune offset end on. regexp2 matches over a
+// string's runes and reports every Index and Length in runes, so an offset
+// from a match is never a byte offset into the string: read as one, a
+// non-ASCII title cut its tail in the wrong place, and the byte length of
+// a match's re-encoded text (an invalid byte becomes a three-byte U+FFFD)
+// ran past the end of the string.
+func runesAfter(text string, end int) string {
+	runes := []rune(text)
+	if end < 0 || end > len(runes) {
+		return ""
+	}
+	return string(runes[end:])
+}
+
 // atoiGroup parses the named capture group's text as a base-10 int, wrapping
 // any error with the group name for context. It is shared by every file in
 // this package that pulls numeric fields out of a regexp2.Match.
 func atoiGroup(m *regexp2.Match, name string) (int, error) {
-	v, err := strconv.Atoi(m.GroupByName(name).String())
+	v, err := strconv.Atoi(groupString(m, name))
 	if err != nil {
 		return 0, fmt.Errorf("release: parsing %s: %w", name, err)
 	}
@@ -185,8 +237,7 @@ func specialFromMatch(title string, m *regexp2.Match, seasons []int) bool {
 			return true
 		}
 	}
-	tag := title[len(m.String()):]
-	return hasSpecialToken(tag)
+	return hasSpecialToken(textAfterMatch(title, m))
 }
 
 // parseStandardSeries tries, in order: dash-range multi-episode, single/
@@ -209,7 +260,7 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 		}
 		if validEpisodeRange(start, end) {
 			p := &ParsedRelease{
-				Title:    cleanTitleSeparators(m.GroupByName("title").String()),
+				Title:    cleanTitleSeparators(groupString(m, "title")),
 				Seasons:  []int{season},
 				Episodes: intRange(start, end),
 			}
@@ -229,9 +280,9 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 		if err != nil {
 			return nil, err
 		}
-		epGroup := m.GroupByName("ep")
-		episodes := make([]int, 0, len(epGroup.Captures))
-		for _, c := range epGroup.Captures {
+		epCaptures := groupCaptures(m, "ep")
+		episodes := make([]int, 0, len(epCaptures))
+		for _, c := range epCaptures {
 			v, convErr := strconv.Atoi(c.String())
 			if convErr != nil {
 				return nil, fmt.Errorf("release: series: parsing episode: %w", convErr)
@@ -239,7 +290,7 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 			episodes = append(episodes, v)
 		}
 		p := &ParsedRelease{
-			Title:    cleanTitleSeparators(m.GroupByName("title").String()),
+			Title:    cleanTitleSeparators(groupString(m, "title")),
 			Seasons:  []int{season},
 			Episodes: episodes,
 		}
@@ -255,7 +306,7 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 		if err != nil {
 			return nil, err
 		}
-		p := &ParsedRelease{Title: cleanTitleSeparators(m.GroupByName("title").String())}
+		p := &ParsedRelease{Title: cleanTitleSeparators(groupString(m, "title"))}
 		if s2grp := m.GroupByName("s2"); s2grp != nil && len(s2grp.Captures) > 0 {
 			s2, convErr := strconv.Atoi(s2grp.String())
 			if convErr != nil {

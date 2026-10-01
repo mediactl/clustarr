@@ -60,7 +60,7 @@ func parseDailySeries(title string) (*ParsedRelease, error) {
 
 	airDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 	p := &ParsedRelease{
-		Title:       cleanTitleSeparators(m.GroupByName("title").String()),
+		Title:       cleanTitleSeparators(groupString(m, "title")),
 		AirDate:     &airDate,
 		ReleaseType: releaseTypeForEpisodes(nil),
 	}

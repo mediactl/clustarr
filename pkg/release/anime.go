@@ -117,18 +117,18 @@ func parseAnime(title string, p *ParsedRelease) error {
 		if g := m.GroupByName("group"); g != nil && len(g.Captures) > 0 {
 			p.Group = g.String()
 		}
-		work = work[len(m.String()):]
+		work = textAfterMatch(work, m)
 	}
 
 	if m, err := animeSeasonEpisodeRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: season/episode match: %w", err)
 	} else if m != nil {
-		p.Title = strings.TrimSpace(m.GroupByName("title").String())
-		season, convErr := strconv.Atoi(m.GroupByName("season").String())
+		p.Title = strings.TrimSpace(groupString(m, "title"))
+		season, convErr := strconv.Atoi(groupString(m, "season"))
 		if convErr != nil {
 			return fmt.Errorf("release: anime: parsing season: %w", convErr)
 		}
-		episode, convErr := strconv.Atoi(m.GroupByName("episode").String())
+		episode, convErr := strconv.Atoi(groupString(m, "episode"))
 		if convErr != nil {
 			return fmt.Errorf("release: anime: parsing episode: %w", convErr)
 		}
@@ -139,7 +139,7 @@ func parseAnime(title string, p *ParsedRelease) error {
 	if m, err := animeSpecialRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: special match: %w", err)
 	} else if m != nil {
-		p.Title = strings.TrimSpace(m.GroupByName("title").String())
+		p.Title = strings.TrimSpace(groupString(m, "title"))
 		p.Special = true
 		if numGrp := m.GroupByName("num"); numGrp != nil && len(numGrp.Captures) > 0 {
 			if n, convErr := strconv.Atoi(numGrp.String()); convErr == nil {
@@ -152,10 +152,10 @@ func parseAnime(title string, p *ParsedRelease) error {
 	if m, err := animeBatchRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: batch match: %w", err)
 	} else if m != nil {
-		start, startErr := strconv.Atoi(m.GroupByName("start").String())
-		end, endErr := strconv.Atoi(m.GroupByName("end").String())
+		start, startErr := strconv.Atoi(groupString(m, "start"))
+		end, endErr := strconv.Atoi(groupString(m, "end"))
 		if startErr == nil && endErr == nil && validEpisodeRange(start, end) {
-			p.Title = strings.TrimSpace(m.GroupByName("title").String())
+			p.Title = strings.TrimSpace(groupString(m, "title"))
 			p.Absolute = intRange(start, end)
 			p.Partial = true
 			return nil
@@ -168,8 +168,8 @@ func parseAnime(title string, p *ParsedRelease) error {
 	if m, err := animeAbsoluteRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: absolute match: %w", err)
 	} else if m != nil {
-		p.Title = strings.TrimSpace(m.GroupByName("title").String())
-		abs, convErr := strconv.Atoi(m.GroupByName("abs").String())
+		p.Title = strings.TrimSpace(groupString(m, "title"))
+		abs, convErr := strconv.Atoi(groupString(m, "abs"))
 		if convErr != nil {
 			return fmt.Errorf("release: anime: parsing absolute: %w", convErr)
 		}

@@ -198,6 +198,9 @@ func TestParseNeverPanicsOnMalformedInput(t *testing.T) {
 	inputs := []string{
 		"", " ", ".", "-", "[", "]", "S01E", "1999", strings.Repeat("a", 5000),
 		"€™š™š™š.1999.1080p", "\x00\x01\x02", "S99E99999999999999999999999999",
+		// regexp2 reads an invalid byte as U+FFFD, three bytes re-encoded,
+		// so a match's text measured in bytes ran past the title's end.
+		"[\x80]", "\x80\x80\x80\x80.S01E01",
 	}
 	for _, in := range inputs {
 		in := in

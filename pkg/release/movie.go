@@ -84,8 +84,8 @@ func parseMovie(title string) (*ParsedRelease, error) {
 		return nil, fmt.Errorf("release: %q does not match the movie title/year pattern", title)
 	}
 
-	rawTitle := m.GroupByName("title").String()
-	yearStr := m.GroupByName("year").String()
+	rawTitle := groupString(m, "title")
+	yearStr := groupString(m, "year")
 	year, convErr := strconv.Atoi(yearStr)
 	if convErr != nil {
 		return nil, fmt.Errorf("release: movie: parsing year %q: %w", yearStr, convErr)

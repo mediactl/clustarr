@@ -65,17 +65,17 @@ func parseBook(title string) (*ParsedRelease, error) {
 	if m, err := audiobookNarratorRegex.FindStringMatch(title); err != nil {
 		return nil, fmt.Errorf("release: book: narrator match: %w", err)
 	} else if m != nil {
-		fmtToken := strings.Fields(m.GroupByName("fmt").String())
+		fmtToken := strings.Fields(groupString(m, "fmt"))
 		format := ""
 		if len(fmtToken) > 0 {
 			format = canonicalBookFormat(fmtToken[0])
 		}
 		info := &BookInfo{
-			Author:   strings.TrimSpace(m.GroupByName("author").String()),
-			Title:    strings.TrimSpace(m.GroupByName("title").String()),
+			Author:   strings.TrimSpace(groupString(m, "author")),
+			Title:    strings.TrimSpace(groupString(m, "title")),
 			Format:   format,
-			Narrator: strings.TrimSpace(m.GroupByName("narrator").String()),
-			ASIN:     m.GroupByName("asin").String(),
+			Narrator: strings.TrimSpace(groupString(m, "narrator")),
+			ASIN:     groupString(m, "asin"),
 		}
 		q, _ := bookQuality(title)
 		return &ParsedRelease{
@@ -95,10 +95,10 @@ func parseBook(title string) (*ParsedRelease, error) {
 		return nil, fmt.Errorf("release: %q does not match any book title pattern", title)
 	}
 
-	yearOrUnabridged := m.GroupByName("yearOrUnabridged").String()
+	yearOrUnabridged := groupString(m, "yearOrUnabridged")
 	info := &BookInfo{
-		Author: strings.TrimSpace(m.GroupByName("author").String()),
-		Title:  strings.TrimSpace(m.GroupByName("title").String()),
+		Author: strings.TrimSpace(groupString(m, "author")),
+		Title:  strings.TrimSpace(groupString(m, "title")),
 	}
 	if strings.EqualFold(yearOrUnabridged, "Unabridged") {
 		info.Unabridged = true
@@ -106,7 +106,7 @@ func parseBook(title string) (*ParsedRelease, error) {
 		info.Year = year
 	}
 
-	fmtTokens := strings.Fields(m.GroupByName("fmt").String())
+	fmtTokens := strings.Fields(groupString(m, "fmt"))
 	if len(fmtTokens) > 0 {
 		info.Format = canonicalBookFormat(fmtTokens[0])
 	}

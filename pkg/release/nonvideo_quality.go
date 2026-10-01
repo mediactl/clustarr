@@ -328,7 +328,7 @@ var comicFormatTokenRegex = mustCompile(`\b(?<fmt>CBZ|CBR|CB7|CBT|PDF)\b`, regex
 func comicQuality(format, title string) commonv1.Quality {
 	if format == "" {
 		if m, err := comicFormatTokenRegex.FindStringMatch(title); err == nil && m != nil {
-			format = strings.ToUpper(m.GroupByName("fmt").String())
+			format = strings.ToUpper(groupString(m, "fmt"))
 		}
 	}
 	if format == "" {

@@ -75,7 +75,7 @@ func extractIDs(title string) (map[string]string, string) {
 
 	cleaned := title
 	for m, err := idTokenRegex.FindStringMatch(cleaned); err == nil && m != nil; m, err = idTokenRegex.FindNextMatch(m) {
-		record(strings.ToLower(m.GroupByName("key").String()), strings.ToLower(m.GroupByName("val").String()))
+		record(strings.ToLower(groupString(m, "key")), strings.ToLower(groupString(m, "val")))
 	}
 	if ids != nil {
 		if replaced, err := idTokenRegex.Replace(cleaned, "", 0, -1); err == nil {
@@ -85,7 +85,7 @@ func extractIDs(title string) (map[string]string, string) {
 
 	if ids["imdb"] == "" {
 		if m, err := bareImdbRegex.FindStringMatch(cleaned); err == nil && m != nil {
-			record("imdb", strings.ToLower(m.GroupByName("val").String()))
+			record("imdb", strings.ToLower(groupString(m, "val")))
 			if replaced, rerr := bareImdbRegex.Replace(cleaned, "", 0, -1); rerr == nil {
 				cleaned = replaced
 			}

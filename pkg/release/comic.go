@@ -74,18 +74,18 @@ func parseComic(title string) (*ParsedRelease, error) {
 	if m, err := mangaVolChapterRegex.FindStringMatch(base); err != nil {
 		return nil, fmt.Errorf("release: comic: manga match: %w", err)
 	} else if m != nil {
-		series := strings.TrimSpace(m.GroupByName("series").String())
-		volume, convErr := strconv.Atoi(m.GroupByName("volume").String())
+		series := strings.TrimSpace(groupString(m, "series"))
+		volume, convErr := strconv.Atoi(groupString(m, "volume"))
 		if convErr != nil {
 			return nil, fmt.Errorf("release: comic: parsing volume: %w", convErr)
 		}
-		year, convErr := strconv.Atoi(m.GroupByName("year").String())
+		year, convErr := strconv.Atoi(groupString(m, "year"))
 		if convErr != nil {
 			return nil, fmt.Errorf("release: comic: parsing year: %w", convErr)
 		}
 		info := &ComicInfo{
 			Series: series,
-			Issue:  m.GroupByName("chapter").String(),
+			Issue:  groupString(m, "chapter"),
 			Volume: volume,
 			Year:   year,
 			Format: format,
@@ -109,14 +109,14 @@ func parseComic(title string) (*ParsedRelease, error) {
 		return nil, fmt.Errorf("release: %q does not match any comic title pattern", title)
 	}
 
-	series := strings.TrimSpace(m.GroupByName("series").String())
+	series := strings.TrimSpace(groupString(m, "series"))
 	year, err := atoiGroup(m, "year")
 	if err != nil {
 		return nil, err
 	}
 	info := &ComicInfo{
 		Series: series,
-		Issue:  m.GroupByName("issue").String(),
+		Issue:  groupString(m, "issue"),
 		Year:   year,
 		Format: format,
 	}
