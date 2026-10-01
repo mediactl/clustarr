@@ -26,6 +26,7 @@ package mediainfo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
@@ -73,6 +74,12 @@ type Raw struct {
 	// ContentLight is the first frame's MaxCLL/MaxFALL side data, nil when
 	// the source carries none.
 	ContentLight *ContentLight
+
+	// FrameErr is why the first video frame could not be read, nil when it
+	// was (or there is no video). The colour tags and HDR side data above
+	// are then unknown, not absent; IncompleteHDR decides whether that
+	// leaves the HDR format unknown too.
+	FrameErr error
 }
 
 // DoviRecord is the "DOVI configuration record" stream side data
@@ -96,6 +103,10 @@ func buildRaw(pd *ffprobe.ProbeData) *Raw {
 	return raw
 }
 
+// frameProbe is the second ffprobe call; a variable so a test can make it
+// fail.
+var frameProbe = runFrameProbe
+
 // Probe runs ffprobe twice against path -- once for the container,
 // streams and chapters, once for the first decoded frame's colour tags
 // and HDR side data (docs/research/transcode.md §2.1) -- and returns
@@ -113,12 +124,21 @@ func Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *Raw, error) 
 	raw := buildRaw(pd)
 
 	if pd.FirstVideoStream() != nil {
-		frames, ferr := runFrameProbe(ctx, path)
+		frames, ferr := frameProbe(ctx, path)
+		if ferr == nil && len(frames.Frames) == 0 {
+			ferr = errors.New("mediainfo: ffprobe frame probe decoded no frame")
+		}
 		if ferr != nil {
-			// Best-effort: HDR/colour detail degrades rather than failing
-			// the whole probe over a second call some inputs can't satisfy.
+			raw.FrameErr = ferr
+			// A stream that says it may be HDR cannot be read as SDR
+			// without its frame: the caller retries. Any other stream
+			// classifies as SDR either way, so its probe stands.
+			if err := IncompleteHDR(raw); err != nil {
+				tracing.RecordError(span, err)
+				return nil, nil, fmt.Errorf("mediainfo: probe %s: %w", path, err)
+			}
 			logging.FromContext(ctx).WarnContext(ctx,
-				"mediainfo: frame probe failed, HDR detail may be incomplete",
+				"mediainfo: frame probe failed; the stream says nothing of HDR, so the file reads as SDR",
 				"path", path, "error", ferr)
 		} else {
 			mergeFrame(raw, frames)
