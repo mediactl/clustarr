@@ -12,6 +12,12 @@ trace() {
 	for f in "$@"; do
 		[ -e "$f" ] || { echo "stage.sh: $f does not exist" >&2; exit 1; }
 		lddtree --copy-to-tree "$dst" "$f" >/dev/null
+		# A soname symlink (libva.so.2) is what the loader and libvpl ask
+		# for; keep it beside the file lddtree copied.
+		if [ -L "$f" ]; then
+			mkdir -p "$dst$(dirname "$f")"
+			cp -a "$f" "$dst$f"
+		fi
 	done
 }
 multiarch=$(gcc -print-multiarch 2>/dev/null || dpkg-architecture -qDEB_HOST_MULTIARCH)

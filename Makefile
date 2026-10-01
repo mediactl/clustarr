@@ -179,7 +179,7 @@ docker-build-cuda: ## Build the CUDA transcoder image (amd64).
 
 # The distroless transcoders (FROM scratch, images/Dockerfile.transcoder-distroless):
 # target:class pairs; each -debug twin is built beside its target.
-DISTROLESS_TARGETS ?= transcoder:cpu transcoder-cuda:cuda
+DISTROLESS_TARGETS ?= transcoder:cpu transcoder-cuda:cuda transcoder-intel:intel
 DISTROLESS_REPO ?= ghcr.io/mediactl/clustarr
 
 .PHONY: docker-build-distroless

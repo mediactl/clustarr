@@ -8,7 +8,7 @@ images `FROM scratch` (spec `docs/superpowers/specs/2026-09-30-ffgo-transcoding-
 | --- | --- | --- | --- | --- |
 | `transcoder` | amd64, arm64 | `cpu` | 95 MB | `transcoder` 755 MB |
 | `transcoder-cuda` | amd64 | `cuda` | 95 MB | `transcoder-cuda` 941 MB |
-| `transcoder-intel` | amd64 | `intel` | see Task 3 | (in `transcoder`) |
+| `transcoder-intel` | amd64 | `intel` | 111 MB | (in `transcoder`, 755 MB) |
 | `<target>-debug` | as its target | | +1 MB (static busybox) | |
 
 What is in them, and why:
