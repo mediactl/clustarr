@@ -20,7 +20,10 @@ package facade
 import (
 	"context"
 	"net/http"
+	"strconv"
+	"time"
 
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -65,7 +68,17 @@ func (s *Server) handleIndexerDownload(w http.ResponseWriter, r *http.Request) {
 		URL:        r.URL.Query().Get("url"),
 	})
 
+	retryAt, grabLimited := limits.GrabLimited(resp.Error)
 	switch {
+	case grabLimited:
+		// spec.limits.grabLimit refused the grab before the indexer was
+		// asked. Prowlarr answers that with a 429, and a client backs off on
+		// it rather than counting a failure against the indexer, which a 502
+		// would earn.
+		if secs := int(time.Until(retryAt).Round(time.Second).Seconds()); secs > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+		}
+		s.writeTorznabError(w, http.StatusTooManyRequests, torznab.ErrDownloadLimitReached, resp.Error)
 	case resp.Error != "":
 		// DownloadResponse.Error is intentionally NOT echoed to the caller
 		// verbatim on other verbs in this package (writeLookupError), but

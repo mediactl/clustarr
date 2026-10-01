@@ -62,7 +62,7 @@ func newDownload(ns, name, indexer, guid string, src downloadv1alpha1.DownloadSo
 // reaches rpc.indexarr.download, so the direct-grab reconciler -- registered
 // through its own SetupWithManager on a real manager -- counts it from the
 // Download's creation into the same ring. An indexerDownload grab is left to
-// the verb, and the apply leaves the rest of the worker's set standing.
+// the verb, and nothing writes the Indexer's status.
 func TestDirectGrabsCountTowardTheGrabWindow(t *testing.T) {
 	ctx := t.Context()
 	c := newTestClient(t)
@@ -80,11 +80,7 @@ func TestDirectGrabsCountTowardTheGrabWindow(t *testing.T) {
 	go func() { done <- mgr.Start(mctx) }()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 
-	grabs := func() int32 {
-		var live indexv1alpha1.Indexer
-		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &live))
-		return live.Status.GrabsInWindow
-	}
+	grabs := func() int32 { return grabsOnTheRing(t, ctx, svc, idx) }
 
 	torrentURL := "https://tracker.example.invalid/dl/1.torrent"
 	require.NoError(t, c.Create(ctx, newDownload(idx.Namespace, "direct-torrent", "tr", "g-1",
@@ -110,7 +106,6 @@ func TestDirectGrabsCountTowardTheGrabWindow(t *testing.T) {
 
 	var after indexv1alpha1.Indexer
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
-	require.Equal(t, int32(11), after.Status.QueriesInWindow, "released by a partial apply")
 	require.Equal(t, int64(4211), after.Status.IndexedReleases, "released by a partial apply")
 	require.NotNil(t, after.Status.LastRssAt, "released by a partial apply")
 	require.Equal(t, int32(2), after.Status.EscalationLevel, "released by a partial apply")

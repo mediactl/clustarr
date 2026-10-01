@@ -20,6 +20,7 @@ package indexer_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -256,11 +258,19 @@ func TestTransientProbeFailureDoesNotReleaseCaps(t *testing.T) {
 			WithInitialFailureAt(until).
 			WithLastFailureAt(until).
 			WithLastFailure("earlier trouble").
-			WithQueriesInWindow(7).
-			WithGrabsInWindow(2).
 			WithLastRssNewCount(11).
 			WithIndexedReleases(4242)))
 	require.NoError(t, err)
+	// And this manager's window counts, which it projects from the rings.
+	kv := r.Bus.KV(events.BucketIndexerLimits)
+	for i := range 7 {
+		_, err := limits.ReserveQuery(ctx, kv, &steady, time.Now())
+		require.NoError(t, err)
+		if i < 2 {
+			_, err = limits.ReserveGrab(ctx, kv, &steady, fmt.Sprintf("g%d", i), time.Now())
+			require.NoError(t, err)
+		}
+	}
 
 	// 3. The blip. Force a re-probe: the caps TTL would otherwise skip it.
 	fail.Store(true)
@@ -282,8 +292,8 @@ func TestTransientProbeFailureDoesNotReleaseCaps(t *testing.T) {
 	require.Equal(t, after.Generation, after.Status.ObservedGeneration)
 
 	require.EqualValues(t, 3, after.Status.EscalationLevel, "the reconciler released indexarr-worker's fields")
-	require.EqualValues(t, 7, after.Status.QueriesInWindow)
-	require.EqualValues(t, 2, after.Status.GrabsInWindow)
+	require.EqualValues(t, 7, after.Status.QueriesInWindow, "the failure path did not project the query ring")
+	require.EqualValues(t, 2, after.Status.GrabsInWindow, "the failure path did not project the grab ring")
 	require.EqualValues(t, 11, after.Status.LastRssNewCount)
 	require.EqualValues(t, 4242, after.Status.IndexedReleases)
 	require.Equal(t, "earlier trouble", after.Status.LastFailure)
@@ -625,9 +635,12 @@ func TestLimitsExhaustedSetsRateLimitedWithoutClearingReady(t *testing.T) {
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
-		indexac.Indexer(name.Name, ns).WithStatus(indexac.IndexerStatus().WithQueriesInWindow(100)))
-	require.NoError(t, err)
+	idx := mustGet(t, c, name)
+	kv := r.Bus.KV(events.BucketIndexerLimits)
+	for range 100 {
+		_, err := limits.ReserveQuery(ctx, kv, &idx, time.Now())
+		require.NoError(t, err)
+	}
 
 	_, err = reconcileOnce(t, r, name)
 	require.NoError(t, err)
@@ -636,8 +649,69 @@ func TestLimitsExhaustedSetsRateLimitedWithoutClearingReady(t *testing.T) {
 	limitedCond := conditionOf(t, got, indexv1alpha1.IndexerConditionRateLimited)
 	require.Equal(t, metav1.ConditionTrue, limitedCond.Status)
 	require.Contains(t, limitedCond.Message, "queries 100/100 per day")
+	require.EqualValues(t, 100, got.Status.QueriesInWindow)
 	require.True(t, k8s.IsConditionTrue(got.Status.Conditions, indexv1alpha1.IndexerConditionReady),
 		"a daily budget is an Indexer's expected steady state; it must not flap Ready")
+}
+
+// The latch this reconciler used to have: an indexer that reached its limit
+// and then went QUIET -- which a limited indexer does, since nothing may
+// query it -- kept its count and RateLimited for good, because only the
+// writers that count ever moved status.queriesInWindow. The count is now
+// read off the ring on every pass, and a full window requeues for the moment
+// it next has room, so with no traffic at all the condition clears.
+func TestRateLimitedClearsOnceTheWindowPassesWithNoTraffic(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c, "idx-limit-clears")
+	srv := capsServer(t, readFixture(t, "testdata/caps.xml"), http.StatusOK)
+
+	name := types.NamespacedName{Namespace: ns, Name: "quiet"}
+	require.NoError(t, c.Create(ctx, &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: ns},
+		Spec: indexv1alpha1.IndexerSpec{
+			BaseURL: srv.URL,
+			Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolUsenet, APIPath: "/api"},
+			Limits:  &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(2)), Unit: indexv1alpha1.LimitUnitHour},
+		},
+	}))
+
+	t0 := time.Now().UTC().Truncate(time.Second)
+	clock := t0
+	r, _ := newReconciler(t, c)
+	r.Now = func() time.Time { return clock }
+	_, err := reconcileOnce(t, r, name)
+	require.NoError(t, err)
+
+	idx := mustGet(t, c, name)
+	kv := r.Bus.KV(events.BucketIndexerLimits)
+	base := t0.Add(-50 * time.Minute)
+	for i := range 2 {
+		_, err := limits.ReserveQuery(ctx, kv, &idx, base.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, err)
+	}
+
+	res, err := reconcileOnce(t, r, name)
+	require.NoError(t, err)
+	got := mustGet(t, c, name)
+	require.True(t, k8s.IsConditionTrue(got.Status.Conditions, indexv1alpha1.IndexerConditionRateLimited))
+	require.EqualValues(t, 2, got.Status.QueriesInWindow)
+	require.Equal(t, base.Add(time.Hour+time.Second).Sub(clock), res.RequeueAfter,
+		"a full window requeues for the moment it next has room, not the 15-minute tick")
+
+	// Nothing queries the indexer; the window simply passes.
+	clock = base.Add(time.Hour + time.Second)
+	_, err = reconcileOnce(t, r, name)
+	require.NoError(t, err)
+	got = mustGet(t, c, name)
+	limited := conditionOf(t, got, indexv1alpha1.IndexerConditionRateLimited)
+	require.Equal(t, metav1.ConditionFalse, limited.Status, "RateLimited latched: %s", limited.Message)
+	require.EqualValues(t, 1, got.Status.QueriesInWindow)
+
+	clock = base.Add(2 * time.Hour)
+	_, err = reconcileOnce(t, r, name)
+	require.NoError(t, err)
+	require.Zero(t, mustGet(t, c, name).Status.QueriesInWindow)
 }
 
 // The caps TTL is what keeps a 15-minute tick from spending an indexer's

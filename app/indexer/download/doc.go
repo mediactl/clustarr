@@ -38,46 +38,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Status ownership
 //
-// This package writes Indexer.status as k8s.ManagerIndexarrWorker, through
-// app/indexer/status.Patch and nothing else. Server-side apply REPLACES a field
-// manager's ownership set on every apply rather than merging into it, so an
-// apply must declare all ten fields that manager owns even though this verb
-// changes one:
+// None. This verb writes no status. status.grabsInWindow is the Indexer
+// reconciler's projection of the grab ring in clustarr-indexer-limits
+// (app/indexer/status's package doc, since 2026-10-01): it reads the ring on
+// every pass and is woken by every ring change, so the count follows the
+// grabs without a status write here -- and without the lost-update and
+// release hazards a third writer under the worker manager kept bringing.
 //
-//	escalationLevel  disabledUntil  initialFailureAt  lastFailureAt  lastFailure
-//	queriesInWindow  grabsInWindow  lastRssAt  lastRssNewCount  indexedReleases
+// # Grab accounting, and spec.limits.grabLimit
 //
-// status.WorkerFields is the single definition of that set (Ruling R14); this
-// package calls it and never hand-rolls one. The apply is skipped entirely
-// when the count did not change -- an apply that does not happen releases
-// nothing, which is the one safe shortcut under a shared field manager.
+// Every grab reserves on the ring (app/indexer/limits.ReserveGrab) BEFORE
+// the indexer is asked, and the reservation is refused once the window holds
+// spec.limits.grabLimit: the reply is then an Error that limits.GrabLimited
+// recognises, naming when the window next has room, and the indexer is never
+// contacted. The ring is keyed by GUID, so a grab already in the window
+// passes without counting again -- catalogarr's grab path reserves the same
+// GUID before it creates the Download whose engine calls this verb, which is
+// where a limit has to hold for an automatic grab. A grab that then does not
+// happen (the fetch failed, or the link named another host) gives back the
+// slot this call took.
 //
-// status.grabsInWindow is a PROJECTION of the KV ring; the ring is the source
-// of truth, so a projection this verb loses self-heals at the next grab and a
-// CAS loop for a status field would be the wrong fix.
-//
-// That reasoning covers grabsInWindow and NOTHING ELSE, which is why the
-// apply re-reads the Indexer immediately before it rather than using the
-// object the download started from. Patch re-sends every field the manager
-// owns from whatever status it is handed, so a pre-fetch snapshot rolls back
-// the search fan-out's queriesInWindow -- and CLEARS disabledUntil, because
-// WorkerFields emits it only when non-nil. Silently re-enabling an indexer
-// another writer just put into backoff is not a counter blip that heals, it
-// is the backoff undone until the tracker is hammered into failing again.
-// One Get per download closes the window, as app/indexer/worker/rss does for
-// its poll.
-//
-// # Grab accounting, both paths
-//
-// Ruling R3 puts grab counting here -- indexarr already holds the indexer's
-// session and passkey at this point, and no new CLUSTARR_EVENTS consumer is
-// needed. A grab whose DownloadSource is torrentURL, magnetURL or nzbURL
-// never calls this verb at all (grabarr fetches it directly; see
-// api/download/v1alpha1's DownloadSource), so [DirectGrabReconciler] counts
-// those from the Download's creation instead, into the same ring through the
-// same [CountGrabAt]. The ring is keyed by GUID, so the two paths cannot
-// double count one grab, and status.grabsInWindow is every grab the indexer
-// served rather than only the credentialled ones.
+// A grab whose DownloadSource is torrentURL, magnetURL or nzbURL never calls
+// this verb at all (grabarr fetches it directly; see api/download/v1alpha1's
+// DownloadSource), so [DirectGrabReconciler] counts those from the
+// Download's creation instead, into the same ring, never refused -- it has
+// already happened. Again the GUID key means no grab is counted twice.
 //
 // # Redaction
 //
@@ -113,6 +98,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	q  := &query.Service{Store: store}
 //	svc := &search.Service{..., Download: dl.Handle, Query: q.Handle}
 //
+// Bus is the clustarr-indexer-limits grab ring as well as the RPC transport;
+// without it there is no grab accounting and no grab limit.
+//
 // `limiters` is the ONE *ratelimit.Limiter D1-3 constructs and shares with the
 // fan-out and the RSS worker, so all three pace against the same per-host
 // buckets. This package never constructs one.
@@ -124,14 +112,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // a function -- and envtest does not enforce RBAC, so a misplaced marker
 // passes every test and fails only on a real cluster.
 //
-// This verb reads Indexer, reads the Secrets that hold the indexer's
-// credentials and its login session, and writes only the /status subresource.
-// Each pair is already declared by app/indexer/status and by the Indexer
-// reconciler; they are restated here so the package's own needs survive
-// either of those moving, and controller-gen deduplicates them.
+// This verb reads Indexer and the Secrets that hold the indexer's
+// credentials and its login session, and writes nothing in Kubernetes. The
+// read is already declared by the Indexer reconciler; it is restated here so
+// the package's own needs survive that moving, and controller-gen
+// deduplicates it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers/status,verbs=get;update;patch
 //
 // [DirectGrabReconciler] watches Downloads (read only) to count the grabs
 // that bypass this verb.

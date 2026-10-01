@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -37,9 +38,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -52,9 +55,11 @@ import (
 
 const (
 	// reprobeInterval is the steady-state tick. It is short because the
-	// RateLimited and Healthy conditions are derived from worker-owned
-	// status fields that k8s.GenerationChanged() deliberately filters out
-	// of the watch, so this tick is the only thing that refreshes them.
+	// Healthy condition is derived from worker-owned status fields that
+	// k8s.GenerationChanged() deliberately filters out of the watch, so this
+	// tick is what refreshes it. The window counts behind RateLimited are
+	// read off the clustarr-indexer-limits rings, whose every change also
+	// enqueues the Indexer (limitsSource).
 	reprobeInterval = 15 * time.Minute
 
 	// capsTTL is how stale status.caps may get before the tick spends an
@@ -124,6 +129,11 @@ type Reconciler struct {
 	// means the Secret alone.
 	Sessions *SessionStore
 
+	// Now is the clock; nil means time.Now. The window projection reads the
+	// rings at this instant, so a test can roll a full window past without
+	// waiting a day.
+	Now func() time.Time
+
 	mu       sync.Mutex
 	capsSeen map[types.UID]capsMemo
 }
@@ -159,6 +169,13 @@ func NewReconciler(
 	}
 }
 
+func (r *Reconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
+}
+
 func (r *Reconciler) shouldProbe(uid types.UID, generation int64, hasCaps bool, now time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -182,7 +199,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	ctx, span := tracing.Start(ctx, "indexer.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("indexer", req.NamespacedName)
-	now := time.Now()
+	now := r.now()
 
 	var idx indexv1alpha1.Indexer
 	if err := r.Client.Get(ctx, req.NamespacedName, &idx); err != nil {
@@ -224,6 +241,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// are already there instead of releasing them.
 	idx.Status.ObservedGeneration = idx.Generation
 	idx.Status.SessionSecretRef = sessionSecretName(idx.Name)
+	// queriesInWindow and grabsInWindow too, on every path: they are this
+	// manager's, projected from the rings at this instant, early returns
+	// included.
+	windows := r.projectWindows(ctx, &idx, now)
 
 	kind, err := resolveSource(idx.Spec)
 	if err != nil {
@@ -245,7 +266,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	if kind != sourceGeneric {
-		return r.reconcileDefinition(ctx, &idx, conditions, now)
+		return r.reconcileDefinition(ctx, &idx, conditions, windows, now)
 	}
 
 	secret, err := readSecret(ctx, r.Client, idx.Namespace, idx.Spec.SecretRef)
@@ -311,7 +332,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		}
 	}
 
-	return r.finish(ctx, &idx, conditions, probed, outcome, time.Now())
+	return r.finish(ctx, &idx, conditions, windows, probed, outcome, r.now())
 }
 
 // finish derives Authenticated, RateLimited, Healthy and Ready from what this
@@ -322,6 +343,7 @@ func (r *Reconciler) finish(
 	ctx context.Context,
 	idx *indexv1alpha1.Indexer,
 	conditions []metav1.Condition,
+	windows windowRetry,
 	probed bool,
 	outcome probeOutcome,
 	now time.Time,
@@ -384,9 +406,9 @@ func (r *Reconciler) finish(
 	// write is unconditional on every path through Reconcile, and an early
 	// return here would be exactly the partial-status bug this package is
 	// built to avoid. The bus failure is surfaced after the write instead.
-	seedErr := r.seedRSSSchedule(ctx, idx, healthy, now)
+	seedErr := r.seedRSSSchedule(ctx, idx, healthy, windows.query, now)
 
-	res, err := r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: r.requeueAfter(idx.Status, outcome, now)})
+	res, err := r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: r.requeueAfter(idx.Status, outcome, windows, now)})
 	if err != nil {
 		return res, err
 	}
@@ -425,10 +447,15 @@ func (r *Reconciler) finish(
 // nothing. Where it does store something -- a slot past the dedup window, or
 // a genuinely new slot -- the scheduled publish carries Nats-Rollup: sub, so
 // it REPLACES the pending poll rather than adding a second one.
+//
+// queryRetry is when a full query window next has room, zero when it has
+// room now. A poll seeded before then would only be refused by its own
+// reservation, so the seed waits for it.
 func (r *Reconciler) seedRSSSchedule(
 	ctx context.Context,
 	idx *indexv1alpha1.Indexer,
 	healthy bool,
+	queryRetry time.Time,
 	now time.Time,
 ) error {
 	if !ptr.Deref(idx.Spec.Enabled, true) || !ptr.Deref(idx.Spec.EnableRss, true) {
@@ -448,14 +475,18 @@ func (r *Reconciler) seedRSSSchedule(
 			"indexer", client.ObjectKeyFromObject(idx))
 		return nil
 	}
-	return rss.ScheduleNext(ctx, r.Bus, idx, rss.NextPollAt(idx, now))
+	at := rss.NextPollAt(idx, now)
+	if queryRetry.After(at) {
+		at = queryRetry
+	}
+	return rss.ScheduleNext(ctx, r.Bus, idx, at)
 }
 
-// rateLimited derives the RateLimited condition from spec.limits and the
-// worker-owned counters status.queriesInWindow / status.grabsInWindow. Note
-// Prowlarr counts IndexerQuery + IndexerRss together against QueryLimit; both
-// land in queriesInWindow, which the RSS worker and the search fan-out
-// increment.
+// rateLimited derives the RateLimited condition from spec.limits and
+// status.queriesInWindow / status.grabsInWindow, which projectWindows has
+// just read off the rings. Prowlarr counts IndexerQuery + IndexerRss
+// together against QueryLimit; both reserve on the query ring, one entry per
+// request. A limit of 0 or less is none, as Prowlarr reads it.
 func rateLimited(spec indexv1alpha1.IndexerSpec, st indexv1alpha1.IndexerStatus) (bool, string) {
 	if spec.Limits == nil {
 		return false, ""
@@ -464,30 +495,90 @@ func rateLimited(spec indexv1alpha1.IndexerSpec, st indexv1alpha1.IndexerStatus)
 	if unit == "" {
 		unit = indexv1alpha1.LimitUnitDay
 	}
-	if l := spec.Limits.QueryLimit; l != nil && st.QueriesInWindow >= *l {
+	idx := &indexv1alpha1.Indexer{Spec: spec}
+	if l := limits.QueryLimit(idx); l != nil && st.QueriesInWindow >= *l {
 		return true, fmt.Sprintf("queries %d/%d per %s", st.QueriesInWindow, *l, unit)
 	}
-	if l := spec.Limits.GrabLimit; l != nil && st.GrabsInWindow >= *l {
+	if l := limits.GrabLimit(idx); l != nil && st.GrabsInWindow >= *l {
 		return true, fmt.Sprintf("grabs %d/%d per %s", st.GrabsInWindow, *l, unit)
 	}
 	return false, ""
 }
 
+// windowRetry is when each full window next has room, zero for a window
+// with room now, no limit, or a ring that could not be read.
+type windowRetry struct {
+	query, grab time.Time
+}
+
+// earliest is the sooner of the two non-zero instants, zero when neither is
+// set.
+func (w windowRetry) earliest() time.Time {
+	switch {
+	case w.query.IsZero():
+		return w.grab
+	case w.grab.IsZero() || w.query.Before(w.grab):
+		return w.query
+	default:
+		return w.grab
+	}
+}
+
+// projectWindows sets status.queriesInWindow and status.grabsInWindow from
+// idx's clustarr-indexer-limits rings at now, and returns when each full
+// window next has room.
+//
+// The rings are the truth and these two fields their projection; this
+// reconciler owns them (app/indexer/status's package doc), and reading the
+// ring on every pass is what brings a count down as its window rolls on
+// even when nothing counts -- which is the case that matters, an indexer
+// that hit its limit and went quiet. A ring that cannot be read leaves its
+// field as it stands rather than releasing or zeroing it: an outage is not
+// an empty window.
+func (r *Reconciler) projectWindows(ctx context.Context, idx *indexv1alpha1.Indexer, now time.Time) windowRetry {
+	var w windowRetry
+	if r.Bus == nil || idx.UID == "" {
+		return w
+	}
+	kv := r.Bus.KV(events.BucketIndexerLimits)
+	log := logging.FromContext(ctx)
+	if q, err := limits.Queries(ctx, kv, idx, now); err != nil {
+		log.Warn("indexer: reading the query ring failed; keeping queriesInWindow", "error", err)
+	} else {
+		idx.Status.QueriesInWindow, w.query = q.Count, q.RetryAt
+	}
+	if g, err := limits.Grabs(ctx, kv, idx, now); err != nil {
+		log.Warn("indexer: reading the grab ring failed; keeping grabsInWindow", "error", err)
+	} else {
+		idx.Status.GrabsInWindow, w.grab = g.Count, g.RetryAt
+	}
+	return w
+}
+
 // requeueAfter picks the next tick. It never returns 0, because a zero
-// RequeueAfter means "do not requeue" and this reconciler's RateLimited and
-// Healthy conditions are derived from worker-owned fields the watch predicate
-// filters out -- only the tick refreshes them. It is always RequeueAfter,
-// never a bare Requeue and never an error returned purely to force a retry.
-func (r *Reconciler) requeueAfter(st indexv1alpha1.IndexerStatus, outcome probeOutcome, now time.Time) time.Duration {
+// RequeueAfter means "do not requeue" and this reconciler's Healthy condition
+// is derived from worker-owned fields the watch predicate filters out -- only
+// the tick refreshes it. It is always RequeueAfter, never a bare Requeue and
+// never an error returned purely to force a retry.
+//
+// A full limit window brings it back the moment the window next has room,
+// when that is sooner: that pass reads the lower count and clears
+// RateLimited with no traffic at all, which an indexer at its limit by
+// definition has none of.
+func (r *Reconciler) requeueAfter(st indexv1alpha1.IndexerStatus, outcome probeOutcome, windows windowRetry, now time.Time) time.Duration {
 	// A server's Retry-After is authoritative; pkg/ratelimit.Backoff
 	// documents the same rule for the same reason.
 	if outcome.RetryAfter > 0 {
 		return outcome.RetryAfter
 	}
+	d := reprobeInterval
 	if st.DisabledUntil != nil && now.Before(st.DisabledUntil.Time) {
-		return st.DisabledUntil.Sub(now) + time.Second
+		d = st.DisabledUntil.Sub(now) + time.Second
 	}
-	return reprobeInterval
+	if at := windows.earliest(); at.After(now) && at.Sub(now) < d {
+		d = at.Sub(now)
+	}
+	return d
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -554,8 +645,16 @@ func (r *Reconciler) patch(
 // IndexerProxy is watched (spec edits only -- its own controller's status
 // writes are not a routing change) for the same reason, mapped by
 // [indexersForProxy] onto the Indexers it applies to.
+//
+// With a bus, every change to an Indexer's clustarr-indexer-limits rings
+// enqueues it too ([Reconciler.limitsSource]), so the window counts on status
+// follow the traffic rather than the 15-minute tick.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr)
+	if r.Bus != nil {
+		b = b.WatchesRawSource(r.limitsSource())
+	}
+	return b.
 		Named("indexer").
 		For(&indexv1alpha1.Indexer{}, builder.WithPredicates(
 			k8s.Or(k8s.GenerationChanged(), k8s.DeadLetteredAnnotationChanged()))).
@@ -571,6 +670,58 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			RecoverPanic:          ptr.To(true),
 		}).
 		Complete(r)
+}
+
+// limitsSource enqueues the Indexer whose query or grab ring just changed in
+// clustarr-indexer-limits.
+//
+// The rings change on every reservation, from any replica's search fan-out,
+// RSS poll or download verb, or catalogarr's grab path; none of them write
+// the counts on status any more, so without this the projection would wait
+// for the 15-minute tick -- and RateLimited with it, which a full window is
+// exactly when an operator looks. A refused reservation writes nothing and
+// so wakes nothing; the requeue at the window's retry time covers the other
+// direction. The watch replays every ring at start, which reconciles each
+// Indexer that has one once, as the informer's initial list already does.
+func (r *Reconciler) limitsSource() source.Source {
+	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+		ch, err := r.Bus.KV(events.BucketIndexerLimits).Watch(ctx, ">")
+		if err != nil {
+			return fmt.Errorf("indexer: watch %s: %w", events.BucketIndexerLimits, err)
+		}
+		go func() {
+			for e := range ch {
+				for _, req := range r.indexersForRing(ctx, e.Key) {
+					q.Add(req)
+				}
+			}
+			if ctx.Err() == nil {
+				logging.FromContext(ctx).Warn("indexer: the limits watch ended; window counts now follow the reprobe tick")
+			}
+		}()
+		return nil
+	})
+}
+
+// indexersForRing maps a ring key -- events.KVKeyToken(uid) plus ".query" or
+// ".grab" -- onto the Indexer with that UID, from the manager's cache.
+func (r *Reconciler) indexersForRing(ctx context.Context, key string) []reconcile.Request {
+	dot := strings.LastIndexByte(key, '.')
+	if dot <= 0 {
+		return nil
+	}
+	token := key[:dot]
+	var list indexv1alpha1.IndexerList
+	if err := r.Client.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Warn("indexer: listing Indexers for a ring change failed", "error", err)
+		return nil
+	}
+	for i := range list.Items {
+		if events.KVKeyToken(string(list.Items[i].UID)) == token {
+			return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])}}
+		}
+	}
+	return nil
 }
 
 // indexersForProxy maps an IndexerProxy onto the Indexers in its namespace

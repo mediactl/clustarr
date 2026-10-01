@@ -19,166 +19,89 @@ package search
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
-// The escape is not optional and it is not a regex restated here: a NATS KV
-// key must satisfy nats.go's character set PLUS no leading ".", no trailing
-// "." and no "..". events.ValidKVKey is the predicate the contract test pins
-// against a real embedded server, so this asserts through it rather than
-// restating the grammar -- restating it is how ValidKVKey itself shipped
-// permissive.
-func TestQueryRingKeyGoesThroughKVKeyToken(t *testing.T) {
-	require.Equal(t, events.KVKeyToken("a/b:c")+".query", QueryRingKey("a/b:c"))
-	require.True(t, events.ValidKVKey(QueryRingKey("a/b:c")))
-	require.True(t, events.ValidKVKey(QueryRingKey("")))
-	require.True(t, events.ValidKVKey(QueryRingKey("8f14e45f-ceea-467a-9575-1c38ba1eb3bb")))
-	require.NotEqual(t, QueryRingKey("uid"), GrabRingKeyLike("uid"),
-		"the query ring and the grab ring must not share a key")
-}
-
-// GrabRingKeyLike mirrors app/indexer/download's key shape without importing a
-// sibling verb: the point of the assertion above is that the two suffixes
-// differ, not that this reimplements anything.
-func GrabRingKeyLike(uid string) string { return events.KVKeyToken(uid) + ".grab" }
-
-func TestQueryWindow(t *testing.T) {
-	require.Equal(t, 24*time.Hour, queryWindow(&indexv1alpha1.Indexer{}))
-	require.Equal(t, 24*time.Hour, queryWindow(&indexv1alpha1.Indexer{
-		Spec: indexv1alpha1.IndexerSpec{Limits: &indexv1alpha1.Limits{}},
-	}))
-	require.Equal(t, time.Hour, queryWindow(&indexv1alpha1.Indexer{
-		Spec: indexv1alpha1.IndexerSpec{Limits: &indexv1alpha1.Limits{
-			Unit: indexv1alpha1.LimitUnitHour,
-		}},
-	}))
-	require.Equal(t, 24*time.Hour, queryWindow(&indexv1alpha1.Indexer{
-		Spec: indexv1alpha1.IndexerSpec{Limits: &indexv1alpha1.Limits{
-			Unit: indexv1alpha1.LimitUnitDay,
-		}},
-	}))
-}
-
-func TestPruneQueryRing(t *testing.T) {
-	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	cutoff := now.Add(-time.Hour)
-	ring := []int64{
-		now.Add(-3 * time.Hour).Unix(),
-		now.Add(-90 * time.Minute).Unix(),
-		now.Add(-30 * time.Minute).Unix(),
-		now.Unix(),
-	}
-	require.Equal(t, []int64{now.Add(-30 * time.Minute).Unix(), now.Unix()},
-		pruneQueryRing(ring, cutoff, 10))
-
-	// The cap keeps the NEWEST entries.
-	require.Equal(t, []int64{now.Unix()}, pruneQueryRing(ring, cutoff, 1))
-	require.Empty(t, pruneQueryRing(nil, cutoff, 10))
-}
-
-func testIndexer(uid string) *indexv1alpha1.Indexer {
-	return &indexv1alpha1.Indexer{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tr", UID: types.UID(uid)},
-	}
-}
-
-func testKV(t *testing.T) events.KV {
+func testBus(t *testing.T) events.Bus {
 	t.Helper()
-	ctx := context.Background()
 	bus := membus.New(nil)
 	t.Cleanup(func() { _ = bus.Close() })
-	require.NoError(t, bus.Ensure(ctx, events.Default()))
-	return bus.KV(events.BucketIndexerLimits)
+	require.NoError(t, bus.Ensure(context.Background(), events.Default()))
+	return bus
 }
 
-// The whole reason the ring exists: the count comes DOWN again once the
-// window has rolled past, so an indexer that hit its query limit recovers by
-// itself. A status counter with no window never does, and the Indexer
-// reconciler's RateLimited condition would latch with it.
-func TestCountQueryIsAWindowNotARunningTotal(t *testing.T) {
-	ctx := context.Background()
-	kv := testKV(t)
-	idx := testIndexer("uid-window")
-	idx.Spec.Limits = &indexv1alpha1.Limits{Unit: indexv1alpha1.LimitUnitHour}
-
-	base := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	for i := range 5 {
-		n, err := countQuery(ctx, kv, idx, base.Add(time.Duration(i)*time.Minute))
-		require.NoError(t, err)
-		require.Equal(t, int32(i+1), n)
-	}
-
-	// Two hours later every one of those is outside the 1h window.
-	n, err := countQuery(ctx, kv, idx, base.Add(2*time.Hour))
-	require.NoError(t, err)
-	require.Equal(t, int32(1), n, "the window did not roll")
-}
-
-// A search RPC is request/reply, so a repeated search really is a repeated
-// query against the indexer. Unlike the grab ring there is no idempotency
-// key and repeats must count.
-func TestCountQueryCountsEveryQuery(t *testing.T) {
-	ctx := context.Background()
-	kv := testKV(t)
-	idx := testIndexer("uid-repeat")
-	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-
-	a, err := countQuery(ctx, kv, idx, now)
-	require.NoError(t, err)
-	b, err := countQuery(ctx, kv, idx, now)
-	require.NoError(t, err)
-	require.Equal(t, int32(1), a)
-	require.Equal(t, int32(2), b)
-}
-
-// A value we cannot decode is a value we replace: failing shut would wedge
-// counting for this indexer for the bucket's whole 2d TTL.
-func TestCountQueryReplacesAnUndecodableRing(t *testing.T) {
-	ctx := context.Background()
-	kv := testKV(t)
-	idx := testIndexer("uid-garbage")
-	_, err := kv.Put(ctx, QueryRingKey(string(idx.UID)), []byte("{not json"))
-	require.NoError(t, err)
-
-	n, err := countQuery(ctx, kv, idx, time.Now())
-	require.NoError(t, err)
-	require.Equal(t, int32(1), n)
-}
-
-func TestCountQuerySaturatesAtTheRingCap(t *testing.T) {
-	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	full := make([]int64, maxQueryRingEntries+50)
-	for i := range full {
-		full[i] = now.Unix()
-	}
-	require.Len(t, pruneQueryRing(full, now.Add(-time.Hour), maxQueryRingEntries),
-		maxQueryRingEntries)
-}
-
-// A nil Bus disables accounting rather than failing the search, and a nil
-// count means "leave status.queriesInWindow exactly as it is".
-func TestServiceCountQueryWithoutABus(t *testing.T) {
+// A nil Bus disables accounting rather than failing the search.
+func TestReserveQueryWithoutABus(t *testing.T) {
 	s := &Service{}
-	require.Nil(t, s.countQuery(context.Background(), testIndexer("uid-nobus")))
+	idx := healthyIndexer("nobus")
+	n, ok := s.reserveQuery(context.Background(), &idx)
+	require.Nil(t, n)
+	require.True(t, ok)
 }
 
-func TestServiceCountQueryReturnsTheWindowCount(t *testing.T) {
-	ctx := context.Background()
-	bus := membus.New(nil)
-	t.Cleanup(func() { _ = bus.Close() })
-	require.NoError(t, bus.Ensure(ctx, events.Default()))
+// countingClient answers every search and counts the requests that reached
+// it.
+type countingClient struct{ calls *atomic.Int32 }
 
-	s := &Service{Bus: bus, Now: time.Now}
-	got := s.countQuery(ctx, testIndexer("uid-service"))
-	require.Equal(t, ptr.To(int32(1)), got)
+func (c countingClient) Search(context.Context, torznab.Query) ([]torznab.Release, error) {
+	c.calls.Add(1)
+	return wireReleases(1), nil
+}
+
+// The defect this replaced: the fan-out skipped an indexer whose
+// status.queriesInWindow had reached spec.limits.queryLimit, and only a
+// counted query moved that field -- so an indexer at its limit was never
+// asked again, and nothing ever counted again to bring it down. The gate is
+// now the ring's own reservation, made the moment before the request: at
+// the limit the indexer is skipped without being contacted, and once the
+// window has passed -- with no traffic in between -- it is asked again.
+func TestAnIndexerAtItsQueryLimitIsAskedAgainOnceTheWindowPasses(t *testing.T) {
+	idxs := fanoutIndexers("budget")
+	idxs[0].Spec.Limits = &indexv1alpha1.Limits{QueryLimit: ptr.To[int32](1), Unit: indexv1alpha1.LimitUnitHour}
+	var calls atomic.Int32
+	t0 := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	clock := t0
+	s := serviceFor(idxs, nil)
+	s.ClientFor = func(context.Context, *indexv1alpha1.Indexer) (IndexerClient, error) {
+		return countingClient{calls: &calls}, nil
+	}
+	s.Bus = testBus(t)
+	s.Now = func() time.Time { return clock }
+
+	run := func() schema.SearchOutcome {
+		t.Helper()
+		cands := selectCandidates(idxs, movieRequest(), torznab.ModeMovieSearch, clock)
+		outcomes, _ := s.fanOut(context.Background(), cands, movieRequest(), torznab.ModeMovieSearch, 30*time.Second)
+		require.Len(t, outcomes, 1)
+		return outcomes[0]
+	}
+
+	require.Equal(t, schema.SearchOutcomeOK, run().Status)
+	require.EqualValues(t, 1, calls.Load())
+
+	clock = t0.Add(time.Minute)
+	out := run()
+	require.Equal(t, schema.SearchOutcomeSkipped, out.Status)
+	require.Equal(t, skipQueryLimit, out.Error)
+	require.EqualValues(t, 1, calls.Load(), "an indexer at its limit must not be contacted")
+
+	w, err := limits.Queries(context.Background(), s.Bus.KV(events.BucketIndexerLimits), &idxs[0], clock)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, w.Count, "a refused query is not counted")
+
+	clock = t0.Add(time.Hour + time.Second)
+	require.Equal(t, schema.SearchOutcomeOK, run().Status, "the window passed with no traffic; the indexer is asked again")
+	require.EqualValues(t, 2, calls.Load())
 }

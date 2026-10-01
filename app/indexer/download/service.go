@@ -30,13 +30,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -61,6 +60,7 @@ const (
 	resultGrabCounted    = "grab_counted"
 	resultGrabDuplicate  = "grab_duplicate"
 	resultGrabFailed     = "grab_count_failed"
+	resultGrabLimited    = "grab_limited"
 )
 
 // unknownIndexerLabel keeps an unresolved request off the metric's label
@@ -75,12 +75,15 @@ const maxGUIDLogChars = 128
 
 // Service is the rpc.indexarr.download handler.
 type Service struct {
-	// Client is the manager's cached client; it reads Indexer and Secret and
-	// is the writer of status.grabsInWindow.
+	// Client is the manager's cached client; it reads Indexer and Secret.
+	// The verb writes no status: status.grabsInWindow is the Indexer
+	// reconciler's projection of the grab ring.
 	Client client.Client
 
-	// Bus carries the grab ring in clustarr-indexer-limits. A nil Bus
-	// disables accounting rather than failing the grab.
+	// Bus carries the grab ring in clustarr-indexer-limits, which every grab
+	// reserves on before the indexer is asked (app/indexer/limits) -- and
+	// is refused at spec.limits.grabLimit. A nil Bus disables accounting,
+	// and with it the limit, rather than failing the grab.
 	Bus events.Bus
 
 	// Fetch builds the Fetcher for one spec.generic Indexer. D1-8 supplies
@@ -199,6 +202,22 @@ func (s *Service) fetchAndCount(
 	// Refusing here strands an approved grab. Download failures also do not
 	// feed RecordFailure -- a dead link is a release-level fact, not an
 	// indexer-level one. Carried item.
+	log := logging.FromContext(ctx).With(
+		"indexer", idx.Name, "namespace", idx.Namespace,
+		"guid", truncate(redactRawURL(req.GUID), maxGUIDLogChars))
+
+	// spec.limits.grabLimit IS checked, and before the indexer is asked: the
+	// reservation is the grab. A GUID already in the window -- catalogarr
+	// reserves its grab before it creates the Download that leads here --
+	// holds its slot and passes. A grab that then does not happen gives its
+	// slot back (settleGrab).
+	held, allowed := s.reserveGrab(ctx, &idx, req.GUID, log)
+	if !allowed {
+		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), held.RetryAt)},
+			resultGrabLimited, label
+	}
+	grabbed := false
+	defer func() { s.settleGrab(ctx, &idx, req.GUID, held, grabbed, log) }()
 
 	fetchFor := s.Fetch
 	if definitionBacked(&idx) {
@@ -213,9 +232,6 @@ func (s *Service) fetchAndCount(
 		return fail(nil, "indexarr: build client for %s: %v", key, cardigann.RedactErr(err)),
 			resultTransport, label
 	}
-	log := logging.FromContext(ctx).With(
-		"indexer", idx.Name, "namespace", idx.Namespace,
-		"guid", truncate(redactRawURL(req.GUID), maxGUIDLogChars))
 
 	res, err := f.Fetch(ctx, req.URL)
 	if err != nil {
@@ -234,10 +250,57 @@ func (s *Service) fetchAndCount(
 	resp, result := s.classify(f, res, log)
 	// A URL that was never sent is not a grab against this indexer: it named
 	// another host, and the caller fetches it from there itself.
-	if resp.Error == "" && !res.NotSent {
-		s.countGrab(ctx, &idx, req.GUID, log)
-	}
+	grabbed = resp.Error == "" && !res.NotSent
 	return resp, result, label
+}
+
+// reserveGrab reserves guid's grab on idx's ring. An accounting outage fails
+// OPEN, logged: it must never strand a grab, and the ring catches up at the
+// next one. No bus is no accounting.
+func (s *Service) reserveGrab(
+	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger,
+) (limits.Reservation, bool) {
+	if s.Bus == nil {
+		return limits.Reservation{Allowed: true}, true
+	}
+	r, err := limits.ReserveGrab(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now())
+	if err != nil {
+		log.Warn("app/indexer/download: grab accounting failed; fetching anyway", "err", err)
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabFailed).Inc()
+		return limits.Reservation{Allowed: true}, true
+	}
+	if !r.Allowed {
+		log.Info("app/indexer/download: grab limit reached; not asking the indexer",
+			"grabs", r.Count, "retryAt", r.RetryAt)
+	}
+	return r, r.Allowed
+}
+
+// settleGrab finishes a reservation once the fetch is over. A grab that
+// happened is counted (or was a redelivery of one already counted) and, if
+// it filled the window, announced as indexer.limited; one that did not --
+// a failed fetch, a link to another host -- gives back the slot this call
+// took. Both are best effort: the reply is already decided.
+func (s *Service) settleGrab(
+	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, held limits.Reservation, grabbed bool, log *slog.Logger,
+) {
+	switch {
+	case !held.Counted:
+		if grabbed {
+			metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabDuplicate).Inc()
+		}
+	case !grabbed:
+		if err := limits.ReleaseGrab(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now()); err != nil {
+			log.Warn("app/indexer/download: giving back the slot of a grab that did not happen failed", "err", err)
+		}
+	default:
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabCounted).Inc()
+		if held.Crossed(limits.GrabLimit(idx)) {
+			idxstatus.PublishTransitions(ctx, s.Bus, idx, idxstatus.Transition{
+				Prev: idx.Status, Grabs: &held.Count, At: s.now(),
+			})
+		}
+	}
 }
 
 // classify turns one FetchResult into the reply. DownloadResponse carries
@@ -318,25 +381,13 @@ func (s *Service) classify(
 	}, resultOK
 }
 
-// countGrab records the grab and projects the ring into
-// status.grabsInWindow.
-//
-// Both halves are NON-FATAL: the bytes are already in the reply, and an
-// accounting outage must not strand a grab. The ring is the source of truth;
-// status.grabsInWindow is a projection of it.
-func (s *Service) countGrab(
-	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger,
-) {
-	now := s.now()
-	// Non-fatal on this path: countGrabAt has already logged, and an
-	// accounting outage must never strand a grab that already has its bytes.
-	_ = s.countGrabAt(ctx, idx, guid, now, now, log)
-}
-
-// countGrabAt counts the grab of guid made at `at` into idx's ring and, when
-// it was new, projects the ring's count onto status.grabsInWindow. It returns
-// an error only for a failure worth retrying (the ring or the apply); the
-// download verb ignores it, the direct-grab reconciler requeues on it.
+// countGrabAt counts the grab of guid made at `at` into idx's ring -- the
+// direct-grab counter's path, for a grab that already happened, so it is
+// never refused -- and announces indexer.limited when it filled the window.
+// It writes no status: status.grabsInWindow is the Indexer reconciler's
+// projection of the ring, refreshed when the ring changes. It returns an
+// error only for a ring failure, which the direct-grab reconciler requeues
+// on.
 func (s *Service) countGrabAt(
 	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, at, now time.Time, log *slog.Logger,
 ) error {
@@ -345,95 +396,31 @@ func (s *Service) countGrabAt(
 	if s.Bus == nil {
 		return nil
 	}
-	n, counted, err := CountGrabAt(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, at, now)
+	r, err := limits.CountGrabAt(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, at, now)
 	if err != nil {
 		log.Warn("app/indexer/download: grab accounting failed", "err", err)
 		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabFailed).Inc()
 		tracing.RecordError(span, err)
 		return err
 	}
-	if !counted {
-		// A redelivery, or a grab older than the window. The count did not
-		// change, so there is nothing to apply -- and an apply that does not
-		// happen releases nothing, which is the one safe shortcut under this
-		// field manager.
+	if !r.Counted {
+		// A redelivery, or a grab older than the window.
 		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabDuplicate).Inc()
 		return nil
 	}
 	metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabCounted).Inc()
-
-	// RE-READ before the apply. idx was fetched before the download, and a
-	// download is one request of up to spec.timeout plus up to
-	// MaxPayloadBytes of body -- seconds, not milliseconds. app/indexer/status
-	// seeds the apply from the status it is handed and re-sends EVERY field
-	// this manager owns, so applying a pre-fetch snapshot rolls back whatever
-	// else wrote under k8s.ManagerIndexarrWorker in the meantime: the search
-	// fan-out and the RSS poll share this manager, and a search landing
-	// mid-download would silently lose its queriesInWindow.
-	//
-	// disabledUntil is the one that turns a lost update into a correctness
-	// bug rather than a counter blip. WorkerFields emits it only when
-	// non-nil, so a stale nil snapshot does not roll it back -- it CLEARS
-	// it, silently re-enabling an indexer another writer had just put into
-	// backoff, and undoing the thing that exists to stop us hammering a
-	// failing tracker. It self-heals only when the indexer fails AGAIN,
-	// which is exactly what the backoff was avoiding.
-	//
-	// That is a lost update rather than a server-side-apply release, which
-	// is why no "manager X released field Y" test can see it: both applies
-	// declare the field, the second just declares a stale value. One Get per
-	// download closes the window, as app/indexer/worker/rss does for its poll.
-	var fresh indexv1alpha1.Indexer
-	if err := s.Client.Get(ctx, client.ObjectKeyFromObject(idx), &fresh); err != nil {
-		// Non-fatal, like the rest of accounting: the ring holds the grab
-		// and the projection catches up at the next one. Applying the stale
-		// object instead would be the bug this Get exists to prevent.
-		log.Warn("app/indexer/download: re-reading the indexer before the grab apply failed",
-			"err", err)
-		tracing.RecordError(span, err)
-		return err
+	if r.Crossed(limits.GrabLimit(idx)) {
+		idxstatus.PublishTransitions(ctx, s.Bus, idx, idxstatus.Transition{
+			Prev: idx.Status, Grabs: &r.Count, At: now,
+		})
 	}
-	if n == fresh.Status.GrabsInWindow {
-		return nil
-	}
-	if err := idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, &fresh,
-		func(ac *indexac.IndexerStatusApplyConfiguration) {
-			// COMPLETE declaration, every time. Server-side apply REPLACES a
-			// manager's ownership set rather than merging it, so a field
-			// this manager owned and now omits is released and reads as
-			// zero. WorkerFields is the single definition of that set
-			// (Ruling R14).
-			//
-			// This assignment is a deliberate BACKSTOP, not the primary
-			// guard: Patch already seeds ac from WorkerFields, so the two
-			// are redundant and either alone is sufficient. Measured, not
-			// assumed -- dropping either one on its own leaves
-			// TestGrabCountDoesNotReleaseTheOtherWorkerFields green, and
-			// only dropping both turns queriesInWindow to 0. It is kept
-			// because it makes the completeness visible where the mutate is
-			// written, and because a caller that hand-built its own apply
-			// configuration is exactly the defect R14 exists to prevent.
-			// WorkerFields sets no list field, so re-seeding cannot double
-			// entries the way a Conditions or Sidecars reassert would.
-			//
-			// It seeds from FRESH, never from idx: seeding from the
-			// pre-fetch snapshot is the lost update above.
-			*ac = *idxstatus.WorkerFields(fresh.Status)
-			ac.WithGrabsInWindow(n)
-		}); err != nil {
-		log.Warn("app/indexer/download: grabsInWindow apply failed", "err", err)
-		return err
-	}
-	// indexer.limited when this grab filled the window, after the apply.
-	idxstatus.PublishTransitions(ctx, s.Bus, &fresh, idxstatus.Transition{
-		Prev: fresh.Status, Grabs: &n, At: now,
-	})
 	return nil
 }
 
-// CountGrabForTest drives the accounting path directly. It exists so the SSA
-// release test and D1-9's e2e can exercise the status projection without a
+// CountGrabForTest drives the direct-grab accounting path directly, at now.
+// It exists so a test can exercise the ring and the limited event without a
 // fetcher, a bus subject or an HTTP server.
 func (s *Service) CountGrabForTest(ctx context.Context, idx *indexv1alpha1.Indexer, guid string) {
-	s.countGrab(ctx, idx, guid, logging.FromContext(ctx))
+	now := s.now()
+	_ = s.countGrabAt(ctx, idx, guid, now, now, logging.FromContext(ctx))
 }

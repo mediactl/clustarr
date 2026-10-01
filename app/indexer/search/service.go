@@ -87,6 +87,12 @@ type Service struct {
 	// manager's cached client.
 	Client client.Client
 
+	// Reader is an uncached reader -- manager.GetAPIReader() -- for the
+	// compare-and-swap status write after each query: a read from the cache
+	// lags the write it raced and would conflict again on every attempt. nil
+	// falls back to Client.
+	Reader client.Reader
+
 	// ClientFor builds the wire client for one Indexer.
 	ClientFor ClientFor
 
@@ -94,8 +100,10 @@ type Service struct {
 	// local-index side effect; the search still answers.
 	Store relindex.Store
 
-	// Bus carries the query ring in clustarr-indexer-limits. A nil Bus
-	// disables query accounting rather than failing the search. Serve fills
+	// Bus carries the query ring in clustarr-indexer-limits, which every
+	// query reserves on before it is sent (app/indexer/limits). A nil Bus
+	// disables query accounting -- and with it spec.limits.queryLimit --
+	// rather than failing the search. Serve fills
 	// it from the bus it registers on when it is nil, so a service built by
 	// run.go always has one.
 	Bus events.Bus

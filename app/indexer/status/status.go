@@ -31,7 +31,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // they are separated instead by having exactly one definition of what that
 // manager owns, WorkerFields, which both call. Two callers hand-building
 // their own apply configurations for one manager is precisely how each
-// deletes the other's fields.
+// deletes the other's fields. And because every replica runs both paths, a
+// worker apply is also a compare-and-swap ([PatchCAS]): a declaration seeded
+// from a read another writer has since overtaken would not release its
+// fields, it would roll them back -- an indexedReleases increment lost, a
+// disabledUntil cleared.
+//
+// # The window counts are the reconciler's (2026-10-01)
+//
+// status.queriesInWindow and status.grabsInWindow are projections of the
+// clustarr-indexer-limits rings (app/indexer/limits), and the reconciler
+// owns them: it reads both rings on every pass, so the counts come down as
+// the window rolls on even when nothing counts, and it requeues for the
+// moment a full window next has room, so RateLimited clears by itself. The
+// workers used to own them and wrote them only when they counted -- so an
+// indexer that reached its limit and went quiet kept its count, its
+// RateLimited condition and, through the fan-out's read of that count, its
+// exclusion from every search, for good. No decision reads them now; every
+// one reserves on the ring itself.
 //
 // # The escalation ladder lives here too (ruling R35)
 //
@@ -95,11 +112,17 @@ import (
 // with what the spec has ever RESOLVED, never with a transient OUTCOME.
 // Omitting caps because this reconcile's probe failed would be outcome, and
 // that is the release bug.
+//
+// queriesInWindow and grabsInWindow are sent on every apply, as the rings'
+// projection the caller resolved or, when a ring could not be read, as they
+// stand: a pass that cannot read the bus must not release them.
 func ControllerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyConfiguration {
 	ac := indexac.IndexerStatus().
 		WithObservedGeneration(st.ObservedGeneration).
 		WithPrivacy(st.Privacy).
-		WithSessionSecretRef(st.SessionSecretRef)
+		WithSessionSecretRef(st.SessionSecretRef).
+		WithQueriesInWindow(st.QueriesInWindow).
+		WithGrabsInWindow(st.GrabsInWindow)
 	if st.Protocol != "" {
 		ac = ac.WithProtocol(st.Protocol)
 	}
@@ -115,14 +138,17 @@ func ControllerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusAppl
 // Every apply under that manager starts here, from BOTH the RSS poll and the
 // search fan-out. If the two declared different sets, each apply would
 // release whatever the other had written -- the RSS worker's lastRssAt would
-// vanish on the next search, and the search's queriesInWindow would vanish on
-// the next poll, with nothing logged either time.
+// vanish on the next search, and the search's escalation on the next poll,
+// with nothing logged either time.
+//
+// It does NOT carry queriesInWindow or grabsInWindow, which the reconciler
+// owns (see the package doc). An apply that still sent them would take them
+// back from it under ForceOwnership and pin them at the worker's stale
+// value.
 func WorkerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyConfiguration {
 	ac := indexac.IndexerStatus().
 		WithEscalationLevel(st.EscalationLevel).
 		WithLastFailure(st.LastFailure).
-		WithQueriesInWindow(st.QueriesInWindow).
-		WithGrabsInWindow(st.GrabsInWindow).
 		WithLastRssNewCount(st.LastRssNewCount).
 		WithIndexedReleases(st.IndexedReleases)
 	if st.DisabledUntil != nil {
@@ -188,22 +214,67 @@ func Patch(
 	idx *indexv1alpha1.Indexer,
 	mutate func(*indexac.IndexerStatusApplyConfiguration),
 ) error {
-	var ac *indexac.IndexerStatusApplyConfiguration
-	switch mgr {
-	case k8s.ManagerIndexarr:
-		ac = ControllerFields(idx.Status)
-	case k8s.ManagerIndexarrWorker:
-		ac = WorkerFields(idx.Status)
-	default:
-		return fmt.Errorf("status: %q owns no part of Indexer.status", mgr)
+	seed, err := seedFor(mgr)
+	if err != nil {
+		return err
 	}
+	ac := seed(idx.Status)
 	if mutate != nil {
 		mutate(ac)
 	}
 
 	obj := indexac.Indexer(idx.Name, idx.Namespace).WithStatus(ac)
-	_, err := k8s.PatchStatus(ctx, c, mgr, obj)
+	_, err = k8s.PatchStatus(ctx, c, mgr, obj)
 	return err
+}
+
+// PatchCAS is [Patch] as a compare-and-swap, for the worker paths: it reads
+// key fresh through r (an uncached reader), seeds mgr's complete set from
+// that read, lets mutate change it, and applies with the read's
+// resourceVersion, redoing all of it from a new read on a Conflict.
+//
+// mutate is handed the FRESH object and must derive everything it sets from
+// it -- indexedReleases as fresh.Status.IndexedReleases + n, the escalation
+// from RecordSuccess/RecordFailure(fresh.Status) -- because a redo is a new
+// read. It returns skip to apply nothing. The returned object is the read
+// the applied mutate was given: the "before" PublishTransitions measures
+// from.
+func PatchCAS(
+	ctx context.Context,
+	r client.Reader,
+	c client.Client,
+	mgr k8s.FieldManager,
+	key client.ObjectKey,
+	mutate func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) (skip bool),
+) (*indexv1alpha1.Indexer, bool, error) {
+	seed, err := seedFor(mgr)
+	if err != nil {
+		return nil, false, err
+	}
+	return k8s.PatchStatusCAS(ctx, r, c, mgr, key,
+		func() *indexv1alpha1.Indexer { return &indexv1alpha1.Indexer{} },
+		func(fresh *indexv1alpha1.Indexer) (*indexac.IndexerApplyConfiguration, bool, error) {
+			ac := seed(fresh.Status)
+			if mutate != nil && mutate(fresh, ac) {
+				return nil, true, nil
+			}
+			return indexac.Indexer(fresh.Name, fresh.Namespace).WithStatus(ac), false, nil
+		}, casAttempts)
+}
+
+// casAttempts bounds PatchCAS. Contention is a search, a poll and a grab
+// landing on one Indexer at once, from any replica.
+const casAttempts = 8
+
+func seedFor(mgr k8s.FieldManager) (func(indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyConfiguration, error) {
+	switch mgr {
+	case k8s.ManagerIndexarr:
+		return ControllerFields, nil
+	case k8s.ManagerIndexarrWorker:
+		return WorkerFields, nil
+	default:
+		return nil, fmt.Errorf("status: %q owns no part of Indexer.status", mgr)
+	}
 }
 
 // capsAC renders status.caps as an apply configuration, and renders EVERY

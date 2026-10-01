@@ -49,26 +49,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Status ownership
 //
 // This package writes Indexer.status as k8s.ManagerIndexarrWorker, through
-// app/indexer/status.Patch and nothing else. Server-side apply REPLACES a field
-// manager's ownership set on every apply rather than merging into it, so an
-// apply must declare all ten fields that manager owns even though a search
-// changes three:
+// app/indexer/status.PatchCAS and nothing else. Server-side apply REPLACES a
+// field manager's ownership set on every apply rather than merging into it,
+// so an apply must declare all eight fields that manager owns even though a
+// search changes a few:
 //
 //	escalationLevel  disabledUntil  initialFailureAt  lastFailureAt  lastFailure
-//	queriesInWindow  grabsInWindow  lastRssAt  lastRssNewCount  indexedReleases
+//	lastRssAt  lastRssNewCount  indexedReleases
 //
 // status.WorkerFields is the single declaration of that set (ruling R14) and
 // status.ApplyEscalation is the only thing that can undo its seed; this
-// package calls both and hand-rolls neither. The RSS poll and the download
-// verb share the manager, so a set declared here that differed from theirs
-// would silently release their fields.
+// package calls both and hand-rolls neither. The RSS poll shares the
+// manager, so a set declared here that differed from its would silently
+// release its fields.
 //
-// Every apply is preceded by a fresh Get of the Indexer. A fan-out is an
-// HTTP round trip per indexer -- seconds -- and applying the snapshot the
-// fan-out started from would roll back whatever else wrote under the shared
-// manager in the meantime. That is a lost update rather than an SSA release,
-// so no "manager X released field Y" test can see it; the window is closed
-// by re-reading, as app/indexer/worker/rss and app/indexer/download do.
+// Every apply is a compare-and-swap: seeded from a fresh read, applied with
+// that read's resourceVersion, and redone -- ladder step and indexedReleases
+// increment included -- from a new read on a Conflict. A fan-out is an HTTP
+// round trip per indexer, every replica runs one, and an apply seeded from
+// any read but the latest rolls back what another writer did meanwhile: a
+// lost update rather than an SSA release, which no "manager X released field
+// Y" test can see. A re-read before the apply narrowed that window; only the
+// precondition closes it.
+//
+// queriesInWindow and grabsInWindow are not this package's: they are the
+// Indexer reconciler's projection of the clustarr-indexer-limits rings. A
+// search reserves its query on the ring (app/indexer/limits.ReserveQuery)
+// the moment before it is sent, and an indexer at spec.limits.queryLimit is
+// skipped there, not by reading status -- the projection may be behind, and
+// the gate that read it latched an indexer out of every search for good once
+// it went quiet at its limit.
 //
 // # Two things this package must not build
 //

@@ -58,6 +58,7 @@ func (r *Reconciler) reconcileDefinition(
 	ctx context.Context,
 	idx *indexv1alpha1.Indexer,
 	conditions []metav1.Condition,
+	windows windowRetry,
 	now time.Time,
 ) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "indexer.reconcileDefinition")
@@ -158,7 +159,7 @@ func (r *Reconciler) reconcileDefinition(
 		}
 	}
 
-	return r.finish(ctx, idx, conditions, probed, outcome, time.Now())
+	return r.finish(ctx, idx, conditions, windows, probed, outcome, r.now())
 }
 
 // needsLogin decides whether this pass logs in.
@@ -207,7 +208,9 @@ func (r *Reconciler) proxyUnavailable(
 }
 
 // refreshWorkerFields re-reads the Indexer after a slow network operation
-// and takes the WORKER-owned status fields from the live object.
+// and takes the WORKER-owned status fields from the live object. The window
+// counts are not among them: they are this reconciler's own projection,
+// made at the top of the pass.
 //
 // This reconciler applies only k8s.ManagerIndexarr's fields and is their only
 // writer, so its own apply cannot roll another writer back. What it CAN do is
@@ -234,8 +237,6 @@ func (r *Reconciler) refreshWorkerFields(ctx context.Context, idx *indexv1alpha1
 	st.InitialFailureAt = ls.InitialFailureAt
 	st.LastFailureAt = ls.LastFailureAt
 	st.LastFailure = ls.LastFailure
-	st.QueriesInWindow = ls.QueriesInWindow
-	st.GrabsInWindow = ls.GrabsInWindow
 	st.LastRssAt = ls.LastRssAt
 	st.LastRssNewCount = ls.LastRssNewCount
 	st.IndexedReleases = ls.IndexedReleases

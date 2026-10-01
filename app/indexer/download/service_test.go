@@ -350,8 +350,9 @@ func TestEveryOutcomeIsInTheClosedVocabulary(t *testing.T) {
 		resultUnauthorized: true, resultHTTPError: true, resultTransport: true,
 		resultTooLarge: true, resultInvalidPayload: true, resultNotConfigured: true,
 		resultGrabCounted: true, resultGrabDuplicate: true, resultGrabFailed: true,
+		resultGrabLimited: true,
 	}
-	require.Len(t, allowed, 16, "the vocabulary changed; update D11's list too")
+	require.Len(t, allowed, 17, "the vocabulary changed; update D11's list too")
 
 	idx := testIndexer("media", "tr", "uid-9", indexv1alpha1.LimitUnitDay)
 	for _, tc := range []struct {

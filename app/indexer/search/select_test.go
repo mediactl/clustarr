@@ -135,25 +135,14 @@ func TestSelectCandidatesGates(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "query limit reached",
+			// Selection reads the Indexer object alone, and its
+			// queriesInWindow is the reconciler's projection, which may be
+			// behind the ring in either direction. The limit is the query's
+			// own reservation, made just before it is sent
+			// (TestAnIndexerAtItsQueryLimitIsAskedAgainOnceTheWindowPasses).
+			name: "the projected query count never gates selection",
 			mutate: func(i *indexv1alpha1.Indexer) {
 				i.Spec.Limits = &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(50))}
-				i.Status.QueriesInWindow = 50
-			},
-			want: skipQueryLimit,
-		},
-		{
-			name: "under the query limit",
-			mutate: func(i *indexv1alpha1.Indexer) {
-				i.Spec.Limits = &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(50))}
-				i.Status.QueriesInWindow = 49
-			},
-			want: "",
-		},
-		{
-			// A counter with no configured limit is observability only.
-			name: "no configured limit never gates",
-			mutate: func(i *indexv1alpha1.Indexer) {
 				i.Status.QueriesInWindow = 100000
 			},
 			want: "",

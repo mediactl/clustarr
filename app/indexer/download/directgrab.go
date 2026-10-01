@@ -56,13 +56,14 @@ import (
 // Download again counts nothing twice, and a grab older than the window is
 // not counted at all.
 //
-// The status write is the verb's: countGrabAt re-reads the Indexer and
-// applies the complete k8s.ManagerIndexarrWorker set through
-// app/indexer/status.Patch. A ring or apply failure is returned, so the
-// controller retries with backoff rather than losing the grab -- the verb
-// swallows the same error because its caller already has the bytes.
+// It writes no status: status.grabsInWindow is the Indexer reconciler's
+// projection of the ring. A ring failure is returned, so the controller
+// retries with backoff rather than losing the grab. A direct grab is counted,
+// never refused -- the Download exists, so the grab happened; catalogarr's
+// grab path is where spec.limits.grabLimit refuses one, before the Download
+// is created.
 type DirectGrabReconciler struct {
-	// Client reads Downloads and Indexers and writes Indexer status.
+	// Client reads Downloads and Indexers.
 	Client client.Client
 
 	// Bus carries the grab ring in clustarr-indexer-limits. A nil Bus

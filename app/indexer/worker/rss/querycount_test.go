@@ -24,22 +24,22 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/search"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
-// queryCountingWorker wires the worker exactly as app/indexer/run.go does: its
-// CountQuery is app/indexer/search.CountQuery over the bus's
-// clustarr-indexer-limits bucket, the ring the search fan-out counts into.
+// queryCountingWorker wires the worker exactly as app/indexer/run.go does:
+// its Bus carries the clustarr-indexer-limits ring the search fan-out
+// reserves on.
 func queryCountingWorker(t *testing.T, clock *fakeClock, s rss.Searcher, c client.Client, bus events.Bus) *rss.Worker {
 	t.Helper()
-	kv := bus.KV(events.BucketIndexerLimits)
 	return rss.NewWorker(rss.Deps{
 		Client: c,
 		Bus:    bus,
@@ -47,18 +47,20 @@ func queryCountingWorker(t *testing.T, clock *fakeClock, s rss.Searcher, c clien
 		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
 			return s, nil
 		},
-		CountQuery: func(ctx context.Context, idx *indexv1alpha1.Indexer, now time.Time) (int32, error) {
-			return search.CountQuery(ctx, kv, idx, now)
-		},
 		Clock: clock.Now,
 	})
 }
 
-// Every page an RSS poll requests counts toward the query window, into the
-// SAME ring a search counts into -- Prowlarr counts IndexerQuery and
-// IndexerRss together against QueryLimit. Before, a poll counted nothing, so
-// a polled-and-searched indexer's queriesInWindow under-reported its traffic
-// by up to four requests every poll.
+func queriesOnTheRing(t *testing.T, bus events.Bus, idx *indexv1alpha1.Indexer, now time.Time) int32 {
+	t.Helper()
+	u, err := limits.Queries(t.Context(), bus.KV(events.BucketIndexerLimits), idx, now)
+	require.NoError(t, err)
+	return u.Count
+}
+
+// Every page an RSS poll requests reserves a query on the SAME ring a search
+// reserves on -- Prowlarr counts IndexerQuery and IndexerRss together against
+// QueryLimit, one per request.
 func TestPollCountsEveryPageIntoTheSearchQueryRing(t *testing.T) {
 	clock := newFakeClock(t0)
 	bus := newTestBus(t)
@@ -66,9 +68,8 @@ func TestPollCountsEveryPageIntoTheSearchQueryRing(t *testing.T) {
 	c := newFakeClient(idx)
 
 	// A search already spent one query in this window.
-	n, err := search.CountQuery(t.Context(), bus.KV(events.BucketIndexerLimits), idx, t0)
+	_, err := limits.ReserveQuery(t.Context(), bus.KV(events.BucketIndexerLimits), idx, t0)
 	require.NoError(t, err)
-	require.Equal(t, int32(1), n)
 
 	searcher := &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
 		return pageOf(100), nil // full pages, so the poll reads all four
@@ -76,29 +77,80 @@ func TestPollCountsEveryPageIntoTheSearchQueryRing(t *testing.T) {
 	w := queryCountingWorker(t, clock, searcher, c, bus)
 	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
 	require.Equal(t, 4, searcher.calls())
+	require.Equal(t, int32(5), queriesOnTheRing(t, bus, idx, t0), "one search plus four RSS pages")
 
 	var got indexv1alpha1.Indexer
 	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int32(5), got.Status.QueriesInWindow, "one search plus four RSS pages")
 	require.NotNil(t, got.Status.LastRssAt, "the rest of the poll's status still lands")
 }
 
-// A page that fails still reached the indexer and still spends its budget, so
-// the failure path counts it too, in the same one apply as the escalation.
+// A page that fails still reached the indexer and still spends its budget.
 func TestAFailedPollStillCountsTheRequestItMade(t *testing.T) {
 	clock := newFakeClock(tNow)
 	bus := newTestBus(t)
-	idx := testIndexer("media", "idx", func(i *indexv1alpha1.Indexer) { i.Status.QueriesInWindow = 7 })
+	idx := testIndexer("media", "idx")
 	c := newFakeClient(idx)
 
 	w := queryCountingWorker(t, clock, &fakeSearcher{err: errors.New("connection refused")}, c, bus)
 	require.Error(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
+	require.Equal(t, int32(1), queriesOnTheRing(t, bus, idx, tNow))
 
 	var got indexv1alpha1.Indexer
 	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int32(1), got.Status.QueriesInWindow,
-		"the ring is the source of truth: one request in this window, whatever the stale projection said")
-	require.NotNil(t, got.Status.LastFailureAt, "the failure is recorded in the same apply")
+	require.NotNil(t, got.Status.LastFailureAt, "the failure is recorded")
+}
+
+// The poll never checked spec.limits.queryLimit: an indexer the search
+// fan-out was told to leave alone was still polled every rssInterval. Each
+// page now reserves before it is requested, and the ring's refusal is the
+// gate. At the limit before the first page the poll asks nothing and records
+// nothing -- a budget is not a failure, and lastRssAt keeps saying when the
+// feed was last read.
+func TestAPollAtTheQueryLimitAsksNothing(t *testing.T) {
+	clock := newFakeClock(tNow)
+	bus := newTestBus(t)
+	idx := testIndexer("media", "idx", func(i *indexv1alpha1.Indexer) {
+		i.Spec.Limits = &indexv1alpha1.Limits{QueryLimit: ptr.To[int32](2)}
+	})
+	c := newFakeClient(idx)
+	for range 2 {
+		_, err := limits.ReserveQuery(t.Context(), bus.KV(events.BucketIndexerLimits), idx, tNow)
+		require.NoError(t, err)
+	}
+
+	searcher := &fakeSearcher{releases: pageOf(1)}
+	w := queryCountingWorker(t, clock, searcher, c, bus)
+	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")), "a limit is acked, not retried")
+	require.Zero(t, searcher.calls(), "an indexer at its query limit must not be polled")
+	require.Equal(t, int32(2), queriesOnTheRing(t, bus, idx, tNow), "a refused page is not counted")
+
+	var got indexv1alpha1.Indexer
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(idx), &got))
+	require.Nil(t, got.Status.LastRssAt, "a poll that read nothing must not say it read the feed")
+	require.Zero(t, got.Status.EscalationLevel, "a limit is not a failure")
+}
+
+// Room for some pages but not all: the poll reads what the window allows and
+// stops, as a short page stops it.
+func TestAPollStopsPagingAtTheQueryLimit(t *testing.T) {
+	clock := newFakeClock(tNow)
+	bus := newTestBus(t)
+	idx := testIndexer("media", "idx", func(i *indexv1alpha1.Indexer) {
+		i.Spec.Limits = &indexv1alpha1.Limits{QueryLimit: ptr.To[int32](2)}
+	})
+	c := newFakeClient(idx)
+
+	searcher := &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
+		return pageOf(100), nil
+	}}
+	w := queryCountingWorker(t, clock, searcher, c, bus)
+	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
+	require.Equal(t, 2, searcher.calls(), "two pages fit the window")
+	require.Equal(t, int32(2), queriesOnTheRing(t, bus, idx, tNow))
+
+	var got indexv1alpha1.Indexer
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(idx), &got))
+	require.NotNil(t, got.Status.LastRssAt, "what was read was recorded")
 }
 
 // The poll applies escalations too, so it announces them: a failed poll that

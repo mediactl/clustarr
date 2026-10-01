@@ -33,6 +33,7 @@ import (
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -115,7 +116,17 @@ type Deps struct {
 	// Client reads Indexer objects and writes their status.
 	Client client.Client
 
-	// Bus carries the release firehose and the next scheduled poll.
+	// Reader is an uncached reader -- manager.GetAPIReader() -- for the
+	// compare-and-swap status write at the end of a poll: a read from the
+	// cache lags the write it raced and would conflict again on every
+	// attempt. nil falls back to Client.
+	Reader client.Reader
+
+	// Bus carries the release firehose and the next scheduled poll, and the
+	// clustarr-indexer-limits query ring every page reserves on before it
+	// is requested -- the ring the search fan-out reserves on, so
+	// spec.limits.queryLimit is the indexer's whole traffic, as Prowlarr
+	// counts IndexerQuery and IndexerRss together.
 	Bus events.Bus
 
 	// Index is the local release index. Its Upsert is the source of
@@ -124,15 +135,6 @@ type Deps struct {
 
 	// SearcherFor returns the search client for one indexer.
 	SearcherFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (Searcher, error)
-
-	// CountQuery records one query against idx in the query ring and
-	// returns the window's count -- app/indexer/search.CountQuery over the
-	// clustarr-indexer-limits bucket, the same ring the search fan-out
-	// counts into, so status.queriesInWindow is every request the indexer
-	// saw rather than only the searches. app/indexer/run.go wires it. nil
-	// disables accounting (a unit test), and an error is non-fatal: the
-	// poll leaves queriesInWindow as it is, exactly as the fan-out does.
-	CountQuery func(ctx context.Context, idx *indexv1alpha1.Indexer, now time.Time) (int32, error)
 
 	// Clock is a seam for tests; nil means time.Now.
 	Clock func() time.Time
@@ -145,6 +147,21 @@ type Worker struct {
 
 // NewWorker returns a Worker over d.
 func NewWorker(d Deps) *Worker { return &Worker{Deps: d} }
+
+// errQueryLimit is a poll whose first page the query ring refused: the
+// indexer is at spec.limits.queryLimit and was not asked at all.
+type errQueryLimit struct{ retryAt time.Time }
+
+func (e *errQueryLimit) Error() string {
+	return "rss: query limit reached; next room at " + e.retryAt.UTC().Format(time.RFC3339)
+}
+
+func (w *Worker) reader() client.Reader {
+	if w.Deps.Reader != nil {
+		return w.Deps.Reader
+	}
+	return w.Deps.Client
+}
 
 func (w *Worker) now() time.Time {
 	if w.Deps.Clock != nil {
@@ -261,45 +278,33 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return events.Retry(retryAfterShutdown, pollErr)
 	}
 
-	// Re-read before anything reads status again.
-	//
-	// idx was fetched before the poll, and a poll is up to maxPages requests
-	// of spec.timeout each -- minutes, not milliseconds. app/indexer/status
-	// seeds the apply from the status it is handed and re-sends EVERY field
-	// this manager owns, so applying a minutes-old snapshot would roll back
-	// whatever else wrote under k8s.ManagerIndexarrWorker in the meantime:
-	// the search fan-out shares this manager and owns queriesInWindow and
-	// grabsInWindow, so a search landing mid-poll would silently lose its
-	// count.
-	//
-	// That is a lost update rather than a server-side-apply release, which is
-	// why no "manager X released field Y" test can see it: both applies
-	// declare the field, the second just declares a stale value. One Get per
-	// poll closes the window.
-	if err := w.Deps.Client.Get(ctx, key, &idx); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Debug("rss: indexer was deleted during the poll")
-			return nil
+	var limited *errQueryLimit
+	if errors.As(pollErr, &limited) {
+		// At the limit before the first page. Nothing was asked and nothing
+		// observed, so nothing is recorded -- a budget is not a failure, and
+		// lastRssAt must keep saying when the feed was last READ. The chain
+		// is held open at the poll's own cadence, or at the moment the
+		// window next has room if that is later; a poll sooner would only be
+		// refused again.
+		at := now.Add(rssInterval(&idx))
+		if limited.retryAt.After(at) {
+			at = limited.retryAt
 		}
-		return events.Retry(readRetry, err)
+		log.Info("rss: query limit reached; not polling", "next", at)
+		if err := ScheduleNext(ctx, w.Deps.Bus, &idx, at); err != nil {
+			return events.Retry(statusRetry, err)
+		}
+		return nil
 	}
 
 	var (
-		mutate func(*indexac.IndexerStatusApplyConfiguration)
-		esc    idxstatus.Escalation
+		inserted int
+		esc      idxstatus.Escalation
 	)
-	if pollErr != nil {
-		esc = idxstatus.RecordFailure(idx.Status, now, pollErr.Error())
-		mutate = func(ac *indexac.IndexerStatusApplyConfiguration) {
-			// A failed request still reached the indexer and still spends
-			// its query budget.
-			if queries != nil {
-				ac.WithQueriesInWindow(*queries)
-			}
-			idxstatus.ApplyEscalation(ac, esc, idx.Status)
-		}
-	} else {
-		inserted, published, dropped, err := w.indexAndPublish(ctx, &idx, fetched, now)
+	if pollErr == nil {
+		var published, dropped int
+		var err error
+		inserted, published, dropped, err = w.indexAndPublish(ctx, &idx, fetched, now)
 		if err != nil {
 			return events.Retry(statusRetry, err)
 		}
@@ -308,25 +313,6 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		// not complements.
 		log.Info("rss: poll complete", "fetched", len(fetched),
 			"inserted", inserted, "published", published, "dropped", dropped)
-
-		esc = idxstatus.RecordSuccess(idx.Status, now)
-		mutate = func(ac *indexac.IndexerStatusApplyConfiguration) {
-			ac.WithLastRssAt(metav1.NewTime(now)).
-				WithLastRssNewCount(int32(inserted)).
-				// A read-modify-write on the JUST-re-read object. It is
-				// deliberately without a CAS loop: relindex.Store is fixed at
-				// four methods and Stats has no per-indexer breakdown, so a
-				// running total is the only source. MaxAckPending is 4, so
-				// two concurrent polls of the SAME indexer need a duplicate
-				// schedule to fire; the lost update is then at most one
-				// poll's inserted count and it self-corrects at the next
-				// poll.
-				WithIndexedReleases(idx.Status.IndexedReleases + int64(inserted))
-			if queries != nil {
-				ac.WithQueriesInWindow(*queries)
-			}
-			idxstatus.ApplyEscalation(ac, esc, idx.Status)
-		}
 	}
 
 	// ONE apply, whatever happened, and it goes through app/indexer/status so
@@ -334,19 +320,45 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	// an early return with a partial status: the early return is usually the
 	// transient case, which is exactly when a healthy object would be gutted
 	// by a blip.
-	if err := idxstatus.Patch(ctx, w.Deps.Client, k8s.ManagerIndexarrWorker, &idx, mutate); err != nil {
+	//
+	// And a compare-and-swap. idx was read before the poll, and a poll is up
+	// to maxPages requests of spec.timeout each -- minutes -- while the
+	// search fan-out writes under this same manager from every replica. An
+	// apply seeded from any read but the latest rolls back what landed in
+	// between (a lost update, which no release test can see); PatchCAS seeds
+	// from a fresh read, applies with its resourceVersion, and on a Conflict
+	// redoes the ladder step and the indexedReleases increment from a new
+	// one.
+	prev, _, err := idxstatus.PatchCAS(ctx, w.reader(), w.Deps.Client, k8s.ManagerIndexarrWorker, key,
+		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
+			if pollErr != nil {
+				esc = idxstatus.RecordFailure(fresh.Status, now, pollErr.Error())
+			} else {
+				esc = idxstatus.RecordSuccess(fresh.Status, now)
+				ac.WithLastRssAt(metav1.NewTime(now)).
+					WithLastRssNewCount(int32(inserted)). //nolint:gosec // bounded by maxPages*pageSize
+					WithIndexedReleases(fresh.Status.IndexedReleases + int64(inserted))
+			}
+			idxstatus.ApplyEscalation(ac, esc, fresh.Status)
+			return false
+		})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debug("rss: indexer was deleted during the poll")
+			return nil
+		}
 		return events.Retry(statusRetry, err)
 	}
 	// indexer.disabled|recovered|limited, after the apply landed and measured
-	// from the status it was seeded from (idx.Status is still pre-apply).
-	idxstatus.PublishTransitions(ctx, w.Deps.Bus, &idx, idxstatus.Transition{
-		Prev: idx.Status, Escalation: &esc, Failed: pollErr != nil, Queries: queries, At: now,
+	// from the read the apply was seeded from.
+	idxstatus.PublishTransitions(ctx, w.Deps.Bus, prev, idxstatus.Transition{
+		Prev: prev.Status, Escalation: &esc, Failed: pollErr != nil, Queries: queries, At: now,
 	})
 
 	// Reschedule BEFORE returning the poll error, so a failing indexer keeps
 	// its cadence and recovers on its own rather than waiting for the next
 	// reconcile.
-	if err := ScheduleNext(ctx, w.Deps.Bus, &idx, now.Add(rssInterval(&idx))); err != nil {
+	if err := ScheduleNext(ctx, w.Deps.Bus, prev, now.Add(rssInterval(prev))); err != nil {
 		return events.Retry(statusRetry, err)
 	}
 	if pollErr != nil {
@@ -374,11 +386,16 @@ func retryAfterFailure(esc idxstatus.Escalation, now time.Time) time.Duration {
 // spec.timeout (default 30s), so the only way a poll outlives a 60s AckWait
 // is by making several of them.
 //
-// queries is the query ring's window count after the last page this poll
-// counted, or nil when nothing was counted (no CountQuery wired, or every
-// count failed). Each page is counted BEFORE its request, as the search
-// fan-out counts, because a request that fails or times out still reached
-// the indexer and still spends its budget.
+// Each page reserves one query on the indexer's query ring BEFORE its
+// request, as the search fan-out does: a request that fails or times out
+// still reached the indexer and still spends its budget, and Prowlarr counts
+// every IndexerRss request against QueryLimit. A page the ring refuses is not
+// requested. The first page refused is an *errQueryLimit -- the poll asked
+// nothing -- and a later one ends the paging with what was read, as a short
+// page does.
+//
+// queries is the window count when a page's reservation filled the window,
+// for the limited event, nil otherwise.
 func (w *Worker) pollOnce(
 	ctx context.Context,
 	m events.Message,
@@ -413,8 +430,15 @@ func (w *Worker) pollOnce(
 				return all, queries, fmt.Errorf("rss: heartbeat: %w", err)
 			}
 		}
-		if n, ok := w.countQuery(ctx, idx); ok {
-			queries = &n
+		r, ok := w.reserveQuery(ctx, idx)
+		if !ok {
+			if page == 0 {
+				return nil, nil, &errQueryLimit{retryAt: r.RetryAt}
+			}
+			break
+		}
+		if r.Crossed(limits.QueryLimit(idx)) {
+			queries = &r.Count
 		}
 		// t=search with an empty q is the RSS call: the indexer's newest
 		// rows, unfiltered.
@@ -441,20 +465,21 @@ func (w *Worker) pollOnce(
 	return all, queries, nil
 }
 
-// countQuery counts one page request into the query ring. It never fails the
-// poll: an accounting outage must not turn a feed the indexer served into a
-// failure the escalation ladder would punish, so an error is logged and the
-// page goes ahead uncounted.
-func (w *Worker) countQuery(ctx context.Context, idx *indexv1alpha1.Indexer) (int32, bool) {
-	if w.Deps.CountQuery == nil {
-		return 0, false
+// reserveQuery reserves one page request on idx's query ring, reporting
+// whether the page may be requested. An accounting outage fails OPEN,
+// logged: it must not turn a feed the indexer would have served into a
+// failure the escalation ladder would punish. No bus means no accounting (a
+// unit test).
+func (w *Worker) reserveQuery(ctx context.Context, idx *indexv1alpha1.Indexer) (limits.Reservation, bool) {
+	if w.Deps.Bus == nil {
+		return limits.Reservation{Allowed: true}, true
 	}
-	n, err := w.Deps.CountQuery(ctx, idx, w.now())
+	r, err := limits.ReserveQuery(ctx, w.Deps.Bus.KV(events.BucketIndexerLimits), idx, w.now())
 	if err != nil {
-		logging.FromContext(ctx).Warn("rss: query accounting failed", "err", err)
-		return 0, false
+		logging.FromContext(ctx).Warn("rss: query accounting failed; polling anyway", "err", err)
+		return limits.Reservation{Allowed: true}, true
 	}
-	return n, true
+	return r, r.Allowed
 }
 
 // recordQuery emits the two per-query metrics. Both are labelled by the

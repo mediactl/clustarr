@@ -32,6 +32,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
@@ -107,6 +108,10 @@ func TestRateLimited(t *testing.T) {
 			name: "grabs over the limit", limits: &indexv1alpha1.Limits{GrabLimit: ptr.To(int32(5)), Unit: indexv1alpha1.LimitUnitHour},
 			st: indexv1alpha1.IndexerStatus{GrabsInWindow: 9}, want: true, message: "grabs 9/5 per hour",
 		},
+		{
+			name: "a zero limit is none, as Prowlarr reads it", limits: &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(0))},
+			st: indexv1alpha1.IndexerStatus{QueriesInWindow: 3},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,21 +128,33 @@ func TestRequeueAfter(t *testing.T) {
 	future := metav1.NewTime(now.Add(30 * time.Minute))
 	past := metav1.NewTime(now.Add(-time.Minute))
 
-	require.Equal(t, reprobeInterval, r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, now))
+	require.Equal(t, reprobeInterval, r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{}, now))
 	require.Equal(t, 90*time.Second,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, probeOutcome{RetryAfter: 90 * time.Second}, now),
+		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, probeOutcome{RetryAfter: 90 * time.Second}, windowRetry{}, now),
 		"the server's Retry-After outranks the local back-off")
 	require.Equal(t, 30*time.Minute+time.Second,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, probeOutcome{}, now))
+		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, probeOutcome{}, windowRetry{}, now))
 	require.Equal(t, reprobeInterval,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &past}, probeOutcome{}, now))
+		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &past}, probeOutcome{}, windowRetry{}, now))
+
+	// A full window brings the reconciler back when it next has room, if
+	// that is sooner than anything else -- the earlier of the two windows.
+	full := windowRetry{query: now.Add(10 * time.Minute), grab: now.Add(5 * time.Minute)}
+	require.Equal(t, 5*time.Minute, r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, full, now))
+	require.Equal(t, 10*time.Minute,
+		r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{query: now.Add(10 * time.Minute)}, now))
+	require.Equal(t, reprobeInterval,
+		r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{query: now.Add(time.Hour)}, now),
+		"a window that frees after the tick does not delay the tick")
+	require.Equal(t, reprobeInterval,
+		r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{query: now.Add(-time.Second)}, now))
 
 	// Never zero: a zero RequeueAfter means "do not requeue", and the
 	// RateLimited and Healthy conditions are derived from worker-owned
 	// fields the watch predicate filters out, so only the tick refreshes
 	// them.
 	for _, st := range []indexv1alpha1.IndexerStatus{{}, {DisabledUntil: &past}, {DisabledUntil: &future}} {
-		require.NotZero(t, r.requeueAfter(st, probeOutcome{}, now))
+		require.NotZero(t, r.requeueAfter(st, probeOutcome{}, windowRetry{}, now))
 	}
 }
 
@@ -171,4 +188,20 @@ func TestASourcelessSpecIsTerminalAndStillWritesStatus(t *testing.T) {
 	require.True(t, errors.Is(err, reconcile.TerminalError(nil)),
 		"a spec no edit-free retry can fix must not requeue forever")
 	require.ErrorContains(t, err, "exactly one of spec.definition, spec.definitionRef or spec.generic")
+}
+
+// A ring key names its Indexer by UID; the watch maps it back to exactly that
+// Indexer, and a key for an Indexer that is gone, or no key shape at all, to
+// nothing.
+func TestIndexersForRing(t *testing.T) {
+	a := &indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "a", UID: "uid-a"}}
+	b := &indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "b", UID: "uid-b"}}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(a, b).Build()
+	r := &Reconciler{Client: c}
+
+	want := []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: "media", Name: "b"}}}
+	require.Equal(t, want, r.indexersForRing(context.Background(), limits.QueryKey("uid-b")))
+	require.Equal(t, want, r.indexersForRing(context.Background(), limits.GrabKey("uid-b")))
+	require.Empty(t, r.indexersForRing(context.Background(), limits.QueryKey("uid-gone")))
+	require.Empty(t, r.indexersForRing(context.Background(), "nodot"))
 }

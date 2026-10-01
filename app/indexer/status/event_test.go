@@ -83,6 +83,7 @@ func TestLimitCrossed(t *testing.T) {
 	require.True(t, LimitCrossed(ptr.To[int32](5), 3, 7))
 	require.False(t, LimitCrossed(ptr.To[int32](5), 5, 6), "already announced when it got there")
 	require.False(t, LimitCrossed(ptr.To[int32](5), 3, 4))
+	require.False(t, LimitCrossed(ptr.To[int32](0), -1, 0), "0 is no limit, as Prowlarr reads it")
 }
 
 // subscribeIndexerEvents starts the real catalogarr-history consumer from the
@@ -136,7 +137,11 @@ func TestPublishTransitionsReachesTheHistoryConsumer(t *testing.T) {
 			QueryLimit: ptr.To[int32](10), GrabLimit: ptr.To[int32](2),
 		}},
 	}
-	prev := indexv1alpha1.IndexerStatus{QueriesInWindow: 9, GrabsInWindow: 1}
+	// The projection on status is the reconciler's and may lag the ring:
+	// here it already reads "at the limit". The crossing is measured on the
+	// ring -- the reservation that counted the tenth query -- so it is still
+	// announced, once.
+	prev := indexv1alpha1.IndexerStatus{QueriesInWindow: 10, GrabsInWindow: 2}
 	esc := RecordFailure(prev, now, "connection refused")
 	PublishTransitions(context.Background(), bus, idx, Transition{
 		Prev: prev, Escalation: &esc, Failed: true,

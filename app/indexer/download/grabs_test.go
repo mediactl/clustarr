@@ -19,25 +19,29 @@ package download
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
-func newTestKV(t *testing.T) events.KV {
+func newTestBus(t *testing.T) events.Bus {
 	t.Helper()
 	bus := membus.New(nil)
 	t.Cleanup(func() { _ = bus.Close() })
 	require.NoError(t, bus.Ensure(context.Background(), events.Default()))
-	return bus.KV(events.BucketIndexerLimits)
+	return bus
 }
 
 func testIndexer(ns, name, uid string, unit indexv1alpha1.LimitUnit) *indexv1alpha1.Indexer {
@@ -50,212 +54,101 @@ func testIndexer(ns, name, uid string, unit indexv1alpha1.LimitUnit) *indexv1alp
 	}
 }
 
-func TestCountGrabIsIdempotentUnderRedelivery(t *testing.T) {
-	ctx := context.Background()
-	kv := newTestKV(t)
-	idx := testIndexer("media", "nzbgeek", "uid-1", indexv1alpha1.LimitUnitDay)
-	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-
-	n, counted, err := CountGrab(ctx, kv, idx, "guid-a", now)
-	require.NoError(t, err)
-	require.True(t, counted)
-	require.Equal(t, int32(1), n)
-
-	// The SAME grab again -- an RPC retry, a duplicate delivery, a grabarr
-	// requeue. It must not double count.
-	n, counted, err = CountGrab(ctx, kv, idx, "guid-a", now.Add(time.Second))
-	require.NoError(t, err)
-	require.False(t, counted, "a redelivered grab is not a new grab")
-	require.Equal(t, int32(1), n)
-
-	n, counted, err = CountGrab(ctx, kv, idx, "guid-b", now.Add(2*time.Second))
-	require.NoError(t, err)
-	require.True(t, counted)
-	require.Equal(t, int32(2), n)
+// countingFetcher answers every fetch with a magnet link, or err, and counts
+// the requests that reached the indexer.
+type countingFetcher struct {
+	calls *atomic.Int32
+	err   error
 }
 
-// A nil spec.limits still counts. The counter is observability whether or not
-// a limit is configured, and the CRD's default unit is day.
-func TestCountGrabCountsWithNoLimitsConfigured(t *testing.T) {
-	ctx := context.Background()
-	kv := newTestKV(t)
-	idx := testIndexer("media", "tr", "uid-nolimits", indexv1alpha1.LimitUnitDay)
-	idx.Spec.Limits = nil
-	require.Equal(t, 24*time.Hour, grabWindow(idx))
+func (f countingFetcher) Fetch(context.Context, string) (*FetchResult, error) {
+	f.calls.Add(1)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &FetchResult{MagnetURL: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"}, nil
+}
+func (countingFetcher) Scrub(s string) string { return s }
 
-	n, counted, err := CountGrab(ctx, kv, idx, "g", time.Now())
-	require.NoError(t, err)
-	require.True(t, counted)
-	require.Equal(t, int32(1), n)
+func grabRequest(guid string) schema.DownloadRequest {
+	return schema.DownloadRequest{
+		IndexerRef: schema.Ref{Namespace: "media", Name: "tr"}, GUID: guid, URL: "https://tr.example/dl/" + guid,
+	}
 }
 
-func TestGrabRingPrunesOutsideTheWindow(t *testing.T) {
+// spec.limits.grabLimit was counted and never enforced. The verb now
+// reserves the grab on the ring before it asks the indexer, and a grab over
+// the limit is refused -- with an Error GrabLimited recognises, naming when
+// the window next has room -- and never reaches the indexer. A GUID already
+// in the window is the same grab and passes.
+func TestTheVerbRefusesAGrabOverTheLimitWithoutAskingTheIndexer(t *testing.T) {
 	ctx := context.Background()
-	kv := newTestKV(t)
-	idx := testIndexer("media", "tr", "uid-2", indexv1alpha1.LimitUnitHour)
+	idx := testIndexer("media", "tr", "uid-grablimit", indexv1alpha1.LimitUnitDay)
+	idx.Spec.Limits.GrabLimit = ptr.To[int32](1)
+	var calls atomic.Int32
 	t0 := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-
-	_, _, err := CountGrab(ctx, kv, idx, "old", t0)
-	require.NoError(t, err)
-	n, counted, err := CountGrab(ctx, kv, idx, "new", t0.Add(90*time.Minute))
-	require.NoError(t, err)
-	require.True(t, counted)
-	require.Equal(t, int32(1), n, "the hour-old grab aged out of a 1h window")
-
-	// And the aged-out GUID is countable again: it is no longer a redelivery.
-	n, counted, err = CountGrab(ctx, kv, idx, "old", t0.Add(91*time.Minute))
-	require.NoError(t, err)
-	require.True(t, counted)
-	require.Equal(t, int32(2), n)
-}
-
-func TestGrabRingIsCapped(t *testing.T) {
-	ring := make([]grabEntry, 0, maxRingEntries+10)
-	now := time.Now()
-	for i := range maxRingEntries + 10 {
-		ring = append(ring, grabEntry{GUID: fmt.Sprintf("g%d", i), At: now.Unix()})
+	clock := t0
+	s := &Service{
+		Client: fakeClient(t, idx),
+		Bus:    newTestBus(t),
+		Fetch: func(context.Context, *indexv1alpha1.Indexer) (Fetcher, error) {
+			return countingFetcher{calls: &calls}, nil
+		},
+		Now: func() time.Time { return clock },
 	}
-	got := pruneRing(ring, now.Add(-time.Hour), maxRingEntries)
-	require.Len(t, got, maxRingEntries)
-	require.Equal(t, "g10", got[0].GUID, "the OLDEST entries are the ones dropped")
+
+	resp, result, _ := s.handle(ctx, grabRequest("a"))
+	require.Empty(t, resp.Error)
+	require.Equal(t, resultMagnet, result)
+	require.EqualValues(t, 1, calls.Load())
+
+	clock = t0.Add(time.Minute)
+	resp, result, label := s.handle(ctx, grabRequest("b"))
+	require.Equal(t, resultGrabLimited, result)
+	require.Equal(t, "tr", label)
+	retryAt, limited := limits.GrabLimited(resp.Error)
+	require.True(t, limited, "the refusal must be recognisable: %q", resp.Error)
+	require.Equal(t, t0.Add(24*time.Hour+time.Second), retryAt)
+	require.EqualValues(t, 1, calls.Load(), "a grab over the limit must not reach the indexer")
+
+	resp, _, _ = s.handle(ctx, grabRequest("a"))
+	require.Empty(t, resp.Error, "the grab already in the window is the same grab")
+	require.EqualValues(t, 2, calls.Load())
+
+	clock = retryAt
+	resp, _, _ = s.handle(ctx, grabRequest("b"))
+	require.Empty(t, resp.Error, "the window has room again")
 }
 
-func TestPruneRingDropsWhatIsOutsideTheWindow(t *testing.T) {
-	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	ring := []grabEntry{
-		{GUID: "ancient", At: now.Add(-48 * time.Hour).Unix()},
-		{GUID: "edge", At: now.Add(-time.Hour).Unix()},
-		{GUID: "fresh", At: now.Unix()},
+// A grab that did not happen gives its slot back: a failed fetch is not a
+// grab against the limit.
+func TestAFailedFetchGivesItsSlotBack(t *testing.T) {
+	ctx := context.Background()
+	idx := testIndexer("media", "tr", "uid-giveback", indexv1alpha1.LimitUnitDay)
+	idx.Spec.Limits.GrabLimit = ptr.To[int32](1)
+	var calls atomic.Int32
+	failing := true
+	s := &Service{
+		Client: fakeClient(t, idx),
+		Bus:    newTestBus(t),
+		Fetch: func(context.Context, *indexv1alpha1.Indexer) (Fetcher, error) {
+			if failing {
+				return countingFetcher{calls: &calls, err: errors.New("connection reset")}, nil
+			}
+			return countingFetcher{calls: &calls}, nil
+		},
 	}
-	got := pruneRing(ring, now.Add(-time.Hour), maxRingEntries)
-	require.Len(t, got, 2, "an entry exactly at the cutoff is inside the window")
-	require.Equal(t, "edge", got[0].GUID)
-	require.Equal(t, "fresh", got[1].GUID)
 
-	require.Empty(t, pruneRing(nil, now, maxRingEntries))
-}
+	resp, _, _ := s.handle(ctx, grabRequest("a"))
+	require.NotEmpty(t, resp.Error)
+	_, limited := limits.GrabLimited(resp.Error)
+	require.False(t, limited)
 
-func TestGrabRingKeyGoesThroughKVKeyToken(t *testing.T) {
-	// A UID is a UUID today, but the key builder must not assume it: every KV
-	// key in this repo goes through KVKeyToken, and an illegal key makes both
-	// Put and Delete fail.
-	require.Equal(t, events.KVKeyToken("a/b:c")+".grab", GrabRingKey("a/b:c"))
-	require.True(t, events.ValidKVKey(GrabRingKey("a/b:c")))
-	require.True(t, events.ValidKVKey(GrabRingKey("")))
-	require.True(t, events.ValidKVKey(GrabRingKey("8f14e45f-ceea-467a-9575-1c38ba1eb3bb")))
-}
-
-// A value we cannot decode is a value we replace: failing shut would wedge
-// counting for this indexer for the bucket's whole 2d TTL.
-func TestCountGrabReplacesAnUndecodableRing(t *testing.T) {
-	ctx := context.Background()
-	kv := newTestKV(t)
-	idx := testIndexer("media", "tr", "uid-5", indexv1alpha1.LimitUnitDay)
-	_, err := kv.Put(ctx, GrabRingKey(string(idx.UID)), []byte("{not json"))
+	u, err := limits.Grabs(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, time.Now())
 	require.NoError(t, err)
+	require.Zero(t, u.Count, "the failed grab kept its slot")
 
-	n, counted, err := CountGrab(ctx, kv, idx, "guid-a", time.Now())
-	require.NoError(t, err)
-	require.True(t, counted)
-	require.Equal(t, int32(1), n)
-}
-
-// The key comes from the LIVE object's UID. A caller-supplied stale UID would
-// open a second ring for one indexer, and the count would restart at 1.
-func TestCountGrabKeysOnTheObjectsOwnUID(t *testing.T) {
-	ctx := context.Background()
-	kv := newTestKV(t)
-	a := testIndexer("media", "tr", "uid-live", indexv1alpha1.LimitUnitDay)
-	b := testIndexer("media", "tr", "uid-other", indexv1alpha1.LimitUnitDay)
-	now := time.Now()
-
-	_, _, err := CountGrab(ctx, kv, a, "g", now)
-	require.NoError(t, err)
-	n, _, err := CountGrab(ctx, kv, b, "g", now)
-	require.NoError(t, err)
-	require.Equal(t, int32(1), n, "a different UID is a different ring")
-
-	_, err = kv.Get(ctx, GrabRingKey("uid-live"))
-	require.NoError(t, err)
-}
-
-// A KV that always reports a revision mismatch must give up rather than spin.
-func TestCountGrabGivesUpAfterTheCASAttempts(t *testing.T) {
-	kv := &conflictKV{inner: newTestKV(t)}
-	idx := testIndexer("media", "tr", "uid-6", indexv1alpha1.LimitUnitDay)
-	_, _, err := CountGrab(context.Background(), kv, idx, "g", time.Now())
-	require.ErrorIs(t, err, events.ErrRevisionMismatch)
-	require.Equal(t, casAttempts, kv.writes, "the loop is bounded")
-}
-
-// conflictKV answers every write with a revision mismatch, as two writers
-// racing on one ring would.
-type conflictKV struct {
-	inner  events.KV
-	writes int
-}
-
-func (k *conflictKV) Get(ctx context.Context, key string) (events.Entry, error) {
-	return k.inner.Get(ctx, key)
-}
-
-func (k *conflictKV) Create(
-	_ context.Context, _ string, _ []byte, _ ...events.KVOption,
-) (uint64, error) {
-	k.writes++
-	return 0, fmt.Errorf("conflict: %w", events.ErrRevisionMismatch)
-}
-
-func (k *conflictKV) Update(_ context.Context, _ string, _ []byte, _ uint64) (uint64, error) {
-	k.writes++
-	return 0, fmt.Errorf("conflict: %w", events.ErrRevisionMismatch)
-}
-
-func (k *conflictKV) Put(ctx context.Context, key string, val []byte) (uint64, error) {
-	return k.inner.Put(ctx, key, val)
-}
-
-func (k *conflictKV) Delete(ctx context.Context, key string) error {
-	return k.inner.Delete(ctx, key)
-}
-
-func (k *conflictKV) DeleteRevision(ctx context.Context, key string, rev uint64) error {
-	return k.inner.DeleteRevision(ctx, key, rev)
-}
-
-func (k *conflictKV) Watch(ctx context.Context, p string) (<-chan events.Entry, error) {
-	return k.inner.Watch(ctx, p)
-}
-
-// A grab counted at its OWN time: the direct-grab reconciler meets every
-// existing Download again on each start, so a grab older than the window must
-// not be counted, one inside it is counted at its creation time, and a GUID
-// already in the ring is never counted twice.
-func TestCountGrabAtHonoursTheGrabTime(t *testing.T) {
-	ctx := context.Background()
-	kv := newTestKV(t)
-	idx := testIndexer("media", "pub", "uid-at", indexv1alpha1.LimitUnitDay)
-	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-
-	n, counted, err := CountGrabAt(ctx, kv, idx, "old", now.Add(-25*time.Hour), now)
-	require.NoError(t, err)
-	require.False(t, counted, "a grab older than the window is not counted")
-	require.Zero(t, n)
-
-	n, counted, err = CountGrabAt(ctx, kv, idx, "recent", now.Add(-23*time.Hour), now)
-	require.NoError(t, err)
-	require.True(t, counted)
-	require.Equal(t, int32(1), n)
-
-	// Replayed an hour later: the same GUID is not a second grab, and the
-	// entry still sits at its creation time, so it leaves the window when
-	// that grab would -- not a day after the replay.
-	n, counted, err = CountGrabAt(ctx, kv, idx, "recent", now.Add(-23*time.Hour), now.Add(time.Hour))
-	require.NoError(t, err)
-	require.False(t, counted)
-	require.Equal(t, int32(1), n)
-
-	n, _, err = CountGrab(ctx, kv, idx, "later", now.Add(2*time.Hour))
-	require.NoError(t, err)
-	require.Equal(t, int32(1), n, "the 23h-old grab has aged out of the day window")
+	failing = false
+	resp, _, _ = s.handle(ctx, grabRequest("b"))
+	require.Empty(t, resp.Error)
 }

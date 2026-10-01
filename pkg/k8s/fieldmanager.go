@@ -208,15 +208,17 @@ const (
 
 	// ManagerIndexarr is the indexarr controller manager. On Indexer it owns
 	// the configuration half of status: conditions, protocol, privacy, caps,
-	// observedGeneration and sessionSecretRef. IndexerDefinition and
+	// observedGeneration and sessionSecretRef -- plus queriesInWindow and
+	// grabsInWindow, its projection of the clustarr-indexer-limits rings
+	// (since 2026-10-01). IndexerDefinition and
 	// IndexerProxy have one writer each, so it owns those outright.
 	ManagerIndexarr FieldManager = "indexarr"
 
 	// ManagerIndexarrWorker is indexarr's RSS poll and search fan-out. On
 	// Indexer it owns the observed half of status: lastRssAt, lastRssNewCount,
-	// indexedReleases, queriesInWindow, grabsInWindow, and the escalation
-	// fields (failureLevel, initialFailureAt, disabledUntil, lastFailureAt,
-	// lastFailureMsg).
+	// indexedReleases and the escalation fields (failureLevel,
+	// initialFailureAt, disabledUntil, lastFailureAt, lastFailureMsg), each
+	// applied as a compare-and-swap (app/indexer/status.PatchCAS).
 	//
 	// It is deliberately distinct from ManagerIndexarr because Indexer.status
 	// has three writer paths -- the reconciler, the RSS poll and the search

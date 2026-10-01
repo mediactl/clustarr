@@ -201,6 +201,35 @@ func TestReserveGrabIsIdempotentAndRefusesOnlyANewGrab(t *testing.T) {
 	require.Equal(t, int32(2), r.Count)
 }
 
+// A grab that did not happen gives its slot back, and only its own: a GUID
+// another path reserved first stays.
+func TestReleaseGrabGivesBackOnlyThatGUID(t *testing.T) {
+	ctx := context.Background()
+	kv := testKV(t)
+	idx := testIndexer("uid-release", &indexv1alpha1.Limits{GrabLimit: ptr.To[int32](2)})
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+
+	for _, g := range []string{"a", "b"} {
+		_, err := ReserveGrab(ctx, kv, idx, g, now)
+		require.NoError(t, err)
+	}
+	r, err := ReserveGrab(ctx, kv, idx, "c", now)
+	require.NoError(t, err)
+	require.False(t, r.Allowed)
+
+	require.NoError(t, ReleaseGrab(ctx, kv, idx, "b", now))
+	require.NoError(t, ReleaseGrab(ctx, kv, idx, "absent", now))
+	u, err := Grabs(ctx, kv, idx, now)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), u.Count)
+
+	r, err = ReserveGrab(ctx, kv, idx, "c", now)
+	require.NoError(t, err)
+	require.True(t, r.Allowed, "the released slot is free again")
+
+	require.NoError(t, ReleaseGrab(ctx, kv, testIndexer("uid-none", nil), "x", now), "no ring is nothing to release")
+}
+
 // A grab counted at its OWN time: a grab older than the window is not
 // counted, one inside it sits at its creation time, and is not counted twice.
 func TestCountGrabAtHonoursTheGrabTime(t *testing.T) {
@@ -323,4 +352,16 @@ func (k *conflictKV) DeleteRevision(ctx context.Context, key string, rev uint64)
 
 func (k *conflictKV) Watch(ctx context.Context, p string) (<-chan events.Entry, error) {
 	return k.inner.Watch(ctx, p)
+}
+
+func TestGrabLimitedRecognisesOnlyTheRefusal(t *testing.T) {
+	at := time.Date(2026, 9, 20, 12, 0, 1, 0, time.UTC)
+	got, ok := GrabLimited(GrabLimitMessage("media/tr", at))
+	require.True(t, ok)
+	require.Equal(t, at, got)
+
+	for _, e := range []string{"", "indexarr: fetch from media/tr: EOF", "indexarr: indexer media/tr is disabled"} {
+		_, ok := GrabLimited(e)
+		require.False(t, ok, e)
+	}
 }

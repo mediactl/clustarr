@@ -20,6 +20,7 @@ package search_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,8 +32,10 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	searchworker "github.com/mediactl/clustarr/app/catalog/worker/search"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/app/indexer/search"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/relindex"
@@ -89,6 +92,10 @@ func steadyState(
 					LimitsMax:     100,
 					LimitsDefault: 50,
 				},
+				// The window counts are the reconciler's projection of the
+				// rings (since 2026-10-01): a search must leave them alone.
+				GrabsInWindow:   3,
+				QueriesInWindow: 5,
 			})
 			ac.WithConditions(k8s.ConditionACs([]metav1.Condition{{
 				Type: "Ready", Status: metav1.ConditionTrue,
@@ -104,8 +111,6 @@ func steadyState(
 				LastRssAt:       &rssAt,
 				LastRssNewCount: 7,
 				IndexedReleases: 1234,
-				GrabsInWindow:   3,
-				QueriesInWindow: 5,
 			})
 		}))
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
@@ -282,7 +287,6 @@ func (i interleavingClient) Search(ctx context.Context, _ torznab.Query) ([]torz
 			st := live.Status
 			st.LastRssAt = &rssAt
 			st.LastRssNewCount = 42
-			st.GrabsInWindow = 9
 			st.IndexedReleases = 9999
 			// A run of failures another writer recorded. It is the tell:
 			// inside the startup grace RecordFailure keeps whatever level
@@ -332,7 +336,6 @@ func TestASearchDoesNotRollBackAWriteThatLandedDuringTheFanOut(t *testing.T) {
 
 	require.Equal(t, int32(42), got.Status.LastRssNewCount,
 		"the stale snapshot rolled back a write that landed during the fan-out")
-	require.Equal(t, int32(9), got.Status.GrabsInWindow, "rolled back by a stale snapshot")
 	require.Equal(t, int64(9999), got.Status.IndexedReleases, "rolled back by a stale snapshot")
 
 	// The escalation continued the run the other writer had started rather
@@ -344,35 +347,121 @@ func TestASearchDoesNotRollBackAWriteThatLandedDuringTheFanOut(t *testing.T) {
 	require.NotNil(t, got.Status.InitialFailureAt, "the run's start was lost with the stale snapshot")
 }
 
-// status.queriesInWindow is a PROJECTION of the query ring, not a running
-// total. The ring is what makes the limit recoverable: an increment with no
-// window would pass spec.limits.queryLimit once and skip the indexer for
-// good, because nothing in the system ever lowers it.
-func TestASearchProjectsTheQueryRingOntoStatus(t *testing.T) {
+// A search counts its query on the ring and nowhere else.
+// status.queriesInWindow is the Indexer reconciler's projection of the ring
+// (it owns the field since 2026-10-01); a search that still wrote it would
+// take it back under ForceOwnership and pin a count the reconciler had moved
+// on from.
+func TestASearchCountsOnTheRingAndLeavesTheProjectionAlone(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
 	idx := steadyState(t, ctx, c, "search-queries", "nzbgeek")
 
+	bus := newBus(t)
 	svc := &search.Service{
 		Client:    c,
-		Bus:       newBus(t),
+		Bus:       bus,
 		ClientFor: stubClientFor(stub{releases: twoReleases()}),
 	}
 	_ = svc.Search(ctx, searchRequest(idx.Namespace))
+	_ = svc.Search(ctx, searchRequest(idx.Namespace))
+
+	w, err := limits.Queries(ctx, bus.KV(events.BucketIndexerLimits), idx, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, int32(2), w.Count, "each search reserves one query on the ring")
 
 	var got indexv1alpha1.Indexer
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int32(1), got.Status.QueriesInWindow,
-		"the ring is the source of truth, not the previous status value")
-
-	_ = svc.Search(ctx, searchRequest(idx.Namespace))
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int32(2), got.Status.QueriesInWindow)
+	require.Equal(t, int32(5), got.Status.QueriesInWindow, "the search wrote the reconciler's projection")
+	require.Equal(t, int32(3), got.Status.GrabsInWindow)
+	for _, mf := range got.ManagedFields {
+		if mf.Manager == k8s.ManagerIndexarrWorker.String() && mf.FieldsV1 != nil {
+			require.NotContains(t, mf.FieldsV1.GetRawString(), "f:queriesInWindow", "the worker manager claimed queriesInWindow")
+			require.NotContains(t, mf.FieldsV1.GetRawString(), "f:grabsInWindow", "the worker manager claimed grabsInWindow")
+		}
+	}
 
 	// ... and the rest of the manager's set survived both.
 	require.NotNil(t, got.Status.LastRssAt)
 	require.Equal(t, int32(7), got.Status.LastRssNewCount)
-	require.Equal(t, int32(3), got.Status.GrabsInWindow)
+}
+
+// racingReader is recordOutcome's uncached reader with a second writer in
+// the one window a re-read cannot close: between the read the outcome is
+// seeded from and its apply. On its first Get it lets the read return and
+// then applies another search's outcome -- 100 newly indexed releases --
+// under the same manager.
+type racingReader struct {
+	client.Reader
+	c     client.Client
+	raced bool
+}
+
+func (r *racingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := r.Reader.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	if !r.raced {
+		r.raced = true
+		_, _, err := idxstatus.PatchCAS(ctx, r.Reader, r.c, k8s.ManagerIndexarrWorker, key,
+			func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
+				ac.WithIndexedReleases(fresh.Status.IndexedReleases + 100)
+				return false
+			})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Two outcome writers on one Indexer lose no increment. A re-read before the
+// apply -- which is all recordOutcome had -- leaves the window between that
+// read and the apply open, and an outcome landing in it was overwritten with
+// a count computed before it: indexedReleases went back by its increment.
+// The apply is now a compare-and-swap, redone from a fresh read.
+func TestTwoOutcomeWritersLoseNoIndexedReleases(t *testing.T) {
+	ctx := t.Context()
+	c := requireEnvtest(t)
+	idx := steadyState(t, ctx, c, "search-cas", "nzbgeek")
+
+	svc := &search.Service{
+		Client:    c,
+		Reader:    &racingReader{Reader: c, c: c},
+		Store:     insertingStore{},
+		ClientFor: stubClientFor(stub{releases: twoReleases()}),
+	}
+	resp := svc.Search(ctx, searchRequest(idx.Namespace))
+	require.Equal(t, schema.SearchOutcomeOK, resp.Outcomes[0].Status)
+
+	var got indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
+	require.Equal(t, int64(1234+100+2), got.Status.IndexedReleases,
+		"an increment was lost between the outcome's read and its apply")
+}
+
+// And without a contrived window: concurrent searches, every one of which
+// indexes two new releases, all count.
+func TestConcurrentSearchesLoseNoIndexedReleases(t *testing.T) {
+	ctx := t.Context()
+	c := requireEnvtest(t)
+	idx := steadyState(t, ctx, c, "search-concurrent", "nzbgeek")
+
+	svc := &search.Service{
+		Client:    c,
+		Store:     insertingStore{},
+		ClientFor: stubClientFor(stub{releases: twoReleases()}),
+	}
+	const searches = 4
+	var wg sync.WaitGroup
+	for range searches {
+		wg.Go(func() { _ = svc.Search(ctx, searchRequest(idx.Namespace)) })
+	}
+	wg.Wait()
+
+	var got indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
+	require.Equal(t, int64(1234+2*searches), got.Status.IndexedReleases)
 }
 
 // An indexer that is skipped is never queried, so nothing about it changes:

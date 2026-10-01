@@ -35,6 +35,7 @@ import (
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -328,10 +329,19 @@ func (s *Service) queryOne(
 		return s.failOutcome(ctx, out, started, nil, err), nil
 	}
 
-	// Counted BEFORE the request, because a request that times out still hit
-	// the indexer and still spends its budget. countQuery is non-fatal: a
-	// nil count means "leave status.queriesInWindow exactly as it is".
-	queries := s.countQuery(qctx, idx)
+	// Reserved BEFORE the request, because a request that times out still
+	// hit the indexer and still spends its budget -- and decided on the ring
+	// rather than on status.queriesInWindow, which is the reconciler's
+	// projection and may be behind. At the limit the indexer is not asked:
+	// the outcome is the same named skip the selection gate used to give,
+	// and nothing is recorded, because a limit is a budget, not a failure.
+	queries, allowed := s.reserveQuery(qctx, idx)
+	if !allowed {
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, metricSkipped).Inc()
+		out.Status = schema.SearchOutcomeSkipped
+		out.Error = skipQueryLimit
+		return out, nil
+	}
 
 	raw, err := cli.Search(qctx, q)
 	elapsed := s.now().Sub(started)
@@ -530,47 +540,64 @@ func indexRejectReason(row relindex.Release) string {
 	return ""
 }
 
-// countQuery projects one query onto the ring, returning the window count to
-// apply or nil to leave status.queriesInWindow alone.
+// reserveQuery reserves one query against idx on its query ring
+// (app/indexer/limits), returning the window count when it counted one --
+// nil otherwise -- and whether the indexer may be asked.
 //
 // A nil Bus disables accounting rather than failing the search, exactly as
 // the download verb's grab accounting does; Serve supplies the bus it was
-// given, so a service built by run.go always has one.
-func (s *Service) countQuery(ctx context.Context, idx *indexv1alpha1.Indexer) *int32 {
+// given, so a service built by run.go always has one. A ring that cannot be
+// read or written fails OPEN, logged: an accounting outage must not take
+// every indexer out of every search, and the reconciler's projection shows
+// what the ring holds once it is back.
+func (s *Service) reserveQuery(ctx context.Context, idx *indexv1alpha1.Indexer) (*int32, bool) {
 	if s.Bus == nil {
-		return nil
+		return nil, true
 	}
-	n, err := countQuery(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, s.now())
+	r, err := limits.ReserveQuery(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, s.now())
 	if err != nil {
-		logging.FromContext(ctx).Warn("app/indexer/search: query accounting failed",
+		logging.FromContext(ctx).Warn("app/indexer/search: query accounting failed; querying anyway",
 			"indexer", idx.Name, "err", err)
-		return nil
+		return nil, true
 	}
-	return &n
+	if !r.Allowed {
+		logging.FromContext(ctx).Debug("app/indexer/search: query limit reached; not asking the indexer",
+			"indexer", idx.Name, "count", r.Count, "retryAt", r.RetryAt)
+		return nil, false
+	}
+	if !r.Counted {
+		return nil, true
+	}
+	return &r.Count, true
+}
+
+// reader is the uncached reader recordOutcome's compare-and-swap reads
+// through: Reader when the process supplied one, Client otherwise.
+func (s *Service) reader() client.Reader {
+	if s.Reader != nil {
+		return s.Reader
+	}
+	return s.Client
 }
 
 // recordOutcome runs the escalation ladder and applies the result under
-// k8s.ManagerIndexarrWorker.
+// k8s.ManagerIndexarrWorker, as a compare-and-swap.
 //
-// It re-reads the live Indexer first. A fan-out is an HTTP round trip per
-// indexer -- seconds, not milliseconds -- and app/indexer/status seeds the apply
-// from the status it is handed and re-sends EVERY field this manager owns,
-// so applying the snapshot the fan-out started from would roll back whatever
-// else wrote under the shared manager in the meantime: the RSS poll's
-// lastRssAt, the download verb's grabsInWindow, another indexer's... no, its
-// own object's earlier query. disabledUntil is the one that turns a lost
-// update into a correctness bug rather than a counter blip: WorkerFields
-// emits it only when non-nil, so a stale nil snapshot does not roll it back,
-// it CLEARS it -- silently re-enabling an indexer another writer had just
-// put into backoff.
+// A fan-out is an HTTP round trip per indexer -- seconds, not milliseconds --
+// and every replica runs one, beside the RSS poll under the same manager. An
+// apply seeded from any read but the latest would roll back what another
+// writer did in between: an indexedReleases increment, the RSS poll's
+// lastRssAt, or -- the one that turns a lost update into a correctness bug --
+// a disabledUntil another writer had just set, which WorkerFields emits only
+// when non-nil, so a stale nil CLEARS it and re-enables an indexer in
+// backoff. A re-read before the apply narrowed that window but did not close
+// it; app/indexer/status.PatchCAS does, by applying with the read's
+// resourceVersion and redoing the ladder step and the increment from a new
+// read on a Conflict.
 //
-// That is a lost update rather than a server-side-apply release, which is
-// why no "manager X released field Y" test can see it. One Get per outcome
-// closes the window, as app/indexer/worker/rss and app/indexer/download do.
-//
-// queries is nil when accounting could not run; newlyIndexed is what
-// relindex.Upsert actually inserted, so indexedReleases counts distinct
-// releases seen rather than rows returned.
+// queries is the window count when this query counted one, for the limited
+// event; newlyIndexed is what relindex.Upsert actually inserted, so
+// indexedReleases counts distinct releases seen rather than rows returned.
 func (s *Service) recordOutcome(
 	ctx context.Context,
 	ref schema.Ref,
@@ -582,44 +609,37 @@ func (s *Service) recordOutcome(
 	if s.Client == nil {
 		return errors.New("app/indexer/search: no client is configured")
 	}
-	var live indexv1alpha1.Indexer
 	key := client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}
-	if err := s.Client.Get(ctx, key, &live); err != nil {
-		return fmt.Errorf("app/indexer/search: read indexer %s: %w", key, err)
-	}
-
 	now := s.now()
 	var esc idxstatus.Escalation
-	if ok {
-		esc = idxstatus.RecordSuccess(live.Status, now)
-	} else {
-		esc = idxstatus.RecordFailure(live.Status, now, reason)
-	}
 
 	// ONE apply, through app/indexer/status, so the indexarr-worker owned set
-	// is declared in exactly one place (ruling R14). Patch seeds every field
-	// this manager owns from the status it is handed; the mutate changes
-	// only what this query moved. ApplyEscalation is the only thing that can
-	// UNDO that seed -- a recovered indexer's cleared disabledUntil has to
-	// remove the seeded value rather than carry it forward, which no
-	// generated With* helper can express.
-	if err := idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, &live,
-		func(ac *indexac.IndexerStatusApplyConfiguration) {
-			if queries != nil {
-				ac.WithQueriesInWindow(*queries)
+	// is declared in exactly one place (ruling R14). PatchCAS seeds every
+	// field this manager owns from the fresh read; the mutate changes only
+	// what this query moved, computed from that same read. ApplyEscalation
+	// is the only thing that can UNDO that seed -- a recovered indexer's
+	// cleared disabledUntil has to remove the seeded value rather than carry
+	// it forward, which no generated With* helper can express.
+	prev, _, err := idxstatus.PatchCAS(ctx, s.reader(), s.Client, k8s.ManagerIndexarrWorker, key,
+		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
+			if ok {
+				esc = idxstatus.RecordSuccess(fresh.Status, now)
+			} else {
+				esc = idxstatus.RecordFailure(fresh.Status, now, reason)
 			}
 			if newlyIndexed > 0 {
-				ac.WithIndexedReleases(live.Status.IndexedReleases + newlyIndexed)
+				ac.WithIndexedReleases(fresh.Status.IndexedReleases + newlyIndexed)
 			}
-			idxstatus.ApplyEscalation(ac, esc, live.Status)
-		}); err != nil {
-		return err
+			idxstatus.ApplyEscalation(ac, esc, fresh.Status)
+			return false
+		})
+	if err != nil {
+		return fmt.Errorf("app/indexer/search: record the outcome on %s: %w", key, err)
 	}
 	// After the apply, never before: the status is the record, the event
-	// is history. live.Status is still the pre-apply status the transition
-	// is measured from.
-	idxstatus.PublishTransitions(ctx, s.Bus, &live, idxstatus.Transition{
-		Prev: live.Status, Escalation: &esc, Failed: !ok, Queries: queries, At: now,
+	// is history. prev is the read the applied escalation was measured from.
+	idxstatus.PublishTransitions(ctx, s.Bus, prev, idxstatus.Transition{
+		Prev: prev.Status, Escalation: &esc, Failed: !ok, Queries: queries, At: now,
 	})
 	return nil
 }

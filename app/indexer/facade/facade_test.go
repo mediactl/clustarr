@@ -38,7 +38,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,6 +50,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/facade"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -293,6 +296,25 @@ func TestDownloadErrorIsBadGateway(t *testing.T) {
 	require.Equal(t, http.StatusBadGateway, resp.StatusCode)
 	b, _ := io.ReadAll(resp.Body)
 	require.Contains(t, string(b), "tracker refused the session")
+}
+
+// A grab spec.limits.grabLimit refused is a 429 with Torznab's download
+// limit code and a Retry-After, as Prowlarr answers it -- not a 502 a
+// Sonarr would read as the indexer failing.
+func TestAGrabLimitRefusalIsTooManyRequests(t *testing.T) {
+	idx := &indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{Name: "idx1", Namespace: "media"}}
+	f := newFixture(t, idx)
+	retryAt := time.Now().Add(90 * time.Second).UTC().Truncate(time.Second)
+	f.downloadResp = schema.DownloadResponse{Error: limits.GrabLimitMessage("media/idx1", retryAt)}
+	resp, err := http.Get(f.srv.URL + "/idx1/download?guid=g1&apikey=" + testAPIKey)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+	secs, err := strconv.Atoi(resp.Header.Get("Retry-After"))
+	require.NoError(t, err, "Retry-After: %q", resp.Header.Get("Retry-After"))
+	require.InDelta(t, 90, secs, 5)
+	b, _ := io.ReadAll(resp.Body)
+	require.Contains(t, string(b), `code="501"`)
 }
 
 func TestAggregateSearchUsesTheLocalIndexQueryNotLiveSearch(t *testing.T) {

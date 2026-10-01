@@ -33,6 +33,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -149,9 +150,9 @@ func TestHandleNeverFetchesAnOffHostURL(t *testing.T) {
 	require.Zero(t, trackerHits)
 
 	// No grab was counted: counting the same guid now is its FIRST count.
-	_, counted, err := CountGrab(ctx, bus.KV(events.BucketIndexerLimits), idx, "guid-x", time.Now())
+	r, err := limits.ReserveGrab(ctx, bus.KV(events.BucketIndexerLimits), idx, "guid-x", time.Now())
 	require.NoError(t, err)
-	require.True(t, counted, "a URL indexarr never fetched is not a grab against the indexer")
+	require.True(t, r.Counted, "a URL indexarr never fetched is not a grab against the indexer")
 }
 
 // cardigannDownloader binds a real cardigann.Engine to one definition, as

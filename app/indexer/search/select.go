@@ -56,7 +56,11 @@ const (
 	skipNoCategory    = "no requested category is served by this indexer"
 	skipNoIDParam     = "no supported id parameter for this request"
 	skipUnhealthy     = "unhealthy or in backoff"
-	skipQueryLimit    = "query limit reached"
+	// skipQueryLimit is given at the last moment, by the query's own
+	// reservation on the ring (Service.reserveQuery), not here: selection
+	// reads only the Indexer object, and the object's queriesInWindow is a
+	// projection that may be behind.
+	skipQueryLimit = "query limit reached"
 )
 
 // skipNoMode names the mode the indexer does not advertise.
@@ -105,8 +109,6 @@ func selectCandidates(
 			c.Skip = skipProtocol
 		case !idxstatus.Healthy(idx.Status, now):
 			c.Skip = skipUnhealthy
-		case atQueryLimit(idx):
-			c.Skip = skipQueryLimit
 		case idx.Status.Caps == nil:
 			c.Skip = skipNoCaps
 		case !idxstatus.SupportsMode(*idx.Status.Caps, string(mode)):
@@ -124,20 +126,6 @@ func selectCandidates(
 func inProtocols(want map[commonv1.Protocol]struct{}, got commonv1.Protocol) bool {
 	_, ok := want[got]
 	return ok
-}
-
-// atQueryLimit mirrors Prowlarr's IndexerLimitService.
-//
-// status.queriesInWindow is a PROJECTION of the query ring in
-// clustarr-indexer-limits (see limits.go), not a running total, which is what
-// makes this gate recoverable: a monotonic counter with no reset would skip
-// an indexer with a configured queryLimit forever, because nothing else in
-// the system ever lowers it.
-func atQueryLimit(idx *indexv1alpha1.Indexer) bool {
-	if idx.Spec.Limits == nil || idx.Spec.Limits.QueryLimit == nil {
-		return false
-	}
-	return idx.Status.QueriesInWindow >= *idx.Spec.Limits.QueryLimit
 }
 
 // resolveQuery finalises a candidate: it builds the query and turns a "no

@@ -46,12 +46,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //	k8s.ManagerIndexarr ("indexarr", this package):
 //	    observedGeneration, conditions, protocol, privacy, caps,
-//	    sessionSecretRef
+//	    sessionSecretRef, queriesInWindow, grabsInWindow
 //	k8s.ManagerIndexarrWorker ("indexarr-worker", indexarr's RSS poll and
 //	search fan-out):
 //	    escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
-//	    lastFailure, queriesInWindow, grabsInWindow, lastRssAt,
-//	    lastRssNewCount, indexedReleases
+//	    lastFailure, lastRssAt, lastRssNewCount, indexedReleases
+//
+// queriesInWindow and grabsInWindow moved here from the worker on
+// 2026-10-01. They project the clustarr-indexer-limits rings
+// (app/indexer/limits), and this reconciler reads both rings on every pass,
+// wakes on every ring change (limitsSource) and requeues for the moment a
+// full window next has room -- so RateLimited clears with no traffic, where
+// it used to latch until something counted again.
 //
 // This package never applies as ManagerIndexarrWorker. It reads the worker's
 // fields to derive conditions and a requeue delay, nothing more.
@@ -95,10 +101,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # This reconciler never writes an escalation field
 //
 // escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
-// lastFailure, queriesInWindow, grabsInWindow, lastRssAt, lastRssNewCount and
-// indexedReleases belong to indexarr-worker. This package READS them (to
-// derive the Healthy and RateLimited conditions and to choose a requeue
-// delay); the workers compute the next set with app/indexer/status's
+// lastFailure, lastRssAt, lastRssNewCount and indexedReleases belong to
+// indexarr-worker. This package READS them (to derive the Healthy condition
+// and to choose a requeue delay); the workers compute the next set with app/indexer/status's
 // RecordFailure/RecordSuccess and apply it themselves. A
 // caps-probe failure therefore moves conditions and the requeue delay and
 // does not move escalationLevel: writing the escalation set here under

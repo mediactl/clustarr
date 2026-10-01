@@ -30,6 +30,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/download"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -38,8 +39,7 @@ import (
 
 // steadyState creates an Indexer and drives it to the state the RSS poll and
 // the search fan-out leave behind, both of which write under
-// k8s.ManagerIndexarrWorker. Without this a test cannot observe a release at
-// all: a blank object has nothing to release.
+// k8s.ManagerIndexarrWorker.
 func steadyState(
 	t *testing.T, ctx context.Context, c client.Client, ns, name string,
 ) (*indexv1alpha1.Indexer, *download.Service) {
@@ -59,12 +59,11 @@ func steadyState(
 	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			*ac = *idxstatus.WorkerFields(indexv1alpha1.IndexerStatus{
-				LastRssAt: &rssAt, LastRssNewCount: 7, IndexedReleases: 4211,
-				QueriesInWindow: 11, EscalationLevel: 2,
+				LastRssAt: &rssAt, LastRssNewCount: 7, IndexedReleases: 4211, EscalationLevel: 2,
 			})
 		}))
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
-	require.Equal(t, int32(11), idx.Status.QueriesInWindow, "the steady state did not take")
+	require.Equal(t, int64(4211), idx.Status.IndexedReleases, "the steady state did not take")
 
 	bus := membus.New(nil)
 	t.Cleanup(func() { _ = bus.Close() })
@@ -73,147 +72,37 @@ func steadyState(
 	return idx, &download.Service{Client: c, Bus: bus}
 }
 
-func TestGrabCountDoesNotReleaseTheOtherWorkerFields(t *testing.T) {
-	ctx := context.Background()
-	c := newTestClient(t)
-	idx, s := steadyState(t, ctx, c, "dl-ssa", "tr")
-
-	s.CountGrabForTest(ctx, idx, "guid-a")
-
-	var after indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
-	require.Equal(t, int32(1), after.Status.GrabsInWindow)
-	// Every one of these would be zero if the apply had declared less than
-	// the complete indexarr-worker set. There is deliberately no second
-	// writer of them here: a co-owner would hold each field up and the test
-	// would pass whether or not the apply released it.
-	require.Equal(t, int32(11), after.Status.QueriesInWindow, "released by a partial apply")
-	require.Equal(t, int64(4211), after.Status.IndexedReleases, "released by a partial apply")
-	require.Equal(t, int32(7), after.Status.LastRssNewCount, "released by a partial apply")
-	require.NotNil(t, after.Status.LastRssAt, "released by a partial apply")
-	require.Equal(t, int32(2), after.Status.EscalationLevel, "released by a partial apply")
+// grabsOnTheRing is the window count of idx's grab ring.
+func grabsOnTheRing(t *testing.T, ctx context.Context, s *download.Service, idx *indexv1alpha1.Indexer) int32 {
+	t.Helper()
+	u, err := limits.Grabs(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, time.Now())
+	require.NoError(t, err)
+	return u.Count
 }
 
-func TestARedeliveredGrabDoesNotDoubleCountInStatus(t *testing.T) {
+// The verb writes no status at all since status.grabsInWindow became the
+// Indexer reconciler's projection of the ring (2026-10-01). It used to apply
+// the whole worker set after every grab, and each apply was one more chance
+// to release or roll back the search fan-out's and the RSS poll's fields --
+// it did both at different times. An apply that does not happen can do
+// neither: the object is not written at all, its resourceVersion unmoved.
+func TestAGrabWritesNoIndexerStatus(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
-	idx, s := steadyState(t, ctx, c, "dl-redeliver", "tr")
+	idx, s := steadyState(t, ctx, c, "dl-nostatus", "tr")
 
 	s.CountGrabForTest(ctx, idx, "guid-a")
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
-	require.Equal(t, int32(1), idx.Status.GrabsInWindow)
-
 	s.CountGrabForTest(ctx, idx, "guid-a") // the RPC was retried
-
-	var after indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
-	require.Equal(t, int32(1), after.Status.GrabsInWindow)
-	require.Equal(t, int32(11), after.Status.QueriesInWindow)
-}
-
-// A second, distinct grab moves the projection on and still leaves the rest
-// of the worker's set standing.
-func TestASecondGrabAdvancesTheProjection(t *testing.T) {
-	ctx := context.Background()
-	c := newTestClient(t)
-	idx, s := steadyState(t, ctx, c, "dl-second", "tr")
-
-	s.CountGrabForTest(ctx, idx, "guid-a")
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
 	s.CountGrabForTest(ctx, idx, "guid-b")
+	require.Equal(t, int32(2), grabsOnTheRing(t, ctx, s, idx), "one count per GUID")
 
 	var after indexv1alpha1.Indexer
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
-	require.Equal(t, int32(2), after.Status.GrabsInWindow)
-	require.Equal(t, int64(4211), after.Status.IndexedReleases)
-	require.NotNil(t, after.Status.LastRssAt)
-}
-
-// TestAGrabDoesNotRollBackAWriteThatLandedDuringTheFetch is the interleaving
-// TestGrabCountDoesNotReleaseTheOtherWorkerFields cannot see. That test counts
-// the grab from the object it just read, so there is no window; here the
-// search fan-out writes DURING the download, exactly as it does in production
-// when a fetch takes seconds.
-//
-// The failure is a lost update, not a server-side-apply release: both applies
-// declare every field the manager owns, the stale one just declares older
-// values. disabledUntil is the reason it is a correctness bug rather than a
-// counter blip -- WorkerFields emits it only when non-nil, so a snapshot
-// taken before the backoff was set does not roll it back, it CLEARS it, and
-// an indexer that was just disabled is silently serving again.
-func TestAGrabDoesNotRollBackAWriteThatLandedDuringTheFetch(t *testing.T) {
-	ctx := context.Background()
-	c := newTestClient(t)
-	idx, s := steadyState(t, ctx, c, "dl-interleave", "tr")
-
-	// `idx` is now the pre-fetch snapshot the download verb carries through
-	// f.Fetch: queriesInWindow=11, escalationLevel=2, disabledUntil=nil.
-	require.Nil(t, idx.Status.DisabledUntil)
-
-	// ... and while those bytes are on the wire, the search fan-out records
-	// its own queries and puts the indexer into backoff. Same manager, its
-	// own complete declaration, from its own fresh read.
-	var live indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &live))
-	until := metav1.NewTime(time.Now().Add(30 * time.Minute).Truncate(time.Second))
-	failedAt := metav1.NewTime(time.Now().Truncate(time.Second))
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, &live,
-		func(ac *indexac.IndexerStatusApplyConfiguration) {
-			st := live.Status
-			st.QueriesInWindow = 99
-			st.EscalationLevel = 3
-			st.DisabledUntil = &until
-			st.LastFailureAt = &failedAt
-			st.LastFailure = "indexer returned HTTP 429"
-			*ac = *idxstatus.WorkerFields(st)
-		}))
-
-	// The download finishes and counts its grab, still holding the stale idx.
-	s.CountGrabForTest(ctx, idx, "guid-a")
-
-	var after indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
-	require.Equal(t, int32(1), after.Status.GrabsInWindow, "the grab was still counted")
-
-	require.NotNil(t, after.Status.DisabledUntil,
-		"the stale snapshot CLEARED the backoff another writer had just set")
-	require.Equal(t, until.Unix(), after.Status.DisabledUntil.Unix())
-	require.Equal(t, int32(99), after.Status.QueriesInWindow,
-		"the stale snapshot rolled back the fan-out's query count")
-	require.Equal(t, int32(3), after.Status.EscalationLevel, "rolled back by a stale snapshot")
-	require.Equal(t, "indexer returned HTTP 429", after.Status.LastFailure,
-		"rolled back by a stale snapshot")
-	require.NotNil(t, after.Status.LastFailureAt, "cleared by a stale snapshot")
-
-	// And the fields nothing touched during the window are still standing.
-	require.Equal(t, int64(4211), after.Status.IndexedReleases)
-	require.NotNil(t, after.Status.LastRssAt)
-}
-
-// A redelivery that arrives after another writer moved the status on must not
-// apply at all: the count did not change, and an apply that does not happen
-// can neither release nor roll back.
-func TestARedeliveredGrabDoesNotRollBackEither(t *testing.T) {
-	ctx := context.Background()
-	c := newTestClient(t)
-	idx, s := steadyState(t, ctx, c, "dl-redeliver-stale", "tr")
-
-	s.CountGrabForTest(ctx, idx, "guid-a")
-
-	var live indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &live))
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, &live,
-		func(ac *indexac.IndexerStatusApplyConfiguration) {
-			st := live.Status
-			st.QueriesInWindow = 77
-			*ac = *idxstatus.WorkerFields(st)
-		}))
-
-	// The RPC is retried, still carrying the snapshot from before any of it.
-	s.CountGrabForTest(ctx, idx, "guid-a")
-
-	var after indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
-	require.Equal(t, int32(1), after.Status.GrabsInWindow)
-	require.Equal(t, int32(77), after.Status.QueriesInWindow, "rolled back by a stale redelivery")
+	require.Equal(t, idx.ResourceVersion, after.ResourceVersion, "the grab wrote the Indexer")
+	for _, mf := range after.ManagedFields {
+		if mf.FieldsV1 != nil {
+			require.NotContains(t, mf.FieldsV1.GetRawString(), "f:grabsInWindow",
+				"%s claimed grabsInWindow", mf.Manager)
+		}
+	}
 }

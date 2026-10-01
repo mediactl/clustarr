@@ -50,6 +50,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -173,6 +174,75 @@ func CountGrabAt(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, 
 		at = now
 	}
 	return reserve(ctx, kv, idx, grabRing, GrabLimit(idx), guid, at, now, false)
+}
+
+// ReleaseGrab gives back the slot a [ReserveGrab] of guid took, for a grab
+// that did not happen after all -- the fetch failed, or the link named
+// another host and the caller fetches it from there. Only the caller whose
+// reservation Counted may release it: a GUID that was already in the ring
+// belongs to an earlier grab of the release (catalogarr's, before its
+// Download), which did happen. Releasing a GUID that is not there is a
+// no-op.
+func ReleaseGrab(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, now time.Time) error {
+	r := grabRing
+	key := r.key(string(idx.UID))
+	var lastErr error
+	for range casAttempts {
+		es, rev, have, err := r.read(ctx, kv, idx, now.Add(-Window(idx)))
+		if err != nil {
+			return err
+		}
+		kept := slices.DeleteFunc(es, func(e entry) bool { return e.GUID == guid })
+		if !have || len(kept) == len(es) {
+			return nil
+		}
+		val, err := r.encode(kept)
+		if err != nil {
+			return err
+		}
+		switch _, err = kv.Update(ctx, key, val, rev); {
+		case err == nil:
+			return nil
+		case errors.Is(err, events.ErrRevisionMismatch):
+			lastErr = err
+		default:
+			return err
+		}
+	}
+	return fmt.Errorf("app/indexer/limits: grab ring CAS gave up after %d attempts: %w", casAttempts, lastErr)
+}
+
+// grabLimitPrefix opens every grab-limit refusal's DownloadResponse.Error.
+// DownloadResponse (pkg/events/schema) has no error code, so the refusal is
+// recognised by this prefix -- [GrabLimited] is the one reader -- and carries
+// its retry instant after it.
+const grabLimitPrefix = "indexarr: grab limit reached"
+
+// GrabLimitMessage is the rpc.indexarr.download Error of a grab
+// spec.limits.grabLimit refused: the indexer, and when its window next has
+// room.
+func GrabLimitMessage(indexer string, retryAt time.Time) string {
+	return fmt.Sprintf("%s for %s; retry at %s", grabLimitPrefix, indexer, retryAt.UTC().Format(time.RFC3339))
+}
+
+// GrabLimited reports whether a download reply's Error is a grab-limit
+// refusal and, when it is, the instant the indexer's grab window next has
+// room (zero if the message carried none). A caller should try the release
+// elsewhere or after that instant, never treat it as the release's own
+// failure: nothing is wrong with the release, and blocklisting it would be.
+func GrabLimited(errMsg string) (time.Time, bool) {
+	if !strings.HasPrefix(errMsg, grabLimitPrefix) {
+		return time.Time{}, false
+	}
+	_, at, ok := strings.Cut(errMsg, "; retry at ")
+	if !ok {
+		return time.Time{}, true
+	}
+	retryAt, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return time.Time{}, true
+	}
+	return retryAt, true
 }
 
 // Usage is a ring's window as it stands, for the reconciler's projection.

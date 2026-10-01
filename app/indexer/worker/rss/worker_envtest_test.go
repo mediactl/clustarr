@@ -64,7 +64,10 @@ func driveToSteadyState(t *testing.T, ctx context.Context, c client.Client, ns, 
 			ac.WithObservedGeneration(1).
 				WithProtocol(commonv1.ProtocolTorrent).
 				WithPrivacy("private").
-				WithSessionSecretRef(name + "-session")
+				WithSessionSecretRef(name + "-session").
+				// The reconciler's projection of the rings since 2026-10-01.
+				WithQueriesInWindow(11).
+				WithGrabsInWindow(3)
 		}))
 
 	idx = getIndexer(t, ctx, c, ns, name)
@@ -72,9 +75,7 @@ func driveToSteadyState(t *testing.T, ctx context.Context, c client.Client, ns, 
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithLastRssAt(metav1.NewTime(t0)).
 				WithLastRssNewCount(7).
-				WithIndexedReleases(4242).
-				WithQueriesInWindow(11).
-				WithGrabsInWindow(3)
+				WithIndexedReleases(4242)
 		}))
 
 	st := getStatus(t, ctx, c, ns, name)
@@ -294,11 +295,14 @@ func TestTheWorkerNeverWritesTheControllersFields(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, owned, "the worker must own a status field set")
-	for _, forbidden := range []string{"observedGeneration", "protocol", "privacy", "sessionSecretRef", "caps", "conditions"} {
+	for _, forbidden := range []string{
+		"observedGeneration", "protocol", "privacy", "sessionSecretRef", "caps", "conditions",
+		"queriesInWindow", "grabsInWindow",
+	} {
 		require.NotContains(t, owned, `"f:`+forbidden+`"`,
 			"the worker claimed %q, which belongs to the indexarr manager", forbidden)
 	}
-	for _, required := range []string{"lastRssAt", "lastRssNewCount", "indexedReleases", "queriesInWindow", "grabsInWindow", "escalationLevel"} {
+	for _, required := range []string{"lastRssAt", "lastRssNewCount", "indexedReleases", "escalationLevel"} {
 		require.Contains(t, owned, `"f:`+required+`"`,
 			"the worker stopped declaring %q, so the next apply releases it", required)
 	}
@@ -574,10 +578,9 @@ func TestAPageOfNothingButJunkStillKeepsTheChainAlive(t *testing.T) {
 }
 
 // TestAConcurrentWorkerWriteSurvivesALongPoll is I3: the status apply seeds
-// from the object it was handed, so a snapshot taken before a minutes-long
-// poll would roll back whatever else wrote under the SAME field manager
-// meanwhile. The search fan-out shares k8s.ManagerIndexarrWorker and owns
-// queriesInWindow and grabsInWindow.
+// from a read, so a snapshot taken before a minutes-long poll would roll back
+// whatever else wrote under the SAME field manager meanwhile -- here the
+// search fan-out recording 100 newly indexed releases.
 //
 // This is a lost update, not a server-side-apply release: both applies
 // declare the field, the second just declares a stale value. No "manager X
@@ -585,7 +588,7 @@ func TestAPageOfNothingButJunkStillKeepsTheChainAlive(t *testing.T) {
 func TestAConcurrentWorkerWriteSurvivesALongPoll(t *testing.T) {
 	ctx, c, ns := setup(t)
 	newIndexer(t, ctx, c, ns, "idx")
-	driveToSteadyState(t, ctx, c, ns, "idx") // queriesInWindow = 11
+	driveToSteadyState(t, ctx, c, ns, "idx") // indexedReleases = 4242
 
 	// The search fan-out lands mid-poll, under the same manager.
 	searched := false
@@ -597,11 +600,7 @@ func TestAConcurrentWorkerWriteSurvivesALongPoll(t *testing.T) {
 			return &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
 				if !searched {
 					searched = true
-					live := getIndexer(t, ctx, c, ns, "idx")
-					require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, live,
-						func(ac *indexac.IndexerStatusApplyConfiguration) {
-							ac.WithQueriesInWindow(12).WithGrabsInWindow(4)
-						}))
+					addIndexedReleases(t, ctx, c, client.ObjectKey{Namespace: ns, Name: "idx"}, 100)
 				}
 				return pageOf(1), nil
 			}}, nil
@@ -611,10 +610,67 @@ func TestAConcurrentWorkerWriteSurvivesALongPoll(t *testing.T) {
 	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")))
 
 	st := getStatus(t, ctx, c, ns, "idx")
-	require.Equal(t, int32(12), st.QueriesInWindow,
-		"the poll seeded its apply from a pre-poll snapshot and rolled the search's count back")
-	require.Equal(t, int32(4), st.GrabsInWindow)
+	require.Equal(t, int64(4242+100+1), st.IndexedReleases,
+		"the poll seeded its apply from a pre-poll snapshot and rolled the search's increment back")
 	require.Equal(t, int32(1), st.LastRssNewCount, "and the poll still recorded its own result")
+}
+
+// addIndexedReleases is another writer under the worker manager: the search
+// fan-out's outcome apply, through the same compare-and-swap.
+func addIndexedReleases(t *testing.T, ctx context.Context, c client.Client, key client.ObjectKey, n int64) {
+	t.Helper()
+	_, _, err := idxstatus.PatchCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key,
+		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
+			ac.WithIndexedReleases(fresh.Status.IndexedReleases + n)
+			return false
+		})
+	require.NoError(t, err)
+}
+
+// racingReader is the poll's uncached reader with a second writer in the one
+// window a re-read cannot close: between the read the apply is seeded from
+// and the apply itself.
+type racingReader struct {
+	client.Reader
+	t     *testing.T
+	c     client.Client
+	raced bool
+}
+
+func (r *racingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := r.Reader.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	if !r.raced {
+		r.raced = true
+		addIndexedReleases(r.t, ctx, r.c, key, 100)
+	}
+	return nil
+}
+
+// The window the old re-read left open: a search outcome landing between the
+// poll's read and its apply. The poll's apply is now a compare-and-swap, so
+// the Conflict sends it back to a fresh read, and the increment it adds is
+// computed from that.
+func TestAWriteBetweenThePollsReadAndApplyIsNotRolledBack(t *testing.T) {
+	ctx, c, ns := setup(t)
+	newIndexer(t, ctx, c, ns, "idx")
+	driveToSteadyState(t, ctx, c, ns, "idx")
+
+	w := rss.NewWorker(rss.Deps{
+		Client: c,
+		Reader: &racingReader{Reader: c, t: t, c: c},
+		Bus:    newTestBus(t),
+		Index:  &fakeStore{inserted: 2},
+		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			return &fakeSearcher{releases: pageOf(2)}, nil
+		},
+		Clock: func() time.Time { return tNow },
+	})
+	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")))
+
+	st := getStatus(t, ctx, c, ns, "idx")
+	require.Equal(t, int64(4242+100+2), st.IndexedReleases, "an increment was lost between the read and the apply")
 }
 
 // counterValue reads a single-series counter without pulling in

@@ -70,8 +70,10 @@ func EscalationAction(cur indexv1alpha1.IndexerStatus, esc Escalation, failed bo
 // just reached limit, which is the "limited" transition. A nil limit is no
 // limit; a count already at or past it before this move was announced when
 // it got there.
+//
+// A limit of 0 or less is no limit, as Prowlarr reads it.
 func LimitCrossed(limit *int32, prev, next int32) bool {
-	return limit != nil && prev < *limit && next >= *limit
+	return limit != nil && *limit > 0 && prev < *limit && next >= *limit
 }
 
 // LimitMessage renders a crossed limit for an event's reason, in the same
@@ -190,8 +192,13 @@ type Transition struct {
 	// Failed is true when Escalation came from RecordFailure.
 	Failed bool
 
-	// Queries and Grabs are the window counts the apply set, nil for a count
-	// it did not move.
+	// Queries and Grabs are the window counts after a reservation this
+	// writer COUNTED on the clustarr-indexer-limits ring
+	// (limits.Reservation.Count when Counted), nil when it counted none. One
+	// reservation appends one entry, so the count before it was one less:
+	// the crossing is measured on the ring itself, never against
+	// status.queriesInWindow, which the reconciler projects on its own
+	// schedule and may be behind.
 	Queries *int32
 	Grabs   *int32
 
@@ -215,12 +222,12 @@ func PublishTransitions(ctx context.Context, bus events.Bus, idx *indexv1alpha1.
 	if limits == nil {
 		return
 	}
-	if t.Queries != nil && LimitCrossed(limits.QueryLimit, t.Prev.QueriesInWindow, *t.Queries) {
+	if t.Queries != nil && LimitCrossed(limits.QueryLimit, *t.Queries-1, *t.Queries) {
 		PublishIndexerEvent(ctx, bus, idx, IndexerEvent{
 			Action: events.ActionLimited, Reason: LimitMessage("queries", *t.Queries, limits), At: t.At,
 		})
 	}
-	if t.Grabs != nil && LimitCrossed(limits.GrabLimit, t.Prev.GrabsInWindow, *t.Grabs) {
+	if t.Grabs != nil && LimitCrossed(limits.GrabLimit, *t.Grabs-1, *t.Grabs) {
 		PublishIndexerEvent(ctx, bus, idx, IndexerEvent{
 			Action: events.ActionLimited, Reason: LimitMessage("grabs", *t.Grabs, limits), At: t.At,
 		})

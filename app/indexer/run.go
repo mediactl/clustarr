@@ -716,6 +716,7 @@ func setupWorkers(
 	q := &query.Service{Store: store}
 	svc := &search.Service{
 		Client: c,
+		Reader: mgr.GetAPIReader(),
 		ClientFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (search.IndexerClient, error) {
 			cli, err := clients.For(ctx, idx)
 			if err != nil {
@@ -748,7 +749,7 @@ func setupWorkers(
 		return verbs{}, fmt.Errorf("indexarr: add the RPC responder: %w", err)
 	}
 
-	if err := rss.NewWorker(rssDeps(c, bus, store, clients)).SetupWithManager(mgr, bus); err != nil {
+	if err := rss.NewWorker(rssDeps(c, mgr.GetAPIReader(), bus, store, clients)).SetupWithManager(mgr, bus); err != nil {
 		return verbs{}, fmt.Errorf("indexarr: subscribe rss: %w", err)
 	}
 
@@ -762,15 +763,16 @@ func setupWorkers(
 // rssDeps is the RSS poll's wiring. It is a function so a test can assert
 // what production hands the worker rather than a copy of it.
 //
-// CountQuery is not optional in production: it is what puts the poll's up to
-// four requests per poll into the same query ring the search fan-out counts
-// into (spec §5's <indexer-uid>.query in clustarr-indexer-limits), so
-// status.queriesInWindow -- and the RateLimited condition and
-// spec.limits.queryLimit read from it -- see the indexer's whole traffic.
-func rssDeps(c client.Client, bus events.Bus, store relindex.Store, clients *indexer.ClientCache) rss.Deps {
-	limits := bus.KV(events.BucketIndexerLimits)
+// Bus is not optional in production: besides the firehose and the schedule,
+// it is the clustarr-indexer-limits query ring each of the poll's up to four
+// requests reserves on -- the ring the search fan-out reserves on -- so
+// spec.limits.queryLimit holds against the indexer's whole traffic. Reader
+// is the uncached reader the poll's compare-and-swap status write reads
+// through.
+func rssDeps(c client.Client, r client.Reader, bus events.Bus, store relindex.Store, clients *indexer.ClientCache) rss.Deps {
 	return rss.Deps{
 		Client: c,
+		Reader: r,
 		Bus:    bus,
 		Index:  store,
 		SearcherFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (rss.Searcher, error) {
@@ -779,9 +781,6 @@ func rssDeps(c client.Client, bus events.Bus, store relindex.Store, clients *ind
 				return nil, err
 			}
 			return cli, nil
-		},
-		CountQuery: func(ctx context.Context, idx *indexv1alpha1.Indexer, now time.Time) (int32, error) {
-			return search.CountQuery(ctx, limits, idx, now)
 		},
 	}
 }

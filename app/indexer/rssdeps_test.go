@@ -18,43 +18,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package indexarr
 
 import (
-	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
-	"github.com/mediactl/clustarr/app/indexer/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// The RSS poll production builds counts its requests into the SAME query ring
-// the search fan-out counts into. A nil CountQuery is what a unit test uses to
-// switch accounting off, so a wiring that forgot it would compile, run, and
-// quietly leave every poll out of status.queriesInWindow again.
-func TestTheRSSPollCountsIntoTheSearchQueryRing(t *testing.T) {
+// The RSS poll production builds reserves its requests on the SAME query
+// ring the search fan-out reserves on, through the bus it is handed -- a
+// poll with no bus would neither count nor honour spec.limits.queryLimit --
+// and writes its status through the uncached reader, which its
+// compare-and-swap needs: a cached read lags the write it raced.
+func TestTheRSSPollGetsTheBusAndAnUncachedReader(t *testing.T) {
 	bus := membus.New(nil)
 	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
 	t.Cleanup(func() { _ = bus.Close() })
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
+	reader := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 
-	deps := rssDeps(c, bus, nil, indexer.NewClientCache(c, nil))
-	require.NotNil(t, deps.CountQuery, "run.go must wire the RSS poll's query accounting")
-
-	idx := &indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "idx", UID: "uid-idx"}}
-	n, err := deps.CountQuery(t.Context(), idx, time.Now())
-	require.NoError(t, err)
-	require.Equal(t, int32(1), n)
-
-	ent, err := bus.KV(events.BucketIndexerLimits).Get(t.Context(), search.QueryRingKey(string(idx.UID)))
-	require.NoError(t, err, "the count must land in the search fan-out's own ring key")
-	var ring []int64
-	require.NoError(t, json.Unmarshal(ent.Value, &ring))
-	require.Len(t, ring, 1)
+	deps := rssDeps(c, reader, bus, nil, indexer.NewClientCache(c, nil))
+	require.Equal(t, bus, deps.Bus, "run.go must hand the RSS poll the bus its query ring lives on")
+	require.Equal(t, client.Reader(reader), deps.Reader, "run.go must hand the RSS poll the uncached reader")
 }
