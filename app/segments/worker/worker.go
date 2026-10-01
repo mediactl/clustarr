@@ -22,6 +22,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -50,6 +51,11 @@ type Handler struct {
 	Detector     textdet.Detector // nil skips the DNN stage
 	Fingerprints events.ObjectStore
 	Bus          events.Publisher
+	// KV is the clustarr-segments bucket: each file's recorded analysis.
+	KV events.KV
+	// FileTimeout bounds one file's decoding and analysis (default 5 min);
+	// TaskTimeout one task's (default 30 min).
+	FileTimeout, TaskTimeout time.Duration
 }
 
 // Windows and confidences (spec §6).
@@ -76,15 +82,27 @@ type file struct {
 	durS       float64
 	start, end []uint32 // fingerprints of the start and end windows; nil when not decoded
 	err        error    // a decode failure, reported as the file's Error
+	rec        *segments.Record
 }
 
-// Handle implements events.Handler.
+// Default deadlines (spec §7).
+const (
+	defaultFileTimeout = 5 * time.Minute
+	defaultTaskTimeout = 30 * time.Minute
+)
+
+// Handle implements events.Handler. A file the segments bucket already
+// records for its probe and the current analyzer is not analyzed again --
+// a season's plan can be queued twice when the queue runs behind -- though
+// one whose season now shows an intro it lacks gets that intro.
 func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
 	var task schema.AnalyzeTask
 	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
 		return events.Discard("undecodable analyze task", err)
 	}
+	ctx, cancel := context.WithTimeout(ctx, orDefault(h.TaskTimeout, defaultTaskTimeout))
+	defer cancel()
 	stop := keepAlive(ctx, m)
 	defer stop()
 
@@ -92,9 +110,14 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	files := make([]*file, len(task.Files))
 	began := time.Now()
 	for i, f := range task.Files {
-		files[i] = &file{AnalyzeFile: f, durS: float64(f.DurationMs) / 1000}
+		files[i] = &file{AnalyzeFile: f, durS: float64(f.DurationMs) / 1000, rec: h.record(ctx, f)}
+		if files[i].rec != nil {
+			files[i].Due = false
+		}
 		if !movie {
-			h.fingerprint(ctx, files[i])
+			fctx, cancel := context.WithTimeout(ctx, orDefault(h.FileTimeout, defaultFileTimeout))
+			h.fingerprint(fctx, files[i])
+			cancel()
 		}
 	}
 	stageSeconds.WithLabelValues("fingerprint").Observe(time.Since(began).Seconds())
@@ -110,16 +133,79 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 	for i, f := range files {
-		if !f.Due {
+		var res schema.SegmentsResult
+		switch {
+		case f.Due:
+			fctx, cancel := context.WithTimeout(ctx, orDefault(h.FileTimeout, defaultFileTimeout))
+			res = h.analyze(fctx, f, movie, at(intros, i), at(endings, i), usable)
+			cancel()
+		case f.rec != nil && at(intros, i) != nil && !hasKind(f.rec.Segments, catalogv1alpha1.MarkerIntro):
+			res = withIntro(f, at(intros, i), usable)
+		default:
 			continue
 		}
-		res := h.analyze(ctx, f, movie, at(intros, i), at(endings, i), usable)
 		analyzedTotal.WithLabelValues(res.Result, strongestSource(res)).Inc()
 		if err := h.publish(ctx, task.Namespace, f, res); err != nil {
 			return events.Retry(time.Minute, err)
 		}
 	}
 	return nil
+}
+
+// record is the bucket's analysis of f for its probe and the current
+// analyzer; nil when there is none, it failed, or it is unreadable.
+func (h *Handler) record(ctx context.Context, f schema.AnalyzeFile) *segments.Record {
+	if h.KV == nil {
+		return nil
+	}
+	e, err := h.KV.Get(ctx, events.KVKeyToken(f.UID))
+	if err != nil {
+		return nil
+	}
+	var r segments.Record
+	if json.Unmarshal(e.Value, &r) != nil || r.ProbeHash != f.ProbeHash || r.Version != segments.AnalyzerVersion ||
+		r.Result == string(catalogv1alpha1.MarkersError) {
+		return nil
+	}
+	return &r
+}
+
+// withIntro is f's recorded analysis with the intro its season revealed.
+func withIntro(f *file, intro *align.Region, usable int) schema.SegmentsResult {
+	res := schema.SegmentsResult{
+		MediaFile: f.MediaFile, ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion,
+		Result: string(catalogv1alpha1.MarkersFound),
+	}
+	for _, s := range append(append([]segments.Segment(nil), f.rec.Segments...), introSegment(intro, usable)) {
+		res.Segments = append(res.Segments, schema.SegmentJSON{
+			Kind: string(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs, Source: string(s.Source), Confidence: s.Confidence,
+		})
+	}
+	return res
+}
+
+func introSegment(r *align.Region, usable int) segments.Segment {
+	conf := int32(introConfidence)
+	if usable < 3 {
+		conf = pairConfidence
+	}
+	return analysis(catalogv1alpha1.MarkerIntro, r.StartS, r.EndS, conf)
+}
+
+func hasKind(segs []segments.Segment, k catalogv1alpha1.MarkerKind) bool {
+	for _, s := range segs {
+		if s.Kind == k {
+			return true
+		}
+	}
+	return false
+}
+
+func orDefault(d, def time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return def
 }
 
 func at(rs []*align.Region, i int) *align.Region {
@@ -157,7 +243,7 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 		return res
 	}
 	durMs := f.DurationMs
-	out := segments.FromChapters(f.Chapters)
+	out := segments.FromChapters(f.Chapters, movie, f.DurationMs)
 	var previewStart int64
 	var cands []segments.Segment
 	for _, s := range out {
@@ -169,11 +255,7 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 		}
 	}
 	if intro != nil {
-		conf := int32(introConfidence)
-		if usable < 3 {
-			conf = pairConfidence
-		}
-		out = append(out, analysis(catalogv1alpha1.MarkerIntro, intro.StartS, intro.EndS, conf))
+		out = append(out, introSegment(intro, usable))
 	}
 	fromS, _ := endWindow(f.durS, movie)
 	if ending != nil {
@@ -186,17 +268,20 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 		res.Result, res.Message = string(catalogv1alpha1.MarkersError), clamp(err.Error())
 		return res
 	}
+	fr = padToEnd(fr, int(f.durS-fromS))
 	for _, run := range frames.CreditRuns(frames.Stats(fr), int(fromS)) {
 		cands = append(cands, analysis(catalogv1alpha1.MarkerCredits, float64(run.StartS), min(float64(run.EndS), f.durS), run.Confidence))
 	}
-	if h.Detector != nil && !strong(cands) {
+	credits, ok := segments.Credits(durMs, movie, f.Anime, cands, previewStart)
+	if h.Detector != nil && (!ok || credits.Confidence < standConfidence) {
 		began := time.Now()
-		if s, ok := h.dnn(ctx, f, fromS); ok {
+		if s, found := h.dnn(ctx, f, fromS); found {
 			cands = append(cands, s)
+			credits, ok = segments.Credits(durMs, movie, f.Anime, cands, previewStart)
 		}
 		stageSeconds.WithLabelValues("dnn").Observe(time.Since(began).Seconds())
 	}
-	if credits, ok := segments.Credits(durMs, movie, cands, previewStart); ok {
+	if ok {
 		if credits.Source != catalogv1alpha1.SegmentSourceChapters {
 			out = append(out, credits)
 		}
@@ -230,15 +315,18 @@ func strongestSource(r schema.SegmentsResult) string {
 	return src
 }
 
-// strong reports whether any credit candidate stands on its own (70 or
-// more); otherwise the DNN is asked.
-func strong(cands []segments.Segment) bool {
-	for _, c := range cands {
-		if c.Confidence >= 70 {
-			return true
-		}
+// standConfidence is the confidence at which credits stand without the
+// DNN's word (spec §6.3).
+const standConfidence = 70
+
+// padToEnd repeats the last frame until there are n: keyframe-only decoding
+// ends at the last keyframe, up to a GOP (often 10 s) before the end, and
+// credits running to the end must reach it.
+func padToEnd(fr [][]byte, n int) [][]byte {
+	for len(fr) > 0 && len(fr) < n {
+		fr = append(fr, fr[len(fr)-1])
 	}
-	return false
+	return fr
 }
 
 func (h *Handler) dnn(ctx context.Context, f *file, fromS float64) (segments.Segment, bool) {

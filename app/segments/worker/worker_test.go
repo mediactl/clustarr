@@ -19,6 +19,7 @@ package worker_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"hash/fnv"
 	"math"
@@ -31,10 +32,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/segments/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/decode"
 )
 
@@ -49,6 +52,14 @@ type fakeDecoder struct {
 	black     map[string]int
 	fail      map[string]bool
 	audioHits int
+	// short drops the last short[path] seconds of frames, as keyframe-only
+	// decoding does when the last keyframe falls before the end.
+	short map[string]int
+	// blackFrom/blackTo blacks out [from, to) seconds of the window instead.
+	blackSpan map[string][2]int
+	// hang makes Frames block until its context ends.
+	hang       bool
+	frameCalls map[string]int
 }
 
 // melody is n samples of half-second tones at random pitches: audio with
@@ -88,16 +99,31 @@ func seed(path string) uint64 {
 	return h.Sum64()
 }
 
-func (f *fakeDecoder) Frames(_ context.Context, path string, fromS float64) ([][]byte, error) {
+func (f *fakeDecoder) Frames(ctx context.Context, path string, fromS float64) ([][]byte, error) {
+	f.mu.Lock()
+	if f.frameCalls == nil {
+		f.frameCalls = map[string]int{}
+	}
+	f.frameCalls[path]++
+	f.mu.Unlock()
+	if f.hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if f.fail[path] {
 		return nil, errors.New("decode: ffmpeg: Invalid data found when processing input")
 	}
 	n := int(duration - fromS)
-	out := make([][]byte, n)
+	out := make([][]byte, n-f.short[path])
 	r := rand.New(rand.NewPCG(7, 7))
+	span, spanned := f.blackSpan[path]
 	for i := range out {
 		fr := make([]byte, decode.GrayW*decode.GrayH)
-		if i < n-f.black[path] {
+		black := i >= n-f.black[path]
+		if spanned {
+			black = i >= span[0] && i < span[1]
+		}
+		if !black {
 			for j := range fr {
 				fr[j] = byte(r.IntN(256))
 			}
@@ -172,7 +198,7 @@ func handler(t *testing.T, dec *fakeDecoder, det *countingDetector) (*worker.Han
 	require.NoError(t, bus.Ensure(context.Background(), events.Default()))
 	t.Cleanup(func() { _ = bus.Close() })
 	pub := &published{}
-	h := &worker.Handler{Decoder: dec, Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints), Bus: pub}
+	h := &worker.Handler{Decoder: dec, Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints), Bus: pub, KV: bus.KV(events.BucketSegments)}
 	if det != nil {
 		h.Detector = det
 	}
@@ -274,4 +300,84 @@ func TestAFileNotDueIsFingerprintedButNotReported(t *testing.T) {
 	got := pub.byFile()
 	assert.Len(t, got, 1)
 	assert.Contains(t, kinds(got["e1"]), "intro", "the file not due still served as e1's comparison")
+}
+
+// Keyframe-only decoding stops at the last keyframe, up to a GOP before the
+// end; credits that run to the end still reach it.
+func TestCreditsReachTheEndWhenTheLastKeyframeIsEarly(t *testing.T) {
+	dec := &fakeDecoder{black: map[string]int{"m": 40}, short: map[string]int{"m": 8}}
+	h, pub := handler(t, dec, nil)
+	require.NoError(t, h.Handle(context.Background(), taskOf(t, "movie", "m")))
+	cr, ok := kinds(pub.byFile()["m"])["credits"]
+	require.True(t, ok, "credits found")
+	assert.EqualValues(t, duration*1000, cr.EndMs)
+}
+
+// A candidate the credit rules reject (black that stops 30 s before the
+// end) is no reason to skip the text detector.
+func TestTheDNNIsAskedWhenNoCandidateHolds(t *testing.T) {
+	det := &countingDetector{}
+	h, _ := handler(t, &fakeDecoder{blackSpan: map[string][2]int{"m": {10, 30}}}, det)
+	require.NoError(t, h.Handle(context.Background(), taskOf(t, "movie", "m")))
+	assert.Positive(t, det.calls)
+}
+
+func record(t *testing.T, h *worker.Handler, uid string, rec segments.Record) {
+	t.Helper()
+	b, err := json.Marshal(rec)
+	require.NoError(t, err)
+	_, err = h.KV.Put(context.Background(), events.KVKeyToken(uid), b)
+	require.NoError(t, err)
+}
+
+// A season task queued twice -- the queue an hour behind, its plan
+// published again -- does not analyze a file twice: a file the bucket
+// already records for this probe and version is skipped.
+func TestAFileAlreadyAnalyzedIsSkipped(t *testing.T) {
+	dec := &fakeDecoder{introAt: map[string]float64{"e1": 10, "e2": 10}, black: map[string]int{"e1": 30, "e2": 30}}
+	h, pub := handler(t, dec, nil)
+	intro := segments.Segment{Kind: catalogv1alpha1.MarkerIntro, StartMs: 10_000, EndMs: 50_000, Source: catalogv1alpha1.SegmentSourceAnalysis, Confidence: 70}
+	record(t, h, "uid-e1", segments.Record{ProbeHash: "hash-e1", Version: segments.AnalyzerVersion, Result: "Found", Segments: []segments.Segment{intro}})
+	require.NoError(t, h.Handle(context.Background(), taskOf(t, "episode", "e1", "e2")))
+	assert.NotContains(t, pub.byFile(), "e1")
+	assert.Contains(t, pub.byFile(), "e2")
+	assert.Zero(t, dec.frameCalls["e1"], "no frames decoded for it")
+}
+
+// An airing season: episode 1, analyzed alone, had no intro; when episode
+// 2 lands, the intro the two share is added to episode 1 too.
+func TestAnIntroFoundLaterIsAddedToAnAnalyzedEpisode(t *testing.T) {
+	dec := &fakeDecoder{introAt: map[string]float64{"e1": 10, "e2": 30}, black: map[string]int{"e1": 30, "e2": 30}}
+	h, pub := handler(t, dec, nil)
+	creditsSeg := segments.Segment{Kind: catalogv1alpha1.MarkerCredits, StartMs: 370_000, EndMs: 400_000, Source: catalogv1alpha1.SegmentSourceAnalysis, Confidence: 80}
+	record(t, h, "uid-e1", segments.Record{ProbeHash: "hash-e1", Version: segments.AnalyzerVersion, Result: "Found", Segments: []segments.Segment{creditsSeg}})
+	m := taskOf(t, "episode", "e1", "e2")
+	var task schema.AnalyzeTask
+	require.NoError(t, schema.Decode(m.Envelope().Schema, m.Envelope().Data, &task))
+	task.Files[0].Due = false
+	s, data, err := schema.Encode(task)
+	require.NoError(t, err)
+	require.NoError(t, h.Handle(context.Background(), message{&events.Envelope{Key: "media/show-s01", Schema: s, Data: data}}))
+	e1 := pub.byFile()["e1"]
+	require.Equal(t, "Found", e1.Result, "e1 is updated")
+	k := kinds(e1)
+	assert.InDelta(t, 10_000, k["intro"].StartMs, 2000)
+	assert.Contains(t, k, "credits", "its earlier segments are kept")
+	assert.Zero(t, dec.frameCalls["e1"], "only the intro is new: nothing re-analyzed")
+}
+
+// One stuck read does not hold the worker: the file's analysis is cut off
+// and recorded as an Error.
+func TestAStuckDecodeIsCutOff(t *testing.T) {
+	h, pub := handler(t, &fakeDecoder{hang: true}, nil)
+	h.FileTimeout = 100 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- h.Handle(context.Background(), taskOf(t, "movie", "m")) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker is stuck")
+	}
+	assert.Equal(t, "Error", pub.byFile()["m"].Result)
 }

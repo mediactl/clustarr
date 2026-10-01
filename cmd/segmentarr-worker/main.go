@@ -124,6 +124,7 @@ func run(args []string, getenv func(string) string) int {
 		Decoder:      decode.Decoder{FFmpeg: *ffmpeg, Threads: *threads},
 		Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints),
 		Bus:          bus,
+		KV:           bus.KV(events.BucketSegments),
 	}
 	if det != nil {
 		h.Detector = det
