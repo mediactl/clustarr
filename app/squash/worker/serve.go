@@ -70,9 +70,15 @@ type ServeOptions struct {
 	PullRetryBackoffCap, PullRetryWindow time.Duration
 
 	// RemeasureEvery is how often a pod whose device could not be used
-	// measures it again before it takes any work (spec §4). Zero means
-	// two minutes.
+	// measures it again before it takes any work (spec §4), and how often a
+	// healthy pod republishes its report, which the controller stops
+	// counting after task.EncoderLimitsFresh. Zero means two minutes.
 	RemeasureEvery time.Duration
+
+	// MeasureTimeout bounds one measurement: a wedged device that never
+	// answers is reported unusable rather than left with no report. Zero
+	// means three minutes.
+	MeasureTimeout time.Duration
 
 	// Clock overrides time for tests; nil means the real clock.
 	Clock clockwork.Clock
@@ -194,6 +200,7 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 			return err
 		}
 		s.o.Measurement = &m
+		go s.keepReportFresh(ctx, m)
 	}
 
 	retry := newPullRetry(s.clock, s.o.PullRetryBackoffCap, s.o.PullRetryWindow)
@@ -239,9 +246,14 @@ func (s *server) measureUntilHealthy(ctx context.Context) (transcode.Measurement
 	log := logging.FromContext(ctx)
 	class := transcode.Hardware(s.o.Class)
 	for {
-		m, err := s.o.Engine.Measure(ctx, class)
+		mctx, cancel := context.WithTimeout(ctx, s.o.MeasureTimeout)
+		m, err := s.o.Engine.Measure(mctx, class)
+		cancel()
 		if ctx.Err() != nil {
 			return transcode.Measurement{}, ctx.Err()
+		}
+		if err != nil && errors.Is(mctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("%w: measuring the %s device took longer than %s", transcode.ErrDeviceUnavailable, class, s.o.MeasureTimeout)
 		}
 		s.o.limits.publishHealth(ctx, m.Limits, err)
 		if err == nil {
@@ -254,6 +266,21 @@ func (s *server) measureUntilHealthy(ctx context.Context) (transcode.Measurement
 		case <-ctx.Done():
 			return transcode.Measurement{}, ctx.Err()
 		case <-s.clock.After(s.o.RemeasureEvery):
+		}
+	}
+}
+
+// keepReportFresh republishes a healthy pod's measurement every
+// RemeasureEvery until ctx ends: the controller counts a report for
+// task.EncoderLimitsFresh only, and a healthy pod that went quiet would
+// leave an unhealthy node's fresh reports to speak for the whole class.
+func (s *server) keepReportFresh(ctx context.Context, m transcode.Measurement) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.clock.After(s.o.RemeasureEvery):
+			s.o.limits.publishHealth(ctx, m.Limits, nil)
 		}
 	}
 }
@@ -305,6 +332,9 @@ func (o ServeOptions) withDefaults() ServeOptions {
 	}
 	if o.RemeasureEvery == 0 {
 		o.RemeasureEvery = 2 * time.Minute
+	}
+	if o.MeasureTimeout == 0 {
+		o.MeasureTimeout = 3 * time.Minute
 	}
 	if o.Clock == nil {
 		o.Clock = clockwork.NewRealClock()

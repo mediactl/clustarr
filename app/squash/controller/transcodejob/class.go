@@ -19,6 +19,7 @@ package transcodejob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -199,4 +201,42 @@ func unhealthyMessage(class transcodev1alpha1.Hardware, health map[string]task.N
 	sort.Strings(nodes)
 	return fmt.Sprintf("waiting for a usable %s device: every node that measured one reported it unusable (%s: %s)",
 		class, nodes[0], health[nodes[0]].Error), true
+}
+
+// rerouteUnhealthy takes every auto job Queued on a GPU class reported
+// unusable (unhealthyClasses) back to Planned with a fallbackReason naming
+// the reason, which keeps it on cpu from then on: the class's pods pull
+// nothing while unhealthy, and a pool with work dispatched never suspends,
+// so the job would otherwise wait on it for good. A pinned job waits for
+// its class, as rerouteUnschedulable leaves it.
+func (r *Reconciler) rerouteUnhealthy(ctx context.Context, profiles map[string]*transcodev1alpha1.TranscodeProfile,
+	tjs []transcodev1alpha1.TranscodeJob, unhealthy map[transcodev1alpha1.Hardware]string,
+) (int, error) {
+	if len(unhealthy) == 0 {
+		return 0, nil
+	}
+	var (
+		errs     []error
+		rerouted int
+	)
+	for i := range tjs {
+		tj := &tjs[i]
+		msg, ok := unhealthy[tj.Status.Hardware]
+		tp := profiles[tj.Spec.ProfileRef]
+		if !ok || tp == nil || tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseQueued || !isAutoFor(tj, tp) ||
+			k8s.IsDeleting(tj) || (tj.Spec.Suspend != nil && *tj.Spec.Suspend) {
+			continue
+		}
+		done, err := r.reroute(ctx, tj, msg)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if done {
+			rerouted++
+			logging.FromContext(ctx).InfoContext(ctx, "squasharr: took a queued auto job back from a GPU class reported unusable",
+				"transcodeJob", tj.Namespace+"/"+tj.Name, "class", tj.Status.Hardware)
+		}
+	}
+	return rerouted, errors.Join(errs...)
 }

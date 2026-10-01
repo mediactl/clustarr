@@ -860,3 +860,33 @@ func TestAStaleUnhealthyReportLeavesTheClassEligible(t *testing.T) {
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
 	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, got.Status.Hardware)
 }
+
+// An auto job already Queued on a GPU class whose pods then report the
+// device unusable is taken back and sent to cpu (final review I2): the
+// unhealthy pod pulls nothing, so the job would otherwise wait on it for
+// good, while the pool, with work dispatched, never suspends.
+func TestAQueuedAutoJobLeavesAClassReportedUnhealthy(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-unhealthy-reroute"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	newProfile(t, c, "hevc", "hash1", nil)
+	nvidiaNode(t, c, "gpu-1", "1")
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 1})
+	r.Admin = r.Bus.(events.StreamAdmin) // withdrawing purges the dispatched task
+
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	require.Equal(t, transcodev1alpha1.HardwareNVIDIA, got.Status.Hardware)
+
+	require.NoError(t, task.PublishEncoderHealth(context.Background(), r.Bus.KV(events.BucketProgress), "nvidia", "gpu-1",
+		transcode.Limits{}, errors.New("transcode: the GPU device could not be opened: nvenc: driver mismatch"), time.Now()))
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got = getTJ(t, c, ns, "heat-hevc")
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, got.Status.Hardware, "message: %s", got.Status.Message)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase)
+	assert.Contains(t, got.Status.FallbackReason, "driver mismatch")
+}

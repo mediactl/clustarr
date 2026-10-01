@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1109,4 +1110,54 @@ func TestAPodRecoversWhenItsDeviceOpens(t *testing.T) {
 	assert.Equal(t, task.NodeHealth{Healthy: true}, health["n1"])
 	h.release <- Outcome{Code: ExitOK}
 	h.next(task.EventFinished)
+}
+
+// A healthy pod keeps its report fresh for its whole life (final review
+// I1): were it to publish once, its entry would go stale after
+// EncoderLimitsFresh, and an unhealthy node's fresh reports alone would
+// read as the whole class unusable.
+func TestAHealthyPodKeepsItsReportFresh(t *testing.T) {
+	h := newHarness(t)
+	progress := h.bus.KV(events.BucketProgress)
+	eng := &measuringEngine{measure: func(int32) (transcode.Measurement, error) {
+		return transcode.Measurement{Tier: transcode.TierCPUx265}, nil
+	}}
+	h.serveOnBusWithOptions(h.bus, func(o *ServeOptions) {
+		o.Engine, o.Telemetry, o.RemeasureEvery = eng, progress, 50*time.Millisecond
+	})
+	require.Eventually(t, func() bool {
+		_, err := progress.Get(h.ctx, task.EncoderLimitsKey("cpu"))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond, "the first report")
+	require.NoError(t, progress.Delete(h.ctx, task.EncoderLimitsKey("cpu"))) // as if it had gone stale
+	require.Eventually(t, func() bool {
+		health, err := task.ReadEncoderHealth(h.ctx, progress, "cpu", time.Now())
+		return err == nil && health["n1"].Healthy
+	}, 5*time.Second, 10*time.Millisecond, "the pod publishes again without measuring again")
+	assert.Equal(t, int32(1), eng.calls.Load(), "a healthy device is measured once")
+}
+
+// A measurement that hangs (a wedged GPU) is cut off and reported as
+// unusable (final review M2), rather than leaving the class with no report.
+func TestAHungMeasurementIsReportedUnhealthy(t *testing.T) {
+	h := newHarness(t)
+	progress := h.bus.KV(events.BucketProgress)
+	eng := &measuringEngine{measure: func(int32) (transcode.Measurement, error) { return transcode.Measurement{}, nil }}
+	blocking := &blockingEngine{measuringEngine: eng}
+	h.serveOnBusWithOptions(h.bus, func(o *ServeOptions) {
+		o.Engine, o.Telemetry, o.RemeasureEvery, o.MeasureTimeout = blocking, progress, time.Hour, 50*time.Millisecond
+	})
+	require.Eventually(t, func() bool {
+		health, err := task.ReadEncoderHealth(h.ctx, progress, "cpu", time.Now())
+		return err == nil && len(health) == 1 && !health["n1"].Healthy &&
+			strings.Contains(health["n1"].Error, "longer than")
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// blockingEngine's Measure waits until its context ends.
+type blockingEngine struct{ *measuringEngine }
+
+func (e *blockingEngine) Measure(ctx context.Context, _ transcode.Hardware) (transcode.Measurement, error) {
+	<-ctx.Done()
+	return transcode.Measurement{}, ctx.Err()
 }

@@ -742,6 +742,10 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	var errs []error
 	rerouted, err := r.rerouteUnschedulable(ctx, stored, byName, tjs.Items)
 	errs = append(errs, err)
+	unhealthy := r.unhealthyClasses(ctx)
+	n, err := r.rerouteUnhealthy(ctx, byName, tjs.Items, unhealthy)
+	errs = append(errs, err)
+	rerouted += n
 	if rerouted > 0 {
 		// The rerouted jobs are Planned now, and compete in this pass.
 		tjs = transcodev1alpha1.TranscodeJobList{}
@@ -760,7 +764,7 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	// A GPU class whose pods all report its device unusable gets no work
 	// (spec §4): auto jobs choose another class, and jobs pinned to it wait,
 	// naming the reason.
-	for class, msg := range r.unhealthyClasses(ctx) {
+	for class, msg := range unhealthy {
 		delete(gpu, class)
 		for _, tp := range byName {
 			if k := poolKeyFor(tp, class); held[k] == "" {
