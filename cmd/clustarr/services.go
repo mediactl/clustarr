@@ -249,6 +249,7 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		dataDir         string
 		workerImage     string
 		workerImageCUDA string
+		workerEngine    string
 		dataClaim       string
 		renderGroups    string
 		labelNVIDIA     string
@@ -280,6 +281,9 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	cmd.Flags().StringVar(&workerImageCUDA, "worker-image-cuda", envOr(workerImageCUDAEnv, defaults.WorkerImageCUDA),
 		"Image the controller stamps onto nvidia transcode pools; empty uses --worker-image. "+
 			"Defaults to $"+workerImageCUDAEnv+".")
+	cmd.Flags().StringVar(&workerEngine, "worker-engine", envOr(workerEngineEnv, "ffmpeg"),
+		"Engine squasharr plans transcodes for: ffmpeg (the ffmpeg executable) or ffgo (in-process). "+
+			"Defaults to $"+workerEngineEnv+".")
 	cmd.Flags().StringVar(&dataClaim, "data-claim", envOr(dataClaimEnv, defaults.DataClaimName),
 		"RWX PersistentVolumeClaim transcode Jobs mount at --data-dir. Defaults to $"+dataClaimEnv+".")
 	cmd.Flags().StringVar(&renderGroups, "intel-render-groups", envOr(intelRenderGroupsEnv, ""),
@@ -319,6 +323,7 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			DataDir:           dataDir,
 			WorkerImage:       workerImage,
 			WorkerImageCUDA:   workerImageCUDA,
+			WorkerEngine:      workerEngine,
 			DataClaimName:     dataClaim,
 			IntelRenderGroups: gids,
 			NodeLabelNVIDIA:   labelNVIDIA,

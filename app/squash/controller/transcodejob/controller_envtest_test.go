@@ -1396,3 +1396,61 @@ func TestTerminalMetricsObservedOnce(t *testing.T) {
 	assert.Equal(t, durBefore+1, histogramCount(t, metrics.TranscodeDuration, "cpu", "hd", "succeeded"))
 	assert.Equal(t, sizeBefore+1, histogramCount(t, metrics.TranscodeSizeRatio, "cpu", "hd"))
 }
+
+// With --worker-engine=ffgo the controller plans with the standard and
+// records it: engine, the plan hash the worker compares, what happens to
+// the video and where it is decoded; the task carries the engine and hash.
+func TestTheInProcessEngineRecordsTheStandardPlan(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-ffgo"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	r.Engine = "ffgo"
+
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	require.NotNil(t, got.Status.Plan)
+	assert.Equal(t, "ffgo", got.Status.Plan.Engine)
+	assert.Len(t, got.Status.Plan.PlanHash, 64)
+	assert.Empty(t, got.Status.Plan.ArgsHash, "no argv for the in-process engine")
+	assert.Equal(t, "libx265", got.Status.Plan.Encoder)
+	assert.Equal(t, "encode", got.Status.Plan.VideoAction)
+	assert.Equal(t, "cpu", got.Status.Plan.Decode)
+
+	tasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, "ffgo", tasks[0].Engine)
+	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash)
+}
+
+// A job planned for one engine and dispatched under another is planned
+// again for the controller's: flipping --worker-engine needs no clean-up.
+func TestAJobPlannedForTheOtherEngineIsReplannedAtDispatch(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-engine-flip"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	argv := newReconciler(t, c, map[string]int32{"cpu": 0}) // plans, admits nothing
+	reconcileTJ(t, argv, ns, "heat-hevc")
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase)
+	require.NotEmpty(t, got.Status.Plan.ArgsHash)
+
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	r.Engine = "ffgo"
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got = getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.Equal(t, "ffgo", got.Status.Plan.Engine)
+	tasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, "ffgo", tasks[0].Engine)
+}

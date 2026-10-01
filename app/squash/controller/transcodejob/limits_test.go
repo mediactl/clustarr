@@ -79,13 +79,13 @@ func TestTheControllerPlansWithThePublishedDeviceLimits(t *testing.T) {
 		return ""
 	}
 
-	p, fail := planFor(tj, tp, mf, nil, r.encoderLimits(ctx, tj, tp, nil))
+	p, fail := planFor(tj, tp, mf, nil, r.encoderLimits(ctx, tj, tp, nil), "")
 	require.Nil(t, fail)
 	assert.Equal(t, "8", bf(p), "nothing published: the profile's value")
 
 	require.NoError(t, task.PublishEncoderLimits(ctx, bus.KV(events.BucketProgress), "nvidia", "laptop",
 		transcode.Limits{MaxBFrames: ptr.To[int32](5)}, time.Now()))
-	p, fail = planFor(tj, tp, mf, nil, r.encoderLimits(ctx, tj, tp, nil))
+	p, fail = planFor(tj, tp, mf, nil, r.encoderLimits(ctx, tj, tp, nil), "")
 	require.Nil(t, fail)
 	assert.Equal(t, "5", bf(p))
 	assert.Contains(t, p.result.Reason, "bFrames 8 → 5 (device limit)")

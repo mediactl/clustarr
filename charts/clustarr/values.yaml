@@ -368,6 +368,12 @@ squasharr:
   # only if your cluster labels GPU nodes differently.
   gpuNodeLabelNvidia: ""
   gpuNodeLabelIntel: ""
+  # Engine transcodes are planned for (--worker-engine): ffmpeg runs the
+  # ffmpeg executable with a rendered command line; ffgo transcodes
+  # in-process to the fixed standard (HEVC Main 10, Apple TV audio). Empty
+  # uses the binary's default, ffmpeg. Queued jobs are re-planned for a new
+  # engine when they are dispatched.
+  workerEngine: ""
   resources:
     requests:
       cpu: 50m

@@ -342,6 +342,18 @@ func planAC(p *transcodev1alpha1.Plan) *transcodeac.PlanApplyConfiguration {
 	if p.ArgsHash != "" {
 		ac = ac.WithArgsHash(p.ArgsHash)
 	}
+	if p.Engine != "" {
+		ac = ac.WithEngine(p.Engine)
+	}
+	if p.PlanHash != "" {
+		ac = ac.WithPlanHash(p.PlanHash)
+	}
+	if p.VideoAction != "" {
+		ac = ac.WithVideoAction(p.VideoAction)
+	}
+	if p.Decode != "" {
+		ac = ac.WithDecode(p.Decode)
+	}
 	return ac
 }
 

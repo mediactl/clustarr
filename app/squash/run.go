@@ -180,6 +180,11 @@ type Options struct {
 	// Required for the controller role: every pool Job is stamped with it.
 	WorkerImage string
 
+	// WorkerEngine is the engine jobs are planned for (--worker-engine):
+	// "ffmpeg" (the argv engine; the default until the switch) or "ffgo"
+	// (in-process, the standard plan).
+	WorkerEngine string
+
 	// WorkerImageCUDA is the image nvidia pools run (--worker-image-cuda).
 	// Empty falls back to WorkerImage.
 	WorkerImageCUDA string
@@ -245,7 +250,19 @@ const (
 )
 
 // Validate checks the options before anything touches the cluster.
+// validateEngine accepts the two engines (empty is ffmpeg).
+func (o Options) validateEngine() error {
+	switch o.WorkerEngine {
+	case "", "ffmpeg", "ffgo":
+		return nil
+	}
+	return fmt.Errorf("squasharr: --worker-engine %q is not ffmpeg or ffgo", o.WorkerEngine)
+}
+
 func (o Options) Validate() error {
+	if err := o.validateEngine(); err != nil {
+		return err
+	}
 	if !o.Role.Valid() {
 		return fmt.Errorf("squasharr: unknown --role %q, want one of %v", o.Role, Roles())
 	}
@@ -398,6 +415,7 @@ func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 		Reader:   mgr.GetAPIReader(),
 		Slots:    o.Slots,
 		Pool:     poolConfig(o),
+		Engine:   o.WorkerEngine,
 		Recorder: mgr.GetEventRecorder("transcodejob"),
 		Bus:      bus,
 		Leases:   bus.KV(events.BucketTranscodeLeases),

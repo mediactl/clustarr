@@ -51,6 +51,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // Field-index names. Prefixed with the package so they cannot collide with
@@ -139,6 +140,12 @@ type Reconciler struct {
 	// Pool is the deployment-level half of every pool Job the admission
 	// pass renders (pools.go).
 	Pool pool.Config
+
+	// Engine is the engine jobs are planned for (--worker-engine): "ffmpeg"
+	// (the argv engine, also when empty) or "ffgo" (in-process, planned
+	// with pkg/transcode/standard). A Planned job recorded for the other
+	// engine is planned again at dispatch.
+	Engine string
 
 	// Recorder emits a Kubernetes Event on the TranscodeJob for each
 	// lifecycle edge (events.go). Nil records none.
@@ -532,7 +539,7 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 		return ctrl.Result{RequeueAfter: requeueWaiting}, nil
 	}
 
-	p, fail := planFor(tj, profile, &mf, tj.Spec.Hardware, r.encoderLimits(ctx, tj, profile, tj.Spec.Hardware))
+	p, fail := planFor(tj, profile, &mf, tj.Spec.Hardware, r.encoderLimits(ctx, tj, profile, tj.Spec.Hardware), r.engine())
 	if fail != nil {
 		r.fail(tj, st, fail.reason, "%s", fail.msg)
 		return ctrl.Result{}, nil
@@ -546,6 +553,17 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 type planning struct {
 	result          *transcode.PlanResult
 	source, outPath string
+	// std is the standard plan when the job is planned for the in-process
+	// engine; result's decision then follows it.
+	std *standard.Result
+}
+
+// engine is the engine this controller plans for.
+func (r *Reconciler) engine() string {
+	if r.Engine == task.EngineFFgo {
+		return task.EngineFFgo
+	}
+	return task.EngineFFmpeg
 }
 
 // planFailure is a job no plan is possible for, and no retry fixes: the
@@ -566,6 +584,7 @@ type planFailure struct{ reason, msg string }
 // same class.
 func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
 	mf *catalogv1alpha1.MediaFile, hardware *transcodev1alpha1.Hardware, limits map[transcode.Tier]transcode.Limits,
+	engine string,
 ) (planning, *planFailure) {
 	source := tj.Spec.SourcePath
 	if source == "" {
@@ -592,7 +611,31 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 		// an unknown hardware class the CRD enum should already reject).
 		return planning{}, &planFailure{ReasonPlanError, fmt.Sprintf("planning failed: %v", err)}
 	}
-	return planning{result: result, source: source, outPath: outPath}, nil
+	p := planning{result: result, source: source, outPath: outPath}
+	if engine == task.EngineFFgo && result.Decision != transcode.DecisionReject {
+		p.std = standardPlan(tp, info, hardware, limits)
+		result.Decision = map[standard.Decision]transcode.Decision{
+			standard.DecisionSkip: transcode.DecisionSkip, standard.DecisionCopyVideo: transcode.DecisionRemuxOnly,
+			standard.DecisionEncode: transcode.DecisionEncode,
+		}[p.std.Decision]
+		result.Reason = p.std.Reason
+	}
+	return p, nil
+}
+
+// standardPlan is the in-process engine's plan, on the tier the worker
+// picks for this class (transcode.SelectTier over the class's profile, as
+// the worker's ffgoJob), so the two hash the same plan.
+func standardPlan(tp *transcodev1alpha1.TranscodeProfile, info transcode.MediaInfo,
+	hardware *transcodev1alpha1.Hardware, limits map[transcode.Tier]transcode.Limits,
+) *standard.Result {
+	tier := transcode.TierCPUx265
+	if t, err := transcode.SelectTier(worker.ProfileSpec(tp.Spec, hardware), info); err == nil {
+		tier = t
+	}
+	s := standard.Plan(info, worker.StandardProfile(tp.Name, tp.Status.Hash, tp.Spec),
+		standard.Hardware{Tier: tier, Limits: limits[tier]})
+	return &s
 }
 
 // recordPlan writes p onto st as a plan is recorded: a reject is Skipped
@@ -614,7 +657,7 @@ func (r *Reconciler) recordPlan(tj *transcodev1alpha1.TranscodeJob, st *transcod
 		k8s.MarkFalse(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonRejected, "%s", p.result.Reason)
 	case transcode.DecisionSkip:
 		st.Phase = transcodev1alpha1.TranscodeJobPhaseSkipped
-		st.Plan = statusPlan(p.result)
+		st.Plan = statusPlanOf(p)
 		st.Message = "skipped: " + p.result.Reason
 		st.FinishedAt = &now
 		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonSkipped, "%s", p.result.Reason)
@@ -633,7 +676,7 @@ func (r *Reconciler) recordPlan(tj *transcodev1alpha1.TranscodeJob, st *transcod
 func markPlanned(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus,
 	p planning, container transcodev1alpha1.Container,
 ) {
-	st.Plan = statusPlan(p.result)
+	st.Plan = statusPlanOf(p)
 	reason, where := ReasonPlanned, ""
 	if p.outPath != p.source {
 		where = "; output " + p.outPath

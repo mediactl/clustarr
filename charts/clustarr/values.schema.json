@@ -244,6 +244,11 @@
           "type": "string",
           "description": "squasharr --gpu-node-label-intel override: the node label (set to \"true\") that marks an Intel GPU node. Empty uses the binary's own default, intel.feature.node.kubernetes.io/gpu (Intel's Node Feature Discovery)."
         },
+        "workerEngine": {
+          "type": "string",
+          "enum": ["", "ffmpeg", "ffgo"],
+          "description": "squasharr --worker-engine: the engine transcodes are planned for -- ffmpeg (the ffmpeg executable) or ffgo (in-process, the fixed standard). Empty uses the binary's default, ffmpeg."
+        },
         "resources": { "$ref": "#/$defs/resources" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },

@@ -224,6 +224,7 @@ func allServices(
 			// engine image above; the same env-then-dev-default fallback.
 			d.WorkerImage = envOr(workerImageEnv, devEngineImage)
 			d.WorkerImageCUDA = envOr(workerImageCUDAEnv, "")
+			d.WorkerEngine = envOr(workerEngineEnv, "")
 			d.Logging = *lo
 			d.Tracing = tr
 			return runSquasharr(ctx, d)

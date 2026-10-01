@@ -142,17 +142,17 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	}
 
 	var replanned *planning
-	if !planRunsIn(tj.Status.Plan, class) {
-		p, fail := planFor(&tj, tp, &mf, &class, r.encoderLimits(ctx, &tj, tp, &class))
+	if !planRunsIn(tj.Status.Plan, class) || planEngine(tj.Status.Plan) != r.engine() {
+		p, fail := planFor(&tj, tp, &mf, &class, r.encoderLimits(ctx, &tj, tp, &class), r.engine())
 		if fail == nil {
 			p = skipCPUPlanUnderGPUPin(&tj, tp, p)
 		}
 		if fail != nil || p.result.Decision == transcode.DecisionSkip || p.result.Decision == transcode.DecisionReject ||
-			!planRunsIn(statusPlan(p.result), class) {
+			!planRunsIn(statusPlanOf(p), class) {
 			return r.keepPlanned(ctx, key, tj.Status.Attempts, tp, class, p, fail)
 		}
 		replanned = &p
-		tj.Status.Plan = statusPlan(p.result) // the task carries this plan's argsHash
+		tj.Status.Plan = statusPlanOf(p) // the task carries this plan's argsHash or planHash
 	}
 
 	attempt := tj.Status.Attempts + 1

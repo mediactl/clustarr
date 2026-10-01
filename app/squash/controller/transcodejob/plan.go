@@ -23,8 +23,10 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // profileTagKey is the container tag squasharr writes into every output,
@@ -133,6 +135,49 @@ func hardwareForEncoder(encoder string) transcodev1alpha1.Hardware {
 // statusPlan renders a skip, remuxOnly or encode PlanResult as the CRD's
 // status.plan. A reject decision is never rendered: per ruling R1 it lands as
 // phase Skipped with status.plan unset, because PlanMode has no reject value.
+// planEngine is the engine a recorded plan was made for.
+func planEngine(p *transcodev1alpha1.Plan) string {
+	if p != nil && p.Engine == task.EngineFFgo {
+		return task.EngineFFgo
+	}
+	return task.EngineFFmpeg
+}
+
+// statusPlanOf records p: the standard plan for the in-process engine,
+// else the argv plan.
+func statusPlanOf(p planning) *transcodev1alpha1.Plan {
+	if p.std != nil {
+		return standardStatusPlan(p.std)
+	}
+	return statusPlan(p.result)
+}
+
+// standardStatusPlan is status.plan for the in-process engine: its hash,
+// the video's action, encoder and decode, and each track's action.
+func standardStatusPlan(s *standard.Result) *transcodev1alpha1.Plan {
+	out := &transcodev1alpha1.Plan{Engine: task.EngineFFgo, PlanHash: s.Hash()}
+	switch s.Decision {
+	case standard.DecisionSkip:
+		out.Mode, out.SkipReason = transcodev1alpha1.PlanModeSkip, s.Reason
+		return out
+	case standard.DecisionCopyVideo:
+		out.Mode, out.Encoder = transcodev1alpha1.PlanModeRemuxOnly, "copy"
+	default:
+		out.Mode, out.Encoder = transcodev1alpha1.PlanModeTranscode, s.Video.Encoder
+	}
+	out.VideoAction, out.Decode, out.HDRMode = s.Video.Action, s.Video.Decode, s.Video.HDR
+	for _, a := range s.Audio {
+		ap := transcodev1alpha1.AudioPlan{SourceIndex: a.SourceIndex, Action: transcodev1alpha1.AudioActionCopy}
+		if a.Action == "aac" {
+			ap.Action, ap.Codec, ap.BitrateKbps = transcodev1alpha1.AudioActionEncode, "aac", int32(a.BitRate/1000)
+		}
+		out.AudioTracks = append(out.AudioTracks, ap)
+	}
+	out.AudioTracks = capList(out.AudioTracks)
+	out.SubtitleTracks = capList(s.Subtitles)
+	return out
+}
+
 func statusPlan(p *transcode.PlanResult) *transcodev1alpha1.Plan {
 	if p.Decision == transcode.DecisionSkip {
 		return &transcodev1alpha1.Plan{Mode: transcodev1alpha1.PlanModeSkip, SkipReason: p.Reason}
