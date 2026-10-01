@@ -85,8 +85,8 @@ func (Engine) Verify(ctx context.Context, source, output string, exp standard.Ex
 }
 
 // openDevice opens the GPU a tier's plan decodes, filters or encodes on;
-// nil for the CPU tier.
-func openDevice(tier transcode.Tier) (*ffgo.HWDevice, error) {
+// nil for the CPU tier. A variable so a test can make a device fail.
+var openDevice = func(tier transcode.Tier) (*ffgo.HWDevice, error) {
 	switch tier {
 	case transcode.TierNVENC:
 		return ffgo.NewHWDevice(ffgo.HWDeviceTypeCUDA, "")

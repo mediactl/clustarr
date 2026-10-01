@@ -110,6 +110,20 @@ type nvdecSample struct {
 	key, encoder, pixFmt string
 }
 
+// NVDECSample is one format ProbeDecoders and the in-process measurement
+// try on NVDEC: its Decoders key and the software encoder and pixel format
+// that make a sample of it.
+type NVDECSample struct{ Key, Encoder, PixFmt string }
+
+// NVDECSampleFormats are the formats a device's NVDEC is measured on.
+func NVDECSampleFormats() []NVDECSample {
+	out := make([]NVDECSample, len(nvdecSamples))
+	for i, s := range nvdecSamples {
+		out[i] = NVDECSample{Key: s.key, Encoder: s.encoder, PixFmt: s.pixFmt}
+	}
+	return out
+}
+
 // nvdecSamples are the formats ProbeDecoders tries. H.264 10-bit is tried
 // so a device that does decode it is used; VC-1 has no encoder to make a
 // sample with and stays on the static list.

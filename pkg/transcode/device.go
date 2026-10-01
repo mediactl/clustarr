@@ -24,3 +24,11 @@ import "errors"
 // node, not of the file, so the worker reports it as the class being
 // unavailable rather than as a failed encode.
 var ErrDeviceUnavailable = errors.New("transcode: the GPU device could not be opened")
+
+// Measurement is what a pool pod measured of its own device: the tier its
+// class encodes on there (Intel's QSV, else VAAPI) and the device's limits,
+// NVDEC's decodable formats among them.
+type Measurement struct {
+	Tier   Tier
+	Limits Limits
+}
