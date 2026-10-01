@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -175,13 +176,42 @@ func TestWriteSecretCreatesThenPatchesOnlyTheGivenKeys(t *testing.T) {
 	require.NoError(t, actions.WriteSecret(context.Background(), exists, "media", "rarbg-credentials", map[string]string{"password": "p2"}))
 	require.Len(t, exists.creates, 1)
 	require.Len(t, exists.patches, 1)
-	require.Equal(t, types.MergePatchType, exists.patches[0].patchType)
-	require.JSONEq(t, `{"stringData":{"password":"p2"}}`, string(exists.patches[0].data))
+	require.Equal(t, types.JSONPatchType, exists.patches[0].patchType)
+	require.JSONEq(t, `[
+		{"op":"test","path":"/metadata/labels/clustarr.io~1origin","value":"ui"},
+		{"op":"add","path":"/stringData","value":{"password":"p2"}}
+	]`, string(exists.patches[0].data), "the patch first tests the Secret is the UI's, then adds only the given keys")
 	require.Equal(t, actions.FieldManager, exists.patches[0].opts.FieldManager)
 
 	require.ErrorIs(t, actions.WriteSecret(context.Background(), w, "media", "x", map[string]string{}), actions.ErrInvalid, "nothing to write")
 	require.ErrorIs(t, actions.WriteSecret(context.Background(), w, "", "x", map[string]string{"a": "b"}), actions.ErrInvalid)
 	require.ErrorIs(t, actions.WriteSecret(context.Background(), w, "media", "", map[string]string{"a": "b"}), actions.ErrInvalid)
+	w = &fakeWriter{}
+	require.ErrorIs(t, actions.WriteSecret(context.Background(), w, "media", "x", map[string]string{"not/a key": "b"}), actions.ErrInvalid)
+	require.Empty(t, w.creates, "a key no Secret can hold is refused before any request")
+}
+
+// CheckCreateConfig and CheckUpdateConfig are CreateConfig and UpdateConfig
+// as server-side dry runs: the same object or patch, under the same manager,
+// with dryRun=All, so the apiserver validates it and stores nothing.
+func TestCheckConfigSendsADryRunOfTheWrite(t *testing.T) {
+	w := &fakeWriter{}
+	dc, _ := actions.ConfigKindBySlug("downloadclients")
+	require.NoError(t, actions.CheckCreateConfig(context.Background(), w, dc, "media", "qbit", map[string]any{"protocol": "torrent"}))
+	require.Len(t, w.creates, 1)
+	require.Equal(t, []string{metav1.DryRunAll}, w.creates[0].opts.DryRun)
+	require.Equal(t, actions.FieldManager, w.creates[0].opts.FieldManager)
+	require.Equal(t, actions.OriginUI, w.creates[0].obj.GetLabels()[actions.LabelOrigin])
+
+	require.NoError(t, actions.CheckUpdateConfig(context.Background(), w, dc, "media", "qbit", map[string]any{"priority": int64(3)}))
+	require.Len(t, w.patches, 1)
+	require.Equal(t, []string{metav1.DryRunAll}, w.patches[0].opts.DryRun)
+	require.Equal(t, types.MergePatchType, w.patches[0].patchType)
+	require.JSONEq(t, `{"spec":{"priority":3}}`, string(w.patches[0].data))
+
+	require.NoError(t, actions.CheckUpdateConfig(context.Background(), w, dc, "media", "qbit", nil))
+	require.Len(t, w.patches, 1, "an empty patch checks nothing")
+	require.ErrorIs(t, actions.CheckCreateConfig(context.Background(), w, dc, "", "qbit", nil), actions.ErrInvalid)
 }
 
 // Grants grows by create, patch and delete on every settings kind and
@@ -212,6 +242,8 @@ func TestGrantsCoverTheSettingsWritesAndOnlyWriteSecrets(t *testing.T) {
 	require.ErrorIs(t, err, actions.ErrNoWriter)
 	require.ErrorIs(t, a.DeleteConfig(context.Background(), dc, "media", "x"), actions.ErrNoWriter)
 	require.ErrorIs(t, a.WriteSecret(context.Background(), "media", "x", map[string]string{"a": "b"}), actions.ErrNoWriter)
+	require.ErrorIs(t, a.CheckCreateConfig(context.Background(), dc, "media", "x", map[string]any{}), actions.ErrNoWriter)
+	require.ErrorIs(t, a.CheckUpdateConfig(context.Background(), dc, "media", "x", map[string]any{"a": 1}), actions.ErrNoWriter)
 }
 
 var _ client.Object = (*unstructured.Unstructured)(nil)

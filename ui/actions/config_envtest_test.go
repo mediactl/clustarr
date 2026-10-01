@@ -26,8 +26,10 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -203,6 +205,17 @@ func TestConfigActionsAgainstARealAPIServer(t *testing.T) {
 			name := "cfg-" + k.Slug
 			gvk := k.GroupVersionKind()
 
+			t.Run("a dry-run create validates and stores nothing", func(t *testing.T) {
+				require.NoError(t, actions.CheckCreateConfig(ctx, rec, k, ns, name, fx.createSpec()))
+				u := &unstructured.Unstructured{}
+				u.SetGroupVersionKind(gvk)
+				getErr := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, u)
+				require.True(t, apierrors.IsNotFound(getErr), "a dry run must create nothing: %v", getErr)
+
+				err := actions.CheckCreateConfig(ctx, rec, k, ns, name+"-invalid", fx.invalid)
+				require.True(t, apierrors.IsInvalid(err), "the dry run must refuse what the create would (%s), got %v", fx.rejects, err)
+			})
+
 			t.Run("create labels the object and owns spec, never status", func(t *testing.T) {
 				created, err := actions.CreateConfig(ctx, rec, k, ns, name, fx.createSpec())
 				require.NoError(t, err)
@@ -225,6 +238,16 @@ func TestConfigActionsAgainstARealAPIServer(t *testing.T) {
 					requireFieldsContain(t, entry, "f:spec", "f:"+key)
 				}
 				requireNeverOnStatus(t, got)
+			})
+
+			t.Run("a dry run of a taken name is AlreadyExists and an update's dry run changes nothing", func(t *testing.T) {
+				err := actions.CheckCreateConfig(ctx, rec, k, ns, name, fx.createSpec())
+				require.True(t, apierrors.IsAlreadyExists(err), "want AlreadyExists, got %v", err)
+
+				before := getUnstructured(ctx, t, c, gvk, name, ns)
+				require.NoError(t, actions.CheckUpdateConfig(ctx, rec, k, ns, name, fx.updatePatch()))
+				after := getUnstructured(ctx, t, c, gvk, name, ns)
+				require.Equal(t, before.GetResourceVersion(), after.GetResourceVersion(), "a dry run must write nothing")
 			})
 
 			t.Run("update changes one field and a null removes another", func(t *testing.T) {
@@ -303,6 +326,62 @@ func TestConfigActionsAgainstARealAPIServer(t *testing.T) {
 		requireFieldsContain(t, entry, "f:data", "f:apikey")
 		requireFieldsContain(t, entry, "f:data", "f:username")
 		requireFieldsContain(t, entry, "f:data", "f:password")
+	})
+
+	// The UI's role may create and patch any Secret and read none, so the
+	// patch carries its own ownership check: a JSON Patch whose first op
+	// tests the origin label. A Secret the UI did not create -- a TLS key,
+	// a Helm release, another app's credentials -- is refused whole.
+	t.Run("WriteSecret refuses a Secret the UI did not create and changes nothing", func(t *testing.T) {
+		const ns = "default"
+		for name, labels := range map[string]map[string]string{
+			"foreign-unlabelled":   nil,
+			"foreign-other-labels": {"app.kubernetes.io/name": "ingress"},
+			"foreign-other-origin": {actions.LabelOrigin: "helm"},
+		} {
+			orig := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Labels: labels},
+				Data:       map[string][]byte{"tls.key": []byte("orig")},
+			}
+			require.NoError(t, c.Create(ctx, orig), name)
+
+			err := actions.WriteSecret(ctx, rec, ns, name, map[string]string{"tls.key": "injected", "extra": "x"})
+			require.ErrorIs(t, err, actions.ErrSecretNotFromUI, name)
+			require.ErrorIs(t, err, actions.ErrInvalid, "%s: the form shows it as a bad request", name)
+			require.ErrorContains(t, err, "kubectl", name)
+
+			var got corev1.Secret
+			require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &got))
+			require.Equal(t, map[string][]byte{"tls.key": []byte("orig")}, got.Data, "%s: the Secret must be untouched", name)
+			require.Equal(t, orig.ResourceVersion, got.ResourceVersion, "%s: nothing may have been written", name)
+			for _, e := range got.ManagedFields {
+				require.NotEqual(t, actions.FieldManager, e.Manager, "%s: %s must own nothing", name, actions.FieldManager)
+			}
+		}
+	})
+
+	t.Run("WriteSecret patches a Secret made elsewhere that carries the UI's label", func(t *testing.T) {
+		const ns, name = "default", "labelled-by-hand"
+		require.NoError(t, c.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Labels: map[string]string{actions.LabelOrigin: actions.OriginUI}},
+			Data:       map[string][]byte{"username": []byte("u")},
+		}))
+		require.NoError(t, actions.WriteSecret(ctx, rec, ns, name, map[string]string{"password": "p"}))
+		var got corev1.Secret
+		require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &got))
+		require.Equal(t, map[string][]byte{"username": []byte("u"), "password": []byte("p")}, got.Data)
+
+		// The apiserver's refusal of the patched Secret itself names a
+		// field, and is not mistaken for the failed ownership test.
+		const frozen = "labelled-immutable"
+		require.NoError(t, c.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: frozen, Labels: map[string]string{actions.LabelOrigin: actions.OriginUI}},
+			Data:       map[string][]byte{"username": []byte("u")},
+			Immutable:  ptr.To(true),
+		}))
+		err := actions.WriteSecret(ctx, rec, ns, frozen, map[string]string{"password": "p"})
+		require.True(t, apierrors.IsInvalid(err), "want the apiserver's Invalid, got %v", err)
+		require.NotErrorIs(t, err, actions.ErrSecretNotFromUI, "the Secret is the UI's; the apiserver refused the change")
 	})
 
 	t.Run("every grant the config actions used is declared in actions.Grants()", func(t *testing.T) {

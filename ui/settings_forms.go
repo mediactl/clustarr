@@ -317,11 +317,19 @@ func decodeSubmission(r *http.Request, k forms.Kind, root *schema.Field, mode fo
 	return sub, nil
 }
 
-// writeSecrets stores every credential the form carried ("__secret.<ref
-// path>.<key>", non-blank only) in the Secret the matching secretRef
-// names -- named after the object when the form left it blank -- and
-// points the spec's secretRef at it. Nothing is read back.
-func (s *Server) writeSecrets(ctx context.Context, k forms.Kind, values url.Values, spec map[string]any, namespace, name string) error {
+// secretWrite is one Secret a form fills: its name and the entries typed
+// into it.
+type secretWrite struct {
+	name string
+	data map[string]string
+}
+
+// planSecrets collects every credential the form carried ("__secret.<ref
+// path>.<key>", non-blank only) by the secretRef it belongs to, names each
+// Secret -- the secretRef's own name, else one after the object -- and
+// points the spec's secretRef at it. It writes nothing; writeSecrets does,
+// once the object's write has been checked.
+func planSecrets(k forms.Kind, values url.Values, spec map[string]any, name string) []secretWrite {
 	groups := map[string]map[string]string{}
 	for key, vs := range values {
 		rest, ok := strings.CutPrefix(key, "__secret.")
@@ -353,13 +361,24 @@ func (s *Server) writeSecrets(ctx context.Context, k forms.Kind, values url.Valu
 		refs = append(refs, refName)
 	}
 	sort.Strings(refs)
+	out := make([]secretWrite, 0, len(refs))
 	for _, refName := range refs {
 		secretName := strings.TrimSpace(values.Get(refName + ".name"))
 		if secretName == "" {
 			secretName = defaultSecretName(name, refName, values)
 		}
 		setPath(spec, refName+".name", secretName)
-		if err := s.opts.Actions.WriteSecret(ctx, namespace, secretName, groups[refName]); err != nil {
+		out = append(out, secretWrite{name: secretName, data: groups[refName]})
+	}
+	return out
+}
+
+// writeSecrets stores each planned Secret in namespace. Nothing is read
+// back, and a Secret the UI did not create is refused
+// (actions.ErrSecretNotFromUI).
+func (s *Server) writeSecrets(ctx context.Context, namespace string, writes []secretWrite) error {
+	for _, sw := range writes {
+		if err := s.opts.Actions.WriteSecret(ctx, namespace, sw.name, sw.data); err != nil {
 			return err
 		}
 	}
@@ -521,7 +540,21 @@ func (s *Server) handleSettingsCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderForm(w, r, k, root, forms.ModeNew, sub, err)
 		return
 	}
-	if err := s.writeSecrets(r.Context(), k, r.PostForm, sub.spec, sub.namespace, sub.name); err != nil {
+	// Secrets are written before the object, so its controller's first
+	// reconcile finds them (they read a Secret by name, with no watch), but
+	// only once a dry run of the create has passed: a create the apiserver
+	// refuses -- above all a name already taken -- must not first rewrite
+	// the credentials the existing object uses. Only a create that loses a
+	// race after its dry run can leave Secrets written, and only Secrets
+	// the UI made.
+	writes := planSecrets(k, r.PostForm, sub.spec, sub.name)
+	if len(writes) > 0 {
+		if err := s.opts.Actions.CheckCreateConfig(r.Context(), k.ConfigKind, sub.namespace, sub.name, sub.spec); err != nil {
+			s.renderForm(w, r, k, root, forms.ModeNew, sub, err)
+			return
+		}
+	}
+	if err := s.writeSecrets(r.Context(), sub.namespace, writes); err != nil {
 		s.renderForm(w, r, k, root, forms.ModeNew, sub, err)
 		return
 	}
@@ -561,11 +594,21 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			setPath(sub.spec, h, v)
 		}
 	}
-	if err := s.writeSecrets(r.Context(), k, r.PostForm, sub.spec, ns, name); err != nil {
+	// As for a create: the update's dry run passes before any Secret is
+	// written, so an edit the apiserver refuses changes no credential.
+	writes := planSecrets(k, r.PostForm, sub.spec, name)
+	patch := schema.Diff(old, sub.spec)
+	if len(writes) > 0 {
+		if err := s.opts.Actions.CheckUpdateConfig(r.Context(), k.ConfigKind, ns, name, patch); err != nil {
+			s.renderForm(w, r, k, root, forms.ModeEdit, sub, err)
+			return
+		}
+	}
+	if err := s.writeSecrets(r.Context(), ns, writes); err != nil {
 		s.renderForm(w, r, k, root, forms.ModeEdit, sub, err)
 		return
 	}
-	if _, err := s.opts.Actions.UpdateConfig(r.Context(), k.ConfigKind, ns, name, schema.Diff(old, sub.spec)); err != nil {
+	if _, err := s.opts.Actions.UpdateConfig(r.Context(), k.ConfigKind, ns, name, patch); err != nil {
 		s.renderForm(w, r, k, root, forms.ModeEdit, sub, err)
 		return
 	}

@@ -20,6 +20,7 @@ package actions
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -50,7 +51,15 @@ import (
 // -- so this file names kinds, not fields. Every write carries
 // [FieldManager]; every created object carries [LabelOrigin]. A Secret is
 // created or patched, never read: the role grants create and patch on
-// secrets and nothing else, so no page can ever read one back.
+// secrets and nothing else, so no page can ever read one back. Since that
+// role reaches every Secret in the cluster, a patch proves the Secret is
+// the UI's own inside the request itself (see [WriteSecret]).
+
+// ErrSecretNotFromUI is returned by [WriteSecret] for an existing Secret
+// that does not carry [LabelOrigin]=[OriginUI]: one kubectl, Helm or
+// another app made, which the UI must not write into. It wraps
+// [ErrInvalid], so a form shows it as a bad request.
+var ErrSecretNotFromUI = fmt.Errorf("%w: the Secret was not created by the UI", ErrInvalid)
 
 // ConfigKind is one kind the Settings page configures: the slug its routes
 // use, its API coordinates, the resource RBAC names it by, and whether it
@@ -156,8 +165,34 @@ func CreateConfig(
 	ctx, span := tracing.Start(ctx, "ui.actions.CreateConfig")
 	defer span.End()
 
-	if err := validateConfigTarget(k, namespace, name); err != nil {
+	u, err := createConfig(ctx, c, k, namespace, name, spec)
+	if err != nil {
 		tracing.RecordError(span, err)
+		return nil, err
+	}
+	logging.FromContext(ctx).Info("ui action: settings object created", "kind", k.Kind, "namespace", namespace, "name", name)
+	return u, nil
+}
+
+// CheckCreateConfig is [CreateConfig] as a server-side dry run: the
+// apiserver admits or refuses the object -- its name free, its spec valid
+// -- exactly as it would the create, and stores nothing. The form runs it
+// before writing any Secret, so a create that would fail writes none.
+func CheckCreateConfig(ctx context.Context, c Creator, k ConfigKind, namespace, name string, spec map[string]any) error {
+	ctx, span := tracing.Start(ctx, "ui.actions.CheckCreateConfig")
+	defer span.End()
+
+	if _, err := createConfig(ctx, c, k, namespace, name, spec, client.DryRunAll); err != nil {
+		tracing.RecordError(span, err)
+		return err
+	}
+	return nil
+}
+
+func createConfig(
+	ctx context.Context, c Creator, k ConfigKind, namespace, name string, spec map[string]any, opts ...client.CreateOption,
+) (*unstructured.Unstructured, error) {
+	if err := validateConfigTarget(k, namespace, name); err != nil {
 		return nil, err
 	}
 	u := configObject(k, namespace, name)
@@ -166,12 +201,9 @@ func CreateConfig(
 		spec = map[string]any{}
 	}
 	u.Object["spec"] = spec
-	if err := c.Create(ctx, u, client.FieldOwner(FieldManager)); err != nil {
-		err = fmt.Errorf("actions: create %s %s/%s: %w", k.Kind, namespace, name, err)
-		tracing.RecordError(span, err)
-		return nil, err
+	if err := c.Create(ctx, u, append(opts, client.FieldOwner(FieldManager))...); err != nil {
+		return nil, fmt.Errorf("actions: create %s %s/%s: %w", k.Kind, namespace, name, err)
 	}
-	logging.FromContext(ctx).Info("ui action: settings object created", "kind", k.Kind, "namespace", namespace, "name", name)
 	return u, nil
 }
 
@@ -188,25 +220,50 @@ func UpdateConfig(
 	ctx, span := tracing.Start(ctx, "ui.actions.UpdateConfig")
 	defer span.End()
 
-	if err := validateConfigTarget(k, namespace, name); err != nil {
+	u, sent, err := updateConfig(ctx, p, k, namespace, name, patch)
+	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
+	}
+	if sent {
+		logging.FromContext(ctx).Info("ui action: settings object updated", "kind", k.Kind, "namespace", namespace, "name", name)
+	}
+	return u, nil
+}
+
+// CheckUpdateConfig is [UpdateConfig] as a server-side dry run: the
+// apiserver validates the patched object and stores nothing. The form runs
+// it before writing any Secret, as [CheckCreateConfig] for a create.
+func CheckUpdateConfig(ctx context.Context, p Patcher, k ConfigKind, namespace, name string, patch map[string]any) error {
+	ctx, span := tracing.Start(ctx, "ui.actions.CheckUpdateConfig")
+	defer span.End()
+
+	if _, _, err := updateConfig(ctx, p, k, namespace, name, patch, client.DryRunAll); err != nil {
+		tracing.RecordError(span, err)
+		return err
+	}
+	return nil
+}
+
+// updateConfig sends the patch, reporting whether it sent one.
+func updateConfig(
+	ctx context.Context, p Patcher, k ConfigKind, namespace, name string, patch map[string]any, opts ...client.PatchOption,
+) (*unstructured.Unstructured, bool, error) {
+	if err := validateConfigTarget(k, namespace, name); err != nil {
+		return nil, false, err
 	}
 	u := configObject(k, namespace, name)
 	if len(patch) == 0 {
-		return u, nil
+		return u, false, nil
 	}
 	raw, err := json.Marshal(specPatch{Spec: patch})
 	if err != nil {
-		return nil, fmt.Errorf("actions: encode %s patch: %w", k.Kind, err)
+		return nil, false, fmt.Errorf("actions: encode %s patch: %w", k.Kind, err)
 	}
-	if err := p.Patch(ctx, u, client.RawPatch(types.MergePatchType, raw), client.FieldOwner(FieldManager)); err != nil {
-		err = fmt.Errorf("actions: update %s %s/%s: %w", k.Kind, namespace, name, err)
-		tracing.RecordError(span, err)
-		return nil, err
+	if err := p.Patch(ctx, u, client.RawPatch(types.MergePatchType, raw), append(opts, client.FieldOwner(FieldManager))...); err != nil {
+		return nil, false, fmt.Errorf("actions: update %s %s/%s: %w", k.Kind, namespace, name, err)
 	}
-	logging.FromContext(ctx).Info("ui action: settings object updated", "kind", k.Kind, "namespace", namespace, "name", name)
-	return u, nil
+	return u, true, nil
 }
 
 // DeleteConfig deletes one object of kind k. The controllers' finalizers,
@@ -228,16 +285,31 @@ func DeleteConfig(ctx context.Context, d Deleter, k ConfigKind, namespace, name 
 	return nil
 }
 
-type secretPatch struct {
-	StringData map[string]string `json:"stringData"`
+// jsonPatchOp is one RFC 6902 operation.
+type jsonPatchOp struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value any    `json:"value"`
 }
 
+// originLabelPointer is [LabelOrigin] as an RFC 6901 JSON Pointer into
+// metadata.labels: its "/" is escaped "~1" ("~" would be "~0", first).
+var originLabelPointer = "/metadata/labels/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(LabelOrigin)
+
 // WriteSecret stores the given entries in the Secret namespace/name: it
-// creates the Secret, and when one exists sends exactly those entries as a
-// merge patch of stringData -- so an entry the form left blank, and so
-// never passed here, keeps its stored value. It never reads the Secret,
-// and the role lets it neither. Values travel as stringData, never
-// base64 in this package.
+// creates the Secret, labelled [LabelOrigin]=[OriginUI], and when one
+// exists sends exactly those entries -- so an entry the form left blank,
+// and so never passed here, keeps its stored value. It never reads the
+// Secret, and the role lets it neither. Values travel as stringData, never
+// base64 in this package: the apiserver folds stringData into data when it
+// decodes the patched v1 Secret, as it does for a create.
+//
+// The role's create and patch reach every Secret in the cluster and the UI
+// is anonymous, so the existing-Secret path is a JSON Patch whose first op
+// tests the origin label: the apiserver applies the ops atomically, so a
+// Secret the UI did not create (no label, or another origin) fails the
+// test and is not written at all -- [ErrSecretNotFromUI]. That proves
+// ownership without a get the role must never grant.
 func WriteSecret(ctx context.Context, w Writer, namespace, name string, data map[string]string) error {
 	ctx, span := tracing.Start(ctx, "ui.actions.WriteSecret")
 	defer span.End()
@@ -252,30 +324,69 @@ func WriteSecret(ctx context.Context, w Writer, namespace, name string, data map
 		tracing.RecordError(span, err)
 		return err
 	}
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		// A bad key would be the apiserver's Invalid too, but checked here
+		// it can never be mistaken for the failed ownership test below.
+		if errs := validation.IsConfigMapKey(k); len(errs) > 0 {
+			err := fmt.Errorf("%w: Secret key %q: %s", ErrInvalid, k, strings.Join(errs, "; "))
+			tracing.RecordError(span, err)
+			return err
+		}
+		keys = append(keys, k)
+	}
 	s := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name, Labels: map[string]string{LabelOrigin: OriginUI}},
 		StringData: data,
 	}
 	err := w.Create(ctx, s, client.FieldOwner(FieldManager))
 	if apierrors.IsAlreadyExists(err) {
-		raw, mErr := json.Marshal(secretPatch{StringData: data})
+		// stringData is write-only, never stored, so an existing Secret has
+		// none and "add" sets the whole object.
+		raw, mErr := json.Marshal([]jsonPatchOp{
+			{Op: "test", Path: originLabelPointer, Value: OriginUI},
+			{Op: "add", Path: "/stringData", Value: data},
+		})
 		if mErr != nil {
 			return fmt.Errorf("actions: encode Secret patch: %w", mErr)
 		}
 		obj := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
-		err = w.Patch(ctx, obj, client.RawPatch(types.MergePatchType, raw), client.FieldOwner(FieldManager))
+		err = w.Patch(ctx, obj, client.RawPatch(types.JSONPatchType, raw), client.FieldOwner(FieldManager))
+		if failedPatchTest(err) {
+			err = fmt.Errorf("%w: Secret %s/%s has no %s=%s label, so the UI did not create it and will not "+
+				"write into it; edit it with kubectl, or name a new Secret", ErrSecretNotFromUI, namespace, name, LabelOrigin, OriginUI)
+			tracing.RecordError(span, err)
+			return err
+		}
 	}
 	if err != nil {
 		err = fmt.Errorf("actions: write Secret %s/%s: %w", namespace, name, err)
 		tracing.RecordError(span, err)
 		return err
 	}
-	keys := make([]string, 0, len(data))
-	for k := range data {
-		keys = append(keys, k)
-	}
 	logging.FromContext(ctx).Info("ui action: secret written", "namespace", namespace, "secret", name, "keys", keys)
 	return nil
+}
+
+// failedPatchTest reports whether err is the apiserver failing to apply a
+// JSON Patch: a 422 Invalid naming no field (a 1.37 apiserver sends empty
+// details and a generic message), as against a validation error of the
+// patched object, whose every cause names the field it rejects (an
+// immutable Secret's data, say). WriteSecret's only op that can fail to
+// apply is its "test", and its keys are checked before it is sent.
+func failedPatchTest(err error) bool {
+	var status *apierrors.StatusError
+	if !apierrors.IsInvalid(err) || !errors.As(err, &status) {
+		return false
+	}
+	if details := status.ErrStatus.Details; details != nil {
+		for _, cause := range details.Causes {
+			if cause.Field != "" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // --- Actions methods ---------------------------------------------------------
@@ -302,6 +413,22 @@ func (a *Actions) DeleteConfig(ctx context.Context, k ConfigKind, namespace, nam
 		return ErrNoWriter
 	}
 	return DeleteConfig(ctx, a.w, k, namespace, name)
+}
+
+// CheckCreateConfig is [CheckCreateConfig] over the Actions' writer.
+func (a *Actions) CheckCreateConfig(ctx context.Context, k ConfigKind, namespace, name string, spec map[string]any) error {
+	if a == nil || a.w == nil {
+		return ErrNoWriter
+	}
+	return CheckCreateConfig(ctx, a.w, k, namespace, name, spec)
+}
+
+// CheckUpdateConfig is [CheckUpdateConfig] over the Actions' writer.
+func (a *Actions) CheckUpdateConfig(ctx context.Context, k ConfigKind, namespace, name string, patch map[string]any) error {
+	if a == nil || a.w == nil {
+		return ErrNoWriter
+	}
+	return CheckUpdateConfig(ctx, a.w, k, namespace, name, patch)
 }
 
 // WriteSecret is [WriteSecret] over the Actions' writer.
