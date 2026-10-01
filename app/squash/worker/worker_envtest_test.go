@@ -784,6 +784,61 @@ func TestRunAfterACrashPostPlaceRetiresTheSourceWithoutTranscoding(t *testing.T)
 	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.mkv", out.Result.OutputPath)
 }
 
+// A profile's hash changes (an edit, a new standard.Version) between an
+// attempt that placed or swapped its output and the retry; the output
+// carries the profile's tag under the earlier hash. It is still this
+// profile's transcode, and a transcoded file is final (spec §5): the retry
+// finishes rather than failing SourceChanged or refusing the output path.
+func TestRunAfterACrashFinishesUnderAnEarlierHashOfTheProfile(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	ctx := context.Background()
+	rehash := func(f *fixture) {
+		var tp transcodev1alpha1.TranscodeProfile
+		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
+		require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerSquasharr, &tp,
+			func(ac *transcodeac.TranscodeProfileStatusApplyConfiguration) { ac.WithHash("beef5678") }))
+	}
+
+	t.Run("post-swap", func(t *testing.T) {
+		f := newFixture(t, c)
+		out := f.process(t, c)
+		require.Equal(t, ExitOK, out.Code, "%v", out.Err)
+		rehash(f)
+		eng := &countingEngine{Engine: testEngine}
+		o := f.options()
+		o.Engine = eng
+		out2 := f.processWith(t, c, o)
+		require.NoError(t, out2.Err)
+		require.Equal(t, ExitOK, out2.Code)
+		assert.Zero(t, eng.encodes.Load(), "the retry must not transcode again")
+	})
+
+	t.Run("post-place", func(t *testing.T) {
+		f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
+		outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+		placed := plantOutput(t, outLocal, f.profileName+"@"+f.profileHash)
+		rehash(f)
+		out := f.process(t, c)
+		require.NoError(t, out.Err)
+		require.Equal(t, ExitOK, out.Code)
+		got, err := os.ReadFile(outLocal)
+		require.NoError(t, err)
+		assert.True(t, bytes.Equal(placed, got), "the placed output must not be encoded again")
+	})
+
+	t.Run("another profile's output is not ours", func(t *testing.T) {
+		f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
+		outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+		theirs := plantOutput(t, outLocal, "other@"+f.profileHash)
+		out := f.process(t, c)
+		require.Equal(t, ExitInvalidSource, out.Code)
+		got, err := os.ReadFile(outLocal)
+		require.NoError(t, err)
+		assert.True(t, bytes.Equal(theirs, got))
+	})
+}
+
 // A file already at the output path that is NOT this transcode -- no tag --
 // is never overwritten: the job fails outright (exit 3) and both files stay.
 func TestRunRefusesToOverwriteAnUnrelatedFileAtTheOutputPath(t *testing.T) {

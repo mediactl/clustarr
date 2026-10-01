@@ -522,8 +522,8 @@ func (s swap) retireSource(ctx context.Context) error {
 
 // producedEarlier reports whether an earlier attempt already placed this
 // transcode's output at its own (not-in-place) path: the file there carries
-// this profile's CLUSTARR_PROFILE tag. A file there WITHOUT that tag is not
-// ours, and is never overwritten -- the job fails outright rather than
+// this profile's CLUSTARR_PROFILE tag, under any hash (sameProfile). A file
+// there WITHOUT that tag is not ours, and is never overwritten -- the job fails outright rather than
 // clobbering a file a user or another job put there.
 func (r *runner) producedEarlier(ctx context.Context, sw swap, tag string) (bool, error) {
 	if _, err := os.Lstat(sw.localOut); errors.Is(err, os.ErrNotExist) {
@@ -532,12 +532,21 @@ func (r *runner) producedEarlier(ctx context.Context, sw swap, tag string) (bool
 		return false, retriable("squasharr worker: stat output: %w", err)
 	}
 	_, raw, err := r.probe(ctx, sw.localOut)
-	if err == nil && raw != nil && raw.Format != nil && formatTag(raw, "CLUSTARR_PROFILE") == tag {
+	if err == nil && raw != nil && raw.Format != nil && sameProfile(formatTag(raw, "CLUSTARR_PROFILE"), tag) {
 		logging.FromContext(ctx).InfoContext(ctx,
 			"squasharr worker: the output already carries this profile's tag; an earlier attempt placed it", "output", sw.out)
 		return true, nil
 	}
 	return false, invalidSource("squasharr worker: output path %s already holds a file that is not this transcode; refusing to overwrite it", sw.out)
+}
+
+// sameProfile reports whether got, a file's CLUSTARR_PROFILE, is tag's
+// profile under any hash: an attempt before an edit or a new
+// standard.Version wrote it, and a transcoded file is final (spec §5), so
+// the retry finishes with it rather than calling it someone else's.
+func sameProfile(got, tag string) bool {
+	name, _, _ := strings.Cut(tag, "@")
+	return got != "" && (got == tag || strings.HasPrefix(got, name+"@"))
 }
 
 // finishElsewhere completes a run whose output an earlier attempt already
@@ -563,7 +572,7 @@ func (r *runner) finishElsewhere(ctx context.Context, sw swap, plannedHash strin
 // alreadySwappedOrChanged handles a source whose probe hash no longer
 // matches the plan. Either an earlier attempt of this Job swapped the
 // output in and died before recording it -- the file then carries this
-// profile's CLUSTARR_PROFILE tag -- or the file really changed and must not
+// profile's CLUSTARR_PROFILE tag, under any hash (sameProfile) -- or the file really changed and must not
 // be touched. sourceSize is the MediaFile's recorded size, the original's,
 // used when the tag matches and finish computes the output ratio.
 func (r *runner) alreadySwappedOrChanged(ctx context.Context, sourceSize int64,
@@ -571,7 +580,7 @@ func (r *runner) alreadySwappedOrChanged(ctx context.Context, sourceSize int64,
 ) error {
 	_, raw, err := r.probe(ctx, local)
 	if err == nil && raw != nil && raw.Format != nil {
-		if got := formatTag(raw, "CLUSTARR_PROFILE"); got == tag {
+		if got := formatTag(raw, "CLUSTARR_PROFILE"); sameProfile(got, tag) {
 			logging.FromContext(ctx).InfoContext(ctx,
 				"squasharr worker: source already carries this profile's tag; an earlier attempt swapped it in", "tag", tag)
 			return r.finish(ctx, source, local, sourceSize)
