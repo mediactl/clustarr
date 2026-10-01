@@ -21,10 +21,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
-	"github.com/obinnaokechukwu/ffgo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
@@ -33,10 +33,23 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/transcode"
-	"github.com/mediactl/clustarr/pkg/transcode/engine"
-	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
+
+// Engine is the in-process transcoder (--worker-engine=ffgo):
+// app/squash/worker/inprocess, which cmd/squasharr-worker supplies through
+// Options.Engine. This package never imports it: cmd/clustarr imports this
+// package for planning and must stay a static binary, and ffgo's purego
+// would make it a dynamic one (TestClustarrNeverLinksADynamicLoader).
+type Engine interface {
+	// Encode runs plan from input to output on tier's device, calling
+	// progress from the muxer. A failure returns FFmpeg's log tail with
+	// it; a device that cannot be opened is transcode.ErrDeviceUnavailable.
+	Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, input, output string,
+		progress func(transcode.Progress)) (logTail string, err error)
+	// Verify probes output against exp and the source.
+	Verify(ctx context.Context, source, output string, exp standard.Expectation) (*transcode.Report, error)
+}
 
 // StandardProfile is a TranscodeProfile as the standard reads it (spec §5:
 // quality, audio languages, the modifier policy and the container); the
@@ -68,6 +81,11 @@ func StandardTier(profile transcode.ProfileSpec) transcode.Tier {
 // ffgoJob plans with the standard and encodes in-process on ffgo.
 func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap, local string) (encodeJob, error) {
 	log := logging.FromContext(ctx)
+	if r.o.Engine == nil {
+		// cmd/squasharr-worker logged why at start (no FFmpeg 9, no shim):
+		// the task waits for a pod that can run it rather than failing here.
+		return encodeJob{}, retriable("squasharr worker: this pod has no in-process engine (the transcoder-distroless image carries FFmpeg 9 and the ffgo shim)")
+	}
 	profile := ProfileSpec(r.t.Profile.Spec, r.t.Profile.Hardware)
 	tier := transcode.TierCPUx265
 	if len(info.Video) > 0 {
@@ -100,6 +118,7 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 				"planHash", r.t.PlanHash, "localPlanHash", got)
 		}
 	}
+	plan = withX265Pools(plan, r.o.Threads)
 	r.tier = string(tier)
 	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.Job.UID, r.t.Attempt)
 	log.InfoContext(ctx, "squasharr worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
@@ -109,9 +128,28 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 		part:   part,
 		encode: func(ctx context.Context) error { return r.encodeFFgo(ctx, plan, tier, local, part, durationMillis) },
 		verify: func(ctx context.Context) (*transcode.Report, error) {
-			return engine.Verify(ctx, local, part, plan.Expect)
+			return r.o.Engine.Verify(ctx, local, part, plan.Expect)
 		},
 	}, nil
+}
+
+// withX265Pools sizes libx265's thread pool to the pod's threads, as the
+// argv engine's X265Params does: left alone, x265 sizes it from the node's
+// cores and oversubscribes a pod's CPU limit. It is applied after the plan
+// hash is compared -- a pod's thread count is not part of the plan -- and
+// returns a copy, so plan's own options are unchanged.
+func withX265Pools(plan standard.Result, threads int32) standard.Result {
+	if threads <= 0 || plan.Video.Encoder != "libx265" {
+		return plan
+	}
+	opts := maps.Clone(plan.Video.Options)
+	pools := fmt.Sprintf("pools=%d", threads)
+	if p := opts["x265-params"]; p != "" {
+		pools = p + ":" + pools
+	}
+	opts["x265-params"] = pools
+	plan.Video.Options = opts
+	return plan
 }
 
 // partPath is the generic scratch name beside out: <stem>.part.<ext>.
@@ -123,24 +161,6 @@ func partPath(out string, c transcode.Container) string {
 	return strings.TrimSuffix(out, filepath.Ext(out)) + ".part" + ext
 }
 
-// openDevice opens the GPU a tier's plan decodes, filters or encodes on;
-// nil for the CPU tier.
-func openDevice(tier transcode.Tier) (*ffgo.HWDevice, error) {
-	switch tier {
-	case transcode.TierNVENC:
-		return ffgo.NewHWDevice(ffgo.HWDeviceTypeCUDA, "")
-	case transcode.TierQSV:
-		return ffgo.NewHWDevice(ffgo.HWDeviceTypeQSV, "")
-	case transcode.TierVAAPI:
-		node := selfcheck.IntelRenderNode()
-		if node == "" {
-			return nil, errors.New("no Intel render node in this pod")
-		}
-		return ffgo.NewHWDevice(ffgo.HWDeviceTypeVAAPI, node)
-	}
-	return nil, nil
-}
-
 // encodeFFgo runs the plan on the in-process engine, with the same
 // progress, telemetry, stderr tail and failure classes as the argv engine.
 func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier transcode.Tier, local, part string, durationMillis int64) error {
@@ -148,13 +168,6 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	defer metrics.TranscodeJobsActive.WithLabelValues(r.tier).Dec()
 	r.started = r.o.Now()
 
-	dev, err := openDevice(tier)
-	if err != nil {
-		return gpuUnavailable("squasharr worker: open the %s device: %w", tier, err)
-	}
-	if dev != nil {
-		defer func() { _ = dev.Close() }()
-	}
 	rep := newProgressReporter(r.o.ProgressInterval, durationMillis, r.o.Now, r.applyProgress)
 	var pod *schema.Ref
 	if r.o.PodName != "" {
@@ -163,12 +176,9 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval, r.t.Job, pod, durationMillis, r.o.Now)
 	rep.start(ctx)
 	tel.start(ctx)
-	_, runErr := engine.Run(ctx, plan, local, part, engine.Options{
-		HWDevice: dev,
-		Progress: func(p transcode.Progress) {
-			rep.observe(p)
-			tel.observe(p)
-		},
+	logTail, runErr := r.o.Engine.Encode(ctx, plan, tier, local, part, func(p transcode.Progress) {
+		rep.observe(p)
+		tel.observe(p)
 	})
 	rep.stop(ctx)
 	tel.stop(ctx)
@@ -178,9 +188,11 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	if runErr == nil {
 		return nil
 	}
-	var ee *engine.Error
-	if errors.As(runErr, &ee) {
-		r.applyStderrTail(ee.LogTail)
+	if errors.Is(runErr, transcode.ErrDeviceUnavailable) {
+		return gpuUnavailable("squasharr worker: %w", runErr)
+	}
+	if logTail != "" {
+		r.applyStderrTail(logTail)
 	}
 	if gpuTier(tier) {
 		return gpuEncodeFailed(fmt.Errorf("squasharr worker: engine: %w", runErr))

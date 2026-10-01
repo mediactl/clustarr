@@ -33,6 +33,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -109,11 +110,20 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "bus", "error", err)
 		return worker.WorkerExitRetriable
 	}
+	opts := worker.Options{
+		DataDir: *dataDir, Threads: worker.ThreadsFromEnv(), PodName: need["POD_NAME"],
+		Telemetry: bus.KV(events.BucketProgress),
+	}
+	// The in-process engine (--worker-engine=ffgo) needs FFmpeg 9 and its
+	// ffgo shim: without them this pod runs argv tasks only, and an ffgo
+	// task it takes is retriable, waiting for a pod that can.
+	if eng, err := inprocess.New(); err != nil {
+		log.WarnContext(ctx, "the in-process engine is unavailable; ffgo tasks are retried elsewhere", "error", err)
+	} else {
+		opts.Engine = eng
+	}
 	err = worker.Serve(ctx, bus, worker.ServeOptions{
-		Options: worker.Options{
-			DataDir: *dataDir, Threads: worker.ThreadsFromEnv(), PodName: need["POD_NAME"],
-			Telemetry: bus.KV(events.BucketProgress),
-		},
+		Options:    opts,
 		ProfileUID: need["CLUSTARR_POOL_PROFILE_UID"], Class: need["CLUSTARR_POOL_CLASS"], Node: getenv("NODE_NAME"),
 		Leases: bus.KV(events.BucketTranscodeLeases), // status events go to the stream through bus
 	})

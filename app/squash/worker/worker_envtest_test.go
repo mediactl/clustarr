@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/obinnaokechukwu/ffgo"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/yaml"
 
+	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
+
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -51,6 +54,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // These tests run a REAL ffmpeg encode against a real apiserver. They skip
@@ -962,7 +966,11 @@ func TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps(t *testing.T) {
 	require.NoError(t, err)
 	tk.Engine = task.EngineFFgo
 
-	out := Process(ctx, tk, f.options())
+	opts := f.options()
+	eng, err := inprocess.New()
+	require.NoError(t, err)
+	opts.Engine = eng
+	out := Process(ctx, tk, opts)
 	require.NoError(t, out.Err)
 	require.Equal(t, ExitOK, out.Code)
 	codec, tag := videoCodec(t, f.local)
@@ -972,4 +980,106 @@ func TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps(t *testing.T) {
 	require.Len(t, f.binEntries(t), 1, "the original is in the recycle bin")
 	require.NotNil(t, out.Result)
 	assert.Equal(t, "hevc", out.Result.MediaInfo.VideoCodec)
+}
+
+// A pod without the in-process engine (an image with no FFmpeg 9 or no
+// ffgo shim: cmd/squasharr-worker leaves Options.Engine nil and logs why)
+// fails an ffgo task as retriable, naming the engine, and leaves the
+// source as it was.
+func TestAnFFgoTaskOnAWorkerWithoutTheEngineIsRetriable(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+	ctx := context.Background()
+	tj := f.get(t, c)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp))
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
+	var folders catalogv1alpha1.RootFolderList
+	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
+	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	require.NoError(t, err)
+	tk.Engine = task.EngineFFgo
+
+	out := Process(ctx, tk, f.options()) // no Engine
+	require.Error(t, out.Err)
+	assert.Equal(t, ExitRetriable, out.Code)
+	assert.Contains(t, out.Err.Error(), "in-process engine")
+	codec, _ := videoCodec(t, f.local)
+	assert.Equal(t, "h264", codec, "the source is untouched")
+}
+
+// fakeEngine is a worker.Engine whose encode and verify answer as told; a
+// successful encode writes a stand-in output.
+type fakeEngine struct {
+	encodeErr error
+	tail      string
+	report    *transcode.Report
+}
+
+func (e fakeEngine) Encode(_ context.Context, _ standard.Result, _ transcode.Tier, _, output string,
+	_ func(transcode.Progress),
+) (string, error) {
+	if e.encodeErr != nil {
+		return e.tail, e.encodeErr
+	}
+	return "", os.WriteFile(output, []byte("not really HEVC"), 0o644)
+}
+
+func (e fakeEngine) Verify(context.Context, string, string, standard.Expectation) (*transcode.Report, error) {
+	return e.report, nil
+}
+
+// The in-process engine's failures reach the same exit codes, reasons and
+// stderr tail as the argv engine's, and every one leaves the source as it
+// was with no part file behind.
+func TestTheInProcessEnginesFailuresAreClassifiedAsTheArgvEnginesAre(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	for name, tc := range map[string]struct {
+		eng        fakeEngine
+		code       int
+		reason     task.Reason
+		stderrTail string
+	}{
+		"output fails verification": {
+			eng:  fakeEngine{report: &transcode.Report{OK: false, Problems: []string{"video codec h264, want hevc"}}},
+			code: ExitVerifyFailed,
+		},
+		"encode fails": {
+			eng:  fakeEngine{encodeErr: errors.New("engine: video: encode: Invalid argument"), tail: "x265 [error]: bad params"},
+			code: ExitRetriable, stderrTail: "x265 [error]: bad params",
+		},
+		"device cannot be opened": {
+			eng:  fakeEngine{encodeErr: fmt.Errorf("%w: nvenc: no CUDA device", transcode.ErrDeviceUnavailable)},
+			code: ExitRetriable, reason: task.ReasonGPUUnavailable,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, c)
+			ctx := context.Background()
+			tj := f.get(t, c)
+			var tp transcodev1alpha1.TranscodeProfile
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp))
+			var mf catalogv1alpha1.MediaFile
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
+			var folders catalogv1alpha1.RootFolderList
+			require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
+			tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+			require.NoError(t, err)
+			tk.Engine = task.EngineFFgo
+
+			opts := f.options()
+			opts.Engine = tc.eng
+			out := Process(ctx, tk, opts)
+			require.Error(t, out.Err)
+			assert.Equal(t, tc.code, out.Code, "%v", out.Err)
+			assert.Equal(t, tc.reason, out.Reason)
+			assert.Equal(t, tc.stderrTail, out.StderrTail)
+			codec, _ := videoCodec(t, f.local)
+			assert.Equal(t, "h264", codec, "the source is untouched")
+			assert.Empty(t, f.partFiles(t))
+		})
+	}
 }

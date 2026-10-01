@@ -151,6 +151,11 @@ type Options struct {
 	// Now overrides time.Now. Tests only.
 	Now func() time.Time
 
+	// Engine runs a task planned for the in-process engine
+	// (task.EngineFFgo); nil when this pod cannot (cmd/squasharr-worker
+	// logs why), and such a task is retriable.
+	Engine Engine
+
 	// BeforeSwap, when set, is called immediately before run renames the
 	// verified output over the source (or, for an elsewhere output,
 	// immediately before it takes its own name) -- the pool worker's Serve
