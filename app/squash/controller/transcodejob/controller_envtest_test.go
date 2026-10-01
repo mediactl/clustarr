@@ -1470,11 +1470,12 @@ func TestAJobRecordedWithAnArgvPlanIsReplannedAtDispatch(t *testing.T) {
 	got := getTJ(t, c, ns, "heat-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase)
 
-	// What a job planned before the argv engine was deleted carries.
+	// What a job planned before the argv engine was deleted carries: an
+	// ffmpeg plan, or (the jobs live on kind-cluster-plex) no engine at all.
 	got.Status.Plan = &transcodev1alpha1.Plan{Engine: "ffmpeg", Mode: transcodev1alpha1.PlanModeTranscode, Encoder: "libx265"}
 	require.NoError(t, squasharrstatus.Patch(ctx, c, k8s.ManagerSquasharr, got, nil))
 
-	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	r := newReconciler(t, c, map[string]int32{"cpu": 2})
 	reconcileTJ(t, r, ns, "heat-hevc")
 	got = getTJ(t, c, ns, "heat-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
@@ -1484,4 +1485,66 @@ func TestAJobRecordedWithAnArgvPlanIsReplannedAtDispatch(t *testing.T) {
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "ffgo", tasks[0].Engine)
 	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash)
+
+	newMediaFile(t, c, ns, "ronin", "probe2", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "ronin-hevc", "ronin", "hevc", "probe2", nil)
+	reconcileTJ(t, planner, ns, "ronin-hevc")
+	got = getTJ(t, c, ns, "ronin-hevc")
+	got.Status.Plan = &transcodev1alpha1.Plan{Mode: transcodev1alpha1.PlanModeTranscode, Encoder: "libx265"}
+	require.NoError(t, squasharrstatus.Patch(ctx, c, k8s.ManagerSquasharr, got, nil))
+	reconcileTJ(t, r, ns, "ronin-hevc")
+	got = getTJ(t, c, ns, "ronin-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.Equal(t, "ffgo", got.Status.Plan.Engine, "a plan with no engine is the argv engine's too")
+}
+
+// TestAProfileEditReplansAPlannedJobAtDispatch: a job planned under one
+// profile hash and dispatched after an edit carries the current profile
+// (its spec and hash) in its task, so it is planned again: a quality edit
+// dispatches the new plan, and an edit that makes the standard skip the
+// file (policy.minDuration over its length) skips the job rather than
+// letting the worker refuse a plan it does not run.
+func TestAProfileEditReplansAPlannedJobAtDispatch(t *testing.T) {
+	_, c := startEnv(t)
+	ctx := context.Background()
+	const ns = "tj-edit-replan"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	planner := newReconciler(t, c, map[string]int32{"cpu": 0}) // plans, admits nothing
+	reconcileTJ(t, planner, ns, "heat-hevc")
+	before := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, before.Status.Phase)
+	require.Equal(t, "ffgo", before.Status.Plan.Engine)
+
+	// The edit: a new quality, and the profile controller's new hash.
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tp.Name}, tp))
+	tp.Spec.Quality = ptr.To[int32](30)
+	require.NoError(t, c.Update(ctx, tp))
+	setProfileHash(t, c, tp.Name, "hash2")
+
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.NotEqual(t, before.Status.Plan.PlanHash, got.Status.Plan.PlanHash, "the job is planned again under the edit")
+	tasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash, "the task carries the plan the worker will make")
+
+	// An edit under which the standard skips a planned file.
+	newMediaFile(t, c, ns, "ronin", "probe2", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "ronin-hevc", "ronin", "hevc", "probe2", nil)
+	reconcileTJ(t, planner, ns, "ronin-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, getTJ(t, c, ns, "ronin-hevc").Status.Phase)
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tp.Name}, tp))
+	tp.Spec.Policy.MinDuration = &metav1.Duration{Duration: 3 * time.Hour}
+	require.NoError(t, c.Update(ctx, tp))
+	setProfileHash(t, c, tp.Name, "hash3")
+	reconcileTJ(t, newReconciler(t, c, map[string]int32{"cpu": 2}), ns, "ronin-hevc")
+	got = getTJ(t, c, ns, "ronin-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.Contains(t, got.Status.Plan.SkipReason, "policy.minDuration")
 }

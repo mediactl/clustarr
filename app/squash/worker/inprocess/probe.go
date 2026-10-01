@@ -178,10 +178,15 @@ func doviRecord(b []byte) *mediainfo.DoviRecord {
 	if len(b) < 8 {
 		return nil
 	}
-	return &mediainfo.DoviRecord{
+	r := &mediainfo.DoviRecord{
 		VersionMajor: int32(b[0]), VersionMinor: int32(b[1]), Profile: int32(b[2]), Level: int32(b[3]),
 		RPUPresent: b[4] != 0, ELPresent: b[5] != 0, BLPresent: b[6] != 0, BLSignalCompatibilityID: int32(b[7]),
 	}
+	// dv_md_compression (FFmpeg 7.1+), by the name ffprobe prints.
+	if len(b) > 8 {
+		r.MDCompression = map[byte]string{0: "none", 1: "limited", 2: "reserved", 3: "extended"}[b[8]]
+	}
+	return r
 }
 
 func codecType(t ffgo.MediaType) string {

@@ -67,9 +67,12 @@ fork (`github.com/mediactl/ffgo`, tags `v0.0.0-clustarr.N`). There is no
 argv engine, no `--worker-engine`, and no `ffmpeg` or `ffprobe` in the
 transcoder image (`TestTheWorkerNeverExecsFFmpeg`,
 `TestTheTranscoderImageCarriesNoFFmpegExecutable`). A TranscodeProfile
-names no encoder setting: `quality`, `container`, `audio.languages` and
-`policy.neverTranscodeModifiers` are the standard's inputs, and with
-`standard.Version` the only things `status.hash` covers. **A new hash
+names no encoder setting: `quality`, `container`, `audio.languages`,
+`policy.neverTranscodeModifiers`, `policy.minDuration` and
+`policy.maxOutputToSourcePercent` are the standard's inputs, and with
+`standard.Version` the only things `status.hash` covers. A job is planned
+again at dispatch whenever its plan would differ (a profile edit, another
+class, new limits). **A new hash
 re-transcodes nothing**: the profile controller skips a file that is
 `MediaFile.Transcoded()` or already has an open job of the profile, and
 the standard skips any `CLUSTARR_PROFILE`-tagged file. Raise

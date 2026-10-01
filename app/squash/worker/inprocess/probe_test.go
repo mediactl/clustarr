@@ -66,10 +66,12 @@ func probeFixtures(t *testing.T) map[string]string {
 			"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
 			"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2,aformat=channel_layouts=5.1",
 			"-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=2",
-			"-i", srt, "-i", meta, "-map", "0", "-map", "1", "-map", "2", "-map", "3", "-map_chapters", "4",
-			"-c:v", "libx264", "-preset", "ultrafast", "-c:a:0", "ac3", "-c:a:1", "aac", "-c:s", "srt",
+			"-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=2,aformat=channel_layouts=5.1(side)",
+			"-i", srt, "-i", meta, "-map", "0", "-map", "1", "-map", "2", "-map", "3", "-map", "4", "-map_chapters", "5",
+			"-c:v", "libx264", "-preset", "ultrafast", "-c:a:0", "ac3", "-c:a:1", "aac", "-c:a:2", "eac3", "-c:s", "srt",
 			"-attach", font, "-metadata:s:t", "mimetype=application/x-truetype-font",
 			"-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=fre", "-metadata:s:a:1", "title=Commentary",
+			"-metadata:s:a:2", "language=ger",
 			"-metadata:s:s:0", "language=eng", "-disposition:a:0", "default", "-disposition:a:1", "comment",
 			"-disposition:s:0", "forced", "-metadata", "title=Clip", "-metadata", "CLUSTARR_PROFILE=p@h"),
 		"hdr10": ffmpegClip(t, "hdr10.mkv", x265("colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:"+
@@ -103,12 +105,33 @@ func TestTheInProcessProbeAgreesWithFFprobe(t *testing.T) {
 			assert.Equal(t, wantRaw.ContentLight, gotRaw.ContentLight)
 			assert.Equal(t, wantRaw.ColorTransfer, gotRaw.ColorTransfer)
 
-			hashOf := func(mi *commonv1.MediaInfo, raw *mediainfo.Raw) string {
+			// The tag is compared above; planned with it, both sides would
+			// skip ("already transcoded") and agree about nothing else.
+			planOf := func(mi *commonv1.MediaInfo, raw *mediainfo.Raw) standard.Result {
 				info, err := transcode.FromProbe(mi, raw)
 				require.NoError(t, err)
-				return standard.Plan(info, standard.Profile{Name: "p", Hash: "h", Quality: 24}, standard.Hardware{Tier: transcode.TierCPUx265}).Hash()
+				delete(info.Tags, "CLUSTARR_PROFILE")
+				delete(info.Tags, "clustarr_profile")
+				return standard.Plan(info, standard.Profile{Name: "p", Hash: "h", Quality: 24}, standard.Hardware{Tier: transcode.TierCPUx265})
 			}
-			assert.Equal(t, hashOf(want, wantRaw), hashOf(got, gotRaw), "the same standard plan")
+			wantPlan, gotPlan := planOf(want, wantRaw), planOf(got, gotRaw)
+			if name == "sdr h264, every stream kind" {
+				require.Equal(t, standard.DecisionEncode, wantPlan.Decision, wantPlan.Reason)
+				require.Len(t, wantPlan.Audio, 3, "every audio track is planned")
+			}
+			assert.Equal(t, wantPlan.Hash(), gotPlan.Hash(), "the same standard plan")
 		})
 	}
+}
+
+// FFmpeg 9's AVDOVIDecoderConfigurationRecord is nine bytes: the eight
+// ISO/IEC flags and dv_md_compression, which ffprobe prints by name.
+func TestDoviRecordReadsEveryField(t *testing.T) {
+	got := doviRecord([]byte{1, 0, 8, 3, 1, 0, 1, 1, 1})
+	assert.Equal(t, &mediainfo.DoviRecord{
+		VersionMajor: 1, Profile: 8, Level: 3, RPUPresent: true, BLPresent: true,
+		BLSignalCompatibilityID: 1, MDCompression: "limited",
+	}, got)
+	assert.Equal(t, "none", doviRecord([]byte{1, 0, 7, 6, 1, 1, 1, 6, 0}).MDCompression)
+	assert.Equal(t, "", doviRecord([]byte{1, 0, 5, 3, 1, 0, 1, 0}).MDCompression, "an eight-byte record names none")
 }

@@ -110,6 +110,53 @@ func TestParity(t *testing.T) {
 	t.Logf("\nclass\tdecision\tseconds\tencoder/decode\n%s", strings.Join(rows, "\n"))
 }
 
+// TestTheInProcessProbeAgreesOnTheLibrary holds the worker's in-process
+// probe to ffprobe's on every real clip -- Dolby Vision 5, 7 and 8.1, HDR10+,
+// PGS, TrueHD, fonts -- which the generated fixtures of
+// app/squash/worker/inprocess cannot make: catalogarr plans from ffprobe's
+// summary and the worker from its own probe, so a field they disagree on is
+// a different decision. Codec profile names are ffprobe's alone.
+func TestTheInProcessProbeAgreesOnTheLibrary(t *testing.T) {
+	ctx := context.Background()
+	dir := os.Getenv("CLUSTARR_PARITY_DIR")
+	if dir == "" {
+		t.Skip("CLUSTARR_PARITY_DIR names no clips (hack/parity-clips.sh)")
+	}
+	eng, err := inprocess.New()
+	if err != nil {
+		t.Skipf("no FFmpeg 9: %v", err)
+	}
+	clips, err := filepath.Glob(filepath.Join(dir, "*.mkv"))
+	require.NoError(t, err)
+	for _, clip := range clips {
+		class := strings.TrimSuffix(filepath.Base(clip), ".mkv")
+		if strings.Contains(class, ".") {
+			continue // an output of an earlier run
+		}
+		t.Run(class, func(t *testing.T) {
+			want, wantRaw, err := mediainfo.Probe(ctx, clip)
+			require.NoError(t, err)
+			got, gotRaw, err := eng.Probe(ctx, clip)
+			require.NoError(t, err)
+			want.VideoProfile = ""
+			for i := range want.Audio {
+				want.Audio[i].Profile = ""
+			}
+			require.Equal(t, want, got)
+			require.Equal(t, wantRaw.Dovi, gotRaw.Dovi, "the Dolby Vision record")
+			require.Equal(t, wantRaw.MasteringDisplay, gotRaw.MasteringDisplay)
+			require.Equal(t, wantRaw.ContentLight, gotRaw.ContentLight)
+			plan := func(mi *commonv1.MediaInfo, raw *mediainfo.Raw) string {
+				info, err := transcode.FromProbe(mi, raw)
+				require.NoError(t, err)
+				return standard.Plan(info, standard.Profile{Name: "p", Hash: "h", Quality: 24},
+					standard.Hardware{Tier: transcode.TierNVENC}).Hash()
+			}
+			require.Equal(t, plan(want, wantRaw), plan(got, gotRaw), "the same standard plan")
+		})
+	}
+}
+
 // checkStandard holds the standard's output to spec §1 against its source.
 func checkStandard(t *testing.T, src *commonv1.MediaInfo, srcRaw *mediainfo.Raw, plan standard.Result, out string) {
 	t.Helper()

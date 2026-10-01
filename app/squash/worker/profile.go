@@ -53,10 +53,14 @@ func ProfileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
 
 // ProfileHashAt is the sha256 of what the standard reads from a profile --
 // quality (unset as its default), container (unset as mkv), the audio
-// languages and the never-transcode modifiers -- and the standard's
-// version. The scheduling and policy fields (selector, hardware, resources,
-// minDuration, replaceSource, ...) decide which files are taken and where
-// they run, never what a transcode writes, so they do not reach it.
+// languages, the never-transcode modifiers and policy.minDuration -- the
+// size limit that decides whether its output is kept
+// (policy.maxOutputToSourcePercent; both unset as their defaults), and the
+// standard's version. An edit to any of them names new jobs, so a file a
+// terminal job skipped or failed under the old values is planned again.
+// The scheduling fields (selector, hardware, resources, ...) and
+// replaceSource/recycleBin decide where a transcode runs and what happens
+// to the source, never whether or what it writes, so they do not reach it.
 //
 // The hash names each TranscodeJob and is the CLUSTARR_PROFILE tag, but a
 // new one re-transcodes nothing: a file that carries any transcode tag, or
@@ -67,12 +71,17 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 		container = transcodev1alpha1.ContainerMKV
 	}
 	b, _ := json.Marshal(struct {
-		Version                 int
-		Quality                 int32
-		Container               transcodev1alpha1.Container
-		Languages               []string
-		NeverTranscodeModifiers []string
-	}{version, spec.QualityOrDefault(), container, spec.Audio.Languages, spec.Policy.NeverTranscodeModifiers})
+		Version                  int
+		Quality                  int32
+		Container                transcodev1alpha1.Container
+		Languages                []string
+		NeverTranscodeModifiers  []string
+		MinDuration              time.Duration
+		MaxOutputToSourcePercent int32
+	}{
+		version, spec.QualityOrDefault(), container, spec.Audio.Languages, spec.Policy.NeverTranscodeModifiers,
+		MinDuration(spec.Policy), MaxOutputToSourcePercent(spec.Policy),
+	})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

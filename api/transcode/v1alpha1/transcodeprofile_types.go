@@ -290,8 +290,8 @@ type TranscodeProfileStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Hash is the sha256 of the standard's inputs -- quality, container,
-	// audio.languages, policy.neverTranscodeModifiers -- and the standard's
-	// version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
+	// audio.languages, policy.neverTranscodeModifiers, policy.minDuration,
+	// policy.maxOutputToSourcePercent -- and the standard's version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
 	// A new hash plans new jobs only for files not yet transcoded: a
 	// transcoded file is final, whatever hash it carries.
 	// +optional

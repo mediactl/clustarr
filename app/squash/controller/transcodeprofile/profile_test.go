@@ -56,10 +56,13 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 	}
 }
 
-// standardInputs are the leaves the standard reads (worker.StandardProfile):
-// a change to any of them moves status.hash.
+// standardInputs are the leaves the standard reads (worker.StandardProfile)
+// and the size limit that decides whether its output is kept: a change to
+// any of them moves status.hash, so a file a terminal job skipped or failed
+// under the old values is planned again (a new job name) under the new.
 var standardInputs = map[string]bool{
 	"Quality": true, "Container": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true,
+	"Policy.MinDuration": true, "Policy.MaxOutputToSourcePercent": true,
 }
 
 // operationalFields are the TranscodeProfileSpec fields too structured to
@@ -133,9 +136,12 @@ func TestTheHashCoversOnlyTheStandardsInputs(t *testing.T) {
 func TestTheHashReadsUnsetFieldsAsTheirDefaults(t *testing.T) {
 	set := renderSpec()
 	set.Quality = ptr.To(transcodev1alpha1.DefaultQuality)
+	set.Policy.MinDuration = &metav1.Duration{Duration: worker.DefaultMinDuration}
+	set.Policy.MaxOutputToSourcePercent = ptr.To[int32](worker.DefaultMaxOutputToSourcePercent)
 	unset := set
 	unset.Quality = nil
 	unset.Container = ""
+	unset.Policy.MinDuration, unset.Policy.MaxOutputToSourcePercent = nil, nil
 	assert.Equal(t, profileHash(set), profileHash(unset))
 }
 

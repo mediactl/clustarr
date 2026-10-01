@@ -486,9 +486,14 @@ carries the standard's plan (`engine: ffgo`, `planHash`); `videoArgs`,
 
 **Hash.** `status.hash` is `app/squash/worker.ProfileHash`: sha256 of
 `quality` (unset as 24), `container` (unset as mkv), `audio.languages`,
-`policy.neverTranscodeModifiers` and `pkg/transcode/standard.Version` (1).
-Nothing else moves it (`TestTheHashCoversOnlyTheStandardsInputs` walks
-every spec field). The cut gave every profile a new hash, and a later
+`policy.neverTranscodeModifiers`, `policy.minDuration` and
+`policy.maxOutputToSourcePercent` (unset as their defaults) and
+`pkg/transcode/standard.Version` (1). Nothing else moves it
+(`TestTheHashCoversOnlyTheStandardsInputs` walks every spec field). An edit
+to one of them names new jobs, so a file a terminal job skipped or failed
+under the old value is planned again; a job still open is planned again
+at dispatch whenever its plan would differ, a profile edit included
+(`TestAProfileEditReplansAPlannedJobAtDispatch`). The cut gave every profile a new hash, and a later
 `standard.Version` will again; neither re-transcodes anything, because
 "already transcoded" is any transcode, not this hash's:
 
@@ -507,6 +512,18 @@ every spec field). The cut gave every profile a new hash, and a later
 So re-transcoding a library is a deliberate act (delete the file's record
 or its tag), never the side effect of an edit or an upgrade.
 
+**What the first run after the cut does.** A file whose old-hash job ended
+Skipped or Failed is not transcoded, so it is planned again under the new
+hash, now by the standard. On kind-cluster-plex (2026-10-01) that is about
+515 files: 412 the argv engine called compliant, 54 remux-modifier, 19 over
+the stream cap and 2 Failed skip or are refused again, except where the
+standard differs -- an HEVC file with TrueHD or DTS audio gets its video
+copied and that audio encoded to AAC (no original audio track is kept
+beside it; the recycle bin keeps the original file) -- and the 28 Dolby
+Vision 7/8.1 files the argv engine rejected are encoded to HDR10, losing
+the Dolby Vision layer, as §1 decides. The window takes them 32 at a time,
+and nothing runs until transcoding is unpaused.
+
 **Engine.** The argv engine is deleted: `pkg/transcode`'s argv planner,
 `Args`, runner, CLI verifier and ffmpeg capability probes; the worker's
 `argvJob`, `CheckFFmpeg` and binary limits cache; `--worker-engine` and
@@ -514,7 +531,9 @@ or its tag), never the side effect of an edit or an upgrade.
 and ignored). A job recorded with an argv plan is re-planned at dispatch.
 The worker probes in-process (`inprocess.Probe` fills `mediainfo.Raw` from
 ffgo, agreeing with ffprobe field for field but codec profile names; a
-stream's frame rate is its average). `TestTheWorkerNeverExecsFFmpeg`
+stream's frame rate is its average -- on generated fixtures and, through
+`TestTheInProcessProbeAgreesOnTheLibrary`, on every real parity clip, Dolby
+Vision 5, 7 and 8.1 included). `TestTheWorkerNeverExecsFFmpeg`
 bans `os/exec` and the ffprobe-backed probes under `app/squash`,
 `pkg/transcode` and `cmd/squasharr-worker`. Two engine races were found
 under a 64-way stress test and fixed: a stage closed its encoder before

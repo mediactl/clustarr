@@ -88,15 +88,16 @@ func orphaned(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcod
 // be recorded as dispatched twice; a task published twice for one attempt
 // carries one Msg-Id, which the stream's duplicate window absorbs.
 //
-// A job whose recorded plan is for another class than the one admission
-// chose is planned again for it first (spec §18.5: an auto job's plan is
-// made for the class it is sent to), and the task carries the new plan's
-// argsHash; the Queued write records that plan, in the same write. When the
-// new plan is a skip or a reject, or fails, it is recorded as plan records
-// it and nothing is published. When it needs another class than the chosen
-// one -- a Dolby Vision source, which no hardware encoder writes, planned for
-// a GPU -- the job stays Planned with that plan and, for an auto job, a
-// fallbackReason, so the next pass sends it to cpu.
+// The job is planned again for the class admission chose (spec §18.5: an
+// auto job's plan is made for the class it is sent to) and the profile as
+// it is now; when that plan differs from the recorded one -- another class,
+// a profile edit, other published limits, or the deleted argv engine's --
+// the task carries the new plan's planHash and the Queued write records
+// it, in the same write. When the new plan is a skip or a reject, or
+// fails, it is recorded as plan records it and nothing is published. When
+// it needs another class than the chosen one, the job stays Planned with
+// that plan and, for an auto job, a fallbackReason, so the next pass sends
+// it to cpu.
 //
 // A source or output under no RootFolder can never be dispatched: it is
 // blocked here, as InvalidSource, without costing a pod (spec §17.5).
@@ -141,16 +142,22 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		return fmt.Errorf("transcodejob: list RootFolders: %w", err)
 	}
 
+	// The plan is made again for the class admission chose, from the profile
+	// as it is now: the task carries the profile's current spec and hash, so
+	// a plan recorded before a profile edit, for another class, under other
+	// published limits, or by the deleted argv engine (no engine, or ffmpeg)
+	// is not the plan the worker will make. It is pure computation from the
+	// stored probe. A plan that now skips the file, or fails, is recorded
+	// here; the worker would only refuse it.
 	var replanned *planning
-	// A plan recorded by the deleted argv engine (no engine, or ffmpeg) is
-	// planned again with the standard, as one for another class is.
-	if !planRunsIn(tj.Status.Plan, class) || tj.Status.Plan.Engine != task.EngineFFgo {
-		p, fail := planFor(&tj, tp, &mf, &class, r.encoderLimits(ctx, &tj, tp, &class))
-		if fail != nil || p.skips() || !planRunsIn(statusPlanOf(p), class) {
+	p, fail := planFor(&tj, tp, &mf, &class, r.encoderLimits(ctx, &tj, tp, &class))
+	if fresh := statusPlanOf(p); fail != nil || fresh == nil || tj.Status.Plan == nil ||
+		tj.Status.Plan.Engine != task.EngineFFgo || fresh.PlanHash != tj.Status.Plan.PlanHash || !planRunsIn(tj.Status.Plan, class) {
+		if fail != nil || p.skips() || !planRunsIn(fresh, class) {
 			return r.keepPlanned(ctx, key, tj.Status.Attempts, tp, class, p, fail)
 		}
 		replanned = &p
-		tj.Status.Plan = statusPlanOf(p) // the task carries this plan's argsHash or planHash
+		tj.Status.Plan = fresh // the task carries this plan's planHash
 	}
 
 	attempt := tj.Status.Attempts + 1

@@ -68,7 +68,8 @@ func eligibleKind(k commonv1.MediaKind) bool {
 
 // profileHash is status.hash: app/squash/worker.ProfileHash, over the
 // standard's inputs (quality, container, audio.languages,
-// policy.neverTranscodeModifiers) and standard.Version. The worker tags its
+// policy.neverTranscodeModifiers, policy.minDuration,
+// policy.maxOutputToSourcePercent) and standard.Version. The worker tags its
 // output with it and the TranscodeJob controller names jobs by it; the
 // scheduling and policy fields never reach it, so editing a CPU limit or a
 // selector plans nothing. A new hash plans jobs only for files not yet
