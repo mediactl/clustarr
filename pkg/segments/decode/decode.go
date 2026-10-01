@@ -61,11 +61,18 @@ func (d Decoder) Audio(ctx context.Context, path string, stream int, fromS, durS
 	return pcm, nil
 }
 
-// Frames decodes one frame a second from fromS to the end, each GrayW x
-// GrayH bytes of luma.
+// Frames samples one frame a second from fromS to the end, each GrayW x
+// GrayH bytes of luma. Only keyframes are decoded (-skip_frame nokey), and
+// fps=1 repeats the latest one to fill each second: decoding every frame of
+// a movie's last 15 minutes took 316 s of HEVC (2026-10-01), where its
+// keyframes are a few hundred decodes. Black and flat-text frames survive
+// the coarser sampling; a fast roll may not scroll from one keyframe to the
+// next, which the text detector covers.
 func (d Decoder) Frames(ctx context.Context, path string, fromS float64) ([][]byte, error) {
-	out, err := d.run(ctx, "-ss", secs(fromS), "-i", path, "-an", "-sn", "-dn",
-		"-vf", fmt.Sprintf("fps=1,scale=%d:%d:flags=area,format=gray", GrayW, GrayH), "-f", "rawvideo", "-")
+	out, err := d.run(ctx, "-skip_frame", "nokey", "-ss", secs(fromS), "-i", path, "-an", "-sn", "-dn",
+		// start_time=0 pads from the seek point, so frame i is fromS+i
+		// although the first keyframe decoded lies after fromS.
+		"-vf", fmt.Sprintf("fps=fps=1:start_time=0,scale=%d:%d:flags=area,format=gray", GrayW, GrayH), "-f", "rawvideo", "-")
 	if err != nil {
 		return nil, err
 	}

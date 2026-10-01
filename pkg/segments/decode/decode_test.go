@@ -40,12 +40,13 @@ func ffmpeg(t *testing.T) string {
 	return p
 }
 
-// clip makes a 10 s Matroska file with a test picture and a tone.
+// clip makes a 10 s Matroska file with a test picture and a tone, a
+// keyframe every second as real releases have one every few.
 func clip(t *testing.T, bin string) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "clip.mkv")
 	cmd := exec.Command(bin, "-v", "error", "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
-		"-f", "lavfi", "-i", "sine=d=10:f=440", "-c:v", "libx264", "-c:a", "aac", "-shortest", out)
+		"-f", "lavfi", "-i", "sine=d=10:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac", "-shortest", out)
 	require.NoError(t, cmd.Run())
 	return out
 }
@@ -93,4 +94,20 @@ func TestAFailureCarriesFFmpegsMessage(t *testing.T) {
 	_, err := decode.Decoder{FFmpeg: bin}.Audio(context.Background(), filepath.Join(t.TempDir(), "missing.mkv"), 0, 0, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "No such file")
+}
+
+// End frames are sampled from keyframes only: decoding every frame of a
+// movie's last 15 minutes took 316 s of HEVC on the owner's cluster
+// (2026-10-01), where keyframes are a few hundred decodes.
+func TestFramesDecodeKeyframesOnly(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args")
+	script := filepath.Join(dir, "ffmpeg")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\necho \"$@\" > "+argsFile+"\n"), 0o755))
+	_, err := decode.Decoder{FFmpeg: script}.Frames(context.Background(), "movie.mkv", 100)
+	require.NoError(t, err)
+	b, err := os.ReadFile(argsFile)
+	require.NoError(t, err)
+	args := string(b)
+	assert.Contains(t, args, "-skip_frame nokey -ss 100.000 -i movie.mkv", "keyframes only, set before the input")
 }
