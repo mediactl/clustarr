@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -35,6 +36,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // settleKind is which WorkQueue method Serve's task-consumer message saw.
@@ -1040,4 +1043,70 @@ func (f *failFinishedPublish) Publish(ctx context.Context, subject string, e *ev
 		}
 	}
 	return f.trackingBus.Publish(ctx, subject, e, opts...)
+}
+
+// measuringEngine is a worker.Engine whose Measure answers from measure;
+// its encode and verify are never reached by the Serve tests.
+type measuringEngine struct {
+	measure func(call int32) (transcode.Measurement, error)
+	calls   atomic.Int32
+}
+
+func (e *measuringEngine) Measure(context.Context, transcode.Hardware) (transcode.Measurement, error) {
+	return e.measure(e.calls.Add(1))
+}
+
+func (e *measuringEngine) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (string, error) {
+	return "", errors.New("not used")
+}
+
+func (e *measuringEngine) Verify(context.Context, string, string, standard.Expectation) (*transcode.Report, error) {
+	return nil, errors.New("not used")
+}
+
+// A pool pod whose device will not open (spec §4) reports so under its
+// node and takes no task; the controller sends its class no work.
+func TestAPodWhoseDeviceWillNotOpenPullsNothingAndReportsIt(t *testing.T) {
+	h := newHarness(t)
+	progress := h.bus.KV(events.BucketProgress)
+	eng := &measuringEngine{measure: func(int32) (transcode.Measurement, error) {
+		return transcode.Measurement{}, fmt.Errorf("%w: cpu-x265: trial encode: no libx265", transcode.ErrDeviceUnavailable)
+	}}
+	h.serveOnBusWithOptions(h.bus, func(o *ServeOptions) {
+		o.Engine, o.Telemetry, o.RemeasureEvery = eng, progress, time.Hour
+	})
+	h.publish(1, 0)
+	h.noEvent(task.EventClaimed, 300*time.Millisecond)
+	assert.Equal(t, int32(0), h.calls.Load(), "no task was processed")
+
+	health, err := task.ReadEncoderHealth(h.ctx, progress, "cpu", h.clock.Now())
+	require.NoError(t, err)
+	require.Contains(t, health, "n1")
+	assert.False(t, health["n1"].Healthy)
+	assert.Contains(t, health["n1"].Error, "no libx265")
+}
+
+// A pod that starts unhealthy (its GPU still held by the pod it replaced)
+// re-measures, and once its device works it reports healthy and takes
+// work, without a restart.
+func TestAPodRecoversWhenItsDeviceOpens(t *testing.T) {
+	h := newHarness(t)
+	progress := h.bus.KV(events.BucketProgress)
+	eng := &measuringEngine{measure: func(call int32) (transcode.Measurement, error) {
+		if call == 1 {
+			return transcode.Measurement{}, fmt.Errorf("%w: busy", transcode.ErrDeviceUnavailable)
+		}
+		return transcode.Measurement{Tier: transcode.TierCPUx265}, nil
+	}}
+	h.serveOnBusWithOptions(h.bus, func(o *ServeOptions) {
+		o.Engine, o.Telemetry, o.RemeasureEvery = eng, progress, 50*time.Millisecond
+	})
+	h.publish(1, 0)
+	h.next(task.EventClaimed)
+	assert.GreaterOrEqual(t, eng.calls.Load(), int32(2))
+	health, err := task.ReadEncoderHealth(h.ctx, progress, "cpu", h.clock.Now())
+	require.NoError(t, err)
+	assert.Equal(t, task.NodeHealth{Healthy: true}, health["n1"])
+	h.release <- Outcome{Code: ExitOK}
+	h.next(task.EventFinished)
 }

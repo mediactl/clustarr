@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
 // ServeOptions configures [Serve].
@@ -67,6 +68,11 @@ type ServeOptions struct {
 	// lasted PullRetryWindow (default 5m). Zero means the default; a test
 	// shrinks both to keep cases fast.
 	PullRetryBackoffCap, PullRetryWindow time.Duration
+
+	// RemeasureEvery is how often a pod whose device could not be used
+	// measures it again before it takes any work (spec §4). Zero means
+	// two minutes.
+	RemeasureEvery time.Duration
 
 	// Clock overrides time for tests; nil means the real clock.
 	Clock clockwork.Clock
@@ -182,6 +188,14 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	}
 	s.bus, s.sub = bus, events.TranscodeTaskConsumer(o.ProfileUID, o.Class).Subscription()
 
+	if s.o.Engine != nil && s.o.Measurement == nil {
+		m, err := s.measureUntilHealthy(ctx)
+		if err != nil {
+			return err
+		}
+		s.o.Measurement = &m
+	}
+
 	retry := newPullRetry(s.clock, s.o.PullRetryBackoffCap, s.o.PullRetryWindow)
 	p, err := s.pull(ctx, ps, retry)
 	if err != nil {
@@ -212,6 +226,34 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 		p, err = s.pull(ctx, ps, retry)
 		if err != nil {
 			return err
+		}
+	}
+}
+
+// measureUntilHealthy measures this pod's device for its class and
+// publishes the result with its health (spec §4: "a pod whose class's
+// device will not open reports so and takes no jobs"), measuring again
+// every RemeasureEvery until the device can be used; only then does Serve
+// pull. It returns only the healthy measurement, or ctx's error.
+func (s *server) measureUntilHealthy(ctx context.Context) (transcode.Measurement, error) {
+	log := logging.FromContext(ctx)
+	class := transcode.Hardware(s.o.Class)
+	for {
+		m, err := s.o.Engine.Measure(ctx, class)
+		if ctx.Err() != nil {
+			return transcode.Measurement{}, ctx.Err()
+		}
+		s.o.limits.publishHealth(ctx, m.Limits, err)
+		if err == nil {
+			log.InfoContext(ctx, "squasharr worker: measured the device", "class", class, "tier", m.Tier)
+			return m, nil
+		}
+		log.WarnContext(ctx, "squasharr worker: the device cannot be used; taking no work until it can",
+			"class", class, "error", err, "retryIn", s.o.RemeasureEvery)
+		select {
+		case <-ctx.Done():
+			return transcode.Measurement{}, ctx.Err()
+		case <-s.clock.After(s.o.RemeasureEvery):
 		}
 	}
 }
@@ -260,6 +302,9 @@ func (o ServeOptions) withDefaults() ServeOptions {
 	}
 	if o.PullRetryWindow == 0 {
 		o.PullRetryWindow = defaultPullRetryWindow
+	}
+	if o.RemeasureEvery == 0 {
+		o.RemeasureEvery = 2 * time.Minute
 	}
 	if o.Clock == nil {
 		o.Clock = clockwork.NewRealClock()

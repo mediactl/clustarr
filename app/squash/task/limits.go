@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -50,18 +51,44 @@ type EncoderLimits struct {
 	Nodes map[string]NodeLimits `json:"nodes"`
 }
 
-// NodeLimits is one node's measured device limits.
+// NodeLimits is one node's measured device limits, and whether its device
+// could be used at all (spec §4): Healthy absent, from a worker that
+// predates health, reads as healthy.
 type NodeLimits struct {
 	transcode.Limits
 	MeasuredAt time.Time `json:"measuredAt"`
+	Healthy    *bool     `json:"healthy,omitempty"`
+	Error      string    `json:"error,omitempty"`
 }
+
+// NodeHealth is one node's last report of its device.
+type NodeHealth struct {
+	Healthy bool
+	Error   string
+}
+
+// MaxHealthMessage is the longest Error published, in bytes: the
+// TranscodeProfile status field that shows it is capped at 256.
+const MaxHealthMessage = 256
 
 // PublishEncoderLimits merges node's limits l, measured at now, into
 // class's key with compare-and-swap, dropping any entry older than
 // EncoderLimitsFresh, so concurrent workers of one class never overwrite
 // each other's nodes.
 func PublishEncoderLimits(ctx context.Context, kv events.KV, class, node string, l transcode.Limits, now time.Time) error {
+	return PublishEncoderHealth(ctx, kv, class, node, l, nil, now)
+}
+
+// PublishEncoderHealth is PublishEncoderLimits with the device's health: a
+// nil unhealthy is a healthy device, anything else the reason this node's
+// pod cannot use it, which the controller reads (ReadEncoderHealth) to send
+// the class no work while every node reports one.
+func PublishEncoderHealth(ctx context.Context, kv events.KV, class, node string, l transcode.Limits, unhealthy error, now time.Time) error {
 	key := EncoderLimitsKey(class)
+	healthy, msg := unhealthy == nil, ""
+	if unhealthy != nil {
+		msg = clampMessage(unhealthy.Error(), MaxHealthMessage)
+	}
 	for range encoderLimitsAttempts {
 		var (
 			cur EncoderLimits
@@ -85,7 +112,7 @@ func PublishEncoderLimits(ctx context.Context, kv events.KV, class, node string,
 			// measured on this node.
 			mine = tightest(prev.Limits, l)
 		}
-		next := EncoderLimits{Nodes: map[string]NodeLimits{node: {Limits: mine, MeasuredAt: now}}}
+		next := EncoderLimits{Nodes: map[string]NodeLimits{node: {Limits: mine, MeasuredAt: now, Healthy: &healthy, Error: msg}}}
 		for n, nl := range cur.Nodes {
 			if n != node && now.Sub(nl.MeasuredAt) < EncoderLimitsFresh {
 				next.Nodes[n] = nl
@@ -191,4 +218,44 @@ func ReadEncoderLimitsByNode(ctx context.Context, kv events.KV, class string, no
 		}
 	}
 	return out, nil
+}
+
+// ReadEncoderHealth is each node's last health report for class, among the
+// nodes that published within EncoderLimitsFresh of now: no entry is no
+// report, which the controller reads as "not known to be unhealthy".
+func ReadEncoderHealth(ctx context.Context, kv events.KV, class string, now time.Time) (map[string]NodeHealth, error) {
+	key := EncoderLimitsKey(class)
+	entry, err := kv.Get(ctx, key)
+	if errors.Is(err, events.ErrKeyNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("task: read %s: %w", key, err)
+	}
+	var cur EncoderLimits
+	if err := json.Unmarshal(entry.Value, &cur); err != nil {
+		return nil, fmt.Errorf("task: decode %s: %w", key, err)
+	}
+	out := map[string]NodeHealth{}
+	for n, nl := range cur.Nodes {
+		if now.Sub(nl.MeasuredAt) < EncoderLimitsFresh {
+			out[n] = NodeHealth{Healthy: nl.Healthy == nil || *nl.Healthy, Error: nl.Error}
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// clampMessage cuts s to at most max bytes on a rune boundary.
+func clampMessage(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	s = s[:max]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }

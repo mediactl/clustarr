@@ -1031,6 +1031,57 @@ func (e fakeEngine) Verify(context.Context, string, string, standard.Expectation
 	return e.report, nil
 }
 
+func (e fakeEngine) Measure(context.Context, transcode.Hardware) (transcode.Measurement, error) {
+	return transcode.Measurement{Tier: transcode.TierCPUx265}, nil
+}
+
+// recordingEngine records the encoder of the plan it is asked to run, and
+// fails the encode so the job stops there.
+type recordingEngine struct{ encoder string }
+
+func (e *recordingEngine) Encode(_ context.Context, plan standard.Result, _ transcode.Tier, _, _ string,
+	_ func(transcode.Progress),
+) (string, error) {
+	e.encoder = plan.Video.Encoder
+	return "", errors.New("stop after planning")
+}
+
+func (e *recordingEngine) Verify(context.Context, string, string, standard.Expectation) (*transcode.Report, error) {
+	return nil, errors.New("not reached")
+}
+
+func (e *recordingEngine) Measure(context.Context, transcode.Hardware) (transcode.Measurement, error) {
+	return transcode.Measurement{}, errors.New("the pod measured at start; a job does not measure again")
+}
+
+// An ffgo job encodes on the tier its pod measured (spec §4): an Intel
+// node without a working QSV runtime measured VAAPI, so the job's plan is
+// hevc_vaapi, not the class's first choice, hevc_qsv.
+func TestTheFFgoJobUsesTheMeasuredTier(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+	ctx := context.Background()
+	tj := f.get(t, c)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp))
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
+	var folders catalogv1alpha1.RootFolderList
+	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
+	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, transcodev1alpha1.HardwareIntel)
+	require.NoError(t, err)
+	tk.Engine = task.EngineFFgo
+
+	eng := &recordingEngine{}
+	opts := f.options()
+	opts.Engine = eng
+	opts.Measurement = &transcode.Measurement{Tier: transcode.TierVAAPI}
+	out := Process(ctx, tk, opts)
+	require.Error(t, out.Err)
+	assert.Equal(t, "hevc_vaapi", eng.encoder)
+}
+
 // The in-process engine's failures reach the same exit codes, reasons and
 // stderr tail as the argv engine's, and every one leaves the source as it
 // was with no part file behind.

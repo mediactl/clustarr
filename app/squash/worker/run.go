@@ -151,6 +151,10 @@ type Options struct {
 	// Now overrides time.Now. Tests only.
 	Now func() time.Time
 
+	// Measurement is what Serve measured of this pod's device at start;
+	// an ffgo task plans on its tier and limits. Nil: the task measures.
+	Measurement *transcode.Measurement
+
 	// Engine runs a task planned for the in-process engine
 	// (task.EngineFFgo); nil when this pod cannot (cmd/squasharr-worker
 	// logs why), and such a task is retriable.

@@ -19,8 +19,11 @@ package task_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,4 +120,52 @@ func TestEncoderLimitsDecodeOnlyWhatEveryNodeDecodes(t *testing.T) {
 	got, err = task.ReadEncoderLimits(ctx, kv, "intel", now)
 	require.NoError(t, err)
 	assert.Nil(t, got.NVDEC, "no node measured: unmeasured, not 'decodes nothing'")
+}
+
+// A pod that cannot use its device says so under its node, beside the
+// limits; a later healthy publish clears it, and a report older than
+// EncoderLimitsFresh is no report at all.
+func TestANodePublishesItsDevicesHealth(t *testing.T) {
+	ctx := context.Background()
+	kv := progressKV(t)
+	now := time.Now()
+
+	require.NoError(t, task.PublishEncoderHealth(ctx, kv, "nvidia", "laptop", transcode.Limits{},
+		errors.New("transcode: the GPU device could not be opened: nvenc: no /dev/nvidia0"), now))
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "nvidia", "desktop", transcode.Limits{}, now))
+	health, err := task.ReadEncoderHealth(ctx, kv, "nvidia", now)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]task.NodeHealth{
+		"laptop":  {Healthy: false, Error: "transcode: the GPU device could not be opened: nvenc: no /dev/nvidia0"},
+		"desktop": {Healthy: true},
+	}, health)
+
+	require.NoError(t, task.PublishEncoderHealth(ctx, kv, "nvidia", "laptop", transcode.Limits{}, nil, now.Add(time.Minute)))
+	health, err = task.ReadEncoderHealth(ctx, kv, "nvidia", now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, task.NodeHealth{Healthy: true}, health["laptop"], "the device recovered")
+
+	health, err = task.ReadEncoderHealth(ctx, kv, "nvidia", now.Add(task.EncoderLimitsFresh+2*time.Minute))
+	require.NoError(t, err)
+	assert.Empty(t, health, "stale reports are no reports")
+}
+
+// An error message longer than a status message may be is cut on a rune
+// boundary before it is published.
+func TestAnUnhealthyNodesErrorIsClamped(t *testing.T) {
+	ctx := context.Background()
+	kv := progressKV(t)
+	long := strings.Repeat("é", 400)
+	require.NoError(t, task.PublishEncoderHealth(ctx, kv, "intel", "nuc", transcode.Limits{}, errors.New(long), time.Now()))
+	health, err := task.ReadEncoderHealth(ctx, kv, "intel", time.Now())
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(health["nuc"].Error), task.MaxHealthMessage)
+	assert.True(t, utf8.ValidString(health["nuc"].Error))
+}
+
+func progressKV(t *testing.T) events.KV {
+	t.Helper()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+	return bus.KV(events.BucketProgress)
 }

@@ -116,3 +116,15 @@ func (c *limitsCache) nvdec(ctx context.Context, ffmpeg string) *transcode.Decod
 	}
 	return c.decoders
 }
+
+// publishHealth publishes this node's measured limits l with its device's
+// health: unhealthy nil is healthy, anything else why the pod cannot use
+// the device. With no clustarr-progress bucket it publishes nothing.
+func (c *limitsCache) publishHealth(ctx context.Context, l transcode.Limits, unhealthy error) {
+	if c == nil || c.kv == nil {
+		return
+	}
+	if err := task.PublishEncoderHealth(ctx, c.kv, c.class, c.node, l, unhealthy, time.Now()); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: could not publish the device's health", "error", err)
+	}
+}

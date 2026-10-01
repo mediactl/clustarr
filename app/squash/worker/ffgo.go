@@ -49,6 +49,9 @@ type Engine interface {
 		progress func(transcode.Progress)) (logTail string, err error)
 	// Verify probes output against exp and the source.
 	Verify(ctx context.Context, source, output string, exp standard.Expectation) (*transcode.Report, error)
+	// Measure measures this pod's device for class (spec §4): the tier it
+	// encodes on and its limits, or transcode.ErrDeviceUnavailable.
+	Measure(ctx context.Context, class transcode.Hardware) (transcode.Measurement, error)
 }
 
 // StandardProfile is a TranscodeProfile as the standard reads it (spec §5:
@@ -87,25 +90,12 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 		return encodeJob{}, retriable("squasharr worker: this pod has no in-process engine (the transcoder-distroless image carries FFmpeg 9 and the ffgo shim)")
 	}
 	profile := ProfileSpec(r.t.Profile.Spec, r.t.Profile.Hardware)
-	tier := transcode.TierCPUx265
-	if len(info.Video) > 0 {
-		want := StandardTier(profile)
-		caps, err := transcode.ProbeCapabilities(ctx, r.o.FFmpegPath)
-		if err != nil {
-			return encodeJob{}, retriable("squasharr worker: %w", err)
-		}
-		var ok bool
-		if tier, ok = transcode.FallbackTier(want, caps); !ok {
-			if gpuTier(want) {
-				return encodeJob{}, gpuUnavailable("squasharr worker: this node's FFmpeg has no encoder for tier %s", want)
-			}
-			return encodeJob{}, retriable("squasharr worker: this node's FFmpeg has no encoder for tier %s", want)
-		}
+	m, err := r.measurement(ctx, profile.Hardware)
+	if err != nil {
+		return encodeJob{}, err
 	}
-	hw := standard.Hardware{Tier: tier}
-	if r.o.limits != nil && gpuTier(tier) {
-		hw.Limits = r.o.limits.forTier(ctx, r.o.FFmpegPath, tier, profile.Video)[tier]
-	}
+	tier := m.Tier
+	hw := standard.Hardware{Tier: tier, Limits: m.Limits}
 	plan := standard.Plan(info, StandardProfile(r.t.Profile.Name, r.t.Profile.Hash, r.t.Profile.Spec), hw)
 	if plan.Decision == standard.DecisionSkip {
 		return encodeJob{}, invalidSource("squasharr worker: live plan is skip (%s), not the work the controller planned", plan.Reason)
@@ -150,6 +140,28 @@ func withX265Pools(plan standard.Result, threads int32) standard.Result {
 	opts["x265-params"] = pools
 	plan.Video.Options = opts
 	return plan
+}
+
+// measurement is what this pod measured of its device for class: Serve's
+// measurement at start (Options.Measurement), else one taken now -- a
+// Process called on its own, as tests do. A device that cannot be used is
+// the class unavailable on this node, as the argv engine reports it.
+func (r *runner) measurement(ctx context.Context, class transcode.Hardware) (transcode.Measurement, error) {
+	if m := r.o.Measurement; m != nil {
+		return *m, nil
+	}
+	if class == "" {
+		class = transcode.HardwareCPU
+	}
+	m, err := r.o.Engine.Measure(ctx, class)
+	switch {
+	case err == nil:
+		return m, nil
+	case class != transcode.HardwareCPU:
+		return m, gpuUnavailable("squasharr worker: %w", err)
+	default:
+		return m, retriable("squasharr worker: %w", err)
+	}
 }
 
 // partPath is the generic scratch name beside out: <stem>.part.<ext>.
