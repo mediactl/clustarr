@@ -1,0 +1,46 @@
+{
+  "Decision": "encode",
+  "Reason": "encode to HEVC Main 10",
+  "Container": "mkv",
+  "Video": {
+    "SourceIndex": 0,
+    "Action": "encode",
+    "Encoder": "hevc_nvenc",
+    "Options": {
+      "preset": "p7",
+      "profile": "main10",
+      "qp": "23",
+      "rc": "constqp",
+      "spatial-aq": "1",
+      "temporal-aq": "1"
+    },
+    "Decode": "upload",
+    "Filter": "hwupload,scale_cuda=format=p010le",
+    "HDR": "sdr",
+    "Color": {}
+  },
+  "Audio": [
+    {
+      "SourceIndex": 0,
+      "Action": "copy",
+      "Language": "eng"
+    }
+  ],
+  "Subtitles": [
+    0,
+    1
+  ],
+  "Attachments": true,
+  "Chapters": true,
+  "Tags": {
+    "CLUSTARR_PROFILE": "hevc-mkv@abc"
+  },
+  "Expect": {
+    "VideoStreams": 1,
+    "AudioStreams": 1,
+    "SubtitleStreams": 2,
+    "VideoCodec": "hevc",
+    "PixelFormat": "yuv420p10le",
+    "DurationMillis": 3600000
+  }
+}

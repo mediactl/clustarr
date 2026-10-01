@@ -1,0 +1,25 @@
+{
+  "Decision": "skip",
+  "Reason": "Dolby Vision profile 5 has no HDR10 or HLG base layer: without the Dolby Vision layer it plays with wrong colours",
+  "Container": "mkv",
+  "Video": {
+    "SourceIndex": 0,
+    "Action": "",
+    "Color": {}
+  },
+  "Audio": null,
+  "Subtitles": null,
+  "Attachments": false,
+  "Chapters": false,
+  "Tags": {
+    "CLUSTARR_PROFILE": "hevc-mkv@abc"
+  },
+  "Expect": {
+    "VideoStreams": 0,
+    "AudioStreams": 0,
+    "SubtitleStreams": 0,
+    "VideoCodec": "",
+    "PixelFormat": "",
+    "DurationMillis": 0
+  }
+}

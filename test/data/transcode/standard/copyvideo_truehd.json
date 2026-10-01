@@ -1,0 +1,37 @@
+{
+  "Decision": "copyVideo",
+  "Reason": "HEVC Main 10 video copied; audio or container processed",
+  "Container": "mkv",
+  "Video": {
+    "SourceIndex": 0,
+    "Action": "copy",
+    "Color": {}
+  },
+  "Audio": [
+    {
+      "SourceIndex": 0,
+      "Action": "aac",
+      "Channels": 6,
+      "Layout": "5.1",
+      "BitRate": 384000,
+      "Language": "eng"
+    }
+  ],
+  "Subtitles": [
+    0,
+    1
+  ],
+  "Attachments": true,
+  "Chapters": true,
+  "Tags": {
+    "CLUSTARR_PROFILE": "hevc-mkv@abc"
+  },
+  "Expect": {
+    "VideoStreams": 1,
+    "AudioStreams": 1,
+    "SubtitleStreams": 2,
+    "VideoCodec": "hevc",
+    "PixelFormat": "yuv420p10le",
+    "DurationMillis": 3600000
+  }
+}

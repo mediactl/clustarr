@@ -1,0 +1,52 @@
+{
+  "Decision": "encode",
+  "Reason": "encode to HEVC Main 10",
+  "Container": "mkv",
+  "Video": {
+    "SourceIndex": 0,
+    "Action": "encode",
+    "Encoder": "libx265",
+    "Options": {
+      "crf": "24",
+      "preset": "slow",
+      "profile": "main10",
+      "x265-params": "log-level=error:bframes=8:ref=4:rc-lookahead=40:keyint=240"
+    },
+    "Decode": "cpu",
+    "Filter": "format=yuv420p10le",
+    "HDR": "hdr10",
+    "Color": {
+      "Primaries": "bt2020",
+      "Transfer": "smpte2084",
+      "Matrix": "bt2020nc",
+      "Range": "tv"
+    },
+    "StripSideData": [
+      "hdr10plus"
+    ]
+  },
+  "Audio": [
+    {
+      "SourceIndex": 0,
+      "Action": "copy",
+      "Language": "eng"
+    }
+  ],
+  "Subtitles": [
+    0,
+    1
+  ],
+  "Attachments": true,
+  "Chapters": true,
+  "Tags": {
+    "CLUSTARR_PROFILE": "hevc-mkv@abc"
+  },
+  "Expect": {
+    "VideoStreams": 1,
+    "AudioStreams": 1,
+    "SubtitleStreams": 2,
+    "VideoCodec": "hevc",
+    "PixelFormat": "yuv420p10le",
+    "DurationMillis": 3600000
+  }
+}
