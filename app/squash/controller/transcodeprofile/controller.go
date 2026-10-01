@@ -181,7 +181,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return matching[i].Namespace+"/"+matching[i].Name < matching[j].Namespace+"/"+matching[j].Name
 	})
 	open := countOpen(jobList.Items, tp.Name)
-	busy := openFiles(jobList.Items, tp.Name)
+	busy := openFiles(jobList.Items, tp.Name, mfList.Items)
 	created, waiting := 0, 0
 	var createErrs []error
 	if !invalid {
@@ -357,13 +357,28 @@ func countOpen(jobs []transcodev1alpha1.TranscodeJob, profile string) int {
 	return n
 }
 
-// openFiles is the MediaFiles that have an open job of profile, whatever
-// hash it was named by.
-func openFiles(jobs []transcodev1alpha1.TranscodeJob, profile string) map[types.NamespacedName]bool {
+// openFiles is the MediaFiles a job of profile still holds, whatever hash
+// it was named by: an open job, or a Succeeded one whose swap catalogarr
+// has not incorporated yet -- the file was not re-probed after the job
+// finished, so it still reads untranscoded, and a job under a newer hash
+// would be planned against bytes the swap replaced (and fail SourceChanged).
+func openFiles(jobs []transcodev1alpha1.TranscodeJob, profile string, files []catalogv1alpha1.MediaFile) map[types.NamespacedName]bool {
+	probedAt := make(map[types.NamespacedName]*metav1.Time, len(files))
+	for i := range files {
+		probedAt[client.ObjectKeyFromObject(&files[i])] = files[i].Status.ProbedAt
+	}
 	out := map[types.NamespacedName]bool{}
 	for i := range jobs {
-		if tj := &jobs[i]; isOpen(tj, profile) {
-			out[types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}] = true
+		tj := &jobs[i]
+		key := types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}
+		switch {
+		case isOpen(tj, profile):
+			out[key] = true
+		case tj.Spec.ProfileRef == profile && tj.Status.Phase == transcodev1alpha1.TranscodeJobPhaseSucceeded && !k8s.IsDeleting(tj):
+			done, probed := tj.Status.FinishedAt, probedAt[key]
+			if done == nil || probed == nil || !probed.After(done.Time) {
+				out[key] = true
+			}
 		}
 	}
 	return out

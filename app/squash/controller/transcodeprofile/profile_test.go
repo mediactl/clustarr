@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -442,4 +443,48 @@ func TestAlreadyTranscodedCountsATranscodeFromElsewhere(t *testing.T) {
 	assert.True(t, alreadyTranscoded(&mf, "hevc"))
 	mf.Status.MediaInfo.VideoEncoder = "Lavc61.3.100 libx264"
 	assert.False(t, alreadyTranscoded(&mf, "hevc"), "an H.264 release made with ffmpeg is not a transcode")
+}
+
+// A Succeeded job holds its file until catalogarr has incorporated the
+// swap (re-probed the file after the job finished): until then the file
+// reads untranscoded -- its probe is the original's -- and a job under a
+// newer hash would be planned against bytes the swap already replaced, and
+// fail SourceChanged at dispatch (kind-cluster-plex, 2026-10-01).
+func TestASucceededJobHoldsItsFileUntilTheSwapIsIncorporated(t *testing.T) {
+	finished := metav1.NewTime(time.Date(2026, 10, 1, 20, 0, 0, 0, time.UTC))
+	job := func(name, file string, phase transcodev1alpha1.TranscodeJobPhase) transcodev1alpha1.TranscodeJob {
+		tj := transcodev1alpha1.TranscodeJob{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
+			Spec:       transcodev1alpha1.TranscodeJobSpec{ProfileRef: "hevc", MediaFileRef: file},
+		}
+		tj.Status.Phase = phase
+		if phase == transcodev1alpha1.TranscodeJobPhaseSucceeded {
+			tj.Status.FinishedAt = &finished
+		}
+		return tj
+	}
+	file := func(name string, probed time.Time) catalogv1alpha1.MediaFile {
+		mf := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"}}
+		at := metav1.NewTime(probed)
+		mf.Status.ProbedAt = &at
+		return mf
+	}
+	jobs := []transcodev1alpha1.TranscodeJob{
+		job("a-old", "a", transcodev1alpha1.TranscodeJobPhaseSucceeded),
+		job("b-old", "b", transcodev1alpha1.TranscodeJobPhaseSucceeded),
+		job("c-old", "c", transcodev1alpha1.TranscodeJobPhaseSkipped),
+		job("d-old", "d", transcodev1alpha1.TranscodeJobPhasePlanned),
+	}
+	files := []catalogv1alpha1.MediaFile{
+		file("a", finished.Add(-time.Hour)),  // probed before the swap: not incorporated
+		file("b", finished.Add(time.Second)), // re-probed after it: incorporated
+		file("c", finished.Add(-time.Hour)),
+		file("d", finished.Add(-time.Hour)),
+	}
+	busy := openFiles(jobs, "hevc", files)
+	key := func(n string) types.NamespacedName { return types.NamespacedName{Namespace: "media", Name: n} }
+	assert.True(t, busy[key("a")], "a swap catalogarr has not read yet holds the file")
+	assert.False(t, busy[key("b")], "an incorporated swap does not: the file's own record decides")
+	assert.False(t, busy[key("c")], "a skip holds nothing")
+	assert.True(t, busy[key("d")], "an open job holds its file")
 }
