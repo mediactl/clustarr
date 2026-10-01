@@ -54,6 +54,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -754,6 +755,29 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 				"run.go passed a nil events.Bus to indexer.NewReconciler -- which the "+
 				"reconciler tolerates with a warning and which means this indexer is never "+
 				"polled and the release firehose never starts.")
+	})
+
+	t.Run("a ring change re-projects the window count without waiting for the tick", func(t *testing.T) {
+		// The window counts are the Indexer reconciler's projection of the
+		// clustarr-indexer-limits rings, and the workers that move the rings
+		// no longer write them. The reconciler's tick is 15 minutes, so a
+		// count that follows the traffic inside this test's 30 seconds can
+		// only have come from the KV watch on the real bucket.
+		var live indexv1alpha1.Indexer
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "seeded"}, &live))
+		kv := bus.KV(events.BucketIndexerLimits)
+		for range 3 {
+			_, err := limits.ReserveQuery(ctx, kv, &live, time.Now())
+			require.NoError(t, err)
+		}
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, client.ObjectKeyFromObject(&live), &live); err != nil {
+				return false
+			}
+			u, err := limits.Queries(ctx, kv, &live, time.Now())
+			return err == nil && u.Count >= 3 && live.Status.QueriesInWindow == u.Count
+		}, 30*time.Second, 200*time.Millisecond,
+			"status.queriesInWindow did not follow the ring: the reconciler is not watching clustarr-indexer-limits")
 	})
 
 	t.Run("the IndexerDefinition reconciler runs", func(t *testing.T) {
