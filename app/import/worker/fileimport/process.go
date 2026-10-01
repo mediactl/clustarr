@@ -327,7 +327,12 @@ func (pc *processConfig) processFile(
 	nctx := catalogctx.File(ctx, pc.baseContext, frozen, mi)
 	dest, derr := catalogctx.MovieFilePath(pc.rootFolder, pc.movie, nctx, catalogctx.ContainerExt(mi, srcPath))
 	if derr != nil {
-		return nil, fmt.Sprintf("%s: could not render a destination path: %v", rel, derr), nil
+		// A path that cannot be rendered is the item's or the root folder's
+		// fault (a folder override that climbs out of the library, a
+		// dot-only name), not the release's: blocked, as the non-video
+		// paths already are, never a rejection that grabarr would read as
+		// a bad release to blocklist and delete.
+		return nil, "", blocked("%s: could not render a destination path: %v", rel, derr)
 	}
 
 	needed := info.Size() + pc.rootFolder.Spec.MinFreeBytes

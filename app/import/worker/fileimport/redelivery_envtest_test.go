@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -388,4 +389,38 @@ func TestAPlacementOutsideTheRootFolderBlocksTheImport(t *testing.T) {
 	_, err = os.Stat(elsewhere)
 	assert.ErrorIs(t, err, os.ErrNotExist, "nothing was placed outside the root folder")
 	assert.Empty(t, a.mediaFiles(t))
+}
+
+// A movie whose folder override climbs out of the library renders no
+// destination (pkg/naming/catalogctx refuses it). That is the movie's
+// fault, not the release's: the import reads Blocked naming the cause, as
+// a non-video render failure does, never "every file rejected", which
+// grabarr reads as a bad release to blocklist and delete.
+func TestAnUnrenderableMoviePathBlocksTheImport(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "fi-unrenderable-movie")
+	var movie catalogv1alpha1.Movie
+	require.NoError(t, f.c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: f.movieName}, &movie))
+	patched := movie.DeepCopy()
+	patched.Spec.Folder = ptr.To("../../etc")
+	require.NoError(t, f.c.Patch(ctx, patched, client.MergeFrom(&movie)))
+	waitFor(t, 5*time.Second, func() bool {
+		var got catalogv1alpha1.Movie
+		return f.c.Get(ctx, client.ObjectKeyFromObject(patched), &got) == nil &&
+			got.Spec.Folder != nil && *got.Spec.Folder == "../../etc"
+	})
+
+	contentRoot := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(contentRoot, "The.Matrix.1999.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
+	dl := f.createDownload(t, "matrix-dl", contentRoot, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName})
+	msg := f.deliver(t, dl)
+	require.EqualValues(t, 1, msg.Attempt(), "the first of the consumer's deliveries, so only a block reports it")
+
+	got := f.importState(t, dl).Status.Import
+	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	assert.NotEqual(t, downloadv1alpha1.ImportMessageEveryFileRejected, got.Message)
+	assert.Contains(t, got.Message, "could not render a destination path")
+	assert.Empty(t, got.Imported)
+	assert.Empty(t, got.Rejections)
+	assert.Empty(t, f.mediaFilesOf(t))
 }
