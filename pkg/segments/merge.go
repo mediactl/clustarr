@@ -37,7 +37,10 @@ var kinds = []catalogv1alpha1.MarkerKind{
 }
 
 // Merge applies precedence per kind: TheIntroDB's segments of a kind when it
-// has any, else the chapters' of that kind, else analysis's of at least 60.
+// has any, else the chapters' of that kind, else analysis's of at least 60;
+// except that a credits chapter wholly titled as credits
+// (ExactCreditsConfidence) outranks TheIntroDB's credits (owner's ruling,
+// 2026-10-01).
 // theintrodb holds TheIntroDB's segments; analysis holds the chapter and
 // analysis segments, told apart by Source. The result is ordered by start
 // and capped at 20.
@@ -45,6 +48,8 @@ func Merge(theintrodb, analysis []Segment) []Segment {
 	var out []Segment
 	for _, k := range kinds {
 		switch {
+		case k == catalogv1alpha1.MarkerCredits && len(of(analysis, k, catalogv1alpha1.SegmentSourceChapters, ExactCreditsConfidence)) > 0:
+			out = append(out, of(analysis, k, catalogv1alpha1.SegmentSourceChapters, ExactCreditsConfidence)...)
 		case has(theintrodb, k, ""):
 			out = append(out, of(theintrodb, k, "", 0)...)
 		case has(analysis, k, catalogv1alpha1.SegmentSourceChapters):

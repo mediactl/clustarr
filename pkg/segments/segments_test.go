@@ -45,24 +45,31 @@ func seg(k catalogv1alpha1.MarkerKind, s, e int64, src catalogv1alpha1.SegmentSo
 }
 
 func TestChapterNames(t *testing.T) {
+	// A chapter whose whole title is a credits name is 100 (it outranks
+	// TheIntroDB); any other match is 90.
 	tests := []struct {
 		title string
 		kind  catalogv1alpha1.MarkerKind
 		ok    bool
+		conf  int32
 	}{
-		{"Opening", intro, true},
-		{"OP", intro, true},
-		{"Intro", intro, true},
-		{"Opening End", "", false},
-		{"Recap", recap, true},
-		{"Previously on", recap, true},
-		{"Ending", credits, true},
-		{"ED", credits, true},
-		{"End Credits", credits, true},
-		{"Preview", preview, true},
-		{"Next Episode", preview, true},
-		{"Chapter 3", "", false},
-		{"Operation", "", false},
+		{"Opening", intro, true, 90},
+		{"OP", intro, true, 90},
+		{"Intro", intro, true, 90},
+		{"Opening End", "", false, 0},
+		{"Recap", recap, true, 90},
+		{"Previously on", recap, true, 90},
+		{"Ending", credits, true, 100},
+		{"ED", credits, true, 90},
+		{"End Credits", credits, true, 100},
+		{" credits ", credits, true, 100},
+		{"Credit", credits, true, 100},
+		{"Outro", credits, true, 100},
+		{"Credits Song", credits, true, 90},
+		{"Preview", preview, true, 90},
+		{"Next Episode", preview, true, 90},
+		{"Chapter 3", "", false, 0},
+		{"Operation", "", false, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.title, func(t *testing.T) {
@@ -72,7 +79,7 @@ func TestChapterNames(t *testing.T) {
 				return
 			}
 			require.Len(t, got, 1)
-			assert.Equal(t, seg(tt.kind, 1000, 31000, chap, 100), got[0])
+			assert.Equal(t, seg(tt.kind, 1000, 31000, chap, tt.conf), got[0])
 		})
 	}
 }
@@ -158,6 +165,23 @@ func TestMergePrecedence(t *testing.T) {
 		seg(intro, 60_000, 90_000, tidb, 100),
 		seg(credits, 2_600_000, 2_700_000, anal, 90),
 	}, got, "TheIntroDB's intro, analysis credits beside it, chapters over analysis, nothing under 60")
+
+	// Credits: a chapter titled as credits outranks TheIntroDB (Arcane
+	// S01E07: "Credits" at 36:18, TheIntroDB 38:21); a pattern-only chapter
+	// ("ED") does not, but still outranks analysis.
+	assert.Equal(t, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100)},
+		segments.Merge(
+			[]segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
+			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100), seg(credits, 2_300_000, 2_403_000, anal, 90)}),
+		"an exact credits chapter over TheIntroDB")
+	assert.Equal(t, []segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
+		segments.Merge(
+			[]segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
+			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)}),
+		"TheIntroDB over a pattern-only chapter")
+	assert.Equal(t, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)},
+		segments.Merge(nil, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90), seg(credits, 2_300_000, 2_403_000, anal, 90)}),
+		"a pattern-only chapter over analysis")
 
 	many := make([]segments.Segment, 30)
 	for i := range many {

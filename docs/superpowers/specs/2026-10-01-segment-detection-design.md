@@ -42,7 +42,8 @@ Local analysis fills the rest.
    its own Deployment. Results reach `MediaFile.status` through catalogarr,
    as `squasharr-worker`'s reach `TranscodeJob.status`.
 3. **Precedence, per segment kind:** TheIntroDB, then chapters, then
-   analysis. cluster-plex turns off Plex's intro and credits detection.
+   analysis; for credits, a chapter wholly titled as credits comes first
+   (amended 2026-10-01, §6.6). cluster-plex turns off Plex's intro and credits detection.
 4. **Scope of v1.**
    - **Intros:** by season-wide audio fingerprint.
    - **Credits:** by chapters, an end-of-file fingerprint, frame statistics
@@ -397,6 +398,16 @@ the credits to the end of the file. Confidence 70.
 ### 6.6 Precedence (`segments.Merge`)
 
 Per kind: TheIntroDB, then chapters, then analysis.
+
+**Amended 2026-10-01 (owner's ruling):** for credits, a chapter whose whole
+title is a credits name ("Credits", "End Credits", "Closing Credits",
+"Ending", "Outro"; confidence 100) comes before TheIntroDB. Any other
+chapter match ("ED", "Credits Song") is confidence 90 and keeps its place
+after TheIntroDB. A chapter is authored for the file's own timeline;
+TheIntroDB is matched to it by duration. On the owner's library, 36 of
+107 files with both disagreed by more than 5 s, and the chapter was right
+in the worst cases (Game of Thrones S02E09, TheIntroDB 8:44 early, mid-
+battle; Arcane S01E07, 2:03 late).
 
 - **A kind TheIntroDB has segments for** takes only TheIntroDB's.
 - **Otherwise,** chapters' segments of that kind.

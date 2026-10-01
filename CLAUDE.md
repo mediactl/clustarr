@@ -210,7 +210,11 @@ are cached in the `clustarr-fingerprints` object store and raw results in the
 `clustarr-segments` bucket; its work and TheIntroDB's ride the durable
 `CLUSTARR_WORK_SEGMENTARR` stream (gotcha below); the metadata gateway merges them into
 `status.markers.segments` (each tagged `source` and `confidence`) under
-TheIntroDB per kind, then chapters, then analysis at 60 or more, through
+TheIntroDB per kind, then chapters, then analysis at 60 or more -- except
+that a chapter wholly titled as credits ("Credits", "End Credits",
+"Ending", "Outro") outranks TheIntroDB's credits (2026-10-01: of 107 files
+with both, 36 disagreed by more than 5 s, the chapter right in the worst
+cases) -- through
 `app/catalog/segmenting.Applier` -- the one compare-and-swap path TheIntroDB's
 handler shares. Raise `pkg/segments.AnalyzerVersion` when detection changes.
 The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex

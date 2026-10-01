@@ -29,8 +29,9 @@ import (
 // when detection changes, and every file is analyzed once more. 2: credits
 // reach the end past the last keyframe, the DNN is asked whenever no
 // candidate holds, chapters are trusted by kind, anime EDs end before their
-// preview (2026-10-01).
-const AnalyzerVersion int32 = 2
+// preview (2026-10-01). 3: a credits chapter wholly titled as credits is
+// 100 and outranks TheIntroDB, any other chapter 90 (2026-10-01).
+const AnalyzerVersion int32 = 3
 
 // Segment is one detected or fetched segment.
 type Segment struct {
