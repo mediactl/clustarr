@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -302,6 +303,89 @@ func TestAStoredProfileWithRemovedFieldsStillReconciles(t *testing.T) {
 	require.NoError(t, err)
 	var tp transcodev1alpha1.TranscodeProfile
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "pre-cut"}, &tp))
+	assert.NotEmpty(t, tp.Status.Hash)
+	ready := k8s.FindCondition(tp.Status.Conditions, transcodev1alpha1.TranscodeProfileConditionReady)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionTrue, ready.Status)
+}
+
+// TestAProfileStoredUnderTheOldSchemaIsPrunedOnceTheCutIsInstalled is the
+// upgrade as it happens on a cluster: the profile was stored while the CRD
+// still had spec.video (the schema is widened here to admit it, as the
+// pre-cut CRD did), then the cut CRD is installed. The stored object still
+// carries video in etcd; the apiserver prunes it on read, and the
+// controller reconciles the profile as if it had never been there.
+func TestAProfileStoredUnderTheOldSchemaIsPrunedOnceTheCutIsInstalled(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	crdKey := types.NamespacedName{Name: "transcodeprofiles.transcode.clustarr.io"}
+	crdGVK := schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"}
+	getCRD := func() *unstructured.Unstructured {
+		crd := &unstructured.Unstructured{}
+		crd.SetGroupVersionKind(crdGVK)
+		require.NoError(t, c.Get(ctx, crdKey, crd))
+		return crd
+	}
+	setVideo := func(present bool) {
+		require.Eventually(t, func() bool {
+			crd := getCRD()
+			versions, _, _ := unstructured.NestedSlice(crd.Object, "spec", "versions")
+			v0 := versions[0].(map[string]any)
+			props, _, _ := unstructured.NestedMap(v0, "schema", "openAPIV3Schema", "properties", "spec", "properties")
+			if present {
+				props["video"] = map[string]any{"type": "object", "x-kubernetes-preserve-unknown-fields": true}
+			} else {
+				delete(props, "video")
+			}
+			if err := unstructured.SetNestedMap(v0, props, "schema", "openAPIV3Schema", "properties", "spec", "properties"); err != nil {
+				return false
+			}
+			versions[0] = v0
+			if err := unstructured.SetNestedSlice(crd.Object, versions, "spec", "versions"); err != nil {
+				return false
+			}
+			return c.Update(ctx, crd) == nil
+		}, 30*time.Second, 200*time.Millisecond)
+	}
+	// The old schema: spec.video is stored.
+	setVideo(true)
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(transcodev1alpha1.GroupVersion.WithKind("TranscodeProfile"))
+	u.SetName("stored-before-the-cut")
+	require.NoError(t, unstructured.SetNestedField(u.Object, true, "spec", "default"))
+	require.NoError(t, unstructured.SetNestedField(u.Object, "slow", "spec", "video", "preset"))
+	require.Eventually(t, func() bool {
+		_ = c.Delete(ctx, u.DeepCopy())
+		fresh := u.DeepCopy()
+		if c.Create(ctx, fresh) != nil {
+			return false
+		}
+		got := &unstructured.Unstructured{}
+		got.SetGroupVersionKind(u.GroupVersionKind())
+		if c.Get(ctx, types.NamespacedName{Name: u.GetName()}, got) != nil {
+			return false
+		}
+		_, found, _ := unstructured.NestedString(got.Object, "spec", "video", "preset")
+		return found
+	}, 30*time.Second, 500*time.Millisecond, "the widened schema stores spec.video")
+
+	// The cut CRD is installed: the stored field reads as gone.
+	setVideo(false)
+	require.Eventually(t, func() bool {
+		got := &unstructured.Unstructured{}
+		got.SetGroupVersionKind(u.GroupVersionKind())
+		if c.Get(ctx, types.NamespacedName{Name: u.GetName()}, got) != nil {
+			return false
+		}
+		_, found, _ := unstructured.NestedFieldNoCopy(got.Object, "spec", "video")
+		return !found
+	}, 30*time.Second, 500*time.Millisecond, "spec.video stored before the cut is pruned on read")
+
+	r := transcodeprofile.NewReconciler(c, k8s.MustNewScheme(), events.NewFakeRecorder(10))
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: u.GetName()}})
+	require.NoError(t, err)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: u.GetName()}, &tp))
 	assert.NotEmpty(t, tp.Status.Hash)
 	ready := k8s.FindCondition(tp.Status.Conditions, transcodev1alpha1.TranscodeProfileConditionReady)
 	require.NotNil(t, ready)
