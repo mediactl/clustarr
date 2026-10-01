@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -257,6 +258,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// The file is here. Ready is otherwise set only by a probe, so one back
+	// from a moment's absence -- a swap caught mid-way, a share that blinked
+	// -- with its probe still current read FileMissing for good. A probe
+	// below, or its failure, overrides this.
+	if ready := meta.FindStatusCondition(conditions, catalogv1alpha1.MediaFileConditionReady); ready != nil &&
+		ready.Status == metav1.ConditionFalse && ready.Reason == "FileMissing" && mf.Status.ProbeHash != "" {
+		k8s.MarkTrue(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "Ready", "file present and probed")
 	}
 
 	ps := evaluateProbe(path, info.Size(), info.ModTime(), mf.Status.ProbeHash)
