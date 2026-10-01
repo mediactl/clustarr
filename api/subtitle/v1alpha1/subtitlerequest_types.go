@@ -291,6 +291,7 @@ type SubtitleRequestStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,categories=clustarr
+// +kubebuilder:selectablefield:JSONPath=`.spec.mediaFileRef`
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="MediaFile",type="string",JSONPath=".spec.mediaFileRef"
 // +kubebuilder:printcolumn:name="Profile",type="string",JSONPath=".spec.profileRef"

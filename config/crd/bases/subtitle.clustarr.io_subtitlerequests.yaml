@@ -366,6 +366,8 @@ spec:
                 type: integer
             type: object
         type: object
+    selectableFields:
+    - jsonPath: .spec.mediaFileRef
     served: true
     storage: true
     subresources:

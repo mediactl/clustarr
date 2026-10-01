@@ -34,6 +34,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
@@ -61,7 +63,10 @@ func TestAFileBackFromMissingIsReadyAgainWithoutAProbe(t *testing.T) {
 		{Type: catalogv1alpha1.MediaFileConditionProbed, Status: metav1.ConditionTrue, Reason: "Probed", LastTransitionTime: missingAt},
 		{Type: catalogv1alpha1.MediaFileConditionReady, Status: metav1.ConditionFalse, Reason: "FileMissing", Message: "stat: gone", LastTransitionTime: missingAt},
 	}
-	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(mf).WithStatusSubresource(mf).Build()
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(mf).WithStatusSubresource(mf).
+		WithIndex(&transcodev1alpha1.TranscodeJob{}, transcodeJobMediaFileRefIndex, indexTranscodeJobByMediaFileRef).
+		WithIndex(&subtitlev1alpha1.SubtitleRequest{}, subtitleRequestMediaFileRefIndex, indexSubtitleRequestByMediaFileRef).
+		Build()
 	r := &Reconciler{
 		Client: c, Scheme: k8s.MustNewScheme(), Clock: time.Now,
 		Probe: func(context.Context, string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {

@@ -56,8 +56,8 @@ func (nopPublisher) Publish(_ context.Context, _ string, _ *events.Envelope, _ .
 
 // startOwnerCache starts a real ctrl.Manager's cache (WITHOUT wiring any
 // controller to it, so nothing auto-reconciles and no process-global
-// controller name is claimed) with the field indexes the Movie and Episode
-// reconcilers' List calls read -- the MediaFiles backing an item and the
+// controller name is claimed) with the field indexes the Movie, Episode and
+// MediaFile reconcilers' List calls read -- the MediaFiles backing an item and the
 // Downloads covering it. Only a manager cache's FieldIndexer serves a
 // List(client.MatchingFields{...}); against a bare client the same option is
 // sent to the apiserver as a fieldSelector, which no CRD declares as
@@ -76,6 +76,7 @@ func startOwnerCache(t *testing.T, ctx context.Context, cfg *rest.Config) client
 
 	require.NoError(t, movie.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 	require.NoError(t, episode.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, mediafile.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))

@@ -679,14 +679,7 @@ func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaF
 //	return mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(),
 //	    mgr.GetEventRecorder("mediafile-controller")).SetupWithManager(mgr)
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ctx := context.Background()
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &transcodev1alpha1.TranscodeJob{}, transcodeJobMediaFileRefIndex, indexTranscodeJobByMediaFileRef); err != nil {
-		return err
-	}
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &subtitlev1alpha1.SubtitleRequest{}, subtitleRequestMediaFileRefIndex, indexSubtitleRequestByMediaFileRef); err != nil {
-		return err
-	}
-	if err := registerNamingIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
 	return ctrl.NewControllerManagedBy(mgr).
@@ -719,6 +712,20 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// RegisterIndexes registers every field index Reconcile's Lists and the
+// watches' map functions read, on idx. SetupWithManager calls it; a test
+// that drives the lookups against a bare manager cache calls it too, so
+// the index names and extractors live in one place.
+func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	if err := idx.IndexField(ctx, &transcodev1alpha1.TranscodeJob{}, transcodeJobMediaFileRefIndex, indexTranscodeJobByMediaFileRef); err != nil {
+		return err
+	}
+	if err := idx.IndexField(ctx, &subtitlev1alpha1.SubtitleRequest{}, subtitleRequestMediaFileRefIndex, indexSubtitleRequestByMediaFileRef); err != nil {
+		return err
+	}
+	return registerNamingIndexes(ctx, idx)
+}
+
 // MaxConcurrentReconciles is how many MediaFiles are reconciled at once. A
 // reconcile may run ffprobe over the library mount -- about ten seconds on
 // the owner's NFS share -- and a RootFolder naming change or a
@@ -731,31 +738,22 @@ const MaxConcurrentReconciles = 8
 // once per reconcile: latestUnincorporatedTranscode and transcodeInFlight
 // both read the result.
 //
-// This filters list.Items in Go rather than sending
-// client.MatchingFields{transcodeJobMediaFileRefIndex: mf.Name}: that option
-// is only served from a manager-cached client's local FieldIndexer (the one
-// SetupWithManager registers). Against a direct, uncached client -- which is
-// exactly what this task's mandatory two-writer envtest uses to call
-// Reconcile without starting a manager -- the same option is instead sent to
-// the apiserver as a fieldSelector, and neither TranscodeJob nor
-// SubtitleRequest declares that path as a CRD selectable field, so the
-// apiserver rejects it ("field label not supported"). Filtering client-side
-// is correct under both a raw and a cached client; the registered index
-// still documents and enables the reverse (MediaFile -> its TranscodeJobs)
-// lookup direction for any future caller that goes through the manager
-// cache.
+// It selects on the field rather than listing the namespace: run.go hands
+// the Reconciler the manager's client, whose reads the cache answers from
+// the index RegisterIndexes adds, so one reconcile reads its own file's
+// jobs and not the library's (a namespace List deep-copied every job, once
+// per MediaFile reconcile). TranscodeJob does not yet declare
+// spec.mediaFileRef a CRD selectable field, as SubtitleRequest does, so a
+// raw client's apiserver refuses this selector; the envtests' raw client
+// stands in for it (rawClient). TODO: give TranscodeJob the same
+// selectablefield marker once api/transcode is free, and drop that shim.
 func (r *Reconciler) transcodeJobsOf(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]transcodev1alpha1.TranscodeJob, error) {
 	var list transcodev1alpha1.TranscodeJobList
-	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace)); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace),
+		client.MatchingFields{transcodeJobMediaFileRefIndex: mf.Name}); err != nil {
 		return nil, fmt.Errorf("mediafile: list TranscodeJobs: %w", err)
 	}
-	out := list.Items[:0]
-	for i := range list.Items {
-		if list.Items[i].Spec.MediaFileRef == mf.Name {
-			out = append(out, list.Items[i])
-		}
-	}
-	return out, nil
+	return list.Items, nil
 }
 
 // latestUnincorporatedTranscode returns the most recently finished
@@ -820,25 +818,20 @@ func (r *Reconciler) transcodeProfileTag(ctx context.Context, tj *transcodev1alp
 // same manager, it released probeHash, probedAt, mediaInfo and transcode
 // every time a SubtitleRequest existed. See Reconcile's doc comment.
 //
-// See transcodeJobsOf's comment for why this filters
-// list.Items in Go instead of sending
-// client.MatchingFields{subtitleRequestMediaFileRefIndex: mf.Name}: the same
-// apiserver-selectable-field gap applies to SubtitleRequest.
+// It selects on spec.mediaFileRef, which SubtitleRequest declares a CRD
+// selectable field, so the lookup is one file's request on the manager's
+// cached client (through the index RegisterIndexes adds) and on a raw one
+// (through the apiserver's fieldSelector) alike.
 func (r *Reconciler) scanSidecars(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]catalogv1alpha1.Sidecar, bool, error) {
 	var list subtitlev1alpha1.SubtitleRequestList
-	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace)); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace),
+		client.MatchingFields{subtitleRequestMediaFileRefIndex: mf.Name}); err != nil {
 		return nil, false, fmt.Errorf("mediafile: list SubtitleRequests: %w", err)
 	}
-	var match *subtitlev1alpha1.SubtitleRequest
-	for i := range list.Items {
-		if list.Items[i].Spec.MediaFileRef == mf.Name {
-			match = &list.Items[i]
-			break
-		}
-	}
-	if match == nil {
+	if len(list.Items) == 0 {
 		return nil, false, nil
 	}
+	match := &list.Items[0]
 	sidecars, err := sidecarsFromSubtitleRequest(filepath.Dir(mf.Spec.Path), match.Status.Items)
 	if err != nil {
 		return nil, false, err

@@ -67,11 +67,11 @@ func startEnv(t *testing.T) (client.Client, *rest.Config) {
 		t.Fatalf("start envtest: %v", err)
 	}
 	t.Cleanup(func() { _ = env.Stop() })
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	c, err := client.NewWithWatch(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}
-	return c, cfg
+	return rawClient{c}, cfg
 }
 
 func mustNamespace(t *testing.T, ctx context.Context, c client.Client, ns string) {

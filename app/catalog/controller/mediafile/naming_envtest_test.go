@@ -648,7 +648,7 @@ func TestNamingKeepsItsProposalOverALookupFailure(t *testing.T) {
 	setMovieMetadata(t, ctx, c, ns, "inception", "Inception Redux", 2010)
 	wc, err := client.NewWithWatch(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
-	blip := interceptor.NewClient(wc, interceptor.Funcs{
+	blip := interceptor.NewClient(rawClient{wc}, interceptor.Funcs{
 		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			if _, ok := obj.(*catalogv1alpha1.RootFolder); ok {
 				return apierrors.NewInternalError(errors.New("cache blip"))

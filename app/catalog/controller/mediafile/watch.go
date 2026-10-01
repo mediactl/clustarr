@@ -39,9 +39,15 @@ import (
 // Reconcile can List "every {TranscodeJob,SubtitleRequest} for this
 // MediaFile" -- the direction the mapping functions below don't need,
 // because both spec types name their MediaFile directly.
+//
+// Each is spelled as the apiserver spells the field label of a CRD
+// selectable field -- no leading dot -- so one client.MatchingFields reads
+// the cache's index on the manager's client and the apiserver's
+// fieldSelector on a raw one. SubtitleRequest declares the field
+// selectable; TranscodeJob does not yet (see transcodeJobsOf).
 const (
-	transcodeJobMediaFileRefIndex    = ".spec.mediaFileRef"
-	subtitleRequestMediaFileRefIndex = ".spec.mediaFileRef"
+	transcodeJobMediaFileRefIndex    = "spec.mediaFileRef"
+	subtitleRequestMediaFileRefIndex = "spec.mediaFileRef"
 )
 
 func indexTranscodeJobByMediaFileRef(o client.Object) []string {
