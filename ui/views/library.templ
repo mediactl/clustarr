@@ -355,6 +355,7 @@ templ libraryToolbar(tab projection.Tab, tb LibraryToolbar, rootFolders []catalo
 			@rescanForm(tab, len(rootFolders) > 0)
 			@addNewButton(tab)
 		}
+		@libraryFind(tab)
 		@toolbarGroup() {
 			@viewMenu("Sort", "arrow-up-down", "Sort by", "data-sort", tb.Sorts)
 			@viewMenu("Filter", "funnel", "Filter", "data-filter", tb.Filters)

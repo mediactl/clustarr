@@ -55,6 +55,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /events/downloads", s.handleDownloadsEvents)
 	mux.HandleFunc("GET /library", s.handleLibraryIndex)
 	mux.HandleFunc("GET /library/{tab}", s.handleLibrary)
+	mux.HandleFunc("GET /library/{tab}/find", s.handleLibraryFind)
 	mux.HandleFunc("GET /library/{tab}/add", s.handleAddPage)
 	mux.HandleFunc("GET /library/{tab}/add/search", s.handleAddSearch)
 	mux.HandleFunc("POST /library/{tab}/add", s.handleAddCreate)

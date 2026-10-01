@@ -158,7 +158,9 @@ func (s *Server) handleAddPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderAddPage(w, r, k, http.StatusOK, views.AddPageData{})
+	// ?q fills the box and searches at once: the library typeahead's
+	// "Add a new …" carries what the reader typed (2026-10-01).
+	s.renderAddPage(w, r, k, http.StatusOK, views.AddPageData{Query: strings.TrimSpace(r.URL.Query().Get("q"))})
 }
 
 // renderAddPage renders the Add New page from d, which carries the error

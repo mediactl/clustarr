@@ -235,7 +235,7 @@ func AddPage(d AddPageData) templ.Component {
 					"aria-label":   "Search",
 					"autofocus":    true,
 					"hx-get":       "/library/" + string(d.Kind.Tab) + "/add/search",
-					"hx-trigger":   "input changed delay:400ms, search",
+					"hx-trigger":   addSearchTrigger(d.Query),
 					"hx-target":    "#add-results",
 					"hx-indicator": "#add-searching",
 				},
@@ -1374,6 +1374,16 @@ func postedCheck(d AddResultsData, h AddHit, name string, def bool) bool {
 		}
 	}
 	return def
+}
+
+// addSearchTrigger searches as the reader types, and once as the page
+// loads when it arrives with a query already in the box (the library
+// typeahead's "Add a new …", 2026-10-01).
+func addSearchTrigger(query string) string {
+	if query != "" {
+		return "input changed delay:400ms, search, load"
+	}
+	return "input changed delay:400ms, search"
 }
 
 var _ = templruntime.GeneratedTemplate

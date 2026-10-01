@@ -153,6 +153,14 @@ Each library page has an **Add New** (`/library/{tab}/add`, since
 (TMDB movies, TVDB series, MusicBrainz artists, Open Library authors) and
 adds the chosen item through `ui/actions.AddItem`; an item the library
 already holds is found by `LibraryItem.ProviderID` and opened instead.
+Each library tab's toolbar also has a typeahead (2026-10-01, Sonarr's and
+Radarr's header search): `GET /library/{tab}/find?q=` answers a dropdown of
+up to 10 of the tab's **monitored** items (`projection.Find`: titles through
+`release.TitleNorm`, ranked exact, prefix, word prefix, anywhere; a
+`tmdb:603`-style or bare provider id first), from the projection alone;
+`ui/static/find.js` gives it arrow keys, Enter and Escape and places the
+dropdown `position: fixed`, since the toolbar's `overflow-x: auto` clips it.
+No match links to Add New with `?q=`, which fills and runs its search.
 An import list likewise finds an item by provider id
 (`importlist.libraryByID`) and writes only the items it added itself:
 one added by hand, by a rescan or by another list is recorded as listed
