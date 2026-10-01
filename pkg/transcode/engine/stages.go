@@ -30,10 +30,3 @@ func videoStage(v standard.VideoPlan) stageFunc {
 		return errors.New("video encoding is not built yet")
 	}
 }
-
-// audioStage encodes one audio track (audio.go fills it in).
-func audioStage(a standard.AudioPlan) stageFunc {
-	return func(ctx context.Context, sc *stageContext) error {
-		return errors.New("audio encoding is not built yet")
-	}
-}

@@ -207,3 +207,16 @@ func TestHashIsStableAndSensitive(t *testing.T) {
 	p30.Quality = 30
 	assert.NotEqual(t, a.Hash(), Plan(info(h264, eac3), p30, cpu).Hash())
 }
+
+// FFmpeg's AAC encoder takes 5.1 with back surrounds ("5.1"), not
+// "5.1(side)": the plan's AAC layout is the canonical one for the channel
+// count, and the resampler maps the source's positions onto it.
+func TestAACLayoutIsCanonicalForItsChannelCount(t *testing.T) {
+	for _, c := range []struct {
+		ch     int32
+		layout string
+	}{{1, "mono"}, {2, "stereo"}, {3, "3.0"}, {4, "4.0"}, {5, "5.0"}, {6, "5.1"}, {8, "5.1"}} {
+		p := Plan(info(h264, audio(0, "flac", c.ch, "whatever(side)", "eng")), profile, cpu)
+		assert.Equal(t, c.layout, p.Audio[0].Layout, "%d channels", c.ch)
+	}
+}

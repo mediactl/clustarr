@@ -95,7 +95,7 @@ type AudioPlan struct {
 	SourceIndex int32  // type-relative: the Nth audio stream
 	Action      string // "copy" | "aac"
 	Channels    int32  `json:",omitempty"` // aac
-	Layout      string `json:",omitempty"` // aac: the output layout; "" keeps the source's
+	Layout      string `json:",omitempty"` // aac: the output layout, canonical for Channels (aacLayouts)
 	BitRate     int64  `json:",omitempty"` // aac
 	Language    string `json:",omitempty"`
 	Title       string `json:",omitempty"`
@@ -131,6 +131,10 @@ func (p Result) Hash() string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
+
+// aacLayouts are the layouts FFmpeg's AAC encoder takes, by channel count
+// ("5.1" has back surrounds; "5.1(side)" is not among them).
+var aacLayouts = map[int32]string{1: "mono", 2: "stereo", 3: "3.0", 4: "4.0", 5: "5.0", 6: "5.1"}
 
 // directPlay are the audio codecs Apple TV plays directly: copied as is.
 var directPlay = []string{"aac", "ac3", "eac3"}
@@ -324,10 +328,7 @@ func planAudio(as []transcode.AudioStream, languages []string) []AudioPlan {
 				ch = 2
 			}
 			ap.Action, ap.Channels, ap.BitRate = "aac", ch, 64000*int64(ch)
-			ap.Layout = a.ChannelLayout
-			if a.Channels > 6 {
-				ap.Layout = "5.1"
-			}
+			ap.Layout = aacLayouts[ch]
 		}
 		out = append(out, ap)
 	}
