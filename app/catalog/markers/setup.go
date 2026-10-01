@@ -42,7 +42,7 @@ func Setup(ctx context.Context, o Options, providers []metadata.MarkersProvider)
 	if !ok {
 		return nil, fmt.Errorf("markers: consumer %q missing from the default topology", events.ConsumerCatalogMarkers)
 	}
-	h := &Handler{Reader: o.Reader, Client: o.Client, Providers: providers, Bus: o.Bus}
+	h := &Handler{Reader: o.Reader, Client: o.Client, Providers: providers, Bus: o.Bus, KV: o.Bus.KV(events.BucketSegments)}
 	stop, err = o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
 	if err != nil {
 		return nil, fmt.Errorf("markers: subscribe %s: %w", events.ConsumerCatalogMarkers, err)

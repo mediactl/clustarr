@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,15 +34,14 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/segments"
 )
-
-// maxSegments is FileMarkers.Segments' MaxItems.
-const maxSegments = 20
 
 // maxMessage is FileMarkers.Message's MaxLength.
 const maxMessage = 512
@@ -77,6 +75,9 @@ type Handler struct {
 	Client client.Client
 	// Bus re-publishes a task deferred to a spent key's reset.
 	Bus events.Publisher
+	// KV is the segments bucket: the file's own analysis, merged under
+	// TheIntroDB's segments. Nil merges none.
+	KV events.KV
 
 	// absent remembers, for SeriesAbsentTTL, each series the provider has
 	// nothing for at all (metadata.ErrNoTitle), keyed by its query id, so
@@ -144,36 +145,27 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return nil // the registry, not the file, is missing something
 	}
 
-	// The lost-update rule: the file is read again just before the apply,
-	// and a file re-probed meanwhile is left to the fetch its new probe asks for.
-	var fresh catalogv1alpha1.MediaFile
-	if gerr := h.Reader.Get(ctx, client.ObjectKeyFromObject(&mf), &fresh); gerr != nil {
-		if apierrors.IsNotFound(gerr) {
-			return nil
-		}
-		return gerr
+	// The apply re-reads the file and drops the result when it was
+	// re-probed meanwhile (the lost-update rule), then merges TheIntroDB's
+	// segments with the file's own analysis (segmenting.ApplyMerged).
+	tid := &segmenting.TheIntroDBUpdate{
+		FetchedAt: metav1.NewTime(now), ForProbeHash: mf.Status.ProbeHash, DurationMs: q.DurationMs,
 	}
-	if fresh.Status.ProbeHash != mf.Status.ProbeHash {
-		return nil
-	}
-
-	ac := catalogac.FileMarkers().
-		WithFetchedAt(metav1.NewTime(now)).
-		WithForProbeHash(mf.Status.ProbeHash).
-		WithDurationMs(q.DurationMs)
 	switch {
 	case err == nil:
-		ac.WithResult(catalogv1alpha1.MarkersFound).WithSegments(segmentACs(segs)...)
+		tid.Result, tid.Segments = catalogv1alpha1.MarkersFound, toSegments(segs)
 	case errors.Is(err, metadata.ErrNotFound):
-		ac.WithResult(catalogv1alpha1.MarkersNotFound).WithNotFoundSince(metav1.NewTime(notFoundSince(&mf, now)))
+		since := metav1.NewTime(notFoundSince(&mf, now))
+		tid.Result, tid.NotFoundSince = catalogv1alpha1.MarkersNotFound, &since
 		if errors.Is(err, errNotAsked) { // decided here, so say why
-			ac.WithMessage(clamp(err.Error()))
+			tid.Message = clamp(err.Error())
 		}
 	default:
 		logging.FromContext(ctx).WarnContext(ctx, "markers: fetch failed", "mediafile", mf.Name, "error", err)
-		ac.WithResult(catalogv1alpha1.MarkersError).WithMessage(clamp(err.Error()))
+		tid.Result, tid.Message = catalogv1alpha1.MarkersError, clamp(err.Error())
 	}
-	return h.apply(ctx, catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(catalogac.MediaFileStatus().WithMarkers(ac)))
+	applier := &segmenting.Applier{Reader: h.Reader, KV: h.KV, Apply: h.apply}
+	return applier.ApplyMerged(ctx, client.ObjectKeyFromObject(&mf), tid, nil)
 }
 
 // notFoundSince is when the provider first had nothing for mf's probe: the
@@ -305,13 +297,10 @@ func (h *Handler) now() time.Time {
 	return time.Now()
 }
 
-// segmentACs flattens the segments by start, capped at the CRD's MaxItems.
-func segmentACs(s metadata.Segments) []*catalogac.MarkerSegmentApplyConfiguration {
-	type seg struct {
-		kind catalogv1alpha1.MarkerKind
-		s    metadata.Segment
-	}
-	var all []seg
+// toSegments tags TheIntroDB's segments with their source, confidence 100;
+// segments.Merge orders and caps them.
+func toSegments(s metadata.Segments) []segments.Segment {
+	var out []segments.Segment
 	for _, k := range []struct {
 		kind catalogv1alpha1.MarkerKind
 		list []metadata.Segment
@@ -322,16 +311,11 @@ func segmentACs(s metadata.Segments) []*catalogac.MarkerSegmentApplyConfiguratio
 		{catalogv1alpha1.MarkerPreview, s.Preview},
 	} {
 		for _, x := range k.list {
-			all = append(all, seg{k.kind, x})
+			out = append(out, segments.Segment{
+				Kind: k.kind, StartMs: x.StartMs, EndMs: x.EndMs,
+				Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: 100,
+			})
 		}
-	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].s.StartMs < all[j].s.StartMs })
-	if len(all) > maxSegments {
-		all = all[:maxSegments]
-	}
-	out := make([]*catalogac.MarkerSegmentApplyConfiguration, len(all))
-	for i, x := range all {
-		out[i] = catalogac.MarkerSegment().WithKind(x.kind).WithStartMs(x.s.StartMs).WithEndMs(x.s.EndMs)
 	}
 	return out
 }

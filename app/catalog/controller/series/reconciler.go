@@ -66,6 +66,10 @@ const conditionQueueFull = "QueueFull"
 // without scanning the whole namespace.
 const episodeBySeriesRefIndexKey = ".spec.seriesRef"
 
+// EpisodeBySeriesRefIndex is the field index of Episodes by spec.seriesRef,
+// registered with the Series controller, for other readers of the cache.
+const EpisodeBySeriesRefIndex = episodeBySeriesRefIndexKey
+
 // episodeSyncRPCBackoff is the RequeueAfter used when the episode-listing
 // RPC fails, a concrete short backoff per §8.8 (RequeueAfter only, never a
 // bare error-triggered exponential backoff for a known-transient

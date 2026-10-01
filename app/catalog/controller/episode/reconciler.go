@@ -58,6 +58,9 @@ const (
 	// and, for a multi-episode file, each one in spec.mediaRef.keys
 	// (coveredEpisodes).
 	mediaFileByEpisodeIndexKey = ".spec.mediaRef.episode"
+	// MediaFileByEpisodeIndex is the field index of MediaFiles by the
+	// episodes they cover, registered by RegisterIndexes.
+	MediaFileByEpisodeIndex = mediaFileByEpisodeIndexKey
 
 	// downloadByEpisodeIndexKey indexes Download by every Episode its
 	// spec.target covers: the episode itself for a single-episode grab

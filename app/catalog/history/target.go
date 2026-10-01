@@ -168,6 +168,9 @@ var resolvers = map[string]resolver{
 	schema.ListTask{}.Schema():          resolveListTask,
 	schema.ArtworkFetchTask{}.Schema():  resolveArtworkFetchTask,
 	schema.RenderOverlayTask{}.Schema(): resolveRenderOverlayTask,
+	schema.SegmentsPlanTask{}.Schema():  resolveSegmentsPlanTask,
+	schema.AnalyzeTask{}.Schema():       resolveAnalyzeTask,
+	schema.SegmentsResult{}.Schema():    resolveSegmentsResult,
 }
 
 // Resolve establishes the CR a domain event or dead-lettered envelope
@@ -257,6 +260,46 @@ func resolveRenderOverlayTask(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return mediaTarget(namespaceOf(key), p.MediaRef.Name, p.MediaRef.Kind)
+}
+
+// The segment detection payloads (spec 2026-10-01) resolve to the object
+// they concern: a plan to its Series (a season) or its MediaFile (a movie);
+// an analysis task to its first due MediaFile, the one a dead letter
+// leaves unanalyzed; a result to its MediaFile.
+func mediaFileTarget(ns, name string) Target {
+	return Target{Namespace: ns, Name: name, Kind: "MediaFile", APIVersion: catalogv1alpha1.GroupVersion.String()}
+}
+
+func resolveSegmentsPlanTask(key string, data []byte) Target {
+	var p schema.SegmentsPlanTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	if p.Movie != "" {
+		return mediaFileTarget(p.Namespace, p.Movie)
+	}
+	return Target{Namespace: p.Namespace, Name: p.Series, Kind: "Series", APIVersion: catalogv1alpha1.GroupVersion.String()}
+}
+
+func resolveAnalyzeTask(key string, data []byte) Target {
+	var p schema.AnalyzeTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	for _, f := range p.Files {
+		if f.Due {
+			return mediaFileTarget(p.Namespace, f.MediaFile)
+		}
+	}
+	return Target{Namespace: p.Namespace}
+}
+
+func resolveSegmentsResult(key string, data []byte) Target {
+	var p schema.SegmentsResult
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaFileTarget(namespaceOf(key), p.MediaFile)
 }
 
 func resolveMetadataTask(key string, data []byte) Target {

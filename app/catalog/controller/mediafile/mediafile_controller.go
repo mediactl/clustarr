@@ -42,11 +42,13 @@ import (
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/markers"
+	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	clustarrevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/segments"
 )
 
 // The MediaFile controller's RBAC. The Events group is events.k8s.io and not
@@ -470,6 +472,9 @@ func (r *Reconciler) followUpMarkers(ctx context.Context, mf *catalogv1alpha1.Me
 	}
 	cur := mf.DeepCopy()
 	cur.Status.ProbeHash, cur.Status.MediaInfo = known.ProbeHash, known.MediaInfo
+	if err := r.planSegments(ctx, cur, now); err != nil {
+		return res, err
+	}
 	due, in := markers.Due(cur, now)
 	if due {
 		if err := markers.Publish(ctx, r.Bus, cur, now); err != nil {
@@ -481,6 +486,27 @@ func (r *Reconciler) followUpMarkers(ctx context.Context, mf *catalogv1alpha1.Me
 		res.RequeueAfter = in
 	}
 	return res, nil
+}
+
+// planSegments asks for the file's segment analysis when it is due
+// (segments.Due): its season's plan for an episode, its own for a movie
+// (app/catalog/segmenting). An episode not in the cache yet plans nothing;
+// its next reconcile does.
+func (r *Reconciler) planSegments(ctx context.Context, mf *catalogv1alpha1.MediaFile, now time.Time) error {
+	if !segments.Due(mf, now) {
+		return nil
+	}
+	var ep *catalogv1alpha1.Episode
+	if mf.Spec.MediaRef.Kind == commonv1.MediaKindEpisode {
+		if r.Client == nil {
+			return nil
+		}
+		ep = &catalogv1alpha1.Episode{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}, ep); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+	}
+	return segmenting.PublishPlan(ctx, r.Bus, mf, ep, now)
 }
 
 // swapTarget decides what an unincorporated Succeeded TranscodeJob means for

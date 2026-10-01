@@ -59,6 +59,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/markers"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
@@ -451,6 +452,20 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalogarr: wantedcron: %w", err)
 	}
 
+	// The segment analysis planner reads a season's episodes and files
+	// through this role's cache and its field indexes (segmenting.Planner).
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		stop, err := segmenting.Setup(ctx, segmenting.Options{Bus: bus, Reader: c, Planner: true})
+		if err != nil {
+			return fmt.Errorf("catalogarr: segment planner: %w", err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return fmt.Errorf("catalogarr: add the segment planner: %w", err)
+	}
+
 	return nil
 }
 
@@ -785,7 +800,20 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 			HTTPClient: defaultHTTPClient,
 			Artwork:    fetcher,
 			Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
-				return markers.Setup(ctx, markers.Options{Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}, providers)
+				stopMarkers, err := markers.Setup(ctx, markers.Options{Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}, providers)
+				if err != nil {
+					return nil, err
+				}
+				// Segment analysis results write status.markers beside
+				// TheIntroDB's handler, through the same merge.
+				stopResults, err := segmenting.Setup(ctx, segmenting.Options{
+					Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient(), Results: true,
+				})
+				if err != nil {
+					stopMarkers()
+					return nil, err
+				}
+				return func() { stopResults(); stopMarkers() }, nil
 			},
 		})
 		if err != nil {
