@@ -176,9 +176,9 @@ docker-build: ## Build controller, media and transcoder images.
 # the transcoder image, the NVIDIA container runtime injecting the driver.
 
 # The distroless transcoders (FROM scratch, images/Dockerfile.transcoder-distroless):
-# target:class pairs to self-check (transcoder serves cpu and nvidia pools
-# alike, ADR 0015); each target, and its -debug twin, is built once.
-DISTROLESS_TARGETS ?= transcoder:cpu transcoder:cuda transcoder-intel:intel
+# target:class pairs to self-check (transcoder serves every pool, cpu, nvidia
+# and intel, ADR 0015); each target, and its -debug twin, is built once.
+DISTROLESS_TARGETS ?= transcoder:cpu transcoder:cuda transcoder:intel
 DISTROLESS_BUILDS = $(sort $(foreach tc,$(DISTROLESS_TARGETS),$(firstword $(subst :, ,$(tc)))))
 DISTROLESS_REPO ?= ghcr.io/mediactl/clustarr
 

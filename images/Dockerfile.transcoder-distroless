@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr/transcoder[-intel]-distroless -- the
+# ghcr.io/mediactl/clustarr/transcoder-distroless -- the
 # squasharr worker on FFmpeg 9.0, in images built FROM scratch (spec
 # docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md §5 and its
 # 2026-10-01 amendment). Targets:
 #
-#   transcoder        CPU and NVIDIA; amd64 and arm64
-#   transcoder-intel  plus Intel's VAAPI driver and QSV runtimes; amd64
-#   <target>-debug    the same plus a static busybox, for kubectl exec
+#   transcoder        every class -- CPU, NVIDIA and Intel; amd64 and arm64
+#                     (Intel's VAAPI driver and QSV runtimes on amd64 only)
+#   transcoder-debug  the same plus a static busybox, for kubectl exec
 #
 # There is no CUDA target (docs/adr/0015-no-cuda-image.md; removed
 # 2026-10-01). An nvidia pool runs `transcoder`: the NVIDIA container
@@ -24,7 +24,9 @@
 # images/distroless/stage.sh follows the DT_NEEDED tree of everything the
 # worker loads (the worker is a purego binary, so it brings ld-linux and
 # libc), and names what is dlopen'ed (glibc's NSS plugins; the Intel
-# runtime). Today's images/Dockerfile.transcoder serves the live pools
+# runtime). One image runs every pool (ADR 0015), so it carries the Intel
+# runtime too, which nothing injects at run time as NVIDIA's runtime injects
+# NVIDIA's driver (Phase 4 folded the old transcoder-intel target in). Today's images/Dockerfile.transcoder serves the live pools
 # until the pools switch (Phase 3/4) and is deleted in Phase 5; until then
 # these images also carry ffmpeg and ffprobe for the argv engine.
 #
@@ -119,18 +121,18 @@ COPY --from=build /out/squasharr-worker /usr/bin/squasharr-worker
 COPY --from=build /out/licenses/ /usr/share/licenses/
 COPY images/distroless/stage.sh /stage.sh
 
+# Intel (amd64 only): Debian 13's VAAPI driver (the non-free iHD build: the
+# free one has no HEVC 10-bit encode on Kaby Lake through Comet Lake) and
+# libva 2.22, and both QSV runtimes -- libmfx-gen for Gen12 and newer, and
+# Media SDK's libmfxhw64 for Broadwell..Ice Lake, which Debian 13 dropped,
+# so it alone comes from Debian 12 (it links libva.so.2, whose ABI 2.22
+# keeps). All of it is dlopen'ed (by BtbN's libva stubs, libva and the
+# libvpl dispatcher), so it is named for lddtree. On arm64 there is no
+# Intel GPU to drive, and the image stages the worker alone.
 FROM staging-base AS staging
-RUN /stage.sh /staging
-
-# Intel: Debian 13's VAAPI driver (the non-free iHD build: the free one has
-# no HEVC 10-bit encode on Kaby Lake through Comet Lake) and libva 2.22,
-# and both QSV runtimes -- libmfx-gen for Gen12 and newer, and Media SDK's
-# libmfxhw64 for Broadwell..Ice Lake, which Debian 13 dropped, so it alone
-# comes from Debian 12 (it links libva.so.2, whose ABI 2.22 keeps). All of
-# it is dlopen'ed (by BtbN's libva stubs, libva and the libvpl dispatcher),
-# so it is named for lddtree.
-FROM staging-base AS staging-intel
+ARG TARGETARCH
 RUN set -eux; \
+    if [ "$TARGETARCH" != amd64 ]; then /stage.sh /staging; exit 0; fi; \
     sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.list.d/debian.sources; \
     grep -q '^Components: main non-free$' /etc/apt/sources.list.d/debian.sources; \
     printf 'Types: deb\nURIs: http://deb.debian.org/debian\nSuites: bookworm\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' \
@@ -151,26 +153,10 @@ LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.title="clustarr-transcoder"
 COPY --from=staging /staging/ /
-ENV FFGO_SHIM_DIR=/usr/lib \
-    LIBVA_MESSAGING_LEVEL=1
-VOLUME ["/data"]
-USER 1000:1000
-ENTRYPOINT ["/usr/bin/squasharr-worker"]
-
-FROM transcoder AS transcoder-debug
-COPY --from=busybox:1.37-musl /bin/ /bin/
-COPY images/distroless/busybox-SOURCE /usr/share/licenses/busybox/SOURCE
-
-# ---------------------------------------------------------------------------
-# transcoder-intel: plus the Intel media runtime (amd64)
-# ---------------------------------------------------------------------------
-FROM scratch AS transcoder-intel
-LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
-      org.opencontainers.image.licenses="GPL-3.0-only" \
-      org.opencontainers.image.title="clustarr-transcoder-intel"
-COPY --from=staging-intel /staging/ /
 # libva logs every driver load at info level on stderr; errors only keeps
-# FFmpeg's own error in the worker's stderr tail.
+# FFmpeg's own error in the worker's stderr tail. The driver path names
+# iHD's directory on amd64; on arm64 it does not exist, and nothing there
+# opens VAAPI.
 ENV FFGO_SHIM_DIR=/usr/lib \
     LIBVA_MESSAGING_LEVEL=1 \
     LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
@@ -179,6 +165,6 @@ VOLUME ["/data"]
 USER 1000:1000
 ENTRYPOINT ["/usr/bin/squasharr-worker"]
 
-FROM transcoder-intel AS transcoder-intel-debug
+FROM transcoder AS transcoder-debug
 COPY --from=busybox:1.37-musl /bin/ /bin/
 COPY images/distroless/busybox-SOURCE /usr/share/licenses/busybox/SOURCE

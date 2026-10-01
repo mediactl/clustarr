@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -157,4 +158,33 @@ func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
 	}
 	_, err = os.Stat(filepath.Join(root, "images", "Dockerfile.media-cuda"))
 	require.True(t, os.IsNotExist(err), "Dockerfile.media-cuda stays gone")
+}
+
+// Every pool, Intel's included, runs the one transcoder image (ADR 0015),
+// so that image carries the Intel media runtime -- the iHD VAAPI driver
+// and both QSV runtimes, which nothing injects at run time the way the
+// NVIDIA runtime injects NVIDIA's -- and no Intel-only target remains.
+func TestTheOneTranscoderImageCarriesTheIntelStack(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+	b, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.transcoder-distroless"))
+	require.NoError(t, err)
+	df := string(b)
+	assert.NotRegexp(t, `(?im)^FROM\s+\S+\s+AS\s+transcoder-intel`, df, "no Intel-only target")
+
+	start := regexp.MustCompile(`(?im)^FROM\s+scratch\s+AS\s+transcoder\s*$`).FindStringIndex(df)
+	require.NotNil(t, start, "the transcoder target")
+	target := df[start[0]:]
+	if next := regexp.MustCompile(`(?im)^FROM\s`).FindStringIndex(target[1:]); next != nil {
+		target = target[:next[0]+1]
+	}
+	assert.Contains(t, target, "LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri", "the transcoder target points libva at iHD")
+	from := regexp.MustCompile(`COPY --from=(\S+) /staging/ /`).FindStringSubmatch(target)
+	require.NotNil(t, from, "the transcoder target copies a staging tree")
+	stageRE := regexp.MustCompile(`(?ims)^FROM\s+\S+\s+AS\s+` + regexp.QuoteMeta(from[1]) + `\s*$(.*?)^FROM\s`)
+	m := stageRE.FindStringSubmatch(df)
+	require.NotNil(t, m, "the %s stage", from[1])
+	for _, pkg := range []string{"intel-media-va-driver-non-free", "libmfx-gen1.2", "libmfx1/bookworm"} {
+		assert.Contains(t, m[1], pkg, "the one image's staging installs %s", pkg)
+	}
 }

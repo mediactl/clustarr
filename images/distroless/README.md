@@ -6,8 +6,7 @@ images `FROM scratch` (spec `docs/superpowers/specs/2026-09-30-ffgo-transcoding-
 
 | Target | Platforms | Class | Size (2026-10-01) | Today's Debian image |
 | --- | --- | --- | --- | --- |
-| `transcoder` | amd64, arm64 | `cpu`, `cuda` | 95 MB | `transcoder` 755 MB |
-| `transcoder-intel` | amd64 | `intel` | 111 MB | (in `transcoder`, 755 MB) |
+| `transcoder` | amd64, arm64 | `cpu`, `cuda`, `intel` (amd64) | about 118 MB gzipped on amd64 (2026-10-01, with the Intel runtime; arm64 without it) | `transcoder` 755 MB |
 | `<target>-debug` | as its target | | +1 MB (static busybox) | |
 
 There is no CUDA image ([ADR-0015](../../docs/adr/0015-no-cuda-image.md)).
@@ -40,3 +39,10 @@ What is in them, and why:
 make docker-build-distroless       # every target and its -debug twin
 make docker-selfcheck-distroless   # --self-check=<class> in each, as the pool pods run it
 ```
+
+Every pool, Intel's included, runs `transcoder` (ADR-0015). The Intel
+runtime -- the iHD VAAPI driver and both QSV runtimes -- is in the image
+on amd64, because nothing injects it at run time the way the NVIDIA
+runtime injects NVIDIA's driver; the `transcoder-intel` target was folded
+into `transcoder` on 2026-10-01 (ffgo Phase 4). `--self-check=intel
+--trial` encodes on QSV and VAAPI with the image on a Comet Lake iGPU.

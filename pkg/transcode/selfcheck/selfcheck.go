@@ -69,7 +69,7 @@ type RuntimeLib struct {
 }
 
 // RuntimeLibs is each class's run-time libraries. Intel's are what
-// transcoder-intel stages for BtbN's libva stubs (which call libva 2.21's
+// the transcoder image stages on amd64 for BtbN's libva stubs (which call libva 2.21's
 // vaMapBuffer2: with Debian 12's libva 2.17 they abort the process), the
 // iHD driver libva loads, and both QSV runtimes the libvpl dispatcher
 // loads. NVIDIA's driver libraries are the container toolkit's to inject,

@@ -160,11 +160,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # transcoder serves cpu and nvidia pools alike: there is no CUDA
-          # image (docs/adr/0015-no-cuda-image.md), so it is checked for both.
-          - { target: transcoder, classes: "cpu cuda", arch: amd64, runner: ubuntu-24.04 }
+          # transcoder serves every pool, cpu, nvidia and intel (ADR 0015):
+          # on amd64 it carries the Intel runtime and is checked for all three.
+          - { target: transcoder, classes: "cpu cuda intel", arch: amd64, runner: ubuntu-24.04 }
           - { target: transcoder, classes: cpu, arch: arm64, runner: ubuntu-24.04-arm }
-          - { target: transcoder-intel, classes: intel, arch: amd64, runner: ubuntu-24.04 }
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

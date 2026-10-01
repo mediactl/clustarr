@@ -65,12 +65,10 @@ jobs:
           # The distroless transcoders (FROM scratch); named -distroless until
           # the pools switch to them (ffgo Phase 3/4), so the live tags above
           # are untouched.
-          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda" }
+          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
           - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
-          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda" }
+          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
           - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
-          - { image: transcoder-intel-distroless, suffix: /transcoder-intel-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel, arch: amd64, runner: ubuntu-24.04, class: intel }
-          - { image: transcoder-intel-distroless-debug, suffix: /transcoder-intel-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel-debug, arch: amd64, runner: ubuntu-24.04, class: intel }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04 }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm }
     env:
@@ -135,7 +133,7 @@ jobs:
         env:
           IMAGE: selfcheck/${{ matrix.image }}:ci
           CLASS: ${{ matrix.class }}
-        # A space-separated list: transcoder serves cpu and nvidia (cuda) pools.
+        # A space-separated list: transcoder serves cpu, nvidia (cuda) and intel pools.
         run: |
           for class in $CLASS; do
             docker run --rm --read-only --cap-drop=ALL --user 1000:1000 "$IMAGE" --self-check="$class"
@@ -170,7 +168,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Underscores, not hyphens: image names contain hyphens, so a pattern
-          # like digests-transcoder-* would also match transcoder-intel-distroless's digests.
+          # like digests-transcoder-* would also match transcoder-distroless's digests.
           name: digests_${{ matrix.image }}_${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
@@ -193,8 +191,6 @@ jobs:
           - { image: transcoder, suffix: /transcoder }
           - { image: transcoder-distroless, suffix: /transcoder-distroless }
           - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug }
-          - { image: transcoder-intel-distroless, suffix: /transcoder-intel-distroless }
-          - { image: transcoder-intel-distroless-debug, suffix: /transcoder-intel-distroless-debug }
           - { image: e2e-fixtures, suffix: /e2e-fixtures }
     steps:
       - name: Download digests
