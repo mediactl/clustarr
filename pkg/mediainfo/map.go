@@ -40,21 +40,21 @@ var bitmapSubtitleCodecs = map[string]bool{
 // carrying more WHOLE, so a file with one stream too many would never be
 // probed at all; [toMediaInfo] keeps the first MaxStreamsPerKind instead.
 // That is well past what disc authoring produces, and it loses nothing a
-// transcode needs: the worker renders its argv from Raw's full stream list
+// transcode needs: the worker plans from Raw's full stream list
 // (pkg/transcode.FromProbe), never from this summary.
 const MaxStreamsPerKind = 64
 
-// toMediaInfo maps raw onto the api/common/v1alpha1.MediaInfo the
-// MediaFile status carries. Fields the CRD type has no room for (level,
-// colour primaries/transfer/matrix, master-display/max-cll, channel
-// layout, per-chapter detail) stay on raw; see this task's "Why Raw
-// carries..." note.
 // FromRaw maps raw to the MediaFile status summary with the same rules
 // Probe applies to ffprobe's output: a probe that fills Raw another way
 // (the squasharr worker's in-process probe, which has no ffprobe) gets the
 // same HDR, Dolby Vision, audio and subtitle classification.
 func FromRaw(raw *Raw) *commonv1.MediaInfo { return toMediaInfo(raw) }
 
+// toMediaInfo maps raw onto the api/common/v1alpha1.MediaInfo the
+// MediaFile status carries. Fields the CRD type has no room for (level,
+// colour primaries/transfer/matrix, master-display/max-cll, channel
+// layout, per-chapter detail) stay on raw; see this task's "Why Raw
+// carries..." note.
 func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 	mi := &commonv1.MediaInfo{
 		Container:     containerFromPath(raw.Format.Filename),

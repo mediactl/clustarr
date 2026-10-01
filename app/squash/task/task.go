@@ -66,11 +66,10 @@ type Task struct {
 	Deadline metav1.Duration `json:"deadline"`
 }
 
-// Engines a task runs on.
-const (
-	EngineFFmpeg = "ffmpeg"
-	EngineFFgo   = "ffgo"
-)
+// EngineFFgo is the engine every task runs on, in-process. (status.plan's
+// engine enum still admits "ffmpeg": a plan recorded by the deleted argv
+// engine, which dispatch plans again.)
+const EngineFFgo = "ffgo"
 
 // Schema implements schema.Payload.
 func (Task) Schema() string { return "transcode.Task.v1" }

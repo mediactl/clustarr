@@ -975,7 +975,7 @@ func TestARunThatAbortsNeverTouchesAnotherAttemptsPartFile(t *testing.T) {
 		"attempt 1's own part file is gone; only attempt 2's stray survives")
 }
 
-// The in-process engine (--worker-engine=ffgo) does the same work on the
+// The in-process engine does the same work on the
 // same fixture: transcode, verify, recycle the original, rename over the
 // source, and record the result -- with no ffmpeg subprocess.
 func TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps(t *testing.T) {

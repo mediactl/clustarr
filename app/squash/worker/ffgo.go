@@ -38,7 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// Engine is the in-process transcoder (--worker-engine=ffgo):
+// Engine is the in-process transcoder, the worker's only one:
 // app/squash/worker/inprocess, which cmd/squasharr-worker supplies through
 // Options.Engine. This package never imports it: cmd/clustarr imports this
 // package for planning and must stay a static binary, and ffgo's purego
