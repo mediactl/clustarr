@@ -282,11 +282,14 @@ const (
 
 // FileMarkers is a file's skip segments and how they were fetched.
 type FileMarkers struct {
-	// Result is Found, NotFound or Error.
-	Result MarkersResult `json:"result"`
+	// Result is TheIntroDB's: Found, NotFound or Error. Empty while only
+	// clustarr's own analysis has a result (Analysis).
+	// +optional
+	Result MarkersResult `json:"result,omitempty"`
 
 	// FetchedAt is when TheIntroDB was last asked.
-	FetchedAt metav1.Time `json:"fetchedAt"`
+	// +optional
+	FetchedAt metav1.Time `json:"fetchedAt,omitzero"`
 
 	// ForProbeHash is status.probeHash when these were fetched: a new file
 	// at the same path fetches again.

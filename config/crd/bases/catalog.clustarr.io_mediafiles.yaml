@@ -435,7 +435,9 @@ spec:
                     format: date-time
                     type: string
                   result:
-                    description: Result is Found, NotFound or Error.
+                    description: |-
+                      Result is TheIntroDB's: Found, NotFound or Error. Empty while only
+                      clustarr's own analysis has a result (Analysis).
                     enum:
                     - Found
                     - NotFound
@@ -489,9 +491,6 @@ spec:
                     maxItems: 20
                     type: array
                     x-kubernetes-list-type: atomic
-                required:
-                - fetchedAt
-                - result
                 type: object
               mediaInfo:
                 description: |-

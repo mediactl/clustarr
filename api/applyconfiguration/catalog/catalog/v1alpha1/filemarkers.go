@@ -29,7 +29,8 @@ import (
 //
 // FileMarkers is a file's skip segments and how they were fetched.
 type FileMarkersApplyConfiguration struct {
-	// Result is Found, NotFound or Error.
+	// Result is TheIntroDB's: Found, NotFound or Error. Empty while only
+	// clustarr's own analysis has a result (Analysis).
 	Result *catalogv1alpha1.MarkersResult `json:"result,omitempty"`
 	// FetchedAt is when TheIntroDB was last asked.
 	FetchedAt *v1.Time `json:"fetchedAt,omitempty"`
