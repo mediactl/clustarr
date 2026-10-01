@@ -43,27 +43,19 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	// Quality is the standard's one quality setting (0 best, 51 smallest),
 	// mapped to each encoder's own control by a code table: libx265 crf,
 	// hevc_nvenc qp (quality - 1, under constqp), hevc_qsv global_quality,
-	// hevc_vaapi qp. Read by the in-process engine (--worker-engine=ffgo);
-	// the argv engine reads video.crf. Unset means 24 (QualityOrDefault).
-	// It has no CRD default on purpose: the apiserver would write 24 into
-	// every stored profile, changing every profile's status.hash and so
-	// re-transcoding every file already tagged with it.
+	// hevc_vaapi qp. Unset means 24 (QualityOrDefault), and hashes as 24.
+	// Everything else about the encode is the standard's (ffgo spec §1):
+	// the video, HDR, subtitle and verification settings profiles had
+	// until 2026-10-01 were removed, and the apiserver prunes them from a
+	// stored profile.
 	Quality *int32 `json:"quality,omitempty"`
 	// Hardware is the encoder backend: auto is chosen per task, with CPU
 	// fallback; cpu, nvidia and intel are pinned and never fall back.
 	Hardware *transcodev1alpha1.Hardware `json:"hardware,omitempty"`
-	// Video describes the video encode.
-	Video *VideoSpecApplyConfiguration `json:"video,omitempty"`
-	// Audio describes audio handling.
+	// Audio decides which audio languages are kept.
 	Audio *AudioSpecApplyConfiguration `json:"audio,omitempty"`
-	// Subtitles describes subtitle and attachment handling.
-	Subtitles *SubSpecApplyConfiguration `json:"subtitles,omitempty"`
-	// HDR describes HDR metadata handling.
-	HDR *HDRSpecApplyConfiguration `json:"hdr,omitempty"`
 	// Policy decides which files are transcoded and what happens afterwards.
 	Policy *PolicySpecApplyConfiguration `json:"policy,omitempty"`
-	// Verify describes post-encode verification.
-	Verify *VerifySpecApplyConfiguration `json:"verify,omitempty"`
 	// Resources are the encode container's resource requirements. The default
 	// limits (cpu 8, memory 4Gi) suit 1080p; the CPU limit is fed to the x265
 	// thread pools. The kubebuilder default fills only an ABSENT field, and a
@@ -148,14 +140,6 @@ func (b *TranscodeProfileSpecApplyConfiguration) WithHardware(value transcodev1a
 	return b
 }
 
-// WithVideo sets the Video field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Video field is set to the value of the last call.
-func (b *TranscodeProfileSpecApplyConfiguration) WithVideo(value *VideoSpecApplyConfiguration) *TranscodeProfileSpecApplyConfiguration {
-	b.Video = value
-	return b
-}
-
 // WithAudio sets the Audio field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Audio field is set to the value of the last call.
@@ -164,35 +148,11 @@ func (b *TranscodeProfileSpecApplyConfiguration) WithAudio(value *AudioSpecApply
 	return b
 }
 
-// WithSubtitles sets the Subtitles field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Subtitles field is set to the value of the last call.
-func (b *TranscodeProfileSpecApplyConfiguration) WithSubtitles(value *SubSpecApplyConfiguration) *TranscodeProfileSpecApplyConfiguration {
-	b.Subtitles = value
-	return b
-}
-
-// WithHDR sets the HDR field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the HDR field is set to the value of the last call.
-func (b *TranscodeProfileSpecApplyConfiguration) WithHDR(value *HDRSpecApplyConfiguration) *TranscodeProfileSpecApplyConfiguration {
-	b.HDR = value
-	return b
-}
-
 // WithPolicy sets the Policy field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Policy field is set to the value of the last call.
 func (b *TranscodeProfileSpecApplyConfiguration) WithPolicy(value *PolicySpecApplyConfiguration) *TranscodeProfileSpecApplyConfiguration {
 	b.Policy = value
-	return b
-}
-
-// WithVerify sets the Verify field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Verify field is set to the value of the last call.
-func (b *TranscodeProfileSpecApplyConfiguration) WithVerify(value *VerifySpecApplyConfiguration) *TranscodeProfileSpecApplyConfiguration {
-	b.Verify = value
 	return b
 }
 

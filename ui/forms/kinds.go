@@ -311,22 +311,15 @@ var kinds = []Kind{
 	{
 		ConfigKind: configKind("transcodeprofiles"),
 		Title:      "Transcode profiles", Singular: "transcode profile",
-		Help: "How squasharr re-encodes the files its selector matches. Changing an encoding field re-queues every matching file.",
+		Help: "Which files squasharr transcodes to its fixed HEVC standard, and where. Changing the quality, container, audio languages or never-transcode modifiers plans files not yet transcoded under the new settings; a transcoded file is never encoded again.",
 		Groups: []Group{
-			{Title: "Profile", Paths: []string{"default", "priority", "maxConcurrent", "hardware", "container", "selector.matchLabels"}},
-			{Title: "Video", Paths: []string{"video.codec", "video.pixelFormat", "video.profile", "video.preset", "video.tune", "video.crf", "video.maxRateKbps", "video.bufSizeKbps"}},
-			{Title: "Video (x265 tuning)", Paths: []string{"video.keyintFactor", "video.bFrames", "video.refs", "video.rcLookahead", "video.aqMode", "video.extraX265Params"}, Advanced: true},
-			{Title: "NVENC", Paths: []string{"video.nvenc"}, Advanced: true},
-			{Title: "Intel QSV", Paths: []string{"video.qsv"}, Advanced: true},
-			{Title: "Audio", Paths: []string{"audio"}},
-			{Title: "Subtitles", Paths: []string{"subtitles"}, Advanced: true},
-			{Title: "HDR", Paths: []string{"hdr"}, Advanced: true},
+			{Title: "Profile", Paths: []string{"default", "priority", "maxConcurrent", "hardware", "container", "quality", "selector.matchLabels"}},
+			{Title: "Audio", Paths: []string{"audio.languages"}},
 			{Title: "Policy", Paths: []string{"policy"}, Advanced: true},
-			{Title: "Verify", Paths: []string{"verify"}, Advanced: true},
 			{Title: "Resources", Paths: []string{"resources.limits", "resources.requests", "scratch", "activeDeadline", "gpu.count", "gpu.runtimeClassName"}, Advanced: true},
 		},
 		Hidden: []string{"chunking", "ttlSecondsAfterFinished", "gpu.nodeSelector", "gpu.tolerations", "resources.claims", "selector.matchExpressions"},
-		Labels: map[string]string{"default": "Cluster default", "maxConcurrent": "Max concurrent jobs", "selector.matchLabels": "Applies to files labelled", "video.crf.hdrOffset": "CRF offset for HDR", "video.maxRateKbps": "Max rate (kbps)", "video.bufSizeKbps": "Buffer size (kbps)"},
+		Labels: map[string]string{"default": "Cluster default", "maxConcurrent": "Max concurrent jobs", "selector.matchLabels": "Applies to files labelled", "audio.languages": "Keep audio languages"},
 	},
 }
 

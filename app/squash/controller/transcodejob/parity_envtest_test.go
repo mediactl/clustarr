@@ -136,7 +136,7 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			require.NoError(t, err)
 			info.Path = src
 			plan := standard.Plan(info, worker.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec),
-				standard.Hardware{Tier: worker.StandardTier(worker.ProfileSpec(tk.Profile.Spec, tk.Profile.Hardware))})
+				standard.Hardware{Tier: worker.StandardTier(worker.ProfileHardware(tk.Profile.Spec, tk.Profile.Hardware))})
 			require.Equal(t, standard.DecisionEncode, plan.Decision)
 			assert.Equal(t, tj.Status.Plan.PlanHash, plan.Hash(), "status.plan.planHash is the worker's plan")
 			assert.Equal(t, "hdr10", plan.Video.HDR)

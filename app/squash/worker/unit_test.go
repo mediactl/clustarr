@@ -31,7 +31,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
@@ -167,46 +166,38 @@ func TestProcessLogsWithTheTaskJob(t *testing.T) {
 	assert.Contains(t, h.calls[0], slog.String("transcodeJob", "media/film-hevc"))
 }
 
-// ProfileSpec must carry every render-relevant field. Populate every field
-// of the CRD spec with a non-zero value and require every leaf of the
-// result to be non-zero: a field added to transcode.ProfileSpec later and
-// forgotten here fails by name.
-func TestProfileSpecCarriesEveryField(t *testing.T) {
-	tune := "grain"
+// ProfileHardware is the job's pinned class, else the profile's; auto with
+// no class chosen yet plans for the CPU.
+func TestProfileHardwareTakesTheJobsOverride(t *testing.T) {
+	spec := transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareNVIDIA}
+	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(spec, nil))
+	cpu, auto := transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareAuto
+	assert.Equal(t, transcode.HardwareCPU, ProfileHardware(spec, &cpu), "TranscodeJob.spec.hardware overrides the profile")
+	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(spec, &auto), "auto on the job defers to the profile")
+	assert.Equal(t, transcode.HardwareCPU, ProfileHardware(transcodev1alpha1.TranscodeProfileSpec{Hardware: cpu}, &auto),
+		"an auto override of a pinned profile keeps its class")
+	spec.Hardware = transcodev1alpha1.HardwareAuto
+	assert.Equal(t, transcode.HardwareCPU, ProfileHardware(spec, nil), "auto with no class chosen plans for the CPU")
+	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(spec, ptr.To(transcodev1alpha1.HardwareNVIDIA)), "a chosen class overrides auto")
+}
+
+// StandardProfile carries every field the standard reads, with its default.
+func TestStandardProfileCarriesTheStandardsInputs(t *testing.T) {
 	spec := transcodev1alpha1.TranscodeProfileSpec{
 		Quality:   ptr.To[int32](30),
 		Container: transcodev1alpha1.ContainerMP4,
-		Hardware:  transcodev1alpha1.HardwareNVIDIA,
-		Video: transcodev1alpha1.VideoSpec{
-			Codec: "hevc", PixelFormat: "yuv420p10le", Profile: "main10",
-			CRF:    transcodev1alpha1.CRFTable{SD: 1, HD: 2, UHD: 3, HDROffset: ptr.To[int32](-1)},
-			Preset: "slow", Tune: &tune, KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
-			MaxRateKbps: ptr.To[int32](1), BufSizeKbps: ptr.To[int32](2),
-			ExtraX265Params: map[string]string{"a": "b"},
-			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle", MaxBitratePercent: ptr.To[int32](50)},
-			QSV:             transcodev1alpha1.QSVSpec{GlobalQuality: 22, Preset: "veryslow", LookAheadDepth: 40},
-		},
-		Audio: transcodev1alpha1.AudioSpec{
-			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
-			Languages: []string{"en"}, DropCommentary: ptr.To(true), StereoCompatTrack: true,
-			CopyCodecs: []string{"eac3"},
-		},
-		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(true), CopyBitmap: ptr.To(true), CopyAttachments: ptr.To(true)},
-		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionReject},
+		Audio:     transcodev1alpha1.AudioSpec{Languages: []string{"en"}},
 		Policy: transcodev1alpha1.PolicySpec{
-			SkipIfCompliant: ptr.To(true), RemuxOnlyWhenVideoCompliant: ptr.To(true), NeverTranscodeModifiers: []string{"remux"},
-			MinDuration: &metav1.Duration{Duration: time.Minute}, MaxOutputToSourcePercent: ptr.To[int32](100),
-			ReplaceSource: ptr.To(true), RecycleBin: ptr.To(true),
+			NeverTranscodeModifiers: []string{"remux"},
+			MinDuration:             &metav1.Duration{Duration: 2 * time.Minute},
 		},
-		Verify:  transcodev1alpha1.VerifySpec{PacketCount: ptr.To(true), FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
-		Scratch: resource.MustParse("1Gi"),
 	}
-	got := ProfileSpec(spec, nil)
-	assertNoZeroLeaf(t, reflect.ValueOf(got), "ProfileSpec")
-	assert.Equal(t, transcode.HardwareNVIDIA, got.Hardware)
-
-	cpu := transcodev1alpha1.HardwareCPU
-	assert.Equal(t, transcode.HardwareCPU, ProfileSpec(spec, &cpu).Hardware, "TranscodeJob.spec.hardware overrides the profile")
+	got := StandardProfile("hevc", "abc", spec)
+	assertNoZeroLeaf(t, reflect.ValueOf(got), "StandardProfile")
+	assert.Equal(t, int32(30), got.Quality)
+	assert.Equal(t, transcode.ContainerMP4, got.Container)
+	assert.Equal(t, 2*time.Minute, got.MinDuration)
+	assert.Equal(t, transcodev1alpha1.DefaultQuality, StandardProfile("hevc", "abc", transcodev1alpha1.TranscodeProfileSpec{}).Quality)
 }
 
 // policy.replaceSource and policy.recycleBin are pointers so a Go client
@@ -216,16 +207,13 @@ func TestPolicyPointersDefaultToTrue(t *testing.T) {
 	var unset transcodev1alpha1.PolicySpec
 	assert.True(t, ReplaceSource(unset))
 	assert.True(t, RecycleBin(unset))
-	assert.True(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{}, nil).Policy.ReplaceSource)
-	assert.True(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{}, nil).Policy.RecycleBin)
 
 	off := transcodev1alpha1.PolicySpec{ReplaceSource: ptr.To(false), RecycleBin: ptr.To(false)}
 	assert.False(t, ReplaceSource(off))
 	assert.False(t, RecycleBin(off))
-	assert.False(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{Policy: off}, nil).Policy.RecycleBin)
 }
 
-// The defaults ProfileSpec applies to a nil pointer restate the CRD's; this
+// The defaults the policy accessors apply to a nil pointer restate the CRD's; this
 // holds each to the generated schema, so a changed +kubebuilder:default
 // cannot leave a Go-created profile on the old value.
 func TestPointerDefaultsMatchTheGeneratedCRD(t *testing.T) {
@@ -242,78 +230,26 @@ func TestPointerDefaultsMatchTheGeneratedCRD(t *testing.T) {
 		}
 		return node.(map[string]any)["default"]
 	}
-	for _, path := range [][]string{
-		{"audio", "dropCommentary"},
-		{"subtitles", "copyText"},
-		{"subtitles", "copyBitmap"},
-		{"subtitles", "copyAttachments"},
-		{"policy", "skipIfCompliant"},
-		{"policy", "remuxOnlyWhenVideoCompliant"},
-		{"policy", "replaceSource"},
-		{"policy", "recycleBin"},
-		{"verify", "packetCount"},
-	} {
-		assert.Equalf(t, true, defaultAt(path...), "ProfileSpec reads a nil spec.%v as true", path)
+	for _, path := range [][]string{{"policy", "replaceSource"}, {"policy", "recycleBin"}} {
+		assert.Equalf(t, true, defaultAt(path...), "a nil spec.%v reads as true", path)
 	}
 	d, err := time.ParseDuration(defaultAt("policy", "minDuration").(string))
 	require.NoError(t, err)
 	assert.Equal(t, DefaultMinDuration, d)
 	assert.EqualValues(t, DefaultMaxOutputToSourcePercent, defaultAt("policy", "maxOutputToSourcePercent"))
-	assert.EqualValues(t, DefaultNVENCMaxBitratePercent, defaultAt("video", "nvenc", "maxBitratePercent"))
 }
 
-// G4-0 made every other defaulted-true bool in the spec a pointer, plus
-// policy.minDuration and policy.maxOutputToSourcePercent, whose zero means
-// something ("consider every file", "no size check") that a Go client could
-// not otherwise send. Unset must convert to the CRD default and an explicit
-// zero to zero, through the one converter every consumer uses.
-func TestProfileSpecAppliesPointerDefaults(t *testing.T) {
-	unset := ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{}, nil)
-	assert.True(t, unset.Audio.DropCommentary)
-	assert.True(t, unset.Subtitles.CopyText)
-	assert.True(t, unset.Subtitles.CopyBitmap)
-	assert.True(t, unset.Subtitles.CopyAttachments)
-	assert.True(t, unset.Policy.SkipIfCompliant)
-	assert.True(t, unset.Policy.RemuxOnlyWhenVideoCompliant)
-	assert.True(t, unset.Verify.PacketCount)
-	assert.Equal(t, time.Minute, unset.Policy.MinDuration)
-	assert.Equal(t, int32(100), unset.Policy.MaxOutputToSourcePercent)
-	assert.Equal(t, int32(70), unset.Video.NVENC.MaxBitratePercent)
-
-	off := ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{
-		Audio:     transcodev1alpha1.AudioSpec{DropCommentary: ptr.To(false)},
-		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(false), CopyBitmap: ptr.To(false), CopyAttachments: ptr.To(false)},
-		Policy: transcodev1alpha1.PolicySpec{
-			SkipIfCompliant: ptr.To(false), RemuxOnlyWhenVideoCompliant: ptr.To(false),
-			MinDuration: &metav1.Duration{}, MaxOutputToSourcePercent: ptr.To[int32](0),
-		},
-		Verify: transcodev1alpha1.VerifySpec{PacketCount: ptr.To(false)},
-		Video:  transcodev1alpha1.VideoSpec{NVENC: transcodev1alpha1.NVENCSpec{MaxBitratePercent: ptr.To[int32](0)}},
-	}, nil)
-	assert.False(t, off.Audio.DropCommentary)
-	assert.False(t, off.Subtitles.CopyText)
-	assert.False(t, off.Subtitles.CopyBitmap)
-	assert.False(t, off.Subtitles.CopyAttachments)
-	assert.False(t, off.Policy.SkipIfCompliant)
-	assert.False(t, off.Policy.RemuxOnlyWhenVideoCompliant)
-	assert.False(t, off.Verify.PacketCount)
-	assert.Zero(t, off.Policy.MinDuration)
-	assert.Zero(t, off.Policy.MaxOutputToSourcePercent)
-	assert.Zero(t, off.Video.NVENC.MaxBitratePercent, "0 turns the NVENC cap off")
-}
-
-// An auto profile with no class chosen yet plans for CPU. Its profile hash is
-// therefore the one a cpu profile had, so changing the CRD default from cpu to
-// auto re-transcodes nothing.
-func TestProfileSpecResolvesAutoToCPU(t *testing.T) {
-	auto := transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareAuto}
-	cpu := transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareCPU}
-	assert.Equal(t, ProfileSpec(cpu, nil), ProfileSpec(auto, nil))
-	nv := transcodev1alpha1.HardwareNVIDIA
-	assert.Equal(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{Hardware: nv}, nil), ProfileSpec(auto, &nv),
-		"a chosen class overrides auto")
-	autoOverride := transcodev1alpha1.HardwareAuto
-	assert.Equal(t, ProfileSpec(cpu, nil), ProfileSpec(cpu, &autoOverride), "an auto override of a pinned profile keeps cpu")
+// policy.minDuration and policy.maxOutputToSourcePercent are pointers
+// because their zero means something ("consider every file", "no size
+// check") a Go client could not otherwise send: unset reads as the CRD
+// default, an explicit zero as zero.
+func TestPolicyAccessorsApplyTheDefaultOnlyToUnset(t *testing.T) {
+	var unset transcodev1alpha1.PolicySpec
+	assert.Equal(t, time.Minute, MinDuration(unset))
+	assert.Equal(t, int32(100), MaxOutputToSourcePercent(unset))
+	zero := transcodev1alpha1.PolicySpec{MinDuration: &metav1.Duration{}, MaxOutputToSourcePercent: ptr.To[int32](0)}
+	assert.Zero(t, MinDuration(zero))
+	assert.Zero(t, MaxOutputToSourcePercent(zero))
 }
 
 func assertNoZeroLeaf(t *testing.T, v reflect.Value, path string) {

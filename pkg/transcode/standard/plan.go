@@ -41,6 +41,13 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
+// Version is the standard's revision, part of every profile's status.hash
+// (app/squash/worker.ProfileHash). Raise it when Plan or the engine starts
+// writing different output for the same input -- a new encoder setting, a
+// colour rule -- so files not yet transcoded are planned under the new
+// standard. Files already transcoded are final and are never redone.
+const Version = 1
+
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
 	Name, Hash string // CLUSTARR_PROFILE = Name@Hash
@@ -157,8 +164,10 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if p.Container == "" {
 		p.Container = transcode.ContainerMKV
 	}
-	if tag := formatTag(info.Tags, "CLUSTARR_PROFILE"); tag != "" && tag == p.Tags["CLUSTARR_PROFILE"] {
-		return skip(p, "this profile already wrote this file (CLUSTARR_PROFILE "+tag+")")
+	// A transcoded file is final (spec §5), whichever profile or hash wrote
+	// it: an edit or a new Version re-transcodes nothing.
+	if tag := formatTag(info.Tags, "CLUSTARR_PROFILE"); tag != "" {
+		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+")")
 	}
 	if d := info.Format.Duration; profile.MinDuration > 0 && d > 0 && d < profile.MinDuration {
 		return skip(p, fmt.Sprintf("the source is %s long, under policy.minDuration %s", d.Round(time.Second), profile.MinDuration))

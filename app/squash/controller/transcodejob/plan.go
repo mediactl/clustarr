@@ -24,7 +24,6 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/task"
-	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -41,19 +40,14 @@ const maxPlanList = 200
 // mediaInfoFromFile builds pkg/transcode's MediaInfo from the probe
 // catalogarr already stored on the MediaFile (ruling R3: the controller role
 // does not mount /data, so it cannot probe; the worker re-probes the live
-// file and refuses on a ProbeHash mismatch), through
-// transcode.FromSummary -- the converter whose argv the worker's
-// transcode.FromProbe matches for the same bytes. So the status.plan this
-// controller records, HDR arguments included, is the argv the worker runs
-// (pkg/transcode's TestFromSummaryAndFromProbeRenderTheSameArgs, and this
-// package's TestStatusPlanIsTheArgvTheWorkerRenders).
+// file and refuses on a ProbeHash mismatch), through transcode.FromSummary,
+// which takes nothing from a probe the summary lacks -- so the plan recorded
+// here hashes as the worker's.
 //
-// The summary carries no format tags. The one the planner reads, the
-// CLUSTARR_PROFILE that decides "already transcoded with this profile", is
-// set to tag when the MediaFile records it (worker.HasProfileTag: the
-// probe's record of the file's own tag, or the one catalogarr set after a
-// transcode it incorporated). It only ever decides that skip, never an
-// argument, so any other tag is left out: to Plan it means the same as none.
+// The summary carries no format tags. The one the standard reads, the
+// CLUSTARR_PROFILE that makes a file "already transcoded", is set from
+// catalogarr's records (recordedTag), so a transcoded file is skipped here
+// as the worker's probe of it would be.
 func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile, tag string) (transcode.MediaInfo, error) {
 	info, err := transcode.FromSummary(path, mf.Status.MediaInfo)
 	if err != nil {
@@ -61,10 +55,26 @@ func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile, tag string) (
 	}
 	info.Format.SizeBytes = mf.Spec.SizeBytes
 	info.Modifier = string(mf.Spec.Quality.Modifier)
-	if worker.HasProfileTag(mf, tag) {
-		info.Tags = map[string]string{profileTagKey: tag}
+	if t := recordedTag(mf, tag); t != "" {
+		info.Tags = map[string]string{profileTagKey: t}
 	}
 	return info, nil
+}
+
+// recordedTag is the CLUSTARR_PROFILE catalogarr recorded for mf: the
+// probe's read of the file's own tag (any profile, any hash), else a
+// transcode by tag's profile, under any hash, that catalogarr incorporated
+// (status.transcode.profileTag; a replaceSource=false job records it on the
+// untouched source beside its derived copy). "" when there is neither.
+func recordedTag(mf *catalogv1alpha1.MediaFile, tag string) string {
+	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
+		return mi.TranscodeProfile
+	}
+	name, _, _ := strings.Cut(tag, "@")
+	if tr := mf.Status.Transcode; tr != nil && strings.HasPrefix(tr.ProfileTag, name+"@") {
+		return tr.ProfileTag
+	}
+	return ""
 }
 
 // containerChange reports whether planning source under a profile that

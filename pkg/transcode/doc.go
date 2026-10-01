@@ -32,8 +32,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Turing list as the fallback) describe the device a plan runs on;
 // EightBitTarget and TooManyStreams are the two rules the controller and
 // the standard share; Progress and Report are the engine's telemetry and
-// verification. ProfileSpec, the plain-Go mirror of TranscodeProfileSpec,
-// remains only for status.hash until the API cut replaces it.
+// verification. A profile reaches the standard as standard.Profile
+// (app/squash/worker.StandardProfile); this package mirrors only its
+// Container and Hardware enums.
 //
 // This package carries no Kubernetes types beyond commonv1.MediaInfo, and
 // no float crosses into CRD status: Progress is scaled integers.

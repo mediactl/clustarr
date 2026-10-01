@@ -39,15 +39,3 @@ func (s *TranscodeProfileSpec) QualityOrDefault() int32 {
 	}
 	return *s.Quality
 }
-
-// DefaultHDROffset mirrors CRFTable.hdrOffset's +kubebuilder:default.
-const DefaultHDROffset int32 = -1
-
-// HDROffsetOrDefault is video.crf.hdrOffset; unset means DefaultHDROffset,
-// and an explicit 0 applies no HDR offset.
-func (t CRFTable) HDROffsetOrDefault() int32 {
-	if t.HDROffset == nil {
-		return DefaultHDROffset
-	}
-	return *t.HDROffset
-}

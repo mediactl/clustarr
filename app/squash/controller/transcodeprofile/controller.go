@@ -15,14 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package transcodeprofile reconciles TranscodeProfile: it hashes and
-// validates each profile (pkg/transcode.ProfileHash, the "Invalid" shapes
-// pkg/transcode.Plan can never succeed against) and is the mapper that makes
-// the rest of Phase E do anything -- for every MediaFile a profile wins (its
-// own spec.selector, or spec.default when no selector-matching profile
-// claims the file), it creates the TranscodeJob that names it, deterministic
-// on (MediaFile, profile hash) so a re-reconcile creates nothing new and a
-// profile edit creates exactly one.
+// Package transcodeprofile reconciles TranscodeProfile: it hashes each
+// profile (worker.ProfileHash, over the standard's inputs) and validates it
+// (a second default is Invalid), and is the mapper that makes the rest of
+// squasharr do anything -- for every MediaFile a profile wins (its own
+// spec.selector, or spec.default when no selector-matching profile claims
+// the file) that is not already transcoded and has no open job of the
+// profile, it creates the TranscodeJob that names it, deterministic on
+// (MediaFile, profile hash) so a re-reconcile creates nothing new.
 //
 // It never plans a transcode itself (pkg/transcode.Plan needs the MediaFile's
 // stored probe and Capabilities, which is task E-2's TranscodeJob
@@ -181,12 +181,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return matching[i].Namespace+"/"+matching[i].Name < matching[j].Namespace+"/"+matching[j].Name
 	})
 	open := countOpen(jobList.Items, tp.Name)
+	busy := openFiles(jobList.Items, tp.Name)
 	created, waiting := 0, 0
 	var createErrs []error
 	if !invalid {
-		tag := profileTag(tp.Name, hash)
 		for _, mf := range matching {
-			if !probed(mf) || alreadyTranscoded(mf, tag) {
+			if !probed(mf) || alreadyTranscoded(mf, tp.Name) {
 				continue
 			}
 			// A job that failed because its source changed can never
@@ -220,6 +220,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			}
 			if _, exists := jobsByName[key]; exists {
 				continue // its spec is immutable: there is nothing to re-apply
+			}
+			if busy[types.NamespacedName{Namespace: mf.Namespace, Name: mf.Name}] {
+				// An open job of this profile under an earlier hash: it runs
+				// under the current one (the worker tags with the profile's
+				// hash), so a second job would only encode the file twice.
+				continue
 			}
 			if r.Window > 0 && open >= r.Window {
 				waiting++
@@ -344,18 +350,36 @@ func (r *Reconciler) encoderLimits(ctx context.Context) []transcodev1alpha1.Enco
 func countOpen(jobs []transcodev1alpha1.TranscodeJob, profile string) int {
 	n := 0
 	for i := range jobs {
-		tj := &jobs[i]
-		if tj.Spec.ProfileRef != profile || k8s.IsDeleting(tj) {
-			continue
-		}
-		switch tj.Status.Phase {
-		case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed,
-			transcodev1alpha1.TranscodeJobPhaseSkipped:
-		default:
+		if isOpen(&jobs[i], profile) {
 			n++
 		}
 	}
 	return n
+}
+
+// openFiles is the MediaFiles that have an open job of profile, whatever
+// hash it was named by.
+func openFiles(jobs []transcodev1alpha1.TranscodeJob, profile string) map[types.NamespacedName]bool {
+	out := map[types.NamespacedName]bool{}
+	for i := range jobs {
+		if tj := &jobs[i]; isOpen(tj, profile) {
+			out[types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}] = true
+		}
+	}
+	return out
+}
+
+// isOpen reports whether tj is profile's and not yet terminal or deleting.
+func isOpen(tj *transcodev1alpha1.TranscodeJob, profile string) bool {
+	if tj.Spec.ProfileRef != profile || k8s.IsDeleting(tj) {
+		return false
+	}
+	switch tj.Status.Phase {
+	case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed,
+		transcodev1alpha1.TranscodeJobPhaseSkipped:
+		return false
+	}
+	return true
 }
 
 // retireSucceeded deletes profile's Succeeded TranscodeJobs that finished

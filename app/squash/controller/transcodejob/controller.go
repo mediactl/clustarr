@@ -561,7 +561,7 @@ type planFailure struct{ reason, msg string }
 // planFor plans tj under tp from mf's stored probe with the standard, for
 // hardware: nil, or tj.Spec.Hardware, is the job's own override of its
 // profile's class, and auto with no class chosen yet plans for cpu
-// (worker.ProfileSpec). plan uses it for a new job; dispatch uses it to plan
+// (worker.ProfileHardware). plan uses it for a new job; dispatch uses it to plan
 // again for the class admission chose, when the recorded plan is for another
 // (spec §18.5). The tier is the class's (worker.StandardTier) and the
 // limits the class's pods published, as the worker's own plan is, so
@@ -589,7 +589,7 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 		p.reject = why
 		return p, nil
 	}
-	tier := worker.StandardTier(worker.ProfileSpec(tp.Spec, hardware))
+	tier := worker.StandardTier(worker.ProfileHardware(tp.Spec, hardware))
 	p.plan = standard.Plan(info, worker.StandardProfile(tp.Name, tp.Status.Hash, tp.Spec),
 		standard.Hardware{Tier: tier, Limits: limits[tier]})
 	return p, nil

@@ -259,18 +259,19 @@ func TestMP4KeepsOnlyWhatItCanCarry(t *testing.T) {
 	assert.True(t, mkv.Attachments)
 }
 
-// A file this profile already wrote (its CLUSTARR_PROFILE tag is this
-// profile and hash) is never transcoded again, whatever else the standard
-// would do with it.
-func TestAFileThisProfileWroteIsSkipped(t *testing.T) {
+// A transcoded file is final (spec §5): one this profile wrote is skipped,
+// and so is one written under an earlier hash (a profile edit, a new
+// standard.Version) or by another profile -- re-transcoding is never an
+// upgrade side effect.
+func TestATranscodedFileIsSkippedWhateverItsTag(t *testing.T) {
 	in := info(h264, audio(0, "truehd", 8, "7.1", "eng"))
-	in.Tags = map[string]string{"CLUSTARR_PROFILE": profile.Name + "@" + profile.Hash}
-	p := Plan(in, profile, cpu)
-	assert.Equal(t, DecisionSkip, p.Decision)
-	assert.Contains(t, p.Reason, "already wrote")
-
-	in.Tags["CLUSTARR_PROFILE"] = profile.Name + "@older"
-	assert.Equal(t, DecisionEncode, Plan(in, profile, cpu).Decision, "another hash's output is not this profile's")
+	assert.Equal(t, DecisionEncode, Plan(in, profile, cpu).Decision, "untagged, it is encoded")
+	for _, tag := range []string{profile.Name + "@" + profile.Hash, profile.Name + "@older", "other@" + profile.Hash} {
+		in.Tags = map[string]string{"CLUSTARR_PROFILE": tag}
+		p := Plan(in, profile, cpu)
+		assert.Equal(t, DecisionSkip, p.Decision, tag)
+		assert.Contains(t, p.Reason, "already transcoded", tag)
+	}
 }
 
 // policy.minDuration (kept by the owner's API cut) skips a source shorter

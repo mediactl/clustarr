@@ -49,42 +49,6 @@ const (
 	HardwareAuto Hardware = "auto"
 )
 
-// KeepOriginalPolicy says when the original audio track is kept alongside
-// (or instead of) the re-encoded one.
-//
-// +kubebuilder:validation:Enum=never;lossless;atmos;always
-type KeepOriginalPolicy string
-
-// Keep-original policies.
-const (
-	KeepOriginalNever    KeepOriginalPolicy = "never"
-	KeepOriginalLossless KeepOriginalPolicy = "lossless"
-	KeepOriginalAtmos    KeepOriginalPolicy = "atmos"
-	KeepOriginalAlways   KeepOriginalPolicy = "always"
-)
-
-// HDR10PlusMode says what happens to HDR10+ dynamic metadata.
-//
-// +kubebuilder:validation:Enum=drop
-type HDR10PlusMode string
-
-// HDR10+ modes.
-const (
-	HDR10PlusDrop HDR10PlusMode = "drop"
-)
-
-// DolbyVisionMode says what happens to Dolby Vision sources.
-//
-// +kubebuilder:validation:Enum=passthrough;downgradeToHDR10;reject
-type DolbyVisionMode string
-
-// Dolby Vision modes.
-const (
-	DolbyVisionPassthrough      DolbyVisionMode = "passthrough"
-	DolbyVisionDowngradeToHDR10 DolbyVisionMode = "downgradeToHDR10"
-	DolbyVisionReject           DolbyVisionMode = "reject"
-)
-
 // TranscodeProfile condition types.
 const (
 	// TranscodeProfileConditionReady is True once the profile has been
@@ -94,32 +58,6 @@ const (
 	// for example because it is a second default profile.
 	TranscodeProfileConditionInvalid = "Invalid"
 )
-
-// CRFTable holds the x265 constant-rate-factor per source resolution class.
-type CRFTable struct {
-	// SD is the CRF used for standard-definition sources.
-	// +optional
-	// +kubebuilder:default=21
-	SD int32 `json:"sd,omitempty"`
-
-	// HD is the CRF used for 720p/1080p sources.
-	// +optional
-	// +kubebuilder:default=22
-	HD int32 `json:"hd,omitempty"`
-
-	// UHD is the CRF used for 2160p sources.
-	// +optional
-	// +kubebuilder:default=23
-	UHD int32 `json:"uhd,omitempty"`
-
-	// HDROffset is added to the resolution CRF when the source is HDR; 0
-	// means no HDR offset. A pointer so a Go client can send that 0: with
-	// omitempty it would be dropped and defaulted back to -1. Unset means -1;
-	// read it through HDROffsetOrDefault.
-	// +optional
-	// +kubebuilder:default=-1
-	HDROffset *int32 `json:"hdrOffset,omitempty"`
-}
 
 // EncoderLimit is one GPU node's measured encoder device limits.
 type EncoderLimit struct {
@@ -155,241 +93,18 @@ type EncoderLimit struct {
 	Message string `json:"message,omitempty"`
 }
 
-// NVENCSpec tunes the NVIDIA NVENC encoder (hardware=nvidia).
-type NVENCSpec struct {
-	// Preset is the NVENC preset (p1 fastest .. p7 slowest).
-	// +optional
-	// +kubebuilder:default="p6"
-	Preset string `json:"preset,omitempty"`
-
-	// Tune is the NVENC tuning target.
-	// +optional
-	// +kubebuilder:default="hq"
-	Tune string `json:"tune,omitempty"`
-
-	// CQ is the constant-quality level.
-	// +optional
-	// +kubebuilder:default=24
-	CQ int32 `json:"cq,omitempty"`
-
-	// Multipass is the NVENC multi-pass mode.
-	// +optional
-	// +kubebuilder:default="fullres"
-	Multipass string `json:"multipass,omitempty"`
-
-	// BRefMode is the NVENC B-frame reference mode.
-	// +optional
-	// +kubebuilder:default="middle"
-	BRefMode string `json:"bRefMode,omitempty"`
-
-	// MaxBitratePercent caps the encode at this percentage of the source's
-	// video bitrate, as -maxrate (and twice that as -bufsize), with cq still
-	// the quality target below it. NVENC's constant quality has no ceiling,
-	// and on a low-bitrate source it spends more bits than the source had.
-	// 0 is no cap, as is a source whose bitrate the probe does not know. A
-	// pointer so a Go client can send 0; unset is 70.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=100
-	// +kubebuilder:default=70
-	MaxBitratePercent *int32 `json:"maxBitratePercent,omitempty"`
-}
-
-// QSVSpec tunes the Intel Quick Sync encoder (hardware=intel).
-type QSVSpec struct {
-	// GlobalQuality is the QSV ICQ/global quality level.
-	// +optional
-	// +kubebuilder:default=22
-	GlobalQuality int32 `json:"globalQuality,omitempty"`
-
-	// Preset is the QSV preset.
-	// +optional
-	// +kubebuilder:default="veryslow"
-	Preset string `json:"preset,omitempty"`
-
-	// LookAheadDepth is the QSV look-ahead depth in frames.
-	// +optional
-	// +kubebuilder:default=40
-	LookAheadDepth int32 `json:"lookAheadDepth,omitempty"`
-}
-
-// VideoSpec describes how the video stream is encoded.
-type VideoSpec struct {
-	// Codec is the target video codec.
-	// +optional
-	// +kubebuilder:default="hevc"
-	Codec string `json:"codec,omitempty"`
-
-	// PixelFormat is the target pixel format.
-	// +optional
-	// +kubebuilder:default="yuv420p10le"
-	PixelFormat string `json:"pixelFormat,omitempty"`
-
-	// Profile is the target codec profile.
-	// +optional
-	// +kubebuilder:default="main10"
-	Profile string `json:"profile,omitempty"`
-
-	// CRF is the constant-rate-factor table by resolution class.
-	// +optional
-	// +kubebuilder:default={}
-	CRF CRFTable `json:"crf,omitempty"`
-
-	// Preset is the x265 preset.
-	// +optional
-	// +kubebuilder:default="slow"
-	Preset string `json:"preset,omitempty"`
-
-	// Tune is the optional x265 tune.
-	// +optional
-	Tune *string `json:"tune,omitempty"`
-
-	// KeyintFactor sets the keyframe interval as a multiple of the frame rate.
-	// +optional
-	// +kubebuilder:default=10
-	KeyintFactor int32 `json:"keyintFactor,omitempty"`
-
-	// BFrames is the number of consecutive B-frames.
-	// +optional
-	// +kubebuilder:default=8
-	BFrames int32 `json:"bFrames,omitempty"`
-
-	// Refs is the number of reference frames.
-	// +optional
-	// +kubebuilder:default=4
-	Refs int32 `json:"refs,omitempty"`
-
-	// RCLookahead is the rate-control look-ahead in frames.
-	// +optional
-	// +kubebuilder:default=40
-	RCLookahead int32 `json:"rcLookahead,omitempty"`
-
-	// AQMode is the adaptive-quantisation mode.
-	// +optional
-	// +kubebuilder:default=3
-	AQMode int32 `json:"aqMode,omitempty"`
-
-	// MaxRateKbps caps the video bitrate (VBV maxrate). Required for Dolby
-	// Vision output; validated by the planner.
-	// +optional
-	MaxRateKbps *int32 `json:"maxRateKbps,omitempty"`
-
-	// BufSizeKbps is the VBV buffer size. Required for Dolby Vision output;
-	// validated by the planner.
-	// +optional
-	BufSizeKbps *int32 `json:"bufSizeKbps,omitempty"`
-
-	// ExtraX265Params are additional key/value pairs appended to -x265-params.
-	// +optional
-	ExtraX265Params map[string]string `json:"extraX265Params,omitempty"`
-
-	// NVENC tunes the NVIDIA encoder; used when hardware=nvidia.
-	// +optional
-	// +kubebuilder:default={}
-	NVENC NVENCSpec `json:"nvenc,omitempty"`
-
-	// QSV tunes the Intel Quick Sync encoder; used when hardware=intel.
-	// +optional
-	// +kubebuilder:default={}
-	QSV QSVSpec `json:"qsv,omitempty"`
-}
-
-// AudioSpec describes how audio tracks are handled.
+// AudioSpec is what a profile decides about audio: which languages to keep.
 type AudioSpec struct {
-	// Codec is the target audio codec for re-encoded tracks.
-	// +optional
-	// +kubebuilder:default="aac"
-	Codec string `json:"codec,omitempty"`
-
-	// BitratePerChannelKbps is the encoded bitrate per audio channel.
-	// +optional
-	// +kubebuilder:default=64
-	BitratePerChannelKbps int32 `json:"bitratePerChannelKbps,omitempty"`
-
-	// KeepOriginal says when the original track is kept instead of, or in
-	// addition to, the re-encoded one.
-	// +optional
-	// +kubebuilder:default="atmos"
-	KeepOriginal KeepOriginalPolicy `json:"keepOriginal,omitempty"`
-
-	// Languages restricts which audio languages are kept; empty keeps all.
+	// Languages keeps only audio in these languages (commentary always, and
+	// every track when none matches); empty keeps all. The kept tracks are
+	// copied when Apple TV plays them directly (AAC, AC-3, E-AC-3), else
+	// encoded to AAC: the standard decides, not the profile.
 	// +optional
 	Languages []string `json:"languages,omitempty"`
-
-	// DropCommentary drops tracks flagged as commentary. A pointer so a Go
-	// client can send an explicit false; unset means true.
-	// +optional
-	// +kubebuilder:default=true
-	DropCommentary *bool `json:"dropCommentary,omitempty"`
-
-	// StereoCompatTrack adds a stereo downmix track for compatibility.
-	// +optional
-	// +kubebuilder:default=false
-	StereoCompatTrack bool `json:"stereoCompatTrack,omitempty"`
-
-	// CopyCodecs are source audio codecs whose tracks are copied unchanged
-	// instead of re-encoded to Codec, and count as already compliant.
-	// Re-encoding E-AC-3 5.1 to AAC saves little space and was the largest
-	// CPU share left on a GPU pool once video decoded on NVDEC (2026-09-30).
-	// A copied track replaces its re-encode, so keepOriginal adds nothing
-	// for it. Every listed codec is one both Matroska and MP4 carry. Empty
-	// re-encodes every track.
-	// +optional
-	// +listType=set
-	// +kubebuilder:validation:MaxItems=3
-	// +kubebuilder:validation:items:Enum=aac;ac3;eac3
-	CopyCodecs []string `json:"copyCodecs,omitempty"`
-}
-
-// SubSpec describes how subtitle tracks and attachments are handled.
-type SubSpec struct {
-	// CopyText copies text-based subtitle tracks. A pointer so a Go client can
-	// send an explicit false; unset means true.
-	// +optional
-	// +kubebuilder:default=true
-	CopyText *bool `json:"copyText,omitempty"`
-
-	// CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks. A pointer so a Go
-	// client can send an explicit false; unset means true.
-	// +optional
-	// +kubebuilder:default=true
-	CopyBitmap *bool `json:"copyBitmap,omitempty"`
-
-	// CopyAttachments copies container attachments such as fonts. A pointer so a
-	// Go client can send an explicit false; unset means true.
-	// +optional
-	// +kubebuilder:default=true
-	CopyAttachments *bool `json:"copyAttachments,omitempty"`
-}
-
-// HDRSpec describes how high-dynamic-range metadata is handled.
-type HDRSpec struct {
-	// HDR10Plus says what happens to HDR10+ dynamic metadata.
-	// +optional
-	// +kubebuilder:default="drop"
-	HDR10Plus HDR10PlusMode `json:"hdr10Plus,omitempty"`
-
-	// DolbyVision says what happens to Dolby Vision sources.
-	// +optional
-	// +kubebuilder:default="passthrough"
-	DolbyVision DolbyVisionMode `json:"dolbyVision,omitempty"`
 }
 
 // PolicySpec decides which files are transcoded and what happens afterwards.
 type PolicySpec struct {
-	// SkipIfCompliant skips files that already satisfy the profile. A pointer so
-	// a Go client can send an explicit false; unset means true.
-	// +optional
-	// +kubebuilder:default=true
-	SkipIfCompliant *bool `json:"skipIfCompliant,omitempty"`
-
-	// RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the video
-	// stream already satisfies the profile. A pointer so a Go client can send an
-	// explicit false; unset means true.
-	// +optional
-	// +kubebuilder:default=true
-	RemuxOnlyWhenVideoCompliant *bool `json:"remuxOnlyWhenVideoCompliant,omitempty"`
-
 	// NeverTranscodeModifiers lists quality modifiers (see common Modifier)
 	// whose files are never transcoded.
 	// +optional
@@ -431,24 +146,6 @@ type PolicySpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	RecycleBin *bool `json:"recycleBin,omitempty"`
-}
-
-// VerifySpec describes post-encode verification.
-type VerifySpec struct {
-	// PacketCount compares packet counts between source and output. A pointer so
-	// a Go client can send an explicit false; unset means true.
-	// +optional
-	// +kubebuilder:default=true
-	PacketCount *bool `json:"packetCount,omitempty"`
-
-	// FullDecode fully decodes the output to check for corruption.
-	// +optional
-	// +kubebuilder:default=false
-	FullDecode bool `json:"fullDecode,omitempty"`
-
-	// VMAFMin fails the job when the VMAF score falls below this value.
-	// +optional
-	VMAFMinCentis *int32 `json:"vmafMinCentis,omitempty"`
 }
 
 // GPUSpec schedules the encode pod onto a GPU.
@@ -500,11 +197,11 @@ type TranscodeProfileSpec struct {
 	// Quality is the standard's one quality setting (0 best, 51 smallest),
 	// mapped to each encoder's own control by a code table: libx265 crf,
 	// hevc_nvenc qp (quality - 1, under constqp), hevc_qsv global_quality,
-	// hevc_vaapi qp. Read by the in-process engine (--worker-engine=ffgo);
-	// the argv engine reads video.crf. Unset means 24 (QualityOrDefault).
-	// It has no CRD default on purpose: the apiserver would write 24 into
-	// every stored profile, changing every profile's status.hash and so
-	// re-transcoding every file already tagged with it.
+	// hevc_vaapi qp. Unset means 24 (QualityOrDefault), and hashes as 24.
+	// Everything else about the encode is the standard's (ffgo spec §1):
+	// the video, HDR, subtitle and verification settings profiles had
+	// until 2026-10-01 were removed, and the apiserver prunes them from a
+	// stored profile.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=51
@@ -516,35 +213,15 @@ type TranscodeProfileSpec struct {
 	// +kubebuilder:default="auto"
 	Hardware Hardware `json:"hardware,omitempty"`
 
-	// Video describes the video encode.
-	// +optional
-	// +kubebuilder:default={}
-	Video VideoSpec `json:"video,omitempty"`
-
-	// Audio describes audio handling.
+	// Audio decides which audio languages are kept.
 	// +optional
 	// +kubebuilder:default={}
 	Audio AudioSpec `json:"audio,omitempty"`
-
-	// Subtitles describes subtitle and attachment handling.
-	// +optional
-	// +kubebuilder:default={}
-	Subtitles SubSpec `json:"subtitles,omitempty"`
-
-	// HDR describes HDR metadata handling.
-	// +optional
-	// +kubebuilder:default={}
-	HDR HDRSpec `json:"hdr,omitempty"`
 
 	// Policy decides which files are transcoded and what happens afterwards.
 	// +optional
 	// +kubebuilder:default={}
 	Policy PolicySpec `json:"policy,omitempty"`
-
-	// Verify describes post-encode verification.
-	// +optional
-	// +kubebuilder:default={}
-	Verify VerifySpec `json:"verify,omitempty"`
 
 	// Resources are the encode container's resource requirements. The default
 	// limits (cpu 8, memory 4Gi) suit 1080p; the CPU limit is fed to the x265
@@ -612,8 +289,11 @@ type TranscodeProfileStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Hash is the sha256 of the render-relevant spec. Encode pods receive it
-	// as CLUSTARR_PROFILE=<name>@<hash>.
+	// Hash is the sha256 of the standard's inputs -- quality, container,
+	// audio.languages, policy.neverTranscodeModifiers -- and the standard's
+	// version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
+	// A new hash plans new jobs only for files not yet transcoded: a
+	// transcoded file is final, whatever hash it carries.
 	// +optional
 	Hash string `json:"hash,omitempty"`
 

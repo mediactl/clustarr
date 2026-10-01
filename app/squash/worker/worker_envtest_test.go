@@ -247,12 +247,11 @@ func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 		tp := &transcodev1alpha1.TranscodeProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: f.profileName},
 			Spec: transcodev1alpha1.TranscodeProfileSpec{
-				Video: transcodev1alpha1.VideoSpec{Preset: "ultrafast"},
 				Policy: transcodev1alpha1.PolicySpec{
 					MinDuration: &metav1.Duration{Duration: 0},
 					// The default clip is already an efficient x264 encode
-					// of a synthetic source, and x265 ultrafast re-encodes
-					// it LARGER (about 160%), so the limit is lifted here.
+					// of a synthetic source, and the test engine's fast
+					// x265 re-encodes it LARGER, so the limit is lifted here.
 					// The CRD default (100) is exercised by
 					// TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode,
 					// against a source as bloated as a real remux.
@@ -619,7 +618,7 @@ func TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode(t *testing.T) {
 			// minDuration is the one policy override: its default (1m) would
 			// skip a two-second clip. maxOutputToSourcePercent is absent.
 			require.NoError(t, createProfileFromYAML(t, c, name,
-				"  video:\n    preset: ultrafast\n  policy:\n    minDuration: 0s\n"))
+				"  policy:\n    minDuration: 0s\n"))
 		},
 	})
 

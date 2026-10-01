@@ -19,6 +19,7 @@ package transcodeprofile
 
 import (
 	"fmt"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -28,7 +29,6 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
 // Reasons this controller sets on TranscodeProfile.status.conditions, beyond
@@ -66,24 +66,15 @@ func eligibleKind(k commonv1.MediaKind) bool {
 	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
 }
 
-// profileHash is status.hash: pkg/transcode.ProfileHash over the profile as
-// app/squash/worker.ProfileSpec converts it -- the one converter squasharr
-// has, which the TranscodeJob controller plans from and the worker
-// executes. This package had its own copy until E-4; two converters is two
-// chances to drop a field, and a field dropped from the hash is a field
-// whose edit never re-transcodes anything, since the hash names every
-// TranscodeJob and is the CLUSTARR_PROFILE tag catalogarr compares.
-//
-// hardware is nil: TranscodeJob.spec.hardware is a per-job override of the
-// backend, not a different profile, and the tag is the profile's.
-//
-// The Kubernetes scheduling fields (default, selector, resources, gpu,
-// scratch, priority, activeDeadline, ttlSecondsAfterFinished, chunking) do
-// not reach the hash, by design: they decide where and when an encode runs,
-// never what it writes, so editing a CPU limit must not re-transcode a
-// library. TestStatusHashChangesWithEveryRenderField holds both halves.
+// profileHash is status.hash: app/squash/worker.ProfileHash, over the
+// standard's inputs (quality, container, audio.languages,
+// policy.neverTranscodeModifiers) and standard.Version. The worker tags its
+// output with it and the TranscodeJob controller names jobs by it; the
+// scheduling and policy fields never reach it, so editing a CPU limit or a
+// selector plans nothing. A new hash plans jobs only for files not yet
+// transcoded (alreadyTranscoded).
 func profileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
-	return transcode.ProfileHash(worker.ProfileSpec(spec, nil))
+	return worker.ProfileHash(spec)
 }
 
 // transcodeJobName renders the exact scheme TranscodeJob's own doc comment
@@ -121,8 +112,8 @@ func transcodeJobName(mediaFileName, profileHash string) string {
 // profileTag renders the same "<name>@<hash>" convention
 // mediafile_controller.go's transcodeProfileTag writes onto
 // MediaFile.status.transcode.profileTag once a swap is incorporated, and
-// pkg/transcode.Plan itself tags the ffmpeg output with (plan.go:200-201,
-// PlanResult.Tags). It is the one piece of string formatting three different
+// pkg/transcode/standard.Plan tags the output with (Result.Tags,
+// CLUSTARR_PROFILE). It is the one piece of string formatting three different
 // packages in three different services must agree on byte-for-byte; changing
 // it here without changing the other two silently breaks the "already
 // transcoded to this hash" check everywhere.
@@ -130,31 +121,26 @@ func profileTag(profileName, profileHash string) string {
 	return fmt.Sprintf("%s@%s", profileName, profileHash)
 }
 
-// alreadyTranscoded reports whether mf already carries the current profile's
-// tag, by either record worker.HasProfileTag reads: the probe's record of
-// the file's own CLUSTARR_PROFILE (an earlier install's output, found by a
-// rescan, has only that), or the one catalogarr's mediafile controller sets
-// only after incorporating a SUCCESSFUL transcode -- an in-place swap, or a
-// replaceSource=false job's derived copy beside this file. So this is false
-// for a file that has never been transcoded, one whose last transcode
-// failed, and one tagged with a stale (pre-edit) profile hash. The
-// TranscodeJob planner asks the same function, so a file this skips is one
-// it would skip too.
-//
-// A file another tool transcoded (status.mediaInfo.videoEncoder names an
-// ffmpeg HEVC or AV1 encoder, commonv1.MediaInfo.TranscodedElsewhere) is
-// already transcoded too, whatever this profile's revision: a transcoded
-// file is final (CLAUDE.md, "Transcoding"), and encoding Tdarr's output a
-// second time would only lose quality.
-func alreadyTranscoded(mf *catalogv1alpha1.MediaFile, tag string) bool {
-	return worker.HasProfileTag(mf, tag) || mf.Status.MediaInfo.TranscodedElsewhere()
+// alreadyTranscoded reports whether mf is done, for profile: a transcoded
+// file is final (CLAUDE.md, "Transcoding"; spec §5: re-transcoding is never
+// an upgrade side effect), whatever hash it was made under. That is
+// catalogv1alpha1.MediaFile.Transcoded -- spec.original false, the probe's
+// CLUSTARR_PROFILE (any profile, any hash: an earlier install's output, or
+// this profile's before an edit or a new standard.Version), or another
+// tool's HEVC or AV1 encode -- or catalogarr's record of a transcode by this
+// profile under any hash: a replaceSource=false job records it on the
+// source, whose own bytes stay untouched, and whose derived copy exists.
+func alreadyTranscoded(mf *catalogv1alpha1.MediaFile, profile string) bool {
+	if mf.Transcoded() {
+		return true
+	}
+	return mf.Status.Transcode != nil && strings.HasPrefix(mf.Status.Transcode.ProfileTag, profileTag(profile, ""))
 }
 
 // probed reports whether mf has enough of a probe to plan a transcode from:
 // a non-empty ProbeHash to pin TranscodeJobSpec.SourceProbeHash to (R3: the
 // worker refuses to run if the live file no longer matches it) and a
-// MediaInfo for the eventual TranscodeJob controller's Plan call
-// (pkg/transcode.Plan requires at least one video stream). A MediaFile that
+// MediaInfo for the TranscodeJob controller to plan from. A MediaFile that
 // has not been probed yet is not an error -- catalogarr's mediafile
 // controller will probe it and this controller's MediaFile watch (on
 // status.probeHash changing) fires again once it has.
@@ -328,28 +314,9 @@ func selectFiles(
 // profileLess ranks behind the winner across all profiles currently marked
 // default.
 //
-// An earlier version of this function also flagged
-// hdr.dolbyVision=passthrough with video.maxRateKbps/bufSizeKbps unset --
-// the exact shape pkg/transcode.Plan rejects for a Dolby Vision source
-// (plan.go:234-239) -- reasoning that the condition depends only on the
-// profile, not on which file is being planned. An envtest proved that
-// reasoning wrong: HDRSpec.DolbyVision defaults to "passthrough"
-// (transcodeprofile_types.go's own +kubebuilder:default) with no default VBV
-// values, so EVERY profile that does not explicitly override HDR -- which is
-// most of them -- would be marked Invalid on creation and never create a
-// TranscodeJob for ANY file, Dolby Vision or not, since Invalid gates job
-// creation entirely (see Reconcile). The rejection is real, but it is a
-// per-FILE outcome: only a source that actually IS Dolby Vision hits it, and
-// R1 already gives that outcome a home -- a Skipped TranscodeJob with a
-// reason, decided by task E-2's TranscodeJob controller when it calls Plan
-// against that one file's real MediaInfo. Re-deriving a file-shaped decision
-// from the spec alone, before any file is even looked at, blocks every
-// unrelated file in the profile for a condition most of them will never
-// trigger.
-//
 // A profile that is not Invalid is not thereby proven plannable for every
-// file -- Plan still makes per-file skip/remuxOnly/encode/reject decisions
-// the TranscodeJob controller (task E-2) renders -- this only catches shapes
+// file -- the standard still decides per file (skip, copy the video, encode)
+// in the TranscodeJob controller -- this only catches shapes
 // that are wrong regardless of which file, or whether any file, is involved.
 func validateProfile(tp *transcodev1alpha1.TranscodeProfile, all []transcodev1alpha1.TranscodeProfile) (invalid bool, reason, message string) {
 	if tp.Spec.Default {

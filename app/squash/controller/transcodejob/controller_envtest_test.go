@@ -453,14 +453,14 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Contains(t, cond.Message, "probe summary")
 	})
 
-	// A file squasharr already wrote under this profile is not transcoded
-	// again, however catalogarr recorded the tag: the probe reads the file's
-	// CLUSTARR_PROFILE into status.mediaInfo.transcodeProfile (an earlier
-	// install's output, found by a rescan, has only that), and a transcode
-	// it incorporates sets status.transcode.profileTag (a replaceSource=false
-	// job does so on a source whose own tag may be another profile's). The
-	// video is compliant but a kept TrueHD track is not AAC, so only the tag
-	// can skip it; a tag from another hash is not this profile's work.
+	// A transcoded file is not transcoded again, under any hash (spec §5),
+	// however catalogarr recorded the tag: the probe reads the file's
+	// CLUSTARR_PROFILE into status.mediaInfo.transcodeProfile (any profile's:
+	// the bytes are a transcode), and a transcode it incorporates sets
+	// status.transcode.profileTag (a replaceSource=false job does so on its
+	// untouched source; another profile's such record leaves this profile's
+	// work to do). The video is compliant but a kept TrueHD track is not
+	// AAC, so only the tag can skip it.
 	tagged := func() commonv1.MediaInfo {
 		mi := compliantProbe()
 		mi.Audio = append(mi.Audio, commonv1.AudioStream{Index: 2, Codec: "truehd", Channels: 8, Language: "eng"})
@@ -474,7 +474,9 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		{name: "tagged by a swap", swapTag: "hevc@hash1", skipped: true},
 		{name: "tagged by the probe beside another swap tag", probeTag: "hevc@hash1", swapTag: "hevc@old", skipped: true},
 		{name: "a kept copy's tag beside the source's own", probeTag: "other@x", swapTag: "hevc@hash1", skipped: true},
-		{name: "tagged by another hash", probeTag: "hevc@old", swapTag: "other@x"},
+		{name: "tagged by the probe under another hash", probeTag: "hevc@old", skipped: true},
+		{name: "a swap by this profile under another hash", swapTag: "hevc@old", skipped: true},
+		{name: "another profiles kept copy", swapTag: "other@x"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			name := "tag-" + strings.ReplaceAll(strings.ReplaceAll(tc.name, " ", "-"), "'", "")
@@ -499,7 +501,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 			}
 			assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, tj.Status.Phase, "message: %s", tj.Status.Message)
 			require.NotNil(t, tj.Status.Plan)
-			assert.Contains(t, tj.Status.Plan.SkipReason, "this profile already wrote this file")
+			assert.Contains(t, tj.Status.Plan.SkipReason, "already transcoded")
 		})
 	}
 
@@ -575,7 +577,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 			dispatched = append(dispatched, j.Name)
 		}
 	}
-	assert.ElementsMatch(t, []string{"tag-tagged-by-another-hash", "mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, dispatched,
+	assert.ElementsMatch(t, []string{"tag-another-profiles-kept-copy", "mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, dispatched,
 		"every planned job, container changes included, is dispatched; the skipped and failed ones are not")
 }
 

@@ -28,13 +28,6 @@ import (
 //
 // PolicySpec decides which files are transcoded and what happens afterwards.
 type PolicySpecApplyConfiguration struct {
-	// SkipIfCompliant skips files that already satisfy the profile. A pointer so
-	// a Go client can send an explicit false; unset means true.
-	SkipIfCompliant *bool `json:"skipIfCompliant,omitempty"`
-	// RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the video
-	// stream already satisfies the profile. A pointer so a Go client can send an
-	// explicit false; unset means true.
-	RemuxOnlyWhenVideoCompliant *bool `json:"remuxOnlyWhenVideoCompliant,omitempty"`
 	// NeverTranscodeModifiers lists quality modifiers (see common Modifier)
 	// whose files are never transcoded.
 	NeverTranscodeModifiers []string `json:"neverTranscodeModifiers,omitempty"`
@@ -67,22 +60,6 @@ type PolicySpecApplyConfiguration struct {
 // apply.
 func PolicySpec() *PolicySpecApplyConfiguration {
 	return &PolicySpecApplyConfiguration{}
-}
-
-// WithSkipIfCompliant sets the SkipIfCompliant field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SkipIfCompliant field is set to the value of the last call.
-func (b *PolicySpecApplyConfiguration) WithSkipIfCompliant(value bool) *PolicySpecApplyConfiguration {
-	b.SkipIfCompliant = &value
-	return b
-}
-
-// WithRemuxOnlyWhenVideoCompliant sets the RemuxOnlyWhenVideoCompliant field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the RemuxOnlyWhenVideoCompliant field is set to the value of the last call.
-func (b *PolicySpecApplyConfiguration) WithRemuxOnlyWhenVideoCompliant(value bool) *PolicySpecApplyConfiguration {
-	b.RemuxOnlyWhenVideoCompliant = &value
-	return b
 }
 
 // WithNeverTranscodeModifiers adds the given value to the NeverTranscodeModifiers field in the declarative configuration

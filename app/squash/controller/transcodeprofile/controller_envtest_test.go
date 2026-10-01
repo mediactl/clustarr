@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -192,12 +193,13 @@ func TestReconcileCreatesJobsIdempotently(t *testing.T) {
 	assert.False(t, k8s.IsConditionTrue(gotProfile.Status.Conditions, transcodev1alpha1.TranscodeProfileConditionInvalid))
 }
 
-// TestReconcileProfileEditCreatesExactlyOneNewJob is the plan's second named
-// case: editing the profile changes status.hash, which changes
-// transcodeJobName's suffix, which must create exactly one additional
-// TranscodeJob -- the old one is left alone (it describes the OLD hash's
-// plan and its spec is CEL-immutable) rather than mutated or duplicated.
-func TestReconcileProfileEditCreatesExactlyOneNewJob(t *testing.T) {
+// TestAProfileEditLeavesAnOpenJobAlone: editing the profile changes
+// status.hash, and so the name a new job for the same file would take; but
+// the file already has this profile's job, not yet finished, so it gets no
+// second one (spec §5: re-transcoding is never an upgrade side effect, and
+// two jobs for one file would both encode it). The open job runs under the
+// profile's current hash: the worker tags its output with it.
+func TestAProfileEditLeavesAnOpenJobAlone(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
 	const ns = "transcodeprofile-edit"
@@ -216,17 +218,104 @@ func TestReconcileProfileEditCreatesExactlyOneNewJob(t *testing.T) {
 
 	var fresh transcodev1alpha1.TranscodeProfile
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tp.Name}, &fresh))
-	fresh.Spec.Video.Preset = "veryslow" // any render-relevant field changes ProfileHash
+	hash := fresh.Status.Hash
+	fresh.Spec.Quality = ptr.To[int32](30) // a standard input: the hash moves
 	require.NoError(t, c.Update(ctx, &fresh))
 
 	_, err = r.Reconcile(ctx, req)
 	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tp.Name}, &fresh))
+	require.NotEqual(t, hash, fresh.Status.Hash, "quality is a standard input")
 	after := listJobs(t, ctx, c)
-	require.Len(t, after, 2, "a profile edit must create exactly one additional job, not replace or duplicate the first")
+	require.Len(t, after, 1, "a file with an open job of this profile gets no second job")
+	assert.Equal(t, before[0].Name, after[0].Name)
+}
 
-	names := map[string]bool{after[0].Name: true, after[1].Name: true}
-	assert.True(t, names[before[0].Name], "the original job must still exist, unmutated")
-	assert.Len(t, names, 2, "the edit must not have renamed or collapsed the two jobs onto one name")
+// TestANewHashRequeuesNothingTranscoded: the API cut gives every profile a
+// new status.hash, and a later standard.Version does again. A file this
+// profile transcoded under an earlier hash -- its probe reads the old
+// CLUSTARR_PROFILE, or catalogarr recorded the old tag -- and a file another
+// tool encoded to HEVC are transcoded and final: no job. Only the untouched
+// file is queued.
+func TestANewHashRequeuesNothingTranscoded(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	const ns = "transcodeprofile-newhash"
+	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
+
+	tp := defaultProfile(t, ctx, c, "default")
+	const oldTag = "default@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	probeTagged := probedMovie(t, ctx, c, ns, "arrival-2016", nil)
+	setMediaInfo(t, ctx, c, probeTagged, commonv1.MediaInfo{VideoCodec: "hevc", TranscodeProfile: oldTag})
+	swapped := probedMovie(t, ctx, c, ns, "sicario-2015", nil)
+	tagMovieAsTranscoded(t, ctx, c, swapped, oldTag)
+	elsewhere := probedMovie(t, ctx, c, ns, "heat-1995", nil)
+	setMediaInfo(t, ctx, c, elsewhere, commonv1.MediaInfo{VideoCodec: "hevc", VideoEncoder: "Lavc61.3.100 hevc_qsv"})
+	probedMovie(t, ctx, c, ns, "dune-2021", nil)
+
+	r := transcodeprofile.NewReconciler(c, k8s.MustNewScheme(), events.NewFakeRecorder(10))
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tp.Name}})
+	require.NoError(t, err)
+
+	jobs := listJobs(t, ctx, c)
+	require.Len(t, jobs, 1, "only the untouched file is queued")
+	assert.Equal(t, "dune-2021", jobs[0].Spec.MediaFileRef)
+}
+
+// TestAStoredProfileWithRemovedFieldsStillReconciles: a profile written
+// before the API cut carries video, hdr, subtitles, verify and the
+// compliance policy. The apiserver prunes them (they are no longer in the
+// schema), the controller hashes what is left, and the profile is Ready.
+func TestAStoredProfileWithRemovedFieldsStillReconciles(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": transcodev1alpha1.GroupVersion.String(),
+		"kind":       "TranscodeProfile",
+		"metadata":   map[string]any{"name": "pre-cut"},
+		"spec": map[string]any{
+			"default":   true,
+			"video":     map[string]any{"crf": map[string]any{"sd": int64(20)}, "preset": "slow"},
+			"hdr":       map[string]any{"dolbyVision": "passthrough"},
+			"subtitles": map[string]any{"copyBitmap": false},
+			"verify":    map[string]any{"fullDecode": true},
+			"audio":     map[string]any{"codec": "aac", "languages": []any{"eng"}},
+			"policy":    map[string]any{"skipIfCompliant": true, "minDuration": "2m"},
+		},
+	}}
+	require.NoError(t, c.Create(ctx, u))
+
+	stored := &unstructured.Unstructured{}
+	stored.SetGroupVersionKind(u.GroupVersionKind())
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "pre-cut"}, stored))
+	spec := stored.Object["spec"].(map[string]any)
+	for _, gone := range []string{"video", "hdr", "subtitles", "verify"} {
+		assert.NotContains(t, spec, gone, "spec.%s is pruned", gone)
+	}
+	assert.Equal(t, map[string]any{"languages": []any{"eng"}}, spec["audio"], "audio keeps only languages")
+	assert.NotContains(t, spec["policy"], "skipIfCompliant")
+	assert.Equal(t, "2m", spec["policy"].(map[string]any)["minDuration"])
+
+	r := transcodeprofile.NewReconciler(c, k8s.MustNewScheme(), events.NewFakeRecorder(10))
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "pre-cut"}})
+	require.NoError(t, err)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "pre-cut"}, &tp))
+	assert.NotEmpty(t, tp.Status.Hash)
+	ready := k8s.FindCondition(tp.Status.Conditions, transcodev1alpha1.TranscodeProfileConditionReady)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionTrue, ready.Status)
+}
+
+// setMediaInfo seeds mf's probe summary, as catalogarr's probe writes it.
+func setMediaInfo(t *testing.T, ctx context.Context, c client.Client, mf *catalogv1alpha1.MediaFile, mi commonv1.MediaInfo) {
+	t.Helper()
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+		catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(
+			catalogac.MediaFileStatus().WithProbeHash(mf.Status.ProbeHash).WithMediaInfo(mi)))
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: mf.Name, Namespace: mf.Namespace}, mf))
 }
 
 // TestReconcileSkipsAFileAlreadyTaggedWithTheCurrentHash proves the tag

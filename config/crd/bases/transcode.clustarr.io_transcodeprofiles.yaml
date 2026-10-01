@@ -78,64 +78,17 @@ spec:
                 type: string
               audio:
                 default: {}
-                description: Audio describes audio handling.
+                description: Audio decides which audio languages are kept.
                 properties:
-                  bitratePerChannelKbps:
-                    default: 64
-                    description: BitratePerChannelKbps is the encoded bitrate per
-                      audio channel.
-                    format: int32
-                    type: integer
-                  codec:
-                    default: aac
-                    description: Codec is the target audio codec for re-encoded tracks.
-                    type: string
-                  copyCodecs:
-                    description: |-
-                      CopyCodecs are source audio codecs whose tracks are copied unchanged
-                      instead of re-encoded to Codec, and count as already compliant.
-                      Re-encoding E-AC-3 5.1 to AAC saves little space and was the largest
-                      CPU share left on a GPU pool once video decoded on NVDEC (2026-09-30).
-                      A copied track replaces its re-encode, so keepOriginal adds nothing
-                      for it. Every listed codec is one both Matroska and MP4 carry. Empty
-                      re-encodes every track.
-                    items:
-                      enum:
-                      - aac
-                      - ac3
-                      - eac3
-                      type: string
-                    maxItems: 3
-                    type: array
-                    x-kubernetes-list-type: set
-                  dropCommentary:
-                    default: true
-                    description: |-
-                      DropCommentary drops tracks flagged as commentary. A pointer so a Go
-                      client can send an explicit false; unset means true.
-                    type: boolean
-                  keepOriginal:
-                    default: atmos
-                    description: |-
-                      KeepOriginal says when the original track is kept instead of, or in
-                      addition to, the re-encoded one.
-                    enum:
-                    - never
-                    - lossless
-                    - atmos
-                    - always
-                    type: string
                   languages:
-                    description: Languages restricts which audio languages are kept;
-                      empty keeps all.
+                    description: |-
+                      Languages keeps only audio in these languages (commentary always, and
+                      every track when none matches); empty keeps all. The kept tracks are
+                      copied when Apple TV plays them directly (AAC, AC-3, E-AC-3), else
+                      encoded to AAC: the standard decides, not the profile.
                     items:
                       type: string
                     type: array
-                  stereoCompatTrack:
-                    default: false
-                    description: StereoCompatTrack adds a stereo downmix track for
-                      compatibility.
-                    type: boolean
                 type: object
               chunking:
                 description: |-
@@ -233,25 +186,6 @@ spec:
                 - intel
                 - auto
                 type: string
-              hdr:
-                default: {}
-                description: HDR describes HDR metadata handling.
-                properties:
-                  dolbyVision:
-                    default: passthrough
-                    description: DolbyVision says what happens to Dolby Vision sources.
-                    enum:
-                    - passthrough
-                    - downgradeToHDR10
-                    - reject
-                    type: string
-                  hdr10Plus:
-                    default: drop
-                    description: HDR10Plus says what happens to HDR10+ dynamic metadata.
-                    enum:
-                    - drop
-                    type: string
-                type: object
               maxConcurrent:
                 description: |-
                   MaxConcurrent caps how many TranscodeJobs created from this profile may
@@ -305,13 +239,6 @@ spec:
                       hard link elsewhere under /data keeps its own copy either way). A
                       pointer so a Go client can send an explicit false; unset means true.
                     type: boolean
-                  remuxOnlyWhenVideoCompliant:
-                    default: true
-                    description: |-
-                      RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the video
-                      stream already satisfies the profile. A pointer so a Go client can send an
-                      explicit false; unset means true.
-                    type: boolean
                   replaceSource:
                     default: true
                     description: |-
@@ -319,12 +246,6 @@ spec:
                       false leaves the source file in place instead of renaming the output
                       over it. A pointer so a Go client can send an explicit false; unset
                       means true.
-                    type: boolean
-                  skipIfCompliant:
-                    default: true
-                    description: |-
-                      SkipIfCompliant skips files that already satisfy the profile. A pointer so
-                      a Go client can send an explicit false; unset means true.
                     type: boolean
                 type: object
               priority:
@@ -338,11 +259,11 @@ spec:
                   Quality is the standard's one quality setting (0 best, 51 smallest),
                   mapped to each encoder's own control by a code table: libx265 crf,
                   hevc_nvenc qp (quality - 1, under constqp), hevc_qsv global_quality,
-                  hevc_vaapi qp. Read by the in-process engine (--worker-engine=ffgo);
-                  the argv engine reads video.crf. Unset means 24 (QualityOrDefault).
-                  It has no CRD default on purpose: the apiserver would write 24 into
-                  every stored profile, changing every profile's status.hash and so
-                  re-transcoding every file already tagged with it.
+                  hevc_vaapi qp. Unset means 24 (QualityOrDefault), and hashes as 24.
+                  Everything else about the encode is the standard's (ffgo spec §1):
+                  the video, HDR, subtitle and verification settings profiles had
+                  until 2026-10-01 were removed, and the apiserver prunes them from a
+                  stored profile.
                 format: int32
                 maximum: 51
                 minimum: 0
@@ -479,29 +400,6 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
-              subtitles:
-                default: {}
-                description: Subtitles describes subtitle and attachment handling.
-                properties:
-                  copyAttachments:
-                    default: true
-                    description: |-
-                      CopyAttachments copies container attachments such as fonts. A pointer so a
-                      Go client can send an explicit false; unset means true.
-                    type: boolean
-                  copyBitmap:
-                    default: true
-                    description: |-
-                      CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks. A pointer so a Go
-                      client can send an explicit false; unset means true.
-                    type: boolean
-                  copyText:
-                    default: true
-                    description: |-
-                      CopyText copies text-based subtitle tracks. A pointer so a Go client can
-                      send an explicit false; unset means true.
-                    type: boolean
-                type: object
               ttlSecondsAfterFinished:
                 default: 86400
                 description: |-
@@ -509,186 +407,6 @@ spec:
                   finish; this is removed at the next API version.
                 format: int32
                 type: integer
-              verify:
-                default: {}
-                description: Verify describes post-encode verification.
-                properties:
-                  fullDecode:
-                    default: false
-                    description: FullDecode fully decodes the output to check for
-                      corruption.
-                    type: boolean
-                  packetCount:
-                    default: true
-                    description: |-
-                      PacketCount compares packet counts between source and output. A pointer so
-                      a Go client can send an explicit false; unset means true.
-                    type: boolean
-                  vmafMinCentis:
-                    description: VMAFMin fails the job when the VMAF score falls below
-                      this value.
-                    format: int32
-                    type: integer
-                type: object
-              video:
-                default: {}
-                description: Video describes the video encode.
-                properties:
-                  aqMode:
-                    default: 3
-                    description: AQMode is the adaptive-quantisation mode.
-                    format: int32
-                    type: integer
-                  bFrames:
-                    default: 8
-                    description: BFrames is the number of consecutive B-frames.
-                    format: int32
-                    type: integer
-                  bufSizeKbps:
-                    description: |-
-                      BufSizeKbps is the VBV buffer size. Required for Dolby Vision output;
-                      validated by the planner.
-                    format: int32
-                    type: integer
-                  codec:
-                    default: hevc
-                    description: Codec is the target video codec.
-                    type: string
-                  crf:
-                    default: {}
-                    description: CRF is the constant-rate-factor table by resolution
-                      class.
-                    properties:
-                      hd:
-                        default: 22
-                        description: HD is the CRF used for 720p/1080p sources.
-                        format: int32
-                        type: integer
-                      hdrOffset:
-                        default: -1
-                        description: |-
-                          HDROffset is added to the resolution CRF when the source is HDR; 0
-                          means no HDR offset. A pointer so a Go client can send that 0: with
-                          omitempty it would be dropped and defaulted back to -1. Unset means -1;
-                          read it through HDROffsetOrDefault.
-                        format: int32
-                        type: integer
-                      sd:
-                        default: 21
-                        description: SD is the CRF used for standard-definition sources.
-                        format: int32
-                        type: integer
-                      uhd:
-                        default: 23
-                        description: UHD is the CRF used for 2160p sources.
-                        format: int32
-                        type: integer
-                    type: object
-                  extraX265Params:
-                    additionalProperties:
-                      type: string
-                    description: ExtraX265Params are additional key/value pairs appended
-                      to -x265-params.
-                    type: object
-                  keyintFactor:
-                    default: 10
-                    description: KeyintFactor sets the keyframe interval as a multiple
-                      of the frame rate.
-                    format: int32
-                    type: integer
-                  maxRateKbps:
-                    description: |-
-                      MaxRateKbps caps the video bitrate (VBV maxrate). Required for Dolby
-                      Vision output; validated by the planner.
-                    format: int32
-                    type: integer
-                  nvenc:
-                    default: {}
-                    description: NVENC tunes the NVIDIA encoder; used when hardware=nvidia.
-                    properties:
-                      bRefMode:
-                        default: middle
-                        description: BRefMode is the NVENC B-frame reference mode.
-                        type: string
-                      cq:
-                        default: 24
-                        description: CQ is the constant-quality level.
-                        format: int32
-                        type: integer
-                      maxBitratePercent:
-                        default: 70
-                        description: |-
-                          MaxBitratePercent caps the encode at this percentage of the source's
-                          video bitrate, as -maxrate (and twice that as -bufsize), with cq still
-                          the quality target below it. NVENC's constant quality has no ceiling,
-                          and on a low-bitrate source it spends more bits than the source had.
-                          0 is no cap, as is a source whose bitrate the probe does not know. A
-                          pointer so a Go client can send 0; unset is 70.
-                        format: int32
-                        maximum: 100
-                        minimum: 0
-                        type: integer
-                      multipass:
-                        default: fullres
-                        description: Multipass is the NVENC multi-pass mode.
-                        type: string
-                      preset:
-                        default: p6
-                        description: Preset is the NVENC preset (p1 fastest .. p7
-                          slowest).
-                        type: string
-                      tune:
-                        default: hq
-                        description: Tune is the NVENC tuning target.
-                        type: string
-                    type: object
-                  pixelFormat:
-                    default: yuv420p10le
-                    description: PixelFormat is the target pixel format.
-                    type: string
-                  preset:
-                    default: slow
-                    description: Preset is the x265 preset.
-                    type: string
-                  profile:
-                    default: main10
-                    description: Profile is the target codec profile.
-                    type: string
-                  qsv:
-                    default: {}
-                    description: QSV tunes the Intel Quick Sync encoder; used when
-                      hardware=intel.
-                    properties:
-                      globalQuality:
-                        default: 22
-                        description: GlobalQuality is the QSV ICQ/global quality level.
-                        format: int32
-                        type: integer
-                      lookAheadDepth:
-                        default: 40
-                        description: LookAheadDepth is the QSV look-ahead depth in
-                          frames.
-                        format: int32
-                        type: integer
-                      preset:
-                        default: veryslow
-                        description: Preset is the QSV preset.
-                        type: string
-                    type: object
-                  rcLookahead:
-                    default: 40
-                    description: RCLookahead is the rate-control look-ahead in frames.
-                    format: int32
-                    type: integer
-                  refs:
-                    default: 4
-                    description: Refs is the number of reference frames.
-                    format: int32
-                    type: integer
-                  tune:
-                    description: Tune is the optional x265 tune.
-                    type: string
-                type: object
             type: object
           status:
             description: TranscodeProfileStatus defines the observed state of TranscodeProfile.
@@ -813,8 +531,11 @@ spec:
                 x-kubernetes-list-type: map
               hash:
                 description: |-
-                  Hash is the sha256 of the render-relevant spec. Encode pods receive it
-                  as CLUSTARR_PROFILE=<name>@<hash>.
+                  Hash is the sha256 of the standard's inputs -- quality, container,
+                  audio.languages, policy.neverTranscodeModifiers -- and the standard's
+                  version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
+                  A new hash plans new jobs only for files not yet transcoded: a
+                  transcoded file is final, whatever hash it carries.
                 type: string
               matchingFiles:
                 description: MatchingFiles is the number of MediaFiles selected by

@@ -30,8 +30,11 @@ import (
 type TranscodeProfileStatusApplyConfiguration struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
-	// Hash is the sha256 of the render-relevant spec. Encode pods receive it
-	// as CLUSTARR_PROFILE=<name>@<hash>.
+	// Hash is the sha256 of the standard's inputs -- quality, container,
+	// audio.languages, policy.neverTranscodeModifiers -- and the standard's
+	// version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
+	// A new hash plans new jobs only for files not yet transcoded: a
+	// transcoded file is final, whatever hash it carries.
 	Hash *string `json:"hash,omitempty"`
 	// MatchingFiles is the number of MediaFiles selected by this profile.
 	MatchingFiles *int32 `json:"matchingFiles,omitempty"`

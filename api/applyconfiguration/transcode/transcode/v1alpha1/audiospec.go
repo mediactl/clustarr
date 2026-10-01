@@ -19,37 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package v1alpha1
 
-import (
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-)
-
 // AudioSpecApplyConfiguration represents a declarative configuration of the AudioSpec type for use
 // with apply.
 //
-// AudioSpec describes how audio tracks are handled.
+// AudioSpec is what a profile decides about audio: which languages to keep.
 type AudioSpecApplyConfiguration struct {
-	// Codec is the target audio codec for re-encoded tracks.
-	Codec *string `json:"codec,omitempty"`
-	// BitratePerChannelKbps is the encoded bitrate per audio channel.
-	BitratePerChannelKbps *int32 `json:"bitratePerChannelKbps,omitempty"`
-	// KeepOriginal says when the original track is kept instead of, or in
-	// addition to, the re-encoded one.
-	KeepOriginal *transcodev1alpha1.KeepOriginalPolicy `json:"keepOriginal,omitempty"`
-	// Languages restricts which audio languages are kept; empty keeps all.
+	// Languages keeps only audio in these languages (commentary always, and
+	// every track when none matches); empty keeps all. The kept tracks are
+	// copied when Apple TV plays them directly (AAC, AC-3, E-AC-3), else
+	// encoded to AAC: the standard decides, not the profile.
 	Languages []string `json:"languages,omitempty"`
-	// DropCommentary drops tracks flagged as commentary. A pointer so a Go
-	// client can send an explicit false; unset means true.
-	DropCommentary *bool `json:"dropCommentary,omitempty"`
-	// StereoCompatTrack adds a stereo downmix track for compatibility.
-	StereoCompatTrack *bool `json:"stereoCompatTrack,omitempty"`
-	// CopyCodecs are source audio codecs whose tracks are copied unchanged
-	// instead of re-encoded to Codec, and count as already compliant.
-	// Re-encoding E-AC-3 5.1 to AAC saves little space and was the largest
-	// CPU share left on a GPU pool once video decoded on NVDEC (2026-09-30).
-	// A copied track replaces its re-encode, so keepOriginal adds nothing
-	// for it. Every listed codec is one both Matroska and MP4 carry. Empty
-	// re-encodes every track.
-	CopyCodecs []string `json:"copyCodecs,omitempty"`
 }
 
 // AudioSpecApplyConfiguration constructs a declarative configuration of the AudioSpec type for use with
@@ -58,62 +37,12 @@ func AudioSpec() *AudioSpecApplyConfiguration {
 	return &AudioSpecApplyConfiguration{}
 }
 
-// WithCodec sets the Codec field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Codec field is set to the value of the last call.
-func (b *AudioSpecApplyConfiguration) WithCodec(value string) *AudioSpecApplyConfiguration {
-	b.Codec = &value
-	return b
-}
-
-// WithBitratePerChannelKbps sets the BitratePerChannelKbps field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the BitratePerChannelKbps field is set to the value of the last call.
-func (b *AudioSpecApplyConfiguration) WithBitratePerChannelKbps(value int32) *AudioSpecApplyConfiguration {
-	b.BitratePerChannelKbps = &value
-	return b
-}
-
-// WithKeepOriginal sets the KeepOriginal field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the KeepOriginal field is set to the value of the last call.
-func (b *AudioSpecApplyConfiguration) WithKeepOriginal(value transcodev1alpha1.KeepOriginalPolicy) *AudioSpecApplyConfiguration {
-	b.KeepOriginal = &value
-	return b
-}
-
 // WithLanguages adds the given value to the Languages field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Languages field.
 func (b *AudioSpecApplyConfiguration) WithLanguages(values ...string) *AudioSpecApplyConfiguration {
 	for i := range values {
 		b.Languages = append(b.Languages, values[i])
-	}
-	return b
-}
-
-// WithDropCommentary sets the DropCommentary field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DropCommentary field is set to the value of the last call.
-func (b *AudioSpecApplyConfiguration) WithDropCommentary(value bool) *AudioSpecApplyConfiguration {
-	b.DropCommentary = &value
-	return b
-}
-
-// WithStereoCompatTrack sets the StereoCompatTrack field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the StereoCompatTrack field is set to the value of the last call.
-func (b *AudioSpecApplyConfiguration) WithStereoCompatTrack(value bool) *AudioSpecApplyConfiguration {
-	b.StereoCompatTrack = &value
-	return b
-}
-
-// WithCopyCodecs adds the given value to the CopyCodecs field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the CopyCodecs field.
-func (b *AudioSpecApplyConfiguration) WithCopyCodecs(values ...string) *AudioSpecApplyConfiguration {
-	for i := range values {
-		b.CopyCodecs = append(b.CopyCodecs, values[i])
 	}
 	return b
 }

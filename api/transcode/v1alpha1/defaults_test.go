@@ -23,17 +23,6 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func TestHDROffsetOrDefault(t *testing.T) {
-	for _, c := range []struct {
-		in   *int32
-		want int32
-	}{{nil, -1}, {ptr.To[int32](0), 0}, {ptr.To[int32](-2), -2}} {
-		if got := (CRFTable{HDROffset: c.in}).HDROffsetOrDefault(); got != c.want {
-			t.Errorf("HDROffsetOrDefault(%v) = %d, want %d", c.in, got, c.want)
-		}
-	}
-}
-
 func TestQualityOrDefault(t *testing.T) {
 	for _, c := range []struct {
 		in   *int32

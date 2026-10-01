@@ -18,129 +18,63 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package worker
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"time"
 
 	"k8s.io/utils/ptr"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// ProfileSpec converts a TranscodeProfile's CRD spec into pkg/transcode's
-// plain-Go mirror of it, field for field. The Job-scheduling and admission
-// fields (default, selector, resources, gpu, scratch, priority,
-// maxConcurrent, activeDeadline, ttlSecondsAfterFinished, chunking) have no
-// counterpart there, by design:
-// see transcode.ProfileSpec's own doc comment.
-//
-// It is the ONE converter in squasharr. The TranscodeProfile controller
-// hashes its result into status.hash (with hardware nil), the TranscodeJob
-// controller plans from it, and this worker executes it; a field dropped
-// here is therefore dropped from all three at once, and
-// transcodeprofile's TestStatusHashChangesWithEveryRenderField fails by
-// name.
-//
-// hardware, when non-nil, is TranscodeJob.spec.hardware, which overrides
-// the profile's encoder backend for one job.
-func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcodev1alpha1.Hardware) transcode.ProfileSpec {
+// ProfileHardware is the class a profile's job plans for: the job's
+// spec.hardware when it pins one, else the profile's; auto with no class
+// chosen yet plans for the CPU. The TranscodeJob controller and the worker
+// both ask here, so their plans hash alike.
+func ProfileHardware(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcodev1alpha1.Hardware) transcode.Hardware {
 	hw := spec.Hardware
 	if hardware != nil && *hardware != "" && *hardware != transcodev1alpha1.HardwareAuto {
 		hw = *hardware
 	}
 	if hw == transcodev1alpha1.HardwareAuto || hw == "" {
-		hw = transcodev1alpha1.HardwareCPU // auto with no class chosen yet plans for CPU
+		hw = transcodev1alpha1.HardwareCPU
 	}
-	v := spec.Video
-	return transcode.ProfileSpec{
-		Quality:   spec.Quality,
-		Container: transcode.Container(spec.Container),
-		Hardware:  transcode.Hardware(hw),
-		Video: transcode.VideoSpec{
-			Codec:       v.Codec,
-			PixelFormat: v.PixelFormat,
-			Profile:     v.Profile,
-			CRF: transcode.CRFTable{
-				SD: v.CRF.SD, HD: v.CRF.HD, UHD: v.CRF.UHD, HDROffset: v.CRF.HDROffsetOrDefault(),
-			},
-			Preset:          v.Preset,
-			Tune:            v.Tune,
-			KeyintFactor:    v.KeyintFactor,
-			BFrames:         v.BFrames,
-			Refs:            v.Refs,
-			RCLookahead:     v.RCLookahead,
-			AQMode:          v.AQMode,
-			MaxRateKbps:     v.MaxRateKbps,
-			BufSizeKbps:     v.BufSizeKbps,
-			ExtraX265Params: v.ExtraX265Params,
-			NVENC: transcode.NVENCSpec{
-				Preset: v.NVENC.Preset, Tune: v.NVENC.Tune, CQ: v.NVENC.CQ,
-				Multipass: v.NVENC.Multipass, BRefMode: v.NVENC.BRefMode,
-				MaxBitratePercent: ptr.Deref(v.NVENC.MaxBitratePercent, DefaultNVENCMaxBitratePercent),
-			},
-			QSV: transcode.QSVSpec{
-				GlobalQuality: v.QSV.GlobalQuality, Preset: v.QSV.Preset, LookAheadDepth: v.QSV.LookAheadDepth,
-			},
-		},
-		Audio: transcode.AudioSpec{
-			Codec:                 spec.Audio.Codec,
-			BitratePerChannelKbps: spec.Audio.BitratePerChannelKbps,
-			KeepOriginal:          transcode.KeepOriginalPolicy(spec.Audio.KeepOriginal),
-			Languages:             spec.Audio.Languages,
-			DropCommentary:        ptr.Deref(spec.Audio.DropCommentary, true),
-			StereoCompatTrack:     spec.Audio.StereoCompatTrack,
-			CopyCodecs:            spec.Audio.CopyCodecs,
-		},
-		Subtitles: transcode.SubSpec{
-			CopyText:        ptr.Deref(spec.Subtitles.CopyText, true),
-			CopyBitmap:      ptr.Deref(spec.Subtitles.CopyBitmap, true),
-			CopyAttachments: ptr.Deref(spec.Subtitles.CopyAttachments, true),
-		},
-		HDR: transcode.HDRSpec{
-			HDR10Plus:   transcode.HDR10PlusMode(spec.HDR.HDR10Plus),
-			DolbyVision: transcode.DolbyVisionMode(spec.HDR.DolbyVision),
-		},
-		Policy: transcode.PolicySpec{
-			SkipIfCompliant:             ptr.Deref(spec.Policy.SkipIfCompliant, true),
-			RemuxOnlyWhenVideoCompliant: ptr.Deref(spec.Policy.RemuxOnlyWhenVideoCompliant, true),
-			NeverTranscodeModifiers:     spec.Policy.NeverTranscodeModifiers,
-			MinDuration:                 MinDuration(spec.Policy),
-			MaxOutputToSourcePercent:    MaxOutputToSourcePercent(spec.Policy),
-			ReplaceSource:               ReplaceSource(spec.Policy),
-			RecycleBin:                  RecycleBin(spec.Policy),
-		},
-		Verify: transcode.VerifySpec{
-			PacketCount:   ptr.Deref(spec.Verify.PacketCount, true),
-			FullDecode:    spec.Verify.FullDecode,
-			VMAFMinCentis: spec.Verify.VMAFMinCentis,
-		},
-	}
+	return transcode.Hardware(hw)
 }
 
-// HasProfileTag reports whether the MediaFile records tag ("<profile>@<hash>")
-// for its file. catalogarr records a tag two ways, and either counts:
+// ProfileHash is a profile's status.hash: [ProfileHashAt] the standard's
+// current version.
+func ProfileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
+	return ProfileHashAt(spec, standard.Version)
+}
+
+// ProfileHashAt is the sha256 of what the standard reads from a profile --
+// quality (unset as its default), container (unset as mkv), the audio
+// languages and the never-transcode modifiers -- and the standard's
+// version. The scheduling and policy fields (selector, hardware, resources,
+// minDuration, replaceSource, ...) decide which files are taken and where
+// they run, never what a transcode writes, so they do not reach it.
 //
-//   - its probe reads the file's own CLUSTARR_PROFILE into
-//     status.mediaInfo.transcodeProfile -- the tag this worker's live probe
-//     of the same bytes reads, and the only record an earlier install's
-//     output, found by a rescan, has;
-//   - a transcode it incorporates sets status.transcode.profileTag: an
-//     in-place swap (whose probe soon reads the same tag), or a
-//     replaceSource=false job whose derived copy sits beside this untouched
-//     file, which then keeps its own probe tag, if any.
-//
-// catalogarr drops profileTag when the bytes change without a transcode,
-// so a match there is never stale. The TranscodeProfile controller (is this
-// file already this profile's work?) and the TranscodeJob controller's
-// planner both ask here, so the two cannot disagree.
-func HasProfileTag(mf *catalogv1alpha1.MediaFile, tag string) bool {
-	if tag == "" {
-		return false
+// The hash names each TranscodeJob and is the CLUSTARR_PROFILE tag, but a
+// new one re-transcodes nothing: a file that carries any transcode tag, or
+// another tool's HEVC encode, is final (catalogv1alpha1.MediaFile.Transcoded).
+func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) string {
+	container := spec.Container
+	if container == "" {
+		container = transcodev1alpha1.ContainerMKV
 	}
-	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile == tag {
-		return true
-	}
-	return mf.Status.Transcode != nil && mf.Status.Transcode.ProfileTag == tag
+	b, _ := json.Marshal(struct {
+		Version                 int
+		Quality                 int32
+		Container               transcodev1alpha1.Container
+		Languages               []string
+		NeverTranscodeModifiers []string
+	}{version, spec.QualityOrDefault(), container, spec.Audio.Languages, spec.Policy.NeverTranscodeModifiers})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // ReplaceSource is policy.replaceSource with its CRD default applied: unset
@@ -165,10 +99,6 @@ func MinDuration(p transcodev1alpha1.PolicySpec) time.Duration {
 	}
 	return p.MinDuration.Duration
 }
-
-// DefaultNVENCMaxBitratePercent mirrors video.nvenc.maxBitratePercent's CRD
-// default, for a nil pointer.
-const DefaultNVENCMaxBitratePercent = 70
 
 // DefaultMaxOutputToSourcePercent mirrors policy.maxOutputToSourcePercent's
 // +kubebuilder:default=100.

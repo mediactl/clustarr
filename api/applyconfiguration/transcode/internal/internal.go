@@ -206,57 +206,12 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioSpec
   map:
     fields:
-    - name: bitratePerChannelKbps
-      type:
-        scalar: numeric
-      default: 64
-    - name: codec
-      type:
-        scalar: string
-      default: aac
-    - name: copyCodecs
-      type:
-        list:
-          elementType:
-            scalar: string
-          elementRelationship: associative
-    - name: dropCommentary
-      type:
-        scalar: boolean
-      default: true
-    - name: keepOriginal
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.KeepOriginalPolicy
-      default: atmos
     - name: languages
       type:
         list:
           elementType:
             scalar: string
           elementRelationship: atomic
-    - name: stereoCompatTrack
-      type:
-        scalar: boolean
-      default: false
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.CRFTable
-  map:
-    fields:
-    - name: hd
-      type:
-        scalar: numeric
-      default: 22
-    - name: hdrOffset
-      type:
-        scalar: numeric
-      default: -1
-    - name: sd
-      type:
-        scalar: numeric
-      default: 21
-    - name: uhd
-      type:
-        scalar: numeric
-      default: 23
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.ChunkSpec
   map:
     fields:
@@ -264,8 +219,6 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.Container
-  scalar: string
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.DolbyVisionMode
   scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.EncoderLimit
   map:
@@ -310,50 +263,8 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.core.v1.Toleration
           elementRelationship: atomic
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.HDR10PlusMode
-  scalar: string
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.HDRSpec
-  map:
-    fields:
-    - name: dolbyVision
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.DolbyVisionMode
-      default: passthrough
-    - name: hdr10Plus
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.HDR10PlusMode
-      default: drop
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware
   scalar: string
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.KeepOriginalPolicy
-  scalar: string
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.NVENCSpec
-  map:
-    fields:
-    - name: bRefMode
-      type:
-        scalar: string
-      default: middle
-    - name: cq
-      type:
-        scalar: numeric
-      default: 24
-    - name: maxBitratePercent
-      type:
-        scalar: numeric
-      default: 70
-    - name: multipass
-      type:
-        scalar: string
-      default: fullres
-    - name: preset
-      type:
-        scalar: string
-      default: p6
-    - name: tune
-      type:
-        scalar: string
-      default: hq
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.Plan
   map:
     fields:
@@ -419,15 +330,7 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
-    - name: remuxOnlyWhenVideoCompliant
-      type:
-        scalar: boolean
-      default: true
     - name: replaceSource
-      type:
-        scalar: boolean
-      default: true
-    - name: skipIfCompliant
       type:
         scalar: boolean
       default: true
@@ -455,21 +358,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: updatedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.QSVSpec
-  map:
-    fields:
-    - name: globalQuality
-      type:
-        scalar: numeric
-      default: 22
-    - name: lookAheadDepth
-      type:
-        scalar: numeric
-      default: 40
-    - name: preset
-      type:
-        scalar: string
-      default: veryslow
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.Result
   map:
     fields:
@@ -488,21 +376,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: vmafCentis
       type:
         scalar: numeric
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.SubSpec
-  map:
-    fields:
-    - name: copyAttachments
-      type:
-        scalar: boolean
-      default: true
-    - name: copyBitmap
-      type:
-        scalar: boolean
-      default: true
-    - name: copyText
-      type:
-        scalar: boolean
-      default: true
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.TranscodeJob
   map:
     fields:
@@ -688,10 +561,6 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware
       default: auto
-    - name: hdr
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.HDRSpec
-      default: {}
     - name: maxConcurrent
       type:
         scalar: numeric
@@ -720,22 +589,10 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: selector
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
-    - name: subtitles
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.SubSpec
-      default: {}
     - name: ttlSecondsAfterFinished
       type:
         scalar: numeric
       default: 86400
-    - name: verify
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.VerifySpec
-      default: {}
-    - name: video
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.VideoSpec
-      default: {}
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.TranscodeProfileStatus
   map:
     fields:
@@ -771,85 +628,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: runningJobs
       type:
         scalar: numeric
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.VerifySpec
-  map:
-    fields:
-    - name: fullDecode
-      type:
-        scalar: boolean
-      default: false
-    - name: packetCount
-      type:
-        scalar: boolean
-      default: true
-    - name: vmafMinCentis
-      type:
-        scalar: numeric
-- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.VideoSpec
-  map:
-    fields:
-    - name: aqMode
-      type:
-        scalar: numeric
-      default: 3
-    - name: bFrames
-      type:
-        scalar: numeric
-      default: 8
-    - name: bufSizeKbps
-      type:
-        scalar: numeric
-    - name: codec
-      type:
-        scalar: string
-      default: hevc
-    - name: crf
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.CRFTable
-      default: {}
-    - name: extraX265Params
-      type:
-        map:
-          elementType:
-            scalar: string
-    - name: keyintFactor
-      type:
-        scalar: numeric
-      default: 10
-    - name: maxRateKbps
-      type:
-        scalar: numeric
-    - name: nvenc
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.NVENCSpec
-      default: {}
-    - name: pixelFormat
-      type:
-        scalar: string
-      default: yuv420p10le
-    - name: preset
-      type:
-        scalar: string
-      default: slow
-    - name: profile
-      type:
-        scalar: string
-      default: main10
-    - name: qsv
-      type:
-        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.QSVSpec
-      default: {}
-    - name: rcLookahead
-      type:
-        scalar: numeric
-      default: 40
-    - name: refs
-      type:
-        scalar: numeric
-      default: 4
-    - name: tune
-      type:
-        scalar: string
 - name: io.k8s.api.core.v1.ResourceClaim
   map:
     fields:

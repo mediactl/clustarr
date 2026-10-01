@@ -39,28 +39,18 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &transcodev1alpha1.AudioSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChunkSpec"):
 		return &transcodev1alpha1.ChunkSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("CRFTable"):
-		return &transcodev1alpha1.CRFTableApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EncoderLimit"):
 		return &transcodev1alpha1.EncoderLimitApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GPUSpec"):
 		return &transcodev1alpha1.GPUSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("HDRSpec"):
-		return &transcodev1alpha1.HDRSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NVENCSpec"):
-		return &transcodev1alpha1.NVENCSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Plan"):
 		return &transcodev1alpha1.PlanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PolicySpec"):
 		return &transcodev1alpha1.PolicySpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Progress"):
 		return &transcodev1alpha1.ProgressApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("QSVSpec"):
-		return &transcodev1alpha1.QSVSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Result"):
 		return &transcodev1alpha1.ResultApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SubSpec"):
-		return &transcodev1alpha1.SubSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeJob"):
 		return &transcodev1alpha1.TranscodeJobApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeJobSpec"):
@@ -73,10 +63,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &transcodev1alpha1.TranscodeProfileSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeProfileStatus"):
 		return &transcodev1alpha1.TranscodeProfileStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("VerifySpec"):
-		return &transcodev1alpha1.VerifySpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("VideoSpec"):
-		return &transcodev1alpha1.VideoSpecApplyConfiguration{}
 
 	}
 	return nil

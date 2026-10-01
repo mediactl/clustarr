@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeprofile
 
 import (
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,59 +35,46 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// renderSpec returns a spec with every leaf of every render-relevant field
-// set to a non-zero value, so that changing any one of them is a change a
-// correct converter must carry into the hash.
+// renderSpec returns a spec with every leaf of the standard's inputs and of
+// the kept policy set to a non-zero value, so changing any one of them is a
+// meaningful change.
 func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 	return transcodev1alpha1.TranscodeProfileSpec{
 		Quality:   ptr.To[int32](30),
 		Container: transcodev1alpha1.ContainerMKV,
 		Hardware:  transcodev1alpha1.HardwareCPU,
-		Video: transcodev1alpha1.VideoSpec{
-			Codec: "hevc", PixelFormat: "yuv420p10le", Profile: "main10",
-			CRF:    transcodev1alpha1.CRFTable{SD: 21, HD: 22, UHD: 23, HDROffset: ptr.To[int32](-1)},
-			Preset: "slow", Tune: ptr.To("grain"),
-			KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
-			MaxRateKbps: ptr.To[int32](20000), BufSizeKbps: ptr.To[int32](40000),
-			ExtraX265Params: map[string]string{"no-sao": "1"},
-			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle", MaxBitratePercent: ptr.To[int32](70)},
-			QSV:             transcodev1alpha1.QSVSpec{GlobalQuality: 22, Preset: "veryslow", LookAheadDepth: 40},
-		},
-		Audio: transcodev1alpha1.AudioSpec{
-			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
-			Languages: []string{"eng"}, DropCommentary: ptr.To(true), StereoCompatTrack: true,
-			CopyCodecs: []string{"eac3"},
-		},
-		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(true), CopyBitmap: ptr.To(true), CopyAttachments: ptr.To(true)},
-		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionPassthrough},
+		Audio:     transcodev1alpha1.AudioSpec{Languages: []string{"eng"}},
 		Policy: transcodev1alpha1.PolicySpec{
-			SkipIfCompliant: ptr.To(true), RemuxOnlyWhenVideoCompliant: ptr.To(true),
 			NeverTranscodeModifiers:  []string{"remux", "brdisk"},
 			MinDuration:              &metav1.Duration{Duration: time.Minute},
 			MaxOutputToSourcePercent: ptr.To[int32](100),
 			ReplaceSource:            ptr.To(true), RecycleBin: ptr.To(true),
 		},
-		Verify: transcodev1alpha1.VerifySpec{PacketCount: ptr.To(true), FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
 	}
 }
 
-// schedulingFields are the TranscodeProfileSpec fields that legitimately do
-// NOT reach status.hash, each with a change to prove it. They decide where
-// and when an encode runs and how it is admitted -- never a byte of what it
-// writes -- so an edit to any of them must not re-transcode the library.
-// pkg/transcode.ProfileSpec omits exactly these, by its own doc comment.
-var schedulingFields = map[string]func(*transcodev1alpha1.TranscodeProfileSpec){
+// standardInputs are the leaves the standard reads (worker.StandardProfile):
+// a change to any of them moves status.hash.
+var standardInputs = map[string]bool{
+	"Quality": true, "Container": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true,
+}
+
+// operationalFields are the TranscodeProfileSpec fields too structured to
+// walk leaf by leaf, each with a change to prove it leaves the hash: they
+// decide where, when and whether an encode runs, never what it writes.
+var operationalFields = map[string]func(*transcodev1alpha1.TranscodeProfileSpec){
 	"Default":  func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Default = true },
 	"Selector": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Selector = &metav1.LabelSelector{} },
+	"Hardware": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Hardware = transcodev1alpha1.HardwareNVIDIA },
 	"Resources": func(s *transcodev1alpha1.TranscodeProfileSpec) {
 		s.Resources.Limits = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("16")}
 	},
-	"GPU":      func(s *transcodev1alpha1.TranscodeProfileSpec) { s.GPU = &transcodev1alpha1.GPUSpec{Count: 2} },
-	"Scratch":  func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Scratch = resource.MustParse("50Gi") },
-	"Priority": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Priority = 99 },
-	// MaxConcurrent is admission-only (per-profile concurrency, X1 item 8).
+	"GPU":           func(s *transcodev1alpha1.TranscodeProfileSpec) { s.GPU = &transcodev1alpha1.GPUSpec{Count: 2} },
+	"Scratch":       func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Scratch = resource.MustParse("50Gi") },
+	"Priority":      func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Priority = 99 },
 	"MaxConcurrent": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.MaxConcurrent = 3 },
 	"ActiveDeadline": func(s *transcodev1alpha1.TranscodeProfileSpec) {
 		s.ActiveDeadline = metav1.Duration{Duration: time.Hour}
@@ -97,30 +83,25 @@ var schedulingFields = map[string]func(*transcodev1alpha1.TranscodeProfileSpec){
 	"Chunking":                func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Chunking = &transcodev1alpha1.ChunkSpec{} },
 }
 
-// status.hash names every TranscodeJob and is the CLUSTARR_PROFILE tag
-// catalogarr compares, so it is what makes a profile edit re-transcode: a
-// field the hash does not see is a field whose edit silently does nothing
-// to the library. E-1 computed it through its own converter while the
-// worker executed another; this pins the one converter left.
-//
-// The walk is over the CRD type, not pkg/transcode's mirror: a field added
-// to TranscodeProfileSpec and forgotten in worker.ProfileSpec (or missing
-// from transcode.ProfileSpec altogether) fails here by its path. Every
-// top-level field must be walked or listed in schedulingFields, so a new
-// field cannot slip past uncategorised.
-func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
+// TestTheHashCoversOnlyTheStandardsInputs: status.hash is the tag the
+// worker writes and the name jobs take, so it moves exactly when what the
+// standard writes would: quality, container, audio languages, the
+// never-transcode modifiers, and standard.Version. Every other field --
+// scheduling, hardware, the kept policy -- leaves it. The walk is over the
+// CRD type, so a field added to TranscodeProfileSpec must be placed in one
+// set or the other.
+func TestTheHashCoversOnlyTheStandardsInputs(t *testing.T) {
 	base := renderSpec()
 	baseHash := profileHash(base)
 
 	specType := reflect.TypeOf(base)
-	var walked int
+	seen := map[string]bool{}
 	for i := range specType.NumField() {
 		field := specType.Field(i)
-		if change, ok := schedulingFields[field.Name]; ok {
+		if change, ok := operationalFields[field.Name]; ok {
 			s := renderSpec()
 			change(&s)
-			assert.Equalf(t, baseHash, profileHash(s),
-				"%s is a scheduling field; changing it must not change status.hash (it would re-transcode the library)", field.Name)
+			assert.Equalf(t, baseHash, profileHash(s), "%s is operational; it must not change status.hash", field.Name)
 			continue
 		}
 		for _, leaf := range leafPaths(field.Type, []int{i}, field.Name) {
@@ -128,49 +109,34 @@ func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
 			v := reflect.ValueOf(&s).Elem().FieldByIndex(leaf.index)
 			require.Falsef(t, v.IsZero(), "renderSpec leaves %s zero; set it so changing it is meaningful", leaf.name)
 			mutate(t, v, leaf.name)
-			assert.NotEqualf(t, baseHash, profileHash(s),
-				"changing %s does not change status.hash: worker.ProfileSpec (or pkg/transcode.ProfileSpec) drops it, "+
-					"so editing it would never re-transcode anything", leaf.name)
-			walked++
+			if standardInputs[leaf.name] {
+				seen[leaf.name] = true
+				assert.NotEqualf(t, baseHash, profileHash(s), "%s is a standard input; changing it must change status.hash", leaf.name)
+			} else {
+				assert.Equalf(t, baseHash, profileHash(s), "%s is not a standard input; it must not change status.hash", leaf.name)
+			}
 		}
 	}
-	// A floor, so a walk that silently stopped recursing cannot pass.
-	require.GreaterOrEqual(t, walked, 45, "the leaf walk visited only %d fields", walked)
-
-	for name := range schedulingFields {
+	assert.Equal(t, standardInputs, seen, "the walk reached every standard input")
+	for name := range operationalFields {
 		_, ok := specType.FieldByName(name)
-		require.Truef(t, ok, "schedulingFields names %s, which TranscodeProfileSpec no longer has", name)
+		require.Truef(t, ok, "operationalFields names %s, which TranscodeProfileSpec no longer has", name)
 	}
+
+	assert.NotEqual(t, baseHash, worker.ProfileHashAt(base, standard.Version+1), "a new standard.Version moves every hash")
+	assert.Equal(t, baseHash, worker.ProfileHashAt(base, standard.Version))
 }
 
-// Unset and the CRD default are the same policy, so they are the same hash:
-// a profile created by a Go client (nil) and one the apiserver defaulted
-// must not be told apart, or every Go-created profile would re-transcode the
-// moment kubectl touched it. renderSpec sets every one of these pointers to
-// its CRD default, so clearing them all must leave the hash unchanged.
-func TestStatusHashTreatsUnsetPolicyPointersAsTheirDefault(t *testing.T) {
-	defaulted := renderSpec()
-	unset := renderSpec()
-	unset.Audio.DropCommentary = nil
-	unset.Subtitles.CopyText, unset.Subtitles.CopyBitmap, unset.Subtitles.CopyAttachments = nil, nil, nil
-	unset.Policy.SkipIfCompliant, unset.Policy.RemuxOnlyWhenVideoCompliant = nil, nil
-	unset.Policy.MinDuration, unset.Policy.MaxOutputToSourcePercent = nil, nil
-	unset.Policy.ReplaceSource, unset.Policy.RecycleBin = nil, nil
-	unset.Verify.PacketCount = nil
-	unset.Video.CRF.HDROffset = nil
-	assert.Equal(t, profileHash(defaulted), profileHash(unset))
-
-	noHDROffset := renderSpec()
-	noHDROffset.Video.CRF.HDROffset = ptr.To[int32](0)
-	assert.NotEqual(t, profileHash(defaulted), profileHash(noHDROffset), "an explicit 0 hdrOffset is no offset; it is not the -1 default")
-
-	off := renderSpec()
-	off.Policy.RecycleBin = ptr.To(false)
-	assert.NotEqual(t, profileHash(defaulted), profileHash(off))
-
-	zero := renderSpec()
-	zero.Policy.MaxOutputToSourcePercent = ptr.To[int32](0)
-	assert.NotEqual(t, profileHash(defaulted), profileHash(zero), "an explicit 0 disables the size check; it is not the default")
+// Unset and the default are the same profile, so they are the same hash: a
+// profile a Go client created (nil quality, empty container) and one the
+// apiserver defaulted must not be told apart.
+func TestTheHashReadsUnsetFieldsAsTheirDefaults(t *testing.T) {
+	set := renderSpec()
+	set.Quality = ptr.To(transcodev1alpha1.DefaultQuality)
+	unset := set
+	unset.Quality = nil
+	unset.Container = ""
+	assert.Equal(t, profileHash(set), profileHash(unset))
 }
 
 type leaf struct {
@@ -296,27 +262,6 @@ func TestValidateProfileFlagsTheNewerOfTwoDefaults(t *testing.T) {
 	assert.Contains(t, msg, "first")
 }
 
-// TestValidateProfileDoesNotFlagDolbyVisionPassthroughWithoutVBV is the
-// negative proof for profile.go's validateProfile doc comment: HDRSpec's own
-// CRD default is DolbyVision=passthrough with no default VBV values, so if
-// this shape were still treated as profile-wide Invalid, a profile created
-// with a bare spec (every real profile that does not explicitly override
-// HDR) would be Invalid from the moment it is created and would never
-// create a TranscodeJob for any file. An envtest caught this the first time
-// (TestReconcileCreatesJobsIdempotently failed with a Invalid/
-// DolbyVisionVBVRequired condition on a plain Default:true profile) -- this
-// unit test pins the fix so it cannot silently come back.
-func TestValidateProfileDoesNotFlagDolbyVisionPassthroughWithoutVBV(t *testing.T) {
-	tp := transcodev1alpha1.TranscodeProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: "dv-default-shape"},
-		Spec: transcodev1alpha1.TranscodeProfileSpec{
-			HDR: transcodev1alpha1.HDRSpec{DolbyVision: transcodev1alpha1.DolbyVisionPassthrough},
-		},
-	}
-	invalid, _, _ := validateProfile(&tp, []transcodev1alpha1.TranscodeProfile{tp})
-	assert.False(t, invalid, "hdr.dolbyVision=passthrough without VBV is a per-file Plan() outcome (R1's Skipped phase), not a profile-wide defect")
-}
-
 func movieFile(name string, labels map[string]string) catalogv1alpha1.MediaFile {
 	return catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
@@ -383,27 +328,30 @@ func TestSelectFilesExcludesIneligibleKinds(t *testing.T) {
 func TestAlreadyTranscodedAndProbed(t *testing.T) {
 	mf := movieFile("arrival-2016", nil)
 	assert.False(t, probed(&mf), "an unprobed file is not ready for a TranscodeJob")
-	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
+	assert.False(t, alreadyTranscoded(&mf, "hevc"))
 
 	mf.Status.ProbeHash = "abc123"
 	mf.Status.MediaInfo = &commonv1.MediaInfo{}
 	assert.True(t, probed(&mf))
+	assert.False(t, alreadyTranscoded(&mf, "hevc"), "an untouched original is not transcoded")
 
+	// catalogarr's record of a transcode by this profile counts under any
+	// hash: an edit or a new standard.Version redoes nothing. Another
+	// profile's record on this (untouched) source does not.
 	mf.Status.Transcode = &catalogv1alpha1.TranscodeState{ProfileTag: "hevc@deadbeef"}
-	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
-	assert.False(t, alreadyTranscoded(&mf, "hevc@newhash"), "a stale (pre-edit) tag must not count as already transcoded")
+	assert.True(t, alreadyTranscoded(&mf, "hevc"))
+	assert.False(t, alreadyTranscoded(&mf, "hevc-4k"), "another profile's derived copy is not this profile's")
 
-	// The probe's record of the file's own tag counts too: a file with only
-	// that -- an earlier install's output a rescan found -- is already
-	// transcoded. Either record counts: a replaceSource=false job records
-	// its profile on a source whose own probe tag is another's.
-	mf.Status.MediaInfo.TranscodeProfile = "hevc@newhash"
-	assert.True(t, alreadyTranscoded(&mf, "hevc@newhash"), "the probe's tag counts")
-	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"), "the incorporated transcode's tag still counts")
-	assert.False(t, alreadyTranscoded(&mf, "hevc@third"))
+	// The probe's record of the file's own tag counts whoever wrote it: the
+	// bytes are a transcode.
 	mf.Status.Transcode = nil
-	assert.True(t, alreadyTranscoded(&mf, "hevc@newhash"), "the probe's tag alone counts")
-	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
+	mf.Status.MediaInfo.TranscodeProfile = "other@0123"
+	assert.True(t, alreadyTranscoded(&mf, "hevc"))
+
+	// So does a swap catalogarr incorporated (spec.original false).
+	mf.Status.MediaInfo.TranscodeProfile = ""
+	mf.Spec.Original = ptr.To(false)
+	assert.True(t, alreadyTranscoded(&mf, "hevc"))
 }
 
 // A file whose Movie or Episode is gone -- an import list's removeAndKeep
@@ -446,18 +394,7 @@ func TestAlreadyTranscodedCountsATranscodeFromElsewhere(t *testing.T) {
 	mf := movieFile("127-hours-2010", nil)
 	mf.Status.ProbeHash = "abc123"
 	mf.Status.MediaInfo = &commonv1.MediaInfo{VideoCodec: "hevc", VideoEncoder: "Lavc61.3.100 hevc_qsv"}
-	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
+	assert.True(t, alreadyTranscoded(&mf, "hevc"))
 	mf.Status.MediaInfo.VideoEncoder = "Lavc61.3.100 libx264"
-	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"), "an H.264 release made with ffmpeg is not a transcode")
-}
-
-// quality was added after files were tagged with their profile's hash: a
-// profile that does not set it must hash exactly as before, or every
-// transcoded file would read as untranscoded and be done again (spec §5).
-func TestAnUnsetQualityLeavesTheHashAsItWas(t *testing.T) {
-	s := renderSpec()
-	s.Quality = nil
-	b, err := json.Marshal(worker.ProfileSpec(s, nil))
-	require.NoError(t, err)
-	assert.NotContains(t, string(b), `"Quality":`, "an unset quality must not reach the hashed JSON")
+	assert.False(t, alreadyTranscoded(&mf, "hevc"), "an H.264 release made with ffmpeg is not a transcode")
 }
