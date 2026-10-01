@@ -32,11 +32,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/datapath"
 	"github.com/mediactl/clustarr/app/caption/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -263,63 +265,73 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 	return md <= 0 || m.Attempt() >= uint64(md) //nolint:gosec // MaxDeliver is a small positive constant
 }
 
-// record applies one item's worker-owned leaves.
+// record applies one item's worker-owned leaves, as a compare-and-swap.
 //
-// It RE-READS the SubtitleRequest first, through the uncached API reader,
-// and seeds the apply from that read -- never from req, which was read
-// before the provider walk. This is CLAUDE.md's lost-update shape exactly: a
-// fetch spends seconds to minutes on provider round trips, and
-// status.RequestWorkerFields re-declares every worker-owned leaf of every
-// live item, so an apply seeded from the pre-search snapshot would silently
-// roll back whatever another fetch worker recorded for a sibling language
-// in the meantime -- a sidecar written, recorded, then forgotten, and
-// dropped from MediaFile.status.sidecars by catalogarr. No release test can
-// see that; the interleaved-writer test in worker_envtest_test.go does. (The
-// controller's own leaves, nextSearchAt and attempts, are a different
-// manager's and are never declared here, so they survive this apply either
-// way.)
+// It reads the SubtitleRequest fresh, through the uncached API reader, and
+// seeds the apply from that read -- never from req, which was read before the
+// provider walk -- and applies with the read's resourceVersion, redoing set
+// on a new read after a Conflict. This is CLAUDE.md's lost-update shape
+// exactly: a fetch spends seconds to minutes on provider round trips, the
+// fetch for every other language of the request runs beside it under the
+// same field manager, and status.RequestWorkerFields re-declares every
+// worker-owned leaf of every live item -- so an apply seeded from any read
+// but the latest rolls back what a sibling recorded in between: a sidecar
+// written, recorded, then forgotten, and dropped from
+// MediaFile.status.sidecars by catalogarr. A re-read before the apply
+// narrowed that window; two languages fetched at once still hit it, and only
+// the precondition closes it. No release test can see it; the interleaved
+// and concurrent writers in worker_envtest_test.go and cas_envtest_test.go
+// do. (The controller's own leaves, nextSearchAt and attempts, are a
+// different manager's and are never declared here, so they survive this
+// apply either way.)
 //
-// The re-read is also where the item-liveness protocol (status.IsLive) is
+// The read is also where the item-liveness protocol (status.IsLive) is
 // applied. The item must still be live on the fresh object: a controller
 // that withdrew the language during the search has spoken last, so nothing
 // is recorded -- the worker never creates or revives an item. And because
 // RequestWorkerFields renders only live items, every other entry the
 // controller has withdrawn is released by this apply and deleted.
 //
-// set mutates the live item for langKey. The bool is false when there was
-// nothing to apply to: the request is gone or was replaced, or the item is
-// no longer live.
+// set mutates the live item for langKey, on each fresh read. The bool is
+// false when there was nothing to apply to: the request is gone or was
+// replaced, or the item is no longer live.
 func (w *Worker) record(ctx context.Context, req *subtitlev1alpha1.SubtitleRequest, langKey string,
 	set func(*subtitlev1alpha1.SubtitleItem),
 ) (bool, error) {
-	var fresh subtitlev1alpha1.SubtitleRequest
-	if err := w.reader().Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Name}, &fresh); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("fetch: re-read subtitle request before the status apply: %w", err)
-	}
-	if fresh.UID != req.UID {
+	_, applied, err := k8s.PatchStatusCAS(ctx, w.reader(), w.Client, FieldManager,
+		types.NamespacedName{Namespace: req.Namespace, Name: req.Name},
+		func() *subtitlev1alpha1.SubtitleRequest { return &subtitlev1alpha1.SubtitleRequest{} },
+		func(fresh *subtitlev1alpha1.SubtitleRequest) (*subtitleac.SubtitleRequestApplyConfiguration, bool, error) {
+			if fresh.UID != req.UID {
+				return nil, true, nil
+			}
+			items := make([]subtitlev1alpha1.SubtitleItem, len(fresh.Status.Items))
+			for i := range fresh.Status.Items {
+				fresh.Status.Items[i].DeepCopyInto(&items[i])
+			}
+			idx := slices.IndexFunc(items, func(it subtitlev1alpha1.SubtitleItem) bool { return it.LangKey == langKey })
+			if idx < 0 || !status.IsLive(items[idx]) {
+				logging.FromContext(ctx).Info("fetch: the controller withdrew this language during the fetch; recording nothing")
+				return nil, true, nil
+			}
+			set(&items[idx])
+			st := fresh.Status
+			st.Items = items
+			return subtitleac.SubtitleRequest(fresh.Name, fresh.Namespace).
+				WithStatus(status.RequestWorkerFields(st)), false, nil
+		}, recordAttempts)
+	switch {
+	case apierrors.IsNotFound(err):
 		return false, nil
-	}
-
-	items := make([]subtitlev1alpha1.SubtitleItem, len(fresh.Status.Items))
-	for i := range fresh.Status.Items {
-		fresh.Status.Items[i].DeepCopyInto(&items[i])
-	}
-	idx := slices.IndexFunc(items, func(it subtitlev1alpha1.SubtitleItem) bool { return it.LangKey == langKey })
-	if idx < 0 || !status.IsLive(items[idx]) {
-		logging.FromContext(ctx).Info("fetch: the controller withdrew this language during the fetch; recording nothing")
-		return false, nil
-	}
-	set(&items[idx])
-	fresh.Status.Items = items
-
-	if err := status.PatchRequest(ctx, w.Client, FieldManager, &fresh, nil); err != nil {
+	case err != nil:
 		return false, fmt.Errorf("fetch: apply subtitle request status: %w", err)
 	}
-	return true, nil
+	return applied, nil
 }
+
+// recordAttempts bounds record's compare-and-swap. Contention is the
+// request's other languages, fetched at once, and the controller.
+const recordAttempts = 8
 
 // removeReplaced deletes the sidecar an upgrade superseded when it had a
 // different name (an .ass replaced by an .srt, say). Same-name upgrades were
