@@ -139,6 +139,10 @@ func (f *firstErr) set(err error) {
 	f.once.Do(func() { f.err = err; f.cancel() })
 }
 
+// closeMuxer closes a run's muxer; a variable so a test can make the close
+// fail.
+var closeMuxer = (*ffgo.Muxer).Close
+
 // Run executes plan on input, writing output (the caller's .part path;
 // removed on any failure). The plan must not be a skip.
 func Run(ctx context.Context, plan standard.Result, input, output string, o Options) (res Result, err error) {
@@ -177,7 +181,17 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 	if err != nil {
 		return res, &Error{Stage: "mux", Err: err}
 	}
-	defer func() { _ = m.Close() }()
+	// Closing the output can be where a write fails (the final flush to a
+	// full disk or a lost NFS server): a run whose close fails has failed,
+	// and the deferred removal above deletes its output. It never replaces
+	// an earlier failure, which explains more. ffgo's Muxer.Close does not
+	// yet return avio_closep's own error, so the worker fsyncs the output
+	// before it swaps it in as well (fsops.SyncFile).
+	defer func() {
+		if cerr := closeMuxer(m); cerr != nil && err == nil {
+			err = &Error{Stage: "mux", Err: fmt.Errorf("close the output: %w", cerr)}
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
