@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -204,4 +205,98 @@ func TestResolveIndexerDownloadDecompressesAGzipReply(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
+}
+
+// An indexer's .nzb link carries its API key or passkey in the query or the
+// path, and Resolve's error reaches the reconcile error, the logs and a
+// Warning Event ("usenet engine: %s"). Only the host may survive in it, and a
+// deadline must still read as one.
+func TestResolveFetchErrorsCarryNoCredentials(t *testing.T) {
+	const pathSecret, querySecret = "pathsecret-apikey", "querysecret-apikey"
+	secretPath := "/getnzb/" + pathSecret + ".nzb?apikey=" + querySecret
+
+	refused := httptest.NewServer(http.NotFoundHandler())
+	refused.Close()
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer hang.Close()
+	notFound := httptest.NewServer(http.NotFoundHandler())
+	defer notFound.Close()
+	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(make([]byte, 100)) }))
+	defer big.Close()
+
+	for _, tc := range []struct {
+		name     string
+		base     string
+		deadline bool
+	}{
+		{"refused", refused.URL, false},
+		{"deadline", hang.URL, true},
+		{"status", notFound.URL, false},
+		{"tooLarge", big.URL, false},
+		{"unparseable", "https://indexer.example/%zz", false},
+	} {
+		raw := tc.base + secretPath
+		for _, branch := range []struct {
+			name string
+			r    *usenetengine.Resolver
+			src  downloadv1alpha1.DownloadSource
+		}{
+			{"nzbURL", &usenetengine.Resolver{MaxBytes: 10}, downloadv1alpha1.DownloadSource{NZBURL: &raw}},
+			{
+				"redirectURL", &usenetengine.Resolver{MaxBytes: 10, RPC: &fakeRequester{resp: schema.DownloadResponse{RedirectURL: raw}}},
+				downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g"}},
+			},
+		} {
+			t.Run(tc.name+"/"+branch.name, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+				defer cancel()
+				_, err := branch.r.Resolve(ctx, "media", branch.src)
+				require.Error(t, err)
+				assert.NotContains(t, err.Error(), pathSecret)
+				assert.NotContains(t, err.Error(), querySecret)
+				if tc.deadline {
+					assert.ErrorIs(t, err, context.DeadlineExceeded)
+				}
+			})
+		}
+	}
+}
+
+// ErrUnsupportedSource used to print the whole DownloadSource with %+v: a
+// tracker URL's passkey, or a magnet's announce URL carrying one.
+func TestResolveUnsupportedSourceErrorCarriesNoURL(t *testing.T) {
+	torrentURL := "https://tracker.example/download/abc.torrent?passkey=s3cret-passkey"
+	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=https%3A%2F%2Ftracker.example%2Fs3cret-passkey%2Fannounce"
+	r := &usenetengine.Resolver{}
+	for _, src := range []downloadv1alpha1.DownloadSource{{TorrentURL: &torrentURL}, {MagnetURL: &magnet}} {
+		_, err := r.Resolve(t.Context(), "media", src)
+		require.ErrorIs(t, err, usenetengine.ErrUnsupportedSource)
+		assert.NotContains(t, err.Error(), "s3cret")
+		assert.NotContains(t, err.Error(), "tracker.example")
+	}
+}
+
+// A non-200 answer's body is drained before the connection is reused, but
+// only so far: an endless error body must not hold the resolve until its
+// deadline.
+func TestResolveDrainsANon200BodyOnlyBoundedly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		chunk := make([]byte, 32<<10)
+		for r.Context().Err() == nil {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	url := srv.URL
+	start := time.Now()
+	_, err := (&usenetengine.Resolver{}).Resolve(ctx, "media", downloadv1alpha1.DownloadSource{NZBURL: &url})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(start), 2*time.Second, "the drain must be bounded")
 }

@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,4 +153,57 @@ func TestResolveSourceIndexerDownloadDecompressesAGzipReply(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, want, got.Payload)
+}
+
+// A tracker's .torrent link carries its passkey in the query or the path,
+// and the error resolveSource returns reaches a reconcile error, the logs
+// and the Download's Events. Neither the path nor the query may survive in
+// it -- only the host -- and a deadline must still read as one.
+func TestResolveSourceFetchErrorsCarryNoPasskey(t *testing.T) {
+	const pathSecret, querySecret = "pathsecret-passkey", "querysecret-passkey"
+	secretPath := "/download/" + pathSecret + "/1.torrent?passkey=" + querySecret
+
+	refused := httptest.NewServer(http.NotFoundHandler())
+	refused.Close()
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer hang.Close()
+	notFound := httptest.NewServer(http.NotFoundHandler())
+	defer notFound.Close()
+
+	for _, tc := range []struct {
+		name     string
+		base     string
+		deadline bool
+	}{
+		{"refused", refused.URL, false},
+		{"deadline", hang.URL, true},
+		{"status", notFound.URL, false},
+		{"unparseable", "https://tracker.example/%zz", false},
+	} {
+		raw := tc.base + secretPath
+		for _, branch := range []struct {
+			name string
+			src  downloadv1alpha1.DownloadSource
+			res  IndexerResolver
+		}{
+			{"torrentURL", downloadv1alpha1.DownloadSource{TorrentURL: strPtr(raw)}, nil},
+			{
+				"redirectURL",
+				downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g"}},
+				&FakeIndexerResolver{Response: schema.DownloadResponse{RedirectURL: raw}},
+			},
+		} {
+			t.Run(tc.name+"/"+branch.name, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				defer cancel()
+				_, err := resolveSource(ctx, http.DefaultClient, branch.res, "default", branch.src)
+				require.Error(t, err)
+				assert.NotContains(t, err.Error(), pathSecret)
+				assert.NotContains(t, err.Error(), querySecret)
+				if tc.deadline {
+					assert.ErrorIs(t, err, context.DeadlineExceeded)
+				}
+			})
+		}
+	}
 }

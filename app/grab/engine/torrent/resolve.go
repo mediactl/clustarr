@@ -27,6 +27,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/redact"
 )
 
 // maxPayloadBytes caps a fetched .torrent body, the same convention every
@@ -171,22 +172,28 @@ func resolveSource(ctx context.Context, httpClient *http.Client, resolver Indexe
 // fetchURL GETs url with ctx's deadline and caps the body at
 // [maxPayloadBytes], the same io.LimitReader(body, max+1) pattern
 // pkg/torznab and pkg/cardigann use.
+//
+// A tracker's .torrent link carries its passkey in the query or in the path
+// (/download/<passkey>/<id>.torrent), and these errors reach the reconcile
+// error, the logs and the Download's Events, so no error names more of url
+// than its host: redact.ErrHost rewrites the *url.Error net/http quotes the
+// whole URL in, keeping its cause for errors.Is.
 func fetchURL(ctx context.Context, httpClient *http.Client, url string) ([]byte, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("torrent: build request: %w", err)
+		return nil, fmt.Errorf("torrent: build request: %w", redact.ErrHost(err))
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("torrent: fetch %s: %w", url, err)
+		return nil, fmt.Errorf("torrent: fetch: %w", redact.ErrHost(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("torrent: fetch %s: status %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("torrent: fetch %s: status %d", redact.Host(url), resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPayloadBytes+1))
