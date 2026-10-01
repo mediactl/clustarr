@@ -311,6 +311,35 @@ and opens each encoder by name, so a missing library fails CI, not a job.
   PGS subtitles, fonts -- the default becomes `ffgo`. The argv engine and
   the removed profile fields are then deleted in their own commit.
 
+**Parity, as run (2026-10-01).** `test/parity` (build tag `parity`) over
+60-second stream-copied clips of the owner's library (`hack/parity-clips.sh`,
+one median file per class), both engines on the RTX 2070 Max-Q, the argv
+engine with the live `hevc-mkv` profile. Every class passes the standard's
+own checks (HEVC at the bit depth its rule names, every kept audio track
+direct-play or AAC, every subtitle, attachment and chapter kept, HDR10's
+mastering metadata kept, DV 7/8.1 out as HDR10, duration within 1 s):
+
+| Class | argv | standard | argv time | standard time | standard path |
+| --- | --- | --- | --- | --- | --- |
+| SDR H.264 | encode | encode | 11.5 s | 9.4 s | NVDEC → NVENC, 8-bit |
+| PGS subtitles | encode | encode | 11.0 s | 9.4 s | NVDEC → NVENC |
+| fonts (14 attachments) | encode | encode | 12.5 s | 9.4 s | NVDEC → NVENC |
+| TrueHD + E-AC-3 | encode | encode | 11.5 s | 9.4 s | NVDEC → NVENC |
+| Hi10P | encode | encode | 10.9 s | 13.8 s | upload → NVENC |
+| HEVC 8-bit 1080p | remux | skip | 3.1 s | -- | compliant |
+| HDR10 | remux | skip | 3.5 s | -- | compliant |
+| HDR10+ | remux | skip | 1.1 s | -- | compliant |
+| DV 8.1 | reject | encode | -- | 6.9 s | NVDEC → NVENC, HDR10 |
+| DV 7 (2160p remux) | reject | encode | -- | 34.8 s | NVDEC → NVENC, HDR10 |
+| DV 5 | reject | skip | -- | -- | no HDR10/HLG base |
+
+Where they differ, the standard is the one keeping what spec §1 keeps: the
+argv engine dropped every attachment (14, 6, 7 and 33 fonts in four clips)
+and the live profile's `dropCommentary` dropped a commentary track; the
+argv engine rejects Dolby Vision 7 and 8.1 under the profile's
+`passthrough` policy (47 such jobs Skipped on the cluster), which the
+standard encodes as HDR10.
+
 ### Testing
 
 - **`Plan`:** table tests for every rule in §1; plan goldens replace the

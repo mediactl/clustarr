@@ -165,6 +165,11 @@ func makeSample(path, encoder, pixFmt string) error {
 	if err := ffgo.SetLogCallback(func(ffgo.LogLevel, string) {}); err == nil {
 		defer func() { _ = ffgo.SetLogCallback(nil) }()
 	}
+	// SVT-AV1 (the av1 sample's encoder) prints its configuration on stderr
+	// itself, not through FFmpeg's log; SVT_LOG=1 keeps its errors only.
+	if _, set := os.LookupEnv("SVT_LOG"); !set {
+		_ = os.Setenv("SVT_LOG", "1")
+	}
 	pf := ffgo.PixelFormatYUV420P
 	if pixFmt == "yuv420p10le" {
 		pf = ffgo.PixelFormatYUV420P10LE()

@@ -1,0 +1,214 @@
+//go:build parity
+
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// Package parity is the ffgo parity harness (spec §5 Rollout): the argv
+// engine and the in-process standard, both on NVENC, over a clip of every
+// file class from the owner's library (hack/parity-clips.sh), each output
+// probed and checked. The standard's output must keep what spec §1 keeps
+// -- every subtitle, attachment and chapter, HDR10's mastering metadata,
+// Dolby Vision 7 and 8.1 as HDR10, every kept audio track direct-play or
+// AAC, the duration -- and every difference from the argv engine's output
+// is printed, with both engines' times.
+//
+//	CLUSTARR_PARITY_DIR=~/parity go test -tags parity -v ./test/parity/
+package parity
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/obinnaokechukwu/ffgo"
+	"github.com/stretchr/testify/require"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/engine"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
+)
+
+func TestParity(t *testing.T) {
+	ctx := context.Background()
+	dir := os.Getenv("CLUSTARR_PARITY_DIR")
+	if dir == "" {
+		t.Skip("CLUSTARR_PARITY_DIR names no clips (hack/parity-clips.sh)")
+	}
+	if _, err := inprocess.New(); err != nil {
+		t.Skipf("no FFmpeg 9: %v", err)
+	}
+	dev, err := ffgo.NewHWDevice(ffgo.HWDeviceTypeCUDA, "")
+	if err != nil {
+		t.Skipf("no CUDA device: %v", err)
+	}
+	defer func() { _ = dev.Close() }()
+
+	raw, err := os.ReadFile(filepath.Join(dir, "profile.json"))
+	require.NoError(t, err)
+	var spec transcodev1alpha1.TranscodeProfileSpec
+	require.NoError(t, json.Unmarshal(raw, &spec))
+	nv := transcodev1alpha1.HardwareNVIDIA
+	argvProfile := worker.ProfileSpec(spec, &nv)
+	caps, err := transcode.ProbeCapabilities(ctx, "ffmpeg")
+	require.NoError(t, err)
+	lim, err := transcode.ProbeLimits(ctx, "ffmpeg", transcode.TierNVENC, argvProfile.Video)
+	require.NoError(t, err)
+	if dec, err := transcode.ProbeDecoders(ctx, "ffmpeg"); err == nil {
+		lim.NVDEC = &dec
+	}
+	caps.Limits = map[transcode.Tier]transcode.Limits{transcode.TierNVENC: lim}
+	measured, err := inprocess.Engine{}.Measure(ctx, transcode.HardwareNVIDIA)
+	require.NoError(t, err)
+
+	clips, err := filepath.Glob(filepath.Join(dir, "*.mkv"))
+	require.NoError(t, err)
+	out := t.TempDir()
+	var rows []string
+	for _, clip := range clips {
+		class := strings.TrimSuffix(filepath.Base(clip), ".mkv")
+		if strings.Contains(class, ".") {
+			continue // an output of an earlier run
+		}
+		t.Run(class, func(t *testing.T) {
+			srcMI, srcRaw, err := mediainfo.Probe(ctx, clip)
+			require.NoError(t, err)
+			info, err := transcode.FromProbe(srcMI, srcRaw)
+			require.NoError(t, err)
+			info.Path = clip
+
+			argvOut, argvSecs, argvDecision := filepath.Join(out, class+".argv.mkv"), 0.0, "skip"
+			ap, err := transcode.Plan(info, argvProfile, caps, transcode.PlanMeta{
+				ProfileName: "hevc-mkv", ProfileHash: "parity", Threads: 4, OutputPath: argvOut,
+			})
+			require.NoError(t, err)
+			argvDecision = string(ap.Decision)
+			if ap.Decision == transcode.DecisionEncode || ap.Decision == transcode.DecisionRemuxOnly {
+				start := time.Now()
+				if err := transcode.NewRunner("ffmpeg").Run(ctx, ap, func(transcode.Progress) {}); err != nil {
+					t.Errorf("argv engine: %v", err)
+				}
+				argvSecs, argvOut = time.Since(start).Seconds(), ap.Output
+			}
+
+			sp := standard.Plan(info, worker.StandardProfile("hevc-mkv", "parity", spec),
+				standard.Hardware{Tier: transcode.TierNVENC, Limits: measured.Limits})
+			stdOut, stdSecs := filepath.Join(out, class+".standard.mkv"), 0.0
+			if sp.Decision != standard.DecisionSkip {
+				start := time.Now()
+				if _, err := engine.Run(ctx, sp, clip, stdOut, engine.Options{HWDevice: dev}); err != nil {
+					t.Fatalf("standard: %v", err)
+				}
+				stdSecs = time.Since(start).Seconds()
+				checkStandard(t, srcMI, srcRaw, sp, stdOut)
+				if argvSecs > 0 {
+					compare(t, argvOut, stdOut)
+				}
+			}
+			rows = append(rows, strings.Join([]string{
+				class, argvDecision, string(sp.Decision),
+				secs(argvSecs), secs(stdSecs), sp.Video.Encoder + "/" + sp.Video.Decode,
+			}, "\t"))
+		})
+	}
+	t.Logf("\nclass\targv\tstandard\targv s\tstandard s\tencoder/decode\n%s", strings.Join(rows, "\n"))
+}
+
+// checkStandard holds the standard's output to spec §1 against its source.
+func checkStandard(t *testing.T, src *commonv1.MediaInfo, srcRaw *mediainfo.Raw, plan standard.Result, out string) {
+	t.Helper()
+	got, gotRaw, err := mediainfo.Probe(context.Background(), out)
+	require.NoError(t, err)
+	if got.VideoCodec != "hevc" {
+		t.Errorf("video %s, want hevc", got.VideoCodec)
+	}
+	if plan.Decision == standard.DecisionEncode {
+		want := int32(10)
+		if plan.Expect.PixelFormat == "yuv420p" {
+			want = 8
+		}
+		if got.VideoBitDepth != want {
+			t.Errorf("bit depth %d, want %d", got.VideoBitDepth, want)
+		}
+	}
+	if len(got.Audio) != len(plan.Audio) {
+		t.Errorf("%d audio tracks, the plan keeps %d", len(got.Audio), len(plan.Audio))
+	}
+	for _, a := range got.Audio {
+		if !slices.Contains([]string{"aac", "ac3", "eac3"}, a.Codec) || (a.Codec == "aac" && a.Channels > 6) {
+			t.Errorf("audio track %s %d channels is not Apple TV direct play", a.Codec, a.Channels)
+		}
+	}
+	if len(got.Subtitles) != len(src.Subtitles) || got.Attachments != src.Attachments || got.Chapters != src.Chapters {
+		t.Errorf("subtitles %d/%d, attachments %d/%d, chapters %d/%d (output/source)",
+			len(got.Subtitles), len(src.Subtitles), got.Attachments, src.Attachments, got.Chapters, src.Chapters)
+	}
+	switch src.Hdr {
+	case commonv1.HdrFormatHDR10, commonv1.HdrFormatHDR10Plus, commonv1.HdrFormatDolbyVisionHDR10:
+		if got.Hdr != commonv1.HdrFormatHDR10 {
+			t.Errorf("HDR %s out of %s, want hdr10", got.Hdr, src.Hdr)
+		}
+		if srcRaw.MasteringDisplay != nil && (gotRaw.MasteringDisplay == nil || *gotRaw.MasteringDisplay != *srcRaw.MasteringDisplay) {
+			t.Errorf("mastering display %+v, source %+v", gotRaw.MasteringDisplay, srcRaw.MasteringDisplay)
+		}
+	}
+	if d := got.RuntimeMillis - src.RuntimeMillis; d > 1000 || d < -1000 {
+		t.Errorf("runtime %d ms, source %d ms", got.RuntimeMillis, src.RuntimeMillis)
+	}
+}
+
+// compare logs every difference between the two engines' outputs that spec
+// §5 names: stream layout, codecs, colour, chapters, attachments, duration.
+func compare(t *testing.T, argvOut, stdOut string) {
+	t.Helper()
+	a, _, err := mediainfo.Probe(context.Background(), argvOut)
+	if err != nil {
+		t.Errorf("probe the argv output: %v", err)
+		return
+	}
+	s, _, err := mediainfo.Probe(context.Background(), stdOut)
+	require.NoError(t, err)
+	diff := func(what string, x, y any) {
+		if x != y {
+			t.Logf("argv vs standard: %s %v vs %v", what, x, y)
+		}
+	}
+	diff("video", a.VideoCodec+"/"+a.PixelFormat, s.VideoCodec+"/"+s.PixelFormat)
+	diff("hdr", a.Hdr, s.Hdr)
+	diff("audio tracks", len(a.Audio), len(s.Audio))
+	diff("subtitles", len(a.Subtitles), len(s.Subtitles))
+	diff("attachments", a.Attachments, s.Attachments)
+	diff("chapters", a.Chapters, s.Chapters)
+	diff("runtime ms", a.RuntimeMillis, s.RuntimeMillis)
+	diff("video kbps", a.VideoBitrateKbps, s.VideoBitrateKbps)
+}
+
+func secs(s float64) string {
+	if s == 0 {
+		return "-"
+	}
+	return time.Duration(s * float64(time.Second)).Round(100 * time.Millisecond).String()
+}
