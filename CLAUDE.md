@@ -195,6 +195,23 @@ spent in order, a spent key resting until its reset; the provider is
 probed every 6 hours, since its probe is a counted lookup. cluster-plex seeds them
 into Plex, with the probe's streams, straight into Plex's database: Plex's
 API can write neither (the spec's §2 is the proof).
+clustarr also detects segments itself (2026-10-01,
+`docs/superpowers/specs/2026-10-01-segment-detection-design.md`,
+`docs/research/segment-detection.md`), so Plex's pods run no detection
+(cluster-plex sets `MarkerSource=cloud`): `segmentarr-worker`, a
+credential-less binary on the media image, takes a season's (or a movie's)
+`AnalyzeTask` from catalogarr's planner (controller role, through its
+Episode and MediaFile indexes), has ffmpeg decode, and analyzes in Go -- a
+Chromaprint port bit-exact against ffmpeg's muxer for season-wide intros
+and ending themes, black/entropy/edge/scroll statistics of end frames, chapter
+names (Intro Skipper's patterns), and PaddleOCR text density on ONNX
+Runtime through purego only when the cheaper signals are weak. Fingerprints
+are cached in the `clustarr-fingerprints` object store and raw results in the
+`clustarr-segments` bucket; the metadata gateway merges them into
+`status.markers.segments` (each tagged `source` and `confidence`) under
+TheIntroDB per kind, then chapters, then analysis at 60 or more, through
+`app/catalog/segmenting.Applier` -- the one compare-and-swap path TheIntroDB's
+handler shares. Raise `pkg/segments.AnalyzerVersion` when detection changes.
 The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex
 names first (2026-09-30, rule 0 in `ui/plex/matchfile.go`): `filename`,
 relative to Plex's library folder, is matched as a path suffix of
