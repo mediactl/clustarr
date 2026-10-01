@@ -88,27 +88,32 @@ const (
 
 // Stream subject filters, as configured on the streams themselves.
 const (
-	FilterAllEvents            = "clustarr.evt.>"
-	FilterAllReleases          = "clustarr.rel.>"
-	FilterWorkCatalogarr       = "clustarr.work.catalogarr.>"
-	FilterWorkImportarr        = "clustarr.work.importarr.>"
-	FilterWorkIndexarr         = "clustarr.work.indexarr.>"
-	FilterWorkCaptionarr       = "clustarr.work.captionarr.>"
-	FilterWorkSquasharr        = "clustarr.work.transcode.>"
-	FilterTranscodeResults     = "clustarr.work.transcode.result.>"
-	FilterAllDLQ               = "clustarr.dlq.>"
-	FilterCatalogSearch        = "clustarr.work.catalogarr.search.>"
-	FilterCatalogGrab          = "clustarr.work.catalogarr.grab.>"
-	FilterCatalogMetadata      = "clustarr.work.catalogarr.metadata.>"
-	FilterCatalogWanted        = "clustarr.work.catalogarr.wantedscan.>"
-	FilterImportScan           = "clustarr.work.importarr.scan.>"
-	FilterImportList           = "clustarr.work.importarr.list.>"
-	FilterImportFile           = "clustarr.work.importarr.fileimport.>"
-	FilterIndexRSS             = "clustarr.work.indexarr.rss.>"
-	FilterCaptionFetch         = "clustarr.work.captionarr.fetch.>"
-	FilterCatalogArtworkFetch  = "clustarr.work.catalogarr.artwork.fetch.>"
-	FilterCatalogMarkers       = "clustarr.work.catalogarr.markers.>"
-	FilterCatalogArtworkRender = "clustarr.work.catalogarr.artwork.render.>"
+	FilterAllEvents           = "clustarr.evt.>"
+	FilterAllReleases         = "clustarr.rel.>"
+	FilterWorkCatalogarr      = "clustarr.work.catalogarr.>"
+	FilterWorkImportarr       = "clustarr.work.importarr.>"
+	FilterWorkIndexarr        = "clustarr.work.indexarr.>"
+	FilterWorkCaptionarr      = "clustarr.work.captionarr.>"
+	FilterWorkSquasharr       = "clustarr.work.transcode.>"
+	FilterTranscodeResults    = "clustarr.work.transcode.result.>"
+	FilterAllDLQ              = "clustarr.dlq.>"
+	FilterCatalogSearch       = "clustarr.work.catalogarr.search.>"
+	FilterCatalogGrab         = "clustarr.work.catalogarr.grab.>"
+	FilterCatalogMetadata     = "clustarr.work.catalogarr.metadata.>"
+	FilterCatalogWanted       = "clustarr.work.catalogarr.wantedscan.>"
+	FilterImportScan          = "clustarr.work.importarr.scan.>"
+	FilterImportList          = "clustarr.work.importarr.list.>"
+	FilterImportFile          = "clustarr.work.importarr.fileimport.>"
+	FilterIndexRSS            = "clustarr.work.indexarr.rss.>"
+	FilterCaptionFetch        = "clustarr.work.captionarr.fetch.>"
+	FilterCatalogArtworkFetch = "clustarr.work.catalogarr.artwork.fetch.>"
+	FilterCatalogMarkers      = "clustarr.work.catalogarr.markers.>"
+	// Segment detection (spec 2026-10-01): a season's or a movie's plan,
+	// the analysis task the worker takes, and each file's result.
+	FilterCatalogSegmentsPlan    = "clustarr.work.catalogarr.segments-plan.>"
+	FilterCatalogSegmentsAnalyze = "clustarr.work.catalogarr.segments-analyze.>"
+	FilterCatalogSegmentsResult  = "clustarr.work.catalogarr.segments-result.>"
+	FilterCatalogArtworkRender   = "clustarr.work.catalogarr.artwork.render.>"
 )
 
 // Durable consumer names.
@@ -130,6 +135,11 @@ const (
 	ConsumerCatalogArtworkFetch  = "catalogarr-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalogarr-artwork-render"
 	ConsumerCatalogMarkers       = "catalogarr-markers"
+	// ConsumerCatalogSegmentsPlan and ConsumerCatalogSegmentsResult are
+	// catalogarr's; ConsumerSegmentarrAnalyze is segmentarr-worker's.
+	ConsumerCatalogSegmentsPlan   = "catalogarr-segments-plan"
+	ConsumerSegmentarrAnalyze     = "segmentarr-analyze"
+	ConsumerCatalogSegmentsResult = "catalogarr-segments-result"
 )
 
 // Key/value bucket names. NATS bucket names may not contain dots.
@@ -158,6 +168,18 @@ const BucketArtwork = "clustarr-artwork"
 
 // ArtworkMaxBytes is the artwork bucket's byte limit, spec §B.2.
 const ArtworkMaxBytes int64 = 5 * GiB
+
+// BucketSegments holds each MediaFile's raw segment analysis, keyed by its
+// UID through KVKeyToken.
+const BucketSegments = "clustarr-segments"
+
+// ObjectStoreFingerprints holds segment detection's audio fingerprints,
+// "<probeHash>.start" and "<probeHash>.end".
+const ObjectStoreFingerprints = "clustarr-fingerprints"
+
+// FingerprintsMaxBytes bounds ObjectStoreFingerprints: about 20 KB per
+// window, so room for some 25,000 files.
+const FingerprintsMaxBytes int64 = 1 * GiB
 
 // ArtworkVariant is "original" or "overlay", the last token of an
 // ArtworkKey and the Clustarr-Rendered-From-bearing half of the split
@@ -298,6 +320,25 @@ func WorkGrabSubject(mediaKey string) string {
 // clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
 func WorkMetadataSubject(p Priority, mediaKey string) string {
 	return fmt.Sprintf("clustarr.work.catalogarr.metadata.%s.%s", tok(string(p)), tok(mediaKey))
+}
+
+// WorkSegmentsPlanSubject builds
+// clustarr.work.catalogarr.segments-plan.normal.<key>: plan one season's or
+// movie's segment analysis (schema.SegmentsPlanTask).
+func WorkSegmentsPlanSubject(key string) string {
+	return "clustarr.work.catalogarr.segments-plan.normal." + tok(key)
+}
+
+// WorkSegmentsAnalyzeSubject builds
+// clustarr.work.catalogarr.segments-analyze.normal.<key>.
+func WorkSegmentsAnalyzeSubject(key string) string {
+	return "clustarr.work.catalogarr.segments-analyze.normal." + tok(key)
+}
+
+// WorkSegmentsResultSubject builds
+// clustarr.work.catalogarr.segments-result.normal.<key>.
+func WorkSegmentsResultSubject(key string) string {
+	return "clustarr.work.catalogarr.segments-result.normal." + tok(key)
 }
 
 // WorkMarkersSubject builds clustarr.work.catalogarr.markers.normal.<mediaKey>:

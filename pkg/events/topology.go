@@ -173,6 +173,9 @@ type ObjectStoreSpec struct {
 	Storage     Storage
 	MaxBytes    int64
 	Replicas    int
+	// MaxAge expires objects this old; zero keeps them. An object store
+	// has no expiry per object, so it applies to the whole bucket.
+	MaxAge time.Duration
 }
 
 // Topology is the full broker layout Clustarr expects: every stream, durable
@@ -698,6 +701,33 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 32,
 		},
 		{
+			// Segment detection (spec 2026-10-01 §4.2): catalogarr's planner
+			// turns a season's (or a movie's) plan into one analysis task.
+			Name: ConsumerCatalogSegmentsPlan, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogSegmentsPlan},
+			AckWait: 60 * s, MaxDeliver: 5,
+			BackOff:       []time.Duration{30 * s, 2 * m},
+			MaxAckPending: 8,
+		},
+		{
+			// segmentarr-worker: a season task decodes and analyzes up to
+			// minutes of ffmpeg work, heartbeating with InProgress.
+			Name: ConsumerSegmentarrAnalyze, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogSegmentsAnalyze},
+			AckWait: 30 * m, MaxDeliver: 3,
+			BackOff:       []time.Duration{1 * m, 10 * m},
+			MaxAckPending: 4,
+		},
+		{
+			// catalogarr records each file's result and merges it into
+			// status.markers.
+			Name: ConsumerCatalogSegmentsResult, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogSegmentsResult},
+			AckWait: 60 * s, MaxDeliver: 8,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
+			MaxAckPending: 32,
+		},
+		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,
 			Filters: []string{FilterAllEvents},
 			AckWait: 30 * s, MaxDeliver: 3,
@@ -838,6 +868,9 @@ func defaultBuckets() []BucketSpec {
 		// weeks apart, so a memory bucket on a single node would lose every
 		// item's people with each NATS restart.
 		durable(b(BucketMetadataExtended, 0, "People and similar titles per catalog item, for the Plex provider.")),
+		// Durable: only re-analysis rebuilds a file's raw segments, which the
+		// merge into status.markers needs (spec 2026-10-01 §5.2).
+		durable(b(BucketSegments, 0, "Raw segment analysis per MediaFile.")),
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
 		b(BucketTranscodeLeases, TranscodeLeaseTTL,
 			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; squasharr writes cancel markers."),
@@ -852,6 +885,16 @@ func defaultBuckets() []BucketSpec {
 // walk.
 func defaultObjectStores() []ObjectStoreSpec {
 	return []ObjectStoreSpec{
+		{
+			// Fingerprints of each file's start and end windows, by probe
+			// hash: about 20 KB each, recomputed in seconds when expired.
+			Name:        ObjectStoreFingerprints,
+			Description: "Audio fingerprints for segment detection",
+			Storage:     StorageFile,
+			MaxBytes:    FingerprintsMaxBytes,
+			MaxAge:      90 * 24 * time.Hour,
+			Replicas:    3,
+		},
 		{
 			Name:        BucketArtwork,
 			Description: "Artwork originals and overlays",

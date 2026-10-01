@@ -182,3 +182,21 @@ func TestProgressUsesScaledIntegers(t *testing.T) {
 		t.Errorf("percentMilli was not encoded as an integer: %s", data)
 	}
 }
+
+func TestSegmentsResultRoundTrip(t *testing.T) {
+	in := schema.SegmentsResult{
+		MediaFile: "andor-s01e02", ProbeHash: "h", Version: 1, Result: "Found",
+		Segments: []schema.SegmentJSON{{Kind: "intro", StartMs: 60_000, EndMs: 90_000, Source: "analysis", Confidence: 90}},
+	}
+	name, data, err := schema.Encode(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out schema.SegmentsResult
+	if err := schema.Decode(name, data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Segments[0] != in.Segments[0] || name != "catalog.SegmentsResult.v1" {
+		t.Errorf("round trip: %+v as %s", out, name)
+	}
+}

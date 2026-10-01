@@ -154,6 +154,7 @@ func ObjectStoreConfig(o ObjectStoreSpec) jetstream.ObjectStoreConfig {
 		Storage:     natsStorage(o.Storage),
 		MaxBytes:    o.MaxBytes,
 		Replicas:    max(o.Replicas, 1),
+		TTL:         o.MaxAge,
 	}
 }
 

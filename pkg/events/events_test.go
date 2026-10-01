@@ -612,15 +612,23 @@ func TestTopologyValidateRejectsDuplicateObjectStore(t *testing.T) {
 	}
 }
 
-// TestDefaultObjectStoreIsArtwork pins spec §B.2's single declared bucket.
+// TestDefaultObjectStoreIsArtwork pins spec §B.2's artwork bucket, beside
+// segment detection's fingerprints (spec 2026-10-01).
 func TestDefaultObjectStoreIsArtwork(t *testing.T) {
 	top := events.Default()
-	if len(top.ObjectStores) != 1 {
-		t.Fatalf("ObjectStores = %+v, want exactly one", top.ObjectStores)
+	names := map[string]events.ObjectStoreSpec{}
+	for _, o := range top.ObjectStores {
+		names[o.Name] = o
 	}
-	o := top.ObjectStores[0]
-	if o.Name != events.BucketArtwork {
-		t.Errorf("Name = %q, want %q", o.Name, events.BucketArtwork)
+	if len(names) != 2 {
+		t.Fatalf("ObjectStores = %+v, want artwork and fingerprints", top.ObjectStores)
+	}
+	if _, ok := names[events.ObjectStoreFingerprints]; !ok {
+		t.Errorf("no %s object store", events.ObjectStoreFingerprints)
+	}
+	o, ok := names[events.BucketArtwork]
+	if !ok {
+		t.Fatalf("no %s object store", events.BucketArtwork)
 	}
 	if o.Storage != events.StorageFile {
 		t.Errorf("Storage = %q, want %q", o.Storage, events.StorageFile)
@@ -636,8 +644,9 @@ func TestDefaultObjectStoreIsArtwork(t *testing.T) {
 	// artwork originals never fit config/nats' 256Mi max_memory_store, and
 	// every controller crash-looped on kind the first time it was memory
 	// (2026-09-24). Only the replica count drops.
-	single := top.ForSingleNode().ObjectStores[0]
-	if single.Replicas != 1 || single.Storage != events.StorageFile || single.MaxBytes != events.ArtworkMaxBytes {
-		t.Errorf("ForSingleNode object store = %+v, want replicas 1, file storage, %d bytes", single, events.ArtworkMaxBytes)
+	for _, single := range top.ForSingleNode().ObjectStores {
+		if single.Replicas != 1 || single.Storage != events.StorageFile || single.MaxBytes != names[single.Name].MaxBytes {
+			t.Errorf("ForSingleNode object store = %+v, want replicas 1, file storage, %d bytes", single, names[single.Name].MaxBytes)
+		}
 	}
 }
