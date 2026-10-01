@@ -1602,6 +1602,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.FileMarkers
   map:
     fields:
+    - name: analysis
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SegmentAnalysis
     - name: durationMs
       type:
         scalar: numeric
@@ -2169,12 +2172,18 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkerSegment
   map:
     fields:
+    - name: confidence
+      type:
+        scalar: numeric
     - name: endMs
       type:
         scalar: numeric
     - name: kind
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkerKind
+    - name: source
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SegmentSource
     - name: startMs
       type:
         scalar: numeric
@@ -3624,6 +3633,26 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: name
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SegmentAnalysis
+  map:
+    fields:
+    - name: analyzedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: forProbeHash
+      type:
+        scalar: string
+    - name: message
+      type:
+        scalar: string
+    - name: result
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MarkersResult
+    - name: version
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SegmentSource
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Series
   map:
     fields:

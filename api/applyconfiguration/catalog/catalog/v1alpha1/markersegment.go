@@ -31,6 +31,12 @@ type MarkerSegmentApplyConfiguration struct {
 	Kind    *catalogv1alpha1.MarkerKind `json:"kind,omitempty"`
 	StartMs *int64                      `json:"startMs,omitempty"`
 	EndMs   *int64                      `json:"endMs,omitempty"`
+	// Source is where the segment came from; empty is theintrodb, which
+	// wrote segments before sources existed.
+	Source *catalogv1alpha1.SegmentSource `json:"source,omitempty"`
+	// Confidence is a whole percent: 100 for TheIntroDB and chapters,
+	// 70-90 for local analysis (pkg/segments).
+	Confidence *int32 `json:"confidence,omitempty"`
 }
 
 // MarkerSegmentApplyConfiguration constructs a declarative configuration of the MarkerSegment type for use with
@@ -60,5 +66,21 @@ func (b *MarkerSegmentApplyConfiguration) WithStartMs(value int64) *MarkerSegmen
 // If called multiple times, the EndMs field is set to the value of the last call.
 func (b *MarkerSegmentApplyConfiguration) WithEndMs(value int64) *MarkerSegmentApplyConfiguration {
 	b.EndMs = &value
+	return b
+}
+
+// WithSource sets the Source field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Source field is set to the value of the last call.
+func (b *MarkerSegmentApplyConfiguration) WithSource(value catalogv1alpha1.SegmentSource) *MarkerSegmentApplyConfiguration {
+	b.Source = &value
+	return b
+}
+
+// WithConfidence sets the Confidence field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Confidence field is set to the value of the last call.
+func (b *MarkerSegmentApplyConfiguration) WithConfidence(value int32) *MarkerSegmentApplyConfiguration {
+	b.Confidence = &value
 	return b
 }

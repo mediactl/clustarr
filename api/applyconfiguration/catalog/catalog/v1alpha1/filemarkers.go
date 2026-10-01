@@ -46,6 +46,9 @@ type FileMarkersApplyConfiguration struct {
 	// on a NotFound result: the longer it has had nothing, the less often
 	// it is asked again (markers.Due).
 	NotFoundSince *v1.Time `json:"notFoundSince,omitempty"`
+	// Analysis is clustarr's own analysis of the file; segments it found
+	// are merged into Segments under TheIntroDB's and the chapters'.
+	Analysis *SegmentAnalysisApplyConfiguration `json:"analysis,omitempty"`
 }
 
 // FileMarkersApplyConfiguration constructs a declarative configuration of the FileMarkers type for use with
@@ -112,5 +115,13 @@ func (b *FileMarkersApplyConfiguration) WithMessage(value string) *FileMarkersAp
 // If called multiple times, the NotFoundSince field is set to the value of the last call.
 func (b *FileMarkersApplyConfiguration) WithNotFoundSince(value v1.Time) *FileMarkersApplyConfiguration {
 	b.NotFoundSince = &value
+	return b
+}
+
+// WithAnalysis sets the Analysis field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Analysis field is set to the value of the last call.
+func (b *FileMarkersApplyConfiguration) WithAnalysis(value *SegmentAnalysisApplyConfiguration) *FileMarkersApplyConfiguration {
+	b.Analysis = value
 	return b
 }

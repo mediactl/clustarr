@@ -315,6 +315,11 @@ type FileMarkers struct {
 	// it is asked again (markers.Due).
 	// +optional
 	NotFoundSince *metav1.Time `json:"notFoundSince,omitempty"`
+
+	// Analysis is clustarr's own analysis of the file; segments it found
+	// are merged into Segments under TheIntroDB's and the chapters'.
+	// +optional
+	Analysis *SegmentAnalysis `json:"analysis,omitempty"`
 }
 
 // MarkerSegment is one skip segment, in milliseconds from the file's start.
@@ -324,6 +329,49 @@ type MarkerSegment struct {
 	StartMs int64 `json:"startMs"`
 	// +kubebuilder:validation:Minimum=0
 	EndMs int64 `json:"endMs"`
+	// Source is where the segment came from; empty is theintrodb, which
+	// wrote segments before sources existed.
+	// +optional
+	Source SegmentSource `json:"source,omitempty"`
+	// Confidence is a whole percent: 100 for TheIntroDB and chapters,
+	// 70-90 for local analysis (pkg/segments).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	Confidence int32 `json:"confidence,omitempty"`
+}
+
+// SegmentSource is where a skip segment came from. Precedence, per kind:
+// theintrodb, then chapters, then analysis (pkg/segments.Merge).
+// +kubebuilder:validation:Enum=theintrodb;chapters;analysis
+type SegmentSource string
+
+// Segment sources.
+const (
+	SegmentSourceTheIntroDB SegmentSource = "theintrodb"
+	SegmentSourceChapters   SegmentSource = "chapters"
+	SegmentSourceAnalysis   SegmentSource = "analysis"
+)
+
+// SegmentAnalysis records clustarr's own analysis of a file
+// (segmentarr-worker), beside TheIntroDB's fetch bookkeeping.
+type SegmentAnalysis struct {
+	// Result is Found, NotFound or Error.
+	Result MarkersResult `json:"result"`
+	// AnalyzedAt is when the worker's result was recorded.
+	AnalyzedAt metav1.Time `json:"analyzedAt"`
+	// ForProbeHash is status.probeHash of the file analyzed.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	ForProbeHash string `json:"forProbeHash,omitempty"`
+	// Version is pkg/segments.AnalyzerVersion when analyzed; an older one
+	// is analyzed again.
+	// +optional
+	Version int32 `json:"version,omitempty"`
+	// Message says why the analysis ended NotFound or Error.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Message string `json:"message,omitempty"`
 }
 
 // NamingStatus is catalogarr's proposal for a MediaFile's canonical path.

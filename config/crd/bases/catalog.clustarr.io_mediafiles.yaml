@@ -371,6 +371,42 @@ spec:
                   catalogarr-markers) with the probe's duration, and seeded into Plex
                   by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
                 properties:
+                  analysis:
+                    description: |-
+                      Analysis is clustarr's own analysis of the file; segments it found
+                      are merged into Segments under TheIntroDB's and the chapters'.
+                    properties:
+                      analyzedAt:
+                        description: AnalyzedAt is when the worker's result was recorded.
+                        format: date-time
+                        type: string
+                      forProbeHash:
+                        description: ForProbeHash is status.probeHash of the file
+                          analyzed.
+                        maxLength: 128
+                        type: string
+                      message:
+                        description: Message says why the analysis ended NotFound
+                          or Error.
+                        maxLength: 512
+                        type: string
+                      result:
+                        description: Result is Found, NotFound or Error.
+                        enum:
+                        - Found
+                        - NotFound
+                        - Error
+                        type: string
+                      version:
+                        description: |-
+                          Version is pkg/segments.AnalyzerVersion when analyzed; an older one
+                          is analyzed again.
+                        format: int32
+                        type: integer
+                    required:
+                    - analyzedAt
+                    - result
+                    type: object
                   durationMs:
                     description: 'DurationMs is the duration_ms sent: the probe''s
                       runtime.'
@@ -411,6 +447,14 @@ spec:
                       description: MarkerSegment is one skip segment, in milliseconds
                         from the file's start.
                       properties:
+                        confidence:
+                          description: |-
+                            Confidence is a whole percent: 100 for TheIntroDB and chapters,
+                            70-90 for local analysis (pkg/segments).
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
                         endMs:
                           format: int64
                           minimum: 0
@@ -423,6 +467,15 @@ spec:
                           - recap
                           - credits
                           - preview
+                          type: string
+                        source:
+                          description: |-
+                            Source is where the segment came from; empty is theintrodb, which
+                            wrote segments before sources existed.
+                          enum:
+                          - theintrodb
+                          - chapters
+                          - analysis
                           type: string
                         startMs:
                           format: int64
