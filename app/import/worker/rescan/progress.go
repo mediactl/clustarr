@@ -200,6 +200,10 @@ type Progress struct {
 	// FilesRenamed counts the files the scan's rename pass moved.
 	FilesRenamed int64 `json:"filesRenamed,omitempty"`
 
+	// FilesRemoved counts the MediaFiles the scan removed because their
+	// file is gone from disk (prunePass).
+	FilesRemoved int64 `json:"filesRemoved,omitempty"`
+
 	// Renamed lists what the rename pass did with each rename candidate
 	// under the walked path, in the order it took them (MergeRenamed).
 	Renamed []RenamedFile `json:"renamed,omitempty"`

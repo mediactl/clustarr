@@ -146,9 +146,10 @@ type Worker struct {
 // writer, so neither /status subresource appears here. It reads
 // QualityProfiles to score a scanned movie file, and patches one annotation
 // on a post-transcode MediaFile (AnnotationObservedFingerprint), which the
-// mediafiles patch verb already covers.
+// mediafiles patch verb already covers. It deletes the MediaFile of a file
+// gone from disk (prunePass).
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch;create;update;patch
@@ -398,6 +399,9 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if err := w.renamePass(ctx, m, st); err != nil {
 		return w.abort(ctx, m, st, err)
 	}
+	if err := w.prunePass(ctx, st); err != nil {
+		return w.abort(ctx, m, st, err)
+	}
 
 	st.progress.Done = true
 	st.progress.Resume = ""
@@ -415,6 +419,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		"itemsUpdated", st.progress.ItemsUpdated,
 		"unmatched", len(st.progress.Unmatched),
 		"filesRenamed", st.progress.FilesRenamed,
+		"filesRemoved", st.progress.FilesRemoved,
 		"summary", st.progress.Summary())
 	return nil
 }
