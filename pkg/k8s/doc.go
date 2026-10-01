@@ -30,4 +30,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // server-side apply carrying a deliberate field-manager name, so
 // Status().Update and Status().Patch are banned by golangci's forbidigo
 // outside this package and all status writes go through [PatchStatus].
+//
+// A status written from more than one place under one manager -- several
+// replicas of a worker, a reconciler and a results consumer -- goes through
+// [PatchStatusCAS] instead, which re-reads, re-renders and applies with a
+// resourceVersion precondition, so a writer seeded from an overtaken read
+// gets a Conflict and redoes its render rather than rolling the other
+// writer back.
 package k8s
