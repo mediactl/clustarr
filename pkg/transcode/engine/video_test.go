@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
@@ -174,4 +175,35 @@ func TestAnAnamorphicSourceKeepsItsAspect(t *testing.T) {
 	_, err := Run(context.Background(), encodePlan(cpuVideo("sdr", standard.ColorTags{})), src, out, Options{})
 	require.NoError(t, err)
 	assert.Contains(t, entries(t, out, "-show_entries", "stream=sample_aspect_ratio"), "sample_aspect_ratio=32:27")
+}
+
+// The 8-bit target (SDR at 1080p or less) as the standard plans it: HEVC
+// Main in yuv420p, from libx265 and from NVENC's NV12 surfaces.
+func TestTheEightBitTargetEncodesHEVCMain(t *testing.T) {
+	src := videoClip(t, "h264.mkv", "-c:v", "libx264", "-preset", "veryfast")
+	in := transcode.MediaInfo{Format: transcode.FormatInfo{Name: "matroska,webm", Duration: 2 * time.Second},
+		Video: []transcode.VideoStream{{Codec: "h264", PixFmt: "yuv420p", BitDepth: 8, Width: 320, Height: 180,
+			FrameRate: transcode.Rational{Num: 24, Den: 1}}}}
+	tiers := map[transcode.Tier]*ffgo.HWDevice{transcode.TierCPUx265: nil}
+	if dev, err := ffgo.NewHWDevice(ffgo.HWDeviceTypeCUDA, ""); err == nil {
+		defer func() { _ = dev.Close() }()
+		tiers[transcode.TierNVENC] = dev
+	}
+	for tier, dev := range tiers {
+		t.Run(string(tier), func(t *testing.T) {
+			plan := standard.Plan(in, standard.Profile{Name: "p", Hash: "h", Quality: 28, Container: transcode.ContainerMKV}, standard.Hardware{Tier: tier})
+			require.Equal(t, standard.DecisionEncode, plan.Decision)
+			if tier == transcode.TierCPUx265 {
+				plan.Video.Options["preset"] = "ultrafast"
+			}
+			out := filepath.Join(t.TempDir(), "o.mkv")
+			res, err := Run(context.Background(), plan, src, out, Options{HWDevice: dev})
+			require.NoError(t, err, res.LogTail)
+			got := entries(t, out, "-show_entries", "stream=profile,pix_fmt")
+			assert.Contains(t, got, "profile=Main\n")
+			assert.Contains(t, got, "pix_fmt=yuv420p\n")
+			_, err = Verify(context.Background(), src, out, plan.Expect)
+			require.NoError(t, err)
+		})
+	}
 }

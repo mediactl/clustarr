@@ -64,7 +64,9 @@ func TestSDRH264EncodesOnTheCPU(t *testing.T) {
 	assert.Equal(t, "24", p.Video.Options["crf"])
 	assert.Equal(t, "slow", p.Video.Options["preset"])
 	assert.Equal(t, "cpu", p.Video.Decode)
-	assert.Equal(t, "format=yuv420p10le", p.Video.Filter)
+	assert.Equal(t, "format=yuv420p", p.Video.Filter, "SDR at 1080p is the 8-bit target")
+	assert.Equal(t, "main", p.Video.Options["profile"])
+	assert.Equal(t, "yuv420p", p.Expect.PixelFormat)
 	assert.Equal(t, "sdr", p.Video.HDR)
 	assert.Equal(t, []AudioPlan{{SourceIndex: 0, Action: "copy", Language: "eng"}}, p.Audio)
 	assert.Equal(t, []int32{0, 1}, p.Subtitles)
@@ -78,26 +80,28 @@ func TestNVENCDecodesOnNVDECWithTheArchivalSettings(t *testing.T) {
 	require.Equal(t, DecisionEncode, p.Decision)
 	assert.Equal(t, "hevc_nvenc", p.Video.Encoder)
 	assert.Equal(t, "nvdec", p.Video.Decode)
-	assert.Equal(t, "scale_cuda=format=p010le", p.Video.Filter)
-	assert.Equal(t, map[string]string{"preset": "p7", "rc": "constqp", "qp": "23", "spatial-aq": "1", "temporal-aq": "1", "profile": "main10"}, p.Video.Options)
+	assert.Equal(t, "scale_cuda=format=nv12", p.Video.Filter)
+	assert.Equal(t, map[string]string{"preset": "p7", "rc": "constqp", "qp": "23", "spatial-aq": "1", "temporal-aq": "1", "profile": "main"}, p.Video.Options)
 }
 
 func TestNVENCUploadsASourceNVDECCannotDecode(t *testing.T) {
 	hi10p := video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone)
 	p := Plan(info(hi10p, eac3), profile, nvenc)
 	assert.Equal(t, "upload", p.Video.Decode)
-	assert.Equal(t, "hwupload,scale_cuda=format=p010le", p.Video.Filter)
+	assert.Equal(t, "hwupload,scale_cuda=format=nv12", p.Video.Filter)
 }
 
 func TestIntelTiers(t *testing.T) {
 	q := Plan(info(h264, eac3), profile, Hardware{Tier: transcode.TierQSV})
 	assert.Equal(t, "hevc_qsv", q.Video.Encoder)
 	assert.Equal(t, "24", q.Video.Options["global_quality"])
-	assert.Equal(t, "hwupload=extra_hw_frames=64,vpp_qsv=format=p010", q.Video.Filter)
+	assert.Equal(t, "hwupload=extra_hw_frames=64,vpp_qsv=format=nv12", q.Video.Filter)
+	assert.Equal(t, "main", q.Video.Options["profile"])
 	v := Plan(info(h264, eac3), profile, Hardware{Tier: transcode.TierVAAPI})
 	assert.Equal(t, "hevc_vaapi", v.Video.Encoder)
 	assert.Equal(t, "24", v.Video.Options["qp"])
-	assert.Equal(t, "hwupload,scale_vaapi=format=p010", v.Video.Filter)
+	assert.Equal(t, "hwupload,scale_vaapi=format=nv12", v.Video.Filter)
+	assert.Equal(t, "main", v.Video.Options["profile"])
 }
 
 func TestQualityMapsPerEncoder(t *testing.T) {
@@ -119,8 +123,25 @@ func TestCompliantVideoWithTrueHDCopiesVideoAndEncodesAudio(t *testing.T) {
 	assert.Equal(t, []AudioPlan{{SourceIndex: 0, Action: "aac", Channels: 6, Layout: "5.1", BitRate: 384000, Language: "eng"}}, p.Audio)
 }
 
-func TestHEVC8BitIsEncoded(t *testing.T) {
-	assert.Equal(t, DecisionEncode, Plan(info(video("hevc", "yuv420p", 8, commonv1.HdrFormatNone), eac3), profile, cpu).Decision)
+func TestHEVC8BitIsCompliantOnlyAtTheEightBitTarget(t *testing.T) {
+	hevc8 := video("hevc", "yuv420p", 8, commonv1.HdrFormatNone)
+	assert.Equal(t, DecisionSkip, Plan(info(hevc8, eac3), profile, cpu).Decision, "1080p SDR HEVC Main is the standard")
+	hevc8.Width, hevc8.Height = 3840, 2160
+	p := Plan(info(hevc8, eac3), profile, cpu)
+	require.Equal(t, DecisionEncode, p.Decision, "above 1080p the standard is Main 10")
+	assert.Equal(t, "main10", p.Video.Options["profile"])
+	assert.Equal(t, "format=yuv420p10le", p.Video.Filter)
+	assert.Equal(t, "yuv420p10le", p.Expect.PixelFormat)
+}
+
+func TestHDRAt1080pStaysMain10(t *testing.T) {
+	hdr := video("h264", "yuv420p10le", 10, commonv1.HdrFormatHDR10)
+	for _, hw := range []Hardware{cpu, nvenc} {
+		p := Plan(info(hdr, eac3), profile, hw)
+		require.Equal(t, DecisionEncode, p.Decision)
+		assert.Equal(t, "main10", p.Video.Options["profile"], hw.Tier)
+		assert.Equal(t, "yuv420p10le", p.Expect.PixelFormat, hw.Tier)
+	}
 }
 
 func TestAudioRules(t *testing.T) {

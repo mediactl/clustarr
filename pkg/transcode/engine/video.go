@@ -91,7 +91,7 @@ func videoStage(v standard.VideoPlan) stageFunc {
 		encode := func(frames []*ffgo.Frame) error {
 			for _, f := range frames {
 				if enc == nil {
-					if enc, err = openVideoEncoder(sc, v, graph, first); err != nil {
+					if enc, err = openVideoEncoder(sc, v, graph, first, ffgo.PixelFormat(f.Format())); err != nil {
 						_ = f.Free()
 						return err
 					}
@@ -190,8 +190,10 @@ func containsFilter(chain, name string) bool {
 // the colour description (the plan's for HDR, the source's for SDR) and
 // HDR10's mastering display and light level (the container's, else the
 // first frame's), and reports it to the muxer with that side data for the
-// output stream.
-func openVideoEncoder(sc *stageContext, v standard.VideoPlan, graph *ffgo.FilterGraph, first *ffgo.Frame) (*ffgo.VideoStreamEncoder, error) {
+// output stream. format is the graph's first output frame's: the plan's
+// filter chose it (format=yuv420p10le for Main 10, yuv420p for the 8-bit
+// target); a GPU graph's frames carry theirs in the frames context.
+func openVideoEncoder(sc *stageContext, v standard.VideoPlan, graph *ffgo.FilterGraph, first *ffgo.Frame, format ffgo.PixelFormat) (*ffgo.VideoStreamEncoder, error) {
 	opts := maps.Clone(v.Options)
 	if opts == nil {
 		opts = map[string]string{}
@@ -221,7 +223,7 @@ func openVideoEncoder(sc *stageContext, v standard.VideoPlan, graph *ffgo.Filter
 	}
 	cfg := ffgo.VideoEncoderConfig{
 		EncoderName: v.Encoder, Width: sc.src.Width, Height: sc.src.Height, FrameRate: sc.src.FrameRate,
-		PixelFormat: ffgo.PixelFormatYUV420P10LE(), HWFramesCtx: graph.OutputHWFramesCtx(), CodecOptions: opts,
+		PixelFormat: format, HWFramesCtx: graph.OutputHWFramesCtx(), CodecOptions: opts,
 		// An anamorphic source's pixel aspect (a 16:9 DVD's 32:27) is kept.
 		SampleAspectRatio: sc.src.SampleAspectRatio,
 	}

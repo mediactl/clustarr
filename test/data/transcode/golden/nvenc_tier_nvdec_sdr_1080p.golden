@@ -25,7 +25,7 @@ cuda
 -map_chapters
 0
 -vf
-scale_cuda=format=p010le
+scale_cuda=format=nv12
 -c:v
 hevc_nvenc
 -preset
@@ -51,7 +51,7 @@ middle
 -rc-lookahead
 40
 -profile:v
-main10
+main
 -tier
 high
 -c:a:0

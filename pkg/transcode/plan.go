@@ -179,9 +179,29 @@ func containerFromExt(ext string) (Container, bool) {
 	}
 }
 
+// videoCompliant is HEVC Main 10, or HEVC Main for the 8-bit target: a
+// 10-bit 1080p file is never encoded down to 8 bits.
 func videoCompliant(v VideoStream) bool {
-	return v.Codec == "hevc" && v.Profile == "Main 10" && v.PixFmt == "yuv420p10le"
+	if v.Codec != "hevc" {
+		return false
+	}
+	return (v.Profile == "Main 10" && v.PixFmt == "yuv420p10le") ||
+		(EightBitTarget(v) && v.Profile == "Main" && v.PixFmt == pixFmt8)
 }
+
+// pixFmt8 is the 8-bit target's pixel format.
+const pixFmt8 = "yuv420p"
+
+// EightBitTarget reports whether v is encoded HEVC Main, 8-bit, rather than
+// Main 10: SDR at 1080p or less (the owner's call, 2026-10-01). HDR10, HLG
+// and Dolby Vision need 10 bits for their transfer at any size, and above
+// 1080p the standard stays Main 10.
+func EightBitTarget(v VideoStream) bool {
+	return hdrClass(v.HDR.Format) == hdrNone && v.Height > 0 && v.Height <= 1080
+}
+
+// eightBit is a video spec the 8-bit target rewrote.
+func eightBit(v VideoSpec) bool { return v.PixelFormat == pixFmt8 }
 
 // audioCompliant reports whether every audio track is already in the
 // profile's codec or in a codec it copies (audio.copyCodecs).
@@ -250,6 +270,11 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 
 	tagged := meta.ProfileName != "" && info.Tags != nil &&
 		info.Tags["CLUSTARR_PROFILE"] == meta.ProfileName+"@"+meta.ProfileHash
+	// SDR at 1080p or less is the standard's 8-bit target (spec §5): the
+	// profile's pixel format and codec profile name HDR's and UHD's.
+	if EightBitTarget(v0) {
+		profile.Video.PixelFormat, profile.Video.Profile = pixFmt8, "main"
+	}
 	compliant := videoCompliant(v0) && audioCompliant(info, profile) && hasContainer && container == profile.Container
 
 	if compliant {
@@ -308,7 +333,7 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 		plan.Reason = "video already compliant; remuxing audio/subtitles/container only"
 	} else {
 		plan.Decision = DecisionEncode
-		reason := "video requires transcoding to hevc/main10/yuv420p10le"
+		reason := fmt.Sprintf("video requires transcoding to hevc/%s/%s", profile.Video.Profile, profile.Video.PixelFormat)
 		if class == hdrDolbyVision && v0.HDR.DolbyVision != nil && v0.HDR.DolbyVision.Profile == 7 &&
 			profile.HDR.DolbyVision == DolbyVisionDowngradeToHDR10 {
 			// Only claim a downgrade when hdr.dolbyVision's active mode is
@@ -393,7 +418,7 @@ func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta Plan
 				// Decode on NVDEC and convert to p010 on the GPU: no frame
 				// leaves GPU memory between the decoder and the encoder.
 				plan.HWInit = nvdecInputArgs(nvdecExtraFrames(profile.Video))
-				plan.Filters = append([]string{nvdecScaleFilter}, plan.Filters...)
+				plan.Filters = append([]string{nvdecScale(profile.Video)}, plan.Filters...)
 			}
 			plan.VideoArgs = nvencVideoArgs(profile.Video, v0, nvdec)
 		case TierQSV:
@@ -402,11 +427,11 @@ func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta Plan
 			// source decodes to ("Current profile is unsupported", exit 218,
 			// verified on a Comet Lake iGPU with the media image's runtime);
 			// convert on the GPU first, as the VAAPI tier does.
-			plan.Filters = append([]string{"vpp_qsv=format=p010"}, plan.Filters...)
+			plan.Filters = append([]string{"vpp_qsv=format=" + gpuFormat(profile.Video, "p010")}, plan.Filters...)
 			plan.VideoArgs = qsvVideoArgs(profile.Video)
 		case TierVAAPI:
 			plan.HWInit = vaapiHWInit()
-			plan.Filters = append([]string{"scale_vaapi=format=p010"}, plan.Filters...)
+			plan.Filters = append([]string{"scale_vaapi=format=" + gpuFormat(profile.Video, "p010")}, plan.Filters...)
 			plan.VideoArgs = vaapiVideoArgs(profile.Video)
 		default: // TierCPUx265
 			plan.VideoArgs = cpuVideoArgs(profile.Video, v0, class, dvMode, meta.Threads)
@@ -680,7 +705,7 @@ func nvencVideoArgs(v VideoSpec, v0 VideoStream, nvdec bool) []string {
 		"-tier", "high",
 	}
 	if !nvdec {
-		args = append(args, "-pix_fmt", "p010le")
+		args = append(args, "-pix_fmt", gpuFormat(v, "p010le"))
 	}
 	if pct := v.NVENC.MaxBitratePercent; pct > 0 && v0.BitRateKbps > 0 {
 		maxKbps := int64(v0.BitRateKbps) * int64(pct) / 100
@@ -748,6 +773,9 @@ func containerFormatName(c Container) string {
 func outputPixFmt(tier Tier, v VideoSpec) string {
 	switch tier {
 	case TierNVENC, TierVAAPI:
+		if eightBit(v) {
+			return pixFmt8
+		}
 		return "yuv420p10le"
 	default:
 		return v.PixelFormat

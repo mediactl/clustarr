@@ -175,6 +175,19 @@ func runFFmpeg(ctx context.Context, ffmpegPath string, args ...string) (string, 
 // software path uses would make ffmpeg copy every frame back to the CPU.
 const nvdecScaleFilter = "scale_cuda=format=p010le"
 
+// nvdecScale is the GPU conversion for an encode at v: nvdecScaleFilter,
+// or NV12 for the 8-bit target.
+func nvdecScale(v VideoSpec) string { return "scale_cuda=format=" + gpuFormat(v, "p010le") }
+
+// gpuFormat is the surface format a GPU tier encodes from: tenBit (the
+// filter's own name for P010), or nv12 for the 8-bit target.
+func gpuFormat(v VideoSpec, tenBit string) string {
+	if eightBit(v) {
+		return "nv12"
+	}
+	return tenBit
+}
+
 // nvdecInputArgs are the input options that decode on NVDEC and keep frames
 // in GPU memory. extra is -extra_hw_frames: hevc_nvenc holds a frame for
 // every lookahead and B-frame slot, and a decoder surface pool sized for the

@@ -27,7 +27,7 @@ qsv
 -map_chapters
 0
 -vf
-vpp_qsv=format=p010
+vpp_qsv=format=nv12
 -c:v
 hevc_qsv
 -preset
@@ -41,7 +41,7 @@ veryslow
 -scenario
 archive
 -profile:v
-main10
+main
 -c:a:0
 aac
 -b:a:0

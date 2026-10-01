@@ -535,7 +535,7 @@ func TestArgsGoldenNVENCTierNVDECSDR1080p(t *testing.T) {
 	require.Equal(t, transcode.TierNVENC, plan.Tier)
 	assert.Equal(t, []string{"-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-extra_hw_frames", "52"}, plan.HWInit,
 		"rc-lookahead 40 + 8 B-frames + 4")
-	assert.Equal(t, []string{"scale_cuda=format=p010le"}, plan.Filters)
+	assert.Equal(t, []string{"scale_cuda=format=nv12"}, plan.Filters)
 	assert.NotContains(t, plan.VideoArgs, "-pix_fmt")
 	assert.Contains(t, plan.Reason, "decoding on NVDEC")
 

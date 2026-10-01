@@ -66,10 +66,14 @@ Every file gets the same treatment; only the four settings in §5 vary.
 
 **Video**
 
-- Output is HEVC Main 10 (`yuv420p10le`); resolution and frame rate are
-  unchanged.
-- A file whose video is already HEVC Main 10 and whose audio is all kept
-  (below) is skipped. A file whose video is compliant but whose audio is
+- Output is HEVC Main 10 (`yuv420p10le`) for HDR at any size and for
+  anything above 1080p, and HEVC Main (`yuv420p`; NV12 surfaces on a GPU)
+  for SDR at 1080p or less -- the owner's call, 2026-10-01
+  (`transcode.EightBitTarget`, shared by both engines). Resolution and
+  frame rate are unchanged.
+- A file whose video is already HEVC Main 10, or HEVC Main within the
+  8-bit target, and whose audio is all kept (below) is skipped; a 10-bit
+  file is never encoded down to 8 bits. A file whose video is compliant but whose audio is
   not has its video copied and only its audio processed.
 - HDR10 and HLG keep their colour tags and their mastering-display and
   light-level metadata. HDR10+ dynamic metadata is dropped.

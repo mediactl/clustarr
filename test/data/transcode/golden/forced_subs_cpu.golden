@@ -29,9 +29,9 @@ slow
 -crf
 22
 -pix_fmt
-yuv420p10le
+yuv420p
 -profile:v
-main10
+main
 -flags
 +cgop
 -g

@@ -339,7 +339,7 @@ func TestPlanExpectsThePixelFormatFfprobeReportsOnAGPUEncode(t *testing.T) {
 		Path:   "/media/Movie (2020)/Movie (2020).mkv",
 		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
 		Video: []transcode.VideoStream{{
-			Codec: "h264", PixFmt: "yuv420p", Width: 1920, Height: 1080,
+			Codec: "h264", PixFmt: "yuv420p", Width: 3840, Height: 2160, // above 1080p: the Main 10 target
 			FrameRate: transcode.Rational{Num: 24, Den: 1},
 		}},
 		Audio: []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},

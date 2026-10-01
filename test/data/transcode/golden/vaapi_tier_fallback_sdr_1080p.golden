@@ -25,11 +25,11 @@ vaapi
 -map_chapters
 0
 -vf
-scale_vaapi=format=p010
+scale_vaapi=format=nv12
 -c:v
 hevc_vaapi
 -profile:v
-main10
+main
 -rc_mode
 CQP
 -qp

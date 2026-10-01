@@ -8,14 +8,14 @@
     "Encoder": "hevc_nvenc",
     "Options": {
       "preset": "p7",
-      "profile": "main10",
+      "profile": "main",
       "qp": "23",
       "rc": "constqp",
       "spatial-aq": "1",
       "temporal-aq": "1"
     },
     "Decode": "upload",
-    "Filter": "hwupload,scale_cuda=format=p010le",
+    "Filter": "hwupload,scale_cuda=format=nv12",
     "HDR": "sdr",
     "Color": {}
   },
@@ -40,7 +40,7 @@
     "AudioStreams": 1,
     "SubtitleStreams": 2,
     "VideoCodec": "hevc",
-    "PixelFormat": "yuv420p10le",
+    "PixelFormat": "yuv420p",
     "DurationMillis": 3600000
   }
 }

@@ -9,11 +9,11 @@
     "Options": {
       "crf": "24",
       "preset": "slow",
-      "profile": "main10",
+      "profile": "main",
       "x265-params": "log-level=error:bframes=8:ref=4:rc-lookahead=40:keyint=240"
     },
     "Decode": "cpu",
-    "Filter": "format=yuv420p10le",
+    "Filter": "format=yuv420p",
     "HDR": "sdr",
     "Color": {}
   },
@@ -38,7 +38,7 @@
     "AudioStreams": 1,
     "SubtitleStreams": 2,
     "VideoCodec": "hevc",
-    "PixelFormat": "yuv420p10le",
+    "PixelFormat": "yuv420p",
     "DurationMillis": 3600000
   }
 }

@@ -181,7 +181,12 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		DurationMillis: info.Format.Duration.Milliseconds(),
 	}
 
-	compliant := v.Codec == "hevc" && tenBit(v) && !isDolbyVision(v.HDR.Format)
+	eight := transcode.EightBitTarget(v)
+	if eight {
+		p.Expect.PixelFormat = "yuv420p"
+	}
+	// A 10-bit file is never encoded down to the 8-bit target.
+	compliant := v.Codec == "hevc" && (tenBit(v) || (eight && v.PixFmt == "yuv420p")) && !isDolbyVision(v.HDR.Format)
 	audioAsIs := len(p.Audio) == len(info.Audio)
 	for _, a := range p.Audio {
 		audioAsIs = audioAsIs && a.Action == "copy"
@@ -199,7 +204,7 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	}
 	p.Decision = DecisionEncode
 	p.Reason = "encode to HEVC Main 10"
-	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip)
+	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
 	return p
 }
 
@@ -262,29 +267,44 @@ func colorTags(hdr string) ColorTags {
 	return ColorTags{}
 }
 
-func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr string, strip []string) VideoPlan {
+// encodeVideo plans the encode on hw's tier: HEVC Main 10, or HEVC Main
+// for the 8-bit target (eight: SDR at 1080p or less), with the surface
+// format each filter names for it.
+func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr string, strip []string, eight bool) VideoPlan {
 	vp := VideoPlan{SourceIndex: index, Action: "encode", HDR: hdr, Color: colorTags(hdr), StripSideData: strip}
+	fmtFor := func(tenBit string) string {
+		if eight {
+			return "nv12"
+		}
+		return tenBit
+	}
 	switch hw.Tier {
 	case transcode.TierNVENC:
 		vp.Encoder = "hevc_nvenc"
 		vp.Options = nvencOptions(quality)
 		if transcode.NVDECDecodes(hw.Limits, v) {
-			vp.Decode, vp.Filter = "nvdec", "scale_cuda=format=p010le"
+			vp.Decode, vp.Filter = "nvdec", "scale_cuda=format="+fmtFor("p010le")
 		} else {
-			vp.Decode, vp.Filter = "upload", "hwupload,scale_cuda=format=p010le"
+			vp.Decode, vp.Filter = "upload", "hwupload,scale_cuda=format="+fmtFor("p010le")
 		}
 	case transcode.TierQSV:
 		vp.Encoder, vp.Decode = "hevc_qsv", "cpu"
 		vp.Options = map[string]string{"global_quality": itoa(quality), "preset": "veryslow", "profile": "main10"}
-		vp.Filter = "hwupload=extra_hw_frames=64,vpp_qsv=format=p010"
+		vp.Filter = "hwupload=extra_hw_frames=64,vpp_qsv=format=" + fmtFor("p010")
 	case transcode.TierVAAPI:
 		vp.Encoder, vp.Decode = "hevc_vaapi", "cpu"
 		vp.Options = map[string]string{"qp": itoa(quality), "profile": "main10"}
-		vp.Filter = "hwupload,scale_vaapi=format=p010"
+		vp.Filter = "hwupload,scale_vaapi=format=" + fmtFor("p010")
 	default:
 		vp.Encoder, vp.Decode = "libx265", "cpu"
 		vp.Options = x265Options(v, quality)
 		vp.Filter = "format=yuv420p10le"
+		if eight {
+			vp.Filter = "format=yuv420p"
+		}
+	}
+	if eight {
+		vp.Options["profile"] = "main"
 	}
 	return vp
 }
