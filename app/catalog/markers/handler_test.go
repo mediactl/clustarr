@@ -298,3 +298,48 @@ func TestAnEpisodeTheProviderLacksDoesNotSkipTheSeries(t *testing.T) {
 	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file-2")))
 	assert.Len(t, p.asked, 2)
 }
+
+type published struct {
+	subject string
+	env     *events.Envelope
+	opts    events.PublishOptions
+}
+
+type recorder struct{ got []published }
+
+func (r *recorder) Publish(_ context.Context, subject string, e *events.Envelope, opts ...events.PublishOption) (events.Receipt, error) {
+	r.got = append(r.got, published{subject, e, events.ResolvePublishOptions(e, opts)})
+	return events.Receipt{}, nil
+}
+
+// A key spent for hours (TheIntroDB's daily allowance) does not hold one
+// of the durable's in-flight slots until its reset: the task is published
+// again for the reset and acked, so files that need no request -- a series
+// known absent, a multi-episode file, a new import of one -- keep moving.
+func TestALongLimitDefersTheTaskToItsReset(t *testing.T) {
+	p := &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: 23 * time.Hour}}
+	var applied []*catalogac.MediaFileApplyConfiguration
+	h := handler(episodeWorld(""), p, &applied)
+	rec := &recorder{}
+	h.Bus = rec
+	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
+	assert.Empty(t, applied, "a limit is not a result")
+	require.Len(t, rec.got, 1)
+	assert.Equal(t, now.Add(23*time.Hour), rec.got[0].opts.ScheduleAt)
+	assert.Equal(t, "media/bb-file", rec.got[0].env.Key)
+	assert.Contains(t, rec.got[0].subject, "markers")
+	assert.NotEqual(t, markers.MsgID(episodeWorld("")[2].(*catalogv1alpha1.MediaFile)), rec.got[0].opts.MsgID,
+		"its own message id, or the dedup window absorbs it")
+}
+
+// A short limit (the 10-second rate window) is still a retry.
+func TestAShortLimitIsStillARetry(t *testing.T) {
+	p := &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: 10 * time.Second}}
+	var applied []*catalogac.MediaFileApplyConfiguration
+	h := handler(episodeWorld(""), p, &applied)
+	rec := &recorder{}
+	h.Bus = rec
+	var retry *events.RetryError
+	require.ErrorAs(t, h.Handle(context.Background(), task(t, "bb-file")), &retry)
+	assert.Empty(t, rec.got)
+}

@@ -20,6 +20,7 @@ package markers
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -30,13 +31,23 @@ import (
 
 // Publish asks the marker worker to fetch mf's segments.
 func Publish(ctx context.Context, bus events.Publisher, mf *catalogv1alpha1.MediaFile, now time.Time) error {
+	return publish(ctx, bus, mf, now, MsgID(mf))
+}
+
+// PublishAt asks again at at: a task deferred to a spent key's reset, under
+// a message id of its own so the dedup window does not absorb it.
+func PublishAt(ctx context.Context, bus events.Publisher, mf *catalogv1alpha1.MediaFile, now, at time.Time) error {
+	return publish(ctx, bus, mf, now, MsgID(mf)+"-at-"+strconv.FormatInt(at.Unix(), 10), events.WithScheduleAt(at))
+}
+
+func publish(ctx context.Context, bus events.Publisher, mf *catalogv1alpha1.MediaFile, now time.Time, id string, opts ...events.PublishOption) error {
 	name, data, err := schema.Encode(schema.MarkersTask{MediaFile: mf.Name})
 	if err != nil {
 		return err
 	}
 	mediaKey := events.MediaKey("mediafile", mf.Namespace, mf.Name)
 	env := &events.Envelope{
-		ID:     MsgID(mf),
+		ID:     id,
 		Type:   "catalog.MarkersTask",
 		Schema: name,
 		Source: "catalogarr@" + version.String(),
@@ -44,7 +55,7 @@ func Publish(ctx context.Context, bus events.Publisher, mf *catalogv1alpha1.Medi
 		Time:   now,
 		Data:   data,
 	}
-	if _, err := bus.Publish(ctx, events.WorkMarkersSubject(mediaKey), env); err != nil {
+	if _, err := bus.Publish(ctx, events.WorkMarkersSubject(mediaKey), env, opts...); err != nil {
 		return fmt.Errorf("markers: publish for %s/%s: %w", mf.Namespace, mf.Name, err)
 	}
 	return nil

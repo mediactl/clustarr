@@ -75,6 +75,8 @@ type Handler struct {
 	// Client.
 	Apply  func(ctx context.Context, ac *catalogac.MediaFileApplyConfiguration) error
 	Client client.Client
+	// Bus re-publishes a task deferred to a spent key's reset.
+	Bus events.Publisher
 
 	// absent remembers, for SeriesAbsentTTL, each series the provider has
 	// nothing for at all (metadata.ErrNoTitle), keyed by its query id, so
@@ -82,6 +84,11 @@ type Handler struct {
 	mu     sync.Mutex
 	absent map[string]time.Time
 }
+
+// deferAfter is the longest limit a task waits out in its in-flight slot.
+// A longer one -- TheIntroDB's daily allowance -- is published again for
+// the reset, so the durable's slots serve the tasks that need no request.
+const deferAfter = 5 * time.Minute
 
 // SeriesAbsentTTL is how long a series the provider lacks answers for its
 // other episodes without a request. The gateway runs one replica, and a
@@ -124,8 +131,14 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 	var rl *metadata.RateLimitedError
-	if errors.As(err, &rl) {
-		return events.Retry(rl.RetryAfter, err) // a limit is not a result
+	if errors.As(err, &rl) { // a limit is not a result
+		if rl.RetryAfter > deferAfter && h.Bus != nil {
+			if perr := PublishAt(ctx, h.Bus, &mf, now, now.Add(rl.RetryAfter)); perr != nil {
+				return events.Retry(rl.RetryAfter, errors.Join(err, perr))
+			}
+			return nil // the slot goes to the next task; this one returns at the reset
+		}
+		return events.Retry(rl.RetryAfter, err)
 	}
 	if errors.Is(err, errNoProvider) {
 		return nil // the registry, not the file, is missing something
