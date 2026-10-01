@@ -214,6 +214,12 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: aac
+    - name: copyCodecs
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
     - name: dropCommentary
       type:
         scalar: boolean
@@ -276,6 +282,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: node
       type:
         scalar: string
+    - name: nvdec
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.GPUSpec
   map:
     fields:

@@ -320,6 +320,7 @@ func (r *Reconciler) encoderLimits(ctx context.Context) []transcodev1alpha1.Enco
 		for _, n := range names {
 			out = append(out, transcodev1alpha1.EncoderLimit{
 				Class: class, Node: n, MaxBFrames: nodes[n].MaxBFrames, MaxLookahead: nodes[n].MaxLookahead,
+				NVDEC: nodes[n].NVDEC.Decodable(),
 			})
 		}
 	}

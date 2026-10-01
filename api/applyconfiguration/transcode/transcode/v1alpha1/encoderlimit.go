@@ -38,6 +38,11 @@ type EncoderLimitApplyConfiguration struct {
 	// MaxLookahead is the deepest rate-control lookahead the device uses,
 	// when a profile asked for more; absent is no limit known.
 	MaxLookahead *int32 `json:"maxLookahead,omitempty"`
+	// NVDEC are the source formats, as codec:bitDepth ("h264:8",
+	// "hevc:10"), the node's decoder was measured to decode; the nvidia tier
+	// decodes those on the GPU. Absent is none measured or none decodable,
+	// and squasharr decides an unmeasured format from a static list.
+	NVDEC []string `json:"nvdec,omitempty"`
 }
 
 // EncoderLimitApplyConfiguration constructs a declarative configuration of the EncoderLimit type for use with
@@ -75,5 +80,15 @@ func (b *EncoderLimitApplyConfiguration) WithMaxBFrames(value int32) *EncoderLim
 // If called multiple times, the MaxLookahead field is set to the value of the last call.
 func (b *EncoderLimitApplyConfiguration) WithMaxLookahead(value int32) *EncoderLimitApplyConfiguration {
 	b.MaxLookahead = &value
+	return b
+}
+
+// WithNVDEC adds the given value to the NVDEC field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the NVDEC field.
+func (b *EncoderLimitApplyConfiguration) WithNVDEC(values ...string) *EncoderLimitApplyConfiguration {
+	for i := range values {
+		b.NVDEC = append(b.NVDEC, values[i])
+	}
 	return b
 }

@@ -88,6 +88,7 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 			Languages:             spec.Audio.Languages,
 			DropCommentary:        ptr.Deref(spec.Audio.DropCommentary, true),
 			StereoCompatTrack:     spec.Audio.StereoCompatTrack,
+			CopyCodecs:            spec.Audio.CopyCodecs,
 		},
 		Subtitles: transcode.SubSpec{
 			CopyText:        ptr.Deref(spec.Subtitles.CopyText, true),

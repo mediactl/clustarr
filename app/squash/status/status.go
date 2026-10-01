@@ -268,6 +268,9 @@ func ProfileFields(st transcodev1alpha1.TranscodeProfileStatus) *transcodeac.Tra
 		if l.MaxLookahead != nil {
 			e.WithMaxLookahead(*l.MaxLookahead)
 		}
+		if len(l.NVDEC) > 0 {
+			e.WithNVDEC(l.NVDEC...)
+		}
 		ac.WithEncoderLimits(e)
 	}
 	return ac

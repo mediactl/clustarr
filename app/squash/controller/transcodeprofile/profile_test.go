@@ -56,6 +56,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 		Audio: transcodev1alpha1.AudioSpec{
 			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
 			Languages: []string{"eng"}, DropCommentary: ptr.To(true), StereoCompatTrack: true,
+			CopyCodecs: []string{"eac3"},
 		},
 		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(true), CopyBitmap: ptr.To(true), CopyAttachments: ptr.To(true)},
 		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionPassthrough},

@@ -90,6 +90,24 @@ spec:
                     default: aac
                     description: Codec is the target audio codec for re-encoded tracks.
                     type: string
+                  copyCodecs:
+                    description: |-
+                      CopyCodecs are source audio codecs whose tracks are copied unchanged
+                      instead of re-encoded to Codec, and count as already compliant.
+                      Re-encoding E-AC-3 5.1 to AAC saves little space and was the largest
+                      CPU share left on a GPU pool once video decoded on NVDEC (2026-09-30).
+                      A copied track replaces its re-encode, so keepOriginal adds nothing
+                      for it. Every listed codec is one both Matroska and MP4 carry. Empty
+                      re-encodes every track.
+                    items:
+                      enum:
+                      - aac
+                      - ac3
+                      - eac3
+                      type: string
+                    maxItems: 3
+                    type: array
+                    x-kubernetes-list-type: set
                   dropCommentary:
                     default: true
                     description: |-
@@ -758,6 +776,18 @@ spec:
                       maxLength: 253
                       minLength: 1
                       type: string
+                    nvdec:
+                      description: |-
+                        NVDEC are the source formats, as codec:bitDepth ("h264:8",
+                        "hevc:10"), the node's decoder was measured to decode; the nvidia tier
+                        decodes those on the GPU. Absent is none measured or none decodable,
+                        and squasharr decides an unmeasured format from a static list.
+                      items:
+                        maxLength: 32
+                        type: string
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-type: set
                   required:
                   - class
                   - node

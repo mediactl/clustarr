@@ -96,6 +96,8 @@ type AudioSpec struct {
 	Languages             []string
 	DropCommentary        bool
 	StereoCompatTrack     bool
+	// CopyCodecs are source codecs copied unchanged instead of re-encoded.
+	CopyCodecs []string
 }
 
 // SubSpec describes how subtitle tracks and attachments are handled.

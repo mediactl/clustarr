@@ -64,7 +64,19 @@ the node's limits to `clustarr-progress` `encoder-limits.<class>`, which the
 controller plans with and TranscodeProfile `status.encoderLimits` shows.
 NVENC caps its bitrate at `video.nvenc.maxBitratePercent` (70) of the
 source's, read from the probe summary's `videoBitrateKbps` (mkvmerge's BPS
-tag for Matroska). A RootFolder's `naming.renameTranscoded` renames a file
+tag for Matroska). The NVENC tier decodes on NVDEC (2026-09-30, `pkg/transcode/nvdec.go`):
+`-hwaccel cuda -hwaccel_output_format cuda`, `scale_cuda=format=p010le` in place of
+`-pix_fmt p010le`, and `-extra_hw_frames` sized for the lookahead and B-frames, so no
+frame leaves GPU memory (an x264 source went from 14.4 s to 1.0 s of CPU on an RTX
+2070 Max-Q). Only a source NVDEC decodes takes it -- each pool worker measures that
+by trial decodes (`transcode.ProbeDecoders`, published with its encoder limits as
+`nvdec` and shown in `status.encoderLimits[].nvdec`), else a static Turing list --
+because with frames pinned to the GPU, ffmpeg's silent software fallback hands
+`scale_cuda` frames it refuses (H.264 Hi10P exits 218); anything else decodes on the
+CPU as before. HDR tags stay a `setparams` filter, after `scale_cuda`: `-color_*`
+output options lost primaries and transfer to a source whose frames carry them as
+unknown. `audio.copyCodecs` (`aac`, `ac3`, `eac3`) copies those tracks instead of
+re-encoding them, and counts them compliant; empty re-encodes every track. A RootFolder's `naming.renameTranscoded` renames a file
 squasharr transcoded (`status.transcode.profileTag`) to its canonical file
 name in the folder it is already in (`rescan.RenameFile`'s keepFolder), so
 a season is never split between "Season 3" and "Season 03"; `renameFiles`

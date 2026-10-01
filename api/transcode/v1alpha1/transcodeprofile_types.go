@@ -142,6 +142,16 @@ type EncoderLimit struct {
 	// when a profile asked for more; absent is no limit known.
 	// +optional
 	MaxLookahead *int32 `json:"maxLookahead,omitempty"`
+
+	// NVDEC are the source formats, as codec:bitDepth ("h264:8",
+	// "hevc:10"), the node's decoder was measured to decode; the nvidia tier
+	// decodes those on the GPU. Absent is none measured or none decodable,
+	// and squasharr decides an unmeasured format from a static list.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=32
+	NVDEC []string `json:"nvdec,omitempty"`
 }
 
 // NVENCSpec tunes the NVIDIA NVENC encoder (hardware=nvidia).
@@ -315,6 +325,19 @@ type AudioSpec struct {
 	// +optional
 	// +kubebuilder:default=false
 	StereoCompatTrack bool `json:"stereoCompatTrack,omitempty"`
+
+	// CopyCodecs are source audio codecs whose tracks are copied unchanged
+	// instead of re-encoded to Codec, and count as already compliant.
+	// Re-encoding E-AC-3 5.1 to AAC saves little space and was the largest
+	// CPU share left on a GPU pool once video decoded on NVDEC (2026-09-30).
+	// A copied track replaces its re-encode, so keepOriginal adds nothing
+	// for it. Every listed codec is one both Matroska and MP4 carry. Empty
+	// re-encodes every track.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=3
+	// +kubebuilder:validation:items:Enum=aac;ac3;eac3
+	CopyCodecs []string `json:"copyCodecs,omitempty"`
 }
 
 // SubSpec describes how subtitle tracks and attachments are handled.

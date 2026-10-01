@@ -88,3 +88,33 @@ func TestAnotherProfilesPublishKeepsTheNodesTightestLimit(t *testing.T) {
 	require.NotNil(t, got.MaxBFrames)
 	assert.Equal(t, int32(5), *got.MaxBFrames)
 }
+
+// A class decodes a format on NVDEC only where every node that measured it
+// does, since a job may land on any of them; a format one node measured and
+// the other did not keeps the one answer, and a class with no measurement
+// at all reads as unmeasured, which the static list then decides.
+func TestEncoderLimitsDecodeOnlyWhatEveryNodeDecodes(t *testing.T) {
+	ctx := context.Background()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
+	kv := bus.KV(events.BucketProgress)
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "nvidia", "turing", transcode.Limits{
+		NVDEC: &transcode.Decoders{Formats: map[string]bool{"h264:8": true, "av1:8": false, "vp9:10": true}},
+	}, now))
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "nvidia", "ada", transcode.Limits{
+		NVDEC: &transcode.Decoders{Formats: map[string]bool{"h264:8": true, "av1:8": true}},
+	}, now))
+
+	got, err := task.ReadEncoderLimits(ctx, kv, "nvidia", now.Add(time.Minute))
+	require.NoError(t, err)
+	require.NotNil(t, got.NVDEC)
+	assert.Equal(t, map[string]bool{"h264:8": true, "av1:8": false, "vp9:10": true}, got.NVDEC.Formats,
+		"AV1 only where both decode it; vp9:10 measured by one node keeps its answer")
+
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "intel", "igpu", transcode.Limits{}, now))
+	got, err = task.ReadEncoderLimits(ctx, kv, "intel", now)
+	require.NoError(t, err)
+	assert.Nil(t, got.NVDEC, "no node measured: unmeasured, not 'decodes nothing'")
+}

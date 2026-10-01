@@ -127,8 +127,8 @@ func ReadEncoderLimits(ctx context.Context, kv events.KV, class string, now time
 	return out, nil
 }
 
-// tightest is, per limit, the lower of a's and b's; a limit only one of them
-// knows is kept.
+// tightest is, per limit, the lower of a's and b's, and the formats both
+// decode (narrowestDecoders); a limit only one of them knows is kept.
 func tightest(a, b transcode.Limits) transcode.Limits {
 	pick := func(x, y *int32) *int32 {
 		switch {
@@ -140,7 +140,34 @@ func tightest(a, b transcode.Limits) transcode.Limits {
 			return y
 		}
 	}
-	return transcode.Limits{MaxBFrames: pick(a.MaxBFrames, b.MaxBFrames), MaxLookahead: pick(a.MaxLookahead, b.MaxLookahead)}
+	return transcode.Limits{
+		MaxBFrames: pick(a.MaxBFrames, b.MaxBFrames), MaxLookahead: pick(a.MaxLookahead, b.MaxLookahead),
+		NVDEC: narrowestDecoders(a.NVDEC, b.NVDEC),
+	}
+}
+
+// narrowestDecoders is, per format, decodable only when every side that
+// measured it decodes it -- a job may land on any node of the class -- and
+// a format only one side measured keeps that side's answer. Nil is
+// unmeasured on both.
+func narrowestDecoders(a, b *transcode.Decoders) *transcode.Decoders {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	out := &transcode.Decoders{Formats: make(map[string]bool, len(a.Formats)+len(b.Formats))}
+	for k, ok := range a.Formats {
+		out.Formats[k] = ok
+	}
+	for k, ok := range b.Formats {
+		if prev, seen := out.Formats[k]; seen {
+			ok = ok && prev
+		}
+		out.Formats[k] = ok
+	}
+	return out
 }
 
 // ReadEncoderLimitsByNode is class's fresh entries, by node.

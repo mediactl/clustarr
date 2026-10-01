@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -211,4 +212,19 @@ func TestProfileFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 	sort.Strings(want)
 
 	assert.Equal(t, want, got)
+}
+
+// ProfileFields re-sends every leaf of every encoder limit, nvdec included:
+// one the seed dropped would be released by the next apply that did not
+// re-measure, and the profile would stop showing what its nodes decode.
+func TestProfileFieldsResendsEveryEncoderLimitLeaf(t *testing.T) {
+	st := fullProfileStatus()
+	st.EncoderLimits = []transcodev1alpha1.EncoderLimit{{
+		Class: transcodev1alpha1.HardwareNVIDIA, Node: "n1",
+		MaxBFrames: ptr.To[int32](5), MaxLookahead: ptr.To[int32](54), NVDEC: []string{"h264:8", "hevc:10"},
+	}}
+	ac := status.ProfileFields(st)
+	require.Len(t, ac.EncoderLimits, 1)
+	assert.Equal(t, []string{"Class", "MaxBFrames", "MaxLookahead", "NVDEC", "Node"}, setFields(&ac.EncoderLimits[0]))
+	assert.Equal(t, []string{"h264:8", "hevc:10"}, ac.EncoderLimits[0].NVDEC)
 }

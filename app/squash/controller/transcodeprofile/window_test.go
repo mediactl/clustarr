@@ -124,7 +124,10 @@ func TestAProfileShowsThePublishedEncoderLimits(t *testing.T) {
 	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
 	kv := bus.KV(events.BucketProgress)
 	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "nvidia", "laptop",
-		transcode.Limits{MaxBFrames: ptr.To[int32](5), MaxLookahead: ptr.To[int32](54)}, time.Now()))
+		transcode.Limits{
+			MaxBFrames: ptr.To[int32](5), MaxLookahead: ptr.To[int32](54),
+			NVDEC: &transcode.Decoders{Formats: map[string]bool{"hevc:10": true, "h264:8": true, "h264:10": false}},
+		}, time.Now()))
 
 	tp := &transcodev1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "hevc"}}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
@@ -142,4 +145,5 @@ func TestAProfileShowsThePublishedEncoderLimits(t *testing.T) {
 	assert.Equal(t, "laptop", l.Node)
 	assert.Equal(t, ptr.To[int32](5), l.MaxBFrames)
 	assert.Equal(t, ptr.To[int32](54), l.MaxLookahead)
+	assert.Equal(t, []string{"h264:8", "hevc:10"}, l.NVDEC, "what NVDEC decodes, sorted; a format it failed is not listed")
 }

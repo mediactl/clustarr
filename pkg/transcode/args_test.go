@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -306,8 +307,9 @@ func hdr2160pVideo(hdr transcode.HDRInfo) transcode.VideoStream {
 }
 
 // TestArgsGoldenNVENCTierHDR102160p: note §4.1, the NVENC video-args block
-// (NVENCSpec's CRD default values) with the same HDR10 filter/handling as
-// the cpu-x265 case but no -x265-params (nvenc has none).
+// (NVENCSpec's CRD default values), no -x265-params (nvenc has none). The
+// source is H.264 10-bit, which NVDEC does not decode, so it is decoded in
+// software and converted with -pix_fmt p010le, exactly as before NVDEC.
 func TestArgsGoldenNVENCTierHDR102160p(t *testing.T) {
 	profile := defaultProfile()
 	profile.Hardware = transcode.HardwareNVIDIA
@@ -506,4 +508,62 @@ func TestArgsGoldenRemuxContainerMKVToMP4(t *testing.T) {
 	}
 	require.Equal(t, []string{"+faststart+use_metadata_tags"}, movflags,
 		"one -movflags, both flags joined: use_metadata_tags is what keeps CLUSTARR_PROFILE in an mp4")
+}
+
+// nvencProfile is the NVENC tier at NVENCSpec's CRD default values.
+func nvencProfile() transcode.ProfileSpec {
+	profile := defaultProfile()
+	profile.Hardware = transcode.HardwareNVIDIA
+	profile.Video.NVENC = transcode.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle"}
+	return profile
+}
+
+// TestArgsGoldenNVENCTierNVDECSDR1080p is the owner's case (2026-09-30): an
+// 8-bit H.264 source, which an RTX 2070 decoded in software at ~380% CPU
+// with NVDEC idle. It decodes on NVDEC, scale_cuda converts it to p010 on
+// the GPU, and no -pix_fmt pulls frames back to system memory.
+func TestArgsGoldenNVENCTierNVDECSDR1080p(t *testing.T) {
+	info := transcode.MediaInfo{
+		Path:   "/media/movies/Example (2019)/Example (2019).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video:  []transcode.VideoStream{{Codec: "h264", Profile: "High", PixFmt: "yuv420p", Width: 1920, Height: 1080, FrameRate: fps24()}},
+		Audio:  []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},
+	}
+	plan, err := transcode.Plan(info, nvencProfile(), testCaps, testMeta)
+	require.NoError(t, err)
+	require.Equal(t, transcode.DecisionEncode, plan.Decision)
+	require.Equal(t, transcode.TierNVENC, plan.Tier)
+	assert.Equal(t, []string{"-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-extra_hw_frames", "52"}, plan.HWInit,
+		"rc-lookahead 40 + 8 B-frames + 4")
+	assert.Equal(t, []string{"scale_cuda=format=p010le"}, plan.Filters)
+	assert.NotContains(t, plan.VideoArgs, "-pix_fmt")
+	assert.Contains(t, plan.Reason, "decoding on NVDEC")
+
+	assertGolden(t, "nvenc_tier_nvdec_sdr_1080p", transcode.Args(plan))
+}
+
+// TestArgsGoldenNVENCTierNVDECHDR10 is an HDR10 source NVDEC decodes -- VP9
+// profile 2, since an HEVC Main 10 source is already compliant and never
+// encoded: scale_cuda converts it on the GPU and setparams, which only sets
+// frame properties, tags the GPU frames (all four tags verified on an RTX
+// 2070 Max-Q from a source that carried only two).
+func TestArgsGoldenNVENCTierNVDECHDR10(t *testing.T) {
+	video := hdr2160pVideo(hdr10Fixture())
+	video.Codec = "vp9"
+	info := transcode.MediaInfo{
+		Path:   "/media/movies/Example (2019)/Example (2019).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video:  []transcode.VideoStream{video},
+		Audio:  []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},
+	}
+	plan, err := transcode.Plan(info, nvencProfile(), testCaps, testMeta)
+	require.NoError(t, err)
+	require.Equal(t, transcode.TierNVENC, plan.Tier)
+	assert.NotEmpty(t, plan.HWInit)
+	assert.Equal(t, []string{
+		"scale_cuda=format=p010le",
+		"setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:range=tv",
+	}, plan.Filters, "convert on the GPU first, then tag")
+
+	assertGolden(t, "nvenc_tier_nvdec_hdr10_2160p", transcode.Args(plan))
 }

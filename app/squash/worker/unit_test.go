@@ -189,6 +189,7 @@ func TestProfileSpecCarriesEveryField(t *testing.T) {
 		Audio: transcodev1alpha1.AudioSpec{
 			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
 			Languages: []string{"en"}, DropCommentary: ptr.To(true), StereoCompatTrack: true,
+			CopyCodecs: []string{"eac3"},
 		},
 		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(true), CopyBitmap: ptr.To(true), CopyAttachments: ptr.To(true)},
 		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionReject},

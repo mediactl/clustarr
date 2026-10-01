@@ -183,9 +183,11 @@ func videoCompliant(v VideoStream) bool {
 	return v.Codec == "hevc" && v.Profile == "Main 10" && v.PixFmt == "yuv420p10le"
 }
 
+// audioCompliant reports whether every audio track is already in the
+// profile's codec or in a codec it copies (audio.copyCodecs).
 func audioCompliant(info MediaInfo, profile ProfileSpec) bool {
 	for _, a := range info.Audio {
-		if a.Codec != profile.Audio.Codec {
+		if a.Codec != profile.Audio.Codec && !containsString(profile.Audio.CopyCodecs, a.Codec) {
 			return false
 		}
 	}
@@ -325,14 +327,36 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 		}
 	}
 
-	renderPlan(plan, info, profile, meta, class)
+	// The NVENC tier decodes on NVDEC when the device decodes the source
+	// (nvdec.go), and says which way it decodes in the Planned message.
+	nvdec := false
+	if plan.Decision == DecisionEncode && plan.Tier == TierNVENC {
+		nvdec = NVDECDecodes(caps.Limits[TierNVENC], v0)
+		if nvdec {
+			plan.Reason += "; decoding on NVDEC"
+		} else {
+			plan.Reason += fmt.Sprintf("; decoding on the CPU (NVDEC does not decode %s)", describeNVDECFormat(v0))
+		}
+	}
+
+	renderPlan(plan, info, profile, meta, class, nvdec)
 	return plan, nil
+}
+
+// describeNVDECFormat names v's format for a Planned message.
+func describeNVDECFormat(v VideoStream) string {
+	if key := NVDECKey(v); key != "" {
+		codec, depth, _ := strings.Cut(key, ":")
+		return codec + " " + depth + "-bit"
+	}
+	return v.Codec + " " + v.PixFmt
 }
 
 // renderPlan fills every ffmpeg-facing field of an already-decided
 // RemuxOnly/Encode plan: Output, Maps, Filters, VideoArgs, Audio,
-// Subtitles, Attachments, HDR, Tags and Expect.
-func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta PlanMeta, class hdrBucket) {
+// Subtitles, Attachments, HDR, Tags and Expect. nvdec is an NVENC encode
+// that decodes on the GPU.
+func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta PlanMeta, class hdrBucket, nvdec bool) {
 	v0 := info.Video[0]
 
 	final := meta.OutputPath
@@ -352,7 +376,10 @@ func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta Plan
 	// -c:v copy ("Filtering and streamcopy cannot be used together"), so an
 	// HDR source whose video is already compliant -- a remux-only plan --
 	// would otherwise fail every attempt. A copied stream keeps its own
-	// colour tags anyway.
+	// colour tags anyway. setparams only rewrites frame properties, so it
+	// works on NVDEC's GPU frames too: verified on an RTX 2070 Max-Q
+	// (2026-09-30), where -color_* output options instead lost primaries and
+	// transfer to a source whose frames carry them as unknown.
 	if class != hdrNone && plan.Decision == DecisionEncode {
 		plan.Filters = append(plan.Filters, hdrSetParamsFilter(v0))
 	}
@@ -362,7 +389,13 @@ func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta Plan
 	} else {
 		switch plan.Tier {
 		case TierNVENC:
-			plan.VideoArgs = nvencVideoArgs(profile.Video, v0)
+			if nvdec {
+				// Decode on NVDEC and convert to p010 on the GPU: no frame
+				// leaves GPU memory between the decoder and the encoder.
+				plan.HWInit = nvdecInputArgs(nvdecExtraFrames(profile.Video))
+				plan.Filters = append([]string{nvdecScaleFilter}, plan.Filters...)
+			}
+			plan.VideoArgs = nvencVideoArgs(profile.Video, v0, nvdec)
 		case TierQSV:
 			plan.HWInit = qsvHWInit()
 			// hevc_qsv refuses profile main10 on the NV12 surfaces an 8-bit
@@ -398,6 +431,15 @@ func buildAudioPlan(info MediaInfo, profile ProfileSpec) []AudioTrackPlan {
 			continue
 		}
 		if profile.Audio.DropCommentary && looksLikeCommentary(a) {
+			continue
+		}
+		if containsString(profile.Audio.CopyCodecs, a.Codec) {
+			// Copied in place of the re-encode, so keepOriginal has
+			// nothing to add beside it.
+			out = append(out, AudioTrackPlan{
+				SourceIndex: a.Index, Action: AudioActionCopy, Codec: "copy",
+				Language: a.Language, Default: a.Disposition.Default,
+			})
 			continue
 		}
 		out = append(out, AudioTrackPlan{
@@ -617,7 +659,10 @@ func cpuVideoArgs(v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisi
 // of v0's bitrate: NVENC's constant quality has no ceiling of its own, and on
 // a low-bitrate source it spent more bits than the source had (a 1.3 Mbps
 // WEBRip came out at 3.9 Mbps, 2026-09-30). -bufsize is twice -maxrate.
-func nvencVideoArgs(v VideoSpec, v0 VideoStream) []string {
+//
+// nvdec frames arrive as p010 GPU surfaces from scale_cuda; a software
+// decode's frames are converted with -pix_fmt p010le on the CPU.
+func nvencVideoArgs(v VideoSpec, v0 VideoStream, nvdec bool) []string {
 	args := []string{
 		"-c:v", "hevc_nvenc",
 		"-preset", v.NVENC.Preset,
@@ -633,7 +678,9 @@ func nvencVideoArgs(v VideoSpec, v0 VideoStream) []string {
 		"-rc-lookahead", strconv.Itoa(int(v.RCLookahead)),
 		"-profile:v", v.Profile,
 		"-tier", "high",
-		"-pix_fmt", "p010le",
+	}
+	if !nvdec {
+		args = append(args, "-pix_fmt", "p010le")
 	}
 	if pct := v.NVENC.MaxBitratePercent; pct > 0 && v0.BitRateKbps > 0 {
 		maxKbps := int64(v0.BitRateKbps) * int64(pct) / 100

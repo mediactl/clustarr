@@ -93,6 +93,9 @@ func FallbackTier(want Tier, caps Capabilities) (Tier, bool) {
 type Limits struct {
 	MaxBFrames   *int32 `json:"maxBFrames,omitempty"`
 	MaxLookahead *int32 `json:"maxLookahead,omitempty"`
+	// NVDEC is what the device's decoder was measured to decode
+	// (ProbeDecoders); nil is unmeasured, and the static list decides.
+	NVDEC *Decoders `json:"nvdec,omitempty"`
 }
 
 var (
