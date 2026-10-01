@@ -312,16 +312,24 @@ func (r *Reconciler) encoderLimits(ctx context.Context) []transcodev1alpha1.Enco
 			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot read the encoder limits", "class", class, "error", err)
 			continue
 		}
+		health, err := task.ReadEncoderHealth(ctx, r.Progress, string(class), now)
+		if err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "transcodeprofile: cannot read the devices' health", "class", class, "error", err)
+		}
 		names := make([]string, 0, len(nodes))
 		for n := range nodes {
 			names = append(names, n)
 		}
 		sort.Strings(names)
 		for _, n := range names {
-			out = append(out, transcodev1alpha1.EncoderLimit{
+			l := transcodev1alpha1.EncoderLimit{
 				Class: class, Node: n, MaxBFrames: nodes[n].MaxBFrames, MaxLookahead: nodes[n].MaxLookahead,
 				NVDEC: nodes[n].NVDEC.Decodable(),
-			})
+			}
+			if h, ok := health[n]; ok {
+				l.Healthy, l.Message = ptr.To(h.Healthy), h.Error
+			}
+			out = append(out, l)
 		}
 	}
 	if len(out) > maxEncoderLimits {

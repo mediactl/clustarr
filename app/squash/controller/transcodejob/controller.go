@@ -757,6 +757,17 @@ func (r *Reconciler) admit(ctx context.Context) error {
 		log.WarnContext(ctx, "squasharr: cannot list Nodes; auto jobs go to cpu this pass", "error", err)
 		gpu = nil
 	}
+	// A GPU class whose pods all report its device unusable gets no work
+	// (spec §4): auto jobs choose another class, and jobs pinned to it wait,
+	// naming the reason.
+	for class, msg := range r.unhealthyClasses(ctx) {
+		delete(gpu, class)
+		for _, tp := range byName {
+			if k := poolKeyFor(tp, class); held[k] == "" {
+				held[k] = msg
+			}
+		}
+	}
 
 	now := r.now().Time
 	var (

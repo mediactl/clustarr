@@ -43,6 +43,12 @@ type EncoderLimitApplyConfiguration struct {
 	// decodes those on the GPU. Absent is none measured or none decodable,
 	// and squasharr decides an unmeasured format from a static list.
 	NVDEC []string `json:"nvdec,omitempty"`
+	// Healthy is whether the node's pool pod could use its device when it
+	// last measured it (spec §4); false sends the class no work while every
+	// node reports so. Absent is a report from a worker that predates it.
+	Healthy *bool `json:"healthy,omitempty"`
+	// Message is why the device could not be used, when Healthy is false.
+	Message *string `json:"message,omitempty"`
 }
 
 // EncoderLimitApplyConfiguration constructs a declarative configuration of the EncoderLimit type for use with
@@ -90,5 +96,21 @@ func (b *EncoderLimitApplyConfiguration) WithNVDEC(values ...string) *EncoderLim
 	for i := range values {
 		b.NVDEC = append(b.NVDEC, values[i])
 	}
+	return b
+}
+
+// WithHealthy sets the Healthy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Healthy field is set to the value of the last call.
+func (b *EncoderLimitApplyConfiguration) WithHealthy(value bool) *EncoderLimitApplyConfiguration {
+	b.Healthy = &value
+	return b
+}
+
+// WithMessage sets the Message field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Message field is set to the value of the last call.
+func (b *EncoderLimitApplyConfiguration) WithMessage(value string) *EncoderLimitApplyConfiguration {
+	b.Message = &value
 	return b
 }

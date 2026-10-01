@@ -273,12 +273,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: class
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware
+    - name: healthy
+      type:
+        scalar: boolean
     - name: maxBFrames
       type:
         scalar: numeric
     - name: maxLookahead
       type:
         scalar: numeric
+    - name: message
+      type:
+        scalar: string
     - name: node
       type:
         scalar: string

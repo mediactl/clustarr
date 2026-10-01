@@ -20,6 +20,7 @@ package transcodejob_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -806,4 +807,56 @@ func TestADispatchAdoptedFirstStillRecordsItsReplan(t *testing.T) {
 	tasks := takeTasks(t, inner, tp.UID, "nvidia", 5*time.Second)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, got.Status.Plan.ArgsHash, tasks[0].ArgsHash)
+}
+
+// A GPU class whose pods all report its device unusable gets no work
+// (spec §4): an auto job goes to cpu, and a job pinned to the class is held
+// naming the reported reason. A report older than EncoderLimitsFresh is no
+// report, so a class whose pods are gone is eligible again.
+func TestAnAutoJobAvoidsAnUnhealthyGPUClass(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-unhealthy-gpu"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	newProfile(t, c, "hevc", "hash1", nil)
+	newProfile(t, c, "hevc-nv", "hash2", func(p *transcodev1alpha1.TranscodeProfile) {
+		p.Spec.Hardware = transcodev1alpha1.HardwareNVIDIA
+	})
+	nvidiaNode(t, c, "gpu-1", "1")
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "ronin", "probe2", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	newTJ(t, c, ns, "ronin-hevc", "ronin", "hevc-nv", "probe2", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 2})
+	require.NoError(t, task.PublishEncoderHealth(context.Background(), r.Bus.KV(events.BucketProgress), "nvidia", "gpu-1",
+		transcode.Limits{}, errors.New("transcode: the GPU device could not be opened: nvenc: no /dev/nvidia0"), time.Now()))
+
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, got.Status.Hardware, "the GPU class reported unusable: the auto job goes to cpu")
+
+	reconcileTJ(t, r, ns, "ronin-hevc")
+	pinned := getTJ(t, c, ns, "ronin-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, pinned.Status.Phase)
+	assert.Contains(t, pinned.Status.Message, "no /dev/nvidia0", "a pinned job waits, naming the reason")
+}
+
+func TestAStaleUnhealthyReportLeavesTheClassEligible(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-stale-health"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	newProfile(t, c, "hevc", "hash1", nil)
+	nvidiaNode(t, c, "gpu-1", "1")
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 1})
+	require.NoError(t, task.PublishEncoderHealth(context.Background(), r.Bus.KV(events.BucketProgress), "nvidia", "gpu-1",
+		transcode.Limits{}, errors.New("busy"), time.Now().Add(-task.EncoderLimitsFresh-time.Minute)))
+
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, got.Status.Hardware)
 }

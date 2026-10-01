@@ -19,6 +19,7 @@ package transcodeprofile
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 	"time"
@@ -146,4 +147,36 @@ func TestAProfileShowsThePublishedEncoderLimits(t *testing.T) {
 	assert.Equal(t, ptr.To[int32](5), l.MaxBFrames)
 	assert.Equal(t, ptr.To[int32](54), l.MaxLookahead)
 	assert.Equal(t, []string{"h264:8", "hevc:10"}, l.NVDEC, "what NVDEC decodes, sorted; a format it failed is not listed")
+}
+
+// status.encoderLimits shows each node's device health beside its limits
+// (spec §4): a node whose pod cannot use its device names why.
+func TestAProfileShowsEachNodesDeviceHealth(t *testing.T) {
+	ctx := context.Background()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
+	kv := bus.KV(events.BucketProgress)
+	require.NoError(t, task.PublishEncoderHealth(ctx, kv, "nvidia", "laptop", transcode.Limits{},
+		errors.New("transcode: the GPU device could not be opened: nvenc: no /dev/nvidia0"), time.Now()))
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "intel", "nuc", transcode.Limits{}, time.Now()))
+
+	tp := &transcodev1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "hevc"}}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
+		WithStatusSubresource(&transcodev1alpha1.TranscodeProfile{}).WithObjects(tp).Build()
+	r := NewReconciler(c, k8s.MustNewScheme(), nil)
+	r.Progress = kv
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "hevc"}})
+	require.NoError(t, err)
+	var got transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "hevc"}, &got))
+	require.Len(t, got.Status.EncoderLimits, 2)
+	byNode := map[string]transcodev1alpha1.EncoderLimit{}
+	for _, l := range got.Status.EncoderLimits {
+		byNode[l.Node] = l
+	}
+	assert.Equal(t, ptr.To(false), byNode["laptop"].Healthy)
+	assert.Contains(t, byNode["laptop"].Message, "no /dev/nvidia0")
+	assert.Equal(t, ptr.To(true), byNode["nuc"].Healthy)
+	assert.Empty(t, byNode["nuc"].Message)
 }

@@ -18,10 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
+	"context"
+	"fmt"
 	"sort"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
+	"github.com/mediactl/clustarr/app/squash/task"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // gpuClasses are the GPU classes an auto job may be sent to, in the priority
@@ -148,4 +153,50 @@ func (r *Reconciler) unschedulableFor(tp *transcodev1alpha1.TranscodeProfile) ma
 		}
 	}
 	return out
+}
+
+// unhealthyClasses are the GPU classes every fresh report of which says the
+// device cannot be used (spec §4; task.ReadEncoderHealth), each with the
+// message a job held for it carries. A class with no fresh report is not
+// one -- its pool may not exist yet, or its pods are gone -- so it stays
+// eligible, and a pod that measures it again reports afresh.
+func (r *Reconciler) unhealthyClasses(ctx context.Context) map[transcodev1alpha1.Hardware]string {
+	if r.Bus == nil {
+		return nil
+	}
+	kv := r.Bus.KV(events.BucketProgress)
+	var out map[transcodev1alpha1.Hardware]string
+	for _, class := range gpuClasses {
+		health, err := task.ReadEncoderHealth(ctx, kv, string(class), r.now().Time)
+		if err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "squasharr: cannot read the devices' health", "class", class, "error", err)
+			continue
+		}
+		if msg, ok := unhealthyMessage(class, health); ok {
+			if out == nil {
+				out = map[transcodev1alpha1.Hardware]string{}
+			}
+			out[class] = msg
+		}
+	}
+	return out
+}
+
+// unhealthyMessage reports whether every node in health reported class's
+// device unusable, with a message naming the first such node (by name) and
+// its reason. No report is not unhealthy.
+func unhealthyMessage(class transcodev1alpha1.Hardware, health map[string]task.NodeHealth) (string, bool) {
+	if len(health) == 0 {
+		return "", false
+	}
+	nodes := make([]string, 0, len(health))
+	for n, h := range health {
+		if h.Healthy {
+			return "", false
+		}
+		nodes = append(nodes, n)
+	}
+	sort.Strings(nodes)
+	return fmt.Sprintf("waiting for a usable %s device: every node that measured one reported it unusable (%s: %s)",
+		class, nodes[0], health[nodes[0]].Error), true
 }

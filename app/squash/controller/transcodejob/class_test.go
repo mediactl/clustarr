@@ -32,6 +32,7 @@ import (
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
+	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -266,4 +267,20 @@ func TestUnschedulableSince(t *testing.T) {
 		pod(corev1.PodPending, corev1.PodReasonSchedulingGated, t20, false), // gated, not unschedulable
 		pod(corev1.PodRunning, corev1.PodReasonUnschedulable, t20, false),   // stale condition on a running pod
 	}))
+}
+
+// One healthy node keeps a class: work may land on it. No report is not
+// unhealthy.
+func TestAClassIsUnhealthyOnlyWhenEveryReportSaysSo(t *testing.T) {
+	_, ok := unhealthyMessage(transcodev1alpha1.HardwareNVIDIA, nil)
+	assert.False(t, ok, "no report")
+	_, ok = unhealthyMessage(transcodev1alpha1.HardwareNVIDIA, map[string]task.NodeHealth{
+		"a": {Healthy: false, Error: "no device"}, "b": {Healthy: true},
+	})
+	assert.False(t, ok, "one node can still take work")
+	msg, ok := unhealthyMessage(transcodev1alpha1.HardwareNVIDIA, map[string]task.NodeHealth{
+		"b": {Healthy: false, Error: "busy"}, "a": {Healthy: false, Error: "no device"},
+	})
+	assert.True(t, ok)
+	assert.Contains(t, msg, "a: no device", "the first node by name, with its reason")
 }

@@ -152,6 +152,17 @@ type EncoderLimit struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:MaxLength=32
 	NVDEC []string `json:"nvdec,omitempty"`
+
+	// Healthy is whether the node's pool pod could use its device when it
+	// last measured it (spec §4); false sends the class no work while every
+	// node reports so. Absent is a report from a worker that predates it.
+	// +optional
+	Healthy *bool `json:"healthy,omitempty"`
+
+	// Message is why the device could not be used, when Healthy is false.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Message string `json:"message,omitempty"`
 }
 
 // NVENCSpec tunes the NVIDIA NVENC encoder (hardware=nvidia).

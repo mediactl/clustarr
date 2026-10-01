@@ -773,6 +773,12 @@ spec:
                       - intel
                       - auto
                       type: string
+                    healthy:
+                      description: |-
+                        Healthy is whether the node's pool pod could use its device when it
+                        last measured it (spec §4); false sends the class no work while every
+                        node reports so. Absent is a report from a worker that predates it.
+                      type: boolean
                     maxBFrames:
                       description: |-
                         MaxBFrames is the most B-frames the device encodes, when a profile
@@ -785,6 +791,11 @@ spec:
                         when a profile asked for more; absent is no limit known.
                       format: int32
                       type: integer
+                    message:
+                      description: Message is why the device could not be used, when
+                        Healthy is false.
+                      maxLength: 256
+                      type: string
                     node:
                       description: Node is the node the limits were measured on.
                       maxLength: 253

@@ -271,6 +271,12 @@ func ProfileFields(st transcodev1alpha1.TranscodeProfileStatus) *transcodeac.Tra
 		if len(l.NVDEC) > 0 {
 			e.WithNVDEC(l.NVDEC...)
 		}
+		if l.Healthy != nil {
+			e.WithHealthy(*l.Healthy)
+		}
+		if l.Message != "" {
+			e.WithMessage(l.Message)
+		}
 		ac.WithEncoderLimits(e)
 	}
 	return ac
