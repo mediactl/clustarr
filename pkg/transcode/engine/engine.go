@@ -418,7 +418,13 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 			})
 		} else {
 			s.tb = srcs[i].TimeBase()
-			s.stream, err = m.AddEncoderStream(srcs[i], streamOptions(s.src, false))
+			opts := streamOptions(s.src, false)
+			if sd, ok := srcs[i].(interface {
+				StreamSideData() map[ffgo.PacketSideDataType][]byte
+			}); ok {
+				opts.SideData = sd.StreamSideData()
+			}
+			s.stream, err = m.AddEncoderStream(srcs[i], opts)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", s.name, err)

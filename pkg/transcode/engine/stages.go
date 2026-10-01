@@ -16,17 +16,3 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 package engine
-
-import (
-	"context"
-	"errors"
-
-	"github.com/mediactl/clustarr/pkg/transcode/standard"
-)
-
-// videoStage encodes the video (video.go fills it in).
-func videoStage(v standard.VideoPlan) stageFunc {
-	return func(ctx context.Context, sc *stageContext) error {
-		return errors.New("video encoding is not built yet")
-	}
-}
