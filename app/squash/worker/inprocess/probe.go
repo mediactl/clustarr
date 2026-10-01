@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"strconv"
@@ -84,6 +85,7 @@ func (Engine) Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *med
 				if rec, ok, err := ffgo.StreamSideData(s.CodecParameters(), ffgo.PacketSideDOVIConf()); err == nil && ok {
 					raw.Dovi = doviRecord(rec)
 				}
+				ps.SideDataList = staticHDRSideData(s)
 			}
 		case ffgo.MediaTypeAudio:
 			ps.Channels, ps.ChannelLayout, ps.SampleRate = s.Channels, s.ChannelLayout, strconv.Itoa(s.SampleRate)
@@ -97,24 +99,70 @@ func (Engine) Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *med
 		})
 	}
 	if firstVideo != nil {
-		firstFrame(d, firstVideo, raw)
+		if err := readFirstFrame(d, firstVideo, raw); err != nil {
+			// mediainfo.Probe's rule, so both probes read a file alike: a
+			// stream that says it may be HDR is not read as SDR without
+			// its frame. ffgo exposes no stream colour tags, so here the
+			// evidence is the stream's HDR10 side data; the worker refuses
+			// every incomplete probe anyway (Raw.FrameErr).
+			raw.FrameErr = err
+			if err := mediainfo.IncompleteHDR(raw); err != nil {
+				tracing.RecordError(span, err)
+				return nil, nil, fmt.Errorf("inprocess: probe %s: %w", path, err)
+			}
+		}
 	}
 	return mediainfo.FromRaw(raw), raw, nil
 }
 
+// staticHDRSideData names the HDR10 static metadata v carries as stream
+// side data (a Matroska Colour element's, an MP4 mdcv/clli box's), by the
+// side_data_type ffprobe prints for each: the stream-level evidence of HDR
+// mediainfo.IncompleteHDR reads when the first frame cannot be.
+func staticHDRSideData(v *ffgo.StreamInfo) ffprobe.SideDataList {
+	var out ffprobe.SideDataList
+	for _, kind := range []struct {
+		pkt  ffgo.PacketSideDataType
+		name string
+	}{
+		{ffgo.PacketSideMasteringDisplay(), ffprobe.SideDataTypeMasteringDisplayMetadata},
+		{ffgo.PacketSideContentLightLevel(), ffprobe.SideDataTypeContentLightLevel},
+	} {
+		if _, ok, err := ffgo.StreamSideData(v.CodecParameters(), kind.pkt); err == nil && ok {
+			out = append(out, ffprobe.SideData{SideDataBase: ffprobe.SideDataBase{Type: kind.name}})
+		}
+	}
+	return out
+}
+
+// readFirstFrame is firstFrame; a variable so a test can make the frame
+// unreadable.
+var readFirstFrame = firstFrame
+
+// firstFramePackets bounds the packets firstFrame reads for one frame: a
+// few seconds of them at most.
+const firstFramePackets = 2000
+
 // firstFrame merges the first decoded frame of v into raw, as mediainfo's
 // second ffprobe call does: its colour tags, which some encoders write only
-// there, and its HDR side data.
-func firstFrame(d *ffgo.Decoder, v *ffgo.StreamInfo, raw *mediainfo.Raw) {
+// there, and its HDR side data. A packet the decoder refuses (a damaged
+// one, or one before the first keyframe) is passed over, as ffprobe passes
+// over a frame it cannot decode; it is an error only when no frame decodes
+// within firstFramePackets, and that error says why.
+func firstFrame(d *ffgo.Decoder, v *ffgo.StreamInfo, raw *mediainfo.Raw) error {
 	sd, err := d.NewStreamDecoder(v.Index, nil)
 	if err != nil {
-		return
+		return fmt.Errorf("open the video decoder: %w", err)
 	}
 	defer func() { _ = sd.Close() }()
-	for range 2000 { // a few seconds of packets at most
+	var sendErr error
+	for range firstFramePackets {
 		p, err := d.ReadPacket()
-		if err != nil || p == nil {
-			return
+		if err != nil {
+			return fmt.Errorf("read a packet before the first frame: %w", errors.Join(err, sendErr))
+		}
+		if p == nil {
+			return fmt.Errorf("the input ended before the first video frame decoded: %w", errors.Join(io.EOF, sendErr))
 		}
 		if p.StreamIndex() != v.Index {
 			_ = p.Free()
@@ -123,7 +171,8 @@ func firstFrame(d *ffgo.Decoder, v *ffgo.StreamInfo, raw *mediainfo.Raw) {
 		err = sd.Send(p)
 		_ = p.Free()
 		if err != nil && !errors.Is(err, ffgo.ErrAgain) {
-			return
+			sendErr = err
+			continue
 		}
 		f, err := sd.Receive()
 		if err != nil {
@@ -140,8 +189,9 @@ func firstFrame(d *ffgo.Decoder, v *ffgo.StreamInfo, raw *mediainfo.Raw) {
 		}
 		_, raw.HasHDR10Plus = f.SideData(ffgo.FrameSideHDRPlus())
 		_ = f.Free()
-		return
+		return nil
 	}
+	return fmt.Errorf("no video frame decoded in %d packets: %w", firstFramePackets, errors.Join(errors.New("decoded nothing"), sendErr))
 }
 
 // masteringDisplay reads an AVMasteringDisplayMetadata (display_primaries
