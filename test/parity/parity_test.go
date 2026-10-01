@@ -34,6 +34,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -78,6 +79,7 @@ func TestParity(t *testing.T) {
 	clips, err := filepath.Glob(filepath.Join(dir, "*.mkv"))
 	require.NoError(t, err)
 	out := t.TempDir()
+	clips = append(clips, synthesizeHLG(t, out))
 	var rows []string
 	for _, clip := range clips {
 		class := strings.TrimSuffix(filepath.Base(clip), ".mkv")
@@ -93,6 +95,9 @@ func TestParity(t *testing.T) {
 
 			sp := standard.Plan(info, worker.StandardProfile("hevc-mkv", "parity", spec),
 				standard.Hardware{Tier: transcode.TierNVENC, Limits: measured.Limits})
+			if strings.HasSuffix(class, "-synthetic") {
+				require.NotEqual(t, standard.DecisionSkip, sp.Decision, "a synthetic clip exists to be encoded: %s", sp.Reason)
+			}
 			stdOut, stdSecs := filepath.Join(out, class+".standard.mkv"), 0.0
 			if sp.Decision != standard.DecisionSkip {
 				start := time.Now()
@@ -177,9 +182,12 @@ func checkStandard(t *testing.T, src *commonv1.MediaInfo, srcRaw *mediainfo.Raw,
 	if len(got.Audio) != len(plan.Audio) {
 		t.Errorf("%d audio tracks, the plan keeps %d", len(got.Audio), len(plan.Audio))
 	}
-	for _, a := range got.Audio {
+	for i, a := range got.Audio {
 		if !slices.Contains([]string{"aac", "ac3", "eac3"}, a.Codec) || (a.Codec == "aac" && a.Channels > 6) {
 			t.Errorf("audio track %s %d channels is not Apple TV direct play", a.Codec, a.Channels)
+		}
+		if i < len(plan.Audio) && plan.Audio[i].Language != "" && a.Language != plan.Audio[i].Language {
+			t.Errorf("audio track %d is %q, the plan keeps %q", i, a.Language, plan.Audio[i].Language)
 		}
 	}
 	if len(got.Subtitles) != len(src.Subtitles) || got.Attachments != src.Attachments || got.Chapters != src.Chapters {
@@ -194,10 +202,39 @@ func checkStandard(t *testing.T, src *commonv1.MediaInfo, srcRaw *mediainfo.Raw,
 		if srcRaw.MasteringDisplay != nil && (gotRaw.MasteringDisplay == nil || *gotRaw.MasteringDisplay != *srcRaw.MasteringDisplay) {
 			t.Errorf("mastering display %+v, source %+v", gotRaw.MasteringDisplay, srcRaw.MasteringDisplay)
 		}
+		if srcRaw.ContentLight != nil && (gotRaw.ContentLight == nil || *gotRaw.ContentLight != *srcRaw.ContentLight) {
+			t.Errorf("content light (MaxCLL/MaxFALL) %+v, source %+v", gotRaw.ContentLight, srcRaw.ContentLight)
+		}
+		if gotRaw.ColorTransfer != "smpte2084" {
+			t.Errorf("transfer %q out of %s, want smpte2084 (PQ)", gotRaw.ColorTransfer, src.Hdr)
+		}
+	case commonv1.HdrFormatHLG10:
+		if got.Hdr != commonv1.HdrFormatHLG10 || gotRaw.ColorTransfer != "arib-std-b67" {
+			t.Errorf("HDR %s transfer %q out of HLG, want hlg / arib-std-b67", got.Hdr, gotRaw.ColorTransfer)
+		}
 	}
 	if d := got.RuntimeMillis - src.RuntimeMillis; d > 1000 || d < -1000 {
 		t.Errorf("runtime %d ms, source %d ms", got.RuntimeMillis, src.RuntimeMillis)
 	}
+}
+
+// synthesizeHLG writes a clip of the one class the owner's library has none
+// of (2026-10-01): HLG, as 10-bit H.264 so the standard encodes it, with a
+// FLAC track in Japanese, which it must encode to AAC and keep the language
+// of. It runs 70 s, past the profile's policy.minDuration (1m).
+func synthesizeHLG(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "hlg-synthetic.mkv")
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=24:duration=70",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=70,aformat=channel_layouts=stereo",
+		"-map", "0", "-map", "1",
+		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le",
+		"-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc", "-color_range", "tv",
+		"-c:a", "flac", "-metadata:s:a:0", "language=jpn", path)
+	b, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(b))
+	return path
 }
 
 func secs(s float64) string {
