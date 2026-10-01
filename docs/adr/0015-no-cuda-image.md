@@ -77,6 +77,14 @@ Removed on 2026-10-01:
   `--reuse-values`);
 - `make docker-build-cuda` and `TRANSCODER_CUDA_IMG`.
 
+Proven after the removal on kind-cluster-plex (2026-10-01): a pod of
+`transcoder-distroless:bfe4e12`, which holds no NVIDIA file and sets no
+`NVIDIA_VISIBLE_DEVICES`, given only the pool's `runtimeClassName: nvidia`,
+`nvidia.com/gpu: 1` and `NVIDIA_DRIVER_CAPABILITIES=video,compute,utility`,
+ran `--self-check=cuda --trial` to exit 0: `hevc_nvenc` and `scale_cuda`
+found, and both GPU trials (`nvdec-nvenc`, `upload-nvenc`) encoded on the
+RTX 2070 without error.
+
 The image's `--self-check=cuda` still runs, now against `transcoder`
 (`ci.yml`, `release.yml`, `make docker-selfcheck-distroless`), since that is
 the image nvidia pools run.
