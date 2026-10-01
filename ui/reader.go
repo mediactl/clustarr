@@ -20,6 +20,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -126,17 +127,42 @@ func NewClusterReader(
 	if err != nil {
 		return nil, nil, fmt.Errorf("ui: build cluster cache: %w", err)
 	}
-	if err := c.IndexField(ctx, &catalogv1alpha1.Episode{}, EpisodeSeriesRefField, IndexEpisodeBySeriesRef); err != nil {
-		return nil, nil, fmt.Errorf("ui: index episodes by series: %w", err)
-	}
-
 	go func() {
+		// The index is registered here, before Start, not in construction:
+		// IndexField resolves Episode's REST mapping, which dials the
+		// apiserver, and construction must not -- an apiserver unreachable
+		// for a moment at start would otherwise leave the ui with no reader
+		// and no actions for its whole life. No read is answered before
+		// Start and the first sync, so none can miss the index.
+		if !indexEpisodes(ctx, c) {
+			return
+		}
 		if err := c.Start(ctx); err != nil && ctx.Err() == nil {
 			logging.FromContext(ctx).Error("ui cluster reader cache stopped", "error", err)
 		}
 	}()
 
 	return c, c.WaitForCacheSync, nil
+}
+
+// indexEpisodes registers [EpisodeSeriesRefField] on c, retrying with
+// backoff while the apiserver cannot be reached. It reports false only when
+// ctx ends first.
+func indexEpisodes(ctx context.Context, c cache.Cache) bool {
+	backoff := time.Second
+	for {
+		err := c.IndexField(ctx, &catalogv1alpha1.Episode{}, EpisodeSeriesRefField, IndexEpisodeBySeriesRef)
+		if err == nil {
+			return true
+		}
+		logging.FromContext(ctx).Warn("ui cluster reader: index episodes by series; retrying", "error", err, "retryIn", backoff)
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, 30*time.Second)
+	}
 }
 
 // EpisodeSeriesRefField selects a Series' Episodes: the field index
