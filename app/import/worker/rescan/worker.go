@@ -216,8 +216,14 @@ type scanState struct {
 	// transcodeOutputs maps each status.result.outputPath of a Succeeded
 	// TranscodeJob in the scan's namespace (cleaned) to that job's name:
 	// files the walk must not adopt unless a MediaFile already records
-	// them. Listed once per scan (transcodeOutputs).
+	// them. Listed once per scan (transcodeJobs).
 	transcodeOutputs map[string]string
+
+	// liveTranscodeJobs holds the first eight characters of the UID of
+	// every non-terminal TranscodeJob in the scan's namespace: the jobs
+	// whose part files the walk never removes (sweepOrphanPart). Listed
+	// with transcodeOutputs (transcodeJobs).
+	liveTranscodeJobs map[string]bool
 
 	// profiles caches the QualityProfiles a movie walk scores files with,
 	// by name; a nil entry is a profile that could not be used.
@@ -366,11 +372,11 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		st.manualHasMedia = hasMedia
 	}
 
-	outputs, err := w.transcodeOutputs(ctx, scan.Namespace)
+	outputs, live, err := w.transcodeJobs(ctx, scan.Namespace)
 	if err != nil {
 		return w.abort(ctx, m, st, err)
 	}
-	st.transcodeOutputs = outputs
+	st.transcodeOutputs, st.liveTranscodeJobs = outputs, live
 
 	switch {
 	case st.manual != nil:
@@ -558,6 +564,7 @@ func (w *Worker) visit(
 		switch class {
 		case fsops.ClassPart:
 			st.progress.Parts++
+			w.sweepOrphanPart(ctx, st, path, info)
 		case fsops.ClassExtra:
 			st.progress.Extras++
 		case fsops.ClassSample:
@@ -573,24 +580,34 @@ func (w *Worker) visit(
 	return w.handleMediaFile(ctx, st, path, info, probe)
 }
 
-// transcodeOutputs lists the scan namespace's TranscodeJobs once and
-// returns the output path of every Succeeded one that has a result, mapped
-// to the job's name. One List per scan, from the cache, not one per file.
-func (w *Worker) transcodeOutputs(ctx context.Context, ns string) (map[string]string, error) {
+// transcodeJobs lists the scan namespace's TranscodeJobs once and returns
+// the output path of every Succeeded one that has a result, mapped to the
+// job's name, and the first eight characters of the UID of every one not
+// yet terminal (Succeeded, Failed or Skipped): the jobs a part file may
+// still belong to. One List per scan, from the cache, not one per file.
+func (w *Worker) transcodeJobs(ctx context.Context, ns string) (outputs map[string]string, live map[string]bool, err error) {
 	var jobs transcodev1alpha1.TranscodeJobList
 	if err := w.Client.List(ctx, &jobs, client.InNamespace(ns)); err != nil {
-		return nil, fmt.Errorf("rescan: list transcode jobs in %s: %w", ns, err)
+		return nil, nil, fmt.Errorf("rescan: list transcode jobs in %s: %w", ns, err)
 	}
-	out := map[string]string{}
+	outputs, live = map[string]string{}, map[string]bool{}
 	for i := range jobs.Items {
 		j := &jobs.Items[i]
+		switch j.Status.Phase {
+		case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed,
+			transcodev1alpha1.TranscodeJobPhaseSkipped:
+		default:
+			if uid := string(j.UID); len(uid) >= 8 {
+				live[uid[:8]] = true
+			}
+		}
 		if j.Status.Phase != transcodev1alpha1.TranscodeJobPhaseSucceeded || j.Status.Result == nil ||
 			j.Status.Result.OutputPath == "" {
 			continue
 		}
-		out[filepath.Clean(j.Status.Result.OutputPath)] = j.Name
+		outputs[filepath.Clean(j.Status.Result.OutputPath)] = j.Name
 	}
-	return out, nil
+	return outputs, live, nil
 }
 
 // transcodeOutput decides a media file squasharr wrote. Once a MediaFile
