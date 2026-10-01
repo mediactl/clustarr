@@ -30,6 +30,7 @@ require (
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	github.com/shota3506/onnxruntime-purego v0.0.0-20260315223538-8db8bd7424b2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
@@ -91,6 +92,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
