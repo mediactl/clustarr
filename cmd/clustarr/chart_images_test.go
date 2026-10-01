@@ -109,12 +109,14 @@ func TestChartImagesMatchConfig(t *testing.T) {
 }
 
 // TestTranscoderImagesAreWhatSquasharrStampsOntoPools holds the chart's
-// image.transcoder/image.transcoderCuda repositories, and
-// config/manager/squasharr.yaml's CLUSTARR_WORKER_IMAGE(_CUDA), to the
-// images images/Dockerfile.transcoder actually builds -- and that
-// Dockerfile.media-cuda is gone, replaced by Dockerfile.transcoder's
-// transcoder-cuda target (encoding libraries leave the shared media image;
-// see images/Dockerfile.transcoder's header).
+// image.transcoder repository, and config/manager/squasharr.yaml's
+// CLUSTARR_WORKER_IMAGE, to the image images/Dockerfile.transcoder builds,
+// and keeps the CUDA image gone: nvidia pools run the same image, the NVIDIA
+// container runtime injecting the driver's libraries from the host
+// (docs/adr/0015-no-cuda-image.md). No Dockerfile builds a *-cuda target,
+// none sets NVIDIA_VISIBLE_DEVICES (all would hand every GPU to any pod
+// running the image under the nvidia runtime, bypassing the device plugin),
+// and Dockerfile.media-cuda, the first CUDA image, stays gone too.
 func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
@@ -127,24 +129,32 @@ func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
 	}
 	require.NoError(t, yaml.Unmarshal(raw, &values), "parse the chart values")
 
-	repo := func(key string) string {
-		entry, ok := values.Image[key].(map[string]any)
-		require.True(t, ok, "charts/clustarr/values.yaml has no image.%s", key)
-		r, _ := entry["repository"].(string)
-		return r
-	}
-	require.Equal(t, "mediactl/clustarr/transcoder", repo("transcoder"),
+	entry, ok := values.Image["transcoder"].(map[string]any)
+	require.True(t, ok, "charts/clustarr/values.yaml has no image.transcoder")
+	require.Equal(t, "mediactl/clustarr/transcoder", entry["repository"],
 		"charts/clustarr/values.yaml's image.transcoder.repository")
-	require.Equal(t, "mediactl/clustarr/transcoder-cuda", repo("transcoderCuda"),
-		"charts/clustarr/values.yaml's image.transcoderCuda.repository")
+	require.NotContains(t, values.Image, "transcoderCuda", "there is no CUDA image (ADR 0015)")
 
 	manifest, err := os.ReadFile(filepath.Join(root, "config", "manager", "squasharr.yaml"))
 	require.NoError(t, err, "read config/manager/squasharr.yaml")
 	require.Contains(t, string(manifest), "ghcr.io/mediactl/clustarr/transcoder:dev")
-	require.Contains(t, string(manifest), "ghcr.io/mediactl/clustarr/transcoder-cuda:dev")
-	require.NotContains(t, string(manifest), "media-cuda")
+	require.NotContains(t, string(manifest), "CLUSTARR_WORKER_IMAGE_CUDA", "there is no CUDA image (ADR 0015)")
+	require.NotContains(t, string(manifest), "transcoder-cuda")
 
+	dockerfiles, err := filepath.Glob(filepath.Join(root, "images", "Dockerfile*"))
+	require.NoError(t, err)
+	require.NotEmpty(t, dockerfiles)
+	stage := regexp.MustCompile(`(?im)^FROM\s+\S+\s+AS\s+(\S*cuda\S*)\s*$`)
+	for _, f := range dockerfiles {
+		b, err := os.ReadFile(f)
+		require.NoError(t, err)
+		if m := stage.FindSubmatch(b); m != nil {
+			t.Errorf("%s builds a %s target: there is no CUDA image (ADR 0015)", filepath.Base(f), m[1])
+		}
+		if regexp.MustCompile(`(?m)^[^#]*NVIDIA_VISIBLE_DEVICES`).Match(b) {
+			t.Errorf("%s sets NVIDIA_VISIBLE_DEVICES: the device plugin names a pod's GPU", filepath.Base(f))
+		}
+	}
 	_, err = os.Stat(filepath.Join(root, "images", "Dockerfile.media-cuda"))
-	require.True(t, os.IsNotExist(err),
-		"Dockerfile.media-cuda is replaced by Dockerfile.transcoder's transcoder-cuda target")
+	require.True(t, os.IsNotExist(err), "Dockerfile.media-cuda stays gone")
 }

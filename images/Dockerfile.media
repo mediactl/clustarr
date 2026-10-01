@@ -28,7 +28,8 @@
 #   headers compiled in. The BtbN GPL tarball has all of that, ships ffprobe,
 #   and only needs the NVIDIA driver libraries at runtime (injected by the
 #   NVIDIA container runtime; this image never encodes, so it never links
-#   NVENC at all -- see Dockerfile.transcoder's transcoder-cuda target).
+#   NVENC at all; transcoder pools reach it through the injected driver,
+#   docs/adr/0015-no-cuda-image.md).
 #   Override FFMPEG_BRANCH / FFMPEG_URL to pin a specific build; set
 #   FFMPEG_SHA256 to verify the download.
 #

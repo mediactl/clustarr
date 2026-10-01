@@ -1,15 +1,22 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr/transcoder[-intel|-cuda]-distroless -- the
+# ghcr.io/mediactl/clustarr/transcoder[-intel]-distroless -- the
 # squasharr worker on FFmpeg 9.0, in images built FROM scratch (spec
 # docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md §5 and its
 # 2026-10-01 amendment). Targets:
 #
-#   transcoder        CPU; amd64 and arm64
+#   transcoder        CPU and NVIDIA; amd64 and arm64
 #   transcoder-intel  plus Intel's VAAPI driver and QSV runtimes; amd64
-#   transcoder-cuda   NVIDIA's driver libraries are injected by the NVIDIA
-#                     container toolkit at run time; amd64
 #   <target>-debug    the same plus a static busybox, for kubectl exec
+#
+# There is no CUDA target (docs/adr/0015-no-cuda-image.md; removed
+# 2026-10-01). An nvidia pool runs `transcoder`: the NVIDIA container
+# runtime injects the driver's libraries (libcuda, libnvidia-encode,
+# libnvcuvid) into the pod, which asks for them with runtimeClassName, an
+# nvidia.com/gpu request and NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+# (app/squash/controller/pool.applyHardware). The old target differed from
+# `transcoder` by two ENV lines only, one of them NVIDIA_VISIBLE_DEVICES=all,
+# which would hand every GPU to any pod running it under the nvidia runtime.
 #
 #   docker build -f images/Dockerfile.transcoder-distroless --target transcoder -t ghcr.io/mediactl/clustarr/transcoder-distroless:dev .
 #
@@ -151,19 +158,6 @@ USER 1000:1000
 ENTRYPOINT ["/usr/bin/squasharr-worker"]
 
 FROM transcoder AS transcoder-debug
-COPY --from=busybox:1.37-musl /bin/ /bin/
-COPY images/distroless/busybox-SOURCE /usr/share/licenses/busybox/SOURCE
-
-# ---------------------------------------------------------------------------
-# transcoder-cuda: the toolkit injects the driver's libraries at run time
-# ---------------------------------------------------------------------------
-FROM transcoder AS transcoder-cuda
-LABEL org.opencontainers.image.title="clustarr-transcoder-cuda"
-# NVENC/NVDEC need the `video` capability beside the CUDA defaults.
-ENV NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
-
-FROM transcoder-cuda AS transcoder-cuda-debug
 COPY --from=busybox:1.37-musl /bin/ /bin/
 COPY images/distroless/busybox-SOURCE /usr/share/licenses/busybox/SOURCE
 

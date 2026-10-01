@@ -208,7 +208,7 @@ func newReconciler(t *testing.T, c client.Client, slots map[string]int32) *trans
 	return &transcodejob.Reconciler{
 		Client: c,
 		Slots:  slots,
-		Pool:   pool.Config{Namespace: "default", Image: "transcoder:test", ImageCUDA: "transcoder-cuda:test"},
+		Pool:   pool.Config{Namespace: "default", Image: "transcoder:test"},
 		Bus:    bus,
 		Leases: bus.KV(events.BucketTranscodeLeases),
 	}

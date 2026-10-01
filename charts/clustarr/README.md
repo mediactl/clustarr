@@ -369,12 +369,11 @@ template.
 | Key | Description | Default |
 | --- | --- | --- |
 | `nameOverride`, `fullnameOverride` | Override the chart/release-derived name. | `""` |
-| `image.registry` | Registry prefix for all four images. | `ghcr.io` |
+| `image.registry` | Registry prefix for all three images. | `ghcr.io` |
 | `image.pullPolicy` | `Always` \| `IfNotPresent` \| `Never`. | `IfNotPresent` |
 | `image.controller.repository`/`.tag` | Distroless image (indexarr, ui). Empty tag falls back to `.Chart.AppVersion`. | `mediactl/clustarr`, `""` |
 | `image.media.repository`/`.tag` | debian-slim + ffmpeg/libx265/ffprobe/par2, no encoding runtime (everything touching files). | `mediactl/clustarr/media`, `""` |
-| `image.transcoder.repository`/`.tag` | The `squasharr-worker` binary plus ffmpeg/ffprobe and the Intel QSV/VAAPI runtime; the only image squasharr's pools stamp onto their pods. | `mediactl/clustarr/transcoder`, `""` |
-| `image.transcoderCuda.repository`/`.tag` | `transcoder` on an nvidia/cuda base, for NVENC transcode pools. | `mediactl/clustarr/transcoder-cuda`, `""` |
+| `image.transcoder.repository`/`.tag` | The `squasharr-worker` binary plus ffmpeg/ffprobe and the Intel QSV/VAAPI runtime; the only image squasharr's pools stamp onto their pods, NVIDIA pools included: the NVIDIA container runtime injects the driver's libraries from the host. There is no CUDA image ([ADR 0015](../../docs/adr/0015-no-cuda-image.md)); `image.transcoderCuda` was removed on 2026-10-01, and a values file that still sets it fails the schema ("at '/image': additional properties 'transcoderCuda' not allowed"). Delete the key; a release that carries it (`--reuse-values` keeps it, and `--set image.transcoderCuda=null` does not remove it) is upgraded once from `helm get values <release> -o yaml` with the key deleted, passed with `-f` instead of `--reuse-values`. | `mediactl/clustarr/transcoder`, `""` |
 | `imagePullSecrets` | `[{name: ...}, ...]`. | `[]` |
 | `natsUrl` | External NATS URL; leave empty to use the bundled `nats` subchart. | `""` |
 | `natsSingleNode` | Force single-node (R1) JetStream topology; `null` derives it from the bundled subchart. | `null` |

@@ -6,10 +6,20 @@ images `FROM scratch` (spec `docs/superpowers/specs/2026-09-30-ffgo-transcoding-
 
 | Target | Platforms | Class | Size (2026-10-01) | Today's Debian image |
 | --- | --- | --- | --- | --- |
-| `transcoder` | amd64, arm64 | `cpu` | 95 MB | `transcoder` 755 MB |
-| `transcoder-cuda` | amd64 | `cuda` | 95 MB | `transcoder-cuda` 941 MB |
+| `transcoder` | amd64, arm64 | `cpu`, `cuda` | 95 MB | `transcoder` 755 MB |
 | `transcoder-intel` | amd64 | `intel` | 111 MB | (in `transcoder`, 755 MB) |
 | `<target>-debug` | as its target | | +1 MB (static busybox) | |
+
+There is no CUDA image ([ADR-0015](../../docs/adr/0015-no-cuda-image.md)).
+An nvidia pool runs `transcoder`: the NVIDIA container runtime injects the
+driver's libraries (`libcuda`, `libnvidia-encode`, `libnvcuvid`), which
+FFmpeg `dlopen`s, into a pod that sets `runtimeClassName: nvidia`, requests
+`nvidia.com/gpu` and sets `NVIDIA_DRIVER_CAPABILITIES=video,compute,utility`,
+as squasharr's pool template does. The `transcoder-cuda` target this table
+listed until 2026-10-01 was `transcoder` plus that variable and
+`NVIDIA_VISIBLE_DEVICES=all`; the second handed every GPU to a pod that ran
+the image without requesting one. Do not add a CUDA target back without
+reading the ADR.
 
 What is in them, and why:
 

@@ -36,7 +36,7 @@ import (
 )
 
 var cfg = Config{
-	Namespace: "clustarr-system", Image: "transcoder:t", ImageCUDA: "transcoder-cuda:t",
+	Namespace: "clustarr-system", Image: "transcoder:t",
 	DataClaimName: "clustarr-data", DataDir: "/data", NATSURL: "nats://nats:4222", Umask: "002",
 }
 
@@ -96,12 +96,17 @@ func TestRenderIsACompletePoolDeclaration(t *testing.T) {
 	pod := j.Spec.Template.Spec
 	assert.False(t, *pod.AutomountServiceAccountToken, "the worker holds no Kubernetes credentials")
 	assert.Empty(t, pod.ServiceAccountName)
-	assert.Equal(t, "transcoder-cuda:t", pod.Containers[0].Image)
+	// One image for every class: the NVIDIA runtime injects the driver's
+	// libraries, asked for by the runtime class, the GPU request and the
+	// capabilities below (docs/adr/0015-no-cuda-image.md).
+	assert.Equal(t, "transcoder:t", pod.Containers[0].Image)
 	assert.Equal(t, "nvidia", *pod.RuntimeClassName)
 	envs := map[string]string{}
 	for _, e := range pod.Containers[0].Env {
 		envs[e.Name] = e.Value
 	}
+	assert.Equal(t, "video,compute,utility", envs["NVIDIA_DRIVER_CAPABILITIES"], "NVENC and NVDEC need the video capability")
+	assert.NotContains(t, envs, "NVIDIA_VISIBLE_DEVICES", "the device plugin names the pod's GPU; all would bypass it")
 	assert.Equal(t, "puid", envs[EnvProfileUID])
 	assert.Equal(t, "nvidia", envs[EnvClass])
 	assert.Equal(t, "nats://nats:4222", envs["NATS_URL"])

@@ -233,7 +233,7 @@ func TestAQueuedTaskKeepsItsClassPoolAwake(t *testing.T) {
 	gpu := getPool(t, f.c, f.tp, "nvidia")
 	assert.False(t, *gpu.Spec.Suspend, "the pool status.hardware names is never suspended under its task")
 	assert.GreaterOrEqual(t, *gpu.Spec.Parallelism, int32(1))
-	assert.Equal(t, "transcoder-cuda:test", gpu.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, "transcoder:test", gpu.Spec.Template.Spec.Containers[0].Image, "nvidia pools run the one transcoder image")
 	assert.True(t, *getPool(t, f.c, f.tp, "cpu").Spec.Suspend, "nothing is dispatched to the cpu pool any more")
 }
 

@@ -56,7 +56,7 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
-Image reference. Call with (dict "root" $ "which" "media"|"controller"|"transcoder"|"transcoderCuda").
+Image reference. Call with (dict "root" $ "which" "media"|"controller"|"transcoder").
 */}}
 {{- define "clustarr.image" -}}
 {{- $img := index .root.Values.image .which -}}

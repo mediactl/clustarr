@@ -15,9 +15,11 @@ fullnameOverride: ""
 #                      captionarr. Carries no encoding runtime.
 #   transcoder     -- the squasharr-worker binary plus ffmpeg/ffprobe and the
 #                      Intel QSV/VAAPI runtime; the only image squasharr's
-#                      pools stamp onto their pods.
-#   transcoderCuda -- transcoder on an nvidia/cuda base, for NVENC transcode
-#                      pools.
+#                      pools stamp onto their pods, nvidia's included: the
+#                      NVIDIA container runtime injects the driver's
+#                      libraries from the host, so there is no CUDA image
+#                      (docs/adr/0015-no-cuda-image.md; image.transcoderCuda
+#                      was removed 2026-10-01 and is now rejected).
 # An empty tag falls back to .Chart.AppVersion.
 image:
   registry: ghcr.io
@@ -30,9 +32,6 @@ image:
     tag: ""
   transcoder:
     repository: mediactl/clustarr/transcoder
-    tag: ""
-  transcoderCuda:
-    repository: mediactl/clustarr/transcoder-cuda
     tag: ""
 imagePullSecrets: []
 

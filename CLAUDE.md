@@ -76,7 +76,26 @@ because with frames pinned to the GPU, ffmpeg's silent software fallback hands
 CPU as before. HDR tags stay a `setparams` filter, after `scale_cuda`: `-color_*`
 output options lost primaries and transfer to a source whose frames carry them as
 unknown. `audio.copyCodecs` (`aac`, `ac3`, `eac3`) copies those tracks instead of
-re-encoding them, and counts them compliant; empty re-encodes every track. A RootFolder's `naming.renameTranscoded` renames a file
+re-encoding them, and counts them compliant; empty re-encodes every track.
+**There is no CUDA image** (2026-10-01, `docs/adr/0015-no-cuda-image.md`):
+every pool, nvidia's included, runs the one image `--worker-image` names
+(chart `image.transcoder`). ffmpeg `dlopen`s `libcuda`, `libnvidia-encode`
+and `libnvcuvid`, which the NVIDIA container runtime injects from the host
+into a pod with `runtimeClassName: nvidia`, an `nvidia.com/gpu` request and
+`NVIDIA_DRIVER_CAPABILITIES=video,compute,utility` -- all three set by
+`pool.applyHardware` -- and its CUDA filters are clang-built PTX, so no CUDA
+toolkit or runtime is linked. The `transcoder-cuda` images (an
+`nvidia/cuda` base, later two `ENV` lines on `transcoder`),
+`--worker-image-cuda` and `image.transcoderCuda` were removed: nothing in
+them was loaded, and their `NVIDIA_VISIBLE_DEVICES=all` handed every GPU to
+a pod that ran the image without requesting one. The schema now rejects
+`image.transcoderCuda`; `--set image.transcoderCuda=null` does not remove
+it from a release's values, so upgrade such a release once from
+`helm get values -o yaml` with the key deleted, passed with `-f`, not
+`--reuse-values`. Do not add a CUDA image, or set
+`NVIDIA_VISIBLE_DEVICES` in any image, without reopening the ADR;
+`TestTranscoderImagesAreWhatSquasharrStampsOntoPools` fails on either.
+A RootFolder's `naming.renameTranscoded` renames a file
 squasharr transcoded (`status.transcode.profileTag`) to its canonical file
 name in the folder it is already in (`rescan.RenameFile`'s keepFolder), so
 a season is never split between "Season 3" and "Season 03"; `renameFiles`
@@ -1013,8 +1032,8 @@ the library path is never empty; a retry after a crash past the swap finds the
 the exit codes survive; at Phase E the Job ran as its own `squasharr-worker`
 ServiceAccount with a generated role
 (`config/rbac/squasharr_worker_role.yaml`); `--worker-image`,
-`--worker-image-cuda` and `--data-claim` are threaded through config and
-chart. (The gap fixes reversed two of Phase E's rulings: a container change
+`--worker-image-cuda` (removed 2026-10-01, ADR-0015) and `--data-claim` are
+threaded through config and chart. (The gap fixes reversed two of Phase E's rulings: a container change
 and `replaceSource: false` are transcoded now, ruling R-11, below. The
 transcode-worker-pools plan, 2026-09-23/24, replaced this per-TranscodeJob
 Job with one long-lived pool Job per (TranscodeProfile, hardware class): see

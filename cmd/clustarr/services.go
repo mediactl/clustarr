@@ -244,18 +244,17 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := squasharr.DefaultOptions()
 	var (
-		role            string
-		slots           string
-		dataDir         string
-		workerImage     string
-		workerImageCUDA string
-		workerEngine    string
-		dataClaim       string
-		renderGroups    string
-		labelNVIDIA     string
-		labelIntel      string
-		jobWindow       int
-		jobRetention    time.Duration
+		role         string
+		slots        string
+		dataDir      string
+		workerImage  string
+		workerEngine string
+		dataClaim    string
+		renderGroups string
+		labelNVIDIA  string
+		labelIntel   string
+		jobWindow    int
+		jobRetention time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -276,11 +275,8 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	cmd.Flags().StringVar(&dataDir, "data-dir", defaults.DataDir,
 		"RWX media volume.")
 	cmd.Flags().StringVar(&workerImage, "worker-image", envOr(workerImageEnv, defaults.WorkerImage),
-		"Image the controller stamps onto cpu and intel transcode pools. Required for --role controller. "+
-			"Defaults to $"+workerImageEnv+".")
-	cmd.Flags().StringVar(&workerImageCUDA, "worker-image-cuda", envOr(workerImageCUDAEnv, defaults.WorkerImageCUDA),
-		"Image the controller stamps onto nvidia transcode pools; empty uses --worker-image. "+
-			"Defaults to $"+workerImageCUDAEnv+".")
+		"Image the controller stamps onto every transcode pool, nvidia's included (the NVIDIA runtime injects "+
+			"the driver). Required for --role controller. Defaults to $"+workerImageEnv+".")
 	cmd.Flags().StringVar(&workerEngine, "worker-engine", envOr(workerEngineEnv, "ffmpeg"),
 		"Engine squasharr plans transcodes for: ffmpeg (the ffmpeg executable) or ffgo (in-process). "+
 			"Defaults to $"+workerEngineEnv+".")
@@ -322,7 +318,6 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			Slots:             budget,
 			DataDir:           dataDir,
 			WorkerImage:       workerImage,
-			WorkerImageCUDA:   workerImageCUDA,
 			WorkerEngine:      workerEngine,
 			DataClaimName:     dataClaim,
 			IntelRenderGroups: gids,

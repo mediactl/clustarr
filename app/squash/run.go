@@ -185,10 +185,6 @@ type Options struct {
 	// (in-process, the standard plan).
 	WorkerEngine string
 
-	// WorkerImageCUDA is the image nvidia pools run (--worker-image-cuda).
-	// Empty falls back to WorkerImage.
-	WorkerImageCUDA string
-
 	// DataClaimName is the RWX PersistentVolumeClaim pool pods mount at
 	// DataDir (--data-claim): the same claim this Deployment mounts.
 	DataClaimName string
@@ -445,7 +441,6 @@ func poolConfig(o Options) pool.Config {
 	return pool.Config{
 		Namespace:         o.Namespace,
 		Image:             o.WorkerImage,
-		ImageCUDA:         o.WorkerImageCUDA,
 		DataClaimName:     o.DataClaimName,
 		DataDir:           o.DataDir,
 		IntelRenderGroups: o.IntelRenderGroups,

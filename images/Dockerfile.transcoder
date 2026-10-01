@@ -1,12 +1,17 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr/transcoder[-cuda] -- the squasharr-worker binary
-# and the only encoding runtime in the project (spec
-# docs/superpowers/specs/2026-09-23-transcode-worker-design.md §10). Two
-# targets from one file:
+# ghcr.io/mediactl/clustarr/transcoder -- the squasharr-worker binary and the
+# only encoding runtime in the project (spec
+# docs/superpowers/specs/2026-09-23-transcode-worker-design.md §10):
 #
-#   docker build -f images/Dockerfile.transcoder --target transcoder      -t ghcr.io/mediactl/clustarr/transcoder:dev .
-#   docker build -f images/Dockerfile.transcoder --target transcoder-cuda -t ghcr.io/mediactl/clustarr/transcoder-cuda:dev .
+#   docker build -f images/Dockerfile.transcoder --target transcoder -t ghcr.io/mediactl/clustarr/transcoder:dev .
+#
+# One image runs every pool, cpu, intel and nvidia. There is no CUDA image
+# (docs/adr/0015-no-cuda-image.md): the transcoder-cuda target, FROM
+# nvidia/cuda:*-base, was removed on 2026-10-01. Nothing in it was used --
+# ffmpeg loads libcuda, libnvidia-encode and libnvcuvid from the driver the
+# NVIDIA container runtime injects -- and its NVIDIA_VISIBLE_DEVICES=all
+# would hand every GPU to any pod running it under the nvidia runtime.
 #
 # The worker is static (CGO_ENABLED=0) and holds no Kubernetes credentials:
 # pool pods run with automountServiceAccountToken=false.
@@ -16,12 +21,14 @@
 #   libx265 4.x (Dolby Vision RPU passthrough, HDR10 metadata) and the NVENC
 #   headers compiled in. The BtbN GPL tarball has all of that, ships ffprobe,
 #   and only needs the NVIDIA driver libraries at runtime (injected by the
-#   NVIDIA container runtime, see the transcoder-cuda target below). Override
+#   NVIDIA container runtime into an nvidia pool's pod, which asks for them
+#   with runtimeClassName, an nvidia.com/gpu request and
+#   NVIDIA_DRIVER_CAPABILITIES=video,compute,utility). Override
 #   FFMPEG_BRANCH / FFMPEG_URL to pin a specific build; set FFMPEG_SHA256 to
 #   verify the download.
 #
 # * Intel QSV/VAAPI runtime (transcoder, amd64 only). squasharr runs Intel
-#   transcode Jobs in THIS image (only nvidia Jobs use transcoder-cuda). The
+#   transcode Jobs in THIS image, as it does every other class. The
 #   BtbN linux64 build does not carry the pieces an Intel encode loads at run
 #   time (verified in BtbN/FFmpeg-Builds scripts.d):
 #     - 50-vaapi/50-libva.sh links libva through gen-implib stubs, so ffmpeg
@@ -58,14 +65,13 @@
 #       device_ownership_from_security_context enabled instead;
 #     - a host kernel and i915/xe firmware (GuC/HuC) that support the GPU.
 #
-# * CUDA (transcoder-cuda): the nvidia/cuda -base- flavour is enough for the
-#   BtbN ffmpeg build (it links NVENC/NVDEC/CUDA through the driver libraries
-#   the NVIDIA container runtime injects; CUDA filters are compiled with
-#   cuda-llvm, so no nvrtc or libnpp). Switch CUDA_BASE to a -runtime- tag
-#   only if you swap in an ffmpeg linked against libnpp/nvrtc. Pools set
-#   runtimeClassName and request nvidia.com/gpu (§6.4).
+# * NVIDIA: nothing in the image. BtbN's ffmpeg reaches NVENC/NVDEC/CUDA
+#   through the driver libraries the NVIDIA container runtime injects, and
+#   its CUDA filters are compiled with cuda-llvm (no nvrtc, no libnpp, no
+#   CUDA toolkit). Only an ffmpeg linked against libnpp or nvrtc would need
+#   CUDA libraries in the image -- reopen ADR 0015 before adding one.
 #
-# Neither target contains par2: the worker never runs it.
+# The image contains no par2: the worker never runs it.
 #
 # Successor: images/Dockerfile.transcoder-distroless (FROM scratch, FFmpeg in
 # process through ffgo). This file serves the live pools until they switch
@@ -73,7 +79,6 @@
 
 ARG GO_VERSION=1.27
 ARG FFMPEG_BRANCH=9.0
-ARG CUDA_BASE=nvidia/cuda:12.8.1-base-ubuntu24.04
 
 # ---------------------------------------------------------------------------
 # build: compile ./cmd/squasharr-worker, static (no cgo)
@@ -164,36 +169,6 @@ COPY --from=build /out/squasharr-worker /usr/local/bin/squasharr-worker
 # (TranscodeJob.status.stderrTail): errors only, so the tail holds ffmpeg's
 # own error rather than libva's banner. Harmless where libva is absent.
 ENV LIBVA_MESSAGING_LEVEL=1
-
-VOLUME ["/data"]
-USER 1000:1000
-ENTRYPOINT ["/usr/local/bin/squasharr-worker"]
-
-# ---------------------------------------------------------------------------
-# transcoder-cuda: nvidia/cuda base, non-root 1000:1000, /data volume
-# ---------------------------------------------------------------------------
-FROM ${CUDA_BASE} AS transcoder-cuda
-LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
-      org.opencontainers.image.licenses="GPL-3.0-only" \
-      org.opencontainers.image.title="clustarr-transcoder-cuda"
-
-# ubuntu:24.04 ships a default `ubuntu` user on uid 1000; replace it so the
-# uid/gid match the transcoder target and the fsGroup in config/manager.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates tzdata libstdc++6 \
- && rm -rf /var/lib/apt/lists/* \
- && (userdel -r ubuntu 2>/dev/null || true) \
- && groupadd -g 1000 clustarr \
- && useradd -u 1000 -g 1000 -M -d /nonexistent -s /usr/sbin/nologin clustarr \
- && mkdir -p /data /scratch \
- && chown 1000:1000 /data /scratch
-
-COPY --from=tools /out/bin/ffmpeg /out/bin/ffprobe /usr/local/bin/
-COPY --from=build /out/squasharr-worker /usr/local/bin/squasharr-worker
-
-# NVENC/NVDEC need the `video` capability in addition to the CUDA defaults.
-ENV NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
 
 VOLUME ["/data"]
 USER 1000:1000

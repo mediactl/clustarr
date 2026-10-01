@@ -34,7 +34,7 @@ behaviour was not, and is Phase H's to prove.
 ## Decision
 
 - **One long-lived Job per TranscodeProfile** (a pool): NonIndexed with `completions` unset, and
-  pods that run `squasharr-worker` from a dedicated `transcoder` or `transcoder-cuda` image.
+  pods that run `squasharr-worker` from a dedicated `transcoder` image (a `transcoder-cuda` image for nvidia pools until ADR-0015 removed it, 2026-10-01).
 - **squasharr still admits the work.** It publishes admitted TranscodeJobs as tasks on
   `CLUSTARR_WORK_SQUASHARR`, one durable consumer per profile, and sets each pool's
   `parallelism`, and `gang.minCount` to the same value, from what it dispatched.

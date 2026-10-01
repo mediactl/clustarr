@@ -223,7 +223,6 @@ func allServices(
 			// transcode Job it creates, exactly as grabarr's stamps an
 			// engine image above; the same env-then-dev-default fallback.
 			d.WorkerImage = envOr(workerImageEnv, devEngineImage)
-			d.WorkerImageCUDA = envOr(workerImageCUDAEnv, "")
 			d.WorkerEngine = envOr(workerEngineEnv, "")
 			d.Logging = *lo
 			d.Tracing = tr

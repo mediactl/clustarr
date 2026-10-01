@@ -23,10 +23,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // registers the TranscodeProfile and TranscodeJob controllers and the slot
 // scheduler; config/manager/squasharr.yaml (composed into config/e2e
 // through config/default) ships the squasharr ServiceAccount and a
-// --slots cpu=2,nvidia=1,intel=1 budget. --worker-image/--worker-image-cuda
-// (CLUSTARR_WORKER_IMAGE(_CUDA)) point at the dedicated transcoder/
-// transcoder-cuda images (build: Dockerfile.transcoder), not the media
-// image, since the encoding runtime moved out of media; hack/e2e.sh's
+// --slots cpu=2,nvidia=1,intel=1 budget. --worker-image
+// (CLUSTARR_WORKER_IMAGE) points at the dedicated transcoder image (build:
+// Dockerfile.transcoder; every pool runs it, nvidia's included, ADR-0015),
+// not the media image, since the encoding runtime moved out of media; hack/e2e.sh's
 // `make docker-build` builds and kind-loads it and waits on
 // deployment/squasharr's rollout. Nothing in config/e2e needed adding for
 // this file's scenario to reach a real worker pod -- verified by reading

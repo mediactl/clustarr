@@ -390,6 +390,12 @@ ack, then exit 10. If the ack is lost anyway, the redelivered task finds the
 **Images:** `ghcr.io/mediactl/clustarr/transcoder[-cuda]`. `--worker-image`
 and `--worker-image-cuda` keep their names and point at them.
 
+> **Amended 2026-10-01 (ADR-0015):** there is no CUDA image. Nothing in
+> `transcoder-cuda` was loaded -- ffmpeg `dlopen`s the driver libraries the
+> NVIDIA container runtime injects -- and its `NVIDIA_VISIBLE_DEVICES=all`
+> exposed every GPU to a pod that requested none. Every pool runs
+> `transcoder`; `--worker-image-cuda` is removed.
+
 **`images/Dockerfile.media`** loses the Intel runtime and `LIBVA_*`, and keeps
 ffmpeg, ffprobe and par2 until the scratch-image design (§2).
 **`Dockerfile.media-cuda`** is deleted.

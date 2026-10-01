@@ -76,8 +76,7 @@ const (
 	TmpMountPath      = "/tmp"
 
 	// podUID and podGID are the identity every pool pod runs as: the
-	// clustarr user both of images/Dockerfile.transcoder's targets (transcoder,
-	// transcoder-cuda) create, and the runAsUser/runAsGroup/fsGroup every
+	// clustarr user the transcoder images create, and the runAsUser/runAsGroup/fsGroup every
 	// Deployment under config/manager sets. TestJobPodSecurityMatchesTheDeployments
 	// holds the pool pod to config/manager/squasharr.yaml.
 	podUID = int64(1000)
@@ -129,12 +128,12 @@ type Config struct {
 	// Namespace is where every pool Job is created: squasharr's own.
 	Namespace string
 
-	// Image runs cpu and intel pools (--worker-image).
+	// Image runs every pool, nvidia's included (--worker-image). There is
+	// no CUDA image: the NVIDIA container runtime injects the driver's
+	// libraries from the host, and an nvidia pool asks for them through
+	// its runtimeClassName, GPU request and NVIDIA_DRIVER_CAPABILITIES
+	// (applyHardware; docs/adr/0015-no-cuda-image.md).
 	Image string
-
-	// ImageCUDA runs nvidia pools (--worker-image-cuda). Empty falls back
-	// to Image.
-	ImageCUDA string
 
 	// DataClaimName is the RWX PersistentVolumeClaim mounted at DataDir.
 	// Empty means DefaultDataClaimName.
@@ -350,9 +349,6 @@ func cpuLimitEnv(threads int32, fromLimit bool) corev1.EnvVar {
 func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Hardware, cfg Config) corev1.PodTemplateSpec {
 	dataDir := cmp.Or(cfg.DataDir, DefaultDataDir)
 	image := cfg.Image
-	if class == transcodev1alpha1.HardwareNVIDIA && cfg.ImageCUDA != "" {
-		image = cfg.ImageCUDA
-	}
 	res := ResourcesFor(tp)
 	threads, fromLimit := ThreadsFromResources(res)
 	env := []corev1.EnvVar{

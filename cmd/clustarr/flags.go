@@ -73,13 +73,12 @@ const (
 	// grabarr Deployment.
 	engineImageEnv = "CLUSTARR_ENGINE_IMAGE"
 
-	// workerImageEnv and workerImageCUDAEnv are the images squasharr's
-	// TranscodeJob controller stamps onto the cpu/intel and nvidia transcode
-	// Jobs it creates, the defaults for --worker-image and
-	// --worker-image-cuda. config/manager/squasharr.yaml and the chart set
-	// both on the squasharr Deployment.
-	workerImageEnv     = "CLUSTARR_WORKER_IMAGE"
-	workerImageCUDAEnv = "CLUSTARR_WORKER_IMAGE_CUDA"
+	// workerImageEnv is the image squasharr's TranscodeJob controller
+	// stamps onto every transcode pool it creates, nvidia's included (there
+	// is no CUDA image: docs/adr/0015-no-cuda-image.md), the default for
+	// --worker-image. config/manager/squasharr.yaml and the chart set it on
+	// the squasharr Deployment.
+	workerImageEnv = "CLUSTARR_WORKER_IMAGE"
 
 	// workerEngineEnv is --worker-engine's default: the engine squasharr
 	// plans transcodes for (ffmpeg or ffgo). The chart sets it from

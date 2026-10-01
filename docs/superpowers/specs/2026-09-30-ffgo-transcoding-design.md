@@ -272,7 +272,7 @@ apko images, each with no shell unless listed:
 | --- | --- |
 | `transcoder` | glibc, `ca-certificates-bundle`, `ffmpeg-clustarr` libraries, `squasharr-worker` |
 | `transcoder-intel` | `transcoder`'s, plus the Intel media stack |
-| `transcoder-cuda` | `transcoder`'s; NVIDIA's driver libraries are injected by the container toolkit from the host |
+| ~~`transcoder-cuda`~~ | removed 2026-10-01 ([ADR-0015](../../adr/0015-no-cuda-image.md)): nvidia pools run `transcoder`, the container toolkit injecting NVIDIA's driver libraries from the host |
 | each `-debug` | the same plus `busybox`, for `kubectl exec` and the e2e suite |
 
 The CA bundle is there because the OTLP trace exporter uses TLS unless it

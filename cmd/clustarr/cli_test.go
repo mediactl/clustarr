@@ -381,7 +381,6 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 		"--namespace", "clustarr",
 		"--leader-elect",
 		"--worker-image", "ghcr.io/mediactl/clustarr/transcoder:dev",
-		"--worker-image-cuda", "ghcr.io/mediactl/clustarr/transcoder-cuda:dev",
 		"--gpu-node-label-nvidia", "example.com/nvidia-gpu",
 		"--gpu-node-label-intel", "example.com/intel-gpu",
 	); err != nil {
@@ -399,8 +398,8 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 	if !got.ManagerOptions().LeaderElection {
 		t.Error("the squasharr controller did not take the leader lease")
 	}
-	if got.WorkerImage != "ghcr.io/mediactl/clustarr/transcoder:dev" || got.WorkerImageCUDA != "ghcr.io/mediactl/clustarr/transcoder-cuda:dev" {
-		t.Errorf("worker images = %q / %q, want the --worker-image/--worker-image-cuda values", got.WorkerImage, got.WorkerImageCUDA)
+	if got.WorkerImage != "ghcr.io/mediactl/clustarr/transcoder:dev" {
+		t.Errorf("worker image = %q, want the --worker-image value", got.WorkerImage)
 	}
 	// Unset, the Jobs mount config/'s claim; they carry no ServiceAccount at
 	// all (X14: the pool binary reports over NATS, never Kubernetes).
@@ -431,13 +430,12 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 }
 
 // The squasharr Deployment configures its Jobs by environment, not argv:
-// config/manager sets the two images, and the chart also sets the data
+// config/manager sets the image, and the chart also sets the data
 // claim, whose name carries the release fullname. Each variable must reach
 // its flag, or the chart's pool Jobs would mount a claim that does not
 // exist.
 func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	t.Setenv(workerImageEnv, "registry.example/media:1")
-	t.Setenv(workerImageCUDAEnv, "registry.example/media-cuda:1")
 	t.Setenv(dataClaimEnv, "release-clustarr-data")
 	t.Setenv(gpuNodeLabelNVIDIAEnv, "example.com/env-nvidia-gpu")
 	t.Setenv(gpuNodeLabelIntelEnv, "example.com/env-intel-gpu")
@@ -450,7 +448,6 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	}
 	for name, pair := range map[string][2]string{
 		workerImageEnv:        {got.WorkerImage, "registry.example/media:1"},
-		workerImageCUDAEnv:    {got.WorkerImageCUDA, "registry.example/media-cuda:1"},
 		dataClaimEnv:          {got.DataClaimName, "release-clustarr-data"},
 		gpuNodeLabelNVIDIAEnv: {got.NodeLabelNVIDIA, "example.com/env-nvidia-gpu"},
 		gpuNodeLabelIntelEnv:  {got.NodeLabelIntel, "example.com/env-intel-gpu"},

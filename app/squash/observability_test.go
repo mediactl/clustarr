@@ -75,7 +75,7 @@ func TestPoolConfigCarriesTheControllerOptions(t *testing.T) {
 	t.Setenv("UMASK", "002")
 	o := DefaultOptions()
 	o.Namespace = "rel-ns"
-	o.WorkerImage, o.WorkerImageCUDA = "media:1", "media-cuda:1"
+	o.WorkerImage = "media:1"
 	o.DataClaimName, o.DataDir = "rel-data", "/data"
 	o.IntelRenderGroups = []int64{109, 44}
 	o.NodeLabelNVIDIA, o.NodeLabelIntel = "example.com/nvidia", "example.com/igpu"
@@ -87,7 +87,6 @@ func TestPoolConfigCarriesTheControllerOptions(t *testing.T) {
 	assert.Equal(t, "nats://rel-nats:4222", cfg.NATSURL, "the pools pull from and report on the controller's bus")
 	assert.Equal(t, []int64{109, 44}, cfg.IntelRenderGroups, "--intel-render-groups did not reach the pool config")
 	assert.Equal(t, "media:1", cfg.Image)
-	assert.Equal(t, "media-cuda:1", cfg.ImageCUDA)
 	assert.Equal(t, "rel-data", cfg.DataClaimName)
 	assert.Equal(t, "/data", cfg.DataDir)
 	assert.Equal(t, "002", cfg.Umask, "the controller's $UMASK did not reach the pool config")
