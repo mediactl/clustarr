@@ -13,15 +13,26 @@ trace() {
 		[ -e "$f" ] || { echo "stage.sh: $f does not exist" >&2; exit 1; }
 		lddtree --copy-to-tree "$dst" "$f" >/dev/null
 		# A soname symlink (libva.so.2) is what the loader and libvpl ask
-		# for; keep it beside the file lddtree copied.
+		# for: keep it, and the file it names, side by side.
 		if [ -L "$f" ]; then
-			mkdir -p "$dst$(dirname "$f")"
+			real=$(readlink -f "$f")
+			mkdir -p "$dst$(dirname "$f")" "$dst$(dirname "$real")"
+			cp -a "$real" "$dst$real"
 			cp -a "$f" "$dst$f"
 		fi
 	done
 }
 multiarch=$(gcc -print-multiarch 2>/dev/null || dpkg-architecture -qDEB_HOST_MULTIARCH)
 sys=/usr/lib/$multiarch
+
+# Debian merges /lib into /usr/lib, and ldd reports either spelling; the
+# staged tree is merged the same way, so a library copied as
+# /lib/<multiarch>/x and one looked for as /usr/lib/<multiarch>/x are one
+# file. (Unmerged, the dispatcher that looks in /usr/lib found only a
+# dangling soname link to a file staged under /lib.)
+mkdir -p "$dst/usr/lib" "$dst/usr/lib64" "$dst/usr/bin"
+ln -sfn usr/lib "$dst/lib"
+ln -sfn usr/lib64 "$dst/lib64"
 
 trace /usr/bin/squasharr-worker /usr/bin/ffmpeg /usr/bin/ffprobe /usr/lib/libffshim.so
 for f in /usr/lib/libav*.so.* /usr/lib/libsw*.so.* /usr/lib/libpostproc.so.*; do

@@ -84,7 +84,11 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------
 # staging: lddtree everything the worker loads into /staging
 # ---------------------------------------------------------------------------
-FROM debian:bookworm-slim AS staging-base
+# Staged from Debian 13: BtbN's FFmpeg 9 calls libva 2.21's vaMapBuffer2,
+# and Debian 12's libva 2.17 lacks it (BtbN's libva stub then asserts and
+# aborts the process on the first VAAPI call). glibc runs binaries built
+# against an older glibc, as the worker (bookworm) and BtbN's are.
+FROM debian:trixie-slim AS staging-base
 RUN apt-get update \
  && apt-get install -y --no-install-recommends pax-utils ca-certificates gcc \
  && rm -rf /var/lib/apt/lists/*
@@ -95,18 +99,22 @@ COPY images/distroless/stage.sh /stage.sh
 FROM staging-base AS staging
 RUN /stage.sh /staging
 
-# Intel: Debian 12's VAAPI driver (the non-free iHD build: the free one has
-# no HEVC 10-bit encode on Kaby Lake through Comet Lake) and both QSV
-# runtimes -- libmfx-gen for Gen12 and newer, Media SDK's libmfxhw64 for
-# Broadwell..Ice Lake -- the set today's image ships. All of it is
-# dlopen'ed (by BtbN's libva stubs, libva and the libvpl dispatcher), so
-# it is named for lddtree.
+# Intel: Debian 13's VAAPI driver (the non-free iHD build: the free one has
+# no HEVC 10-bit encode on Kaby Lake through Comet Lake) and libva 2.22,
+# and both QSV runtimes -- libmfx-gen for Gen12 and newer, and Media SDK's
+# libmfxhw64 for Broadwell..Ice Lake, which Debian 13 dropped, so it alone
+# comes from Debian 12 (it links libva.so.2, whose ABI 2.22 keeps). All of
+# it is dlopen'ed (by BtbN's libva stubs, libva and the libvpl dispatcher),
+# so it is named for lddtree.
 FROM staging-base AS staging-intel
 RUN set -eux; \
     sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.list.d/debian.sources; \
     grep -q '^Components: main non-free$' /etc/apt/sources.list.d/debian.sources; \
+    printf 'Types: deb\nURIs: http://deb.debian.org/debian\nSuites: bookworm\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' \
+      > /etc/apt/sources.list.d/bookworm.sources; \
+    printf 'Package: *\nPin: release n=bookworm\nPin-Priority: 100\n' > /etc/apt/preferences.d/bookworm; \
     apt-get update; \
-    apt-get install -y --no-install-recommends intel-media-va-driver-non-free libmfx-gen1.2 libmfx1 libva2 libva-drm2; \
+    apt-get install -y --no-install-recommends intel-media-va-driver-non-free libmfx-gen1.2 libva2 libva-drm2 libmfx1/bookworm; \
     rm -rf /var/lib/apt/lists/*; \
     d=/usr/lib/x86_64-linux-gnu; \
     EXTRA_DLOPEN="$d/dri/iHD_drv_video.so $d/libva.so.2 $d/libva-drm.so.2 $d/libmfx-gen.so.1.2 $(ls $d/libmfx-gen/*.so) $d/libmfxhw64.so.1 $(ls $d/mfx/*.so)" \

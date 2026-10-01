@@ -121,12 +121,6 @@ func Check(ctx context.Context, class Class) (Report, error) {
 	return r, nil
 }
 
-// Trial is Check plus a real encode on the class's device; GPU legs come
-// with the hardware trials.
-func Trial(ctx context.Context, class Class, dir string) (Report, error) {
-	return Check(ctx, class)
-}
-
 // encodeX265 encodes eight black 64x64 Main 10 frames.
 func encodeX265() error {
 	enc, err := ffgo.NewVideoStreamEncoder(ffgo.VideoStreamEncoderConfig{
