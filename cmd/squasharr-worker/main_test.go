@@ -32,6 +32,7 @@ import (
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -152,4 +153,16 @@ func TestBinaryImportsNoKubernetesClient(t *testing.T) {
 			t.Error("cmd/squasharr-worker depends on pkg/obs (links controller-runtime)")
 		}
 	}
+}
+
+// --self-check runs in CI on every built image and needs no cluster: no
+// NATS, no pool environment.
+func TestSelfCheckNeedsNoClusterEnvironment(t *testing.T) {
+	if err := ffgo.Init(); err != nil {
+		t.Skipf("no FFmpeg libraries: %v", err)
+	}
+	if _, avcodec, _ := ffgo.Version(); avcodec>>16 != 63 {
+		t.Skip("not FFmpeg 9")
+	}
+	assert.Equal(t, 0, run([]string{"--self-check=cpu"}, func(string) string { return "" }))
 }

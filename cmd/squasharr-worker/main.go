@@ -22,6 +22,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -38,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
@@ -46,10 +48,16 @@ func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 func run(args []string, getenv func(string) string) int {
 	fs := pflag.NewFlagSet("squasharr-worker", pflag.ContinueOnError)
 	dataDir := fs.String("data-dir", worker.LogicalDataRoot, "Where the RWX /data volume is mounted.")
+	selfCheck := fs.String("self-check", "", "Check this image can transcode for a class (cpu, cuda, intel), print the report as JSON and exit: 0 when it can.")
+	trial := fs.Bool("trial", false, "With --self-check, also encode for real on the class's GPU.")
+	scratchDir := fs.String("scratch-dir", os.TempDir(), "With --trial, where the trial writes its clip.")
 	lo, to := obsflags.Bind(fs)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
 		return worker.WorkerExitMisconfigured
+	}
+	if *selfCheck != "" {
+		return runSelfCheck(selfcheck.Class(*selfCheck), *trial, *scratchDir)
 	}
 	if err := fsops.ApplyUmaskFromEnv(); err != nil {
 		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
@@ -114,4 +122,26 @@ func run(args []string, getenv func(string) string) int {
 	}
 	log.ErrorContext(ctx, "serve", "error", err)
 	return worker.WorkerExitRetriable
+}
+
+// runSelfCheck runs the image check CI and the pool's start run: no
+// cluster, no environment.
+func runSelfCheck(class selfcheck.Class, trial bool, dir string) int {
+	ctx := context.Background()
+	var (
+		r   selfcheck.Report
+		err error
+	)
+	if trial {
+		r, err = selfcheck.Trial(ctx, class, dir)
+	} else {
+		r, err = selfcheck.Check(ctx, class)
+	}
+	out, _ := json.MarshalIndent(r, "", "  ")
+	fmt.Println(string(out))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "squasharr-worker: self-check:", err)
+		return worker.WorkerExitMisconfigured
+	}
+	return 0
 }
