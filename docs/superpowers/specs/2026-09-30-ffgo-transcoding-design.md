@@ -387,3 +387,23 @@ frames fails (exit 218), so it is left off -- `scale_cuda` already makes
 command, sent after, supersedes it.)
 
 **Decision: go.** Phases 1-5 of the plan's roadmap are planned next.
+
+## Amendment (2026-10-01): images from `scratch`, not Wolfi
+
+The owner replaced §5 "Images" during Phase 2: no Wolfi, apko or melange.
+Each image is a multi-stage Docker build (`images/Dockerfile.transcoder-distroless`):
+
+- FFmpeg 9.0 comes from BtbN's shared GPL build (the source today's image
+  already uses: NVENC/NVDEC, CUDA filters, VAAPI and QSV), and the ffgo shim
+  is compiled against its headers in the same build.
+- `lddtree --copy-to-tree` stages exactly what the worker loads. The worker
+  is a purego binary, so its dynamic linker and libc come with it; then the
+  shim, the FFmpeg libraries and, until Phase 5, `ffmpeg`/`ffprobe`.
+- What nothing's `DT_NEEDED` names, because it is `dlopen`ed, is traced
+  explicitly: glibc's NSS plugins, and for Intel libva, libva-drm, the iHD
+  driver and both QSV runtimes (Debian 12's packages, as today's image).
+- The final stage is `FROM scratch`, with the CA bundle, `nsswitch.conf`,
+  `passwd`/`group` for uid 1000, and `/data`, `/scratch`, `/tmp`. The
+  `-debug` twins add a static busybox.
+
+The image names, classes, self-check and CI gate of §5 are unchanged.
