@@ -57,7 +57,8 @@ type bucketState struct {
 // providerUID at rateMilli (SubtitleProviderSpec.RequestsPerSecondMilli --
 // thousandths of a request per second) and consumes it, or returns ctx's
 // error if it is cancelled first. Burst capacity equals one second's worth
-// of tokens (rateMilli itself, in milli-token units), matching the
+// of tokens (rateMilli itself, in milli-token units, floored at one
+// request so a rate below 1 req/s still grants one), matching the
 // rate.NewLimiter(5, 5) shape pkg/subtitles/providers/opensubtitlescom used
 // to default to before ruling R3.
 //
@@ -95,7 +96,11 @@ func Acquire(ctx context.Context, kv events.KV, providerUID string, rateMilli in
 		rateMilli = defaultRateMilli
 	}
 	key := TokenBucketKey(providerUID)
-	capacityMilli := int64(rateMilli) // burst = 1s of tokens; see doc comment
+	// Burst is one second of tokens, but never less than one request: a
+	// provider slower than 1 req/s (rateMilli < 1000, which the CRD admits
+	// down to 1) would otherwise cap the bucket below the 1000 a request
+	// costs, and no caller would ever get one.
+	capacityMilli := max(int64(rateMilli), 1000)
 
 	for {
 		if err := ctx.Err(); err != nil {

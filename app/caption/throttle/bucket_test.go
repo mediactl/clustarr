@@ -74,6 +74,28 @@ func TestAcquireReturnsTheContextErrorWhenCancelledWhileWaiting(t *testing.T) {
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
+// A provider slower than one request a second (the CRD admits
+// requestsPerSecondMilli down to 1) still gets requests: the first at once,
+// the next once a whole request's worth has refilled. A burst capped at one
+// second of tokens held at most 800 milli-tokens here, under the 1000 a
+// request costs, so every Acquire waited out its context.
+func TestAcquireGrantsBelowOneRequestPerSecond(t *testing.T) {
+	kv := testKV(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	const rateMilli = 800 // 0.8 req/s -> 1.25s per request
+	start := time.Now()
+	require.NoError(t, throttle.Acquire(ctx, kv, "uid-slow", rateMilli))
+	assert.Less(t, time.Since(start), 200*time.Millisecond, "a full bucket grants the first request at once")
+
+	start = time.Now()
+	require.NoError(t, throttle.Acquire(ctx, kv, "uid-slow", rateMilli))
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, time.Second, "the second waits for a whole request to refill")
+	assert.Less(t, elapsed, 2*time.Second)
+}
+
 func TestAcquireDefaultsANonPositiveRateRatherThanDividingByZero(t *testing.T) {
 	kv := testKV(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
