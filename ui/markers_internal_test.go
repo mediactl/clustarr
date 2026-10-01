@@ -35,11 +35,11 @@ func TestFileRowListsTheFilesMarkers(t *testing.T) {
 		{Kind: catalogv1.MarkerCredits, StartMs: 3431000, EndMs: 3480000},
 	}}
 	rows, _ := fileRows("/data/media/tv/Breaking Bad", f)
-	assert.Equal(t, "intro 3:48–4:06, credits 57:11–58:00", rows[0].Markers)
+	assert.Equal(t, "intro 3:48–4:06 (TheIntroDB), credits 57:11–58:00 (TheIntroDB)", rows[0].Markers)
 
 	f.Status.Markers = &catalogv1.FileMarkers{Result: catalogv1.MarkersNotFound}
 	rows, _ = fileRows("", f)
-	assert.Equal(t, "none on TheIntroDB", rows[0].Markers)
+	assert.Equal(t, "none found", rows[0].Markers)
 
 	f.Status.Markers = nil
 	rows, _ = fileRows("", f)

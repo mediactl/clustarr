@@ -326,23 +326,40 @@ func (s *Server) itemFolder(ctx context.Context, namespace string, kind commonv1
 	return rootRef, rel, true
 }
 
-// markersLabel lists a file's skip segments as TheIntroDB gave them:
-// "intro 3:48–4:06, credits 57:11–58:00"; "" before the first fetch.
+// markersLabel lists a file's skip segments with where each came from:
+// "intro 3:48–4:06 (TheIntroDB), credits 57:11–58:00 (detected)"; "none
+// found" when TheIntroDB or clustarr's own analysis looked and found none;
+// "" before either has looked.
 func markersLabel(m *catalogv1.FileMarkers) string {
 	if m == nil {
 		return ""
 	}
-	switch m.Result {
-	case catalogv1.MarkersNotFound:
-		return "none on TheIntroDB"
-	case catalogv1.MarkersError:
+	if len(m.Segments) > 0 {
+		parts := make([]string, 0, len(m.Segments))
+		for _, s := range m.Segments {
+			parts = append(parts, string(s.Kind)+" "+clock(s.StartMs)+"–"+clock(s.EndMs)+" ("+sourceLabel(s.Source)+")")
+		}
+		return strings.Join(parts, ", ")
+	}
+	if m.Result == catalogv1.MarkersError {
 		return "TheIntroDB unavailable"
 	}
-	parts := make([]string, 0, len(m.Segments))
-	for _, s := range m.Segments {
-		parts = append(parts, string(s.Kind)+" "+clock(s.StartMs)+"–"+clock(s.EndMs))
+	if m.Result == catalogv1.MarkersNotFound || (m.Analysis != nil && m.Analysis.Result == catalogv1.MarkersNotFound) {
+		return "none found"
 	}
-	return strings.Join(parts, ", ")
+	return ""
+}
+
+// sourceLabel names a segment's source for the files table; an untagged
+// segment predates sources and is TheIntroDB's.
+func sourceLabel(s catalogv1.SegmentSource) string {
+	switch s {
+	case catalogv1.SegmentSourceChapters:
+		return "chapters"
+	case catalogv1.SegmentSourceAnalysis:
+		return "detected"
+	}
+	return "TheIntroDB"
 }
 
 // clock formats milliseconds as m:ss, or h:mm:ss from an hour.
