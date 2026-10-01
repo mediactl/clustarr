@@ -1450,7 +1450,7 @@ func TestTheInProcessEngineEncodesDolbyVisionOnTheProfilesGPU(t *testing.T) {
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase, "message: %s", got.Status.Message)
 	require.NotNil(t, got.Status.Plan)
 	assert.Equal(t, "hevc_nvenc", got.Status.Plan.Encoder)
-	assert.Equal(t, "hdr10", string(got.Status.Plan.HDRMode))
+	assert.Equal(t, "hdr10", got.Status.Plan.HDRMode)
 }
 
 // A job planned for one engine and dispatched under another is planned

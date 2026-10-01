@@ -30,8 +30,10 @@ import (
 )
 
 func video(codec, pixfmt string, bits int32, hdr commonv1.HdrFormat) transcode.VideoStream {
-	return transcode.VideoStream{Index: 0, Codec: codec, PixFmt: pixfmt, BitDepth: bits, Width: 1920, Height: 1080,
-		FrameRate: transcode.Rational{Num: 24000, Den: 1001}, HDR: transcode.HDRInfo{Format: hdr}, Duration: time.Hour}
+	return transcode.VideoStream{
+		Index: 0, Codec: codec, PixFmt: pixfmt, BitDepth: bits, Width: 1920, Height: 1080,
+		FrameRate: transcode.Rational{Num: 24000, Den: 1001}, HDR: transcode.HDRInfo{Format: hdr}, Duration: time.Hour,
+	}
 }
 
 func audio(i int32, codec string, ch int32, layout, lang string) transcode.AudioStream {

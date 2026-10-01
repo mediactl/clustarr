@@ -343,7 +343,8 @@ func startShifts(d *ffgo.Decoder) map[int]int64 {
 // mux waits for every encoded stream's encoder (holding packets that
 // arrive meanwhile), writes the header, then writes packets as they come.
 func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []slot,
-	muxCh <-chan muxItem, setupCh <-chan setupItem, o Options) (Result, error) {
+	muxCh <-chan muxItem, setupCh <-chan setupItem, o Options,
+) (Result, error) {
 	var res Result
 	waiting := 0
 	for _, s := range slots {
@@ -549,8 +550,10 @@ func (t taggedSource) Parameters() (avcodec.Parameters, error) {
 
 // statsTags are Matroska statistics (mkvmerge's) that describe the source
 // stream's bytes; an encoded stream's would be wrong, so they are dropped.
-var statsTags = []string{"BPS", "DURATION", "NUMBER_OF_FRAMES", "NUMBER_OF_BYTES", "_STATISTICS_TAGS",
-	"_STATISTICS_WRITING_APP", "_STATISTICS_WRITING_DATE_UTC", "ENCODER", "ENCODER-SETTINGS"}
+var statsTags = []string{
+	"BPS", "DURATION", "NUMBER_OF_FRAMES", "NUMBER_OF_BYTES", "_STATISTICS_TAGS",
+	"_STATISTICS_WRITING_APP", "_STATISTICS_WRITING_DATE_UTC", "ENCODER", "ENCODER-SETTINGS",
+}
 
 func streamOptions(s *ffgo.StreamInfo, copied bool) ffgo.StreamOptions {
 	md := ffgo.Metadata{}

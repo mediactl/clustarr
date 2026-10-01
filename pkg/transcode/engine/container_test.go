@@ -38,11 +38,13 @@ func hevcClip(t *testing.T, ext string, args ...string) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
 	out := filepath.Join(t.TempDir(), "src."+ext)
-	a := []string{"-hide_banner", "-loglevel", "error", "-y",
+	a := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
 		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
 		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
 		"-pix_fmt", "yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error",
-		"-c:a", "aac"}
+		"-c:a", "aac",
+	}
 	a = append(a, args...)
 	run(t, "ffmpeg", append(a, out)...)
 	return out

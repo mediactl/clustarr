@@ -156,8 +156,10 @@ func TestAPinnedGPUPlanThatNeedsTheCPUIsSkipped(t *testing.T) {
 // as the encode it was.
 func TestAPinnedStandardSkipRecordsASkipPlan(t *testing.T) {
 	res := &transcode.PlanResult{Decision: transcode.DecisionEncode, Tier: transcode.TierCPUx265}
-	std := &standard.Result{Decision: standard.DecisionEncode, Reason: "encode to HEVC Main 10",
-		Video: standard.VideoPlan{Action: "encode", Encoder: "libx265", Decode: "cpu"}}
+	std := &standard.Result{
+		Decision: standard.DecisionEncode, Reason: "encode to HEVC Main 10",
+		Video: standard.VideoPlan{Action: "encode", Encoder: "libx265", Decode: "cpu"},
+	}
 	pinned := &transcodev1alpha1.TranscodeProfile{Spec: transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareNVIDIA}}
 	got := skipCPUPlanUnderGPUPin(&transcodev1alpha1.TranscodeJob{}, pinned, planning{result: res, std: std})
 	require.Equal(t, transcode.DecisionSkip, got.result.Decision)

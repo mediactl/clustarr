@@ -104,8 +104,10 @@ func TestASlowMuxerHoldsTheDemuxerBack(t *testing.T) {
 	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
 		"-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24:duration=6,noise=alls=60:allf=t",
 		"-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", src)
-	plan := standard.Result{Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMKV,
-		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"}}
+	plan := standard.Result{
+		Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMKV,
+		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"},
+	}
 	base := rssBytes(t)
 	var peak int64
 	_, err := Run(context.Background(), plan, src, filepath.Join(t.TempDir(), "out.part.mkv"),

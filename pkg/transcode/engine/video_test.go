@@ -153,9 +153,11 @@ func TestHDR10KeepsItsMetadataOnNVENC(t *testing.T) {
 	src := videoClip(t, "hdr10.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx265",
 		"-x265-params", "log-level=error:hdr10=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400")
 	out := filepath.Join(t.TempDir(), "o.mkv")
-	v := standard.VideoPlan{Encoder: "hevc_nvenc", Decode: "nvdec", Filter: "scale_cuda=format=p010le", HDR: "hdr10",
+	v := standard.VideoPlan{
+		Encoder: "hevc_nvenc", Decode: "nvdec", Filter: "scale_cuda=format=p010le", HDR: "hdr10",
 		Options: map[string]string{"preset": "p7", "rc": "constqp", "qp": "23", "profile": "main10"},
-		Color:   standard.ColorTags{Primaries: "bt2020", Transfer: "smpte2084", Matrix: "bt2020nc", Range: "tv"}}
+		Color:   standard.ColorTags{Primaries: "bt2020", Transfer: "smpte2084", Matrix: "bt2020nc", Range: "tv"},
+	}
 	_, err = Run(context.Background(), encodePlan(v), src, out, Options{HWDevice: dev})
 	require.NoError(t, err)
 	stream := entries(t, out, "-show_entries", "stream_side_data=side_data_type")
@@ -181,9 +183,13 @@ func TestAnAnamorphicSourceKeepsItsAspect(t *testing.T) {
 // Main in yuv420p, from libx265 and from NVENC's NV12 surfaces.
 func TestTheEightBitTargetEncodesHEVCMain(t *testing.T) {
 	src := videoClip(t, "h264.mkv", "-c:v", "libx264", "-preset", "veryfast")
-	in := transcode.MediaInfo{Format: transcode.FormatInfo{Name: "matroska,webm", Duration: 2 * time.Second},
-		Video: []transcode.VideoStream{{Codec: "h264", PixFmt: "yuv420p", BitDepth: 8, Width: 320, Height: 180,
-			FrameRate: transcode.Rational{Num: 24, Den: 1}}}}
+	in := transcode.MediaInfo{
+		Format: transcode.FormatInfo{Name: "matroska,webm", Duration: 2 * time.Second},
+		Video: []transcode.VideoStream{{
+			Codec: "h264", PixFmt: "yuv420p", BitDepth: 8, Width: 320, Height: 180,
+			FrameRate: transcode.Rational{Num: 24, Den: 1},
+		}},
+	}
 	tiers := map[transcode.Tier]*ffgo.HWDevice{transcode.TierCPUx265: nil}
 	if dev, err := ffgo.NewHWDevice(ffgo.HWDeviceTypeCUDA, ""); err == nil {
 		defer func() { _ = dev.Close() }()

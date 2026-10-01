@@ -41,10 +41,12 @@ func clip(t *testing.T, name string, args ...string) string {
 	meta := filepath.Join(dir, "chapters.ffmeta")
 	require.NoError(t, os.WriteFile(meta, []byte(";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1000\ntitle=One\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=1000\nEND=2000\ntitle=Two\n"), 0o644))
 	out := filepath.Join(dir, name)
-	a := append([]string{"-hide_banner", "-loglevel", "error", "-y",
+	a := append([]string{
+		"-hide_banner", "-loglevel", "error", "-y",
 		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
 		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-		"-i", meta, "-map", "0", "-map", "1", "-map_chapters", "2", "-c:a", "aac"}, args...)
+		"-i", meta, "-map", "0", "-map", "1", "-map_chapters", "2", "-c:a", "aac",
+	}, args...)
 	if b, err := exec.Command("ffmpeg", append(a, out)...).CombinedOutput(); err != nil {
 		t.Skipf("ffmpeg cannot make the clip: %v\n%s", err, b)
 	}

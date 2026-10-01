@@ -40,9 +40,11 @@ func withAudio(t *testing.T, af string, codec []string, offset string) string {
 	t.Helper()
 	ffmpeg9OrSkip(t)
 	out := filepath.Join(t.TempDir(), "a.mkv")
-	args := []string{"-hide_banner", "-loglevel", "error", "-y",
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
 		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=3",
-		"-itsoffset", offset, "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=3"}
+		"-itsoffset", offset, "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=3",
+	}
 	args = append(args, "-map", "0", "-map", "1", "-af", af, "-c:v", "libx264", "-preset", "veryfast")
 	args = append(args, codec...)
 	run(t, "ffmpeg", append(args, out)...)
@@ -50,8 +52,10 @@ func withAudio(t *testing.T, af string, codec []string, offset string) string {
 }
 
 func audioPlan(a standard.AudioPlan) standard.Result {
-	return standard.Result{Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMKV,
-		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"}, Audio: []standard.AudioPlan{a}}
+	return standard.Result{
+		Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMKV,
+		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"}, Audio: []standard.AudioPlan{a},
+	}
 }
 
 var (
