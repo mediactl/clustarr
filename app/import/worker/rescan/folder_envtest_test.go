@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // hevcFixture is test/data/mediainfo's HEVC Main 10 sample, 320x240.
@@ -87,7 +88,11 @@ func probedResolution(t *testing.T, ctx context.Context, clip string) int32 {
 	t.Helper()
 	mi, _, err := mediainfo.Probe(ctx, clip)
 	require.NoError(t, err)
-	res := mediainfo.ResolutionFromDimensions(mi.Width, mi.Height)
+	// What the scan does to a name that says nothing about quality:
+	// Radarr's bucketing, by width or height and 480p at the least, not
+	// mediainfo's height bands.
+	augmented, _ := quality.AugmentFromMediaInfo(commonv1.Quality{Source: commonv1.SourceUnknown}, mi)
+	res := augmented.Resolution
 	require.NotEqual(t, commonv1.ResolutionUnknown, res, "the clip must probe to a resolution")
 	return res
 }

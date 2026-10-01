@@ -116,7 +116,8 @@ func TestHandleImportsAnEpisode(t *testing.T) {
 	// pkg/naming's Jellyfin series preset carries the TheTVDB id, and its
 	// clean title drops the apostrophe.
 	assert.Equal(t, filepath.Join(s.root.Spec.Path, "Breaking Bad (2008) [tvdbid-81189]", "Season 01",
-		"Breaking Bad (2008) - S01E03 - ...And the Bags in the River [WEBDL-1080p]-GRP.mkv"), mf.Spec.Path)
+		"Breaking Bad (2008) - S01E03 - .And the Bags in the River [WEBDL-1080p]-GRP.mkv"), mf.Spec.Path,
+		"{Episode CleanTitle} collapses a run of dots, as Radarr wrote \"Once Upon a Time. in Hollywood\"")
 	assert.Equal(t, "WEBDL-1080p", mf.Spec.Quality.Name)
 	assert.NotEmpty(t, mf.Spec.ProfileHash)
 	_, err := os.Stat(mf.Spec.Path)

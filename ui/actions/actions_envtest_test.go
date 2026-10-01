@@ -289,7 +289,14 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 	// It counts what it inspected, so it cannot pass by looking at nothing.
 	t.Run("no clustarr-ui entry on any status path, anywhere", func(t *testing.T) {
 		inspected := 0
+		// Grants names a kind once per verb (Add New's create beside
+		// monitor's patch), so each resource is listed once.
+		swept := map[string]bool{}
 		for _, g := range actions.Grants() {
+			if swept[g.Group+"/"+g.Resource] {
+				continue
+			}
+			swept[g.Group+"/"+g.Resource] = true
 			gvk, err := kindForGrant(c, g)
 			require.NoError(t, err, "the apiserver serves no %s in %s", g.Resource, g.Group)
 			list := &metav1.PartialObjectMetadataList{}

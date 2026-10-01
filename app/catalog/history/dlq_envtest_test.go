@@ -142,8 +142,12 @@ func TestDLQProjector_AnnotatesExactlyOneLeaf_NeverStatus(t *testing.T) {
 	require.Len(t, metaFields, 1, "must declare exactly one field under metadata")
 	require.Contains(t, metaFields, "f:annotations")
 
+	// A merge patch that creates the annotations map on an object that had
+	// none also records "." -- that it made the map, which claims none of
+	// the other keys in it -- so the keys are what is counted.
 	var annoFields map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(metaFields["f:annotations"], &annoFields))
+	delete(annoFields, ".")
 	require.Len(t, annoFields, 1, "must own exactly one annotation key, not the whole annotations map")
 
 	// The Event: Warning, reason DeadLettered, regarding the same Movie.

@@ -239,6 +239,9 @@ func assertProjectorOwnsExactly(t *testing.T, obj client.Object, keys ...string)
 		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
 		var got []string
 		for k := range fields.Metadata.Annotations {
+			if k == "." { // the patch created the map; that claims no key in it
+				continue
+			}
 			got = append(got, strings.TrimPrefix(k, "f:"))
 		}
 		assert.ElementsMatch(t, keys, got)

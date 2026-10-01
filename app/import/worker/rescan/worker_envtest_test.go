@@ -374,8 +374,10 @@ func TestHandleReportsAFailedWalkOnTheFinalDelivery(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-failed", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
 
+	// The root folder itself is gone, as an unmounted share is: a missing
+	// item folder finishes empty (scanMissingFolder), a missing root fails.
 	task := f.task(false)
-	task.Path = filepath.Join(f.root, "does-not-exist")
+	require.NoError(t, os.RemoveAll(f.root))
 	w := rescan.NewWorker(f.c, f.bus)
 
 	// An early delivery is simply retried; nothing final is reported.

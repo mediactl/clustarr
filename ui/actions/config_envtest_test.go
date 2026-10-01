@@ -121,6 +121,13 @@ var configFixtures = map[string]configFixture{
 		invalid:  map[string]any{"baseURL": "https://example.org"},
 		rejects:  "the CEL rule 'exactly one of definition, definitionRef or generic must be set'",
 	},
+	"indexerproxies": {
+		minimal:  map[string]any{"type": "http", "host": "proxy.example.org", "port": int64(8080)},
+		nullable: configField{"secretRef", map[string]any{"name": "proxy-credentials"}},
+		change:   configField{"port", int64(3128)},
+		invalid:  map[string]any{"type": "http", "host": "proxy.example.org", "port": int64(0)},
+		rejects:  "the minimum on spec.port",
+	},
 	"downloadclients": {
 		minimal:  map[string]any{"protocol": "torrent", "torrent": map[string]any{}},
 		nullable: configField{"categories", map[string]any{"movie": "films"}},
