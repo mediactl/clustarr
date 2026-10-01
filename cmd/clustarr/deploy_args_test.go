@@ -54,6 +54,10 @@ var topology = map[string]struct {
 	// §12 run under a lease. Roles that only consume queue work must not
 	// wait for one.
 	leaderElect bool
+	// ownBinary is a Deployment whose container runs a binary of its own
+	// (its command), not clustarr: its argv is that binary's, so the
+	// clustarr command tree does not parse it.
+	ownBinary bool
 }{
 	"catalogarr":          {replicas: 1, leaderElect: true},
 	"catalogarr-metadata": {replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType},
@@ -67,6 +71,9 @@ var topology = map[string]struct {
 	// ui has no --leader-elect and no --role: it runs no controller-runtime
 	// manager and reconciles nothing (amendment §A3).
 	"ui": {replicas: 1},
+	// segmentarr-worker is cmd/segmentarr-worker, not a clustarr service
+	// (spec 2026-10-01 segment detection §4.1); its own tests hold its flags.
+	"segmentarr-worker": {replicas: 1, ownBinary: true},
 }
 
 // TestManagerManifestsMatchTheCLI reads every Deployment in config/manager and
@@ -114,6 +121,12 @@ func TestManagerManifestsMatchTheCLI(t *testing.T) {
 
 			if n := len(d.Spec.Template.Spec.Containers); n != 1 {
 				t.Errorf("Deployment %q has %d containers, want 1", name, n)
+				continue
+			}
+			if want.ownBinary {
+				if len(d.Spec.Template.Spec.Containers[0].Command) == 0 {
+					t.Errorf("Deployment %q runs a binary of its own but names no command", name)
+				}
 				continue
 			}
 			argv := d.Spec.Template.Spec.Containers[0].Args

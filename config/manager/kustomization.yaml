@@ -29,4 +29,5 @@ resources:
 - squasharr.yaml
 - captionarr.yaml
 - captionarr-worker.yaml
+- segmentarr-worker.yaml
 - ui.yaml

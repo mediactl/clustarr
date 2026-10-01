@@ -1,0 +1,110 @@
+{{- if .Values.segmentarrWorker.enabled }}
+{{/*
+segmentarr-worker detects skip segments (spec 2026-10-01 segment
+detection). It is not a clustarr service: a separate, credential-less
+binary on the media image that reads /data and talks NATS, so it gets its
+own ServiceAccount with no token mounted and no binding, the way
+squasharr-worker's pool Jobs hold no credentials. Grace is its consumer's
+AckWait ceiling for one task: it drains or naks what it holds on SIGTERM.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "clustarr.fullname" . }}-segmentarr-worker
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: segmentarr-worker
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clustarr.fullname" . }}-segmentarr-worker
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: segmentarr-worker
+spec:
+  replicas: {{ .Values.segmentarrWorker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "clustarr.selectorLabels" (dict "root" $ "component" "segmentarr-worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clustarr.labels" . | nindent 8 }}
+        app.kubernetes.io/component: segmentarr-worker
+    spec:
+      serviceAccountName: {{ include "clustarr.fullname" . }}-segmentarr-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.segmentarrWorker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.segmentarrWorker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: segmentarr-worker
+        image: {{ include "clustarr.image" (dict "root" $ "which" "media") }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["/usr/local/bin/segmentarr-worker"]
+        args:
+        - --concurrency={{ .Values.segmentarrWorker.concurrency }}
+        env:
+        - name: NATS_URL
+          value: {{ include "clustarr.natsUrl" . | quote }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: UMASK
+          value: "002"
+        {{- with dig "resources" "limits" "memory" "" .Values.segmentarrWorker }}
+        - name: GOMEMLIMIT
+          value: {{ include "clustarr.gomemlimit" . | quote }}
+        {{- end }}
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        resources:
+          {{- toYaml .Values.segmentarrWorker.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: data
+          mountPath: /data
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ default (printf "%s-data" (include "clustarr.fullname" .)) .Values.storage.data.existingClaim }}
+          readOnly: true
+      # readOnlyRootFilesystem: true, so /tmp has to be a volume.
+      - name: tmp
+        emptyDir: {}
+{{- end }}

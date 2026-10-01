@@ -416,6 +416,25 @@ captionarrWorker:
 # Server-rendered web UI (templ + htmx + SSE). Design spec amendment §A3. No
 # controller-runtime manager, no CRD, no status writes -- see the note in
 # templates/deployments.yaml for why it does not use clustarr.workload.
+# segmentarr-worker: skip-segment detection (spec 2026-10-01). A separate,
+# credential-less binary on the media image: ffmpeg decodes, Go analyzes,
+# with PaddleOCR's text detector on ONNX Runtime when cheaper signals are
+# weak. CPU is what it spends; cap it here.
+segmentarrWorker:
+  enabled: true
+  replicas: 1
+  # Analysis tasks (a season or a movie each) one replica runs at once.
+  concurrency: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  nodeSelector: {}
+  tolerations: []
+
 ui:
   enabled: true
   replicas: 1

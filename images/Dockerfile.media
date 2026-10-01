@@ -47,6 +47,11 @@
 ARG GO_VERSION=1.27
 ARG FFMPEG_BRANCH=9.0
 ARG PAR2_VERSION=v1.5.0
+# ONNX Runtime for segmentarr-worker's text detector (pkg/segments/textdet),
+# loaded through purego: onnxruntime-purego speaks C API 23 (ORT 1.23).
+ARG ORT_VERSION=1.23.2
+ARG ORT_SHA256_AMD64=1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b
+ARG ORT_SHA256_ARM64=7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810241e5c
 
 # ---------------------------------------------------------------------------
 # build: compile ./cmd/clustarr with cgo (native arch)
@@ -67,7 +72,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build \
       -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
-      -o /out/clustarr ./cmd/clustarr
+      -o /out/clustarr ./cmd/clustarr && \
+    go build \
+      -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
+      -o /out/segmentarr-worker ./cmd/segmentarr-worker
 
 # ---------------------------------------------------------------------------
 # tools: fetch ffmpeg/ffprobe and par2
@@ -78,6 +86,9 @@ ARG FFMPEG_BRANCH
 ARG FFMPEG_URL=""
 ARG FFMPEG_SHA256=""
 ARG PAR2_VERSION
+ARG ORT_VERSION
+ARG ORT_SHA256_AMD64
+ARG ORT_SHA256_ARM64
 ARG PAR2_SOURCE=turbo
 ARG PAR2_SHA256=""
 
@@ -123,6 +134,19 @@ RUN set -eux; \
     fi; \
     /out/bin/par2 --version
 
+# onnxruntime: the shared library only, checksummed per architecture
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) ort_arch=x64; ort_sha="${ORT_SHA256_AMD64}" ;; \
+      arm64) ort_arch=aarch64; ort_sha="${ORT_SHA256_ARM64}" ;; \
+      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/ort.tgz "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${ort_arch}-${ORT_VERSION}.tgz"; \
+    echo "${ort_sha}  /tmp/ort.tgz" | sha256sum -c -; \
+    mkdir -p /tmp/ort /out/lib; \
+    tar -xzf /tmp/ort.tgz --strip-components=1 -C /tmp/ort; \
+    install -m 0644 "/tmp/ort/lib/libonnxruntime.so.${ORT_VERSION}" /out/lib/libonnxruntime.so
+
 # ---------------------------------------------------------------------------
 # final: debian bookworm-slim, non-root 1000:1000, /data volume
 # ---------------------------------------------------------------------------
@@ -141,7 +165,9 @@ RUN set -eux; \
     chown 1000:1000 /data /scratch
 
 COPY --from=tools /out/bin/ffmpeg /out/bin/ffprobe /out/bin/par2 /usr/local/bin/
-COPY --from=build /out/clustarr /usr/local/bin/clustarr
+COPY --from=build /out/clustarr /out/segmentarr-worker /usr/local/bin/
+COPY --from=tools /out/lib/libonnxruntime.so /usr/local/lib/libonnxruntime.so
+ENV ORT_LIB_PATH=/usr/local/lib/libonnxruntime.so
 
 VOLUME ["/data"]
 USER 1000:1000
