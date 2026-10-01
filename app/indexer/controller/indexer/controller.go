@@ -650,11 +650,7 @@ func (r *Reconciler) patch(
 // enqueues it too ([Reconciler.limitsSource]), so the window counts on status
 // follow the traffic rather than the 15-minute tick.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	b := ctrl.NewControllerManagedBy(mgr)
-	if r.Bus != nil {
-		b = b.WatchesRawSource(r.limitsSource())
-	}
-	return b.
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("indexer").
 		For(&indexv1alpha1.Indexer{}, builder.WithPredicates(
 			k8s.Or(k8s.GenerationChanged(), k8s.DeadLetteredAnnotationChanged()))).
@@ -668,8 +664,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			ReconciliationTimeout: 5 * time.Minute,
 			RecoverPanic:          ptr.To(true),
-		}).
-		Complete(r)
+		})
+	if r.Bus != nil {
+		b = b.WatchesRawSource(r.limitsSource())
+	}
+	return b.Complete(r)
 }
 
 // limitsSource enqueues the Indexer whose query or grab ring just changed in
