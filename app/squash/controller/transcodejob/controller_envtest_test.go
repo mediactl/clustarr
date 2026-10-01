@@ -1428,6 +1428,31 @@ func TestTheInProcessEngineRecordsTheStandardPlan(t *testing.T) {
 	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash)
 }
 
+// The argv planner rejects Dolby Vision under the default passthrough
+// policy, or gives it only libx265; the standard encodes its HDR10 base
+// layer on the profile's GPU like any HDR10 source (spec §5), so the
+// in-process engine keeps neither verdict.
+func TestTheInProcessEngineEncodesDolbyVisionOnTheProfilesGPU(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-ffgo-dv"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	newProfile(t, c, "hevc-nv", "hash1", func(p *transcodev1alpha1.TranscodeProfile) {
+		p.Spec.Hardware = transcodev1alpha1.HardwareNVIDIA
+	})
+	newMediaFile(t, c, ns, "dune", "probe1", ptr.To(dolbyVisionProbe()))
+	newTJ(t, c, ns, "dune-hevc", "dune", "hevc-nv", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"nvidia": 0})
+	r.Engine = "ffgo"
+
+	reconcileTJ(t, r, ns, "dune-hevc")
+	got := getTJ(t, c, ns, "dune-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase, "message: %s", got.Status.Message)
+	require.NotNil(t, got.Status.Plan)
+	assert.Equal(t, "hevc_nvenc", got.Status.Plan.Encoder)
+	assert.Equal(t, "hdr10", string(got.Status.Plan.HDRMode))
+}
+
 // A job planned for one engine and dispatched under another is planned
 // again for the controller's: flipping --worker-engine needs no clean-up.
 func TestAJobPlannedForTheOtherEngineIsReplannedAtDispatch(t *testing.T) {

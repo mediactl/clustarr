@@ -149,11 +149,11 @@ type PlanMeta struct {
 // dropping the streams past the cap would lose them without a word.
 const MaxStreamsPerKind = mediainfo.MaxStreamsPerKind
 
-// tooManyStreams is Plan's reject reason for a source at or past
+// TooManyStreams is Plan's reject reason for a source at or past
 // [MaxStreamsPerKind] of a kind, "" otherwise. It names the cap rather than
 // the count, which the summary does not know past the cap, so the
 // controller and the worker give the same reason.
-func tooManyStreams(info MediaInfo) string {
+func TooManyStreams(info MediaInfo) string {
 	for _, k := range []struct {
 		kind string
 		n    int
@@ -242,7 +242,7 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 
 	// First, so a file past the summary's cap gets this one answer from the
 	// summary and from a live probe alike, whatever else it is.
-	if why := tooManyStreams(info); why != "" {
+	if why := TooManyStreams(info); why != "" {
 		plan.Decision = DecisionReject
 		plan.Reason = why
 		return plan, nil

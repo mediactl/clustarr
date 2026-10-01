@@ -28,6 +28,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 func TestHardwareForEncoder(t *testing.T) {
@@ -149,6 +150,22 @@ func TestAPinnedGPUPlanThatNeedsTheCPUIsSkipped(t *testing.T) {
 	auto := &transcodev1alpha1.TranscodeProfile{Spec: transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareAuto}}
 	assert.Equal(t, transcode.DecisionEncode, skipCPUPlanUnderGPUPin(&transcodev1alpha1.TranscodeJob{}, auto, planning{result: res}).result.Decision,
 		"an auto job's CPU plan goes to cpu as before")
+}
+
+// A standard plan the GPU pin turns into a skip is recorded as a skip, not
+// as the encode it was.
+func TestAPinnedStandardSkipRecordsASkipPlan(t *testing.T) {
+	res := &transcode.PlanResult{Decision: transcode.DecisionEncode, Tier: transcode.TierCPUx265}
+	std := &standard.Result{Decision: standard.DecisionEncode, Reason: "encode to HEVC Main 10",
+		Video: standard.VideoPlan{Action: "encode", Encoder: "libx265", Decode: "cpu"}}
+	pinned := &transcodev1alpha1.TranscodeProfile{Spec: transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareNVIDIA}}
+	got := skipCPUPlanUnderGPUPin(&transcodev1alpha1.TranscodeJob{}, pinned, planning{result: res, std: std})
+	require.Equal(t, transcode.DecisionSkip, got.result.Decision)
+	plan := statusPlanOf(got)
+	assert.Equal(t, transcodev1alpha1.PlanModeSkip, plan.Mode)
+	assert.Empty(t, plan.Encoder)
+	assert.Contains(t, plan.SkipReason, "nvidia")
+	assert.Equal(t, standard.DecisionEncode, std.Decision, "the standard's result is not mutated")
 }
 
 func ptrTo[T any](v T) *T { return &v }

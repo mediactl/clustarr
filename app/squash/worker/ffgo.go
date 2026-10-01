@@ -49,16 +49,29 @@ func StandardProfile(name, hash string, spec transcodev1alpha1.TranscodeProfileS
 	}
 }
 
+// StandardTier is the tier the standard encodes on for a profile's class:
+// the class's own encoder, Dolby Vision included -- the standard encodes
+// its base layer like any HDR10 or HLG source, where the argv planner
+// keeps Dolby Vision on libx265 (transcode.SelectTier). Auto with no class
+// chosen yet is the CPU, as ProfileSpec plans it. The controller and the
+// worker both pick it here, so their plans hash alike.
+func StandardTier(profile transcode.ProfileSpec) transcode.Tier {
+	switch profile.Hardware {
+	case transcode.HardwareNVIDIA:
+		return transcode.TierNVENC
+	case transcode.HardwareIntel:
+		return transcode.TierQSV
+	}
+	return transcode.TierCPUx265
+}
+
 // ffgoJob plans with the standard and encodes in-process on ffgo.
 func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap, local string) (encodeJob, error) {
 	log := logging.FromContext(ctx)
 	profile := ProfileSpec(r.t.Profile.Spec, r.t.Profile.Hardware)
 	tier := transcode.TierCPUx265
 	if len(info.Video) > 0 {
-		want, err := transcode.SelectTier(profile, info)
-		if err != nil {
-			return encodeJob{}, invalidSource("squasharr worker: %w", err)
-		}
+		want := StandardTier(profile)
 		caps, err := transcode.ProbeCapabilities(ctx, r.o.FFmpegPath)
 		if err != nil {
 			return encodeJob{}, retriable("squasharr worker: %w", err)

@@ -612,7 +612,11 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 		return planning{}, &planFailure{ReasonPlanError, fmt.Sprintf("planning failed: %v", err)}
 	}
 	p := planning{result: result, source: source, outPath: outPath}
-	if engine == task.EngineFFgo && result.Decision != transcode.DecisionReject {
+	// The standard decides alone (spec §5): of the argv planner's rejects
+	// only the stream cap stands, since past it the stored summary is not
+	// the file; its Dolby Vision policy and CPU-only Dolby Vision are the
+	// argv engine's, not the standard's.
+	if engine == task.EngineFFgo && transcode.TooManyStreams(info) == "" {
 		p.std = standardPlan(tp, info, hardware, limits)
 		result.Decision = map[standard.Decision]transcode.Decision{
 			standard.DecisionSkip: transcode.DecisionSkip, standard.DecisionCopyVideo: transcode.DecisionRemuxOnly,
@@ -624,15 +628,12 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 }
 
 // standardPlan is the in-process engine's plan, on the tier the worker
-// picks for this class (transcode.SelectTier over the class's profile, as
-// the worker's ffgoJob), so the two hash the same plan.
+// picks for this class (worker.StandardTier, as the worker's ffgoJob), so
+// the two hash the same plan.
 func standardPlan(tp *transcodev1alpha1.TranscodeProfile, info transcode.MediaInfo,
 	hardware *transcodev1alpha1.Hardware, limits map[transcode.Tier]transcode.Limits,
 ) *standard.Result {
-	tier := transcode.TierCPUx265
-	if t, err := transcode.SelectTier(worker.ProfileSpec(tp.Spec, hardware), info); err == nil {
-		tier = t
-	}
+	tier := worker.StandardTier(worker.ProfileSpec(tp.Spec, hardware))
 	s := standard.Plan(info, worker.StandardProfile(tp.Name, tp.Status.Hash, tp.Spec),
 		standard.Hardware{Tier: tier, Limits: limits[tier]})
 	return &s

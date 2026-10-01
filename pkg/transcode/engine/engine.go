@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/obinnaokechukwu/ffgo"
+	"github.com/obinnaokechukwu/ffgo/avcodec"
 	"github.com/obinnaokechukwu/ffgo/avutil"
 
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -240,7 +241,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 				close(in)
 			}
 		}()
-		if err := demux(ctx, d, routes, copies, muxCh); err != nil {
+		if err := demux(ctx, d, startShifts(d), routes, copies, muxCh); err != nil {
 			fe.set(err)
 		}
 	}()
@@ -271,7 +272,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 // demux reads every packet and hands a reference to its stream's stage or,
 // for a copied stream, straight to the muxer; streams the plan does not
 // keep are dropped.
-func demux(ctx context.Context, d *ffgo.Decoder, routes map[int]chan *ffgo.Packet, copies map[int]int, muxCh chan<- muxItem) error {
+func demux(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, routes map[int]chan *ffgo.Packet, copies map[int]int, muxCh chan<- muxItem) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -293,6 +294,14 @@ func demux(ctx context.Context, d *ffgo.Decoder, routes map[int]chan *ffgo.Packe
 		if err != nil {
 			return &Error{Stage: "demux", Err: err}
 		}
+		if off := shift[idx]; off != 0 {
+			if ts := c.PTS(); ts != avutil.AV_NOPTS_VALUE {
+				avcodec.SetPacketPTS(c.Raw(), ts-off)
+			}
+			if ts := c.DTS(); ts != avutil.AV_NOPTS_VALUE {
+				avcodec.SetPacketDTS(c.Raw(), ts-off)
+			}
+		}
 		if encoded {
 			select {
 			case in <- c:
@@ -309,6 +318,26 @@ func demux(ctx context.Context, d *ffgo.Decoder, routes map[int]chan *ffgo.Packe
 			return ctx.Err()
 		}
 	}
+}
+
+// startShifts is each stream's share of the input's start time, in the
+// stream's time base: what demux subtracts from every timestamp, so the
+// output starts at 0 as ffmpeg(1)'s does (an MPEG-TS starts near 1.4 s,
+// which would otherwise lengthen the output by as much).
+func startShifts(d *ffgo.Decoder) map[int]int64 {
+	start := d.StartTime()
+	shift := map[int]int64{}
+	if start <= 0 {
+		return shift
+	}
+	us := start.Microseconds()
+	for _, s := range d.Streams() {
+		if s.TimeBase.Num > 0 && s.TimeBase.Den > 0 {
+			den := int64(s.TimeBase.Num) * 1_000_000
+			shift[s.Index] = (us*int64(s.TimeBase.Den) + den/2) / den
+		}
+	}
+	return shift
 }
 
 // mux waits for every encoded stream's encoder (holding packets that
@@ -413,9 +442,14 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 		var err error
 		if s.copy {
 			s.tb = s.src.TimeBase
+			par, perr := outputParameters(s.src.CodecParameters(), outputTag(s.src.Codec, plan.Container))
+			if perr != nil {
+				return fmt.Errorf("%s: %w", s.name, perr)
+			}
 			s.stream, err = m.AddCopyStream(&ffgo.CopyStreamConfig{
-				CodecParameters: s.src.CodecParameters(), TimeBase: s.src.TimeBase, Options: streamOptions(s.src, true),
+				CodecParameters: par, TimeBase: s.src.TimeBase, Options: streamOptions(s.src, true),
 			})
+			avcodec.ParametersFree(&par)
 		} else {
 			s.tb = srcs[i].TimeBase()
 			opts := streamOptions(s.src, false)
@@ -424,7 +458,11 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 			}); ok {
 				opts.SideData = sd.StreamSideData()
 			}
-			s.stream, err = m.AddEncoderStream(srcs[i], opts)
+			codec := "aac"
+			if s.isVid {
+				codec = "hevc"
+			}
+			s.stream, err = m.AddEncoderStream(taggedSource{srcs[i], outputTag(codec, plan.Container)}, opts)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", s.name, err)
@@ -454,7 +492,59 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 	if err := m.SetMetadata(md); err != nil {
 		return fmt.Errorf("metadata: %w", err)
 	}
+	if plan.Container == transcode.ContainerMP4 {
+		// The index first, so a player starts before reading the whole
+		// file; and the container tags (CLUSTARR_PROFILE among them),
+		// which the MP4 muxer otherwise drops.
+		return m.WriteHeaderWithOptions(map[string]string{"movflags": "+faststart+use_metadata_tags"})
+	}
 	return m.WriteHeader()
+}
+
+// hvc1 is the HEVC sample entry Apple's players take: parameter sets in the
+// sample description, not in the stream (hev1, FFmpeg's default).
+var hvc1 = uint32('h') | uint32('v')<<8 | uint32('c')<<16 | uint32('1')<<24
+
+// outputParameters copies a stream's codec parameters for container: the
+// source container's codec tag is dropped, as FFmpeg's stream copy drops a
+// tag the output format does not know (an MP4 source's "mp4a" or "hvc1" is
+// refused by Matroska), so the muxer picks its own -- except HEVC in MP4,
+// which is tagged hvc1. The caller frees the copy.
+func outputParameters(src avcodec.Parameters, tag uint32) (avcodec.Parameters, error) {
+	par := avcodec.ParametersAlloc()
+	if par == nil {
+		return nil, errors.New("allocate codec parameters")
+	}
+	if err := avcodec.ParametersCopy(par, src); err != nil {
+		avcodec.ParametersFree(&par)
+		return nil, err
+	}
+	avcodec.SetCodecParTag(par, tag)
+	return par, nil
+}
+
+// outputTag is the codec tag a stream of codec is written with in c.
+func outputTag(codec string, c transcode.Container) uint32 {
+	if c == transcode.ContainerMP4 && codec == "hevc" {
+		return hvc1
+	}
+	return 0
+}
+
+// taggedSource is an encoder whose stream parameters carry the output
+// container's tag (hvc1 for HEVC in MP4).
+type taggedSource struct {
+	ffgo.EncodedStreamSource
+	tag uint32
+}
+
+func (t taggedSource) Parameters() (avcodec.Parameters, error) {
+	par, err := t.EncodedStreamSource.Parameters()
+	if err != nil {
+		return par, err
+	}
+	avcodec.SetCodecParTag(par, t.tag)
+	return par, nil
 }
 
 // statsTags are Matroska statistics (mkvmerge's) that describe the source

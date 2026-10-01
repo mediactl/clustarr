@@ -220,3 +220,18 @@ func TestAACLayoutIsCanonicalForItsChannelCount(t *testing.T) {
 		assert.Equal(t, c.layout, p.Audio[0].Layout, "%d channels", c.ch)
 	}
 }
+
+func TestMP4KeepsOnlyWhatItCanCarry(t *testing.T) {
+	mp4 := profile
+	mp4.Container = transcode.ContainerMP4
+	in := info(h264, eac3)
+	in.Subtitles = append(in.Subtitles, transcode.SubtitleStream{Index: 2, Codec: "mov_text", Language: "eng"})
+	p := Plan(in, mp4, cpu)
+	assert.Equal(t, []int32{2}, p.Subtitles, "SRT and PGS cannot be copied into MP4; mov_text can")
+	assert.False(t, p.Attachments)
+	assert.Equal(t, int32(1), p.Expect.SubtitleStreams)
+
+	mkv := Plan(in, profile, cpu)
+	assert.Equal(t, []int32{0, 1, 2}, mkv.Subtitles)
+	assert.True(t, mkv.Attachments)
+}

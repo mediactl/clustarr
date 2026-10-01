@@ -117,16 +117,21 @@ type Result struct {
 	Container   transcode.Container
 	Video       VideoPlan
 	Audio       []AudioPlan
-	Subtitles   []int32 // type-relative, every subtitle stream
-	Attachments bool
-	Chapters    bool
+	Subtitles   []int32 // type-relative: every one MKV, the mov_text ones MP4
+	Attachments bool    // every attachment the source has; MP4 carries none
+	Chapters    bool    // every chapter the source has (always: a summary has none to count)
 	Tags        map[string]string
 	Expect      Expectation
 }
 
 // Hash is the plan's identity: sha256 of its canonical JSON (struct fields
-// in declaration order, map keys sorted by encoding/json).
+// in declaration order, map keys sorted by encoding/json), less what only a
+// live probe knows -- the video's stream index (a cover-art stream before
+// it) and the exact duration -- so the controller's plan from the stored
+// summary and the worker's from a probe of the same file hash alike.
 func (p Result) Hash() string {
+	p.Video.SourceIndex = 0
+	p.Expect.DurationMillis = 0
 	b, _ := json.Marshal(p)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
@@ -162,12 +167,14 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		return skip(p, "Dolby Vision profile 5 has no HDR10 or HLG base layer: without the Dolby Vision layer it plays with wrong colours")
 	}
 	p.Audio = planAudio(info.Audio, profile.Languages)
-	p.Subtitles = make([]int32, len(info.Subtitles))
-	for i := range info.Subtitles {
-		p.Subtitles[i] = int32(i)
+	p.Subtitles = []int32{}
+	for i, s := range info.Subtitles {
+		if p.Container != transcode.ContainerMP4 || s.Codec == "mov_text" {
+			p.Subtitles = append(p.Subtitles, int32(i))
+		}
 	}
-	p.Attachments = len(info.Attachments) > 0
-	p.Chapters = len(info.Chapters) > 0
+	p.Attachments = p.Container == transcode.ContainerMKV
+	p.Chapters = true
 	p.Expect = Expectation{
 		VideoStreams: 1, AudioStreams: int32(len(p.Audio)), SubtitleStreams: int32(len(p.Subtitles)),
 		VideoCodec: "hevc", PixelFormat: "yuv420p10le",
@@ -339,13 +346,17 @@ func commentary(a transcode.AudioStream) bool {
 	return a.Disposition.Comment || strings.Contains(strings.ToLower(a.Title), "commentary")
 }
 
-// containerOf maps a demuxer name to the container the standard writes.
+// containerOf maps a container name to the one the standard writes: a
+// demuxer's list ("matroska,webm", "mov,mp4,m4a,...") from a probe, or the
+// stored summary's extension-like name ("mkv", "mp4").
 func containerOf(format string) transcode.Container {
-	switch {
-	case strings.Contains(format, "matroska"):
-		return transcode.ContainerMKV
-	case strings.Contains(format, "mp4"), strings.Contains(format, "mov"):
-		return transcode.ContainerMP4
+	for _, name := range strings.Split(format, ",") {
+		switch strings.TrimSpace(name) {
+		case "matroska", "webm", "mkv":
+			return transcode.ContainerMKV
+		case "mov", "mp4", "m4v", "m4a":
+			return transcode.ContainerMP4
+		}
 	}
 	return ""
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -384,6 +385,9 @@ func skipCPUPlanUnderGPUPin(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1a
 		return p
 	}
 	enc := encoderName(p.result)
+	if p.std != nil {
+		enc = p.std.Video.Encoder
+	}
 	if hardwareForEncoder(enc) == g {
 		return p
 	}
@@ -391,6 +395,10 @@ func skipCPUPlanUnderGPUPin(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1a
 	res.Decision = transcode.DecisionSkip
 	res.Reason = fmt.Sprintf("the profile runs only on %s, and this source can only be encoded with %s (%s)", g, enc, p.result.Reason)
 	p.result = &res
+	if p.std != nil { // recorded as the skip it now is, not the encode it was
+		std := standard.Result{Decision: standard.DecisionSkip, Reason: res.Reason, Container: p.std.Container, Tags: p.std.Tags}
+		p.std = &std
+	}
 	return p
 }
 
