@@ -18,11 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package plex_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,4 +97,33 @@ func TestFetchUnexpectedStatusReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, items)
 	assert.Contains(t, err.Error(), "500")
+}
+
+// The token travels as ?X-Plex-Token=, and http.Client.Do's *url.Error
+// quotes the whole URL; a transport failure reaches ImportList status and
+// the logs, so it must not carry the token -- while a deadline still reads
+// as one.
+func TestFetchTransportErrorCarriesNoToken(t *testing.T) {
+	const token = "s3cret-plex-token"
+	refused := httptest.NewServer(http.NotFoundHandler())
+	refused.Close()
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer hang.Close()
+
+	for name, base := range map[string]string{"refused": refused.URL, "deadline": hang.URL} {
+		t.Run(name, func(t *testing.T) {
+			w, err := plex.New("plex-watchlist", commonv1.MediaKindMovie, token, "client-1", plex.WithBaseURL(base))
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			_, err = w.Fetch(ctx)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), token)
+			var ue *url.Error
+			assert.ErrorAs(t, err, &ue)
+			if name == "deadline" {
+				assert.ErrorIs(t, err, context.DeadlineExceeded)
+			}
+		})
+	}
 }

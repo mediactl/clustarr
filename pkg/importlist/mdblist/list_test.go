@@ -18,10 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mdblist_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,4 +89,34 @@ func TestFetchUnexpectedStatusReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, items)
 	assert.Contains(t, err.Error(), "500")
+}
+
+// The API key travels as ?apikey=, and http.Client.Do's *url.Error quotes
+// the whole URL; a transport failure reaches ImportList status and the
+// logs, so it must not carry the key -- while a deadline still reads as one.
+func TestFetchTransportErrorCarriesNoAPIKey(t *testing.T) {
+	const key = "s3cret-mdblist-key"
+	refused := httptest.NewServer(http.NotFoundHandler())
+	refused.Close()
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer hang.Close()
+
+	for name, base := range map[string]string{"refused": refused.URL, "deadline": hang.URL} {
+		t.Run(name, func(t *testing.T) {
+			l, err := mdblist.New("mdblist-top", commonv1.MediaKindMovie,
+				importlist.MdblistConfig{URL: base + "/lists/1/items"}, key)
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			_, err = l.Fetch(ctx)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), key)
+			assert.Contains(t, err.Error(), "/lists/1/items", "the list's path stays, for diagnosis")
+			var ue *url.Error
+			assert.ErrorAs(t, err, &ue)
+			if name == "deadline" {
+				assert.ErrorIs(t, err, context.DeadlineExceeded)
+			}
+		})
+	}
 }

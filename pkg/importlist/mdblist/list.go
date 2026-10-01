@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/redact"
 )
 
 // ErrUnsupportedKind is returned by New when kind is not movie or series.
@@ -87,8 +88,14 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 	ctx, span := tracing.Start(ctx, "importlist.mdblist.fetch")
 	defer span.End()
 
+	// Both errors below can be a *url.Error quoting the whole URL, and the
+	// key travels in it as ?apikey= (pkg/metadata/clients/httpjson strips
+	// the same key for the metadata-side MDBList client); redact.Err drops
+	// the query and keeps the cause, so errors.Is still finds a deadline or
+	// cancellation.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.cfg.URL, nil)
 	if err != nil {
+		err = redact.Err(err)
 		tracing.RecordError(span, err)
 		return nil, err
 	}
@@ -99,6 +106,7 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 
 	resp, err := l.client.Do(req)
 	if err != nil {
+		err = redact.Err(err)
 		tracing.RecordError(span, err)
 		return nil, err
 	}

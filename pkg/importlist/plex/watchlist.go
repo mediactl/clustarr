@@ -31,6 +31,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/redact"
 )
 
 // defaultBaseURL is Plex's Discover service, which serves the watchlist
@@ -126,9 +127,12 @@ func (w *Watchlist) Fetch(ctx context.Context) ([]importlist.Item, error) {
 }
 
 func (w *Watchlist) fetchPage(ctx context.Context, start int32) ([]importlist.Item, error) {
+	// Both errors below can be a *url.Error quoting the whole URL, and the
+	// token travels in it as ?X-Plex-Token=; redact.Err drops the query and
+	// keeps the cause, so errors.Is still finds a deadline or cancellation.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.opts.baseURL+"/library/sections/watchlist/all", nil)
 	if err != nil {
-		return nil, err
+		return nil, redact.Err(err)
 	}
 	q := req.URL.Query()
 	q.Set("includeFields", "title,type,year,ratingKey")
@@ -144,7 +148,7 @@ func (w *Watchlist) fetchPage(ctx context.Context, start int32) ([]importlist.It
 
 	resp, err := w.opts.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, redact.Err(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
