@@ -213,6 +213,22 @@ Profiles name no hardware class. Two layers decide it.
 - A pod whose class's device will not open reports so and takes no jobs;
   the controller sends that class no work until a pod reports healthy.
 
+**As built (2026-10-01, Phase 4).** The cluster layer was already there
+(`transcodejob.ChooseClass`, `rerouteUnschedulable`). A pool pod with the
+in-process engine measures its class at start
+(`app/squash/worker/inprocess.Engine.Measure`): the class's first tier whose
+device opens and whose trial encode succeeds -- each trial the real
+pipeline on a five-frame sample made in-process -- and, for NVENC, which
+formats NVDEC decodes. It publishes the result with `healthy` and the
+reason under its node in `encoder-limits.<class>`, pulls nothing while the
+device is unusable, and measures again every two minutes. The controller
+sends no work to a GPU class every fresh report of which is unhealthy
+(auto jobs choose another class; pinned jobs wait, naming the reason); a
+class with no fresh report stays eligible. `status.encoderLimits[]`
+shows `healthy` and `message`. B-frame and lookahead limits stay the argv
+engine's binary measurement: the standard sets neither. Every class runs
+the one `transcoder` image, which carries the Intel runtime on amd64.
+
 Not carried over from the snippet: round-robin over GPUs within a process.
 The device plugin gives each pod its own GPU, so a pool pod uses `cuda:0`,
 its own. VideoToolbox is macOS-only and not needed in the cluster; the fork

@@ -75,7 +75,13 @@ because with frames pinned to the GPU, ffmpeg's silent software fallback hands
 `scale_cuda` frames it refuses (H.264 Hi10P exits 218); anything else decodes on the
 CPU as before. HDR tags stay a `setparams` filter, after `scale_cuda`: `-color_*`
 output options lost primaries and transfer to a source whose frames carry them as
-unknown. `audio.copyCodecs` (`aac`, `ac3`, `eac3`) copies those tracks instead of
+unknown. A pool pod running the in-process engine (`--worker-engine=ffgo`) measures its
+own device at start through ffgo (`inprocess.Engine.Measure`, 2026-10-01), takes no
+work while it is unusable, and publishes `healthy` beside its limits; no work goes to
+a GPU class whose every fresh report is unhealthy. That engine lives in
+`app/squash/worker/inprocess`, imported only by `cmd/squasharr-worker`: `cmd/clustarr`
+must never link ffgo or purego, which make it a dynamic binary the distroless controller
+image cannot start (`TestClustarrNeverLinksADynamicLoader`). `audio.copyCodecs` (`aac`, `ac3`, `eac3`) copies those tracks instead of
 re-encoding them, and counts them compliant; empty re-encodes every track.
 **There is no CUDA image** (2026-10-01, `docs/adr/0015-no-cuda-image.md`):
 every pool, nvidia's included, runs the one image `--worker-image` names
