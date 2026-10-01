@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -934,4 +935,41 @@ func TestARunThatAbortsNeverTouchesAnotherAttemptsPartFile(t *testing.T) {
 
 	assert.Equal(t, []string{sibling}, f.partFiles(t),
 		"attempt 1's own part file is gone; only attempt 2's stray survives")
+}
+
+// The in-process engine (--worker-engine=ffgo) does the same work on the
+// same fixture: transcode, verify, recycle the original, rename over the
+// source, and record the result -- with no ffmpeg subprocess.
+func TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	if err := ffgo.Init(); err != nil {
+		t.Skipf("no FFmpeg libraries: %v", err)
+	}
+	if _, avc, _ := ffgo.Version(); avc>>16 != 63 {
+		t.Skip("the in-process engine runs on FFmpeg 9")
+	}
+	f := newFixture(t, c)
+	ctx := context.Background()
+	tj := f.get(t, c)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp))
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
+	var folders catalogv1alpha1.RootFolderList
+	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
+	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	require.NoError(t, err)
+	tk.Engine = task.EngineFFgo
+
+	out := Process(ctx, tk, f.options())
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
+	codec, tag := videoCodec(t, f.local)
+	assert.Equal(t, "hevc", codec)
+	assert.Equal(t, f.profileName+"@"+f.profileHash, tag)
+	assert.Empty(t, f.partFiles(t))
+	require.Len(t, f.binEntries(t), 1, "the original is in the recycle bin")
+	require.NotNil(t, out.Result)
+	assert.Equal(t, "hevc", out.Result.MediaInfo.VideoCodec)
 }

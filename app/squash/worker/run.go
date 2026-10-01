@@ -377,15 +377,126 @@ func (r *runner) run(ctx context.Context) error {
 		r.resolution = resolutionClass(info.Video[0].Height)
 	}
 
+	var job encodeJob
+	if r.t.Engine == task.EngineFFgo {
+		job, err = r.ffgoJob(ctx, info, sw, local)
+	} else {
+		job, err = r.argvJob(ctx, info, sw, local)
+	}
+	if err != nil {
+		return err
+	}
+
+	// The .part is written beside the output, so the final rename is on one
+	// filesystem; an explicit spec.outputPath may name a folder that does not
+	// exist yet. Budget for an output as large as the source.
+	if !sw.inPlace() {
+		if err := os.MkdirAll(filepath.Dir(sw.localOut), 0o775); err != nil {
+			return retriable("squasharr worker: create the output's folder: %w", err)
+		}
+	}
+	if err := fsops.EnsureFreeSpace(filepath.Dir(sw.localOut), st.Size()); err != nil {
+		return retriable("squasharr worker: scratch space: %w", err)
+	}
+
+	// 4. Encode.
+	if err := job.encode(ctx); err != nil {
+		return err
+	}
+
+	// 5. Verify. From here until the rename, every failure removes the
+	// output and leaves the source exactly as it was.
+	report, err := job.verify(ctx)
+	if err != nil {
+		removePart(ctx, job.part)
+		// ffprobe could not run: that is the environment, not the output.
+		return retriable("squasharr worker: verify: %w", err)
+	}
+	if !report.OK {
+		removePart(ctx, job.part)
+		return verifyFailed("squasharr worker: output failed verification: %v", report.Problems)
+	}
+	if limit := MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
+		removePart(ctx, job.part)
+		return verifyFailed("squasharr worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
+			sizePercent(report.SizeBytes, st.Size()), limit)
+	}
+
+	// The encode can take hours. If the source changed under it, the
+	// output is a transcode of a file that no longer exists.
+	if st2, err := os.Stat(local); err != nil || mediainfo.ProbeHash(source, st2.Size(), st2.ModTime()) != liveHash {
+		removePart(ctx, job.part)
+		return sourceChanged("squasharr worker: source %s changed during the encode", source)
+	}
+
+	// 6. The swap. See the package doc for why each order and what a crash
+	// between any two steps leaves.
+	if !sw.inPlace() {
+		if err := r.beforeSwap(ctx, job.part); err != nil {
+			return err
+		}
+		// Elsewhere (R-11): the verified output takes its own name first, so
+		// the library holds a complete file at every instant, then the source
+		// is retired -- or, with replaceSource=false, kept.
+		if err := fsops.MoveAtomic(job.part, sw.localOut); err != nil {
+			removePart(ctx, job.part)
+			return retriable("squasharr worker: place output: %w", err)
+		}
+		log.InfoContext(ctx, "squasharr worker: output placed", "output", sw.out, "replaceSource", sw.replace)
+		if err := sw.retireSource(ctx); err != nil {
+			return err
+		}
+		return r.finish(ctx, sw.out, sw.localOut, st.Size())
+	}
+
+	// In place (R5). Re-assert the lease, then link the original into the
+	// bin, then rename the verified output over the source path. The
+	// reassert comes first: RecycleLink is itself a side effect on the
+	// library (a new name in the recycle bin) that an aborted swap must
+	// not leave behind either, not only the rename. With
+	// policy.recycleBin=false there is no link: the rename alone drops the
+	// library's name for the original, and a seeding hard link elsewhere
+	// keeps its inode alive regardless.
+	if err := r.beforeSwap(ctx, job.part); err != nil {
+		return err
+	}
+	var recycled string
+	if sw.recycle {
+		recycled, err = fsops.RecycleLink(bin, local)
+		if err != nil {
+			removePart(ctx, job.part)
+			return retriable("squasharr worker: recycle source: %w", err)
+		}
+	}
+	if err := fsops.MoveAtomic(job.part, local); err != nil {
+		removePart(ctx, job.part)
+		return retriable("squasharr worker: replace source: %w", err)
+	}
+	log.InfoContext(ctx, "squasharr worker: swapped", "recycled", recycled)
+
+	return r.finish(ctx, source, local, st.Size())
+}
+
+// encodeJob is one engine's work for this attempt: the scratch file it
+// writes, how it encodes into it, and how the output is verified.
+type encodeJob struct {
+	part   string
+	encode func(ctx context.Context) error
+	verify func(ctx context.Context) (*transcode.Report, error)
+}
+
+// argvJob plans with pkg/transcode and encodes with the ffmpeg executable.
+func (r *runner) argvJob(ctx context.Context, info transcode.MediaInfo, sw swap, local string) (encodeJob, error) {
+	log := logging.FromContext(ctx)
 	caps, err := transcode.ProbeCapabilities(ctx, r.o.FFmpegPath)
 	if err != nil {
-		return retriable("squasharr worker: %w", err)
+		return encodeJob{}, retriable("squasharr worker: %w", err)
 	}
 	profile := ProfileSpec(r.t.Profile.Spec, r.t.Profile.Hardware)
 	if len(info.Video) > 0 {
 		want, err := transcode.SelectTier(profile, info)
 		if err != nil {
-			return invalidSource("squasharr worker: %w", err)
+			return encodeJob{}, invalidSource("squasharr worker: %w", err)
 		}
 		// Plan would call this a reject, but a missing encoder is this
 		// node's ffmpeg build, not the source: another pod may land on a
@@ -393,9 +504,9 @@ func (r *runner) run(ctx context.Context) error {
 		tier, ok := transcode.FallbackTier(want, caps)
 		if !ok {
 			if gpuTier(want) {
-				return gpuUnavailable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
+				return encodeJob{}, gpuUnavailable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
 			}
-			return retriable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
+			return encodeJob{}, retriable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
 		}
 		// This device's own limits: Plan renders min(profile, limit).
 		if r.o.limits != nil {
@@ -406,7 +517,7 @@ func (r *runner) run(ctx context.Context) error {
 		ProfileName: r.t.Profile.Name, ProfileHash: r.t.Profile.Hash, Threads: r.o.Threads, OutputPath: sw.localOut,
 	})
 	if err != nil {
-		return invalidSource("squasharr worker: plan: %w", err)
+		return encodeJob{}, invalidSource("squasharr worker: plan: %w", err)
 	}
 	r.compareWithRecordedPlan(ctx, r.t.ArgsHash, plan)
 
@@ -427,99 +538,19 @@ func (r *runner) run(ctx context.Context) error {
 		// The controller planned this file for work from the stored probe
 		// of the same bytes. Exiting 0 would report a transcode that never
 		// happened, and catalogarr would incorporate it as a swap.
-		return invalidSource("squasharr worker: live plan is %s (%s), not the work the controller planned", plan.Decision, plan.Reason)
+		return encodeJob{}, invalidSource("squasharr worker: live plan is %s (%s), not the work the controller planned", plan.Decision, plan.Reason)
 	}
 	r.tier = string(plan.Tier)
 	log.InfoContext(ctx, "squasharr worker: planned", "decision", plan.Decision, "tier", plan.Tier, "reason", plan.Reason)
 
-	// The .part is written beside the output, so the final rename is on one
-	// filesystem; an explicit spec.outputPath may name a folder that does not
-	// exist yet. Budget for an output as large as the source.
-	if !sw.inPlace() {
-		if err := os.MkdirAll(filepath.Dir(sw.localOut), 0o775); err != nil {
-			return retriable("squasharr worker: create the output's folder: %w", err)
-		}
-	}
-	if err := fsops.EnsureFreeSpace(filepath.Dir(sw.localOut), st.Size()); err != nil {
-		return retriable("squasharr worker: scratch space: %w", err)
-	}
-
-	// 4. Encode.
-	if err := r.encode(ctx, plan, info.Format.Duration.Milliseconds()); err != nil {
-		return err
-	}
-
-	// 5. Verify. From here until the rename, every failure removes the
-	// output and leaves the source exactly as it was.
-	report, err := r.o.Verifier.Verify(ctx, local, plan.Output, plan.Expect)
-	if err != nil {
-		removePart(ctx, plan.Output)
-		// ffprobe could not run: that is the environment, not the output.
-		return retriable("squasharr worker: verify: %w", err)
-	}
-	if !report.OK {
-		removePart(ctx, plan.Output)
-		return verifyFailed("squasharr worker: output failed verification: %v", report.Problems)
-	}
-	if limit := MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
-		removePart(ctx, plan.Output)
-		return verifyFailed("squasharr worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
-			sizePercent(report.SizeBytes, st.Size()), limit)
-	}
-
-	// The encode can take hours. If the source changed under it, the
-	// output is a transcode of a file that no longer exists.
-	if st2, err := os.Stat(local); err != nil || mediainfo.ProbeHash(source, st2.Size(), st2.ModTime()) != liveHash {
-		removePart(ctx, plan.Output)
-		return sourceChanged("squasharr worker: source %s changed during the encode", source)
-	}
-
-	// 6. The swap. See the package doc for why each order and what a crash
-	// between any two steps leaves.
-	if !sw.inPlace() {
-		if err := r.beforeSwap(ctx, plan.Output); err != nil {
-			return err
-		}
-		// Elsewhere (R-11): the verified output takes its own name first, so
-		// the library holds a complete file at every instant, then the source
-		// is retired -- or, with replaceSource=false, kept.
-		if err := fsops.MoveAtomic(plan.Output, sw.localOut); err != nil {
-			removePart(ctx, plan.Output)
-			return retriable("squasharr worker: place output: %w", err)
-		}
-		log.InfoContext(ctx, "squasharr worker: output placed", "output", sw.out, "replaceSource", sw.replace)
-		if err := sw.retireSource(ctx); err != nil {
-			return err
-		}
-		return r.finish(ctx, sw.out, sw.localOut, st.Size())
-	}
-
-	// In place (R5). Re-assert the lease, then link the original into the
-	// bin, then rename the verified output over the source path. The
-	// reassert comes first: RecycleLink is itself a side effect on the
-	// library (a new name in the recycle bin) that an aborted swap must
-	// not leave behind either, not only the rename. With
-	// policy.recycleBin=false there is no link: the rename alone drops the
-	// library's name for the original, and a seeding hard link elsewhere
-	// keeps its inode alive regardless.
-	if err := r.beforeSwap(ctx, plan.Output); err != nil {
-		return err
-	}
-	var recycled string
-	if sw.recycle {
-		recycled, err = fsops.RecycleLink(bin, local)
-		if err != nil {
-			removePart(ctx, plan.Output)
-			return retriable("squasharr worker: recycle source: %w", err)
-		}
-	}
-	if err := fsops.MoveAtomic(plan.Output, local); err != nil {
-		removePart(ctx, plan.Output)
-		return retriable("squasharr worker: replace source: %w", err)
-	}
-	log.InfoContext(ctx, "squasharr worker: swapped", "recycled", recycled)
-
-	return r.finish(ctx, source, local, st.Size())
+	durationMillis := info.Format.Duration.Milliseconds()
+	return encodeJob{
+		part:   plan.Output,
+		encode: func(ctx context.Context) error { return r.encode(ctx, plan, durationMillis) },
+		verify: func(ctx context.Context) (*transcode.Report, error) {
+			return r.o.Verifier.Verify(ctx, local, plan.Output, plan.Expect)
+		},
+	}, nil
 }
 
 // beforeSwap runs o.BeforeSwap, the pool worker's pre-swap lease reassert

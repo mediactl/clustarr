@@ -47,20 +47,32 @@ type RootFolder struct {
 
 // Task is one dispatch of one TranscodeJob.
 type Task struct {
-	Job             schema.Ref      `json:"job"`
-	Attempt         int32           `json:"attempt"`
-	Class           string          `json:"class"`
-	Profile         Profile         `json:"profile"`
-	SourcePath      string          `json:"sourcePath"`
-	SourceProbeHash string          `json:"sourceProbeHash"`
-	SourceSizeBytes int64           `json:"sourceSizeBytes"`
-	SourceModifier  string          `json:"sourceModifier,omitempty"`
-	OutputPath      string          `json:"outputPath"`
-	Root            RootFolder      `json:"root"`
-	OutputRoot      string          `json:"outputRoot,omitempty"`
-	ArgsHash        string          `json:"argsHash,omitempty"`
-	Deadline        metav1.Duration `json:"deadline"`
+	Job             schema.Ref `json:"job"`
+	Attempt         int32      `json:"attempt"`
+	Class           string     `json:"class"`
+	Profile         Profile    `json:"profile"`
+	SourcePath      string     `json:"sourcePath"`
+	SourceProbeHash string     `json:"sourceProbeHash"`
+	SourceSizeBytes int64      `json:"sourceSizeBytes"`
+	SourceModifier  string     `json:"sourceModifier,omitempty"`
+	OutputPath      string     `json:"outputPath"`
+	Root            RootFolder `json:"root"`
+	OutputRoot      string     `json:"outputRoot,omitempty"`
+	ArgsHash        string     `json:"argsHash,omitempty"`
+	// Engine is the engine the recorded plan was made for: EngineFFmpeg
+	// (the argv engine, also when empty) or EngineFFgo (in-process).
+	Engine string `json:"engine,omitempty"`
+	// PlanHash is the in-process engine's recorded plan hash, compared as
+	// ArgsHash is.
+	PlanHash string          `json:"planHash,omitempty"`
+	Deadline metav1.Duration `json:"deadline"`
 }
+
+// Engines a task runs on.
+const (
+	EngineFFmpeg = "ffmpeg"
+	EngineFFgo   = "ffgo"
+)
 
 // Schema implements schema.Payload.
 func (Task) Schema() string { return "transcode.Task.v1" }
