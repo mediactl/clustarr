@@ -151,3 +151,52 @@ jobs:
 
       - name: make test
         run: make test
+
+  distroless:
+    name: distroless ${{ matrix.target }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: transcoder, class: cpu, arch: amd64, runner: ubuntu-24.04 }
+          - { target: transcoder, class: cpu, arch: arm64, runner: ubuntu-24.04-arm }
+          - { target: transcoder-cuda, class: cuda, arch: amd64, runner: ubuntu-24.04 }
+          - { target: transcoder-intel, class: intel, arch: amd64, runner: ubuntu-24.04 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build ${{ matrix.target }} and its -debug twin
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: images/Dockerfile.transcoder-distroless
+          target: ${{ matrix.target }}
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: selfcheck/${{ matrix.target }}:ci
+          cache-from: type=gha,scope=distroless-${{ matrix.target }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=distroless-${{ matrix.target }}-${{ matrix.arch }}
+
+      # Every library the class needs must load and every encoder and filter
+      # must be found, as the pool pods run it: a missing library fails here,
+      # not in a job. GPU encodes need hardware (--trial, run on hosts that
+      # have it); this proves the image.
+      - name: Self-check
+        env:
+          IMAGE: selfcheck/${{ matrix.target }}:ci
+          CLASS: ${{ matrix.class }}
+        run: |
+          docker run --rm --read-only --cap-drop=ALL --user 1000:1000 "$IMAGE" --self-check="$CLASS"
+          if docker run --rm --entrypoint /bin/sh "$IMAGE" -c true 2>/dev/null; then
+            echo "$IMAGE has a shell" >&2
+            exit 1
+          fi
+

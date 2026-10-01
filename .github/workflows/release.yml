@@ -59,6 +59,17 @@ jobs:
           - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: amd64, runner: ubuntu-24.04 }
           - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm }
           - { image: transcoder-cuda, suffix: /transcoder-cuda, dockerfile: images/Dockerfile.transcoder, target: transcoder-cuda, arch: amd64, runner: ubuntu-24.04 }
+          # The distroless transcoders (FROM scratch); named -distroless until
+          # the pools switch to them (ffgo Phase 3/4), so the live tags above
+          # are untouched.
+          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: amd64, runner: ubuntu-24.04 }
+          - { image: transcoder-distroless, suffix: /transcoder-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04 }
+          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-debug, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: transcoder-cuda-distroless, suffix: /transcoder-cuda-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-cuda, arch: amd64, runner: ubuntu-24.04 }
+          - { image: transcoder-cuda-distroless-debug, suffix: /transcoder-cuda-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-cuda-debug, arch: amd64, runner: ubuntu-24.04 }
+          - { image: transcoder-intel-distroless, suffix: /transcoder-intel-distroless, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel, arch: amd64, runner: ubuntu-24.04 }
+          - { image: transcoder-intel-distroless-debug, suffix: /transcoder-intel-distroless-debug, dockerfile: images/Dockerfile.transcoder-distroless, target: transcoder-intel-debug, arch: amd64, runner: ubuntu-24.04 }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04 }
           - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm }
     env:
@@ -152,6 +163,12 @@ jobs:
           - { image: media, suffix: /media }
           - { image: transcoder, suffix: /transcoder }
           - { image: transcoder-cuda, suffix: /transcoder-cuda }
+          - { image: transcoder-distroless, suffix: /transcoder-distroless }
+          - { image: transcoder-distroless-debug, suffix: /transcoder-distroless-debug }
+          - { image: transcoder-cuda-distroless, suffix: /transcoder-cuda-distroless }
+          - { image: transcoder-cuda-distroless-debug, suffix: /transcoder-cuda-distroless-debug }
+          - { image: transcoder-intel-distroless, suffix: /transcoder-intel-distroless }
+          - { image: transcoder-intel-distroless-debug, suffix: /transcoder-intel-distroless-debug }
           - { image: e2e-fixtures, suffix: /e2e-fixtures }
     steps:
       - name: Download digests
