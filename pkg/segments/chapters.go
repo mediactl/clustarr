@@ -57,14 +57,23 @@ func compile(p string) *regexp2.Regexp {
 }
 
 // FromChapters returns a segment, confidence 100, for each chapter whose
-// name says what it is.
-func FromChapters(ch []commonv1.Chapter) []Segment {
+// name says what it is -- trusted by kind: a movie's chapters give credits
+// only, since a film's scene names ("Opening Night", "The Last Stand") read
+// as intros and recaps, and a preview must start after the file's midpoint,
+// since a TV "Teaser" is the cold open.
+func FromChapters(ch []commonv1.Chapter, movie bool, durationMs int64) []Segment {
 	var out []Segment
 	for _, c := range ch {
 		if c.EndMillis <= c.StartMillis {
 			continue
 		}
 		for _, r := range chapterRules {
+			if movie && r.kind != catalogv1alpha1.MarkerCredits {
+				continue
+			}
+			if r.kind == catalogv1alpha1.MarkerPreview && c.StartMillis*2 < durationMs {
+				continue
+			}
 			if ok, err := r.re.MatchString(c.Title); err == nil && ok {
 				out = append(out, Segment{
 					Kind: r.kind, StartMs: c.StartMillis, EndMs: c.EndMillis,

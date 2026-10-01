@@ -26,14 +26,28 @@ import (
 )
 
 // AnalyzerVersion is recorded in status.markers.analysis.version; raise it
-// when detection changes, and every file is analyzed once more.
-const AnalyzerVersion int32 = 1
+// when detection changes, and every file is analyzed once more. 2: credits
+// reach the end past the last keyframe, the DNN is asked whenever no
+// candidate holds, chapters are trusted by kind, anime EDs end before their
+// preview (2026-10-01).
+const AnalyzerVersion int32 = 2
 
 // Segment is one detected or fetched segment.
 type Segment struct {
-	Kind       catalogv1alpha1.MarkerKind
-	StartMs    int64
-	EndMs      int64
-	Source     catalogv1alpha1.SegmentSource
-	Confidence int32
+	Kind       catalogv1alpha1.MarkerKind    `json:"kind"`
+	StartMs    int64                         `json:"startMs"`
+	EndMs      int64                         `json:"endMs"`
+	Source     catalogv1alpha1.SegmentSource `json:"source"`
+	Confidence int32                         `json:"confidence"`
+}
+
+// Record is a file's analysis as kept in the clustarr-segments bucket,
+// keyed by its MediaFile's UID: what the merge into status.markers needs
+// when TheIntroDB's side changes, and what segmentarr-worker reads to skip
+// a file already analyzed or to add an intro its season later revealed.
+type Record struct {
+	ProbeHash string    `json:"probeHash"`
+	Version   int32     `json:"version"`
+	Result    string    `json:"result"`
+	Segments  []Segment `json:"segments"`
 }

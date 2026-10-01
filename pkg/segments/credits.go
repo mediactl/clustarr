@@ -28,8 +28,9 @@ const (
 	minCreditsMs      = 15_000
 	maxEpisodeCredits = 450_000
 	maxMovieCredits   = 900_000
-	endSlackMs        = 5_000 // credits end within this of the file's end, or of a preview
-	agreeMs           = 5_000 // two signals whose starts are this close agree
+	endSlackMs        = 5_000   // credits end within this of the file's end, or of a preview
+	animePreviewMs    = 180_000 // an anime ED may end this long before the end: a preview follows
+	agreeMs           = 5_000   // two signals whose starts are this close agree
 	agreedConfidence  = 90
 	standConfidence   = 70 // a single signal stands at or above this
 	minConfidence     = 60 // below this nothing is written
@@ -40,8 +41,10 @@ const (
 // starting within 5 s agree at 90, from the earlier start; otherwise the
 // most confident single one stands at 70 or above. Credits run 15 s to 450 s
 // (900 s for a movie) and end within 5 s of the file's end, or of
-// previewStartMs when a preview follows them (0 when none does).
-func Credits(durationMs int64, movie bool, cands []Segment, previewStartMs int64) (Segment, bool) {
+// previewStartMs when a preview follows them (0 when none does). An anime
+// episode with no preview chapter may end its credits up to 3 minutes early:
+// its preview follows them (AnimePreview).
+func Credits(durationMs int64, movie, anime bool, cands []Segment, previewStartMs int64) (Segment, bool) {
 	maxMs := int64(maxEpisodeCredits)
 	if movie {
 		maxMs = maxMovieCredits
@@ -50,7 +53,8 @@ func Credits(durationMs int64, movie bool, cands []Segment, previewStartMs int64
 	for _, c := range cands {
 		n := c.EndMs - c.StartMs
 		endsRight := durationMs-c.EndMs <= endSlackMs ||
-			(previewStartMs > 0 && abs64(previewStartMs-c.EndMs) <= endSlackMs)
+			(previewStartMs > 0 && abs64(previewStartMs-c.EndMs) <= endSlackMs) ||
+			(anime && previewStartMs == 0 && durationMs-c.EndMs <= animePreviewMs)
 		if c.Kind == catalogv1alpha1.MarkerCredits && n >= minCreditsMs && n <= maxMs && endsRight {
 			valid = append(valid, c)
 		}

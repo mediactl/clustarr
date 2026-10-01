@@ -66,7 +66,7 @@ func TestChapterNames(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.title, func(t *testing.T) {
-			got := segments.FromChapters([]commonv1.Chapter{{Title: tt.title, StartMillis: 1000, EndMillis: 31000}})
+			got := segments.FromChapters([]commonv1.Chapter{{Title: tt.title, StartMillis: 1000, EndMillis: 31000}}, false, 0)
 			if !tt.ok {
 				assert.Empty(t, got)
 				return
@@ -124,7 +124,7 @@ func TestCreditsCombination(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := segments.Credits(dur, tt.movie, tt.cands, tt.preview)
+			got, ok := segments.Credits(dur, tt.movie, false, tt.cands, tt.preview)
 			if tt.want == nil {
 				assert.False(t, ok, "%+v", got)
 				return
@@ -203,4 +203,47 @@ func TestDue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { assert.Equal(t, tt.due, segments.Due(tt.mf, now)) })
 	}
+}
+
+// An anime episode's ED ends before its preview; with no preview chapter
+// the credits are accepted when they end within the last 3 minutes, and
+// the preview follows them. Anything else must still reach the end.
+func TestAnimeCreditsMayEndBeforeAPreview(t *testing.T) {
+	const dur = 1_420_000
+	ed := seg(credits, 1_300_000, 1_390_000, anal, 80)
+	got, ok := segments.Credits(dur, false, true, []segments.Segment{ed}, 0)
+	require.True(t, ok)
+	assert.Equal(t, ed, got)
+	p, ok := segments.AnimePreview(got, dur)
+	require.True(t, ok)
+	assert.EqualValues(t, 1_390_000, p.StartMs)
+
+	_, ok = segments.Credits(dur, false, false, []segments.Segment{ed}, 0)
+	assert.False(t, ok, "not anime: credits reach the end")
+	_, ok = segments.Credits(dur, false, true, []segments.Segment{seg(credits, 1_000_000, 1_100_000, anal, 80)}, 0)
+	assert.False(t, ok, "five minutes early is not an ED before a preview")
+}
+
+// Chapter names are trusted by kind: a movie's chapters give credits only
+// ("Opening Night" is a scene), and a preview chapter must lie after the
+// midpoint ("Teaser" is a cold open at the start).
+func TestChapterRulesByKind(t *testing.T) {
+	ch := []commonv1.Chapter{
+		{Title: "Opening Night", StartMillis: 0, EndMillis: 600_000},
+		{Title: "Teaser", StartMillis: 0, EndMillis: 120_000},
+		{Title: "End Credits", StartMillis: 6_600_000, EndMillis: 7_000_000},
+		{Title: "Preview", StartMillis: 6_950_000, EndMillis: 7_000_000},
+	}
+	movie := segments.FromChapters(ch, true, 7_000_000)
+	require.Len(t, movie, 1)
+	assert.Equal(t, credits, movie[0].Kind)
+
+	ep := segments.FromChapters(ch, false, 7_000_000)
+	kinds := map[catalogv1alpha1.MarkerKind]int64{}
+	for _, s := range ep {
+		kinds[s.Kind] = s.StartMs
+	}
+	assert.Contains(t, kinds, intro)
+	assert.Contains(t, kinds, credits)
+	assert.EqualValues(t, 6_950_000, kinds[preview], "only the preview after the midpoint")
 }
