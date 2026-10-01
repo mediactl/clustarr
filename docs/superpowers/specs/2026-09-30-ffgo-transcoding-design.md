@@ -341,3 +341,49 @@ apply §1, §4 and the images on it). Nothing else is lost by trying.
 - Video codecs other than HEVC, or resolution changes.
 - VideoToolbox, and non-Linux workers.
 - Re-transcoding already-transcoded files to the new standard.
+
+## Spike result (2026-09-30): go
+
+Phase 0 ran on the owner's workstation (FFmpeg 9.0.1, RTX 2070 Max-Q,
+driver 610.57.04) in the fork `mediactl/ffgo`, branch `clustarr/ffmpeg9`,
+tag `v0.0.0-clustarr.1`
+(`docs/superpowers/plans/2026-09-30-ffgo-phase0-spike.md`).
+
+1. **ffgo on FFmpeg 9.0: yes, after five fixes.** Upstream could not load
+   FFmpeg 9 on that host at all (its loader stopped at FFmpeg 7, picked
+   4.4's libavutil and panicked). Now: one release's libraries loaded,
+   newest first; struct offsets read from the shim built against the
+   loaded headers (35 of 111 Go offsets differ on FFmpeg 9, among them
+   `AVCodecContext.hw_frames_ctx`); key frames read from `AVFrame.flags`
+   (FFmpeg 9 removed `key_frame`, and every frame read as a keyframe);
+   pixel formats looked up by name; a shim used only with its own
+   release. ffgo's whole suite passes on 9.0.1 (238 tests) and on BtbN's
+   9.0.2 shared build; `ffmpeg9.yml` runs it in the fork's CI.
+2. **NVDEC → `scale_cuda` → `hevc_nvenc` in-process: yes.** 40 s of 1080p
+   H.264 (960 frames) became HEVC Main 10 with every frame, using 1.17 s
+   of CPU (the ffmpeg CLI: 1.0 s on NVDEC, 14.4 s decoding in software).
+   It took GPU frame pools on the filter graph's input and on the encoder,
+   and `HWDecoder` draining at end of file (without it, 958 of the 960
+   frames came out).
+3. **The NVIDIA container toolkit in a distroless glibc image: works, no
+   fallback needed.** On kind-cluster-plex's `nvidia` RuntimeClass, a
+   3.5 MB apko image of Wolfi's glibc and loader alone (no shell), running
+   as uid 65532 with every capability dropped, reached the GPU
+   (`cuDeviceGetCount` = 1), with and without `ldconfig` in the image.
+   libcuda printed `driverInitFileInfo ... result=11` to stderr there and
+   still initialised; Phase 2's image self-check runs NVDEC and NVENC for
+   real.
+
+**The owner's NVENC settings (2026-09-30), replacing §1's "today's
+defaults" for NVIDIA:** the archival encode
+`-hwaccel cuda -hwaccel_output_format cuda`, `scale_cuda=format=p010le`,
+`hevc_nvenc -preset p7 -rc constqp` with spatial and temporal AQ. Measured
+on the RTX 2070: under `constqp` NVENC ignores `-cq` (cq 23 and cq 30 were
+byte-identical), so the profile's `quality` maps to `-qp` (default 23);
+AQ does change the output under constqp; and `-pix_fmt p010le` on GPU
+frames fails (exit 218), so it is left off -- `scale_cuda` already makes
+10-bit surfaces. Audio stays §1's Apple TV rule rather than the command's
+`-c:a copy`. (An earlier message named preset p4 at CQ 24; the archival
+command, sent after, supersedes it.)
+
+**Decision: go.** Phases 1-5 of the plan's roadmap are planned next.
