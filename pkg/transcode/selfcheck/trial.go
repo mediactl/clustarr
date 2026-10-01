@@ -99,7 +99,7 @@ func Trial(ctx context.Context, class Class, dir string) (Report, error) {
 	if err != nil {
 		return r, fmt.Errorf("selfcheck: trial clip: %w", err)
 	}
-	defer os.Remove(clip)
+	defer func() { _ = os.Remove(clip) }()
 	r.Trials = map[string]string{}
 	var failed []string
 	for _, l := range ls {
@@ -128,7 +128,7 @@ func makeClip(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 	tb := ffgo.NewRational(1, 24)
 	enc, err := ffgo.NewVideoStreamEncoder(ffgo.VideoStreamEncoderConfig{
 		VideoEncoderConfig: ffgo.VideoEncoderConfig{
@@ -140,7 +140,7 @@ func makeClip(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer enc.Close()
+	defer func() { _ = enc.Close() }()
 	ms, err := m.AddEncoderStream(enc, ffgo.StreamOptions{})
 	if err != nil {
 		return "", err
@@ -175,12 +175,12 @@ func onDevice(t ffgo.HWDeviceType, node, clip string, gpuDecode bool, filters, e
 	if err != nil {
 		return 0, fmt.Errorf("open device: %w", err)
 	}
-	defer dev.Close()
+	defer func() { _ = dev.Close() }()
 	d, err := ffgo.NewDecoder(clip)
 	if err != nil {
 		return 0, err
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	vs := d.VideoStream()
 	dcfg := &ffgo.StreamDecoderConfig{}
 	if gpuDecode {
@@ -190,7 +190,7 @@ func onDevice(t ffgo.HWDeviceType, node, clip string, gpuDecode bool, filters, e
 	if err != nil {
 		return 0, fmt.Errorf("decoder: %w", err)
 	}
-	defer sd.Close()
+	defer func() { _ = sd.Close() }()
 
 	var (
 		graph   *ffgo.FilterGraph
@@ -199,10 +199,10 @@ func onDevice(t ffgo.HWDeviceType, node, clip string, gpuDecode bool, filters, e
 	)
 	defer func() {
 		if enc != nil {
-			enc.Close()
+			_ = enc.Close()
 		}
 		if graph != nil {
-			graph.Close()
+			_ = graph.Close()
 		}
 	}()
 	emit := func(*ffgo.Packet) error { packets++; return nil }

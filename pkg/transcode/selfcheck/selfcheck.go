@@ -133,7 +133,7 @@ func encodeX265() error {
 	if err != nil {
 		return err
 	}
-	defer enc.Close()
+	defer func() { _ = enc.Close() }()
 	n := 0
 	emit := func(*ffgo.Packet) error { n++; return nil }
 	for i := int64(0); i < 8; i++ {
@@ -163,7 +163,7 @@ func encodeAAC() error {
 	if err != nil {
 		return err
 	}
-	defer enc.Close()
+	defer func() { _ = enc.Close() }()
 	n := 0
 	emit := func(*ffgo.Packet) error { n++; return nil }
 	f, err := ffgo.NewAudioFrame(ffgo.SampleFormatFLTP, 48000, "5.1", 4800)
