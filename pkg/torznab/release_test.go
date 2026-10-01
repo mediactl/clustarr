@@ -132,12 +132,140 @@ func TestParseResultsMalformedInputNeverPanics(t *testing.T) {
 	}
 }
 
-func TestParseItemBadPubDateReturnsErrorNotPanic(t *testing.T) {
-	const body = `<item><title>x</title><guid>g</guid><pubDate>not-a-date</pubDate></item>`
+// An unreadable pubDate costs the item its date, not the item: downstream
+// (app/indexer/worker/rss.project) reads a zero PubDate as "no date" and falls
+// back to usenetdate, so keeping the release is strictly better than Sonarr's
+// skipping it.
+func TestParseItemBadPubDateKeepsTheItemWithNoDate(t *testing.T) {
+	const body = `<item><title>x</title><guid>g</guid><pubDate>not-a-date</pubDate><size>5</size></item>`
+	var r torznab.Release
 	require.NotPanics(t, func() {
-		_, err := torznab.ParseItem(strings.NewReader(body))
-		require.Error(t, err)
+		var err error
+		r, err = torznab.ParseItem(strings.NewReader(body))
+		require.NoError(t, err)
 	})
+	require.Equal(t, "x", r.Title)
+	require.True(t, r.PubDate.IsZero())
+	require.Equal(t, int64(5), r.Size)
+}
+
+// nzbgeek sends no <size> element: the size is only in
+// <newznab:attr name="size"> and <enclosure length>, so reading <size> alone
+// left every usenet release at 0 bytes -- which pkg/decision reads as
+// "unknown" and exempts from every size limit.
+func TestParseResultsNewznabSizeFromAttrThenEnclosure(t *testing.T) {
+	rels := parseResultsFile(t, "../../test/data/newznab/nzbgeek_search.xml")
+	require.Len(t, rels, 2)
+
+	require.Equal(t, "The.Godfather.1972.1080p.BluRay.DTS.x264-GRP", rels[0].Title)
+	require.Equal(t, int64(28463071232), rels[0].Size, "newznab:attr size")
+	require.Equal(t, []newznab.CategoryID{newznab.CatMovies, newznab.CatMoviesHD}, rels[0].Categories)
+	require.Equal(t, "tt0068646", rels[0].IDs["imdb"])
+	require.NotNil(t, rels[0].Grabs)
+	require.Equal(t, int32(1834), *rels[0].Grabs)
+	require.NotNil(t, rels[0].UsenetDate)
+	require.Equal(t, time.Date(2026, 9, 27, 13, 58, 40, 0, time.UTC), *rels[0].UsenetDate)
+	require.Equal(t, time.Date(2026, 9, 27, 14, 2, 11, 0, time.UTC), rels[0].PubDate)
+
+	require.Equal(t, int64(7516192768), rels[1].Size, "enclosure length, no size attr")
+}
+
+// Jackett writes <size>, <files> and <grabs> as plain elements, never as
+// torznab:attr.
+func TestParseResultsJackettPlainElements(t *testing.T) {
+	rels := parseResultsFile(t, "../../test/data/torznab/jackett_search.xml")
+	require.Len(t, rels, 1)
+	r := rels[0]
+	require.Equal(t, int64(12884901888), r.Size)
+	require.NotNil(t, r.Grabs, "<grabs> element")
+	require.Equal(t, int32(4521), *r.Grabs)
+	require.NotNil(t, r.Files, "<files> element")
+	require.Equal(t, int32(3), *r.Files)
+	require.NotNil(t, r.Seeders)
+	require.Equal(t, int32(210), *r.Seeders)
+	require.Equal(t, time.Date(2026, 9, 27, 14, 11, 12, 0, time.UTC), r.PubDate)
+}
+
+// Precedence is Sonarr's NewznabRssParser/TorznabRssParser.GetSize -- the
+// size attr, then the enclosure length -- with the non-standard <size>
+// element (which Jackett and Prowlarr both write) between them. A value that
+// does not parse, or is not positive, says nothing and falls through.
+func TestParseItemSizePrecedence(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int64
+	}{
+		{
+			name: "attr beats element and enclosure",
+			body: `<item><title>x</title><size>2</size><enclosure url="u" length="3"/><attr name="size" value="1"/></item>`,
+			want: 1,
+		},
+		{
+			name: "element beats enclosure",
+			body: `<item><title>x</title><size>2</size><enclosure url="u" length="3"/></item>`,
+			want: 2,
+		},
+		{
+			name: "enclosure alone",
+			body: `<item><title>x</title><enclosure url="u" length="3"/></item>`,
+			want: 3,
+		},
+		{
+			name: "zero attr falls through",
+			body: `<item><title>x</title><attr name="size" value="0"/><enclosure url="u" length="3"/></item>`,
+			want: 3,
+		},
+		{
+			name: "malformed attr and element fall through",
+			body: `<item><title>x</title><size>12.5GB</size><attr name="size" value="big"/><enclosure url="u" length="3"/></item>`,
+			want: 3,
+		},
+		{
+			name: "negative enclosure is unknown",
+			body: `<item><title>x</title><enclosure url="u" length="-1"/></item>`,
+			want: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := torznab.ParseItem(strings.NewReader(tc.body))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, r.Size)
+		})
+	}
+}
+
+// Indexers emit more date shapes than RFC 1123Z, and one item's unreadable
+// date must not fail the feed (Sonarr's RssParser catches per item).
+func TestParseResultsPubDateVariants(t *testing.T) {
+	rels := parseResultsFile(t, "../../test/data/torznab/pubdate_variants.xml")
+	require.Len(t, rels, 7, "a bad date costs one item its date, not the feed")
+
+	want := time.Date(2026, 9, 17, 10, 11, 12, 0, time.UTC)
+	got := map[string]time.Time{}
+	for _, r := range rels {
+		got[r.Title] = r.PubDate
+	}
+	require.Equal(t, want, got["rfc1123z"])
+	require.Equal(t, want, got["dotnet-r"])
+	require.Equal(t, want, got["dotnet-zzz"])
+	require.Equal(t, time.Date(2026, 9, 5, 10, 11, 12, 0, time.UTC), got["one-digit-day"])
+	require.Equal(t, want, got["zone-name"])
+	require.Equal(t, want, got["rfc822-ut"], "Sonarr's RemoveTimeZoneRegex path")
+	require.True(t, got["garbage"].IsZero())
+	for _, r := range rels {
+		require.Equal(t, time.UTC, r.PubDate.Location(), r.Title)
+	}
+}
+
+// usenetdate goes through the same reader as pubDate.
+func TestParseItemUsenetDateInDotNetRFormat(t *testing.T) {
+	const body = `<item><title>x</title><attr name="usenetdate" value="Wed, 17 Sep 2026 07:55:00 GMT"/></item>`
+	r, err := torznab.ParseItem(strings.NewReader(body))
+	require.NoError(t, err)
+	require.NotNil(t, r.UsenetDate)
+	require.Equal(t, time.Date(2026, 9, 17, 7, 55, 0, 0, time.UTC), *r.UsenetDate)
 }
 
 // TestParseItemMalformedNumericValuesDegradeGracefully covers the "one bad
@@ -262,10 +390,10 @@ func TestParseItemDuplicateCategoriesAreDeduped(t *testing.T) {
 }
 
 // TestParseItemMalformedEnclosureLengthDoesNotAbortParse covers the same
-// hard-abort risk in the nested wireEnclosure.Length attribute: it is
-// never surfaced on Release (there is no typed field for it), but a
-// malformed value must not prevent the rest of the item -- including
-// Link, populated from the same <enclosure> element -- from parsing.
+// hard-abort risk in the nested wireEnclosure.Length attribute: it is the
+// last source of Release.Size, and a malformed value must cost only that
+// source -- not the rest of the item, including Link, populated from the
+// same <enclosure> element.
 func TestParseItemMalformedEnclosureLengthDoesNotAbortParse(t *testing.T) {
 	const body = `<item><title>x</title><guid>g</guid>` +
 		`<enclosure url="https://tracker.example.invalid/dl/1" length="not-a-number" type="application/x-bittorrent"/>` +

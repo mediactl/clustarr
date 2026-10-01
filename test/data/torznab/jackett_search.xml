@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Shaped after Jackett's ResultPage.ToXml: <size>, <files> and <grabs> are
+  plain elements (not torznab:attr), enclosure length repeats the size, and
+  pubDate is .NET "ddd, dd MMM yyyy HH:mm:ss zzz" with the colon removed.
+  Hosts and hashes are placeholders; not a byte-for-byte recording.
+-->
+<rss version="1.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <atom:link href="http://jackett.example.invalid:9117/" rel="self" type="application/rss+xml" />
+    <title>1337x</title>
+    <description>1337X is a Public torrent site</description>
+    <link>https://1337x.example.invalid/</link>
+    <language>en-US</language>
+    <category>search</category>
+    <item>
+      <title>The Godfather 1972 1080p BluRay x264-GRP</title>
+      <guid>https://1337x.example.invalid/torrent/123456/the-godfather-1972/</guid>
+      <jackettindexer id="1337x">1337x</jackettindexer>
+      <type>public</type>
+      <comments>https://1337x.example.invalid/torrent/123456/the-godfather-1972/</comments>
+      <pubDate>Sat, 27 Sep 2026 10:11:12 -0400</pubDate>
+      <size>12884901888</size>
+      <files>3</files>
+      <grabs>4521</grabs>
+      <description />
+      <link>http://jackett.example.invalid:9117/dl/1337x/?jackett_apikey=APIKEY&amp;path=abc&amp;file=The+Godfather</link>
+      <category>2000</category>
+      <category>100042</category>
+      <enclosure url="http://jackett.example.invalid:9117/dl/1337x/?jackett_apikey=APIKEY&amp;path=abc&amp;file=The+Godfather" length="12884901888" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="2000" />
+      <torznab:attr name="category" value="100042" />
+      <torznab:attr name="seeders" value="210" />
+      <torznab:attr name="peers" value="245" />
+      <torznab:attr name="downloadvolumefactor" value="0" />
+      <torznab:attr name="uploadvolumefactor" value="1" />
+    </item>
+  </channel>
+</rss>

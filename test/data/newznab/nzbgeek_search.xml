@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Shaped after api.nzbgeek.info's t=movie answer (Newznab 1.0 RSS, extended=1):
+  no <size> element: the size rides only in <newznab:attr name="size"> and
+  <enclosure length>; <category> is the human-readable "Movies > HD" text, the
+  numeric ids only in newznab:attr. Hosts, guids and the apikey are
+  placeholders; not a byte-for-byte recording.
+-->
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+<channel>
+<atom:link href="https://api.nzbgeek.example.invalid/api" rel="self" type="application/rss+xml" />
+<title>api.nzbgeek.example.invalid</title>
+<description>api.nzbgeek.example.invalid Feed</description>
+<link>https://api.nzbgeek.example.invalid/</link>
+<language>en-gb</language>
+<newznab:response offset="0" total="2" />
+<item>
+<title>The.Godfather.1972.1080p.BluRay.DTS.x264-GRP</title>
+<guid isPermaLink="true">https://nzbgeek.example.invalid/geekseek.php?guid=0a1b2c3d4e5f60718293a4b5c6d7e8f9</guid>
+<link>https://api.nzbgeek.example.invalid/api?t=get&amp;id=0a1b2c3d4e5f60718293a4b5c6d7e8f9&amp;apikey=APIKEY</link>
+<comments>https://nzbgeek.example.invalid/geekseek.php?guid=0a1b2c3d4e5f60718293a4b5c6d7e8f9</comments>
+<pubDate>Sat, 27 Sep 2026 14:02:11 +0000</pubDate>
+<category>Movies &gt; HD</category>
+<description>The.Godfather.1972.1080p.BluRay.DTS.x264-GRP</description>
+<enclosure url="https://api.nzbgeek.example.invalid/api?t=get&amp;id=0a1b2c3d4e5f60718293a4b5c6d7e8f9&amp;apikey=APIKEY" length="28463071232" type="application/x-nzb" />
+<newznab:attr name="category" value="2000" />
+<newznab:attr name="category" value="2040" />
+<newznab:attr name="size" value="28463071232" />
+<newznab:attr name="guid" value="0a1b2c3d4e5f60718293a4b5c6d7e8f9" />
+<newznab:attr name="imdb" value="0068646" />
+<newznab:attr name="imdbtitle" value="The Godfather" />
+<newznab:attr name="imdbyear" value="1972" />
+<newznab:attr name="grabs" value="1834" />
+<newznab:attr name="usenetdate" value="Sat, 27 Sep 2026 13:58:40 +0000" />
+<newznab:attr name="group" value="alt.binaries.moovee" />
+<newznab:attr name="password" value="0" />
+</item>
+<item>
+<!-- A non-extended answer carries no size attr at all: only the enclosure's length. -->
+<title>The.Godfather.Part.II.1974.720p.BluRay.x264-GRP</title>
+<guid isPermaLink="true">https://nzbgeek.example.invalid/geekseek.php?guid=f9e8d7c6b5a4938271605f4e3d2c1b0a</guid>
+<link>https://api.nzbgeek.example.invalid/api?t=get&amp;id=f9e8d7c6b5a4938271605f4e3d2c1b0a&amp;apikey=APIKEY</link>
+<pubDate>Fri, 26 Sep 2026 09:15:00 +0000</pubDate>
+<category>Movies &gt; HD</category>
+<enclosure url="https://api.nzbgeek.example.invalid/api?t=get&amp;id=f9e8d7c6b5a4938271605f4e3d2c1b0a&amp;apikey=APIKEY" length="7516192768" type="application/x-nzb" />
+<newznab:attr name="category" value="2040" />
+</item>
+</channel>
+</rss>

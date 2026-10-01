@@ -19,9 +19,10 @@ package torznab
 
 import (
 	"encoding/xml"
-	"fmt"
 	"io"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/newznab"
@@ -89,9 +90,8 @@ type Release struct {
 // an int64, for the same reason wireItem.Size is: encoding/xml aborts the
 // ENTIRE Decode -- not just this nested struct -- the moment an attribute
 // it is unmarshaling into a numeric Go field fails strconv parsing (see
-// wireItem's doc comment). Length is not currently surfaced on Release
-// (nothing reads it), so no further parsing of it is needed here; keeping
-// it a string is enough to stop a malformed value from aborting the item.
+// wireItem's doc comment). Length is the last source of Release.Size (see
+// releaseSize), parsed there so a malformed value only loses that source.
 type wireEnclosure struct {
 	URL    string `xml:"url,attr"`
 	Length string `xml:"length,attr"`
@@ -121,6 +121,10 @@ type wireAttr struct {
 // bad value degrade -- Release.Size to 0, a bad <category> to simply being
 // skipped -- instead of failing the parse, the same graceful-degradation
 // contract every torznab:/newznab: attr already gets via parseInt32 etc.
+//
+// Grabs and Files are Jackett's: its ResultPage writes both as plain
+// elements, never as torznab:attr, so without them every Jackett release
+// lost both. They are fallbacks; an attr of the same name wins.
 type wireItem struct {
 	Title       string         `xml:"title"`
 	GUID        string         `xml:"guid"`
@@ -128,6 +132,8 @@ type wireItem struct {
 	Comments    string         `xml:"comments"`
 	PubDate     string         `xml:"pubDate"`
 	Size        string         `xml:"size"`
+	Grabs       string         `xml:"grabs"`
+	Files       string         `xml:"files"`
 	Description string         `xml:"description"`
 	Categories  []string       `xml:"category"`
 	Enclosure   *wireEnclosure `xml:"enclosure"`
@@ -148,7 +154,7 @@ func ParseItem(r io.Reader) (Release, error) {
 	if err := xml.NewDecoder(r).Decode(&wi); err != nil {
 		return Release{}, err
 	}
-	return newRelease(wi)
+	return newRelease(wi), nil
 }
 
 // ParseResults parses a whole <rss><channel> feed into its items.
@@ -160,38 +166,24 @@ func ParseResults(r io.Reader) ([]Release, error) {
 
 	rels := make([]Release, 0, len(wf.Channel.Item))
 	for _, wi := range wf.Channel.Item {
-		rel, err := newRelease(wi)
-		if err != nil {
-			return nil, err
-		}
-		rels = append(rels, rel)
+		rels = append(rels, newRelease(wi))
 	}
 	return rels, nil
 }
 
-func newRelease(w wireItem) (Release, error) {
+func newRelease(w wireItem) Release {
 	rel := Release{
 		Title: w.Title, GUID: w.GUID, Link: w.Link, CommentURL: w.Comments,
 		Description: w.Description,
 		IDs:         map[string]string{}, Attrs: map[string][]string{},
 	}
-	// A malformed <size> (e.g. a humanized string like "12.5GB") degrades
-	// to 0 rather than failing the parse -- see wireItem's doc comment.
-	if v, err := strconv.ParseInt(w.Size, 10, 64); err == nil {
-		rel.Size = v
-	}
-	if w.PubDate != "" {
-		t, err := time.Parse(time.RFC1123Z, w.PubDate)
-		if err != nil {
-			return Release{}, fmt.Errorf("torznab: pubDate %q: %w", w.PubDate, err)
-		}
-		// Normalized to UTC (rather than kept in whatever fixed-offset
-		// zone time.Parse constructed) so two independently parsed
-		// occurrences of the same instant -- as WriteResults' round trip
-		// produces -- are reflect.DeepEqual, not just Equal(): they share
-		// the single time.UTC *Location instead of two structurally
-		// separate zones that happen to both mean "+0000".
-		rel.PubDate = t.UTC()
+	// An unreadable pubDate leaves PubDate zero -- "no date", which
+	// app/indexer/worker/rss's projection already passes on as absent (and
+	// then falls back to usenetdate) -- rather than failing the item, let
+	// alone the feed. Sonarr's RssParser skips such an item; keeping it
+	// with no date loses nothing a skip would keep.
+	if t, ok := parseDate(w.PubDate); ok {
+		rel.PubDate = t
 	}
 	for _, c := range w.Categories {
 		// A non-numeric <category> (e.g. a slug like "tv/hd" some
@@ -213,13 +205,94 @@ func newRelease(w wireItem) (Release, error) {
 		rel.Attrs[a.Name] = append(rel.Attrs[a.Name], a.Value)
 		applyAttr(&rel, a.Name, a.Value)
 	}
+	rel.Size = releaseSize(w, rel.Attrs["size"])
+	if rel.Grabs == nil {
+		rel.Grabs = parseInt32(strings.TrimSpace(w.Grabs))
+	}
+	if rel.Files == nil {
+		rel.Files = parseInt32(strings.TrimSpace(w.Files))
+	}
 	if len(rel.IDs) == 0 {
 		rel.IDs = nil
 	}
 	if len(rel.Attrs) == 0 {
 		rel.Attrs = nil
 	}
-	return rel, nil
+	return rel
+}
+
+// releaseSize picks an item's size in bytes from, in order: the
+// torznab:/newznab: "size" attr, the <size> element, and the enclosure's
+// length. The attr-then-enclosure order is Sonarr's and Prowlarr's
+// NewznabRssParser/TorznabRssParser.GetSize, and the attr is the one the
+// Torznab spec makes mandatory (docs/research/indexers.md §4.3); Sonarr
+// reads no <size> element at all, but Jackett and Prowlarr both write one
+// equal to their enclosure length, so it sits between the two. Newznab
+// indexers such as nzbgeek send no <size>, only the attr and the
+// enclosure, which is why reading <size> alone left every usenet release
+// at 0 bytes. A value that does not parse (a humanized "12.5GB") or is not
+// positive says nothing and the next source is asked; 0 means unknown,
+// which pkg/decision exempts from size limits.
+func releaseSize(w wireItem, attrs []string) int64 {
+	candidates := append([]string{}, attrs...)
+	candidates = append(candidates, w.Size)
+	if w.Enclosure != nil {
+		candidates = append(candidates, w.Enclosure.Length)
+	}
+	for _, c := range candidates {
+		if v, err := strconv.ParseInt(strings.TrimSpace(c), 10, 64); err == nil && v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// dateLayouts are the pubDate/usenetdate shapes indexers emit. Go's "2"
+// reads a one- or two-digit day, and a fractional second after the seconds
+// is accepted without a layout of its own.
+var dateLayouts = []string{
+	"Mon, 2 Jan 2006 15:04:05 -0700",  // RFC 1123Z / RFC 2822: Newznab, Jackett
+	"Mon, 2 Jan 2006 15:04:05 -07:00", // .NET "zzz" left with its colon
+	"Mon, 2 Jan 2006 15:04:05 MST",    // RFC 1123 and .NET "r" ("GMT")
+	"Mon, 2 Jan 2006 15:04:05",
+	"Mon, 2 Jan 06 15:04:05 -0700",
+	"Mon, 2 Jan 06 15:04:05 MST",
+	"2 Jan 2006 15:04:05 -0700",
+	"2 Jan 2006 15:04:05 MST",
+	"2 Jan 2006 15:04:05",
+	"2 Jan 06 15:04 -0700", // RFC 822Z
+	"2 Jan 06 15:04 MST",   // RFC 822
+	time.RFC3339,
+	"2006-01-02 15:04:05",
+}
+
+// trailingZoneName is Sonarr's XElementExtensions.RemoveTimeZoneRegex: a
+// trailing zone abbreviation Go's "MST" will not read (it needs three
+// letters, so RFC 822's "UT" fails) is stripped and the rest read as UTC.
+var trailingZoneName = regexp.MustCompile(`\s[A-Z]{2,4}$`)
+
+// parseDate reads s as any of dateLayouts, false when none fits (or s is
+// blank). It follows Sonarr's XElementExtensions.ParseDate: a date with no
+// zone, or a zone abbreviation with no fixed meaning ("EST", "PDT"), is
+// read as UTC (AssumeUniversal) -- parsing in time.UTC rather than the
+// host's zone keeps that independent of where the pod runs. The result is
+// in time.UTC, so two parses of one instant -- as WriteResults' round trip
+// produces -- are reflect.DeepEqual, not just Equal(): they share the
+// single time.UTC *Location instead of two structurally separate zones
+// that both mean "+0000".
+func parseDate(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, candidate := range []string{s, trailingZoneName.ReplaceAllString(s, "")} {
+		for _, layout := range dateLayouts {
+			if t, err := time.ParseInLocation(layout, candidate, time.UTC); err == nil {
+				return t.UTC(), true
+			}
+		}
+	}
+	return time.Time{}, false
 }
 
 // applyAttr maps one torznab:/newznab: attr onto rel's typed fields. Names
@@ -282,9 +355,8 @@ func applyAttr(rel *Release, name, value string) {
 	case "info":
 		rel.Info = value
 	case "usenetdate":
-		if t, err := time.Parse(time.RFC1123Z, value); err == nil {
-			u := t.UTC() // see the PubDate comment in newRelease for why
-			rel.UsenetDate = &u
+		if t, ok := parseDate(value); ok {
+			rel.UsenetDate = &t
 		}
 	case "password":
 		rel.Password = parseInt32(value)
