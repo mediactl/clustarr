@@ -100,12 +100,12 @@ func TestParity(t *testing.T) {
 			require.NoError(t, err)
 			info.Path = clip
 
-			argvOut, argvSecs, argvDecision := filepath.Join(out, class+".argv.mkv"), 0.0, "skip"
+			argvOut, argvSecs := filepath.Join(out, class+".argv.mkv"), 0.0
 			ap, err := transcode.Plan(info, argvProfile, caps, transcode.PlanMeta{
 				ProfileName: "hevc-mkv", ProfileHash: "parity", Threads: 4, OutputPath: argvOut,
 			})
 			require.NoError(t, err)
-			argvDecision = string(ap.Decision)
+			argvDecision := string(ap.Decision)
 			if ap.Decision == transcode.DecisionEncode || ap.Decision == transcode.DecisionRemuxOnly {
 				start := time.Now()
 				if err := transcode.NewRunner("ffmpeg").Run(ctx, ap, func(transcode.Progress) {}); err != nil {
