@@ -71,25 +71,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // nothing, so that test, not an e2e assertion, is what actually establishes
 // the recipe works.
 //
-// Deliberately NOT reused here: the source this scenario needs is one a
-// TranscodeProfile's Go-zero-value (CRD-defaulted) policy decides to
-// actually ENCODE, so the real worker Job path gets exercised. The
-// suite's ordinary probe clip (test/fixtures/seed.ClipName) is h264/AAC,
-// which the profile's hevc/yuv420p10le default never finds compliant.
-// The HDR10 clip, by contrast, IS already HEVC 10-bit -- exactly what
-// squasharr transcodes files TO (CLAUDE.md: "Transcode to HEVC 10-bit +
-// AAC") -- so a profile with the same codec/pixel-format defaults would plan
-// a remux or a skip against it (policy.skipIfCompliant,
-// policy.remuxOnlyWhenVideoCompliant, both CRD-default true), not the real
-// encode this scenario exists to prove end to end. Using it here would also
-// need an audio track (the HDR10 clip is video-only, a single lavfi source,
-// and pkg/transcode's planner works from real streams), further diverging
-// this scenario from the thing it is actually testing.
+// Deliberately NOT reused here: the source this scenario needs is one the
+// standard (pkg/transcode/standard, ffgo spec §1) decides to actually
+// ENCODE, so the real worker path gets exercised. The suite's ordinary
+// probe clip (test/fixtures/seed.ClipName) is H.264/AAC at 640x480, which
+// the standard encodes to HEVC Main (8-bit: SDR at 1080p or less). The
+// HDR10 clip, by contrast, IS already HEVC 10-bit -- what the standard
+// writes for HDR -- so it would be skipped ("already HEVC Main 10"), not
+// encoded. It is also video-only, a single lavfi source.
 //
 // # Dolby Vision
 //
 // Cannot be synthesized with ffmpeg alone -- see
 // TestTranscodeDolbyVisionSkipped's own doc comment.
+//
+// # The standard, in-process (ffgo Phase 5)
+//
+// Since 2026-10-01 a TranscodeProfile names no encoder settings: it picks
+// files, a container, a quality and the audio languages, and the standard
+// decides the rest; the worker runs it in-process on FFmpeg 9's libraries,
+// and the transcoder image carries no ffmpeg executable. This scenario
+// asserts the standard's plan (engine ffgo, a plan hash), its 8-bit target,
+// the CLUSTARR_PROFILE tag the output carries, and that a later profile
+// edit -- a new status.hash -- queues nothing for the transcoded file.
 //
 // # Extending download scenario 1
 //
@@ -197,7 +201,7 @@ const (
 	// another scenario -- squasharr is the only component that creates
 	// TranscodeJobs, and this file's two scenarios are the only ones that
 	// create TranscodeProfiles), then squasharr's worker actually running
-	// ffmpeg (x265, the profile's CRD-default "slow" preset) against the
+	// the in-process engine (libx265 at the standard's CPU settings) against the
 	// suite's ten-second 640x480 probe clip, verifying the output and
 	// swapping it over the source (R5: hard-link the original into the
 	// recycle bin, then rename the output over the source path). A
@@ -246,10 +250,11 @@ const (
 // app/squash/controller/transcodejob/controller.go's plan() waits on exactly
 // this field too).
 //
-// container overrides the CRD's own "mkv" default; every other field is
-// left at its Go zero value, relying on the real apiserver's
-// structural-schema defaulting for every leaf field that has one
-// (Video.Codec="hevc" and siblings, Policy.*, Verify.*) -- the same reliance
+// container overrides the CRD's own "mkv" default, and policy.minDuration
+// is 0s: the CRD's 1m default would skip the suite's ten-second clip as an
+// extra. Every other field is left at its Go zero value, relying on the
+// real apiserver's structural-schema defaulting for every leaf field that
+// has one (the rest of Policy) -- the same reliance
 // newRootFolder/newIndexer/newMovie already place on CRD defaults
 // throughout this suite for a typed client Create against a REAL apiserver
 // (kind's, here; envtest's elsewhere), as opposed to a fake client, which
@@ -275,6 +280,7 @@ func newTranscodeProfile(
 			}},
 			Container: container,
 			Hardware:  transcodev1alpha1.HardwareCPU,
+			Policy:    transcodev1alpha1.PolicySpec{MinDuration: &metav1.Duration{}},
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, tp))
@@ -603,7 +609,7 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 		})
 	})
 
-	newTranscodeProfile(ctx, t, "e2e-tj-profile", 2160, commonv1.SourceWebDL, transcodev1alpha1.ContainerMKV)
+	tp := newTranscodeProfile(ctx, t, "e2e-tj-profile", 2160, commonv1.SourceWebDL, transcodev1alpha1.ContainerMKV)
 
 	tj := waitForTranscodeJobForMediaFile(ctx, t, Namespace, mf.Name)
 	tjKey := client.ObjectKeyFromObject(&tj)
@@ -616,7 +622,9 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 	planned := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobPlannedTimeout, transcodev1alpha1.TranscodeJobPhasePlanned)
 	require.NotNil(t, planned.Status.Plan)
 	require.Equal(t, transcodev1alpha1.PlanModeTranscode, planned.Status.Plan.Mode,
-		"an h264 source under the profile's hevc default must plan a real encode, not a skip or remux")
+		"an h264 source must plan a real encode under the standard, not a skip or remux")
+	require.Equal(t, "ffgo", planned.Status.Plan.Engine, "every plan is the standard's, run in-process")
+	require.NotEmpty(t, planned.Status.Plan.PlanHash)
 
 	// §7: the job's task went to its profile's pool, which scaled up from
 	// zero. status.jobRef names the pool Job -- squasharr dispatches to a
@@ -683,7 +691,29 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 	require.NotEmpty(t, swapped.Status.Transcode.ProfileTag)
 	require.NotNil(t, swapped.Status.MediaInfo)
 	require.Equal(t, "hevc", swapped.Status.MediaInfo.VideoCodec, "the re-probe must read the transcoded output's real codec")
-	require.EqualValues(t, 10, swapped.Status.MediaInfo.VideoBitDepth, "the profile's default pixelFormat is yuv420p10le")
+	require.EqualValues(t, 8, swapped.Status.MediaInfo.VideoBitDepth,
+		"the standard encodes SDR at 1080p or less to HEVC Main, 8-bit (transcode.EightBitTarget)")
+	require.Equal(t, tp.Name+"@"+tp.Status.Hash, swapped.Status.MediaInfo.TranscodeProfile,
+		"the output carries the profile's CLUSTARR_PROFILE tag, which the re-probe reads")
+	require.True(t, swapped.Transcoded(), "a transcoded file is final")
+
+	// A profile edit gives the profile a new status.hash, and re-transcodes
+	// nothing (spec §5): the transcoded file gets no second job.
+	var live transcodev1alpha1.TranscodeProfile
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(tp), &live))
+	oldHash := live.Status.Hash
+	live.Spec.Quality = ptr.To[int32](30)
+	require.NoError(t, k8sClient.Update(ctx, &live))
+	waitFor(t, ctx, transcodeProfileReadyTimeout, "TranscodeProfile "+tp.Name+" rehashed after the edit",
+		func(ctx context.Context) (bool, error) {
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(tp), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return live.Status.Hash != "" && live.Status.Hash != oldHash && live.Status.ObservedGeneration == live.Generation, nil
+		}, describeTranscodeProfile(client.ObjectKeyFromObject(tp)))
+	require.Len(t, transcodeJobsForMediaFile(ctx, t, Namespace, mf.Name), 1,
+		"a new hash plans nothing for a file already transcoded")
 
 	// The pipeline page reflects the transcode stage. pkg/pipeline.Project
 	// (project.go) reaches StageComplete, not StageTranscodeDone, once
@@ -791,9 +821,9 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 }
 
 // TestTranscodeDolbyVisionSkipped documents, rather than exercises, Dolby
-// Vision handling (ruling R1: a reject decision -- DolbyVisionMode=reject,
-// or DolbyVisionMode=passthrough with no VBV limits set -- lands as phase
-// Skipped with status.plan left unset, as any Skipped decision does).
+// Vision handling. Under the standard (ffgo spec §1) Dolby Vision 7 and
+// 8.1 are encoded as HDR10 from their base layer, with the RPU dropped; a
+// profile has no Dolby Vision setting any more.
 //
 // Dolby Vision cannot be synthesized with ffmpeg alone: it needs an RPU (a
 // "DOVI configuration record" the encoder embeds), which only a tool like
@@ -809,20 +839,19 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 // 5 or 7, or a BLSignalCompatibilityID of 1/2/4) would mean hand-crafting
 // real HEVC SEI bytes -- not a fixture, a codec implementation.
 //
-// pkg/transcode.Plan's DecisionReject path and
-// app/squash/controller/transcodejob's handling of it (ReasonRejected,
-// phase Skipped, status.plan unset) are exercised by pkg/transcode's own
-// unit and golden tests instead, against hand-authored MediaInfo, not a
-// real file -- see pkg/transcode/plan_test.go.
+// The standard's Dolby Vision plans are exercised by
+// pkg/transcode/standard's unit tests against hand-authored MediaInfo, by
+// app/squash/controller/transcodejob's TestTheStandardEncodesDolbyVisionOnTheProfilesGPU,
+// and by the parity harness (test/parity) over real Dolby Vision clips from
+// the owner's library.
 func TestTranscodeDolbyVisionSkipped(t *testing.T) {
 	t.Skip("Dolby Vision cannot be synthesized with ffmpeg alone: it needs an RPU " +
 		"(e.g. from dovi_tool), which this task deliberately does not add. " +
 		"pkg/mediainfo/ffprobe_test.go's doviStreamsJSON fixture already records that this box's " +
 		"ffmpeg refuses -dolbyvision without a real master (\"Dolby Vision requires VBV settings\"), " +
-		"and there is no real Dolby Vision RPU to encode even if it did not. Ruling R1 " +
-		"(docs/superpowers/plans/2026-09-23-phase-e-transcode.md) and " +
-		"app/squash/controller/transcodejob's DecisionReject handling are exercised instead by " +
-		"pkg/transcode's own unit and golden tests, against hand-authored MediaInfo, not a real file.")
+		"and there is no real Dolby Vision RPU to encode even if it did not. The standard's " +
+		"Dolby Vision plans are exercised instead by pkg/transcode/standard's unit tests and by the " +
+		"parity harness (test/parity) over real clips.")
 }
 
 // TestDownloadScenario1TranscodeLeg is scenario 1's transcode leg
@@ -904,7 +933,7 @@ func TestDownloadScenario1TranscodeLeg(t *testing.T) {
 	planned := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobPlannedTimeout, transcodev1alpha1.TranscodeJobPhasePlanned)
 	require.NotNil(t, planned.Status.Plan)
 	require.Equal(t, transcodev1alpha1.PlanModeTranscode, planned.Status.Plan.Mode,
-		"the baked probe clip (h264/AAC) under the profile's hevc default must plan a real encode, not a skip or remux")
+		"the baked probe clip (h264/AAC) must plan a real encode under the standard, not a skip or remux")
 
 	succeeded := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseSucceeded)
 	require.NotNil(t, succeeded.Status.Result)

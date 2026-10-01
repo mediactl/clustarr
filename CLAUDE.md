@@ -56,36 +56,40 @@ after `--job-retention` (24h) once its MediaFile was re-probed (catalogarr
 reads the Succeeded job to incorporate the swap, so it must outlive that);
 a SubtitleRequest exists only for a probed file a subtitle may be wanted for
 (`subtitlerequest.MayWant`, the request controller's own planner on the
-tagged audio). Plans honour the encoding device's own limits: a pool worker
-measures its encoder by trial encodes (`transcode.ProbeLimits`; hevc_nvenc
-names its maximum B-frames and clips its lookahead), plans
-min(profile, limit) with each clamp in the Planned message, and publishes
-the node's limits to `clustarr-progress` `encoder-limits.<class>`, which the
-controller plans with and TranscodeProfile `status.encoderLimits` shows.
-NVENC caps its bitrate at `video.nvenc.maxBitratePercent` (70) of the
-source's, read from the probe summary's `videoBitrateKbps` (mkvmerge's BPS
-tag for Matroska). The NVENC tier decodes on NVDEC (2026-09-30, `pkg/transcode/nvdec.go`):
-`-hwaccel cuda -hwaccel_output_format cuda`, `scale_cuda=format=p010le` in place of
-`-pix_fmt p010le`, and `-extra_hw_frames` sized for the lookahead and B-frames, so no
-frame leaves GPU memory (an x264 source went from 14.4 s to 1.0 s of CPU on an RTX
-2070 Max-Q). Only a source NVDEC decodes takes it -- each pool worker measures that
-by trial decodes (`transcode.ProbeDecoders`, published with its encoder limits as
-`nvdec` and shown in `status.encoderLimits[].nvdec`), else a static Turing list --
-because with frames pinned to the GPU, ffmpeg's silent software fallback hands
-`scale_cuda` frames it refuses (H.264 Hi10P exits 218); anything else decodes on the
-CPU as before. HDR tags stay a `setparams` filter, after `scale_cuda`: `-color_*`
-output options lost primaries and transfer to a source whose frames carry them as
-unknown. A pool pod running the in-process engine (`--worker-engine=ffgo`) measures its
-own device at start through ffgo (`inprocess.Engine.Measure`, 2026-10-01), takes no
-work while it is unusable, and publishes `healthy` beside its limits; no work goes to
-a GPU class whose every fresh report is unhealthy. That engine lives in
+tagged audio). **Every transcode is the fixed standard, run in-process**
+(2026-10-01, `docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md`
+and its "As built" section): `pkg/transcode/standard.Plan` decides (HEVC
+Main 10, or Main 8-bit for SDR at 1080p or less; Apple TV direct-play
+audio -- AAC, AC-3, E-AC-3 -- copied, anything else to AAC; every
+subtitle, attachment and chapter kept; Dolby Vision 7/8.1 as HDR10) and
+`pkg/transcode/engine` runs it on FFmpeg 9's libraries through the ffgo
+fork (`github.com/mediactl/ffgo`, tags `v0.0.0-clustarr.N`). There is no
+argv engine, no `--worker-engine`, and no `ffmpeg` or `ffprobe` in the
+transcoder image (`TestTheWorkerNeverExecsFFmpeg`,
+`TestTheTranscoderImageCarriesNoFFmpegExecutable`). A TranscodeProfile
+names no encoder setting: `quality`, `container`, `audio.languages` and
+`policy.neverTranscodeModifiers` are the standard's inputs, and with
+`standard.Version` the only things `status.hash` covers. **A new hash
+re-transcodes nothing**: the profile controller skips a file that is
+`MediaFile.Transcoded()` or already has an open job of the profile, and
+the standard skips any `CLUSTARR_PROFILE`-tagged file. Raise
+`standard.Version` when the standard's output changes, so untranscoded
+files plan under it. The NVENC tier decodes on NVDEC, frames staying on
+the GPU, for a source each pool worker's trial decodes (published as
+`clustarr-progress` `encoder-limits.<class>` `nvdec`, shown in
+TranscodeProfile `status.encoderLimits[].nvdec`) or else a static Turing
+list say NVDEC decodes; anything else decodes on the CPU and uploads. A
+pool pod measures its own device at start through ffgo
+(`inprocess.Engine.Measure`), takes no work while it is unusable, and
+publishes `healthy` beside its limits; no work goes to a GPU class whose
+every fresh report is unhealthy. That engine lives in
 `app/squash/worker/inprocess`, imported only by `cmd/squasharr-worker`: `cmd/clustarr`
 must never link ffgo or purego, which make it a dynamic binary the distroless controller
-image cannot start (`TestClustarrNeverLinksADynamicLoader`). `audio.copyCodecs` (`aac`, `ac3`, `eac3`) copies those tracks instead of
-re-encoding them, and counts them compliant; empty re-encodes every track.
+image cannot start (`TestClustarrNeverLinksADynamicLoader`).
 **There is no CUDA image** (2026-10-01, `docs/adr/0015-no-cuda-image.md`):
 every pool, nvidia's included, runs the one image `--worker-image` names
-(chart `image.transcoder`). ffmpeg `dlopen`s `libcuda`, `libnvidia-encode`
+(chart `image.transcoder`, built `FROM scratch` by `images/Dockerfile.transcoder`).
+FFmpeg's libraries `dlopen` `libcuda`, `libnvidia-encode`
 and `libnvcuvid`, which the NVIDIA container runtime injects from the host
 into a pod with `runtimeClassName: nvidia`, an `nvidia.com/gpu` request and
 `NVIDIA_DRIVER_CAPABILITIES=video,compute,utility` -- all three set by

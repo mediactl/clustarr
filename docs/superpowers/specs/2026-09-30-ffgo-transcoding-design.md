@@ -238,6 +238,10 @@ keeps it as upstream has it.
 
 ### API
 
+(As built: the owner's cut of 2026-10-01 kept more than this list, and a
+transcoded file is skipped under any hash -- see "As built (2026-10-01):
+Phase 5" at the end.)
+
 Pre-alpha, so `TranscodeProfile` shrinks in place. Its spec becomes:
 
 - `selector`;
@@ -440,7 +444,8 @@ command, sent after, supersedes it.)
 ## Amendment (2026-10-01): images from `scratch`, not Wolfi
 
 The owner replaced §5 "Images" during Phase 2: no Wolfi, apko or melange.
-Each image is a multi-stage Docker build (`images/Dockerfile.transcoder-distroless`):
+Each image is a multi-stage Docker build (`images/Dockerfile.transcoder-distroless`,
+renamed `images/Dockerfile.transcoder` in Phase 5):
 
 - FFmpeg 9.0 comes from BtbN's shared GPL build (the source today's image
   already uses: NVENC/NVDEC, CUDA filters, VAAPI and QSV), and the ffgo shim
@@ -456,3 +461,78 @@ Each image is a multi-stage Docker build (`images/Dockerfile.transcoder-distrole
   `-debug` twins add a static busybox.
 
 The image names, classes, self-check and CI gate of §5 are unchanged.
+
+## As built (2026-10-01): Phase 5
+
+Plan `docs/superpowers/plans/2026-10-01-ffgo-phase5-switch.md`; its ledger
+holds every ruling. Where this section and §5 disagree, this section is
+what the code does.
+
+**API.** The owner chose the cut on 2026-10-01: drop the encoding knobs
+only. Removed: `video.*`, `hdr.*`, `subtitles.*`, `verify.*`, every
+`audio.*` but `languages`, and `policy.skipIfCompliant` /
+`policy.remuxOnlyWhenVideoCompliant`, with their types (`VideoSpec`,
+`CRFTable`, `NVENCSpec`, `QSVSpec`, `SubSpec`, `HDRSpec`, `VerifySpec`
+and the three mode enums). Kept: `selector`, `default`, `priority`,
+`hardware`, `gpu`, `resources`, `scratch`, `activeDeadline`,
+`ttlSecondsAfterFinished`, `maxConcurrent`, `chunking` (CEL-forced off,
+ruling R-1), `container`, `quality`, `audio.languages`, and `policy`'s
+`neverTranscodeModifiers`, `minDuration`, `maxOutputToSourcePercent`,
+`replaceSource` and `recycleBin`. The apiserver prunes the removed fields
+from a stored profile (`TestAStoredProfileWithRemovedFieldsStillReconciles`).
+`quality` keeps no CRD default and reads as 24 when unset. `status.plan`
+carries the standard's plan (`engine: ffgo`, `planHash`); `videoArgs`,
+`argsHash` and `encoderLimits[].maxBFrames`/`maxLookahead` are gone.
+
+**Hash.** `status.hash` is `app/squash/worker.ProfileHash`: sha256 of
+`quality` (unset as 24), `container` (unset as mkv), `audio.languages`,
+`policy.neverTranscodeModifiers` and `pkg/transcode/standard.Version` (1).
+Nothing else moves it (`TestTheHashCoversOnlyTheStandardsInputs` walks
+every spec field). The cut gave every profile a new hash, and a later
+`standard.Version` will again; neither re-transcodes anything, because
+"already transcoded" is any transcode, not this hash's:
+
+- the TranscodeProfile controller skips a file that is
+  `MediaFile.Transcoded()` (`spec.original` false, any `CLUSTARR_PROFILE`
+  the probe read, another tool's HEVC/AV1 encode) or carries this
+  profile's `status.transcode.profileTag` under any hash, and a file that
+  already has an open job of the profile under any hash -- such a job runs
+  under the current hash, since the task carries the profile's
+  `status.hash` (`TestANewHashRequeuesNothingTranscoded`,
+  `TestAProfileEditLeavesAnOpenJobAlone`);
+- the standard skips any file with a `CLUSTARR_PROFILE` tag ("already
+  transcoded"), and the TranscodeJob planner passes it the tag catalogarr
+  recorded whatever its hash.
+
+So re-transcoding a library is a deliberate act (delete the file's record
+or its tag), never the side effect of an edit or an upgrade.
+
+**Engine.** The argv engine is deleted: `pkg/transcode`'s argv planner,
+`Args`, runner, CLI verifier and ffmpeg capability probes; the worker's
+`argvJob`, `CheckFFmpeg` and binary limits cache; `--worker-engine` and
+`CLUSTARR_WORKER_ENGINE` (the chart's `squasharr.workerEngine` is accepted
+and ignored). A job recorded with an argv plan is re-planned at dispatch.
+The worker probes in-process (`inprocess.Probe` fills `mediainfo.Raw` from
+ffgo, agreeing with ffprobe field for field but codec profile names; a
+stream's frame rate is its average). `TestTheWorkerNeverExecsFFmpeg`
+bans `os/exec` and the ffprobe-backed probes under `app/squash`,
+`pkg/transcode` and `cmd/squasharr-worker`. Two engine races were found
+under a 64-way stress test and fixed: a stage closed its encoder before
+the muxer had read its parameters (the muxer now writes the header before
+any stage may finish), and ffgo's `avfilter_graph_create_filter` binding
+passed its strings as `uintptr`, so concurrent graphs read freed memory
+(fork tag `v0.0.0-clustarr.9`; tags .6-.8 added `StartTime`, the probe's
+names and colour, and `StreamInfo.BitRate`).
+
+**Images.** `images/Dockerfile.transcoder-distroless` became
+`images/Dockerfile.transcoder`, its images `transcoder` and
+`transcoder-debug`; the Wolfi-based `transcoder` that carried the
+`ffmpeg` executable is deleted. No `ffmpeg` or `ffprobe` is staged:
+`stage.sh` refuses either, and `TestTheTranscoderImageCarriesNoFFmpegExecutable`
+holds the Dockerfile and `stage.sh` to it. The media image keeps ffprobe
+for catalogarr's and importarr's probes.
+
+**Testing.** e2e scenario 12 (`test/e2e/transcode_test.go`) asserts the
+standard's plan, the 8-bit target for its SDR clip, the output's tag and
+that a profile edit queues nothing for the transcoded file; like every
+scenario since Phase C it is written and not yet run on kind (Phase H).
