@@ -4165,6 +4165,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.Chapter
+  map:
+    fields:
+    - name: endMillis
+      type:
+        scalar: numeric
+    - name: startMillis
+      type:
+        scalar: numeric
+    - name: title
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.HdrFormat
   scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaInfo
@@ -4178,6 +4190,12 @@ var schemaYAML = typed.YAMLObject(`types:
         list:
           elementType:
             namedType: com.github.mediactl.clustarr.api.common.v1alpha1.AudioStream
+          elementRelationship: atomic
+    - name: chapterList
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Chapter
           elementRelationship: atomic
     - name: chapters
       type:

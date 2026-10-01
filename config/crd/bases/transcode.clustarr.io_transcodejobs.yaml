@@ -432,6 +432,35 @@ spec:
                           type: object
                         maxItems: 64
                         type: array
+                      chapterList:
+                        description: |-
+                          ChapterList is the file's chapters, at most the first 64, in file
+                          order: segment detection reads their names (pkg/segments).
+                        items:
+                          description: |-
+                            Chapter is one chapter of a media file, its times in milliseconds from the
+                            file's start.
+                          properties:
+                            endMillis:
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            startMillis:
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            title:
+                              description: Title is the chapter's name, cut to 128
+                                bytes.
+                              maxLength: 128
+                              type: string
+                          required:
+                          - endMillis
+                          - startMillis
+                          type: object
+                        maxItems: 64
+                        type: array
+                        x-kubernetes-list-type: atomic
                       chapters:
                         description: Chapters is the number of chapters.
                         format: int32

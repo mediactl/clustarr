@@ -19,6 +19,7 @@ package mediainfo
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 
@@ -85,6 +86,7 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 		}
 	}
 	mi.Chapters = int32(len(raw.Chapters))
+	mi.ChapterList = chapterList(raw.Chapters)
 	mi.TranscodeProfile = transcodeProfile(raw)
 	return mi
 }
@@ -140,8 +142,54 @@ func FormatTag(raw *Raw, key string) string {
 // something it did not before: every file probed by an older version is
 // probed once more, with its probeHash unchanged. 1 added videoEncoder
 // (2026-09-29); 2 derives videoBitrateKbps for Matroska, whose streams carry
-// no bit_rate (2026-09-30).
-const ProbeVersion int32 = 2
+// no bit_rate (2026-09-30); 3 records chapter titles and times
+// (chapterList, 2026-10-01), which segment detection reads.
+const ProbeVersion int32 = 3
+
+// MaxChapters and MaxChapterTitle are MediaInfo.ChapterList's MaxItems and
+// Chapter.Title's MaxLength.
+const (
+	MaxChapters     = 64
+	MaxChapterTitle = 128
+)
+
+// chapterList is the first MaxChapters chapters, titles cut to
+// MaxChapterTitle bytes on a rune boundary.
+func chapterList(chs []*ffprobe.Chapter) []commonv1.Chapter {
+	if len(chs) == 0 {
+		return nil
+	}
+	out := make([]commonv1.Chapter, 0, min(len(chs), MaxChapters))
+	for _, c := range chs {
+		if c == nil {
+			continue
+		}
+		if len(out) == MaxChapters {
+			break
+		}
+		title := ""
+		if c.TagList != nil {
+			title, _ = c.TagList.GetString("title")
+		}
+		out = append(out, commonv1.Chapter{
+			Title:       clipRunes(title, MaxChapterTitle),
+			StartMillis: max(c.StartTime().Milliseconds(), 0),
+			EndMillis:   max(c.EndTime().Milliseconds(), 0),
+		})
+	}
+	return out
+}
+
+// clipRunes cuts s to at most n bytes without splitting a rune.
+func clipRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
 
 // videoBitrateKbps is video stream v's average bitrate: its bit_rate, else
 // mkvmerge's BPS statistics tag (a Matroska stream carries no bit_rate), else

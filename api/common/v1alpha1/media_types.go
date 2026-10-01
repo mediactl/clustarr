@@ -239,6 +239,13 @@ type MediaInfo struct {
 	// +optional
 	Chapters int32 `json:"chapters,omitempty"`
 
+	// ChapterList is the file's chapters, at most the first 64, in file
+	// order: segment detection reads their names (pkg/segments).
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	ChapterList []Chapter `json:"chapterList,omitempty"`
+
 	// TranscodeProfile is the file's CLUSTARR_PROFILE container tag,
 	// "<profile>@<hash>", which squasharr stamps into every file it writes
 	// (pkg/transcode.Args). Empty when the file carries no such tag. Read
@@ -261,4 +268,17 @@ type MediaInfo struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	VideoEncoder string `json:"videoEncoder,omitempty"`
+}
+
+// Chapter is one chapter of a media file, its times in milliseconds from the
+// file's start.
+type Chapter struct {
+	// Title is the chapter's name, cut to 128 bytes.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	Title string `json:"title,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	StartMillis int64 `json:"startMillis"`
+	// +kubebuilder:validation:Minimum=0
+	EndMillis int64 `json:"endMillis"`
 }

@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -125,7 +126,27 @@ func loadProbe(t *testing.T, name string) *Raw {
 	require.NoError(t, err)
 	var pd ffprobe.ProbeData
 	require.NoError(t, json.Unmarshal(b, &pd))
-	return &Raw{Format: pd.Format, Streams: pd.Streams}
+	return &Raw{Format: pd.Format, Streams: pd.Streams, Chapters: pd.Chapters}
+}
+
+// TestMapRecordsChapterTitlesAndTimes: segment detection reads chapter
+// names (Opening, Previously on, Ending), so the probe keeps them -- the
+// first 64, titles cut to the CRD's 128 bytes on a rune boundary. The
+// fixture is ffprobe's output for a Matroska file made with 70 chapters.
+func TestMapRecordsChapterTitlesAndTimes(t *testing.T) {
+	mi := toMediaInfo(loadProbe(t, "ffprobe_mkv_chapters.json"))
+	assert.EqualValues(t, 70, mi.Chapters, "the count is every chapter")
+	require.Len(t, mi.ChapterList, 64)
+	assert.Equal(t, commonv1.Chapter{Title: "Opening", StartMillis: 0, EndMillis: 1000}, mi.ChapterList[0])
+	assert.Equal(t, commonv1.Chapter{Title: "Previously on", StartMillis: 1000, EndMillis: 2000}, mi.ChapterList[1])
+	assert.EqualValues(t, 63000, mi.ChapterList[63].StartMillis)
+
+	raw := loadProbe(t, "ffprobe_mkv_chapters.json")
+	raw.Chapters = raw.Chapters[69:]
+	long := toMediaInfo(raw).ChapterList[0].Title
+	assert.LessOrEqual(t, len(long), 128)
+	assert.True(t, utf8.ValidString(long), "cut on a rune boundary")
+	assert.True(t, strings.HasPrefix(long, "Ending é"))
 }
 
 // TestVideoBitrateFromAMatroskaFile: a Matroska stream carries no bit_rate
