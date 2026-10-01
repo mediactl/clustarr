@@ -36,4 +36,12 @@ var (
 	// container with no single-file path of its own (series, artist), or
 	// an unrecognised kind.
 	ErrNoFile = errors.New("naming: media kind has no single-file path")
+
+	// ErrUnsafeComponent is returned by Render when a rendered path
+	// component is nothing but dots (".", "..", "...", ". ."): the
+	// filesystem reads "." and ".." as the folder itself and its parent, and
+	// trimming a longer run to nothing would silently move the item up a
+	// level. A title like that cannot be placed without guessing, so Render
+	// refuses it.
+	ErrUnsafeComponent = errors.New("naming: rendered path component is only dots")
 )

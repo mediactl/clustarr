@@ -31,8 +31,8 @@ package catalogctx
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -42,6 +42,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -205,9 +206,11 @@ func ContainerExt(mi *commonv1.MediaInfo, fallbackPath string) string {
 // MovieFilePath renders m's absolute library path under root:
 // root.spec.path, joined with m.spec.folder when set and non-empty, else
 // the dialect's movie-folder preset, joined with the dialect's movie-file
-// preset and ext -- then run through naming.SanitizePath, the one
-// general-purpose sanitiser pkg/naming exports, which no per-kind renderer
-// calls on its own (see pkg/naming's doc comment). The caller is the first
+// preset and ext. Every component is made filesystem-safe by
+// naming.SanitizePath -- the one general-purpose sanitiser pkg/naming
+// exports, which no per-kind renderer calls on its own (see pkg/naming's
+// doc comment) -- before anything is joined, and the result must lie
+// strictly under root.spec.path (joinUnder). The caller is the first
 // thing to actually write this path to a filesystem, so it is the one that
 // must make it filesystem-safe.
 func MovieFilePath(root *catalogv1alpha1.RootFolder, m *catalogv1alpha1.Movie, c naming.Context, ext string) (string, error) {
@@ -224,8 +227,7 @@ func MovieFilePath(root *catalogv1alpha1.RootFolder, m *catalogv1alpha1.Movie, c
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render movie file: %w", err)
 	}
-	full := filepath.Join(root.Spec.Path, folder, file+ext)
-	return naming.SanitizePath(full, naming.DefaultSanitizeOptions()), nil
+	return joinUnder(root.Spec.Path, root.Spec.Path, folder, file+ext)
 }
 
 // EpisodeFilePath renders c's absolute library path under root: s' own
@@ -234,43 +236,91 @@ func MovieFilePath(root *catalogv1alpha1.RootFolder, m *catalogv1alpha1.Movie, c
 // under root.spec.path, else the dialect's series preset), the season
 // folder when the series keeps one (spec.seasonFolder, defaulted true),
 // and the dialect's episode/anime/daily file preset (selected by c's own
-// fields, as Engine.EpisodeFile already does) with ext, sanitized exactly
-// as MovieFilePath's result is.
+// fields, as Engine.EpisodeFile already does) with ext, sanitized and held
+// under root.spec.path exactly as MovieFilePath's result is -- a
+// status.path outside the root folder is refused, not followed.
 func EpisodeFilePath(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series, c naming.Context, ext string) (string, error) {
 	eng := EngineFor(root)
-	folder, err := seriesFolder(root, s, eng, c)
+	base, folder, err := seriesFolder(root, s, eng, c)
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render series folder: %w", err)
 	}
+	rels := []string{folder}
 	if ptr.Deref(s.Spec.SeasonFolder, true) {
 		season, err := eng.SeasonFolder(c)
 		if err != nil {
 			return "", fmt.Errorf("catalogctx: render season folder: %w", err)
 		}
-		folder = filepath.Join(folder, season)
+		rels = append(rels, season)
 	}
 	file, err := eng.EpisodeFile(c)
 	if err != nil {
 		return "", fmt.Errorf("catalogctx: render episode file: %w", err)
 	}
-	full := filepath.Join(folder, file+ext)
-	return naming.SanitizePath(full, naming.DefaultSanitizeOptions()), nil
+	return joinUnder(root.Spec.Path, base, append(rels, file+ext)...)
 }
 
-// seriesFolder is s' absolute folder in the library: status.path once the
+// seriesFolder is s' folder in the library, as an absolute base and a
+// relative folder under it: status.path (with no relative part) once the
 // Series controller has resolved it, else the same rule that controller
 // resolves it by (app/catalog/controller/series.Path) -- spec.folder under
 // root, else the dialect's series preset rendered from c.
-func seriesFolder(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series, eng naming.Engine, c naming.Context) (string, error) {
+func seriesFolder(root *catalogv1alpha1.RootFolder, s *catalogv1alpha1.Series, eng naming.Engine, c naming.Context) (base, folder string, err error) {
 	if s.Status.Path != "" {
-		return s.Status.Path, nil
+		return s.Status.Path, "", nil
 	}
 	if f := ptr.Deref(s.Spec.Folder, ""); f != "" {
-		return path.Join(root.Spec.Path, f), nil
+		return root.Spec.Path, f, nil
 	}
-	folder, err := eng.SeriesFolder(c)
+	folder, err = eng.SeriesFolder(c)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return path.Join(root.Spec.Path, folder), nil
+	return root.Spec.Path, folder, nil
+}
+
+// errOutsideRoot is wrapped by every path builder here whose result would
+// not lie strictly under its root folder's path.
+var errOutsideRoot = errors.New("catalogctx: path is not under the root folder")
+
+// joinUnder joins rels onto base, every '/'-component of every rel
+// sanitized on its own (naming.SanitizePath) before the join, so a join
+// can never resolve a ".." a title or a spec.folder carried: a component
+// of only dots is refused (naming.ErrUnsafeComponent) rather than trimmed
+// to nothing and silently dropped, and so is one the sanitiser empties. The
+// joined path is sanitized once more as a whole, for the total-length cap
+// (and for base, which every caller rendered before this package
+// sanitized components), and must lie strictly under root
+// (fsops.StrictlyUnder) -- the defence that holds even a template override
+// or a status.path to the library.
+func joinUnder(root, base string, rels ...string) (string, error) {
+	parts := []string{base}
+	for _, rel := range rels {
+		for _, comp := range strings.Split(rel, "/") {
+			if strings.TrimSpace(comp) == "" {
+				continue
+			}
+			if strings.Trim(comp, ". ") == "" {
+				return "", fmt.Errorf("catalogctx: %w: %q", naming.ErrUnsafeComponent, comp)
+			}
+			clean := naming.SanitizePath(comp, componentOptions)
+			if clean == "" {
+				return "", fmt.Errorf("catalogctx: component %q sanitizes to nothing", comp)
+			}
+			parts = append(parts, clean)
+		}
+	}
+	full := naming.SanitizePath(filepath.Join(parts...), naming.DefaultSanitizeOptions())
+	if !fsops.StrictlyUnder(full, root) {
+		return "", fmt.Errorf("%w: %q under %q", errOutsideRoot, full, root)
+	}
+	return full, nil
+}
+
+// componentOptions sanitizes one path component: '/' is illegal in it, not
+// a separator (pkg/naming has already made a token's own "/" a "+").
+var componentOptions = naming.SanitizeOptions{
+	ReplaceIllegal:    true,
+	MaxComponentBytes: naming.DefaultMaxComponentBytes,
+	MaxTotalBytes:     naming.DefaultMaxComponentBytes,
 }

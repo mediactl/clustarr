@@ -62,6 +62,7 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 				val = replaceColon(val, e.Config.ColonReplacement)
 			}
 		}
+		val = replacePathSeparators(val)
 		if val == "" {
 			return ""
 		}
@@ -83,7 +84,40 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 	case "lower":
 		out = strings.ToLower(out)
 	}
+	if err := checkComponents(out); err != nil {
+		return "", err
+	}
 	return out, nil
+}
+
+// pathSeparatorReplacer is the *arrs' FileNameBuilder.CleanFileName rule for
+// the two path separators -- BadCharacters "\\" and "/" both become "+"
+// (GoodCharacters), identically in Sonarr, Radarr and Lidarr (DeepWiki over
+// their FileNameBuilder, 2026-10-01). The *arrs split a format into its
+// folder components before substituting tokens, so a separator inside a
+// token's value is never a separator; Render gets the same effect by
+// replacing it in every token value. Only a template's own literal "/"
+// separates components: "AC/DC" is one artist folder, "AC+DC", and a
+// crowd-edited "x/../../../../etc" is the single name "x+..+..+..+..+etc"
+// rather than a way out of the library. SanitizePath's own table (which
+// maps both to "-") still applies to anything outside a token.
+var pathSeparatorReplacer = strings.NewReplacer("/", "+", "\\", "+")
+
+func replacePathSeparators(val string) string {
+	return pathSeparatorReplacer.Replace(val)
+}
+
+// checkComponents refuses a rendered path with a component of only dots
+// and spaces (ErrUnsafeComponent): "." and ".." are the folder itself and
+// its parent, and SanitizePath would trim any other run of dots to
+// nothing. A literal ".." in a template override is refused the same way.
+func checkComponents(out string) error {
+	for _, comp := range strings.Split(out, "/") {
+		if strings.Contains(comp, ".") && strings.Trim(comp, ". ") == "" {
+			return fmt.Errorf("%w: %q", ErrUnsafeComponent, comp)
+		}
+	}
+	return nil
 }
 
 // Wrapper characters. docs/research/naming.md §A2 documents the rule -- "a
