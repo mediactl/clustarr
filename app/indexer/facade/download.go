@@ -28,6 +28,16 @@ import (
 // handleIndexerDownload is "GET /{indexer}/download": resolves a release
 // payload through Config.Download -- clustarr.rpc.indexarr.download's own
 // body -- using the indexer's own session cookies/passkeys.
+//
+// The `url` parameter is the caller's, and is passed on as an UNTRUSTED
+// input, never resolved here: the release index cannot map a guid to its
+// link (relindex has no guid lookup), and a Torznab client names the link it
+// wants. app/indexer/download judges it by the same host rule as a redirect
+// hop -- only a URL on the indexer's own host is fetched, with the session;
+// any other comes back as RedirectURL, unfetched, so this route answers it
+// with a 302 to the URL the caller already had, and never with the body of
+// an in-cluster or metadata address, nor with a tracker's cookies sent to
+// it.
 func (s *Server) handleIndexerDownload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	name := r.PathValue("indexer")

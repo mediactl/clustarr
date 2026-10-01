@@ -60,6 +60,11 @@ import (
 // Every request carries download.headers, else search.headers (Prowlarr's
 // `Download?.Headers ?? Search?.Headers`): an API tracker that authenticates
 // search with an Authorization header needs it on the download too.
+//
+// link itself must be on the site (cfg.BaseURL, by SameHost): an off-site
+// link is refused with ErrOffSite before any request, because link is the
+// caller's and not the tracker's. The session goes only to the site, so a
+// download selector's link on another host is fetched without it.
 func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link string) (io.ReadCloser, error) {
 	// A magnet link needs no network access at all — it is returned
 	// as-is regardless of whether this definition requires a login
@@ -67,17 +72,27 @@ func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link 
 	if strings.HasPrefix(link, "magnet:") {
 		return io.NopCloser(strings.NewReader(link)), nil
 	}
-	if loginRequiresSession(def.Login) && cfg.Session == nil {
-		return nil, ErrSessionRequired
-	}
-	tc := e.templateContext(def, cfg)
 	pageURL, err := resolveURL(cfg.BaseURL, link)
 	if err != nil {
 		return nil, err
 	}
-	if u, err := url.Parse(pageURL); err == nil {
-		tc.DownloadUri = uriVars(u)
+	// link is the one URL here that did not come from the tracker's own
+	// pages: it is whatever the caller handed Download. Only a link on the
+	// site is requested (ErrOffSite); the links the definition's download
+	// block finds on the site's pages are the tracker's, and are fetched
+	// wherever they point -- without the session off-site (do).
+	u, err := url.Parse(pageURL)
+	if err != nil {
+		return nil, fmt.Errorf("cardigann: download link %q: %w", redactRawURL(pageURL), RedactErr(err))
 	}
+	if !OnSite(cfg.BaseURL, u) {
+		return nil, fmt.Errorf("%w: %s", ErrOffSite, RedactURL(u))
+	}
+	if loginRequiresSession(def.Login) && cfg.Session == nil {
+		return nil, ErrSessionRequired
+	}
+	tc := e.templateContext(def, cfg)
+	tc.DownloadUri = uriVars(u)
 	headers := downloadHeaders(def)
 	if def.Download == nil {
 		body, err := e.fetch(ctx, def, cfg, tc, headers, pageURL)

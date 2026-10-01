@@ -367,15 +367,32 @@ func RedactErr(err error) error {
 func (e Engine) do(ctx context.Context, req *http.Request, x exchange) (*http.Response, []byte, error) {
 	ctx, span := tracing.Start(ctx, "cardigann."+strings.ToLower(req.Method))
 	defer span.End()
+	// Every error recorded on the span is redacted as the returned one is:
+	// a span is exported to the trace backend, and net/http's *url.Error
+	// names the whole URL, passkey included.
 	if err := e.wait(ctx, req); err != nil {
-		tracing.RecordError(span, err)
+		tracing.RecordError(span, RedactErr(err))
 		return nil, nil, err
 	}
 	client := e.httpClient(x)
-	resp, err := client.Do(req.WithContext(ctx))
+	sess := requestSession(req)
+	// A clone, not WithContext: the session's headers are added to this
+	// request only, so a caller that sends the same request twice does not
+	// send them twice.
+	req = req.Clone(ctx)
+	if sess != nil {
+		if OnSite(x.site, req.URL) {
+			applySession(req, sess)
+		}
+		if x.follow {
+			keepSessionOnSite(client, x.site, sess)
+		}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
+		err = RedactErr(err)
 		tracing.RecordError(span, err)
-		return nil, nil, fmt.Errorf("cardigann: request %s: %w", RedactURL(req.URL), RedactErr(err))
+		return nil, nil, fmt.Errorf("cardigann: request %s: %w", RedactURL(req.URL), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -384,8 +401,9 @@ func (e Engine) do(ctx context.Context, req *http.Request, x exchange) (*http.Re
 	// buffering more than maxResponseBodyBytes+1 bytes.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
 	if err != nil {
+		err = RedactErr(err)
 		tracing.RecordError(span, err)
-		return nil, nil, fmt.Errorf("cardigann: read response %s: %w", RedactURL(req.URL), RedactErr(err))
+		return nil, nil, fmt.Errorf("cardigann: read response %s: %w", RedactURL(req.URL), err)
 	}
 	if len(body) > maxResponseBodyBytes {
 		sizeErr := fmt.Errorf("%w: at least %d bytes: %s", ErrResponseTooLarge, len(body), RedactURL(req.URL))
@@ -425,14 +443,94 @@ func resolveURL(baseURL, path string) (string, error) {
 	return base.ResolveReference(ref).String(), nil
 }
 
-// attachSession adds sess's cookies and headers to req; a nil sess is a
-// no-op (public trackers, or a caller that hasn't logged in yet on a
-// definition whose login method doesn't require a session — see
-// loginRequiresSession).
+// ErrOffSite is returned by Download for a link on another host than the
+// definition's site (Config.BaseURL; see SameHost). Such a link did not come
+// from this tracker -- the rpc.indexarr.download verb and the Torznab
+// facade's /{indexer}/download both take it from their caller -- so it is
+// never requested at all: neither with the tracker's session, which would
+// hand a private tracker's cookies to whoever named the URL, nor without
+// it, which would let a caller read an in-cluster or link-local address
+// through indexarr. app/indexer/download hands such a link back to its
+// caller unfetched, exactly as it does a redirect that leaves the site.
+var ErrOffSite = errors.New("cardigann: link is not on the indexer's site")
+
+// SameHost reports whether a request to target may carry base's session: the
+// ONE rule for "is this the indexer's host", shared by Engine (the session
+// attaches only on it, and Download fetches only a link on it) and by
+// app/indexer/download (the redirect policy and the initial download URL).
+// Both arguments are URL hosts (u.Host). Hostnames only, case-insensitive,
+// ports ignored; a dot-suffix in either direction counts, so tr.example ->
+// dl.tr.example and back are the same tracker. The "."+host is load-bearing:
+// a bare suffix test would accept eviltr.example, which is exactly how a
+// look-alike domain harvests a session cookie. The parent direction stops
+// short of a single label (a TLD, or a bare name a cluster's search domains
+// would resolve), and an IP literal matches only itself -- "0.0.5" is not a
+// parent of 10.0.0.5.
+func SameHost(base, target string) bool {
+	b, t := strings.ToLower(hostOnly(base)), strings.ToLower(hostOnly(target))
+	if b == "" || t == "" {
+		return false
+	}
+	if b == t {
+		return true
+	}
+	if isIPLiteral(b) || isIPLiteral(t) {
+		return false
+	}
+	return strings.HasSuffix(t, "."+b) || (strings.Contains(t, ".") && strings.HasSuffix(b, "."+t))
+}
+
+// OnSite reports whether u is on site, a base URL (Config.BaseURL). An
+// unparseable or host-less site matches nothing.
+func OnSite(site string, u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	s, err := url.Parse(site)
+	if err != nil {
+		return false
+	}
+	return SameHost(s.Host, u.Host)
+}
+
+// hostOnly drops a :port, leaving a bracketed IPv6 literal intact.
+func hostOnly(h string) string {
+	if i := strings.LastIndexByte(h, ':'); i > 0 && !strings.Contains(h[i:], "]") {
+		return h[:i]
+	}
+	return h
+}
+
+func isIPLiteral(h string) bool { return net.ParseIP(strings.Trim(h, "[]")) != nil }
+
+// sessionKey carries a request's Session from attachSession to do.
+type sessionKey struct{}
+
+// attachSession marks req as one that carries sess; a nil sess is a no-op
+// (public trackers, or a caller that hasn't logged in yet on a definition
+// whose login method doesn't require a session — see loginRequiresSession).
+//
+// The cookies and headers themselves are added by do, the one function every
+// outbound request goes through, and only when the request is on the
+// exchange's site (OnSite). Attaching them here, as this did until the
+// facade's download SSRF was found, sent them to whatever absolute URL a
+// request named -- a caller-supplied download link, or a download selector's
+// link on a torrent cache -- and do is the only place that knows the site.
 func attachSession(req *http.Request, sess *Session) {
 	if sess == nil {
 		return
 	}
+	*req = *req.WithContext(context.WithValue(req.Context(), sessionKey{}, sess))
+}
+
+// requestSession is the Session attachSession marked req with, or nil.
+func requestSession(req *http.Request) *Session {
+	sess, _ := req.Context().Value(sessionKey{}).(*Session)
+	return sess
+}
+
+// applySession adds sess's cookies and headers to req.
+func applySession(req *http.Request, sess *Session) {
 	for _, c := range sess.Cookies {
 		req.AddCookie(c)
 	}
@@ -440,6 +538,35 @@ func attachSession(req *http.Request, sess *Session) {
 		for _, v := range vals {
 			req.Header.Add(k, v)
 		}
+	}
+}
+
+// maxFollowedRedirects is net/http's own default hop limit, which a
+// CheckRedirect of our own has to restate.
+const maxFollowedRedirects = 10
+
+// keepSessionOnSite wraps a following client's redirect policy so a hop off
+// site loses the session. net/http drops a Cookie header on a cross-host
+// redirect by itself but copies every other header, so a session header
+// would follow the redirect to the next host; the Cookie is deleted too, in
+// case Go's notion of "same domain" is wider than SameHost. A jar's own
+// cookies are added after this runs, per the jar's own per-domain rules.
+func keepSessionOnSite(client *http.Client, site string, sess *Session) {
+	next := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !OnSite(site, req.URL) {
+			req.Header.Del("Cookie")
+			for k := range sess.Headers {
+				req.Header.Del(k)
+			}
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= maxFollowedRedirects {
+			return fmt.Errorf("cardigann: stopped after %d redirects", maxFollowedRedirects)
+		}
+		return nil
 	}
 }
 

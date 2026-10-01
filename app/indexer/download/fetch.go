@@ -92,6 +92,10 @@ type FetchResult struct {
 
 	// OffHostURL is set when the chain left the indexer's origin.
 	OffHostURL string
+
+	// NotSent is set when nothing was sent: OffHostURL is the requested URL
+	// itself, because it named another host than the indexer's.
+	NotSent bool
 }
 
 // Fetcher performs one authenticated GET against one indexer.
@@ -126,25 +130,12 @@ func (f *fetcher) Scrub(s string) string {
 }
 
 // sameOrigin reports whether target may be reached with this indexer's
-// session. Hostnames only, case-insensitive, ports ignored; a dot-suffix in
-// either direction counts, so tr.example -> dl.tr.example is followed. The
-// "."+host is load-bearing: a bare suffix test would accept eviltr.example,
-// which is exactly how a look-alike domain harvests a session cookie.
-func sameOrigin(base, target string) bool {
-	b, t := strings.ToLower(hostOnly(base)), strings.ToLower(hostOnly(target))
-	if b == "" || t == "" {
-		return false
-	}
-	return b == t || strings.HasSuffix(t, "."+b) || strings.HasSuffix(b, "."+t)
-}
-
-// hostOnly drops a :port, leaving a bracketed IPv6 literal intact.
-func hostOnly(h string) string {
-	if i := strings.LastIndexByte(h, ':'); i > 0 && !strings.Contains(h[i:], "]") {
-		return h[:i]
-	}
-	return h
-}
+// session. It is cardigann.SameHost -- the one rule, shared with the
+// definition-backed path's session and download link -- so a plain Torznab
+// indexer and a Cardigann one cannot disagree about what "the indexer's
+// host" is. Hostnames only, case-insensitive, ports ignored, a dot-suffix in
+// either direction (never a bare suffix: eviltr.example is not tr.example).
+func sameOrigin(base, target string) bool { return cardigann.SameHost(base, target) }
 
 // checkRedirect classifies the next hop instead of blindly following it. Go's
 // default policy follows ten hops and ERRORS on a magnet: target with
@@ -176,6 +167,20 @@ func (f *fetcher) checkRedirect(req *http.Request, via []*http.Request) error {
 
 // Fetch performs the GET. The magnet short circuit comes first, so a magnet
 // link never touches the network.
+//
+// The initial URL is held to the rule every redirect hop is (checkRedirect):
+// a URL on another host than the indexer's is handed back unfetched, as
+// OffHostURL with NotSent. The URL comes from the caller -- the Torznab
+// facade passes its own caller's `url` parameter straight through -- so
+// fetching it would let anyone holding a facade key read an in-cluster
+// service or a link-local metadata address through indexarr, and, on the
+// Cardigann path, with the tracker's session attached. Private and loopback
+// addresses are deliberately NOT refused as such: Jackett, Prowlarr and the
+// e2e fixtures are indexers that live in-cluster, and pinning the fetch to
+// the Indexer's own spec.baseURL host already leaves an attacker nothing
+// else to reach. Handing the URL back rather than failing keeps a feed whose
+// links live on another host working: grabarr fetches a RedirectURL itself,
+// credential-less, as it already does for an off-host redirect.
 func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error) {
 	ctx, span := tracing.Start(ctx, "indexarr.download.fetch")
 	defer span.End()
@@ -190,6 +195,11 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("app/indexer/download: refusing a %q download URL", u.Scheme)
+	}
+	if !sameOrigin(f.base, u.Host) {
+		logging.FromContext(ctx).Debug("app/indexer/download: not fetching an off-host download URL",
+			"url", cardigann.RedactURL(u))
+		return &FetchResult{OffHostURL: rawURL, FinalURL: u, NotSent: true}, nil
 	}
 
 	// The caller owns rate limiting (CLAUDE.md); this waits on the limiter
@@ -208,8 +218,10 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 	}
 	resp, err := f.hc.Do(req)
 	if err != nil {
+		// Redacted on the span too: *url.Error names the whole URL.
+		err = cardigann.RedactErr(err)
 		tracing.RecordError(span, err)
-		return nil, fmt.Errorf("app/indexer/download: get %s: %w", cardigann.RedactURL(u), cardigann.RedactErr(err))
+		return nil, fmt.Errorf("app/indexer/download: get %s: %w", cardigann.RedactURL(u), err)
 	}
 
 	res := &FetchResult{

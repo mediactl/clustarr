@@ -20,6 +20,7 @@ package download
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,10 +74,17 @@ func (f *engineFetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult,
 	}
 
 	rc, err := f.d.Download(ctx, rawURL)
+	if errors.Is(err, cardigann.ErrOffSite) {
+		// The link is not on the definition's site: the engine sent nothing,
+		// and the link goes back to the caller as a plain Torznab fetcher's
+		// off-host URL does (fetcher.Fetch).
+		return &FetchResult{OffHostURL: rawURL, FinalURL: u, NotSent: true}, nil
+	}
 	if err != nil {
+		err = cardigann.RedactErr(err)
 		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("app/indexer/download: definition download from %s: %w",
-			cardigann.RedactURL(u), cardigann.RedactErr(err))
+			cardigann.RedactURL(u), err)
 	}
 	defer func() { _ = rc.Close() }()
 	// The engine already buffers under its own 8 MiB cap; this re-reads

@@ -232,7 +232,9 @@ func (s *Service) fetchAndCount(
 	}
 
 	resp, result := s.classify(f, res, log)
-	if resp.Error == "" {
+	// A URL that was never sent is not a grab against this indexer: it named
+	// another host, and the caller fetches it from there itself.
+	if resp.Error == "" && !res.NotSent {
 		s.countGrab(ctx, &idx, req.GUID, log)
 	}
 	return resp, result, label
