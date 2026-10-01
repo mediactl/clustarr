@@ -383,9 +383,9 @@ func monitoredOrDefault(m *bool) bool {
 // call, added to the same tick [project] already performs for the Pipeline
 // and Downloads streams, per ruling R4: a third stream shares the one list
 // round rather than starting a ticker of its own.
-func listLibraryScans(ctx context.Context, r client.Reader) ([]catalogv1.LibraryScan, error) {
+func listLibraryScans(ctx context.Context, r client.Reader, opts ...client.ListOption) ([]catalogv1.LibraryScan, error) {
 	var scans catalogv1.LibraryScanList
-	if err := r.List(ctx, &scans); err != nil {
+	if err := r.List(ctx, &scans, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list library scans: %w", err)
 	}
 	return scans.Items, nil

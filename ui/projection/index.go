@@ -95,7 +95,7 @@ type relatedIndex struct {
 // and MediaFile once each -- five List calls total, whatever the catalogue's
 // size or the number of open SSE connections -- and buckets every item by
 // its owning object's UID.
-func buildRelatedIndex(ctx context.Context, r client.Reader) (*relatedIndex, error) {
+func buildRelatedIndex(ctx context.Context, r client.Reader, opts ...client.ListOption) (*relatedIndex, error) {
 	idx := &relatedIndex{
 		downloads:      map[types.UID][]downloadv1.Download{},
 		searches:       map[types.UID][]catalogv1.Search{},
@@ -108,7 +108,7 @@ func buildRelatedIndex(ctx context.Context, r client.Reader) (*relatedIndex, err
 	// MediaFile is listed first: jobs and subtitles below need
 	// mediaFileOwner populated before they can resolve through it.
 	var mediaFiles catalogv1.MediaFileList
-	if err := r.List(ctx, &mediaFiles); err != nil {
+	if err := r.List(ctx, &mediaFiles, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list media files: %w", err)
 	}
 	for i := range mediaFiles.Items {
@@ -120,7 +120,7 @@ func buildRelatedIndex(ctx context.Context, r client.Reader) (*relatedIndex, err
 	}
 
 	var downloads downloadv1.DownloadList
-	if err := r.List(ctx, &downloads); err != nil {
+	if err := r.List(ctx, &downloads, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list downloads: %w", err)
 	}
 	idx.all = downloads.Items
@@ -131,7 +131,7 @@ func buildRelatedIndex(ctx context.Context, r client.Reader) (*relatedIndex, err
 	}
 
 	var searches catalogv1.SearchList
-	if err := r.List(ctx, &searches); err != nil {
+	if err := r.List(ctx, &searches, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list searches: %w", err)
 	}
 	for i := range searches.Items {
@@ -141,7 +141,7 @@ func buildRelatedIndex(ctx context.Context, r client.Reader) (*relatedIndex, err
 	}
 
 	var jobs transcodev1.TranscodeJobList
-	if err := r.List(ctx, &jobs); err != nil {
+	if err := r.List(ctx, &jobs, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list transcode jobs: %w", err)
 	}
 	for i := range jobs.Items {
@@ -153,7 +153,7 @@ func buildRelatedIndex(ctx context.Context, r client.Reader) (*relatedIndex, err
 	}
 
 	var subs subtitlev1.SubtitleRequestList
-	if err := r.List(ctx, &subs); err != nil {
+	if err := r.List(ctx, &subs, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list subtitle requests: %w", err)
 	}
 	for i := range subs.Items {

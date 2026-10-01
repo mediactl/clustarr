@@ -87,6 +87,11 @@ func MustNewReaderScheme() *runtime.Scheme {
 // for Get/List's absent siblings Create, Update, Patch or Delete. See
 // CLAUDE.md: "The UI never writes status and owns no CRD."
 //
+// The projection (ui/projection) finds the cache's informers behind the
+// Reader and hangs a change handler on each kind it lists, so an
+// unchanged library is not listed again; that registers handlers and
+// writes nothing.
+//
 // ui deliberately runs no controller-runtime manager (design plan ruling
 // R1, cmd/clustarr/all.go and config/manager/ui.yaml): a manager would
 // reintroduce the metrics port, the health port and leader election that

@@ -104,9 +104,9 @@ type AuthView struct {
 // call added to the same tick [project] already performs (ruling R4: a new
 // stream shares the one list round rather than starting a ticker of its
 // own), mirroring [listLibraryScans]'s own shape.
-func listImportLists(ctx context.Context, r client.Reader) ([]catalogv1.ImportList, error) {
+func listImportLists(ctx context.Context, r client.Reader, opts ...client.ListOption) ([]catalogv1.ImportList, error) {
 	var lists catalogv1.ImportListList
-	if err := r.List(ctx, &lists); err != nil {
+	if err := r.List(ctx, &lists, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list import lists: %w", err)
 	}
 	return lists.Items, nil

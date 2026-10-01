@@ -34,10 +34,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	toolscache "k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
@@ -65,6 +69,17 @@ type Projection struct {
 
 	// projected is set once the first round has completed; see Projected.
 	projected atomic.Bool
+
+	// tracked is set once every kind a round lists has an event handler on
+	// the reader's informers (watchChanges): from then on dirty is true only
+	// when something changed since the last round began. An untracked
+	// reader -- a raw or fake client -- is always dirty, as every round was.
+	tracked atomic.Bool
+	dirty   atomic.Bool
+	// round serialises rounds -- Run's ticks and a page read's on-demand
+	// refresh -- and lastRound is when the newest completed one began.
+	round     sync.Mutex
+	lastRound atomic.Int64 // unix nanoseconds
 
 	mu             sync.Mutex
 	entries        []pipeline.Entry
@@ -117,13 +132,14 @@ func WithPipelineHistory(n int) Option {
 	return func(p *Projection) { p.history = n }
 }
 
-// Run computes the projection immediately and then again every interval,
-// broadcasting each result to every current subscriber, until ctx is
-// cancelled. It returns ctx.Err() once that happens. A List failure against
+// Run computes the projection immediately and then, every interval, again
+// when something changed and a stream is open (see tick), broadcasting each
+// result to every current subscriber, until ctx is cancelled. It returns ctx.Err() once that happens. A List failure against
 // the cluster during one tick is logged and that tick is skipped -- the
 // previous snapshot keeps serving -- rather than tearing down every open
 // page on one transient cluster hiccup; Run itself only stops via ctx.
 func (p *Projection) Run(ctx context.Context) error {
+	p.watchChanges(ctx)
 	p.tick(ctx)
 
 	ticker := time.NewTicker(p.interval)
@@ -138,16 +154,72 @@ func (p *Projection) Run(ctx context.Context) error {
 	}
 }
 
-// tick computes one projection round -- one round of List calls -- and
+// tick runs a projection round when one is worth running: always until
+// the first round has completed (ui's /readyz waits on [Projected], and a
+// failed round must be retried with or without a subscriber), and after
+// that only when something changed since the last round began AND a
+// stream is open to receive the result. With no stream open a change
+// waits for the next page read ([Projection.Library] and its siblings),
+// which projects it on demand. Over the ui's cache an idle library is
+// therefore never listed again, and a busy one only while someone watches.
+func (p *Projection) tick(ctx context.Context) {
+	if p.Projected() && (!p.isDirty() || !p.hasSubscribers()) {
+		return
+	}
+	p.runRound(ctx, func() bool { return !p.Projected() || (p.isDirty() && p.hasSubscribers()) })
+}
+
+// refresh is a page read's on-demand round: once the first round has
+// landed, a change older than one interval is projected before the read
+// answers, so a page is never staler than one interval -- the bound every
+// read had when each tick rebuilt -- although no tick rebuilt for it.
+// Before the first round it does nothing: Run's own first round is in
+// flight, and a read before it has always answered empty.
+func (p *Projection) refresh(ctx context.Context) {
+	due := func() bool {
+		return p.Projected() && p.isDirty() &&
+			time.Since(time.Unix(0, p.lastRound.Load())) >= p.interval
+	}
+	if due() {
+		p.runRound(ctx, due)
+	}
+}
+
+// isDirty reports whether a round could see something the last one did
+// not: always for an untracked reader.
+func (p *Projection) isDirty() bool { return !p.tracked.Load() || p.dirty.Load() }
+
+func (p *Projection) hasSubscribers() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.subs)+len(p.downloadSubs)+len(p.librarySubs)+len(p.unmatchedSubs)+len(p.importListSubs) > 0
+}
+
+// runRound computes one projection round -- one round of List calls -- and
 // publishes every result (the pipeline entries and, per ruling R4, the
 // downloads, library, unmatched and import-list slices gathered in the same
-// round) to every subscriber of each.
-func (p *Projection) tick(ctx context.Context) {
+// round) to every subscriber of each. Rounds are serialised, and still runs
+// only if due still holds once this caller has the round to itself, so a
+// page read that waited on a tick's round does not repeat it.
+//
+// dirty is cleared before the first List, not after the last: a change
+// landing while the round lists re-marks it, and the next round projects
+// it. A failed round marks it again.
+func (p *Projection) runRound(ctx context.Context, due func() bool) {
+	p.round.Lock()
+	defer p.round.Unlock()
+	if !due() {
+		return
+	}
+	started := time.Now()
+	p.dirty.Store(false)
 	entries, downloads, library, unmatched, importLists, err := p.project(ctx)
 	if err != nil {
+		p.dirty.Store(true)
 		logging.FromContext(ctx).Error("compute pipeline projection", "error", err)
 		return
 	}
+	p.lastRound.Store(started.UnixNano())
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -212,8 +284,11 @@ func publish[T any](ch chan T, v T) {
 // the cluster: [Run] populates it in the background, and a Projection that
 // has not ticked yet (or was built over a nil Reader) returns nil, which
 // every caller here -- ui.Server among them -- already treats the same as
-// "no rows".
-func (p *Projection) Entries(context.Context) []pipeline.Entry {
+// "no rows". Over the ui's cache a read may first project a change the
+// ticks left for it (see refresh): from memory, never from the cluster.
+// The other accessors below do the same.
+func (p *Projection) Entries(ctx context.Context) []pipeline.Entry {
+	p.refresh(ctx)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.entries
@@ -223,7 +298,8 @@ func (p *Projection) Entries(context.Context) []pipeline.Entry {
 // Task D3-3 analogue of [Entries] for the same reasons: it never blocks on
 // the cluster, and a Projection that has not ticked yet (or was built over
 // a nil Reader) returns nil.
-func (p *Projection) Downloads(context.Context) []downloadv1.Download {
+func (p *Projection) Downloads(ctx context.Context) []downloadv1.Download {
+	p.refresh(ctx)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.downloads
@@ -233,7 +309,8 @@ func (p *Projection) Downloads(context.Context) []downloadv1.Download {
 // G3-3 analogue of [Entries] for the Library page, for the same reasons: it
 // never blocks on the cluster, and a Projection that has not ticked yet (or
 // was built over a nil Reader) returns nil.
-func (p *Projection) Library(context.Context) []LibraryItem {
+func (p *Projection) Library(ctx context.Context) []LibraryItem {
+	p.refresh(ctx)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.library
@@ -243,7 +320,8 @@ func (p *Projection) Library(context.Context) []LibraryItem {
 // Task G3-3 analogue of [Entries] for the Unmatched page, for the same
 // reasons: it never blocks on the cluster, and a Projection that has not
 // ticked yet (or was built over a nil Reader) returns nil.
-func (p *Projection) Unmatched(context.Context) []UnmatchedEntry {
+func (p *Projection) Unmatched(ctx context.Context) []UnmatchedEntry {
+	p.refresh(ctx)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.unmatched
@@ -253,7 +331,8 @@ func (p *Projection) Unmatched(context.Context) []UnmatchedEntry {
 // Task G3-4 analogue of [Entries] for the Import Lists page, for the same
 // reasons: it never blocks on the cluster, and a Projection that has not
 // ticked yet (or was built over a nil Reader) returns nil.
-func (p *Projection) ImportLists(context.Context) []ImportListEntry {
+func (p *Projection) ImportLists(ctx context.Context) []ImportListEntry {
+	p.refresh(ctx)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.importLists
@@ -377,6 +456,72 @@ func (p *Projection) SubscribeImportLists() (<-chan []ImportListEntry, func()) {
 	return ch, unsubscribe
 }
 
+// informerSource is what the ui's reader -- ui.NewClusterReader's
+// informer-backed cache, handed over as a client.Reader -- offers beyond
+// reads: an informer per kind to hang a change handler on. Registering one
+// writes nothing.
+type informerSource interface {
+	GetInformer(ctx context.Context, obj client.Object, opts ...cache.InformerGetOption) (cache.Informer, error)
+}
+
+// watchedKinds is every kind a round lists (listItems, buildRelatedIndex,
+// listLibraryScans, listImportLists); a change to any of them marks the
+// projection dirty. TestEveryListedKindIsWatched holds the two together.
+func watchedKinds() []client.Object {
+	return []client.Object{
+		&catalogv1.Movie{}, &catalogv1.Series{}, &catalogv1.Episode{},
+		&catalogv1.Album{}, &catalogv1.Artist{}, &catalogv1.Author{},
+		&catalogv1.Book{}, &catalogv1.Audiobook{}, &catalogv1.Comic{}, &catalogv1.Issue{},
+		&catalogv1.MediaFile{}, &downloadv1.Download{}, &catalogv1.Search{},
+		&transcodev1.TranscodeJob{}, &subtitlev1.SubtitleRequest{},
+		&catalogv1.LibraryScan{}, &catalogv1.ImportList{},
+	}
+}
+
+// watchChanges hangs a handler that marks the projection dirty on the
+// informer of every kind a round lists, when the reader has informers.
+// Registered before the first round, so no change after it is missed (an
+// informer's initial list arrives as adds and marks it too). Any failure
+// leaves the projection untracked -- always dirty, every tick with a
+// subscriber a round, as before -- rather than trusting a partial watch.
+func (p *Projection) watchChanges(ctx context.Context) {
+	src, ok := p.reader.(informerSource)
+	if !ok {
+		return
+	}
+	mark := func() { p.dirty.Store(true) }
+	handler := toolscache.ResourceEventHandlerFuncs{
+		AddFunc:    func(any) { mark() },
+		UpdateFunc: func(any, any) { mark() },
+		DeleteFunc: func(any) { mark() },
+	}
+	for _, obj := range watchedKinds() {
+		// Not blocking on the sync: the first round's Lists wait for it.
+		inf, err := src.GetInformer(ctx, obj, cache.BlockUntilSynced(false))
+		if err == nil {
+			_, err = inf.AddEventHandler(handler)
+		}
+		if err != nil {
+			logging.FromContext(ctx).Error("watch for projection changes; projecting every tick instead",
+				"kind", fmt.Sprintf("%T", obj), "error", err)
+			return
+		}
+	}
+	p.dirty.Store(true)
+	p.tracked.Store(true)
+}
+
+// listOpts is every round's List options. client.UnsafeDisableDeepCopy
+// hands back the informer cache's own objects (a raw or fake client
+// ignores it and copies as before): a round only reads them, and nothing
+// it publishes writes through them -- LibraryItem and pipeline.Entry are
+// plain values; the Download, UnmatchedEntry and ImportListEntry slices a
+// stream or page renders share the cache's nested slices and pointers,
+// which no renderer modifies (sorts reorder the round's own slices, never
+// an object's fields). The objects of one round used to be a deep copy of
+// the whole library every five seconds.
+var listOpts = []client.ListOption{client.UnsafeDisableDeepCopy}
+
 // project lists every catalog kind pkg/pipeline's describeItem handles plus
 // everything index.go's buildRelatedIndex needs, then calls pipeline.Project
 // once per catalog item. It also returns the Download list buildRelatedIndex
@@ -395,7 +540,7 @@ func (p *Projection) project(
 		return nil, nil, nil, nil, nil, nil
 	}
 
-	idx, err := buildRelatedIndex(ctx, p.reader)
+	idx, err := buildRelatedIndex(ctx, p.reader, listOpts...)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
@@ -427,13 +572,13 @@ func (p *Projection) project(
 	downloads := idx.AllDownloads()
 	sort.Slice(downloads, func(i, j int) bool { return downloads[i].Name < downloads[j].Name })
 
-	scans, err := listLibraryScans(ctx, p.reader)
+	scans, err := listLibraryScans(ctx, p.reader, listOpts...)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
 	unmatched := unmatchedFromScans(scans)
 
-	lists, err := listImportLists(ctx, p.reader)
+	lists, err := listImportLists(ctx, p.reader, listOpts...)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
@@ -450,7 +595,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	var items []client.Object
 
 	var movies catalogv1.MovieList
-	if err := p.reader.List(ctx, &movies); err != nil {
+	if err := p.reader.List(ctx, &movies, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list movies: %w", err)
 	}
 	for i := range movies.Items {
@@ -458,7 +603,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var series catalogv1.SeriesList
-	if err := p.reader.List(ctx, &series); err != nil {
+	if err := p.reader.List(ctx, &series, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list series: %w", err)
 	}
 	for i := range series.Items {
@@ -466,7 +611,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var episodes catalogv1.EpisodeList
-	if err := p.reader.List(ctx, &episodes); err != nil {
+	if err := p.reader.List(ctx, &episodes, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list episodes: %w", err)
 	}
 	for i := range episodes.Items {
@@ -474,7 +619,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var albums catalogv1.AlbumList
-	if err := p.reader.List(ctx, &albums); err != nil {
+	if err := p.reader.List(ctx, &albums, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list albums: %w", err)
 	}
 	for i := range albums.Items {
@@ -482,7 +627,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var artists catalogv1.ArtistList
-	if err := p.reader.List(ctx, &artists); err != nil {
+	if err := p.reader.List(ctx, &artists, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list artists: %w", err)
 	}
 	for i := range artists.Items {
@@ -490,7 +635,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var authors catalogv1.AuthorList
-	if err := p.reader.List(ctx, &authors); err != nil {
+	if err := p.reader.List(ctx, &authors, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list authors: %w", err)
 	}
 	for i := range authors.Items {
@@ -498,7 +643,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var books catalogv1.BookList
-	if err := p.reader.List(ctx, &books); err != nil {
+	if err := p.reader.List(ctx, &books, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list books: %w", err)
 	}
 	for i := range books.Items {
@@ -506,7 +651,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var audiobooks catalogv1.AudiobookList
-	if err := p.reader.List(ctx, &audiobooks); err != nil {
+	if err := p.reader.List(ctx, &audiobooks, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list audiobooks: %w", err)
 	}
 	for i := range audiobooks.Items {
@@ -514,7 +659,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var comics catalogv1.ComicList
-	if err := p.reader.List(ctx, &comics); err != nil {
+	if err := p.reader.List(ctx, &comics, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list comics: %w", err)
 	}
 	for i := range comics.Items {
@@ -522,7 +667,7 @@ func (p *Projection) listItems(ctx context.Context) ([]client.Object, error) {
 	}
 
 	var issues catalogv1.IssueList
-	if err := p.reader.List(ctx, &issues); err != nil {
+	if err := p.reader.List(ctx, &issues, listOpts...); err != nil {
 		return nil, fmt.Errorf("projection: list issues: %w", err)
 	}
 	for i := range issues.Items {
