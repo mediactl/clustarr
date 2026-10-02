@@ -19,6 +19,7 @@ package engine
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -211,5 +212,45 @@ func TestTheEightBitTargetEncodesHEVCMain(t *testing.T) {
 			_, err = Verify(context.Background(), src, out, plan.Expect)
 			require.NoError(t, err)
 		})
+	}
+}
+
+// A damaged source -- "35 Up" on the owner's library: Matroska resyncs and
+// H.264 reference errors -- hands the encoder frames whose timestamps go
+// backwards, and a B-frame encoder then emits pts < dts, which the muxer
+// refuses (av_interleaved_write_frame: -22). The engine drops a frame whose
+// timestamp does not move forward, as ffmpeg's vfr does for Matroska, so
+// such a file encodes. Two MPEG-TS clips concatenated byte for byte restart
+// their timestamps half way: the same backward jump, made on demand.
+func TestASourceWhoseTimestampsGoBackwardsStillEncodes(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dir := t.TempDir()
+	clip := func(name, src string) string {
+		p := filepath.Join(dir, name)
+		run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", src,
+			"-c:v", "libx264", "-preset", "veryfast", "-bf", "2", "-f", "mpegts", p)
+		return p
+	}
+	a := clip("a.ts", "testsrc2=size=320x180:rate=24:duration=2")
+	b := clip("b.ts", "smptebars=size=320x180:rate=24:duration=2")
+	joined := filepath.Join(dir, "joined.ts")
+	ab, err := os.ReadFile(a)
+	require.NoError(t, err)
+	bb, err := os.ReadFile(b)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(joined, append(ab, bb...), 0o644))
+
+	out := filepath.Join(dir, "o.mkv")
+	_, err = Run(context.Background(), encodePlan(cpuVideo("sdr", standard.ColorTags{})), joined, out, Options{})
+	require.NoError(t, err)
+	pts := strings.Fields(run(t, "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts",
+		"-of", "default=nw=1:nk=1", out))
+	require.NotEmpty(t, pts)
+	last := int64(-1 << 62)
+	for _, p := range pts {
+		v, err := strconv.ParseInt(p, 10, 64)
+		require.NoError(t, err)
+		require.Greater(t, v, last, "output timestamps move forward")
+		last = v
 	}
 }

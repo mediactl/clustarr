@@ -26,7 +26,9 @@ import (
 	"strconv"
 
 	"github.com/obinnaokechukwu/ffgo"
+	"github.com/obinnaokechukwu/ffgo/avutil"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -87,9 +89,24 @@ func videoStage(v standard.VideoPlan) stageFunc {
 			}
 		}
 		var first *ffgo.Frame // the first decoded frame's HDR side data and colour, read once
+		// lastPTS is the last timestamp handed to the encoder. A damaged source
+		// (a resync after a corrupt cluster) decodes frames whose timestamps go
+		// backwards; a B-frame encoder then emits pts < dts and the muxer
+		// refuses the packet. A frame that does not move time forward is
+		// dropped, as ffmpeg's vfr mode does for Matroska.
+		lastPTS := avutil.NoPTSValue
+		dropped := 0
 
 		encode := func(frames []*ffgo.Frame) error {
 			for _, f := range frames {
+				if pts := f.PTS(); pts != avutil.NoPTSValue {
+					if lastPTS != avutil.NoPTSValue && pts <= lastPTS {
+						dropped++
+						_ = f.Free()
+						continue
+					}
+					lastPTS = pts
+				}
 				if enc == nil {
 					if enc, err = openVideoEncoder(sc, v, graph, first, ffgo.PixelFormat(f.Format())); err != nil {
 						_ = f.Free()
@@ -161,6 +178,10 @@ func videoStage(v standard.VideoPlan) stageFunc {
 		}
 		if err := encode(out); err != nil {
 			return err
+		}
+		if dropped > 0 {
+			logging.FromContext(ctx).WarnContext(ctx, "engine: dropped video frames whose timestamps did not move forward (a damaged source)",
+				"frames", dropped)
 		}
 		return enc.Flush(sc.emit)
 	}
