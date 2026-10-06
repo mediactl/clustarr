@@ -355,3 +355,27 @@ func TestWorkerWantedScanQueuesDonorSearchesUnderACap(t *testing.T) {
 	require.Equal(t, 2, live, "the live donor searches are capped")
 	require.Equal(t, 1, indexed, "a donor searched before is looked up in the release index")
 }
+
+// TestADonorSearchWithNothingToAlignOnStillCounts: an item whose original
+// language is unknown can have no donor aligned to it; its skipped donor
+// search is recorded all the same, so its backoff grows and it stops
+// taking one of the sweep's live donor searches every time (final review).
+func TestADonorSearchWithNothingToAlignOnStillCounts(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "worker-donor-unknown")
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarr, catalogac.Movie("the-matrix", f.ns).WithStatus(
+		catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseImported).
+			WithAudio(catalogac.AudioState().WithWanted("en").WithPresent("ja").WithMissing("en").WithGraft("searching"))))
+	require.NoError(t, err)
+	eventually(t, 10*time.Second, "the audio state to reach the cache", func() bool {
+		var m catalogv1alpha1.Movie
+		return f.mgr.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, &m) == nil && m.Status.Audio != nil
+	})
+	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
+		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+		Reason:   schema.SearchReasonMissing, Purpose: schema.SearchPurposeAudioDonor,
+	})}))
+	var m catalogv1alpha1.Movie
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, &m))
+	require.EqualValues(t, 1, m.Status.DonorSearchAttempts.Count)
+}

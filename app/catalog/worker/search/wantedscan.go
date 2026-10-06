@@ -181,8 +181,10 @@ func (w *Worker) wantedItems(ctx context.Context, ns string, scan schema.WantedS
 			}
 			live++
 		}
-		out = append(out, wantedItem{Ref: c.Ref, Reason: schema.SearchReasonMissing, UID: c.UID, IndexOnly: searched,
-			Purpose: schema.SearchPurposeAudioDonor})
+		out = append(out, wantedItem{
+			Ref: c.Ref, Reason: schema.SearchReasonMissing, UID: c.UID, IndexOnly: searched,
+			Purpose: schema.SearchPurposeAudioDonor,
+		})
 	}
 	for kind, n := range ungrabbable {
 		w.log(ctx).Warn("search: wanted items of a kind the grab path cannot grab yet were not searched",

@@ -223,7 +223,7 @@ func (w *Worker) applyAudioGraft(ctx context.Context, dl *downloadv1alpha1.Downl
 	switch err := w.Client.Get(ctx, types.NamespacedName{Namespace: dl.Namespace, Name: name}, &old); {
 	case err == nil:
 		if old.Spec.DonorPath != donorPath {
-			removeDonor(ctx, old.Spec.DonorPath)
+			removeDonor(ctx, old.Spec.DonorPath, donorPath)
 		}
 	case client.IgnoreNotFound(err) != nil:
 		return fmt.Errorf("fileimport: get AudioGraft %s: %w", name, err)
@@ -253,9 +253,13 @@ func kindOf(o client.Object) commonv1.MediaKind {
 	return commonv1.MediaKindMovie
 }
 
-// removeDonor removes a donor file and the .mka a graft reduced it to.
-func removeDonor(ctx context.Context, p string) {
+// removeDonor removes a donor file and the .mka a graft reduced it to,
+// never keep -- the donor just placed, which can be that very .mka.
+func removeDonor(ctx context.Context, p, keep string) {
 	for _, f := range []string{p, strings.TrimSuffix(p, filepath.Ext(p)) + ".mka"} {
+		if f == keep {
+			continue
+		}
 		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			logging.FromContext(ctx).Warn("fileimport: could not remove a replaced donor", "path", f, "error", err)
 		}

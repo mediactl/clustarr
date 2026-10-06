@@ -73,8 +73,10 @@ func (f *fixture) donorFor(t *testing.T, name, contentRoot string) *downloadv1al
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolUsenet, Source: downloadv1alpha1.DownloadSource{NZBURL: ptrTo("http://idx/donor.nzb")},
-			Release: commonv1.ReleaseInfo{GUID: "g-" + name, IndexerRef: "idx", Title: "The.Matrix.1999.DVDRip.x264.AAC.DL-BoB",
-				Protocol: commonv1.ProtocolUsenet},
+			Release: commonv1.ReleaseInfo{
+				GUID: "g-" + name, IndexerRef: "idx", Title: "The.Matrix.1999.DVDRip.x264.AAC.DL-BoB",
+				Protocol: commonv1.ProtocolUsenet,
+			},
 			Target:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName},
 			Purpose: downloadv1alpha1.DownloadPurposeAudioDonor, QualityProfileRef: f.profile.Name,
 		},

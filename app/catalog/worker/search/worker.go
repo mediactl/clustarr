@@ -339,7 +339,13 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 			return err
 		}
 		if !ok {
-			w.log(ctx).Debug("search: the file lacks no language a donor could graft; skipping a donor search")
+			// Recorded all the same: an item the sweep keeps calling due --
+			// an unknown original, which no donor can be aligned on -- would
+			// otherwise take one of its live donor searches every time.
+			w.log(ctx).Debug("search: no donor could be grafted for this item; skipping a donor search")
+			if err := grab.RecordDonorSearchAttempt(ctx, w.Client, ns, task.MediaRef, w.now()); err != nil {
+				w.log(ctx).Warn("search: could not record the donor search attempt", "err", err)
+			}
 			return nil
 		}
 		snap.Target.Donor, snap.Target.Queue = donor, queue
