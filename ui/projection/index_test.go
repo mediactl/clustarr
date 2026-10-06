@@ -188,3 +188,51 @@ func TestIndexFilesEndingWith(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, episode.UID, e.UID)
 }
+
+func TestByPlexIDResolvesEveryKindAndRefusesASharedID(t *testing.T) {
+	movie := &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "default", UID: "aaaaaaaa-0000-0000-0000-000000000001"},
+		Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{ExternalIDs: map[string]string{"plex": "5d776b83fb0d55001f56a04b"}}},
+	}
+	series := &catalogv1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "firefly", Namespace: "default", UID: "aaaaaaaa-0000-0000-0000-000000000002"},
+		Status: catalogv1.SeriesStatus{Metadata: &catalogv1.SeriesMetadata{
+			ExternalIDs: map[string]string{"plex": "5d9c086c7d06d9001ffd27aa"},
+			PlexSeasons: []catalogv1.PlexSeasonRef{{Number: 1, ID: "5d9c09de08fddd001f2afb4c"}},
+		}},
+	}
+	episode := &catalogv1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Name: "firefly-s01e01", Namespace: "default", UID: "aaaaaaaa-0000-0000-0000-000000000003"},
+		Spec:       catalogv1.EpisodeSpec{SeriesRef: "firefly", SeasonNumber: 1, EpisodeNumber: 1},
+		Status:     catalogv1.EpisodeStatus{PlexID: "5d9c127e4eefaa001f6449c2"},
+	}
+	// Two Movies claiming one Plex id: neither is answered.
+	dupA := &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "default", UID: "aaaaaaaa-0000-0000-0000-000000000004"},
+		Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{ExternalIDs: map[string]string{"plex": "5d7768254eefaa001f5d0fa1"}}},
+	}
+	dupB := dupA.DeepCopy()
+	dupB.Name, dupB.UID = "heat-2", "aaaaaaaa-0000-0000-0000-000000000005"
+
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie, series, episode, dupA, dupB).Build()
+	idx, err := projection.BuildIndex(context.Background(), c)
+	require.NoError(t, err)
+
+	type want struct {
+		uid      types.UID
+		season   int32
+		isSeason bool
+		ok       bool
+	}
+	for id, w := range map[string]want{
+		"5d776b83fb0d55001f56a04b": {uid: movie.UID, ok: true},
+		"5d9c086c7d06d9001ffd27aa": {uid: series.UID, ok: true},
+		"5d9c09de08fddd001f2afb4c": {uid: series.UID, season: 1, isSeason: true, ok: true},
+		"5d9c127e4eefaa001f6449c2": {uid: episode.UID, ok: true},
+		"5d7768254eefaa001f5d0fa1": {},
+		"000000000000000000000000": {},
+	} {
+		uid, season, isSeason, ok := idx.ByPlexID(id)
+		require.Equal(t, w, want{uid, season, isSeason, ok}, id)
+	}
+}

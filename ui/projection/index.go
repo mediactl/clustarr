@@ -268,6 +268,11 @@ type Index struct {
 	imdbMovies map[string]*catalogv1.Movie
 	imdbSeries map[string]*catalogv1.Series
 
+	// plexIDs maps a Plex metadata id to what it names ([Index.ByPlexID]);
+	// plexShared holds the ids two items claim, which name neither.
+	plexIDs    map[string]plexRef
+	plexShared map[string]bool
+
 	// episodesBySeries buckets every Episode by its owning Series' UID
 	// (metav1.GetControllerOf, exactly relatedIndex's own reading of
 	// app/catalog/controller/series/reconciler.go's
@@ -313,6 +318,8 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		movieByName:      map[types.NamespacedName]*catalogv1.Movie{},
 		episodeByName:    map[types.NamespacedName]*catalogv1.Episode{},
 		filesByBase:      map[string][]*catalogv1.MediaFile{},
+		plexIDs:          map[string]plexRef{},
+		plexShared:       map[string]bool{},
 	}
 	if r == nil {
 		return idx, nil
@@ -333,6 +340,7 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 			if imdb := md.ExternalIDs["imdb"]; imdb != "" {
 				idx.imdbMovies[imdb] = m
 			}
+			idx.addPlexID(md.ExternalIDs["plex"], plexRef{uid: m.UID})
 		}
 	}
 
@@ -353,6 +361,10 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 			if tmdb, err := strconv.ParseInt(md.ExternalIDs["tmdb"], 10, 64); err == nil && tmdb != 0 {
 				idx.tmdbSeries[tmdb] = s
 			}
+			idx.addPlexID(md.ExternalIDs["plex"], plexRef{uid: s.UID})
+			for _, ps := range md.PlexSeasons {
+				idx.addPlexID(ps.ID, plexRef{uid: s.UID, season: ps.Number, isSeason: true})
+			}
 		}
 	}
 
@@ -363,6 +375,7 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 	for i := range episodes.Items {
 		ep := &episodes.Items[i]
 		idx.episodes[ep.UID] = ep
+		idx.addPlexID(ep.Status.PlexID, plexRef{uid: ep.UID})
 		idx.episodeByName[types.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}] = ep
 		if owner, ok := controllingOwnerUID(ep); ok {
 			idx.episodesBySeries[owner] = append(idx.episodesBySeries[owner], ep)
@@ -449,6 +462,38 @@ func (idx *Index) ByTMDB(kind commonv1.MediaKind, id int64) (client.Object, bool
 func (idx *Index) ByTVDB(id int64) (*catalogv1.Series, bool) {
 	s, ok := idx.tvdbSeries[id]
 	return s, ok
+}
+
+// plexRef is what a Plex id names: an item's UID and, for a season, its
+// number.
+type plexRef struct {
+	uid      types.UID
+	season   int32
+	isSeason bool
+}
+
+// addPlexID records what id names; an id two items claim names neither.
+func (idx *Index) addPlexID(id string, ref plexRef) {
+	if id == "" {
+		return
+	}
+	if prev, ok := idx.plexIDs[id]; ok && prev != ref {
+		idx.plexShared[id] = true
+	}
+	idx.plexIDs[id] = ref
+}
+
+// ByPlexID resolves a Plex metadata id -- the 24-hex id of a plex:// GUID,
+// which PMS sends in place of the ratingKey once it holds an item under
+// that GUID -- to what it names, in plex.ParseRatingKey's shape: a Movie,
+// Series or Episode UID, or a Series UID and season number. An id two
+// items claim resolves to neither: the provider never guesses.
+func (idx *Index) ByPlexID(id string) (uid types.UID, season int32, isSeason, ok bool) {
+	ref, found := idx.plexIDs[id]
+	if !found || idx.plexShared[id] {
+		return "", 0, false, false
+	}
+	return ref.uid, ref.season, ref.isSeason, true
 }
 
 // ByIMDb resolves a match request's "imdb://tt<id>" guid (D.4 rule 1) against
