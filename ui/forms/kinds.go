@@ -86,10 +86,24 @@ var kinds = []Kind{
 			{Title: "Tiers", Help: "Best first. Each tier lists the quality names it accepts, one per line.", Paths: []string{"tiers"}},
 			{Title: "Custom formats", Paths: []string{"minFormatScore", "cutoffFormatScore", "minUpgradeFormatScore", "enabledFormatGroups"}, Advanced: true},
 			{Title: "Size limits", Paths: []string{"sizeLimits"}, Advanced: true},
+			{Title: "Audio", Help: "Audio languages a file must carry (BCP-47 tags, or original for the item's own language), one per line; when set it replaces Language. Graft completes a file missing one with another release's audio.", Paths: []string{"audio.languages", "audio.graft", "audio.default"}, Advanced: true},
 		},
 		Hidden:         []string{"builtIn", "formatScores"},
-		Labels:         map[string]string{"cutoff": "Cutoff tier", "scoreSet": "Score set", "sizeTable": "Size table"},
+		Labels:         map[string]string{"cutoff": "Cutoff tier", "scoreSet": "Score set", "sizeTable": "Size table", "audio.languages": "Audio languages", "audio.graft": "Graft missing audio", "audio.default": "Default audio language"},
 		ReadOnlyOnEdit: []string{"mediaKind"},
+		// The graft checkbox always posts, so an untouched Audio group decodes
+		// to {graft: false} with no languages, which the CRD refuses: drop it.
+		Ensure: func(spec map[string]any) {
+			a, ok := spec["audio"].(map[string]any)
+			if !ok {
+				return
+			}
+			if l, _ := a["languages"].([]any); len(l) == 0 {
+				if ls, _ := a["languages"].([]string); len(ls) == 0 {
+					delete(spec, "audio")
+				}
+			}
+		},
 	},
 	{
 		ConfigKind: configKind("metadataproviders"),

@@ -457,3 +457,21 @@ func TestBuildRendersTheIndexerProxyForm(t *testing.T) {
 		}
 	}
 }
+
+// A quality profile form always posts audio.graft (a checkbox's hidden
+// false), so without this an empty audio policy reached the apiserver as
+// {graft: false} and every create or edit was refused for want of
+// audio.languages (the phase 2 review).
+func TestEnsureDropsAnAudioPolicyWithNoLanguages(t *testing.T) {
+	k := kind(t, "qualityprofiles")
+	spec := map[string]any{"cutoff": "WEB 1080p", "audio": map[string]any{"graft": false}}
+	k.Ensure(spec)
+	require.Equal(t, map[string]any{"cutoff": "WEB 1080p"}, spec)
+
+	kept := map[string]any{"audio": map[string]any{"languages": []any{"en", "original"}, "graft": true}}
+	k.Ensure(kept)
+	require.Contains(t, kept, "audio")
+
+	f := forms.Build(k, rootOf(t, k), map[string]any{}, nil, forms.ModeNew)
+	_ = section(t, f, "Audio") // fails the test unless audio has a group of its own, not Other
+}
