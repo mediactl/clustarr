@@ -59,7 +59,7 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		uid, _, isSeason, ok := ParseRatingKey(r.PathValue("ratingKey"))
+		uid, _, isSeason, ok := resolveKey(idx, r.PathValue("ratingKey"))
 		if !ok || isSeason {
 			http.NotFound(w, r)
 			return
@@ -90,7 +90,7 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 // ([buildSeasonChildren]/[buildEpisodeChildren]) is for the unpaged,
 // includeChildren=1 case on GET .../{ratingKey} instead.
 func (h *handler) childrenOf(root rootDef, u urls, idx *projection.Index, ratingKey string) ([]Metadata, bool) {
-	uid, season, isSeason, ok := ParseRatingKey(ratingKey)
+	uid, season, isSeason, ok := resolveKey(idx, ratingKey)
 	if !ok {
 		return nil, false
 	}

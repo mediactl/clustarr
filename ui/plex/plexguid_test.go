@@ -141,3 +141,59 @@ func TestAMalformedPlexIDKeepsClustarrsGUID(t *testing.T) {
 	g := firstGUIDs(t, getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)).Body.Bytes())
 	require.Equal(t, plex.GUID(plex.MoviesIdentifier, "movie", string(movieUID)), g.Guid)
 }
+
+// PMS fetches an item it holds under a plex:// GUID by the Plex id (spike
+// 3: GET .../library/metadata/5d776b83fb0d55001f56a04b). Every ratingKey
+// route resolves one, with the flag on or off.
+func TestEveryRouteResolvesAPlexID(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		h := plexGUIDHandler(t, on, plexObjects()...)
+		for _, path := range []string{
+			"/plex/movies/library/metadata/" + moviePlex,
+			"/plex/movies/library/metadata/" + moviePlex + "/images",
+			"/plex/tv/library/metadata/" + showPlex,
+			"/plex/tv/library/metadata/" + showPlex + "/children",
+			"/plex/tv/library/metadata/" + showPlex + "/grandchildren",
+			"/plex/tv/library/metadata/" + season1Plex,
+			"/plex/tv/library/metadata/" + season1Plex + "/children",
+			"/plex/tv/library/metadata/" + ep1Plex,
+		} {
+			rec := getJSON(t, h, path)
+			require.Equal(t, http.StatusOK, rec.Code, "%s (plexGUIDs=%t): %s", path, on, rec.Body.String())
+		}
+		g := firstGUIDs(t, getJSON(t, h, "/plex/movies/library/metadata/"+moviePlex).Body.Bytes())
+		require.Equal(t, string(movieUID), g.RatingKey)
+	}
+}
+
+// A Plex id names one type, and only the root declaring it answers, as
+// with a clustarr ratingKey.
+func TestThePlexIDOfAnotherRootsTypeIsNotFound(t *testing.T) {
+	h := plexGUIDHandler(t, true, plexObjects()...)
+	for _, path := range []string{
+		"/plex/movies/library/metadata/" + showPlex,
+		"/plex/movies/library/metadata/" + ep1Plex,
+		"/plex/tv/library/metadata/" + moviePlex,
+		"/plex/tv/library/metadata/" + moviePlex + "/children",
+		"/plex/tv/library/metadata/000000000000000000000000",
+	} {
+		require.Equal(t, http.StatusNotFound, getJSON(t, h, path).Code, path)
+	}
+}
+
+func TestAMatchByAPlexGUIDHint(t *testing.T) {
+	h := plexGUIDHandler(t, true, plexObjects()...)
+	rec := postJSON(t, h, "/plex/movies/library/metadata/matches", map[string]any{"type": 1, "guid": "plex://movie/" + moviePlex})
+	require.Equal(t, string(movieUID), firstGUIDs(t, rec.Body.Bytes()).RatingKey)
+	rec = postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{"type": 2, "guid": "plex://show/" + showPlex})
+	require.Equal(t, string(seriesUID), firstGUIDs(t, rec.Body.Bytes()).RatingKey)
+	// A show's id hinted to the movies root matches nothing by guid.
+	rec = postJSON(t, h, "/plex/movies/library/metadata/matches", map[string]any{"type": 1, "guid": "plex://show/" + showPlex})
+	var out struct {
+		MediaContainer struct {
+			Metadata []guids `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	require.NoError(t, decodeJSON(rec.Body.Bytes(), &out))
+	require.Empty(t, out.MediaContainer.Metadata)
+}

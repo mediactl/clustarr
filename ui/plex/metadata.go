@@ -523,7 +523,7 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 // false when ratingKey names nothing this index knows or names a type root
 // does not declare ([rootDef.declares]).
 func (h *handler) resolveMetadata(root rootDef, u urls, idx *projection.Index, ratingKey string, includeChildren bool) (Metadata, bool) {
-	uid, season, isSeason, ok := ParseRatingKey(ratingKey)
+	uid, season, isSeason, ok := resolveKey(idx, ratingKey)
 	if !ok {
 		return Metadata{}, false
 	}

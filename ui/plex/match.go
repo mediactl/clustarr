@@ -214,8 +214,8 @@ func resolveEpisode(episodes []*catalogv1.Episode, req matchRequest) *catalogv1.
 	return nil
 }
 
-// showByGuid resolves a "tmdb://", "tvdb://" or "imdb://" guid against a
-// Series (D.4 rule 1).
+// showByGuid resolves a "tmdb://", "tvdb://", "imdb://" or "plex://show/"
+// guid against a Series (D.4 rule 1).
 func showByGuid(idx *projection.Index, guid string) (*catalogv1.Series, bool) {
 	scheme, id, ok := splitGuid(guid)
 	if !ok {
@@ -246,13 +246,19 @@ func showByGuid(idx *projection.Index, guid string) (*catalogv1.Series, bool) {
 		}
 		s, ok := obj.(*catalogv1.Series)
 		return s, ok
+	case plexScheme:
+		uid, ok := byPlexGUID(idx, metadataTypeShow, id)
+		if !ok {
+			return nil, false
+		}
+		return idx.SeriesByUID(uid)
 	default:
 		return nil, false
 	}
 }
 
-// movieByGuid resolves a "tmdb://", "tvdb://" or "imdb://" guid against a
-// Movie (D.4 rule 1). tvdb never matches a movie -- kept for symmetry with
+// movieByGuid resolves a "tmdb://", "tvdb://", "imdb://" or "plex://movie/"
+// guid against a Movie (D.4 rule 1). tvdb never matches a movie -- kept for symmetry with
 // showByGuid and because an unmatched scheme cleanly falls through to
 // title matching rather than erroring.
 func movieByGuid(idx *projection.Index, guid string) (*catalogv1.Movie, bool) {
@@ -279,6 +285,12 @@ func movieByGuid(idx *projection.Index, guid string) (*catalogv1.Movie, bool) {
 		}
 		m, ok := obj.(*catalogv1.Movie)
 		return m, ok
+	case plexScheme:
+		uid, ok := byPlexGUID(idx, metadataTypeMovie, id)
+		if !ok {
+			return nil, false
+		}
+		return idx.MovieByUID(uid)
 	default:
 		return nil, false
 	}

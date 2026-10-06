@@ -170,7 +170,7 @@ func (h *handler) handleImages(root rootDef) http.HandlerFunc {
 // comment). false means ratingKey names nothing this index knows, or a type
 // root does not declare ([rootDef.declares]).
 func resolveArtwork(root rootDef, idx *projection.Index, ratingKey string) (artworkFor, bool) {
-	uid, _, isSeason, ok := ParseRatingKey(ratingKey)
+	uid, _, isSeason, ok := resolveKey(idx, ratingKey)
 	if !ok {
 		return artworkFor{}, false
 	}

@@ -19,8 +19,12 @@ package plex
 
 import (
 	"regexp"
+	"strings"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // plexScheme is the scheme of Plex's own GUIDs, and the externalIDs key
@@ -70,3 +74,29 @@ func seasonPlexID(s *catalogv1.Series, number int32) string {
 }
 
 func episodePlexID(e *catalogv1.Episode) string { return e.Status.PlexID }
+
+// resolveKey parses a ratingKey route's path value: clustarr's own
+// ratingKey first ([ParseRatingKey]), then a Plex id, which PMS sends in
+// place of the ratingKey once it holds an item under its plex:// GUID (it
+// takes the id from the GUID; spec §2). It resolves with --plex-guids off
+// too, so items PMS already holds that way keep refreshing.
+func resolveKey(idx *projection.Index, key string) (uid types.UID, season int32, isSeason, ok bool) {
+	if uid, season, isSeason, ok = ParseRatingKey(key); ok {
+		return uid, season, isSeason, ok
+	}
+	if !plexIDPattern.MatchString(key) {
+		return "", 0, false, false
+	}
+	return idx.ByPlexID(key)
+}
+
+// byPlexGUID resolves a plex://<metadataType>/<id> match hint's id part
+// ("movie/<id>", as splitGuid leaves it) to a UID, false for another type.
+func byPlexGUID(idx *projection.Index, metadataType, rest string) (types.UID, bool) {
+	id, ok := strings.CutPrefix(rest, metadataType+"/")
+	if !ok || !plexIDPattern.MatchString(id) {
+		return "", false
+	}
+	uid, _, isSeason, ok := idx.ByPlexID(id)
+	return uid, ok && !isSeason
+}
