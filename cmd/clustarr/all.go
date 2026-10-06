@@ -252,9 +252,9 @@ func allServices(
 			// cancellation to stop its HTTP server. The same ctx bounds the
 			// cluster reader buildUICluster may build, so it stops on the
 			// same cancellation too. o is used for exactly one field of its
-			// own, o.NATSURL: buildUIBus connects ui's own bus (reads, plus the metadata search)
-			// to the same JetStream endpoint every other service in this
-			// process shares.
+			// own, o.NATSURL: buildUIBus connects ui's own bus (reads, plus
+			// the metadata search and Plex extras requests) to the same
+			// JetStream endpoint every other service in this process shares.
 			//
 			// Every cluster-derived field, in the same order as
 			// newUICommand's; ui_options_wiring_test.go executes both
@@ -266,8 +266,8 @@ func allServices(
 			if err != nil {
 				return err
 			}
-			artwork, metadataSearch, plexExtended, closeBus := buildUIBus(ctx, o.NATSURL)
-			defer closeBus()
+			b := buildUIBus(ctx, o.NATSURL)
+			defer b.close()
 			return runUI(ctx, ui.Options{
 				BindAddress:          uiAddr,
 				AuthMode:             uiAuthMode,
@@ -276,9 +276,10 @@ func allServices(
 				Projected:            proj.Projected,
 				Actions:              acts,
 				Namespace:            o.Namespace,
-				Artwork:              artwork,
-				MetadataSearch:       metadataSearch,
-				PlexExtended:         plexExtended,
+				Artwork:              b.artwork,
+				MetadataSearch:       b.search,
+				PlexExtended:         b.extended,
+				PlexExtras:           b.extras,
 				ArtSigningKey:        signingKey,
 				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL, plex.plexGUIDs),
 				Entries:              proj.Entries,

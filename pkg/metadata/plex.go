@@ -17,7 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package metadata
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // PlexSeason is one season's id in Plex's own metadata service.
 type PlexSeason struct {
@@ -48,4 +51,14 @@ type PlexChildren struct {
 type PlexProvider interface {
 	Provider
 	ShowChildren(ctx context.Context, ids ExternalIDs) (*PlexChildren, error)
+}
+
+// PlexExtrasProvider supplies an item's extras -- trailers and clips -- as
+// Plex's metadata service sends them, for the ui's extras route. PMS asks
+// every provider for an item's extras on a refresh and deletes the ones it
+// holds when the answer is empty, so a failed fetch is an error and never
+// an empty list.
+type PlexExtrasProvider interface {
+	Provider
+	Extras(ctx context.Context, plexID string) ([]json.RawMessage, error)
 }

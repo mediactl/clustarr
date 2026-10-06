@@ -895,6 +895,10 @@ func defaultBuckets() []BucketSpec {
 		// weeks apart, so a memory bucket on a single node would lose every
 		// item's people with each NATS restart.
 		durable(b(BucketMetadataExtended, 0, "People and similar titles per catalog item, for the Plex provider.")),
+		// Durable: an entry is fetched from Plex once a week at most, so a
+		// memory bucket would send a whole library refresh back to plex.tv
+		// after every NATS restart.
+		durable(b(BucketPlexExtras, 0, "Plex's extras per Plex id, for the Plex provider's extras route.")),
 		// Durable: only re-analysis rebuilds a file's raw segments, which the
 		// merge into status.markers needs (spec 2026-10-01 §5.2).
 		durable(b(BucketSegments, 0, "Raw segment analysis per MediaFile.")),

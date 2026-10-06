@@ -246,10 +246,15 @@ PMS also asks every provider for an item's extras on each refresh
 docs) and reads a 404 or an empty list as "none", deleting the trailers it
 holds -- which cost the library its Internet Video Archive trailers on
 2026-10-06. The route (`ui/plex/extras.go`) answers Plex's own extras for the
-item's Plex id from `metadata.provider.plex.tv`, cached 24 h and paced, with
-the server's token from `$CLUSTARR_PLEX_TOKEN` (chart `ui.plex.tokenSecret`,
-the Secret cluster-plex keeps); an item without a Plex id answers none, and
-no token or a failed fetch answers 503/502, never an empty list.
+item's (or season's) Plex id, which it asks the metadata gateway for over
+`rpc.catalogarr.metadata.extras` (2026-10-06): the gateway answers from the
+file-backed `clustarr-plex-extras` bucket (`pkg/metadata/plexextras`, keyed
+by Plex id) and on a miss, or an entry older than 7 days, fetches from
+`metadata.provider.plex.tv` with the `plex` MetadataProvider's token and
+stores it (`app/catalog/metadata/extras.go`); "none" is stored too, and a
+failed refetch serves the stale entry. The ui holds no Plex token. An item
+without a Plex id answers none, and a gateway that cannot answer is 502/503,
+never an empty list.
 Skip segments come from TheIntroDB (2026-09-30,
 `docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): a
 probed movie or episode MediaFile whose `status.markers` are due
@@ -367,12 +372,14 @@ back.
   Series, Artist or Author with spec only, named by `pkg/names` as
   importarr names it (the role's `create` on those four). So anything the
   UI does, `kubectl` can do.
-- **The UI may hold a bus connection for reads plus one request.** Since M7,
+- **The UI may hold a bus connection for reads plus two requests.** Since M7,
   `cmd/clustarr`'s ui command calls `k8s.ConnectBus` and passes
   `Bus.ObjectStore(...)` into `ui.Options.Artwork` to serve `/art`; since
   Add New (2026-09-29) it also passes `ui.Options.MetadataSearch`, a
-  function it binds to `rpc.catalogarr.metadata.search`, so the ui never
-  holds a requester and can ask nothing else -- `TestUINeverWrites` bans
+  function it binds to `rpc.catalogarr.metadata.search`, and since
+  2026-10-06 `ui.Options.PlexExtras`, bound to
+  `rpc.catalogarr.metadata.extras`, so the ui never holds a requester and
+  can ask nothing else -- `TestUINeverWrites` bans
   `Request`, `Publish` and `Serve` anywhere in `ui/`. `ui/` still never
   imports `pkg/k8s`.
   `TestUINeverWrites`' AST guard extends its banned-selector list with every

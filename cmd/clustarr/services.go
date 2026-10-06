@@ -19,9 +19,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -500,7 +500,8 @@ func buildUIProjection(ctx context.Context, reader client.Reader, history int) *
 // artwork object store ui/art.go's handleArt serves every image from --
 // B1's events.ObjectStore bound to events.BucketArtwork (Task B3) -- and
 // the metadata search Add New asks, bound here to
-// events.RPCMetadataSearch so the ui never holds a requester (2026-09-29).
+// events.RPCMetadataSearch so the ui never holds a requester (2026-09-29),
+// and the Plex provider's extras, bound to events.RPCMetadataExtras.
 //
 // ui never imports pkg/k8s (ui/guard_test.go bans it): this is why the bus
 // is connected and bound here, in cmd/clustarr, and only the resulting
@@ -532,12 +533,12 @@ func buildUIProjection(ctx context.Context, reader client.Reader, history int) *
 // The returned stop closes the connection; both call sites defer it around
 // runUI, so the connection is drained when ui shuts down rather than left
 // to the process exit. It is never nil.
-func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.MetadataSearch, uiPlexExtended, func()) {
+func buildUIBus(ctx context.Context, natsURL string) uiBus {
 	log := ctrl.LoggerFrom(ctx).WithName("ui")
 	bus, nc, err := k8s.ConnectBus(natsURL, "ui", k8s.WithBusHooks(obs.BusHooks()))
 	if err != nil {
 		log.Error(err, "connect ui to NATS; ui will serve placeholder art and no metadata search")
-		return nil, nil, nil, func() {}
+		return uiBus{close: func() {}}
 	}
 	if !nc.IsConnected() {
 		log.Info("NATS is not connected yet; /art, every Plex image and Add New's search will fail until it is -- "+
@@ -562,15 +563,52 @@ func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.Met
 		d, err := extended.Decode(e.Value)
 		return d, err == nil, err
 	}
-	return bus.ObjectStore(events.BucketArtwork), search, extendedRead, nc.Close
+	// The Plex provider's extras are the metadata gateway's to fetch and
+	// store (clustarr-plex-extras): ui only asks, and holds no Plex token.
+	extras := func(ctx context.Context, plexID string) ([]json.RawMessage, error) {
+		ctx, cancel := context.WithTimeout(ctx, uiPlexExtrasTimeout)
+		defer cancel()
+		var resp schema.PlexExtrasResponse
+		if err := bus.Request(ctx, events.RPCMetadataExtras, schema.PlexExtrasRequest{PlexID: plexID}, &resp); err != nil {
+			return nil, err
+		}
+		if resp.Error != "" {
+			return nil, errors.New(resp.Error)
+		}
+		return resp.Extras, nil
+	}
+	return uiBus{
+		artwork:  bus.ObjectStore(events.BucketArtwork),
+		search:   search,
+		extended: extendedRead,
+		extras:   extras,
+		close:    nc.Close,
+	}
 }
 
-// uiPlexExtended is ui.Options.PlexExtended's type.
-type uiPlexExtended = func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
+// uiPlexExtrasTimeout bounds one extras request. A miss waits on the
+// gateway's Plex rate limit while a library refresh asks for every item; a
+// request that gives up answers PMS 502, which keeps the trailers it holds,
+// and the item is fetched at a later refresh.
+const uiPlexExtrasTimeout = 30 * time.Second
+
+// uiBus is what buildUIBus binds over ui's own bus connection: the artwork
+// store and three closures, each a read or one request, so ui never holds
+// a handle it could write through or ask anything else with.
+type uiBus struct {
+	artwork  events.ObjectStore
+	search   ui.MetadataSearch
+	extended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
+	// extras asks the metadata gateway for a Plex id's extras
+	// (rpc.catalogarr.metadata.extras); an answer carrying an error is one.
+	extras func(ctx context.Context, plexID string) ([]json.RawMessage, error)
+	// close drains the connection; never nil.
+	close func()
+}
 
 // buildUIPlexOptions builds ui.Options.Plex from --plex-provider,
-// --external-url and --plex-guids, and the token from $CLUSTARR_PLEX_TOKEN,
-// shared by `clustarr ui` and `clustarr all`. nil (feature
+// --external-url and --plex-guids, shared by `clustarr ui` and
+// `clustarr all`. nil (feature
 // off) exactly when --plex-provider is false; otherwise non-nil regardless
 // of whether externalURL is set, since an empty one is a legal, if
 // currently unusable, value (design spec §D.1: the roots answer 503 for
@@ -581,7 +619,7 @@ func buildUIPlexOptions(enabled bool, externalURL string, plexGUIDs bool) *ui.Pl
 	if !enabled {
 		return nil
 	}
-	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs, Token: strings.TrimSpace(os.Getenv(plexTokenEnv))}
+	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs}
 }
 
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
@@ -642,8 +680,8 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		artwork, metadataSearch, plexExtended, closeBus := buildUIBus(ctx, natsURL)
-		defer closeBus()
+		b := buildUIBus(ctx, natsURL)
+		defer b.close()
 		// Every cluster-derived field, in the same order as all.go's ui
 		// closure; ui_options_wiring_test.go executes both commands and fails
 		// on any func, pointer or interface field of ui.Options left nil.
@@ -655,9 +693,10 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			Projected:            proj.Projected,
 			Actions:              acts,
 			Namespace:            namespace,
-			Artwork:              artwork,
-			MetadataSearch:       metadataSearch,
-			PlexExtended:         plexExtended,
+			Artwork:              b.artwork,
+			MetadataSearch:       b.search,
+			PlexExtended:         b.extended,
+			PlexExtras:           b.extras,
 			ArtSigningKey:        signingKey,
 			Plex:                 buildUIPlexOptions(plexProvider, externalURL, plexGUIDs),
 			Entries:              proj.Entries,

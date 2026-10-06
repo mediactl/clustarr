@@ -120,7 +120,7 @@ func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
 func TestForSingleNodeKeepsDurableBucketsOnFile(t *testing.T) {
 	for _, b := range Default().ForSingleNode().Buckets {
 		want := StorageMemory
-		if b.Name == BucketMetadataExtended || b.Name == BucketSegments {
+		if b.Name == BucketMetadataExtended || b.Name == BucketSegments || b.Name == BucketPlexExtras {
 			want = StorageFile
 		}
 		assert.Equal(t, want, b.Storage, "bucket %s storage on a single node", b.Name)

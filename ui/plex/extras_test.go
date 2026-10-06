@@ -20,11 +20,9 @@ package plex_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
-	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -38,43 +36,36 @@ import (
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
-// plexTV is Plex's metadata service answering an item's extras with a
-// response recorded from it (Arrival, 2026-10-06, two of its 44 extras).
-type plexTV struct {
-	srv    *httptest.Server
-	calls  atomic.Int32
-	path   atomic.Value
-	token  atomic.Value
-	status int
+// gateway is the metadata gateway answering rpc.catalogarr.metadata.extras
+// with a response recorded from Plex's metadata service (Arrival,
+// 2026-10-06, two of its 44 extras), recording the Plex id it was asked for.
+type gateway struct {
+	calls atomic.Int32
+	asked atomic.Value
+	err   error
+	items []plex.Extra
 }
 
-func newPlexTV(t *testing.T, status int) *plexTV {
+func newGateway(t *testing.T, err error) *gateway {
 	t.Helper()
-	body, err := os.ReadFile("testdata/plextv_extras_arrival.json")
-	require.NoError(t, err)
-	p := &plexTV{status: status}
-	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p.calls.Add(1)
-		p.path.Store(r.URL.Path)
-		p.token.Store(r.Header.Get("X-Plex-Token"))
-		if r.Header.Get("Accept") != "application/json" {
-			http.Error(w, "<MediaContainer/>", http.StatusOK)
-			return
-		}
-		// Plex's metadata service refuses a page over 100 (101 is a 400,
-		// 2026-10-06).
-		if n, err := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Size")); err != nil || n > 100 {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if p.status != http.StatusOK {
-			w.WriteHeader(p.status)
-			return
-		}
-		_, _ = w.Write(body)
-	}))
-	t.Cleanup(p.srv.Close)
-	return p
+	body, readErr := os.ReadFile("../../test/data/metadata/plex/extras_" + moviePlex + ".json")
+	require.NoError(t, readErr)
+	var recorded struct {
+		MediaContainer struct {
+			Metadata []plex.Extra `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	require.NoError(t, json.Unmarshal(body, &recorded))
+	return &gateway{err: err, items: recorded.MediaContainer.Metadata}
+}
+
+func (g *gateway) Extras(_ context.Context, plexID string) ([]plex.Extra, error) {
+	g.calls.Add(1)
+	g.asked.Store(plexID)
+	if g.err != nil {
+		return nil, g.err
+	}
+	return g.items, nil
 }
 
 func extrasHandler(t *testing.T, extras func(context.Context, string) ([]plex.Extra, error), objs ...client.Object) http.Handler {
@@ -115,11 +106,11 @@ type extrasResponse struct {
 // route Plex's provider docs never mention. It read clustarr's 404 as "no
 // extras" and deleted the Internet Video Archive trailers it held for the
 // item (kind-cluster-plex, 2026-10-06). The route answers Plex's own extras
-// for the item's Plex id, IVA URLs and all.
+// for the item's Plex id, IVA URLs and all, as the metadata gateway holds
+// them.
 func TestExtrasArePlexsOwnForTheItemsPlexID(t *testing.T) {
-	tv := newPlexTV(t, http.StatusOK)
-	src := &plex.PlexTVExtras{BaseURL: tv.srv.URL, Token: "server-token"}
-	h := extrasHandler(t, src.Extras, movieWithPlexID(moviePlex))
+	gw := newGateway(t, nil)
+	h := extrasHandler(t, gw.Extras, movieWithPlexID(moviePlex))
 
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -135,24 +126,20 @@ func TestExtrasArePlexsOwnForTheItemsPlexID(t *testing.T) {
 	assert.Equal(t, 1, mc.Metadata[0].ExtraType)
 	require.NotEmpty(t, mc.Metadata[0].Media)
 	assert.Contains(t, mc.Metadata[0].Media[0].URL, "video.internetvideoarchive.net")
-
-	assert.Equal(t, "/library/metadata/"+moviePlex+"/extras", tv.path.Load())
-	assert.Equal(t, "server-token", tv.token.Load())
+	assert.Equal(t, moviePlex, gw.asked.Load())
 }
 
 // PMS reaches an item it holds under its plex:// GUID by the Plex id.
 func TestExtrasResolveAPlexIDRatingKey(t *testing.T) {
-	tv := newPlexTV(t, http.StatusOK)
-	src := &plex.PlexTVExtras{BaseURL: tv.srv.URL, Token: "server-token"}
-	h := extrasHandler(t, src.Extras, movieWithPlexID(moviePlex))
+	gw := newGateway(t, nil)
+	h := extrasHandler(t, gw.Extras, movieWithPlexID(moviePlex))
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+moviePlex+"/extras")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
 func TestExtrasPageAsPMSAsks(t *testing.T) {
-	tv := newPlexTV(t, http.StatusOK)
-	src := &plex.PlexTVExtras{BaseURL: tv.srv.URL, Token: "server-token"}
-	h := extrasHandler(t, src.Extras, movieWithPlexID(moviePlex))
+	gw := newGateway(t, nil)
+	h := extrasHandler(t, gw.Extras, movieWithPlexID(moviePlex))
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras?X-Plex-Container-Start=1&X-Plex-Container-Size=50")
 	var out extrasResponse
 	require.NoError(t, decodeJSON(rec.Body.Bytes(), &out))
@@ -162,41 +149,28 @@ func TestExtrasPageAsPMSAsks(t *testing.T) {
 	require.Len(t, out.MediaContainer.Metadata, 1)
 }
 
-// A refresh of the whole library asks once per item; Plex is asked once.
-func TestExtrasAreCached(t *testing.T) {
-	tv := newPlexTV(t, http.StatusOK)
-	src := &plex.PlexTVExtras{BaseURL: tv.srv.URL, Token: "server-token"}
-	h := extrasHandler(t, src.Extras, movieWithPlexID(moviePlex))
-	for range 3 {
-		rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
-	assert.Equal(t, int32(1), tv.calls.Load())
-}
-
-// An item Plex does not know has no extras of Plex's to keep.
+// An item Plex does not know has no extras of Plex's to keep, and the
+// gateway is not asked.
 func TestExtrasOfAnItemWithoutAPlexIDAreNone(t *testing.T) {
-	tv := newPlexTV(t, http.StatusOK)
-	src := &plex.PlexTVExtras{BaseURL: tv.srv.URL, Token: "server-token"}
-	h := extrasHandler(t, src.Extras, fixtureMovie())
+	gw := newGateway(t, nil)
+	h := extrasHandler(t, gw.Extras, fixtureMovie())
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"MediaContainer":{"offset":0,"totalSize":0,"identifier":"`+plex.MoviesIdentifier+`","size":0,"Metadata":[]}}`, rec.Body.String())
-	assert.Zero(t, tv.calls.Load())
+	assert.Zero(t, gw.calls.Load())
 }
 
-// When Plex cannot be asked the answer is an error, never 404 or an empty
-// list: both read to PMS as "no extras", and it deletes the ones it has.
-func TestExtrasAreAnErrorWhenPlexCannotBeAsked(t *testing.T) {
-	tv := newPlexTV(t, http.StatusInternalServerError)
-	src := &plex.PlexTVExtras{BaseURL: tv.srv.URL, Token: "server-token"}
-	h := extrasHandler(t, src.Extras, movieWithPlexID(moviePlex))
+// When the gateway cannot answer, the route answers an error, never 404 or
+// an empty list: both read to PMS as "no extras", and it deletes the ones
+// it has.
+func TestExtrasAreAnErrorWhenTheGatewayCannotAnswer(t *testing.T) {
+	gw := newGateway(t, errors.New("nats: no responders available for request"))
+	h := extrasHandler(t, gw.Extras, movieWithPlexID(moviePlex))
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
-	assert.NotContains(t, rec.Body.String(), "server-token")
 }
 
-func TestExtrasWithoutASourceAreUnavailable(t *testing.T) {
+func TestExtrasWithoutAGatewayAreUnavailable(t *testing.T) {
 	h := extrasHandler(t, nil, movieWithPlexID(moviePlex))
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
@@ -206,35 +180,4 @@ func TestExtrasOfAnUnknownItemAreNotFound(t *testing.T) {
 	h := extrasHandler(t, nil)
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// An item with more extras than one page holds -- Plex serves at most 100
-// per request -- answers all of them.
-func TestExtrasPageThroughPlexsLimit(t *testing.T) {
-	const total = 150
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		start, _ := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Start"))
-		size, err := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Size"))
-		if err != nil || size > 100 {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		var items []map[string]any
-		for i := start; i < min(start+size, total); i++ {
-			items = append(items, map[string]any{"title": fmt.Sprintf("Extra %d", i), "type": "clip", "extraType": 1})
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
-			"offset": start, "size": len(items), "totalSize": total, "Metadata": items,
-		}})
-	}))
-	t.Cleanup(srv.Close)
-
-	src := &plex.PlexTVExtras{BaseURL: srv.URL, Token: "server-token"}
-	items, err := src.Extras(context.Background(), moviePlex)
-	require.NoError(t, err)
-	require.Len(t, items, total)
-	assert.Contains(t, string(items[total-1]), "Extra 149")
-	assert.Equal(t, int32(2), calls.Load())
 }

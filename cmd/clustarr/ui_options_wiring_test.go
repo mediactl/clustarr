@@ -228,24 +228,3 @@ func TestBothUICommandsPassPlexGUIDs(t *testing.T) {
 		require.Equal(t, tc.want, o.Plex.PlexGUIDs, "%v", tc.argv)
 	}
 }
-
-// The Plex provider's extras route fetches Plex's own extras with the
-// server's token, which reaches the ui only as $CLUSTARR_PLEX_TOKEN (the
-// chart fills it from the Secret cluster-plex keeps), in both commands.
-func TestBothUICommandsTakeThePlexTokenFromTheEnvironment(t *testing.T) {
-	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
-	t.Setenv("KUBECONFIG", kubeconfig)
-	t.Setenv("CLUSTARR_PLEX_TOKEN", "server-token")
-
-	for _, argv := range [][]string{
-		{"ui", "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous"},
-		{"all", "--ui-auth-mode", "anonymous"},
-	} {
-		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			o := captureUIOptions(t, argv...)
-			require.NotNil(t, o.Plex)
-			require.Equal(t, "server-token", o.Plex.Token)
-		})
-	}
-}

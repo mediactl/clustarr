@@ -98,7 +98,7 @@ func (s *Server) routes() http.Handler {
 			ExternalURL: s.opts.Plex.ExternalURL,
 			PlexGUIDs:   s.opts.Plex.PlexGUIDs,
 			Index:       s.plexIndex.Get,
-			Extras:      s.plexExtrasFunc(),
+			Extras:      s.opts.PlexExtras,
 			Extended:    s.opts.PlexExtended,
 			// Provider-hosted images (person photos, season posters,
 			// episode stills) go through the signed /art/search proxy,
@@ -649,12 +649,4 @@ func (s *Server) handleLibraryScanDetail(w http.ResponseWriter, r *http.Request)
 	if err := views.LibraryScanDetail(scan).Render(ctx, w); err != nil {
 		logging.FromContext(ctx).Error("render library scan detail page", "error", err)
 	}
-}
-
-// plexExtrasFunc is plex.Options.Extras: nil without a token.
-func (s *Server) plexExtrasFunc() func(context.Context, string) ([]plex.Extra, error) {
-	if s.plexExtras == nil {
-		return nil
-	}
-	return s.plexExtras.Extras
 }

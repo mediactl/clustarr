@@ -140,5 +140,10 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		stopMarkers()
 		return nil, err
 	}
+	if err := ServeExtras(o.Bus, o.Bus.KV(events.BucketPlexExtras), reg, clock); err != nil {
+		stopSub()
+		stopMarkers()
+		return nil, err
+	}
 	return func() { stopSub(); stopMarkers() }, nil
 }

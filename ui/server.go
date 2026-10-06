@@ -25,13 +25,13 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
-	"golang.org/x/time/rate"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -44,7 +44,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui/actions"
-	"github.com/mediactl/clustarr/ui/plex"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -92,28 +91,7 @@ type PlexOptions struct {
 	// PlexGUIDs answers items Plex knows with their plex:// GUIDs
 	// (`--plex-guids`, plex.Options.PlexGUIDs).
 	PlexGUIDs bool
-
-	// Token is the Plex server's plex.tv token ($CLUSTARR_PLEX_TOKEN, filled
-	// from the Secret cluster-plex keeps), which the provider's extras route
-	// fetches Plex's own extras for an item with. Empty answers that route
-	// 503 for an item Plex knows, and [NewServer] logs
-	// [plexTokenWarning] once.
-	Token string
 }
-
-// plexTokenWarning is logged once, at startup, when the Plex provider is
-// enabled without a token: PMS asks for every item's extras on a refresh,
-// and without Plex's to answer with, the trailers it holds are kept only as
-// long as it reads the 503 as a failure.
-// plexTVRate and plexTVBurst pace the extras route's requests to Plex's
-// metadata service: a library refresh asks for every item at once.
-const (
-	plexTVRate  = 5
-	plexTVBurst = 5
-)
-
-const plexTokenWarning = "the Plex Custom Metadata Provider (--plex-provider) has no $CLUSTARR_PLEX_TOKEN: " +
-	"its extras route cannot fetch Plex's own trailers and answers 503"
 
 // plexExternalURLWarning is logged once, at startup, when the Plex provider
 // is enabled without an external URL configured: every request to its
@@ -204,6 +182,14 @@ type Options struct {
 	// read-only bus connection, so ui never holds a KV handle it could write
 	// through (ui/guard_test.go). nil serves no people.
 	PlexExtended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
+
+	// PlexExtras asks catalogarr's metadata gateway for the extras Plex's
+	// metadata service holds for a Plex id, which the gateway answers from
+	// the clustarr-plex-extras bucket and fetches from Plex on a miss.
+	// cmd/clustarr binds it to rpc.catalogarr.metadata.extras, so the ui
+	// holds neither a requester nor a Plex token (ui/guard_test.go). nil
+	// answers the Plex provider's extras route 503 for an item Plex knows.
+	PlexExtras func(ctx context.Context, plexID string) ([]json.RawMessage, error)
 
 	// ArtSigningKey signs the /art/search URLs the ui hands out. Plex
 	// stores the provider photo URLs it is given and loads them later, so
@@ -406,10 +392,6 @@ type Server struct {
 	// through, one per Server so every Handler() shares it.
 	plexIndex *projection.IndexMemo
 
-	// plexExtras fetches Plex's own extras for the provider's extras route,
-	// one cache per Server; nil without a token.
-	plexExtras *plex.PlexTVExtras
-
 	// searchArt serves Add New's search posters (GET /art/search) with a
 	// per-process signing key.
 	searchArt *searchArt
@@ -477,15 +459,7 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Plex != nil && len(opts.ArtSigningKey) == 0 {
 		logging.FromContext(ctx).Warn(artSigningKeyWarning)
 	}
-	var plexExtras *plex.PlexTVExtras
-	if opts.Plex != nil {
-		if opts.Plex.Token == "" {
-			logging.FromContext(ctx).Warn(plexTokenWarning)
-		} else {
-			plexExtras = &plex.PlexTVExtras{Token: opts.Plex.Token, Limiter: rate.NewLimiter(plexTVRate, plexTVBurst)}
-		}
-	}
-	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), plexExtras: plexExtras, searchArt: newSearchArt(opts.ArtSigningKey), addSearchTimeout: defaultAddSearchTimeout}
+	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(opts.ArtSigningKey), addSearchTimeout: defaultAddSearchTimeout}
 }
 
 // Handler returns the composed HTTP handler for every route this service

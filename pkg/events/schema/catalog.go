@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package schema
 
 import (
+	"encoding/json"
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -349,3 +350,30 @@ type MetadataResponse struct {
 
 // Schema implements Payload.
 func (MetadataResponse) Schema() string { return "catalog.MetadataResponse.v1" }
+
+// PlexExtrasRequest asks the metadata gateway for the extras Plex's
+// metadata service holds for one Plex id.
+// Subject: clustarr.rpc.catalogarr.metadata.extras.
+type PlexExtrasRequest struct {
+	// PlexID is a movie's, show's or season's id in Plex's metadata
+	// service (24 hex digits).
+	PlexID string `json:"plexID"`
+}
+
+// Schema implements Payload.
+func (PlexExtrasRequest) Schema() string { return "catalog.PlexExtrasRequest.v1" }
+
+// PlexExtrasResponse is the gateway's answer: the extras as Plex sent them,
+// or Error. Extras is empty, never absent, for an item Plex has none for;
+// an error is never answered as an empty list, since PMS deletes the
+// extras it holds for an item whose list comes back empty.
+type PlexExtrasResponse struct {
+	Extras []json.RawMessage `json:"extras"`
+	// FetchedAt is when Plex was asked; an answer older than the gateway's
+	// freshness is one Plex could not be asked again for.
+	FetchedAt time.Time `json:"fetchedAt,omitzero"`
+	Error     string    `json:"error,omitempty"`
+}
+
+// Schema implements Payload.
+func (PlexExtrasResponse) Schema() string { return "catalog.PlexExtrasResponse.v1" }

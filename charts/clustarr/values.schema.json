@@ -306,10 +306,6 @@
             "externalURL": {
               "type": "string",
               "description": "--external-url / $CLUSTARR_EXTERNAL_URL: the absolute base every thumb, art and Image[].url is built on. Empty means the provider roots answer 503 naming the flag."
-            },
-            "tokenSecret": {
-              "type": "string",
-              "description": "A Secret in the release namespace holding the Plex server's plex.tv token under \"token\" ($CLUSTARR_PLEX_TOKEN), which cluster-plex keeps; the extras route answers Plex's own trailers with it. Empty answers the route 503."
             }
           }
         },

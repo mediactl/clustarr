@@ -18,18 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package plex
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strconv"
-	"sync"
-	"time"
-
-	"golang.org/x/time/rate"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -43,172 +34,15 @@ import (
 // (kind-cluster-plex, 2026-10-06). The route answers Plex's own extras for
 // the item's Plex id, as Plex's metadata service sends them: clips with
 // their extraType and Media URLs, which PMS plays from Internet Video
-// Archive. An item with no Plex id answers none; when Plex cannot be asked
-// the answer is an error, never an empty list.
-
-// DefaultPlexTVBaseURL is Plex's metadata service.
-const DefaultPlexTVBaseURL = "https://metadata.provider.plex.tv"
-
-const (
-	// maxExtrasBody caps one extras answer; Arrival's 44 extras are 40 KiB.
-	maxExtrasBody = 4 << 20
-	// plexTVExtrasPage is how many extras one request asks Plex for: its
-	// metadata service refuses a page over 100 with a 400 (2026-10-06).
-	plexTVExtrasPage = 100
-	// maxExtras bounds the pages one item is read through.
-	maxExtras = 1000
-	// extrasTTL is how long an item's extras are reused: a library refresh
-	// asks for every item, and Plex's extras change rarely.
-	extrasTTL = 24 * time.Hour
-	// extrasCacheMax bounds the cache; a library is a few thousand items.
-	extrasCacheMax = 8192
-	extrasTimeout  = 15 * time.Second
-)
-
-var (
-	// ErrPlexTV is a request Plex's metadata service did not answer with
-	// extras.
-	ErrPlexTV = errors.New("plex: the metadata service did not answer")
-	// ErrResponseTooLarge is an answer over maxExtrasBody.
-	ErrResponseTooLarge = errors.New("plex: the metadata service's answer is too large")
-)
+// Archive. The metadata gateway holds them (Options.Extras, bound to
+// rpc.catalogarr.metadata.extras): it answers from the clustarr-plex-extras
+// bucket and asks Plex on a miss. An item with no Plex id answers none;
+// when the gateway cannot answer, the route answers an error, never an
+// empty list.
 
 // Extra is one of an item's extras exactly as Plex's metadata service sent
 // it, so every field PMS reads reaches it unchanged.
 type Extra = json.RawMessage
-
-// PlexTVExtras fetches an item's extras from Plex's metadata service with
-// the server's token, and caches them per Plex id for extrasTTL.
-type PlexTVExtras struct {
-	// BaseURL is the metadata service; empty is DefaultPlexTVBaseURL.
-	BaseURL string
-	// Token is the server's plex.tv token (PlexOnlineToken). It travels
-	// only in the X-Plex-Token header of requests to BaseURL.
-	Token string
-	// HTTP is the client; nil is one with a 15 s timeout.
-	HTTP *http.Client
-	// Limiter paces requests to the metadata service; nil does not pace.
-	Limiter *rate.Limiter
-	// Now is the clock; nil is time.Now.
-	Now func() time.Time
-
-	mu    sync.Mutex
-	cache map[string]cachedExtras
-}
-
-type cachedExtras struct {
-	items []Extra
-	at    time.Time
-}
-
-func (p *PlexTVExtras) now() time.Time {
-	if p.Now != nil {
-		return p.Now()
-	}
-	return time.Now()
-}
-
-// Extras returns the extras Plex holds for the item with Plex id plexID.
-func (p *PlexTVExtras) Extras(ctx context.Context, plexID string) ([]Extra, error) {
-	now := p.now()
-	p.mu.Lock()
-	if c, ok := p.cache[plexID]; ok && now.Sub(c.at) < extrasTTL {
-		p.mu.Unlock()
-		return c.items, nil
-	}
-	p.mu.Unlock()
-
-	if p.Limiter != nil {
-		if err := p.Limiter.Wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-	items, err := p.fetch(ctx, plexID)
-	if err != nil {
-		return nil, err
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.cache == nil {
-		p.cache = map[string]cachedExtras{}
-	}
-	if len(p.cache) >= extrasCacheMax {
-		for id, c := range p.cache {
-			if now.Sub(c.at) >= extrasTTL {
-				delete(p.cache, id)
-			}
-		}
-		if len(p.cache) >= extrasCacheMax {
-			clear(p.cache)
-		}
-	}
-	p.cache[plexID] = cachedExtras{items: items, at: now}
-	return items, nil
-}
-
-func (p *PlexTVExtras) fetch(ctx context.Context, plexID string) ([]Extra, error) {
-	all := []Extra{}
-	for len(all) < maxExtras {
-		page, total, err := p.fetchPage(ctx, plexID, len(all))
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, page...)
-		if len(page) == 0 || len(all) >= total {
-			break
-		}
-	}
-	return all, nil
-}
-
-// fetchPage reads one page of plexID's extras from start, and the total
-// Plex reports.
-func (p *PlexTVExtras) fetchPage(ctx context.Context, plexID string, start int) ([]Extra, int, error) {
-	base := p.BaseURL
-	if base == "" {
-		base = DefaultPlexTVBaseURL
-	}
-	client := p.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: extrasTimeout}
-	}
-	u := base + "/library/metadata/" + url.PathEscape(plexID) + "/extras?" + url.Values{
-		"X-Plex-Container-Start": {strconv.Itoa(start)},
-		"X-Plex-Container-Size":  {strconv.Itoa(plexTVExtrasPage)},
-	}.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Plex-Token", p.Token)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("%w: %w", ErrPlexTV, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, 0, fmt.Errorf("%w: %s", ErrPlexTV, resp.Status)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxExtrasBody+1))
-	if err != nil {
-		return nil, 0, fmt.Errorf("%w: %w", ErrPlexTV, err)
-	}
-	if len(body) > maxExtrasBody {
-		return nil, 0, ErrResponseTooLarge
-	}
-	var out struct {
-		MediaContainer struct {
-			TotalSize int     `json:"totalSize"`
-			Metadata  []Extra `json:"Metadata"`
-		} `json:"MediaContainer"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, 0, fmt.Errorf("%w: %w", ErrPlexTV, err)
-	}
-	return out.MediaContainer.Metadata, out.MediaContainer.TotalSize, nil
-}
 
 type extrasContainer struct {
 	Offset     int     `json:"offset"`
@@ -237,13 +71,13 @@ func (h *handler) handleExtras(root rootDef) http.HandlerFunc {
 		items := []Extra{}
 		if plexID != "" {
 			if h.opts.Extras == nil {
-				http.Error(w, "the provider has no Plex token to fetch extras with", http.StatusServiceUnavailable)
+				http.Error(w, "the provider cannot ask the metadata gateway for extras", http.StatusServiceUnavailable)
 				return
 			}
 			got, err := h.opts.Extras(r.Context(), plexID)
 			if err != nil {
-				logging.FromContext(r.Context()).Error("plex: fetch extras", "plexID", plexID, "error", err)
-				http.Error(w, "Plex's metadata service did not answer", http.StatusBadGateway)
+				logging.FromContext(r.Context()).Error("plex: ask the metadata gateway for extras", "plexID", plexID, "error", err)
+				http.Error(w, "the metadata gateway did not answer with extras", http.StatusBadGateway)
 				return
 			}
 			items = got

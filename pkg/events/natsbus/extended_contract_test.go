@@ -19,7 +19,9 @@ package natsbus_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
+	"github.com/mediactl/clustarr/pkg/metadata/plexextras"
 )
 
 // TestExtendedMetadataRoundTripsOnARealServer holds the extended-metadata
@@ -59,5 +62,36 @@ func TestExtendedMetadataRoundTripsOnARealServer(t *testing.T) {
 		require.Equal(t, doc, got)
 	}
 	_, err = kv.Get(ctx, extended.Key(commonv1.MediaKindMovie, "absent"))
+	require.True(t, errors.Is(err, events.ErrKeyNotFound), "%v", err)
+}
+
+// TestPlexExtrasRoundTripOnARealServer holds the Plex extras bucket and its
+// keys to a real NATS server, with an entry the size of a long-running
+// show's season (hundreds of clips).
+func TestPlexExtrasRoundTripOnARealServer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	bus, err := natsbus.New(connect(t))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = bus.Close() })
+	require.NoError(t, bus.Ensure(ctx, contracttest.Topology()))
+
+	kv := bus.KV(events.BucketPlexExtras)
+	extras := make([]json.RawMessage, 500)
+	for i := range extras {
+		extras[i] = json.RawMessage(`{"title":"Teaser Trailer","subtype":"trailer","Media":[{"url":"https://www.internetvideoarchive.net/clip/` + strings.Repeat("x", 1500) + `"}]}`)
+	}
+	in := plexextras.Entry{FetchedAt: time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC), Extras: extras}
+	b, err := plexextras.Encode(in)
+	require.NoError(t, err)
+	key := plexextras.Key("5d776b83fb0d55001f56a04b")
+	_, err = kv.Put(ctx, key, b)
+	require.NoError(t, err)
+	e, err := kv.Get(ctx, key)
+	require.NoError(t, err)
+	out, err := plexextras.Decode(e.Value)
+	require.NoError(t, err)
+	require.Len(t, out.Extras, len(extras))
+	_, err = kv.Get(ctx, plexextras.Key("absent"))
 	require.True(t, errors.Is(err, events.ErrKeyNotFound), "%v", err)
 }

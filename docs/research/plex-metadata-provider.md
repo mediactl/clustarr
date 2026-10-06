@@ -545,4 +545,9 @@ metadata service answers the same route for a Plex id with `clip` items
 (`subtype` `trailer`, `extraType` 1, …) whose `Media[].url` is an Internet
 Video Archive MP4; PMS stores them as parts keyed
 `/services/iva/assets/<publishedid>/video.mp4`. clustarr answers Plex's own
-list (`ui/plex/extras.go`).
+list (`ui/plex/extras.go`), which the metadata gateway fetches with the
+`plex` MetadataProvider's token and keeps per Plex id in the
+`clustarr-plex-extras` bucket (`app/catalog/metadata/extras.go`). Plex's
+service holds extras for seasons too (Andor S1: three trailers and a
+behind-the-scenes clip), and the route answers a season's by its Plex season
+id, but PMS 1.43.4 stored none for a season after a forced show refresh.

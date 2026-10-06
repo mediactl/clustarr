@@ -108,16 +108,19 @@ func TestEnsureSingleNodeTopologyFitsTheKindServersLimits(t *testing.T) {
 		t.Fatalf("artwork object store MaxBytes = %d, want %d", got, events.ArtworkMaxBytes)
 	}
 
-	// So did the extended metadata bucket, which must survive a restart.
-	kv, err := bus.JetStream().KeyValue(ctx, events.BucketMetadataExtended)
-	if err != nil {
-		t.Fatalf("bucket %s: %v", events.BucketMetadataExtended, err)
-	}
-	kvStatus, err := kv.Status(ctx)
-	if err != nil {
-		t.Fatalf("status: %v", err)
-	}
-	if got := kvStatus.(*jetstream.KeyValueBucketStatus).StreamInfo().Config.Storage; got != jetstream.FileStorage {
-		t.Fatalf("%s storage = %v, want file", events.BucketMetadataExtended, got)
+	// So did the extended metadata and Plex extras buckets, which must
+	// survive a restart.
+	for _, name := range []string{events.BucketMetadataExtended, events.BucketPlexExtras} {
+		kv, err := bus.JetStream().KeyValue(ctx, name)
+		if err != nil {
+			t.Fatalf("bucket %s: %v", name, err)
+		}
+		kvStatus, err := kv.Status(ctx)
+		if err != nil {
+			t.Fatalf("status: %v", err)
+		}
+		if got := kvStatus.(*jetstream.KeyValueBucketStatus).StreamInfo().Config.Storage; got != jetstream.FileStorage {
+			t.Fatalf("%s storage = %v, want file", name, got)
+		}
 	}
 }

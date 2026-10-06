@@ -159,10 +159,14 @@ const (
 	// catalog item that the Plex provider shows and no CRD carries (spec
 	// 2026-09-30 plex-full-metadata-response §4).
 	BucketMetadataExtended = "clustarr-metadata-extended"
-	BucketProgress         = "clustarr-progress"
-	BucketImportList       = "clustarr-importlist"
-	BucketDedup            = "clustarr-dedup"
-	BucketTranscodeLeases  = "clustarr-transcode-leases"
+	// BucketPlexExtras holds the extras Plex's metadata service holds per
+	// Plex id, which the metadata gateway fetches on a miss and the ui's
+	// extras route answers PMS with (pkg/metadata/plexextras).
+	BucketPlexExtras      = "clustarr-plex-extras"
+	BucketProgress        = "clustarr-progress"
+	BucketImportList      = "clustarr-importlist"
+	BucketDedup           = "clustarr-dedup"
+	BucketTranscodeLeases = "clustarr-transcode-leases"
 )
 
 // BucketArtwork is the object-store bucket holding artwork originals and
@@ -248,6 +252,7 @@ const (
 	RPCMetadataLookup   = "clustarr.rpc.catalogarr.metadata.lookup"
 	RPCMetadataSearch   = "clustarr.rpc.catalogarr.metadata.search"
 	RPCMetadataResolve  = "clustarr.rpc.catalogarr.metadata.resolve"
+	RPCMetadataExtras   = "clustarr.rpc.catalogarr.metadata.extras"
 	QueueGroupIndexarr  = "indexarr"
 	QueueGroupCatalogar = "catalogarr"
 )
