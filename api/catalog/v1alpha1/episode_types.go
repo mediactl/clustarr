@@ -133,6 +133,14 @@ type EpisodeStatus struct {
 	// +optional
 	TvdbID int64 `json:"tvdbID,omitempty"`
 
+	// PlexID is the episode's id in Plex's own metadata service, without
+	// the plex://episode/ prefix; the ui's Plex provider answers the
+	// episode with it as plex://episode/<id>. Written beside tvdbID and
+	// kept when a later episode list carries none.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{24}$`
+	PlexID string `json:"plexID,omitempty"`
+
 	// Title is the episode title.
 	// +optional
 	Title string `json:"title,omitempty"`

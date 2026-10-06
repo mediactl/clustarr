@@ -64,6 +64,10 @@ type DesiredEpisode struct {
 	// TmdbID (app/catalog/metadata/patch.go).
 	TvdbID int64
 
+	// PlexID is the episode's id in Plex's own metadata service, "" when
+	// the gateway found none this time.
+	PlexID string
+
 	// Still is the episode's still image URL, "" for none. It is always
 	// sent when set and omitted when not, so a still the provider stops
 	// publishing is released (full-metadata spec §3.5).
@@ -249,7 +253,7 @@ func DesiredEpisodes(
 		out = append(out, DesiredEpisode{
 			Name: name, SeasonNumber: ep.SeasonNumber, EpisodeNumber: ep.EpisodeNumber,
 			AbsoluteNumber: ep.AbsoluteNumber, Title: ep.Title, Overview: ep.Overview,
-			AirDate: ep.AirDate, RuntimeMinutes: ep.Runtime, TvdbID: tvdbID, Monitored: monitored,
+			AirDate: ep.AirDate, RuntimeMinutes: ep.Runtime, TvdbID: tvdbID, PlexID: ep.PlexID, Monitored: monitored,
 			Still: still(ep.Image),
 		})
 	}

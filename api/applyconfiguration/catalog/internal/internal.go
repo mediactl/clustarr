@@ -1582,6 +1582,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: phase
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.EpisodePhase
+    - name: plexID
+      type:
+        scalar: string
     - name: runtimeMinutes
       type:
         scalar: numeric

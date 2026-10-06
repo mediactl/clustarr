@@ -342,6 +342,14 @@ spec:
                 - CutoffUnevaluated
                 - Unmonitored
                 type: string
+              plexID:
+                description: |-
+                  PlexID is the episode's id in Plex's own metadata service, without
+                  the plex://episode/ prefix; the ui's Plex provider answers the
+                  episode with it as plex://episode/<id>. Written beside tvdbID and
+                  kept when a later episode list carries none.
+                pattern: ^[0-9a-f]{24}$
+                type: string
               runtimeMinutes:
                 description: RuntimeMinutes is the episode runtime in minutes.
                 format: int32

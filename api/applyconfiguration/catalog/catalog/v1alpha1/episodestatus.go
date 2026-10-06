@@ -37,6 +37,11 @@ type EpisodeStatusApplyConfiguration struct {
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// TvdbID is the TheTVDB episode ID.
 	TvdbID *int64 `json:"tvdbID,omitempty"`
+	// PlexID is the episode's id in Plex's own metadata service, without
+	// the plex://episode/ prefix; the ui's Plex provider answers the
+	// episode with it as plex://episode/<id>. Written beside tvdbID and
+	// kept when a later episode list carries none.
+	PlexID *string `json:"plexID,omitempty"`
 	// Title is the episode title.
 	Title *string `json:"title,omitempty"`
 	// Overview is the episode synopsis.
@@ -107,6 +112,14 @@ func (b *EpisodeStatusApplyConfiguration) WithConditions(values ...*v1.Condition
 // If called multiple times, the TvdbID field is set to the value of the last call.
 func (b *EpisodeStatusApplyConfiguration) WithTvdbID(value int64) *EpisodeStatusApplyConfiguration {
 	b.TvdbID = &value
+	return b
+}
+
+// WithPlexID sets the PlexID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PlexID field is set to the value of the last call.
+func (b *EpisodeStatusApplyConfiguration) WithPlexID(value string) *EpisodeStatusApplyConfiguration {
+	b.PlexID = &value
 	return b
 }
 

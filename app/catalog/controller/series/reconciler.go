@@ -694,6 +694,18 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 		WithOverview(d.Overview).
 		WithRuntimeMinutes(d.RuntimeMinutes).
 		WithTvdbID(d.TvdbID)
+	// PlexID is kept when this list carries none: the gateway sets it
+	// only when Plex answered, so an empty value means Plex failed or has
+	// not been asked, not that the episode lost its id. Sent whenever
+	// known, so this manager keeps owning it; never sent empty, which the
+	// field's pattern refuses.
+	plexID := d.PlexID
+	if plexID == "" {
+		plexID = ep.Status.PlexID
+	}
+	if plexID != "" {
+		statusAC = statusAC.WithPlexID(plexID)
+	}
 	// AirDate and AbsoluteNumber keep their nil-guard: unlike the fields
 	// above, metadata.Episode represents these as pointers, so the provider
 	// DOES distinguish "no air date/absolute number for this episode" (nil)
