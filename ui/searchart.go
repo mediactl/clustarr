@@ -156,6 +156,11 @@ func (a *searchArt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", art.contentType)
 	w.Header().Set("Cache-Control", "private, max-age=3600")
+	// A provider image is served from the ui's own origin, and an SVG (TMDB
+	// logos often are) can carry script: sandboxed and never sniffed, it
+	// renders in an <img> and runs nothing when opened on its own.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(art.body)
 }
 

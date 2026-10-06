@@ -206,3 +206,20 @@ func TestPlexPhotoURLSignsOnlyAllowedHostsOnTheExternalURL(t *testing.T) {
 	require.Empty(t, photo(""))
 	require.Empty(t, plexPhotoURL(a, "")(src), "no external URL: nothing Plex could load")
 }
+
+// TMDB's logos are often SVG, and an SVG can carry script. The proxy serves
+// provider images from the ui's own origin, so a proxied SVG opened directly
+// would run in it. Every proxied image is sandboxed and never sniffed: in an
+// <img> it renders as before, and on its own it runs nothing.
+func TestSearchArtSandboxesWhatItServes(t *testing.T) {
+	a, base := newTestSearchArt(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		_, _ = w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
+	}))
+	rec := serveSearchArt(a, a.URL(base+"/logo.svg"))
+	require.Equal(t, http.StatusOK, rec.Code)
+	csp := rec.Header().Get("Content-Security-Policy")
+	require.Contains(t, csp, "sandbox")
+	require.Contains(t, csp, "default-src 'none'")
+	require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+}
