@@ -22,9 +22,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -361,8 +363,9 @@ func (b *donorBuffer) trim(k int64) {
 // GraftRate stereo, and encodes total samples of the target's timeline:
 // each output sample is the donor's at g.Map, silence where Map reads
 // false or the donor has nothing.
-func graftStage(g GraftAudio, total int64) stageFunc {
+func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 	return func(ctx context.Context, sc *stageContext) error {
+		defer pace.done() // however it ends, the target's demuxer runs free
 		sd, err := sc.dec.NewStreamDecoder(sc.src.Index, nil)
 		if err != nil {
 			return fmt.Errorf("decoder: %w", err)
@@ -429,6 +432,7 @@ func graftStage(g GraftAudio, total int64) stageFunc {
 					return err
 				}
 				n += block
+				pace.advance(n * 1000 / GraftRate)
 				if low > 0 {
 					buf.trim(low - 1)
 				}
@@ -532,7 +536,7 @@ func encodeBlock(enc *ffgo.AudioEncoder, planar *ffgo.Resampler, pcm []float32, 
 // graftSlots inserts the graft's slot after the plan's audio, and when the
 // grafted track is to be the default, takes the default flag off every
 // copied audio track.
-func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Duration) ([]slot, error) {
+func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Duration, pace *graftPace) ([]slot, error) {
 	auds := audioStreams(dd)
 	if g.Stream < 0 || g.Stream >= len(auds) {
 		return nil, fmt.Errorf("the donor has %d audio streams, not %d", len(auds), g.Stream+1)
@@ -546,7 +550,7 @@ func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Durati
 		disp |= ffgo.DispositionDefault
 	}
 	gs := slot{
-		src: auds[g.Stream], name: "graft", donor: true, stage: graftStage(g, total),
+		src: auds[g.Stream], name: "graft", donor: true, stage: graftStage(g, total, pace),
 		opts: &ffgo.StreamOptions{Language: g.Language, Title: g.Title, Disposition: disp, Metadata: ffgo.Metadata{}},
 	}
 	at := len(slots)
@@ -648,4 +652,56 @@ func AudioTracks(path string) ([]Track, error) {
 		})
 	}
 	return out, nil
+}
+
+// paceSlack is how far, in milliseconds, the target's copied streams may
+// run ahead of the graft's output: well inside libavformat's 10 s
+// max_interleave_delta, so the muxer interleaves the dub with the video.
+const paceSlack = 1000
+
+// graftPace is how far the graft's output has got, in milliseconds of the
+// target's timeline, which the target's demuxer waits on.
+type graftPace struct {
+	mu   sync.Mutex
+	ms   int64
+	tick chan struct{} // closed and replaced on every advance
+}
+
+func newGraftPace() *graftPace { return &graftPace{tick: make(chan struct{})} }
+
+// advance records the graft's output reaching ms.
+func (p *graftPace) advance(ms int64) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if ms <= p.ms {
+		return
+	}
+	p.ms = ms
+	close(p.tick)
+	p.tick = make(chan struct{})
+}
+
+// done releases the target's demuxer for good: the graft is complete, or
+// failed (and the run is being cancelled).
+func (p *graftPace) done() { p.advance(math.MaxInt64 - paceSlack) }
+
+// wait blocks until a packet at ms is within paceSlack of the graft's
+// output, or ctx ends.
+func (p *graftPace) wait(ctx context.Context, ms int64) error {
+	for {
+		p.mu.Lock()
+		cur, tick := p.ms, p.tick
+		p.mu.Unlock()
+		if ms <= cur+paceSlack {
+			return nil
+		}
+		select {
+		case <-tick:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }

@@ -182,12 +182,14 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 		return res, &Error{Stage: "demux", Err: err}
 	}
 	var dd *ffgo.Decoder // the graft's donor
+	var pace *graftPace  // holds the target's demuxer to the graft's output
 	if g := o.Graft; g != nil {
+		pace = newGraftPace()
 		if dd, err = ffgo.NewDecoder(g.Donor); err != nil {
 			return res, &Error{Stage: "graft", Err: err}
 		}
 		defer func() { _ = dd.Close() }()
-		if slots, err = graftSlots(slots, *g, dd, d.Duration()); err != nil {
+		if slots, err = graftSlots(slots, *g, dd, d.Duration(), pace); err != nil {
 			return res, &Error{Stage: "graft", Err: err}
 		}
 	}
@@ -287,7 +289,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 				close(in)
 			}
 		}()
-		if err := demux(ctx, d, startShifts(d), routes, copies, muxCh); err != nil {
+		if err := demuxPaced(ctx, d, startShifts(d), routes, copies, muxCh, pace); err != nil {
 			fe.set(err)
 		}
 	}()
@@ -333,6 +335,23 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 // for a copied stream, straight to the muxer; streams the plan does not
 // keep are dropped.
 func demux(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, routes map[int]chan *ffgo.Packet, copies map[int]int, muxCh chan<- muxItem) error {
+	return demuxPaced(ctx, d, shift, routes, copies, muxCh, nil)
+}
+
+// demuxPaced is demux held, when pace is set, to within paceSlack of a
+// graft's output (graft.go): the target's own encoded streams pace its
+// demuxer through their bounded channels, but a graft reads another file,
+// and unheld the copied streams ran so far ahead that the muxer wrote the
+// whole dub after them.
+func demuxPaced(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, routes map[int]chan *ffgo.Packet, copies map[int]int,
+	muxCh chan<- muxItem, pace *graftPace,
+) error {
+	tbs := map[int]ffgo.Rational{}
+	if pace != nil {
+		for _, s := range d.Streams() {
+			tbs[s.Index] = s.TimeBase
+		}
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -360,6 +379,16 @@ func demux(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, routes map
 			}
 			if ts := c.DTS(); ts != avutil.AV_NOPTS_VALUE {
 				avcodec.SetPacketDTS(c.Raw(), ts-off)
+			}
+		}
+		if pace != nil {
+			if tb := tbs[idx]; tb.Den > 0 {
+				if ts := c.DTS(); ts != avutil.AV_NOPTS_VALUE {
+					if err := pace.wait(ctx, ts*1000*int64(tb.Num)/int64(tb.Den)); err != nil {
+						_ = c.Free()
+						return err
+					}
+				}
 			}
 		}
 		if encoded {

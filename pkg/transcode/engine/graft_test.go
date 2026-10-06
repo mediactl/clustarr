@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -251,4 +252,74 @@ func TestAShortDonorIsPaddedToTheTarget(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 10*8000, len(got), 0.1*8000, "the track runs the target's length")
 	assert.Less(t, rms(got[5*8000:9*8000]), 1e-3, "silence past the donor's end")
+}
+
+// TestAGraftedTrackIsInterleavedWithTheVideo: the dub's packets lie among
+// the video's of the same time, not after them -- a player that switches to
+// the dub mid-file must not read the whole file to find it. The donor's
+// demuxer runs apart from the target's, and copying outruns decoding and
+// encoding: unpaced, the whole dub landed after the video (final review).
+func TestAGraftedTrackIsInterleavedWithTheVideo(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=120,noise=alls=20:allf=t",
+		"-i", burstsWAV(t, 1, 120), "-map", "0", "-map", "1", "-t", "120",
+		"-c:v", "libx264", "-preset", "ultrafast", "-b:v", "2M", "-c:a", "aac", "-metadata:s:a:0", "language=jpn", target)
+	donor := graftDonor(t, 120, 0)
+	plan, err := CopyPlan(target)
+	require.NoError(t, err)
+	out := filepath.Join(dir, "target.part.mkv")
+	_, err = Run(context.Background(), plan, target, out, Options{Graft: &GraftAudio{
+		Donor: donor, Stream: 1, Language: "eng", Map: func(s float64) (float64, bool) { return s, true },
+	}})
+	require.NoError(t, err)
+
+	raw := run(t, "ffprobe", "-v", "error", "-show_entries", "packet=stream_index,pts_time,pos", "-of", "csv=p=0", out)
+	type pkt struct {
+		at  float64
+		pos int64
+	}
+	var video, dub []pkt
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		f := strings.Split(line, ",")
+		if len(f) < 3 {
+			continue
+		}
+		at, err1 := strconv.ParseFloat(f[1], 64)
+		pos, err2 := strconv.ParseInt(f[2], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		switch f[0] {
+		case "0":
+			video = append(video, pkt{at, pos})
+		case "2":
+			dub = append(dub, pkt{at, pos})
+		}
+	}
+	require.NotEmpty(t, video)
+	require.NotEmpty(t, dub)
+	// Each dub packet must sit between the video packets 5 s before and 5 s
+	// after it in the file.
+	posAt := func(at float64) (lo, hi int64) {
+		lo, hi = 0, video[len(video)-1].pos
+		for _, v := range video {
+			if v.at <= at-5 && v.pos > lo {
+				lo = v.pos
+			}
+			if v.at >= at+5 && v.pos < hi {
+				hi = v.pos
+			}
+		}
+		return lo, hi
+	}
+	near := 0
+	for _, d := range dub {
+		if lo, hi := posAt(d.at); d.pos >= lo && d.pos <= hi {
+			near++
+		}
+	}
+	assert.GreaterOrEqual(t, float64(near)/float64(len(dub)), 0.95, "%d of %d dub packets lie among the video of their time", near, len(dub))
 }
