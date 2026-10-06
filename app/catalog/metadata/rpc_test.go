@@ -758,3 +758,54 @@ func TestServeRPCSeriesSearchSkipsProvidersThatCannotSearch(t *testing.T) {
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, schema.MetadataRequest{Kind: commonv1.MediaKindSeries, Text: "q"}, &resp))
 	require.Contains(t, resp.Error, "no series metadata provider is configured")
 }
+
+type stubPlexProvider struct {
+	children *pkgmetadata.PlexChildren
+	err      error
+	gotIDs   *pkgmetadata.ExternalIDs
+}
+
+func (stubPlexProvider) Name() string                           { return "plex" }
+func (stubPlexProvider) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+func (p stubPlexProvider) ShowChildren(_ context.Context, ids pkgmetadata.ExternalIDs) (*pkgmetadata.PlexChildren, error) {
+	*p.gotIDs = ids
+	return p.children, p.err
+}
+
+func TestServeRPCLookupEpisodesCarriesPlexIDs(t *testing.T) {
+	var gotIDs pkgmetadata.ExternalIDs
+	reg := &pkgmetadata.Registry{
+		Series: []pkgmetadata.SeriesProvider{stubSeriesProvider{episodes: []pkgmetadata.Episode{
+			{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity", IDs: pkgmetadata.ExternalIDs{"tvdb": "297989"}},
+		}}},
+		Plex: []pkgmetadata.PlexProvider{stubPlexProvider{gotIDs: &gotIDs, children: &pkgmetadata.PlexChildren{
+			Episodes: []pkgmetadata.PlexEpisode{{Season: 1, Episode: 1, TVDB: "297989", ID: "5d9c127e4eefaa001f6449c2"}},
+		}}},
+	}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"tvdb": "78874", "order": "official"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Empty(t, resp.Error)
+	var e pkgmetadata.Episode
+	require.NoError(t, json.Unmarshal(resp.Results[0], &e))
+	require.Equal(t, "5d9c127e4eefaa001f6449c2", e.PlexID)
+	require.Equal(t, pkgmetadata.ExternalIDs{"tvdb": "78874"}, gotIDs, "the show is asked of Plex by its tvdb id")
+}
+
+// Plex failing leaves the episode list as TVDB answered it.
+func TestServeRPCLookupEpisodesSurvivesPlexFailing(t *testing.T) {
+	var gotIDs pkgmetadata.ExternalIDs
+	reg := &pkgmetadata.Registry{
+		Series: []pkgmetadata.SeriesProvider{stubSeriesProvider{episodes: []pkgmetadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity"}}}},
+		Plex:   []pkgmetadata.PlexProvider{stubPlexProvider{gotIDs: &gotIDs, err: pkgmetadata.ErrRateLimited}},
+	}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"tvdb": "78874"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Empty(t, resp.Error)
+	require.Len(t, resp.Results, 1)
+}

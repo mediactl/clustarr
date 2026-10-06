@@ -193,6 +193,7 @@ func lookupEpisodes(ctx context.Context, reg *pkgmetadata.Registry, req schema.M
 			continue
 		}
 		epSpan.End()
+		withPlexIDs(ctx, reg, pkgmetadata.ExternalIDs{pkgmetadata.KeyTVDB: tvdbID}, episodes)
 		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(episodes)}
 	}
 	if lastErr == nil {
