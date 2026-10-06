@@ -32,9 +32,6 @@ package importarr
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -365,36 +362,6 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("importarr: manager: %w", err)
 	}
 	return nil
-}
-
-// DataReadyChecker reports whether path is a writable directory. It is the
-// readiness gate for [RoleWorker]: /data is a RWX volume mounted from the
-// cluster, and on a dev box or a misconfigured Deployment it may simply not
-// exist, which must fail readiness with a clear message rather than panic
-// the process.
-func DataReadyChecker(path string) healthz.Checker {
-	return func(_ *http.Request) error {
-		info, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("data path %s: %w", path, err)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("data path %s is not a directory", path)
-		}
-		probe, err := os.CreateTemp(path, ".importarr-ready-*")
-		if err != nil {
-			return fmt.Errorf("data path %s is not writable: %w", path, err)
-		}
-		name := probe.Name()
-		if cerr := probe.Close(); cerr != nil {
-			_ = os.Remove(name)
-			return fmt.Errorf("data path %s: closing probe file: %w", path, cerr)
-		}
-		if err := os.Remove(name); err != nil {
-			return fmt.Errorf("data path %s: removing probe file %s: %w", path, filepath.Base(name), err)
-		}
-		return nil
-	}
 }
 
 // setupControllers registers importarr's leader-elected reconcilers
