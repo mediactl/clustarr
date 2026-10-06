@@ -477,9 +477,16 @@ ui:
   # runs elsewhere. Empty (the default) means no shipped value can guess an
   # operator's own reachable hostname, so the provider roots answer 503
   # naming the flag, exactly as `clustarr ui --external-url=""` does.
+  #
+  # plexGuids maps to --plex-guids: items a plex MetadataProvider found in
+  # Plex's own metadata service are answered with their plex:// GUIDs, which
+  # Plex Web needs to offer Watchlist (docs/superpowers/specs/
+  # 2026-10-06-plex-native-guids-design.md). false answers clustarr's own
+  # GUIDs for new matches; items PMS already holds by plex:// keep resolving.
   plex:
     enabled: true
     externalURL: ""
+    plexGuids: true
   service:
     type: ClusterIP
     port: 8080
