@@ -232,7 +232,7 @@ again. The spike showed Refresh Metadata re-runs the match.
     restarted after the provider was created.
   - The ~130 items that reached SchemaVersion 2 before that restart were
     refreshed again with `clustarr.io/refresh-metadata`.
-  - Result: 977 of 830 Movies plus 148 Series carry
+  - Result: 977 of the 978 Movies and Series (830 and 148) carry
     `externalIDs["plex"]`, and 11,611 of 15,517 Episodes carry
     `status.plexID`. Episodes without one are mostly those Plex's catalogue
     numbers differently or lacks.
