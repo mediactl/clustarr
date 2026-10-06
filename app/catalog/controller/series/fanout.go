@@ -67,6 +67,9 @@ type DesiredEpisode struct {
 	// PlexID is the episode's id in Plex's own metadata service, "" when
 	// the gateway found none this time.
 	PlexID string
+	// PlexConsulted is true when Plex answered for the series, so an empty
+	// PlexID means Plex has no id for the episode.
+	PlexConsulted bool
 
 	// Still is the episode's still image URL, "" for none. It is always
 	// sent when set and omitted when not, so a still the provider stops
@@ -253,7 +256,7 @@ func DesiredEpisodes(
 		out = append(out, DesiredEpisode{
 			Name: name, SeasonNumber: ep.SeasonNumber, EpisodeNumber: ep.EpisodeNumber,
 			AbsoluteNumber: ep.AbsoluteNumber, Title: ep.Title, Overview: ep.Overview,
-			AirDate: ep.AirDate, RuntimeMinutes: ep.Runtime, TvdbID: tvdbID, PlexID: ep.PlexID, Monitored: monitored,
+			AirDate: ep.AirDate, RuntimeMinutes: ep.Runtime, TvdbID: tvdbID, PlexID: ep.PlexID, PlexConsulted: ep.PlexConsulted, Monitored: monitored,
 			Still: still(ep.Image),
 		})
 	}

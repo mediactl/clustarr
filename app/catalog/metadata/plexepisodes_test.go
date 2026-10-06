@@ -69,3 +69,23 @@ func TestJoinPlexEpisodes(t *testing.T) {
 		"",
 	}, got)
 }
+
+// Every episode of a list Plex answered is marked consulted -- so the
+// Series reconciler may release an id Plex no longer gives it -- and none
+// of a list Plex failed for, whose stored ids are kept.
+func TestWithPlexIDsMarksTheEpisodesPlexWasConsultedFor(t *testing.T) {
+	var gotIDs pkgmetadata.ExternalIDs
+	answered := &pkgmetadata.Registry{Plex: []pkgmetadata.PlexProvider{stubPlexProvider{gotIDs: &gotIDs, children: &pkgmetadata.PlexChildren{
+		Episodes: []pkgmetadata.PlexEpisode{{Season: 1, Episode: 1, TVDB: "1", ID: "aaaaaaaaaaaaaaaaaaaaaaa1"}},
+	}}}}
+	episodes := []pkgmetadata.Episode{ep(1, 1, "1"), ep(1, 2, "2")}
+	withPlexIDs(t.Context(), answered, pkgmetadata.ExternalIDs{pkgmetadata.KeyTVDB: "9"}, episodes)
+	require.True(t, episodes[0].PlexConsulted)
+	require.True(t, episodes[1].PlexConsulted, "Plex answered and has no id for this one")
+	require.Empty(t, episodes[1].PlexID)
+
+	failed := &pkgmetadata.Registry{Plex: []pkgmetadata.PlexProvider{stubPlexProvider{gotIDs: &gotIDs, err: pkgmetadata.ErrRateLimited}}}
+	episodes = []pkgmetadata.Episode{ep(1, 1, "1")}
+	withPlexIDs(t.Context(), failed, pkgmetadata.ExternalIDs{pkgmetadata.KeyTVDB: "9"}, episodes)
+	require.False(t, episodes[0].PlexConsulted)
+}

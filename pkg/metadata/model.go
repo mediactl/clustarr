@@ -330,6 +330,10 @@ type Episode struct {
 	// PlexID is the episode's id in Plex's own metadata service, set by
 	// the gateway from a PlexProvider; "" when none answered.
 	PlexID string `json:"plexID,omitempty"`
+	// PlexConsulted is true when a PlexProvider answered for this
+	// episode's series, so an empty PlexID means Plex has no id for it,
+	// not that Plex could not be asked.
+	PlexConsulted bool `json:"plexConsulted,omitempty"`
 }
 
 // Series is the normalized model for a single TV series.

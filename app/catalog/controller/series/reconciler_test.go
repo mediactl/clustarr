@@ -1337,4 +1337,14 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 		}
 	}
 	require.True(t, owned, "status.plexID belongs to %s", k8s.ManagerCatalogarrSeries)
+
+	// Plex answered this time and has no id for the episode (renumbered,
+	// or now another episode's): the stale id is released, never kept.
+	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity", Runtime: 44, PlexConsulted: true}}
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, epKey, &got) == nil && got.Status.RuntimeMinutes == 44
+	}, 5*time.Second, 10*time.Millisecond, "the third list never landed")
+	require.Empty(t, got.Status.PlexID, "a list Plex answered without an id for the episode releases the stored one")
 }

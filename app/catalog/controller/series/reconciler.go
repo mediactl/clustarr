@@ -694,13 +694,14 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 		WithOverview(d.Overview).
 		WithRuntimeMinutes(d.RuntimeMinutes).
 		WithTvdbID(d.TvdbID)
-	// PlexID is kept when this list carries none: the gateway sets it
-	// only when Plex answered, so an empty value means Plex failed or has
-	// not been asked, not that the episode lost its id. Sent whenever
-	// known, so this manager keeps owning it; never sent empty, which the
-	// field's pattern refuses.
+	// PlexID is kept when Plex could not be asked (d.PlexConsulted
+	// false: Plex failed or no plex provider is configured), and released
+	// -- omitted, never sent empty, which the field's pattern refuses --
+	// when Plex answered without an id for the episode: a renumbered
+	// episode's old id would otherwise stay claimed beside the episode
+	// Plex now gives it to, and the provider answers neither.
 	plexID := d.PlexID
-	if plexID == "" {
+	if plexID == "" && !d.PlexConsulted {
 		plexID = ep.Status.PlexID
 	}
 	if plexID != "" {

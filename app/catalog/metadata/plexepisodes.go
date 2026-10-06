@@ -25,8 +25,10 @@ import (
 )
 
 // withPlexIDs sets each episode's PlexID from the first PlexProvider that
-// answers for the series ids name. Any failure leaves the episodes as they
-// are: the Series reconciler keeps the ids it stored before.
+// answers for the series ids name, and marks every episode PlexConsulted,
+// so the Series reconciler releases an id Plex no longer gives. Any
+// failure leaves the episodes as they are: the reconciler keeps the ids
+// it stored before.
 func withPlexIDs(ctx context.Context, reg *pkgmetadata.Registry, ids pkgmetadata.ExternalIDs, episodes []pkgmetadata.Episode) {
 	for _, p := range reg.Plex {
 		pCtx, span := tracing.Start(ctx, "metadata.PlexProvider.ShowChildren")
@@ -38,6 +40,9 @@ func withPlexIDs(ctx context.Context, reg *pkgmetadata.Registry, ids pkgmetadata
 		}
 		span.End()
 		joinPlexEpisodes(ch.Episodes, episodes)
+		for i := range episodes {
+			episodes[i].PlexConsulted = true
+		}
 		return
 	}
 }
