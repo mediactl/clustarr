@@ -191,8 +191,9 @@ implementations under its own package names, `segmentarr-worker` on ffgo, an
 additive `Dockerfile.media`. This branch moves and renames the same packages
 (`pkg/mediainfo/native`, `…/embedded/execextract`, `pkg/segments/decode`,
 `cmd/markers`, `Dockerfile.media` deleted), so landing that phase on `main`
-first would only create rebase conflicts in R14. **It was not started.** All
-of the work in this guide belongs on this branch.
+first would only create rebase conflicts in R14. **It was not started, and the
+owner confirmed on 2026-10-06 that it will not be:** all of the work in this
+guide belongs on this branch.
 
 ## 3. Order of work on the branch
 
