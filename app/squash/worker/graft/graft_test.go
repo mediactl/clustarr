@@ -169,7 +169,9 @@ func newLibrary(t *testing.T, donorAudio []string, lead float64, targetExtra ...
 	}}
 }
 
-func (l library) path(logical string) string { return filepath.Join(l.dataDir, strings.TrimPrefix(logical, "/data")) }
+func (l library) path(logical string) string {
+	return filepath.Join(l.dataDir, strings.TrimPrefix(logical, "/data"))
+}
 
 func sum(t *testing.T, p string) [32]byte {
 	b, err := os.ReadFile(p)
