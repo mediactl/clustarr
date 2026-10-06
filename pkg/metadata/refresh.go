@@ -106,7 +106,10 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	   countries, certifications, people, season posters, stills.
 //	2: Movie and Series learn their Plex id (externalIDs["plex"]) and a
 //	   Series its plexSeasons (2026-10-06, Plex-native GUIDs).
-const SchemaVersion int32 = 2
+//	3: a Movie's collection learns its Plex id (collection.plexID) and its
+//	   summary and artwork (the extended document), for the Plex
+//	   provider's collections (2026-10-06).
+const SchemaVersion int32 = 3
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

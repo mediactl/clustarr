@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	plexclient "github.com/mediactl/clustarr/pkg/metadata/clients/plex"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 )
@@ -715,4 +716,83 @@ func TestHandlerWritesTheExtendedDocument(t *testing.T) {
 	require.Len(t, doc.Role, 16)
 	require.Equal(t, "Andrew Haigh", doc.Director[0].Name)
 	require.Len(t, doc.Similar, 20)
+}
+
+// TestHandlerLearnsTheMoviesCollection: a movie refresh records the TMDB
+// collection's Plex id -- which Plex only names in the movie's own Plex
+// metadata -- in status.metadata.collection.plexID, and the collection's
+// summary, poster and background in the movie's extended document, all
+// from recorded answers (Back to the Future, 2026-10-06).
+func TestHandlerLearnsTheMoviesCollection(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hcoll", "back-to-the-future"
+	newMovie(t, ctx, c, ns, name, 105)
+
+	read := func(dir, file string) []byte {
+		b, err := os.ReadFile("../../../test/data/metadata/" + dir + "/" + file)
+		require.NoError(t, err)
+		return b
+	}
+	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/movie/105":
+			_, _ = w.Write(read("tmdb", "movie-105.json"))
+		case "/collection/264":
+			_, _ = w.Write(read("tmdb", "collection_264.json"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(tmdbSrv.Close)
+	plexSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/metadata/matches" && r.URL.Query().Get("guid") == "tmdb://105":
+			_, _ = w.Write(read("plex", "matches_movie_tmdb_105.json"))
+		case r.URL.Path == "/library/metadata/5d7768244de0ee001fcc7fed":
+			_, _ = w.Write(read("plex", "metadata_5d7768244de0ee001fcc7fed.json"))
+		default:
+			_, _ = w.Write(read("plex", "matches_empty.json"))
+		}
+	}))
+	t.Cleanup(plexSrv.Close)
+	tm, err := tmdb.New("test-key", tmdbSrv.Client(), tmdbSrv.URL, pkgmetadata.NewLimiter(1000, 1))
+	require.NoError(t, err)
+	px, err := plexclient.New(plexclient.Config{HTTPClient: plexSrv.Client(), BaseURL: plexSrv.URL, Token: "test-token"})
+	require.NoError(t, err)
+
+	bus := membus.New(clockwork.NewRealClock())
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	kv := bus.KV(events.BucketMetadataExtended)
+	h := &metadata.Handler{
+		Client: c, Reader: c,
+		Registry: &pkgmetadata.Registry{
+			Movies:    []pkgmetadata.MovieProvider{tm},
+			Resolvers: []pkgmetadata.IDResolver{px},
+			Plex:      []pkgmetadata.PlexProvider{px},
+		},
+		Cache: noopCache{}, Extended: kv,
+	}
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.Metadata)
+	require.Equal(t, &catalogv1alpha1.CollectionRef{
+		TmdbID: 264, Name: "Back to the Future Collection", PlexID: "5ec2eb574592b6004137f444",
+	}, got.Status.Metadata.Collection)
+
+	e, err := kv.Get(ctx, extended.Key(commonv1.MediaKindMovie, got.UID))
+	require.NoError(t, err)
+	doc, err := extended.Decode(e.Value)
+	require.NoError(t, err)
+	require.NotNil(t, doc.Collection)
+	require.Contains(t, doc.Collection.Summary, "Marty McFly")
+	require.Equal(t, "https://image.tmdb.org/t/p/w500/5Xsu2o5IsZRuuxCEVZ9nVve21FP.jpg", doc.Collection.Poster)
+	require.Equal(t, "https://image.tmdb.org/t/p/original/c9C9Pg2QctyjZHRmS0P8rZg1OTA.jpg", doc.Collection.Art)
 }

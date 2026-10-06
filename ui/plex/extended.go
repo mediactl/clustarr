@@ -186,6 +186,9 @@ func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind
 	for _, s := range doc.Similar {
 		md.Similar = append(md.Similar, SimilarTag{Guid: similarGuid(u, s, idx), Tag: s.Title})
 	}
+	if len(md.Collection) == 1 {
+		withCollectionDoc(u, &md.Collection[0], doc.Collection)
+	}
 }
 
 // similarGuid is a similar title's guid: clustarr's own, or its plex://

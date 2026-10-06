@@ -236,3 +236,42 @@ func TestByPlexIDResolvesEveryKindAndRefusesASharedID(t *testing.T) {
 		require.Equal(t, w, want{uid, season, isSeason, ok}, id)
 	}
 }
+
+// A collection is its movies in the library, oldest first, found by its
+// TMDB collection id or by the Plex id the metadata gateway learned for it;
+// a Plex id two collections claim names neither.
+func TestCollectionsAreTheirMoviesByTMDBOrPlexID(t *testing.T) {
+	movie := func(name, uid string, year int32, col *catalogv1.CollectionRef) *catalogv1.Movie {
+		return &catalogv1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID(uid)},
+			Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{Year: year, Collection: col}},
+		}
+	}
+	bttf := &catalogv1.CollectionRef{TmdbID: 264, Name: "Back to the Future Collection", PlexID: "5ec2eb574592b6004137f444"}
+	part3 := movie("bttf-3", "c0000000-0000-0000-0000-000000000003", 1990, bttf)
+	part1 := movie("bttf-1", "c0000000-0000-0000-0000-000000000001", 1985, bttf)
+	part2 := movie("bttf-2", "c0000000-0000-0000-0000-000000000002", 1989, bttf)
+	alone := movie("arrival", "c0000000-0000-0000-0000-000000000004", 2016, nil)
+	dupA := movie("a", "c0000000-0000-0000-0000-000000000005", 2000, &catalogv1.CollectionRef{TmdbID: 1, PlexID: "5ec2eb574592b6004137f999"})
+	dupB := movie("b", "c0000000-0000-0000-0000-000000000006", 2001, &catalogv1.CollectionRef{TmdbID: 2, PlexID: "5ec2eb574592b6004137f999"})
+
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(part3, part1, part2, alone, dupA, dupB).Build()
+	idx, err := projection.BuildIndex(context.Background(), c)
+	require.NoError(t, err)
+
+	names := func(ms []*catalogv1.Movie) []string {
+		out := make([]string, len(ms))
+		for i, m := range ms {
+			out[i] = m.Name
+		}
+		return out
+	}
+	require.Equal(t, []string{"bttf-1", "bttf-2", "bttf-3"}, names(idx.CollectionMovies(264)))
+	require.Empty(t, idx.CollectionMovies(999))
+
+	id, ok := idx.CollectionByPlexID("5ec2eb574592b6004137f444")
+	require.True(t, ok)
+	require.EqualValues(t, 264, id)
+	_, ok = idx.CollectionByPlexID("5ec2eb574592b6004137f999")
+	require.False(t, ok)
+}

@@ -1,0 +1,24 @@
+{
+  "id": 264,
+  "name": "Back to the Future Collection",
+  "overview": "An American science fiction–comedy film series that follows the adventures of a high school student, Marty McFly and an eccentric scientist, Dr Emmett L. Brown as they use a DeLorean time machine to time travel to different periods in the history of Hill Valley, California.",
+  "poster_path": "/5Xsu2o5IsZRuuxCEVZ9nVve21FP.jpg",
+  "backdrop_path": "/c9C9Pg2QctyjZHRmS0P8rZg1OTA.jpg",
+  "parts": [
+    {
+      "id": 105,
+      "title": "Back to the Future",
+      "release_date": "1985-07-03"
+    },
+    {
+      "id": 165,
+      "title": "Back to the Future Part II",
+      "release_date": "1989-11-22"
+    },
+    {
+      "id": 196,
+      "title": "Back to the Future Part III",
+      "release_date": "1990-05-25"
+    }
+  ]
+}

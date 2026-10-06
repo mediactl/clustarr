@@ -46,8 +46,12 @@ type GuidRef struct {
 // carries the TMDB collection's own external id, the same convention
 // Guid[] uses for a catalog item.
 type CollectionRef struct {
-	Guid string `json:"guid,omitempty"`
-	Tag  string `json:"tag"`
+	Guid    string `json:"guid,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Tag     string `json:"tag"`
+	Summary string `json:"summary,omitempty"`
+	Thumb   string `json:"thumb,omitempty"`
+	Art     string `json:"art,omitempty"`
 }
 
 // RatingObj is one Rating[] entry (research §5.2): a badge identifier from

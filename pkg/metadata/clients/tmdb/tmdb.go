@@ -455,8 +455,9 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 	m.AlternateTitles = mapAlternativeTitles(d)
 	if d.BelongsToCollection.ID != 0 {
 		m.Collection = &metadata.Collection{
-			IDs:   metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(d.BelongsToCollection.ID, 10)},
-			Title: d.BelongsToCollection.Name,
+			IDs:    metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(d.BelongsToCollection.ID, 10)},
+			Title:  d.BelongsToCollection.Name,
+			Images: collectionImages(d.BelongsToCollection.PosterPath, d.BelongsToCollection.BackdropPath),
 		}
 	}
 	// TMDB publishes image paths, not URLs (research note §2.1); the

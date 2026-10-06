@@ -1109,6 +1109,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: name
       type:
         scalar: string
+    - name: plexID
+      type:
+        scalar: string
     - name: tmdbID
       type:
         scalar: numeric

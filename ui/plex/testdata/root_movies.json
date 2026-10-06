@@ -6,13 +6,34 @@
       {
         "type": 1,
         "Scheme": [
-          { "scheme": "tv.plex.agents.custom.clustarr.movies" }
+          {
+            "scheme": "tv.plex.agents.custom.clustarr.movies"
+          }
+        ]
+      },
+      {
+        "type": 18,
+        "Scheme": [
+          {
+            "scheme": "tv.plex.agents.custom.clustarr.movies"
+          }
         ]
       }
     ],
     "Feature": [
-      { "type": "match", "key": "/library/metadata/matches" },
-      { "type": "metadata", "key": "/library/metadata" }
+      {
+        "type": "match",
+        "key": "/library/metadata/matches"
+      },
+      {
+        "type": "metadata",
+        "key": "/library/metadata"
+      },
+      {
+        "type": "collection",
+        "key": "/library/collections"
+      }
     ]
   }
 }
+

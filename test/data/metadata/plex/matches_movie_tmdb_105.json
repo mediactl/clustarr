@@ -1,0 +1,27 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.provider.metadata",
+    "size": 1,
+    "Metadata": [
+      {
+        "guid": "plex://movie/5d7768244de0ee001fcc7fed",
+        "type": "movie",
+        "title": "Back to the Future",
+        "year": 1985,
+        "Guid": [
+          {
+            "id": "imdb://tt0088763"
+          },
+          {
+            "id": "tmdb://105"
+          },
+          {
+            "id": "tvdb://299"
+          }
+        ]
+      }
+    ]
+  }
+}

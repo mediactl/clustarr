@@ -551,3 +551,22 @@ list (`ui/plex/extras.go`), which the metadata gateway fetches with the
 service holds extras for seasons too (Andor S1: three trailers and a
 behind-the-scenes clip), and the route answers a season's by its Plex season
 id, but PMS 1.43.4 stored none for a season after a forced show refresh.
+
+## Collections (2026-10-06)
+
+Plex's provider docs (tmdb-example-provider, `MediaProvider.md`,
+`Metadata.md`) give a provider type 18 (`collection`) and an optional
+`collection` feature at `/library/collections`, and a movie a `Collection[]`
+array of `{guid, key, tag, summary, thumb, art}` whose `key` lists the
+collection's items -- "currently only supported in movie libraries". The
+docs name a "Collection Feature section" they do not contain; the shapes
+clustarr answers are Plex's own metadata service's, recorded for Back to the
+Future: `GET /library/collections/<id>` is one `type: "collection"` item
+(`ratingKey`, `key: /library/collections/<id>/children`, `guid:
+plex://collection/<id>`, `title`, `summary`, `thumb`, `art`, `childCount`,
+`minYear`, `maxYear`), and `/children` its movies, paged. Plex's service does
+not resolve a collection by TMDB id (`matches?type=18&guid=tmdb://264` is
+empty); a member movie's own metadata (`/library/metadata/<movie id>`) names
+it in `Collection[].guid`. The docs also recommend one provider per parent
+type, since providers combined in PMS must support each other's types; one
+provider declaring both is allowed.

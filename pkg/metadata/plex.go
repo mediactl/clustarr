@@ -62,3 +62,14 @@ type PlexExtrasProvider interface {
 	Provider
 	Extras(ctx context.Context, plexID string) ([]json.RawMessage, error)
 }
+
+// PlexCollectionProvider names the collection a movie belongs to in Plex's
+// own metadata service. Plex cannot look a collection up by its TMDB id,
+// but a member movie's Plex metadata carries the collection's plex://
+// GUID, which the ui's Plex provider answers the collection with.
+type PlexCollectionProvider interface {
+	Provider
+	// MovieCollection is the 24-hex id of the collection the movie with
+	// Plex id moviePlexID belongs to, "" when it belongs to none.
+	MovieCollection(ctx context.Context, moviePlexID string) (string, error)
+}

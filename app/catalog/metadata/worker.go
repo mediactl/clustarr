@@ -227,7 +227,15 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// produced (tmdb's mapMovie always sets "tmdb"), so enrichRatings
 		// never re-fetches a source this same call already has for free.
 		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
+		// Before the cache write below, so a cached Movie carries the
+		// summary and is not fetched again.
+		withCollectionSummary(ctx, h.Registry, v.Collection)
 		md := buildMovieMetadataAC(v, ratings, now())
+		if md.Collection != nil {
+			if id := plexCollection(ctx, h.Registry, v.IDs[pkgmetadata.KeyPlex], knownPlexCollection(target, v.Collection)); id != "" {
+				md.Collection.WithPlexID(id)
+			}
+		}
 		images = imagesOf(md.Images)
 		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
 			return catalogac.Movie(key.Name, key.Namespace).WithStatus(
@@ -346,6 +354,7 @@ func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, ta
 	switch v := result.(type) {
 	case *pkgmetadata.Movie:
 		doc = extended.FromPeople(v.People, v.Similar)
+		doc.Collection = extended.FromCollection(v.Collection)
 	case *pkgmetadata.Series:
 		doc = extended.FromPeople(v.People, nil)
 	default:

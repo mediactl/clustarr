@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -68,6 +69,41 @@ type Doc struct {
 	Writer   []Person  `json:"writer,omitempty"`
 	Producer []Person  `json:"producer,omitempty"`
 	Similar  []Similar `json:"similar,omitempty"`
+	// Collection is a movie's collection's summary and artwork, which the
+	// Plex provider shows on the collection.
+	Collection *Collection `json:"collection,omitempty"`
+}
+
+// Collection is what the Plex provider shows on a movie collection beside
+// the name and ids status.metadata.collection already carries.
+type Collection struct {
+	Summary string `json:"summary,omitempty"`
+	Poster  string `json:"poster,omitempty"`
+	Art     string `json:"art,omitempty"`
+}
+
+// MaxCollectionSummary caps the summary, in bytes.
+const MaxCollectionSummary = 4096
+
+// FromCollection is a provider collection's document: its summary, its
+// first poster and its first fanart; nil for none.
+func FromCollection(c *metadata.Collection) *Collection {
+	if c == nil {
+		return nil
+	}
+	out := &Collection{Summary: c.Overview}
+	if len(out.Summary) > MaxCollectionSummary {
+		out.Summary = strings.ToValidUTF8(out.Summary[:MaxCollectionSummary], "")
+	}
+	for _, img := range c.Images {
+		switch {
+		case img.Type == metadata.ImageTypePoster && out.Poster == "":
+			out.Poster = img.URL
+		case img.Type == metadata.ImageTypeFanart && out.Art == "":
+			out.Art = img.URL
+		}
+	}
+	return out
 }
 
 // Key is the item's key in the bucket: its kind and UID, escaped for the

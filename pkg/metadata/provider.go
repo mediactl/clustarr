@@ -67,6 +67,14 @@ type Provider interface {
 	Capabilities() Capabilities
 }
 
+// CollectionProvider fetches a movie collection (franchise) by its id, for
+// the summary a movie's own record does not carry. The Plex provider shows
+// it on the collection.
+type CollectionProvider interface {
+	Provider
+	Collection(ctx context.Context, id string) (*Collection, error)
+}
+
 // MovieProvider fetches and searches movies. Method signatures are pinned
 // verbatim to the design spec (line 714) -- no FetchOptions parameter, no
 // extra method.

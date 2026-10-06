@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package plex
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -85,7 +86,7 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 		if req.EpisodeOrder != "" {
 			u.episodeOrder = req.EpisodeOrder
 		}
-		results := nonNilMetadata(h.match(root, u, idx, req))
+		results := nonNilMetadata(h.match(r.Context(), root, u, idx, req))
 		writeMetadata(w, customizationOf(r, body), MetadataContainer{
 			Offset:     0,
 			TotalSize:  len(results),
@@ -100,7 +101,7 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 // §4's table), building every result as a full Metadata object (spec §D.4:
 // "results are full Metadata objects"). Every type asks rule 0, the file
 // (matchfile.go), before its guid and title rules.
-func (h *handler) match(root rootDef, u urls, idx *projection.Index, req matchRequest) []Metadata {
+func (h *handler) match(ctx context.Context, root rootDef, u urls, idx *projection.Index, req matchRequest) []Metadata {
 	if !root.declares(req.Type) {
 		// A type another root declares (a show asked of the movies root):
 		// no match, the same empty container as an unknown title.
@@ -169,6 +170,9 @@ func (h *handler) match(root rootDef, u urls, idx *projection.Index, req matchRe
 			return nil
 		}
 		return []Metadata{buildEpisodeMetadata(root, u, s, e)}
+
+	case typeCollection:
+		return h.matchCollections(ctx, root, u, idx, req)
 
 	default:
 		return nil

@@ -28,6 +28,11 @@ type CollectionRefApplyConfiguration struct {
 	TmdbID *int64 `json:"tmdbID,omitempty"`
 	// Name is the collection name.
 	Name *string `json:"name,omitempty"`
+	// PlexID is the collection's 24-hex id in Plex's own metadata service,
+	// without the plex://collection/ prefix, read from the movie's Plex
+	// metadata (Plex cannot look a collection up by its TMDB id). The Plex
+	// provider answers the collection with its plex:// GUID when set.
+	PlexID *string `json:"plexID,omitempty"`
 }
 
 // CollectionRefApplyConfiguration constructs a declarative configuration of the CollectionRef type for use with
@@ -49,5 +54,13 @@ func (b *CollectionRefApplyConfiguration) WithTmdbID(value int64) *CollectionRef
 // If called multiple times, the Name field is set to the value of the last call.
 func (b *CollectionRefApplyConfiguration) WithName(value string) *CollectionRefApplyConfiguration {
 	b.Name = &value
+	return b
+}
+
+// WithPlexID sets the PlexID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PlexID field is set to the value of the last call.
+func (b *CollectionRefApplyConfiguration) WithPlexID(value string) *CollectionRefApplyConfiguration {
+	b.PlexID = &value
 	return b
 }

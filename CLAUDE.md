@@ -323,6 +323,16 @@ written by the Series reconciler and kept when a later list carries none.
 flag off too. This rests on PMS not enforcing its documented rule that a
 provider's GUID starts with its identifier; `--plex-guids=false` is the way
 back.
+The movies provider has Plex's collection feature (2026-10-06; type 18,
+Feature `collection` at `/library/collections`, movie libraries only): a
+collection is a TMDB collection (`status.metadata.collection`), its items
+the library's movies in it, answered at `/library/collections/<key>` and its
+`/children` (`ui/plex/collection.go`), by Plex id or `tmdb-collection-<id>`,
+and matched as type 18 by GUID or name. The gateway learns the collection's
+Plex id from the movie's own Plex metadata (Plex cannot look a collection up
+by TMDB id) into `collection.plexID`, and its summary, poster and background
+from TMDB into the movie's extended document. Both providers declare `match`,
+which Plex's provider docs require.
 
 ## Invariants — do not break these
 

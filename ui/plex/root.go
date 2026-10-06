@@ -46,14 +46,18 @@ func (h *handler) handleRoot(root rootDef) http.HandlerFunc {
 			types[i] = ProviderType{Type: t, Scheme: []Scheme{{Scheme: root.identifier}}}
 		}
 
+		features := []Feature{
+			{Type: "match", Key: "/library/metadata/matches"},
+			{Type: "metadata", Key: "/library/metadata"},
+		}
+		if root.declares(typeCollection) {
+			features = append(features, Feature{Type: "collection", Key: "/library/collections"})
+		}
 		writeJSON(w, http.StatusOK, mediaProviderResponse{MediaProvider: MediaProvider{
 			Identifier: root.identifier,
 			Title:      root.title,
 			Types:      types,
-			Feature: []Feature{
-				{Type: "match", Key: "/library/metadata/matches"},
-				{Type: "metadata", Key: "/library/metadata"},
-			},
+			Feature:    features,
 		}})
 	}
 }

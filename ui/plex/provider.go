@@ -110,7 +110,7 @@ var moviesRoot = rootDef{
 	path:       "/plex/movies",
 	title:      "Clustarr Movies",
 	identifier: MoviesIdentifier,
-	types:      []int{typeMovie},
+	types:      []int{typeMovie, typeCollection},
 }
 
 var tvRoot = rootDef{
@@ -139,6 +139,10 @@ func (h *handler) register(mux *http.ServeMux, root rootDef) {
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}", h.handleMetadata(root))
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/images", h.handleImages(root))
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/extras", h.handleExtras(root))
+	if root.declares(typeCollection) {
+		mux.HandleFunc("GET "+root.path+"/library/collections/{key}", h.handleCollection(root))
+		mux.HandleFunc("GET "+root.path+"/library/collections/{key}/children", h.handleCollectionChildren(root))
+	}
 	if root.tv {
 		mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/children", h.handleChildren(root))
 		mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/grandchildren", h.handleGrandchildren(root))

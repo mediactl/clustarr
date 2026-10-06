@@ -194,6 +194,14 @@ type CollectionRef struct {
 	// Name is the collection name.
 	// +optional
 	Name string `json:"name,omitempty"`
+
+	// PlexID is the collection's 24-hex id in Plex's own metadata service,
+	// without the plex://collection/ prefix, read from the movie's Plex
+	// metadata (Plex cannot look a collection up by its TMDB id). The Plex
+	// provider answers the collection with its plex:// GUID when set.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{24}$`
+	PlexID string `json:"plexID,omitempty"`
 }
 
 // MovieMetadata is the provider metadata cached on the movie.

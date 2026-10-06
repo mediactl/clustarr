@@ -18,9 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package projection
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -273,6 +275,14 @@ type Index struct {
 	plexIDs    map[string]plexRef
 	plexShared map[string]bool
 
+	// collections buckets Movies by their TMDB collection id
+	// (status.metadata.collection), and collectionPlex maps a collection's
+	// Plex id to that TMDB id ([Index.CollectionByPlexID]); a Plex id two
+	// collections claim is in collectionPlexShared and names neither.
+	collections          map[int64][]*catalogv1.Movie
+	collectionPlex       map[string]int64
+	collectionPlexShared map[string]bool
+
 	// episodesBySeries buckets every Episode by its owning Series' UID
 	// (metav1.GetControllerOf, exactly relatedIndex's own reading of
 	// app/catalog/controller/series/reconciler.go's
@@ -320,6 +330,10 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 		filesByBase:      map[string][]*catalogv1.MediaFile{},
 		plexIDs:          map[string]plexRef{},
 		plexShared:       map[string]bool{},
+
+		collections:          map[int64][]*catalogv1.Movie{},
+		collectionPlex:       map[string]int64{},
+		collectionPlexShared: map[string]bool{},
 	}
 	if r == nil {
 		return idx, nil
@@ -341,7 +355,19 @@ func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption)
 				idx.imdbMovies[imdb] = m
 			}
 			idx.addPlexID(md.ExternalIDs["plex"], plexRef{uid: m.UID})
+			if col := md.Collection; col != nil && col.TmdbID != 0 {
+				idx.collections[col.TmdbID] = append(idx.collections[col.TmdbID], m)
+				idx.addCollectionPlexID(col.PlexID, col.TmdbID)
+			}
 		}
+	}
+	for _, ms := range idx.collections {
+		slices.SortFunc(ms, func(a, b *catalogv1.Movie) int {
+			if c := cmp.Compare(a.Status.Metadata.Year, b.Status.Metadata.Year); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.Name, b.Name)
+		})
 	}
 
 	var series catalogv1.SeriesList
@@ -481,6 +507,35 @@ func (idx *Index) addPlexID(id string, ref plexRef) {
 		idx.plexShared[id] = true
 	}
 	idx.plexIDs[id] = ref
+}
+
+// addCollectionPlexID records that a collection's Plex id names TMDB
+// collection tmdbID; an id two collections claim names neither.
+func (idx *Index) addCollectionPlexID(id string, tmdbID int64) {
+	if id == "" {
+		return
+	}
+	if prev, ok := idx.collectionPlex[id]; ok && prev != tmdbID {
+		idx.collectionPlexShared[id] = true
+	}
+	idx.collectionPlex[id] = tmdbID
+}
+
+// CollectionMovies is the library's movies of TMDB collection tmdbID,
+// oldest first; none for a collection no Movie belongs to.
+func (idx *Index) CollectionMovies(tmdbID int64) []*catalogv1.Movie {
+	return idx.collections[tmdbID]
+}
+
+// CollectionByPlexID resolves a collection's Plex id -- the 24-hex id of
+// its plex://collection/ GUID, which PMS asks with once it holds the
+// collection under it -- to its TMDB collection id.
+func (idx *Index) CollectionByPlexID(id string) (int64, bool) {
+	tmdbID, ok := idx.collectionPlex[id]
+	if !ok || idx.collectionPlexShared[id] {
+		return 0, false
+	}
+	return tmdbID, true
 }
 
 // ByPlexID resolves a Plex metadata id -- the 24-hex id of a plex:// GUID,

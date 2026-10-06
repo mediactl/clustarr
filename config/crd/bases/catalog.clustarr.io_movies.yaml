@@ -509,6 +509,14 @@ spec:
                       name:
                         description: Name is the collection name.
                         type: string
+                      plexID:
+                        description: |-
+                          PlexID is the collection's 24-hex id in Plex's own metadata service,
+                          without the plex://collection/ prefix, read from the movie's Plex
+                          metadata (Plex cannot look a collection up by its TMDB id). The Plex
+                          provider answers the collection with its plex:// GUID when set.
+                        pattern: ^[0-9a-f]{24}$
+                        type: string
                       tmdbID:
                         description: TmdbID is the TMDB collection ID.
                         format: int64

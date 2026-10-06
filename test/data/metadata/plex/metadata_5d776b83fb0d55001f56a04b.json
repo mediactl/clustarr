@@ -1,0 +1,17 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.provider.metadata",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "5d776b83fb0d55001f56a04b",
+        "guid": "plex://movie/5d776b83fb0d55001f56a04b",
+        "type": "movie",
+        "title": "Arrival",
+        "year": 2016
+      }
+    ]
+  }
+}

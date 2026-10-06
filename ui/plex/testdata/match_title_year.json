@@ -49,7 +49,8 @@
         ],
         "Collection": [
           {
-            "guid": "tmdb://645",
+            "guid": "tv.plex.agents.custom.clustarr.movies://collection/tmdb-collection-645",
+            "key": "/library/collections/tmdb-collection-645/children",
             "tag": "Skyfall Protocol Collection"
           }
         ],

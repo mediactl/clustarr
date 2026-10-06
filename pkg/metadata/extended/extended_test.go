@@ -75,3 +75,28 @@ func TestKeyIsAValidKVKey(t *testing.T) {
 		assert.True(t, events.ValidKVKey(key), key)
 	}
 }
+
+// A movie's document carries its collection's summary and artwork, which
+// the Plex provider shows on the collection; no CRD carries them.
+func TestFromCollectionKeepsTheSummaryAndArtwork(t *testing.T) {
+	got := extended.FromCollection(&metadata.Collection{
+		Title:    "Back to the Future Collection",
+		Overview: "Marty McFly and Doc Brown travel in time.",
+		Images: []metadata.Image{
+			{Type: metadata.ImageTypePoster, URL: "https://image.tmdb.org/t/p/w500/poster.jpg"},
+			{Type: metadata.ImageTypeFanart, URL: "https://image.tmdb.org/t/p/original/backdrop.jpg"},
+		},
+	})
+	require.Equal(t, &extended.Collection{
+		Summary: "Marty McFly and Doc Brown travel in time.",
+		Poster:  "https://image.tmdb.org/t/p/w500/poster.jpg",
+		Art:     "https://image.tmdb.org/t/p/original/backdrop.jpg",
+	}, got)
+	require.Nil(t, extended.FromCollection(nil))
+
+	b, err := extended.Encode(extended.Doc{Collection: got})
+	require.NoError(t, err)
+	back, err := extended.Decode(b)
+	require.NoError(t, err)
+	require.Equal(t, got, back.Collection)
+}

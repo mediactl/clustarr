@@ -98,7 +98,14 @@ type Metadata struct {
 	Producer      []PersonTag     `json:"Producer,omitempty"`
 	Writer        []PersonTag     `json:"Writer,omitempty"`
 	Similar       []SimilarTag    `json:"Similar,omitempty"`
-	SeasonType    []SeasonType    `json:"SeasonType,omitempty"`
+
+	// ChildCount, MinYear and MaxYear describe a collection (type
+	// "collection"): how many of its movies the library holds and the span
+	// of their years, as Plex's own metadata service answers one.
+	ChildCount int          `json:"childCount,omitempty"`
+	MinYear    int32        `json:"minYear,omitempty"`
+	MaxYear    int32        `json:"maxYear,omitempty"`
+	SeasonType []SeasonType `json:"SeasonType,omitempty"`
 
 	Children *ChildrenContainer `json:"Children,omitempty"`
 }
@@ -137,7 +144,7 @@ func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 		md.Guids = guidRefs(meta.ExternalIDs)
 		md.Rating = ratings(meta.Ratings)
 		if meta.Collection != nil {
-			md.Collection = []CollectionRef{movieCollectionRef(*meta.Collection)}
+			md.Collection = []CollectionRef{movieCollectionRef(root, u, *meta.Collection)}
 		}
 		md.Tagline = meta.Tagline
 		md.IsAdult = meta.Adult
@@ -178,16 +185,6 @@ func movieAvailableDate(meta *catalogv1.MovieMetadata) string {
 		return ""
 	}
 	return earliest.UTC().Format("2006-01-02")
-}
-
-// movieCollectionRef builds a movie's single Collection[] entry from
-// status.metadata.collection.
-func movieCollectionRef(c catalogv1.CollectionRef) CollectionRef {
-	ref := CollectionRef{Tag: c.Name}
-	if c.TmdbID != 0 {
-		ref.Guid = "tmdb://" + itoa64(c.TmdbID)
-	}
-	return ref
 }
 
 // buildShowMetadata builds a series' Metadata object (a Plex "show", spec

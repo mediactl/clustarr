@@ -1,0 +1,27 @@
+{
+  "MediaContainer": {
+    "offset": 0,
+    "totalSize": 1,
+    "identifier": "tv.plex.provider.metadata",
+    "size": 1,
+    "Metadata": [
+      {
+        "ratingKey": "5d7768244de0ee001fcc7fed",
+        "guid": "plex://movie/5d7768244de0ee001fcc7fed",
+        "type": "movie",
+        "title": "Back to the Future",
+        "year": 1985,
+        "Collection": [
+          {
+            "art": "https://image.tmdb.org/t/p/original/c9C9Pg2QctyjZHRmS0P8rZg1OTA.jpg",
+            "guid": "plex://collection/5ec2eb574592b6004137f444",
+            "key": "/library/collections/5ec2eb574592b6004137f444/children",
+            "summary": "An American science fiction–comedy film series that follows the adventures of a high school student, Marty McFly and an eccentric scientist, Dr Emmett L. Brown as they use a DeLorean time machine to time travel to different periods in the history of Hill Valley, California.",
+            "thumb": "https://image.tmdb.org/t/p/original/5Xsu2o5IsZRuuxCEVZ9nVve21FP.jpg",
+            "tag": "Back to the Future Collection"
+          }
+        ]
+      }
+    ]
+  }
+}
