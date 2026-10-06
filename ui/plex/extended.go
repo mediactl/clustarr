@@ -104,12 +104,10 @@ func tags(ss []string) []Tag {
 }
 
 // effectiveOrder mirrors series.EffectiveEpisodeOrder (app/catalog/
-// controller/series/order.go), which ui cannot import: an anime is always
-// absolute, and an unset order is official.
+// controller/series/order.go), which ui cannot import: the requested order,
+// official when unset. Series type anime no longer forces absolute order
+// (2026-10-06, anime dual-audio spec §3).
 func effectiveOrder(s *catalogv1.Series) catalogv1.EpisodeOrder {
-	if s.Spec.SeriesType == catalogv1.SeriesTypeAnime {
-		return catalogv1.EpisodeOrderAbsolute
-	}
 	if s.Spec.EpisodeOrder == "" {
 		return catalogv1.EpisodeOrderOfficial
 	}

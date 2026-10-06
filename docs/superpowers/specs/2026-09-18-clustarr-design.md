@@ -223,7 +223,7 @@ type SeriesSpec struct {
     SeriesType string enum{standard,daily,anime} ="standard"
     Monitored bool =true; MonitorNewItems string enum{all,none} ="all"
     Seasons []SeasonSpec // map[number]; {Number int32; Monitored bool}
-    SeasonFolder bool =true; EpisodeOrder string enum{official,dvd,absolute} ="official" // absolute forced when anime
+    SeasonFolder bool =true; EpisodeOrder string enum{official,dvd,absolute} ="official" // anime no longer forces absolute (2026-10-06 anime dual-audio spec §3)
     QualityProfileRef, RootFolderRef string // req
     DelayProfileRef, TranscodeProfileRef, SubtitleProfileRef *string; Folder *string
     AddOptions SeriesAddOptions // {Monitor enum{all,future,missing,existing,firstSeason,lastSeason,pilot,recent,monitorSpecials,unmonitorSpecials,none,skip} ="all"; IgnoreEpisodesWithFiles, IgnoreEpisodesWithoutFiles bool; SearchForMissing bool =true; SearchForCutoffUnmet bool =false} applied once

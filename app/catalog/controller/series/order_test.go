@@ -34,8 +34,10 @@ func TestEffectiveEpisodeOrder(t *testing.T) {
 		order      catalogv1alpha1.EpisodeOrder
 		want       catalogv1alpha1.EpisodeOrder
 	}{
-		{"anime forces absolute regardless of spec", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderOfficial, catalogv1alpha1.EpisodeOrderAbsolute},
-		{"anime forces absolute even if user set dvd", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderDVD, catalogv1alpha1.EpisodeOrderAbsolute},
+		{"anime keeps the official order", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderOfficial, catalogv1alpha1.EpisodeOrderOfficial},
+		{"anime keeps an explicit dvd order", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderDVD, catalogv1alpha1.EpisodeOrderDVD},
+		{"anime keeps an explicit absolute order", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderAbsolute, catalogv1alpha1.EpisodeOrderAbsolute},
+		{"anime falls back to official on the Go zero value", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrder(""), catalogv1alpha1.EpisodeOrderOfficial},
 		{"standard keeps the spec value", catalogv1alpha1.SeriesTypeStandard, catalogv1alpha1.EpisodeOrderDVD, catalogv1alpha1.EpisodeOrderDVD},
 		{"daily keeps official default", catalogv1alpha1.SeriesTypeDaily, catalogv1alpha1.EpisodeOrderOfficial, catalogv1alpha1.EpisodeOrderOfficial},
 		{"standard falls back to official on the Go zero value", catalogv1alpha1.SeriesTypeStandard, catalogv1alpha1.EpisodeOrder(""), catalogv1alpha1.EpisodeOrderOfficial},
