@@ -86,6 +86,10 @@ type PlexOptions struct {
 	// [plexExternalURLWarning] once at startup so an operator sees this
 	// before the first request does.
 	ExternalURL string
+
+	// PlexGUIDs answers items Plex knows with their plex:// GUIDs
+	// (`--plex-guids`, plex.Options.PlexGUIDs).
+	PlexGUIDs bool
 }
 
 // plexExternalURLWarning is logged once, at startup, when the Plex provider

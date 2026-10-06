@@ -68,6 +68,7 @@ const devEngineImage = "ghcr.io/mediactl/clustarr/media:dev"
 // does not own -- see D1's own concurrency note).
 type uiArgs struct {
 	provider        bool
+	plexGUIDs       bool
 	externalURL     string
 	pipelineHistory int
 }
@@ -110,7 +111,7 @@ func allServices(
 	name string
 	run  func(ctx context.Context, o k8s.Options) error
 } {
-	plex := uiArgs{provider: true, pipelineHistory: projection.DefaultPipelineHistory}
+	plex := uiArgs{provider: true, plexGUIDs: true, pipelineHistory: projection.DefaultPipelineHistory}
 	if len(uiOpts) > 0 {
 		plex = uiOpts[0]
 	}
@@ -279,7 +280,7 @@ func allServices(
 				MetadataSearch:       metadataSearch,
 				PlexExtended:         plexExtended,
 				ArtSigningKey:        signingKey,
-				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL),
+				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL, plex.plexGUIDs),
 				Entries:              proj.Entries,
 				Subscribe:            proj.Subscribe,
 				SubscribeDownloads:   proj.SubscribeDownloads,
@@ -319,6 +320,7 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var uiAddr string
 	var uiAuthMode string
 	var uiPlexProvider bool
+	var uiPlexGUIDs bool
 	var uiExternalURL string
 	var uiPipelineHistory int
 	cmd.Flags().StringVar(&indexDSN, "index-dsn", envOr(indexDSNEnv, ""),
@@ -334,6 +336,10 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	cmd.Flags().BoolVar(&uiPlexProvider, "plex-provider", true,
 		"Serve the Plex Custom Metadata Provider at /plex/movies and /plex/tv (design spec §D). "+
 			"Unauthenticated by protocol: it must not sit behind a public ingress.")
+	cmd.Flags().BoolVar(&uiPlexGUIDs, "plex-guids", true,
+		"Answer the movies, shows, seasons and episodes Plex knows with their plex:// GUIDs instead of "+
+			"clustarr's own, so Plex Web offers Watchlist; ids come from a plex MetadataProvider. False "+
+			"goes back to clustarr's GUIDs for new matches.")
 	cmd.Flags().StringVar(&uiExternalURL, "external-url", envOr(externalURLEnv, ""),
 		"Absolute base every thumb, art and Image[].url the Plex provider hands Plex is built on. "+
 			"Defaults to $"+externalURLEnv+". Required for --plex-provider to serve anything but 503.")
@@ -354,7 +360,7 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		base.BusSingleNode = true
 
 		services := allServices(lo, to, indexDSN, uiAddr, ui.AuthMode(uiAuthMode),
-			uiArgs{provider: uiPlexProvider, externalURL: uiExternalURL, pipelineHistory: uiPipelineHistory})
+			uiArgs{provider: uiPlexProvider, plexGUIDs: uiPlexGUIDs, externalURL: uiExternalURL, pipelineHistory: uiPipelineHistory})
 		optionsFor := make([]k8s.Options, len(services))
 		for i, svc := range services {
 			o := base

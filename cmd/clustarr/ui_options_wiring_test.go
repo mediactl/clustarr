@@ -207,3 +207,24 @@ func TestArtSigningKeyRefusesAShortKey(t *testing.T) {
 	_, err = artSigningKey()
 	require.ErrorContains(t, err, artSigningKeyEnv)
 }
+
+// --plex-guids reaches the Plex provider from both commands, on by
+// default.
+func TestBothUICommandsPassPlexGUIDs(t *testing.T) {
+	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
+	t.Setenv("KUBECONFIG", kubeconfig)
+	for _, tc := range []struct {
+		argv []string
+		want bool
+	}{
+		{[]string{"ui", "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous"}, true},
+		{[]string{"ui", "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous", "--plex-guids=false"}, false},
+		{[]string{"all", "--ui-auth-mode", "anonymous"}, true},
+		{[]string{"all", "--ui-auth-mode", "anonymous", "--plex-guids=false"}, false},
+	} {
+		o := captureUIOptions(t, tc.argv...)
+		require.NotNil(t, o.Plex, "%v", tc.argv)
+		require.Equal(t, tc.want, o.Plex.PlexGUIDs, "%v", tc.argv)
+	}
+}

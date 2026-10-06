@@ -96,6 +96,7 @@ func (s *Server) routes() http.Handler {
 	if s.opts.Plex != nil {
 		mux.Handle("/plex/", plex.Handler(plex.Options{
 			ExternalURL: s.opts.Plex.ExternalURL,
+			PlexGUIDs:   s.opts.Plex.PlexGUIDs,
 			Index:       s.plexIndex.Get,
 			Extended:    s.opts.PlexExtended,
 			// Provider-hosted images (person photos, season posters,

@@ -292,12 +292,16 @@
         "plex": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "externalURL"],
+          "required": ["enabled", "externalURL", "plexGuids"],
           "description": "The Plex Custom Metadata Provider (design spec §D): read-only, unauthenticated by protocol, must not sit behind a public ingress. See the chart README's \"Plex provider\" section.",
           "properties": {
             "enabled": {
               "type": "boolean",
               "description": "--plex-provider."
+            },
+            "plexGuids": {
+              "type": "boolean",
+              "description": "--plex-guids: answer items Plex knows with their plex:// GUIDs, so Plex Web offers Watchlist."
             },
             "externalURL": {
               "type": "string",

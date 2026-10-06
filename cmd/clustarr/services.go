@@ -567,19 +567,19 @@ func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.Met
 // uiPlexExtended is ui.Options.PlexExtended's type.
 type uiPlexExtended = func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 
-// buildUIPlexOptions builds ui.Options.Plex from --plex-provider and
-// --external-url, shared by `clustarr ui` and `clustarr all`. nil (feature
+// buildUIPlexOptions builds ui.Options.Plex from --plex-provider,
+// --external-url and --plex-guids, shared by `clustarr ui` and `clustarr all`. nil (feature
 // off) exactly when --plex-provider is false; otherwise non-nil regardless
 // of whether externalURL is set, since an empty one is a legal, if
 // currently unusable, value (design spec §D.1: the roots answer 503 for
 // it rather than the flag's absence silently turning the whole feature
 // off) -- and ui.NewServer, not this func, is what logs the "no
 // --external-url" warning once at startup.
-func buildUIPlexOptions(enabled bool, externalURL string) *ui.PlexOptions {
+func buildUIPlexOptions(enabled bool, externalURL string, plexGUIDs bool) *ui.PlexOptions {
 	if !enabled {
 		return nil
 	}
-	return &ui.PlexOptions{ExternalURL: externalURL}
+	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs}
 }
 
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
@@ -588,6 +588,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var authMode string
 	var natsURL string
 	var plexProvider bool
+	var plexGUIDs bool
 	var externalURL string
 	var pipelineHistory int
 
@@ -616,6 +617,10 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	cmd.Flags().BoolVar(&plexProvider, "plex-provider", true,
 		"Serve the Plex Custom Metadata Provider at /plex/movies and /plex/tv (design spec §D). "+
 			"Unauthenticated by protocol: it must not sit behind a public ingress.")
+	cmd.Flags().BoolVar(&plexGUIDs, "plex-guids", true,
+		"Answer the movies, shows, seasons and episodes Plex knows with their plex:// GUIDs instead of "+
+			"clustarr's own, so Plex Web offers Watchlist; ids come from a plex MetadataProvider. False "+
+			"goes back to clustarr's GUIDs for new matches.")
 	cmd.Flags().StringVar(&namespace, "namespace", envOr(namespaceEnv, ""),
 		"Namespace the Settings page creates namespaced objects in by default. Defaults to $"+namespaceEnv+".")
 	cmd.Flags().StringVar(&externalURL, "external-url", envOr(externalURLEnv, ""),
@@ -652,7 +657,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			MetadataSearch:       metadataSearch,
 			PlexExtended:         plexExtended,
 			ArtSigningKey:        signingKey,
-			Plex:                 buildUIPlexOptions(plexProvider, externalURL),
+			Plex:                 buildUIPlexOptions(plexProvider, externalURL, plexGUIDs),
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,
 			SubscribeDownloads:   proj.SubscribeDownloads,

@@ -75,7 +75,7 @@ spec:
         # anonymous serves every request without a login, so this Service
         # must sit behind ingress authentication (amendment §A3.5).
         #
-        # --plex-provider defaults true in the binary; named explicitly here
+        # --plex-provider and --plex-guids default true in the binary; named explicitly here
         # so the flag is visible without reading cmd/clustarr. --external-url
         # is deliberately absent: no shipped manifest can guess an operator's
         # own reachable hostname (spec §D.1), so the Plex provider roots
@@ -86,7 +86,7 @@ spec:
         # it on anything but a private, cluster-internal network -- the
         # provider is unauthenticated by protocol. --pipeline-history is the
         # binary's default, named for the same reason as --plex-provider.
-        args: ["ui", "--auth-mode=anonymous", "--plex-provider=true", "--pipeline-history=100"]
+        args: ["ui", "--auth-mode=anonymous", "--plex-provider=true", "--plex-guids=true", "--pipeline-history=100"]
         env:
         - name: POD_NAMESPACE
           valueFrom:
