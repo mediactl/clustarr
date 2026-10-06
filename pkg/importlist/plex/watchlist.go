@@ -145,6 +145,8 @@ func (w *Watchlist) fetchPage(ctx context.Context, start int32) ([]importlist.It
 	q.Set("X-Plex-Container-Start", strconv.Itoa(int(start)))
 	q.Set("X-Plex-Container-Size", strconv.Itoa(int(w.opts.pageSize)))
 	req.URL.RawQuery = q.Encode()
+	// Discover answers XML unless asked for JSON.
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := w.opts.client.Do(req)
 	if err != nil {

@@ -127,3 +127,27 @@ func TestFetchTransportErrorCarriesNoToken(t *testing.T) {
 		})
 	}
 }
+
+// Plex Discover answers XML unless the request accepts JSON: without the
+// header every sync failed with "decode: invalid character '<'"
+// (kind-cluster-plex's watchlist lists, 2026-10-06; the live service sends
+// <MediaContainer> to a bare request and the JSON fixture's shape to one
+// carrying Accept: application/json).
+func TestFetchAsksForJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") != "application/json" {
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><MediaContainer size="0"></MediaContainer>`))
+			return
+		}
+		b, err := os.ReadFile("../../../test/data/importlist/plex/watchlist_series_page1.json")
+		require.NoError(t, err)
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+
+	w, err := plex.New("plex-watchlist", commonv1.MediaKindSeries, "tok", "", plex.WithBaseURL(srv.URL))
+	require.NoError(t, err)
+	items, err := w.Fetch(t.Context())
+	require.NoError(t, err)
+	assert.NotEmpty(t, items)
+}
