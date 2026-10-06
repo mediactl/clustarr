@@ -185,13 +185,37 @@ func TestTheTranscoderImageCarriesNoFFmpegExecutable(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "Dockerfile.transcoder-distroless became Dockerfile.transcoder")
 	df, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.transcoder"))
 	require.NoError(t, err)
-	assert.Regexp(t, `(?im)^FROM\s+scratch\s+AS\s+transcoder\s*$`, string(df), "the transcoder is the FROM-scratch image")
+	for _, name := range []string{"transcoder", "transcoder-amd64", "transcoder-arm64", "transcoder-base"} {
+		from, _, ok := dockerStage(string(df), name)
+		require.True(t, ok, "the %s stage", name)
+		if name == "transcoder-base" {
+			assert.Equal(t, "scratch", from, "the transcoder is the FROM-scratch image")
+		}
+	}
+}
+
+// dockerStage finds the stage named name in the Dockerfile df: the image it
+// is built FROM and its instructions up to the next FROM.
+func dockerStage(df, name string) (from, body string, ok bool) {
+	re := regexp.MustCompile(`(?im)^FROM\s+(?:--platform=\S+\s+)?(\S+)\s+AS\s+` + regexp.QuoteMeta(name) + `\s*$`)
+	loc := re.FindStringSubmatchIndex(df)
+	if loc == nil {
+		return "", "", false
+	}
+	body = df[loc[1]:]
+	if next := regexp.MustCompile(`(?im)^FROM\s`).FindStringIndex(body); next != nil {
+		body = body[:next[0]]
+	}
+	return df[loc[2]:loc[3]], body, true
 }
 
 // Every pool, Intel's included, runs the one transcoder image (ADR 0015),
 // so that image carries the Intel media runtime -- the iHD VAAPI driver
 // and both QSV runtimes, which nothing injects at run time the way the
 // NVIDIA runtime injects NVIDIA's -- and no Intel-only target remains.
+// The runtime is amd64's alone, and so is the environment pointing libva
+// at it: transcoder picks its architecture's stage, and arm64's, which
+// stages no libva, sets none of libva's environment.
 func TestTheOneTranscoderImageCarriesTheIntelStack(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
@@ -200,19 +224,28 @@ func TestTheOneTranscoderImageCarriesTheIntelStack(t *testing.T) {
 	df := string(b)
 	assert.NotRegexp(t, `(?im)^FROM\s+\S+\s+AS\s+transcoder-intel`, df, "no Intel-only target")
 
-	start := regexp.MustCompile(`(?im)^FROM\s+scratch\s+AS\s+transcoder\s*$`).FindStringIndex(df)
-	require.NotNil(t, start, "the transcoder target")
-	target := df[start[0]:]
-	if next := regexp.MustCompile(`(?im)^FROM\s`).FindStringIndex(target[1:]); next != nil {
-		target = target[:next[0]+1]
+	from, _, ok := dockerStage(df, "transcoder")
+	require.True(t, ok, "the transcoder target")
+	assert.Equal(t, "transcoder-${TARGETARCH}", from, "the transcoder target is its architecture's stage")
+	for _, arch := range []string{"amd64", "arm64"} {
+		from, _, ok := dockerStage(df, "transcoder-"+arch)
+		require.True(t, ok, "the transcoder-%s stage", arch)
+		assert.Equal(t, "transcoder-base", from, "transcoder-%s builds on transcoder-base", arch)
 	}
-	assert.Contains(t, target, "LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri", "the transcoder target points libva at iHD")
-	from := regexp.MustCompile(`COPY --from=(\S+) /staging/ /`).FindStringSubmatch(target)
-	require.NotNil(t, from, "the transcoder target copies a staging tree")
-	stageRE := regexp.MustCompile(`(?ims)^FROM\s+\S+\s+AS\s+` + regexp.QuoteMeta(from[1]) + `\s*$(.*?)^FROM\s`)
-	m := stageRE.FindStringSubmatch(df)
-	require.NotNil(t, m, "the %s stage", from[1])
+	_, amd64, _ := dockerStage(df, "transcoder-amd64")
+	assert.Contains(t, amd64, "LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri", "amd64 points libva at iHD")
+	assert.Contains(t, amd64, "LIBVA_DRIVER_NAME=iHD", "amd64 names the iHD driver")
+	_, arm64, _ := dockerStage(df, "transcoder-arm64")
+	assert.NotContains(t, arm64, "LIBVA_", "arm64 stages no libva, so it sets none of its environment")
+
+	_, base, ok := dockerStage(df, "transcoder-base")
+	require.True(t, ok, "the transcoder-base stage")
+	assert.NotContains(t, base, "LIBVA_", "libva's environment is amd64's, not every architecture's")
+	staging := regexp.MustCompile(`COPY --from=(\S+) /staging/ /`).FindStringSubmatch(base)
+	require.NotNil(t, staging, "transcoder-base copies a staging tree")
+	_, m, ok := dockerStage(df, staging[1])
+	require.True(t, ok, "the %s stage", staging[1])
 	for _, pkg := range []string{"intel-media-va-driver-non-free", "libmfx-gen1.2", "libmfx1/bookworm"} {
-		assert.Contains(t, m[1], pkg, "the one image's staging installs %s", pkg)
+		assert.Contains(t, m, pkg, "the one image's staging installs %s", pkg)
 	}
 }

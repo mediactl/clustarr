@@ -149,24 +149,30 @@ RUN set -eux; \
       /stage.sh /staging
 
 # ---------------------------------------------------------------------------
-# transcoder: FROM scratch
+# transcoder: FROM scratch, plus what one architecture alone needs
 # ---------------------------------------------------------------------------
-FROM scratch AS transcoder
+FROM scratch AS transcoder-base
 LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.title="clustarr-transcoder"
 COPY --from=staging /staging/ /
-# libva logs every driver load at info level on stderr; errors only keeps
-# FFmpeg's own error in the worker's stderr tail. The driver path names
-# iHD's directory on amd64; on arm64 it does not exist, and nothing there
-# opens VAAPI.
-ENV FFGO_SHIM_DIR=/usr/lib \
-    LIBVA_MESSAGING_LEVEL=1 \
-    LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
-    LIBVA_DRIVER_NAME=iHD
+ENV FFGO_SHIM_DIR=/usr/lib
 VOLUME ["/data"]
 USER 1000:1000
 ENTRYPOINT ["/usr/bin/squasharr-worker"]
+
+# libva logs every driver load at info level on stderr; errors only keeps
+# FFmpeg's own error in the worker's stderr tail. The driver path is where
+# staging put iHD, under amd64's multiarch directory.
+FROM transcoder-base AS transcoder-amd64
+ENV LIBVA_MESSAGING_LEVEL=1 \
+    LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
+    LIBVA_DRIVER_NAME=iHD
+
+# arm64 stages no libva and no driver (see staging), so it names none.
+FROM transcoder-base AS transcoder-arm64
+
+FROM transcoder-${TARGETARCH} AS transcoder
 
 FROM transcoder AS transcoder-debug
 COPY --from=busybox:1.37-musl /bin/ /bin/
