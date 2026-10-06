@@ -50,7 +50,9 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	// stored profile.
 	Quality *int32 `json:"quality,omitempty"`
 	// Hardware is the encoder backend: auto is chosen per task, with CPU
-	// fallback; cpu, nvidia and intel are pinned and never fall back.
+	// fallback; gpu is chosen per task among the GPU classes and waits for
+	// a free one rather than encode on the CPU; cpu, nvidia and intel are
+	// pinned and never fall back.
 	Hardware *transcodev1alpha1.Hardware `json:"hardware,omitempty"`
 	// Audio decides which audio languages are kept.
 	Audio *AudioSpecApplyConfiguration `json:"audio,omitempty"`
