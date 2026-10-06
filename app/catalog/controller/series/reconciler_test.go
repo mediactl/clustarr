@@ -555,6 +555,38 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		}, 500*time.Millisecond, 20*time.Millisecond,
 			"this controller's own status patch must not re-trigger itself")
 	})
+
+	t.Run("setting a RootFolder's anime defaults wakes its unclassified series", func(t *testing.T) {
+		// Anime dual-audio spec §4: detection is turned on after deploy by
+		// patching the RootFolder; an ended series refreshes its metadata
+		// only every few days, so nothing else would wake it.
+		requester.episodes, requester.err = nil, nil
+		require.NoError(t, c.Create(ctx, testRootFolder("series-ns", "late-root", "/data/media/tv-late")))
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: "bleach", Namespace: "series-ns"},
+			Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 74796, QualityProfileRef: "web-1080p", RootFolderRef: "late-root"},
+		}))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("bleach", "series-ns").WithStatus(
+			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Bleach").WithGenres("Anime").
+				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
+		require.NoError(t, err)
+		key := types.NamespacedName{Namespace: "series-ns", Name: "bleach"}
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Series
+			return c.Get(ctx, key, &got) == nil && got.Status.Path != ""
+		}, 10*time.Second, 20*time.Millisecond, "the series never reconciled with its metadata")
+		var got catalogv1alpha1.Series
+		require.NoError(t, c.Get(ctx, key, &got))
+		require.Nil(t, got.Status.Classification, "no anime defaults yet: nothing may be recorded")
+
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "series-ns", Name: "late-root"}, &rf))
+		require.NoError(t, c.Patch(ctx, &rf, client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"defaults":{"anime":{"qualityProfileRef":"anime-web-1080p"}}}}`))))
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.Classification != nil && got.Spec.QualityProfileRef == "anime-web-1080p"
+		}, 10*time.Second, 20*time.Millisecond, "the RootFolder edit never woke its series")
+	})
 }
 
 func mustGet(t *testing.T, ctx context.Context, c client.Client, ns, name string) catalogv1alpha1.Series {

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -165,8 +166,33 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("series").
 		For(&catalogv1alpha1.Series{}, builder.WithPredicates(seriesPredicate())).
 		Owns(&catalogv1alpha1.Episode{}, builder.WithPredicates(episodeRollupChanged())).
+		// A RootFolder's spec edit -- defaults.anime set after deploy --
+		// must reach the series it classifies; an ended series otherwise
+		// waits days for its next metadata refresh.
+		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mapRootFolder),
+			builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
+}
+
+// mapRootFolder enqueues the RootFolder's series that are not classified
+// yet (series.Classify). It lists the namespace's series per event, which
+// stays cheap because RootFolders are few and change rarely: at startup it
+// runs once per RootFolder, not per series (CLAUDE.md's map-function gotcha).
+func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
+	var list catalogv1alpha1.SeriesList
+	if err := r.List(ctx, &list, client.InNamespace(o.GetNamespace())); err != nil {
+		logging.FromContext(ctx).Warn("series: list for a RootFolder change failed", "rootFolder", o.GetName(), "error", err)
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		s := &list.Items[i]
+		if s.Spec.RootFolderRef == o.GetName() && s.Status.Classification == nil {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: s.Namespace, Name: s.Name}})
+		}
+	}
+	return reqs
 }
 
 // episodeRollupKey is what of an Episode the rollup reads that the Episode
