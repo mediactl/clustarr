@@ -105,6 +105,55 @@ func (f *FakeSearchRPC) Search(_ context.Context, req schema.SearchRequest) (sch
 	return f.Response, nil
 }
 
+// IndexQuery is the release-index half of clustarr.rpc.indexarr.query: a
+// query of indexarr's local index of every release its indexers' RSS feeds
+// delivered, costing no indexer query (app/catalog/controller/search's
+// QueryRPC is the same contract, for Search objects in query mode).
+type IndexQuery interface {
+	Query(ctx context.Context, req schema.QueryRequest) (schema.QueryResponse, error)
+}
+
+type busIndexQuery struct{ r events.Requester }
+
+// NewBusIndexQuery wraps a bus's request/reply half as an IndexQuery.
+func NewBusIndexQuery(r events.Requester) IndexQuery { return &busIndexQuery{r: r} }
+
+func (b *busIndexQuery) Query(ctx context.Context, req schema.QueryRequest) (schema.QueryResponse, error) {
+	var resp schema.QueryResponse
+	if err := b.r.Request(ctx, events.RPCIndexQuery, req, &resp); err != nil {
+		return schema.QueryResponse{}, fmt.Errorf("index query RPC: %w", err)
+	}
+	return resp, nil
+}
+
+// FakeIndexQuery is an IndexQuery test double: it returns Response/Err and
+// records every request. Safe for concurrent use.
+type FakeIndexQuery struct {
+	Response schema.QueryResponse
+	Err      error
+
+	mu       sync.Mutex
+	requests []schema.QueryRequest
+}
+
+// Query implements IndexQuery.
+func (f *FakeIndexQuery) Query(_ context.Context, req schema.QueryRequest) (schema.QueryResponse, error) {
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	f.mu.Unlock()
+	if f.Err != nil {
+		return schema.QueryResponse{}, f.Err
+	}
+	return f.Response, nil
+}
+
+// Requests returns a copy of every request the fake has seen, oldest first.
+func (f *FakeIndexQuery) Requests() []schema.QueryRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]schema.QueryRequest(nil), f.requests...)
+}
+
 // Requests returns a copy of every request the fake has seen, oldest first.
 func (f *FakeSearchRPC) Requests() []schema.SearchRequest {
 	f.mu.Lock()

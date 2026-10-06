@@ -100,3 +100,19 @@ func TestSetupWithManagerRunsOnEveryReplicaFromTheGivenTopology(t *testing.T) {
 
 // highConsumer is the consumer the topology test perturbs.
 const highConsumer = events.ConsumerCatalogSearchHigh
+
+// The wanted sweep's repeat searches query the release index (2026-10-06);
+// a production Worker that never got an IndexQuery would search those live
+// again, silently. SetupWithManager wires it from the bus, as it does the
+// Publisher, and leaves one a caller injected alone.
+func TestSetupWithManagerWiresTheReleaseIndexFromTheBus(t *testing.T) {
+	topo := events.Default()
+	w := &Worker{Topology: &topo}
+	require.NoError(t, w.SetupWithManager(&addRecorder{}, &subRecorder{}))
+	require.NotNil(t, w.Index, "an index-only search would be searched live")
+
+	injected := &FakeIndexQuery{}
+	w = &Worker{Topology: &topo, Index: injected}
+	require.NoError(t, w.SetupWithManager(&addRecorder{}, &subRecorder{}))
+	require.Same(t, injected, w.Index)
+}

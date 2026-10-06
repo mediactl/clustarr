@@ -120,6 +120,9 @@ type wantedItem struct {
 	Ref    commonv1.MediaRef
 	Reason schema.SearchReason
 	UID    string
+	// IndexOnly is set for an item searched before (SearchTask.IndexOnly):
+	// its sweep search queries the local release index, not the indexers.
+	IndexOnly bool
 }
 
 // wantedItems lists the namespace's searchable items -- movies, episodes,
@@ -149,7 +152,8 @@ func (w *Worker) wantedItems(ctx context.Context, ns string, scan schema.WantedS
 			ungrabbable[c.Ref.Kind]++
 			continue
 		}
-		out = append(out, wantedItem{Ref: c.Ref, Reason: c.Reason, UID: c.UID})
+		searched := c.Attempts.Count > 0 || c.Attempts.Latest != nil
+		out = append(out, wantedItem{Ref: c.Ref, Reason: c.Reason, UID: c.UID, IndexOnly: searched})
 	}
 	for kind, n := range ungrabbable {
 		w.log(ctx).Warn("search: wanted items of a kind the grab path cannot grab yet were not searched",
@@ -183,8 +187,9 @@ func kindFilter(kinds []commonv1.MediaKind) func(commonv1.MediaKind) bool {
 // That is exactly what WantedScan.Epoch is for.
 func (w *Worker) publishItemSearch(ctx context.Context, ns string, item wantedItem, epoch int64) error {
 	schemaName, data, err := schema.Encode(schema.SearchTask{
-		MediaRef: item.Ref,
-		Reason:   item.Reason,
+		MediaRef:  item.Ref,
+		Reason:    item.Reason,
+		IndexOnly: item.IndexOnly,
 	})
 	if err != nil {
 		return err

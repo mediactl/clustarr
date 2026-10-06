@@ -36,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -133,6 +134,9 @@ type Worker struct {
 	Client    client.Client
 	RPC       SearchRPC
 	Catalogue *catalogue.Catalogue
+	// Index queries indexarr's local release index, for a SearchTask with
+	// IndexOnly set. Nil searches such a task live, as before.
+	Index IndexQuery
 	// Publisher fans a WantedScan out into one SearchTask per eligible item.
 	// SetupWithManager defaults it to the bus it is handed; a Worker driven
 	// directly in a test sets it itself. A nil Publisher makes the WantedScan
@@ -322,7 +326,19 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	}
 
 	req := w.buildRequest(ns, task, snap, srch)
-	resp, err := w.RPC.Search(ctx, req)
+	var resp schema.SearchResponse
+	if task.IndexOnly && w.Index != nil {
+		if req.Text == "" {
+			// The index is searched by text alone, and an empty query
+			// matches every release in it. The item has no resolved title
+			// yet; its next sweep will try again.
+			w.log(ctx).Debug("search: no title to query the release index with; skipping an index-only search")
+			return nil
+		}
+		resp, err = w.searchIndex(ctx, req)
+	} else {
+		resp, err = w.RPC.Search(ctx, req)
+	}
 	if err != nil {
 		tracing.RecordError(span, err)
 		return err // already an events.RetryError from busSearchRPC, or a plain error -> backoff nak
@@ -925,6 +941,11 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 		// caller free to inject a different publisher.
 		w.Publisher = bus
 	}
+	if w.Index == nil {
+		// The sweep's repeat searches query the release index over the same
+		// bus (SearchTask.IndexOnly).
+		w.Index = NewBusIndexQuery(bus)
+	}
 	topo := w.topology()
 	for _, name := range []string{events.ConsumerCatalogSearchHigh, events.ConsumerCatalogSearchNorm} {
 		spec, ok := topo.Consumer(name)
@@ -945,4 +966,37 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 		}
 	}
 	return nil
+}
+
+// indexQueryLimit is how many of the release index's matches an index-only
+// search reads: the newest, as relindex orders them, well inside the query
+// reply's byte budget.
+const indexQueryLimit = 100
+
+// searchIndex answers a search from indexarr's local release index instead
+// of the indexers (SearchTask.IndexOnly): the same text a live text search
+// sends, narrowed to the request's categories and, when it names exactly
+// one, its protocol. The index stores each release exactly as its indexer
+// returned it, so what comes back is decided and grabbed as a live result
+// is; only the per-indexer outcomes are absent, since no indexer was asked.
+func (w *Worker) searchIndex(ctx context.Context, req schema.SearchRequest) (schema.SearchResponse, error) {
+	q := schema.QueryRequest{Text: req.Text, Limit: indexQueryLimit, Filters: map[string]string{}}
+	if len(req.Categories) > 0 {
+		cats := make([]string, 0, len(req.Categories))
+		for _, c := range req.Categories {
+			cats = append(cats, strconv.Itoa(int(c)))
+		}
+		q.Filters["category"] = strings.Join(cats, ",")
+	}
+	if len(req.Protocols) == 1 {
+		q.Filters["protocol"] = string(req.Protocols[0])
+	}
+	resp, err := w.Index.Query(ctx, q)
+	if err != nil {
+		return schema.SearchResponse{}, err
+	}
+	if resp.Error != "" {
+		return schema.SearchResponse{}, fmt.Errorf("search: release index query: %s", resp.Error)
+	}
+	return schema.SearchResponse{Releases: resp.Releases, Truncated: resp.Total > int64(len(resp.Releases))}, nil
 }

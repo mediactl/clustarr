@@ -630,6 +630,23 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   results. Such work gets its own stream marked `StreamSpec.Durable`
   (file-backed at full size, outside the memory budget):
   `CLUSTARR_WORK_SEGMENTARR`, 256 MiB, `clustarr.work.segmentarr.>`.
+- **A query's wait for its own rate limiter counted against the indexer's
+  timeout, and the wanted sweep searched every item live at once.** On
+  2026-10-06 the sweep published 104 searches in one second; indexarr
+  (answering RPCs concurrently since 8638117b) queued all of them on
+  nzbgeek's 2 s `requestDelay`, and the fan-out's per-query deadline --
+  started before the wait -- expired for every query past the fifteenth or
+  so, which were recorded as nzbgeek timing out and disabled it (an earlier
+  sweep had grabbed 73 releases in one hour). Two fixes:
+  `torznab.Client.WaitTurn` takes the request slot inside the search's
+  budget and `spec.timeout` starts after it, a query that gets no slot is
+  the `paced` skip, never a failure (`app/indexer/search/pacing_test.go`);
+  and the sweep marks an item it has searched before
+  `SearchTask.IndexOnly`, which the search worker answers from indexarr's
+  local release index (`clustarr.rpc.indexarr.query`, every release the
+  RSS feeds delivered, no indexer query) -- an item never searched gets one
+  live search, and Add New, "Search now" and redownloads stay live. A
+  pool of searches must never be fired at an indexer in one burst.
 - **A Helm hook with no delete policy defaults to `before-hook-creation`,
   which destroys anything holding data.** A `post-install,post-upgrade`
   hook carrying no `helm.sh/hook-delete-policy` annotation is deleted and

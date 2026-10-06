@@ -203,6 +203,13 @@ type SearchTask struct {
 	// UserInvoked marks a search a human asked for. It bypasses some rate
 	// limiting and is never coalesced away.
 	UserInvoked bool `json:"userInvoked,omitempty"`
+
+	// IndexOnly searches indexarr's local release index
+	// (clustarr.rpc.indexarr.query) instead of the indexers: no indexer is
+	// queried. The wanted sweep sets it for an item it has searched before
+	// (2026-10-06): every release an indexer's RSS feed delivered is already
+	// in the index, so a repeat sweep costs no indexer query.
+	IndexOnly bool `json:"indexOnly,omitempty"`
 }
 
 // Schema implements Payload.
