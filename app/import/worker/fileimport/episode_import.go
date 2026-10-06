@@ -340,9 +340,14 @@ func (w *Worker) importEpisodeFile(
 	}
 	if !manual {
 		candidate := quality.Candidate{Quality: parsed.Quality, Revision: parsed.Revision, FormatScore: score}
+		// A file whose audio lacks the profile's language is replaced by one
+		// whose probe carries it, upgrade or not (anime dual-audio spec
+		// §5.3): the search grabbed it for that.
+		originalTag := series.Status.Metadata.OriginalLanguage
 		for _, mf := range compared {
 			current := quality.Candidate{Quality: mf.Spec.Quality, Revision: mf.Spec.Revision, FormatScore: int(mf.Spec.FormatScore)}
-			if verdict := plan.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade {
+			if verdict := plan.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade &&
+				!replacesWrongLanguage(plan.profile, originalTag, &mf, mi) {
 				return nil, fmt.Sprintf("%s: %s (%s)", rel, verdictMessage(verdict), mf.Spec.MediaRef.Name), nil
 			}
 		}

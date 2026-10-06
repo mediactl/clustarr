@@ -185,12 +185,20 @@ func queueRejection(p quality.Profile, t Target, candidate quality.Candidate) *c
 // called against Target.Current via quality.Profile.UpgradeDecision, never
 // reimplemented here. Returns nil (no rejection) both when there is no
 // current file and when the candidate is a genuine Upgrade.
-func upgradeRejection(p quality.Profile, t Target, candidate quality.Candidate) *common.Rejection {
+//
+// namesLanguage is whether the candidate's title names its languages
+// rather than assuming the original one (release.ParsedRelease's
+// LanguageUnknown false). Only such a release replaces a current file whose
+// audio lacks the profile's language without being an upgrade: an untagged
+// release's language is the same assumption that imported the wrong file,
+// and the import step, which checks the new file's own audio, would refuse
+// it anyway (fileimport.replacesWrongLanguage).
+func upgradeRejection(p quality.Profile, t Target, candidate quality.Candidate, namesLanguage bool) *common.Rejection {
 	if t.Current == nil {
 		return nil
 	}
-	if LacksLanguage(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
-		return nil // the current file lacks the profile's language: anything accepted replaces it
+	if namesLanguage && LacksLanguage(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+		return nil // the current file lacks the profile's language; this release names it (the language check held it to it)
 	}
 	current := quality.Candidate{Quality: t.Current.Quality, Revision: t.Current.Revision, FormatScore: t.Current.FormatScore}
 	v := p.UpgradeDecision(current, candidate)

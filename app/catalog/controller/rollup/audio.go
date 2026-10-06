@@ -23,32 +23,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/lang"
+	"github.com/mediactl/clustarr/pkg/decision"
 )
 
-// ProbedAudioLanguages returns mf's audio track languages as canonical
-// BCP-47 tags in stream order, deduplicated, or nil when they are not all
-// known: not probed, no audio stream, or any track untagged ("und", "" or
-// unparseable). One unknown track makes the whole set unknown, since that
-// track may be the wanted language (decision.LacksLanguage never fires on
-// nil).
+// ProbedAudioLanguages is decision.AudioLanguages over mf's probe: its
+// audio languages as canonical BCP-47 tags, or nil when not all are known.
 func ProbedAudioLanguages(mf *catalogv1alpha1.MediaFile) []string {
-	if mf == nil || mf.Status.MediaInfo == nil || len(mf.Status.MediaInfo.Audio) == 0 {
+	if mf == nil {
 		return nil
 	}
-	var out []string
-	seen := map[string]bool{}
-	for _, a := range mf.Status.MediaInfo.Audio {
-		t, ok := lang.Normalize(a.Language)
-		if !ok {
-			return nil
-		}
-		if !seen[string(t)] {
-			seen[string(t)] = true
-			out = append(out, string(t))
-		}
-	}
-	return out
+	return decision.AudioLanguages(mf.Status.MediaInfo)
 }
 
 // AudioLanguagesObject is ProbedAudioLanguages as a watch key, for

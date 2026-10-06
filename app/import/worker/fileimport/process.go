@@ -309,12 +309,20 @@ func (pc *processConfig) processFile(
 	// over each, as an episode file must over each file it replaces.
 	if !pc.manual {
 		candidate := quality.Candidate{Quality: parsed.Quality, Revision: parsed.Revision, FormatScore: score}
+		originalTag := ""
+		if pc.movie.Status.Metadata != nil {
+			originalTag = pc.movie.Status.Metadata.OriginalLanguage
+		}
 		for i := range compared {
 			mf := &compared[i]
 			current := quality.Candidate{
 				Quality: mf.Spec.Quality, Revision: mf.Spec.Revision, FormatScore: int(mf.Spec.FormatScore),
 			}
-			if verdict := pc.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade {
+			// A file whose audio lacks the profile's language is replaced by
+			// one whose probe carries it, upgrade or not (anime dual-audio
+			// spec §5.3): the search grabbed it for that.
+			if verdict := pc.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade &&
+				!replacesWrongLanguage(pc.profile, originalTag, mf, mi) {
 				if len(compared) > 1 {
 					return nil, fmt.Sprintf("%s: %s (MediaFile %s)", rel, verdictMessage(verdict), mf.Name), nil
 				}

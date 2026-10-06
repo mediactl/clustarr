@@ -191,3 +191,35 @@ func TestEvaluateNeverUpgradesATranscodedFileAutomatically(t *testing.T) {
 	require.True(t, eval(target(true), interactive).Approved,
 		"a user's interactive search is left to the ordinary checks, as Radarr and Sonarr allow a manual grab")
 }
+
+// TestEvaluateReplacesAWrongLanguageFileOnlyWithATaggedRelease is anime
+// dual-audio spec §5.3: a Japanese film whose file carries Korean audio is
+// replaced at the same quality only by a release whose title names its
+// language; an untagged one merely assumes Japanese, the assumption that
+// imported the Korean file.
+func TestEvaluateReplacesAWrongLanguageFileOnlyWithATaggedRelease(t *testing.T) {
+	bluray1080, ok := quality.Lookup("video", "Bluray-1080p")
+	require.True(t, ok)
+	p := quality.Profile{
+		Tiers: [][]quality.Definition{{bluray1080}}, CutoffIndex: 0, UpgradeAllowed: true,
+		CutoffFormatScore: 10000, MinUpgradeFormatScore: 1, ProperPolicy: "preferAndUpgrade",
+		Language: "original", LanguageName: "original",
+	}
+	tg := decision.Target{
+		Kind: common.MediaKindMovie, Available: true, OriginalLanguageTag: "ja",
+		Identity: decision.Identity{Titles: []string{"Spirited Away"}, Year: 2001},
+		Current:  &decision.Current{Quality: bluray1080.Quality, AudioLanguages: []string{"ko"}},
+	}
+	o := decision.Options{ProtocolsEnabled: map[string]bool{"torrent": true}}
+	eval := func(title string) decision.Decision {
+		rel := common.ReleaseInfo{GUID: "idx:" + title, IndexerRef: "idx", Protocol: common.ProtocolTorrent, Title: title}
+		ds := decision.Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, []common.ReleaseInfo{rel}, o)
+		require.Len(t, ds, 1)
+		return ds[0]
+	}
+	got := eval("Spirited.Away.2001.JAPANESE.1080p.BluRay.x264-GROUP")
+	require.True(t, got.Approved, "a release that names Japanese replaces the Korean file: %+v", got.Rejections)
+	require.False(t, eval("Spirited.Away.2001.1080p.BluRay.x264-GROUP").Approved, "an untagged release only assumes Japanese")
+	tg.Current.AudioLanguages = []string{"ja"}
+	require.False(t, eval("Spirited.Away.2001.JAPANESE.1080p.BluRay.x264-GROUP").Approved, "a Japanese file is not replaced by the same quality")
+}

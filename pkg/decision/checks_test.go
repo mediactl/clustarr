@@ -204,16 +204,16 @@ func TestUpgradeRejection(t *testing.T) {
 	}
 
 	t.Run("no current file, nothing to upgrade over", func(t *testing.T) {
-		require.Nil(t, upgradeRejection(p, Target{}, quality.Candidate{Quality: webdl720.Quality}))
+		require.Nil(t, upgradeRejection(p, Target{}, quality.Candidate{Quality: webdl720.Quality}, false))
 	})
 	t.Run("candidate is a real upgrade, not rejected", func(t *testing.T) {
 		tg := Target{Current: &Current{Quality: webdl720.Quality, Revision: common.Revision{Version: 1}}}
-		got := upgradeRejection(p, tg, quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}})
+		got := upgradeRejection(p, tg, quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}, false)
 		require.Nil(t, got)
 	})
 	t.Run("candidate is worse quality than current, rejected as ExistingHigherPreference", func(t *testing.T) {
 		tg := Target{Current: &Current{Quality: bluray1080.Quality}}
-		got := upgradeRejection(p, tg, quality.Candidate{Quality: webdl720.Quality})
+		got := upgradeRejection(p, tg, quality.Candidate{Quality: webdl720.Quality}, false)
 		require.NotNil(t, got)
 		require.Contains(t, got.Reason, ReasonExistingHigherPreference.Code)
 	})
@@ -221,7 +221,7 @@ func TestUpgradeRejection(t *testing.T) {
 		np := p
 		np.UpgradeAllowed = false
 		tg := Target{Current: &Current{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}}
-		got := upgradeRejection(np, tg, quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}})
+		got := upgradeRejection(np, tg, quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}, false)
 		require.NotNil(t, got)
 		require.Contains(t, got.Reason, ReasonUpgradesNotAllowed.Code)
 	})
@@ -230,9 +230,11 @@ func TestUpgradeRejection(t *testing.T) {
 		lp.Language = "original"
 		same := quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}
 		tg := Target{OriginalLanguageTag: "ja", Current: &Current{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}, AudioLanguages: []string{"ko"}}}
-		require.Nil(t, upgradeRejection(lp, tg, same))
+		require.Nil(t, upgradeRejection(lp, tg, same, true), "a release whose title names its language replaces it")
+		require.NotNil(t, upgradeRejection(lp, tg, same, false),
+			"an untagged release only assumes the original language -- the assumption that imported the wrong file -- so it must be a real upgrade")
 		tg.Current.AudioLanguages = []string{"ja"}
-		require.NotNil(t, upgradeRejection(lp, tg, same), "a right-language file is not replaced by the same quality")
+		require.NotNil(t, upgradeRejection(lp, tg, same, true), "a right-language file is not replaced by the same quality")
 	})
 }
 

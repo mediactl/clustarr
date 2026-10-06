@@ -109,7 +109,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	add(queueRejection(p, t, candidate))
 	add(transcodedRejection(t, o))
-	add(upgradeRejection(p, t, candidate))
+	add(upgradeRejection(p, t, candidate, !parsed.LanguageUnknown))
 
 	d := Decision{
 		Release:             rel,

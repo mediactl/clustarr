@@ -20,6 +20,7 @@ package decision
 import (
 	"strings"
 
+	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -59,4 +60,28 @@ func LacksLanguage(p quality.Profile, originalTag string, audio []string) bool {
 func baseLanguage(tag string) string {
 	b, _, _ := strings.Cut(tag, "-")
 	return strings.ToLower(b)
+}
+
+// AudioLanguages returns a probe's audio track languages as canonical
+// BCP-47 tags in stream order, deduplicated, or nil when they are not all
+// known: no probe, no audio stream, or any track untagged ("und", "" or
+// unparseable). One unknown track makes the whole set unknown, since that
+// track may be the wanted language; LacksLanguage never fires on nil.
+func AudioLanguages(mi *common.MediaInfo) []string {
+	if mi == nil || len(mi.Audio) == 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, a := range mi.Audio {
+		t, ok := lang.Normalize(a.Language)
+		if !ok {
+			return nil
+		}
+		if !seen[string(t)] {
+			seen[string(t)] = true
+			out = append(out, string(t))
+		}
+	}
+	return out
 }
