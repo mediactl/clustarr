@@ -51,3 +51,8 @@ func NormalizeName(s string) string { return names.NormalizeName(s) }
 
 // HashOrdinal is [names.HashOrdinal].
 func HashOrdinal(replicas int32, parts ...string) int32 { return names.HashOrdinal(replicas, parts...) }
+
+// AudioGraftName is the name of an item's AudioGraft (anime dual-audio spec
+// §6.2): one per Episode or Movie, which importarr creates and the item's
+// reconciler reads.
+func AudioGraftName(item string) string { return ChildName(item, "audiograft") }

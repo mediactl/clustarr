@@ -243,6 +243,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 	swap := latestUnincorporatedTranscode(jobs, mf.Status.ProbedAt)
+	// An audio graft rewrote the file in place (anime dual-audio spec
+	// §7.2): not a transcode -- spec.original stays -- but the file's bytes
+	// are new, so it is probed and catalogarr takes over the size, mtime and
+	// path from here on, as after a transcode swap (spec §8).
+	graft, err := r.unincorporatedGraft(ctx, &mf)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	transcodeRunning := transcodeInFlight(jobs)
 	path, kept := swapTarget(&mf, swap)
 	if kept != nil {
@@ -274,7 +282,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	ps := evaluateProbe(path, info.Size(), info.ModTime(), mf.Status.ProbeHash)
 
 	probed, changed, keptOutput := false, false, ""
-	if swap != nil || kept != nil || probeDue(mf.Status.ProbeHash, mf.Status.ProbeVersion, ps) {
+	if swap != nil || kept != nil || graft != nil || probeDue(mf.Status.ProbeHash, mf.Status.ProbeVersion, ps) {
 		mi, _, probeErr := r.Probe(ctx, path)
 		if probeErr != nil {
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "ProbeFailed", "%s", probeErr)
@@ -326,8 +334,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// only the reconcile that first incorporates a swap -- otherwise a
 		// later labels-only Apply (triggered by, say, a stale re-probe with
 		// no new TranscodeJob) would erase fields catalogarr already owns.
+		if graft != nil {
+			known.GraftTag, known.GraftedAt = graft.Status.GraftTag, &now
+		}
 		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
 		mainAC := catalogac.MediaFile(mf.Name, mf.Namespace).WithLabels(labels)
+		if original && known.GraftTag != "" {
+			// A grafted original: the size, mtime and path are catalogarr's
+			// from its first graft on, re-sent on every apply as after a
+			// transcode -- and spec.original is never sent, so importarr
+			// keeps it (a graft is not a transcode).
+			mainAC = mainAC.WithSpec(catalogac.MediaFileSpec().
+				WithPath(path).
+				WithSizeBytes(ps.SizeBytes).
+				WithModTime(ps.ModTime))
+		}
 		if !original {
 			// spec.path is catalogarr's from the first swap on, beside the
 			// three fields it already took (gap-fix R-11): a container
@@ -359,7 +380,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		known.MediaInfo = mi
 		probed = true
 
-		if swap == nil && kept == nil && transcoded && bytesChanged(&mf, ps) && mf.Status.ProbeHash != "" {
+		if graft != nil {
+			log.Info("incorporated audio graft", "audioGraft", graft.Name, "graftTag", graft.Status.GraftTag)
+		}
+		if swap == nil && kept == nil && graft == nil && transcoded && bytesChanged(&mf, ps) && mf.Status.ProbeHash != "" {
 			// A rename (naming.renameTranscoded) moves the same bytes:
 			// the probe is stale by path alone, and the verdict stands.
 			// The bytes of a file catalogarr already took over changed, and
@@ -583,6 +607,8 @@ type knownStatus struct {
 	Sidecars     []catalogv1alpha1.Sidecar
 	Transcode    *catalogv1alpha1.TranscodeState
 	Naming       *catalogv1alpha1.NamingStatus
+	GraftTag     string
+	GraftedAt    *metav1.Time
 }
 
 // statusOf seeds a knownStatus from the live object, so a reconcile that
@@ -596,6 +622,8 @@ func statusOf(mf *catalogv1alpha1.MediaFile) *knownStatus {
 		Sidecars:     mf.Status.Sidecars,
 		Transcode:    mf.Status.Transcode,
 		Naming:       mf.Status.Naming,
+		GraftTag:     mf.Status.GraftTag,
+		GraftedAt:    mf.Status.GraftedAt,
 	}
 }
 
@@ -655,6 +683,12 @@ func (k *knownStatus) statusAC(mf *catalogv1alpha1.MediaFile, conditions []metav
 		}
 		ac = ac.WithNaming(nac)
 	}
+	if k.GraftTag != "" {
+		ac = ac.WithGraftTag(k.GraftTag)
+	}
+	if k.GraftedAt != nil {
+		ac = ac.WithGraftedAt(*k.GraftedAt)
+	}
 	return ac
 }
 
@@ -694,6 +728,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// triggers the swap.
 		Watches(&transcodev1alpha1.TranscodeJob{}, handler.EnqueueRequestsFromMapFunc(r.mediaFileForTranscodeJob),
 			builder.WithPredicates(k8s.StatusFieldChanged(extractTranscodeJobPhase))).
+		Watches(&transcodev1alpha1.AudioGraft{}, handler.EnqueueRequestsFromMapFunc(mediaFileForAudioGraft),
+			builder.WithPredicates(k8s.StatusFieldChanged(extractAudioGraftDone))).
 		Watches(&subtitlev1alpha1.SubtitleRequest{}, handler.EnqueueRequestsFromMapFunc(r.mediaFileForSubtitleRequest),
 			builder.WithPredicates(k8s.StatusFieldChanged(extractSubtitleItemsSignature))).
 		Watches(&catalogv1alpha1.Movie{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForMovie),
@@ -717,6 +753,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 // that drives the lookups against a bare manager cache calls it too, so
 // the index names and extractors live in one place.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	if err := idx.IndexField(ctx, &transcodev1alpha1.AudioGraft{}, audioGraftMediaFileRefIndex, indexAudioGraftByMediaFileRef); err != nil {
+		return err
+	}
 	if err := idx.IndexField(ctx, &transcodev1alpha1.TranscodeJob{}, transcodeJobMediaFileRefIndex, indexTranscodeJobByMediaFileRef); err != nil {
 		return err
 	}

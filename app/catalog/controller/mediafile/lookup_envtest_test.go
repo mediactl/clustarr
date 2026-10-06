@@ -191,6 +191,27 @@ func TestLookupsSelectThroughTheManagerCachesIndex(t *testing.T) {
 type rawClient struct{ client.WithWatch }
 
 func (c rawClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if grafts, ok := list.(*transcodev1alpha1.AudioGraftList); ok {
+		lo := (&client.ListOptions{}).ApplyOptions(opts)
+		ref, indexed := "", false
+		if lo.FieldSelector != nil {
+			ref, indexed = lo.FieldSelector.RequiresExactMatch(mediafile.AudioGraftMediaFileRefIndex)
+		}
+		lo.FieldSelector = nil
+		if err := c.WithWatch.List(ctx, grafts, lo); err != nil {
+			return err
+		}
+		if indexed {
+			kept := grafts.Items[:0]
+			for i := range grafts.Items {
+				if grafts.Items[i].Status.MediaFileRef == ref {
+					kept = append(kept, grafts.Items[i])
+				}
+			}
+			grafts.Items = kept
+		}
+		return nil
+	}
 	jobs, ok := list.(*transcodev1alpha1.TranscodeJobList)
 	if !ok {
 		return c.WithWatch.List(ctx, list, opts...)

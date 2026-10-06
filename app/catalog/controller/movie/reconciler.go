@@ -43,6 +43,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/pkg/decision"
@@ -77,6 +78,7 @@ const (
 	movieByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/finalizers,verbs=update
@@ -178,6 +180,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&catalogv1alpha1.Movie{}, builder.WithPredicates(moviePredicate())).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(mediaFilePredicate())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
+		Watches(&transcodev1alpha1.AudioGraft{}, handler.EnqueueRequestsFromMapFunc(rollup.ItemOfAudioGraft(commonv1.MediaKindMovie)),
+			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState)))).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
@@ -552,7 +556,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		r.publishFile(ctx, m, action, file, mf, now)
 	}
 
-	dl, err := r.activeDownload(ctx, m)
+	dl, donorOpen, err := r.activeDownload(ctx, m)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	ag, err := r.audioGraft(ctx, m)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -571,7 +579,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		WithHasFile(hasFile).
 		WithFileFormatScore(fileFormatScore).
 		WithCutoffMet(cutoffMet)
-	if a := rollup.AudioStateFor(profile, originalTag, mf); a != nil {
+	if a := rollup.AudioStateFor(profile, originalTag, mf, rollup.GraftObservation{DonorDownloading: donorOpen, Graft: ag}); a != nil {
 		statusAC = statusAC.WithAudio(rollup.AudioStateAC(a))
 	}
 	if fileRef != nil {

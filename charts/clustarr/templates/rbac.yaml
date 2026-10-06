@@ -226,19 +226,20 @@ rules:
 - apiGroups:
   - transcode.clustarr.io
   resources:
+  - audiografts
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
   - transcodejobs
   verbs:
   - get
   - list
   - patch
-  - watch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodeprofiles
-  verbs:
-  - get
-  - list
   - watch
 # END generated from config/rbac/catalogarr_role.yaml.
 {{- end }}

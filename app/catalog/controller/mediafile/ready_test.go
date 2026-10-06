@@ -66,6 +66,7 @@ func TestAFileBackFromMissingIsReadyAgainWithoutAProbe(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(mf).WithStatusSubresource(mf).
 		WithIndex(&transcodev1alpha1.TranscodeJob{}, transcodeJobMediaFileRefIndex, indexTranscodeJobByMediaFileRef).
 		WithIndex(&subtitlev1alpha1.SubtitleRequest{}, subtitleRequestMediaFileRefIndex, indexSubtitleRequestByMediaFileRef).
+		WithIndex(&transcodev1alpha1.AudioGraft{}, audioGraftMediaFileRefIndex, indexAudioGraftByMediaFileRef).
 		Build()
 	r := &Reconciler{
 		Client: c, Scheme: k8s.MustNewScheme(), Clock: time.Now,

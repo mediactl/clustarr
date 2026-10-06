@@ -581,6 +581,37 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 20*time.Millisecond, "an Imported Download must clear the ref")
 	})
 
+	// Anime dual-audio spec §6.1: an audio donor is no video grab. It moves
+	// neither status.activeDownloadRef nor the phase (status.audio.graft
+	// reads grabbed instead, rollup.TestAudioStateForGraftStates).
+	t.Run("a donor Download leaves the ref and the phase alone", func(t *testing.T) {
+		ep := &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "the-wire-s01e05", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "the-wire", SeasonNumber: 1, EpisodeNumber: 5},
+		}
+		require.NoError(t, c.Create(ctx, ep))
+		live := waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e05")
+		ref, err := k8s.OwnerReferenceAC(&live, k8s.MustNewScheme())
+		require.NoError(t, err)
+		_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarrGrab, downloadac.Download("the-wire-s01e05-donor", "ep-ns").
+			WithOwnerReferences(ref).
+			WithSpec(downloadac.DownloadSpec().
+				WithProtocol(commonv1.ProtocolUsenet).WithPurpose(downloadv1alpha1.DownloadPurposeAudioDonor).
+				WithSource(downloadac.DownloadSource().WithNZBURL("http://indexer.example/donor.nzb")).
+				WithRelease(commonv1.ReleaseInfo{GUID: "donor", IndexerRef: "example", Title: "The.Wire.S01E05.DVDRip.DL", Protocol: commonv1.ProtocolUsenet}).
+				WithTarget(commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e05"})))
+		require.NoError(t, err)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("the-wire-s01e05-donor", "ep-ns", downloadv1alpha1.DownloadPhaseDownloading))
+		require.NoError(t, err)
+		require.Never(t, func() bool {
+			var got catalogv1alpha1.Episode
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e05"}, &got); err != nil {
+				return false
+			}
+			return got.Status.ActiveDownloadRef != nil || got.Status.Phase != live.Status.Phase
+		}, 2*time.Second, 50*time.Millisecond, "a donor must not read as the episode's download")
+	})
+
 	// Gap-fix R-12: the phase for EVERY DownloadPhase value, on an Episode
 	// in its steady state (aired, monitored, no file: Wanted), and the
 	// wanted sweep's selection agreeing. See the movie package's identical
@@ -896,7 +927,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		})
 		assert.Equal(t, []string{"en", "ja"}, got.Status.Audio.Wanted)
 		assert.Equal(t, []string{"ja"}, got.Status.Audio.Present)
-		assert.Equal(t, "none", got.Status.Audio.Graft)
+		assert.Equal(t, "searching", got.Status.Audio.Graft, "missing a dub, nothing under way: the donor search is due")
 		assert.True(t, got.Status.CutoffMet, "a missing dub never blocks the video: grafting fills it")
 
 		audio("eng", "jpn")

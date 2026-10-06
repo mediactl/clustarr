@@ -1279,7 +1279,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		})
 		assert.Equal(t, []string{"en", "ja"}, got.Status.Audio.Wanted)
 		assert.Equal(t, []string{"ja"}, got.Status.Audio.Present)
-		assert.Equal(t, "none", got.Status.Audio.Graft)
+		assert.Equal(t, "searching", got.Status.Audio.Graft, "missing a dub, nothing under way: the donor search is due")
 		assert.True(t, got.Status.CutoffMet, "a missing dub never blocks the video: grafting fills it")
 
 		audio("eng", "jpn")

@@ -29,6 +29,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -43,14 +44,22 @@ import (
 // target's name keeps a Download that belonged to a deleted Movie of the same
 // name -- one the garbage collector has not reached yet -- from being
 // adopted by its successor.
-func (r *Reconciler) activeDownload(ctx context.Context, m *catalogv1alpha1.Movie) (*downloadv1alpha1.Download, error) {
+func (r *Reconciler) activeDownload(ctx context.Context, m *catalogv1alpha1.Movie) (*downloadv1alpha1.Download, bool, error) {
 	var list downloadv1alpha1.DownloadList
 	if err := r.List(ctx, &list, client.InNamespace(m.Namespace), client.MatchingFields{downloadByMovieIndexKey: m.Name}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
-		return k8s.IsOwnedBy(d, m)
-	}), nil
+	owns := func(d *downloadv1alpha1.Download) bool { return k8s.IsOwnedBy(d, m) }
+	return rollup.ActiveDownload(list.Items, owns), rollup.DonorDownloading(list.Items, owns), nil
+}
+
+// audioGraft is m's AudioGraft, nil when it has none.
+func (r *Reconciler) audioGraft(ctx context.Context, m *catalogv1alpha1.Movie) (*transcodev1alpha1.AudioGraft, error) {
+	var g transcodev1alpha1.AudioGraft
+	if err := r.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: k8s.AudioGraftName(m.Name)}, &g); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	return &g, nil
 }
 
 // publishItem publishes one ItemEvent for m. It is best effort: the event is

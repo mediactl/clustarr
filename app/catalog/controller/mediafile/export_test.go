@@ -27,3 +27,6 @@ var (
 // MediaFileRefIndex is the field the two lookups above select on: the
 // SubtitleRequest selectable field's JSONPath and both cache indexes' name.
 const MediaFileRefIndex = subtitleRequestMediaFileRefIndex
+
+// AudioGraftMediaFileRefIndex is the AudioGraft cache index's name.
+const AudioGraftMediaFileRefIndex = audioGraftMediaFileRefIndex

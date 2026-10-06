@@ -84,7 +84,7 @@ func ActiveDownload(items []downloadv1alpha1.Download, owns func(*downloadv1alph
 	var best *downloadv1alpha1.Download
 	for i := range items {
 		dl := &items[i]
-		if !DownloadNonTerminal(dl) || (owns != nil && !owns(dl)) {
+		if !DownloadNonTerminal(dl) || (owns != nil && !owns(dl)) || dl.Spec.IsDonor() {
 			continue
 		}
 		if best == nil || olderThan(dl, best) {
@@ -92,6 +92,20 @@ func ActiveDownload(items []downloadv1alpha1.Download, owns func(*downloadv1alph
 		}
 	}
 	return best
+}
+
+// DonorDownloading reports an open audio donor Download among items that
+// owns passes (anime dual-audio spec §6.1): status.audio.graft's grabbed,
+// which ActiveDownload leaves out -- a donor is no video grab, so it moves
+// neither activeDownloadRef nor the item's phase.
+func DonorDownloading(items []downloadv1alpha1.Download, owns func(*downloadv1alpha1.Download) bool) bool {
+	for i := range items {
+		dl := &items[i]
+		if dl.Spec.IsDonor() && DownloadNonTerminal(dl) && (owns == nil || owns(dl)) {
+			return true
+		}
+	}
+	return false
 }
 
 func olderThan(a, b *downloadv1alpha1.Download) bool {

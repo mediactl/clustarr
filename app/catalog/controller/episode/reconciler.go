@@ -43,6 +43,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -85,6 +86,7 @@ const (
 	episodeBySeriesIndexKey = "episode.spec.seriesRef"
 )
 
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/finalizers,verbs=update
@@ -227,6 +229,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&catalogv1alpha1.Episode{}, builder.WithPredicates(episodePredicate())).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(mediaFilePredicate())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
+		Watches(&transcodev1alpha1.AudioGraft{}, handler.EnqueueRequestsFromMapFunc(rollup.ItemOfAudioGraft(commonv1.MediaKindEpisode)),
+			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState)))).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.mapSeries), builder.WithPredicates(seriesMonitoredChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
@@ -488,7 +492,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
 
-	dl, err := r.activeDownload(ctx, ep, series)
+	dl, donorOpen, err := r.activeDownload(ctx, ep, series)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	ag, err := r.audioGraft(ctx, ep)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -559,7 +567,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
 	}
-	if a := rollup.AudioStateFor(profile, originalTag, mf); a != nil {
+	if a := rollup.AudioStateFor(profile, originalTag, mf, rollup.GraftObservation{DonorDownloading: donorOpen, Graft: ag}); a != nil {
 		statusAC = statusAC.WithAudio(rollup.AudioStateAC(a))
 	}
 	if fileQuality != nil {

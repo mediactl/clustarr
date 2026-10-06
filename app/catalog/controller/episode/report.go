@@ -27,6 +27,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -40,12 +41,12 @@ import (
 // owner and the covered Episodes in spec.target.keys. Matching the owner's
 // UID keeps a Download left by a deleted-and-recreated namesake from being
 // adopted.
-func (r *Reconciler) activeDownload(ctx context.Context, ep *catalogv1alpha1.Episode, s *catalogv1alpha1.Series) (*downloadv1alpha1.Download, error) {
+func (r *Reconciler) activeDownload(ctx context.Context, ep *catalogv1alpha1.Episode, s *catalogv1alpha1.Series) (*downloadv1alpha1.Download, bool, error) {
 	var list downloadv1alpha1.DownloadList
 	if err := r.List(ctx, &list, client.InNamespace(ep.Namespace), client.MatchingFields{downloadByEpisodeIndexKey: ep.Name}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
+	owns := func(d *downloadv1alpha1.Download) bool {
 		switch d.Spec.Target.Kind {
 		case commonv1.MediaKindEpisode:
 			return d.Spec.Target.Name == ep.Name && k8s.IsOwnedBy(d, ep)
@@ -54,7 +55,17 @@ func (r *Reconciler) activeDownload(ctx context.Context, ep *catalogv1alpha1.Epi
 		default:
 			return false
 		}
-	}), nil
+	}
+	return rollup.ActiveDownload(list.Items, owns), rollup.DonorDownloading(list.Items, owns), nil
+}
+
+// audioGraft is ep's AudioGraft, nil when it has none.
+func (r *Reconciler) audioGraft(ctx context.Context, ep *catalogv1alpha1.Episode) (*transcodev1alpha1.AudioGraft, error) {
+	var g transcodev1alpha1.AudioGraft
+	if err := r.Get(ctx, client.ObjectKey{Namespace: ep.Namespace, Name: k8s.AudioGraftName(ep.Name)}, &g); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	return &g, nil
 }
 
 // publishFile publishes one MediaFileEvent for ep. It is best effort -- the

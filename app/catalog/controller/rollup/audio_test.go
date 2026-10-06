@@ -24,6 +24,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -64,15 +65,60 @@ func TestAudioStateFor(t *testing.T) {
 		}
 		return &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Audio: a}}}
 	}
-	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"}, Graft: "none"},
-		rollup.AudioStateFor(p, "ja", mf("jpn")))
+	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"}, Graft: "searching"},
+		rollup.AudioStateFor(p, "ja", mf("jpn"), rollup.GraftObservation{}))
 	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"en", "ja"}, Graft: "none"},
-		rollup.AudioStateFor(p, "ja", mf("eng", "jpn")))
+		rollup.AudioStateFor(p, "ja", mf("eng", "jpn"), rollup.GraftObservation{}))
 	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Graft: "none"},
-		rollup.AudioStateFor(p, "ja", mf("und")), "unknown audio: nothing is called missing")
-	require.Equal(t, []string{"en"}, rollup.AudioStateFor(p, "", mf("jpn")).Wanted, "an unknown original is dropped")
-	require.Equal(t, "", rollup.AudioStateFor(&quality.Profile{AudioLanguages: []string{"en"}}, "ja", mf("eng")).Graft, "no graft, no graft state")
-	require.Nil(t, rollup.AudioStateFor(&quality.Profile{}, "ja", mf("jpn")), "no audio policy")
-	require.Nil(t, rollup.AudioStateFor(nil, "ja", mf("jpn")))
-	require.Nil(t, rollup.AudioStateFor(p, "ja", nil), "no file")
+		rollup.AudioStateFor(p, "ja", mf("und"), rollup.GraftObservation{}), "unknown audio: nothing is called missing")
+	require.Equal(t, []string{"en"}, rollup.AudioStateFor(p, "", mf("jpn"), rollup.GraftObservation{}).Wanted, "an unknown original is dropped")
+	require.Equal(t, "", rollup.AudioStateFor(&quality.Profile{AudioLanguages: []string{"en"}}, "ja", mf("eng"), rollup.GraftObservation{}).Graft, "no graft, no graft state")
+	require.Nil(t, rollup.AudioStateFor(&quality.Profile{}, "ja", mf("jpn"), rollup.GraftObservation{}), "no audio policy")
+	require.Nil(t, rollup.AudioStateFor(nil, "ja", mf("jpn"), rollup.GraftObservation{}))
+	require.Nil(t, rollup.AudioStateFor(p, "ja", nil, rollup.GraftObservation{}), "no file")
+}
+
+// TestAudioStateForGraftStates: status.audio.graft is read from the item's
+// donor Downloads and its AudioGraft (anime dual-audio spec §8: the item's
+// reconciler is its one writer).
+func TestAudioStateForGraftStates(t *testing.T) {
+	p := &quality.Profile{AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	mf := func(langs ...string) *catalogv1alpha1.MediaFile {
+		var a []commonv1.AudioStream
+		for _, l := range langs {
+			a = append(a, commonv1.AudioStream{Language: l})
+		}
+		return &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Audio: a}}}
+	}
+	graft := func(phase transcodev1alpha1.AudioGraftPhase, reason string, segs int) *transcodev1alpha1.AudioGraft {
+		g := &transcodev1alpha1.AudioGraft{Status: transcodev1alpha1.AudioGraftStatus{Phase: phase, Reason: reason, Message: "why"}}
+		for range segs {
+			g.Status.Segments = append(g.Status.Segments, transcodev1alpha1.AudioGraftSegment{LengthMillis: 1})
+		}
+		return g
+	}
+	cases := []struct {
+		name   string
+		file   *catalogv1alpha1.MediaFile
+		g      rollup.GraftObservation
+		want   string
+		reason string
+	}{
+		{"missing, nothing under way", mf("jpn"), rollup.GraftObservation{}, "searching", ""},
+		{"a donor downloads", mf("jpn"), rollup.GraftObservation{DonorDownloading: true}, "grabbed", ""},
+		{"the graft waits", mf("jpn"), rollup.GraftObservation{Graft: graft(transcodev1alpha1.AudioGraftWaiting, "TranscodeRunning", 0)}, "pending", ""},
+		{"the graft Job is made", mf("jpn"), rollup.GraftObservation{Graft: graft(transcodev1alpha1.AudioGraftPending, "", 0)}, "pending", ""},
+		{"aligned and muxing", mf("jpn"), rollup.GraftObservation{Graft: graft(transcodev1alpha1.AudioGraftRunning, "", 1)}, "aligned", ""},
+		{"it failed", mf("jpn"), rollup.GraftObservation{Graft: graft(transcodev1alpha1.AudioGraftFailed, "AlignmentRejected", 0)}, "failed", "AlignmentRejected: why"},
+		{"a new donor beats a failed graft", mf("jpn"), rollup.GraftObservation{DonorDownloading: true, Graft: graft(transcodev1alpha1.AudioGraftFailed, "AlignmentRejected", 0)}, "grabbed", ""},
+		{"swapped, awaiting the re-probe", mf("jpn"), rollup.GraftObservation{Graft: graft(transcodev1alpha1.AudioGraftSucceeded, "Grafted", 1)}, "pending", ""},
+		{"grafted", mf("jpn", "eng"), rollup.GraftObservation{Graft: graft(transcodev1alpha1.AudioGraftSucceeded, "Grafted", 1)}, "done", ""},
+		{"never needed one", mf("jpn", "eng"), rollup.GraftObservation{}, "none", ""},
+		{"unknown audio", mf("und"), rollup.GraftObservation{Graft: graft(transcodev1alpha1.AudioGraftFailed, "x", 0)}, "none", ""},
+	}
+	for _, c := range cases {
+		got := rollup.AudioStateFor(p, "ja", c.file, c.g)
+		require.Equal(t, c.want, got.Graft, c.name)
+		require.Equal(t, c.reason, got.Reason, c.name)
+	}
 }
