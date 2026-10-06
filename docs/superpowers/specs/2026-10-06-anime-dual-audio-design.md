@@ -414,3 +414,43 @@ better than spike test B suggested: even the dub reached 69% coverage on
 music and effects. English-only donors stay out of scope for phase 4, but
 they look feasible. Alignment takes about 14 s for 24 minutes on 12
 cores.
+
+## As built: phase 4 (2026-10-06)
+
+Plan `docs/superpowers/plans/2026-10-06-anime-graft.md`; its design rulings
+are the record of where this section's §6-§7.2 was built otherwise:
+
+- **The graft runs as a Job, not on the pool's queue.** Pools are keyed by
+  TranscodeProfile and a graft has none. Each AudioGraft gets one
+  `batch/v1` Job rendered from the cpu pool's pod template (its
+  securityContext, data volume, UMASK, image), running `squasharr-worker
+  --graft-task <json>` with no bus; the result rides the pod's termination
+  message (`app/squash/grafttask`). `--graft-concurrency` (2) caps them.
+- **importarr places the whole donor; the graft reduces it.** importarr has
+  no FFmpeg libraries and execs no new tools, so the first graft extracts
+  the anchor and the dub into `<stem>.mka` (`engine.ExtractAudio`) and
+  removes the original.
+- **The rate is applied in Go.** The donor is resampled at its own speed to
+  48 kHz stereo; each output sample is read, by linear interpolation from a
+  sliding buffer, at the donor time `audioalign.Result.DonorSeconds` maps
+  it to, silence where no segment covers it. `Accept` therefore refuses
+  segments that go back on the donor (`ErrSegmentOrder`).
+- **Verify checks the muxed file.** Beside §7.2's anchor verify, the grafted
+  track is decoded back out of the `.part` file and must match the
+  transformed donor dub within 1 ms (correlation at least 0.8).
+- **One language per graft run**; `AudioGraft.spec.languages` may list up
+  to four, and the controller grafts the first one the file lacks.
+- **`spec.itemRef` is a `commonv1.MediaRef`**, and the spec gained
+  `default`, the profile's default language (none in the anime built-ins,
+  so their grafts leave the default flag where it is).
+- **Donor titles.** A donor's title must name the missing languages and the
+  anchor, carry TRaSH's Dual Audio pattern, or -- under an anime score set
+  -- a bare `DL` (not `WEB-DL`) or `MULTi`. BoB's `...AAC.DL-BoB` qualifies.
+  The donor's probe at import is the real test: a donor lacking a language
+  is every file rejected, blocklisted, and searched for again as a donor
+  (`DownloadEvent.purpose`).
+- **Donors are never delayed** by a DelayProfile nor held for a grab
+  limit: the pending-grab entry is the item's video candidate's.
+- **status.audio.graft** reads `searching` (missing, nothing under way;
+  phase 2's `none`), `grabbed`, `pending`, `aligned`, `failed` (with the
+  AudioGraft's reason) and `done`.

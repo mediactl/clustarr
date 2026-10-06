@@ -351,7 +351,26 @@ when the profile grafts and the release carries the original language (the
 anchor a graft aligns on), a complete one wins a tie, and TRaSH's
 "Dual Audio" title pattern reads as the original plus English under an
 anime score set. Items report `status.audio` (wanted, present, missing,
-graft); a missing dub never blocks the video.
+graft); a missing dub never blocks the video. Grafting (phase 4): the
+wanted sweep queues a donor search (`SearchTask.Purpose: audioDonor`) for
+a monitored item whose graft reads `searching` or `failed`, on its own
+backoff (`status.donorSearchAttempts`), at most 20 live per sweep; a donor
+is judged on its languages, never its quality, and is grabbed as a Download
+with `spec.purpose: audioDonor` under a lease of its own (a donor and a
+video grab of one item coexist, and a donor moves neither
+`activeDownloadRef` nor the phase). importarr places it under
+`<RootFolder>/.clustarr/donors/<item-uid>/` (no walk enters `.clustarr`)
+and names it in the item's `AudioGraft` (transcode group; spec importarr's,
+status squasharr's); squasharr runs one graft Job per AudioGraft --
+`squasharr-worker --graft-task` on the cpu pool's pod template, at most
+`--graft-concurrency` (2), never beside an open TranscodeJob, its result in
+the pod's termination message -- which reduces the donor to an `.mka`,
+aligns the anchors (`pkg/audioalign`), muxes the dub in beside every copied
+stream (`engine.Options.Graft`), verifies the muxed track and swaps it in,
+tagged `CLUSTARR_GRAFT`. catalogarr re-probes it without making a
+transcode: `spec.original` stays, `status.graftTag` is recorded, and the
+size, mtime and path are catalogarr's from then on. A failed graft rejects
+that donor for the item (`AudioGraft.status.rejectedReleases`).
 The movies provider has Plex's collection feature (2026-10-06; type 18,
 Feature `collection` at `/library/collections`, movie libraries only): a
 collection is a TMDB collection (`status.metadata.collection`), its items
