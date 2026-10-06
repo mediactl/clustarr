@@ -340,7 +340,13 @@ func segmentRuns(ws []window) [][]window {
 }
 
 // placeSegments turns runs into segments, finding each boundary between
-// two runs with 5 s probes every second scored at both offsets.
+// two runs with 5 s probes every second scored at both offsets. A boundary
+// is sought where it is sharp: where the target has material the donor
+// lacks (the lag grows), on the donor, whose two sides each fit one offset;
+// where the donor has material the target lacks (the lag shrinks), on the
+// target, since neither offset fits the donor's extra and a donor-side
+// boundary could land anywhere in it -- playing the rest of the extra over
+// the target's own audio.
 func placeSegments(runs [][]window, d, t features) []Segment {
 	if len(runs) == 0 {
 		return nil
@@ -353,17 +359,27 @@ func placeSegments(runs [][]window, d, t features) []Segment {
 		sort.Ints(lags)
 		return lags[len(lags)/2]
 	}
-	bounds := []int{0}
+	// ends[i] is where run i stops on the donor and starts[i+1] where run
+	// i+1 begins: one frame for a target-extra cut, two for a donor-extra
+	// one (the donor's extra between them dropped).
+	starts, ends := make([]int, len(runs)), make([]int, len(runs))
+	ends[len(runs)-1] = d.frames()
 	for i := 1; i < len(runs); i++ {
 		a, b := runs[i-1], runs[i]
+		la, lb := lagOf(a), lagOf(b)
 		lo, hi := a[len(a)-1].start+winFrames/2, b[0].start+winFrames/2
-		bounds = append(bounds, boundary(d, t, lo, hi, lagOf(a), lagOf(b)))
+		if lb >= la {
+			bd := boundary(d, t, lo, hi, la, lb, false)
+			ends[i-1], starts[i] = bd, bd
+			continue
+		}
+		bt := boundary(d, t, lo+la, hi+lb, la, lb, true)
+		ends[i-1], starts[i] = bt-la, bt-lb
 	}
-	bounds = append(bounds, d.frames())
 	var segs []Segment
 	for i, run := range runs {
 		lag := lagOf(run)
-		ds, de := bounds[i], bounds[i+1]
+		ds, de := starts[i], ends[i]
 		if ds+lag < 0 {
 			ds = -lag
 		}
@@ -382,15 +398,19 @@ func placeSegments(runs [][]window, d, t features) []Segment {
 	return segs
 }
 
-// boundary is the donor frame in [lo, hi) where offset lagB starts scoring
-// better than lagA.
-func boundary(d, t features, lo, hi, lagA, lagB int) int {
+// boundary is the frame in [lo, hi) where offset lagB starts scoring better
+// than lagA: a donor frame, or with onTarget a target frame (the donor
+// frame at offset lag is then the target frame less lag).
+func boundary(d, t features, lo, hi, lagA, lagB int, onTarget bool) int {
 	const probe, step = 250, 50
 	score := func(start, lag int) float64 {
 		var s float64
 		for b := range d {
 			for i := 0; i < probe; i++ {
 				di, ti := start+i, start+i+lag
+				if onTarget {
+					ti, di = start+i, start+i-lag
+				}
 				if di < 0 || ti < 0 || di >= len(d[b]) || ti >= len(t[b]) {
 					continue
 				}

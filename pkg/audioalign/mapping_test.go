@@ -19,6 +19,7 @@ package audioalign_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -85,4 +86,57 @@ func TestAcceptRefusesSegmentsOutOfDonorOrder(t *testing.T) {
 	require.NoError(t, ok.Accept(audioalign.DefaultThresholds))
 	back := audioalign.Result{Rate: 1, RateMargin: 2, Coverage: 0.9, Segments: []audioalign.Segment{seg(6*time.Minute, 0), seg(0, 5*time.Minute)}}
 	require.True(t, errors.Is(back.Accept(audioalign.DefaultThresholds), audioalign.ErrSegmentOrder))
+}
+
+// matchedSeconds reports, for each whole second of target in [from, to)
+// not within 1 s of a cut at skip, whether moved -- the donor through
+// Transform -- carries that second of the target (normalised correlation
+// at least 0.5).
+func matchedSeconds(target, moved []float32, from, to int, skip ...int) (bad []int) {
+	for s := from; s < to; s++ {
+		near := false
+		for _, c := range skip {
+			if s >= c-1 && s <= c+1 {
+				near = true
+			}
+		}
+		if near {
+			continue
+		}
+		var xy, xx, yy float64
+		for i := s * audioalign.SampleRate; i < (s+1)*audioalign.SampleRate && i < len(target) && i < len(moved); i++ {
+			a, b := float64(target[i]), float64(moved[i])
+			xy, xx, yy = xy+a*b, xx+a*a, yy+b*b
+		}
+		if xx == 0 || yy == 0 || xy/math.Sqrt(xx*yy) < 0.5 {
+			bad = append(bad, s)
+		}
+	}
+	return bad
+}
+
+// TestTheDonorsExtraMaterialIsDroppedAtTheCut: where the donor has
+// material the target lacks, neither offset fits it, so the boundary must be
+// found where it is sharp -- on the target -- or the dub plays the donor's
+// extra over the target's own audio (final review: target 195-199 s
+// carried the inserted material).
+func TestTheDonorsExtraMaterialIsDroppedAtTheCut(t *testing.T) {
+	target := soundtrack(4, 600)
+	donor := insert(target, 200*time.Second, soundtrack(99, 8))
+	r, err := audioalign.Align(donor, target)
+	require.NoError(t, err)
+	moved := audioalign.Transform(donor, r, len(target))
+	require.Empty(t, matchedSeconds(target, moved, 150, 250, 200), "seconds of the target the dub does not carry")
+}
+
+// TestTheTargetsExtraMaterialIsSilentAtTheCut: the other way, the donor
+// lacks a stretch the target has; around it the dub still matches.
+func TestTheTargetsExtraMaterialIsSilentAtTheCut(t *testing.T) {
+	target := soundtrack(3, 600)
+	donor := cut(target, 300*time.Second, 10*time.Second)
+	r, err := audioalign.Align(donor, target)
+	require.NoError(t, err)
+	moved := audioalign.Transform(donor, r, len(target))
+	require.Empty(t, matchedSeconds(target, moved, 250, 350, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310),
+		"seconds of the target the dub does not carry")
 }
