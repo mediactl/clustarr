@@ -57,6 +57,9 @@ type Options struct {
 	// VideoOptions override the plan's encoder options (tests use a fast
 	// libx265 preset); nil uses the plan's.
 	VideoOptions map[string]string
+	// Graft adds a donor's track after the plan's audio (graft.go): a
+	// second input, demuxed on its own goroutine into its own stage.
+	Graft *GraftAudio
 }
 
 func (o Options) withDefaults() Options {
@@ -99,6 +102,8 @@ type slot struct {
 	isVid  bool
 	stream *ffgo.MuxerStream
 	tb     ffgo.Rational
+	donor  bool                // the graft's stage, reading the donor
+	opts   *ffgo.StreamOptions // overrides the stream's own tags and flags
 }
 
 // stageFunc runs one encoded stream: it reads its packets from in, reports
@@ -176,6 +181,16 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 	if err != nil {
 		return res, &Error{Stage: "demux", Err: err}
 	}
+	var dd *ffgo.Decoder // the graft's donor
+	if g := o.Graft; g != nil {
+		if dd, err = ffgo.NewDecoder(g.Donor); err != nil {
+			return res, &Error{Stage: "graft", Err: err}
+		}
+		defer func() { _ = dd.Close() }()
+		if slots, err = graftSlots(slots, *g, dd, d.Duration()); err != nil {
+			return res, &Error{Stage: "graft", Err: err}
+		}
+	}
 
 	m, err := ffgo.NewMuxer(output, muxFormat(plan.Container))
 	if err != nil {
@@ -206,6 +221,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 	headerDone := make(chan struct{})
 	routes := map[int]chan *ffgo.Packet{} // source stream index → encode stage
 	copies := map[int]int{}               // source stream index → copy slot
+	donorRoutes := map[int]chan *ffgo.Packet{}
 	var producers sync.WaitGroup
 	for i := range slots {
 		s := &slots[i]
@@ -214,10 +230,16 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 			continue
 		}
 		in := make(chan *ffgo.Packet, o.QueueDepth)
-		routes[s.src.Index] = in
+		dec := d
+		if s.donor {
+			donorRoutes[s.src.Index] = in
+			dec = dd
+		} else {
+			routes[s.src.Index] = in
+		}
 		i := i
 		sc := &stageContext{
-			in: in, dec: d, src: s.src, opts: o,
+			in: in, dec: dec, src: s.src, opts: o,
 			setup: func(src ffgo.EncodedStreamSource) error {
 				select {
 				case setupCh <- setupItem{slot: i, src: src}:
@@ -269,6 +291,20 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 			fe.set(err)
 		}
 	}()
+	if dd != nil {
+		producers.Add(1)
+		go func() {
+			defer producers.Done()
+			defer func() {
+				for _, in := range donorRoutes {
+					close(in)
+				}
+			}()
+			if err := demux(ctx, dd, startShifts(dd), donorRoutes, nil, muxCh); err != nil {
+				fe.set(&Error{Stage: "graft", Err: err})
+			}
+		}()
+	}
 	go func() {
 		producers.Wait()
 		close(muxCh)
@@ -480,13 +516,20 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 			if perr != nil {
 				return fmt.Errorf("%s: %w", s.name, perr)
 			}
+			opts := streamOptions(s.src, true)
+			if s.opts != nil {
+				opts = *s.opts
+			}
 			s.stream, err = m.AddCopyStream(&ffgo.CopyStreamConfig{
-				CodecParameters: par, TimeBase: s.src.TimeBase, Options: streamOptions(s.src, true),
+				CodecParameters: par, TimeBase: s.src.TimeBase, Options: opts,
 			})
 			avcodec.ParametersFree(&par)
 		} else {
 			s.tb = srcs[i].TimeBase()
 			opts := streamOptions(s.src, false)
+			if s.opts != nil {
+				opts = *s.opts
+			}
 			if sd, ok := srcs[i].(interface {
 				StreamSideData() map[ffgo.PacketSideDataType][]byte
 			}); ok {

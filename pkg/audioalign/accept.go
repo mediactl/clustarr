@@ -66,11 +66,12 @@ func (r Result) Accept(t Thresholds) error {
 // material, which a graft leaves silent). Where segments overlap, the
 // later one wins, as Transform has always placed them.
 func (r Result) DonorAt(t time.Duration) (time.Duration, bool) {
-	s, ok := r.donorSeconds(t.Seconds())
+	s, ok := r.DonorSeconds(t.Seconds())
 	return time.Duration(math.Round(s * float64(time.Second))), ok
 }
 
-func (r Result) donorSeconds(t float64) (float64, bool) {
+// DonorSeconds is DonorAt in seconds, for a caller mapping samples.
+func (r Result) DonorSeconds(t float64) (float64, bool) {
 	rate := r.Rate
 	if rate <= 0 {
 		rate = 1
@@ -91,7 +92,7 @@ func (r Result) donorSeconds(t float64) (float64, bool) {
 func Transform(donor []float32, r Result, targetLen int) []float32 {
 	out := make([]float32, targetLen)
 	for i := range out {
-		d, ok := r.donorSeconds(float64(i) / SampleRate)
+		d, ok := r.DonorSeconds(float64(i) / SampleRate)
 		if !ok {
 			continue
 		}
