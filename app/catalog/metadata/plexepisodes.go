@@ -19,10 +19,16 @@ package metadata
 
 import (
 	"context"
+	"time"
 
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
+
+// plexLookupBudget bounds the Plex lookup inside an episode RPC: a cold
+// show costs one match, one seasons page and an episode page per 100
+// episodes, all behind the provider's limiter.
+const plexLookupBudget = 10 * time.Second
 
 // withPlexIDs sets each episode's PlexID from the first PlexProvider that
 // answers for the series ids name, and marks every episode PlexConsulted,
@@ -30,6 +36,11 @@ import (
 // failure leaves the episodes as they are: the reconciler keeps the ids
 // it stored before.
 func withPlexIDs(ctx context.Context, reg *pkgmetadata.Registry, ids pkgmetadata.ExternalIDs, episodes []pkgmetadata.Episode) {
+	if len(reg.Plex) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, plexBudget(ctx))
+	defer cancel()
 	for _, p := range reg.Plex {
 		pCtx, span := tracing.Start(ctx, "metadata.PlexProvider.ShowChildren")
 		ch, err := p.ShowChildren(pCtx, ids)
@@ -45,6 +56,19 @@ func withPlexIDs(ctx context.Context, reg *pkgmetadata.Registry, ids pkgmetadata
 		}
 		return
 	}
+}
+
+// plexBudget is how long the Plex lookup may take: half the caller's
+// remaining time, capped at plexLookupBudget, so the episode list it only
+// enriches is answered inside the caller's deadline whatever Plex does.
+func plexBudget(ctx context.Context) time.Duration {
+	budget := plexLookupBudget
+	if dl, ok := ctx.Deadline(); ok {
+		if half := time.Until(dl) / 2; half < budget {
+			budget = half
+		}
+	}
+	return budget
 }
 
 // joinPlexEpisodes gives each episode Plex's id for it: by TVDB episode id,

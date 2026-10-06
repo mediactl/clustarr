@@ -18,7 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package metadata
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -88,4 +90,35 @@ func TestWithPlexIDsMarksTheEpisodesPlexWasConsultedFor(t *testing.T) {
 	episodes = []pkgmetadata.Episode{ep(1, 1, "1")}
 	withPlexIDs(t.Context(), failed, pkgmetadata.ExternalIDs{pkgmetadata.KeyTVDB: "9"}, episodes)
 	require.False(t, episodes[0].PlexConsulted)
+}
+
+// deadlinePlex records the deadline it was asked under.
+type deadlinePlex struct{ got *time.Time }
+
+func (deadlinePlex) Name() string                           { return "plex" }
+func (deadlinePlex) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+func (p deadlinePlex) ShowChildren(ctx context.Context, _ pkgmetadata.ExternalIDs) (*pkgmetadata.PlexChildren, error) {
+	*p.got, _ = ctx.Deadline()
+	return nil, context.DeadlineExceeded
+}
+
+// The Plex lookup is best effort inside the episode RPC: it gets at most
+// half the caller's remaining time (and never more than plexLookupBudget),
+// so a slow Plex cannot run the caller's 30 s deadline out and fail the
+// episode sync it only enriches.
+func TestWithPlexIDsLeavesTheCallerTimeToAnswer(t *testing.T) {
+	var got time.Time
+	reg := &pkgmetadata.Registry{Plex: []pkgmetadata.PlexProvider{deadlinePlex{got: &got}}}
+
+	parent, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	deadline, _ := parent.Deadline()
+	withPlexIDs(parent, reg, pkgmetadata.ExternalIDs{pkgmetadata.KeyTVDB: "9"}, []pkgmetadata.Episode{ep(1, 1, "")})
+	require.False(t, got.IsZero(), "the lookup runs under a deadline")
+	require.LessOrEqual(t, time.Until(got), 15*time.Second+time.Second, "at most half the caller's 30 s")
+	require.True(t, got.Before(deadline))
+
+	withPlexIDs(t.Context(), reg, pkgmetadata.ExternalIDs{pkgmetadata.KeyTVDB: "9"}, []pkgmetadata.Episode{ep(1, 1, "")})
+	require.False(t, got.IsZero(), "a caller without a deadline still bounds the lookup")
+	require.LessOrEqual(t, time.Until(got), plexLookupBudget)
 }
