@@ -108,8 +108,8 @@ func DecodePCM(ctx context.Context, path string, audioIndex, rate int) ([]float3
 	limit := maxPCMSeconds * rate
 
 	var (
-		out []float32
-		res *ffgo.Resampler
+		out  []float32
+		res  *ffgo.Resampler
 		lead = true
 	)
 	defer func() {
