@@ -211,7 +211,15 @@ type SearchTask struct {
 	// (2026-10-06): every release an indexer's RSS feed delivered is already
 	// in the index, so a repeat sweep costs no indexer query.
 	IndexOnly bool `json:"indexOnly,omitempty"`
+	// Purpose is SearchPurposeAudioDonor for a search for an audio donor
+	// (anime dual-audio spec §6.1), judged on its languages rather than its
+	// quality; empty is the item's video.
+	Purpose string `json:"purpose,omitempty"`
 }
+
+// SearchPurposeAudioDonor is SearchTask.Purpose for an audio donor search;
+// it is downloadv1alpha1.DownloadPurposeAudioDonor's value.
+const SearchPurposeAudioDonor = "audioDonor"
 
 // Schema implements Payload.
 func (SearchTask) Schema() string { return "catalog.SearchTask.v1" }

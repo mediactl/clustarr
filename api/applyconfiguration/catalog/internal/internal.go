@@ -1604,6 +1604,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: donorSearchAttempts
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
     - name: fileFormatScore
       type:
         scalar: numeric
@@ -2358,6 +2361,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: graftTag
+      type:
+        scalar: string
+    - name: graftedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: markers
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.FileMarkers
@@ -2797,6 +2806,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: donorSearchAttempts
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
     - name: fileFormatScore
       type:
         scalar: numeric

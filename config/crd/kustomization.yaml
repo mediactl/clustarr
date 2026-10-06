@@ -50,6 +50,7 @@ resources:
 - bases/subtitle.clustarr.io_subtitlerequests.yaml
 
 # transcode.clustarr.io
+- bases/transcode.clustarr.io_audiografts.yaml
 - bases/transcode.clustarr.io_transcodejobs.yaml
 - bases/transcode.clustarr.io_transcodeprofiles.yaml
 

@@ -91,6 +91,9 @@ type DownloadSpecApplyConfiguration struct {
 	// there is no such check to skip. The annotation
 	// catalog.clustarr.io/import-override=true has the same effect.
 	Manual *bool `json:"manual,omitempty"`
+	// Purpose is what the grab is for; absent is the item's video. Set by
+	// the grab at creation and immutable.
+	Purpose *downloadv1alpha1.DownloadPurpose `json:"purpose,omitempty"`
 }
 
 // DownloadSpecApplyConfiguration constructs a declarative configuration of the DownloadSpec type for use with
@@ -200,5 +203,13 @@ func (b *DownloadSpecApplyConfiguration) WithGrabbedBy(value downloadv1alpha1.Gr
 // If called multiple times, the Manual field is set to the value of the last call.
 func (b *DownloadSpecApplyConfiguration) WithManual(value bool) *DownloadSpecApplyConfiguration {
 	b.Manual = &value
+	return b
+}
+
+// WithPurpose sets the Purpose field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Purpose field is set to the value of the last call.
+func (b *DownloadSpecApplyConfiguration) WithPurpose(value downloadv1alpha1.DownloadPurpose) *DownloadSpecApplyConfiguration {
+	b.Purpose = &value
 	return b
 }

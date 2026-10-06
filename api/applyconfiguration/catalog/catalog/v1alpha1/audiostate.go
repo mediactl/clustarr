@@ -28,6 +28,7 @@ type AudioStateApplyConfiguration struct {
 	// Wanted are the profile's languages, resolved to tags.
 	Wanted []string `json:"wanted,omitempty"`
 	// Present are the file's probed audio languages; empty when unknown.
+	// Capped as MediaInfo.Audio is: a MULTi release carries 15-20 dubs.
 	Present []string `json:"present,omitempty"`
 	// Missing are Wanted less Present; empty when Present is unknown.
 	Missing []string `json:"missing,omitempty"`

@@ -33,6 +33,14 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=transcode.clustarr.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraft"):
+		return &transcodev1alpha1.AudioGraftApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraftSegment"):
+		return &transcodev1alpha1.AudioGraftSegmentApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraftSpec"):
+		return &transcodev1alpha1.AudioGraftSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraftStatus"):
+		return &transcodev1alpha1.AudioGraftStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudioPlan"):
 		return &transcodev1alpha1.AudioPlanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudioSpec"):

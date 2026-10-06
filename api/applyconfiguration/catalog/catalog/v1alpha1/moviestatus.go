@@ -65,6 +65,10 @@ type MovieStatusApplyConfiguration struct {
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
 	// SearchAttempts counts the searches made for this movie.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
+	// DonorSearchAttempts counts the audio donor searches made for this
+	// movie (anime dual-audio spec §6.1): their own backoff, beside the
+	// video's. Written by the grab worker with searchAttempts.
+	DonorSearchAttempts *commonv1alpha1.Attempts `json:"donorSearchAttempts,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.
 	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
@@ -220,6 +224,14 @@ func (b *MovieStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) *M
 // If called multiple times, the SearchAttempts field is set to the value of the last call.
 func (b *MovieStatusApplyConfiguration) WithSearchAttempts(value commonv1alpha1.Attempts) *MovieStatusApplyConfiguration {
 	b.SearchAttempts = &value
+	return b
+}
+
+// WithDonorSearchAttempts sets the DonorSearchAttempts field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DonorSearchAttempts field is set to the value of the last call.
+func (b *MovieStatusApplyConfiguration) WithDonorSearchAttempts(value commonv1alpha1.Attempts) *MovieStatusApplyConfiguration {
+	b.DonorSearchAttempts = &value
 	return b
 }
 

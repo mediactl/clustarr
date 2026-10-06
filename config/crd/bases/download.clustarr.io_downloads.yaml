@@ -128,6 +128,13 @@ spec:
                 x-kubernetes-validations:
                 - message: protocol is immutable
                   rule: self == oldSelf
+              purpose:
+                description: |-
+                  Purpose is what the grab is for; absent is the item's video. Set by
+                  the grab at creation and immutable.
+                enum:
+                - audioDonor
+                type: string
               qualityProfileRef:
                 description: |-
                   QualityProfileRef is the QualityProfile the grab decision used; the
@@ -559,6 +566,9 @@ spec:
             - target
             type: object
             x-kubernetes-validations:
+            - message: purpose is immutable
+              rule: has(self.purpose) == has(oldSelf.purpose) && (!has(self.purpose)
+                || self.purpose == oldSelf.purpose)
             - message: clientRef is immutable once set
               rule: '!has(oldSelf.clientRef) || oldSelf.clientRef.size() == 0 || (has(self.clientRef)
                 && self.clientRef == oldSelf.clientRef)'

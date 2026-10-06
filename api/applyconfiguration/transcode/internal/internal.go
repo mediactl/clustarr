@@ -159,6 +159,26 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: width
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaKind
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaRef
+  map:
+    fields:
+    - name: keys
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: kind
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaKind
+    - name: name
+      type:
+        scalar: string
+    - name: track
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.SubtitleStream
   map:
     fields:
@@ -185,6 +205,133 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioAction
   scalar: string
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraft
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftSpec
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftStatus
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftSegment
+  map:
+    fields:
+    - name: donorStartMillis
+      type:
+        scalar: numeric
+    - name: lengthMillis
+      type:
+        scalar: numeric
+    - name: targetStartMillis
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftSpec
+  map:
+    fields:
+    - name: anchor
+      type:
+        scalar: string
+    - name: default
+      type:
+        scalar: string
+    - name: donorPath
+      type:
+        scalar: string
+    - name: itemRef
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaRef
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
+    - name: release
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftStatus
+  map:
+    fields:
+    - name: completedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: coveragePercent
+      type:
+        scalar: numeric
+    - name: graftTag
+      type:
+        scalar: string
+    - name: jobName
+      type:
+        scalar: string
+    - name: mediaFileRef
+      type:
+        scalar: string
+    - name: message
+      type:
+        scalar: string
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftPhase
+    - name: rateMarginMilli
+      type:
+        scalar: numeric
+    - name: rateMicros
+      type:
+        scalar: numeric
+    - name: rateName
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: rejectedReleases
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: residualMillis
+      type:
+        scalar: numeric
+    - name: segments
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftSegment
+          elementRelationship: atomic
+    - name: startedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: targetProbeHash
+      type:
+        scalar: string
+    - name: within80Percent
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioPlan
   map:
     fields:

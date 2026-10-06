@@ -54,6 +54,13 @@ type MediaFileStatusApplyConfiguration struct {
 	Sidecars []SidecarApplyConfiguration `json:"sidecars,omitempty"`
 	// Transcode is transcodarr's view of this file.
 	Transcode *TranscodeStateApplyConfiguration `json:"transcode,omitempty"`
+	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+	// incorporated into this file (anime dual-audio spec §7.2), and
+	// GraftedAt when. A graft is not a transcode: spec.original stays as it
+	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
+	// modTime, as after a transcode swap.
+	GraftTag  *string      `json:"graftTag,omitempty"`
+	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
 	// Naming is the file's canonical path under its RootFolder's naming
 	// preset, rendered by catalogarr from the item's metadata, the
 	// release-time spec and the probe; importarr performs the rename.
@@ -142,6 +149,22 @@ func (b *MediaFileStatusApplyConfiguration) WithSidecars(values ...*SidecarApply
 // If called multiple times, the Transcode field is set to the value of the last call.
 func (b *MediaFileStatusApplyConfiguration) WithTranscode(value *TranscodeStateApplyConfiguration) *MediaFileStatusApplyConfiguration {
 	b.Transcode = value
+	return b
+}
+
+// WithGraftTag sets the GraftTag field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GraftTag field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithGraftTag(value string) *MediaFileStatusApplyConfiguration {
+	b.GraftTag = &value
+	return b
+}
+
+// WithGraftedAt sets the GraftedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GraftedAt field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithGraftedAt(value metav1.Time) *MediaFileStatusApplyConfiguration {
+	b.GraftedAt = &value
 	return b
 }
 

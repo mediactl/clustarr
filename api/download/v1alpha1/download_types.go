@@ -320,8 +320,19 @@ type DownloadSource struct {
 	ExpectedInfoHash *string `json:"expectedInfoHash,omitempty"`
 }
 
+// DownloadPurpose is what a Download is for.
+//
+// +kubebuilder:validation:Enum=audioDonor
+type DownloadPurpose string
+
+// DownloadPurposeAudioDonor is a release grabbed only for its audio: the
+// importer keeps its missing-language tracks as an item's donor and makes
+// no library file of it (anime dual-audio spec §6).
+const DownloadPurposeAudioDonor DownloadPurpose = "audioDonor"
+
 // DownloadSpec defines the desired state of Download.
 //
+// +kubebuilder:validation:XValidation:rule="has(self.purpose) == has(oldSelf.purpose) && (!has(self.purpose) || self.purpose == oldSelf.purpose)",message="purpose is immutable"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.clientRef) || oldSelf.clientRef.size() == 0 || (has(self.clientRef) && self.clientRef == oldSelf.clientRef)",message="clientRef is immutable once set"
 type DownloadSpec struct {
 	// Protocol is the transfer protocol of the release; it selects the class of
@@ -418,7 +429,15 @@ type DownloadSpec struct {
 	// catalog.clustarr.io/import-override=true has the same effect.
 	// +optional
 	Manual bool `json:"manual,omitempty"`
+
+	// Purpose is what the grab is for; absent is the item's video. Set by
+	// the grab at creation and immutable.
+	// +optional
+	Purpose DownloadPurpose `json:"purpose,omitempty"`
 }
+
+// IsDonor reports whether the Download is an audio donor.
+func (s DownloadSpec) IsDonor() bool { return s.Purpose == DownloadPurposeAudioDonor }
 
 // DownloadFile is one file within a transfer.
 type DownloadFile struct {

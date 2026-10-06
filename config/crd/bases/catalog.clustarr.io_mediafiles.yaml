@@ -364,6 +364,18 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              graftTag:
+                description: |-
+                  GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+                  incorporated into this file (anime dual-audio spec §7.2), and
+                  GraftedAt when. A graft is not a transcode: spec.original stays as it
+                  was, but from the first graft catalogarr owns spec.path, sizeBytes and
+                  modTime, as after a transcode swap.
+                maxLength: 64
+                type: string
+              graftedAt:
+                format: date-time
+                type: string
               markers:
                 description: |-
                   Markers are the skip segments TheIntroDB publishes for this file,

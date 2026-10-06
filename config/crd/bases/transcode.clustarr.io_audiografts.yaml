@@ -1,0 +1,327 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: audiografts.transcode.clustarr.io
+spec:
+  group: transcode.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: AudioGraft
+    listKind: AudioGraftList
+    plural: audiografts
+    singular: audiograft
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.itemRef.name
+      name: Item
+      type: string
+    - jsonPath: .spec.languages
+      name: Languages
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.reason
+      name: Reason
+      type: string
+    - jsonPath: .status.rateName
+      name: Rate
+      priority: 1
+      type: string
+    - jsonPath: .status.coveragePercent
+      name: Coverage
+      priority: 1
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          AudioGraft is one item's donor audio and the graft of it into the item's
+          file (anime dual-audio spec §6.2, §7.2). Spec is importarr's, status
+          squasharr's.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              AudioGraftSpec is a donor's audio, kept beside the library, to be muxed
+              into an item's file (anime dual-audio spec §6.2). importarr writes it when
+              it imports a donor and rewrites it when a newer donor replaces it.
+            properties:
+              anchor:
+                description: |-
+                  Anchor is the language both files carry, which the donor is aligned
+                  on: the item's original language (ja).
+                minLength: 1
+                type: string
+              default:
+                description: |-
+                  Default is the profile's default audio language: a grafted track in
+                  it becomes the file's default track.
+                type: string
+              donorPath:
+                description: |-
+                  DonorPath is the donor file as importarr placed it, under
+                  <RootFolder>/.clustarr/donors/<item-uid>/. The first graft reduces a
+                  non-Matroska-audio donor to <stem>.mka beside it and removes it.
+                minLength: 1
+                type: string
+              itemRef:
+                description: ItemRef is the Episode or Movie the donor is for.
+                properties:
+                  keys:
+                    description: Keys lists the Episode or Issue names covered by
+                      a pack release.
+                    items:
+                      type: string
+                    maxItems: 200
+                    type: array
+                  kind:
+                    description: Kind is the media kind of the referenced object.
+                    enum:
+                    - movie
+                    - series
+                    - episode
+                    - artist
+                    - album
+                    - author
+                    - book
+                    - audiobook
+                    - comic
+                    - issue
+                    type: string
+                  name:
+                    description: |-
+                      Name is the name of the referenced object; it lives in the same
+                      namespace as the object holding the reference.
+                    type: string
+                  track:
+                    description: |-
+                      Track narrows an album reference to one Track of that Album: the
+                      MusicBrainz recording MBID that keys the Album's status.tracks. A
+                      MediaFile holding a single track sets it, so the Album can attribute
+                      the file to that Track (status.tracks[].fileRef) rather than only to
+                      the Album as a whole. Valid only with kind album.
+                    maxLength: 36
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+                x-kubernetes-validations:
+                - message: track addresses a Track within an Album, so it needs kind
+                    album
+                  rule: '!has(self.track) || self.kind == ''album'''
+              languages:
+                description: Languages are the tracks to graft, BCP-47.
+                items:
+                  type: string
+                maxItems: 4
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: set
+              release:
+                description: Release is the donor's release title.
+                type: string
+            required:
+            - anchor
+            - donorPath
+            - itemRef
+            - languages
+            - release
+            type: object
+          status:
+            description: AudioGraftStatus is squasharr's (ManagerSquasharr).
+            properties:
+              completedAt:
+                format: date-time
+                type: string
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              coveragePercent:
+                description: |-
+                  CoveragePercent is the share of the target the confident windows
+                  cover.
+                format: int32
+                type: integer
+              graftTag:
+                description: GraftTag is the CLUSTARR_GRAFT tag the grafted file carries.
+                type: string
+              jobName:
+                description: JobName is the graft Job of the current attempt.
+                type: string
+              mediaFileRef:
+                description: |-
+                  MediaFileRef is the MediaFile the graft was judged against: the
+                  item's file when this status was written.
+                type: string
+              message:
+                maxLength: 2048
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                description: AudioGraftPhase is where a graft stands.
+                enum:
+                - Waiting
+                - Pending
+                - Running
+                - Succeeded
+                - Failed
+                type: string
+              rateMarginMilli:
+                description: |-
+                  RateMarginMilli is the chosen rate's margin over the runner-up, in
+                  thousandths (2030 = 2.03).
+                format: int32
+                type: integer
+              rateMicros:
+                format: int64
+                type: integer
+              rateName:
+                description: |-
+                  RateName is the donor's speed against the target ("1", "25/23.976");
+                  RateMicros the refined rate in millionths.
+                type: string
+              reason:
+                maxLength: 64
+                type: string
+              rejectedReleases:
+                description: |-
+                  RejectedReleases are donor releases a graft failed with: the donor
+                  search never takes them again for this item (spec §9).
+                items:
+                  type: string
+                maxItems: 16
+                type: array
+                x-kubernetes-list-type: atomic
+              residualMillis:
+                description: |-
+                  ResidualMillis is the verify pass's median residual offset, and
+                  Within80Percent its share of windows within 80 ms.
+                format: int32
+                type: integer
+              segments:
+                items:
+                  description: |-
+                    AudioGraftSegment is one run of the donor placed on the target, in
+                    milliseconds: DonorStart on the donor's timeline stretched by the rate.
+                  properties:
+                    donorStartMillis:
+                      format: int64
+                      type: integer
+                    lengthMillis:
+                      format: int64
+                      type: integer
+                    targetStartMillis:
+                      format: int64
+                      type: integer
+                  required:
+                  - donorStartMillis
+                  - lengthMillis
+                  - targetStartMillis
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-type: atomic
+              startedAt:
+                format: date-time
+                type: string
+              targetProbeHash:
+                description: |-
+                  TargetProbeHash is that file's probe hash then; a Failed graft is
+                  retried only for another hash or another generation.
+                type: string
+              within80Percent:
+                format: int32
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -78,6 +78,10 @@ type EpisodeStatusApplyConfiguration struct {
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
 	// SearchAttempts counts the searches made for this episode.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
+	// DonorSearchAttempts counts the audio donor searches made for this
+	// episode (anime dual-audio spec §6.1): their own backoff, beside the
+	// video's. Written by the grab worker with searchAttempts.
+	DonorSearchAttempts *commonv1alpha1.Attempts `json:"donorSearchAttempts,omitempty"`
 	// Audio is what the file's audio carries against the profile's audio
 	// policy; unset when the profile has none (anime dual-audio spec §5.3).
 	Audio *AudioStateApplyConfiguration `json:"audio,omitempty"`
@@ -272,6 +276,14 @@ func (b *EpisodeStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) 
 // If called multiple times, the SearchAttempts field is set to the value of the last call.
 func (b *EpisodeStatusApplyConfiguration) WithSearchAttempts(value commonv1alpha1.Attempts) *EpisodeStatusApplyConfiguration {
 	b.SearchAttempts = &value
+	return b
+}
+
+// WithDonorSearchAttempts sets the DonorSearchAttempts field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DonorSearchAttempts field is set to the value of the last call.
+func (b *EpisodeStatusApplyConfiguration) WithDonorSearchAttempts(value commonv1alpha1.Attempts) *EpisodeStatusApplyConfiguration {
+	b.DonorSearchAttempts = &value
 	return b
 }
 

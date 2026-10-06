@@ -217,6 +217,12 @@ type EpisodeStatus struct {
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
 
+	// DonorSearchAttempts counts the audio donor searches made for this
+	// episode (anime dual-audio spec §6.1): their own backoff, beside the
+	// video's. Written by the grab worker with searchAttempts.
+	// +optional
+	DonorSearchAttempts commonv1.Attempts `json:"donorSearchAttempts,omitempty"`
+
 	// Audio is what the file's audio carries against the profile's audio
 	// policy; unset when the profile has none (anime dual-audio spec §5.3).
 	// +optional

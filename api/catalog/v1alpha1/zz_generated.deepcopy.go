@@ -1813,6 +1813,7 @@ func (in *EpisodeStatus) DeepCopyInto(out *EpisodeStatus) {
 		*out = (*in).DeepCopy()
 	}
 	in.SearchAttempts.DeepCopyInto(&out.SearchAttempts)
+	in.DonorSearchAttempts.DeepCopyInto(&out.DonorSearchAttempts)
 	if in.Audio != nil {
 		in, out := &in.Audio, &out.Audio
 		*out = new(AudioState)
@@ -2662,6 +2663,10 @@ func (in *MediaFileStatus) DeepCopyInto(out *MediaFileStatus) {
 		*out = new(TranscodeState)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.GraftedAt != nil {
+		in, out := &in.GraftedAt, &out.GraftedAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Naming != nil {
 		in, out := &in.Naming, &out.Naming
 		*out = new(NamingStatus)
@@ -3112,6 +3117,7 @@ func (in *MovieStatus) DeepCopyInto(out *MovieStatus) {
 		*out = (*in).DeepCopy()
 	}
 	in.SearchAttempts.DeepCopyInto(&out.SearchAttempts)
+	in.DonorSearchAttempts.DeepCopyInto(&out.DonorSearchAttempts)
 	if in.Artwork != nil {
 		in, out := &in.Artwork, &out.Artwork
 		*out = make([]ArtworkEntry, len(*in))

@@ -376,6 +376,8 @@ var schemaYAML = typed.YAMLObject(`types:
   scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPriority
   scalar: string
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPurpose
+  scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadSource
   map:
     fields:
@@ -416,6 +418,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: protocol
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
+    - name: purpose
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPurpose
     - name: qualityProfileRef
       type:
         scalar: string

@@ -522,6 +522,12 @@ type MovieStatus struct {
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
 
+	// DonorSearchAttempts counts the audio donor searches made for this
+	// movie (anime dual-audio spec §6.1): their own backoff, beside the
+	// video's. Written by the grab worker with searchAttempts.
+	// +optional
+	DonorSearchAttempts commonv1.Attempts `json:"donorSearchAttempts,omitempty"`
+
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.
 	// +optional

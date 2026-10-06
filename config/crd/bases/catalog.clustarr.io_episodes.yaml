@@ -236,6 +236,25 @@ spec:
                 description: CutoffMet is true when the imported file meets the profile
                   cutoff.
                 type: boolean
+              donorSearchAttempts:
+                description: |-
+                  DonorSearchAttempts counts the audio donor searches made for this
+                  episode (anime dual-audio spec §6.1): their own backoff, beside the
+                  video's. Written by the grab worker with searchAttempts.
+                properties:
+                  count:
+                    description: Count is the total number of attempts so far.
+                    format: int32
+                    type: integer
+                  initial:
+                    description: Initial is when the first attempt was made.
+                    format: date-time
+                    type: string
+                  latest:
+                    description: Latest is when the most recent attempt was made.
+                    format: date-time
+                    type: string
+                type: object
               fileFormatScore:
                 description: FileFormatScore is the custom-format score of the imported
                   file.

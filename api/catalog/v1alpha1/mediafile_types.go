@@ -243,6 +243,17 @@ type MediaFileStatus struct {
 	// +optional
 	Transcode *TranscodeState `json:"transcode,omitempty"`
 
+	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+	// incorporated into this file (anime dual-audio spec §7.2), and
+	// GraftedAt when. A graft is not a transcode: spec.original stays as it
+	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
+	// modTime, as after a transcode swap.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	GraftTag string `json:"graftTag,omitempty"`
+	// +optional
+	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
+
 	// Naming is the file's canonical path under its RootFolder's naming
 	// preset, rendered by catalogarr from the item's metadata, the
 	// release-time spec and the probe; importarr performs the rename.
