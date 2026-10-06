@@ -167,7 +167,7 @@ func performGrab(
 	if err != nil {
 		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "leaseHeld").Inc()
-			return clearPending( err)
+			return clearPending(err)
 		}
 		return err
 	}
@@ -198,7 +198,7 @@ func performGrab(
 		releaseLeases(ctx, kv, acquired)
 		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "activeDownload").Inc()
-			return clearPending( err)
+			return clearPending(err)
 		}
 		return err
 	}
