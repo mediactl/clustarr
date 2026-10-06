@@ -357,3 +357,28 @@ Each phase gets its own plan, gate and deploy.
 - Music, books and other non-video kinds.
 - Changing which release Plex plays. Plex picks the audio track from each
   user's language settings, and the default flag only matters without one.
+
+## As built: phase 1 (2026-10-06)
+
+Plan `docs/superpowers/plans/2026-10-06-anime-type-detection-wronglanguage.md`.
+
+- **§3:** `series.EffectiveEpisodeOrder` and the `ui/plex` mirror return
+  `spec.episodeOrder` for every series type. Design §4.2 is amended.
+- **§4:** `series.Classify` and `status.classification`, with the spec
+  merge-patched under `catalogarr-classify`.
+  - Built beyond the spec: import lists send a classified series' current
+    profile and type, since their re-apply forces ownership on every sync.
+  - Built beyond the spec: a RootFolder's spec edit enqueues its
+    unclassified series, so turning detection on after deploy is
+    immediate.
+- **§5.3:** `WrongLanguage` reads the profile's `language`, which is the
+  anchor for every built-in profile, through `decision.LacksLanguage` over
+  `decision.AudioLanguages`. A file with any untagged track is unknown,
+  never wrong. The final review found that the import gate still demanded
+  an upgrade, which would have looped grab, reject and blocklist. A
+  wrong-language file is now replaced without an upgrade only when both
+  hold:
+  - search: the release title names its languages;
+  - import: the new file's probe carries the wanted language.
+
+  The Movie and Episode watches also wake on a probe's audio languages.

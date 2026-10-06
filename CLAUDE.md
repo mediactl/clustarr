@@ -336,9 +336,14 @@ stays; `catalog.clustarr.io/classify: off` skips one, and an import list's
 re-apply keeps a classified series' values. A file whose probed audio
 lacks the profile's language (`decision.LacksLanguage`; unknown or
 untagged audio never lacks) reads `WrongLanguage` and CutoffUnmet, unless
-it is transcoded, and any accepted release replaces it; the Movie and
-Episode controllers wake on a probe's audio languages
-(`rollup.AudioLanguagesObject`).
+it is transcoded. Without a quality upgrade it is replaced only by a
+release whose title names its language (an untagged one merely assumes the
+original, the assumption that imported the wrong file) and only when the
+new file's own probe carries the language (`fileimport.replacesWrongLanguage`),
+so it never loops grab, reject and blocklist. The Movie and Episode
+controllers wake on a probe's audio languages
+(`rollup.AudioLanguagesObject`), and a RootFolder's spec edit wakes its
+unclassified series.
 The movies provider has Plex's collection feature (2026-10-06; type 18,
 Feature `collection` at `/library/collections`, movie libraries only): a
 collection is a TMDB collection (`status.metadata.collection`), its items
