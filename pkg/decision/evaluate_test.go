@@ -242,8 +242,10 @@ func TestEvaluateADualAudioReleaseNamesItsLanguages(t *testing.T) {
 		Identity: decision.Identity{Titles: []string{"Spirited Away"}, Year: 2001},
 		Current:  &decision.Current{Quality: bluray1080.Quality, AudioLanguages: []string{"ko"}},
 	}
-	rel := common.ReleaseInfo{GUID: "idx:sa", IndexerRef: "idx", Protocol: common.ProtocolTorrent,
-		Title: "Spirited.Away.2001.1080p.BluRay.Dual.Audio.x264-GROUP"}
+	rel := common.ReleaseInfo{
+		GUID: "idx:sa", IndexerRef: "idx", Protocol: common.ProtocolTorrent,
+		Title: "Spirited.Away.2001.1080p.BluRay.Dual.Audio.x264-GROUP",
+	}
 	ds := decision.Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, []common.ReleaseInfo{rel}, decision.Options{ProtocolsEnabled: map[string]bool{"torrent": true}})
 	require.Len(t, ds, 1)
 	require.True(t, ds[0].Approved, "%+v", ds[0].Rejections)

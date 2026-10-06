@@ -25,6 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"time"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
@@ -84,4 +88,34 @@ func TestADonorAndAVideoGrabOfOneItemCoexist(t *testing.T) {
 	freed, err := grab.FreeLeases(ctx, bus.KV(events.BucketLeases), ns, target, donorName)
 	require.NoError(t, err)
 	assert.Len(t, freed, 1, "the donor's own lease is freed, and not the video's")
+}
+
+// TestADonorGrabLeavesTheVideosPendingGrabAndNameAlone: a Delayed video
+// candidate keeps its pendingGrab when a donor is grabbed, and a donor of
+// the release a video grab is downloading is a Download of its own
+// (final review).
+func TestADonorGrabLeavesTheVideosPendingGrabAndNameAlone(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+	movie := newMovie(t, ctx, c, ns, "monster-2004")
+	newIndexer(t, ctx, c, ns, "my-indexer", nil)
+	profile := hdBlurayWeb(t)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	deps := grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
+
+	release := torrentRelease("guid-same", "my-indexer", profile.Tiers[0][0].Quality, 0)
+	release.InfoHash = "4444444444444444444444444444444444444444"
+	require.NoError(t, grab.PerformGrabForTest(ctx, deps, ns, target, nil, release, downloadv1alpha1.GrabSourceSearch))
+	seedWorkerStatus(t, ctx, c, movie, "", &catalogv1alpha1.PendingGrab{
+		ReleaseTitle: "Monster.2004.1080p.BluRay-GRP", Protocol: commonv1.ProtocolTorrent, GrabAt: metav1.NewTime(testNow.Add(time.Hour)),
+	})
+	require.NoError(t, grab.PerformDonorGrab(ctx, deps, ns, target, release))
+
+	var list downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(ctx, &list, client.InNamespace(ns)))
+	require.Len(t, list.Items, 2, "the donor is a Download of its own")
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	assert.NotNil(t, got.Status.PendingGrab, "the video's pending grab stands")
 }

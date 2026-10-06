@@ -48,8 +48,10 @@ func monsterS01E02(donor *decision.Donor) decision.Target {
 		Kind: common.MediaKindEpisode, Monitored: true, Available: true, OriginalLanguageTag: "ja",
 		EpisodeRuntimes: []int{24},
 		Identity:        decision.Identity{Titles: []string{"Monster"}, Season: 1, Episodes: []int{2}, Absolute: []int{2}},
-		Current: &decision.Current{Quality: common.Quality{Name: webdl480.Name, Source: common.SourceWebDL, Resolution: common.Resolution480p},
-			FormatScore: 1600, AudioLanguages: []string{"ja"}},
+		Current: &decision.Current{
+			Quality:     common.Quality{Name: webdl480.Name, Source: common.SourceWebDL, Resolution: common.Resolution480p},
+			FormatScore: 1600, AudioLanguages: []string{"ja"},
+		},
 		Donor: donor,
 	}
 }
@@ -104,8 +106,10 @@ func TestADonorIsJudgedOnItsLanguages(t *testing.T) {
 }
 
 func TestADonorTheItemRejectedIsNotTakenAgain(t *testing.T) {
-	tg := monsterS01E02(&decision.Donor{Languages: []string{"en"}, Anchor: "ja",
-		Rejected: []string{"Monster.s01e02.Downfall.DVDRip.480p.x264.AAC.DL-BoB"}})
+	tg := monsterS01E02(&decision.Donor{
+		Languages: []string{"en"}, Anchor: "ja",
+		Rejected: []string{"Monster.s01e02.Downfall.DVDRip.480p.x264.AAC.DL-BoB"},
+	})
 	ds := evaluateTitles(t, tg, "Monster.s01e02.Downfall.DVDRip.480p.x264.AAC.DL-BoB")
 	require.True(t, rejectedFor(ds[0], decision.ReasonDonorRejected), "%+v", ds[0].Rejections)
 }
@@ -136,4 +140,18 @@ func TestDonorsRankByLineageThenSize(t *testing.T) {
 	require.Equal(t, "Monster.S01E02.480p.WEB-DL.DUAL-GRP", got[0].Release.Title, "same source, smaller")
 	require.Equal(t, "Monster.S01E02.1080p.WEB-DL.DUAL-BIG", got[1].Release.Title)
 	require.Equal(t, "Monster.s01e02.Downfall.DVDRip.480p.x264.AAC.DL-BoB", got[2].Release.Title)
+}
+
+// TestADualMarkerBesideAnotherLanguageIsNoDonor: German scene releases
+// write DL for German plus English, and a MULTi French release names
+// French: neither carries the Japanese original (final review).
+func TestADualMarkerBesideAnotherLanguageIsNoDonor(t *testing.T) {
+	tg := monsterS01E02(&decision.Donor{Languages: []string{"en"}, Anchor: "ja"})
+	ds := evaluateTitles(t, tg,
+		"Monster.S01E02.German.DL.1080p.WEB.h264-GRP",
+		"Monster.S01E02.MULTi.FRENCH.1080p.WEB.h264-GRP",
+	)
+	for _, d := range ds {
+		require.True(t, rejectedFor(d, decision.ReasonDonorLanguage), "%s: %+v", d.Release.Title, d.Rejections)
+	}
 }

@@ -86,7 +86,7 @@ func donorLanguageRejection(need []string, originalLanguage string, p quality.Pr
 	}
 	if dualAudioApplies(p, parsed, title, originalLanguage) {
 		have = append(have, originalLanguage, "English")
-	} else if strings.HasPrefix(p.ScoreSet, "anime-") && originalLanguage != "" {
+	} else if strings.HasPrefix(p.ScoreSet, "anime-") && originalLanguage != "" && namesOnlyOriginalAndEnglish(parsed, originalLanguage) {
 		if ok, err := multiLanguageRegex.MatchString(title); err == nil && ok {
 			have = append(have, originalLanguage, "English")
 		}
@@ -133,4 +133,20 @@ func donorNames(ctx context.Context, d *Donor) []string {
 		}
 	}
 	return out
+}
+
+// namesOnlyOriginalAndEnglish is dualAudioApplies' guard for the DL and
+// MULTi markers: German scene releases write DL for German and English,
+// and a French MULTi names French, so a title naming any language besides
+// the original and English is not believed.
+func namesOnlyOriginalAndEnglish(parsed *release.ParsedRelease, originalLanguage string) bool {
+	if parsed.LanguageUnknown {
+		return true
+	}
+	for _, l := range parsed.Languages {
+		if !strings.EqualFold(l, originalLanguage) && !strings.EqualFold(l, "English") {
+			return false
+		}
+	}
+	return true
 }

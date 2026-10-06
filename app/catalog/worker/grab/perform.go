@@ -139,22 +139,35 @@ func performGrab(
 	if err != nil {
 		return err
 	}
+	// status.pendingGrab is the item's video candidate: a donor grab never
+	// clears it, whether it lands or is refused.
+	clearPending := func(dup error) error {
+		if purpose != "" {
+			return dup
+		}
+		return clearPendingGrab(ctx, d, ns, statusTargets, dup)
+	}
 	source, err := downloads.ResolveSource(release)
 	if err != nil {
 		// The release snapshot is immutable, so no retry can give it a
 		// source. Clear pendingGrab before giving up, or the discard strands
 		// the item at Phase=Delayed exactly as a dead letter would.
-		return clearPendingGrab(ctx, d, ns, statusTargets,
+		return clearPending(
 			events.Discard("grab: release has nothing to download it by", err))
 	}
 	downloadName := k8s.ChildName(target.Name, release.GUID)
+	if purpose != "" {
+		// A Download of its own, apart from a video grab of the same
+		// release (which the guard would otherwise resume as this one).
+		downloadName = k8s.ChildName(target.Name, string(purpose), release.GUID)
+	}
 	kv := d.Bus.KV(events.BucketLeases)
 
 	acquired, err := acquireLeases(ctx, kv, leaseKeysFor(ns, statusTargets, purpose), downloadName, d.leaseHolder(ns))
 	if err != nil {
 		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "leaseHeld").Inc()
-			return clearPendingGrab(ctx, d, ns, statusTargets, err)
+			return clearPending( err)
 		}
 		return err
 	}
@@ -185,7 +198,7 @@ func performGrab(
 		releaseLeases(ctx, kv, acquired)
 		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "activeDownload").Inc()
-			return clearPendingGrab(ctx, d, ns, statusTargets, err)
+			return clearPending( err)
 		}
 		return err
 	}
@@ -221,6 +234,9 @@ func performGrab(
 	// second time. The redelivery instead re-enters its own lease, finds its
 	// own Download (resume) and finishes from here.
 	for _, st := range statusTargets {
+		if purpose != "" {
+			break // a donor consumed no video candidate
+		}
 		// The pending candidate has been consumed: leaving it set would keep
 		// the item at Phase=Delayed for the whole seven-day bucket TTL even
 		// though its Download is already running.
