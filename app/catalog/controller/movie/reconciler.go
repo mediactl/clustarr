@@ -45,6 +45,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -235,7 +236,8 @@ func moviePredicate() predicate.Predicate {
 // woke it. It compares the verdict, not the tag, so an ordinary re-probe does
 // not wake the Movie.
 func mediaFilePredicate() predicate.Predicate {
-	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject))
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject),
+		k8s.StatusFieldChanged(rollup.AudioLanguagesObject))
 }
 
 // downloadPredicate wakes the Download watch on a spec change (Create
@@ -534,6 +536,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	// already counts it as meeting the cutoff, and Phase reads it as
 	// Transcoded rather than Imported, CutoffUnmet or CutoffUnevaluated.
 	transcoded := rollup.Transcoded(mf)
+	// A file whose probed audio lacks the profile's language (anime
+	// dual-audio spec §5.3) reads CutoffUnmet, so the wanted sweep looks for
+	// a replacement -- unless it is transcoded, which stays final.
+	originalTag := ""
+	if m.Status.Metadata != nil {
+		originalTag = m.Status.Metadata.OriginalLanguage
+	}
+	audio := rollup.ProbedAudioLanguages(mf)
+	wrongLanguage := profile != nil && hasFile && decision.LacksLanguage(*profile, originalTag, audio)
+	if wrongLanguage && !transcoded {
+		cutoffMet = false
+	}
 	if action, file := rollup.FileTransition(m.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, m, action, file, mf, now)
 	}
@@ -615,10 +629,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		// qualityprofile controller. The item's job is only to stop
 		// claiming a verdict it never reached.
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
+	case wrongLanguage:
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "WrongLanguage", "the file's audio lacks the profile's language")
 	case cutoffMet:
 		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
 	default:
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
+	}
+
+	if wrongLanguage {
+		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionWrongLanguage, "WrongLanguage", "the file's audio %v lacks the profile's language", audio)
+	} else {
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionWrongLanguage, "LanguageOK", "no evidence the file's audio is wrong")
 	}
 
 	k8s.MarkReady(m, &conditions, metaReady && phase != catalogv1alpha1.MoviePhasePending, k8s.ReasonReconciled, "phase=%s", phase)

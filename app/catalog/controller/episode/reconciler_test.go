@@ -777,6 +777,79 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
 		}, 5*time.Second, 20*time.Millisecond)
 	})
+
+	t.Run("a file whose audio lacks the original language reads WrongLanguage and CutoffUnmet", func(t *testing.T) {
+		// Anime dual-audio spec §5.3: Monster S01E01, a Japanese show, held
+		// a file with Korean audio alone.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "monster", "wl-at-1080p")))
+		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "wl-at-1080p", "Bluray-1080p")))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("monster", "ep-ns").WithStatus(
+			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Monster").WithOriginalLanguage("ja"))))
+		require.NoError(t, err)
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "monster-s01e01", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "monster", SeasonNumber: 1, EpisodeNumber: 1},
+		}))
+		waitForPhase(t, ctx, c, "ep-ns", "monster-s01e01")
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "monster-s01e01-abc1234567", Namespace: "ep-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "monster-s01e01"},
+				Path:     "/data/media/tv/Monster/Season 1/Monster - S01E01.mkv",
+				Quality:  bluray,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		audio := func(lang string) {
+			t.Helper()
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: []commonv1.AudioStream{{Language: lang}}})))
+			require.NoError(t, err)
+		}
+		read := func(what string, ok func(e catalogv1alpha1.Episode) bool) catalogv1alpha1.Episode {
+			t.Helper()
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "monster-s01e01"}, &got) == nil && ok(got)
+			}, 5*time.Second, 20*time.Millisecond, what)
+			return got
+		}
+		cond := func(e catalogv1alpha1.Episode, typ string) *metav1.Condition {
+			return k8s.FindCondition(e.Status.Conditions, typ)
+		}
+
+		audio("kor")
+		got := read("a Korean-only file of a Japanese show must read WrongLanguage", func(e catalogv1alpha1.Episode) bool {
+			w := cond(e, catalogv1alpha1.EpisodeConditionWrongLanguage)
+			return w != nil && w.Status == metav1.ConditionTrue
+		})
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, got.Status.Phase, "the wanted sweep must look for a replacement")
+		require.NotNil(t, cond(got, catalogv1alpha1.EpisodeConditionCutoffMet))
+		assert.Equal(t, "WrongLanguage", cond(got, catalogv1alpha1.EpisodeConditionCutoffMet).Reason)
+
+		audio("jpn")
+		got = read("a Japanese file must clear WrongLanguage", func(e catalogv1alpha1.Episode) bool {
+			w := cond(e, catalogv1alpha1.EpisodeConditionWrongLanguage)
+			return w != nil && w.Status == metav1.ConditionFalse
+		})
+		assert.True(t, got.Status.CutoffMet)
+
+		// A transcoded file stays final; the condition only reports.
+		audio("kor")
+		var cur catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: mf.Name}, &cur))
+		patch := client.MergeFrom(cur.DeepCopy())
+		cur.Spec.Original = ptr.To(false)
+		require.NoError(t, c.Patch(ctx, &cur, patch))
+		got = read("a transcoded Korean file must read Transcoded", func(e catalogv1alpha1.Episode) bool {
+			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
+		})
+		assert.True(t, got.Status.CutoffMet, "a transcoded file is final")
+		require.NotNil(t, cond(got, catalogv1alpha1.EpisodeConditionWrongLanguage))
+		assert.Equal(t, metav1.ConditionTrue, cond(got, catalogv1alpha1.EpisodeConditionWrongLanguage).Status)
+	})
 }
 
 // grabPathDownload creates a Download the way the grab path does: one

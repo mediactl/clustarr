@@ -18,6 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rollup
 
 import (
+	"strings"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/lang"
 )
@@ -45,4 +49,16 @@ func ProbedAudioLanguages(mf *catalogv1alpha1.MediaFile) []string {
 		}
 	}
 	return out
+}
+
+// AudioLanguagesObject is ProbedAudioLanguages as a watch key, for
+// k8s.StatusFieldChanged. The Movie and Episode controllers wake on its
+// change because a probe writes status.mediaInfo in a status write that
+// bumps no generation, and WrongLanguage is read from it.
+func AudioLanguagesObject(o client.Object) string {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok {
+		return ""
+	}
+	return strings.Join(ProbedAudioLanguages(mf), ",")
 }

@@ -1156,6 +1156,81 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		}, 500*time.Millisecond, 20*time.Millisecond,
 			"this controller's own status patch must not re-trigger itself")
 	})
+
+	t.Run("a file whose audio lacks the original language reads WrongLanguage and CutoffUnmet", func(t *testing.T) {
+		// Anime dual-audio spec §5.3, the Movie twin of the Episode case.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testQualityProfile("avail-ns", "wl-at-1080p", "Bluray-1080p")))
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "spirited-away", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 129, QualityProfileRef: "wl-at-1080p", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(
+			catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Spirited Away").WithYear(2001).
+				WithOriginalLanguage("ja").WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
+		require.NoError(t, err)
+		waitForPhase(t, ctx, c, "avail-ns", "spirited-away")
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "spirited-away-abc1234567", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "spirited-away"},
+				Path:     "/data/media/movies/Spirited Away (2001)/Spirited Away.mkv",
+				Quality:  bluray,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		audio := func(lang string) {
+			t.Helper()
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "avail-ns").WithStatus(
+				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: []commonv1.AudioStream{{Language: lang}}})))
+			require.NoError(t, err)
+		}
+		read := func(what string, ok func(m catalogv1alpha1.Movie) bool) catalogv1alpha1.Movie {
+			t.Helper()
+			var got catalogv1alpha1.Movie
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "spirited-away"}, &got) == nil && ok(got)
+			}, 5*time.Second, 20*time.Millisecond, what)
+			return got
+		}
+		cond := func(m catalogv1alpha1.Movie, typ string) *metav1.Condition {
+			return k8s.FindCondition(m.Status.Conditions, typ)
+		}
+
+		audio("kor")
+		got := read("a Korean-only file of a Japanese film must read WrongLanguage", func(m catalogv1alpha1.Movie) bool {
+			w := cond(m, catalogv1alpha1.MovieConditionWrongLanguage)
+			return w != nil && w.Status == metav1.ConditionTrue
+		})
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, catalogv1alpha1.MoviePhaseCutoffUnmet, got.Status.Phase)
+		require.NotNil(t, cond(got, catalogv1alpha1.MovieConditionCutoffMet))
+		assert.Equal(t, "WrongLanguage", cond(got, catalogv1alpha1.MovieConditionCutoffMet).Reason)
+
+		audio("jpn")
+		got = read("a Japanese file must clear WrongLanguage", func(m catalogv1alpha1.Movie) bool {
+			w := cond(m, catalogv1alpha1.MovieConditionWrongLanguage)
+			return w != nil && w.Status == metav1.ConditionFalse
+		})
+		assert.True(t, got.Status.CutoffMet)
+
+		audio("kor")
+		var cur catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: mf.Name}, &cur))
+		patch := client.MergeFrom(cur.DeepCopy())
+		cur.Spec.Original = ptr.To(false)
+		require.NoError(t, c.Patch(ctx, &cur, patch))
+		got = read("a transcoded Korean file must read Transcoded", func(m catalogv1alpha1.Movie) bool {
+			return m.Status.Phase == catalogv1alpha1.MoviePhaseTranscoded
+		})
+		assert.True(t, got.Status.CutoffMet, "a transcoded file is final")
+		require.NotNil(t, cond(got, catalogv1alpha1.MovieConditionWrongLanguage))
+		assert.Equal(t, metav1.ConditionTrue, cond(got, catalogv1alpha1.MovieConditionWrongLanguage).Status)
+	})
 }
 
 // grabPathDownload creates a Download for owner the way the grab path does:

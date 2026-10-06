@@ -44,6 +44,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -264,7 +265,8 @@ func episodePredicate() predicate.Predicate {
 // transcoded verdict changing in a status-only probe write (see its doc
 // comment there).
 func mediaFilePredicate() predicate.Predicate {
-	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject))
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject),
+		k8s.StatusFieldChanged(rollup.AudioLanguagesObject))
 }
 
 // downloadPredicate is the same shape as the movie package's: a status-only
@@ -456,6 +458,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	hasFile, fileRef, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
 	// A transcoded file is final: see the movie package's identical line.
 	transcoded := rollup.Transcoded(mf)
+	// A file whose probed audio lacks the profile's language (anime
+	// dual-audio spec §5.3) reads CutoffUnmet, so the wanted sweep looks for
+	// a replacement -- unless it is transcoded, which stays final.
+	originalTag := ""
+	if series != nil && series.Status.Metadata != nil {
+		originalTag = series.Status.Metadata.OriginalLanguage
+	}
+	audio := rollup.ProbedAudioLanguages(mf)
+	wrongLanguage := profile != nil && hasFile && decision.LacksLanguage(*profile, originalTag, audio)
+	if wrongLanguage && !transcoded {
+		cutoffMet = false
+	}
 	if action, file := rollup.FileTransition(ep.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
@@ -505,10 +519,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		// branch for why this gets a reason of its own rather than reading
 		// as a genuine CutoffUnmet.
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
+	case wrongLanguage:
+		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "WrongLanguage", "the file's audio lacks the profile's language")
 	case cutoffMet:
 		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
 	default:
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
+	}
+
+	if wrongLanguage {
+		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionWrongLanguage, "WrongLanguage", "the file's audio %v lacks the profile's language", audio)
+	} else {
+		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionWrongLanguage, "LanguageOK", "no evidence the file's audio is wrong")
 	}
 
 	k8s.MarkReady(ep, &conditions, phase != catalogv1alpha1.EpisodePhaseUnaired || ep.Status.AirDate == nil, k8s.ReasonReconciled, "phase=%s", phase)

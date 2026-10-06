@@ -44,3 +44,11 @@ func TestProbedAudioLanguages(t *testing.T) {
 	require.Nil(t, rollup.ProbedAudioLanguages(&catalogv1alpha1.MediaFile{}), "not probed")
 	require.Nil(t, rollup.ProbedAudioLanguages(nil))
 }
+
+func TestAudioLanguagesObjectKeysTheProbedLanguages(t *testing.T) {
+	mf := &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{
+		Audio: []commonv1.AudioStream{{Language: "eng"}, {Language: "jpn"}}}}}
+	require.Equal(t, "en,ja", rollup.AudioLanguagesObject(mf))
+	require.Equal(t, "", rollup.AudioLanguagesObject(&catalogv1alpha1.MediaFile{}))
+	require.Equal(t, "", rollup.AudioLanguagesObject(&catalogv1alpha1.Episode{}), "not a MediaFile")
+}
