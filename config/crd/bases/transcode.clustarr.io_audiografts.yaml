@@ -225,11 +225,18 @@ spec:
                   cover.
                 format: int32
                 type: integer
+              donorAudioPath:
+                description: |-
+                  DonorAudioPath is the donor reduced to its audio (<stem>.mka), which
+                  every graft reads; empty until the reduce Job has run.
+                type: string
               graftTag:
                 description: GraftTag is the CLUSTARR_GRAFT tag the grafted file carries.
                 type: string
               jobName:
-                description: JobName is the graft Job of the current attempt.
+                description: |-
+                  JobName is the Job of the current attempt: a graft or reduce Job, or
+                  "transcodejob/<name>" for a graft riding along with that transcode.
                 type: string
               mediaFileRef:
                 description: |-

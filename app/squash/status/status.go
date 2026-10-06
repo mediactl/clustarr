@@ -173,6 +173,45 @@ func ControllerFields(st transcodev1alpha1.TranscodeJobStatus) *transcodeac.Tran
 	if st.Result != nil {
 		ac = ac.WithResult(resultAC(st.Result))
 	}
+	if st.Graft != nil {
+		ac = ac.WithGraft(GraftResultAC(st.Graft))
+	}
+	return ac
+}
+
+// GraftResultAC renders a TranscodeJob's status.graft, every leaf it has.
+func GraftResultAC(g *transcodev1alpha1.GraftResult) *transcodeac.GraftResultApplyConfiguration {
+	ac := transcodeac.GraftResult().WithPhase(g.Phase).WithAudioGraft(g.AudioGraft)
+	for _, s := range []struct {
+		v   string
+		set func(string) *transcodeac.GraftResultApplyConfiguration
+	}{
+		{g.Release, ac.WithRelease}, {g.Reason, ac.WithReason}, {g.Message, ac.WithMessage},
+		{g.RateName, ac.WithRateName}, {g.GraftTag, ac.WithGraftTag},
+	} {
+		if s.v != "" {
+			s.set(s.v)
+		}
+	}
+	if g.RateMicros != 0 {
+		ac.WithRateMicros(g.RateMicros)
+	}
+	if g.RateMarginMilli != 0 {
+		ac.WithRateMarginMilli(g.RateMarginMilli)
+	}
+	if g.CoveragePercent != 0 {
+		ac.WithCoveragePercent(g.CoveragePercent)
+	}
+	if g.ResidualMillis != 0 {
+		ac.WithResidualMillis(g.ResidualMillis)
+	}
+	if g.Within80Percent != 0 {
+		ac.WithWithin80Percent(g.Within80Percent)
+	}
+	for _, s := range g.Segments {
+		ac.WithSegments(transcodeac.AudioGraftSegment().WithDonorStartMillis(s.DonorStartMillis).
+			WithTargetStartMillis(s.TargetStartMillis).WithLengthMillis(s.LengthMillis))
+	}
 	return ac
 }
 

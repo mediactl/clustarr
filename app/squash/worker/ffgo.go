@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"maps"
 	"os"
 	"path/filepath"
@@ -60,6 +61,25 @@ type Engine interface {
 	// Probe reads path as pkg/mediainfo.Probe does, without ffprobe.
 	Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error)
 }
+
+// GraftEngine is an Engine that can graft a donor's dub into a transcode in
+// the same pass (anime dual-audio, phase 4 addendum): the in-process one.
+type GraftEngine interface {
+	// PrepareGraft readies t's graft into source (a local path) -- picks
+	// the tracks, aligns the anchors, verifies the alignment -- or says why
+	// not: a failure, or Succeeded/Present when source carries the language.
+	PrepareGraft(ctx context.Context, source string, t grafttask.Task, dataDir string) (GraftPrepared, grafttask.Result)
+	// EncodeGraft is Encode with the prepared graft's track added after the
+	// plan's audio.
+	EncodeGraft(ctx context.Context, plan standard.Result, tier transcode.Tier, input, output string,
+		g GraftPrepared, progress func(transcode.Progress)) (logTail string, err error)
+	// CheckGraft verifies the grafted track of output (audio stream
+	// graftedIndex of total); a zero Result passed.
+	CheckGraft(ctx context.Context, g GraftPrepared, output string, graftedIndex, total int) grafttask.Result
+}
+
+// GraftPrepared is a graft ready to mux (grafttask.Prepared).
+type GraftPrepared = grafttask.Prepared
 
 // StandardProfile is a TranscodeProfile as the standard reads it (spec §5:
 // quality, audio languages, the modifier policy and the container); the
@@ -120,10 +140,11 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	log.InfoContext(ctx, "squasharr worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
 		"encoder", plan.Video.Encoder, "decode", plan.Video.Decode, "reason", plan.Reason)
 	durationMillis := info.Format.Duration.Milliseconds()
+	graft, plan := r.prepareGraft(ctx, local, plan)
 	return encodeJob{
 		part: part,
 		encode: func(ctx context.Context) error {
-			if err := r.encodeFFgo(ctx, plan, tier, local, part, durationMillis); err != nil {
+			if err := r.encodeFFgo(ctx, plan, tier, local, part, durationMillis, graft); err != nil {
 				return err
 			}
 			// On stable storage before it is verified and renamed over the
@@ -138,9 +159,62 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 			return nil
 		},
 		verify: func(ctx context.Context) (*transcode.Report, error) {
-			return r.o.Engine.Verify(ctx, local, part, plan.Expect)
+			rep, err := r.o.Engine.Verify(ctx, local, part, plan.Expect)
+			if err != nil || !rep.OK || graft == nil {
+				return rep, err
+			}
+			// The transcode is sound; the dub it carries must be too. A bad
+			// one fails this attempt as retriable, with the graft's failure
+			// reported: the next attempt carries no graft (the dispatcher
+			// reads status.graft), so the transcode is never lost to it.
+			res := graft.engine.CheckGraft(ctx, graft.prepared, part, graft.index, graft.index+1)
+			if res.Phase != "" {
+				r.out.Graft = &res
+				return nil, fmt.Errorf("the grafted dub failed its check: %s", res.Message)
+			}
+			done := graft.prepared.Aligned()
+			done.Phase, done.Reason = grafttask.PhaseSucceeded, grafttask.ReasonGrafted
+			r.out.Graft = &done
+			return rep, nil
 		},
 	}, nil
+}
+
+// joinedGraft is a graft prepared to ride along with this transcode.
+type joinedGraft struct {
+	engine   GraftEngine
+	prepared GraftPrepared
+	index    int // the grafted track's index among the output's audio: after the plan's
+}
+
+// prepareGraft readies the task's graft, when it carries one, and returns
+// the plan to encode: with the graft, it tags CLUSTARR_GRAFT and expects one
+// more audio track. A graft that cannot be prepared is reported and the
+// transcode goes on without it.
+func (r *runner) prepareGraft(ctx context.Context, local string, plan standard.Result) (*joinedGraft, standard.Result) {
+	if r.t.Graft == nil {
+		return nil, plan
+	}
+	ge, ok := r.o.Engine.(GraftEngine)
+	if !ok {
+		res := grafttask.Failed(grafttask.ReasonError, "this worker's engine cannot graft")
+		r.out.Graft = &res
+		return nil, plan
+	}
+	prepared, res := ge.PrepareGraft(ctx, local, *r.t.Graft, r.o.DataDir)
+	if prepared == nil {
+		logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: the joined graft is not grafted",
+			"reason", res.Reason, "message", res.Message)
+		r.out.Graft = &res
+		return nil, plan
+	}
+	tags := map[string]string{"CLUSTARR_GRAFT": prepared.GraftTag()}
+	for k, v := range plan.Tags {
+		tags[k] = v
+	}
+	plan.Tags = tags
+	plan.Expect.AudioStreams++
+	return &joinedGraft{engine: ge, prepared: prepared, index: len(plan.Audio)}, plan
 }
 
 // syncPart fsyncs the encoded part file; a variable so a test can see when
@@ -274,7 +348,9 @@ func partPath(out string, c transcode.Container) string {
 
 // encodeFFgo runs the plan on the in-process engine, with the same
 // progress, telemetry, stderr tail and failure classes as the argv engine.
-func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier transcode.Tier, local, part string, durationMillis int64) error {
+func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier transcode.Tier, local, part string, durationMillis int64,
+	graft *joinedGraft,
+) error {
 	metrics.TranscodeJobsActive.WithLabelValues(r.tier).Inc()
 	defer metrics.TranscodeJobsActive.WithLabelValues(r.tier).Dec()
 	r.started = r.o.Now()
@@ -287,10 +363,17 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval, r.t.Job, pod, durationMillis, r.o.Now)
 	rep.start(ctx)
 	tel.start(ctx)
-	logTail, runErr := r.o.Engine.Encode(ctx, plan, tier, local, part, func(p transcode.Progress) {
+	progress := func(p transcode.Progress) {
 		rep.observe(p)
 		tel.observe(p)
-	})
+	}
+	var logTail string
+	var runErr error
+	if graft != nil {
+		logTail, runErr = graft.engine.EncodeGraft(ctx, plan, tier, local, part, graft.prepared, progress)
+	} else {
+		logTail, runErr = r.o.Engine.Encode(ctx, plan, tier, local, part, progress)
+	}
 	rep.stop(ctx)
 	tel.stop(ctx)
 	if p, ok := rep.last(); ok {

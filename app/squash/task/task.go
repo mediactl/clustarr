@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package task
 
 import (
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -64,6 +65,12 @@ type Task struct {
 	// plan's with it.
 	PlanHash string          `json:"planHash,omitempty"`
 	Deadline metav1.Duration `json:"deadline"`
+
+	// Graft is an audio graft riding along with this transcode (anime
+	// dual-audio, phase 4 addendum): the worker aligns the donor before it
+	// encodes and muxes the dub in with the transcode. Its Target is the
+	// source; nil for a plain transcode.
+	Graft *grafttask.Task `json:"graft,omitempty"`
 }
 
 // EngineFFgo is the engine every task runs on, in-process. (status.plan's
@@ -135,7 +142,9 @@ type StatusEvent struct {
 	Message    string                      `json:"message,omitempty"`
 	Result     *transcodev1alpha1.Result   `json:"result,omitempty"`
 	StderrTail string                      `json:"stderrTail,omitempty"`
-	At         time.Time                   `json:"at"`
+	// Graft is what came of the task's graft, when it carried one.
+	Graft *grafttask.Result `json:"graft,omitempty"`
+	At    time.Time         `json:"at"`
 }
 
 // Schema implements schema.Payload.

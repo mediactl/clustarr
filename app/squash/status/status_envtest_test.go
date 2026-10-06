@@ -143,6 +143,7 @@ func TestTheJobDeclarationIsComplete(t *testing.T) {
 					WithOutputToSourcePercent(45).
 					WithVMAFCentis(9542)).
 				WithStderrTail("frame=1200 fps=24 speed=1.5x").
+				WithGraft(transcodeac.GraftResult().WithPhase(transcodev1alpha1.GraftJoined).WithAudioGraft("split-audiograft")).
 				WithConditions(k8s.ConditionAC(metav1.Condition{
 					Type: transcodev1alpha1.TranscodeJobConditionJobCreated, Status: metav1.ConditionTrue,
 					Reason: "JobCreated", LastTransitionTime: now, ObservedGeneration: 1,

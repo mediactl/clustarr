@@ -278,6 +278,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: coveragePercent
       type:
         scalar: numeric
+    - name: donorAudioPath
+      type:
+        scalar: string
     - name: graftTag
       type:
         scalar: string
@@ -410,6 +413,53 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.core.v1.Toleration
           elementRelationship: atomic
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.GraftResult
+  map:
+    fields:
+    - name: audioGraft
+      type:
+        scalar: string
+    - name: coveragePercent
+      type:
+        scalar: numeric
+    - name: graftTag
+      type:
+        scalar: string
+    - name: message
+      type:
+        scalar: string
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.GraftResultPhase
+    - name: rateMarginMilli
+      type:
+        scalar: numeric
+    - name: rateMicros
+      type:
+        scalar: numeric
+    - name: rateName
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: release
+      type:
+        scalar: string
+    - name: residualMillis
+      type:
+        scalar: numeric
+    - name: segments
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.AudioGraftSegment
+          elementRelationship: atomic
+    - name: within80Percent
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.GraftResultPhase
+  scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware
   scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.Plan
@@ -608,6 +658,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: finishedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: graft
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.GraftResult
     - name: hardware
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware

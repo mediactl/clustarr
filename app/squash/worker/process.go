@@ -20,6 +20,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/task"
@@ -36,6 +37,8 @@ type Outcome struct {
 	Result     *transcodev1alpha1.Result
 	StderrTail string
 	Reason     task.Reason
+	// Graft is what came of the task's graft, when it carried one.
+	Graft *grafttask.Result
 }
 
 // Process transcodes one task: re-probe against SourceProbeHash, plan, check

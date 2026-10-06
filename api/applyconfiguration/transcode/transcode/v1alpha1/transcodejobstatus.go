@@ -54,6 +54,9 @@ type TranscodeJobStatusApplyConfiguration struct {
 	Progress *ProgressApplyConfiguration `json:"progress,omitempty"`
 	// Result is the worker-reported final outcome.
 	Result *ResultApplyConfiguration `json:"result,omitempty"`
+	// Graft is the audio graft riding along with this transcode, when one
+	// joined it at dispatch (anime dual-audio, as built: phase 4 addendum).
+	Graft *GraftResultApplyConfiguration `json:"graft,omitempty"`
 	// StderrTail is the tail of the encoder's stderr, at most 4 KiB.
 	StderrTail *string `json:"stderrTail,omitempty"`
 	// WorkerPod is the pool pod running this job's current attempt, so
@@ -153,6 +156,14 @@ func (b *TranscodeJobStatusApplyConfiguration) WithProgress(value *ProgressApply
 // If called multiple times, the Result field is set to the value of the last call.
 func (b *TranscodeJobStatusApplyConfiguration) WithResult(value *ResultApplyConfiguration) *TranscodeJobStatusApplyConfiguration {
 	b.Result = value
+	return b
+}
+
+// WithGraft sets the Graft field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Graft field is set to the value of the last call.
+func (b *TranscodeJobStatusApplyConfiguration) WithGraft(value *GraftResultApplyConfiguration) *TranscodeJobStatusApplyConfiguration {
+	b.Graft = value
 	return b
 }
 

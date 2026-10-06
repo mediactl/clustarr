@@ -110,9 +110,14 @@ type AudioGraftStatus struct {
 	// retried only for another hash or another generation.
 	// +optional
 	TargetProbeHash string `json:"targetProbeHash,omitempty"`
-	// JobName is the graft Job of the current attempt.
+	// JobName is the Job of the current attempt: a graft or reduce Job, or
+	// "transcodejob/<name>" for a graft riding along with that transcode.
 	// +optional
 	JobName string `json:"jobName,omitempty"`
+	// DonorAudioPath is the donor reduced to its audio (<stem>.mka), which
+	// every graft reads; empty until the reduce Job has run.
+	// +optional
+	DonorAudioPath string `json:"donorAudioPath,omitempty"`
 
 	// RateName is the donor's speed against the target ("1", "25/23.976");
 	// RateMicros the refined rate in millionths.
@@ -159,6 +164,51 @@ type AudioGraftStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// GraftResultPhase is where a graft riding along with a transcode stands.
+// +kubebuilder:validation:Enum=Joined;Succeeded;Failed
+type GraftResultPhase string
+
+const (
+	GraftJoined    GraftResultPhase = "Joined"
+	GraftSucceeded GraftResultPhase = "Succeeded"
+	GraftFailed    GraftResultPhase = "Failed"
+)
+
+// GraftResult is a graft run inside a TranscodeJob (TranscodeJob
+// status.graft): which AudioGraft joined it and, once the worker reported,
+// what came of it. The AudioGraft controller copies it into the AudioGraft.
+type GraftResult struct {
+	Phase GraftResultPhase `json:"phase"`
+	// AudioGraft names the AudioGraft that joined, and Release its donor.
+	AudioGraft string `json:"audioGraft"`
+	// +optional
+	Release string `json:"release,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Reason string `json:"reason,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	Message string `json:"message,omitempty"`
+	// +optional
+	RateName string `json:"rateName,omitempty"`
+	// +optional
+	RateMicros int64 `json:"rateMicros,omitempty"`
+	// +optional
+	RateMarginMilli int32 `json:"rateMarginMilli,omitempty"`
+	// +optional
+	CoveragePercent int32 `json:"coveragePercent,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	Segments []AudioGraftSegment `json:"segments,omitempty"`
+	// +optional
+	ResidualMillis int32 `json:"residualMillis,omitempty"`
+	// +optional
+	Within80Percent int32 `json:"within80Percent,omitempty"`
+	// +optional
+	GraftTag string `json:"graftTag,omitempty"`
 }
 
 // AudioGraft is one item's donor audio and the graft of it into the item's

@@ -40,8 +40,12 @@ type AudioGraftStatusApplyConfiguration struct {
 	// TargetProbeHash is that file's probe hash then; a Failed graft is
 	// retried only for another hash or another generation.
 	TargetProbeHash *string `json:"targetProbeHash,omitempty"`
-	// JobName is the graft Job of the current attempt.
+	// JobName is the Job of the current attempt: a graft or reduce Job, or
+	// "transcodejob/<name>" for a graft riding along with that transcode.
 	JobName *string `json:"jobName,omitempty"`
+	// DonorAudioPath is the donor reduced to its audio (<stem>.mka), which
+	// every graft reads; empty until the reduce Job has run.
+	DonorAudioPath *string `json:"donorAudioPath,omitempty"`
 	// RateName is the donor's speed against the target ("1", "25/23.976");
 	// RateMicros the refined rate in millionths.
 	RateName   *string `json:"rateName,omitempty"`
@@ -126,6 +130,14 @@ func (b *AudioGraftStatusApplyConfiguration) WithTargetProbeHash(value string) *
 // If called multiple times, the JobName field is set to the value of the last call.
 func (b *AudioGraftStatusApplyConfiguration) WithJobName(value string) *AudioGraftStatusApplyConfiguration {
 	b.JobName = &value
+	return b
+}
+
+// WithDonorAudioPath sets the DonorAudioPath field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DonorAudioPath field is set to the value of the last call.
+func (b *AudioGraftStatusApplyConfiguration) WithDonorAudioPath(value string) *AudioGraftStatusApplyConfiguration {
+	b.DonorAudioPath = &value
 	return b
 }
 

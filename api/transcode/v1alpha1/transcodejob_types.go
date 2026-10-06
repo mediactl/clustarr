@@ -313,6 +313,11 @@ type TranscodeJobStatus struct {
 	// +optional
 	Result *Result `json:"result,omitempty"`
 
+	// Graft is the audio graft riding along with this transcode, when one
+	// joined it at dispatch (anime dual-audio, as built: phase 4 addendum).
+	// +optional
+	Graft *GraftResult `json:"graft,omitempty"`
+
 	// StderrTail is the tail of the encoder's stderr, at most 4 KiB.
 	// +optional
 	// +kubebuilder:validation:MaxLength=4096

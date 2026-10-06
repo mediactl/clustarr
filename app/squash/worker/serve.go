@@ -404,6 +404,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 	if out.Err != nil {
 		fin.Message = out.Err.Error()
 	}
+	fin.Graft = out.Graft
 	switch {
 	case errors.Is(cause, errFenced):
 		// A fenced worker must not report at all: it no longer knows whether

@@ -26,6 +26,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -54,7 +56,13 @@ type Task struct {
 	// RecycleBin receives the target's original name before the swap; empty
 	// is none.
 	RecycleBin string `json:"recycleBin,omitempty"`
+	// Mode is ModeReduce for a reduce-only run: the donor is cut down to
+	// its audio and nothing is grafted. Empty is a graft.
+	Mode string `json:"mode,omitempty"`
 }
+
+// ModeReduce is Task.Mode for a reduce-only run.
+const ModeReduce = "reduce"
 
 // Validate reports a Task the worker cannot run.
 func (t Task) Validate() error {
@@ -79,6 +87,7 @@ const (
 const (
 	ReasonGrafted            = "Grafted"
 	ReasonPresent            = "Present" // the target already carries the language
+	ReasonReduced            = "Reduced" // a reduce run cut the donor to its audio
 	ReasonInvalidTask        = "InvalidTask"
 	ReasonUnsupported        = "UnsupportedContainer"
 	ReasonTargetChanged      = "TargetChanged"
@@ -173,4 +182,33 @@ func Decode(b []byte) (Result, error) {
 		return r, fmt.Errorf("grafttask: result phase %q", r.Phase)
 	}
 	return r, nil
+}
+
+// LogicalDataRoot is where every path a Task names lives (as
+// app/squash/worker.LogicalDataRoot): the RWX /data volume.
+const LogicalDataRoot = "/data"
+
+// LocalPath maps a logical /data path to dataDir, refusing one outside it.
+func LocalPath(dataDir, logical string) (string, error) {
+	if !filepath.IsAbs(logical) {
+		return "", fmt.Errorf("path %q is not absolute", logical)
+	}
+	clean := filepath.Clean(logical)
+	if clean != LogicalDataRoot && !strings.HasPrefix(clean, LogicalDataRoot+"/") {
+		return "", fmt.Errorf("path %q is outside %s", logical, LogicalDataRoot)
+	}
+	return filepath.Join(dataDir, strings.TrimPrefix(clean, LogicalDataRoot)), nil
+}
+
+// Within reports whether path is strictly inside dir.
+func Within(dir, path string) bool {
+	return strings.HasPrefix(filepath.Clean(path), filepath.Clean(dir)+"/")
+}
+
+// Prepared is a graft aligned and ready to mux into a transcode, as the
+// worker's GraftEngine hands it back: its tag, and the alignment's figures
+// for the graft's result.
+type Prepared interface {
+	GraftTag() string
+	Aligned() Result
 }

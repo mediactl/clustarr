@@ -40,7 +40,6 @@ import (
 	"golang.org/x/text/language"
 
 	"github.com/mediactl/clustarr/app/squash/grafttask"
-	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/audioalign"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/lang"
@@ -61,31 +60,66 @@ const (
 
 // Options tune a Run.
 type Options struct {
-	// DataDir is where /data is mounted (worker.LogicalDataRoot when empty).
+	// DataDir is where /data is mounted (grafttask.LogicalDataRoot when empty).
 	DataDir string
 	// Thresholds is the alignment's acceptance (audioalign.DefaultThresholds
 	// when zero).
 	Thresholds audioalign.Thresholds
 }
 
-// Run performs t and reports what happened. The target is untouched unless
-// the Result is Succeeded with reason Grafted.
+// Run performs t and reports what happened: a reduce (t.Mode reduce)
+// leaves the donor's audio as <stem>.mka; a graft muxes the dub into the
+// target, which is untouched unless the Result is Succeeded with reason
+// Grafted.
 func Run(ctx context.Context, t grafttask.Task, o Options) grafttask.Result {
+	if t.Mode == grafttask.ModeReduce {
+		return Reduce(ctx, t, o)
+	}
 	if err := t.Validate(); err != nil {
 		return grafttask.Failed(grafttask.ReasonInvalidTask, "%v", err)
 	}
-	if o.DataDir == "" {
-		o.DataDir = worker.LogicalDataRoot
-	}
-	if o.Thresholds == (audioalign.Thresholds{}) {
-		o.Thresholds = audioalign.DefaultThresholds
-	}
-	r := &run{t: t, o: o, log: logging.FromContext(ctx).With("graft", t.Graft)}
+	r := newRun(ctx, t, o)
 	res := r.do(ctx)
 	if res.Phase == grafttask.PhaseFailed && r.part != "" {
 		_ = os.Remove(r.part)
 	}
 	return res
+}
+
+func newRun(ctx context.Context, t grafttask.Task, o Options) *run {
+	if o.DataDir == "" {
+		o.DataDir = grafttask.LogicalDataRoot
+	}
+	if o.Thresholds == (audioalign.Thresholds{}) {
+		o.Thresholds = audioalign.DefaultThresholds
+	}
+	return &run{t: t, o: o, log: logging.FromContext(ctx).With("graft", t.Graft)}
+}
+
+// Reduce reduces t's donor to its audio, the anchor and every language the
+// AudioGraft wants: the reduce Job a new donor gets at once, so its video
+// leaves the disk however long the graft itself waits.
+func Reduce(ctx context.Context, t grafttask.Task, o Options) grafttask.Result {
+	if t.Donor == "" || t.Root == "" || t.Language == "" || t.Anchor == "" {
+		return grafttask.Failed(grafttask.ReasonInvalidTask, "grafttask: a reduce needs a donor, a root, a language and an anchor")
+	}
+	r := newRun(ctx, t, o)
+	donor, err := r.local(t.Donor)
+	if err != nil {
+		return grafttask.Failed(grafttask.ReasonInvalidTask, "donor: %v", err)
+	}
+	if _, res, ok := r.reduceDonor(ctx, donor); !ok {
+		return res
+	}
+	return grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonReduced, DonorAudio: reducedPath(t.Donor)}
+}
+
+// reducedPath is where a donor's audio lives once reduced.
+func reducedPath(donor string) string {
+	if strings.EqualFold(filepath.Ext(donor), ".mka") {
+		return donor
+	}
+	return strings.TrimSuffix(donor, filepath.Ext(donor)) + ".mka"
 }
 
 type run struct {
@@ -96,20 +130,141 @@ type run struct {
 }
 
 func (r *run) local(p string) (string, error) {
-	if !worker.Within(r.t.Root, p) {
+	if !grafttask.Within(r.t.Root, p) {
 		return "", fmt.Errorf("%s is outside root folder %s", p, r.t.Root)
 	}
-	return worker.LocalPath(r.o.DataDir, p)
+	return grafttask.LocalPath(r.o.DataDir, p)
+}
+
+// Prepared is a graft aligned and ready to mux: what engine.Options.Graft
+// takes, and what Check verifies an output against.
+type Prepared struct {
+	// Result carries the alignment's figures, the graft tag and the donor
+	// audio, for the result the mux finishes.
+	Result grafttask.Result
+	audio  engine.GraftAudio
+	al     audioalign.Result
+	target int // the target anchor's length at 8 kHz
+	mka    string
+	dub    int
+	lang   string
+}
+
+// Audio is the graft as engine.Options.Graft takes it.
+func (p *Prepared) Audio() *engine.GraftAudio { a := p.audio; return &a }
+
+// GraftTag is the CLUSTARR_GRAFT tag the output carries.
+func (p *Prepared) GraftTag() string { return p.Result.GraftTag }
+
+// Prepare readies t's graft into source (a local path): it picks the
+// tracks, reduces the donor if it is not yet, decodes and aligns the
+// anchors and verifies the alignment. A nil Prepared comes with why: a
+// failure, or Succeeded/Present when source already carries the language.
+func Prepare(ctx context.Context, t grafttask.Task, o Options, source string) (*Prepared, grafttask.Result) {
+	r := newRun(ctx, t, o)
+	return r.prepare(ctx, source)
+}
+
+func (r *run) prepare(ctx context.Context, target string) (*Prepared, grafttask.Result) {
+	donor, err := r.local(r.t.Donor)
+	if err != nil {
+		return nil, grafttask.Failed(grafttask.ReasonInvalidTask, "donor: %v", err)
+	}
+	targetTracks, err := engine.AudioTracks(target)
+	if err != nil {
+		return nil, grafttask.Failed(grafttask.ReasonError, "read the target's tracks: %v", err)
+	}
+	if pick(targetTracks, r.t.Language, false) >= 0 {
+		return nil, grafttask.Result{
+			Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonPresent,
+			Message: "the target already carries " + r.t.Language,
+		}
+	}
+	tAnchor := pick(targetTracks, r.t.Anchor, true)
+	if tAnchor < 0 {
+		return nil, grafttask.Failed(grafttask.ReasonTargetLacksAnchor, "the target has no %s track (and not one untagged track)", r.t.Anchor)
+	}
+	mka, res, ok := r.reduceDonor(ctx, donor)
+	if !ok {
+		return nil, res
+	}
+	donorTracks, err := engine.AudioTracks(mka)
+	if err != nil {
+		return nil, grafttask.Failed(grafttask.ReasonError, "read the donor's tracks: %v", err)
+	}
+	dAnchor, dLang := pick(donorTracks, r.t.Anchor, false), pick(donorTracks, r.t.Language, false)
+	if dAnchor < 0 || dLang < 0 {
+		return nil, grafttask.Failed(grafttask.ReasonDonorLacksLanguage, "the donor needs tagged %s and %s tracks; it has %s",
+			r.t.Anchor, r.t.Language, describe(donorTracks))
+	}
+
+	tPCM, err := engine.DecodePCM(ctx, target, tAnchor, audioalign.SampleRate)
+	if err != nil {
+		return nil, grafttask.Failed(grafttask.ReasonError, "decode the target's anchor: %v", err)
+	}
+	dPCM, err := engine.DecodePCM(ctx, mka, dAnchor, audioalign.SampleRate)
+	if err != nil {
+		return nil, grafttask.Failed(grafttask.ReasonError, "decode the donor's anchor: %v", err)
+	}
+	al, err := audioalign.Align(dPCM, tPCM)
+	out := alignmentResult(al)
+	if err == nil {
+		err = al.Accept(r.o.Thresholds)
+	}
+	if err != nil {
+		out.Phase, out.Reason, out.Message = grafttask.PhaseFailed, grafttask.ReasonAlignmentRejected, grafttask.Clamp(err.Error())
+		return nil, out
+	}
+	resid, within := audioalign.Verify(dPCM, tPCM, al)
+	out.ResidualMillis, out.Within80Percent = clampMillis(resid), int32(math.Round(100*within))
+	if resid > maxResidual || within < minWithin80 {
+		out.Phase, out.Reason = grafttask.PhaseFailed, grafttask.ReasonVerifyFailed
+		out.Message = fmt.Sprintf("the transformed anchor misses by %s median, %.0f%% within 80 ms", resid, 100*within)
+		return nil, out
+	}
+	r.log.Info("graft: aligned", "rate", al.RateName, "segments", len(al.Segments), "coverage", al.Coverage)
+	tag, err := fileTag(mka)
+	if err != nil {
+		return nil, grafttask.Failed(grafttask.ReasonError, "hash the donor: %v", err)
+	}
+	out.GraftTag, out.DonorAudio = tag, reducedPath(r.t.Donor)
+	return &Prepared{
+		Result: out, al: al, target: len(tPCM), mka: mka, dub: dLang, lang: r.t.Language,
+		audio: engine.GraftAudio{
+			Donor: mka, Stream: dLang, Map: al.DonorSeconds,
+			Language: iso639(r.t.Language), Title: trackTitle(r.t.Language), Default: r.t.Default,
+		},
+	}, grafttask.Result{}
+}
+
+// Check verifies the grafted track of output, its audio stream graftedIndex
+// with total audio streams in all: it must be the donor's dub, moved by the
+// alignment, on the target's clock. A zero Result means it passed.
+func Check(ctx context.Context, p *Prepared, output string, graftedIndex, total int) grafttask.Result {
+	out := p.Result
+	tracks, err := engine.AudioTracks(output)
+	if err != nil || len(tracks) != total {
+		return failedWith(out, grafttask.ReasonVerifyFailed, "the output has %d audio tracks, not %d (%v)", len(tracks), total, err)
+	}
+	got, err := engine.DecodePCM(ctx, output, graftedIndex, audioalign.SampleRate)
+	if err != nil {
+		return failedWith(out, grafttask.ReasonVerifyFailed, "decode the grafted track: %v", err)
+	}
+	dubPCM, err := engine.DecodePCM(ctx, p.mka, p.dub, audioalign.SampleRate)
+	if err != nil {
+		return failedWith(out, grafttask.ReasonError, "decode the donor's %s: %v", p.lang, err)
+	}
+	want := audioalign.Transform(dubPCM, p.al, p.target)
+	if lag, corr := muxCheck(want, got); corr < minMuxCorr || abs(lag) > 8 {
+		return failedWith(out, grafttask.ReasonVerifyFailed, "the grafted track is off by %d samples (correlation %.2f)", lag, corr)
+	}
+	return grafttask.Result{}
 }
 
 func (r *run) do(ctx context.Context) grafttask.Result {
 	target, err := r.local(r.t.Target)
 	if err != nil {
 		return grafttask.Failed(grafttask.ReasonInvalidTask, "target: %v", err)
-	}
-	donor, err := r.local(r.t.Donor)
-	if err != nil {
-		return grafttask.Failed(grafttask.ReasonInvalidTask, "donor: %v", err)
 	}
 	st, err := os.Stat(target)
 	if err != nil {
@@ -122,100 +277,23 @@ func (r *run) do(ctx context.Context) grafttask.Result {
 	if err != nil {
 		return grafttask.Failed(grafttask.ReasonUnsupported, "%v", err)
 	}
-
-	targetTracks, err := engine.AudioTracks(target)
-	if err != nil {
-		return grafttask.Failed(grafttask.ReasonError, "read the target's tracks: %v", err)
-	}
-	if pick(targetTracks, r.t.Language, false) >= 0 {
-		return grafttask.Result{
-			Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonPresent,
-			Message: "the target already carries " + r.t.Language,
-		}
-	}
-	tAnchor := pick(targetTracks, r.t.Anchor, true)
-	if tAnchor < 0 {
-		return grafttask.Failed(grafttask.ReasonTargetLacksAnchor, "the target has no %s track (and not one untagged track)", r.t.Anchor)
-	}
-
-	mka, res, ok := r.reduceDonor(ctx, donor)
-	if !ok {
+	p, res := r.prepare(ctx, target)
+	if p == nil {
 		return res
 	}
-	donorTracks, err := engine.AudioTracks(mka)
-	if err != nil {
-		return grafttask.Failed(grafttask.ReasonError, "read the donor's tracks: %v", err)
-	}
-	dAnchor, dLang := pick(donorTracks, r.t.Anchor, false), pick(donorTracks, r.t.Language, false)
-	if dAnchor < 0 || dLang < 0 {
-		return grafttask.Failed(grafttask.ReasonDonorLacksLanguage, "the donor needs tagged %s and %s tracks; it has %s",
-			r.t.Anchor, r.t.Language, describe(donorTracks))
-	}
+	out := p.Result
 
-	// Align the anchors.
-	tPCM, err := engine.DecodePCM(ctx, target, tAnchor, audioalign.SampleRate)
-	if err != nil {
-		return grafttask.Failed(grafttask.ReasonError, "decode the target's anchor: %v", err)
-	}
-	dPCM, err := engine.DecodePCM(ctx, mka, dAnchor, audioalign.SampleRate)
-	if err != nil {
-		return grafttask.Failed(grafttask.ReasonError, "decode the donor's anchor: %v", err)
-	}
-	al, err := audioalign.Align(dPCM, tPCM)
-	out := alignmentResult(al)
-	if err == nil {
-		err = al.Accept(r.o.Thresholds)
-	}
-	if err != nil {
-		out.Phase, out.Reason, out.Message = grafttask.PhaseFailed, grafttask.ReasonAlignmentRejected, grafttask.Clamp(err.Error())
-		return out
-	}
-	resid, within := audioalign.Verify(dPCM, tPCM, al)
-	out.ResidualMillis, out.Within80Percent = clampMillis(resid), int32(math.Round(100*within))
-	if resid > maxResidual || within < minWithin80 {
-		out.Phase, out.Reason = grafttask.PhaseFailed, grafttask.ReasonVerifyFailed
-		out.Message = fmt.Sprintf("the transformed anchor misses by %s median, %.0f%% within 80 ms", resid, 100*within)
-		return out
-	}
-	r.log.Info("graft: aligned", "rate", al.RateName, "segments", len(al.Segments), "coverage", al.Coverage)
-
-	// Mux.
-	tag, err := fileTag(mka)
-	if err != nil {
-		return grafttask.Failed(grafttask.ReasonError, "hash the donor: %v", err)
-	}
-	out.GraftTag, out.DonorAudio = tag, strings.TrimSuffix(r.t.Donor, filepath.Ext(r.t.Donor))+".mka"
-	plan.Tags = map[string]string{"CLUSTARR_GRAFT": tag}
+	plan.Tags = map[string]string{"CLUSTARR_GRAFT": p.GraftTag()}
 	r.part = strings.TrimSuffix(target, filepath.Ext(target)) + ".part" + filepath.Ext(target)
 	_ = os.Remove(r.part)
-	if _, err := engine.Run(ctx, plan, target, r.part, engine.Options{Graft: &engine.GraftAudio{
-		Donor: mka, Stream: dLang, Map: al.DonorSeconds,
-		Language: iso639(r.t.Language), Title: trackTitle(r.t.Language), Default: r.t.Default,
-	}}); err != nil {
+	if _, err := engine.Run(ctx, plan, target, r.part, engine.Options{Graft: p.Audio()}); err != nil {
 		return failedWith(out, grafttask.ReasonMuxFailed, "mux: %v", err)
 	}
 	if err := fsops.SyncFile(r.part); err != nil {
 		return failedWith(out, grafttask.ReasonMuxFailed, "sync: %v", err)
 	}
-
-	// Verify the muxed track: it must be the donor's, moved by the
-	// alignment, on the target's clock.
-	grafted := len(targetTracks)
-	partTracks, err := engine.AudioTracks(r.part)
-	if err != nil || len(partTracks) != grafted+1 {
-		return failedWith(out, grafttask.ReasonVerifyFailed, "the output has %d audio tracks, not %d (%v)", len(partTracks), grafted+1, err)
-	}
-	got, err := engine.DecodePCM(ctx, r.part, grafted, audioalign.SampleRate)
-	if err != nil {
-		return failedWith(out, grafttask.ReasonVerifyFailed, "decode the grafted track: %v", err)
-	}
-	dubPCM, err := engine.DecodePCM(ctx, mka, dLang, audioalign.SampleRate)
-	if err != nil {
-		return failedWith(out, grafttask.ReasonError, "decode the donor's %s: %v", r.t.Language, err)
-	}
-	want := audioalign.Transform(dubPCM, al, len(tPCM))
-	if lag, corr := muxCheck(want, got); corr < minMuxCorr || abs(lag) > 8 {
-		return failedWith(out, grafttask.ReasonVerifyFailed, "the grafted track is off by %d samples (correlation %.2f)", lag, corr)
+	if res := Check(ctx, p, r.part, len(plan.Audio), len(plan.Audio)+1); res.Phase != "" {
+		return res
 	}
 
 	// Swap, as a transcode swaps: only if the target is still the file
@@ -224,7 +302,7 @@ func (r *run) do(ctx context.Context) grafttask.Result {
 		return failedWith(out, grafttask.ReasonTargetChanged, "target %s changed during the graft", r.t.Target)
 	}
 	if r.t.RecycleBin != "" {
-		bin, err := worker.LocalPath(r.o.DataDir, r.t.RecycleBin)
+		bin, err := grafttask.LocalPath(r.o.DataDir, r.t.RecycleBin)
 		if err != nil {
 			return failedWith(out, grafttask.ReasonInvalidTask, "recycle bin: %v", err)
 		}
@@ -240,7 +318,7 @@ func (r *run) do(ctx context.Context) grafttask.Result {
 		out.OutputSizeBytes = st3.Size()
 	}
 	out.Phase, out.Reason = grafttask.PhaseSucceeded, grafttask.ReasonGrafted
-	r.log.Info("graft: swapped", "target", r.t.Target, "tag", tag)
+	r.log.Info("graft: swapped", "target", r.t.Target, "tag", p.GraftTag())
 	return out
 }
 

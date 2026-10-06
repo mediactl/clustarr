@@ -46,6 +46,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
 )
 
+// The in-process engine grafts a joined dub into a transcode in one pass.
+var _ worker.GraftEngine = inprocess.Engine{}
+
 func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 
 // run never returns 0: a work-queue Job ends when any pod succeeds.

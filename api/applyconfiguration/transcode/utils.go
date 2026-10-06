@@ -51,6 +51,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &transcodev1alpha1.EncoderLimitApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GPUSpec"):
 		return &transcodev1alpha1.GPUSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("GraftResult"):
+		return &transcodev1alpha1.GraftResultApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Plan"):
 		return &transcodev1alpha1.PlanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PolicySpec"):

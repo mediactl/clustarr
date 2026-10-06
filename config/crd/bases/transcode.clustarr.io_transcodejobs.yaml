@@ -211,6 +211,77 @@ spec:
                 description: FinishedAt is when the encode finished.
                 format: date-time
                 type: string
+              graft:
+                description: |-
+                  Graft is the audio graft riding along with this transcode, when one
+                  joined it at dispatch (anime dual-audio, as built: phase 4 addendum).
+                properties:
+                  audioGraft:
+                    description: AudioGraft names the AudioGraft that joined, and
+                      Release its donor.
+                    type: string
+                  coveragePercent:
+                    format: int32
+                    type: integer
+                  graftTag:
+                    type: string
+                  message:
+                    maxLength: 2048
+                    type: string
+                  phase:
+                    description: GraftResultPhase is where a graft riding along with
+                      a transcode stands.
+                    enum:
+                    - Joined
+                    - Succeeded
+                    - Failed
+                    type: string
+                  rateMarginMilli:
+                    format: int32
+                    type: integer
+                  rateMicros:
+                    format: int64
+                    type: integer
+                  rateName:
+                    type: string
+                  reason:
+                    maxLength: 64
+                    type: string
+                  release:
+                    type: string
+                  residualMillis:
+                    format: int32
+                    type: integer
+                  segments:
+                    items:
+                      description: |-
+                        AudioGraftSegment is one run of the donor placed on the target, in
+                        milliseconds: DonorStart on the donor's timeline stretched by the rate.
+                      properties:
+                        donorStartMillis:
+                          format: int64
+                          type: integer
+                        lengthMillis:
+                          format: int64
+                          type: integer
+                        targetStartMillis:
+                          format: int64
+                          type: integer
+                      required:
+                      - donorStartMillis
+                      - lengthMillis
+                      - targetStartMillis
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  within80Percent:
+                    format: int32
+                    type: integer
+                required:
+                - audioGraft
+                - phase
+                type: object
               hardware:
                 description: Hardware is the class the current attempt was dispatched
                   to.

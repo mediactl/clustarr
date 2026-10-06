@@ -162,6 +162,10 @@ type fixtureOptions struct {
 	// videoArgs replace the source clip's video encoder arguments.
 	videoArgs []string
 
+	// writeSource writes the source file at path instead of the two-second
+	// clip.
+	writeSource func(t *testing.T, path string)
+
 	// createProfile creates the TranscodeProfile named name instead of the
 	// typed create newFixture does. status.hash is set afterwards either way.
 	createProfile func(t *testing.T, c client.Client, name string)
@@ -212,9 +216,14 @@ func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 	}
 	args = append(args, videoArgs...)
 	args = append(args, "-c:a", "aac", "-b:a", "96k", "-shortest", f.local)
-	gen := exec.Command(ffmpegBin, args...)
-	out, err := gen.CombinedOutput()
-	require.NoError(t, err, string(out))
+	if fo.writeSource != nil {
+		fo.writeSource(t, f.local)
+	} else {
+		gen := exec.Command(ffmpegBin, args...)
+		out, err := gen.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	var err error
 	f.original, err = os.ReadFile(f.local)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(f.seed), 0o755))

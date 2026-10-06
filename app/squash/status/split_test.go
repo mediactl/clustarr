@@ -41,7 +41,7 @@ var jobControllerOwned = []string{
 	"ObservedGeneration", "Phase", "Plan", "JobRef", "Attempts",
 	"StartedAt", "FinishedAt", "Message", "Conditions",
 	"WorkerPod", "Hardware", "FallbackReason", "NextAttemptAt",
-	"Progress", "Result", "StderrTail",
+	"Progress", "Result", "StderrTail", "Graft",
 }
 
 // TranscodeProfile has exactly one writer, so there is no split to restate --
@@ -102,6 +102,12 @@ func fullJobStatus() transcodev1alpha1.TranscodeJobStatus {
 			MediaInfo:             &commonv1alpha1.MediaInfo{Container: "mkv", VideoCodec: "hevc"},
 		},
 		StderrTail: "frame=1200 fps=24",
+		Graft: &transcodev1alpha1.GraftResult{
+			Phase: transcodev1alpha1.GraftSucceeded, AudioGraft: "arrival-audiograft", Release: "r", Reason: "Grafted",
+			Message: "m", RateName: "1", RateMicros: 1000000, RateMarginMilli: 7310, CoveragePercent: 96,
+			Segments:       []transcodev1alpha1.AudioGraftSegment{{DonorStartMillis: 1, TargetStartMillis: 2, LengthMillis: 3}},
+			ResidualMillis: 1, Within80Percent: 100, GraftTag: "abc",
+		},
 		Conditions: []metav1.Condition{{Type: transcodev1alpha1.TranscodeJobConditionPlanned}},
 	}
 }
@@ -155,7 +161,7 @@ func TestEveryTranscodeJobStatusFieldIsAccountedFor(t *testing.T) {
 		_, ok := typ.FieldByName(name)
 		assert.Truef(t, ok, "%s is claimed by squasharr but is not a field of TranscodeJobStatus", name)
 	}
-	require.Len(t, jobControllerOwned, 16)
+	require.Len(t, jobControllerOwned, 17)
 	assert.Equal(t, typ.NumField(), len(jobControllerOwned))
 }
 
