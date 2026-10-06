@@ -114,6 +114,9 @@ func (r *Reconciler) now() time.Time {
 // SetupWithManager registers the controller: AudioGraft, its Jobs, and the
 // item's MediaFile (by the AudioGraft's status.mediaFileRef).
 func (r *Reconciler) SetupWithManager(mgr controllerruntime.Manager) error {
+	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
+		return err
+	}
 	return controllerruntime.NewControllerManagedBy(mgr).
 		Named("audiograft").
 		For(&transcodev1alpha1.AudioGraft{}).
@@ -131,17 +134,47 @@ func (r *Reconciler) graftsOfFile(ctx context.Context, o ctrl.Object) []reconcil
 	if !ok {
 		return nil
 	}
-	var l transcodev1alpha1.AudioGraftList
-	if err := r.List(ctx, &l, ctrl.InNamespace(mf.Namespace)); err != nil {
-		return nil
-	}
+	// Through field indexes, never a namespace List per event: at start
+	// every MediaFile is an event (CLAUDE.md, captionarr 2026-09-29).
+	seen := map[string]bool{}
 	var out []reconcile.Request
-	for _, g := range l.Items {
-		if g.Status.MediaFileRef == mf.Name || g.Spec.ItemRef.Name == mf.Spec.MediaRef.Name {
-			out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: g.Namespace, Name: g.Name}})
+	for _, sel := range []ctrl.MatchingFields{{IndexMediaFileRef: mf.Name}, {IndexItemRef: mf.Spec.MediaRef.Name}} {
+		var l transcodev1alpha1.AudioGraftList
+		if err := r.List(ctx, &l, ctrl.InNamespace(mf.Namespace), sel); err != nil {
+			return nil
+		}
+		for _, g := range l.Items {
+			if !seen[g.Name] {
+				seen[g.Name] = true
+				out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: g.Namespace, Name: g.Name}})
+			}
 		}
 	}
 	return out
+}
+
+// The AudioGraft field indexes graftsOfFile reads.
+const (
+	IndexMediaFileRef = "status.mediaFileRef"
+	IndexItemRef      = "spec.itemRef.name"
+)
+
+// RegisterIndexes registers them on idx.
+func RegisterIndexes(ctx context.Context, idx ctrl.FieldIndexer) error {
+	if err := idx.IndexField(ctx, &transcodev1alpha1.AudioGraft{}, IndexMediaFileRef, func(o ctrl.Object) []string {
+		if g, ok := o.(*transcodev1alpha1.AudioGraft); ok && g.Status.MediaFileRef != "" {
+			return []string{g.Status.MediaFileRef}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return idx.IndexField(ctx, &transcodev1alpha1.AudioGraft{}, IndexItemRef, func(o ctrl.Object) []string {
+		if g, ok := o.(*transcodev1alpha1.AudioGraft); ok {
+			return []string{g.Spec.ItemRef.Name}
+		}
+		return nil
+	})
 }
 
 // Reconcile implements reconcile.Reconciler.
@@ -183,14 +216,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, r.apply(ctx, &g, st)
 	}
 	// A graft that swapped this file waits for the file's re-probe, which
-	// catalogarr runs on the AudioGraft's success.
+	// catalogarr runs on the AudioGraft's success and whose MediaFile event
+	// wakes this one; a worker that found the language present against
+	// this probe is not asked again until the file changes.
 	if st.Phase == transcodev1alpha1.AudioGraftSucceeded && st.TargetProbeHash == mf.Status.ProbeHash {
-		return reconcile.Result{RequeueAfter: time.Minute}, nil
+		return reconcile.Result{}, nil
 	}
-	// A failed graft is not retried for the same donor and the same file.
 	if st.Phase == transcodev1alpha1.AudioGraftFailed && st.TargetProbeHash == mf.Status.ProbeHash &&
 		failedGeneration(&g) == g.Generation {
-		return reconcile.Result{}, nil
+		// The donor's fault is final for this donor and this file (spec
+		// §9); anything else -- an evicted pod, a target changed under the
+		// graft, an I/O error -- is tried again after failureBackoff.
+		if DonorFault(st.Reason) {
+			return reconcile.Result{}, nil
+		}
+		if st.CompletedAt != nil {
+			if wait := st.CompletedAt.Add(failureBackoff).Sub(r.now()); wait > 0 {
+				return reconcile.Result{RequeueAfter: wait}, nil
+			}
+		}
 	}
 	if busy, err := r.transcoding(ctx, mf); err != nil {
 		return reconcile.Result{}, err
@@ -263,10 +307,19 @@ func missing(g *transcodev1alpha1.AudioGraft, mf *catalogv1alpha1.MediaFile) str
 
 func base(t string) string { b, _, _ := strings.Cut(t, "-"); return strings.ToLower(b) }
 
-// transcoding reports an open TranscodeJob of the file.
+// transcoding reports an open TranscodeJob of the file, from the cache.
 func (r *Reconciler) transcoding(ctx context.Context, mf *catalogv1alpha1.MediaFile) (bool, error) {
+	return openTranscode(ctx, r.Client, mf)
+}
+
+// transcodingLive is transcoding read from the apiserver.
+func (r *Reconciler) transcodingLive(ctx context.Context, mf *catalogv1alpha1.MediaFile) (bool, error) {
+	return openTranscode(ctx, r.APIReader, mf)
+}
+
+func openTranscode(ctx context.Context, c ctrl.Reader, mf *catalogv1alpha1.MediaFile) (bool, error) {
 	var l transcodev1alpha1.TranscodeJobList
-	if err := r.List(ctx, &l, ctrl.InNamespace(mf.Namespace)); err != nil {
+	if err := c.List(ctx, &l, ctrl.InNamespace(mf.Namespace)); err != nil {
 		return false, fmt.Errorf("audiograft: list TranscodeJobs: %w", err)
 	}
 	for _, j := range l.Items {
@@ -332,6 +385,15 @@ func (r *Reconciler) start(ctx context.Context, g *transcodev1alpha1.AudioGraft,
 		Default:    g.Spec.Default != "" && base(g.Spec.Default) == base(l),
 		RecycleBin: worker.RecycleBinOf(rf),
 	}
+	task.Languages = g.Spec.Languages
+	// The TranscodeProfile and this controller wake on one MediaFile event
+	// and each checked the other through its cache: look for a transcode
+	// once more, live, before the graft starts.
+	if busy, err := r.transcodingLive(ctx, mf); err != nil {
+		return reconcile.Result{}, err
+	} else if busy {
+		return r.wait(ctx, g, st, ReasonTranscodeRunning, 5*time.Minute)
+	}
 	job, err := r.job(g, task)
 	if err != nil {
 		return reconcile.Result{}, err
@@ -347,8 +409,8 @@ func (r *Reconciler) start(ctx context.Context, g *transcodev1alpha1.AudioGraft,
 	return reconcile.Result{}, r.apply(ctx, g, st)
 }
 
-// donorPath is where the donor's audio is: the .mka a graft reduced it to,
-// recorded in status, else the spec's.
+// donorPath is the donor as importarr placed it; the worker finds the .mka
+// a first graft reduced it to beside it.
 func donorPath(g *transcodev1alpha1.AudioGraft) string {
 	return g.Spec.DonorPath
 }
@@ -400,6 +462,16 @@ func (r *Reconciler) followJob(ctx context.Context, g *transcodev1alpha1.AudioGr
 	var job batchv1.Job
 	err := r.Get(ctx, types.NamespacedName{Namespace: g.Namespace, Name: st.JobName}, &job)
 	if apierrors.IsNotFound(err) {
+		// The Job is deleted once its result is written, and the delete's
+		// event can arrive before the cache has the write: the live object
+		// decides whether the result is in.
+		var live transcodev1alpha1.AudioGraft
+		if err := r.APIReader.Get(ctx, ctrl.ObjectKeyFromObject(g), &live); err != nil {
+			return reconcile.Result{}, false, ctrl.IgnoreNotFound(err)
+		}
+		if live.Status.JobName != st.JobName || live.Status.Phase.Terminal() {
+			return reconcile.Result{}, false, nil // a later reconcile reads the recorded result
+		}
 		logging.FromContext(ctx).Info("audiograft: the graft Job is gone without a result; starting again", "job", st.JobName)
 		st.JobName, st.Phase, st.Reason = "", transcodev1alpha1.AudioGraftWaiting, ReasonJobLost
 		return reconcile.Result{}, true, nil
@@ -463,15 +535,30 @@ func (r *Reconciler) result(ctx context.Context, job *batchv1.Job) (grafttask.Re
 	return grafttask.Failed(ReasonJobFailed, "%s", why), nil
 }
 
-// record folds a graft's result into st. A failure rejects the donor's
-// release for this item (spec §9).
+// failureBackoff is how long a graft that failed through no fault of its
+// donor waits before it is tried again.
+const failureBackoff = 15 * time.Minute
+
+// DonorFault reports whether a failed graft's reason is the donor's: it
+// would not align, mux or verify, or lacks the language. Only such a
+// failure rejects the donor for the item.
+func DonorFault(reason string) bool {
+	switch reason {
+	case grafttask.ReasonAlignmentRejected, grafttask.ReasonVerifyFailed, grafttask.ReasonMuxFailed, grafttask.ReasonDonorLacksLanguage:
+		return true
+	}
+	return false
+}
+
+// record folds a graft's result into st. A failure that is the donor's
+// fault rejects its release for this item (spec §9).
 func record(st *transcodev1alpha1.AudioGraftStatus, res grafttask.Result, release string, at time.Time) {
 	now := metav1.NewTime(at)
 	st.CompletedAt = &now
 	st.Phase = transcodev1alpha1.AudioGraftSucceeded
 	if res.Phase != grafttask.PhaseSucceeded {
 		st.Phase = transcodev1alpha1.AudioGraftFailed
-		if release != "" && !slices.Contains(st.RejectedReleases, release) {
+		if release != "" && DonorFault(res.Reason) && !slices.Contains(st.RejectedReleases, release) {
 			st.RejectedReleases = append(st.RejectedReleases, release)
 			if n := len(st.RejectedReleases); n > 16 {
 				st.RejectedReleases = st.RejectedReleases[n-16:]
@@ -503,8 +590,12 @@ func (r *Reconciler) apply(ctx context.Context, g *transcodev1alpha1.AudioGraft,
 		v   string
 		set func(string) *transcodeac.AudioGraftStatusApplyConfiguration
 	}{
-		{st.Reason, ac.WithReason}, {st.Message, ac.WithMessage}, {st.MediaFileRef, ac.WithMediaFileRef},
-		{st.TargetProbeHash, ac.WithTargetProbeHash}, {st.JobName, ac.WithJobName}, {st.RateName, ac.WithRateName},
+		{st.Reason, ac.WithReason},
+		{st.Message, ac.WithMessage},
+		{st.MediaFileRef, ac.WithMediaFileRef},
+		{st.TargetProbeHash, ac.WithTargetProbeHash},
+		{st.JobName, ac.WithJobName},
+		{st.RateName, ac.WithRateName},
 		{st.GraftTag, ac.WithGraftTag},
 	} {
 		if s.v != "" {

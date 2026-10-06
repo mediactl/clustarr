@@ -33,6 +33,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -127,8 +128,10 @@ func (r *run) do(ctx context.Context) grafttask.Result {
 		return grafttask.Failed(grafttask.ReasonError, "read the target's tracks: %v", err)
 	}
 	if pick(targetTracks, r.t.Language, false) >= 0 {
-		return grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonPresent,
-			Message: "the target already carries " + r.t.Language}
+		return grafttask.Result{
+			Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonPresent,
+			Message: "the target already carries " + r.t.Language,
+		}
 	}
 	tAnchor := pick(targetTracks, r.t.Anchor, true)
 	if tAnchor < 0 {
@@ -255,13 +258,16 @@ func (r *run) reduceDonor(ctx context.Context, donor string) (string, grafttask.
 	if err != nil {
 		return "", grafttask.Failed(grafttask.ReasonError, "read the donor's tracks: %v", err), false
 	}
+	// The anchor and every language the AudioGraft wants, so a later
+	// graft can take another from the same donor; the language of this run
+	// is required.
 	var keep []int
-	for _, l := range []string{r.t.Anchor, r.t.Language} {
-		if i := pick(tracks, l, false); i >= 0 {
+	for _, l := range append([]string{r.t.Anchor, r.t.Language}, r.t.Languages...) {
+		if i := pick(tracks, l, false); i >= 0 && !slices.Contains(keep, i) {
 			keep = append(keep, i)
 		}
 	}
-	if len(keep) < 2 {
+	if pick(tracks, r.t.Anchor, false) < 0 || pick(tracks, r.t.Language, false) < 0 {
 		return "", grafttask.Failed(grafttask.ReasonDonorLacksLanguage, "the donor needs tagged %s and %s tracks; it has %s",
 			r.t.Anchor, r.t.Language, describe(tracks)), false
 	}

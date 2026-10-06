@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package grafttask
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"unicode/utf8"
@@ -43,10 +44,13 @@ type Task struct {
 	// Donor is the donor as importarr placed it.
 	Donor string `json:"donor"`
 	// Language is the track to graft, Anchor the language both files carry
-	// (BCP-47); Default makes the grafted track the default.
-	Language string `json:"language"`
-	Anchor   string `json:"anchor"`
-	Default  bool   `json:"default,omitempty"`
+	// (BCP-47); Default makes the grafted track the default. Languages are
+	// every language the AudioGraft wants: the donor's reduction keeps them
+	// all, so a later graft can take another from it.
+	Language  string   `json:"language"`
+	Languages []string `json:"languages,omitempty"`
+	Anchor    string   `json:"anchor"`
+	Default   bool     `json:"default,omitempty"`
 	// RecycleBin receives the target's original name before the swap; empty
 	// is none.
 	RecycleBin string `json:"recycleBin,omitempty"`
@@ -111,9 +115,13 @@ type Result struct {
 	OutputSizeBytes int64  `json:"outputSizeBytes,omitempty"`
 }
 
-// MaxMessage bounds Result.Message: the termination message the Result
-// travels in is 4096 bytes, and the AudioGraft's status.message 2048.
-const MaxMessage = 1024
+// MaxMessage bounds Result.Message, and MaxEncoded the whole Result as
+// encoded: the termination message it travels in is 4096 bytes, and the
+// AudioGraft's status.message 2048.
+const (
+	MaxMessage = 1024
+	MaxEncoded = 4000
+)
 
 // Failed is a failed Result.
 func Failed(reason string, format string, args ...any) Result {
@@ -121,22 +129,38 @@ func Failed(reason string, format string, args ...any) Result {
 }
 
 // Clamp cuts s to MaxMessage bytes on a rune boundary.
-func Clamp(s string) string {
-	if len(s) <= MaxMessage {
+func Clamp(s string) string { return clampTo(s, MaxMessage) }
+
+func clampTo(s string, n int) string {
+	if n < 0 {
+		n = 0
+	}
+	if len(s) <= n {
 		return s
 	}
-	s = s[:MaxMessage]
+	s = s[:n]
 	for len(s) > 0 && !utf8.ValidString(s) {
 		s = s[:len(s)-1]
 	}
 	return s
 }
 
-// Encode is the Result as the termination message carries it.
+// Encode is the Result as the termination message carries it, at most
+// MaxEncoded bytes: HTML is not escaped (each "<" would be six bytes), and
+// a message that still does not fit is cut further.
 func (r Result) Encode() []byte {
 	r.Message = Clamp(r.Message)
-	b, _ := json.Marshal(r)
-	return b
+	for {
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(r)
+		b := bytes.TrimSpace(buf.Bytes())
+		if len(b) <= MaxEncoded || r.Message == "" {
+			return b
+		}
+		r.Message = clampTo(r.Message, len(r.Message)-(len(b)-MaxEncoded)-16)
+	}
 }
 
 // Decode reads a termination message.

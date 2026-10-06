@@ -134,8 +134,10 @@ func newLibrary(t *testing.T, donorAudio []string, lead float64, targetExtra ...
 	// (a dub: the bursts under other dialogue) or "other" (unrelated).
 	donor := filepath.Join(donors, "monster-s01e02.mkv")
 	ms := strconv.Itoa(int(lead * 1000))
-	dargs := []string{"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=" + strconv.Itoa(clip+2),
-		"-i", bursts(t, 1, clip), "-i", bursts(t, 2, clip), "-i", bursts(t, 7, clip)}
+	dargs := []string{
+		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=" + strconv.Itoa(clip+2),
+		"-i", bursts(t, 1, clip), "-i", bursts(t, 2, clip), "-i", bursts(t, 7, clip),
+	}
 	var graph []string
 	var dmaps, dmeta []string
 	for i, a := range donorAudio {
@@ -271,4 +273,25 @@ func TestAPathOutsideTheRootIsRefused(t *testing.T) {
 		Language: "en", Anchor: "ja",
 	}, graft.Options{DataDir: t.TempDir()})
 	assert.Equal(t, grafttask.ReasonInvalidTask, res.Reason)
+}
+
+// TestTheReducedDonorKeepsEveryWantedLanguage: a profile wanting two dubs
+// grafts one per run; the donor reduced by the first keeps the second.
+func TestTheReducedDonorKeepsEveryWantedLanguage(t *testing.T) {
+	l := newLibrary(t, []string{"jpn", "eng", "other-eng"}, 0)
+	// The third track, tagged eng above, stands in for a French dub.
+	out, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", l.path(l.task.Donor),
+		"-map", "0", "-c", "copy", "-metadata:s:a:2", "language=fre", l.path(l.task.Donor)+".fre.mkv").CombinedOutput()
+	require.NoError(t, err, "%s", out)
+	require.NoError(t, os.Rename(l.path(l.task.Donor)+".fre.mkv", l.path(l.task.Donor)))
+	l.task.Languages = []string{"en", "fr"}
+	res := graft.Run(context.Background(), l.task, graft.Options{DataDir: l.dataDir})
+	require.Equal(t, grafttask.PhaseSucceeded, res.Phase, res.Message)
+	tracks, err := engine.AudioTracks(l.path(res.DonorAudio))
+	require.NoError(t, err)
+	var langs []string
+	for _, tr := range tracks {
+		langs = append(langs, tr.Language)
+	}
+	require.ElementsMatch(t, []string{"jpn", "eng", "fre"}, langs)
 }

@@ -305,8 +305,10 @@ func TestAnOpenTranscodeHoldsTheGraft(t *testing.T) {
 	mf := f.episode("monster-s01e02", "jpn")
 	require.NoError(t, f.c.Create(f.ctx, &transcodev1alpha1.TranscodeJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "tj", Namespace: f.ns},
-		Spec: transcodev1alpha1.TranscodeJobSpec{MediaFileRef: mf.Name, ProfileRef: "default",
-			SourcePath: mf.Spec.Path, SourceProbeHash: mf.Status.ProbeHash},
+		Spec: transcodev1alpha1.TranscodeJobSpec{
+			MediaFileRef: mf.Name, ProfileRef: "default",
+			SourcePath: mf.Spec.Path, SourceProbeHash: mf.Status.ProbeHash,
+		},
 	}))
 	g := f.reconcile(f.graft("monster-s01e02"))
 	assert.Equal(t, transcodev1alpha1.AudioGraftWaiting, g.Status.Phase)
@@ -354,4 +356,112 @@ func TestGraftingNamesTheFilesUnderAGraft(t *testing.T) {
 	}
 	_ = transcodeac.AudioGraft
 	_ = ptr.To[int]
+}
+
+// TestAFailureThatIsNotTheDonorsKeepsTheDonor: an evicted pod, a target that
+// changed under the graft or an I/O error says nothing about the donor (spec
+// §9 names alignment, mux and verify), so the donor is not rejected and the
+// graft is tried again after a while.
+func TestAFailureThatIsNotTheDonorsKeepsTheDonor(t *testing.T) {
+	f := newFixture(t, "graft-notdonor")
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	f.r.Clock = func() time.Time { return now }
+	f.episode("monster-s01e02", "jpn")
+	g := f.reconcile(f.graft("monster-s01e02"))
+	job := f.jobs()[0]
+	f.finish(&job, grafttask.Failed(grafttask.ReasonTargetChanged, "the target changed during the graft"))
+	g = f.reconcile(g)
+	assert.Equal(t, transcodev1alpha1.AudioGraftFailed, g.Status.Phase)
+	assert.Empty(t, g.Status.RejectedReleases, "the donor is not at fault")
+	require.NoError(t, client.IgnoreNotFound(f.c.Delete(f.ctx, &job)))
+
+	g = f.reconcile(g)
+	assert.Empty(t, f.jobs(), "not retried at once")
+	now = now.Add(20 * time.Minute)
+	g = f.reconcile(g)
+	assert.Equal(t, transcodev1alpha1.AudioGraftPending, g.Status.Phase, "retried after the backoff")
+	assert.Len(t, f.jobs(), 1)
+}
+
+// hidingTranscodeJobs is a cache that has not seen a TranscodeJob yet.
+type hidingTranscodeJobs struct{ client.Client }
+
+func (h hidingTranscodeJobs) List(ctx context.Context, l client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := l.(*transcodev1alpha1.TranscodeJobList); ok {
+		return nil
+	}
+	return h.Client.List(ctx, l, opts...)
+}
+
+// TestATranscodeTheCacheHasNotSeenHoldsTheGraft: the TranscodeProfile and
+// the graft wake on one MediaFile event; the graft checks for a transcode
+// once more, live, just before it starts (final review, Important 4).
+func TestATranscodeTheCacheHasNotSeenHoldsTheGraft(t *testing.T) {
+	f := newFixture(t, "graft-race")
+	mf := f.episode("monster-s01e02", "jpn")
+	require.NoError(t, f.c.Create(f.ctx, &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "tj", Namespace: f.ns},
+		Spec: transcodev1alpha1.TranscodeJobSpec{
+			MediaFileRef: mf.Name, ProfileRef: "default",
+			SourcePath: mf.Spec.Path, SourceProbeHash: mf.Status.ProbeHash,
+		},
+	}))
+	f.r.Client = hidingTranscodeJobs{f.c}
+	g := f.reconcile(f.graft("monster-s01e02"))
+	assert.Equal(t, audiograft.ReasonTranscodeRunning, g.Status.Reason)
+	assert.Empty(t, f.jobs())
+}
+
+// staleGraft is a cache whose AudioGraft is from before the result was
+// recorded.
+type staleGraft struct {
+	client.Client
+	stale *transcodev1alpha1.AudioGraft
+}
+
+func (s staleGraft) Get(ctx context.Context, key client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+	if g, ok := o.(*transcodev1alpha1.AudioGraft); ok && key.Name == s.stale.Name {
+		s.stale.DeepCopyInto(g)
+		return nil
+	}
+	return s.Client.Get(ctx, key, o, opts...)
+}
+
+// TestAFinishedGraftIsNotRunAgainFromAStaleCache: the Job is deleted once
+// its result is written; a reconcile woken by the delete may still read the
+// AudioGraft from before. It must not take the Job for lost and run the
+// graft again (final review, Important 5).
+func TestAFinishedGraftIsNotRunAgainFromAStaleCache(t *testing.T) {
+	f := newFixture(t, "graft-stale")
+	f.episode("monster-s01e02", "jpn")
+	g := f.reconcile(f.graft("monster-s01e02"))
+	before := g.DeepCopy() // Pending, with the Job's name
+	job := f.jobs()[0]
+	f.finish(&job, grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted, GraftTag: "61d29fba5193"})
+	f.reconcile(g)
+	require.NoError(t, client.IgnoreNotFound(f.c.Delete(f.ctx, &job)))
+
+	f.r.Client = staleGraft{Client: f.c, stale: before}
+	_, err := f.r.Reconcile(f.ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(g)})
+	require.NoError(t, err)
+	assert.Empty(t, f.jobs(), "no second Job")
+	var got transcodev1alpha1.AudioGraft
+	require.NoError(t, f.c.Get(f.ctx, client.ObjectKeyFromObject(g), &got))
+	assert.Equal(t, transcodev1alpha1.AudioGraftSucceeded, got.Status.Phase)
+	assert.Equal(t, "61d29fba5193", got.Status.GraftTag, "the result is not released")
+}
+
+// TestAPresentResultDoesNotPoll: a worker that found the language present
+// against a probe that says otherwise is not asked again every minute; a
+// change of the file wakes it.
+func TestAPresentResultDoesNotPoll(t *testing.T) {
+	f := newFixture(t, "graft-present-result")
+	f.episode("monster-s01e02", "jpn")
+	g := f.reconcile(f.graft("monster-s01e02"))
+	job := f.jobs()[0]
+	f.finish(&job, grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonPresent})
+	f.reconcile(g)
+	res, err := f.r.Reconcile(f.ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(g)})
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter)
 }

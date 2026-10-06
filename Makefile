@@ -218,11 +218,13 @@ test-race: envtest pg-assets ## Run the suites under the race detector.
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
 	go test ./... -race -p $(TEST_PARALLEL)
 
+# -timeout 20m: transcodejob's envtests take some 460 s alone and passed
+# go's 10m default under the whole suite's load (2026-10-06).
 test: envtest pg-assets ## Run unit and envtest suites.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; importarr's scan suites will skip"
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
-	go test ./... -p $(TEST_PARALLEL) -coverprofile cover.out
+	go test ./... -p $(TEST_PARALLEL) -timeout 20m -coverprofile cover.out
 
 .PHONY: test-unit
 test-unit: ## Run unit tests only (no envtest, no pg-assets).
