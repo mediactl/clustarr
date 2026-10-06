@@ -264,6 +264,7 @@ func episodeRows(episodes []catalogv1.Episode, series string, season int32) []vi
 		if ep.Status.FileQuality != nil {
 			row.Quality = ep.Status.FileQuality.Name
 		}
+		row.Audio = audioNote(ep.Status.Audio)
 		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Number < rows[j].Number })

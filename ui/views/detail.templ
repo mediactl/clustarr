@@ -94,6 +94,8 @@ type Detail struct {
 	// Prev and Next are the neighbouring items on the tab, in its order.
 	Prev string
 	Next string
+	// Audio is a movie's status.audio as a note.
+	Audio AudioNote
 }
 
 // DetailPath is the item's page.
@@ -258,6 +260,11 @@ templ hero(d Detail) {
 					if d.Language != "" {
 						@fact("language", "Original Language") {
 							{ d.Language }
+						}
+					}
+					if d.Audio.Text != "" {
+						@fact("audio", "Audio") {
+							@audioBadge(d.Audio)
 						}
 					}
 					if d.Network != "" {

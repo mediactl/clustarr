@@ -47,3 +47,11 @@ func stageTone(stage pipeline.Stage) string {
 		return "bg-sky-500/20 text-sky-300"
 	}
 }
+
+// audioTone is an AudioNote's badge colour.
+func audioTone(n AudioNote) string {
+	if n.Warn {
+		return "text-amber-600 dark:text-amber-400"
+	}
+	return "text-muted-foreground"
+}

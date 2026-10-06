@@ -78,12 +78,17 @@ func seriesFixtureOver(t *testing.T, wrap func(client.Reader) client.Reader) (*u
 		}
 		return ep
 	}
+	withAudio := func(ep *catalogv1.Episode) *catalogv1.Episode {
+		ep.Status.Audio = &catalogv1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"},
+			Graft: "failed", Reason: "AlignmentRejected: coverage 12%"}
+		return ep
+	}
 	other := &catalogv1.Episode{ // another series' episode, never listed here
 		ObjectMeta: metav1.ObjectMeta{Name: "silo-s01e01", Namespace: "default"},
 		Spec:       catalogv1.EpisodeSpec{SeriesRef: "silo", SeasonNumber: 1, EpisodeNumber: 1},
 	}
 	reader := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(series,
-		episode("andor-s01e02", 1, 2, "That Would Be Me", true),
+		withAudio(episode("andor-s01e02", 1, 2, "That Would Be Me", true)),
 		episode("andor-s01e01", 1, 1, "Kassa", true),
 		episode("andor-s02e01", 2, 1, "One Year Later", false),
 		other,
@@ -352,4 +357,18 @@ func TestRefreshMetadataButtonPostsTheAnnotationAndRedirects(t *testing.T) {
 	plain.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/movie/heat", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `action="/library/default/movie/heat/refresh"`)
+}
+
+// An episode row shows the dub its file lacks and what the graft is doing,
+// a failure's reason as the tooltip (anime dual-audio spec §9).
+func TestAnEpisodeRowShowsItsAudio(t *testing.T) {
+	srv, _ := seriesFixture(t)
+	req := httptest.NewRequest(http.MethodGet, "/library/default/series/andor/seasons/1", nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), `data-audio="no en dub · graft failed"`)
+	require.Contains(t, w.Body.String(), `title="AlignmentRejected: coverage 12%"`)
+	require.Equal(t, 1, strings.Count(w.Body.String(), "data-audio="), "only the episode with something to say")
 }

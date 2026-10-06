@@ -76,8 +76,19 @@ type EpisodeRow struct {
 	// Quality is the file's quality name, "" without a file.
 	Quality string
 	Phase   string
+	// Audio is the episode's status.audio as a note (ui.audioNote).
+	Audio AudioNote
 	// Error is set on a row rendered as the reply to a toggle that failed.
 	Error ActionFailure
+}
+
+// AudioNote is an item's audio languages as one short note: the dub it
+// lacks and what the graft is doing (anime dual-audio spec §9), with a
+// failure's reason as Title. Warn tones it as a problem.
+type AudioNote struct {
+	Text  string
+	Title string
+	Warn  bool
 }
 
 // MonitorURL is the episode's monitor action, the existing per-item route.

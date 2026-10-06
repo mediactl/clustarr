@@ -55,6 +55,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		var m catalogv1.Movie
 		if s.getObject(ctx, item.Ref, &m) {
 			fillMovie(&d, &m)
+			d.Audio = audioNote(m.Status.Audio)
 			if ref := m.Status.FileRef; ref != nil && *ref != "" {
 				var f catalogv1.MediaFile
 				if s.getObject(ctx, types.NamespacedName{Namespace: item.Ref.Namespace, Name: *ref}, &f) {
