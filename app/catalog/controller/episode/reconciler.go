@@ -376,7 +376,21 @@ func seriesMonitoredChanged() predicate.Predicate {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			o, okOld := e.ObjectOld.(*catalogv1alpha1.Series)
 			n, okNew := e.ObjectNew.(*catalogv1alpha1.Series)
-			return okOld && okNew && ptr.Deref(o.Spec.Monitored, true) != ptr.Deref(n.Spec.Monitored, true)
+			if !okOld || !okNew {
+				return false
+			}
+			// Monitoring, the profile (anime classification patches it) and
+			// the original language (the metadata gateway fills it later)
+			// all decide an episode's cutoff, WrongLanguage and audio state.
+			origOld, origNew := "", ""
+			if o.Status.Metadata != nil {
+				origOld = o.Status.Metadata.OriginalLanguage
+			}
+			if n.Status.Metadata != nil {
+				origNew = n.Status.Metadata.OriginalLanguage
+			}
+			return ptr.Deref(o.Spec.Monitored, true) != ptr.Deref(n.Spec.Monitored, true) ||
+				o.Spec.QualityProfileRef != n.Spec.QualityProfileRef || origOld != origNew
 		},
 	}
 }

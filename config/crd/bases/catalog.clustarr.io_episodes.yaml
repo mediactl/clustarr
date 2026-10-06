@@ -152,11 +152,12 @@ spec:
                     maxItems: 4
                     type: array
                   present:
-                    description: Present are the file's probed audio languages; empty
-                      when unknown.
+                    description: |-
+                      Present are the file's probed audio languages; empty when unknown.
+                      Capped as MediaInfo.Audio is: a MULTi release carries 15-20 dubs.
                     items:
                       type: string
-                    maxItems: 16
+                    maxItems: 64
                     type: array
                   reason:
                     description: Reason says why, when Graft is failed.

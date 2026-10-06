@@ -104,8 +104,9 @@ type AudioState struct {
 	Wanted []string `json:"wanted,omitempty"`
 
 	// Present are the file's probed audio languages; empty when unknown.
+	// Capped as MediaInfo.Audio is: a MULTi release carries 15-20 dubs.
 	// +optional
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	Present []string `json:"present,omitempty"`
 
 	// Missing are Wanted less Present; empty when Present is unknown.

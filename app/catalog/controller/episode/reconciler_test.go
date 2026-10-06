@@ -903,6 +903,52 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		read("a dual-audio file must empty status.audio.missing", func() bool {
 			return got.Status.Audio != nil && len(got.Status.Audio.Missing) == 0 && len(got.Status.Audio.Present) == 2
 		})
+
+		// A MULTi release with twenty dubs must not freeze the status: the
+		// probe allows 64 audio tracks (the phase 2 review).
+		audio("eng", "jpn", "fra", "deu", "spa", "ita", "por", "rus", "kor", "zho", "ara", "hin", "tha", "vie", "ind", "msa", "pol", "tur", "nld", "swe")
+		read("a twenty-language file must land in status.audio.present", func() bool {
+			return got.Status.Audio != nil && len(got.Status.Audio.Present) == 20
+		})
+	})
+
+	t.Run("a series' profile change reaches its episodes", func(t *testing.T) {
+		// The phase 2 review: anime classification patches the Series'
+		// profile, and only a monitored change used to wake its episodes.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "naruto", "plain-at-1080p")))
+		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "plain-at-1080p", "Bluray-1080p")))
+		qp := testQualityProfile("ep-ns", "dual2-at-1080p", "Bluray-1080p")
+		qp.Spec.Audio = &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true}
+		require.NoError(t, c.Create(ctx, qp))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("naruto", "ep-ns").WithStatus(
+			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Naruto").WithOriginalLanguage("ja"))))
+		require.NoError(t, err)
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "naruto-s01e01", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "naruto", SeasonNumber: 1, EpisodeNumber: 1},
+		}))
+		waitForPhase(t, ctx, c, "ep-ns", "naruto-s01e01")
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "naruto-s01e01-abc1234567", Namespace: "ep-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "naruto-s01e01"},
+				Path: "/data/media/tv/Naruto/Season 1/Naruto - S01E01.mkv", Quality: bluray},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+			catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: []commonv1.AudioStream{{Language: "jpn"}}})))
+		require.NoError(t, err)
+		key := types.NamespacedName{Namespace: "ep-ns", Name: "naruto-s01e01"}
+		var got catalogv1alpha1.Episode
+		require.Eventually(t, func() bool { return c.Get(ctx, key, &got) == nil && got.Status.HasFile }, 5*time.Second, 20*time.Millisecond)
+		require.Nil(t, got.Status.Audio, "no audio policy yet")
+
+		var s catalogv1alpha1.Series
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "naruto"}, &s))
+		require.NoError(t, c.Patch(ctx, &s, client.RawPatch(types.MergePatchType, []byte(`{"spec":{"qualityProfileRef":"dual2-at-1080p"}}`))))
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.Audio != nil && len(got.Status.Audio.Missing) == 1
+		}, 5*time.Second, 20*time.Millisecond, "the profile change never reached the episode")
 	})
 }
 
