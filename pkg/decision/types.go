@@ -46,6 +46,11 @@ type Current struct {
 	SourceHash  string
 	SourceTitle string
 	Transcoded  bool
+	// AudioLanguages are the file's probed audio languages, canonical
+	// BCP-47 (rollup.ProbedAudioLanguages); nil when unknown. A file that
+	// lacks the profile's language (LacksLanguage) is replaced by any
+	// accepted release, whatever its quality.
+	AudioLanguages []string
 }
 
 // Queued is a release already downloading for a Target. It is a type alias

@@ -256,6 +256,9 @@ func CurrentFile(ctx context.Context, c client.Reader, ns, name string) (*decisi
 		// over it (decision.ReasonTranscodedFinal); an interactive one
 		// still may.
 		Transcoded: rollup.Transcoded(&mf),
+		// A file whose audio lacks the profile's language is replaced by
+		// any accepted release (decision.LacksLanguage).
+		AudioLanguages: rollup.ProbedAudioLanguages(&mf),
 	}
 	if mf.Spec.ImportedFrom == nil {
 		return cur, nil

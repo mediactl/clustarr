@@ -189,6 +189,9 @@ func upgradeRejection(p quality.Profile, t Target, candidate quality.Candidate) 
 	if t.Current == nil {
 		return nil
 	}
+	if LacksLanguage(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+		return nil // the current file lacks the profile's language: anything accepted replaces it
+	}
 	current := quality.Candidate{Quality: t.Current.Quality, Revision: t.Current.Revision, FormatScore: t.Current.FormatScore}
 	v := p.UpgradeDecision(current, candidate)
 	if v == quality.Upgrade {

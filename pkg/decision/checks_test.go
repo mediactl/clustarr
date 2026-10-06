@@ -225,6 +225,15 @@ func TestUpgradeRejection(t *testing.T) {
 		require.NotNil(t, got)
 		require.Contains(t, got.Reason, ReasonUpgradesNotAllowed.Code)
 	})
+	t.Run("a current file lacking the profile's language is replaced at the same quality", func(t *testing.T) {
+		lp := p
+		lp.Language = "original"
+		same := quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}
+		tg := Target{OriginalLanguageTag: "ja", Current: &Current{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}, AudioLanguages: []string{"ko"}}}
+		require.Nil(t, upgradeRejection(lp, tg, same))
+		tg.Current.AudioLanguages = []string{"ja"}
+		require.NotNil(t, upgradeRejection(lp, tg, same), "a right-language file is not replaced by the same quality")
+	})
 }
 
 func TestEvaluateAdversarial(t *testing.T) {
