@@ -214,3 +214,47 @@ again. The spike showed Refresh Metadata re-runs the match.
 - **Collections.** clustarr does not declare the `collection` feature.
 - **Writing to Plex.** Any migration beyond PMS's own re-match is the
   owner's script (section 6).
+
+## As built (2026-10-06)
+
+- **Commits:** `9c9d7933`..`e2026f63` on main. Plan:
+  `docs/superpowers/plans/2026-10-06-plex-native-guids.md`. The
+  whole-branch review's three fixes are in the same range:
+  - a Plex id two items claim is published for neither (`20844a25`);
+  - an Episode's `plexID` is released when Plex answers without one
+    (`Episode.PlexConsulted`, `aece8c1a`);
+  - the Plex lookup inside the episode RPC gets at most half the caller's
+    remaining time (`e2026f63`).
+- **Deployed to kind-cluster-plex:** helm revisions 118-121, controller and
+  media images `e2026f6`, with a `plex` MetadataProvider over the watchlist
+  import list's `plex-token` Secret.
+  - The gateway builds its registry once, at start, so it had to be
+    restarted after the provider was created.
+  - The ~130 items that reached SchemaVersion 2 before that restart were
+    refreshed again with `clustarr.io/refresh-metadata`.
+  - Result: 977 of 830 Movies plus 148 Series carry
+    `externalIDs["plex"]`, and 11,611 of 15,517 Episodes carry
+    `status.plexID`. Episodes without one are mostly those Plex's catalogue
+    numbers differently or lacks.
+- **§6 answered: Refresh Metadata alone does not migrate an item.**
+  - Arrival, refreshed with `force=1`, kept clustarr's GUID although the
+    match now answers `plex://`.
+  - The Fix Match fallback (`PUT /library/metadata/<id>/match?guid=plex://...`)
+    moved Arrival, Overlord and Neon Genesis Evangelion. A show's seasons
+    and episodes followed over the next refresh: Overlord's 4 seasons and
+    52 episodes, and Evangelion's 26 episodes, are `plex://` in Plex's
+    database.
+  - Items matched before this change therefore need that one-time Fix
+    Match pass to gain Watchlist.
+- **Partly resolved shows:** Neon Genesis Evangelion (26 of its 32 clustarr
+  episodes have a Plex id) and Shōgun (10 of 34). Each episode without a
+  Plex id keeps clustarr's GUID, as `TestAPartlyResolvedShowMixesGUIDs`
+  pins.
+- **Plex Web:** Arrival shows **Add to Watchlist** (and Play Trailer), and
+  Overlord shows **Remove from Watchlist**: it was already on the owner's
+  watchlist, and Plex now links the library item to it. The metadata is
+  still clustarr's (tagline, studio, ratings).
+- **The switch:** `ui.plex.plexGuids=false` (revision 120) made matches
+  offer clustarr's GUID again, while
+  `/plex/movies/library/metadata/5d776b83fb0d55001f56a04b` still answered
+  200. Back to `true` (revision 121) restored `plex://` matches.
