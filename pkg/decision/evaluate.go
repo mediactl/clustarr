@@ -102,14 +102,23 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	add(availabilityRejection(t, o))
 	rejections = append(rejections, sizeRejections(t, p, parsed, rel)...)
 	rejections = append(rejections, qualityRejections(p, rel, score)...)
-	add(languageRejection(originalLanguage, p, parsed))
+	languagesComplete := true
+	if len(p.AudioLanguages) > 0 {
+		var r *common.Rejection
+		r, languagesComplete = audioRejection(ctx, originalLanguage, p, parsed, rel.Title)
+		add(r)
+	} else {
+		add(languageRejection(originalLanguage, p, parsed))
+	}
 	add(sampleRejection(rel))
 	rejections = append(rejections, blocklistAndHistoryRejections(t, rel)...)
 
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	add(queueRejection(p, t, candidate))
 	add(transcodedRejection(t, o))
-	add(upgradeRejection(p, t, candidate, !parsed.LanguageUnknown))
+	// A dual-audio anime release names its languages (the original and
+	// English) though the parser recognises neither word.
+	add(upgradeRejection(p, t, candidate, !parsed.LanguageUnknown || dualAudio(p, rel.Title)))
 
 	d := Decision{
 		Release:             rel,
@@ -122,6 +131,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	}
 	if d.Approved {
 		d.Rank = buildRankKey(p, o, t, parsed, rel, score)
+		d.Rank.LanguagesComplete = languagesComplete
 	}
 	return d
 }

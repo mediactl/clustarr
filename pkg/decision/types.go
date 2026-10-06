@@ -224,6 +224,11 @@ type RankKey struct {
 	PreferLargestSize      bool  // true when the quality's preferred size is TRaSH's "biggest" sentinel (Step 13)
 	SizeDeltaBucket        int64 // |release.SizeBytes - preferredBytes|, rounded to 200 MiB; meaningful only when !PreferLargestSize
 	SizeBytes              int64 // meaningful only when PreferLargestSize
+	// LanguagesComplete is whether the release carries every audio
+	// language the profile wants (always true without an audio policy): at
+	// a tie in tier and format score, a complete release beats one a graft
+	// would complete (anime dual-audio spec §5.2).
+	LanguagesComplete bool
 }
 
 // Decision is one release's verdict against one Target. Its shape matches

@@ -52,6 +52,9 @@ func less(a, b Decision, o Options) bool {
 	if a.Rank.FormatScore != b.Rank.FormatScore {
 		return a.Rank.FormatScore > b.Rank.FormatScore
 	}
+	if a.Rank.LanguagesComplete != b.Rank.LanguagesComplete {
+		return a.Rank.LanguagesComplete
+	}
 	if a.Rank.PreferredProtocolMatch != b.Rank.PreferredProtocolMatch {
 		return a.Rank.PreferredProtocolMatch
 	}

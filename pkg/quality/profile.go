@@ -64,8 +64,12 @@ type Profile struct {
 	AudioLanguages []string
 	AudioGraft     bool
 	AudioDefault   string
-	ProperPolicy   string
-	Sizes          map[string]SizeLimit // quality name -> resolved size limits
+	// ScoreSet is the resolved score set ("default", "anime-sonarr",
+	// "anime-radarr"). Scores already reflects it, so Hash leaves it out;
+	// pkg/decision reads it to know a release title's anime conventions.
+	ScoreSet     string
+	ProperPolicy string
+	Sizes        map[string]SizeLimit // quality name -> resolved size limits
 	// PreferredProtocol ranks one transfer protocol above the other
 	// (catalogv1alpha1.PreferredProtocol's string value: "usenet",
 	// "torrent" or "any"). Not part of spec's one-line Profile summary,
@@ -293,7 +297,7 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
-		AudioLanguages: audio, AudioGraft: audioGraft, AudioDefault: audioDefault,
+		AudioLanguages: audio, AudioGraft: audioGraft, AudioDefault: audioDefault, ScoreSet: scoreSet,
 		ProperPolicy: string(p.Spec.ProperPolicy),
 		Sizes:        sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
 		MediaKind: kind,

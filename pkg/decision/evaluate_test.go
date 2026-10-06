@@ -223,3 +223,29 @@ func TestEvaluateReplacesAWrongLanguageFileOnlyWithATaggedRelease(t *testing.T) 
 	tg.Current.AudioLanguages = []string{"ja"}
 	require.False(t, eval("Spirited.Away.2001.JAPANESE.1080p.BluRay.x264-GROUP").Approved, "a Japanese file is not replaced by the same quality")
 }
+
+// TestEvaluateADualAudioReleaseNamesItsLanguages is spec §5.2 meeting §5.3:
+// a "[Dual Audio]" anime release names its languages (the original and
+// English) though the parser recognises neither word, so it replaces a file
+// whose audio lacks the anchor.
+func TestEvaluateADualAudioReleaseNamesItsLanguages(t *testing.T) {
+	bluray1080, ok := quality.Lookup("video", "Bluray-1080p")
+	require.True(t, ok)
+	p := quality.Profile{
+		Tiers: [][]quality.Definition{{bluray1080}}, CutoffIndex: 0, UpgradeAllowed: true,
+		CutoffFormatScore: 10000, MinUpgradeFormatScore: 1, ProperPolicy: "preferAndUpgrade",
+		Language: "original", LanguageName: "original", ScoreSet: "anime-radarr",
+		AudioLanguages: []string{"en", "original"}, AudioGraft: true,
+	}
+	tg := decision.Target{
+		Kind: common.MediaKindMovie, Available: true, OriginalLanguageTag: "ja",
+		Identity: decision.Identity{Titles: []string{"Spirited Away"}, Year: 2001},
+		Current:  &decision.Current{Quality: bluray1080.Quality, AudioLanguages: []string{"ko"}},
+	}
+	rel := common.ReleaseInfo{GUID: "idx:sa", IndexerRef: "idx", Protocol: common.ProtocolTorrent,
+		Title: "Spirited.Away.2001.1080p.BluRay.Dual.Audio.x264-GROUP"}
+	ds := decision.Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, []common.ReleaseInfo{rel}, decision.Options{ProtocolsEnabled: map[string]bool{"torrent": true}})
+	require.Len(t, ds, 1)
+	require.True(t, ds[0].Approved, "%+v", ds[0].Rejections)
+	require.True(t, ds[0].Rank.LanguagesComplete)
+}
