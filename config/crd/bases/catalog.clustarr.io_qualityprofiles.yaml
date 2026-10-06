@@ -65,6 +65,33 @@ spec:
           spec:
             description: QualityProfileSpec defines the desired state of QualityProfile.
             properties:
+              audio:
+                description: |-
+                  Audio is the audio a file must carry. When set it replaces Language
+                  in the release decision (anime dual-audio spec §5).
+                properties:
+                  default:
+                    description: |-
+                      Default is the language marked default in a grafted file; unset,
+                      the first of Languages.
+                    type: string
+                  graft:
+                    description: |-
+                      Graft lets a release missing some of Languages be completed with
+                      another release's audio (spec §6, §7).
+                    type: boolean
+                  languages:
+                    description: |-
+                      Languages are BCP-47 tags, or "original" for the item's own
+                      original language. A file is complete when it carries every one.
+                    items:
+                      type: string
+                    maxItems: 4
+                    minItems: 1
+                    type: array
+                required:
+                - languages
+                type: object
               builtIn:
                 default: false
                 description: |-

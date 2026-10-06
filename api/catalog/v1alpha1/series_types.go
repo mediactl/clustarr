@@ -416,7 +416,6 @@ type SeriesSpec struct {
 	Artwork []ArtworkOverride `json:"artwork,omitempty"`
 }
 
-// SeriesStatus describes the observed state of Series.
 // AnnotationClassify set to "off" skips anime classification for a Series.
 const AnnotationClassify = "catalog.clustarr.io/classify"
 
@@ -438,6 +437,7 @@ type SeriesClassification struct {
 	SeriesType SeriesType `json:"seriesType,omitempty"`
 }
 
+// SeriesStatus describes the observed state of Series.
 type SeriesStatus struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
 	// +optional

@@ -129,7 +129,7 @@ type EpisodeStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=12
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// TvdbID is the TheTVDB episode ID.
@@ -216,6 +216,11 @@ type EpisodeStatus struct {
 	// SearchAttempts counts the searches made for this episode.
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
+
+	// Audio is what the file's audio carries against the profile's audio
+	// policy; unset when the profile has none (anime dual-audio spec §5.3).
+	// +optional
+	Audio *AudioState `json:"audio,omitempty"`
 }
 
 // +kubebuilder:object:root=true

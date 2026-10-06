@@ -264,6 +264,7 @@ spec:
             - tvdbID
             type: object
           status:
+            description: SeriesStatus describes the observed state of Series.
             properties:
               addOptionsApplied:
                 description: AddOptionsApplied is true once spec.addOptions has been

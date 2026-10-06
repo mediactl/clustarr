@@ -27,6 +27,8 @@ import (
 
 // SeriesStatusApplyConfiguration represents a declarative configuration of the SeriesStatus type for use
 // with apply.
+//
+// SeriesStatus describes the observed state of Series.
 type SeriesStatusApplyConfiguration struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`

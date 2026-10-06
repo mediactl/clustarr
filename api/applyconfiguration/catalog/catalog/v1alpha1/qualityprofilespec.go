@@ -54,6 +54,9 @@ type QualityProfileSpecApplyConfiguration struct {
 	FormatScores []FormatScoreApplyConfiguration `json:"formatScores,omitempty"`
 	// Language is the accepted language: "original", "any" or a BCP-47 tag.
 	Language *string `json:"language,omitempty"`
+	// Audio is the audio a file must carry. When set it replaces Language
+	// in the release decision (anime dual-audio spec §5).
+	Audio *AudioPolicyApplyConfiguration `json:"audio,omitempty"`
 	// ProperPolicy says how propers and repacks are treated.
 	ProperPolicy *catalogv1alpha1.ProperPolicy `json:"properPolicy,omitempty"`
 	// SizeTable selects the built-in size limit table.
@@ -176,6 +179,14 @@ func (b *QualityProfileSpecApplyConfiguration) WithFormatScores(values ...*Forma
 // If called multiple times, the Language field is set to the value of the last call.
 func (b *QualityProfileSpecApplyConfiguration) WithLanguage(value string) *QualityProfileSpecApplyConfiguration {
 	b.Language = &value
+	return b
+}
+
+// WithAudio sets the Audio field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Audio field is set to the value of the last call.
+func (b *QualityProfileSpecApplyConfiguration) WithAudio(value *AudioPolicyApplyConfiguration) *QualityProfileSpecApplyConfiguration {
+	b.Audio = value
 	return b
 }
 

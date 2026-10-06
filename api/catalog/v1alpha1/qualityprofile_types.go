@@ -230,6 +230,11 @@ type QualityProfileSpec struct {
 	// +kubebuilder:validation:MaxLength=64
 	Language string `json:"language,omitempty"`
 
+	// Audio is the audio a file must carry. When set it replaces Language
+	// in the release decision (anime dual-audio spec §5).
+	// +optional
+	Audio *AudioPolicy `json:"audio,omitempty"`
+
 	// ProperPolicy says how propers and repacks are treated.
 	// +optional
 	// +kubebuilder:default=preferAndUpgrade

@@ -459,7 +459,7 @@ type MovieStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=12
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// Phase is the coarse lifecycle state of the movie.
@@ -534,6 +534,11 @@ type MovieStatus struct {
 	// by the renderer under k8s.ManagerCatalogarrArtwork.
 	// +optional
 	Overlay *OverlayEntry `json:"overlay,omitempty"`
+
+	// Audio is what the file's audio carries against the profile's audio
+	// policy; unset when the profile has none (anime dual-audio spec §5.3).
+	// +optional
+	Audio *AudioState `json:"audio,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -315,6 +315,47 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              audio:
+                description: |-
+                  Audio is what the file's audio carries against the profile's audio
+                  policy; unset when the profile has none (anime dual-audio spec §5.3).
+                properties:
+                  graft:
+                    description: Graft is the graft's state.
+                    enum:
+                    - none
+                    - searching
+                    - grabbed
+                    - pending
+                    - aligned
+                    - failed
+                    - done
+                    type: string
+                  missing:
+                    description: Missing are Wanted less Present; empty when Present
+                      is unknown.
+                    items:
+                      type: string
+                    maxItems: 4
+                    type: array
+                  present:
+                    description: Present are the file's probed audio languages; empty
+                      when unknown.
+                    items:
+                      type: string
+                    maxItems: 16
+                    type: array
+                  reason:
+                    description: Reason says why, when Graft is failed.
+                    maxLength: 1024
+                    type: string
+                  wanted:
+                    description: Wanted are the profile's languages, resolved to tags.
+                    items:
+                      type: string
+                    maxItems: 4
+                    type: array
+                type: object
               available:
                 description: Available is true once minimumAvailability has been reached.
                 type: boolean
@@ -380,7 +421,7 @@ spec:
                   - status
                   - type
                   type: object
-                maxItems: 8
+                maxItems: 12
                 type: array
                 x-kubernetes-list-map-keys:
                 - type

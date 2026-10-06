@@ -455,6 +455,48 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkSource
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioPolicy
+  map:
+    fields:
+    - name: default
+      type:
+        scalar: string
+    - name: graft
+      type:
+        scalar: boolean
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioState
+  map:
+    fields:
+    - name: graft
+      type:
+        scalar: string
+    - name: missing
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: present
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: reason
+      type:
+        scalar: string
+    - name: wanted
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Audiobook
   map:
     fields:
@@ -1548,6 +1590,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: airDate
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: audio
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioState
     - name: conditions
       type:
         list:
@@ -2732,6 +2777,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: audio
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioState
     - name: available
       type:
         scalar: boolean
@@ -3086,6 +3134,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.QualityProfileSpec
   map:
     fields:
+    - name: audio
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioPolicy
     - name: builtIn
       type:
         scalar: boolean

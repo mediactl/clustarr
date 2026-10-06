@@ -78,6 +78,9 @@ type EpisodeStatusApplyConfiguration struct {
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
 	// SearchAttempts counts the searches made for this episode.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
+	// Audio is what the file's audio carries against the profile's audio
+	// policy; unset when the profile has none (anime dual-audio spec §5.3).
+	Audio *AudioStateApplyConfiguration `json:"audio,omitempty"`
 }
 
 // EpisodeStatusApplyConfiguration constructs a declarative configuration of the EpisodeStatus type for use with
@@ -269,5 +272,13 @@ func (b *EpisodeStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) 
 // If called multiple times, the SearchAttempts field is set to the value of the last call.
 func (b *EpisodeStatusApplyConfiguration) WithSearchAttempts(value commonv1alpha1.Attempts) *EpisodeStatusApplyConfiguration {
 	b.SearchAttempts = &value
+	return b
+}
+
+// WithAudio sets the Audio field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Audio field is set to the value of the last call.
+func (b *EpisodeStatusApplyConfiguration) WithAudio(value *AudioStateApplyConfiguration) *EpisodeStatusApplyConfiguration {
+	b.Audio = value
 	return b
 }

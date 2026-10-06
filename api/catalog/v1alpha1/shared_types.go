@@ -75,6 +75,55 @@ const (
 	ImageTypeHeadshot   ImageType = "headshot"
 )
 
+// AudioPolicy is a profile's wanted audio languages (anime dual-audio spec
+// §5.1).
+type AudioPolicy struct {
+	// Languages are BCP-47 tags, or "original" for the item's own
+	// original language. A file is complete when it carries every one.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=4
+	Languages []string `json:"languages"`
+
+	// Graft lets a release missing some of Languages be completed with
+	// another release's audio (spec §6, §7).
+	// +optional
+	Graft bool `json:"graft,omitempty"`
+
+	// Default is the language marked default in a grafted file; unset,
+	// the first of Languages.
+	// +optional
+	Default string `json:"default,omitempty"`
+}
+
+// AudioState is what a file's audio carries against its profile's
+// AudioPolicy (anime dual-audio spec §5.3).
+type AudioState struct {
+	// Wanted are the profile's languages, resolved to tags.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	Wanted []string `json:"wanted,omitempty"`
+
+	// Present are the file's probed audio languages; empty when unknown.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Present []string `json:"present,omitempty"`
+
+	// Missing are Wanted less Present; empty when Present is unknown.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	Missing []string `json:"missing,omitempty"`
+
+	// Graft is the graft's state.
+	// +optional
+	// +kubebuilder:validation:Enum=none;searching;grabbed;pending;aligned;failed;done
+	Graft string `json:"graft,omitempty"`
+
+	// Reason says why, when Graft is failed.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Reason string `json:"reason,omitempty"`
+}
+
 // Image is one artwork URL published by a metadata provider.
 type Image struct {
 	// Type classifies the image.

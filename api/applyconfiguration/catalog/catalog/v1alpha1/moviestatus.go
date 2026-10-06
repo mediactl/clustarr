@@ -71,6 +71,9 @@ type MovieStatusApplyConfiguration struct {
 	// Overlay is the rating-badge overlay rendered onto the poster. Written
 	// by the renderer under k8s.ManagerCatalogarrArtwork.
 	Overlay *OverlayEntryApplyConfiguration `json:"overlay,omitempty"`
+	// Audio is what the file's audio carries against the profile's audio
+	// policy; unset when the profile has none (anime dual-audio spec §5.3).
+	Audio *AudioStateApplyConfiguration `json:"audio,omitempty"`
 }
 
 // MovieStatusApplyConfiguration constructs a declarative configuration of the MovieStatus type for use with
@@ -238,5 +241,13 @@ func (b *MovieStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApply
 // If called multiple times, the Overlay field is set to the value of the last call.
 func (b *MovieStatusApplyConfiguration) WithOverlay(value *OverlayEntryApplyConfiguration) *MovieStatusApplyConfiguration {
 	b.Overlay = value
+	return b
+}
+
+// WithAudio sets the Audio field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Audio field is set to the value of the last call.
+func (b *MovieStatusApplyConfiguration) WithAudio(value *AudioStateApplyConfiguration) *MovieStatusApplyConfiguration {
+	b.Audio = value
 	return b
 }
