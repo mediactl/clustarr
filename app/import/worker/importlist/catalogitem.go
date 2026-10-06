@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -212,6 +213,19 @@ func applySeries(
 	}
 	if len(defaults.Tags) > 0 {
 		spec = spec.WithTags(defaults.Tags...)
+	}
+	// A series the catalogarr classifier moved to its RootFolder's anime
+	// defaults keeps its current profile and type: this apply forces
+	// ownership, so re-sending the list's defaults would undo the
+	// classification on every sync (anime dual-audio spec §4).
+	var existing catalogv1alpha1.Series
+	switch err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &existing); {
+	case err == nil:
+		if cl := existing.Status.Classification; cl != nil && cl.Anime {
+			spec = spec.WithQualityProfileRef(existing.Spec.QualityProfileRef).WithSeriesType(existing.Spec.SeriesType)
+		}
+	case !apierrors.IsNotFound(err):
+		return "", fmt.Errorf("importlist: get series %s: %w", name, err)
 	}
 	ac := catalogac.Series(name, namespace).WithSpec(spec)
 	if _, err := k8s.Apply(ctx, c, FieldManager, ac); err != nil {
