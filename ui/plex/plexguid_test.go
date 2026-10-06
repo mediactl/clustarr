@@ -215,3 +215,40 @@ func TestASharedPlexIDIsNeverPublished(t *testing.T) {
 		require.Equal(t, plex.GUID(plex.MoviesIdentifier, "movie", string(m.UID)), g.Guid, m.Name)
 	}
 }
+
+// An episode with a Plex id in a season Plex does not have -- TVDB splits an
+// anime's run into seasons Plex keeps as one, so clustarr's s02e01 is Plex's
+// s01e13 -- keeps clustarr's GUID: answering plex:// under a clustarr season
+// contradicts Plex's own hierarchy, and PMS stopped refreshing every such
+// episode (The Dangers in My Heart season 2, kind-cluster-plex, 2026-10-06).
+func TestAnEpisodeInASeasonPlexLacksKeepsClustarrsGUID(t *testing.T) {
+	objs := plexObjects()
+	for _, o := range objs {
+		if e, ok := o.(*catalogv1.Episode); ok && e.UID == episodeUID(4) { // s02e01
+			e.Status.PlexID = "659a96b47efed7bb7f068d62"
+		}
+	}
+	h := plexGUIDHandler(t, true, objs...)
+
+	g := firstGUIDs(t, getJSON(t, h, "/plex/tv/library/metadata/"+string(episodeUID(4))).Body.Bytes())
+	require.Equal(t, plex.GUID(plex.TVIdentifier, "episode", string(episodeUID(4))), g.Guid)
+	require.Equal(t, plex.GUID(plex.TVIdentifier, "season", string(seriesUID)+"-s02"), g.ParentGuid)
+
+	var out struct {
+		MediaContainer struct {
+			Metadata []guids `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	require.NoError(t, decodeJSON(getJSON(t, h, "/plex/tv/library/metadata/"+string(seriesUID)+"/grandchildren").Body.Bytes(), &out))
+	var seen bool
+	for _, m := range out.MediaContainer.Metadata {
+		if m.RatingKey == string(episodeUID(4)) {
+			seen = true
+			require.Equal(t, plex.GUID(plex.TVIdentifier, "episode", string(episodeUID(4))), m.Guid)
+		}
+		if m.RatingKey == string(episodeUID(1)) {
+			require.Equal(t, "plex://episode/"+ep1Plex, m.Guid, "an episode in a season Plex has keeps its plex:// GUID")
+		}
+	}
+	require.True(t, seen, "s02e01 is in the grandchildren")
+}

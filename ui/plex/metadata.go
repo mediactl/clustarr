@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -443,17 +444,29 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 		parentThumb = poster
 	}
 
+	// An episode is answered under its plex:// GUID only inside a season
+	// that is too. TVDB, whose numbering clustarr keeps, splits some runs
+	// into seasons Plex keeps as one (an anime's s02e01 is Plex's s01e13),
+	// and a plex:// episode under clustarr's season GUID contradicts Plex's
+	// own hierarchy: PMS stopped refreshing every such episode (The Dangers
+	// in My Heart season 2, 2026-10-06).
+	seasonGuid := u.guid(root.identifier, metadataTypeSeason, seasonKey, seasonPlexID(s, e.Spec.SeasonNumber))
+	episodeID := episodePlexID(e)
+	if !strings.HasPrefix(seasonGuid, plexScheme+"://") {
+		episodeID = ""
+	}
+
 	md := Metadata{
 		RatingKey: key,
 		Key:       metadataKey(key, false),
-		Guid:      u.guid(root.identifier, metadataTypeEpisode, key, episodePlexID(e)),
+		Guid:      u.guid(root.identifier, metadataTypeEpisode, key, episodeID),
 		Type:      metadataTypeEpisode,
 		Title:     e.Status.Title,
 		Summary:   e.Status.Overview,
 
 		ParentRatingKey: seasonKey,
 		ParentKey:       metadataKey(seasonKey, true),
-		ParentGuid:      u.guid(root.identifier, metadataTypeSeason, seasonKey, seasonPlexID(s, e.Spec.SeasonNumber)),
+		ParentGuid:      seasonGuid,
 		ParentType:      metadataTypeSeason,
 		ParentTitle:     seasonTitle(e.Spec.SeasonNumber),
 		ParentThumb:     parentThumb,
