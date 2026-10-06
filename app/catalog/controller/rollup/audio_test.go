@@ -40,6 +40,7 @@ func TestProbedAudioLanguages(t *testing.T) {
 	require.Equal(t, []string{"ko"}, rollup.ProbedAudioLanguages(mf("kor")))
 	require.Nil(t, rollup.ProbedAudioLanguages(mf("jpn", "und")), "one untagged track makes the set unknown")
 	require.Nil(t, rollup.ProbedAudioLanguages(mf("jpn", "")), "an empty tag too")
+	require.Nil(t, rollup.ProbedAudioLanguages(mf("unk")), `"unk" is an "unknown" placeholder, not a language (75 Mister Rogers files, 2026-10-06)`)
 	require.Nil(t, rollup.ProbedAudioLanguages(mf()), "no audio streams: unknown")
 	require.Nil(t, rollup.ProbedAudioLanguages(&catalogv1alpha1.MediaFile{}), "not probed")
 	require.Nil(t, rollup.ProbedAudioLanguages(nil))

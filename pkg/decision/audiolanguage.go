@@ -64,8 +64,8 @@ func baseLanguage(tag string) string {
 
 // AudioLanguages returns a probe's audio track languages as canonical
 // BCP-47 tags in stream order, deduplicated, or nil when they are not all
-// known: no probe, no audio stream, or any track untagged ("und", "" or
-// unparseable). One unknown track makes the whole set unknown, since that
+// known: no probe, no audio stream, or any track untagged ("und", "unk",
+// "" or unparseable). One unknown track makes the whole set unknown, since that
 // track may be the wanted language; LacksLanguage never fires on nil.
 func AudioLanguages(mi *common.MediaInfo) []string {
 	if mi == nil || len(mi.Audio) == 0 {
@@ -75,7 +75,11 @@ func AudioLanguages(mi *common.MediaInfo) []string {
 	seen := map[string]bool{}
 	for _, a := range mi.Audio {
 		t, ok := lang.Normalize(a.Language)
-		if !ok {
+		// "unk" is a muxer's "unknown" placeholder that lang.Normalize
+		// accepts as a well-formed ISO 639-3 code: 75 Mister Rogers files
+		// on the owner's library carry it, and reading it as a language
+		// flagged every one of them WrongLanguage (2026-10-06).
+		if !ok || t == "unk" {
 			return nil
 		}
 		if !seen[string(t)] {
