@@ -48,6 +48,10 @@ type Registry struct {
 	Taglines []SeriesTaglineProvider
 	// Markers supply a file's skip segments (TheIntroDB), first answer wins.
 	Markers []MarkersProvider
+	// Plex supplies Plex's own season and episode ids for a series
+	// (PlexProvider), first answer wins. A plex client is also an
+	// IDResolver, which is how a Movie or Series gets its KeyPlex id.
+	Plex []PlexProvider
 }
 
 // Lookup fetches a single entity of kind, identified by ids, from the first

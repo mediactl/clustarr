@@ -1,0 +1,178 @@
+{
+ "MediaContainer": {
+  "offset": 10,
+  "size": 10,
+  "totalSize": 23,
+  "identifier": "tv.plex.provider.metadata",
+  "Metadata": [
+   {
+    "guid": "plex://episode/5ea14257f3d60a003f39ea59",
+    "type": "episode",
+    "title": "Joss Tours the Set",
+    "index": 11,
+    "parentIndex": 0,
+    "Guid": [
+     {
+      "id": "tmdb://2235082"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5fca5e7bd31251002e99e882",
+    "type": "episode",
+    "title": "The 10th Character",
+    "index": 12,
+    "parentIndex": 0,
+    "Guid": [
+     {
+      "id": "tmdb://2542314"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e4eefaa001f6449c2",
+    "type": "episode",
+    "title": "The Train Job",
+    "index": 1,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579539"
+     },
+     {
+      "id": "tmdb://1048594"
+     },
+     {
+      "id": "tvdb://297989"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e4eefaa001f6449b6",
+    "type": "episode",
+    "title": "Bushwhacked",
+    "index": 2,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579528"
+     },
+     {
+      "id": "tmdb://1048595"
+     },
+     {
+      "id": "tvdb://297990"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e2df347001e41c8f3",
+    "type": "episode",
+    "title": "Our Mrs. Reynolds",
+    "index": 3,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579532"
+     },
+     {
+      "id": "tmdb://1048598"
+     },
+     {
+      "id": "tvdb://297991"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e2df347001e41c913",
+    "type": "episode",
+    "title": "Jaynestown",
+    "index": 4,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579530"
+     },
+     {
+      "id": "tmdb://1048599"
+     },
+     {
+      "id": "tvdb://297992"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e2df347001e41c917",
+    "type": "episode",
+    "title": "Out of Gas",
+    "index": 5,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579533"
+     },
+     {
+      "id": "tmdb://1048600"
+     },
+     {
+      "id": "tvdb://297993"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e2df347001e41c90f",
+    "type": "episode",
+    "title": "Shindig",
+    "index": 6,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579537"
+     },
+     {
+      "id": "tmdb://1048596"
+     },
+     {
+      "id": "tvdb://297994"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e2df347001e41c8f7",
+    "type": "episode",
+    "title": "Safe",
+    "index": 7,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579534"
+     },
+     {
+      "id": "tmdb://1048597"
+     },
+     {
+      "id": "tvdb://297995"
+     }
+    ]
+   },
+   {
+    "guid": "plex://episode/5d9c127e2df347001e41c903",
+    "type": "episode",
+    "title": "Ariel",
+    "index": 8,
+    "parentIndex": 1,
+    "Guid": [
+     {
+      "id": "imdb://tt0579527"
+     },
+     {
+      "id": "tmdb://1048601"
+     },
+     {
+      "id": "tvdb://297996"
+     }
+    ]
+   }
+  ]
+ }
+}

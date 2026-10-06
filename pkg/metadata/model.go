@@ -326,6 +326,10 @@ type Episode struct {
 	FinaleType string  `json:"finaleType,omitempty"`
 	Image      *Image  `json:"image,omitempty"`
 	Ratings    Ratings `json:"ratings,omitempty"`
+
+	// PlexID is the episode's id in Plex's own metadata service, set by
+	// the gateway from a PlexProvider; "" when none answered.
+	PlexID string `json:"plexID,omitempty"`
 }
 
 // Series is the normalized model for a single TV series.

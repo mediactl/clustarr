@@ -1,0 +1,26 @@
+{
+ "MediaContainer": {
+  "offset": 0,
+  "size": 1,
+  "totalSize": 1,
+  "identifier": "tv.plex.provider.metadata",
+  "Metadata": [
+   {
+    "guid": "plex://movie/5d776b83fb0d55001f56a04b",
+    "type": "movie",
+    "title": "Arrival",
+    "Guid": [
+     {
+      "id": "imdb://tt2543164"
+     },
+     {
+      "id": "tmdb://329865"
+     },
+     {
+      "id": "tvdb://219"
+     }
+    ]
+   }
+  ]
+ }
+}

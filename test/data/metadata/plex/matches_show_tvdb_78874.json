@@ -1,0 +1,26 @@
+{
+ "MediaContainer": {
+  "offset": 0,
+  "size": 1,
+  "totalSize": 1,
+  "identifier": "tv.plex.provider.metadata",
+  "Metadata": [
+   {
+    "guid": "plex://show/5d9c086c7d06d9001ffd27aa",
+    "type": "show",
+    "title": "Firefly",
+    "Guid": [
+     {
+      "id": "imdb://tt0303461"
+     },
+     {
+      "id": "tmdb://1437"
+     },
+     {
+      "id": "tvdb://78874"
+     }
+    ]
+   }
+  ]
+ }
+}

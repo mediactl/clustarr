@@ -1,0 +1,38 @@
+{
+ "MediaContainer": {
+  "offset": 0,
+  "size": 2,
+  "totalSize": 2,
+  "identifier": "tv.plex.provider.metadata",
+  "Metadata": [
+   {
+    "guid": "plex://season/5d9c09de08fddd001f2afb57",
+    "type": "season",
+    "title": "Specials",
+    "index": 0,
+    "Guid": [
+     {
+      "id": "tmdb://3847"
+     },
+     {
+      "id": "tvdb://26328"
+     }
+    ]
+   },
+   {
+    "guid": "plex://season/5d9c09de08fddd001f2afb4c",
+    "type": "season",
+    "title": "Season 1",
+    "index": 1,
+    "Guid": [
+     {
+      "id": "tmdb://3846"
+     },
+     {
+      "id": "tvdb://15791"
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -55,6 +55,9 @@ const (
 	KeyOpenLibraryWork    = "olwork"
 	KeyOpenLibraryEdition = "oledition"
 	KeyOpenLibraryAuthor  = "olauthor"
+	// KeyPlex is an item's id in Plex's own metadata service
+	// (metadata.provider.plex.tv): the 24-hex id of its plex:// GUID.
+	KeyPlex = "plex"
 )
 
 // Merge returns a copy of e with every key from o that e does not already
