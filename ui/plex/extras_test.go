@@ -19,9 +19,12 @@ package plex_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -56,6 +59,12 @@ func newPlexTV(t *testing.T, status int) *plexTV {
 		p.token.Store(r.Header.Get("X-Plex-Token"))
 		if r.Header.Get("Accept") != "application/json" {
 			http.Error(w, "<MediaContainer/>", http.StatusOK)
+			return
+		}
+		// Plex's metadata service refuses a page over 100 (101 is a 400,
+		// 2026-10-06).
+		if n, err := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Size")); err != nil || n > 100 {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		if p.status != http.StatusOK {
@@ -197,4 +206,35 @@ func TestExtrasOfAnUnknownItemAreNotFound(t *testing.T) {
 	h := extrasHandler(t, nil)
 	rec := getJSON(t, h, "/plex/movies/library/metadata/"+string(movieUID)+"/extras")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// An item with more extras than one page holds -- Plex serves at most 100
+// per request -- answers all of them.
+func TestExtrasPageThroughPlexsLimit(t *testing.T) {
+	const total = 150
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		start, _ := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Start"))
+		size, err := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Size"))
+		if err != nil || size > 100 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var items []map[string]any
+		for i := start; i < min(start+size, total); i++ {
+			items = append(items, map[string]any{"title": fmt.Sprintf("Extra %d", i), "type": "clip", "extraType": 1})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+			"offset": start, "size": len(items), "totalSize": total, "Metadata": items,
+		}})
+	}))
+	t.Cleanup(srv.Close)
+
+	src := &plex.PlexTVExtras{BaseURL: srv.URL, Token: "server-token"}
+	items, err := src.Extras(context.Background(), moviePlex)
+	require.NoError(t, err)
+	require.Len(t, items, total)
+	assert.Contains(t, string(items[total-1]), "Extra 149")
+	assert.Equal(t, int32(2), calls.Load())
 }

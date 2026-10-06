@@ -52,8 +52,11 @@ const DefaultPlexTVBaseURL = "https://metadata.provider.plex.tv"
 const (
 	// maxExtrasBody caps one extras answer; Arrival's 44 extras are 40 KiB.
 	maxExtrasBody = 4 << 20
-	// plexTVExtrasPage is how many extras one request asks Plex for.
-	plexTVExtrasPage = 200
+	// plexTVExtrasPage is how many extras one request asks Plex for: its
+	// metadata service refuses a page over 100 with a 400 (2026-10-06).
+	plexTVExtrasPage = 100
+	// maxExtras bounds the pages one item is read through.
+	maxExtras = 1000
 	// extrasTTL is how long an item's extras are reused: a library refresh
 	// asks for every item, and Plex's extras change rarely.
 	extrasTTL = 24 * time.Hour
@@ -145,6 +148,23 @@ func (p *PlexTVExtras) Extras(ctx context.Context, plexID string) ([]Extra, erro
 }
 
 func (p *PlexTVExtras) fetch(ctx context.Context, plexID string) ([]Extra, error) {
+	all := []Extra{}
+	for len(all) < maxExtras {
+		page, total, err := p.fetchPage(ctx, plexID, len(all))
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) == 0 || len(all) >= total {
+			break
+		}
+	}
+	return all, nil
+}
+
+// fetchPage reads one page of plexID's extras from start, and the total
+// Plex reports.
+func (p *PlexTVExtras) fetchPage(ctx context.Context, plexID string, start int) ([]Extra, int, error) {
 	base := p.BaseURL
 	if base == "" {
 		base = DefaultPlexTVBaseURL
@@ -154,42 +174,40 @@ func (p *PlexTVExtras) fetch(ctx context.Context, plexID string) ([]Extra, error
 		client = &http.Client{Timeout: extrasTimeout}
 	}
 	u := base + "/library/metadata/" + url.PathEscape(plexID) + "/extras?" + url.Values{
-		"X-Plex-Container-Start": {"0"},
+		"X-Plex-Container-Start": {strconv.Itoa(start)},
 		"X-Plex-Container-Size":  {strconv.Itoa(plexTVExtrasPage)},
 	}.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Plex-Token", p.Token)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPlexTV, err)
+		return nil, 0, fmt.Errorf("%w: %w", ErrPlexTV, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: %s", ErrPlexTV, resp.Status)
+		return nil, 0, fmt.Errorf("%w: %s", ErrPlexTV, resp.Status)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxExtrasBody+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPlexTV, err)
+		return nil, 0, fmt.Errorf("%w: %w", ErrPlexTV, err)
 	}
 	if len(body) > maxExtrasBody {
-		return nil, ErrResponseTooLarge
+		return nil, 0, ErrResponseTooLarge
 	}
 	var out struct {
 		MediaContainer struct {
-			Metadata []Extra `json:"Metadata"`
+			TotalSize int     `json:"totalSize"`
+			Metadata  []Extra `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPlexTV, err)
+		return nil, 0, fmt.Errorf("%w: %w", ErrPlexTV, err)
 	}
-	if out.MediaContainer.Metadata == nil {
-		return []Extra{}, nil
-	}
-	return out.MediaContainer.Metadata, nil
+	return out.MediaContainer.Metadata, out.MediaContainer.TotalSize, nil
 }
 
 type extrasContainer struct {
