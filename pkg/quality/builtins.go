@@ -56,6 +56,7 @@ type profileSeedJSON struct {
 	ProperPolicy          catalogv1alpha1.ProperPolicy      `json:"properPolicy"`
 	SizeTable             catalogv1alpha1.SizeTable         `json:"sizeTable"`
 	PreferredProtocol     catalogv1alpha1.PreferredProtocol `json:"preferredProtocol"`
+	Audio                 *catalogv1alpha1.AudioPolicy      `json:"audio"`
 }
 
 // DecodeProfileSeeds parses one data/profiles/*.json document (a JSON array
@@ -73,7 +74,7 @@ func DecodeProfileSeeds(doc []byte) ([]ProfileSeed, error) {
 			MinUpgradeFormatScore: r.MinUpgradeFormatScore, ScoreSet: r.ScoreSet,
 			EnabledFormatGroups: r.EnabledFormatGroups, FormatScores: r.FormatScores,
 			Language: r.Language, ProperPolicy: r.ProperPolicy, SizeTable: r.SizeTable,
-			PreferredProtocol: r.PreferredProtocol,
+			PreferredProtocol: r.PreferredProtocol, Audio: r.Audio,
 		}})
 	}
 	return seeds, nil

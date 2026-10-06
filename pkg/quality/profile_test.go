@@ -201,3 +201,34 @@ func TestFromCRDNormalisesLanguage(t *testing.T) {
 	require.Empty(t, errs)
 	require.NotEqual(t, en.Hash, ja.Hash, "a different language is a different resolved profile")
 }
+
+// TestFromCRDResolvesAudio is anime dual-audio spec §5.1: spec.audio rides
+// into the resolved Profile and the hash, and an unresolvable tag is an
+// error, as Language's is.
+func TestFromCRDResolvesAudio(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{}}
+	build := func(a *catalogv1alpha1.AudioPolicy) *catalogv1alpha1.QualityProfile {
+		return &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
+			Tiers:     []catalogv1alpha1.Tier{{Name: "Bluray-1080p", Qualities: []string{"Bluray-1080p"}}},
+			Cutoff:    "Bluray-1080p",
+			Audio:     a,
+		}}
+	}
+	plain, errs := quality.FromCRD(build(nil), cat)
+	require.Empty(t, errs)
+	require.Nil(t, plain.AudioLanguages)
+
+	dual, errs := quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true}), cat)
+	require.Empty(t, errs)
+	require.Equal(t, []string{"en", "original"}, dual.AudioLanguages)
+	require.True(t, dual.AudioGraft)
+	require.NotEqual(t, plain.Hash, dual.Hash)
+
+	noGraft, errs := quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}}), cat)
+	require.Empty(t, errs)
+	require.NotEqual(t, dual.Hash, noGraft.Hash, "graft must change the hash")
+
+	_, errs = quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"klingon!"}}), cat)
+	require.NotEmpty(t, errs, "an unresolvable audio language is an error")
+}

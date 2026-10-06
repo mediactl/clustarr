@@ -15,5 +15,6 @@
   "cutoff": "WEB 1080p", "upgradeAllowed": true,
   "minFormatScore": 100, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "anime-sonarr", "language": "original", "properPolicy": "preferAndUpgrade",
-  "sizeTable": "anime", "preferredProtocol": "any"
+  "sizeTable": "anime", "preferredProtocol": "any",
+  "audio": {"languages": ["en", "original"], "graft": true}
 }]

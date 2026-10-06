@@ -27,6 +27,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -55,8 +56,16 @@ type Profile struct {
 	// hold. FromCRD reports an unresolvable tag as an error and leaves
 	// this empty.
 	LanguageName string
-	ProperPolicy string
-	Sizes        map[string]SizeLimit // quality name -> resolved size limits
+	// AudioLanguages are QualityProfileSpec.Audio.Languages verbatim (BCP-47
+	// tags or "original"), nil when the profile sets no audio policy; when
+	// set, pkg/decision's audio check replaces the Language one (anime
+	// dual-audio spec §5). AudioGraft and AudioDefault are the policy's
+	// other two fields.
+	AudioLanguages []string
+	AudioGraft     bool
+	AudioDefault   string
+	ProperPolicy   string
+	Sizes          map[string]SizeLimit // quality name -> resolved size limits
 	// PreferredProtocol ranks one transfer protocol above the other
 	// (catalogv1alpha1.PreferredProtocol's string value: "usenet",
 	// "torrent" or "any"). Not part of spec's one-line Profile summary,
@@ -248,6 +257,21 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 	if err != nil {
 		errs = append(errs, err)
 	}
+	var audio []string
+	var audioGraft bool
+	var audioDefault string
+	if a := p.Spec.Audio; a != nil {
+		audio = append([]string(nil), a.Languages...)
+		audioGraft, audioDefault = a.Graft, a.Default
+		for _, l := range a.Languages {
+			if l == "original" {
+				continue
+			}
+			if _, ok := lang.Normalize(l); !ok {
+				errs = append(errs, fmt.Errorf("audio.languages: %q is neither \"original\" nor a BCP-47 tag", l))
+			}
+		}
+	}
 
 	sizes := baseSizeTable(string(p.Spec.SizeTable))
 	for _, sl := range p.Spec.SizeLimits {
@@ -269,6 +293,7 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
+		AudioLanguages: audio, AudioGraft: audioGraft, AudioDefault: audioDefault,
 		ProperPolicy: string(p.Spec.ProperPolicy),
 		Sizes:        sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
 		MediaKind: kind,
@@ -347,6 +372,9 @@ func hashProfile(p Profile) string {
 	h := sha256.New()
 	_, _ = fmt.Fprintf(h, "cutoff=%d|upgrade=%t|min=%d|cutoffFmt=%d|minUpgrade=%d|lang=%s|proper=%s|protocol=%s\n",
 		p.CutoffIndex, p.UpgradeAllowed, p.MinFormatScore, p.CutoffFormatScore, p.MinUpgradeFormatScore, p.Language, p.ProperPolicy, p.PreferredProtocol)
+	if p.AudioLanguages != nil {
+		_, _ = fmt.Fprintf(h, "audio=%s|graft=%t|default=%s\n", strings.Join(p.AudioLanguages, ","), p.AudioGraft, p.AudioDefault)
+	}
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))
 		for i, d := range tier {
