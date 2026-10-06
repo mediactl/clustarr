@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package audioalign
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -48,6 +49,9 @@ func (r Result) Accept(t Thresholds) error {
 	case r.RateMargin < t.MinRateMargin:
 		return fmt.Errorf("audioalign: rate %s is not clearly better than the next candidate (margin %.3f)", r.RateName, r.RateMargin)
 	}
+	if err := r.inDonorOrder(); err != nil {
+		return err
+	}
 	for _, s := range r.Segments {
 		if s.Length < time.Duration(t.MinSegmentWindows*stepFrames)*time.Duration(frameSeconds*float64(time.Second))/2 {
 			return fmt.Errorf("audioalign: a segment of %s is too short to trust", s.Length)
@@ -56,32 +60,48 @@ func (r Result) Accept(t Thresholds) error {
 	return nil
 }
 
-// Transform is what a graft applies to a donor track: stretched by r.Rate,
-// each segment placed at its target position, silence elsewhere, cut to
-// targetLen samples.
+// DonorAt maps a target time to the donor time whose audio plays there:
+// within the covering segment the offset on the stretched donor, divided
+// by the rate. It reads false where no segment covers t (the target's own
+// material, which a graft leaves silent). Where segments overlap, the
+// later one wins, as Transform has always placed them.
+func (r Result) DonorAt(t time.Duration) (time.Duration, bool) {
+	s, ok := r.donorSeconds(t.Seconds())
+	return time.Duration(math.Round(s * float64(time.Second))), ok
+}
+
+func (r Result) donorSeconds(t float64) (float64, bool) {
+	rate := r.Rate
+	if rate <= 0 {
+		rate = 1
+	}
+	for i := len(r.Segments) - 1; i >= 0; i-- {
+		s := r.Segments[i]
+		ts, ln := s.TargetStart.Seconds(), s.Length.Seconds()
+		if t >= ts && t < ts+ln {
+			return (s.DonorStart.Seconds() + t - ts) / rate, true
+		}
+	}
+	return 0, false
+}
+
+// Transform is what the graft mux applies, at 8 kHz: each target sample is
+// the donor's at DonorAt (linearly interpolated), silence where DonorAt
+// reads false.
 func Transform(donor []float32, r Result, targetLen int) []float32 {
-	n := int(float64(len(donor)) * r.Rate)
-	st := make([]float32, n)
-	for i := range st {
-		src := float64(i) / r.Rate
+	out := make([]float32, targetLen)
+	for i := range out {
+		d, ok := r.donorSeconds(float64(i) / SampleRate)
+		if !ok {
+			continue
+		}
+		src := d * SampleRate
 		j := int(src)
-		if j+1 >= len(donor) {
-			break
+		if j < 0 || j+1 >= len(donor) {
+			continue
 		}
 		f := float32(src - float64(j))
-		st[i] = donor[j]*(1-f) + donor[j+1]*f
-	}
-	out := make([]float32, targetLen)
-	for _, s := range r.Segments {
-		ds := int(s.DonorStart.Seconds() * SampleRate)
-		ts := int(s.TargetStart.Seconds() * SampleRate)
-		ln := int(s.Length.Seconds() * SampleRate)
-		for i := 0; i < ln; i++ {
-			if ds+i >= len(st) || ts+i >= len(out) || ts+i < 0 || ds+i < 0 {
-				continue
-			}
-			out[ts+i] = st[ds+i]
-		}
+		out[i] = donor[j]*(1-f) + donor[j+1]*f
 	}
 	return out
 }
@@ -113,4 +133,21 @@ func Verify(donorAnchor, targetAnchor []float32, r Result) (time.Duration, float
 		}
 	}
 	return frames(res[len(res)/2]), float64(within) / float64(len(res))
+}
+
+// ErrSegmentOrder is Accept's refusal of segments that go back on the
+// donor as they go forward on the target: the graft mux reads the donor
+// forward once, through a sliding buffer.
+var ErrSegmentOrder = errors.New("audioalign: the segments go back on the donor")
+
+func (r Result) inDonorOrder() error {
+	segs := append([]Segment(nil), r.Segments...)
+	sort.Slice(segs, func(i, j int) bool { return segs[i].TargetStart < segs[j].TargetStart })
+	for i := 1; i < len(segs); i++ {
+		if segs[i].DonorStart < segs[i-1].DonorStart {
+			return fmt.Errorf("%w: target %s starts at donor %s, after target %s at donor %s",
+				ErrSegmentOrder, segs[i].TargetStart, segs[i].DonorStart, segs[i-1].TargetStart, segs[i-1].DonorStart)
+		}
+	}
+	return nil
 }
