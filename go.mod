@@ -14,7 +14,7 @@ require (
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/cyruzin/golang-tmdb v1.9.4
 	github.com/dlclark/regexp2 v1.12.0
-	github.com/ebitengine/purego v0.9.1
+	github.com/ebitengine/purego v0.11.1
 	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/go-logr/logr v1.4.4
 	github.com/goccy/go-yaml v1.19.2
@@ -215,4 +215,4 @@ require (
 	zombiezen.com/go/sqlite v0.13.1 // indirect
 )
 
-replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clustarr.9
+replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clustarr.11

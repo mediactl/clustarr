@@ -383,7 +383,7 @@ template.
 | `postgres.enabled` | Run indexarr's release index on a CloudNativePG `Cluster` instead of local SQLite. See [Postgres release index](#postgres-release-index). | `false` |
 | `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas; unrelated to `indexarr.replicas`). | `1` |
 | `postgres.cluster.storage.size`/`.storageClass` | The `Cluster`'s own PVC. | `5Gi`, `""` |
-| `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. | `""` |
+| `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. Setting it also stops the chart rendering its own `Cluster`. | `""` |
 | `cloudnative-pg.enabled` | Install the CloudNativePG operator as a chart dependency. Most clusters install it once, cluster-wide, instead -- leave this `false` and set only `postgres.enabled=true` in that case. | `false` |
 | `keda.enabled` | Install KEDA and the Clustarr `ScaledObject`s. See [Autoscaling](#autoscaling-keda). | `false` |
 | `keda.prometheusAddress` | Prometheus queried for JetStream consumer lag; **required** when `keda.enabled=true`. | `http://prometheus-operated.monitoring.svc:9090` |
