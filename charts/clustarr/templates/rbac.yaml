@@ -380,6 +380,17 @@ rules:
 - apiGroups:
   - transcode.clustarr.io
   resources:
+  - audiografts
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
   - transcodejobs
   verbs:
   - get

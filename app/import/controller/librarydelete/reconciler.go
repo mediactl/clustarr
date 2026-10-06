@@ -172,14 +172,16 @@ func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, err
 			client.MatchingFields{childByParent: obj.GetName()}); err != nil {
 			return t, fmt.Errorf("list %s of %s: %w", r.kind.childKind, obj.GetName(), err)
 		}
-		items, err := metaList(children)
+		items, uids, err := metaList(children)
 		if err != nil {
 			return t, err
 		}
 		for _, name := range items {
 			t.Keys[TargetKey(r.kind.childKind, name)] = true
 		}
+		t.Donors = donorDirs(t.Root, uids...)
 	}
+	t.Donors = append(t.Donors, donorDirs(t.Root, obj.GetUID())...)
 	seen := map[string]bool{}
 	for key := range t.Keys {
 		var mfs catalogv1alpha1.MediaFileList
@@ -262,10 +264,22 @@ func (r *Reconciler) occupants(ctx context.Context, obj client.Object, t Target)
 }
 
 // metaList is the names in a typed list.
-func metaList(list client.ObjectList) ([]string, error) {
+// donorDirs are the audio donor folders of the items with uids under root.
+func donorDirs(root string, uids ...types.UID) []string {
+	if root == "" {
+		return nil
+	}
+	var out []string
+	for _, u := range uids {
+		out = append(out, filepath.Join(root, fsops.ClustarrDir, "donors", string(u)))
+	}
+	return out
+}
+
+func metaList(list client.ObjectList) ([]string, []types.UID, error) {
 	raw, err := json.Marshal(list)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var decoded struct {
 		Items []struct {
@@ -273,13 +287,15 @@ func metaList(list client.ObjectList) ([]string, error) {
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]string, 0, len(decoded.Items))
+	uids := make([]types.UID, 0, len(decoded.Items))
 	for _, it := range decoded.Items {
 		out = append(out, it.Metadata.Name)
+		uids = append(uids, it.Metadata.UID)
 	}
-	return out, nil
+	return out, uids, nil
 }
 
 // exclude creates the item's ImportExclusion, named after it, once.

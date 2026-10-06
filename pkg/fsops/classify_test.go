@@ -494,3 +494,19 @@ func TestWalkStopsOnCancellation(t *testing.T) {
 	}, nil)
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+// TestWalkNeverEntersClustarrsOwnFolder: a RootFolder's .clustarr folder
+// holds clustarr's own files (audio donors), which no scan may attribute.
+func TestWalkNeverEntersClustarrsOwnFolder(t *testing.T) {
+	root := t.TempDir()
+	for _, p := range []string{"Show/Season 01/Show - S01E01.mkv", ".clustarr/donors/uid/show-s01e01.mkv"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, p), []byte("x"), 0o644))
+	}
+	var seen []string
+	require.NoError(t, fsops.Classifier{}.Walk(context.Background(), root, func(p string, _ os.FileInfo, _ fsops.FileClass) error {
+		seen = append(seen, p)
+		return nil
+	}, nil))
+	require.Equal(t, []string{filepath.Join(root, "Show/Season 01/Show - S01E01.mkv")}, seen)
+}

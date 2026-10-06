@@ -238,6 +238,11 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	}
 	ref := target.FileRef()
 
+	if dl.Spec.IsDonor() {
+		// An audio donor makes no library file (anime dual-audio spec §6.2).
+		return w.importDonor(ctx, m, &dl, ref)
+	}
+
 	switch {
 	case ref.Kind == commonv1.MediaKindMovie:
 		// handled below

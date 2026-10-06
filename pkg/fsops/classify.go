@@ -365,6 +365,11 @@ type UnreadableFunc func(path string, err error) error
 //
 // Walk returns ctx.Err() as soon as ctx is cancelled between entries, and
 // returns fn's or unreadable's first non-nil error unwrapped.
+// ClustarrDir is the folder under a RootFolder clustarr keeps its own
+// files in -- audio donors, under donors/ (anime dual-audio spec §6.2).
+// Walk never descends into one, so no library scan attributes its files.
+const ClustarrDir = ".clustarr"
+
 func (c Classifier) Walk(
 	ctx context.Context, dir string, fn func(path string, info os.FileInfo, class FileClass) error, unreadable UnreadableFunc,
 ) error {
@@ -390,6 +395,9 @@ func (c Classifier) Walk(
 			return failed(p, err)
 		}
 		if d.IsDir() {
+			if p != dir && d.Name() == ClustarrDir {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		info, infoErr := d.Info()

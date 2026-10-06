@@ -194,3 +194,21 @@ func TestCheckRefusesAnotherItemsFileAtTheFolderPath(t *testing.T) {
 	other := mediaFile("odd", commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "ronin"}, tgt.Folder)
 	require.ErrorIs(t, Check(tgt, []catalogv1alpha1.MediaFile{mf, other}, nil), ErrRefused)
 }
+
+// A delete with files takes the item's audio donors with it (anime
+// dual-audio spec §6.2: kept as long as the item exists).
+func TestRemoveFromDiskRemovesTheItemsDonors(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "tv")
+	tgt, _ := heatTarget(filepath.Join(root, "H"))
+	tgt.Root = root
+	write(t, filepath.Join(tgt.Folder, "Heat.mkv"))
+	donors := filepath.Join(root, ".clustarr", "donors", "uid-1")
+	write(t, filepath.Join(donors, "heat.mka"))
+	other := filepath.Join(root, ".clustarr", "donors", "uid-2", "ronin.mka")
+	write(t, other)
+	tgt.Donors = []string{donors}
+
+	require.NoError(t, RemoveFromDisk(context.Background(), tgt))
+	assert.NoDirExists(t, donors)
+	assert.FileExists(t, other, "another item's donor stays")
+}

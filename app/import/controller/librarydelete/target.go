@@ -49,6 +49,9 @@ type Target struct {
 	Keys map[string]bool
 	// Files are the MediaFiles of the item and its children.
 	Files []catalogv1alpha1.MediaFile
+	// Donors are the item's and its children's audio donor folders,
+	// <Root>/.clustarr/donors/<uid> (anime dual-audio spec §6.2).
+	Donors []string
 }
 
 // TargetKey is the "<kind>/<name>" a MediaRef names.
@@ -154,6 +157,11 @@ func RemoveFromDisk(ctx context.Context, t Target) error {
 			continue
 		}
 		if err := remove(p); err != nil {
+			return err
+		}
+	}
+	for _, d := range t.Donors {
+		if err := remove(d); err != nil {
 			return err
 		}
 	}
