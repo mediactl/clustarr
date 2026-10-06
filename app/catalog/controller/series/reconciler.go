@@ -281,6 +281,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	}
 
 	statusAC := catalogac.SeriesStatus().WithObservedGeneration(s.Generation)
+	// status.classification is set once (series.Classify) and re-sent on
+	// every apply after that, this manager's own leaf.
+	classification := s.Status.Classification
 	// Sent on every reconcile once the decision point is reached, not just
 	// the first: see the identical rationale on movie.Reconciler's
 	// reconcileNormal (SSA releases a field a manager stops sending).
@@ -365,6 +368,28 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 			return ctrl.Result{}, err
 		}
 
+		// The one-time anime classification (anime dual-audio spec §4):
+		// spec.seriesType and spec.qualityProfileRef by merge patch under a
+		// manager of their own, then status.classification below, which
+		// keeps Classify from ever running for this Series again.
+		if c, patch := Classify(s, &rf); c != nil {
+			if patch {
+				body, err := json.Marshal(map[string]any{"spec": map[string]any{
+					"qualityProfileRef": c.QualityProfileRef, "seriesType": c.SeriesType,
+				}})
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if err := r.Patch(ctx, s.DeepCopy(), client.RawPatch(types.MergePatchType, body),
+					client.FieldOwner(k8s.ManagerCatalogarrClassify)); err != nil {
+					return ctrl.Result{}, err
+				}
+				r.normal(s, "Classified", "anime: quality profile %s, series type %s", c.QualityProfileRef, c.SeriesType)
+			}
+			c.AppliedAt = metav1.NewTime(now)
+			classification = c
+		}
+
 		eng := naming.NewEngine(naming.Config{
 			Dialect:           naming.Dialect(rf.Spec.Naming.Dialect),
 			ColonReplacement:  naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
@@ -431,6 +456,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 
 	k8s.MarkReady(s, &conditions, metaReady && fan.synced && phase != catalogv1alpha1.SeriesPhasePending, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+	if classification != nil {
+		statusAC = statusAC.WithClassification(classificationAC(classification))
+	}
 
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
 		return ctrl.Result{}, err
@@ -474,6 +502,19 @@ func seasonACs(seasons []catalogv1alpha1.SeasonStatus) []*catalogac.SeasonStatus
 	return out
 }
 
+// classificationAC renders status.classification, shared by the happy path
+// and reassertKnownStatus so both declare the same leaves.
+func classificationAC(c *catalogv1alpha1.SeriesClassification) *catalogac.SeriesClassificationApplyConfiguration {
+	ac := catalogac.SeriesClassification().WithAnime(c.Anime).WithAppliedAt(c.AppliedAt)
+	if c.QualityProfileRef != "" {
+		ac = ac.WithQualityProfileRef(c.QualityProfileRef)
+	}
+	if c.SeriesType != "" {
+		ac = ac.WithSeriesType(c.SeriesType)
+	}
+	return ac
+}
+
 // reassertKnownStatus re-adds every field this manager owns besides
 // ObservedGeneration/AddOptionsApplied/Conditions to statusAC, sourced from
 // s's current (pre-reconcile) status. Used on the two early-return paths
@@ -506,6 +547,9 @@ func reassertKnownStatus(statusAC *catalogac.SeriesStatusApplyConfiguration, s *
 	}
 	if s.Status.PreviousAiring != nil {
 		statusAC = statusAC.WithPreviousAiring(*s.Status.PreviousAiring)
+	}
+	if s.Status.Classification != nil {
+		statusAC = statusAC.WithClassification(classificationAC(s.Status.Classification))
 	}
 	return statusAC
 }
