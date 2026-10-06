@@ -290,6 +290,25 @@ relative to Plex's library folder, is matched as a path suffix of
 when it resolves to exactly one item; a path two items share, an unknown
 file or an unsafe name falls through to the guid and title rules, so the
 provider never guesses between two items.
+The provider answers items Plex knows with Plex's own GUIDs (2026-10-06,
+`docs/superpowers/specs/2026-10-06-plex-native-guids-design.md`): Plex Web
+offers Watchlist and Discover only for an item whose own `guid` is
+`plex://`, and PMS 1.43.4 accepts one from a custom provider while still
+reading the item from it, fetching by the GUID's id
+(`/library/metadata/<24 hex>`). A keyed `plex` MetadataProvider (secretRef
+key `token`) resolves the ids from `metadata.provider.plex.tv`
+(`pkg/metadata/clients/plex`): a Movie's or Series' into
+`status.metadata.externalIDs["plex"]` through the gateway's resolvers,
+seasons into `status.metadata.plexSeasons`, and episodes into Episode
+`status.plexID`, joined by TVDB episode id in the gateway's episode list,
+written by the Series reconciler and kept when a later list carries none.
+`ui/plex` builds `guid`, `parentGuid` and `grandparentGuid` from them
+(`--plex-guids`, chart `ui.plex.plexGuids`, on by default); `ratingKey` and
+`key` stay clustarr's, and every ratingKey route also resolves a Plex id
+(`projection.Index.ByPlexID`, which refuses an id two items claim), with the
+flag off too. This rests on PMS not enforcing its documented rule that a
+provider's GUID starts with its identifier; `--plex-guids=false` is the way
+back.
 
 ## Invariants — do not break these
 

@@ -316,6 +316,14 @@ parses it back with regexes; nothing in the protocol requires that.
 External ids in `Guid[].id` and the match body's `guid` use the bare provider
 name as scheme: `imdb://tt0088763`, `tmdb://105`, `tvdb://152831`.
 
+**As found (2026-10-06, PMS 1.43.4):** the identifier rule above is not
+enforced. A provider's match answered with `plex://movie/<id>` was applied
+by Fix Match, and PMS then fetched the item from the provider as
+`GET {metadata key}/<id>`, the id taken from the GUID. A `plex://` entry in
+`Guid[]` alone does not make Plex Web offer Watchlist; the item's own
+`guid` must be `plex://` (clustarr
+`docs/superpowers/specs/2026-10-06-plex-native-guids-design.md` §2).
+
 ---
 
 ## 7. Images [D Metadata.md, API Endpoints.md]
