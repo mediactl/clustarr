@@ -333,7 +333,16 @@ image, so the library runs there and on any newer glibc.
 Release (`release.yml`, on a `v*` tag): build on `ubuntu-24.04` and
 `ubuntu-24.04-arm`, each inside a bookworm container, and attach
 `libpar2shim-linux-amd64.so`, `libpar2shim-linux-arm64.so` and `SHA256SUMS`.
-Module tags start at `v0.1.0`. A consumer fetches a pinned asset and checks its
+Module tags start at `v0.1.0`.
+
+**`libpar2-linux-{amd64,arm64}.so` (as built, 2026-10-06, owner's decision).**
+Each release also carries the patched par2cmdline-turbo as a shared C++
+library (`libpar2.so`): the whole `par2-turbo` archive linked into one
+object, libstdc++ dynamic because its API passes std types. No headers
+are published; a C++ user builds against par2cmdline-turbo's headers at the
+pin with `shim/patches` applied (patch 0003 makes them includable first)
+and the flags `shim/build.sh` records in `par2-flags.txt`. `libpar2shim.so`
+stays self-contained and does not use it. A consumer fetches a pinned asset and checks its
 digest, as `Dockerfile.media` fetches par2 today.
 
 ## 7. Testing
