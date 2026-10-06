@@ -323,6 +323,22 @@ written by the Series reconciler and kept when a later list carries none.
 flag off too. This rests on PMS not enforcing its documented rule that a
 provider's GUID starts with its identifier; `--plex-guids=false` is the way
 back.
+Series type `anime` keeps the episode order (2026-10-06,
+`docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md`): it reads
+absolute numbers for search, import and naming from
+`status.absoluteNumber`, and only `spec.episodeOrder: absolute` changes
+the order (design §4.2's "absolute forced when anime" collapsed a
+multi-season anime into one season). A RootFolder's `defaults.anime` moves
+a series whose TVDB genres name it Anime to that profile and type once
+(`series.Classify`, recorded in `status.classification`, spec patched
+under field manager `catalogarr-classify`), so the owner's later change
+stays; `catalog.clustarr.io/classify: off` skips one, and an import list's
+re-apply keeps a classified series' values. A file whose probed audio
+lacks the profile's language (`decision.LacksLanguage`; unknown or
+untagged audio never lacks) reads `WrongLanguage` and CutoffUnmet, unless
+it is transcoded, and any accepted release replaces it; the Movie and
+Episode controllers wake on a probe's audio languages
+(`rollup.AudioLanguagesObject`).
 The movies provider has Plex's collection feature (2026-10-06; type 18,
 Feature `collection` at `/library/collections`, movie libraries only): a
 collection is a TMDB collection (`status.metadata.collection`), its items
