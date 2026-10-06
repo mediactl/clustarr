@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 
@@ -125,5 +126,25 @@ func TestTheControllerRoleCachesMediaFilesWithoutMediaInfo(t *testing.T) {
 	for _, role := range []importarr.Role{importarr.RoleWorker, importarr.RoleAll, "controller,worker"} {
 		_, ok := mediaFileCacheConfig(importarr.Options{Role: role})
 		require.False(t, ok, "role %q keeps the whole MediaFile", role)
+	}
+}
+
+// No importarr role caches Secrets or ConfigMaps: the role grants get alone
+// on both, and a cached read starts an informer, which needs list and watch
+// on every one in scope. The list worker's read of a Plex watchlist's token
+// Secret waited forever on that informer, so no ImportList ever synced
+// (kind-cluster-plex, 2026-10-06).
+func TestManagerOptionsNeverCacheSecretsOrConfigMaps(t *testing.T) {
+	for _, role := range importarr.Roles() {
+		mo := importarr.Options{Role: role}.ManagerOptions()
+		require.NotNil(t, mo.Client.Cache, "%s caches Secrets", role)
+		var secrets, configMaps bool
+		for _, obj := range mo.Client.Cache.DisableFor {
+			_, s := obj.(*corev1.Secret)
+			_, c := obj.(*corev1.ConfigMap)
+			secrets, configMaps = secrets || s, configMaps || c
+		}
+		require.True(t, secrets, "%s caches Secrets", role)
+		require.True(t, configMaps, "%s caches ConfigMaps", role)
 	}
 }

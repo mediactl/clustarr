@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	toolscache "k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -250,8 +251,16 @@ func (o Options) Validate() error {
 // of what the `importarr` Deployment holds in memory. Nothing it runs reads
 // mediaInfo. A role that runs the workers too keeps the whole object, as
 // importarr-worker always has.
+//
+// No role caches Secrets or ConfigMaps, as grabarr's and indexarr's cache no
+// Secrets: the role grants get alone on both, and a cached read starts an
+// informer, which needs list and watch on every one in scope. The list
+// worker reads an ImportList's credentials Secret and CSV ConfigMap by name,
+// and through the cached client that read waited forever on an informer the
+// role could not fill, so no ImportList ever synced (2026-10-06).
 func (o Options) ManagerOptions() ctrl.Options {
 	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
+	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
 	if o.Role.RunsControllers() && !o.Role.RunsWorkers() {
 		if opts.Cache.ByObject == nil {
 			opts.Cache.ByObject = map[client.Object]cache.ByObject{}
