@@ -357,7 +357,7 @@ func TestSink_DeliversANonVideoReleaseAndDropsAContainerLoudly(t *testing.T) {
 	}
 	approved := []commonv1.ReleaseDecision{{ReleaseInfo: usenetRelease("guid-sink", "Radiohead - Kid A (2000) [FLAC]"), Approved: true}}
 
-	require.NoError(t, sink.Deliver(ctx, ns, target, approved, downloadv1alpha1.GrabSourceSearch))
+	require.NoError(t, sink.Deliver(ctx, ns, target, approved, downloadv1alpha1.GrabSourceSearch, ""))
 	var list downloadv1alpha1.DownloadList
 	require.NoError(t, c.List(ctx, &list, client.InNamespace(ns)))
 	require.Len(t, list.Items, 1, "the sink grabs an approved album release")
@@ -365,7 +365,7 @@ func TestSink_DeliversANonVideoReleaseAndDropsAContainerLoudly(t *testing.T) {
 	assert.Equal(t, downloadv1alpha1.GrabSourceSearch, list.Items[0].Spec.GrabbedBy)
 
 	require.NoError(t, sink.Deliver(ctx, ns, commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "radiohead"}, approved,
-		downloadv1alpha1.GrabSourceSearch),
+		downloadv1alpha1.GrabSourceSearch, ""),
 		"an ungrabbable kind is not worth a redelivery")
 	require.NoError(t, c.List(ctx, &list, client.InNamespace(ns)))
 	assert.Len(t, list.Items, 1)

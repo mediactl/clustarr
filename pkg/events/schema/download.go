@@ -60,6 +60,10 @@ type DownloadEvent struct {
 	// OutputPath is where the client left the finished data.
 	OutputPath string `json:"outputPath,omitempty"`
 
+	// Purpose is the Download's spec.purpose (audioDonor for an audio
+	// donor): a failed donor is searched for again as a donor.
+	Purpose string `json:"purpose,omitempty"`
+
 	// At is when the transition happened.
 	At time.Time `json:"at"`
 }

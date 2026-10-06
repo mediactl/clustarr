@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
@@ -117,6 +118,19 @@ func StatusTargets(target commonv1.MediaRef, keys []string) ([]commonv1.MediaRef
 }
 
 // leaseKeys maps status targets onto their clustarr-leases keys.
+// leaseKeysFor is leaseKeys for a grab of purpose: an audio donor's lease is
+// its own, so a donor and a video grab of one item can both be in flight.
+func leaseKeysFor(namespace string, targets []commonv1.MediaRef, purpose downloadv1alpha1.DownloadPurpose) []string {
+	if purpose == "" {
+		return leaseKeys(namespace, targets)
+	}
+	out := make([]string, 0, len(targets))
+	for _, t := range targets {
+		out = append(out, events.LeaseKey(MediaKey(namespace, t)+"."+string(purpose)))
+	}
+	return out
+}
+
 func leaseKeys(namespace string, targets []commonv1.MediaRef) []string {
 	out := make([]string, 0, len(targets))
 	for _, t := range targets {

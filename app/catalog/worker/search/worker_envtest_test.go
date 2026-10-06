@@ -73,6 +73,7 @@ type recordingSink struct {
 	targets    []commonv1.MediaRef
 	batches    [][]commonv1.ReleaseDecision
 	grabbedBy  []downloadv1alpha1.GrabSource
+	purposes   []downloadv1alpha1.DownloadPurpose
 	delivery   chan struct{}
 }
 
@@ -82,8 +83,10 @@ func newRecordingSink() *recordingSink {
 
 func (s *recordingSink) Deliver(
 	_ context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision, grabbedBy downloadv1alpha1.GrabSource,
+	purpose downloadv1alpha1.DownloadPurpose,
 ) error {
 	s.mu.Lock()
+	s.purposes = append(s.purposes, purpose)
 	s.grabbedBy = append(s.grabbedBy, grabbedBy)
 	s.namespaces = append(s.namespaces, ns)
 	s.targets = append(s.targets, target)

@@ -101,6 +101,9 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	add(protocolRejection(rel, o))
 	add(availabilityRejection(t, o))
 	rejections = append(rejections, sizeRejections(t, p, parsed, rel)...)
+	if t.Donor != nil {
+		return evaluateDonor(ctx, t, originalLanguage, p, parsed, rel, score, matched, rejections)
+	}
 	rejections = append(rejections, qualityRejections(p, rel, score)...)
 	languagesComplete := true
 	if len(p.AudioLanguages) > 0 {

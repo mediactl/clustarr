@@ -232,3 +232,41 @@ func TestIssueCandidate(t *testing.T) {
 		})
 	}
 }
+
+// TestADonorSearchIsWantedOnItsOwnBackoff (anime dual-audio spec §6.1): an
+// item whose file lacks a dub the profile grafts is a donor candidate --
+// whatever its video's phase, but never unmonitored -- on the backoff of its
+// own donor searches, and it wakes its namespace.
+func TestADonorSearchIsWantedOnItsOwnBackoff(t *testing.T) {
+	withAudio := func(e catalogv1alpha1.Episode, graft string, donor commonv1.Attempts) catalogv1alpha1.Episode {
+		e.Status.Audio = &catalogv1alpha1.AudioState{Missing: []string{"en"}, Graft: graft}
+		e.Status.DonorSearchAttempts = donor
+		return e
+	}
+	imported := withAudio(episode("media", "imported", catalogv1alpha1.EpisodePhaseImported, at(-time.Hour)), "searching", commonv1.Attempts{})
+	c := episodeCandidate(&imported)
+	assert.True(t, c.DonorDue(scanNow), "missing a dub with nothing under way")
+	assert.False(t, c.Due(scanNow, true), "the video is not wanted")
+	assert.Equal(t, []string{"media"}, eligibleNamespaces([]Candidate{c}, scanNow), "a donor search wakes the namespace")
+
+	cutoff := withAudio(episode("media", "cutoff", catalogv1alpha1.EpisodePhaseCutoffUnmet, commonv1.Attempts{}), "searching", commonv1.Attempts{})
+	assert.True(t, episodeCandidate(&cutoff).DonorDue(scanNow), "a 480p file below its cutoff still gets its donor search")
+
+	failed := withAudio(episode("media", "failed", catalogv1alpha1.EpisodePhaseImported, commonv1.Attempts{}), "failed", commonv1.Attempts{})
+	assert.True(t, episodeCandidate(&failed).DonorDue(scanNow), "a failed graft searches for another donor")
+
+	recent := withAudio(episode("media", "recent", catalogv1alpha1.EpisodePhaseImported, commonv1.Attempts{}), "searching", at(-time.Hour))
+	assert.False(t, episodeCandidate(&recent).DonorDue(scanNow), "inside its donor backoff")
+
+	for _, g := range []string{"grabbed", "pending", "aligned", "done", "none"} {
+		e := withAudio(episode("media", g, catalogv1alpha1.EpisodePhaseImported, commonv1.Attempts{}), g, commonv1.Attempts{})
+		assert.False(t, episodeCandidate(&e).DonorDue(scanNow), g)
+	}
+	off := withAudio(episode("media", "off", catalogv1alpha1.EpisodePhaseUnmonitored, commonv1.Attempts{}), "searching", commonv1.Attempts{})
+	assert.False(t, episodeCandidate(&off).DonorDue(scanNow), "never for an unmonitored item")
+
+	m := movie("media", "m", catalogv1alpha1.MoviePhaseImported, commonv1.Attempts{})
+	m.Status.Audio = &catalogv1alpha1.AudioState{Missing: []string{"en"}, Graft: "searching"}
+	assert.True(t, movieCandidate(&m).DonorDue(scanNow), "movies too")
+	_ = schema.SearchReasonMissing
+}

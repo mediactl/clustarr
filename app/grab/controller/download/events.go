@@ -73,6 +73,7 @@ func (r *Reconciler) publishDownloadEvent(ctx context.Context, dl *downloadv1alp
 		SizeBytes:   size,
 		Reason:      reason,
 		OutputPath:  dl.Status.OutputPath,
+		Purpose:     string(dl.Spec.Purpose),
 		At:          r.now(),
 	}
 	if dl.Spec.ClientRef != "" {

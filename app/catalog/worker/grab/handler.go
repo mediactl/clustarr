@@ -188,7 +188,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		grabbedBy = downloadv1alpha1.GrabSourceSearch
 	}
 
-	if err := performGrab(ctx, h.Deps, ns, pv.Target, pv.Keys, pv.Release, grabbedBy); err != nil {
+	if err := performGrab(ctx, h.Deps, ns, pv.Target, pv.Keys, pv.Release, grabbedBy, ""); err != nil {
 		if errors.Is(err, ErrDuplicateGrab) {
 			// Ack and stop, per §8.2. performGrab has already cleared
 			// status.pendingGrab on every status target (clearPendingGrab);

@@ -123,7 +123,12 @@ type wantedItem struct {
 	// IndexOnly is set for an item searched before (SearchTask.IndexOnly):
 	// its sweep search queries the local release index, not the indexers.
 	IndexOnly bool
+	// Purpose is SearchTask.Purpose: an audio donor search, or the video's.
+	Purpose string
 }
+
+// DefaultDonorSearchesPerSweep is Worker.DonorSearchesPerSweep's default.
+const DefaultDonorSearchesPerSweep = 20
 
 // wantedItems lists the namespace's searchable items -- movies, episodes,
 // albums, books, audiobooks and issues, narrowed by scan.Kinds -- and keeps
@@ -154,6 +159,30 @@ func (w *Worker) wantedItems(ctx context.Context, ns string, scan schema.WantedS
 		}
 		searched := c.Attempts.Count > 0 || c.Attempts.Latest != nil
 		out = append(out, wantedItem{Ref: c.Ref, Reason: c.Reason, UID: c.UID, IndexOnly: searched})
+	}
+	// Audio donors (anime dual-audio spec §6.1), on their own backoff. A
+	// donor -- an old DVD rip -- seldom comes by RSS, so an item's first
+	// donor search is live; a sweep fires at most DonorSearchesPerSweep of
+	// those, the rest wait for the next sweep, since a pool of searches must
+	// never hit an indexer at once (CLAUDE.md, 2026-10-06).
+	live := 0
+	limit := w.DonorSearchesPerSweep
+	if limit == 0 {
+		limit = DefaultDonorSearchesPerSweep
+	}
+	for _, c := range cands {
+		if !Searchable(c.Ref.Kind) || !c.DonorDue(now) || !grabbable(c.Ref) {
+			continue
+		}
+		searched := c.DonorAttempts.Count > 0 || c.DonorAttempts.Latest != nil
+		if !searched {
+			if live >= limit {
+				continue
+			}
+			live++
+		}
+		out = append(out, wantedItem{Ref: c.Ref, Reason: schema.SearchReasonMissing, UID: c.UID, IndexOnly: searched,
+			Purpose: schema.SearchPurposeAudioDonor})
 	}
 	for kind, n := range ungrabbable {
 		w.log(ctx).Warn("search: wanted items of a kind the grab path cannot grab yet were not searched",
@@ -190,13 +219,14 @@ func (w *Worker) publishItemSearch(ctx context.Context, ns string, item wantedIt
 		MediaRef:  item.Ref,
 		Reason:    item.Reason,
 		IndexOnly: item.IndexOnly,
+		Purpose:   item.Purpose,
 	})
 	if err != nil {
 		return err
 	}
 	mediaKey := events.MediaKey(string(item.Ref.Kind), ns, item.Ref.Name)
 	env := &events.Envelope{
-		ID:     events.MsgIDForObject(item.UID, epoch, "search"),
+		ID:     events.MsgIDForObject(item.UID, epoch, item.msgKind()),
 		Type:   "catalog.SearchTask",
 		Schema: schemaName,
 		Source: "catalogarr@" + version.String(),
@@ -209,4 +239,13 @@ func (w *Worker) publishItemSearch(ctx context.Context, ns string, item wantedIt
 	}
 	_, err = w.Publisher.Publish(ctx, events.WorkSearchSubject(events.PriorityNormal, mediaKey), env)
 	return err
+}
+
+// msgKind is the Msg-Id kind of the item's search: a donor search has its
+// own, so it is never absorbed into the same sweep's video search.
+func (i wantedItem) msgKind() string {
+	if i.Purpose != "" {
+		return "donor-search"
+	}
+	return "search"
 }

@@ -42,7 +42,7 @@ func eligibleNamespaces(cands []Candidate, now time.Time) []string {
 		if _, ok := seen[c.Namespace]; ok {
 			continue
 		}
-		if c.Due(now, true) {
+		if c.Due(now, true) || c.DonorDue(now) {
 			seen[c.Namespace] = struct{}{}
 		}
 	}

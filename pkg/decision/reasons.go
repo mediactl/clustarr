@@ -57,6 +57,11 @@ var (
 	ReasonExistingFormatCutoffMet      = Reason{"ExistingFormatCutoffMet", common.RejectionPermanent}
 	ReasonExistingFormatScoreIncrement = Reason{"ExistingFormatScoreIncrement", common.RejectionPermanent}
 
+	// An audio donor's rejections (anime dual-audio spec §6.1, §9).
+	ReasonDonorLanguage = Reason{"DonorLanguage", common.RejectionPermanent}
+	ReasonDonorRejected = Reason{"DonorRejected", common.RejectionPermanent}
+	ReasonDonorQueued   = Reason{"DonorQueued", common.RejectionPermanent}
+
 	// ReasonWrongItem and ReasonUnknownItem are the identity check's two
 	// verdicts (identity.go), generalised across kinds from Radarr's
 	// WrongMovie ("Wrong movie", Specifications/Search/MovieSpecification.cs)

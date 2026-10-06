@@ -37,5 +37,10 @@ func PerformGrabForTest(
 	release commonv1.ReleaseInfo,
 	grabbedBy downloadv1alpha1.GrabSource,
 ) error {
-	return performGrab(ctx, d, ns, target, keys, release, grabbedBy)
+	return performGrab(ctx, d, ns, target, keys, release, grabbedBy, "")
+}
+
+// PerformDonorGrab is PerformGrab for an audio donor.
+func PerformDonorGrab(ctx context.Context, d Deps, ns string, target commonv1.MediaRef, release commonv1.ReleaseInfo) error {
+	return performGrab(ctx, d, ns, target, nil, release, downloadv1alpha1.GrabSourceSearch, downloadv1alpha1.DownloadPurposeAudioDonor)
 }

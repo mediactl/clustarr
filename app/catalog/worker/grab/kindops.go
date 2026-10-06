@@ -69,6 +69,9 @@ type workerStatus struct {
 	PendingGrab    *catalogv1alpha1.PendingGrab
 	LastSearchedAt *metav1.Time
 	SearchAttempts commonv1.Attempts
+	// DonorSearchAttempts is Movie's and Episode's alone: the audio donor
+	// searches' own backoff (anime dual-audio spec §6.1).
+	DonorSearchAttempts commonv1.Attempts
 }
 
 // grabContext is the configuration governing a grab for one catalog item.
@@ -160,9 +163,10 @@ func (movieOps) workerStatus(obj client.Object) workerStatus {
 		return workerStatus{}
 	}
 	return workerStatus{
-		PendingGrab:    m.Status.PendingGrab,
-		LastSearchedAt: m.Status.LastSearchedAt,
-		SearchAttempts: m.Status.SearchAttempts,
+		PendingGrab:         m.Status.PendingGrab,
+		LastSearchedAt:      m.Status.LastSearchedAt,
+		SearchAttempts:      m.Status.SearchAttempts,
+		DonorSearchAttempts: m.Status.DonorSearchAttempts,
 	}
 }
 
@@ -176,6 +180,9 @@ func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 	}
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
+	}
+	if !isZeroAttempts(ws.DonorSearchAttempts) {
+		status = status.WithDonorSearchAttempts(ws.DonorSearchAttempts)
 	}
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
 		catalogac.Movie(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
@@ -221,9 +228,10 @@ func (episodeOps) workerStatus(obj client.Object) workerStatus {
 		return workerStatus{}
 	}
 	return workerStatus{
-		PendingGrab:    ep.Status.PendingGrab,
-		LastSearchedAt: ep.Status.LastSearchedAt,
-		SearchAttempts: ep.Status.SearchAttempts,
+		PendingGrab:         ep.Status.PendingGrab,
+		LastSearchedAt:      ep.Status.LastSearchedAt,
+		SearchAttempts:      ep.Status.SearchAttempts,
+		DonorSearchAttempts: ep.Status.DonorSearchAttempts,
 	}
 }
 
@@ -237,6 +245,9 @@ func (episodeOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, na
 	}
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
+	}
+	if !isZeroAttempts(ws.DonorSearchAttempts) {
+		status = status.WithDonorSearchAttempts(ws.DonorSearchAttempts)
 	}
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
 		catalogac.Episode(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
@@ -372,6 +383,31 @@ func RecordSearchAttempt(ctx context.Context, c client.Client, ns string, ref co
 		case err != nil:
 			return fmt.Errorf("grab: record a search attempt on %s/%s: %w", st.Kind, st.Name, err)
 		}
+	}
+	return nil
+}
+
+// RecordDonorSearchAttempt advances status.donorSearchAttempts on a Movie
+// or an Episode, as RecordSearchAttempt does searchAttempts: through the
+// grab manager's one complete, conditional declaration.
+func RecordDonorSearchAttempt(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef, at time.Time) error {
+	if ref.Kind != commonv1.MediaKindMovie && ref.Kind != commonv1.MediaKindEpisode {
+		return fmt.Errorf("%w: a donor search is for a movie or an episode, not %s", ErrUnsupportedKind, ref.Kind)
+	}
+	stamp := metav1.NewTime(at)
+	err := updateWorkerStatus(ctx, c, ns, commonv1.MediaRef{Kind: ref.Kind, Name: ref.Name}, func(ws *workerStatus) bool {
+		if ws.DonorSearchAttempts.Initial == nil {
+			ws.DonorSearchAttempts.Initial = &stamp
+		}
+		ws.DonorSearchAttempts.Latest = &stamp
+		ws.DonorSearchAttempts.Count++
+		return true
+	})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("grab: record a donor search attempt on %s/%s: %w", ref.Kind, ref.Name, err)
 	}
 	return nil
 }

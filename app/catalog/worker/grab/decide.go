@@ -95,7 +95,7 @@ func decide(
 	wait := DelayFor(delay, a.Release.Protocol)
 
 	if wait <= 0 || Bypasses(delay, atTopTier, a.Release.FormatScore) {
-		err := performGrab(ctx, d, a.Namespace, a.Target, a.Keys, a.Release, a.GrabbedBy)
+		err := performGrab(ctx, d, a.Namespace, a.Target, a.Keys, a.Release, a.GrabbedBy, a.Purpose)
 		var limited *GrabLimitError
 		if holdOnLimit && errors.As(err, &limited) {
 			return holdForGrabLimit(ctx, d, profile, a, limited.RetryAt)

@@ -60,6 +60,10 @@ type Approved struct {
 
 	// GrabbedBy records what caused the grab, verbatim onto the Download.
 	GrabbedBy downloadv1alpha1.GrabSource
+
+	// Purpose is the Download's spec.purpose: audioDonor for an audio
+	// donor (anime dual-audio spec §6.1), empty for the item's video.
+	Purpose downloadv1alpha1.DownloadPurpose
 }
 
 // Deps is everything this package needs from the process around it. Now is a
@@ -126,6 +130,7 @@ func performGrab(
 	keys []string,
 	release commonv1.ReleaseInfo,
 	grabbedBy downloadv1alpha1.GrabSource,
+	purpose downloadv1alpha1.DownloadPurpose,
 ) error {
 	ctx, span := tracing.Start(ctx, "grab.performGrab")
 	defer span.End()
@@ -145,7 +150,7 @@ func performGrab(
 	downloadName := k8s.ChildName(target.Name, release.GUID)
 	kv := d.Bus.KV(events.BucketLeases)
 
-	acquired, err := acquireLeases(ctx, kv, leaseKeys(ns, statusTargets), downloadName, d.leaseHolder(ns))
+	acquired, err := acquireLeases(ctx, kv, leaseKeysFor(ns, statusTargets, purpose), downloadName, d.leaseHolder(ns))
 	if err != nil {
 		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "leaseHeld").Inc()
@@ -175,7 +180,7 @@ func performGrab(
 		items[i] = obj
 	}
 
-	resume, err := guardExistingDownloads(ctx, d.liveReader(), ns, downloadName, statusTargets, items)
+	resume, err := guardExistingDownloads(ctx, d.liveReader(), ns, downloadName, statusTargets, items, purpose)
 	if err != nil {
 		releaseLeases(ctx, kv, acquired)
 		if errors.Is(err, ErrDuplicateGrab) {
@@ -205,7 +210,7 @@ func performGrab(
 			}
 			return err
 		}
-		if err := createDownload(ctx, d, ns, downloadName, owner, target, keys, release, source, grabbedBy, statusTargets, items); err != nil {
+		if err := createDownload(ctx, d, ns, downloadName, owner, target, keys, release, source, grabbedBy, purpose, statusTargets, items); err != nil {
 			releaseLeases(ctx, kv, acquired)
 			return err
 		}
@@ -248,6 +253,7 @@ func createDownload(
 	release commonv1.ReleaseInfo,
 	source downloadv1alpha1.DownloadSource,
 	grabbedBy downloadv1alpha1.GrabSource,
+	purpose downloadv1alpha1.DownloadPurpose,
 	statusTargets []commonv1.MediaRef,
 	items []client.Object,
 ) error {
@@ -279,6 +285,9 @@ func createDownload(
 		WithRelease(release).
 		WithTarget(commonv1.MediaRef{Kind: target.Kind, Name: target.Name, Keys: keys}).
 		WithGrabbedBy(grabbedBy)
+	if purpose != "" {
+		spec = spec.WithPurpose(purpose)
+	}
 	if gctx.QualityProfileRef != "" {
 		spec = spec.WithQualityProfileRef(gctx.QualityProfileRef)
 	}
@@ -340,6 +349,7 @@ func guardExistingDownloads(
 	ns, downloadName string,
 	statusTargets []commonv1.MediaRef,
 	items []client.Object,
+	purpose downloadv1alpha1.DownloadPurpose,
 ) (resume bool, err error) {
 	var list downloadv1alpha1.DownloadList
 	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
@@ -356,7 +366,9 @@ func guardExistingDownloads(
 			blockers = append(blockers, dl.Name)
 			continue
 		}
-		if !rollup.DownloadNonTerminal(dl) {
+		if !rollup.DownloadNonTerminal(dl) || dl.Spec.Purpose != purpose {
+			// A donor and a video grab of one item coexist: an upgrade
+			// never waits on a dub, nor a dub on an upgrade.
 			continue
 		}
 		for j, st := range statusTargets {

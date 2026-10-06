@@ -120,6 +120,7 @@ func (s Sink) Deliver(
 	target commonv1.MediaRef,
 	ranked []commonv1.ReleaseDecision,
 	grabbedBy downloadv1alpha1.GrabSource,
+	purpose downloadv1alpha1.DownloadPurpose,
 ) error {
 	if grabbedBy == "" {
 		grabbedBy = downloadv1alpha1.GrabSourceSearch
@@ -160,6 +161,11 @@ func (s Sink) Deliver(
 	if err != nil {
 		return err
 	}
+	if purpose != "" {
+		// A donor is never delayed: a delay waits for a better video, and
+		// the pending entry it would take is the item's video candidate's.
+		delaySpec = catalogv1alpha1.DelayProfileSpec{}
+	}
 
 	approvedFor := func(d commonv1.ReleaseDecision) Approved {
 		return Approved{
@@ -168,6 +174,7 @@ func (s Sink) Deliver(
 			Keys:      target.Keys,
 			Release:   d.ReleaseInfo,
 			GrabbedBy: grabbedBy,
+			Purpose:   purpose,
 		}
 	}
 
@@ -197,6 +204,12 @@ func (s Sink) Deliver(
 		return err
 	}
 
+	if purpose != "" {
+		// Nor held for a grab limit, for the same reason: the next donor
+		// search, on its own backoff, tries again.
+		log.Info("grab: every approved donor's indexer is at its grab limit; leaving it to the next donor search")
+		return nil
+	}
 	// Every approved release's indexer is at its grab limit. Hold the one
 	// whose indexer has room soonest.
 	soonest := refused[0]

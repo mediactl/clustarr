@@ -24,6 +24,7 @@ import (
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -189,7 +190,8 @@ func FreeLeases(ctx context.Context, kv events.KV, ns string, target commonv1.Me
 		return nil, err
 	}
 	var freed []string
-	for _, key := range leaseKeys(ns, targets) {
+	keys := append(leaseKeys(ns, targets), leaseKeysFor(ns, targets, downloadv1alpha1.DownloadPurposeAudioDonor)...)
+	for _, key := range keys {
 		entry, err := kv.Get(ctx, key)
 		switch {
 		case errors.Is(err, events.ErrKeyNotFound):

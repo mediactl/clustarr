@@ -41,6 +41,16 @@ func Rank(ds []Decision, o Options) []Decision {
 }
 
 func less(a, b Decision, o Options) bool {
+	if a.Rank.Donor && b.Rank.Donor {
+		// An audio donor (spec §6.1): lineage close to the video, then the
+		// smaller download; quality and format score mean nothing here.
+		if a.Rank.DonorLineage != b.Rank.DonorLineage {
+			return a.Rank.DonorLineage > b.Rank.DonorLineage
+		}
+		if a.Rank.SizeBytes != b.Rank.SizeBytes {
+			return a.Rank.SizeBytes < b.Rank.SizeBytes
+		}
+	}
 	if a.Rank.QualityIndex != b.Rank.QualityIndex {
 		return a.Rank.QualityIndex < b.Rank.QualityIndex
 	}

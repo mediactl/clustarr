@@ -89,6 +89,28 @@ type Target struct {
 	// forgets to fill it fails loudly (nothing is approved) instead of
 	// approving whatever an indexer happened to return.
 	Identity Identity
+	// Donor makes this a search for an audio donor (anime dual-audio spec
+	// §6.1) rather than the item's video: nil for a video search. Queue then
+	// holds only the item's donor Downloads.
+	Donor *Donor
+}
+
+// Donor is what an audio donor must carry. A donor is judged on its
+// languages, not its quality: the ladder, the cutoff, the upgrade
+// comparison and the transcoded check are skipped, the size table and the
+// identity check are not.
+type Donor struct {
+	// Languages are the file's missing languages, BCP-47; Anchor the one
+	// the graft aligns on (the original).
+	Languages []string
+	Anchor    string
+	// Rejected are donor releases a graft of this item already failed with
+	// (AudioGraft status.rejectedReleases): never taken again.
+	Rejected []string
+	// Source and Edition are the video's (the current file's quality
+	// source and edition): a donor of the same lineage ranks first.
+	Source  common.Source
+	Edition string
 }
 
 // Identity is what the identity check (identity.go, identity_nonvideo.go)
@@ -229,6 +251,10 @@ type RankKey struct {
 	// a tie in tier and format score, a complete release beats one a graft
 	// would complete (anime dual-audio spec §5.2).
 	LanguagesComplete bool
+	// Donor ranks an audio donor: by DonorLineage (higher first), then by
+	// SizeBytes (smaller first), instead of by quality and format score.
+	Donor        bool
+	DonorLineage int
 }
 
 // Decision is one release's verdict against one Target. Its shape matches

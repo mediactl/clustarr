@@ -65,6 +65,27 @@ type Candidate struct {
 	// Attempts is status.searchAttempts with status.lastSearchedAt folded
 	// in (searchAttempts).
 	Attempts commonv1.Attempts
+	// Donor is whether an audio donor is wanted (anime dual-audio spec
+	// §6.1): a monitored movie or episode whose file lacks a language its
+	// profile grafts, with no donor or graft under way (status.audio.graft
+	// searching, or failed). DonorAttempts is status.donorSearchAttempts,
+	// the donor searches' own backoff.
+	Donor         bool
+	DonorAttempts commonv1.Attempts
+}
+
+// DonorDue reports whether a donor search for the candidate should run at
+// now: a donor is wanted and its donor backoff has elapsed.
+func (c Candidate) DonorDue(now time.Time) bool {
+	return c.Donor && Eligible(c.DonorAttempts, now)
+}
+
+// donorWanted is Candidate.Donor for an item in phase with audio.
+func donorWanted[P ~string](phase, unmonitored P, audio *catalogv1alpha1.AudioState) bool {
+	if phase == unmonitored || audio == nil || len(audio.Missing) == 0 {
+		return false
+	}
+	return audio.Graft == "searching" || audio.Graft == "failed"
 }
 
 // Due reports whether the candidate should be searched at now: it is wanted
@@ -175,12 +196,18 @@ func phaseReason[P ~string](p, wanted, cutoffUnmet P) schema.SearchReason {
 
 func movieCandidate(m *catalogv1alpha1.Movie) Candidate {
 	r := phaseReason(m.Status.Phase, catalogv1alpha1.MoviePhaseWanted, catalogv1alpha1.MoviePhaseCutoffUnmet)
-	return candidate(m, commonv1.MediaKindMovie, r, m.Status.SearchAttempts, m.Status.LastSearchedAt)
+	c := candidate(m, commonv1.MediaKindMovie, r, m.Status.SearchAttempts, m.Status.LastSearchedAt)
+	c.Donor = donorWanted(m.Status.Phase, catalogv1alpha1.MoviePhaseUnmonitored, m.Status.Audio)
+	c.DonorAttempts = m.Status.DonorSearchAttempts
+	return c
 }
 
 func episodeCandidate(e *catalogv1alpha1.Episode) Candidate {
 	r := phaseReason(e.Status.Phase, catalogv1alpha1.EpisodePhaseWanted, catalogv1alpha1.EpisodePhaseCutoffUnmet)
-	return candidate(e, commonv1.MediaKindEpisode, r, e.Status.SearchAttempts, e.Status.LastSearchedAt)
+	c := candidate(e, commonv1.MediaKindEpisode, r, e.Status.SearchAttempts, e.Status.LastSearchedAt)
+	c.Donor = donorWanted(e.Status.Phase, catalogv1alpha1.EpisodePhaseUnmonitored, e.Status.Audio)
+	c.DonorAttempts = e.Status.DonorSearchAttempts
+	return c
 }
 
 func albumCandidate(a *catalogv1alpha1.Album) Candidate {

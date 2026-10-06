@@ -19,6 +19,7 @@ package redownload_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -589,4 +590,26 @@ func TestALeaseAnotherGrabHoldsIsNotFreed(t *testing.T) {
 	}))
 	assert.Equal(t, "the-matrix-later", f.leaseHolder(t, lease))
 	assert.Empty(t, f.bus.searches(t), "an unmonitored movie is not searched (Radarr's MoviesSearchCommand filter)")
+}
+
+// TestAFailedDonorIsSearchedForAgainAsADonor (anime dual-audio spec §9): a
+// donor that failed is replaced by another donor, never by a video grab.
+func TestAFailedDonorIsSearchedForAgainAsADonor(t *testing.T) {
+	f := newFixture(t, "redownload-donor")
+	movie := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "monster-2004"}
+	failed := f.failedDownload(t, movie, "g-donor", downloadv1alpha1.DownloadFailureMissingArticles, true)
+	f.newMovie(t, movie.Name, "hd-bluray-web", true, "")
+	env := f.event(t, failed, events.ActionBlocklisted, downloadv1alpha1.DownloadFailureMissingArticles, time.Now())
+	var evt schema.DownloadEvent
+	require.NoError(t, json.Unmarshal(env.Data, &evt))
+	evt.Purpose = string(downloadv1alpha1.DownloadPurposeAudioDonor)
+	_, env.Data, _ = schema.Encode(evt)
+
+	require.NoError(t, f.handler.Handle(f.ctx, testMessage{env: env}))
+	searches := f.bus.searches(t)
+	require.Len(t, searches, 1)
+	var task schema.SearchTask
+	require.NoError(t, json.Unmarshal(searches[0].env.Data, &task))
+	assert.Equal(t, schema.SearchPurposeAudioDonor, task.Purpose)
+	assert.Equal(t, schema.SearchReasonRedownload, task.Reason)
 }

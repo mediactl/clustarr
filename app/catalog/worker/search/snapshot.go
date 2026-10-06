@@ -290,6 +290,9 @@ func (w *Worker) queue(ctx context.Context, ns string, ref commonv1.MediaRef) ([
 	}
 	out := make([]decision.Queued, 0, len(list.Items))
 	for i := range list.Items {
+		if list.Items[i].Spec.IsDonor() {
+			continue // an audio donor is no video candidate: an upgrade never waits on a dub
+		}
 		rel := list.Items[i].Spec.Release
 		out = append(out, quality.Candidate{
 			Quality:     rel.Quality,

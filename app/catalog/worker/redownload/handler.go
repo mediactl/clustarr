@@ -309,7 +309,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		if !ok {
 			continue
 		}
-		if err := h.publishSearch(ctx, ns, evt.DownloadRef, item); err != nil {
+		if err := h.publishSearch(ctx, ns, evt.DownloadRef, item, evt.Purpose); err != nil {
 			if errors.Is(err, events.ErrQueueFull) {
 				return events.Retry(queueFullRetry, err)
 			}
@@ -428,10 +428,13 @@ func newItem(kind commonv1.MediaKind) (client.Object, func() *bool, error) {
 // publishSearch enqueues one item's redownload search at the normal tier,
 // shaped as every other SearchTask producer shapes it (the envelope key names
 // the item, the subject carries its media key).
-func (h *Handler) publishSearch(ctx context.Context, ns string, failed schema.Ref, item commonv1.MediaRef) error {
+func (h *Handler) publishSearch(ctx context.Context, ns string, failed schema.Ref, item commonv1.MediaRef, purpose string) error {
 	schemaName, data, err := schema.Encode(schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: item.Kind, Name: item.Name},
 		Reason:   schema.SearchReasonRedownload,
+		// A failed donor is replaced by another donor, never by a video
+		// grab (anime dual-audio spec §9).
+		Purpose: purpose,
 	})
 	if err != nil {
 		return events.Discard("redownload: encode SearchTask", err)

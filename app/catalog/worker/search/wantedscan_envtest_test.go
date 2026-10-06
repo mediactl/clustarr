@@ -296,3 +296,62 @@ func TestWorkerDiscardsAnUnknownSchema(t *testing.T) {
 	require.ErrorAs(t, err, &de)
 	require.Contains(t, de.Reason, "unknown payload schema")
 }
+
+// TestWorkerWantedScanQueuesDonorSearchesUnderACap (anime dual-audio spec
+// §6.1): a sweep publishes a donor search for each item whose file lacks a
+// grafted dub, beside any video search, at most DonorSearchesPerSweep of
+// them live -- a pool of searches is never fired at an indexer at once --
+// and the ones searched before from the local release index.
+func TestWorkerWantedScanQueuesDonorSearchesUnderACap(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "worker-wantedscan-donors")
+	pub := &recordingPublisher{}
+	f.worker.Publisher = pub
+	f.worker.DonorSearchesPerSweep = 2
+
+	profile := "wf-worker-wantedscan-donors"
+	searched := metav1.NewTime(time.Now().Add(-30 * 24 * time.Hour))
+	for i, name := range []string{"monster-a", "monster-b", "monster-c", "monster-searched"} {
+		createMovie(t, ctx, f.mgr, f.ns, name, profile)
+		status := catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseImported).
+			WithAudio(catalogac.AudioState().WithWanted("en", "ja").WithPresent("ja").WithMissing("en").WithGraft("searching"))
+		_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarr, catalogac.Movie(name, f.ns).WithStatus(status))
+		require.NoError(t, err)
+		if i == 3 {
+			_, err = k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrGrab, catalogac.Movie(name, f.ns).WithStatus(
+				catalogac.MovieStatus().WithDonorSearchAttempts(commonv1.Attempts{Latest: &searched, Count: 1})))
+			require.NoError(t, err)
+		}
+	}
+	eventually(t, 10*time.Second, "the audio states to reach the cache", func() bool {
+		var list catalogv1alpha1.MovieList
+		if err := f.mgr.List(ctx, &list, client.InNamespace(f.ns)); err != nil {
+			return false
+		}
+		n := 0
+		for i := range list.Items {
+			if list.Items[i].Status.Audio != nil && (list.Items[i].Name != "monster-searched" || list.Items[i].Status.DonorSearchAttempts.Count == 1) {
+				n++
+			}
+		}
+		return n == 4
+	})
+
+	require.NoError(t, f.worker.Handle(ctx, testMessage{env: wantedScanEnvelope(t, schema.WantedScan{Namespace: f.ns, Epoch: 7})}))
+	_, envs := pub.snapshot()
+	live, indexed := 0, 0
+	for _, env := range envs {
+		var task schema.SearchTask
+		require.NoError(t, json.Unmarshal(env.Data, &task))
+		require.Equal(t, schema.SearchPurposeAudioDonor, task.Purpose, "an Imported movie gets only a donor search")
+		require.Contains(t, env.ID, "donor-search")
+		if task.IndexOnly {
+			indexed++
+			require.Equal(t, "monster-searched", task.MediaRef.Name)
+		} else {
+			live++
+		}
+	}
+	require.Equal(t, 2, live, "the live donor searches are capped")
+	require.Equal(t, 1, indexed, "a donor searched before is looked up in the release index")
+}

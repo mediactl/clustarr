@@ -92,7 +92,7 @@ func TestSink_PassesOverAnIndexerAtItsGrabLimit(t *testing.T) {
 			{ReleaseInfo: torrentRelease("guid-full-1", "full", q, 0), Approved: true, Rank: 0},
 			{ReleaseInfo: torrentRelease("guid-full-2", "full", q, 0), Approved: true, Rank: 1},
 			{ReleaseInfo: torrentRelease("guid-open", "open", q, 0), Approved: true, Rank: 2},
-		}, "")
+		}, "", "")
 	require.NoError(t, err)
 
 	var dls downloadv1alpha1.DownloadList
@@ -128,7 +128,7 @@ func TestSink_HoldsTheGrabUntilAWindowHasRoomWhenEveryIndexerIsFull(t *testing.T
 		[]commonv1.ReleaseDecision{
 			{ReleaseInfo: torrentRelease("guid-later", "later", q, 0), Approved: true, Rank: 0},
 			{ReleaseInfo: torrentRelease("guid-sooner", "sooner", q, 0), Approved: true, Rank: 1},
-		}, "")
+		}, "", "")
 	require.NoError(t, err)
 
 	var dls downloadv1alpha1.DownloadList
@@ -213,7 +213,7 @@ func TestPerformGrab_ARetriedGrabIsNotRefusedByItsOwnReservation(t *testing.T) {
 
 	profile := hdBlurayWeb(t)
 	err = immediateSink(c, bus, profile).Deliver(ctx, ns, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
-		[]commonv1.ReleaseDecision{{ReleaseInfo: torrentRelease("guid-1", "one", profile.Tiers[0][0].Quality, 0), Approved: true}}, "")
+		[]commonv1.ReleaseDecision{{ReleaseInfo: torrentRelease("guid-1", "one", profile.Tiers[0][0].Quality, 0), Approved: true}}, "", "")
 	require.NoError(t, err)
 
 	var dls downloadv1alpha1.DownloadList

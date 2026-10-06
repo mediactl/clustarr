@@ -104,7 +104,7 @@ type EvaluateFunc func(
 // covers. grabbedBy is what the resulting Download records (grabSource).
 type Sink interface {
 	Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision,
-		grabbedBy downloadv1alpha1.GrabSource) error
+		grabbedBy downloadv1alpha1.GrabSource, purpose downloadv1alpha1.DownloadPurpose) error
 }
 
 // NopSink drops the ranked list with a warning and acks the task. It must not
@@ -116,6 +116,7 @@ type NopSink struct{}
 // Deliver implements Sink.
 func (NopSink) Deliver(
 	ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision, _ downloadv1alpha1.GrabSource,
+	_ downloadv1alpha1.DownloadPurpose,
 ) error {
 	logging.FromContext(ctx).Warn("search: no grab sink is wired; discarding ranked results",
 		"namespace", ns, "kind", target.Kind, "item", target.Name, "results", len(ranked))
@@ -131,6 +132,10 @@ func (NopSink) Deliver(
 
 // Worker consumes catalog.SearchTask.v1.
 type Worker struct {
+	// DonorSearchesPerSweep caps the live audio donor searches one wanted
+	// sweep publishes per namespace (DefaultDonorSearchesPerSweep when 0).
+	DonorSearchesPerSweep int
+
 	Client    client.Client
 	RPC       SearchRPC
 	Catalogue *catalogue.Catalogue
@@ -325,6 +330,22 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		return err
 	}
 
+	var purpose downloadv1alpha1.DownloadPurpose
+	if task.Purpose == schema.SearchPurposeAudioDonor {
+		// An audio donor search (anime dual-audio spec §6.1): judged on the
+		// languages the file lacks, against the item's donors in flight.
+		donor, queue, ok, err := w.donorWant(ctx, ns, task.MediaRef, snap.Target)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			w.log(ctx).Debug("search: the file lacks no language a donor could graft; skipping a donor search")
+			return nil
+		}
+		snap.Target.Donor, snap.Target.Queue = donor, queue
+		purpose = downloadv1alpha1.DownloadPurposeAudioDonor
+	}
+
 	req := w.buildRequest(ns, task, snap, srch)
 	var resp schema.SearchResponse
 	if task.IndexOnly && w.Index != nil {
@@ -359,7 +380,13 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	// After the RPC, because a search that never reached an indexer is not an
 	// attempt: stamping it would let the backoff ladder grow while nothing was
 	// actually being searched for.
-	w.recordAttempt(ctx, ns, grabTarget(task))
+	if purpose != "" {
+		if err := grab.RecordDonorSearchAttempt(ctx, w.Client, ns, task.MediaRef, w.now()); err != nil {
+			w.log(ctx).Warn("search: could not record the donor search attempt", "err", err)
+		}
+	} else {
+		w.recordAttempt(ctx, ns, grabTarget(task))
+	}
 
 	opts, err := w.decisionOptions(ctx, ns, task)
 	if err != nil {
@@ -385,7 +412,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	if srch != nil {
 		return w.writeResults(ctx, srch, resp, ranked)
 	}
-	return w.sink().Deliver(ctx, ns, grabTarget(task), ranked, grabSource(task.Reason))
+	return w.sink().Deliver(ctx, ns, grabTarget(task), ranked, grabSource(task.Reason), purpose)
 }
 
 // grabSource is the spec.grabbedBy a grab this search leads to records. A
