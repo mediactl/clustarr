@@ -52,12 +52,72 @@ func dualAudio(p quality.Profile, title string) bool {
 	return err == nil && ok
 }
 
+// audioAnchor is the language a graft aligns on and a file must carry: the
+// original language when the policy lists it, else its default, else its
+// first language.
+func audioAnchor(p quality.Profile) string {
+	for _, l := range p.AudioLanguages {
+		if l == "original" {
+			return l
+		}
+	}
+	if p.AudioDefault != "" {
+		return p.AudioDefault
+	}
+	if len(p.AudioLanguages) > 0 {
+		return p.AudioLanguages[0]
+	}
+	return ""
+}
+
+// dualAudioApplies is dualAudio, believed only when the title names no
+// language besides the original and English: TRaSH's pattern also matches
+// "KOREAN.ENGLISH" and "Korean Dual Audio", which are not the Japanese
+// original (the phase 2 review).
+func dualAudioApplies(p quality.Profile, parsed *release.ParsedRelease, title, originalLanguage string) bool {
+	if originalLanguage == "" || !dualAudio(p, title) {
+		return false
+	}
+	if parsed.LanguageUnknown {
+		return true
+	}
+	for _, l := range parsed.Languages {
+		if !strings.EqualFold(l, originalLanguage) && !strings.EqualFold(l, "English") {
+			return false
+		}
+	}
+	return true
+}
+
+// namesWantedLanguages is whether a release's title names its languages
+// rather than assuming the original, and -- under an audio policy -- names
+// the anchor among them: only such a release replaces a wrong-language file
+// without an upgrade (upgradeRejection).
+func namesWantedLanguages(p quality.Profile, parsed *release.ParsedRelease, title, originalLanguage string) bool {
+	dual := dualAudioApplies(p, parsed, title, originalLanguage)
+	if parsed.LanguageUnknown && !dual {
+		return false
+	}
+	if len(p.AudioLanguages) == 0 {
+		return true
+	}
+	anchor := audioAnchor(p)
+	name := originalLanguage
+	if anchor != "original" {
+		name = originalLanguageName(context.Background(), anchor)
+	}
+	if name == "" {
+		return true
+	}
+	return containsFold(parsed.Languages, name) || (dual && (strings.EqualFold(name, originalLanguage) || strings.EqualFold(name, "English")))
+}
+
 // audioRejection is the release check that replaces languageRejection when a
 // profile sets audio languages (anime dual-audio spec §5.2). complete is
 // whether the release carries every wanted language. A partial release
-// passes only when the profile grafts and the release carries the anchor,
-// the original language, that a donor's audio is aligned against; an
-// unknown original language fails open, as languageRejection does.
+// passes only when the profile grafts and the release carries the anchor
+// (audioAnchor: the original language when listed) that a donor's audio is
+// aligned against; an unknown anchor fails open, as languageRejection does.
 func audioRejection(ctx context.Context, originalLanguage string, p quality.Profile, parsed *release.ParsedRelease, title string) (*common.Rejection, bool) {
 	var wanted []string
 	for _, l := range p.AudioLanguages {
@@ -70,7 +130,7 @@ func audioRejection(ctx context.Context, originalLanguage string, p quality.Prof
 		}
 	}
 	have := append([]string(nil), parsed.Languages...)
-	if dualAudio(p, title) && originalLanguage != "" {
+	if dualAudioApplies(p, parsed, title, originalLanguage) {
 		have = append(have, originalLanguage, "English")
 	}
 	var missing []string
@@ -82,7 +142,11 @@ func audioRejection(ctx context.Context, originalLanguage string, p quality.Prof
 	if len(missing) == 0 {
 		return nil, true
 	}
-	if p.AudioGraft && (originalLanguage == "" || containsFold(have, originalLanguage)) {
+	anchor := originalLanguage
+	if a := audioAnchor(p); a != "original" {
+		anchor = originalLanguageName(ctx, a)
+	}
+	if p.AudioGraft && (anchor == "" || containsFold(have, anchor)) {
 		return nil, false
 	}
 	r := newRejection(ReasonWantedLanguage, "audio %v wanted, found %v", wanted, have)

@@ -118,7 +118,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	add(transcodedRejection(t, o))
 	// A dual-audio anime release names its languages (the original and
 	// English) though the parser recognises neither word.
-	add(upgradeRejection(p, t, candidate, !parsed.LanguageUnknown || dualAudio(p, rel.Title)))
+	add(upgradeRejection(p, t, candidate, namesWantedLanguages(p, parsed, rel.Title, originalLanguage)))
 
 	d := Decision{
 		Release:             rel,

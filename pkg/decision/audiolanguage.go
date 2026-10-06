@@ -39,7 +39,7 @@ func LacksLanguage(p quality.Profile, originalTag string, audio []string) bool {
 	}
 	want := p.Language
 	if len(p.AudioLanguages) > 0 {
-		want = "original" // the anchor a graft aligns on (anime dual-audio spec §5.3)
+		want = audioAnchor(p) // the anchor a graft aligns on (anime dual-audio spec §5.3)
 	}
 	switch want {
 	case "", "any":

@@ -79,3 +79,31 @@ func TestLacksLanguageUsesTheAnchorUnderAnAudioPolicy(t *testing.T) {
 	require.True(t, LacksLanguage(p, "ja", []string{"ko"}), "the anchor overrides any")
 	require.False(t, LacksLanguage(p, "ja", []string{"en", "ja"}))
 }
+
+func TestAudioRejectionReadsAKoreanDualAudioTitleAsKorean(t *testing.T) {
+	// The phase 2 review: TRaSH's pattern also matches KOREAN.ENGLISH and
+	// Korean dual audio, which must not read as the Japanese original.
+	dual := quality.Profile{ScoreSet: "anime-sonarr", AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	for _, title := range []string{"Show.S01E01.KOREAN.ENGLISH.1080p.WEB-DL-GRP", "Show.S01E01.1080p.WEB-DL.Korean.Dual.Audio-GRP"} {
+		parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
+		require.NoError(t, err)
+		parsed.Languages = parsed.LanguagesFor("Japanese")
+		rej, _ := audioRejection(context.Background(), "Japanese", dual, parsed, title)
+		require.NotNil(t, rej, "%s lacks the Japanese anchor", title)
+		require.False(t, namesWantedLanguages(dual, parsed, title, "Japanese"), "%s names Korean, not the wanted languages", title)
+	}
+}
+
+func TestAnAudioPolicyWithoutOriginalAnchorsOnItsOwnLanguage(t *testing.T) {
+	en := quality.Profile{AudioLanguages: []string{"en"}, AudioGraft: true}
+	require.False(t, LacksLanguage(en, "ja", []string{"en"}), "an English file meets an [en] policy")
+	require.True(t, LacksLanguage(en, "ja", []string{"ja"}), "a Japanese-only file lacks the [en] policy's anchor")
+	title := "Show.S01E01.1080p.WEB-DL-GRP" // untagged: assumes Japanese
+	parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
+	require.NoError(t, err)
+	parsed.Languages = parsed.LanguagesFor("Japanese")
+	rej, _ := audioRejection(context.Background(), "Japanese", en, parsed, title)
+	require.NotNil(t, rej, "a Japanese release lacks the [en] policy's anchor, English")
+	enfr := quality.Profile{AudioLanguages: []string{"en", "fr"}, AudioGraft: true, AudioDefault: "fr"}
+	require.False(t, LacksLanguage(enfr, "ja", []string{"fr"}), "the default is the anchor when original is not listed")
+}
