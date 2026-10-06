@@ -19,6 +19,7 @@ package metadata
 
 import (
 	"context"
+	"regexp"
 	"time"
 
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
@@ -77,9 +78,11 @@ func plexBudget(ctx context.Context) time.Duration {
 // episode claimed, and a second attribute agrees. In order:
 //
 //  1. by TVDB episode id;
-//  2. by (season, episode), when Plex's episode carries no TVDB id or the
-//     same one -- or another one but the same title or air date (TVDB
-//     re-issues ids Plex keeps: Family Guy, Very Important People);
+//  2. by (season, episode), when the title or air date agrees too: Plex's
+//     episode may carry another TVDB id (TVDB re-issues ids Plex keeps:
+//     Family Guy, Very Important People) or none -- common for Plex's
+//     specials, which it numbers its own way, so the numbers alone joined
+//     272 episodes to another one (kind-cluster-plex audit, 2026-10-06);
 //  3. by title, unique among Plex's episodes of the show and among the
 //     episodes still unjoined (Plex numbers One Piece's tail lower);
 //  4. by air date, unique among Plex's episodes of the same season and the
@@ -106,7 +109,7 @@ func joinPlexEpisodes(plex []pkgmetadata.PlexEpisode, episodes []pkgmetadata.Epi
 		k := pair{p.Season, p.Episode}
 		count[k]++
 		byPair[k] = p
-		if t := release.TitleNorm(p.Title); t != "" {
+		if t := titleKey(p.Title); t != "" {
 			byTitle[t] = append(byTitle[t], p)
 		}
 		if p.AirDate != "" {
@@ -138,7 +141,7 @@ func joinPlexEpisodes(plex []pkgmetadata.PlexEpisode, episodes []pkgmetadata.Epi
 		if !ok || count[k] != 1 || claimed[p.ID] {
 			continue
 		}
-		if tvdb := e.IDs[pkgmetadata.KeyTVDB]; p.TVDB != "" && tvdb != p.TVDB && !sameTitle(p, e) && !sameAirDate(p, e) {
+		if !sameTitle(p, e) && !sameAirDate(p, e) {
 			continue
 		}
 		join(e, p.ID)
@@ -148,12 +151,12 @@ func joinPlexEpisodes(plex []pkgmetadata.PlexEpisode, episodes []pkgmetadata.Epi
 	wantTitle := map[string]int{}
 	for i := range episodes {
 		if episodes[i].PlexID == "" {
-			wantTitle[release.TitleNorm(episodes[i].Title)]++
+			wantTitle[titleKey(episodes[i].Title)]++
 		}
 	}
 	for i := range episodes {
 		e := &episodes[i]
-		t := release.TitleNorm(e.Title)
+		t := titleKey(e.Title)
 		if e.PlexID != "" || t == "" || wantTitle[t] != 1 {
 			continue
 		}
@@ -189,9 +192,21 @@ func airDate(e *pkgmetadata.Episode) string {
 	return e.AirDate.UTC().Format("2006-01-02")
 }
 
+// genericTitle is a placeholder title -- Plex's "Episode 5" -- that names
+// no episode in particular.
+var genericTitle = regexp.MustCompile(`(?i)^\s*episode\s*\d+\s*$`)
+
+// titleKey is the title the join compares, "" for none or a placeholder.
+func titleKey(title string) string {
+	if genericTitle.MatchString(title) {
+		return ""
+	}
+	return release.TitleNorm(title)
+}
+
 func sameTitle(p pkgmetadata.PlexEpisode, e *pkgmetadata.Episode) bool {
-	t := release.TitleNorm(p.Title)
-	return t != "" && t == release.TitleNorm(e.Title)
+	t := titleKey(p.Title)
+	return t != "" && t == titleKey(e.Title)
 }
 
 func sameAirDate(p pkgmetadata.PlexEpisode, e *pkgmetadata.Episode) bool {

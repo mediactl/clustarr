@@ -39,8 +39,9 @@ func TestJoinPlexEpisodes(t *testing.T) {
 	plex := []pkgmetadata.PlexEpisode{
 		{Season: 1, Episode: 1, TVDB: "297989", ID: "aaaaaaaaaaaaaaaaaaaaaaa1"},
 		{Season: 1, Episode: 2, TVDB: "297990", ID: "aaaaaaaaaaaaaaaaaaaaaaa2"},
-		// Plex files a special TVDB numbers S00E03 as S00E07, with no tvdb id.
-		{Season: 0, Episode: 7, ID: "aaaaaaaaaaaaaaaaaaaaaaa7"},
+		// Plex files a special TVDB numbers S00E03 as S00E07, with no tvdb id;
+		// the title confirms the pair.
+		{Season: 0, Episode: 7, ID: "aaaaaaaaaaaaaaaaaaaaaaa7", Title: "Making Of"},
 		// Two Plex episodes on one pair: ambiguous.
 		{Season: 2, Episode: 1, ID: "bbbbbbbbbbbbbbbbbbbbbbb1"},
 		{Season: 2, Episode: 1, ID: "bbbbbbbbbbbbbbbbbbbbbbb2"},
@@ -51,7 +52,7 @@ func TestJoinPlexEpisodes(t *testing.T) {
 		ep(1, 1, "297989"), // by tvdb id
 		ep(9, 9, "297990"), // by tvdb id, whatever its numbering
 		ep(1, 2, ""),       // pair (1,2) is Plex's tvdb 297990, already claimed above
-		ep(0, 7, "555"),    // pair fallback: Plex's episode carries no tvdb id
+		epAt(0, 7, "555", "Making Of", ""), // pair, Plex has no tvdb id, title agrees
 		ep(2, 1, ""),       // ambiguous pair
 		ep(3, 1, "901"),    // pair fallback refused: Plex's episode names another tvdb id
 		ep(4, 1, ""),       // Plex has nothing
@@ -185,4 +186,28 @@ func TestJoinPlexEpisodesWhenTVDBDisagrees(t *testing.T) {
 		"ggggggggggggggggggggggg1",
 		"",
 	}, got)
+}
+
+// A pair whose Plex episode carries no TVDB id is not a match on the
+// numbers alone: Plex numbers specials its own way, and the audit of
+// kind-cluster-plex found 272 such joins agreeing on neither title nor air
+// date, many plainly another episode (2026-10-06). A generic "Episode N"
+// title confirms nothing.
+func TestJoinPlexEpisodesNeedsASecondAttributeWithoutATVDBID(t *testing.T) {
+	plex := []pkgmetadata.PlexEpisode{
+		// Arcane S00E11 is a music video; Plex's S00E11 is another special.
+		{Season: 0, Episode: 11, ID: "aaaaaaaaaaaaaaaaaaaaaaa1", Title: "Bridging the Rift: Killstreaks", AirDate: "2024-11-20"},
+		// Bref: Plex titles its specials "Episode N".
+		{Season: 0, Episode: 5, ID: "bbbbbbbbbbbbbbbbbbbbbbb1", Title: "Episode 5"},
+		// The same pair with a generic title but a matching air date.
+		{Season: 0, Episode: 6, ID: "ccccccccccccccccccccccc1", Title: "Episode 6", AirDate: "2011-11-01"},
+	}
+	episodes := []pkgmetadata.Episode{
+		epAt(0, 11, "", "Stromae, Pomme – Ma Meilleure Ennemie", "2024-11-09"),
+		epAt(0, 5, "4360891", "Bref. Nous sommes 2 millions", ""),
+		epAt(0, 6, "4315151", "Episode 6", "2011-11-01"),
+	}
+	joinPlexEpisodes(plex, episodes)
+	require.Equal(t, []string{"", "", "ccccccccccccccccccccccc1"},
+		[]string{episodes[0].PlexID, episodes[1].PlexID, episodes[2].PlexID})
 }
