@@ -14,7 +14,7 @@ in production (CLAUDE.md, gotchas on par2).
 **par2go** is a new repository, `github.com/mediactl/par2go`, that gives Go
 typed verify and repair over par2cmdline-turbo's C++ library, without cgo,
 the way `mediactl/ffgo` gives Go FFmpeg: Go loads a shared library with
-`purego` and calls a small `extern "C"` shim.
+`purego` (v0.11.1) and calls a small `extern "C"` shim.
 
 In scope: verify, repair, progress, cancellation, typed results, prebuilt
 `linux-amd64` and `linux-arm64` shared libraries.
@@ -228,7 +228,7 @@ job is done but not yet known to be.
 
 The one-way boundary is deliberate, and a later change should not "simplify"
 progress into callbacks without answering each point below. These claims were
-checked against purego v0.9.1's source on 2026-10-06.
+checked against purego v0.11.1's source (`syscall_unix.go`, `zcallback_*.s`, `internal/fakecgo`) on 2026-10-06; par2go pins v0.11.1, the version ffgo uses.
 
 - **Foreign threads.** par2-turbo calls its hooks from its own worker threads.
   purego can take a callback on a thread Go did not create only through
