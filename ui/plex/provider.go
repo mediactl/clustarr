@@ -104,13 +104,19 @@ type rootDef struct {
 	identifier string
 	types      []int
 	tv         bool
+	// collections serves the collection feature (collection.go). The
+	// root does not declare type 18 for it: PMS 1.43.4 refuses a provider
+	// that does ("The provider supports unsupported metadata types",
+	// 2026-10-06), though Plex's provider docs list it.
+	collections bool
 }
 
 var moviesRoot = rootDef{
-	path:       "/plex/movies",
-	title:      "Clustarr Movies",
-	identifier: MoviesIdentifier,
-	types:      []int{typeMovie, typeCollection},
+	path:        "/plex/movies",
+	title:       "Clustarr Movies",
+	identifier:  MoviesIdentifier,
+	types:       []int{typeMovie},
+	collections: true,
 }
 
 var tvRoot = rootDef{
@@ -139,7 +145,7 @@ func (h *handler) register(mux *http.ServeMux, root rootDef) {
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}", h.handleMetadata(root))
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/images", h.handleImages(root))
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/extras", h.handleExtras(root))
-	if root.declares(typeCollection) {
+	if root.collections {
 		mux.HandleFunc("GET "+root.path+"/library/collections/{key}", h.handleCollection(root))
 		mux.HandleFunc("GET "+root.path+"/library/collections/{key}/children", h.handleCollectionChildren(root))
 	}

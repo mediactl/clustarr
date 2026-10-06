@@ -10,14 +10,6 @@
             "scheme": "tv.plex.agents.custom.clustarr.movies"
           }
         ]
-      },
-      {
-        "type": 18,
-        "Scheme": [
-          {
-            "scheme": "tv.plex.agents.custom.clustarr.movies"
-          }
-        ]
       }
     ],
     "Feature": [

@@ -50,7 +50,7 @@ func (h *handler) handleRoot(root rootDef) http.HandlerFunc {
 			{Type: "match", Key: "/library/metadata/matches"},
 			{Type: "metadata", Key: "/library/metadata"},
 		}
-		if root.declares(typeCollection) {
+		if root.collections {
 			features = append(features, Feature{Type: "collection", Key: "/library/collections"})
 		}
 		writeJSON(w, http.StatusOK, mediaProviderResponse{MediaProvider: MediaProvider{

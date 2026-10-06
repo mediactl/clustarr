@@ -84,7 +84,7 @@ func collectionChildrenKey(key string) string {
 // collection's GUID, the key its items are listed at, and its name. The
 // summary and artwork are added from the movie's extended document.
 func movieCollectionRef(root rootDef, u urls, c catalogv1.CollectionRef) CollectionRef {
-	if !root.declares(typeCollection) || c.TmdbID == 0 {
+	if !root.collections || c.TmdbID == 0 {
 		return CollectionRef{Tag: c.Name}
 	}
 	return CollectionRef{

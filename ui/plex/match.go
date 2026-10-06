@@ -102,6 +102,12 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 // "results are full Metadata objects"). Every type asks rule 0, the file
 // (matchfile.go), before its guid and title rules.
 func (h *handler) match(ctx context.Context, root rootDef, u urls, idx *projection.Index, req matchRequest) []Metadata {
+	if req.Type == typeCollection {
+		if !root.collections {
+			return nil
+		}
+		return h.matchCollections(ctx, root, u, idx, req)
+	}
 	if !root.declares(req.Type) {
 		// A type another root declares (a show asked of the movies root):
 		// no match, the same empty container as an unknown title.
@@ -170,9 +176,6 @@ func (h *handler) match(ctx context.Context, root rootDef, u urls, idx *projecti
 			return nil
 		}
 		return []Metadata{buildEpisodeMetadata(root, u, s, e)}
-
-	case typeCollection:
-		return h.matchCollections(ctx, root, u, idx, req)
 
 	default:
 		return nil

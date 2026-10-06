@@ -110,15 +110,17 @@ func readRoot(t *testing.T, h http.Handler, path string) (types []int, features 
 	return types, features
 }
 
-// The movies provider declares collections (type 18) and the collection
-// feature; both providers declare match, which Plex's provider docs make
+// The movies provider declares the collection feature; both providers declare match, which Plex's provider docs make
 // required. Collections are movie-only ("currently only supported in movie
 // libraries"), so the tv provider declares none.
 func TestTheRootsDeclareMatchAndTheMoviesRootCollections(t *testing.T) {
 	h := collectionHandler(t, true)
 
+	// Not type 18: PMS 1.43.4 refuses a provider declaring it ("The
+	// provider supports unsupported metadata types", 2026-10-06), though
+	// Plex's docs list it; the collection feature alone is accepted.
 	types, features := readRoot(t, h, "/plex/movies")
-	assert.ElementsMatch(t, []int{1, 18}, types)
+	assert.ElementsMatch(t, []int{1}, types)
 	assert.Equal(t, "/library/metadata/matches", features["match"])
 	assert.Equal(t, "/library/metadata", features["metadata"])
 	assert.Equal(t, "/library/collections", features["collection"])
