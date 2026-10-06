@@ -21,6 +21,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -179,10 +180,16 @@ func TestAlignRuntime(t *testing.T) {
 	}
 	target := soundtrack(9, 24*60)
 	donor := delay(resample(target, 25/23.976), time.Second)
-	start := time.Now()
+	cpu0, start := cpuTime(t), time.Now()
 	_, err := audioalign.Align(donor, target)
 	require.NoError(t, err)
-	require.Less(t, time.Since(start), 30*time.Second, "a 24-minute episode must align well inside a worker's budget")
+	cpu, wall := cpuTime(t)-cpu0, time.Since(start)
+	t.Logf("align: wall %s, cpu %s", wall, cpu)
+	// CPU time, not wall time: under make test every package runs at once
+	// and the wall clock measures the machine's load (32 s against 14 s
+	// alone, 2026-10-06). About 100 s of CPU alone; a graft Job's 4 cores
+	// take some 25 s of it.
+	require.Less(t, cpu, 240*time.Second, "a 24-minute episode must align well inside a worker's budget")
 }
 
 // TestRealPair is gate G1 (spec §10): two real releases of one episode,
@@ -216,4 +223,11 @@ func TestRealPair(t *testing.T) {
 		return
 	}
 	require.NoError(t, r.Accept(audioalign.DefaultThresholds))
+}
+
+// cpuTime is the process's user plus system CPU time so far.
+func cpuTime(t *testing.T) time.Duration {
+	var ru syscall.Rusage
+	require.NoError(t, syscall.Getrusage(syscall.RUSAGE_SELF, &ru))
+	return time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
 }
