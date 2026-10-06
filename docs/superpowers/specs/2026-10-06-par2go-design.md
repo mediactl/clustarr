@@ -44,6 +44,14 @@ The candidates were:
 
 Pin: tag `v1.5.0-20261005`, commit `4aa390514d0236c00810f2a74f4435b6fff5df37`.
 
+**Patched (as built, 2026-10-06).** The nzbgetcom fork differs from
+animetosho's v1.5.0 on one point that matters here: it converts every
+stored file name from Latin-1 to UTF-8 (`descriptionpacket.cpp`), so a
+name already written as UTF-8 -- what par2cmdline, ParPar and MultiPar
+write -- is encoded twice, the file reads as missing, and repair writes a
+garbled duplicate. `shim/patches/0001-keep-utf8-names.patch` keeps valid
+UTF-8 as is; `build.sh` applies it on top of the verified pin.
+
 Licence: par2cmdline-turbo's sources are GPL-2.0-or-later ("any later
 version" in 65 files), so par2go is **GPL-3.0-or-later**, with
 `hack/boilerplate.go.txt`'s header on every Go file and the equivalent on the
@@ -276,6 +284,18 @@ for {
 	}
 }
 ```
+
+**Why not an async C thread either (2026-10-06).** A shim that starts
+`Process` on its own `std::thread` and returns at once, with Go polling an
+`is_done` flag, was considered and declined. It moves the one OS thread a
+running job needs out of Go's accounting rather than saving it: a blocking
+purego call holds one thread, as a blocking syscall does, while Go hands
+its scheduler slot to another thread, and par2go runs one job at a time,
+so callers queue on a Go mutex that holds no thread at all. What such a
+design does buy -- C memory never freed under a running job -- par2go gets
+from one deferred guard in `run` that, on any exit (return, panic, or a
+`runtime.Goexit` in `Progress`), cancels and waits for `p2_run` before
+`p2_free`. Revisit only if jobs ever run concurrently.
 
 What is **not** handled: a crash inside the C++ library (a SIGSEGV on a hostile
 or corrupt set) takes the process down. The only remedy is process isolation,
