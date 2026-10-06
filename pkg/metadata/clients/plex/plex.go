@@ -27,8 +27,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ("plex://movie/<24 hex>") and Guid[] (the external ids); no match is 200
 // with no Metadata. /library/metadata/<id>/children lists a show's seasons
 // (index = season number) and /grandchildren its episodes (parentIndex,
-// index, Guid[] with tvdb://<episode id>), paged by X-Plex-Container-Start
-// and -Size against totalSize. Every request needs a Plex account token in
+// index, Guid[] with tvdb://<episode id>), paged by the X-Plex-Container-Start
+// and -Size request headers against totalSize -- never the query string,
+// where the service answers a smaller set (Chicago P.D.'s grandchildren:
+// totalSize 258 rather than 268, ten season 7 episodes missing, 2026-10-06).
+// Every request needs a Plex account token in
 // X-Plex-Token; without one the service answers 401.
 package plex
 
@@ -323,17 +326,20 @@ func (c *Client) ShowChildren(ctx context.Context, ids metadata.ExternalIDs) (*m
 }
 
 // pages reads every page of a listing, refusing one longer than maxPages.
+// The paging rides the headers: in the query string the service drops
+// episodes from the listing, totalSize included (the package doc).
 func (c *Client) pages(ctx context.Context, path string, q url.Values) ([]item, error) {
+	target := c.baseURL + path
+	if len(q) > 0 {
+		target += "?" + q.Encode()
+	}
 	var all []item
 	for range maxPages {
-		v := url.Values{}
-		for k, vs := range q {
-			v[k] = vs
-		}
-		v.Set("X-Plex-Container-Start", strconv.Itoa(len(all)))
-		v.Set("X-Plex-Container-Size", strconv.Itoa(c.pageSize))
+		h := c.header()
+		h.Set("X-Plex-Container-Start", strconv.Itoa(len(all)))
+		h.Set("X-Plex-Container-Size", strconv.Itoa(c.pageSize))
 		var out container
-		if err := c.h.GetJSON(ctx, c.baseURL+path+"?"+v.Encode(), c.header(), &out); err != nil {
+		if err := c.h.GetJSON(ctx, target, h, &out); err != nil {
 			return nil, err
 		}
 		mc := out.MediaContainer

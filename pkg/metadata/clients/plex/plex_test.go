@@ -67,6 +67,15 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	require.Equal(f.t, "application/json", r.Header.Get("Accept"))
 	q := r.URL.Query()
+	// The live service answers a smaller set when the paging rides the
+	// query string (Chicago P.D.'s grandchildren: totalSize 258 rather
+	// than 268, ten season 7 episodes missing, 2026-10-06); only the
+	// headers page the whole listing.
+	if q.Has("X-Plex-Container-Start") || q.Has("X-Plex-Container-Size") {
+		f.t.Errorf("paging in the query string of %s: Plex answers a filtered set; send it as headers", r.URL)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 	switch r.URL.Path {
 	case "/library/metadata/matches":
 		name, ok := f.matches[q.Get("guid")]
@@ -78,7 +87,7 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(fixture(f.t, "children_"+fireID+".json"))
 	case "/library/metadata/" + fireID + "/grandchildren":
 		require.Equal(f.t, "1", q.Get("includeGuids"))
-		_, _ = w.Write(fixture(f.t, "grandchildren_"+fireID+"_"+q.Get("X-Plex-Container-Start")+".json"))
+		_, _ = w.Write(fixture(f.t, "grandchildren_"+fireID+"_"+r.Header.Get("X-Plex-Container-Start")+".json"))
 	default:
 		f.t.Errorf("unexpected request %s", r.URL)
 		w.WriteHeader(http.StatusNotFound)
@@ -161,6 +170,9 @@ func TestShowChildrenPagesEveryEpisode(t *testing.T) {
 	require.Contains(t, got.Episodes, metadata.PlexEpisode{Season: 1, Episode: 1, TVDB: "297989", ID: "5d9c127e4eefaa001f6449c2", Title: "The Train Job", AirDate: "2002-09-20"})
 	require.Contains(t, got.Episodes, metadata.PlexEpisode{Season: 0, Episode: 7, ID: "5ea14257f3d60a003f39ea44", Title: `Adam Baldwin Sings "Hero of Canton"`, AirDate: "2012-11-13"}, "an episode Plex has no TVDB id for")
 	require.Len(t, f.requests, 5, "one match, one seasons page, three episode pages")
+	for _, r := range f.requests[1:] {
+		require.Equal(t, "10", r.Header.Get("X-Plex-Container-Size"), "every listing page asks its size in a header")
+	}
 }
 
 func TestShowChildrenIsCached(t *testing.T) {
