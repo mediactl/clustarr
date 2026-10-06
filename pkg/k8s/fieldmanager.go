@@ -163,6 +163,13 @@ const (
 	// neither apply releases the other's.
 	ManagerCatalogarrMarkers FieldManager = "catalogarr-markers"
 
+	// ManagerCatalogarrClassify is the Series reconciler's one-time anime
+	// classification: it merge-patches spec.seriesType and
+	// spec.qualityProfileRef once, never again for that Series. Distinct
+	// from every creator's manager (importarr, importarr-worker,
+	// clustarr-ui), so the patch reads in managedFields as the classifier's.
+	ManagerCatalogarrClassify FieldManager = "catalogarr-classify"
+
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
 	//
@@ -313,6 +320,7 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogarrFanout,
 		ManagerCatalogarrArtwork,
 		ManagerCatalogarrMarkers,
+		ManagerCatalogarrClassify,
 		ManagerImportarr,
 		ManagerImportarrWorker,
 		ManagerIndexarr,

@@ -27,13 +27,15 @@ import (
 
 // SeriesStatusApplyConfiguration represents a declarative configuration of the SeriesStatus type for use
 // with apply.
-//
-// SeriesStatus describes the observed state of Series.
 type SeriesStatusApplyConfiguration struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions represent the latest available observations of the series' state.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// Classification records the one-time anime detection: once set, the
+	// Series reconciler never classifies the series again, so a profile or
+	// type the owner changes afterwards stays.
+	Classification *SeriesClassificationApplyConfiguration `json:"classification,omitempty"`
 	// Phase is the coarse lifecycle state of the series.
 	Phase *catalogv1alpha1.SeriesPhase `json:"phase,omitempty"`
 	// Metadata is the cached provider metadata.
@@ -94,6 +96,14 @@ func (b *SeriesStatusApplyConfiguration) WithConditions(values ...*v1.ConditionA
 		}
 		b.Conditions = append(b.Conditions, *values[i])
 	}
+	return b
+}
+
+// WithClassification sets the Classification field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Classification field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithClassification(value *SeriesClassificationApplyConfiguration) *SeriesStatusApplyConfiguration {
+	b.Classification = value
 	return b
 }
 

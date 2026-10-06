@@ -47,6 +47,11 @@ type RootDefaultsApplyConfiguration struct {
 	MinimumAvailability *catalogv1alpha1.MinimumAvailability `json:"minimumAvailability,omitempty"`
 	// SeriesType is the default series type for series added here.
 	SeriesType *catalogv1alpha1.SeriesType `json:"seriesType,omitempty"`
+	// Anime are the defaults a series under this folder takes once its
+	// metadata shows it is anime (TVDB genre "Anime"); the Series
+	// reconciler applies them once and records status.classification.
+	// Unset: no detection.
+	Anime *AnimeDefaultsApplyConfiguration `json:"anime,omitempty"`
 	// SeasonFolder is the default season-folder flag for series added here.
 	SeasonFolder *bool `json:"seasonFolder,omitempty"`
 	// Tags are applied to every item added under this root folder.
@@ -128,6 +133,14 @@ func (b *RootDefaultsApplyConfiguration) WithMinimumAvailability(value catalogv1
 // If called multiple times, the SeriesType field is set to the value of the last call.
 func (b *RootDefaultsApplyConfiguration) WithSeriesType(value catalogv1alpha1.SeriesType) *RootDefaultsApplyConfiguration {
 	b.SeriesType = &value
+	return b
+}
+
+// WithAnime sets the Anime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Anime field is set to the value of the last call.
+func (b *RootDefaultsApplyConfiguration) WithAnime(value *AnimeDefaultsApplyConfiguration) *RootDefaultsApplyConfiguration {
+	b.Anime = value
 	return b
 }
 

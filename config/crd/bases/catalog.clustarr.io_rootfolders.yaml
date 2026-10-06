@@ -67,6 +67,30 @@ spec:
               defaults:
                 description: Defaults are applied to items added under this root folder.
                 properties:
+                  anime:
+                    description: |-
+                      Anime are the defaults a series under this folder takes once its
+                      metadata shows it is anime (TVDB genre "Anime"); the Series
+                      reconciler applies them once and records status.classification.
+                      Unset: no detection.
+                    properties:
+                      qualityProfileRef:
+                        description: QualityProfileRef is the profile an anime series
+                          is moved to.
+                        minLength: 1
+                        type: string
+                      seriesType:
+                        default: anime
+                        description: SeriesType is the series type an anime series
+                          is moved to.
+                        enum:
+                        - standard
+                        - daily
+                        - anime
+                        type: string
+                    required:
+                    - qualityProfileRef
+                    type: object
                   delayProfileRef:
                     description: DelayProfileRef is the default DelayProfile name.
                     type: string

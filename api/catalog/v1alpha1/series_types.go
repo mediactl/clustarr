@@ -417,6 +417,27 @@ type SeriesSpec struct {
 }
 
 // SeriesStatus describes the observed state of Series.
+// AnnotationClassify set to "off" skips anime classification for a Series.
+const AnnotationClassify = "catalog.clustarr.io/classify"
+
+// SeriesClassification is the result of the one-time anime detection
+// (docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md §4).
+type SeriesClassification struct {
+	// Anime is true when the series' metadata named it anime.
+	Anime bool `json:"anime"`
+
+	// AppliedAt is when it was classified.
+	AppliedAt metav1.Time `json:"appliedAt"`
+
+	// QualityProfileRef is the profile applied, empty when none was.
+	// +optional
+	QualityProfileRef string `json:"qualityProfileRef,omitempty"`
+
+	// SeriesType is the series type applied, empty when none was.
+	// +optional
+	SeriesType SeriesType `json:"seriesType,omitempty"`
+}
+
 type SeriesStatus struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
 	// +optional
@@ -430,6 +451,12 @@ type SeriesStatus struct {
 	// +patchMergeKey=type
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// Classification records the one-time anime detection: once set, the
+	// Series reconciler never classifies the series again, so a profile or
+	// type the owner changes afterwards stays.
+	// +optional
+	Classification *SeriesClassification `json:"classification,omitempty"`
 
 	// Phase is the coarse lifecycle state of the series.
 	// +optional

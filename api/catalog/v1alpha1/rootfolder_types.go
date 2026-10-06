@@ -150,6 +150,13 @@ type RootDefaults struct {
 	// +kubebuilder:default=standard
 	SeriesType SeriesType `json:"seriesType,omitempty"`
 
+	// Anime are the defaults a series under this folder takes once its
+	// metadata shows it is anime (TVDB genre "Anime"); the Series
+	// reconciler applies them once and records status.classification.
+	// Unset: no detection.
+	// +optional
+	Anime *AnimeDefaults `json:"anime,omitempty"`
+
 	// SeasonFolder is the default season-folder flag for series added here.
 	// +optional
 	// +kubebuilder:default=true
@@ -159,6 +166,19 @@ type RootDefaults struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=64
 	Tags []string `json:"tags,omitempty"`
+}
+
+// AnimeDefaults are what an anime series is moved to on classification
+// (docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md §4).
+type AnimeDefaults struct {
+	// QualityProfileRef is the profile an anime series is moved to.
+	// +kubebuilder:validation:MinLength=1
+	QualityProfileRef string `json:"qualityProfileRef"`
+
+	// SeriesType is the series type an anime series is moved to.
+	// +optional
+	// +kubebuilder:default=anime
+	SeriesType SeriesType `json:"seriesType,omitempty"`
 }
 
 // NamingSpec controls how catalogarr lays files out under the root folder.

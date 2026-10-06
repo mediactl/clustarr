@@ -35,6 +35,9 @@ const (
 	MovieConditionHasFile = "HasFile"
 	// MovieConditionCutoffMet is True when the imported file meets the profile cutoff.
 	MovieConditionCutoffMet = "CutoffMet"
+	// MovieConditionWrongLanguage is True when the file's probed audio
+	// lacks the language the profile wants (decision.LacksLanguage).
+	MovieConditionWrongLanguage = "WrongLanguage"
 	// MovieConditionQueueFull is True while grabs are being throttled.
 	MovieConditionQueueFull = "QueueFull"
 )

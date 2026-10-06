@@ -43,6 +43,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.AlbumStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AltTitle"):
 		return &catalogv1alpha1.AltTitleApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("AnimeDefaults"):
+		return &catalogv1alpha1.AnimeDefaultsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ArrList"):
 		return &catalogv1alpha1.ArrListApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Artist"):
@@ -269,6 +271,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.SeriesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeriesAddOptions"):
 		return &catalogv1alpha1.SeriesAddOptionsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeriesClassification"):
+		return &catalogv1alpha1.SeriesClassificationApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeriesLink"):
 		return &catalogv1alpha1.SeriesLinkApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeriesMetadata"):

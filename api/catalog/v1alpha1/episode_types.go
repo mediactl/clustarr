@@ -31,6 +31,9 @@ const (
 	EpisodeConditionHasFile = "HasFile"
 	// EpisodeConditionCutoffMet is True when the imported file meets the profile cutoff.
 	EpisodeConditionCutoffMet = "CutoffMet"
+	// EpisodeConditionWrongLanguage is True when the file's probed audio
+	// lacks the language the profile wants (decision.LacksLanguage).
+	EpisodeConditionWrongLanguage = "WrongLanguage"
 	// EpisodeConditionReady is True when the episode is fully reconciled.
 	EpisodeConditionReady = "Ready"
 )

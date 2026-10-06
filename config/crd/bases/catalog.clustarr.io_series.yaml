@@ -264,7 +264,6 @@ spec:
             - tvdbID
             type: object
           status:
-            description: SeriesStatus describes the observed state of Series.
             properties:
               addOptionsApplied:
                 description: AddOptionsApplied is true once spec.addOptions has been
@@ -330,6 +329,36 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              classification:
+                description: |-
+                  Classification records the one-time anime detection: once set, the
+                  Series reconciler never classifies the series again, so a profile or
+                  type the owner changes afterwards stays.
+                properties:
+                  anime:
+                    description: Anime is true when the series' metadata named it
+                      anime.
+                    type: boolean
+                  appliedAt:
+                    description: AppliedAt is when it was classified.
+                    format: date-time
+                    type: string
+                  qualityProfileRef:
+                    description: QualityProfileRef is the profile applied, empty when
+                      none was.
+                    type: string
+                  seriesType:
+                    description: SeriesType is the series type applied, empty when
+                      none was.
+                    enum:
+                    - standard
+                    - daily
+                    - anime
+                    type: string
+                required:
+                - anime
+                - appliedAt
+                type: object
               conditions:
                 description: Conditions represent the latest available observations
                   of the series' state.

@@ -225,6 +225,16 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AnimeDefaults
+  map:
+    fields:
+    - name: qualityProfileRef
+      type:
+        scalar: string
+    - name: seriesType
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesType
+      default: anime
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArrKind
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArrList
@@ -3273,6 +3283,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.RootDefaults
   map:
     fields:
+    - name: anime
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AnimeDefaults
     - name: delayProfileRef
       type:
         scalar: string
@@ -3707,6 +3720,21 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesClassification
+  map:
+    fields:
+    - name: anime
+      type:
+        scalar: boolean
+    - name: appliedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: qualityProfileRef
+      type:
+        scalar: string
+    - name: seriesType
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesType
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesLink
   map:
     fields:
@@ -3961,6 +3989,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: classification
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesClassification
     - name: conditions
       type:
         list:
