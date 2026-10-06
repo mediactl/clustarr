@@ -1,64 +1,67 @@
 {
- "MediaContainer": {
-  "offset": 20,
-  "size": 3,
-  "totalSize": 23,
-  "identifier": "tv.plex.provider.metadata",
-  "Metadata": [
-   {
-    "guid": "plex://episode/5d9c127e2df347001e41c8fb",
-    "type": "episode",
-    "title": "War Stories",
-    "index": 9,
-    "parentIndex": 1,
-    "Guid": [
-     {
-      "id": "imdb://tt0579541"
-     },
-     {
-      "id": "tmdb://1048602"
-     },
-     {
-      "id": "tvdb://297997"
-     }
+  "MediaContainer": {
+    "offset": 20,
+    "size": 3,
+    "totalSize": 23,
+    "identifier": "tv.plex.provider.metadata",
+    "Metadata": [
+      {
+        "guid": "plex://episode/5d9c127e2df347001e41c8fb",
+        "type": "episode",
+        "title": "War Stories",
+        "index": 9,
+        "parentIndex": 1,
+        "originallyAvailableAt": "2002-12-06",
+        "Guid": [
+          {
+            "id": "imdb://tt0579541"
+          },
+          {
+            "id": "tmdb://1048602"
+          },
+          {
+            "id": "tvdb://297997"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5d9c127e2df347001e41c90b",
+        "type": "episode",
+        "title": "Objects in Space",
+        "index": 10,
+        "parentIndex": 1,
+        "originallyAvailableAt": "2002-12-13",
+        "Guid": [
+          {
+            "id": "imdb://tt0579531"
+          },
+          {
+            "id": "tmdb://1048606"
+          },
+          {
+            "id": "tvdb://297998"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5d9c127e7d06d9001fff83bc",
+        "type": "episode",
+        "title": "Serenity",
+        "index": 11,
+        "parentIndex": 1,
+        "originallyAvailableAt": "2002-12-20",
+        "Guid": [
+          {
+            "id": "imdb://tt0579535"
+          },
+          {
+            "id": "tmdb://1048593"
+          },
+          {
+            "id": "tvdb://297999"
+          }
+        ]
+      }
     ]
-   },
-   {
-    "guid": "plex://episode/5d9c127e2df347001e41c90b",
-    "type": "episode",
-    "title": "Objects in Space",
-    "index": 10,
-    "parentIndex": 1,
-    "Guid": [
-     {
-      "id": "imdb://tt0579531"
-     },
-     {
-      "id": "tmdb://1048606"
-     },
-     {
-      "id": "tvdb://297998"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5d9c127e7d06d9001fff83bc",
-    "type": "episode",
-    "title": "Serenity",
-    "index": 11,
-    "parentIndex": 1,
-    "Guid": [
-     {
-      "id": "imdb://tt0579535"
-     },
-     {
-      "id": "tmdb://1048593"
-     },
-     {
-      "id": "tvdb://297999"
-     }
-    ]
-   }
-  ]
- }
+  }
 }

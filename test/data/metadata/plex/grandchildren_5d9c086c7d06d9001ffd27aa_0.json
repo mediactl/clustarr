@@ -1,157 +1,167 @@
 {
- "MediaContainer": {
-  "offset": 0,
-  "size": 10,
-  "totalSize": 23,
-  "identifier": "tv.plex.provider.metadata",
-  "Metadata": [
-   {
-    "guid": "plex://episode/63fa72d523013e9eb45349d3",
-    "type": "episode",
-    "title": "Trash",
-    "index": 1,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "imdb://tt0579540"
-     },
-     {
-      "id": "tmdb://4257250"
-     },
-     {
-      "id": "tvdb://298002"
-     }
+  "MediaContainer": {
+    "offset": 0,
+    "size": 10,
+    "totalSize": 23,
+    "identifier": "tv.plex.provider.metadata",
+    "Metadata": [
+      {
+        "guid": "plex://episode/63fa72d523013e9eb45349d3",
+        "type": "episode",
+        "title": "Trash",
+        "index": 1,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2003-06-28",
+        "Guid": [
+          {
+            "id": "imdb://tt0579540"
+          },
+          {
+            "id": "tmdb://4257250"
+          },
+          {
+            "id": "tvdb://298002"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/63fa72d523013e9eb45349be",
+        "type": "episode",
+        "title": "The Message",
+        "index": 2,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2003-07-15",
+        "Guid": [
+          {
+            "id": "imdb://tt0579538"
+          },
+          {
+            "id": "tmdb://4257251"
+          },
+          {
+            "id": "tvdb://298003"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/63fa72d523013e9eb45349aa",
+        "type": "episode",
+        "title": "Heart of Gold",
+        "index": 3,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2003-08-19",
+        "Guid": [
+          {
+            "id": "imdb://tt0579529"
+          },
+          {
+            "id": "tmdb://4257252"
+          },
+          {
+            "id": "tvdb://298001"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5d9c127e7d06d9001fff83b0",
+        "type": "episode",
+        "title": "Here’s How It Was: The Making of \"Firefly\"",
+        "index": 4,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2003-12-09",
+        "Guid": [
+          {
+            "id": "tmdb://66448"
+          },
+          {
+            "id": "tvdb://9296666"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5d9c127e7d06d9001fff83b4",
+        "type": "episode",
+        "title": "Done the Impossible",
+        "index": 5,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2006-07-28",
+        "Guid": [
+          {
+            "id": "tmdb://66449"
+          },
+          {
+            "id": "tvdb://967981"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5d9c127e7d06d9001fff83c4",
+        "type": "episode",
+        "title": "Browncoats Unite",
+        "index": 6,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2012-11-11",
+        "Guid": [
+          {
+            "id": "tmdb://66451"
+          },
+          {
+            "id": "tvdb://4360465"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5ea14257f3d60a003f39ea44",
+        "type": "episode",
+        "title": "Adam Baldwin Sings \"Hero of Canton\"",
+        "index": 7,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2012-11-13",
+        "Guid": [
+          {
+            "id": "tmdb://2235074"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5ea14257f3d60a003f39ea46",
+        "type": "episode",
+        "title": "Alan Tudyk's Audition",
+        "index": 8,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2012-11-16",
+        "Guid": [
+          {
+            "id": "tmdb://2235075"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5ea14257f3d60a003f39ea55",
+        "type": "episode",
+        "title": "Gag Reel",
+        "index": 9,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2012-11-27",
+        "Guid": [
+          {
+            "id": "tmdb://2235080"
+          }
+        ]
+      },
+      {
+        "guid": "plex://episode/5ea14257f3d60a003f39ea57",
+        "type": "episode",
+        "title": "Joss Whedon Sings the \"Firefly\" Theme",
+        "index": 10,
+        "parentIndex": 0,
+        "originallyAvailableAt": "2012-11-30",
+        "Guid": [
+          {
+            "id": "tmdb://2235081"
+          }
+        ]
+      }
     ]
-   },
-   {
-    "guid": "plex://episode/63fa72d523013e9eb45349be",
-    "type": "episode",
-    "title": "The Message",
-    "index": 2,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "imdb://tt0579538"
-     },
-     {
-      "id": "tmdb://4257251"
-     },
-     {
-      "id": "tvdb://298003"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/63fa72d523013e9eb45349aa",
-    "type": "episode",
-    "title": "Heart of Gold",
-    "index": 3,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "imdb://tt0579529"
-     },
-     {
-      "id": "tmdb://4257252"
-     },
-     {
-      "id": "tvdb://298001"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5d9c127e7d06d9001fff83b0",
-    "type": "episode",
-    "title": "Here\u2019s How It Was: The Making of \"Firefly\"",
-    "index": 4,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "tmdb://66448"
-     },
-     {
-      "id": "tvdb://9296666"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5d9c127e7d06d9001fff83b4",
-    "type": "episode",
-    "title": "Done the Impossible",
-    "index": 5,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "tmdb://66449"
-     },
-     {
-      "id": "tvdb://967981"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5d9c127e7d06d9001fff83c4",
-    "type": "episode",
-    "title": "Browncoats Unite",
-    "index": 6,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "tmdb://66451"
-     },
-     {
-      "id": "tvdb://4360465"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5ea14257f3d60a003f39ea44",
-    "type": "episode",
-    "title": "Adam Baldwin Sings \"Hero of Canton\"",
-    "index": 7,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "tmdb://2235074"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5ea14257f3d60a003f39ea46",
-    "type": "episode",
-    "title": "Alan Tudyk's Audition",
-    "index": 8,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "tmdb://2235075"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5ea14257f3d60a003f39ea55",
-    "type": "episode",
-    "title": "Gag Reel",
-    "index": 9,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "tmdb://2235080"
-     }
-    ]
-   },
-   {
-    "guid": "plex://episode/5ea14257f3d60a003f39ea57",
-    "type": "episode",
-    "title": "Joss Whedon Sings the \"Firefly\" Theme",
-    "index": 10,
-    "parentIndex": 0,
-    "Guid": [
-     {
-      "id": "tmdb://2235081"
-     }
-    ]
-   }
-  ]
- }
+  }
 }

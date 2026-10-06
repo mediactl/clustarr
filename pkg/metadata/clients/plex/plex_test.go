@@ -158,8 +158,8 @@ func TestShowChildrenPagesEveryEpisode(t *testing.T) {
 		{Number: 1, ID: "5d9c09de08fddd001f2afb4c"},
 	}, got.Seasons)
 	require.Len(t, got.Episodes, 23, "every page of totalSize 23 at page size 10")
-	require.Contains(t, got.Episodes, metadata.PlexEpisode{Season: 1, Episode: 1, TVDB: "297989", ID: "5d9c127e4eefaa001f6449c2"})
-	require.Contains(t, got.Episodes, metadata.PlexEpisode{Season: 0, Episode: 7, ID: "5ea14257f3d60a003f39ea44"}, "an episode Plex has no TVDB id for")
+	require.Contains(t, got.Episodes, metadata.PlexEpisode{Season: 1, Episode: 1, TVDB: "297989", ID: "5d9c127e4eefaa001f6449c2", Title: "The Train Job", AirDate: "2002-09-20"})
+	require.Contains(t, got.Episodes, metadata.PlexEpisode{Season: 0, Episode: 7, ID: "5ea14257f3d60a003f39ea44", Title: `Adam Baldwin Sings "Hero of Canton"`, AirDate: "2012-11-13"}, "an episode Plex has no TVDB id for")
 	require.Len(t, f.requests, 5, "one match, one seasons page, three episode pages")
 }
 

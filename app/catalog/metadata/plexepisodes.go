@@ -23,6 +23,7 @@ import (
 
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // plexLookupBudget bounds the Plex lookup inside an episode RPC: a cold
@@ -71,16 +72,33 @@ func plexBudget(ctx context.Context) time.Duration {
 	return budget
 }
 
-// joinPlexEpisodes gives each episode Plex's id for it: by TVDB episode id,
-// else by (season, episode) when exactly one of Plex's episodes carries
-// that pair, no other episode claimed it by TVDB id, and it does not name
-// a different TVDB episode. Plex numbers specials its own way, so the pair
-// is only a fallback, and anything ambiguous gets no id (spec §4).
+// joinPlexEpisodes gives each episode Plex's id for it, never guessing: an
+// id is given only where it names exactly one of Plex's episodes no other
+// episode claimed, and a second attribute agrees. In order:
+//
+//  1. by TVDB episode id;
+//  2. by (season, episode), when Plex's episode carries no TVDB id or the
+//     same one -- or another one but the same title or air date (TVDB
+//     re-issues ids Plex keeps: Family Guy, Very Important People);
+//  3. by title, unique among Plex's episodes of the show and among the
+//     episodes still unjoined (Plex numbers One Piece's tail lower);
+//  4. by air date, unique among Plex's episodes of the same season and the
+//     episodes still unjoined there.
+//
+// Plex numbers specials its own way and merges two-parts TVDB splits, so
+// anything left gets no id (spec §4): the provider answers it with
+// clustarr's own GUID.
 func joinPlexEpisodes(plex []pkgmetadata.PlexEpisode, episodes []pkgmetadata.Episode) {
 	type pair struct{ season, episode int32 }
 	byTVDB := make(map[string]string, len(plex))
 	byPair := make(map[pair]pkgmetadata.PlexEpisode, len(plex))
 	count := make(map[pair]int, len(plex))
+	byTitle := map[string][]pkgmetadata.PlexEpisode{}
+	type seasonDate struct {
+		season int32
+		date   string
+	}
+	byDate := map[seasonDate][]pkgmetadata.PlexEpisode{}
 	for _, p := range plex {
 		if p.TVDB != "" {
 			byTVDB[p.TVDB] = p.ID
@@ -88,15 +106,28 @@ func joinPlexEpisodes(plex []pkgmetadata.PlexEpisode, episodes []pkgmetadata.Epi
 		k := pair{p.Season, p.Episode}
 		count[k]++
 		byPair[k] = p
+		if t := release.TitleNorm(p.Title); t != "" {
+			byTitle[t] = append(byTitle[t], p)
+		}
+		if p.AirDate != "" {
+			byDate[seasonDate{p.Season, p.AirDate}] = append(byDate[seasonDate{p.Season, p.AirDate}], p)
+		}
 	}
 	claimed := make(map[string]bool, len(episodes))
+	join := func(e *pkgmetadata.Episode, id string) {
+		e.PlexID = id
+		claimed[id] = true
+	}
+
+	// 1: TVDB id.
 	for i := range episodes {
 		tvdb := episodes[i].IDs[pkgmetadata.KeyTVDB]
 		if id := byTVDB[tvdb]; tvdb != "" && id != "" {
-			episodes[i].PlexID = id
-			claimed[id] = true
+			join(&episodes[i], id)
 		}
 	}
+
+	// 2: (season, episode).
 	for i := range episodes {
 		e := &episodes[i]
 		if e.PlexID != "" {
@@ -107,10 +138,62 @@ func joinPlexEpisodes(plex []pkgmetadata.PlexEpisode, episodes []pkgmetadata.Epi
 		if !ok || count[k] != 1 || claimed[p.ID] {
 			continue
 		}
-		if tvdb := e.IDs[pkgmetadata.KeyTVDB]; p.TVDB != "" && tvdb != p.TVDB {
+		if tvdb := e.IDs[pkgmetadata.KeyTVDB]; p.TVDB != "" && tvdb != p.TVDB && !sameTitle(p, e) && !sameAirDate(p, e) {
 			continue
 		}
-		e.PlexID = p.ID
-		claimed[p.ID] = true
+		join(e, p.ID)
 	}
+
+	// 3: title, unique on both sides.
+	wantTitle := map[string]int{}
+	for i := range episodes {
+		if episodes[i].PlexID == "" {
+			wantTitle[release.TitleNorm(episodes[i].Title)]++
+		}
+	}
+	for i := range episodes {
+		e := &episodes[i]
+		t := release.TitleNorm(e.Title)
+		if e.PlexID != "" || t == "" || wantTitle[t] != 1 {
+			continue
+		}
+		if ps := byTitle[t]; len(ps) == 1 && !claimed[ps[0].ID] {
+			join(e, ps[0].ID)
+		}
+	}
+
+	// 4: air date within the season, unique on both sides.
+	wantDate := map[seasonDate]int{}
+	for i := range episodes {
+		if d := airDate(&episodes[i]); episodes[i].PlexID == "" && d != "" {
+			wantDate[seasonDate{episodes[i].SeasonNumber, d}]++
+		}
+	}
+	for i := range episodes {
+		e := &episodes[i]
+		k := seasonDate{e.SeasonNumber, airDate(e)}
+		if e.PlexID != "" || k.date == "" || wantDate[k] != 1 {
+			continue
+		}
+		if ps := byDate[k]; len(ps) == 1 && !claimed[ps[0].ID] {
+			join(e, ps[0].ID)
+		}
+	}
+}
+
+// airDate is the episode's air date as Plex writes one, "" when unknown.
+func airDate(e *pkgmetadata.Episode) string {
+	if e.AirDate == nil {
+		return ""
+	}
+	return e.AirDate.UTC().Format("2006-01-02")
+}
+
+func sameTitle(p pkgmetadata.PlexEpisode, e *pkgmetadata.Episode) bool {
+	t := release.TitleNorm(p.Title)
+	return t != "" && t == release.TitleNorm(e.Title)
+}
+
+func sameAirDate(p pkgmetadata.PlexEpisode, e *pkgmetadata.Episode) bool {
+	return p.AirDate != "" && p.AirDate == airDate(e)
 }

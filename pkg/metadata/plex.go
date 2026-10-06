@@ -36,6 +36,10 @@ type PlexEpisode struct {
 	Episode int32  `json:"episode"`
 	TVDB    string `json:"tvdb,omitempty"`
 	ID      string `json:"id"`
+	// Title and AirDate (YYYY-MM-DD) are the second attribute the join
+	// needs where TVDB ids disagree or are missing.
+	Title   string `json:"title,omitempty"`
+	AirDate string `json:"airDate,omitempty"`
 }
 
 // PlexChildren are a show's Plex id and its seasons' and episodes'.

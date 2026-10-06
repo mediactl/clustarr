@@ -155,6 +155,8 @@ func (c *Client) Capabilities() metadata.Capabilities {
 // case-insensitive match, so the two fields do not collide.
 type item struct {
 	GUID        string `json:"guid"`
+	Title       string `json:"title"`
+	AiredAt     string `json:"originallyAvailableAt"`
 	Index       *int32 `json:"index"`
 	ParentIndex *int32 `json:"parentIndex"`
 	Guid        []struct {
@@ -313,6 +315,7 @@ func (c *Client) ShowChildren(ctx context.Context, ids metadata.ExternalIDs) (*m
 		}
 		out.Episodes = append(out.Episodes, metadata.PlexEpisode{
 			Season: *e.ParentIndex, Episode: *e.Index, TVDB: externalID(e, metadata.KeyTVDB), ID: id,
+			Title: e.Title, AirDate: e.AiredAt,
 		})
 	}
 	_ = c.cache.Set(ctx, key, out, childrenTTL)
