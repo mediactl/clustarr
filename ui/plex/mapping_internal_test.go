@@ -43,9 +43,31 @@ func TestRatingsFiltersToTheFourPlexSources(t *testing.T) {
 	require.Equal(t, []RatingObj{
 		{Image: ratingImageIMDb, Type: "audience", Value: 8.7},
 		{Image: ratingImageTMDB, Type: "audience", Value: 8.3},
-		{Image: ratingImageRTCrit, Type: "critic", Value: 9.2},
-		{Image: ratingImageRTAud, Type: "audience", Value: 8.8},
+		{Image: ratingImageRTRipe, Type: "critic", Value: 9.2},
+		{Image: ratingImageRTUpright, Type: "audience", Value: 8.8},
 	}, got)
+}
+
+// Rotten Tomatoes' own rule picks the badge: a Tomatometer of 60% or more is
+// fresh (ripe), below it rotten; an audience score of 60% or more is
+// upright, below it spilled. ValueCentis is the percentage times 100.
+func TestRatingsBadgeRottenTomatoesScoresByTheFreshThreshold(t *testing.T) {
+	for _, tc := range []struct {
+		source catalogv1.RatingSource
+		centis int32
+		image  string
+	}{
+		{catalogv1.RatingSourceRTCritic, 6000, ratingImageRTRipe},
+		{catalogv1.RatingSourceRTCritic, 5999, ratingImageRTRotten},
+		{catalogv1.RatingSourceRTCritic, 0, ratingImageRTRotten},
+		{catalogv1.RatingSourceRTAudience, 6000, ratingImageRTUpright},
+		{catalogv1.RatingSourceRTAudience, 5999, ratingImageRTSpilled},
+		{catalogv1.RatingSourceRTAudience, 1200, ratingImageRTSpilled},
+	} {
+		got := ratings([]catalogv1.Rating{{Source: tc.source, ValueCentis: tc.centis}})
+		require.Len(t, got, 1)
+		require.Equal(t, tc.image, got[0].Image, "%s at %d", tc.source, tc.centis)
+	}
 }
 
 // TestRatingsRoundsToOneDecimal falsifies a naive pass-through: 831/100.0 is

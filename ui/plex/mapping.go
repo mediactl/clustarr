@@ -62,12 +62,29 @@ type RatingObj struct {
 // §D.5) sends Plex, one pair per source it accepts. Metacritic, trakt and
 // letterboxd are never sent -- they exist only for the overlay poster (spec
 // §D.5's own closing sentence).
+//
+// Rotten Tomatoes has two badges per score, chosen by its own rule: a
+// Tomatometer of rtFreshCentis (60%) or more is fresh (ripe), below it
+// rotten; an audience score of 60% or more is upright, below it spilled.
 const (
-	ratingImageIMDb   = "imdb://image.rating"
-	ratingImageTMDB   = "themoviedb://image.rating"
-	ratingImageRTCrit = "rottentomatoes://image.rating.ripe"
-	ratingImageRTAud  = "rottentomatoes://image.rating.upright"
+	ratingImageIMDb      = "imdb://image.rating"
+	ratingImageTMDB      = "themoviedb://image.rating"
+	ratingImageRTRipe    = "rottentomatoes://image.rating.ripe"
+	ratingImageRTRotten  = "rottentomatoes://image.rating.rotten"
+	ratingImageRTUpright = "rottentomatoes://image.rating.upright"
+	ratingImageRTSpilled = "rottentomatoes://image.rating.spilled"
+
+	// rtFreshCentis is 60% as ValueCentis stores a 0-100 score.
+	rtFreshCentis = 6000
 )
+
+// rtImage is good's badge at or above the fresh threshold, bad's below it.
+func rtImage(centis int32, good, bad string) string {
+	if centis >= rtFreshCentis {
+		return good
+	}
+	return bad
+}
 
 // ratings builds Plex's Rating[] from a catalog item's status.metadata.ratings,
 // per ruling R4: imdb and tmdb are /10 sources (value = valueCentis/100.0);
@@ -91,10 +108,10 @@ func ratings(rs []catalogv1.Rating) []RatingObj {
 		out = append(out, RatingObj{Image: ratingImageTMDB, Type: "audience", Value: roundOneDecimal(float64(r.ValueCentis) / 100.0)})
 	}
 	if r, ok := by[catalogv1.RatingSourceRTCritic]; ok {
-		out = append(out, RatingObj{Image: ratingImageRTCrit, Type: "critic", Value: roundOneDecimal(float64(r.ValueCentis) / 1000.0)})
+		out = append(out, RatingObj{Image: rtImage(r.ValueCentis, ratingImageRTRipe, ratingImageRTRotten), Type: "critic", Value: roundOneDecimal(float64(r.ValueCentis) / 1000.0)})
 	}
 	if r, ok := by[catalogv1.RatingSourceRTAudience]; ok {
-		out = append(out, RatingObj{Image: ratingImageRTAud, Type: "audience", Value: roundOneDecimal(float64(r.ValueCentis) / 1000.0)})
+		out = append(out, RatingObj{Image: rtImage(r.ValueCentis, ratingImageRTUpright, ratingImageRTSpilled), Type: "audience", Value: roundOneDecimal(float64(r.ValueCentis) / 1000.0)})
 	}
 	return out
 }

@@ -275,6 +275,10 @@ too; only the fields listed above are in the tables.
   `imdb://image.rating`, `themoviedb://image.rating`,
   `rottentomatoes://image.rating.ripe` (critic), `rottentomatoes://image.rating.upright`
   (audience). "Adding new types is not currently supported."
+  clustarr also sends the other half of each Rotten Tomatoes pair below 60%
+  (2026-10-06, `ui/plex/mapping.go` `rtImage`): `rottentomatoes://image.rating.rotten`
+  (critic) and `rottentomatoes://image.rating.spilled` (audience), the badges
+  Plex's own agents use, though the provider docs do not list them.
 - `type` (string, required): `audience` or `critic`; "always `audience` for
   user-generated ratings".
 - `value` (float, required): 0–10 (the TMDB example passes `vote_average`
