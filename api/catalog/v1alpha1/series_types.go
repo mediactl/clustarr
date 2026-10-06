@@ -314,6 +314,13 @@ type SeriesMetadata struct {
 	// +kubebuilder:validation:MaxItems=400
 	SeasonImages []SeasonImage `json:"seasonImages,omitempty"`
 
+	// PlexSeasons are each season's id in Plex's own metadata service,
+	// from a plex MetadataProvider. They live here rather than on
+	// status.seasons for the same reason as SeasonImages.
+	// +optional
+	// +kubebuilder:validation:MaxItems=400
+	PlexSeasons []PlexSeasonRef `json:"plexSeasons,omitempty"`
+
 	// SeasonTypes are the episode orderings the provider offers.
 	// +optional
 	// +kubebuilder:validation:MaxItems=10

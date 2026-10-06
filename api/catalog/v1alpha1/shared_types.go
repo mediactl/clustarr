@@ -128,6 +128,19 @@ type SeasonImage struct {
 	Order string `json:"order,omitempty"`
 }
 
+// PlexSeasonRef is one season's id in Plex's own metadata service, which
+// the ui's Plex provider answers the season with as plex://season/<id>.
+type PlexSeasonRef struct {
+	// Number is the season number.
+	// +required
+	Number int32 `json:"number"`
+
+	// ID is Plex's 24-hex id, without the plex://season/ prefix.
+	// +required
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{24}$`
+	ID string `json:"id"`
+}
+
 // SeasonTypeRef names one of a series' episode orderings as the provider
 // calls it (TVDB seasonTypes: "official" is "Aired Order").
 type SeasonTypeRef struct {

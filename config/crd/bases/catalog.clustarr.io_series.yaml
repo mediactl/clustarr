@@ -574,6 +574,31 @@ spec:
                   overview:
                     description: Overview is the synopsis.
                     type: string
+                  plexSeasons:
+                    description: |-
+                      PlexSeasons are each season's id in Plex's own metadata service,
+                      from a plex MetadataProvider. They live here rather than on
+                      status.seasons for the same reason as SeasonImages.
+                    items:
+                      description: |-
+                        PlexSeasonRef is one season's id in Plex's own metadata service, which
+                        the ui's Plex provider answers the season with as plex://season/<id>.
+                      properties:
+                        id:
+                          description: ID is Plex's 24-hex id, without the plex://season/
+                            prefix.
+                          pattern: ^[0-9a-f]{24}$
+                          type: string
+                        number:
+                          description: Number is the season number.
+                          format: int32
+                          type: integer
+                      required:
+                      - id
+                      - number
+                      type: object
+                    maxItems: 400
+                    type: array
                   ratings:
                     description: |-
                       Ratings lists the scores gathered from the enabled ratings providers,

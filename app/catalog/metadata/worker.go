@@ -237,6 +237,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindSeries, seriesRefreshState(v, now()), refreshedAt(target))
 		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
 		md := buildSeriesMetadataAC(v, ratings, now())
+		withPlexSeasons(md, plexSeasons(ctx, h.Registry, v.IDs, knownPlexSeasons(target)))
 		images = imagesOf(md.Images)
 		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
 			return catalogac.Series(key.Name, key.Namespace).WithStatus(

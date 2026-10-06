@@ -104,6 +104,10 @@ type SeriesMetadataApplyConfiguration struct {
 	// backgrounds). They live here rather than on status.seasons so the
 	// Series controller stays the only writer of status.seasons.
 	SeasonImages []SeasonImageApplyConfiguration `json:"seasonImages,omitempty"`
+	// PlexSeasons are each season's id in Plex's own metadata service,
+	// from a plex MetadataProvider. They live here rather than on
+	// status.seasons for the same reason as SeasonImages.
+	PlexSeasons []PlexSeasonRefApplyConfiguration `json:"plexSeasons,omitempty"`
 	// SeasonTypes are the episode orderings the provider offers.
 	SeasonTypes []SeasonTypeRefApplyConfiguration `json:"seasonTypes,omitempty"`
 }
@@ -367,6 +371,19 @@ func (b *SeriesMetadataApplyConfiguration) WithSeasonImages(values ...*SeasonIma
 			panic("nil value passed to WithSeasonImages")
 		}
 		b.SeasonImages = append(b.SeasonImages, *values[i])
+	}
+	return b
+}
+
+// WithPlexSeasons adds the given value to the PlexSeasons field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PlexSeasons field.
+func (b *SeriesMetadataApplyConfiguration) WithPlexSeasons(values ...*PlexSeasonRefApplyConfiguration) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPlexSeasons")
+		}
+		b.PlexSeasons = append(b.PlexSeasons, *values[i])
 	}
 	return b
 }

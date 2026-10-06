@@ -104,7 +104,9 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //
 //	1: the full Plex Metadata Response (2026-09-30): tagline, studios,
 //	   countries, certifications, people, season posters, stills.
-const SchemaVersion int32 = 1
+//	2: Movie and Series learn their Plex id (externalIDs["plex"]) and a
+//	   Series its plexSeasons (2026-10-06, Plex-native GUIDs).
+const SchemaVersion int32 = 2
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

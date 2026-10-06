@@ -3004,6 +3004,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: group
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexSeasonRef
+  map:
+    fields:
+    - name: id
+      type:
+        scalar: string
+    - name: number
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexWatchlist
   map:
     elementType:
@@ -3798,6 +3807,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: overview
       type:
         scalar: string
+    - name: plexSeasons
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PlexSeasonRef
+          elementRelationship: atomic
     - name: ratings
       type:
         list:

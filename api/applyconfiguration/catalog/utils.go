@@ -217,6 +217,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.PendingGrabApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Perms"):
 		return &catalogv1alpha1.PermsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexSeasonRef"):
+		return &catalogv1alpha1.PlexSeasonRefApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("QualityProfile"):
 		return &catalogv1alpha1.QualityProfileApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("QualityProfileSpec"):
