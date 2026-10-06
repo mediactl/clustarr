@@ -89,27 +89,51 @@ func dualAudioApplies(p quality.Profile, parsed *release.ParsedRelease, title, o
 	return true
 }
 
+// audioNames is a profile's audio policy in the display-name vocabulary
+// release languages are parsed into, for one item: resolved once per
+// Evaluate rather than once per release. original is the item's original
+// language's name ("" unknown), wanted the policy's languages (an unknown
+// original dropped, a language listed twice -- an English original beside
+// "en" -- kept once), anchor the language a graft aligns on.
+type audioNames struct {
+	original string
+	wanted   []string
+	anchor   string
+}
+
+func resolveAudioNames(ctx context.Context, p quality.Profile, originalLanguage string) audioNames {
+	an := audioNames{original: originalLanguage}
+	name := func(l string) string {
+		if l == "original" {
+			return originalLanguage
+		}
+		return originalLanguageName(ctx, l)
+	}
+	for _, l := range p.AudioLanguages {
+		if n := name(l); n != "" && !containsFold(an.wanted, n) {
+			an.wanted = append(an.wanted, n)
+		}
+	}
+	if a := audioAnchor(p); a != "" {
+		an.anchor = name(a)
+	}
+	return an
+}
+
 // namesWantedLanguages is whether a release's title names its languages
 // rather than assuming the original, and -- under an audio policy -- names
 // the anchor among them: only such a release replaces a wrong-language file
 // without an upgrade (upgradeRejection).
-func namesWantedLanguages(p quality.Profile, parsed *release.ParsedRelease, title, originalLanguage string) bool {
-	dual := dualAudioApplies(p, parsed, title, originalLanguage)
+func namesWantedLanguages(an audioNames, p quality.Profile, parsed *release.ParsedRelease, title string) bool {
+	dual := dualAudioApplies(p, parsed, title, an.original)
 	if parsed.LanguageUnknown && !dual {
 		return false
 	}
-	if len(p.AudioLanguages) == 0 {
+	if len(p.AudioLanguages) == 0 || an.anchor == "" {
 		return true
 	}
-	anchor := audioAnchor(p)
-	name := originalLanguage
-	if anchor != "original" {
-		name = originalLanguageName(context.Background(), anchor)
-	}
-	if name == "" {
-		return true
-	}
-	return containsFold(parsed.Languages, name) || (dual && (strings.EqualFold(name, originalLanguage) || strings.EqualFold(name, "English")))
+	return containsFold(parsed.Languages, an.anchor) ||
+		(dual && (strings.EqualFold(an.anchor, an.original) || strings.EqualFold(an.anchor, "English")))
 }
 
 // audioRejection is the release check that replaces languageRejection when a
@@ -118,23 +142,13 @@ func namesWantedLanguages(p quality.Profile, parsed *release.ParsedRelease, titl
 // passes only when the profile grafts and the release carries the anchor
 // (audioAnchor: the original language when listed) that a donor's audio is
 // aligned against; an unknown anchor fails open, as languageRejection does.
-func audioRejection(ctx context.Context, originalLanguage string, p quality.Profile, parsed *release.ParsedRelease, title string) (*common.Rejection, bool) {
-	var wanted []string
-	for _, l := range p.AudioLanguages {
-		name := originalLanguage
-		if l != "original" {
-			name = originalLanguageName(ctx, l)
-		}
-		if name != "" {
-			wanted = append(wanted, name)
-		}
-	}
+func audioRejection(an audioNames, p quality.Profile, parsed *release.ParsedRelease, title string) (*common.Rejection, bool) {
 	have := append([]string(nil), parsed.Languages...)
-	if dualAudioApplies(p, parsed, title, originalLanguage) {
-		have = append(have, originalLanguage, "English")
+	if dualAudioApplies(p, parsed, title, an.original) {
+		have = append(have, an.original, "English")
 	}
 	var missing []string
-	for _, w := range wanted {
+	for _, w := range an.wanted {
 		if !containsFold(have, w) {
 			missing = append(missing, w)
 		}
@@ -142,13 +156,9 @@ func audioRejection(ctx context.Context, originalLanguage string, p quality.Prof
 	if len(missing) == 0 {
 		return nil, true
 	}
-	anchor := originalLanguage
-	if a := audioAnchor(p); a != "original" {
-		anchor = originalLanguageName(ctx, a)
-	}
-	if p.AudioGraft && (anchor == "" || containsFold(have, anchor)) {
+	if p.AudioGraft && (an.anchor == "" || containsFold(have, an.anchor)) {
 		return nil, false
 	}
-	r := newRejection(ReasonWantedLanguage, "audio %v wanted, found %v", wanted, have)
+	r := newRejection(ReasonWantedLanguage, "audio %v wanted, found %v", an.wanted, have)
 	return &r, false
 }

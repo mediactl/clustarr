@@ -52,7 +52,7 @@ func TestAudioRejection(t *testing.T) {
 			parsed, err := release.Parse(c.title, release.Options{Kind: common.MediaKindEpisode})
 			require.NoError(t, err)
 			parsed.Languages = parsed.LanguagesFor(c.orig)
-			rej, complete := audioRejection(context.Background(), c.orig, c.p, parsed, c.title)
+			rej, complete := audioRejection(resolveAudioNames(context.Background(), c.p, c.orig), c.p, parsed, c.title)
 			require.Equal(t, c.wantRejected, rej != nil, "rejection: %+v", rej)
 			require.Equal(t, c.wantComplete, complete)
 			if rej != nil {
@@ -88,9 +88,9 @@ func TestAudioRejectionReadsAKoreanDualAudioTitleAsKorean(t *testing.T) {
 		parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
 		require.NoError(t, err)
 		parsed.Languages = parsed.LanguagesFor("Japanese")
-		rej, _ := audioRejection(context.Background(), "Japanese", dual, parsed, title)
+		rej, _ := audioRejection(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed, title)
 		require.NotNil(t, rej, "%s lacks the Japanese anchor", title)
-		require.False(t, namesWantedLanguages(dual, parsed, title, "Japanese"), "%s names Korean, not the wanted languages", title)
+		require.False(t, namesWantedLanguages(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed, title), "%s names Korean, not the wanted languages", title)
 	}
 }
 
@@ -102,8 +102,21 @@ func TestAnAudioPolicyWithoutOriginalAnchorsOnItsOwnLanguage(t *testing.T) {
 	parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
 	require.NoError(t, err)
 	parsed.Languages = parsed.LanguagesFor("Japanese")
-	rej, _ := audioRejection(context.Background(), "Japanese", en, parsed, title)
+	rej, _ := audioRejection(resolveAudioNames(context.Background(), en, "Japanese"), en, parsed, title)
 	require.NotNil(t, rej, "a Japanese release lacks the [en] policy's anchor, English")
 	enfr := quality.Profile{AudioLanguages: []string{"en", "fr"}, AudioGraft: true, AudioDefault: "fr"}
 	require.False(t, LacksLanguage(enfr, "ja", []string{"fr"}), "the default is the anchor when original is not listed")
+}
+
+// TestAudioNamesAreResolvedOnceAndListedOnce: the policy's languages are
+// named once per Evaluate, and an English original beside "en" is wanted
+// once (phase 2 review).
+func TestAudioNamesAreResolvedOnceAndListedOnce(t *testing.T) {
+	p := quality.Profile{AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	an := resolveAudioNames(context.Background(), p, "English")
+	require.Equal(t, []string{"English"}, an.wanted)
+	require.Equal(t, "English", an.anchor)
+	an = resolveAudioNames(context.Background(), p, "Japanese")
+	require.Equal(t, []string{"English", "Japanese"}, an.wanted)
+	require.Equal(t, "Japanese", an.anchor)
 }

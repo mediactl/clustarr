@@ -87,7 +87,13 @@ func TestSeedBuiltinsIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestSeedBuiltinsRecreatesOnDrift(t *testing.T) {
+// TestSeedBuiltinsUpdatesADriftedBuiltinInPlace: a built-in whose seed
+// moved on is updated, never deleted and recreated -- between the delete
+// and the create every Episode and Movie on it read "profile unresolved"
+// and flipped back, two bursts of status writes and Events per deploy
+// (phase 2 review, 2026-10-06). spec.seedHash is what lets the seeder, and
+// only a change of it, edit a built-in.
+func TestSeedBuiltinsUpdatesADriftedBuiltinInPlace(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	cat := catalogue.LoadedCatalogue()
@@ -99,14 +105,19 @@ func TestSeedBuiltinsRecreatesOnDrift(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Name: "hd-bluray-web"}, &before); err != nil {
 		t.Fatalf("get: %v", err)
 	}
+	if before.Spec.SeedHash == "" || before.Spec.SeedHash != before.Annotations["catalog.clustarr.io/builtin-seed-hash"] {
+		t.Fatalf("spec.seedHash = %q, want the seed's hash %q", before.Spec.SeedHash, before.Annotations["catalog.clustarr.io/builtin-seed-hash"])
+	}
 
-	// Simulate a catalogue/seed content change the only way this test can:
-	// corrupt the drift-detection annotation directly, the same way a real
-	// version bump would make the freshly computed hash disagree with what
-	// is stored.
-	before.Annotations["catalog.clustarr.io/builtin-seed-hash"] = "stale-hash-simulating-a-version-bump"
-	if err := c.Update(ctx, &before); err != nil {
-		t.Fatalf("corrupt annotation: %v", err)
+	// A seed from an older release: another hash and other content, as an
+	// upgrade finds it (written as an older seeder would have: with its own
+	// seedHash, which is what admits the change).
+	stale := before.DeepCopy()
+	stale.Annotations["catalog.clustarr.io/builtin-seed-hash"] = "stale-hash"
+	stale.Spec.SeedHash = "stale-hash"
+	stale.Spec.Cutoff = stale.Spec.Tiers[len(stale.Spec.Tiers)-1].Name
+	if err := c.Update(ctx, stale); err != nil {
+		t.Fatalf("stale seed: %v", err)
 	}
 
 	if err := qualityprofile.SeedBuiltins(ctx, c, cat); err != nil {
@@ -116,10 +127,20 @@ func TestSeedBuiltinsRecreatesOnDrift(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Name: "hd-bluray-web"}, &after); err != nil {
 		t.Fatalf("get after re-seed: %v", err)
 	}
-	if before.UID == after.UID {
-		t.Error("a drifted profile was not recreated (UID unchanged)")
+	if before.UID != after.UID {
+		t.Error("a drifted built-in was deleted and recreated (UID changed); it must be updated in place")
 	}
-	if after.Spec.Cutoff != "Bluray-1080p" {
-		t.Errorf("recreated profile cutoff = %q, want Bluray-1080p", after.Spec.Cutoff)
+	if after.Spec.Cutoff != "Bluray-1080p" || after.Spec.SeedHash != before.Spec.SeedHash {
+		t.Errorf("re-seeded cutoff %q seedHash %q, want Bluray-1080p and %q", after.Spec.Cutoff, after.Spec.SeedHash, before.Spec.SeedHash)
+	}
+	if after.Annotations["catalog.clustarr.io/builtin-seed-hash"] != before.Spec.SeedHash {
+		t.Errorf("annotation = %q, want %q", after.Annotations["catalog.clustarr.io/builtin-seed-hash"], before.Spec.SeedHash)
+	}
+
+	// An owner's edit of a built-in is still refused.
+	edit := after.DeepCopy()
+	edit.Spec.Cutoff = edit.Spec.Tiers[len(edit.Spec.Tiers)-1].Name
+	if err := c.Update(ctx, edit); err == nil {
+		t.Error("an edit of a built-in that leaves spec.seedHash alone was accepted")
 	}
 }

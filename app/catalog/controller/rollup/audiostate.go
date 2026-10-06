@@ -19,6 +19,7 @@ package rollup
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -49,8 +50,8 @@ func AudioStateFor(p *quality.Profile, originalTag string, mf *catalogv1alpha1.M
 		if l == "original" {
 			l = originalTag
 		}
-		if t, ok := lang.Normalize(l); ok {
-			st.Wanted = append(st.Wanted, string(t))
+		if t, ok := lang.Normalize(l); ok && !slices.Contains(st.Wanted, string(t)) {
+			st.Wanted = append(st.Wanted, string(t)) // an English original is wanted once
 		}
 	}
 	st.Present = ProbedAudioLanguages(mf)

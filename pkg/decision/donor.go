@@ -44,7 +44,7 @@ var multiLanguageRegex = func() *regexp2.Regexp {
 // languages, the item's rejected donors, a donor in flight, sample and
 // blocklist. Quality, cutoff, upgrade and transcoded are not a donor's
 // business.
-func evaluateDonor(ctx context.Context, t Target, originalLanguage string, p quality.Profile, parsed *release.ParsedRelease,
+func evaluateDonor(t Target, originalLanguage string, need []string, p quality.Profile, parsed *release.ParsedRelease,
 	rel common.ReleaseInfo, score int, matched []string, rejections []common.Rejection,
 ) Decision {
 	add := func(r *common.Rejection) {
@@ -52,7 +52,7 @@ func evaluateDonor(ctx context.Context, t Target, originalLanguage string, p qua
 			rejections = append(rejections, *r)
 		}
 	}
-	add(donorLanguageRejection(ctx, t.Donor, originalLanguage, p, parsed, rel.Title))
+	add(donorLanguageRejection(need, originalLanguage, p, parsed, rel.Title))
 	if slices.Contains(t.Donor.Rejected, rel.Title) {
 		r := newRejection(ReasonDonorRejected, "a graft of this item already failed with %s", rel.Title)
 		add(&r)
@@ -79,7 +79,7 @@ func evaluateDonor(ctx context.Context, t Target, originalLanguage string, p qua
 // score set's convention) by a dual-audio or dual/multi-language marker. A
 // title that names no language assumes the original, which is exactly what
 // a donor must be more than; the donor's probe at import is the real test.
-func donorLanguageRejection(ctx context.Context, d *Donor, originalLanguage string, p quality.Profile, parsed *release.ParsedRelease, title string) *common.Rejection {
+func donorLanguageRejection(need []string, originalLanguage string, p quality.Profile, parsed *release.ParsedRelease, title string) *common.Rejection {
 	var have []string
 	if !parsed.LanguageUnknown {
 		have = append(have, parsed.Languages...)
@@ -91,13 +91,8 @@ func donorLanguageRejection(ctx context.Context, d *Donor, originalLanguage stri
 			have = append(have, originalLanguage, "English")
 		}
 	}
-	var need, missing []string
-	for _, l := range append(append([]string(nil), d.Languages...), d.Anchor) {
-		name := originalLanguageName(ctx, l)
-		if name == "" {
-			continue
-		}
-		need = append(need, name)
+	var missing []string
+	for _, name := range need {
 		if !containsFold(have, name) {
 			missing = append(missing, name)
 		}
@@ -125,4 +120,17 @@ func donorLineage(d *Donor, rel common.ReleaseInfo, parsed *release.ParsedReleas
 		n++
 	}
 	return n
+}
+
+// donorNames are a donor's missing languages and its anchor as names,
+// resolved once per Evaluate; a tag the table cannot name is left out (the
+// profile that wanted it was already refused by quality.FromCRD).
+func donorNames(ctx context.Context, d *Donor) []string {
+	var out []string
+	for _, l := range append(append([]string(nil), d.Languages...), d.Anchor) {
+		if n := originalLanguageName(ctx, l); n != "" && !containsFold(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }

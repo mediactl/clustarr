@@ -72,6 +72,8 @@ func TestAudioStateFor(t *testing.T) {
 	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Graft: "none"},
 		rollup.AudioStateFor(p, "ja", mf("und"), rollup.GraftObservation{}), "unknown audio: nothing is called missing")
 	require.Equal(t, []string{"en"}, rollup.AudioStateFor(p, "", mf("jpn"), rollup.GraftObservation{}).Wanted, "an unknown original is dropped")
+	require.Equal(t, []string{"en"}, rollup.AudioStateFor(p, "en", mf("eng"), rollup.GraftObservation{}).Wanted,
+		"an English original is wanted once, not [en, en] (phase 2 review)")
 	require.Equal(t, "", rollup.AudioStateFor(&quality.Profile{AudioLanguages: []string{"en"}}, "ja", mf("eng"), rollup.GraftObservation{}).Graft, "no graft, no graft state")
 	require.Nil(t, rollup.AudioStateFor(&quality.Profile{}, "ja", mf("jpn"), rollup.GraftObservation{}), "no audio policy")
 	require.Nil(t, rollup.AudioStateFor(nil, "ja", mf("jpn"), rollup.GraftObservation{}))

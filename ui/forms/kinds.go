@@ -86,9 +86,9 @@ var kinds = []Kind{
 			{Title: "Tiers", Help: "Best first. Each tier lists the quality names it accepts, one per line.", Paths: []string{"tiers"}},
 			{Title: "Custom formats", Paths: []string{"minFormatScore", "cutoffFormatScore", "minUpgradeFormatScore", "enabledFormatGroups"}, Advanced: true},
 			{Title: "Size limits", Paths: []string{"sizeLimits"}, Advanced: true},
-			{Title: "Audio", Help: "Audio languages a file must carry (BCP-47 tags, or original for the item's own language), one per line; when set it replaces Language. Graft completes a file missing one with another release's audio.", Paths: []string{"audio.languages", "audio.graft", "audio.default"}, Advanced: true},
+			{Title: "Audio", Help: "Video profiles only. Audio languages a file must carry (BCP-47 tags, or original for the item's own language), one per line; when set it replaces Language. The default, if set, must be one of them. Graft completes a file missing one with another release's audio.", Paths: []string{"audio.languages", "audio.graft", "audio.default"}, Advanced: true},
 		},
-		Hidden:         []string{"builtIn", "formatScores"},
+		Hidden:         []string{"builtIn", "seedHash", "formatScores"},
 		Labels:         map[string]string{"cutoff": "Cutoff tier", "scoreSet": "Score set", "sizeTable": "Size table", "audio.languages": "Audio languages", "audio.graft": "Graft missing audio", "audio.default": "Default audio language"},
 		ReadOnlyOnEdit: []string{"mediaKind"},
 		// The graft checkbox always posts, so an untouched Audio group decodes

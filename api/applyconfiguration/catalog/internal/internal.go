@@ -469,7 +469,7 @@ var schemaYAML = typed.YAMLObject(`types:
         list:
           elementType:
             scalar: string
-          elementRelationship: atomic
+          elementRelationship: associative
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioState
   map:
     fields:
@@ -3201,6 +3201,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScoreSet
       default: default
+    - name: seedHash
+      type:
+        scalar: string
     - name: sizeLimits
       type:
         list:

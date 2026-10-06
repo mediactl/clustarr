@@ -40,8 +40,8 @@ const seedHashAnnotation = "catalog.clustarr.io/builtin-seed-hash"
 
 // SeedBuiltins ensures every embedded profile seed
 // (pkg/quality/catalogue.ProfileFS, "data/profiles/*.json") exists as a
-// builtIn:true QualityProfile, creating it if absent and replacing it if its
-// resolved content drifted from what is stored. It is idempotent and
+// builtIn:true QualityProfile, creating it if absent and updating it in
+// place if its resolved content drifted from what is stored. It is idempotent and
 // side-effect free when nothing changed.
 func SeedBuiltins(ctx context.Context, c client.Client, cat *catalogue.Catalogue) error {
 	entries, err := catalogue.ProfileFS().ReadDir("data/profiles")
@@ -80,6 +80,7 @@ func seedOne(ctx context.Context, c client.Client, cat *catalogue.Catalogue, see
 		return fmt.Errorf("qualityprofile: built-in %s does not resolve: %v", seed.Name, errs)
 	}
 	want.Annotations = map[string]string{seedHashAnnotation: profile.Hash}
+	want.Spec.SeedHash = profile.Hash
 
 	var existing catalogv1alpha1.QualityProfile
 	err := c.Get(ctx, types.NamespacedName{Name: seed.Name}, &existing)
@@ -92,11 +93,19 @@ func seedOne(ctx context.Context, c client.Client, cat *catalogue.Catalogue, see
 	case existing.Annotations[seedHashAnnotation] == profile.Hash:
 		return nil // up to date, nothing to do
 	default:
-		log.Info("built-in content drifted, recreating", "oldHash", existing.Annotations[seedHashAnnotation], "newHash", profile.Hash)
-		if err := c.Delete(ctx, &existing); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("qualityprofile: delete stale %s: %w", seed.Name, err)
+		// Updated in place, under its new spec.seedHash (which is what the
+		// built-in rule admits): a delete and re-create left every item on
+		// the profile reading "profile unresolved" in between.
+		log.Info("built-in content drifted, updating", "oldHash", existing.Annotations[seedHashAnnotation], "newHash", profile.Hash)
+		existing.Spec = want.Spec
+		if existing.Annotations == nil {
+			existing.Annotations = map[string]string{}
 		}
-		return client.IgnoreAlreadyExists(c.Create(ctx, want))
+		existing.Annotations[seedHashAnnotation] = profile.Hash
+		if err := c.Update(ctx, &existing); err != nil {
+			return fmt.Errorf("qualityprofile: update drifted %s: %w", seed.Name, err)
+		}
+		return nil
 	}
 }
 

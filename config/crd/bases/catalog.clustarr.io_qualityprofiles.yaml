@@ -72,8 +72,8 @@ spec:
                 properties:
                   default:
                     description: |-
-                      Default is the language marked default in a grafted file; unset,
-                      the first of Languages.
+                      Default is the language marked default in a grafted file, one of
+                      Languages; unset, the default flag stays where the file had it.
                     type: string
                   graft:
                     description: |-
@@ -89,9 +89,13 @@ spec:
                     maxItems: 4
                     minItems: 1
                     type: array
+                    x-kubernetes-list-type: set
                 required:
                 - languages
                 type: object
+                x-kubernetes-validations:
+                - message: audio.default must be one of audio.languages
+                  rule: '!has(self.default) || self.default in self.languages'
               builtIn:
                 default: false
                 description: |-
@@ -208,6 +212,15 @@ spec:
                 - anime-radarr
                 - anime-sonarr
                 type: string
+              seedHash:
+                description: |-
+                  SeedHash is a built-in's seed content hash, which only catalogarr's
+                  seeder writes: a built-in changes only along with it, so the seeder
+                  updates a built-in in place when its seed moves on -- deleting and
+                  recreating it read every item on it as "profile unresolved" for a
+                  moment -- while any other edit is refused.
+                maxLength: 128
+                type: string
               sizeLimits:
                 description: SizeLimits overrides the size table per quality.
                 items:
@@ -304,9 +317,12 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: built-in profiles are immutable; copy the profile instead
-              rule: '!oldSelf.builtIn || self == oldSelf'
+              rule: '!oldSelf.builtIn || self == oldSelf || (has(self.seedHash) &&
+                (!has(oldSelf.seedHash) || self.seedHash != oldSelf.seedHash))'
             - message: cutoff must be the name of one of the tiers
               rule: self.tiers.exists(t, t.name == self.cutoff)
+            - message: an audio policy is for video profiles
+              rule: '!has(self.audio) || self.mediaKind == ''video'''
           status:
             description: QualityProfileStatus describes the observed state of QualityProfile.
             properties:

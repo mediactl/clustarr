@@ -33,6 +33,12 @@ type QualityProfileSpecApplyConfiguration struct {
 	// BuiltIn marks a profile shipped by the chart; built-ins are immutable and
 	// are meant to be copied rather than edited.
 	BuiltIn *bool `json:"builtIn,omitempty"`
+	// SeedHash is a built-in's seed content hash, which only catalogarr's
+	// seeder writes: a built-in changes only along with it, so the seeder
+	// updates a built-in in place when its seed moves on -- deleting and
+	// recreating it read every item on it as "profile unresolved" for a
+	// moment -- while any other edit is refused.
+	SeedHash *string `json:"seedHash,omitempty"`
 	// Tiers lists the quality tiers best first, in TRaSH order.
 	Tiers []TierApplyConfiguration `json:"tiers,omitempty"`
 	// Cutoff is the name of the tier at which upgrading stops.
@@ -87,6 +93,14 @@ func (b *QualityProfileSpecApplyConfiguration) WithMediaKind(value catalogv1alph
 // If called multiple times, the BuiltIn field is set to the value of the last call.
 func (b *QualityProfileSpecApplyConfiguration) WithBuiltIn(value bool) *QualityProfileSpecApplyConfiguration {
 	b.BuiltIn = &value
+	return b
+}
+
+// WithSeedHash sets the SeedHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SeedHash field is set to the value of the last call.
+func (b *QualityProfileSpecApplyConfiguration) WithSeedHash(value string) *QualityProfileSpecApplyConfiguration {
+	b.SeedHash = &value
 	return b
 }
 

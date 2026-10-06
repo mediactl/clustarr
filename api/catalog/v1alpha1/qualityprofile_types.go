@@ -158,8 +158,9 @@ type SizeLimit struct {
 
 // QualityProfileSpec defines the desired state of QualityProfile.
 //
-// +kubebuilder:validation:XValidation:rule="!oldSelf.builtIn || self == oldSelf",message="built-in profiles are immutable; copy the profile instead"
+// +kubebuilder:validation:XValidation:rule="!oldSelf.builtIn || self == oldSelf || (has(self.seedHash) && (!has(oldSelf.seedHash) || self.seedHash != oldSelf.seedHash))",message="built-in profiles are immutable; copy the profile instead"
 // +kubebuilder:validation:XValidation:rule="self.tiers.exists(t, t.name == self.cutoff)",message="cutoff must be the name of one of the tiers"
+// +kubebuilder:validation:XValidation:rule="!has(self.audio) || self.mediaKind == 'video'",message="an audio policy is for video profiles"
 type QualityProfileSpec struct {
 	// MediaKind is the family of media this profile applies to.
 	// +required
@@ -172,6 +173,15 @@ type QualityProfileSpec struct {
 	// +kubebuilder:default=false
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="builtIn is immutable"
 	BuiltIn bool `json:"builtIn"`
+
+	// SeedHash is a built-in's seed content hash, which only catalogarr's
+	// seeder writes: a built-in changes only along with it, so the seeder
+	// updates a built-in in place when its seed moves on -- deleting and
+	// recreating it read every item on it as "profile unresolved" for a
+	// moment -- while any other edit is refused.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	SeedHash string `json:"seedHash,omitempty"`
 
 	// Tiers lists the quality tiers best first, in TRaSH order.
 	// +required

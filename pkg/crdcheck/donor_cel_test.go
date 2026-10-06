@@ -111,3 +111,39 @@ func TestDownloadPurposeIsImmutableAndOptional(t *testing.T) {
 	_, err = grafts.UpdateStatus(ctx, g, metav1.UpdateOptions{})
 	require.ErrorContains(t, err, fmt.Sprint(16), "status.segments is capped at 16")
 }
+
+// TestAnAudioPolicyIsAdmittedOnlyWhenItMeansSomething: its default is one of
+// its languages, its languages are distinct, and only a video profile has
+// one -- a music or book profile's would mean nothing (phase 2 review).
+func TestAnAudioPolicyIsAdmittedOnlyWhenItMeansSomething(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test` to install the CRDs")
+	}
+	env := &envtest.Environment{CRDDirectoryPaths: []string{"../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
+	cfg, err := env.Start()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	dyn, err := dynamic.NewForConfig(cfg)
+	require.NoError(t, err)
+	ctx := context.Background()
+	profiles := dyn.Resource(schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "qualityprofiles"})
+	profile := func(name, kind string, audio map[string]any) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "catalog.clustarr.io/v1alpha1", "kind": "QualityProfile",
+			"metadata": map[string]any{"name": name},
+			"spec": map[string]any{
+				"mediaKind": kind, "cutoff": "best",
+				"tiers": []any{map[string]any{"name": "best", "qualities": []any{"Bluray-1080p"}}},
+				"audio": audio,
+			},
+		}}
+	}
+	_, err = profiles.Create(ctx, profile("ok", "video", map[string]any{"languages": []any{"en", "original"}, "default": "en"}), metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = profiles.Create(ctx, profile("bad-default", "video", map[string]any{"languages": []any{"en", "original"}, "default": "fr"}), metav1.CreateOptions{})
+	require.ErrorContains(t, err, "audio.default must be one of audio.languages")
+	_, err = profiles.Create(ctx, profile("twice", "video", map[string]any{"languages": []any{"en", "en"}}), metav1.CreateOptions{})
+	require.Error(t, err, "a language listed twice")
+	_, err = profiles.Create(ctx, profile("music", "music", map[string]any{"languages": []any{"en"}}), metav1.CreateOptions{})
+	require.ErrorContains(t, err, "an audio policy is for video profiles")
+}

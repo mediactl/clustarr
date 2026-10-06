@@ -31,8 +31,8 @@ type AudioPolicyApplyConfiguration struct {
 	// Graft lets a release missing some of Languages be completed with
 	// another release's audio (spec §6, §7).
 	Graft *bool `json:"graft,omitempty"`
-	// Default is the language marked default in a grafted file; unset,
-	// the first of Languages.
+	// Default is the language marked default in a grafted file, one of
+	// Languages; unset, the default flag stays where the file had it.
 	Default *string `json:"default,omitempty"`
 }
 

@@ -231,4 +231,20 @@ func TestFromCRDResolvesAudio(t *testing.T) {
 
 	_, errs = quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"klingon!"}}), cat)
 	require.NotEmpty(t, errs, "an unresolvable audio language is an error")
+
+	// A well-formed tag the language table does not know would be dropped
+	// by every decision, which then wanted nothing of it (phase 2 review).
+	_, errs = quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en", "tlh"}}), cat)
+	require.NotEmpty(t, errs, "a language the table cannot name is an error")
+
+	_, errs = quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Default: "fr"}), cat)
+	require.NotEmpty(t, errs, "a default that is not one of the languages is an error")
+	withDefault, errs := quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Default: "en"}), cat)
+	require.Empty(t, errs)
+	require.Equal(t, "en", withDefault.AudioDefault)
+
+	music := build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en"}})
+	music.Spec.MediaKind = catalogv1alpha1.ProfileMediaKindMusic
+	_, errs = quality.FromCRD(music, cat)
+	require.NotEmpty(t, errs, "an audio policy is for video profiles")
 }

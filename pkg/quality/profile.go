@@ -267,13 +267,31 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 	if a := p.Spec.Audio; a != nil {
 		audio = append([]string(nil), a.Languages...)
 		audioGraft, audioDefault = a.Graft, a.Default
+		if p.Spec.MediaKind != "" && p.Spec.MediaKind != catalogv1alpha1.ProfileMediaKindVideo {
+			errs = append(errs, fmt.Errorf("audio: an audio policy is for video profiles, not %s", p.Spec.MediaKind))
+		}
+		listed := false
 		for _, l := range a.Languages {
+			if a.Default != "" && strings.EqualFold(l, a.Default) {
+				listed = true
+			}
 			if l == "original" {
 				continue
 			}
-			if _, ok := lang.Normalize(l); !ok {
+			t, ok := lang.Normalize(l)
+			if !ok {
 				errs = append(errs, fmt.Errorf("audio.languages: %q is neither \"original\" nor a BCP-47 tag", l))
+				continue
 			}
+			// Every decision names the language through the catalogue's
+			// table; one it cannot name would be dropped from what a
+			// release must carry, so the profile would want nothing of it.
+			if _, ok := catalogue.LanguageName(string(t)); !ok {
+				errs = append(errs, fmt.Errorf("audio.languages: %q is not a language clustarr can match releases on", l))
+			}
+		}
+		if a.Default != "" && !listed {
+			errs = append(errs, fmt.Errorf("audio.default: %q is not one of audio.languages %v", a.Default, a.Languages))
 		}
 	}
 

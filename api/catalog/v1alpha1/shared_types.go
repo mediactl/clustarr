@@ -77,11 +77,13 @@ const (
 
 // AudioPolicy is a profile's wanted audio languages (anime dual-audio spec
 // §5.1).
+// +kubebuilder:validation:XValidation:rule="!has(self.default) || self.default in self.languages",message="audio.default must be one of audio.languages"
 type AudioPolicy struct {
 	// Languages are BCP-47 tags, or "original" for the item's own
 	// original language. A file is complete when it carries every one.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=4
+	// +listType=set
 	Languages []string `json:"languages"`
 
 	// Graft lets a release missing some of Languages be completed with
@@ -89,8 +91,8 @@ type AudioPolicy struct {
 	// +optional
 	Graft bool `json:"graft,omitempty"`
 
-	// Default is the language marked default in a grafted file; unset,
-	// the first of Languages.
+	// Default is the language marked default in a grafted file, one of
+	// Languages; unset, the default flag stays where the file had it.
 	// +optional
 	Default string `json:"default,omitempty"`
 }

@@ -49,9 +49,16 @@ func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.C
 	// Likewise the item's identity keys (title keys, scene mapping): the same
 	// for every candidate.
 	idx := newIdentityIndex(t.Kind, t.Identity)
+	// And the audio policy's and a donor's languages, in the same
+	// vocabulary.
+	an := resolveAudioNames(ctx, p, lang)
+	var donorNeed []string
+	if t.Donor != nil {
+		donorNeed = donorNames(ctx, t.Donor)
+	}
 	out := make([]Decision, 0, len(rels))
 	for _, rel := range rels {
-		out = append(out, evaluateOne(ctx, t, lang, idx, p, cat, rel, o))
+		out = append(out, evaluateOne(ctx, t, lang, an, donorNeed, idx, p, cat, rel, o))
 	}
 	return out
 }
@@ -62,7 +69,9 @@ func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.C
 // Evaluate and both consumers below are fed from it. idx is
 // newIdentityIndex(t.Kind, t.Identity), computed once per Evaluate for the
 // same reason.
-func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx identityIndex, p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options) Decision {
+func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audioNames, donorNeed []string, idx identityIndex,
+	p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options,
+) Decision {
 	parsed, err := release.Parse(rel.Title, release.Options{Kind: t.Kind})
 	if err != nil {
 		logging.FromContext(ctx).Debug("decision: release title did not parse", "title", rel.Title, "err", err)
@@ -102,13 +111,13 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	add(availabilityRejection(t, o))
 	rejections = append(rejections, sizeRejections(t, p, parsed, rel)...)
 	if t.Donor != nil {
-		return evaluateDonor(ctx, t, originalLanguage, p, parsed, rel, score, matched, rejections)
+		return evaluateDonor(t, originalLanguage, donorNeed, p, parsed, rel, score, matched, rejections)
 	}
 	rejections = append(rejections, qualityRejections(p, rel, score)...)
 	languagesComplete := true
 	if len(p.AudioLanguages) > 0 {
 		var r *common.Rejection
-		r, languagesComplete = audioRejection(ctx, originalLanguage, p, parsed, rel.Title)
+		r, languagesComplete = audioRejection(an, p, parsed, rel.Title)
 		add(r)
 	} else {
 		add(languageRejection(originalLanguage, p, parsed))
@@ -121,7 +130,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	add(transcodedRejection(t, o))
 	// A dual-audio anime release names its languages (the original and
 	// English) though the parser recognises neither word.
-	add(upgradeRejection(p, t, candidate, namesWantedLanguages(p, parsed, rel.Title, originalLanguage)))
+	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed, rel.Title)))
 
 	d := Decision{
 		Release:             rel,
