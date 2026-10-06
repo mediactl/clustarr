@@ -51,6 +51,11 @@ name already written as UTF-8 -- what par2cmdline, ParPar and MultiPar
 write -- is encoded twice, the file reads as missing, and repair writes a
 garbled duplicate. `shim/patches/0001-keep-utf8-names.patch` keeps valid
 UTF-8 as is; `build.sh` applies it on top of the verified pin.
+`0002-scan-progress.patch` fixes verification reporting no progress:
+`VerifyDataFile` scanned through a throwaway meter (the `ScanDataFile`
+overload that builds `dummy_progress`), and the scan's meter takes a
+callback upstream never set; it passes the meter through and adds the
+`SigScanProgress` hook.
 
 Licence: par2cmdline-turbo's sources are GPL-2.0-or-later ("any later
 version" in 65 files), so par2go is **GPL-3.0-or-later**, with
@@ -85,15 +90,15 @@ par2go/
   result.go           Status, File, Headers, sentinel errors
   internal/bindings   purego dlopen and symbol table; library search
   shim/
-    par2go.cpp, .h    extern "C" p2_* over a Par2Repairer subclass
-    build.sh          fetch par2-turbo at the pin, cmake BUILD_LIB, link libpar2go.so
+    par2shim.cpp, .h  extern "C" p2_* over a Par2Repairer subclass
+    build.sh          fetch par2-turbo at the pin, cmake BUILD_LIB, link libpar2shim.so
   testdata/
     make.sh           regenerates every fixture with the real par2 CLI
     ...               the committed fixtures (a few KB)
   .github/workflows/  ci.yml, release.yml
 ```
 
-Library search, in order: `$PAR2GO_LIB` (a file path), then `libpar2go.so` on
+Library search, in order: `$PAR2GO_LIB` (a file path), then `libpar2shim.so` on
 the dynamic loader's standard paths. The module has no cgo.
 
 ```go
@@ -158,65 +163,78 @@ today, so nothing is lost.
 
 ## 4. Shim internals and data flow
 
-### 4.1 C ABI
+### 4.1 C ABI (as built: ABI version 2, `shim/par2shim.h`)
 
 ```c
 typedef struct p2_job p2_job;
 
-p2_job *p2_new(const p2_options *opts);           /* copies every string */
-int     p2_run(p2_job *job, int repair);          /* blocks; returns P2_* */
-void    p2_progress(p2_job *job, p2_progress *out);
-void    p2_cancel(p2_job *job);                   /* any thread, any time */
-int     p2_counts(p2_job *job, p2_counts *out);   /* after p2_run */
-int     p2_file(p2_job *job, int i, p2_file_result *out); /* after p2_run */
-size_t  p2_log(p2_job *job, char *buf, size_t n); /* after p2_run */
-void    p2_free(p2_job *job);
+int32_t  p2_abi_version(void);                     /* 2; Go refuses any other */
+uint64_t p2_sizeof(int32_t which);                 /* struct sizes, checked at load */
+p2_job  *p2_new(const char *index, const char *basepath, int64_t memory_limit,
+                int32_t threads, int32_t file_threads, int32_t purge);
+int32_t  p2_add_extra(p2_job *job, const char *path);
+int32_t  p2_start(p2_job *job, int32_t repair);     /* returns at once */
+void     p2_progress_read(p2_job *job, p2_progress *out); /* done, result, phase, per mille, file */
+void     p2_cancel(p2_job *job);                   /* any thread, any time */
+int32_t  p2_counts_read(p2_job *job, p2_counts *out);
+int32_t  p2_file_read(p2_job *job, int32_t i, p2_file_result *out);
+uint64_t p2_log_read(p2_job *job, char *buf, uint64_t n);
+int32_t  p2_active_jobs(void);                     /* started jobs not yet finished */
+void     p2_free(p2_job *job);                     /* cancels, joins, frees: safe any time */
 ```
 
-Every struct in the ABI is fixed-size: scalars, plus fixed-length `char`
-arrays for names, truncation flagged. Nothing is allocated across the boundary
-for Go to free. Return codes are the `Result` values, `P2_CANCELLED`, and
-`P2_INVALID` for bad options.
+Every struct in the ABI is fixed-size: 8-byte scalars, then fixed-length
+`char` arrays for names, truncation flagged. Nothing is allocated across the
+boundary for Go to free. Results are the `Result` values, `P2_CANCELLED`, and
+`P2_INVALID` for bad options or a second start.
 
 ### 4.2 The C++ side
 
-`p2_job` owns a `class Job : public Par2::Par2Repairer`:
+`p2_job` owns a `class Job : public Par2::Par2Repairer` and the thread it runs on:
 
+- **Its own thread (2026-10-06, owner's decision).** `p2_start` runs the job
+  on a `std::thread` the job owns and returns at once; no Go thread waits in C
+  for the length of a job. A process-wide mutex in the shim serialises jobs,
+  because `Process` reads statics. `p2_free` cancels a running job, joins its
+  thread and only then frees it, so freeing is safe whatever the caller is
+  doing. Done and the result are atomics `p2_progress_read` reports.
 - **Output.** `sout` and `serr` write to a capped `streambuf` that keeps the last
-  4 KiB, which becomes `Result.Log`. The noise level stays `nlNormal`, because
-  the repairer advances its progress meter only above `nlQuiet`.
-- **Hooks.** `SigProgress` stores the per mille in a `std::atomic<int>`, and the
-  phase likewise. `SigHeaders` copies `ParHeaders` and `SigFilename` the current
-  name under the job's mutex. `SigDone` adds a file record under the mutex.
-  Each hook is a copy and nothing more, so par2's worker threads never wait on
-  Go.
-- **After `Process` returns,** the shim snapshots the counters (section 2) and
-  gives each file record its state from `sourcefilemap`.
+  4 KiB, which becomes `Result.Log`; a `\r` rewinds to the start of its line, as
+  a terminal would. The noise level stays `nlNormal`, because the repairer
+  advances its progress meters only above `nlQuiet`.
+- **Phases and progress.** Loading (par2 files; `SigProgress` per file),
+  Verifying (data scan; `SigScanProgress`, added by patch 0002, of the whole
+  scan) and Repairing (`BeginRepair`; `SigProgress` of the whole repair). Each
+  hook is a copy into atomics or under the job's mutex, so par2's worker
+  threads never wait on Go.
+- **After verification,** the shim snapshots the counters (section 2) and each
+  file's state from `sourcefiles`, as `UpdateVerificationResults` does.
 - **Cancellation.** `p2_cancel` sets the job's own `std::atomic<bool>
-  cancel_requested` and the base class's `cancelled`. A cancel during repair
-  makes `ProcessData` return false, and the repairer then calls
-  `DeleteIncompleteTargetFiles()` and returns `eFileIOError`. So `p2_run`
-  returns `P2_CANCELLED` whenever `cancel_requested` is set, whatever `Process`
-  returned.
-- **No exception escapes.** Every `p2_*` body is `try`/`catch(...)`:
-  `std::bad_alloc` maps to `eMemoryError`, anything else to `eLogicError` with
-  `what()` appended to the log. An exception unwinding into purego's frames
-  would abort the process.
+  cancel_requested` and, with an atomic store, the base class's `cancelled`.
+  A cancel during repair makes `ProcessData` return false, and the repairer
+  then deletes the partial rebuild and returns `eFileIOError`; the job reports
+  `P2_CANCELLED` whenever a cancel was requested and the repair did not
+  finish. A repair that finished is reported as finished.
+- **Restoring originals.** Repair moves each damaged file to `<name>.1` before
+  rebuilding. When a repair stops (cancel or error), the shim moves each one
+  back wherever its name is free, so the set is as repairable as before.
+- **No exception escapes.** The job's thread and every `p2_*` body catch
+  everything: `std::bad_alloc` maps to `eMemoryError`, anything else to
+  `eLogicError` with `what()` in the log. par2's own worker threads are outside
+  this: a crash or uncaught exception there ends the process (section 5).
 
 ### 4.3 The Go side of `Repair` (and `Verify`, with `repair = 0`)
 
 1. `Available()`, then validate: the index exists, every extra file is under
    `Dir`, `MemoryLimit >= 0`. Failure is `ErrInvalidOptions`.
-2. Take the package mutex. `p2_new(&opts)`.
-3. A goroutine calls `runtime.LockOSThread()`, then `p2_run`, which blocks, and
-   sends its return code on a channel.
-4. The caller loops on `select`:
-   - each `PollEvery` tick: `p2_progress`, passed to `opts.Progress`;
-   - `ctx.Done()`: `p2_cancel`, then **keep waiting** for the run's channel.
-     Go never frees a job C still holds;
-   - the run's channel: `p2_counts`, `p2_file` for each file, `p2_log`,
-     `p2_free`, then build the `Result`.
-5. Map the result:
+2. Take the package mutex (queueing, and "cancelled while waiting" returns
+   `ctx.Err()` without starting). `p2_new`, `p2_add_extra` per extra file,
+   `p2_start`; `defer p2_free`, which cancels and joins in C, so a return, a
+   panic in `Progress` or a `runtime.Goexit` there all leave safely.
+3. Poll: every 5 ms read `p2_progress_read`; return when it reports done;
+   call `opts.Progress` every `PollEvery`; on `ctx.Done()`, `p2_cancel` and keep
+   polling until the job has stopped.
+4. Read `p2_counts_read`, `p2_file_read` per file and `p2_log_read`, and map the result:
 
 | Shim result | Go result |
 | --- | --- |
@@ -228,9 +246,8 @@ for Go to free. Return codes are the `Result` values, `P2_CANCELLED`, and
 | `eInvalidCommandLineArguments`, `P2_INVALID` | `ErrInvalidOptions` |
 | `P2_CANCELLED` | `ctx.Err()` |
 
-Completion is the run goroutine's return, never a polled "done" flag: a
-polled flag can be read after `p2_free`, and it leaves a window in which the
-job is done but not yet known to be.
+A polled done flag is safe here, unlike a design where Go frees the job:
+only `p2_free` frees, and it joins first.
 
 ## 5. Why C never calls Go
 
@@ -285,17 +302,14 @@ for {
 }
 ```
 
-**Why not an async C thread either (2026-10-06).** A shim that starts
-`Process` on its own `std::thread` and returns at once, with Go polling an
-`is_done` flag, was considered and declined. It moves the one OS thread a
-running job needs out of Go's accounting rather than saving it: a blocking
-purego call holds one thread, as a blocking syscall does, while Go hands
-its scheduler slot to another thread, and par2go runs one job at a time,
-so callers queue on a Go mutex that holds no thread at all. What such a
-design does buy -- C memory never freed under a running job -- par2go gets
-from one deferred guard in `run` that, on any exit (return, panic, or a
-`runtime.Goexit` in `Progress`), cancels and waits for `p2_run` before
-`p2_free`. Revisit only if jobs ever run concurrently.
+**An async C thread, as built (2026-10-06).** The first cut ran `p2_run` on
+a Go goroutine locked to its OS thread, and an async shim was at first
+declined: a blocking purego call holds one thread, as a blocking syscall
+does, and par2go runs one job at a time, so it costs one thread either way.
+The owner chose the async design anyway, and it is what ships (section 4):
+the job runs on a thread the shim owns, Go only polls, and the shim -- not
+Go -- decides when job memory may go. The one-way rule above is unchanged:
+C still never calls Go.
 
 What is **not** handled: a crash inside the C++ library (a SIGSEGV on a hostile
 or corrupt set) takes the process down. The only remedy is process isolation,
@@ -309,7 +323,7 @@ which is the clustarr integration spec's to decide.
    commit.
 2. `cmake -DBUILD_LIB=ON -DENABLE_CREATOR=OFF -DENABLE_PAR1=OFF
    -DCMAKE_POSITION_INDEPENDENT_CODE=ON` and build the static `par2-turbo`.
-3. Compile `par2go.cpp` and link `libpar2go.so` against it with
+3. Compile `par2shim.cpp` and link `libpar2shim.so` against it with
    `-static-libstdc++ -static-libgcc -Wl,--no-undefined`, exporting only the
    `p2_*` symbols (`-fvisibility=hidden`, plus a version script).
 
@@ -318,7 +332,7 @@ image, so the library runs there and on any newer glibc.
 
 Release (`release.yml`, on a `v*` tag): build on `ubuntu-24.04` and
 `ubuntu-24.04-arm`, each inside a bookworm container, and attach
-`libpar2go-linux-amd64.so`, `libpar2go-linux-arm64.so` and `SHA256SUMS`.
+`libpar2shim-linux-amd64.so`, `libpar2shim-linux-arm64.so` and `SHA256SUMS`.
 Module tags start at `v0.1.0`. A consumer fetches a pinned asset and checks its
 digest, as `Dockerfile.media` fetches par2 today.
 
@@ -354,7 +368,7 @@ All tests run with `-race`.
 7. **No cgo.** `go list -deps` of the module includes neither `runtime/cgo` nor
    an import of `C`.
 8. **Falsification.** Before a guard is called done, break what it guards
-   (drop `-static-libstdc++`; make `p2_run` ignore `cancel_requested`; read
+   (drop `-static-libstdc++`; make the job ignore `cancel_requested`; read
    `availableblockcount` in place of `missingblockcount`) and watch the test
    fail by name.
 
