@@ -35,7 +35,7 @@ const (
 
 // MetadataProviderType is the upstream metadata service a provider talks to.
 //
-// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb;theintrodb
+// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb;theintrodb;plex
 type MetadataProviderType string
 
 // Metadata provider types.
@@ -68,6 +68,12 @@ const (
 	// secretRef "apiKey" raises its limits. "apiKeys" adds more keys, one
 	// per line: each has an allowance of its own, spent in order.
 	MetadataProviderTheIntroDB MetadataProviderType = "theintrodb"
+	// MetadataProviderPlex resolves items to their ids in Plex's own
+	// metadata service, which the ui's Plex provider answers with as
+	// plex:// GUIDs (docs/superpowers/specs/2026-10-06-plex-native-guids-design.md).
+	// Takes secretRef key token: a Plex account token (the Plex watchlist
+	// import list's Secret carries one under the same key).
+	MetadataProviderPlex MetadataProviderType = "plex"
 )
 
 // Secret keys recognised in MetadataProviderSpec.SecretRef.
@@ -81,6 +87,8 @@ const (
 	MetadataSecretKeyAPIKeys = "apiKeys"
 	MetadataSecretKeyPin     = "pin"
 	MetadataSecretKeyBearer  = "bearer"
+	// MetadataSecretKeyToken is a Plex account token, read by plex only.
+	MetadataSecretKeyToken = "token"
 )
 
 // RateLimit caps how fast a provider may be called.

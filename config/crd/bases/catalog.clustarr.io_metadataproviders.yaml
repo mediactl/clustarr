@@ -178,6 +178,7 @@ spec:
                 - mdblist
                 - omdb
                 - theintrodb
+                - plex
                 type: string
                 x-kubernetes-validations:
                 - message: type is immutable

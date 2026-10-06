@@ -246,3 +246,28 @@ func TestIsRateLimitedMatchesRateLimitedError(t *testing.T) {
 		t.Error("isRateLimited did not match a wrapped *metadata.RateLimitedError")
 	}
 }
+
+// A plex provider is probed by a match for The Matrix with its token in
+// X-Plex-Token, and refused without secretRef key token.
+func TestThePlexProbePingsWithTheToken(t *testing.T) {
+	var gotToken, gotGUID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotToken, gotGUID = r.Header.Get("X-Plex-Token"), r.URL.Query().Get("guid")
+		_, _ = w.Write([]byte(`{"MediaContainer":{"size":0,"totalSize":0}}`))
+	}))
+	defer srv.Close()
+	spec := catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderPlex, BaseURL: &srv.URL}
+	p, err := NewProber(spec, map[string][]byte{catalogv1alpha1.MetadataSecretKeyToken: []byte("tok")}, srv.Client())
+	if err != nil {
+		t.Fatalf("NewProber: %v", err)
+	}
+	if _, err := p.Probe(context.Background()); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if gotToken != "tok" || gotGUID != "tmdb://603" {
+		t.Errorf("probe sent token %q guid %q, want tok and tmdb://603", gotToken, gotGUID)
+	}
+	if _, err := NewProber(spec, map[string][]byte{}, srv.Client()); err == nil {
+		t.Error("a plex provider without secretRef key token was accepted")
+	}
+}

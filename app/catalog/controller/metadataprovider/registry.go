@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
+	plexclient "github.com/mediactl/clustarr/pkg/metadata/clients/plex"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/theintrodb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
@@ -191,6 +192,9 @@ func addToRegistry(reg *metadata.Registry, spec catalogv1alpha1.MetadataProvider
 		if a.markers != nil {
 			reg.Markers = append(reg.Markers, a.markers)
 		}
+		if a.plex != nil {
+			reg.Plex = append(reg.Plex, a.plex)
+		}
 	}
 	return nil
 }
@@ -211,7 +215,7 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 		catalogv1alpha1.MetadataProviderAniList, catalogv1alpha1.MetadataProviderKitsu,
 		catalogv1alpha1.MetadataProviderAnimeLists,
 		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
-		catalogv1alpha1.MetadataProviderTheIntroDB:
+		catalogv1alpha1.MetadataProviderTheIntroDB, catalogv1alpha1.MetadataProviderPlex:
 		return true
 	default:
 		return false
@@ -229,6 +233,7 @@ type supplementary struct {
 	resolver metadata.IDResolver
 	ratings  metadata.RatingsProvider
 	markers  metadata.MarkersProvider
+	plex     metadata.PlexProvider
 	ping     func(context.Context) error
 }
 
@@ -237,7 +242,7 @@ type supplementary struct {
 // Books; metron and mangadex are Comics and Resolvers; anilist, kitsu and
 // animelists are Resolvers (AniList is a ComicProvider too, but a Comic's
 // source can only be ComicVine or MangaDex, so it is not registered as a
-// comic source); mdblist is Ratings. fanart and mdblist need secretRef key
+// comic source); mdblist is Ratings; plex is Resolvers and Plex. fanart and mdblist need secretRef key
 // "apiKey" (mdblist also reads an optional "apiKeySecondary"); hardcover and
 // metron need "bearer". spec.contactUserAgent is sent as the User-Agent when set.
 // With no spec.rateLimit each client gets its own package's DefaultRate and
@@ -296,6 +301,15 @@ func buildSupplementary(spec catalogv1alpha1.MetadataProviderSpec, secret map[st
 			return nil, fmt.Errorf("theintrodb: %w", err)
 		}
 		return &supplementary{markers: c, ping: c.Ping}, nil
+	case catalogv1alpha1.MetadataProviderPlex:
+		c, err := plexclient.New(plexclient.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(spec), Limiter: limiterFor(spec, plexclient.DefaultRate, plexclient.DefaultBurst), UserAgent: ua,
+			Token: string(secret[catalogv1alpha1.MetadataSecretKeyToken]),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("plex requires secretRef key %s: %w", catalogv1alpha1.MetadataSecretKeyToken, err)
+		}
+		return &supplementary{resolver: c, plex: c, ping: c.Ping}, nil
 	case catalogv1alpha1.MetadataProviderOMDb:
 		// Ruling R5 (spec §C.3): the CRD enum member and secretRef shape
 		// exist, but no client is written against no recorded response

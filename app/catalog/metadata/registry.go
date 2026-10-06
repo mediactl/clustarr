@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
+	plexclient "github.com/mediactl/clustarr/pkg/metadata/clients/plex"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/theintrodb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
@@ -177,7 +178,7 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 		catalogv1alpha1.MetadataProviderAniList, catalogv1alpha1.MetadataProviderKitsu,
 		catalogv1alpha1.MetadataProviderAnimeLists,
 		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
-		catalogv1alpha1.MetadataProviderTheIntroDB:
+		catalogv1alpha1.MetadataProviderTheIntroDB, catalogv1alpha1.MetadataProviderPlex:
 		return true
 	default:
 		return false
@@ -196,6 +197,7 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 //     ComicVine or MangaDex, so AniList hits in a comic search would be
 //     titles no Comic can be created from.
 //   - mdblist: Ratings.
+//   - plex: Resolvers (a Movie's or Series' plex id) and Plex.
 //
 // Credentials: fanart reads secretRef's "apiKey", and mdblist "apiKey" plus
 // an optional "apiKeySecondary"; hardcover and metron read
@@ -277,6 +279,20 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 			return fmt.Errorf("metadata: build mdblist client for %s/%s: %w", p.Namespace, p.Name, err)
 		}
 		reg.Ratings = append(reg.Ratings, cl)
+	case catalogv1alpha1.MetadataProviderPlex:
+		tok, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyToken)
+		if err != nil {
+			return err
+		}
+		cl, err := plexclient.New(plexclient.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(p, plexclient.DefaultBaseURL),
+			Limiter: supplementaryLimiter(p, plexclient.DefaultRate, plexclient.DefaultBurst), UserAgent: ua, Token: tok,
+		})
+		if err != nil {
+			return fmt.Errorf("metadata: build plex client for %s/%s: %w", p.Namespace, p.Name, err)
+		}
+		reg.Resolvers = append(reg.Resolvers, cl)
+		reg.Plex = append(reg.Plex, cl)
 	case catalogv1alpha1.MetadataProviderTheIntroDB:
 		key, err := optionalSecretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
 		if err != nil {

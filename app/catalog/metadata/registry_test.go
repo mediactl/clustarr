@@ -21,6 +21,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -373,4 +374,37 @@ func TestBuildRegistryWiresTheIntroDBWithOrWithoutAKey(t *testing.T) {
 			require.Equal(t, "theintrodb", reg.Markers[0].Name())
 		})
 	}
+}
+
+// A plex MetadataProvider reads secretRef key "token" and is both a
+// resolver (a Movie's or Series' plex id) and a PlexProvider (a show's
+// seasons and episodes).
+func TestBuildRegistryWiresPlexAsAResolverAndAPlexProvider(t *testing.T) {
+	var gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotToken = r.Header.Get("X-Plex-Token")
+		b, err := os.ReadFile("../../../test/data/metadata/plex/matches_movie_tmdb_329865.json")
+		require.NoError(t, err)
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "plex-token", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyToken: []byte("tok")},
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+	reg, err := BuildRegistry(context.Background(), c, []catalogv1alpha1.MetadataProvider{{
+		ObjectMeta: metav1.ObjectMeta{Name: "plex", Namespace: "clustarr"},
+		Spec: catalogv1alpha1.MetadataProviderSpec{
+			Type: catalogv1alpha1.MetadataProviderPlex, Enabled: enabled(), BaseURL: &srv.URL,
+			SecretRef: &corev1.LocalObjectReference{Name: "plex-token"},
+		},
+	}}, srv.Client())
+	require.NoError(t, err)
+	require.Len(t, reg.Resolvers, 1)
+	require.Len(t, reg.Plex, 1)
+	got, err := reg.Resolvers[0].Resolve(context.Background(), commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{pkgmetadata.KeyTMDB: "329865"})
+	require.NoError(t, err)
+	require.Equal(t, "5d776b83fb0d55001f56a04b", got[pkgmetadata.KeyPlex])
+	require.Equal(t, "tok", gotToken)
 }
