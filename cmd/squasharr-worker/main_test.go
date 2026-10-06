@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
@@ -165,4 +166,20 @@ func TestSelfCheckNeedsNoClusterEnvironment(t *testing.T) {
 		t.Skip("not FFmpeg 9")
 	}
 	assert.Equal(t, 0, run([]string{"--self-check=cpu"}, func(string) string { return "" }))
+}
+
+// A graft Job's pod runs --graft-task with no NATS and no pool environment
+// and leaves its result in the termination message, which the AudioGraft
+// controller reads whatever the exit code.
+func TestAGraftTaskWritesItsResultToTheTerminationLog(t *testing.T) {
+	term := filepath.Join(t.TempDir(), "termination-log")
+	code := run([]string{"--graft-task", `{"graft":"ns/g","target":"/data/tv/x.mkv"}`, "--termination-log", term, "--data-dir", t.TempDir()},
+		func(string) string { return "" })
+	assert.Equal(t, 1, code)
+	b, err := os.ReadFile(term)
+	require.NoError(t, err)
+	res, err := grafttask.Decode(b)
+	require.NoError(t, err)
+	assert.Equal(t, grafttask.PhaseFailed, res.Phase)
+	assert.Equal(t, grafttask.ReasonInvalidTask, res.Reason)
 }

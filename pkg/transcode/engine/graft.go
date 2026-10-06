@@ -619,3 +619,33 @@ func graftContainer(path string) (transcode.Container, bool) {
 	}
 	return "", false
 }
+
+// Track is one audio stream of an input, as a graft chooses among them.
+type Track struct {
+	Index    int // among the input's audio streams
+	Language string
+	Title    string
+	Codec    string
+	Channels int
+	Default  bool
+}
+
+// AudioTracks lists the input's audio streams.
+func AudioTracks(path string) ([]Track, error) {
+	if err := ffgo.Init(); err != nil {
+		return nil, err
+	}
+	d, err := ffgo.NewDecoder(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = d.Close() }()
+	var out []Track
+	for i, s := range audioStreams(d) {
+		out = append(out, Track{
+			Index: i, Language: s.Language, Title: s.Title, Codec: s.Codec, Channels: s.Channels,
+			Default: s.Disposition&ffgo.DispositionDefault != 0,
+		})
+	}
+	return out, nil
+}

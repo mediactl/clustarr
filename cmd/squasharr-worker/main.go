@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,7 +33,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/pflag"
 
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/worker/graft"
 	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
@@ -52,6 +55,8 @@ func run(args []string, getenv func(string) string) int {
 	selfCheck := fs.String("self-check", "", "Check this image can transcode for a class (cpu, cuda, intel), print the report as JSON and exit: 0 when it can.")
 	trial := fs.Bool("trial", false, "With --self-check, also encode for real on the class's GPU.")
 	scratchDir := fs.String("scratch-dir", os.TempDir(), "With --trial, where the trial writes its clip.")
+	graftTask := fs.String("graft-task", "", "Run this audio graft (grafttask.Task JSON) instead of serving a pool, write its result to --termination-log and exit: 0 when it succeeded.")
+	termLog := fs.String("termination-log", "/dev/termination-log", "With --graft-task, where the result is written (the pod's termination message).")
 	lo, to := obsflags.Bind(fs)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
@@ -63,6 +68,9 @@ func run(args []string, getenv func(string) string) int {
 	if err := fsops.ApplyUmaskFromEnv(); err != nil {
 		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
 		return worker.WorkerExitMisconfigured
+	}
+	if *graftTask != "" {
+		return runGraft(*graftTask, *termLog, *dataDir, logging.New(*lo))
 	}
 	need := map[string]string{}
 	for _, k := range []string{"NATS_URL", "CLUSTARR_POOL_PROFILE_UID", "CLUSTARR_POOL_CLASS", "POD_NAME"} {
@@ -150,4 +158,28 @@ func runSelfCheck(class selfcheck.Class, trial bool, dir string) int {
 		return worker.WorkerExitMisconfigured
 	}
 	return 0
+}
+
+// runGraft is one graft Job's pod (anime dual-audio spec §7.2): no NATS and
+// no pool environment, only /data; the controller reads the result from the
+// termination message, whatever the exit code.
+func runGraft(taskJSON, termLog, dataDir string, log *slog.Logger) int {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	ctx = logging.NewContext(ctx, log)
+	var t grafttask.Task
+	res := grafttask.Failed(grafttask.ReasonInvalidTask, "decode --graft-task")
+	if err := json.Unmarshal([]byte(taskJSON), &t); err == nil {
+		res = graft.Run(ctx, t, graft.Options{DataDir: dataDir})
+	} else {
+		res.Message = grafttask.Clamp("decode --graft-task: " + err.Error())
+	}
+	log.InfoContext(ctx, "graft finished", "graft", t.Graft, "phase", res.Phase, "reason", res.Reason, "message", res.Message)
+	if err := os.WriteFile(termLog, res.Encode(), 0o644); err != nil {
+		log.ErrorContext(ctx, "write the termination message", "error", err)
+	}
+	if res.Phase == grafttask.PhaseSucceeded {
+		return 0
+	}
+	return 1
 }

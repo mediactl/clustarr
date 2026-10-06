@@ -135,3 +135,9 @@ func OutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
 	}
 	return stem + " - " + profileName + "." + ext, nil
 }
+
+// LocalPath is localPath for the graft run (app/squash/worker/graft).
+func LocalPath(dataDir, logical string) (string, error) { return localPath(dataDir, logical) }
+
+// Within is within, for the same.
+func Within(dir, path string) bool { return within(dir, path) }
