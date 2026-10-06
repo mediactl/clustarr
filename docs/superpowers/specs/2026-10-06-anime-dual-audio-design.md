@@ -382,3 +382,15 @@ Plan `docs/superpowers/plans/2026-10-06-anime-type-detection-wronglanguage.md`.
   - import: the new file's probe carries the wanted language.
 
   The Movie and Episode watches also wake on a probe's audio languages.
+
+## As built: phase 2 (2026-10-06)
+
+Plan `docs/superpowers/plans/2026-10-06-anime-profile-audio.md`.
+`QualityProfileSpec.Audio` resolves into `quality.Profile` (`AudioLanguages`,
+`AudioGraft`, `AudioDefault`, hashed; `ScoreSet` added, unhashed). The
+dual-audio token is TRaSH's own "Dual Audio" pattern, which has no bare
+`DL`, so `WEB-DL` never reads as dual audio. A dual-audio title also counts
+as naming its languages for phase 1's wrong-language replacement.
+`status.audio` is written by the Episode and Movie reconcilers
+(`rollup.AudioStateFor`, one renderer for every path). Phase 1's minors
+fixed here: conditions capped at 12, SeriesStatus' description restored.

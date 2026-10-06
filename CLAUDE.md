@@ -343,7 +343,15 @@ new file's own probe carries the language (`fileimport.replacesWrongLanguage`),
 so it never loops grab, reject and blocklist. The Movie and Episode
 controllers wake on a probe's audio languages
 (`rollup.AudioLanguagesObject`), and a RootFolder's spec edit wakes its
-unclassified series.
+unclassified series. A profile's `audio` (`languages`, `graft`, `default`;
+the anime built-ins want `[en, original]`, grafted) replaces its
+`language` in the decision (`decision.audioRejection`): a release carrying
+every wanted language is complete, a partial one is a video candidate only
+when the profile grafts and the release carries the original language (the
+anchor a graft aligns on), a complete one wins a tie, and TRaSH's
+"Dual Audio" title pattern reads as the original plus English under an
+anime score set. Items report `status.audio` (wanted, present, missing,
+graft); a missing dub never blocks the video.
 The movies provider has Plex's collection feature (2026-10-06; type 18,
 Feature `collection` at `/library/collections`, movie libraries only): a
 collection is a TMDB collection (`status.metadata.collection`), its items
