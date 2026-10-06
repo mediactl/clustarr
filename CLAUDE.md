@@ -77,7 +77,11 @@ re-transcodes nothing**: the profile controller skips a file that is
 `MediaFile.Transcoded()` or already has an open job of the profile, and
 the standard skips any `CLUSTARR_PROFILE`-tagged file. Raise
 `standard.Version` when the standard's output changes, so untranscoded
-files plan under it. The NVENC tier decodes on NVDEC, frames staying on
+files plan under it. NVENC holds an encode under the source: with the
+probe summary's `videoBitrateKbps` known it runs VBR at `cq` = quality - 1
+capped at `standard.NVENCMaxBitratePercent` (70) of it, else constant QP
+(2026-10-05; constant QP alone made lean sources larger than
+`policy.maxOutputToSourcePercent` allows). The NVENC tier decodes on NVDEC, frames staying on
 the GPU, for a source each pool worker's trial decodes (published as
 `clustarr-progress` `encoder-limits.<class>` `nvdec`, shown in
 TranscodeProfile `status.encoderLimits[].nvdec`) or else a static Turing

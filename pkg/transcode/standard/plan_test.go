@@ -285,3 +285,26 @@ func TestASourceShorterThanMinDurationIsSkipped(t *testing.T) {
 	p.MinDuration = time.Minute
 	assert.Equal(t, DecisionEncode, Plan(info(h264, eac3), p, cpu).Decision)
 }
+
+// NVENC holds its output under the source (the old engine's
+// video.nvenc.maxBitratePercent, restored 2026-10-05): constant QP alone
+// made an already lean source larger -- five jobs on kind-cluster-plex
+// failed policy.maxOutputToSourcePercent at up to 133%. With the source's
+// video bit rate known, NVENC runs VBR at the quality's cq, capped at 70% of
+// it; unknown, it stays constant QP.
+func TestNVENCCapsItsBitRateBelowTheSources(t *testing.T) {
+	src := h264
+	src.BitRateKbps = 4000
+	o := Plan(info(src, eac3), profile, nvenc).Video.Options
+	assert.Equal(t, "vbr", o["rc"])
+	assert.Equal(t, "23", o["cq"], "quality 24, as NVENC's qp is quality - 1")
+	assert.Equal(t, "0", o["b"], "no target bit rate: cq decides, maxrate caps")
+	assert.Equal(t, "2800k", o["maxrate"])
+	assert.Equal(t, "5600k", o["bufsize"])
+	assert.NotContains(t, o, "qp")
+
+	unknown := Plan(info(h264, eac3), profile, nvenc).Video.Options
+	assert.Equal(t, "constqp", unknown["rc"])
+	assert.Equal(t, "23", unknown["qp"])
+	assert.NotContains(t, unknown, "maxrate")
+}

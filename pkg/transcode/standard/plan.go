@@ -320,7 +320,7 @@ func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr
 	switch hw.Tier {
 	case transcode.TierNVENC:
 		vp.Encoder = "hevc_nvenc"
-		vp.Options = nvencOptions(quality)
+		vp.Options = nvencOptions(quality, v.BitRateKbps)
 		if transcode.NVDECDecodes(hw.Limits, v) {
 			vp.Decode, vp.Filter = "nvdec", "scale_cuda=format="+fmtFor("p010le")
 		} else {
@@ -352,11 +352,30 @@ func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr
 // preset p7, constant QP with spatial and temporal AQ. Under constqp NVENC
 // ignores cq, so quality maps to qp, one below it (the archival qp 23 at
 // the standard's default quality 24).
-func nvencOptions(quality int32) map[string]string {
-	return map[string]string{
-		"preset": "p7", "rc": "constqp", "qp": itoa(max(quality-1, 0)),
-		"spatial-aq": "1", "temporal-aq": "1", "profile": "main10",
+// NVENCMaxBitratePercent caps an NVENC encode's bit rate at this share of
+// the source's video bit rate (the old engine's
+// video.nvenc.maxBitratePercent default, restored 2026-10-05). Constant QP
+// alone made a lean source larger: five jobs on kind-cluster-plex failed
+// policy.maxOutputToSourcePercent, one at 133% of its source.
+const NVENCMaxBitratePercent = 70
+
+// nvencOptions is hevc_nvenc at the standard's quality: with the source's
+// video bit rate known (sourceKbps > 0), VBR at cq = quality - 1 with no
+// target bit rate, capped at NVENCMaxBitratePercent of the source with a
+// two-second-of-cap buffer; unknown, constant QP at the same value. (Under
+// constqp NVENC ignores cq and any maxrate, which is why the cap needs VBR.)
+func nvencOptions(quality, sourceKbps int32) map[string]string {
+	q := itoa(max(quality-1, 0))
+	o := map[string]string{"preset": "p7", "spatial-aq": "1", "temporal-aq": "1", "profile": "main10"}
+	if sourceKbps <= 0 {
+		o["rc"], o["qp"] = "constqp", q
+		return o
 	}
+	capKbps := max(int64(sourceKbps)*NVENCMaxBitratePercent/100, 1)
+	o["rc"], o["cq"], o["b"] = "vbr", q, "0"
+	o["maxrate"] = strconv.FormatInt(capKbps, 10) + "k"
+	o["bufsize"] = strconv.FormatInt(2*capKbps, 10) + "k"
+	return o
 }
 
 // x265Options are today's profile defaults: preset slow, 8 B-frames, 4

@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -253,4 +254,48 @@ func TestASourceWhoseTimestampsGoBackwardsStillEncodes(t *testing.T) {
 		require.Greater(t, v, last, "output timestamps move forward")
 		last = v
 	}
+}
+
+// The standard's NVENC plan for a lean source holds the output under it: a
+// noisy clip encoded small by x264, which NVENC at constant QP 23 makes
+// larger, comes out under NVENCMaxBitratePercent of the source's video bit
+// rate (kind-cluster-plex, 2026-10-05: five jobs over 100% of their source).
+// Thirty seconds, because the VBV buffer's initial slack is spread over the
+// clip.
+func TestTheStandardsNVENCPlanHoldsALeanSourceUnderItsBitRate(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dev, err := ffgo.NewHWDevice(ffgo.HWDeviceTypeCUDA, "")
+	if err != nil {
+		t.Skipf("no CUDA device: %v", err)
+	}
+	defer func() { _ = dev.Close() }()
+	src := filepath.Join(t.TempDir(), "lean.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+		"-i", "testsrc2=size=1280x720:rate=24:duration=30,noise=alls=24:allf=t",
+		"-c:v", "libx264", "-preset", "veryfast", "-crf", "32", src)
+	st, err := os.Stat(src)
+	require.NoError(t, err)
+	srcKbps := int32(st.Size() * 8 / 30 / 1000)
+
+	mi, raw, err := mediainfo.Probe(context.Background(), src)
+	require.NoError(t, err)
+	info, err := transcode.FromProbe(mi, raw)
+	require.NoError(t, err)
+	info.Video[0].BitRateKbps = srcKbps // what mkvmerge's BPS tag gives the library's files
+	plan := standard.Plan(info, standard.Profile{Name: "p", Hash: "h", Quality: 24}, standard.Hardware{Tier: transcode.TierNVENC})
+	require.Equal(t, standard.DecisionEncode, plan.Decision, plan.Reason)
+	require.Equal(t, "vbr", plan.Video.Options["rc"])
+
+	out := filepath.Join(t.TempDir(), "o.mkv")
+	_, err = Run(context.Background(), plan, src, out, Options{HWDevice: dev})
+	require.NoError(t, err)
+	ost, err := os.Stat(out)
+	require.NoError(t, err)
+	outKbps := int32(ost.Size() * 8 / 30 / 1000)
+	t.Logf("source %d kbps, output %d kbps (cap %s)", srcKbps, outKbps, plan.Video.Options["maxrate"])
+	// The VBV buffer starts full, so a clip may run over the cap by up to
+	// bufsize/duration (two seconds of cap over thirty here); a feature-length
+	// file by nothing that matters.
+	assert.LessOrEqual(t, outKbps, srcKbps*standard.NVENCMaxBitratePercent/100*110/100, "the output stays under the cap")
+	assert.Less(t, ost.Size(), st.Size(), "and under the source")
 }
