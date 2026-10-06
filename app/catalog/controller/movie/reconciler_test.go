@@ -1231,6 +1231,62 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.NotNil(t, cond(got, catalogv1alpha1.MovieConditionWrongLanguage))
 		assert.Equal(t, metav1.ConditionTrue, cond(got, catalogv1alpha1.MovieConditionWrongLanguage).Status)
 	})
+
+	t.Run("a dual-audio profile reports status.audio and never blocks the video for a missing dub", func(t *testing.T) {
+		// Anime dual-audio spec §5.3: a Japanese-only file under [en, original]
+		// with grafting on is missing English, and that is the graft's job.
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		qp := testQualityProfile("avail-ns", "dual-at-1080p", "Bluray-1080p")
+		qp.Spec.Audio = &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true}
+		require.NoError(t, c.Create(ctx, qp))
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "perfect-blue", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MovieSpec{TmdbID: 10494, QualityProfileRef: "dual-at-1080p", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA},
+		}
+		require.NoError(t, c.Create(ctx, m))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(
+			catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Perfect Blue").WithYear(1997).
+				WithOriginalLanguage("ja").WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
+		require.NoError(t, err)
+		waitForPhase(t, ctx, c, "avail-ns", "perfect-blue")
+		ref := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "perfect-blue"}
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "perfect-blue-dual123456", Namespace: "avail-ns"},
+			Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: ref, Path: "/data/media/x/perfect-blue.mkv", Quality: bluray},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		audio := func(langs ...string) {
+			t.Helper()
+			var a []commonv1.AudioStream
+			for _, l := range langs {
+				a = append(a, commonv1.AudioStream{Language: l})
+			}
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "avail-ns").WithStatus(
+				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: a})))
+			require.NoError(t, err)
+		}
+		var got catalogv1alpha1.Movie
+		read := func(what string, ok func() bool) {
+			t.Helper()
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "perfect-blue"}, &got) == nil && ok()
+			}, 5*time.Second, 20*time.Millisecond, what)
+		}
+		audio("jpn")
+		read("status.audio never reported the missing dub", func() bool {
+			return got.Status.Audio != nil && len(got.Status.Audio.Missing) == 1 && got.Status.Audio.Missing[0] == "en"
+		})
+		assert.Equal(t, []string{"en", "ja"}, got.Status.Audio.Wanted)
+		assert.Equal(t, []string{"ja"}, got.Status.Audio.Present)
+		assert.Equal(t, "none", got.Status.Audio.Graft)
+		assert.True(t, got.Status.CutoffMet, "a missing dub never blocks the video: grafting fills it")
+
+		audio("eng", "jpn")
+		read("a dual-audio file must empty status.audio.missing", func() bool {
+			return got.Status.Audio != nil && len(got.Status.Audio.Missing) == 0 && len(got.Status.Audio.Present) == 2
+		})
+	})
 }
 
 // grabPathDownload creates a Download for owner the way the grab path does:

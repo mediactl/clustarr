@@ -571,6 +571,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		WithHasFile(hasFile).
 		WithFileFormatScore(fileFormatScore).
 		WithCutoffMet(cutoffMet)
+	if a := rollup.AudioStateFor(profile, originalTag, mf); a != nil {
+		statusAC = statusAC.WithAudio(rollup.AudioStateAC(a))
+	}
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
 	}
@@ -731,6 +734,9 @@ func reassertKnownStatus(statusAC *catalogac.MovieStatusApplyConfiguration, m *c
 	statusAC = statusAC.WithCutoffMet(m.Status.CutoffMet)
 	if m.Status.ActiveDownloadRef != nil {
 		statusAC = statusAC.WithActiveDownloadRef(*m.Status.ActiveDownloadRef)
+	}
+	if m.Status.Audio != nil {
+		statusAC = statusAC.WithAudio(rollup.AudioStateAC(m.Status.Audio))
 	}
 	return statusAC
 }

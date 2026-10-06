@@ -25,6 +25,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 func TestProbedAudioLanguages(t *testing.T) {
@@ -52,4 +53,26 @@ func TestAudioLanguagesObjectKeysTheProbedLanguages(t *testing.T) {
 	require.Equal(t, "en,ja", rollup.AudioLanguagesObject(mf))
 	require.Equal(t, "", rollup.AudioLanguagesObject(&catalogv1alpha1.MediaFile{}))
 	require.Equal(t, "", rollup.AudioLanguagesObject(&catalogv1alpha1.Episode{}), "not a MediaFile")
+}
+
+func TestAudioStateFor(t *testing.T) {
+	p := &quality.Profile{AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	mf := func(langs ...string) *catalogv1alpha1.MediaFile {
+		var a []commonv1.AudioStream
+		for _, l := range langs {
+			a = append(a, commonv1.AudioStream{Language: l})
+		}
+		return &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{Audio: a}}}
+	}
+	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"}, Graft: "none"},
+		rollup.AudioStateFor(p, "ja", mf("jpn")))
+	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"en", "ja"}, Graft: "none"},
+		rollup.AudioStateFor(p, "ja", mf("eng", "jpn")))
+	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"en", "ja"}, Graft: "none"},
+		rollup.AudioStateFor(p, "ja", mf("und")), "unknown audio: nothing is called missing")
+	require.Equal(t, []string{"en"}, rollup.AudioStateFor(p, "", mf("jpn")).Wanted, "an unknown original is dropped")
+	require.Equal(t, "", rollup.AudioStateFor(&quality.Profile{AudioLanguages: []string{"en"}}, "ja", mf("eng")).Graft, "no graft, no graft state")
+	require.Nil(t, rollup.AudioStateFor(&quality.Profile{}, "ja", mf("jpn")), "no audio policy")
+	require.Nil(t, rollup.AudioStateFor(nil, "ja", mf("jpn")))
+	require.Nil(t, rollup.AudioStateFor(p, "ja", nil), "no file")
 }

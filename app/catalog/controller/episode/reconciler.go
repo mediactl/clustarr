@@ -545,6 +545,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
 	}
+	if a := rollup.AudioStateFor(profile, originalTag, mf); a != nil {
+		statusAC = statusAC.WithAudio(rollup.AudioStateAC(a))
+	}
 	if fileQuality != nil {
 		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
