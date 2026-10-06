@@ -390,3 +390,42 @@ Pending or Running (a field index on `status.mediaFileRef`).
 
 - [ ] A UI test that the episode row renders the graft state. Watch it
   fail, implement, run `go test ./ui/...`. Commit with the docs.
+
+---
+
+## Addendum (2026-10-06, owner request): reduce at once; transcode and graft in one pass
+
+**Part 1.** An AudioGraft whose donor is not yet reduced gets a reduce-only Job
+(`grafttask.Task.Mode: reduce`) at once, whatever the target's state: the
+donor's video leaves the disk as soon as it lands. The result records
+`AudioGraft.status.donorAudioPath`; a donor lacking its languages fails there,
+a donor fault. Grafts read the `.mka`.
+
+**Part 2.** A graft rides along with a transcode of its file:
+
+- The TranscodeJob dispatcher attaches the item's AudioGraft to the task
+  (`task.Task.Graft`, a `grafttask.Task`) when its donor is reduced, the dub is
+  still missing, and no standalone graft is running or failed for the donor
+  and file. It records `TranscodeJob.status.graft` (phase `Joined`).
+- The pool worker aligns the anchors before encoding (the in-process engine,
+  through an optional `worker.GraftEngine`). On success one `engine.Run` writes
+  the transcode and the dub; verify expects one more audio track, and the mux
+  check runs on the output. A failed alignment leaves the transcode alone; a
+  failed mux check fails the attempt, and the retry carries no graft.
+- The worker's result carries the graft's (`task.StatusEvent.Graft`), which
+  the results consumer writes into `TranscodeJob.status.graft`.
+- The AudioGraft controller, the AudioGraft's only status writer, mirrors it:
+  Running while joined, then the result. When its file is one a
+  TranscodeProfile will transcode (`graftstate.WouldTranscode`), it waits for
+  that transcode (reason `WaitingForTranscode`, at most `joinWait`, 6 h) rather
+  than graft first. A transcode that ran without it, or a wait that ran out,
+  falls back to a standalone graft.
+- The TranscodeProfile leaves alone only a file under a standalone graft Job:
+  a reduce, or a graft waiting to join, does not hold the transcode back.
+- `Grafting` and `WouldTranscode` live in `app/squash/graftstate`, which both
+  controllers import.
+
+Rulings: the joined result is a transcode (`CLUSTARR_PROFILE` and
+`CLUSTARR_GRAFT`, `spec.original` false), incorporated as a swap; the 6 h wait
+bounds how long a dub waits on a full transcode window; a mux check failure
+re-encodes without the dub on the next attempt rather than keep a bad dub.
