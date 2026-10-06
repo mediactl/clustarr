@@ -61,6 +61,13 @@ type Options struct {
 	// served by the ui's signed /art/search proxy. Nil drops person photos,
 	// season posters and episode stills.
 	PhotoURL func(src string) string
+
+	// PlexGUIDs answers a movie, show, season or episode Plex knows with
+	// its plex:// GUID instead of clustarr's own (--plex-guids), so Plex
+	// Web offers Watchlist and its other Discover features for it
+	// (docs/superpowers/specs/2026-10-06-plex-native-guids-design.md).
+	// ratingKey and key stay clustarr's either way.
+	PlexGUIDs bool
 }
 
 // Handler returns the composed HTTP handler for both provider roots,

@@ -118,7 +118,7 @@ func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 	md := Metadata{
 		RatingKey: key,
 		Key:       metadataKey(key, false),
-		Guid:      GUID(root.identifier, metadataTypeMovie, key),
+		Guid:      u.guid(root.identifier, metadataTypeMovie, key, moviePlexID(m)),
 		Type:      metadataTypeMovie,
 	}
 
@@ -197,7 +197,7 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 	md := Metadata{
 		RatingKey: key,
 		Key:       metadataKey(key, true),
-		Guid:      GUID(root.identifier, metadataTypeShow, key),
+		Guid:      u.guid(root.identifier, metadataTypeShow, key, seriesPlexID(s)),
 		Type:      metadataTypeShow,
 	}
 
@@ -296,13 +296,13 @@ func buildSeasonMetadata(
 	md := Metadata{
 		RatingKey:             key,
 		Key:                   metadataKey(key, true),
-		Guid:                  GUID(root.identifier, metadataTypeSeason, key),
+		Guid:                  u.guid(root.identifier, metadataTypeSeason, key, seasonPlexID(s, number)),
 		Type:                  metadataTypeSeason,
 		Title:                 seasonTitle(number),
 		OriginallyAvailableAt: seasonAvailableDate(idx.Episodes(s.UID), number),
 		ParentRatingKey:       seriesKey,
 		ParentKey:             metadataKey(seriesKey, true),
-		ParentGuid:            GUID(root.identifier, metadataTypeShow, seriesKey),
+		ParentGuid:            u.guid(root.identifier, metadataTypeShow, seriesKey, seriesPlexID(s)),
 		ParentType:            metadataTypeShow,
 		ParentTitle:           title,
 		Index:                 int32ptr(number),
@@ -446,14 +446,14 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 	md := Metadata{
 		RatingKey: key,
 		Key:       metadataKey(key, false),
-		Guid:      GUID(root.identifier, metadataTypeEpisode, key),
+		Guid:      u.guid(root.identifier, metadataTypeEpisode, key, episodePlexID(e)),
 		Type:      metadataTypeEpisode,
 		Title:     e.Status.Title,
 		Summary:   e.Status.Overview,
 
 		ParentRatingKey: seasonKey,
 		ParentKey:       metadataKey(seasonKey, true),
-		ParentGuid:      GUID(root.identifier, metadataTypeSeason, seasonKey),
+		ParentGuid:      u.guid(root.identifier, metadataTypeSeason, seasonKey, seasonPlexID(s, e.Spec.SeasonNumber)),
 		ParentType:      metadataTypeSeason,
 		ParentTitle:     seasonTitle(e.Spec.SeasonNumber),
 		ParentThumb:     parentThumb,
@@ -461,7 +461,7 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 
 		GrandparentRatingKey: seriesKey,
 		GrandparentKey:       metadataKey(seriesKey, true),
-		GrandparentGuid:      GUID(root.identifier, metadataTypeShow, seriesKey),
+		GrandparentGuid:      u.guid(root.identifier, metadataTypeShow, seriesKey, seriesPlexID(s)),
 		GrandparentType:      metadataTypeShow,
 		GrandparentTitle:     seriesTitle,
 		GrandparentThumb:     parentThumb,

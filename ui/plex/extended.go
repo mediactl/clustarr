@@ -44,6 +44,8 @@ type urls struct {
 	loc locale
 	// episodeOrder is the order Plex asked seasons in, "" for the stored one.
 	episodeOrder string
+	// plexGUIDs is Options.PlexGUIDs.
+	plexGUIDs bool
 }
 
 // proxied is src through the photo proxy, "" when there is no proxy or no
@@ -60,6 +62,7 @@ func (h *handler) urlsFor(r *http.Request) urls {
 	return urls{
 		external: h.opts.ExternalURL, photo: h.opts.PhotoURL, loc: localeOf(r),
 		episodeOrder: r.URL.Query().Get("episodeOrder"),
+		plexGUIDs:    h.opts.PlexGUIDs,
 	}
 }
 
@@ -178,22 +181,25 @@ func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind
 	md.Writer = people(doc.Writer, true)
 	md.Producer = people(doc.Producer, true)
 	for _, s := range doc.Similar {
-		md.Similar = append(md.Similar, SimilarTag{Guid: similarGuid(s, idx), Tag: s.Title})
+		md.Similar = append(md.Similar, SimilarTag{Guid: similarGuid(u, s, idx), Tag: s.Title})
 	}
 }
 
-// similarGuid is a similar title's guid: clustarr's own when the title is
-// in the catalog, so Plex can link it, else tmdb:// or tvdb://.
-func similarGuid(s extended.Similar, idx *projection.Index) string {
+// similarGuid is a similar title's guid: clustarr's own, or its plex://
+// GUID, when the title is in the catalog, so Plex can link it, else
+// tmdb:// or tvdb://.
+func similarGuid(u urls, s extended.Similar, idx *projection.Index) string {
 	if s.TmdbID != 0 {
 		if obj, ok := idx.ByTMDB(commonv1.MediaKindMovie, s.TmdbID); ok {
-			return GUID(moviesRoot.identifier, metadataTypeMovie, RatingKey(obj.GetUID()))
+			if m, ok := obj.(*catalogv1.Movie); ok {
+				return u.guid(moviesRoot.identifier, metadataTypeMovie, RatingKey(m.UID), moviePlexID(m))
+			}
 		}
 		return "tmdb://" + strconv.FormatInt(s.TmdbID, 10)
 	}
 	if s.TvdbID != 0 {
 		if sr, ok := idx.ByTVDB(s.TvdbID); ok {
-			return GUID(tvRoot.identifier, metadataTypeShow, RatingKey(sr.UID))
+			return u.guid(tvRoot.identifier, metadataTypeShow, RatingKey(sr.UID), seriesPlexID(sr))
 		}
 		return "tvdb://" + strconv.FormatInt(s.TvdbID, 10)
 	}
