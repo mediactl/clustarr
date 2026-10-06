@@ -28,6 +28,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -549,4 +550,42 @@ func TestSyncStoresTheDecodedFormatNotTheServersLabel(t *testing.T) {
 	info, err := fx.store.Info(fx.ctx, fx.key(catalogv1alpha1.ImageTypePoster))
 	require.NoError(t, err)
 	assert.Equal(t, "image/png", info.Headers["Content-Type"], "a PNG labelled image/jpeg is stored as what it is")
+}
+
+// TMDB serves some logos as SVG (kind-cluster-plex, 2026-10-05: Heat, Her,
+// La La Land...), which the store refuses, and every one of them failed
+// "not an image: content type image/svg+xml". TMDB also renders each as a
+// PNG at the same path with a .png extension (2000 px wide), so an SVG from
+// a host with a PNG rendition is converted by fetching that, and the entry
+// keeps the provider's SVG URL as its source.
+func TestSyncStoresThePNGRenditionOfAnSVGLogo(t *testing.T) {
+	fx := newFixture(t)
+	u, err := url.Parse(fx.srv.URL)
+	require.NoError(t, err)
+	fx.f.SVGRenditionHosts = []string{u.Host}
+	svg := fx.srv.serve("/t/p/original/logo.svg", "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
+	png := pngBytes(t, 20, 4, color.Black)
+	fx.srv.serve("/t/p/original/logo.png", "image/png", png)
+
+	entries, _ := fx.sync(nil, []catalogv1alpha1.Image{{Type: catalogv1alpha1.ImageTypeLogo, URL: svg}}, nil)
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, svg, entries[0].SourceURL, "the entry names the provider's image, so a re-sync finds it unchanged")
+	assert.Equal(t, digestOf(png), entries[0].Digest)
+	assert.Equal(t, 1, fx.srv.hitsFor("/t/p/original/logo.png"))
+	info, err := fx.store.Info(fx.ctx, fx.key(catalogv1alpha1.ImageTypeLogo))
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", info.Headers[artwork.HeaderContentType])
+	assert.Empty(t, fx.drainEvents())
+
+	again, _ := fx.sync(nil, []catalogv1alpha1.Image{{Type: catalogv1alpha1.ImageTypeLogo, URL: svg}}, entries)
+	assert.Equal(t, entries, again)
+	assert.Equal(t, 1, fx.srv.hitsFor("/t/p/original/logo.svg"), "an unchanged source is not fetched again")
+}
+
+// An SVG from a host with no PNG rendition is still refused, saying why.
+func TestSyncRejectsAnSVGFromAHostWithNoPNGRendition(t *testing.T) {
+	fx := newFixture(t)
+	bad := fx.srv.serve("/logo.svg", "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
+	assertFailedFetchKeepsPrevious(t, fx, bad, "SVG")
 }

@@ -28,6 +28,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -117,6 +118,15 @@ func knownType(t catalogv1alpha1.ImageType) bool {
 	return false
 }
 
+// DefaultSVGRenditionHosts are the hosts known to serve a PNG rendition of
+// each SVG: TMDB, whose logos are often SVG and whose
+// /t/p/original/<file>.png is the same logo rasterized 2000 px wide
+// (verified 2026-10-05).
+var DefaultSVGRenditionHosts = []string{"image.tmdb.org"}
+
+// svgContentType is what an SVG is served as.
+const svgContentType = "image/svg+xml"
+
 // Source is where one image type's original comes from.
 type Source struct {
 	URL  string
@@ -173,6 +183,12 @@ type Fetcher struct {
 
 	// Clock stamps status.artwork[].updatedAt. Nil is the real clock.
 	Clock clockwork.Clock
+
+	// SVGRenditionHosts are the image hosts that render each SVG they serve
+	// as a PNG at the same path with a .png extension, which is what an SVG
+	// from them is stored as: the store keeps only JPEG, PNG and WebP. Nil
+	// is DefaultSVGRenditionHosts.
+	SVGRenditionHosts []string
 
 	mu    sync.Mutex
 	locks map[string]*itemLock
@@ -361,41 +377,17 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, t catalogv1alpha1
 	if err != nil || !fetchable(src.URL) {
 		return catalogv1alpha1.ArtworkEntry{}, errors.New("not an absolute http(s) URL")
 	}
-	if f.Limiter != nil {
-		if l := f.Limiter(strings.ToLower(u.Host)); l != nil {
-			if err := l.Wait(ctx); err != nil {
-				return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("rate limit: %w", err)
-			}
+	body, contentType, err := f.get(ctx, u)
+	if contentType == svgContentType {
+		// Converted by its host: the same image as a PNG, at .png.
+		png, ok := f.pngRendition(u)
+		if !ok {
+			return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: an SVG, and %s serves no PNG rendition of it", ErrNotAnImage, u.Host)
+		}
+		if body, contentType, err = f.get(ctx, png); contentType == svgContentType {
+			return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: an SVG whose PNG rendition is an SVG too", ErrNotAnImage)
 		}
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src.URL, nil)
-	if err != nil {
-		return catalogv1alpha1.ArtworkEntry{}, errors.New("not a valid request URL")
-	}
-	req.Header.Set("Accept", "image/jpeg, image/png, image/webp")
-	req.Header.Set("User-Agent", "clustarr/"+version.String())
-	resp, err := f.httpClient().Do(req)
-	if err != nil {
-		// *url.Error repeats the whole URL, query string included; the
-		// caller names the (redacted) URL itself, so keep only the cause.
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("GET: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	raw := resp.Header.Get("Content-Type")
-	contentType, _, err := mime.ParseMediaType(raw)
-	if err != nil || !acceptedContentTypes[contentType] {
-		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: content type %q", ErrNotAnImage, raw)
-	}
-	body, err := pkgmetadata.ReadBody(resp.Body, MaxImageBytes)
 	if err != nil {
 		return catalogv1alpha1.ArtworkEntry{}, err
 	}
@@ -435,6 +427,66 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, t catalogv1alpha1
 		// anyway, so the value this returns equals the value read back.
 		UpdatedAt: metav1.NewTime(f.now().UTC().Truncate(time.Second)),
 	}, nil
+}
+
+// get fetches u under its host's rate limit and returns its body and media
+// type. A response that is not an accepted image is ErrNotAnImage, its body
+// unread; an SVG returns its media type too, so the caller can fetch the
+// host's PNG rendition instead.
+func (f *Fetcher) get(ctx context.Context, u *url.URL) ([]byte, string, error) {
+	if f.Limiter != nil {
+		if l := f.Limiter(strings.ToLower(u.Host)); l != nil {
+			if err := l.Wait(ctx); err != nil {
+				return nil, "", fmt.Errorf("rate limit: %w", err)
+			}
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, "", errors.New("not a valid request URL")
+	}
+	req.Header.Set("Accept", "image/jpeg, image/png, image/webp")
+	req.Header.Set("User-Agent", "clustarr/"+version.String())
+	resp, err := f.httpClient().Do(req)
+	if err != nil {
+		// *url.Error repeats the whole URL, query string included; the
+		// caller names the (redacted) URL itself, so keep only the cause.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, "", fmt.Errorf("GET: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	raw := resp.Header.Get("Content-Type")
+	contentType, _, err := mime.ParseMediaType(raw)
+	if err != nil || !acceptedContentTypes[contentType] {
+		return nil, contentType, fmt.Errorf("%w: content type %q", ErrNotAnImage, raw)
+	}
+	body, err := pkgmetadata.ReadBody(resp.Body, MaxImageBytes)
+	if err != nil {
+		return nil, contentType, err
+	}
+	return body, contentType, nil
+}
+
+// pngRendition is the PNG its host renders of the SVG at u -- the same path
+// with a .png extension -- for a host in SVGRenditionHosts.
+func (f *Fetcher) pngRendition(u *url.URL) (*url.URL, bool) {
+	hosts := f.SVGRenditionHosts
+	if hosts == nil {
+		hosts = DefaultSVGRenditionHosts
+	}
+	if !slices.Contains(hosts, strings.ToLower(u.Host)) || !strings.HasSuffix(strings.ToLower(u.Path), ".svg") {
+		return nil, false
+	}
+	png := *u
+	png.Path = u.Path[:len(u.Path)-len(".svg")] + ".png"
+	png.RawPath = ""
+	return &png, true
 }
 
 func (f *Fetcher) recordFailure(ctx context.Context, obj client.Object, kind commonv1.MediaKind,
