@@ -37,15 +37,29 @@ var plexIDPattern = regexp.MustCompile(`^[0-9a-f]{24}$`)
 
 // guid is the guid an item is answered with: plex://<type>/<plexID> when
 // the provider answers with Plex's GUIDs and plexID is a well-formed Plex
-// id, else clustarr's own [GUID]. Plex Web offers Watchlist only for an
-// item whose own guid is plex://, and PMS 1.43.4 accepts one from a custom
-// provider while still reading the item from it
-// (docs/superpowers/specs/2026-10-06-plex-native-guids-design.md §2).
+// id that resolves back to this very item, else clustarr's own [GUID].
+// Plex Web offers Watchlist only for an item whose own guid is plex://,
+// and PMS 1.43.4 accepts one from a custom provider while still reading
+// the item from it -- by the GUID's id
+// (docs/superpowers/specs/2026-10-06-plex-native-guids-design.md §2) --
+// so an id that does not resolve back (two items claim it) is never
+// published: PMS could fetch neither item by it.
 func (u urls) guid(identifier, metadataType, ratingKey, plexID string) string {
-	if u.plexGUIDs && plexIDPattern.MatchString(plexID) {
+	if u.plexGUIDs && plexIDPattern.MatchString(plexID) && u.resolvesTo(plexID, ratingKey) {
 		return plexScheme + "://" + metadataType + "/" + plexID
 	}
 	return GUID(identifier, metadataType, ratingKey)
+}
+
+// resolvesTo reports whether the index resolves plexID to the item
+// ratingKey names, season included.
+func (u urls) resolvesTo(plexID, ratingKey string) bool {
+	if u.idx == nil {
+		return false
+	}
+	uid, season, isSeason, ok := u.idx.ByPlexID(plexID)
+	want, wantSeason, wantIsSeason, wantOK := ParseRatingKey(ratingKey)
+	return ok && wantOK && uid == want && season == wantSeason && isSeason == wantIsSeason
 }
 
 func moviePlexID(m *catalogv1.Movie) string {

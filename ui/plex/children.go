@@ -36,7 +36,7 @@ func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		items, ok := h.childrenOf(root, h.urlsFor(r), idx, r.PathValue("ratingKey"))
+		items, ok := h.childrenOf(root, h.urlsFor(r, idx), idx, r.PathValue("ratingKey"))
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -53,11 +53,11 @@ func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 // episodes) already serves the equivalent request.
 func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u := h.urlsFor(r)
 		idx, ok := h.index(w, r)
 		if !ok {
 			return
 		}
+		u := h.urlsFor(r, idx)
 
 		uid, _, isSeason, ok := resolveKey(idx, r.PathValue("ratingKey"))
 		if !ok || isSeason {

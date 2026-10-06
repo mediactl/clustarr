@@ -197,3 +197,21 @@ func TestAMatchByAPlexGUIDHint(t *testing.T) {
 	require.NoError(t, decodeJSON(rec.Body.Bytes(), &out))
 	require.Empty(t, out.MediaContainer.Metadata)
 }
+
+// A Plex id two items claim is answered by neither (ByPlexID refuses it),
+// so neither may be published as plex://: PMS would then hold both under
+// a GUID whose id it can never fetch.
+func TestASharedPlexIDIsNeverPublished(t *testing.T) {
+	a := fixtureMovie()
+	a.Status.Metadata.ExternalIDs = map[string]string{"plex": moviePlex}
+	b := fixtureMovieRemake()
+	if b.Status.Metadata.ExternalIDs == nil {
+		b.Status.Metadata.ExternalIDs = map[string]string{}
+	}
+	b.Status.Metadata.ExternalIDs["plex"] = moviePlex
+	h := plexGUIDHandler(t, true, a, b)
+	for _, m := range []*catalogv1.Movie{a, b} {
+		g := firstGUIDs(t, getJSON(t, h, "/plex/movies/library/metadata/"+string(m.UID)).Body.Bytes())
+		require.Equal(t, plex.GUID(plex.MoviesIdentifier, "movie", string(m.UID)), g.Guid, m.Name)
+	}
+}

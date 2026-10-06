@@ -46,6 +46,8 @@ type urls struct {
 	episodeOrder string
 	// plexGUIDs is Options.PlexGUIDs.
 	plexGUIDs bool
+	// idx is the request's index, which a plex:// GUID is checked against.
+	idx *projection.Index
 }
 
 // proxied is src through the photo proxy, "" when there is no proxy or no
@@ -57,12 +59,13 @@ func (u urls) proxied(src string) string {
 	return u.photo(src)
 }
 
-// urlsFor is the urls every builder of one request uses.
-func (h *handler) urlsFor(r *http.Request) urls {
+// urlsFor is the urls every builder of one request uses, over idx.
+func (h *handler) urlsFor(r *http.Request, idx *projection.Index) urls {
 	return urls{
 		external: h.opts.ExternalURL, photo: h.opts.PhotoURL, loc: localeOf(r),
 		episodeOrder: r.URL.Query().Get("episodeOrder"),
 		plexGUIDs:    h.opts.PlexGUIDs,
+		idx:          idx,
 	}
 }
 

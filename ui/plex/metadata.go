@@ -494,7 +494,7 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		u := h.urlsFor(r)
+		u := h.urlsFor(r, idx)
 		md, ok := h.resolveMetadata(root, u, idx, r.PathValue("ratingKey"), r.URL.Query().Get("includeChildren") == "1")
 		if !ok {
 			http.NotFound(w, r)
