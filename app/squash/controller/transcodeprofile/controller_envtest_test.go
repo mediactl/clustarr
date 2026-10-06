@@ -709,3 +709,38 @@ func TestASourceChangedJobIsReplacedForTheNewFile(t *testing.T) {
 	assert.Equal(t, "p2", replacement.Spec.SourceProbeHash)
 	assert.Empty(t, replacement.Status.Phase, "a new job, to be planned from scratch")
 }
+
+// TestAFileUnderAGraftIsNotPlanned: an audio graft rewrites the file in
+// place, so the profile plans no transcode of it meanwhile (anime
+// dual-audio spec §7.2); the graft's re-probe brings it back.
+func TestAFileUnderAGraftIsNotPlanned(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	const ns = "transcodeprofile-graft"
+	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
+	mf := probedMovie(t, ctx, c, ns, "arrival-2016", nil)
+	tp := defaultProfile(t, ctx, c, "default-graft")
+	g := &transcodev1alpha1.AudioGraft{
+		ObjectMeta: metav1.ObjectMeta{Name: "arrival-2016-audiograft", Namespace: ns},
+		Spec: transcodev1alpha1.AudioGraftSpec{
+			ItemRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "arrival-2016"}, DonorPath: "/data/media/movies/.clustarr/d.mkv",
+			Languages: []string{"en"}, Anchor: "ja", Release: "r",
+		},
+	}
+	require.NoError(t, c.Create(ctx, g))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr, transcodeac.AudioGraft(g.Name, ns).WithStatus(
+		transcodeac.AudioGraftStatus().WithPhase(transcodev1alpha1.AudioGraftRunning).WithMediaFileRef(mf.Name)))
+	require.NoError(t, err)
+
+	r := transcodeprofile.NewReconciler(c, k8s.MustNewScheme(), events.NewFakeRecorder(10))
+	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tp.Name}})
+	require.NoError(t, err)
+	assert.Empty(t, listJobs(t, ctx, c), "no transcode of a file under a graft")
+
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr, transcodeac.AudioGraft(g.Name, ns).WithStatus(
+		transcodeac.AudioGraftStatus().WithPhase(transcodev1alpha1.AudioGraftSucceeded).WithMediaFileRef(mf.Name)))
+	require.NoError(t, err)
+	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tp.Name}})
+	require.NoError(t, err)
+	assert.Len(t, listJobs(t, ctx, c), 1, "once the graft is done the file is planned")
+}

@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/app/squash/controller/transcodejob"
 	"github.com/mediactl/clustarr/app/squash/controller/transcodeprofile"
@@ -208,6 +209,10 @@ type Options struct {
 	// MediaFile has been re-probed (--job-retention). 0 keeps it for good.
 	JobRetention time.Duration
 
+	// GraftConcurrency is the most audio grafts running at once
+	// (--graft-concurrency).
+	GraftConcurrency int
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -221,15 +226,16 @@ type Options struct {
 // DefaultOptions returns the options the Deployment gets with no flags.
 func DefaultOptions() Options {
 	return Options{
-		Options:         k8s.DefaultOptions(),
-		Role:            RoleController,
-		Slots:           DefaultSlots(),
-		DataDir:         DefaultDataDir,
-		DataClaimName:   pool.DefaultDataClaimName,
-		NodeLabelNVIDIA: pool.DefaultNodeLabelNVIDIA,
-		NodeLabelIntel:  pool.DefaultNodeLabelIntel,
-		JobWindow:       DefaultJobWindow,
-		JobRetention:    DefaultJobRetention,
+		Options:          k8s.DefaultOptions(),
+		Role:             RoleController,
+		Slots:            DefaultSlots(),
+		DataDir:          DefaultDataDir,
+		DataClaimName:    pool.DefaultDataClaimName,
+		NodeLabelNVIDIA:  pool.DefaultNodeLabelNVIDIA,
+		NodeLabelIntel:   pool.DefaultNodeLabelIntel,
+		JobWindow:        DefaultJobWindow,
+		JobRetention:     DefaultJobRetention,
+		GraftConcurrency: audiograft.DefaultConcurrency,
 	}
 }
 
@@ -409,6 +415,12 @@ func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 	}
 	if err := mgr.Add(rec.ResultsConsumer()); err != nil {
 		return fmt.Errorf("squasharr: transcode results consumer: %w", err)
+	}
+	grafts := &audiograft.Reconciler{
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Pool: poolConfig(o), Concurrency: o.GraftConcurrency,
+	}
+	if err := grafts.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("squasharr: audiograft: %w", err)
 	}
 	return nil
 }

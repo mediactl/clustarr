@@ -141,3 +141,16 @@ func LocalPath(dataDir, logical string) (string, error) { return localPath(dataD
 
 // Within is within, for the same.
 func Within(dir, path string) bool { return within(dir, path) }
+
+// RootFolderFor is rootFolderFor, for the AudioGraft controller.
+func RootFolderFor(folders []catalogv1alpha1.RootFolder, path string) *catalogv1alpha1.RootFolder {
+	return rootFolderFor(folders, path)
+}
+
+// RecycleBinOf is the recycle bin a RootFolder's swaps link into.
+func RecycleBinOf(rf *catalogv1alpha1.RootFolder) string {
+	if rf.Spec.RecycleBin.Path != "" {
+		return rf.Spec.RecycleBin.Path
+	}
+	return defaultRecycleBin
+}

@@ -57,6 +57,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	squasharrstatus "github.com/mediactl/clustarr/app/squash/status"
+	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/task"
 	busevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -83,6 +84,7 @@ import (
 // to create.
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
@@ -182,6 +184,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	})
 	open := countOpen(jobList.Items, tp.Name)
 	busy := openFiles(jobList.Items, tp.Name, mfList.Items)
+	// A file an audio graft is rewriting is not planned meanwhile (anime
+	// dual-audio spec §7.2); its re-probe after the graft wakes it again.
+	grafting, err := audiograft.Grafting(ctx, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	created, waiting := 0, 0
 	var createErrs []error
 	if !invalid {
@@ -220,6 +228,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			}
 			if _, exists := jobsByName[key]; exists {
 				continue // its spec is immutable: there is nothing to re-apply
+			}
+			if grafting[types.NamespacedName{Namespace: mf.Namespace, Name: mf.Name}] {
+				continue
 			}
 			if busy[types.NamespacedName{Namespace: mf.Namespace, Name: mf.Name}] {
 				// An open job of this profile under an earlier hash: it runs

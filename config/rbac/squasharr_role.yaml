@@ -55,6 +55,25 @@ rules:
 - apiGroups:
   - transcode.clustarr.io
   resources:
+  - audiografts
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - audiografts/status
+  - transcodejobs/status
+  - transcodeprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
   - transcodejobs
   verbs:
   - create
@@ -70,20 +89,3 @@ rules:
   - transcodejobs/finalizers
   verbs:
   - update
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodejobs/status
-  - transcodeprofiles/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodeprofiles
-  verbs:
-  - get
-  - list
-  - watch

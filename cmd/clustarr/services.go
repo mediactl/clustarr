@@ -254,6 +254,7 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		labelNVIDIA  string
 		labelIntel   string
 		jobWindow    int
+		graftConc    int
 		jobRetention time.Duration
 	)
 
@@ -297,6 +298,8 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	cmd.Flags().IntVar(&jobWindow, "job-window", defaults.JobWindow,
 		"Most TranscodeJobs a profile keeps that have not finished: it holds the next files, not one job per "+
 			"matching file. 0 is no limit.")
+	cmd.Flags().IntVar(&graftConc, "graft-concurrency", defaults.GraftConcurrency,
+		"Most audio grafts (AudioGraft Jobs, each a CPU pod of a cpu pool's size) running at once.")
 	cmd.Flags().DurationVar(&jobRetention, "job-retention", defaults.JobRetention,
 		"How long a Succeeded TranscodeJob is kept once its MediaFile has been re-probed. 0 keeps it for good.")
 
@@ -321,6 +324,7 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			NodeLabelIntel:    labelIntel,
 			JobWindow:         jobWindow,
 			JobRetention:      jobRetention,
+			GraftConcurrency:  graftConc,
 			Logging:           *lo,
 			Tracing:           tracingFor(to, squasharr.ServiceName),
 		})
