@@ -253,7 +253,7 @@ func (s *Service) fanOut(
 		go func(i int, idx *indexv1alpha1.Indexer, q torznab.Query, queryMode schema.SearchQueryMode) {
 			defer wg.Done()
 			defer s.inflight.Done()
-			out, rels := s.queryOne(work, idx, q, indexerDeadline(idx, budget))
+			out, rels := s.queryOne(work, idx, q, budget)
 			out.QueryMode = queryMode
 			mu.Lock()
 			outcomes[i] = out
@@ -299,7 +299,7 @@ func (s *Service) queryOne(
 	ctx context.Context,
 	idx *indexv1alpha1.Indexer,
 	q torznab.Query,
-	timeout time.Duration,
+	budget time.Duration,
 ) (schema.SearchOutcome, []schema.Release) {
 	out := newOutcome(idx)
 	ctx, span := tracing.Start(ctx, "indexarr.search.indexer",
@@ -310,8 +310,12 @@ func (s *Service) queryOne(
 		))
 	defer span.End()
 
-	qctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	// The fan-out's budget bounds everything this indexer gets, the wait for
+	// its turn on the rate limiter included; spec.timeout bounds the request
+	// alone, from the moment the turn comes (pacedClient), so a query queued
+	// behind the client's own pacing is never the indexer timing out.
+	bctx, bcancel := context.WithTimeout(ctx, budget)
+	defer bcancel()
 
 	started := s.now()
 	if s.ClientFor == nil {
@@ -322,7 +326,7 @@ func (s *Service) queryOne(
 		return s.failOutcome(ctx, out, started, nil,
 			errors.New("app/indexer/search: no indexer client factory is configured")), nil
 	}
-	cli, err := s.ClientFor(qctx, idx)
+	cli, err := s.ClientFor(bctx, idx)
 	if err != nil {
 		// No request reached the indexer, so no query is counted -- but the
 		// failure is still the indexer's configuration and still escalates.
@@ -335,7 +339,7 @@ func (s *Service) queryOne(
 	// projection and may be behind. At the limit the indexer is not asked:
 	// the outcome is the same named skip the selection gate used to give,
 	// and nothing is recorded, because a limit is a budget, not a failure.
-	queries, allowed := s.reserveQuery(qctx, idx)
+	queries, allowed := s.reserveQuery(bctx, idx)
 	if !allowed {
 		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, metricSkipped).Inc()
 		out.Status = schema.SearchOutcomeSkipped
@@ -343,9 +347,23 @@ func (s *Service) queryOne(
 		return out, nil
 	}
 
+	turn := bctx
+	if p, ok := cli.(pacedClient); ok {
+		if turn, err = p.WaitTurn(bctx); err != nil {
+			return pacedOutcome(out), nil
+		}
+	}
+	qctx, cancel := context.WithTimeout(turn, indexerDeadline(idx, budget))
+	defer cancel()
+
 	raw, err := cli.Search(qctx, q)
 	elapsed := s.now().Sub(started)
 	metrics.IndexerQueryDuration.WithLabelValues(idx.Name, string(q.Type)).Observe(elapsed.Seconds())
+	if errors.Is(err, torznab.ErrPaced) {
+		// A client that paces inside the request (no WaitTurn) ran out of
+		// time queued: never sent, so never the indexer's failure.
+		return pacedOutcome(out), nil
+	}
 	if err != nil {
 		return s.failOutcome(ctx, out, started, queries, err), nil
 	}
@@ -372,6 +390,23 @@ func (s *Service) queryOne(
 	out.ElapsedMillis = elapsed.Milliseconds()
 	span.SetAttributes(attribute.Int("search.releases", len(rels)))
 	return out, rels
+}
+
+// pacedClient is a client that can take its request slot on its rate
+// limiter ahead of the request (torznab.Client.WaitTurn), so the request's
+// own timeout starts once the slot is taken.
+type pacedClient interface {
+	WaitTurn(ctx context.Context) (context.Context, error)
+}
+
+// pacedOutcome is a query the indexer's rate limiter could not send inside
+// the search's budget: a named skip, counted as skipped and recorded
+// nowhere, since the indexer never saw it.
+func pacedOutcome(out schema.SearchOutcome) schema.SearchOutcome {
+	metrics.IndexerQueriesTotal.WithLabelValues(out.IndexerRef.Name, metricSkipped).Inc()
+	out.Status = schema.SearchOutcomeSkipped
+	out.Error = skipPaced
+	return out
 }
 
 // failOutcome classifies one failure, counts it and records the escalation.

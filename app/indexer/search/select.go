@@ -56,6 +56,10 @@ const (
 	skipNoCategory    = "no requested category is served by this indexer"
 	skipNoIDParam     = "no supported id parameter for this request"
 	skipUnhealthy     = "unhealthy or in backoff"
+	// skipPaced is a query its indexer's rate limiter (spec.requestDelay)
+	// could not send before the search's budget ran out: never sent, so
+	// never the indexer's failure.
+	skipPaced = "paced: no request slot within the search's deadline"
 	// skipQueryLimit is given at the last moment, by the query's own
 	// reservation on the ring (Service.reserveQuery), not here: selection
 	// reads only the Indexer object, and the object's queriesInWindow is a

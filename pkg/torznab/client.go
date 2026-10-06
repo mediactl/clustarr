@@ -121,6 +121,34 @@ func NewClient(baseURL, apikey string, opts ...ClientOption) (*Client, error) {
 	return c, nil
 }
 
+// ErrPaced is a request the client's rate limiter could not send before its
+// context ran out: it was never sent, so it says nothing about the indexer.
+// It wraps the context's error, so errors.Is(err, context.DeadlineExceeded)
+// still holds.
+var ErrPaced = errors.New("torznab: no request slot before the deadline")
+
+// turnKey marks a context that already holds a request slot on the limiter,
+// for the host it names (WaitTurn).
+type turnKey struct{}
+
+// WaitTurn takes one request slot from the client's rate limiter, waiting
+// for it under ctx, and returns ctx marked as holding it: the next request
+// made under the returned context (or one derived from it) is sent without
+// waiting again. A caller that bounds a request with a timeout waits for its
+// turn first and starts the timeout on the returned context, so time spent
+// queued behind the client's own pacing never counts against the indexer's
+// timeout (2026-10-06: a 104-search sweep's queued nzbgeek queries timed out
+// before they were sent and disabled it). With no limiter it returns ctx.
+func (c *Client) WaitTurn(ctx context.Context) (context.Context, error) {
+	if c.limiter == nil {
+		return ctx, ctx.Err()
+	}
+	if err := c.limiter.Wait(ctx, c.baseURL.Host); err != nil {
+		return ctx, fmt.Errorf("%w: %w", ErrPaced, err)
+	}
+	return context.WithValue(ctx, turnKey{}, c.baseURL.Host), nil
+}
+
 // do rate-limits, traces and issues one GET request against c.baseURL with
 // values as its query string. The caller must close the returned
 // response's Body.
@@ -138,8 +166,9 @@ func (c *Client) do(ctx context.Context, values url.Values) (*http.Response, err
 	// indexer host, as indexarr does) still isolates unrelated hosts from
 	// each other while letting several Clients for the *same* host --
 	// caps probe, search fan-out, RSS poll -- draw on one bucket.
-	if c.limiter != nil {
+	if host, _ := ctx.Value(turnKey{}).(string); c.limiter != nil && host != c.baseURL.Host {
 		if err := c.limiter.Wait(ctx, c.baseURL.Host); err != nil {
+			err = fmt.Errorf("%w: %w", ErrPaced, err)
 			tracing.RecordError(span, err)
 			return nil, err
 		}
