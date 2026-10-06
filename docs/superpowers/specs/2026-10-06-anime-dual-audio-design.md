@@ -394,3 +394,23 @@ as naming its languages for phase 1's wrong-language replacement.
 `status.audio` is written by the Episode and Movie reconcilers
 (`rollup.AudioStateFor`, one renderer for every path). Phase 1's minors
 fixed here: conditions capped at 12, SeriesStatus' description restored.
+
+## G1 result (2026-10-06)
+
+`pkg/audioalign` (phase 3), `TestRealPair`. The pair is BoB's dual-audio
+DVD rip of Monster S01E02 (NTSC 29.97 fps, 1,435.58 s) against the
+library's Netflix WEB S01E02 (23.976 fps, 1,435.68 s), both decoded to
+8 kHz mono:
+
+| Donor track against Netflix Japanese | Rate (margin) | Confident windows | Coverage | Segments | Verify |
+|---|---|---|---|---|---|
+| DVD Japanese (anchor against anchor) | 1 (7.31) | 46 of 48 | 0.96 | 1, offset +1.00 s | median 0 ms, 100% within 80 ms |
+| DVD English (dub against original, information only) | 1 (2.03) | 33 of 48 | 0.69 | 1, offset +1.00 s | median 0 ms, 100% within 80 ms |
+
+G1 passes: phase 4 is built as designed. The default thresholds stand
+(coverage 0.6, at most 4 segments, each at least 3 windows long, a rate
+margin of 1.02 over another family of ratios). Real sources aligned
+better than spike test B suggested: even the dub reached 69% coverage on
+music and effects. English-only donors stay out of scope for phase 4, but
+they look feasible. Alignment takes about 14 s for 24 minutes on 12
+cores.
