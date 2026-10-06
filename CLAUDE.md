@@ -241,6 +241,15 @@ language is answered in `status.metadata.language`. Response customization (`inc
 type) and `episodeOrder` (no seasons for an order clustarr does not store)
 are honoured. Episode guest cast and crew are deferred: the gateway's pod
 has no Episode index to find a series' file-backed episodes.
+PMS also asks every provider for an item's extras on each refresh
+(`GET {root}/library/metadata/{ratingKey}/extras`, not in Plex's provider
+docs) and reads a 404 or an empty list as "none", deleting the trailers it
+holds -- which cost the library its Internet Video Archive trailers on
+2026-10-06. The route (`ui/plex/extras.go`) answers Plex's own extras for the
+item's Plex id from `metadata.provider.plex.tv`, cached 24 h and paced, with
+the server's token from `$CLUSTARR_PLEX_TOKEN` (chart `ui.plex.tokenSecret`,
+the Secret cluster-plex keeps); an item without a Plex id answers none, and
+no token or a failed fetch answers 503/502, never an empty list.
 Skip segments come from TheIntroDB (2026-09-30,
 `docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): a
 probed movie or episode MediaFile whose `status.markers` are due

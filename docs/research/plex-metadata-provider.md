@@ -528,3 +528,21 @@ Books and the rest stay on Plex's own agents. The server must be
 never on a public ingress; it reveals the whole catalog to anyone who can
 reach it. No subtitle/stream information can be offered through it, so
 captionarr's sidecars reach Plex through the filesystem as before.
+
+
+## The extras route (observed, 2026-10-06)
+
+PMS 1.43.4 asks a custom provider for an item's extras on every refresh,
+though Plex's provider docs list no such route:
+
+```text
+GET {root}/library/metadata/{ratingKey}/extras?updating=1&X-Plex-Container-Size=50&X-Plex-Container-Start=0&X-Plex-Country=US&X-Plex-Language=en-US
+```
+
+It reads a 404 as "no extras" and destroys the extras it holds for the item
+(the debug log's `Destroying metadata item … (… (Trailer 2))`). Plex's own
+metadata service answers the same route for a Plex id with `clip` items
+(`subtype` `trailer`, `extraType` 1, …) whose `Media[].url` is an Internet
+Video Archive MP4; PMS stores them as parts keyed
+`/services/iva/assets/<publishedid>/video.mp4`. clustarr answers Plex's own
+list (`ui/plex/extras.go`).

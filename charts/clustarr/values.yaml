@@ -483,10 +483,18 @@ ui:
   # Plex Web needs to offer Watchlist (docs/superpowers/specs/
   # 2026-10-06-plex-native-guids-design.md). false answers clustarr's own
   # GUIDs for new matches; items PMS already holds by plex:// keep resolving.
+  #
+  # tokenSecret names a Secret in this namespace holding the Plex server's
+  # plex.tv token under "token" ($CLUSTARR_PLEX_TOKEN), which cluster-plex
+  # keeps when its plex.clustarr.tokenSecret names it. PMS asks the provider
+  # for every item's extras on a refresh; with the token the provider answers
+  # Plex's own trailers, without it 503, since a 404 or an empty list makes
+  # PMS delete the trailers it holds.
   plex:
     enabled: true
     externalURL: ""
     plexGuids: true
+    tokenSecret: ""
   service:
     type: ClusterIP
     port: 8080

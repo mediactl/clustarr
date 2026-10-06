@@ -68,6 +68,11 @@ type Options struct {
 	// (docs/superpowers/specs/2026-10-06-plex-native-guids-design.md).
 	// ratingKey and key stay clustarr's either way.
 	PlexGUIDs bool
+
+	// Extras returns the extras Plex holds for a Plex id (PlexTVExtras), which
+	// the extras route answers PMS with. Nil answers 503 for an item that
+	// has a Plex id, never an empty list, which PMS would read as "none".
+	Extras func(ctx context.Context, plexID string) ([]Extra, error)
 }
 
 // Handler returns the composed HTTP handler for both provider roots,
@@ -126,12 +131,14 @@ func (r rootDef) declares(t int) bool {
 	return slices.Contains(r.types, t)
 }
 
-// register wires one root's six routes (spec §D.2) onto mux.
+// register wires one root's routes onto mux: spec §D.2's six, and the
+// extras route PMS asks every provider for (extras.go).
 func (h *handler) register(mux *http.ServeMux, root rootDef) {
 	mux.HandleFunc("GET "+root.path, h.handleRoot(root))
 	mux.HandleFunc("POST "+root.path+"/library/metadata/matches", h.handleMatch(root))
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}", h.handleMetadata(root))
 	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/images", h.handleImages(root))
+	mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/extras", h.handleExtras(root))
 	if root.tv {
 		mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/children", h.handleChildren(root))
 		mux.HandleFunc("GET "+root.path+"/library/metadata/{ratingKey}/grandchildren", h.handleGrandchildren(root))

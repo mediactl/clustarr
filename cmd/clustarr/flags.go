@@ -153,6 +153,12 @@ const (
 	// flag, so the key stays out of the process list; the chart fills it
 	// from the Secret it creates once (templates/ui-art-signing-key.yaml).
 	artSigningKeyEnv = "CLUSTARR_ART_SIGNING_KEY"
+
+	// plexTokenEnv holds the Plex server's plex.tv token, which the Plex
+	// provider's extras route fetches Plex's own extras with
+	// (ui.PlexOptions.Token). An environment variable, never a flag, for the
+	// same reason; the chart fills it from ui.plex.tokenSecret.
+	plexTokenEnv = "CLUSTARR_PLEX_TOKEN"
 )
 
 // minArtSigningKeyBytes is the shortest ArtSigningKey accepted: HMAC-SHA256's

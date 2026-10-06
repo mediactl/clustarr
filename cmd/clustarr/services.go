@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -568,7 +569,8 @@ func buildUIBus(ctx context.Context, natsURL string) (events.ObjectStore, ui.Met
 type uiPlexExtended = func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 
 // buildUIPlexOptions builds ui.Options.Plex from --plex-provider,
-// --external-url and --plex-guids, shared by `clustarr ui` and `clustarr all`. nil (feature
+// --external-url and --plex-guids, and the token from $CLUSTARR_PLEX_TOKEN,
+// shared by `clustarr ui` and `clustarr all`. nil (feature
 // off) exactly when --plex-provider is false; otherwise non-nil regardless
 // of whether externalURL is set, since an empty one is a legal, if
 // currently unusable, value (design spec §D.1: the roots answer 503 for
@@ -579,7 +581,7 @@ func buildUIPlexOptions(enabled bool, externalURL string, plexGUIDs bool) *ui.Pl
 	if !enabled {
 		return nil
 	}
-	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs}
+	return &ui.PlexOptions{ExternalURL: externalURL, PlexGUIDs: plexGUIDs, Token: strings.TrimSpace(os.Getenv(plexTokenEnv))}
 }
 
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {

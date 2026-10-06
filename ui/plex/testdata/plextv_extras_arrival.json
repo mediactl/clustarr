@@ -1,0 +1,324 @@
+{
+  "MediaContainer": {
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "totalSize": 2,
+    "identifier": "tv.plex.provider.metadata",
+    "size": 2,
+    "Metadata": [
+      {
+        "guid": "plex://clip/620426d354b4b97127ba4534",
+        "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/iva-746336",
+        "ratingKey": "iva-746336",
+        "subtype": "trailer",
+        "type": "clip",
+        "addedAt": 1644439251,
+        "duration": 123000,
+        "extraType": 1,
+        "originallyAvailableAt": "2022-02-09",
+        "parentTitle": "Trailer",
+        "primaryGuid": "plex://movie/5d776b83fb0d55001f56a04b",
+        "skipDetails": true,
+        "thumb": "https://metadata-static.plex.tv/extras/iva/746336/e2c46fb29123cd420e13a9258a91cd9a.jpg",
+        "title": "Arrival",
+        "userState": false,
+        "year": 2022,
+        "Media": [
+          {
+            "extension": "mp4",
+            "audioCodec": "aac",
+            "container": "mp4",
+            "protocol": "mp4",
+            "bitrate": 5000,
+            "height": 1080,
+            "width": 1920,
+            "duration": 123000,
+            "url": "https://video.internetvideoarchive.net/video.mp4?customerid=112548&cmd=6&e=253370764800&fmt=4&publishedid=746336&videokbrate=5000&h=9d7302f89db6d12f75fb495bf1408ebc",
+            "videoCodec": "h264",
+            "optimizedForStreaming": true,
+            "videoResolution": "1080",
+            "Part": [
+              {
+                "container": "mp4",
+                "duration": 123000,
+                "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/620426d354b4b97127ba4534/parts/mp4-5000",
+                "Stream": [
+                  {
+                    "bitrate": 5000,
+                    "codec": "h264",
+                    "height": 1080,
+                    "streamType": 1,
+                    "width": 1920,
+                    "id": "620426d354b4b97127ba4534-6ac474ffd4be47711728863d",
+                    "displayTitle": "HD",
+                    "selected": true
+                  },
+                  {
+                    "channels": 2,
+                    "codec": "aac",
+                    "language": "English",
+                    "streamType": 2,
+                    "id": "620426d354b4b97127ba4534-6ac474ffd4be47711728863e",
+                    "languageCode": "en",
+                    "displayTitle": "English (Stereo)",
+                    "selected": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "extension": "mp4",
+            "audioCodec": "aac",
+            "container": "mp4",
+            "protocol": "mp4",
+            "bitrate": 2500,
+            "height": 720,
+            "width": 1280,
+            "duration": 123000,
+            "url": "https://video.internetvideoarchive.net/video.mp4?customerid=112548&cmd=6&e=253370764800&fmt=4&publishedid=746336&videokbrate=5000&h=9d7302f89db6d12f75fb495bf1408ebc",
+            "videoCodec": "h264",
+            "optimizedForStreaming": true,
+            "videoResolution": "720",
+            "Part": [
+              {
+                "container": "mp4",
+                "duration": 123000,
+                "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/620426d354b4b97127ba4534/parts/mp4-2500",
+                "Stream": [
+                  {
+                    "bitrate": 2500,
+                    "codec": "h264",
+                    "height": 720,
+                    "streamType": 1,
+                    "width": 1280,
+                    "id": "620426d354b4b97127ba4534-6ac474ffd4be47711728863f",
+                    "displayTitle": "HD",
+                    "selected": true
+                  },
+                  {
+                    "channels": 2,
+                    "codec": "aac",
+                    "language": "English",
+                    "streamType": 2,
+                    "id": "620426d354b4b97127ba4534-6ac474ffd4be477117288640",
+                    "languageCode": "en",
+                    "displayTitle": "English (Stereo)",
+                    "selected": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "extension": "mp4",
+            "audioCodec": "aac",
+            "container": "mp4",
+            "protocol": "mp4",
+            "bitrate": 750,
+            "height": 270,
+            "width": 480,
+            "duration": 123000,
+            "url": "https://video.internetvideoarchive.net/video.mp4?customerid=112548&cmd=6&e=253370764800&fmt=4&publishedid=746336&videokbrate=5000&h=9d7302f89db6d12f75fb495bf1408ebc",
+            "videoCodec": "h264",
+            "optimizedForStreaming": true,
+            "videoResolution": "sd",
+            "Part": [
+              {
+                "container": "mp4",
+                "duration": 123000,
+                "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/620426d354b4b97127ba4534/parts/mp4-750",
+                "Stream": [
+                  {
+                    "bitrate": 750,
+                    "codec": "h264",
+                    "height": 270,
+                    "streamType": 1,
+                    "width": 480,
+                    "id": "620426d354b4b97127ba4534-6ac474ffd4be477117288641",
+                    "displayTitle": "SD",
+                    "selected": true
+                  },
+                  {
+                    "channels": 2,
+                    "codec": "aac",
+                    "language": "English",
+                    "streamType": 2,
+                    "id": "620426d354b4b97127ba4534-6ac474ffd4be477117288642",
+                    "languageCode": "en",
+                    "displayTitle": "English (Stereo)",
+                    "selected": true
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "Image": [
+          {
+            "alt": "Arrival",
+            "type": "snapshot",
+            "url": "https://metadata-static.plex.tv/extras/iva/746336/e2c46fb29123cd420e13a9258a91cd9a.jpg"
+          }
+        ]
+      },
+      {
+        "guid": "plex://clip/620426d354b4b97127ba4516",
+        "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/iva-591802",
+        "ratingKey": "iva-591802",
+        "subtype": "trailer",
+        "type": "clip",
+        "addedAt": 1644439251,
+        "duration": 60000,
+        "extraType": 1,
+        "originallyAvailableAt": "2022-02-09",
+        "parentTitle": "Trailer",
+        "primaryGuid": "plex://movie/5d776b83fb0d55001f56a04b",
+        "skipDetails": true,
+        "thumb": "https://metadata-static.plex.tv/extras/iva/591802/d5d08143722a0b26c12e69a009a9d3a3.jpg",
+        "title": "Arrival (Teaser)",
+        "userState": false,
+        "year": 2022,
+        "Media": [
+          {
+            "extension": "mp4",
+            "audioCodec": "aac",
+            "container": "mp4",
+            "protocol": "mp4",
+            "bitrate": 5000,
+            "height": 796,
+            "width": 1920,
+            "duration": 60000,
+            "url": "https://video.internetvideoarchive.net/video.mp4?customerid=112548&cmd=6&e=253370764800&fmt=4&publishedid=591802&videokbrate=5000&h=12d95c4083427892930b356503683db3",
+            "videoCodec": "h264",
+            "optimizedForStreaming": true,
+            "videoResolution": "1080",
+            "Part": [
+              {
+                "container": "mp4",
+                "duration": 60000,
+                "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/620426d354b4b97127ba4516/parts/mp4-5000",
+                "Stream": [
+                  {
+                    "bitrate": 5000,
+                    "codec": "h264",
+                    "height": 796,
+                    "streamType": 1,
+                    "width": 1920,
+                    "id": "620426d354b4b97127ba4516-6ac474ffd4be4771172884d0",
+                    "displayTitle": "HD",
+                    "selected": true
+                  },
+                  {
+                    "channels": 2,
+                    "codec": "aac",
+                    "language": "English",
+                    "streamType": 2,
+                    "id": "620426d354b4b97127ba4516-6ac474ffd4be4771172884d1",
+                    "languageCode": "en",
+                    "displayTitle": "English (Stereo)",
+                    "selected": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "extension": "mp4",
+            "audioCodec": "aac",
+            "container": "mp4",
+            "protocol": "mp4",
+            "bitrate": 2500,
+            "height": 530,
+            "width": 1280,
+            "duration": 60000,
+            "url": "https://video.internetvideoarchive.net/video.mp4?customerid=112548&cmd=6&e=253370764800&fmt=4&publishedid=591802&videokbrate=5000&h=12d95c4083427892930b356503683db3",
+            "videoCodec": "h264",
+            "optimizedForStreaming": true,
+            "videoResolution": "720",
+            "Part": [
+              {
+                "container": "mp4",
+                "duration": 60000,
+                "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/620426d354b4b97127ba4516/parts/mp4-2500",
+                "Stream": [
+                  {
+                    "bitrate": 2500,
+                    "codec": "h264",
+                    "height": 530,
+                    "streamType": 1,
+                    "width": 1280,
+                    "id": "620426d354b4b97127ba4516-6ac474ffd4be4771172884d2",
+                    "displayTitle": "HD",
+                    "selected": true
+                  },
+                  {
+                    "channels": 2,
+                    "codec": "aac",
+                    "language": "English",
+                    "streamType": 2,
+                    "id": "620426d354b4b97127ba4516-6ac474ffd4be4771172884d3",
+                    "languageCode": "en",
+                    "displayTitle": "English (Stereo)",
+                    "selected": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "extension": "mp4",
+            "audioCodec": "aac",
+            "container": "mp4",
+            "protocol": "mp4",
+            "bitrate": 750,
+            "height": 199,
+            "width": 480,
+            "duration": 60000,
+            "url": "https://video.internetvideoarchive.net/video.mp4?customerid=112548&cmd=6&e=253370764800&fmt=4&publishedid=591802&videokbrate=5000&h=12d95c4083427892930b356503683db3",
+            "videoCodec": "h264",
+            "optimizedForStreaming": true,
+            "videoResolution": "sd",
+            "Part": [
+              {
+                "container": "mp4",
+                "duration": 60000,
+                "key": "/library/metadata/5d776b83fb0d55001f56a04b/extras/620426d354b4b97127ba4516/parts/mp4-750",
+                "Stream": [
+                  {
+                    "bitrate": 750,
+                    "codec": "h264",
+                    "height": 199,
+                    "streamType": 1,
+                    "width": 480,
+                    "id": "620426d354b4b97127ba4516-6ac474ffd4be4771172884d4",
+                    "displayTitle": "SD",
+                    "selected": true
+                  },
+                  {
+                    "channels": 2,
+                    "codec": "aac",
+                    "language": "English",
+                    "streamType": 2,
+                    "id": "620426d354b4b97127ba4516-6ac474ffd4be4771172884d5",
+                    "languageCode": "en",
+                    "displayTitle": "English (Stereo)",
+                    "selected": true
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "Image": [
+          {
+            "alt": "Arrival (Teaser)",
+            "type": "snapshot",
+            "url": "https://metadata-static.plex.tv/extras/iva/591802/d5d08143722a0b26c12e69a009a9d3a3.jpg"
+          }
+        ]
+      }
+    ]
+  }
+}

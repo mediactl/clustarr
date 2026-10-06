@@ -300,6 +300,17 @@ spec:
             secretKeyRef:
               name: {{ include "clustarr.fullname" $ }}-ui-art-signing-key
               key: key
+        {{- with .Values.ui.plex.tokenSecret }}
+        # The Plex server's plex.tv token, which the provider's extras route
+        # fetches Plex's own trailers with; cluster-plex keeps the Secret
+        # (plex.clustarr.tokenSecret). Optional, so the ui starts before it.
+        - name: CLUSTARR_PLEX_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ . }}
+              key: token
+              optional: true
+        {{- end }}
         {{- with dig "resources" "limits" "memory" "" .Values.ui }}
         - name: GOMEMLIMIT
           value: {{ include "clustarr.gomemlimit" . | quote }}
