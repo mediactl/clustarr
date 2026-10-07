@@ -15,6 +15,23 @@ PG_ASSETS ?= $(GOBIN)/pg-assets
 IMG ?= ghcr.io/mediactl/clustarr:dev
 MEDIA_IMG ?= ghcr.io/mediactl/clustarr/media:dev
 TRANSCODER_IMG ?= ghcr.io/mediactl/clustarr/transcoder:dev
+# The ffgo fork, which go.mod replaces with a local directory until its tag is
+# published (spec §7.6, R12; Wave 0 of
+# docs/superpowers/plans/2026-10-06-manager-agent-split.md names the
+# directory). Image builds never read that working tree: `make contexts`
+# exports $(FFGO_REF) with git archive, and every docker build passes it as
+# the named context the Dockerfiles' empty ffgo stage stands in for.
+# FFGO_LOCAL is the directory go.mod names (empty once go.mod replaces with a
+# published version). par2go is a published module with no replace (upgrade
+# guide U1): PAR2GO_VERSION is go.mod's version of it, which native-assets
+# and the native image's par2 stage download the release asset of (empty
+# until go.mod requires par2go).
+FFGO_LOCAL := $(shell sed -nE 's#^replace github.com/obinnaokechukwu/ffgo => \.\./(.+)$$#\1#p' go.mod)
+FFGO_DIR ?= ../$(or $(FFGO_LOCAL),ffgo)
+FFGO_REF ?= v0.0.0-clustarr.13
+CONTEXTS ?= $(or $(TMPDIR),/tmp)/clustarr-contexts-$(USER)
+LOCAL_CONTEXTS := $(if $(FFGO_LOCAL),--build-context ffgo=$(CONTEXTS)/ffgo --build-arg FFGO_COMMIT=$(shell git -C $(FFGO_DIR) rev-parse $(FFGO_REF)^{commit} 2>/dev/null))
+PAR2GO_VERSION := $(shell go list -m -f '{{.Version}}' github.com/mediactl/par2go 2>/dev/null)
 
 API_PATHS := ./api/...
 CRD_DIR := config/crd/bases
@@ -160,6 +177,16 @@ tidy: ## Tidy go.mod.
 cardigann-bundle: ## Re-pack .data/Definitions into the embedded Cardigann corpus (app/indexer/bundle/embedded).
 	go run ./hack/pack-cardigann -src .data/Definitions -out app/indexer/bundle/embedded/definitions.zip
 
+.PHONY: contexts
+contexts: ## Export a clean tree of $(FFGO_REF) for the image builds (spec §7.6); refuses a dirty or moved ffgo.
+	@if [ -n "$(FFGO_LOCAL)" ]; then hack/contexts.sh $(CONTEXTS) $(FFGO_DIR) $(FFGO_REF); fi
+
+# make build and make test read the fork's working tree through go.mod;
+# developing the fork additions needs a dirty tree, so this only warns.
+.PHONY: fork-status
+fork-status:
+	@if [ -n "$(FFGO_LOCAL)" ] && [ "$$(git -C $(FFGO_DIR) describe --tags --exact-match --dirty 2>/dev/null)" != "$(FFGO_REF)" ]; then \
+	  echo "WARNING: $(FFGO_DIR) is not a clean $(FFGO_REF); go.mod builds against it as it is" >&2; fi
 
 .PHONY: build
 build: ## Build the five binaries.
