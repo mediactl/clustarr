@@ -167,7 +167,7 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 			// one fails this attempt as retriable, with the graft's failure
 			// reported: the next attempt carries no graft (the dispatcher
 			// reads status.graft), so the transcode is never lost to it.
-			res := graft.engine.CheckGraft(ctx, graft.prepared, part, graft.index, graft.index+1)
+			res := graft.engine.CheckGraft(ctx, graft.prepared, part, graft.index, graft.index+graft.prepared.Tracks())
 			if res.Phase != "" {
 				res.Graft = r.t.Graft.Graft
 				r.out.Graft = &res
@@ -216,7 +216,7 @@ func (r *runner) prepareGraft(ctx context.Context, local string, plan standard.R
 		tags[k] = v
 	}
 	plan.Tags = tags
-	plan.Expect.AudioStreams++
+	plan.Expect.AudioStreams += int32(prepared.Tracks())
 	return &joinedGraft{engine: ge, prepared: prepared, index: len(plan.Audio)}, plan
 }
 

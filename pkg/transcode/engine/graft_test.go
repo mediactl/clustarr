@@ -20,6 +20,7 @@ package engine
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -336,4 +337,52 @@ func TestACopyPlanKeepsTheTracksFlags(t *testing.T) {
 	assert.False(t, plan.Audio[0].Comment)
 	assert.True(t, plan.Audio[1].Comment)
 	assert.False(t, plan.Audio[1].Default)
+}
+
+// graftDonorSurround is graftDonor with its English in 5.1 (the bursts in
+// the centre channel, where ffmpeg upmixes mono), as a surround dub is.
+func graftDonorSurround(t *testing.T, seconds float64) string {
+	t.Helper()
+	ffmpeg9OrSkip(t)
+	out := filepath.Join(t.TempDir(), "donor51.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-i", burstsWAV(t, 1, seconds), "-i", burstsWAV(t, 2, seconds),
+		"-map", "0:a", "-map", "1:a", "-t", strconv.FormatFloat(seconds, 'f', 3, 64),
+		"-c:a", "ac3", "-ac:a:0", "2", "-ac:a:1", "6",
+		"-metadata:s:a:0", "language=jpn", "-metadata:s:a:1", "language=eng", out)
+	return out
+}
+
+// A surround dub is grafted as AC-3 5.1 plus an AAC 2.0 companion (MP4
+// standard spec §3), both on the target's clock, the AC-3 the default.
+func TestASurroundDubIsGraftedAsAC3AndAAC(t *testing.T) {
+	target := graftTarget(t, 12)
+	donor := graftDonorSurround(t, 12)
+	g := GraftAudio{
+		Donor: donor, Stream: 1, Language: "eng", Title: "English", Default: true, Surround: true,
+		Map: func(s float64) (float64, bool) { return s, true },
+	}
+	require.Equal(t, 2, g.Tracks())
+	plan, err := CopyPlan(target)
+	require.NoError(t, err)
+	out := filepath.Join(t.TempDir(), "target.part.mkv")
+	_, err = Run(context.Background(), plan, target, out, Options{Graft: &g})
+	require.NoError(t, err)
+
+	var auds []string
+	for _, s := range ffprobeJSON(t, out).Streams {
+		if s.CodecType == "audio" {
+			auds = append(auds, fmt.Sprintf("%s/%d/%s/%s/%d/%d", s.CodecName, s.Channels, s.Tags["language"], s.Tags["title"], s.Disposition["default"], s.Disposition["dub"]))
+		}
+	}
+	assert.Equal(t, []string{"aac/1/jpn//0/0", "ac3/6/eng/English/1/1", "aac/2/eng/English (Stereo)/0/1"}, auds)
+	want, err := DecodePCM(context.Background(), burstsRef(t, 2, 12), 0, 8000)
+	require.NoError(t, err)
+	for _, i := range []int{1, 2} {
+		got, err := DecodePCM(context.Background(), out, i, 8000)
+		require.NoError(t, err)
+		lag, c := lagOf(want, got, 800, 10)
+		assert.Greater(t, c, 0.8, "track %d is the donor's English", i)
+		assert.InDelta(t, 0, lag, 8, "track %d on the target's clock (lag %d samples)", i, lag)
+	}
 }

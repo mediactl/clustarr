@@ -213,4 +213,7 @@ func Within(dir, path string) bool {
 type Prepared interface {
 	GraftTag() string
 	Aligned() Result
+	// Tracks is how many audio tracks the graft adds (2 for a surround
+	// dub: AC-3 5.1 and AAC 2.0).
+	Tracks() int
 }

@@ -156,6 +156,14 @@ func (p *Prepared) Audio() *engine.GraftAudio { a := p.audio; return &a }
 // GraftTag is the CLUSTARR_GRAFT tag the output carries.
 func (p *Prepared) GraftTag() string { return p.Result.GraftTag }
 
+// Tracks is how many audio tracks the graft adds: AC-3 5.1 and its AAC
+// 2.0 companion for a surround dub, else one AAC 2.0 track.
+func (p *Prepared) Tracks() int { return p.audio.Tracks() }
+
+// surround reports whether a donor track is grafted as surround (MP4
+// standard spec §3: more than two channels).
+func surround(t engine.Track) bool { return t.Channels > 2 }
+
 // Prepare readies t's graft into source (a local path): it picks the
 // tracks, reduces the donor if it is not yet, decodes and aligns the
 // anchors and verifies the alignment. A nil Prepared comes with why: a
@@ -233,6 +241,7 @@ func (r *run) prepare(ctx context.Context, target string) (*Prepared, grafttask.
 		audio: engine.GraftAudio{
 			Donor: mka, Stream: dLang, Map: al.DonorSeconds,
 			Language: iso639(r.t.Language), Title: trackTitle(r.t.Language), Default: r.t.Default,
+			Surround: surround(donorTracks[dLang]),
 		},
 	}, grafttask.Result{}
 }
@@ -292,7 +301,7 @@ func (r *run) do(ctx context.Context) grafttask.Result {
 	if err := fsops.SyncFile(r.part); err != nil {
 		return failedWith(out, grafttask.ReasonMuxFailed, "sync: %v", err)
 	}
-	if res := Check(ctx, p, r.part, len(plan.Audio), len(plan.Audio)+1); res.Phase != "" {
+	if res := Check(ctx, p, r.part, len(plan.Audio), len(plan.Audio)+p.Tracks()); res.Phase != "" {
 		return res
 	}
 

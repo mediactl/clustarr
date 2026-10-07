@@ -34,6 +34,7 @@ type prepared struct{ p *graft.Prepared }
 
 func (p prepared) GraftTag() string          { return p.p.GraftTag() }
 func (p prepared) Aligned() grafttask.Result { return p.p.Result }
+func (p prepared) Tracks() int               { return p.p.Tracks() }
 
 // PrepareGraft readies a graft to ride along with a transcode of source.
 func (Engine) PrepareGraft(ctx context.Context, source string, t grafttask.Task, dataDir string) (grafttask.Prepared, grafttask.Result) {

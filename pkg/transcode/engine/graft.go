@@ -70,6 +70,17 @@ type GraftAudio struct {
 	// audio track.
 	Language, Title string
 	Default         bool
+	// Surround: the dub is surround, grafted as AC-3 5.1 plus an AAC 2.0
+	// companion (MP4 standard spec §3); else AAC 2.0 alone.
+	Surround bool
+}
+
+// Tracks is how many audio tracks the graft adds.
+func (g GraftAudio) Tracks() int {
+	if g.Surround {
+		return 2
+	}
+	return 1
 }
 
 // audioStreams is the input's audio streams in order.
@@ -328,25 +339,30 @@ func ExtractAudio(ctx context.Context, input, output string, audioIndexes []int)
 }
 
 // donorBuffer holds a window of the donor's decoded audio, interleaved
-// stereo at GraftRate: base is the donor sample index of its first frame.
+// ch channels at GraftRate: base is the donor sample index of its first
+// frame.
 type donorBuffer struct {
+	ch   int
 	base int64
 	s    []float32
 	done bool // the donor has ended: nothing past end() will come
 }
 
-func (b *donorBuffer) end() int64 { return b.base + int64(len(b.s)/2) }
+func (b *donorBuffer) end() int64 { return b.base + int64(len(b.s)/b.ch) }
 
-// at is the donor's stereo sample at fractional index k, linearly
-// interpolated; zero outside what the buffer holds.
-func (b *donorBuffer) at(k float64) (float32, float32) {
+// at writes the donor's sample at fractional index k into dst (b.ch
+// values), linearly interpolated; zeros outside what the buffer holds.
+func (b *donorBuffer) at(k float64, dst []float32) {
 	j := int64(k)
 	if k < 0 || j < b.base || j+1 >= b.end() {
-		return 0, 0
+		clear(dst)
+		return
 	}
 	f := float32(k - float64(j))
-	i := 2 * (j - b.base)
-	return b.s[i]*(1-f) + b.s[i+2]*f, b.s[i+1]*(1-f) + b.s[i+3]*f
+	i := b.ch * int(j-b.base)
+	for c := range b.ch {
+		dst[c] = b.s[i+c]*(1-f) + b.s[i+b.ch+c]*f
+	}
 }
 
 // trim drops what lies before donor sample k.
@@ -354,15 +370,23 @@ func (b *donorBuffer) trim(k int64) {
 	if k <= b.base {
 		return
 	}
-	n := min(k-b.base, int64(len(b.s)/2))
-	b.s = append(b.s[:0], b.s[2*n:]...)
+	n := min(k-b.base, int64(len(b.s)/b.ch))
+	b.s = append(b.s[:0], b.s[int(n)*b.ch:]...)
 	b.base += n
 }
 
+// graftOut is one track a graft encodes: its encoder, and the resampler
+// that makes the donor's interleaved block the encoder's planar layout.
+type graftOut struct {
+	enc  *ffgo.AudioEncoder
+	conv *ffgo.Resampler
+}
+
 // graftStage decodes the donor's track, resamples it at its own speed to
-// GraftRate stereo, and encodes total samples of the target's timeline:
-// each output sample is the donor's at g.Map, silence where Map reads
-// false or the donor has nothing.
+// GraftRate -- stereo, or 5.1 for a surround dub -- and encodes total
+// samples of the target's timeline into each output (AAC 2.0; or AC-3 5.1
+// and AAC 2.0 downmixed from it): each output sample is the donor's at
+// g.Map, silence where Map reads false or the donor has nothing.
 func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 	return func(ctx context.Context, sc *stageContext) error {
 		defer pace.done() // however it ends, the target's demuxer runs free
@@ -371,27 +395,48 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 			return fmt.Errorf("decoder: %w", err)
 		}
 		defer func() { _ = sd.Close() }()
-		enc, err := ffgo.NewAudioEncoder(ffgo.AudioEncoderConfig2{
-			SampleRate: GraftRate, Layout: GraftLayout, BitRate: graftBitRate,
-			GlobalHeader: true, InputTimeBase: ffgo.NewRational(1, GraftRate),
-		})
-		if err != nil {
-			return fmt.Errorf("aac encoder: %w", err)
+		layout, ch := GraftLayout, 2
+		type spec struct {
+			name, layout string
+			bitRate      int64
 		}
-		defer func() { _ = enc.Close() }()
-		if err := sc.setup(enc); err != nil {
+		specs := []spec{{"aac", GraftLayout, graftBitRate}}
+		if g.Surround {
+			layout, ch = standard.AC3Layout, 6
+			specs = []spec{{"ac3", standard.AC3Layout, standard.AC3BitRate}, {"aac", GraftLayout, graftBitRate}}
+		}
+		outs := make([]graftOut, len(specs))
+		defer func() {
+			for _, o := range outs {
+				if o.enc != nil {
+					_ = o.enc.Close()
+				}
+				if o.conv != nil {
+					_ = o.conv.Close()
+				}
+			}
+		}()
+		srcs := make([]ffgo.EncodedStreamSource, len(specs))
+		for k, sp := range specs {
+			if outs[k].enc, err = ffgo.NewAudioEncoder(ffgo.AudioEncoderConfig2{
+				EncoderName: sp.name, SampleRate: GraftRate, Layout: sp.layout, BitRate: sp.bitRate,
+				GlobalHeader: true, InputTimeBase: ffgo.NewRational(1, GraftRate),
+			}); err != nil {
+				return fmt.Errorf("%s encoder: %w", sp.name, err)
+			}
+			srcs[k] = outs[k].enc
+			if outs[k].conv, err = ffgo.NewResampler(
+				ffgo.AudioFormat{SampleRate: GraftRate, Layout: layout, SampleFormat: ffgo.SampleFormatFlt},
+				ffgo.AudioFormat{SampleRate: GraftRate, Layout: sp.layout, SampleFormat: ffgo.SampleFormatFLTP}); err != nil {
+				return fmt.Errorf("resampler: %w", err)
+			}
+		}
+		if err := sc.setup(srcs...); err != nil {
 			return err
 		}
-		planar, err := ffgo.NewResampler(
-			ffgo.AudioFormat{SampleRate: GraftRate, Layout: GraftLayout, SampleFormat: ffgo.SampleFormatFlt},
-			ffgo.AudioFormat{SampleRate: GraftRate, Layout: GraftLayout, SampleFormat: ffgo.SampleFormatFLTP})
-		if err != nil {
-			return fmt.Errorf("resampler: %w", err)
-		}
-		defer func() { _ = planar.Close() }()
 
 		var (
-			buf  donorBuffer
+			buf  = donorBuffer{ch: ch}
 			res  *ffgo.Resampler
 			lead = true
 			n    int64 // next output sample
@@ -420,16 +465,18 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 				if !buf.done && need > buf.end() {
 					return nil
 				}
-				pcm := make([]float32, 2*block)
+				pcm := make([]float32, int64(ch)*block)
 				low := int64(-1)
 				for i := range block {
 					if k, ok := donorIndex(n + i); ok {
-						pcm[2*i], pcm[2*i+1] = buf.at(k)
+						buf.at(k, pcm[int64(ch)*i:int64(ch)*(i+1)])
 						low = int64(k)
 					}
 				}
-				if err := encodeBlock(enc, planar, pcm, n, sc.emit); err != nil {
-					return err
+				for k, o := range outs {
+					if err := encodeBlock(o, layout, ch, pcm, n, sc.emits[k]); err != nil {
+						return err
+					}
 				}
 				n += block
 				pace.advance(n * 1000 / GraftRate)
@@ -446,7 +493,7 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 			if res == nil {
 				if res, err = ffgo.NewResampler(
 					ffgo.AudioFormat{SampleRate: sc.src.SampleRate, Layout: f.ChannelLayout(), SampleFormat: ffgo.SampleFormat(f.Format())},
-					ffgo.AudioFormat{SampleRate: GraftRate, Layout: GraftLayout, SampleFormat: ffgo.SampleFormatFlt}); err != nil {
+					ffgo.AudioFormat{SampleRate: GraftRate, Layout: layout, SampleFormat: ffgo.SampleFormatFlt}); err != nil {
 					return fmt.Errorf("resampler: %w", err)
 				}
 			}
@@ -455,7 +502,7 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 				// demux has already moved the donor's packets onto its
 				// container's clock (startShifts), so the start is 0 here.
 				if k := leadSamples(f.PTS(), sd.TimeBase(), 0, GraftRate); k > 0 {
-					buf.s = append(buf.s, make([]float32, 2*k)...)
+					buf.s = append(buf.s, make([]float32, ch*k)...)
 				}
 			}
 			r, err := res.Resample(f)
@@ -465,7 +512,7 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 			if r.IsNil() {
 				return nil
 			}
-			buf.s = append(buf.s, packedSamples(r, 2)...)
+			buf.s = append(buf.s, packedSamples(r, ch)...)
 			_ = r.Free()
 			return produce()
 		}
@@ -488,7 +535,7 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 		}
 		if res != nil {
 			if tail, err := res.Flush(); err == nil && !tail.IsNil() {
-				buf.s = append(buf.s, packedSamples(tail, 2)...)
+				buf.s = append(buf.s, packedSamples(tail, ch)...)
 				_ = tail.Free()
 			}
 		}
@@ -496,21 +543,26 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 		if err := produce(); err != nil {
 			return err
 		}
-		if tail, err := planar.Flush(); err == nil && !tail.IsNil() {
-			err := enc.Encode(tail, sc.emit)
-			_ = tail.Free()
-			if err != nil {
+		for k, o := range outs {
+			if tail, err := o.conv.Flush(); err == nil && !tail.IsNil() {
+				err := o.enc.Encode(tail, sc.emits[k])
+				_ = tail.Free()
+				if err != nil {
+					return err
+				}
+			}
+			if err := o.enc.Flush(sc.emits[k]); err != nil {
 				return err
 			}
 		}
-		return enc.Flush(sc.emit)
+		return nil
 	}
 }
 
-// encodeBlock encodes one block of interleaved stereo samples starting at
-// output sample n.
-func encodeBlock(enc *ffgo.AudioEncoder, planar *ffgo.Resampler, pcm []float32, n int64, emit func(*ffgo.Packet) error) error {
-	f, err := ffgo.NewAudioFrame(ffgo.SampleFormatFlt, GraftRate, GraftLayout, len(pcm)/2)
+// encodeBlock encodes one block of interleaved samples in layout (ch
+// channels) starting at output sample n into o, through its resampler.
+func encodeBlock(o graftOut, layout string, ch int, pcm []float32, n int64, emit func(*ffgo.Packet) error) error {
+	f, err := ffgo.NewAudioFrame(ffgo.SampleFormatFlt, GraftRate, layout, len(pcm)/ch)
 	if err != nil {
 		return err
 	}
@@ -521,7 +573,7 @@ func encodeBlock(enc *ffgo.AudioEncoder, planar *ffgo.Resampler, pcm []float32, 
 	}
 	copy(unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(pcm)), pcm)
 	f.SetPTS(n)
-	p, err := planar.Resample(f)
+	p, err := o.conv.Resample(f)
 	if err != nil {
 		return fmt.Errorf("resample: %w", err)
 	}
@@ -530,7 +582,7 @@ func encodeBlock(enc *ffgo.AudioEncoder, planar *ffgo.Resampler, pcm []float32, 
 	}
 	defer func() { _ = p.Free() }()
 	p.SetPTS(n)
-	return enc.Encode(p, emit)
+	return o.enc.Encode(p, emit)
 }
 
 // graftSlots inserts the graft's slot after the plan's audio, and when the
@@ -549,9 +601,19 @@ func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Durati
 	if g.Default {
 		disp |= ffgo.DispositionDefault
 	}
-	gs := slot{
+	gs := []slot{{
 		src: auds[g.Stream], name: "graft", donor: true, stage: graftStage(g, total, pace),
 		opts: &ffgo.StreamOptions{Language: g.Language, Title: g.Title, Disposition: disp, Metadata: ffgo.Metadata{}},
+	}}
+	if g.Surround {
+		title := g.Title
+		if title != "" {
+			title += " (Stereo)"
+		}
+		gs = append(gs, slot{
+			src: auds[g.Stream], name: "graft:stereo", donor: true, fed: true,
+			opts: &ffgo.StreamOptions{Language: g.Language, Title: title, Disposition: ffgo.DispositionDub, Metadata: ffgo.Metadata{}},
+		})
 	}
 	at := len(slots)
 	for i, s := range slots {
@@ -560,10 +622,10 @@ func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Durati
 			break
 		}
 	}
-	out := make([]slot, 0, len(slots)+1)
+	out := make([]slot, 0, len(slots)+len(gs))
 	for i := range slots {
 		if i == at {
-			out = append(out, gs)
+			out = append(out, gs...)
 		}
 		s := slots[i]
 		if g.Default && s.src.Type == ffgo.MediaTypeAudio {
@@ -577,7 +639,7 @@ func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Durati
 		out = append(out, s)
 	}
 	if at == len(slots) {
-		out = append(out, gs)
+		out = append(out, gs...)
 	}
 	return out, nil
 }
