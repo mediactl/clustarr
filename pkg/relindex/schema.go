@@ -31,7 +31,7 @@ import (
 // ddlV1 applied; editing it means new databases and old databases diverge with
 // the same recorded version, which is the corruption this ladder exists to
 // prevent.
-const schemaVersion = 1
+const schemaVersion = 2
 
 // migrations[v] upgrades a database from user_version v to v+1.
 // migrations[0] therefore creates the whole schema from an empty file.
@@ -40,6 +40,7 @@ const schemaVersion = 1
 // shipped an unversioned schema, so 0 unambiguously means "empty".
 var migrations = [][]string{
 	0: ddlV1,
+	1: ddlV2,
 }
 
 // ddlV1 is the initial schema. Statements run in order, in one transaction.
@@ -120,6 +121,35 @@ var ddlV1 = []string{
 		INSERT INTO releases_fts(rowid, title_norm, grp)
 		VALUES (new.id, new.title_norm, new.grp);
 	END`,
+}
+
+// ddlV2 adds the blocklist (ADR-0019 §6.14): rows the manager decided,
+// persisted by the index agent, outside the release retention -- Prune never
+// touches the table, PruneBlocks deletes a row at its until. A row is unique
+// on (scope, info_hash) when the hash is known and on (scope, indexer, guid)
+// when the guid is; a blocklist.go write replaces whatever rows its key
+// names. Times are Unix nanoseconds, as on releases.
+var ddlV2 = []string{
+	`CREATE TABLE IF NOT EXISTS blocklist (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		scope      TEXT    NOT NULL,
+		info_hash  TEXT    NOT NULL DEFAULT '',
+		indexer    TEXT    NOT NULL DEFAULT '',
+		guid       TEXT    NOT NULL DEFAULT '',
+		title      TEXT    NOT NULL DEFAULT '',
+		protocol   TEXT    NOT NULL DEFAULT '',
+		reason     TEXT    NOT NULL,
+		entry_id   TEXT    NOT NULL DEFAULT '',
+		seq        INTEGER NOT NULL,
+		blocked_at INTEGER NOT NULL,
+		until      INTEGER NOT NULL,
+		unblocked  INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS blocklist_scope_hash ON blocklist(scope, info_hash) WHERE info_hash <> ''`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS blocklist_scope_guid ON blocklist(scope, indexer, guid) WHERE guid <> ''`,
+	`CREATE INDEX IF NOT EXISTS blocklist_until ON blocklist(until)`,
+	`CREATE INDEX IF NOT EXISTS blocklist_hash ON blocklist(info_hash) WHERE info_hash <> ''`,
+	`CREATE INDEX IF NOT EXISTS blocklist_guid ON blocklist(guid) WHERE guid <> ''`,
 }
 
 // checkFTS5 verifies the driver's SQLite build carries the FTS5 module, so the

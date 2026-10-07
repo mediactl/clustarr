@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/blocklist"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -81,6 +82,10 @@ type DownloadFn func(ctx context.Context, req schema.DownloadRequest) schema.Dow
 // QueryFn is the rpc.indexarr.query body. See [DownloadFn].
 type QueryFn func(ctx context.Context, req schema.QueryRequest) schema.QueryResponse
 
+// BlocklistFn is the clustarr.rpc.indexarr.blocklist body, supplied by
+// app/indexer/blocklist (ADR-0019 §6.14). See [DownloadFn].
+type BlocklistFn func(ctx context.Context, req schema.BlocklistRequest) schema.BlocklistResponse
+
 // Service answers indexarr's three RPC verbs.
 type Service struct {
 	// Client reads Indexer objects and writes their status. It is the
@@ -108,9 +113,10 @@ type Service struct {
 	// run.go always has one.
 	Bus events.Bus
 
-	// Download and Query are the other two verbs' bodies.
-	Download DownloadFn
-	Query    QueryFn
+	// Download, Query and Blocklist are the other verbs' bodies.
+	Download  DownloadFn
+	Query     QueryFn
+	Blocklist BlocklistFn
 
 	// Now is the clock. nil means time.Now.
 	Now func() time.Time
@@ -216,6 +222,12 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 		fetched += len(r.Releases)
 	}
 	rels, truncated := mergeReleases(results, limitOf(req))
+	// Every index answer carries block state (ADR-0019 §6.14): the row for
+	// the request's scope, else the global one. A failure leaves the
+	// releases unmarked; the manager re-checks its own tombstones.
+	if err := blocklist.Marks(ctx, s.Store, rels, req.Scope, s.now()); err != nil {
+		log.Warn("app/indexer/search: reading block state", "err", err)
+	}
 
 	span.SetAttributes(
 		attribute.Int("search.candidates", len(cands)),
@@ -304,7 +316,7 @@ func capOutcomes(in []schema.SearchOutcome) []schema.SearchOutcome {
 	return out
 }
 
-// Serve registers all three RPC verbs under queue group "indexarr".
+// Serve registers all four RPC verbs under queue group "indexarr".
 //
 // run.go calls this once, from a k8s.EveryReplica runnable, so there is a
 // window in which indexarr reports Ready while no responder is registered and
@@ -356,6 +368,7 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 		{events.RPCIndexSearch, "indexarr.rpc.serve.search", s.handleSearch},
 		{events.RPCIndexDownload, "indexarr.rpc.serve.download", s.handleDownload},
 		{events.RPCIndexQuery, "indexarr.rpc.serve.query", s.handleQuery},
+		{events.RPCIndexBlocklist, "indexarr.rpc.serve.blocklist", s.handleBlocklist},
 	}
 	for _, v := range verbs {
 		// The bus hands every inbound RPC a bare context, so without a span
@@ -429,4 +442,17 @@ func (s *Service) handleQuery(ctx context.Context, data []byte) ([]byte, error) 
 		})
 	}
 	return json.Marshal(s.Query(ctx, req))
+}
+
+func (s *Service) handleBlocklist(ctx context.Context, data []byte) ([]byte, error) {
+	var req schema.BlocklistRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		return nil, fmt.Errorf("app/indexer/search: decode BlocklistRequest: %w", err)
+	}
+	if s.Blocklist == nil {
+		return json.Marshal(schema.BlocklistResponse{
+			Error: "indexarr: blocklist verb is not configured",
+		})
+	}
+	return json.Marshal(s.Blocklist(ctx, req))
 }

@@ -29,6 +29,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // The non-video half of the snapshot: an album, a book, an audiobook or a
@@ -213,6 +214,10 @@ type NonVideoItem struct {
 	// several MediaFiles (tracks, parts) and the rollup is what an upgrade
 	// has to beat.
 	Current *decision.Current
+	// Owner is the grab owner (ADR-0019 §6.1): the item itself, or an
+	// Issue's Comic. Its schema.BlockScopeOf is the scope a search or an RSS
+	// match asks the release index's block state for (§6.14).
+	Owner schema.ItemRef
 }
 
 // ReadNonVideo reads the album, book, audiobook or issue ref names, with the
@@ -245,6 +250,7 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Monitored = ptr.Deref(a.Spec.Monitored, true)
 		v.Available = a.Status.Metadata == nil || releasedBy(a.Status.Metadata.ReleaseDate, now)
 		v.Identity = AlbumIdentity(&a, &artist)
+		v.Owner = ownerRef(string(commonv1.MediaKindAlbum), &a)
 		// The album's quality is the lowest across its imported tracks
 		// (status.quality), which is what an upgrade has to beat. That the
 		// album HAS a file is status.quality itself: the Album reconciler
@@ -277,6 +283,7 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Monitored = ptr.Deref(b.Spec.Monitored, true)
 		v.Available = b.Status.Metadata == nil || releasedBy(b.Status.Metadata.ReleaseDate, now)
 		v.Identity = BookIdentity(&b, author)
+		v.Owner = ownerRef(string(commonv1.MediaKindBook), &b)
 		return v, currentFileOf(ctx, c, ns, b.Status.HasFile, b.Status.FileRef, &v)
 
 	case commonv1.MediaKindAudiobook:
@@ -288,6 +295,7 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Monitored = ptr.Deref(ab.Spec.Monitored, true)
 		v.Available = ab.Status.Metadata == nil || releasedBy(ab.Status.Metadata.ReleaseDate, now)
 		v.Identity = AudiobookIdentity(&ab)
+		v.Owner = ownerRef(string(commonv1.MediaKindAudiobook), &ab)
 		// An audiobook's parts are several MediaFiles; status.quality is
 		// the recording's, which is what an upgrade has to beat.
 		if ab.Status.HasFile && ab.Status.Quality != nil {
@@ -310,6 +318,7 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Monitored = ptr.Deref(iss.Spec.Monitored, true)
 		v.Available = releasedBy(iss.Status.Date, now)
 		v.Identity = IssueIdentity(&iss, &comic)
+		v.Owner = ownerRef(string(commonv1.MediaKindComic), &comic)
 		return v, currentFileOf(ctx, c, ns, iss.Status.HasFile, iss.Status.FileRef, &v)
 	}
 	return v, fmt.Errorf("unsupported media kind %q", ref.Kind)

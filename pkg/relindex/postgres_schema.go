@@ -31,13 +31,14 @@ import (
 // constant, and NEVER edit pgDDLV1 in place, for exactly the reason
 // schema.go gives for ddlV1: every database in the field that has it applied
 // would otherwise diverge from a fresh one under the same recorded version.
-const pgSchemaVersion = 1
+const pgSchemaVersion = 2
 
 // pgMigrations[v] upgrades a database from relindex_schema.version v to
 // v+1. pgMigrations[0] creates the whole schema from an empty database --
 // spec §A.1's DDL, verbatim.
 var pgMigrations = [][]string{
 	0: pgDDLV1,
+	1: pgDDLV2,
 }
 
 // pgDDLV1 is spec §A.1's DDL, verbatim, one statement per entry for the same
@@ -66,6 +67,33 @@ var pgDDLV1 = []string{
 	`CREATE INDEX releases_indexer_fetched ON releases (indexer, fetched_at)`,
 	`CREATE INDEX releases_categories      ON releases USING gin (categories)`,
 	`CREATE INDEX releases_search          ON releases USING gin (search)`,
+}
+
+// pgDDLV2 is the blocklist (ADR-0019 §6.14), the Postgres twin of
+// schema.go's ddlV2: the same columns as bigserial, text, bigint,
+// timestamptz and boolean, and the same partial unique indexes. It is
+// migrated under pgAdvisoryLockKey like every step of the ladder.
+var pgDDLV2 = []string{
+	`CREATE TABLE blocklist (
+		id         bigserial   PRIMARY KEY,
+		scope      text        NOT NULL,
+		info_hash  text        NOT NULL DEFAULT '',
+		indexer    text        NOT NULL DEFAULT '',
+		guid       text        NOT NULL DEFAULT '',
+		title      text        NOT NULL DEFAULT '',
+		protocol   text        NOT NULL DEFAULT '',
+		reason     text        NOT NULL,
+		entry_id   text        NOT NULL DEFAULT '',
+		seq        bigint      NOT NULL,
+		blocked_at timestamptz NOT NULL,
+		until      timestamptz NOT NULL,
+		unblocked  boolean     NOT NULL DEFAULT false
+	)`,
+	`CREATE UNIQUE INDEX blocklist_scope_hash ON blocklist (scope, info_hash) WHERE info_hash <> ''`,
+	`CREATE UNIQUE INDEX blocklist_scope_guid ON blocklist (scope, indexer, guid) WHERE guid <> ''`,
+	`CREATE INDEX blocklist_until ON blocklist (until)`,
+	`CREATE INDEX blocklist_hash ON blocklist (info_hash) WHERE info_hash <> ''`,
+	`CREATE INDEX blocklist_guid ON blocklist (guid) WHERE guid <> ''`,
 }
 
 // pgAdvisoryLockKey serialises schema migration across every process that

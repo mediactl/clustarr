@@ -33,6 +33,7 @@ import (
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/blocklist"
 	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/app/indexer/rssschedule"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
@@ -629,6 +630,14 @@ func (w *Worker) indexAndPublish(
 	// What it must never do is inflate lastRssNewCount, which is why that
 	// number comes from `inserted` and not from `published`.
 	if len(projected) > 0 {
+		// Each firehose release carries every scope that blocks it
+		// (ADR-0019 §6.14), almost always none: the firehose does not know
+		// the item, so the RSS matcher keeps those naming its match or the
+		// global scope. A failure publishes them unmarked; the manager
+		// re-checks its own tombstones.
+		if berr := blocklist.AllBlocks(ctx, w.Deps.Index, projected, time.Now()); berr != nil {
+			log.Warn("rss: reading block state", "err", berr)
+		}
 		published, err = PublishReleases(ctx, w.Deps.Bus, idx.Namespace, idx.Name, projected)
 		if err != nil {
 			return inserted, published, dropped, err

@@ -412,6 +412,9 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	// identity (pkg/decision's identity check).
 	snap.Target.Identity.IDQueryIndexers = idQueryIndexers(resp.Outcomes)
 
+	// The release index marked every release blocked for this item or
+	// globally (ADR-0019 §6.14); pkg/decision rejects them Blocklisted.
+	snap.Target.Blocklist = AnswerBlocklist(resp.Releases)
 	rels := releaseInfos(resp.Releases)
 	decisions := w.evaluate()(ctx, snap.Target, profile, w.Catalogue, rels, opts)
 	recordDecisionMetrics(task.MediaRef.Kind, decisions)
@@ -631,8 +634,14 @@ func (w *Worker) buildRequest(ns string, task schema.SearchTask, snap itemSnapsh
 			indexerRefs = append(indexerRefs, schema.Ref{Namespace: srch.Namespace, Name: name})
 		}
 	}
-	return BuildSearchRequest(ns, task.MediaRef.Kind, snap.IDs, schema.MaxSearchReleases,
+	req := BuildSearchRequest(ns, task.MediaRef.Kind, snap.IDs, schema.MaxSearchReleases,
 		task.UserInvoked, indexerRefs, categories)
+	// Every index answer carries block state for this scope or the global
+	// one (ADR-0019 §6.14).
+	if snap.Owner.UID != "" {
+		req.Scope = schema.BlockScopeOf(snap.Owner)
+	}
+	return req
 }
 
 // decisionOptions assembles pkg/decision's Options. PreferredProtocol is left
@@ -983,8 +992,9 @@ func (w *Worker) topology() events.Topology {
 // app/catalog/worker/rssmatcher read the same ones and degraded to "not
 // blocklisted, empty queue" with a warning when they were missing. A role
 // that ran the RSS matcher without the search worker would therefore have
-// grabbed blocklisted releases, silently. (The blocklist is one labelled List
-// now, LoadBlocklist; only the queue's index remains.) The domain declares
+// grabbed blocklisted releases, silently. (The blocklist is the index
+// answer's block state now, ADR-0019 §6.14; only the queue's index remains.)
+// The domain declares
 // [FieldIndexes], and the agent registers them once, before the manager
 // starts, and asserts that they really reached the cache (spec §3.5.2 step 9).
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
@@ -1034,7 +1044,7 @@ const indexQueryLimit = 100
 // returned it, so what comes back is decided and grabbed as a live result
 // is; only the per-indexer outcomes are absent, since no indexer was asked.
 func (w *Worker) searchIndex(ctx context.Context, req schema.SearchRequest) (schema.SearchResponse, error) {
-	q := schema.QueryRequest{Text: req.Text, Limit: indexQueryLimit, Filters: map[string]string{}}
+	q := schema.QueryRequest{Text: req.Text, Limit: indexQueryLimit, Filters: map[string]string{}, Scope: req.Scope}
 	if len(req.Categories) > 0 {
 		cats := make([]string, 0, len(req.Categories))
 		for _, c := range req.Categories {

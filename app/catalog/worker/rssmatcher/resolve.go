@@ -83,6 +83,16 @@ type resolveState struct {
 	// transcoded (Current.Transcoded), which is final however much better
 	// the pack is. A single target carries the same verdict on currentFile.
 	episodeFiles map[string]*decision.Current
+	// scope is the grab owner's release-index block scope (ADR-0019 §6.1,
+	// §6.14): the item's own, or an Episode's or a pack's Series'.
+	scope string
+}
+
+// blockScope is a grab owner's release-index block scope.
+func blockScope(kind string, o client.Object) string {
+	return schema.BlockScopeOf(schema.ItemRef{Kind: kind, Ref: schema.Ref{
+		Namespace: o.GetNamespace(), Name: o.GetName(), UID: string(o.GetUID()),
+	}})
 }
 
 // resolve fetches the item named by ref and reads off everything the decision
@@ -125,6 +135,7 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		}
 		st.currentFile = cur
 		st.identity = search.MovieIdentity(&m)
+		st.scope = blockScope(string(commonv1.MediaKindMovie), &m)
 
 	case commonv1.MediaKindEpisode, commonv1.MediaKindSeries:
 		seriesName := ref.Name
@@ -177,6 +188,7 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 			return st, fmt.Errorf("rssmatcher: get series %q: %w", seriesName, err)
 		}
 		st.identity = search.EpisodeIdentity(&s, eps...)
+		st.scope = blockScope(string(commonv1.MediaKindSeries), &s)
 		// The series' whole scene table, read by the same code as the
 		// search worker's (search.SceneMappings), so the two paths read a
 		// scene number the same way. SingleEpisodeSearch stays false: an
@@ -202,6 +214,9 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		st.qualityProfile = v.QualityProfileRef
 		st.identity = v.Identity
 		st.currentFile = v.Current
+		if v.Owner.UID != "" {
+			st.scope = schema.BlockScopeOf(v.Owner)
+		}
 		// The delay profile and tags come from the same place the grab
 		// records them from: the container (Artist, Author, Comic), or the
 		// Audiobook itself (grab.ResolveConfig).

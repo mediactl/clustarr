@@ -66,8 +66,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // with a WARNING rather than an error. Task C12a moved the registration into
 // one deterministic call and added a startup assertion (assertWorkerIndexes)
 // that fails the manager when any index it names is missing -- every one of
-// this package's too. The blocklist is now read with one labelled List per
-// release (search.LoadBlocklist), and a failed read retries instead of
-// deciding as if nothing were blocklisted; its two indexes are gone, and
-// only the queue still reads a Download index.
+// this package's too. The blocklist is now the firehose release's own block
+// state (ADR-0019 §6.14): indexarr puts every scope that blocks a release on
+// it, and the matcher keeps those naming the matched item or every item
+// (search.ScopedBlocklist); only the queue still reads a Download index.
 package rssmatcher

@@ -25,6 +25,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/mediactl/clustarr/app/indexer/blocklist"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -129,8 +130,13 @@ func (s *Service) handle(
 	span.End()
 
 	limit := max(q.Limit-int(req.Offset), 0)
+	rels := decodeRows(ctx, rows, int(req.Offset), limit)
+	// Every index answer carries block state (ADR-0019 §6.14).
+	if err := blocklist.Marks(ctx, s.Store, rels, req.Scope, s.now()); err != nil {
+		logging.FromContext(ctx).Warn("app/indexer/query: reading block state", "err", err)
+	}
 	return schema.QueryResponse{
-		Releases: decodeRows(ctx, rows, int(req.Offset), limit),
+		Releases: rels,
 		// Total is the matched count BEFORE paging -- and a LOWER BOUND: a
 		// four-method Store has no COUNT, so when the over-fetch hit
 		// MaxScanRows this is exactly that ceiling and not the true total.

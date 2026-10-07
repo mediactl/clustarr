@@ -81,7 +81,13 @@ type Target struct {
 	OriginalLanguageTag string
 	Current             *Current
 	Queue               []Queued
-	Blocklist           func(infohash, title string) bool
+	// Blocklist is a lookup over the index answer's block state (ADR-0019
+	// §6.14): the release index marks each release of a search or query
+	// answer blocked for the item's scope or globally, and each firehose
+	// release with every scope that blocks it; the caller builds this
+	// predicate from those marks. pkg/decision decides nothing about a
+	// block, it only rejects what the lookup reports (ReasonBlocklisted).
+	Blocklist func(infohash, title string) bool
 	// Identity is WHICH item this is: what a candidate release has to be for
 	// before anything else about it matters (identity.go). The zero value
 	// identifies nothing, and every release evaluated against it is rejected

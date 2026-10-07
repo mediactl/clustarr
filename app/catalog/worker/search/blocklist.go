@@ -18,16 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
-	"context"
-	"fmt"
 	"strings"
-	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -64,13 +62,6 @@ func downloadTargetKeys(o client.Object) []string {
 	return []string{TargetIndexValue(d.Spec.Target)}
 }
 
-// The blocklist has no index. It is one List of the Downloads carrying
-// download.clustarr.io/blocklisted per decision (LoadBlocklist) -- see that
-// label's doc comment for why the blocklist has no CRD of its own -- and the
-// two blocklist indexes once registered beside IndexDownloadTarget, by info
-// hash and by title, were read by nothing once LoadBlocklist replaced the
-// per-release lookups.
-
 // TargetIndexValue is the IndexDownloadTarget key for one catalog item. It is
 // not events.MediaKey: the index is scoped to a namespace by the List call
 // itself, so the kind and name alone identify the target, and keeping the
@@ -85,87 +76,72 @@ func TargetIndexValue(ref commonv1.MediaRef) string {
 // by another.
 func normalizeInfoHash(h string) string { return strings.ToLower(h) }
 
-func isBlocklisted(d *downloadv1alpha1.Download) bool {
-	return d.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue
+// ownerRef is a grab owner's schema.ItemRef: the object whose
+// status.downloads would hold the grab, and whose BlockScopeOf names its item
+// blocks (ADR-0019 §6.1, §6.14).
+func ownerRef(kind string, o client.Object) schema.ItemRef {
+	return schema.ItemRef{Kind: kind, Ref: schema.Ref{
+		Namespace: o.GetNamespace(), Name: o.GetName(), UID: string(o.GetUID()),
+	}}
 }
 
-// blocklistActive reports whether a labelled Download is still blocklisted at
-// now. A nil deadline means "forever": grabarr sets one when it blocklists,
-// and a missing one is not a licence to grab the release again.
-func blocklistActive(d *downloadv1alpha1.Download, now time.Time) bool {
-	if d.Status.BlocklistedUntil == nil {
-		return true
-	}
-	return d.Status.BlocklistedUntil.After(now)
-}
-
-// Blocklist is one namespace's live blocklist at one instant: the info hashes
-// and normalized titles of every Download grabarr has labelled blocklisted
-// whose status.blocklistedUntil has not passed. Contains is
-// decision.Target.Blocklist.
-//
-// It is loaded once per decision (LoadBlocklist) rather than looked up per
-// release. The per-release form cost two cache Lists for every candidate --
-// up to a thousand for one 500-release search -- where one List of the
-// labelled set answers all of them.
-type Blocklist struct {
-	hashes map[string]struct{}
-	titles map[string]struct{}
-}
-
-// LoadBlocklist reads the namespace's blocklisted Downloads in ONE List and
-// keeps those still blocklisted at now (a nil blocklistedUntil means forever:
-// grabarr sets one when it blocklists, and its absence is not a licence to
-// grab the release again). Expiry is applied here, at read time, because
-// nothing writes the object when its deadline passes: a field index or label
-// selector computed when the object changed would go stale the moment the
-// deadline passed.
-//
-// A List failure is returned, not swallowed. The per-release form treated a
-// failed lookup as "not blocklisted" with a warning, which turned a transient
-// cache error into a grab of a release an operator had blocklisted -- and
-// nothing downstream re-checks. Retrying the decision costs one redelivery.
-func LoadBlocklist(ctx context.Context, c client.Reader, ns string, now time.Time) (Blocklist, error) {
-	var list downloadv1alpha1.DownloadList
-	if err := c.List(ctx, &list,
-		client.InNamespace(ns),
-		client.MatchingLabels{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue},
-	); err != nil {
-		return Blocklist{}, fmt.Errorf("list blocklisted Downloads in %s: %w", ns, err)
-	}
-	b := Blocklist{hashes: map[string]struct{}{}, titles: map[string]struct{}{}}
-	for i := range list.Items {
-		d := &list.Items[i]
-		if !isBlocklisted(d) || !blocklistActive(d, now) {
+// AnswerBlocklist is decision.Target.Blocklist over an index answer's block
+// state (ADR-0019 §6.14): every release the answer marked Blocked -- for the
+// request's scope or globally -- by its info hash and, for usenet, which has
+// no hash, by its normalized title. The release index decides what is
+// blocked; this only looks the answer up.
+func AnswerBlocklist(rels []schema.Release) func(infohash, title string) bool {
+	hashes := map[string]struct{}{}
+	titles := map[string]struct{}{}
+	for i := range rels {
+		if rels[i].Blocked == nil {
 			continue
 		}
-		if h := d.Spec.Release.InfoHash; h != "" {
-			b.hashes[normalizeInfoHash(h)] = struct{}{}
-		}
-		if t := blocklistTitleKey(d.Spec.Release.Title); t != "" {
-			b.titles[t] = struct{}{}
-		}
+		addBlocked(hashes, titles, rels[i].Info.InfoHash, rels[i].Info.Title)
 	}
-	return b, nil
+	return lookup(hashes, titles)
 }
 
-// Contains reports whether a release is blocklisted: its info hash (torrent)
-// or its normalized title (usenet, which has no hash) is on the list.
-func (b Blocklist) Contains(infohash, title string) bool {
-	if infohash != "" {
-		if _, ok := b.hashes[normalizeInfoHash(infohash)]; ok {
-			return true
+// ScopedBlocklist is decision.Target.Blocklist over firehose releases'
+// Blocks: each release blocked for scope or globally (the RSS matcher keeps
+// only those naming its matched item or every item).
+func ScopedBlocklist(rels []schema.Release, scope string) func(infohash, title string) bool {
+	hashes := map[string]struct{}{}
+	titles := map[string]struct{}{}
+	for i := range rels {
+		for _, b := range rels[i].Blocks {
+			if b.Scope == scope || b.Scope == schema.BlockScopeGlobal {
+				addBlocked(hashes, titles, rels[i].Info.InfoHash, rels[i].Info.Title)
+				break
+			}
 		}
+	}
+	return lookup(hashes, titles)
+}
+
+func addBlocked(hashes, titles map[string]struct{}, infohash, title string) {
+	if infohash != "" {
+		hashes[normalizeInfoHash(infohash)] = struct{}{}
 	}
 	if t := blocklistTitleKey(title); t != "" {
-		_, ok := b.titles[t]
-		return ok
+		titles[t] = struct{}{}
 	}
-	return false
 }
 
-// Len is how many distinct keys the blocklist holds, for logging.
-func (b Blocklist) Len() int { return len(b.hashes) + len(b.titles) }
+func lookup(hashes, titles map[string]struct{}) func(infohash, title string) bool {
+	return func(infohash, title string) bool {
+		if infohash != "" {
+			if _, ok := hashes[normalizeInfoHash(infohash)]; ok {
+				return true
+			}
+		}
+		if t := blocklistTitleKey(title); t != "" {
+			_, ok := titles[t]
+			return ok
+		}
+		return false
+	}
+}
 
 // blocklistTitleKey normalizes a release title for blocklist equality. It is
 // release.TitleNorm, which keeps letters and digits in every script, rather

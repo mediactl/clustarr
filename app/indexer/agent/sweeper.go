@@ -98,4 +98,16 @@ func pruneOnce(ctx context.Context, store relindex.Store) {
 		log.Info("indexarr: pruned the release index",
 			"deleted", deleted, "retention", IndexRetention.String())
 	}
+
+	// The blocklist's own expiry pass (ADR-0019 §6.14): a row goes at its
+	// until, never with the release retention.
+	blocks, err := store.PruneBlocks(ctx, time.Now())
+	if err != nil {
+		tracing.RecordError(span, err)
+		log.Error("indexarr: pruning the blocklist", "error", err)
+		return
+	}
+	if blocks > 0 {
+		log.Info("indexarr: pruned expired blocklist rows", "deleted", blocks)
+	}
 }

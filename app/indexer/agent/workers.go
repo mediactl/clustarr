@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/blocklist"
 	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	"github.com/mediactl/clustarr/app/indexer/download"
 	"github.com/mediactl/clustarr/app/indexer/facade"
@@ -75,6 +76,7 @@ func registerWorkers(
 		Definitions: cc.DefinitionFetcherFor,
 	}
 	q := &query.Service{Store: store}
+	bl := &blocklist.Service{Store: store}
 	svc := &search.Service{
 		Client: c,
 		Reader: mgr.GetAPIReader(),
@@ -88,15 +90,16 @@ func registerWorkers(
 			}
 			return cli, nil
 		},
-		Store:    store,
-		Bus:      bus,
-		Download: dl.Handle,
-		Query:    q.Handle,
+		Store:     store,
+		Bus:       bus,
+		Download:  dl.Handle,
+		Query:     q.Handle,
+		Blocklist: bl.Handle,
 	}
 
 	// search.Serve is indexarr's single registration point for the RPC queue
-	// group: it registers clustarr.rpc.indexarr.search, .download and .query
-	// in one call. It has no unsubscribe, so its stop drains in-flight
+	// group: it registers clustarr.rpc.indexarr.search, .download, .query and
+	// .blocklist in one call. It has no unsubscribe, so its stop drains in-flight
 	// fan-outs rather than deregistering the responders.
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := search.Serve(ctx, bus, svc)

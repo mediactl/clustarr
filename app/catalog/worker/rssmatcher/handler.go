@@ -219,16 +219,11 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	log.Debug("rssmatcher: release matched", "targets", len(targets))
 
 	now := h.Deps.now()
-	// One List of the namespace's blocklist, shared by every matched item:
-	// the same loader the search worker uses, so the two paths agree on
-	// what is blocklisted. A failed read retries rather than deciding as if
-	// nothing were blocklisted -- nothing after this re-checks.
-	blocklist, err := search.LoadBlocklist(ctx, h.Deps.Client, ns, now)
-	if err != nil {
-		return events.Retry(matchRetry, err)
-	}
+	// The blocklist is the release's own block state (ADR-0019 §6.14): the
+	// index agent put every scope that blocks it on the firehose release;
+	// each matched item keeps those naming it or every item.
 	for _, ref := range targets {
-		if err := h.decideOne(ctx, ns, ref, rel, blocklist.Contains, scenes, now); err != nil {
+		if err := h.decideOne(ctx, ns, ref, rel, scenes, now); err != nil {
 			return err
 		}
 	}
@@ -244,7 +239,6 @@ func (h *Handler) decideOne(
 	ns string,
 	ref commonv1.MediaRef,
 	rel schema.Release,
-	blocklist func(infohash, title string) bool,
 	scenes sceneLookup,
 	now time.Time,
 ) error {
@@ -290,7 +284,7 @@ func (h *Handler) decideOne(
 		OriginalLanguageTag: st.originalLanguageTag,
 		Current:             st.currentFile,
 		Queue:               queueFor(ctx, h.Deps.Client, ns, ref),
-		Blocklist:           blocklist,
+		Blocklist:           search.ScopedBlocklist([]schema.Release{rel}, st.scope),
 		// No IDQueryIndexers: a firehose release was not found by any query,
 		// so nothing vouches for it but its own ids and title.
 		Identity: st.identity,

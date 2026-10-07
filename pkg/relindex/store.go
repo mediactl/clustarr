@@ -55,10 +55,12 @@ var (
 	ErrInvalidArg = errors.New("relindex: invalid argument")
 )
 
-// Store is the release index. ADR-0003 fixes it at exactly four methods so the
-// engine stays swappable -- the documented scale-out path is a Postgres FTS
-// implementation of this same interface, with no caller changes. Do not widen
-// it.
+// Store is the release index. ADR-0003 fixed it at four methods so the
+// engine stays swappable -- the scale-out path is the Postgres FTS
+// implementation of this same interface, with no caller changes. ADR-0019
+// §6.14 widened it once, by the blocklist's five methods, which both engines
+// implement and storetest holds together. Do not widen it further without
+// an ADR.
 type Store interface {
 	// Upsert writes rels in one transaction, keyed UNIQUE(indexer, guid).
 	// inserted counts only rows that did not already exist. On any error the
@@ -77,6 +79,29 @@ type Store interface {
 	// Stats reports corpus size and on-disk footprint. It is also the
 	// readiness probe: it fails if the handle is no longer usable.
 	Stats(ctx context.Context) (Stats, error)
+
+	// Block upserts a blocklist row (ADR-0019 §6.14) on whichever key it
+	// has -- the hash when known, else indexer and guid -- in one
+	// transaction. When a row for the key holds a Seq at or above b.Seq it
+	// writes nothing and reports applied=false, so a late block cannot undo
+	// a later unblock. Until defaults to BlockedAt + BlocklistTTL.
+	Block(ctx context.Context, b Block) (applied bool, err error)
+
+	// Unblock writes the key's row as a tombstone (unblocked) at b.Seq,
+	// fenced the same way; the tombstone lives until b.Until.
+	Unblock(ctx context.Context, b Block) (applied bool, err error)
+
+	// BlockState returns the live rows (not unblocked, Until after now) of
+	// every scope matching each key, by the key's index in keys.
+	BlockState(ctx context.Context, keys []BlockKey, now time.Time) (map[int][]Block, error)
+
+	// ListBlocks pages the live rows of one scope, or of every scope when
+	// scope is empty, newest first. A limit of zero or less is unlimited.
+	ListBlocks(ctx context.Context, scope string, limit, offset int) ([]Block, error)
+
+	// PruneBlocks deletes every row whose Until is at or before now. It is
+	// the blocklist's own expiry sweep; Prune never touches the table.
+	PruneBlocks(ctx context.Context, now time.Time) (int, error)
 }
 
 // Release is one indexed release.

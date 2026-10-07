@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -45,6 +46,10 @@ type itemSnapshot struct {
 	IDs               TargetIDs
 	QualityProfileRef string
 	Target            decision.Target
+	// Owner is the grab owner (the item, or an Episode's Series and an
+	// Issue's Comic, ADR-0019 §6.1); the request asks the release index for
+	// block state under its BlockScopeOf (§6.14).
+	Owner schema.ItemRef
 }
 
 // snapshot fetches the item named by ref in namespace ns, its current
@@ -87,6 +92,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		snap.Target.Identity = MovieIdentity(&m)
+		snap.Owner = ownerRef(string(commonv1.MediaKindMovie), &m)
 		hasFile, fileRef = m.Status.HasFile, m.Status.FileRef
 
 	case commonv1.MediaKindEpisode:
@@ -150,6 +156,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		snap.Target.Identity = EpisodeIdentity(&s, &e)
+		snap.Owner = ownerRef(string(commonv1.MediaKindSeries), &s)
 		snap.Target.Identity.SceneMappings = scene
 		// This is a search for exactly one episode, so a whole-season pack
 		// is not what was asked for (ruling R-3, Sonarr's
@@ -172,6 +179,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		// Already resolved, MediaFile and all (ReadNonVideo), so hasFile
 		// stays false and the file is not read a second time below.
 		snap.Target.Current = v.Current
+		snap.Owner = v.Owner
 		snap.IDs = nonVideoIDs(v.Identity)
 
 	default:
@@ -191,11 +199,8 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		return snap, err
 	}
 	snap.Target.Queue = queue
-	blocklist, err := LoadBlocklist(ctx, w.Client, ns, w.now())
-	if err != nil {
-		return snap, err
-	}
-	snap.Target.Blocklist = blocklist.Contains
+	// The blocklist is the answer's block state (ADR-0019 §6.14); Handle
+	// sets Target.Blocklist once the index has answered.
 	return snap, nil
 }
 
