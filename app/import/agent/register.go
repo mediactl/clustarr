@@ -94,7 +94,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		// k8s.ManagerImportarrWorker. It never writes ImportList.status -- it
 		// checkpoints a Result to clustarr-progress for the ImportList
 		// controller (app/import/manager) to project.
-		{events.ConsumerImportList, newListWorker(c, bus, o).Handle},
+		{events.ConsumerImportList, newListWorker(c, api, bus, o).Handle},
 		// The recycle-bin sweep (spec 2026-10-06 §3.5.3): the manager queues
 		// one task every 6 h on importarr-recycle, so this domain has no
 		// timer and can scale to zero. fileimport.RecycleSweeper (task X7a

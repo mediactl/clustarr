@@ -48,11 +48,23 @@ type kindResult struct {
 // themselves, so tests can substitute an HTTP test server and an in-memory
 // bus without a real cluster or the network.
 type syncDeps struct {
-	Client          client.Client
+	Client client.Client
+	// APIReader reads a Series with its managedFields for applySeries; nil
+	// means Client.
+	APIReader       client.Reader
 	Bus             events.Bus
 	Providers       ProviderOptions
 	MetadataTimeout time.Duration
 	Clock           func() time.Time
+}
+
+// reader is the reader applySeries reads a Series through: APIReader, or
+// Client when there is none (a test's direct client).
+func (d syncDeps) reader() client.Reader {
+	if d.APIReader != nil {
+		return d.APIReader
+	}
+	return d.Client
 }
 
 func (d syncDeps) now() time.Time {
@@ -217,7 +229,7 @@ func syncKind(
 		case commonv1.MediaKindMovie:
 			_, err = applyMovie(ctx, deps.Client, il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
 		case commonv1.MediaKindSeries:
-			_, err = applySeries(ctx, deps.Client, il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
+			_, err = applySeries(ctx, deps.Client, deps.reader(), il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
 		}
 		if err != nil {
 			log.Warn("importlist: could not apply catalog item; skipping entry",
@@ -273,7 +285,7 @@ func syncKind(
 				continue
 			}
 		}
-		if err := applySyncDecision(ctx, deps.Client, il, si, d.Action); err != nil {
+		if err := applySyncDecision(ctx, deps.Client, deps.reader(), il, si, d.Action); err != nil {
 			log.Warn("importlist: sync-level action failed", "title", d.Item.Title,
 				"action", d.Action, "error", err)
 			// Left in place: a snapshot entry this cycle could not act on
@@ -361,7 +373,7 @@ func listedElsewhere(
 // whose addImportListExclusion defaults to false, so a movie that comes
 // back onto a list is added again.
 func applySyncDecision(
-	ctx context.Context, c client.Client, il *catalogv1alpha1.ImportList, si StoredItem, action pkgimportlist.SyncAction,
+	ctx context.Context, c client.Client, r client.Reader, il *catalogv1alpha1.ImportList, si StoredItem, action pkgimportlist.SyncAction,
 ) error {
 	switch action {
 	case pkgimportlist.SyncActionLog:
@@ -370,7 +382,7 @@ func applySyncDecision(
 		return nil
 	case pkgimportlist.SyncActionUnmonitor:
 		if si.ObjectKind == string(commonv1.MediaKindSeries) {
-			return unmonitorSeries(ctx, c, il.Namespace, il.Name, si, il.Spec.Defaults)
+			return unmonitorSeries(ctx, c, r, il.Namespace, il.Name, si, il.Spec.Defaults)
 		}
 		return unmonitorMovie(ctx, c, il.Namespace, il.Name, si, il.Spec.Defaults)
 	case pkgimportlist.SyncActionRemove:

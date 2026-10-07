@@ -60,6 +60,11 @@ type Worker struct {
 	// updates the Movie and Series items a sync produces.
 	Client client.Client
 
+	// APIReader reads straight from the apiserver: applySeries needs a
+	// Series' managedFields, which the cache strips (CLAUDE.md). Nil means
+	// Client (a test's direct client).
+	APIReader client.Reader
+
 	// Bus carries the result checkpoint, the exclusion and remembered-item
 	// KV buckets, the id-resolve RPC and the history event.
 	Bus events.Bus
@@ -118,7 +123,7 @@ func (w *Worker) now() time.Time {
 
 func (w *Worker) deps() syncDeps {
 	return syncDeps{
-		Client: w.Client, Bus: w.Bus,
+		Client: w.Client, APIReader: w.APIReader, Bus: w.Bus,
 		Providers: ProviderOptions{
 			HTTPClient: w.HTTPClient, TraktBaseURL: w.TraktBaseURL, PlexBaseURL: w.PlexBaseURL,
 		},

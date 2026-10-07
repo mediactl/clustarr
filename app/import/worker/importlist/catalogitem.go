@@ -19,9 +19,11 @@ package importlist
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -190,11 +192,56 @@ func applyMovie(
 	return name, nil
 }
 
-// applySeries is applyMovie's series counterpart.
+// applySeries is applyMovie's series counterpart, and a compare-and-swap
+// (spec 2026-10-06 §5.5, OD13): it reads the Series through r, the API
+// reader, because the classifier's ownership is in managedFields, which the
+// cache strips; it applies with that read's resourceVersion when the Series
+// exists, and redoes the read and the apply on a Conflict.
+//
+// A Series the catalogarr classifier moved to its RootFolder's anime
+// defaults keeps its current profile and type: this apply forces
+// ownership, so re-sending the list's defaults would undo the
+// classification on every sync (anime dual-audio spec §4). It is
+// classified once status.classification says anime, or once
+// catalogarr-classify owns spec.qualityProfileRef -- the classifier's spec
+// patch lands before its status write, and a sync reading between the two
+// would otherwise see no classification and force its defaults back.
 func applySeries(
-	ctx context.Context, c client.Client, namespace, listName, name string,
+	ctx context.Context, c client.Client, r client.Reader, namespace, listName, name string,
 	item importlist.Item, defaults catalogv1alpha1.ListDefaults, tvdbID int64,
 ) (string, error) {
+	if r == nil {
+		r = c
+	}
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		spec := seriesSpecFor(listName, item, defaults, tvdbID)
+		ac := catalogac.Series(name, namespace)
+		var existing catalogv1alpha1.Series
+		switch err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &existing); {
+		case err == nil:
+			if classified(&existing) {
+				spec = spec.WithQualityProfileRef(existing.Spec.QualityProfileRef).WithSeriesType(existing.Spec.SeriesType)
+			}
+			ac = ac.WithResourceVersion(existing.ResourceVersion)
+		case !apierrors.IsNotFound(err):
+			return fmt.Errorf("importlist: get series %s: %w", name, err)
+		}
+		if _, err := k8s.Apply(ctx, c, FieldManager, ac.WithSpec(spec)); err != nil {
+			return fmt.Errorf("importlist: apply series %s: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// seriesSpecFor is the list's complete declaration of a Series' spec, before
+// a classified Series' profile and type are kept.
+func seriesSpecFor(
+	listName string, item importlist.Item, defaults catalogv1alpha1.ListDefaults, tvdbID int64,
+) *catalogac.SeriesSpecApplyConfiguration {
 	spec := catalogac.SeriesSpec().
 		WithTvdbID(tvdbID).
 		WithMonitored(resolveMonitored(item.Monitored, defaults.Monitored)).
@@ -214,24 +261,29 @@ func applySeries(
 	if len(defaults.Tags) > 0 {
 		spec = spec.WithTags(defaults.Tags...)
 	}
-	// A series the catalogarr classifier moved to its RootFolder's anime
-	// defaults keeps its current profile and type: this apply forces
-	// ownership, so re-sending the list's defaults would undo the
-	// classification on every sync (anime dual-audio spec §4).
-	var existing catalogv1alpha1.Series
-	switch err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &existing); {
-	case err == nil:
-		if cl := existing.Status.Classification; cl != nil && cl.Anime {
-			spec = spec.WithQualityProfileRef(existing.Spec.QualityProfileRef).WithSeriesType(existing.Spec.SeriesType)
+	return spec
+}
+
+// classified reports whether the catalogarr classifier has claimed s:
+// status.classification says anime, or catalogarr-classify owns
+// spec.qualityProfileRef in s's managedFields (read through the API reader;
+// the cache strips them).
+func classified(s *catalogv1alpha1.Series) bool {
+	if cl := s.Status.Classification; cl != nil && cl.Anime {
+		return true
+	}
+	for _, mf := range s.ManagedFields {
+		if mf.Manager != string(k8s.ManagerCatalogarrClassify) || mf.FieldsV1 == nil {
+			continue
 		}
-	case !apierrors.IsNotFound(err):
-		return "", fmt.Errorf("importlist: get series %s: %w", name, err)
+		var fields map[string]map[string]any
+		if json.Unmarshal(mf.FieldsV1.Raw, &fields) == nil {
+			if _, ok := fields["f:spec"]["f:qualityProfileRef"]; ok {
+				return true
+			}
+		}
 	}
-	ac := catalogac.Series(name, namespace).WithSpec(spec)
-	if _, err := k8s.Apply(ctx, c, FieldManager, ac); err != nil {
-		return "", fmt.Errorf("importlist: apply series %s: %w", name, err)
-	}
-	return name, nil
+	return false
 }
 
 // unmonitorMovie re-applies the Movie si records with monitored forced to
@@ -260,13 +312,14 @@ func unmonitorMovie(
 	return nil
 }
 
-// unmonitorSeries is unmonitorMovie's series counterpart.
+// unmonitorSeries is unmonitorMovie's series counterpart. r is the API
+// reader applySeries reads the Series through.
 func unmonitorSeries(
-	ctx context.Context, c client.Client, namespace, listName string, si StoredItem, defaults catalogv1alpha1.ListDefaults,
+	ctx context.Context, c client.Client, r client.Reader, namespace, listName string, si StoredItem, defaults catalogv1alpha1.ListDefaults,
 ) error {
 	item := si.Item
 	item.Monitored = boolPtr(false)
-	if _, err := applySeries(ctx, c, namespace, listName, si.ObjectName, item, defaults, si.ResolvedID); err != nil {
+	if _, err := applySeries(ctx, c, r, namespace, listName, si.ObjectName, item, defaults, si.ResolvedID); err != nil {
 		return fmt.Errorf("importlist: unmonitor series %s: %w", si.ObjectName, err)
 	}
 	return nil
