@@ -290,7 +290,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	if inFlight <= 0 {
 		inFlight = 1
 	}
-	ackWait := func(attempt uint64) time.Duration { return ackWaitFor(sub, attempt) }
+	ackWait := func(attempt uint64) time.Duration { return events.AckDeadline(sub, attempt) }
 
 	var handlers sync.WaitGroup
 	b.wg.Add(1)
@@ -348,32 +348,6 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 			handlers.Wait()
 		})
 	}, nil
-}
-
-// defaultAckWait is the acknowledgement deadline of a subscription that
-// sets neither AckWait nor Backoff: JetStream's own default
-// (nats-server JsAckWaitDefault).
-const defaultAckWait = 30 * time.Second
-
-// ackWaitFor is how long delivery attempt (1-based) of sub may go unsettled
-// before the message is due again. It is JetStream's rule, not a membus
-// choice: with Backoff set, nats-server overrides AckWait with Backoff[0] and
-// times delivery n out on Backoff[n-1], reusing the last entry past the end
-// (consumer.go checkPending: deadline = BackOff[rdc], rdc = deliveries-1);
-// without Backoff, every delivery gets AckWait. An InProgress resets the
-// clock but keeps the delivery's deadline.
-func ackWaitFor(sub events.Subscription, attempt uint64) time.Duration {
-	if n := len(sub.Backoff); n > 0 {
-		i := 0
-		if attempt > 1 {
-			i = int(min(attempt-1, uint64(n-1)))
-		}
-		return sub.Backoff[i]
-	}
-	if sub.AckWait > 0 {
-		return sub.AckWait
-	}
-	return defaultAckWait
 }
 
 // claimNext sweeps st for sub's lapsed final deliveries and then claims the

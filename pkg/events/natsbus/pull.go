@@ -46,10 +46,7 @@ func (b *Bus) Pull(ctx context.Context, s events.Subscription) (events.Puller, e
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-	spec := events.ConsumerSpec{
-		Name: s.Durable, Stream: s.Stream, Filters: s.Filters, AckWait: s.AckWait,
-		MaxDeliver: s.MaxDeliver, BackOff: s.Backoff, MaxAckPending: max(s.MaxInFlight, 1),
-	}
+	spec := events.SubscriptionSpec(s)
 	cons, err := b.js.CreateOrUpdateConsumer(ctx, s.Stream, events.ConsumerConfig(spec))
 	if err != nil {
 		return nil, fmt.Errorf("natsbus: pull %s/%s: %w", s.Stream, s.Durable, err)

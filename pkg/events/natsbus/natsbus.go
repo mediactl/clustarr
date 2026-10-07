@@ -306,16 +306,9 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	// An unset MaxInFlight is one, as on membus, not JetStream's default of
 	// a thousand unacknowledged messages for one handler slot.
 	inFlight := max(sub.MaxInFlight, 1)
-	cfg := events.ConsumerConfig(events.ConsumerSpec{
-		Name:          sub.Durable,
-		Stream:        sub.Stream,
-		Filters:       sub.Filters,
-		AckWait:       sub.AckWait,
-		MaxDeliver:    sub.MaxDeliver,
-		BackOff:       sub.Backoff,
-		MaxAckPending: inFlight,
-		Heartbeat:     sub.Heartbeat,
-	})
+	// The cap is the topology's (sub.MaxAckPending), not this process's
+	// slots, so a Subscribe agrees with EnsureTopology instead of rewriting it.
+	cfg := events.ConsumerConfig(events.SubscriptionSpec(sub))
 	cons, err := b.js.CreateOrUpdateConsumer(ctx, sub.Stream, cfg)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrStreamNotFound) {

@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package events
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"time"
@@ -103,21 +104,53 @@ type ConsumerSpec struct {
 	MaxDeliver    int
 	BackOff       []time.Duration
 	MaxAckPending int
-	Heartbeat     time.Duration
+
+	// Slots is how many handlers one process runs for this durable: the
+	// per-pod concurrency and an autoscaled domain's HPA AverageValue target
+	// (spec §9.2). MaxAckPending is the durable's cap across every process;
+	// Validate holds Slots <= MaxAckPending.
+	Slots int
+
+	Heartbeat time.Duration
 }
+
+// AutoscaleReplicaCeiling sizes an autoscaled consumer's MaxAckPending:
+// Slots × 8, so up to 8 replicas each fill their slots (spec §9.1.1).
+const AutoscaleReplicaCeiling = 8
 
 // Subscription converts the spec into the subscription a worker passes to
 // Subscriber.Subscribe, so worker code never restates the tuning.
 func (c ConsumerSpec) Subscription() Subscription {
 	return Subscription{
-		Stream:      c.Stream,
-		Durable:     c.Name,
-		Filters:     append([]string(nil), c.Filters...),
-		AckWait:     c.AckWait,
-		MaxDeliver:  c.MaxDeliver,
-		Backoff:     append([]time.Duration(nil), c.BackOff...),
-		MaxInFlight: c.MaxAckPending,
-		Heartbeat:   c.Heartbeat,
+		Stream:        c.Stream,
+		Durable:       c.Name,
+		Filters:       append([]string(nil), c.Filters...),
+		AckWait:       c.AckWait,
+		MaxDeliver:    c.MaxDeliver,
+		Backoff:       append([]time.Duration(nil), c.BackOff...),
+		MaxInFlight:   c.Slots,
+		MaxAckPending: c.MaxAckPending,
+		Heartbeat:     c.Heartbeat,
+	}
+}
+
+// SubscriptionSpec is the ConsumerSpec s describes: the inverse of
+// ConsumerSpec.Subscription, Description aside. An unset MaxInFlight is one
+// slot and an unset MaxAckPending the slot count, the defaults both buses
+// apply. Pull creates its durable from it, and contracttest.Bind ensures a
+// test's own durable from it.
+func SubscriptionSpec(s Subscription) ConsumerSpec {
+	slots := max(s.MaxInFlight, 1)
+	return ConsumerSpec{
+		Name:          s.Durable,
+		Stream:        s.Stream,
+		Filters:       append([]string(nil), s.Filters...),
+		AckWait:       s.AckWait,
+		MaxDeliver:    s.MaxDeliver,
+		BackOff:       append([]time.Duration(nil), s.Backoff...),
+		MaxAckPending: cmp.Or(s.MaxAckPending, slots),
+		Slots:         slots,
+		Heartbeat:     s.Heartbeat,
 	}
 }
 
@@ -150,6 +183,7 @@ func TranscodeTaskConsumer(profileUID, class string) ConsumerSpec {
 		AckWait:       60 * time.Second,
 		MaxDeliver:    16,
 		MaxAckPending: 64,
+		Slots:         1,
 	}
 }
 
@@ -407,9 +441,12 @@ func (t Topology) clone() Topology {
 //   - every consumer filter is covered by that stream's subjects;
 //   - MaxDeliver is strictly greater than len(BackOff), so the last attempt
 //     is a real attempt and not an unused backoff step;
-//   - every WorkQueue work stream allows message schedules, since delay
-//     profiles publish grabs into the future, and no stream pairs schedules
-//     with DiscardNew, which nats-server refuses;
+//   - every consumer has at least one slot and a MaxAckPending of at least
+//     its slots;
+//   - every WorkQueue work stream allows message schedules unless it
+//     discards new messages, since delay profiles publish grabs into the
+//     future, and no stream pairs schedules with DiscardNew, which
+//     nats-server refuses;
 //   - the dead-letter stream and the advisory stream exist.
 func (t Topology) Validate() error {
 	var errs []error
@@ -426,11 +463,11 @@ func (t Topology) Validate() error {
 		if len(s.Subjects) == 0 {
 			errs = append(errs, fieldErr(s.Name+".Subjects", "is required"))
 		}
-		// The advisory stream and the transcode stream are WorkQueues, but only
-		// JetStream publishes to the advisory, and transcode uses DiscardNew so
-		// it has no schedules.
+		// The advisory stream is a WorkQueue only JetStream publishes to, and
+		// a DiscardNew work queue (transcode, probe) cannot allow schedules,
+		// which the next rule enforces.
 		if s.Retention == RetentionWorkQueue && !s.AllowMsgSchedules &&
-			s.Name != StreamAdvisories && s.Name != StreamWorkSquasharr {
+			s.Name != StreamAdvisories && s.Discard != DiscardNew {
 			errs = append(errs, fieldErr(s.Name+".AllowMsgSchedules",
 				"work streams must allow message schedules, so delay profiles "+
 					"can publish a grab into the future"))
@@ -467,6 +504,14 @@ func (t Topology) Validate() error {
 			errs = append(errs, fieldErr(c.Name+".MaxDeliver",
 				fmt.Sprintf("must be strictly greater than len(BackOff)=%d, got %d",
 					len(c.BackOff), c.MaxDeliver)))
+		}
+		if c.Slots < 1 {
+			errs = append(errs, fieldErr(c.Name+".Slots",
+				fmt.Sprintf("must be at least 1, got %d", c.Slots)))
+		} else if c.MaxAckPending < c.Slots {
+			errs = append(errs, fieldErr(c.Name+".MaxAckPending",
+				fmt.Sprintf("must be at least Slots=%d, got %d: the cap across every "+
+					"process cannot be below one process's slots", c.Slots, c.MaxAckPending)))
 		}
 		if len(c.Filters) == 0 {
 			errs = append(errs, fieldErr(c.Name+".Filters", "is required"))
@@ -707,6 +752,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 30 * s, MaxDeliver: 6,
 			BackOff:       []time.Duration{1 * s, 5 * s, 30 * s, 2 * m, 10 * m},
 			MaxAckPending: 256,
+			Slots:         256,
 		},
 		{
 			Name: ConsumerCatalogSearchHigh, Stream: StreamWorkCatalogarr,
@@ -714,6 +760,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 120 * s, MaxDeliver: 5,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
 			MaxAckPending: 8,
+			Slots:         8,
 		},
 		{
 			Name: ConsumerCatalogSearchNorm, Stream: StreamWorkCatalogarr,
@@ -725,6 +772,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 120 * s, MaxDeliver: 5,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h},
 			MaxAckPending: 8,
+			Slots:         8,
 		},
 		{
 			Name: ConsumerCatalogGrab, Stream: StreamWorkCatalogarr,
@@ -732,6 +780,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 5,
 			BackOff:       []time.Duration{10 * s, 1 * m, 5 * m},
 			MaxAckPending: 16,
+			Slots:         16,
 		},
 		{
 			Name: ConsumerCatalogMetadata, Stream: StreamWorkCatalogarr,
@@ -739,6 +788,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
 			MaxAckPending: 32,
+			Slots:         32,
 		},
 		{
 			// The metadata gateway's ImportArtwork durable (spec §B.7). Same
@@ -750,6 +800,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
 			MaxAckPending: 32,
+			Slots:         32,
 		},
 		{
 			// The renderer role's durable (spec §C.6), same tuning again:
@@ -761,6 +812,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
 			MaxAckPending: 32,
+			Slots:         4,
 		},
 		{
 			// The metadata gateway's marker worker (plex-analyze-bypass
@@ -774,6 +826,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
 			MaxAckPending: 32,
+			Slots:         32,
 		},
 		{
 			// Segment detection (spec 2026-10-01 §4.2): catalogarr's planner
@@ -783,6 +836,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 5,
 			BackOff:       []time.Duration{30 * s, 2 * m},
 			MaxAckPending: 8,
+			Slots:         8,
 		},
 		{
 			// segmentarr-worker: a season task decodes and analyzes up to
@@ -792,6 +846,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 30 * m, MaxDeliver: 3,
 			BackOff:       []time.Duration{1 * m, 10 * m},
 			MaxAckPending: 4,
+			Slots:         1,
 		},
 		{
 			// catalogarr records each file's result and merges it into
@@ -801,6 +856,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
 			MaxAckPending: 32,
+			Slots:         32,
 		},
 		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,
@@ -808,6 +864,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 30 * s, MaxDeliver: 3,
 			BackOff:       []time.Duration{5 * s, 30 * s},
 			MaxAckPending: 512,
+			Slots:         512,
 		},
 		{
 			// Gap fixes Y3 (spec §8.3). On EVENTS beside catalogarr-history,
@@ -822,6 +879,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 30 * s, MaxDeliver: 6,
 			BackOff:       []time.Duration{5 * s, 30 * s, 2 * m, 10 * m},
 			MaxAckPending: 16,
+			Slots:         16,
 		},
 		// importarr (amendment §A1.6). AckWait is 60s on all three, which is
 		// the floor set by terminationGracePeriodSeconds: 60 in
@@ -849,14 +907,14 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterImportScan},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
-			MaxAckPending: 4, Heartbeat: 30 * s,
+			MaxAckPending: 4, Slots: 4, Heartbeat: 30 * s,
 		},
 		{
 			Name: ConsumerImportList, Stream: StreamWorkImportarr,
 			Filters: []string{FilterImportList},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{5 * m, 30 * m, 2 * h},
-			MaxAckPending: 2, Heartbeat: 30 * s,
+			MaxAckPending: 2, Slots: 2, Heartbeat: 30 * s,
 		},
 		{
 			// A file import is retried on this backoff when it could not
@@ -870,7 +928,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterImportFile},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{1 * m, 10 * m, 45 * m},
-			MaxAckPending: 4, Heartbeat: 30 * s,
+			MaxAckPending: 4, Slots: 4, Heartbeat: 30 * s,
 		},
 		{
 			// AckWait is 60s, the floor set by indexarr's
@@ -888,6 +946,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{1 * m, 5 * m, 15 * m},
 			MaxAckPending: 4,
+			Slots:         4,
 			Heartbeat:     30 * s,
 		},
 		{
@@ -896,6 +955,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 90 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
 			MaxAckPending: 16,
+			Slots:         16,
 		},
 		{
 			Name: ConsumerCaptionFetchNormal, Stream: StreamWorkCaptionarr,
@@ -906,6 +966,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 90 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
 			MaxAckPending: 16,
+			Slots:         16,
 		},
 		{
 			Name: ConsumerSquasharrResults, Stream: StreamWorkSquasharr,
@@ -914,6 +975,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait:     30 * s, MaxDeliver: 10,
 			BackOff:       []time.Duration{5 * s, 30 * s, 2 * m},
 			MaxAckPending: 1,
+			Slots:         1,
 		},
 		{
 			Name: ConsumerDLQProjector, Stream: StreamDLQ,
@@ -921,6 +983,7 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 30 * s, MaxDeliver: 3,
 			BackOff:       []time.Duration{5 * s, 30 * s},
 			MaxAckPending: 64,
+			Slots:         64,
 		},
 	}
 }

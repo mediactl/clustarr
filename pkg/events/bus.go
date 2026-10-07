@@ -124,8 +124,19 @@ type Subscription struct {
 	// end). Every bus follows that rule.
 	Backoff []time.Duration
 
-	// MaxInFlight caps unacknowledged messages held by this consumer.
+	// MaxInFlight is how many handlers this subscription runs at once in this
+	// process: the consumer's Slots (spec §9.2). It is not the broker's cap.
 	MaxInFlight int
+
+	// MaxAckPending is the durable's cap on unacknowledged deliveries across
+	// every process that consumes it. Pull writes it into the durable it
+	// creates; Subscribe never writes consumer config. Zero means MaxInFlight.
+	MaxAckPending int
+
+	// Drain is how long running handlers keep their context once the
+	// subscription stops, its ctx ending or its stop function called. Zero
+	// cancels them at once. Close never drains.
+	Drain time.Duration
 
 	// Heartbeat asks the broker for idle heartbeats at this interval, so a
 	// long-idle consumer notices a broken connection.
@@ -146,6 +157,30 @@ func (s Subscription) Validate() error {
 			"must be strictly greater than len(Backoff)")
 	}
 	return nil
+}
+
+// DefaultAckWait is JetStream's acknowledgement deadline for a consumer that
+// sets neither AckWait nor Backoff (nats-server JsAckWaitDefault).
+const DefaultAckWait = 30 * time.Second
+
+// AckDeadline is how long delivery attempt of s (1-based; 0 reads as 1) has
+// before the broker makes it again. With Backoff set, nats-server replaces
+// AckWait with Backoff[0] and times delivery n out on Backoff[n-1], the last
+// entry past the end (server/consumer.go:678-682, checkPending); without it,
+// every delivery gets AckWait. An InProgress restarts the same clock. The
+// natsbus lapse reaper and membus share this one rule (spec §9.2).
+func AckDeadline(s Subscription, attempt uint64) time.Duration {
+	if n := len(s.Backoff); n > 0 {
+		i := 0
+		if attempt > 1 {
+			i = int(min(attempt-1, uint64(n-1)))
+		}
+		return s.Backoff[i]
+	}
+	if s.AckWait > 0 {
+		return s.AckWait
+	}
+	return DefaultAckWait
 }
 
 // Subscriber reads messages from a stream through a durable pull consumer.
@@ -169,8 +204,8 @@ type Puller interface {
 }
 
 // PullSubscriber is a bus that can pull one message at a time. Pull creates
-// or updates the durable s describes; s.MaxInFlight is the durable's
-// MaxAckPending across every puller that shares it.
+// or updates the durable s describes; s.MaxAckPending (s.MaxInFlight when
+// unset) is the durable's MaxAckPending across every puller that shares it.
 type PullSubscriber interface {
 	Pull(ctx context.Context, s Subscription) (Puller, error)
 }

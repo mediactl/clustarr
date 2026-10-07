@@ -61,7 +61,7 @@ func (b *Bus) Pull(_ context.Context, s events.Subscription) (events.Puller, err
 		bus:     b,
 		stream:  st,
 		sub:     s,
-		ackWait: func(attempt uint64) time.Duration { return ackWaitFor(s, attempt) },
+		ackWait: func(attempt uint64) time.Duration { return events.AckDeadline(s, attempt) },
 	}, nil
 }
 
