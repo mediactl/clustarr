@@ -21,15 +21,21 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
+	torrentagent "github.com/mediactl/clustarr/app/grab/agent/torrent"
+	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/presence"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // Run starts one domain (spec §3.5.2, in order) and blocks until ctx is
@@ -124,6 +130,15 @@ func Run(ctx context.Context, o Options) error {
 			}
 		}()
 	}
+	// Presence (ADR-0019 §5.3, ruling R14): this pod's liveness, slots and
+	// capabilities in clustarr-progress, for the manager's admission.
+	pw, err := presenceWriter(o, bus, slots)
+	if err != nil {
+		return fmt.Errorf("agent %s: %w", o.Domain, err)
+	}
+	if err := mgr.Add(k8s.EveryReplica(pw.Run)); err != nil {
+		return fmt.Errorf("agent %s: add the presence writer: %w", o.Domain, err)
+	}
 	if err := registerIndexes(ctx, mgr.GetFieldIndexer(), reg.Indexes); err != nil {
 		return fmt.Errorf("agent %s: %w", o.Domain, err)
 	}
@@ -148,4 +163,59 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("agent %s: %w", o.Domain, err)
 	}
 	return nil
+}
+
+// presenceWriter is the domain's presence writer (ADR-0019 §5.3): its pod
+// name as the torrent engine derives it ($POD_NAME, else the hostname), its
+// node from $NODE_NAME, the slots of every durable it binds (the engines
+// bind none: their engine record is their capacity report), and the
+// capabilities it can prove.
+func presenceWriter(o Options, bus events.Bus, overrides map[string]int) (*presence.Writer, error) {
+	pod, err := torrentagent.PodName(os.Getenv, os.Hostname)
+	if err != nil {
+		return nil, fmt.Errorf("presence: pod name: %w", err)
+	}
+	w := &presence.Writer{
+		KV:      bus.KV(events.BucketProgress),
+		Domain:  o.Domain,
+		Pod:     pod,
+		Node:    os.Getenv("NODE_NAME"),
+		Version: version.String(),
+	}
+	if d, ok := agentdomain.Lookup(o.Domain); ok && len(d.Consumers) > 0 {
+		top := events.Default()
+		w.Slots = map[string]int{}
+		for _, name := range d.Consumers {
+			c, ok := top.Consumer(name)
+			if !ok {
+				continue
+			}
+			w.Durables = append(w.Durables, name)
+			w.Slots[name] = events.SlotsFor(c, overrides)
+		}
+	}
+	w.Capabilities = func() map[string]string { return capabilities(o) }
+	return w, nil
+}
+
+// capabilities is what the domain proves while it runs (split §10.1.1's
+// self-check facts): FFmpeg 9 for the domains that decode (import's probe,
+// caption's embedded extraction), and /data for those that read or write
+// the library. Configured providers are not reported yet: no admission
+// asks for one (ruling A2-3).
+func capabilities(o Options) map[string]string {
+	out := map[string]string{}
+	switch o.Domain {
+	case agentdomain.Import, agentdomain.Caption:
+		if rep, err := ffruntime.Load(); err == nil {
+			out["ffmpeg"] = strconv.Itoa(rep.FFmpegMajor)
+		}
+	}
+	switch o.Domain {
+	case agentdomain.Import, agentdomain.Caption, agentdomain.TorrentEngine, agentdomain.UsenetEngine:
+		if fi, err := os.Stat(o.DataDir); err == nil && fi.IsDir() {
+			out["data"] = "mounted"
+		}
+	}
+	return out
 }

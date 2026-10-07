@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -49,6 +50,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/presence"
 	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/decode"
 	"github.com/mediactl/clustarr/pkg/segments/textdet"
@@ -217,6 +219,41 @@ func run(args []string, getenv func(string) string) int {
 	busRef.Store(bus)
 	sub := spec.Subscription()
 	sub.MaxInFlight = events.SlotsFor(spec, overrides)
+	// Presence (ADR-0019 §5.3, ruling R14): this pod's liveness and slots in
+	// clustarr-progress, for the manager's admission. It ends with ctx.
+	pw := &presence.Writer{
+		KV: bus.KV(events.BucketProgress), Domain: "markers", Pod: need["POD_NAME"],
+		Node: getenv("NODE_NAME"), Version: version.String(),
+		Slots:    map[string]int{events.ConsumerSegmentarrAnalyze: sub.MaxInFlight},
+		Durables: []string{events.ConsumerSegmentarrAnalyze},
+		Capabilities: func() map[string]string {
+			caps := map[string]string{}
+			if rep, err := ffruntime.Load(); err == nil {
+				caps["ffmpeg"] = strconv.Itoa(rep.FFmpegMajor)
+			}
+			if det != nil {
+				caps["textdet"] = "onnx"
+			}
+			return caps
+		},
+	}
+	pctx, pcancel := context.WithCancel(ctx)
+	presenceDone := make(chan struct{})
+	go func() {
+		defer close(presenceDone)
+		if err := pw.Run(pctx); err != nil {
+			log.ErrorContext(ctx, "presence", "error", err)
+		}
+	}()
+	// Whatever ends run, the writer deletes its key on the way out (best
+	// effort; the bucket's TTL retires it otherwise).
+	defer func() {
+		pcancel()
+		select {
+		case <-presenceDone:
+		case <-time.After(2 * time.Second):
+		}
+	}()
 	h := &worker.Handler{
 		Decoder:      decode.Decoder{Threads: decodeThreads(*f.threads, sub.MaxInFlight, runtime.GOMAXPROCS(0))},
 		Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints),
