@@ -30,7 +30,8 @@ import (
 // R4 -- no Node, no CDN, no client fetch to a server this binary is not
 // running), the vendored htmx.min.js / htmx-ext-sse.js that
 // ui/views/layout.templ links, the pages' own scripts (jump.js, find.js,
-// settings.js, library.js), and the Open Sans face the Plex theme names
+// settings.js, library.js, and art.js, the SSE art event's image swap), and
+// the Open Sans face the Plex theme names
 // (ui/theme/plex.json): the latin and latin-ext variable woff2 subsets under
 // static/fonts, self-hosted so a page never fetches its text face from a
 // third party, with the OFL beside them; and the Clustarr mark
@@ -40,7 +41,7 @@ import (
 // deliberately not embedded or served -- it is a build-time input, consumed
 // only by `make css`, not a runtime asset.
 //
-//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/jump.js static/find.js static/settings.js static/library.js static/fonts/*.woff2 static/js/*.js static/logo.svg static/favicon.svg static/favicon-32.png static/apple-touch-icon.png
+//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/jump.js static/find.js static/settings.js static/library.js static/art.js static/fonts/*.woff2 static/js/*.js static/logo.svg static/favicon.svg static/favicon-32.png static/apple-touch-icon.png
 var staticFiles embed.FS
 
 // The distroless image has no /etc/mime.types, so Go's table would serve a

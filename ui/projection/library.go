@@ -95,6 +95,11 @@ type LibraryItem struct {
 	// (ADR-0011, superseding spec 2026-09-23-library-page-design decision 1;
 	// see that spec's dated note).
 	Poster string
+	// ArtKey is the poster's image key, "<kind>/<uid>/poster" ([ArtKey]):
+	// the key of the SSE art event (artwork design §B.8 as amended
+	// 2026-10-07), which swaps every img carrying it as data-art to the
+	// digest /art now serves, without waiting for the next projection tick.
+	ArtKey string
 	// QualityProfileRef is spec.qualityProfileRef, or "" for a kind that
 	// inherits one (a Book with no profile of its own).
 	QualityProfileRef string
@@ -220,6 +225,7 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []Librar
 			Tab:                 card.tab,
 			Year:                card.year,
 			Poster:              card.poster,
+			ArtKey:              ArtKey(entries[i].Kind, item.GetUID(), catalogv1.ImageTypePoster),
 			QualityProfileRef:   card.profile,
 			ProviderID:          card.providerID,
 		})
@@ -350,6 +356,12 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 // wrong image.
 func ArtURL(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType, digest string) string {
 	return fmt.Sprintf("/art/%s/%s/%s?v=%s", kind, uid, t, digest)
+}
+
+// ArtKey is an image's key: "<kind>/<uid>/<type>", the path [ArtURL] serves
+// it at under /art/ and the key of the SSE art event.
+func ArtKey(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string {
+	return string(kind) + "/" + string(uid) + "/" + string(t)
 }
 
 // posterArt is a card's poster [ArtURL]: the rating-badge overlay when one

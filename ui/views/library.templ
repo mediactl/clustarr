@@ -70,6 +70,7 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 				hx-ext="sse"
 				sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
 				sse-swap="library"
+				hx-trigger="sse:art"
 				class="space-y-4 lg:pr-10"
 			>
 				@LibraryList(tab, p, items)
@@ -257,7 +258,7 @@ templ libraryCard(li projection.LibraryItem) {
 			@icon.Icon("check")(icon.Props{Class: "hidden size-4 group-data-selected/card:block"})
 		</span>
 		@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted"}) {
-			@posterFill(li.Poster, li.Title)
+			@posterFill(li.Poster, li.Title, li.ArtKey)
 			@cardActions(li)
 		}
 		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
@@ -367,10 +368,13 @@ templ ActionStatus(message string) {
 // [projection.ArtURL] (lazily, as poster's own doc says -- ui/art.go serves
 // it, same-origin, so there is no referrer to withhold, ADR-0011), or a
 // placeholder that names the film when there is none, as Radarr's does.
-templ posterFill(url, title string) {
+// data-art is its image key, which the SSE art event (ui/static/art.js)
+// swaps to a new digest.
+templ posterFill(url, title, artKey string) {
 	if url != "" {
 		<img
 			src={ templ.URL(url) }
+			data-art={ artKey }
 			alt={ title }
 			loading="lazy"
 			class="absolute inset-0 h-full w-full object-cover"
@@ -404,11 +408,12 @@ templ monitoredBadge(monitored bool) {
 // does not fetch every image at once. It fills its container at poster
 // ratio (2:3 -- a square crop takes the faces off), so the caller sizes the
 // box. No art yet renders a placeholder of the same shape, never a broken
-// image.
-templ poster(url, title string) {
+// image. data-art is its image key, for the SSE art event.
+templ poster(url, title, artKey string) {
 	if url != "" {
 		<img
 			src={ templ.URL(url) }
+			data-art={ artKey }
 			alt={ title }
 			loading="lazy"
 			class="aspect-[2/3] w-full rounded-sm bg-muted object-cover"

@@ -19,6 +19,7 @@ package views
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -195,13 +196,20 @@ templ hero(d Detail) {
 		class="relative -mx-6 mb-8 overflow-hidden bg-card"
 	>
 		if d.Backdrop != "" {
-			<img data-backdrop src={ templ.URL(d.Backdrop) } alt="" loading="lazy" class="absolute inset-0 h-full w-full object-cover opacity-30"/>
+			<img data-backdrop src={ templ.URL(d.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="absolute inset-0 h-full w-full object-cover opacity-30"/>
+		}
+		// The SSE art event for this page's images (artwork design §B.8 as
+		// amended 2026-10-07): the page has no stream of its own, so this
+		// one carries only its cover's and backdrop's keys; ui/static/art.js
+		// swaps them.
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ artStreamURL(d) } hx-trigger="sse:art"></div>
 		}
 		<div class="absolute inset-0 bg-gradient-to-r from-background/95 via-background/80 to-background/50"></div>
 		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
 			<div class="w-40 shrink-0 md:w-56">
 				<div class="overflow-hidden rounded-md shadow-lg">
-					@poster(li.Poster, li.Title)
+					@poster(li.Poster, li.Title, li.ArtKey)
 				</div>
 			</div>
 			<div class="min-w-0 flex-1">
@@ -509,4 +517,25 @@ templ titlesSection(d Detail) {
 			</div>
 		</section>
 	}
+}
+
+// artKeyAs is li's image key for type t: its poster key, "<kind>/<uid>/poster",
+// with the type swapped.
+func artKeyAs(li projection.LibraryItem, t string) string {
+	i := strings.LastIndex(li.ArtKey, "/")
+	if i < 0 {
+		return ""
+	}
+	return li.ArtKey[:i+1] + t
+}
+
+// artStreamURL is the item page's GET /events/art: its cover's key, and its
+// backdrop's when it shows one.
+func artStreamURL(d Detail) string {
+	q := url.Values{}
+	q.Add("key", d.Item.ArtKey)
+	if d.Backdrop != "" {
+		q.Add("key", artKeyAs(d.Item, "fanart"))
+	}
+	return "/events/art?" + q.Encode()
 }

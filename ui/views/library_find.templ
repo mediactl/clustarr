@@ -143,7 +143,7 @@ templ LibraryFindResults(tab projection.Tab, q string, items []projection.Librar
 						>
 							<span class="relative h-12 w-8 shrink-0 overflow-hidden rounded-sm bg-muted">
 								if li.Poster != "" {
-									<img src={ templ.URL(li.Poster) } alt="" loading="lazy" class="absolute inset-0 h-full w-full object-cover"/>
+									<img src={ templ.URL(li.Poster) } data-art={ li.ArtKey } alt="" loading="lazy" class="absolute inset-0 h-full w-full object-cover"/>
 								}
 							</span>
 							<span class="min-w-0 flex-1 truncate">{ li.Title }</span>

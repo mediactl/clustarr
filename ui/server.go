@@ -412,6 +412,10 @@ type Server struct {
 
 	// artCache holds whole artwork objects by digest, ArtCacheBytes of them.
 	artCache *artCache
+
+	// artEvents turns artIndex's changes into SSE art events; nil without
+	// Artwork.
+	artEvents *artEvents
 }
 
 // DefaultArtCacheBytes is --art-cache-bytes' default: 64 MiB of artwork kept
@@ -488,6 +492,8 @@ func NewServer(ctx context.Context, opts Options) *Server {
 		// 2026-10-07): /art chooses from it, and the SSE art event follows
 		// its changes.
 		s.artIndex = objindex.New(opts.Artwork)
+		s.artEvents = newArtEvents(s.artIndex)
+		go s.artEvents.run(ctx)
 		go func() { _ = s.artIndex.Run(ctx) }()
 	}
 	return s

@@ -63,6 +63,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /library/{tab}/add/search", s.handleAddSearch)
 	mux.HandleFunc("POST /library/{tab}/add", s.handleAddCreate)
 	mux.HandleFunc("GET /events/library/{tab}", s.handleLibraryEvents)
+	// The SSE art event for a page with no stream of its own (artwork
+	// design §B.8 as amended 2026-10-07): the item page's cover and
+	// backdrop.
+	mux.HandleFunc("GET /events/art", s.handleArtEvents)
 	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}", s.handleLibraryItem)
 	mux.HandleFunc("GET /library/{namespace}/series/{name}/seasons/{n}", s.handleSeason)
 	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}/children", s.handleChildren)

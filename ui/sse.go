@@ -20,6 +20,8 @@ package ui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"time"
@@ -267,6 +269,11 @@ func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ch, unsubscribe := s.opts.SubscribeLibrary()
 	defer unsubscribe()
+	// The SSE art event (artwork design §B.8 as amended 2026-10-07): a
+	// changed cover of an item on the page this subscriber last rendered.
+	art, unsubscribeArt := s.artEvents.subscribe()
+	defer unsubscribeArt()
+	onPage := map[string]bool{}
 
 	// The same view and window the page parsed from the same query, so a
 	// frame carries exactly the rows the page shows.
@@ -280,12 +287,96 @@ func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
 		case items := <-ch:
 			rows := view.arrange(projection.ForTab(items, tab))
 			p := want.Page(len(rows))
-			if !writeLibraryEvent(w, ctx, tab, p, paging.Window(rows, p)) {
+			window := paging.Window(rows, p)
+			if !writeLibraryEvent(w, ctx, tab, p, window) {
+				return
+			}
+			clear(onPage)
+			for _, li := range window {
+				onPage[itemOfArtKey(li.ArtKey)] = true
+			}
+			flusher.Flush()
+		case e := <-art:
+			if !onPage[itemOfArtKey(e.Key)] {
+				continue
+			}
+			if !writeArtEvent(w, e) {
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+// maxArtEventKeys bounds GET /events/art's key parameters.
+const maxArtEventKeys = 16
+
+// handleArtEvents streams the SSE art event for the image keys it is asked
+// about -- GET /events/art?key=<kind>/<uid>/<type>, up to maxArtEventKeys,
+// each validated as /art validates its path -- for a page with no stream of
+// its own (the item page). With no artwork store it answers 204, which tells
+// an EventSource not to reconnect.
+func (s *Server) handleArtEvents(w http.ResponseWriter, r *http.Request) {
+	keys := r.URL.Query()["key"]
+	if len(keys) == 0 || len(keys) > maxArtEventKeys {
+		http.Error(w, fmt.Sprintf("between 1 and %d key parameters are required", maxArtEventKeys), http.StatusBadRequest)
+		return
+	}
+	asked := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		if !parseArtKey(k) {
+			http.Error(w, "a key is <kind>/<uid>/<type>", http.StatusBadRequest)
+			return
+		}
+		asked[k] = true
+	}
+	if s.artEvents == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ctx := r.Context()
+	art, unsubscribe := s.artEvents.subscribe()
+	defer unsubscribe()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-art:
+			if !asked[e.Key] {
+				continue
+			}
+			if !writeArtEvent(w, e) {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// writeArtEvent writes one "art" SSE event, its data one JSON line, and
+// reports whether the write succeeded.
+func writeArtEvent(w http.ResponseWriter, e artEvent) bool {
+	b, err := json.Marshal(e)
+	if err != nil {
+		return false
+	}
+	var buf bytes.Buffer
+	buf.WriteString("event: art\ndata: ")
+	buf.Write(b)
+	buf.WriteString("\n\n")
+	_, err = w.Write(buf.Bytes())
+	return err == nil
 }
 
 // writeLibraryEvent writes one "library" SSE event for items and reports
