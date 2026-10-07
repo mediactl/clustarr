@@ -15,7 +15,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package delayprofile
+// Package delay resolves which DelayProfile governs a grab (spec §8.2). It is
+// pure -- profiles in, one profile out -- so the grab sink's resolver and
+// the RSS matcher share it without linking the DelayProfile controller
+// (design 2026-10-06 §4.3 C9).
+package delay
 
 import (
 	"errors"

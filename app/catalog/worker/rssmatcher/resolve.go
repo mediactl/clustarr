@@ -29,7 +29,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
+	"github.com/mediactl/clustarr/app/catalog/delay"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
@@ -286,11 +286,11 @@ func decisionOptions(ctx context.Context, c client.Client, ns string, dp catalog
 }
 
 // resolveDelayProfile lists the namespace's DelayProfiles and runs spec
-// §8.2's resolution order (item ref -> tag match -> lowest order) through the
-// delayprofile controller's own pure Resolve.
+// §8.2's resolution order (item ref -> tag match -> lowest order) through
+// app/catalog/delay's pure Resolve.
 //
 // It resolves through a List rather than a client-side helper because
-// delayprofile.Resolve is deliberately pure -- it takes the candidate slice,
+// delay.Resolve is deliberately pure -- it takes the candidate slice,
 // not a client. A namespace with no catch-all profile configured yields
 // ErrNoMatch, which this treats as "no delay", not as a failure: the chart
 // installs a catch-all, and an operator who removed it meant grabs to be
@@ -300,7 +300,7 @@ func resolveDelayProfile(ctx context.Context, c client.Client, ns string, ref *s
 	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
 		return catalogv1alpha1.DelayProfileSpec{}, fmt.Errorf("rssmatcher: list delay profiles: %w", err)
 	}
-	dp, err := delayprofile.Resolve(ref, tags, list.Items)
+	dp, err := delay.Resolve(ref, tags, list.Items)
 	if err != nil {
 		logging.FromContext(ctx).Debug("rssmatcher: no delay profile applies; grabbing without a delay", "reason", err)
 		return catalogv1alpha1.DelayProfileSpec{}, nil

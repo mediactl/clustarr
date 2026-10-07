@@ -30,7 +30,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
+	"github.com/mediactl/clustarr/app/catalog/delay"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -63,8 +63,8 @@ func resolveQualityProfile(ctx context.Context, c client.Client, name string, ca
 }
 
 // resolveDelayProfile runs §8.2's resolution order (item ref -> tag match ->
-// lowest order) over the namespace's DelayProfiles, through the delayprofile
-// controller's own pure Resolve. It is the production ResolveDelay for
+// lowest order) over the namespace's DelayProfiles, through
+// app/catalog/delay's pure Resolve. It is the production ResolveDelay for
 // app/catalog/worker/grab.Sink.
 //
 // A namespace with no catch-all profile yields ErrNoMatch, which is "no
@@ -77,7 +77,7 @@ func resolveDelayProfile(ctx context.Context, c client.Client, ns string, ref *s
 	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
 		return catalogv1alpha1.DelayProfileSpec{}, fmt.Errorf("catalogarr: list delay profiles: %w", err)
 	}
-	dp, err := delayprofile.Resolve(ref, tags, list.Items)
+	dp, err := delay.Resolve(ref, tags, list.Items)
 	if err != nil {
 		logging.FromContext(ctx).Debug("catalogarr: no delay profile applies; grabbing without a delay",
 			"namespace", ns, "reason", err)
