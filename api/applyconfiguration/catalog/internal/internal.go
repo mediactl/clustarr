@@ -1744,9 +1744,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: nextAttemptAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: override
+      type:
+        scalar: boolean
     - name: phase
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImportPhase
+    - name: target
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
   map:
     fields:

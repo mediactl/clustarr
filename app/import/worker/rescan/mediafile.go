@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
+	"github.com/mediactl/clustarr/app/import/mediafilespec/specwrite"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -532,7 +533,7 @@ func (w *Worker) applyObserved(
 	} else if fresh.Track != "" {
 		ref.Track = fresh.Track
 	}
-	uid, err := mediafilespec.Apply(ctx, w.Client, namespace, name, rv, ref, path, info, fresh)
+	uid, err := specwrite.Apply(ctx, w.Client, namespace, name, rv, ref, path, info, fresh)
 	return appliedFile{Name: name, UID: uid}, err
 }
 

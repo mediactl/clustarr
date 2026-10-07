@@ -18,20 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediafilespec
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -110,80 +105,6 @@ type Frozen struct {
 	Track string
 }
 
-// Apply applies importarr's complete MediaFileSpec for one MediaFile
-// under [FieldManager]: ref, path, the size and mtime info observed, and
-// every frozen field f carries. It is the one render of this manager's set
-// on a MediaFile -- the rescan and the rename both go through it, so neither
-// can become a second, narrower apply that releases what the other sends.
-//
-// A nil info sends no size or mtime: a transcoded file's are catalogarr's
-// (see [RenameFile]). A non-empty rv is the resourceVersion the caller read,
-// sent as a precondition, and a refusal for that reason comes back as a
-// *[StaleReadError].
-//
-// It returns the applied MediaFile's UID: the rescan seeds its probe record
-// under it (spec 2026-10-06 §6.6).
-func Apply(
-	ctx context.Context, c client.Client, namespace, name, rv string,
-	ref commonv1.MediaRef, path string, info os.FileInfo, f Frozen,
-) (types.UID, error) {
-	spec := catalogac.MediaFileSpec().
-		WithMediaRef(ref).
-		WithPath(path)
-	if info != nil {
-		spec = spec.WithSizeBytes(info.Size()).WithModTime(metav1.NewTime(info.ModTime()))
-	}
-	if f.Quality != nil {
-		spec = spec.WithQuality(*f.Quality)
-	}
-	if f.Revision != nil {
-		spec = spec.WithRevision(*f.Revision)
-	}
-	if f.ReleaseType != "" {
-		spec = spec.WithReleaseType(f.ReleaseType)
-	}
-	if f.ReleaseGroup != nil {
-		spec = spec.WithReleaseGroup(*f.ReleaseGroup)
-	}
-	if f.Edition != nil {
-		spec = spec.WithEdition(*f.Edition)
-	}
-	if len(f.Languages) > 0 {
-		spec = spec.WithLanguages(f.Languages...)
-	}
-	if f.ImportedFrom != nil {
-		spec = spec.WithImportedFrom(f.ImportedFrom)
-	}
-	if f.FormatScore != nil {
-		spec = spec.WithFormatScore(*f.FormatScore)
-	}
-	if len(f.MatchedFormats) > 0 {
-		spec = spec.WithMatchedFormats(f.MatchedFormats...)
-	}
-	if f.ProfileHash != "" {
-		spec = spec.WithProfileHash(f.ProfileHash)
-	}
-	if f.Original != nil {
-		spec = spec.WithOriginal(*f.Original)
-	}
-
-	ac := catalogac.MediaFile(name, namespace).WithSpec(spec)
-	if rv != "" {
-		ac = ac.WithResourceVersion(rv)
-	}
-	applied, err := k8s.Apply(ctx, c, FieldManager, ac)
-	if err != nil {
-		if rv != "" && apierrors.IsConflict(err) {
-			return "", &StaleReadError{
-				Key: types.NamespacedName{Namespace: namespace, Name: name}, RV: rv,
-				Err: fmt.Errorf("rescan: apply media file %s: %w", name, err),
-			}
-		}
-		return "", fmt.Errorf("rescan: apply media file %s: %w", name, err)
-	}
-	return ptr.Deref(applied.UID, ""), nil
-}
-
 // ReassertFrozen reads every field this manager owns back off an existing
 // spec, sending only what is set.
 func ReassertFrozen(s *catalogv1alpha1.MediaFileSpec) Frozen {
@@ -234,4 +155,40 @@ func ReassertFrozen(s *catalogv1alpha1.MediaFileSpec) Frozen {
 		f.ImportedFrom = ac
 	}
 	return f
+}
+
+// FrozenFromSchema is the Frozen an import's plan carries (schema.
+// FrozenFields, frozen by the inspect) with from as spec.importedFrom: the
+// manager materialises a placed file's MediaFile from it (ADR-0019 §6.9).
+func FrozenFromSchema(f schema.FrozenFields, from catalogv1alpha1.ImportSource) Frozen {
+	out := Frozen{
+		Quality: f.Quality, Revision: f.Revision, ReleaseType: f.ReleaseType,
+		Edition: f.Edition, Languages: f.Languages, FormatScore: f.FormatScore,
+		MatchedFormats: f.MatchedFormats, ProfileHash: f.ProfileHash, Original: f.Original,
+		Track: f.Track,
+	}
+	if f.ReleaseGroup != "" {
+		g := f.ReleaseGroup
+		out.ReleaseGroup = &g
+	}
+	src := catalogac.ImportSource().
+		WithImportedAt(from.ImportedAt).
+		WithManual(from.Manual)
+	if from.DownloadRef != "" {
+		src = src.WithDownloadRef(from.DownloadRef)
+	}
+	if from.ReleaseTitle != "" {
+		src = src.WithReleaseTitle(from.ReleaseTitle)
+	}
+	if from.IndexerName != "" {
+		src = src.WithIndexerName(from.IndexerName)
+	}
+	if from.Protocol != "" {
+		src = src.WithProtocol(from.Protocol)
+	}
+	if from.InfoHash != "" {
+		src = src.WithInfoHash(from.InfoHash)
+	}
+	out.ImportedFrom = src
+	return out
 }

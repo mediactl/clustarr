@@ -158,9 +158,12 @@ func nonTerminal(e *catalogv1alpha1.DownloadEntry) bool {
 	return true
 }
 
-// imported reports the entry's import finished.
+// imported reports the entry's import finished: every placed file has its
+// MediaFile, which toImported records in importedAt. importplan's summary
+// reads imported as soon as the execute placed the files, while the
+// manager materialises them.
 func imported(e *catalogv1alpha1.DownloadEntry) bool {
-	return e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseImported
+	return e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseImported && e.Import.ImportedAt != nil
 }
 
 // at shortens the plan's Due to t when t is earlier (and in the future).

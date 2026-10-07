@@ -22,133 +22,91 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
+	"sync"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
-	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
-// HeartbeatInterval is how often the file loop sends an in-progress ack,
-// checked before each file, following app/import/worker/rescan's
-// reasoning: a multi-file hardlink-or-copy import can outlast the
-// delivery's acknowledgement deadline, so this worker heartbeats rather
-// than ask for a longer one than the worker Deployment's
-// terminationGracePeriodSeconds allows. That deadline is
-// ConsumerImportFile's BackOff[0], 30s on a first delivery, not its 60s
-// AckWait (topology.go, R6): a BackOff replaces AckWait as the deadline
-// (events.Subscription.Backoff). Between two beats the loop may wait out
+// HeartbeatInterval is how often a walk sends an in-progress ack, checked
+// before each file: a multi-file inspect or a hardlink-or-copy execute can
+// outlast the delivery's acknowledgement deadline, ConsumerImportFile's
+// BackOff[0] (30s on a first delivery, not its 60s AckWait: a BackOff
+// replaces AckWait as the deadline). Between two beats the walk may wait out
 // this interval and probe a file (videoProbeTimeout), so the two together
-// must fit inside it with room for the loop's own work;
-// TestTheImportFitsTheFileConsumersAckDeadline holds them to it. (The
-// loop also beats immediately before each probe, so the sum is a bound
-// that holds even without that beat.) It is also at most a third of that
-// deadline, so two heartbeats can be lost before a lapse (NATS research
-// 2026-10-07, S9; held by test/guards.TestHeartbeatsFitTheirDeadline).
+// must fit inside it; TestTheImportFitsTheFileConsumersAckDeadline holds
+// them to it. It is also at most a third of that deadline, so two
+// heartbeats can be lost before a lapse (test/guards.
+// TestHeartbeatsFitTheirDeadline).
 const HeartbeatInterval = 10 * time.Second
 
-// FieldManager is the server-side-apply field manager this worker uses for
-// the resource it creates: MediaFile. It is k8s.ManagerImportarrWorker, the
-// same constant app/import/worker/rescan uses and for the same reason -- see
-// that package's FieldManager doc comment for the full rationale (two
-// importarr writers must never share one manager name on one object type).
+// The import agent reads only (ADR-0019 W21, W22, W24): the items an
+// import names, their root folders and quality profiles, and the MediaFiles
+// an execute's plan replaces (the basis check). The manager materialises
+// MediaFiles and AudioGrafts.
 //
-// Download.status.import is a SEPARATE write, under the bare
-// k8s.ManagerImportarr, not this constant -- see k8s.ManagerImportarr's own
-// doc comment for why the two writes deliberately use different manager
-// names even though both are made by this same worker.
-const FieldManager = k8s.ManagerImportarrWorker
-
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/status,verbs=get;patch
 
-// Worker handles clustarr.work.importarr.fileimport.<download> messages. See
-// this package's doc comment for how task D2-8 registers it.
+// Worker handles the import tasks on importarr-fileimport: the inspect and
+// the execute of ADR-0019 §6.9.
 type Worker struct {
-	// Client is the cache-backed client this worker reads Downloads, Movies,
-	// RootFolders and QualityProfiles through, and applies MediaFiles with.
+	// Client is the cache-backed client the items, root folders and quality
+	// profiles are read through. It is never written.
 	Client client.Client
 
-	// APIReader reads straight from the apiserver. A movie's existing
-	// MediaFiles are listed through it (existingMovieFiles), because the
-	// import decides on them -- the transcoded gate above all -- and a
-	// transcode swap catalogarr recorded a moment ago must not be missed
-	// by a cache one event behind. Nil falls back to Client's field index;
-	// NewWorker leaves it nil and importarr's run.go sets the manager's.
+	// APIReader reads straight from the apiserver: the execute re-reads
+	// every MediaFile its plan replaces and refuses a stale plan. Nil falls
+	// back to Client.
 	APIReader client.Reader
 
-	// Bus carries the dedup fingerprint KV bucket.
+	// Bus carries the clustarr-imports records.
 	Bus events.Bus
 
-	// Catalogue is the loaded TRaSH custom-format corpus scoring is done
-	// against. Defaulted to catalogue.LoadedCatalogue() by NewWorker; a test
-	// may override it.
+	// Catalogue is the TRaSH custom-format corpus scoring is done against.
 	Catalogue *catalogue.Catalogue
 
-	// Clock is the time source, injected so tests are deterministic.
+	// Clock is the time source.
 	Clock func() time.Time
 
-	// Prober is the import domain's one prober (spec 2026-10-06 §6.6):
-	// probeVideo calls it, and NewWorker defaults ProbeAudio to its
-	// ProbeAudio. Nil probes nothing: a video imports under its name-derived
-	// quality and a music file freezes by its extension.
+	// Prober is the import domain's one prober (spec 2026-10-06 §6.6): a
+	// video file's probe corrects its quality and names it. Nil probes
+	// nothing.
 	Prober mediainfo.Prober
 
-	// ProbeAudio reads a music file's codec and bitrate, the only way to
-	// freeze a lossy track's quality (FrozenFileQuality). NewWorker sets
-	// Prober.ProbeAudio; nil freezes by extension alone, as before. An
-	// import calls it through audioProbe, which heartbeats first.
+	// ProbeAudio reads a music file's codec and bitrate (FrozenFileQuality).
 	ProbeAudio AudioProber
 
-	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
-	// video file smaller than this whose name does not mark it a sample is
-	// a SUSPECTED sample, recorded as a rejection on status.import rather
-	// than imported -- a size alone cannot tell a promo clip from a short
-	// film -- unless the import is manual (DownloadSpec.Manual, or
-	// AnnotationImportOverride=true), which imports it. A file whose NAME
-	// marks it a sample is never imported and never reported, the
-	// convention every scene release follows. Zero disables the size rule.
-	// NewWorker sets fsops.DefaultSampleMaxBytes; a Worker built as a
-	// literal without it has the rule off.
+	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample);
+	// zero disables it.
 	SampleMaxBytes int64
 
-	// Probes records the probe an import ran on a file it placed as that
-	// MediaFile's probe record, so catalogarr does not probe the same bytes
-	// again (spec 2026-10-06 §6.6). NewWorker sets it; nil seeds nothing.
-	Probes *probestore.Store
+	// Pod names the writer on every record; empty is the host name.
+	Pod string
+
+	once sync.Once
+	recs *records.Writer[*schema.ImportRecord]
+	read *records.Reader[*schema.ImportRecord]
 }
 
 // NewWorker builds a Worker with the production catalogue, clock and sample
-// threshold, probing through prober, the import domain's one prober (spec
-// 2026-10-06 §6.6). A nil prober probes nothing.
+// threshold, probing through prober. A nil prober probes nothing.
 func NewWorker(c client.Client, bus events.Bus, prober mediainfo.Prober) *Worker {
 	w := &Worker{
 		Client: c, Bus: bus, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now,
@@ -158,18 +116,36 @@ func NewWorker(c client.Client, bus events.Bus, prober mediainfo.Prober) *Worker
 	if prober != nil {
 		w.ProbeAudio = prober.ProbeAudio
 	}
-	if bus != nil {
-		w.Probes = probestore.New(bus)
-	}
 	return w
 }
 
-// audioProbe is the AudioProber an import hands FrozenFileQuality:
-// ProbeAudio after a heartbeat on m (spec 2026-10-06 §6.6), so the probe's
-// AudioProbeTimeout lies inside the delivery's ack deadline however long the
-// walk has gone since its last beat. A failed heartbeat runs no probe and is
-// kept in *hbErr; the caller returns it, aborting the import as the walk's
-// own heartbeat failure does. Nil when the worker probes nothing.
+func (w *Worker) initRecords() {
+	w.once.Do(func() {
+		pod := w.Pod
+		if pod == "" {
+			pod, _ = os.Hostname()
+		}
+		kv := w.Bus.KV(events.BucketImports)
+		w.recs = records.NewWriter(kv, agentrecords.Imports(), pod, version.String())
+		w.read = records.NewReader(kv, agentrecords.Imports())
+	})
+}
+
+func (w *Worker) writer() *records.Writer[*schema.ImportRecord] { w.initRecords(); return w.recs }
+
+func (w *Worker) reader() *records.Reader[*schema.ImportRecord] { w.initRecords(); return w.read }
+
+func (w *Worker) apiReader() client.Reader {
+	if w.APIReader != nil {
+		return w.APIReader
+	}
+	return w.Client
+}
+
+// audioProbe is the AudioProber an inspect hands FrozenFileQuality:
+// ProbeAudio after a heartbeat on m, so the probe's AudioProbeTimeout lies
+// inside the delivery's ack deadline. A failed heartbeat runs no probe and
+// is kept in *hbErr, which the caller returns.
 func (w *Worker) audioProbe(m events.Message, hbErr *error) AudioProber {
 	if w.ProbeAudio == nil {
 		return nil
@@ -190,386 +166,56 @@ func (w *Worker) now() time.Time {
 	return time.Now()
 }
 
-// Handle implements events.Handler.
+// Handle implements events.Handler: it dispatches on the envelope's schema
+// to the inspect or the execute. A v1 ImportTask -- the single-phase import
+// a release before ADR-0019 published -- is discarded: the manager inspects
+// every Completed entry again.
 func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
-	// Extract before Start, so this span continues the trace of whatever
-	// published the ImportTask rather than beginning a new one, matching
-	// app/catalog/worker/grab's pattern.
 	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "fileimport.Worker.Handle")
 	defer span.End()
-
 	if env == nil {
 		return events.Discard("import task has no envelope", errors.New("fileimport: nil envelope"))
 	}
-
-	var task schema.ImportTask
-	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
-		return events.Discard("fileimport: undecodable ImportTask", err)
+	switch env.Schema {
+	case schema.ImportInspectTask{}.Schema():
+		return w.handleInspect(ctx, m, env)
+	case schema.ImportExecuteTask{}.Schema():
+		return w.handleExecute(ctx, m, env)
+	case schema.ImportTask{}.Schema():
+		return events.Discard("superseded by ADR-0019 two-phase imports", nil)
 	}
-
-	ns, keyName, ok := strings.Cut(env.Key, "/")
-	if !ok || ns == "" {
-		return events.Discard("fileimport: envelope key is not <namespace>/<name>",
-			fmt.Errorf("key=%q", env.Key))
-	}
-	name := keyName
-	if name == "" {
-		name = task.DownloadRef.Name
-	}
-	if name == "" {
-		return events.Discard("fileimport: no download name in envelope key or task",
-			fmt.Errorf("key=%q downloadRef=%+v", env.Key, task.DownloadRef))
-	}
-
-	log := logging.FromContext(ctx).With("namespace", ns, "download", name)
-	ctx = logging.NewContext(ctx, log)
-
-	// Dedup fast path: a Download already imported, and possibly already
-	// deleted by grabarr's RemoveOnImport, must not be reprocessed just
-	// because this delivery is a redelivery or a duplicate publish. See
-	// dedup.go's doc comment.
-	if task.DownloadRef.UID != "" {
-		done, err := alreadyImported(ctx, w.Bus.KV(events.BucketDedup), task.DownloadRef.UID)
-		if err != nil {
-			return fmt.Errorf("fileimport: check dedup fingerprint: %w", err)
-		}
-		if done {
-			log.Debug("fileimport: download already imported; redelivery is a no-op")
-			return nil
-		}
-	}
-
-	var dl downloadv1alpha1.Download
-	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &dl); err != nil {
-		if apierrors.IsNotFound(err) {
-			return events.Discard("fileimport: download no longer exists", err)
-		}
-		return fmt.Errorf("fileimport: get download %s/%s: %w", ns, name, err)
-	}
-	if task.DownloadRef.UID != "" && string(dl.UID) != task.DownloadRef.UID {
-		return events.Discard("fileimport: download was replaced", fmt.Errorf(
-			"fileimport: download %s/%s has uid %s, task was published for %s",
-			ns, name, dl.UID, task.DownloadRef.UID))
-	}
-
-	if dl.Status.Import != nil && dl.Status.Import.State == downloadv1alpha1.ImportPhaseImported {
-		log.Debug("fileimport: status.import already reports imported; redelivery is a no-op")
-		return nil
-	}
-
-	switch dl.Status.Phase {
-	case downloadv1alpha1.DownloadPhaseCompleted, downloadv1alpha1.DownloadPhaseSeeding:
-		// ready to import
-	default:
-		log.Info("fileimport: download is not in an importable phase; a fresh task will follow when it is",
-			"phase", dl.Status.Phase)
-		return nil
-	}
-
-	// The import annotations are read before anything else is decided: a
-	// malformed one is a user instruction this worker cannot follow, and
-	// importing to spec.target instead would be guessing what they meant.
-	// It is reported on status.import, which this worker owns, and the
-	// Download stays importable once the annotation is fixed (Retrigger).
-	dirs, derr := importtarget.ReadDirectives(dl.Annotations)
-	if derr != nil {
-		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil, "invalid annotation: "+derr.Error())
-	}
-	manual := dl.Spec.Manual || dirs.Override
-	target := importtarget.TargetFromSpec(dl.Spec.Target)
-	if dirs.Target != nil {
-		target = *dirs.Target
-	}
-	ref := target.FileRef()
-
-	if dl.Spec.IsDonor() {
-		// An audio donor makes no library file (anime dual-audio spec §6.2).
-		return w.importDonor(ctx, m, &dl, ref)
-	}
-
-	switch {
-	case ref.Kind == commonv1.MediaKindMovie:
-		// handled below
-	case IsNonVideoFileKind(ref.Kind):
-		return w.importNonVideo(ctx, m, &dl, target, manual)
-	case ref.Kind == commonv1.MediaKindSeries || ref.Kind == commonv1.MediaKindEpisode:
-		return w.importEpisodes(ctx, m, &dl, target, manual)
-	default:
-		// An artist, author, or comic without an issue key: a container
-		// whose files belong to one of its children, and choosing which
-		// is the guess this worker does not make.
-		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil, fmt.Sprintf(
-			"target %s is a %s, which holds no files itself; set %s to the album, book or issue "+
-				"(comic/<comic>/<issue>) the files belong to", target, ref.Kind, importtarget.AnnotationImportTarget))
-	}
-
-	var movie catalogv1alpha1.Movie
-	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &movie); err != nil {
-		if apierrors.IsNotFound(err) {
-			return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassItemState, nil, nil, fmt.Sprintf("movie %q does not exist", ref.Name))
-		}
-		return fmt.Errorf("fileimport: get movie %s/%s: %w", ns, ref.Name, err)
-	}
-	if movie.Status.Metadata == nil {
-		return fmt.Errorf("fileimport: movie %s/%s has no metadata yet", ns, movie.Name)
-	}
-
-	var rootFolder catalogv1alpha1.RootFolder
-	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie.Spec.RootFolderRef}, &rootFolder); err != nil {
-		return fmt.Errorf("fileimport: get root folder %s/%s: %w", ns, movie.Spec.RootFolderRef, err)
-	}
-
-	profile, err := w.resolveProfile(ctx, dl.Spec.QualityProfileRef, movie.Spec.QualityProfileRef)
-	if err != nil {
-		return err
-	}
-
-	if dl.Status.ContentRoot == "" {
-		return fmt.Errorf("fileimport: download %s/%s has no status.contentRoot yet", ns, name)
-	}
-	if _, err := statDir(dl.Status.ContentRoot); err != nil {
-		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassTransient, nil, nil,
-			fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
-	}
-
-	existing, err := w.existingMovieFiles(ctx, ns, ref.Name)
-	if err != nil {
-		return err
-	}
-
-	// movie.Status.Metadata == nil was already rejected above, so this base
-	// context is always renderable; the bool is catalogctx.Movie's general
-	// gate for a caller (a controller's Reconcile, unlike Handle) that has
-	// not made that check itself.
-	base, _ := catalogctx.Movie(&movie)
-	originalLanguageName := ""
-	if movie.Status.Metadata.OriginalLanguage != "" {
-		if n, ok := catalogue.LanguageName(movie.Status.Metadata.OriginalLanguage); ok {
-			originalLanguageName = n
-		}
-	}
-
-	pc := processConfig{
-		worker:               w,
-		message:              m,
-		download:             &dl,
-		target:               ref,
-		manual:               manual,
-		movie:                &movie,
-		rootFolder:           &rootFolder,
-		profile:              profile,
-		existing:             existing,
-		baseContext:          base,
-		originalLanguageName: originalLanguageName,
-	}
-
-	outcome, walkErr := pc.run(ctx)
-	if walkErr != nil {
-		// errBlocked (a placement outside the root folder) is no better on
-		// a redelivery, so it is reported at once.
-		return w.conclude(ctx, m, &dl, classOfErr(walkErr), outcome.imported, texts(outcome.rejections), blockedMessage(walkErr))
-	}
-
-	if len(outcome.imported) == 0 {
-		return w.conclude(ctx, m, &dl, classify(outcome.rejections), nil, texts(outcome.rejections),
-			outcomeMessage(outcome.rejections, "no importable files found"))
-	}
-	return w.finishImported(ctx, &dl, outcome.imported, texts(outcome.rejections))
+	return events.Discard("fileimport: unknown task schema "+env.Schema, nil)
 }
 
-// resolveProfile loads the QualityProfile the import re-checks finished
-// files against: the Download's own qualityProfileRef when set ("the
-// QualityProfile the grab decision used; the importer re-checks the
-// finished files against it", DownloadSpec.QualityProfileRef's doc comment),
-// falling back to the movie's when the Download carries none.
-func (w *Worker) resolveProfile(ctx context.Context, downloadRef, movieRef string) (quality.Profile, error) {
-	ref := downloadRef
+// resolveProfile loads the QualityProfile the import scores files against:
+// the grab's own, else the item's. A profile that cannot be named or found
+// blocks the import.
+func (w *Worker) resolveProfile(ctx context.Context, grabRef, itemRef string) (quality.Profile, error) {
+	ref := grabRef
 	if ref == "" {
-		ref = movieRef
+		ref = itemRef
 	}
 	if ref == "" {
-		return quality.Profile{}, events.Discard("fileimport: no qualityProfileRef on the download or its target",
-			errors.New("cannot score an import without a profile"))
+		return quality.Profile{}, blocked("neither the grab nor its item names a quality profile")
 	}
 	var qp catalogv1alpha1.QualityProfile
 	if err := w.Client.Get(ctx, client.ObjectKey{Name: ref}, &qp); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return quality.Profile{}, blocked("quality profile %q does not exist", ref)
+		}
 		return quality.Profile{}, fmt.Errorf("fileimport: get quality profile %s: %w", ref, err)
 	}
 	profile, ferrs := quality.FromCRD(&qp, w.Catalogue)
 	if len(ferrs) > 0 {
-		return quality.Profile{}, events.Discard("fileimport: invalid quality profile", errors.Join(ferrs...))
+		return quality.Profile{}, blocked("quality profile %q is invalid: %v", ref, errors.Join(ferrs...))
 	}
 	return profile, nil
 }
 
-// mediaRefNameField is MediaFile's selectable field
-// (+kubebuilder:selectablefield on .spec.mediaRef.name), the one field
-// selector the apiserver itself can filter a MediaFile List by.
-const mediaRefNameField = "spec.mediaRef.name"
-
-// existingMovieFiles is every MediaFile backing the movie name -- all of
-// them, not whichever a List returns first: the transcoded gate, the upgrade
-// comparison and the replacement each act on every one (processFile), as the
-// episode path does for an episode's files. Sonarr's UpgradeMediaFileService
-// likewise deletes every existing file of what an import covers, not one.
-//
-// It lists through [Worker.APIReader], filtered by the apiserver on
-// spec.mediaRef.name, so a transcode swap or probe catalogarr recorded a
-// moment ago is seen: read from the cache, a swap landing as the import runs
-// could be missed and an automatic grab would replace the file the swap just
-// made final. A same-named item of another kind shares the selector's value,
-// so the kind is checked here. Without an APIReader it falls back to the
-// cache's target index.
-func (w *Worker) existingMovieFiles(ctx context.Context, namespace, name string) ([]catalogv1alpha1.MediaFile, error) {
-	if w.APIReader == nil {
-		return w.existingMediaFiles(ctx, namespace, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name})
-	}
-	var list catalogv1alpha1.MediaFileList
-	if err := w.APIReader.List(ctx, &list,
-		client.InNamespace(namespace), client.MatchingFields{mediaRefNameField: name},
-	); err != nil {
-		return nil, fmt.Errorf("fileimport: look up existing media files for movie %s: %w", name, err)
-	}
-	out := list.Items[:0]
-	for _, mf := range list.Items {
-		if mf.Spec.MediaRef.Kind == commonv1.MediaKindMovie && mf.Spec.MediaRef.Name == name {
-			out = append(out, mf)
-		}
-	}
-	return out, nil
-}
-
-// applyMediaFile creates or re-asserts the MediaFile for one imported file,
-// under [FieldManager]. It writes MediaFileSpec only, per CLAUDE.md's
-// invariant: nothing here touches MediaFileStatus. It returns the applied
-// MediaFile's UID, under which the import seeds its probe record (seedProbe).
-//
-// The apply is a compare-and-swap (spec 2026-10-06 §5.5, OD13): it reads
-// the MediaFile live (through [Worker.APIReader], falling back to Client),
-// applies with that read's resourceVersion when the object exists, and
-// redoes the read and the apply on a Conflict. So no apply lands on an
-// object another writer changed after this import read it without the
-// import seeing that object again, and the UID returned is the one the
-// apply wrote. A MediaFile whose spec.mediaRef names another item is never
-// taken over: that is a blocked import, not an overwrite.
-func (w *Worker) applyMediaFile(ctx context.Context, name string, spec *catalogac.MediaFileSpecApplyConfiguration, namespace string) (types.UID, error) {
-	var r client.Reader = w.APIReader
-	if r == nil {
-		r = w.Client
-	}
-	var uid types.UID
-	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		ac := catalogac.MediaFile(name, namespace).WithSpec(spec)
-		var live catalogv1alpha1.MediaFile
-		switch err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &live); {
-		case err == nil:
-			if ref := spec.MediaRef; ref != nil && (live.Spec.MediaRef.Kind != ref.Kind || live.Spec.MediaRef.Name != ref.Name) {
-				return blocked("media file %s already belongs to %s %s", name, live.Spec.MediaRef.Kind, live.Spec.MediaRef.Name)
-			}
-			ac = ac.WithResourceVersion(live.ResourceVersion)
-		case !apierrors.IsNotFound(err):
-			return fmt.Errorf("fileimport: read media file %s: %w", name, err)
-		}
-		applied, err := k8s.Apply(ctx, w.Client, FieldManager, ac)
-		if err != nil {
-			return fmt.Errorf("fileimport: apply media file %s: %w", name, err)
-		}
-		uid = ptr.Deref(applied.UID, "")
-		return nil
-	})
-	return uid, err
-}
-
-// finalAttempt reports whether this delivery is the last one
-// ConsumerImportFile's topology allows.
-func (w *Worker) finalAttempt(m events.Message) bool {
-	spec, ok := events.Default().Consumer(events.ConsumerImportFile)
-	if !ok || spec.MaxDeliver <= 0 {
-		return true
-	}
-	return m.Attempt() >= uint64(spec.MaxDeliver) //nolint:gosec // MaxDeliver is a small positive constant
-}
-
-// finishImported patches status.import to Imported and records the dedup
-// fingerprint.
-func (w *Worker) finishImported(
-	ctx context.Context, dl *downloadv1alpha1.Download, imported []*downloadac.ImportedFileApplyConfiguration,
-	rejections []string,
-) error {
-	listed, unlisted := capImported(imported)
-	ac := downloadac.ImportState().
-		WithState(downloadv1alpha1.ImportPhaseImported).
-		WithImportedAt(metav1.NewTime(w.now())).
-		WithImported(listed...)
-	if unlisted > 0 {
-		ac = ac.WithMessage(fmt.Sprintf("imported %d files; status lists the first %d", len(imported), len(listed)))
-	}
-	if len(rejections) > 0 {
-		ac = ac.WithRejections(capRejections(rejections)...)
-	}
-	// The fingerprint covers every imported file, not only the listed ones.
-	refs := make([]string, 0, len(imported))
-	for _, i := range imported {
-		if i.MediaFileRef != nil {
-			refs = append(refs, *i.MediaFileRef)
-		}
-	}
-	return w.patchImport(ctx, dl, ac, refs)
-}
-
-// patchImport applies ac as the complete declaration of status.import under
-// k8s.ManagerImportarr -- this worker's only owned field on Download.status
-// (see k8s.ManagerImportarr's doc comment), so every call is naturally a
-// complete declaration; there is no sibling field on this manager's set that
-// an earlier call could have sent and this one must remember to repeat.
-//
-// dl is re-Read immediately before the apply, per the lost-update hazard:
-// this Handle call may have spent real time walking and copying files since
-// dl was first read, and a status.Apply seeded from that stale read would
-// not itself roll back another writer's field (this manager owns only
-// status.import), but a Download deleted or replaced in the meantime must
-// not receive a phantom write.
-func (w *Worker) patchImport(
-	ctx context.Context, dl *downloadv1alpha1.Download, ac *downloadac.ImportStateApplyConfiguration, mediaFileRefs []string,
-) error {
-	var fresh downloadv1alpha1.Download
-	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: dl.Namespace, Name: dl.Name}, &fresh); err != nil {
-		if apierrors.IsNotFound(err) {
-			// The work already happened (any MediaFiles this call created
-			// are already applied); there is simply nobody left to report
-			// the outcome to. Not an error -- record the dedup fingerprint
-			// so a stray redelivery still no-ops, and move on.
-			w.recordDedup(ctx, dl, mediaFileRefs)
-			return nil
-		}
-		return fmt.Errorf("fileimport: re-get download %s/%s before status patch: %w", dl.Namespace, dl.Name, err)
-	}
-
-	if _, err := k8s.PatchStatus(ctx, w.Client, k8s.ManagerImportarr,
-		downloadac.Download(fresh.Name, fresh.Namespace).WithStatus(downloadac.DownloadStatus().WithImport(ac))); err != nil {
-		return fmt.Errorf("fileimport: patch download status.import: %w", err)
-	}
-
-	if ac.State != nil && *ac.State == downloadv1alpha1.ImportPhaseImported {
-		w.recordDedup(ctx, &fresh, mediaFileRefs)
-	}
-	return nil
-}
-
-// recordDedup best-effort records the dedup fingerprint; see dedup.go.
-func (w *Worker) recordDedup(ctx context.Context, dl *downloadv1alpha1.Download, mediaFileRefs []string) {
-	if dl.UID == "" {
-		return
-	}
-	if err := recordImport(ctx, w.Bus.KV(events.BucketDedup), string(dl.UID), mediaFileRefs); err != nil {
-		logging.FromContext(ctx).Warn("fileimport: could not record dedup fingerprint", "error", err)
-	}
-}
-
 // beat extends the delivery's ack deadline when HeartbeatInterval has
-// elapsed, mirroring app/import/worker/rescan.Worker.beat.
+// elapsed.
 func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) error {
 	now := w.now()
 	if !last.IsZero() && now.Sub(*last) < HeartbeatInterval {
@@ -579,10 +225,7 @@ func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) er
 	return heartbeat(ctx, m)
 }
 
-// heartbeat extends the delivery's ack deadline now: beat's send, and the
-// one probeVideo and audioProbe make immediately before a probe. The file
-// loop's interval clock is not moved by those, so its next beat can only
-// come sooner than it needs to.
+// heartbeat extends the delivery's ack deadline now.
 func heartbeat(ctx context.Context, m events.Message) error {
 	if err := m.InProgress(ctx); err != nil {
 		return fmt.Errorf("fileimport: heartbeat: %w", err)

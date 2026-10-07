@@ -810,6 +810,12 @@ spec:
                         nextAttemptAt:
                           format: date-time
                           type: string
+                        override:
+                          description: |-
+                            Override is the intent's override: the import is a person's, so a
+                            suspected sample, an unknown quality and a transcoded file are taken
+                            as a manual import takes them (§6.10).
+                          type: boolean
                         phase:
                           description: |-
                             ImportPhase is a grab's import, summarised (ADR-0019 §6.9). Not
@@ -822,6 +828,13 @@ spec:
                           - blocked
                           - held
                           - expired
+                          type: string
+                        target:
+                          description: |-
+                            Target is the download.clustarr.io/import intent's target,
+                            "<kind>/<name>[/<key>]": every later inspect of this import keeps it.
+                            Empty for the entry's own target.
+                          maxLength: 512
                           type: string
                       required:
                       - dispatch

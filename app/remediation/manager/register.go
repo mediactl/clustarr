@@ -28,11 +28,13 @@ import (
 
 	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
 	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/app/import/mediafilespec/specwrite"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/downloads"
@@ -106,8 +108,18 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Dispatch: o.Dispatch, Book: o.Book, Inbox: o.Inbox, DeliveryWakes: o.DeliveryWakes,
 		Client:   mgr.GetClient(),
 		Recorder: recorder,
+		// The import materialisation's MediaFile spec writer (A3.8): the
+		// manager-only specwrite, under importarr-worker.
+		SpecWriter: specWriter,
 	}
 	return r.SetupWithManager(mgr)
+}
+
+// specWriter applies a placed file's MediaFile spec through
+// specwrite.ApplyFacts, the one render of importarr-worker's set.
+func specWriter(ctx context.Context, c client.Client, e remediation.ApplyMediaFileSpec) error {
+	_, err := specwrite.ApplyFacts(ctx, c, e.Namespace, e.Name, e.RV, e.Ref, e.Path, e.SizeBytes, e.ModTime, e.Frozen)
+	return err
 }
 
 // Stages is every item stage the loop runs around the kinds' rollups

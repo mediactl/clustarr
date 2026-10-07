@@ -28,6 +28,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
+	"github.com/mediactl/clustarr/app/import/mediafilespec/specwrite"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -56,7 +57,7 @@ func (s *scanState) renameMode() (run, dryRun bool) {
 // renamePass is a LibraryScan's rename pass (probe-driven naming spec §5).
 // It runs after the walk, so the scan's own observations land first, and
 // hands every rename candidate ([mediafilespec.Renameable]) whose spec.path is under the
-// walked path to [mediafilespec.RenameFile], in path order, recording each outcome in the
+// walked path to [specwrite.RenameFile], in path order, recording each outcome in the
 // tally's Renamed list ([scanprogress.MergeRenamed]) and each move in FilesRenamed.
 //
 // This pass is the scan the rename controller waits for (ruling R25), so it
@@ -87,7 +88,7 @@ func (w *Worker) renamePass(ctx context.Context, m events.Message, st *scanState
 			return err
 		}
 		mf := &candidates[i]
-		out, err := mediafilespec.RenameFile(ctx, w.Client, api, mf, dryRun, false)
+		out, err := specwrite.RenameFile(ctx, w.Client, api, mf, dryRun, false)
 		entry := scanprogress.RenamedFile{From: out.From, To: out.To, Reason: out.Reason}
 		switch {
 		case err != nil:

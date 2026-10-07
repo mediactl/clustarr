@@ -373,38 +373,12 @@ rules:
   - update
   - watch
 - apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloads
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloads/status
-  verbs:
-  - get
-  - patch
-- apiGroups:
   - events.k8s.io
   resources:
   - events
   verbs:
   - create
   - patch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - audiografts
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - transcode.clustarr.io
   resources:

@@ -17,8 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package manager is importarr's manager-side registration (spec §4.2.1):
 // the LibraryScan, RootFolder schedule, ImportExclusion, LibraryDelete and
-// ImportList controllers, the import retrigger and the recycle sweep's
-// publisher. The streaming rename is the remediation loop's rename actuator
+// ImportList controllers and the recycle sweep's publisher. Completed
+// downloads are imported by the downloads stage of the remediation loop
+// (app/import/importplan, ADR-0019 §6.9); the download.clustarr.io/import
+// intent replaced the retrigger controller. The streaming rename is the remediation loop's rename actuator
 // (app/remediation/rename, ADR-0016).
 package manager
 
@@ -35,7 +37,6 @@ import (
 	"github.com/mediactl/clustarr/app/import/controller/librarydelete"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
 	"github.com/mediactl/clustarr/app/import/controller/recyclesweep"
-	"github.com/mediactl/clustarr/app/import/controller/retrigger"
 	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -103,19 +104,6 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// (http.DefaultClient, bounded by the reconcile context; time.Now).
 	if err := newImportListReconciler(mgr.GetClient(), bus, o).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: importlist: %w", err)
-	}
-
-	// The retrigger controller (app/import/controller/retrigger; plan task
-	// G2-4 built it, G2-5 wires it), with the call its own doc comment gives. grabarr publishes a Download's
-	// ImportTask once, on completion, and the file-import worker acks a
-	// Blocked outcome, so without this nothing ever looks again at the
-	// catalog.clustarr.io/import-target or import-override annotation a user
-	// adds to a Blocked Download -- manual import, design §8.4, would be a
-	// documented instruction that does nothing. It publishes to
-	// work.importarr.fileimport rather than importing itself, so it needs no
-	// /data and runs here, under the lease, not on importarr-worker.
-	if err := (&retrigger.Reconciler{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: fileimport retrigger: %w", err)
 	}
 
 	// The recycle-bin sweep's publisher (spec 2026-10-06 §3.5.3, OD36):

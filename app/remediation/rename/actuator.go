@@ -33,6 +33,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
+	"github.com/mediactl/clustarr/app/import/mediafilespec/specwrite"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -99,7 +100,7 @@ func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Clien
 		a.event(applied, corev1.EventTypeNormal, ReasonScanInProgress, "not renamed yet: LibraryScan %s is walking the file's folder", scan)
 		return recheckAfter, nil
 	}
-	out, err := mediafilespec.RenameFile(ctx, c, env.APIReader, applied, false, mode == renameInFolder)
+	out, err := specwrite.RenameFile(ctx, c, env.APIReader, applied, false, mode == renameInFolder)
 	if err != nil {
 		return 0, err
 	}

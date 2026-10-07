@@ -15,179 +15,37 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package fileimport is importarr's completed-download import worker: the
-// clustarr.work.importarr.fileimport.<download> handler that turns a
-// finished Download into one or more MediaFiles under a RootFolder
-// (amendment §A1.6; spec §8.4, adjusted for the amendment's relocation of
-// the importer out of catalogarr -- see [FieldManager] and this package's
-// own status-ownership note below).
+// Package fileimport is the import agent's completed-download worker on
+// importarr-fileimport (ADR-0019 §6.9): the two halves of an import that
+// touch the payload and the library, while app/import/importplan decides
+// in the manager.
 //
-// # The status split
+//   - The inspect (ImportInspectTask, inspect.go) reads a completed
+//     transfer's payload and says what each file is: its name parsed, its
+//     probe summarised (the probe corrects the name's quality before
+//     anything judges it), its size class (a suspected sample), the item it
+//     maps to (episodes and scene numbering by MatchEpisodes, the one rule
+//     the rescan shares), the import fields it freezes and the library path
+//     pkg/naming renders for it. Every refusal carries its class. The
+//     answer is the clustarr-imports record at RecordSubKey(entry,
+//     "inspect").
+//   - The execute (ImportExecuteTask, execute.go) carries out the plan the
+//     manager approved: it re-reads every MediaFile the plan replaces
+//     through the APIReader and refuses a stale plan, checks free space,
+//     places each file (placeFile: strictly under the root folder, an
+//     existing destination recycle-linked first, never an overwrite),
+//     recycles the replaced files and places an audio donor. The answer is
+//     the record at RecordSubKey(entry, "execute").
 //
-// This worker creates the MediaFile and is the sole writer of
-// MediaFileSpec: the observed destination path, size and mtime, plus the
-// quality, revision, format score, matched formats and release type frozen
-// at import (spec §8.4, CLAUDE.md's invariant). It never writes any part of
-// MediaFileStatus, which catalogarr owns in full and populates by probing
-// (spec §8.5). The probes this worker makes serve fields it does own. A
-// music file's frozen quality is its codec and bitrate (FrozenFileQuality,
-// through the import domain's one prober's ProbeAudio, heartbeating first).
-// Every video import probes the file too (probeVideo, through the same
-// prober's Probe; spec 2026-10-06 §6.6): the probe corrects the name-derived
-// quality's resolution and a false remux (quality.AugmentFromMediaInfo)
-// before the profile's Allowed check, so the profile judges, and
-// spec.quality freezes, the corrected quality; and the destination name is
-// rendered through catalogctx.File with it, so it carries the codec and
-// dynamic range. The probe result itself is never written -- status.
-// mediaInfo stays catalogarr's -- and a probe that fails or times out never
-// fails the import: the file imports under its name-derived quality and
-// its source extension, as it did before imports probed.
+// Neither writes a Kubernetes object: the manager materialises the
+// MediaFiles a placement names (spec under importarr-worker), deletes the
+// replaced ones with UID preconditions and applies a donor's AudioGraft.
+// The scanner-never-guesses rule holds in its import shape: a file the
+// inspect cannot attribute is a rejection naming why, never a speculative
+// MediaFile. A task whose record already holds its seq or a later one is
+// superseded and dropped, so a redelivery does nothing twice; a v1
+// ImportTask is discarded.
 //
-// It is also, uniquely, a cross-group status writer: it applies
-// Download.status.import under k8s.ManagerImportarr, the one field manager
-// on a download.clustarr.io object that importarr, not grabarr, owns. See
-// k8s.ManagerImportarr's doc comment for why that write settled here rather
-// than under catalogarr (design spec §8.4's original assignment, superseded
-// by amendment-1) and why it uses the bare controller-manager name rather
-// than [FieldManager] (this package never shares a manager name with
-// another importarr writer on the SAME object type, so the collision
-// [FieldManager] guards against on MediaFile does not apply to Download).
-//
-// The scanner-never-guesses rule (amendment §A1.5) applies here too, in its
-// file-import shape: a file this worker cannot confidently attribute to the
-// Download's target, or cannot parse, is never turned into a speculative
-// MediaFile. It is recorded in Download.status.import.rejections with a
-// reason instead -- the file-import analogue of LibraryScan.status.unmatched,
-// since a Download has no LibraryScan to report through. That includes a
-// video file only the sample size floor flags ([Worker.SampleMaxBytes]):
-// a size is a suspicion, not a verdict, so the file is a rejection naming
-// its size and the threshold, and a manual import takes it. A part, an
-// extras-folder file or a file whose name marks it a sample is the
-// release's own packaging and is passed over without a rejection
-// (Worker.admit says why).
-//
-// # Scope
-//
-// The import target is the Download's spec.target, or what its
-// [importtarget.AnnotationImportTarget] annotation redirects it to (see
-// "Manual import").
-// Supported: a movie; an episode, or a series whose keys name the episodes
-// of a pack (episode_import.go); and the four non-video items that hold
-// files -- an album, a book, an audiobook, an issue (spec.target comic/<c>
-// with exactly one key, or the annotation comic/<c>/<issue>). An artist,
-// author, or comic without an issue is Blocked with a message naming the
-// annotation that fixes it -- its files belong to one of its children, and
-// choosing which is a guess.
-//
-// An episode file is attributed by the numbering its name carries
-// ([MatchEpisodes]: season and episode, absolute number, or air date) to
-// episodes of the target's series, as Sonarr's import maps a release's
-// files; a file that names no episode the series has is a rejection. A file
-// covering several episodes is one MediaFile whose spec.mediaRef names the
-// first and lists all of them in keys ([EpisodeFileRef]).
-//
-// A non-video import (nonvideo.go) differs from a movie import in three
-// honest ways. Its files are classified by their own kind ([ClassifierFor]):
-// classified as video, a .flac would not be media, a 1 MiB ebook would be
-// under the video sample floor, and a book in a folder named "Extras" would
-// be a video extra. Its quality is frozen only where the file determines it
-// exactly ([FrozenFileQuality]): a music file by a probe of its codec and
-// bitrate, anything else by its extension; a file whose quality is still
-// undeterminable is imported only by a manual import. And it is never
-// scored: the custom-format corpus is TRaSH video data, so formatScore,
-// matchedFormats and profileHash stay unset. A book's or issue's single file
-// is replaced by an upgrade exactly as a movie's is. An album's or
-// audiobook's files are replaced as a set: a manual import that brings the
-// whole of a release supersedes the item's earlier files (which old track a
-// new one replaces is not knowable without probing both, so it is all or
-// nothing), and one with any file rejected keeps them and says so. A lone
-// file imported to an album whose release has one track names that track
-// (MediaRef.Track).
-//
-// No import renames a file over one already at its destination without
-// linking the old one into the recycle bin first, and none places a file
-// anywhere but strictly under its RootFolder's path (placeFile); a
-// destination outside it stops the import as Blocked, not as a rejection
-// of the release.
-//
-// A transcoded file is final (CLAUDE.md, "Transcoding"): a movie's or
-// episode's existing file that catalogv1alpha1.(*MediaFile).Transcoded
-// reports is replaced only by a person's choice -- an interactive grab
-// (spec.grabbedBy interactive) or a manual import. A file of any other,
-// automatic grab that would replace it is a rejection saying so
-// (transcoded.go), checked before the upgrade comparison. The gate, the
-// upgrade comparison and the replacement act on every MediaFile the item
-// has, and a movie's are listed through the API reader
-// (Worker.APIReader), so a swap recorded a moment ago is not missed --
-// except that the gates skip this import's own file from an earlier
-// delivery that died before it wrote status.import (ownEarlierAttempt in
-// dedup.go): against itself a file is never an upgrade, and a redelivery
-// that rejected its own import had grabarr blocklist the release and delete
-// its data.
-//
-// An item that holds one file -- a movie, a book, an issue, an episode --
-// gets one file from a download however many the download carries for it
-// (order.go): every file is admitted first, the candidates are ranked by
-// the profile's quality order, then revision, then size, and imported best
-// first, and a later file whose item is already filled is a rejection, as in
-// Radarr's ImportApprovedMovie and Sonarr's ImportApprovedEpisodes. An
-// album's tracks and an audiobook's parts are all imported.
-//
-// # Manual import
-//
-// Design spec §8.4's two Download annotations:
-//
-//   - [importtarget.AnnotationImportTarget] "<kind>/<name>[/<key>]" directs
-//     the import at one item instead of spec.target (which is immutable, and
-//     the Download's owner).
-//   - [importtarget.AnnotationImportOverride] "true" has DownloadSpec.Manual's
-//     effect; [importtarget.ParseImportOverride] says exactly what that is.
-//
-// Both are parsed strictly; a malformed one blocks the import with the
-// parse error on status.import rather than importing to spec.target.
-// Grabarr publishes a Download's ImportTask once, so an annotation set on a
-// Download that is already Blocked is acted on by the retrigger controller
-// (app/import/controller/retrigger), which re-queues it. The same import-target grammar on a LibraryScan is how a
-// rescan-unmatched file is assigned by hand: app/import/worker/rescan's
-// package doc, "Manual assignment".
-//
-// # Registration
-//
-// Nothing here registers itself. The import domain (app/import/agent)
-// declares [FieldIndexes] in its Registration, the agent registers them once
-// before the manager starts (spec §3.5.2 step 9), and the domain wires the
-// worker with:
-//
-//	spec, ok := o.BusTopology().Consumer(events.ConsumerImportFile)
-//	if !ok {
-//	        return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportFile)
-//	}
-//	worker := fileimport.NewWorker(mgr.GetClient(), bus, prober) // the domain's one mediainfo.Prober
-//
-//	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-//	        stop, err := bus.Subscribe(ctx, spec.Subscription(), worker.Handle)
-//	        if err != nil {
-//	                return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportFile, err)
-//	        }
-//	        <-ctx.Done()
-//	        stop()
-//	        return nil
-//	})); err != nil {
-//	        return err
-//	}
-//
-// k8s.EveryReplica, not manager.RunnableFunc, for the same reason
-// app/import/worker/rescan uses it: manager.RunnableFunc has no
-// NeedLeaderElection method, so controller-runtime would put this behind the
-// leader lease on any service that elects, and a completed-download import
-// must not wait for leadership.
-//
-// The field index this worker uses to find a target's existing MediaFiles (a
-// movie's too, when the Worker has no APIReader) is one of the declared
-// [FieldIndexes]; the agent registers it before the manager starts.
-//
-// The retrigger controller (app/import/controller/retrigger) is a separate
-// controller, registered the same way as any other (its doc comment has the
-// call). It is not a work consumer and runs
-// under ordinary leader election.
+// The recycle-bin sweep (RecycleSweeper, importarr-recycle) lives here too,
+// beside the placement it cleans up after.
 package fileimport

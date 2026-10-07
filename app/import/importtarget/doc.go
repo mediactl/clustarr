@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package importtarget is the grammar of the two annotations that direct
 // an import by hand -- catalog.clustarr.io/import-target and
 // import-override -- on a Download or a LibraryScan: parsing, the
-// root-folder fit, and the target a Download's spec names. The file-import
-// worker, the rescan, the retrigger controller and the ui's manual assign
-// all read the one grammar; it links no worker (spec §4.3 I4).
+// root-folder fit, and the target a Download's spec names. The import
+// agent's inspect, the rescan and the ui's manual assign all read the one
+// grammar; it links no worker (spec §4.3 I4).
 package importtarget

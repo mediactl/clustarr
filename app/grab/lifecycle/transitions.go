@@ -281,7 +281,7 @@ func (d *decider) stalled(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfer
 func (d *decider) importStep(e *catalogv1alpha1.DownloadEntry) bool {
 	dec, ok := d.v.Import[types.UID(e.UID)]
 	if !ok {
-		if imported(e) && d.v.Files[e.ID] >= max(int(e.Import.Files), 1) {
+		if imported(e) && filesLanded(e.Import.Files, d.v.Files[e.ID]) {
 			d.toImported(e)
 			return true
 		}
@@ -298,7 +298,7 @@ func (d *decider) importStep(e *catalogv1alpha1.DownloadEntry) bool {
 	d.at(dec.Due)
 	switch dec.Verdict {
 	case ImportImported:
-		if d.v.Files[e.ID] >= max(int(sum.Files), 1) {
+		if filesLanded(sum.Files, d.v.Files[e.ID]) {
 			d.toImported(e)
 			return true
 		}
@@ -310,6 +310,35 @@ func (d *decider) importStep(e *catalogv1alpha1.DownloadEntry) bool {
 		return true
 	}
 	return false
+}
+
+// filesLanded reports whether every MediaFile an import placed names its
+// entry: want of them, counted have. An import that places no library file
+// (an audio donor, which names its AudioGraft instead) has none to wait for;
+// importplan says imported only once its AudioGraft names the donor.
+func filesLanded(want int32, have int) bool {
+	return want <= 0 || have >= int(want)
+}
+
+// Importable reports whether e is a Completed grab -- by its stored phase,
+// or by rec, its transfer record, which completes it in the pass that reads
+// it -- whose import importplan decides: until the entry reads Imported or
+// Seeding, which needs every MediaFile its import placed.
+func Importable(e *catalogv1alpha1.DownloadEntry, rec *schema.TransferRecord) bool {
+	switch e.Phase {
+	case commonv1.DownloadPhaseCompleted:
+		return true
+	case commonv1.DownloadPhaseAssigned, commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading:
+		return !imported(e) && rec != nil && phaseOfStage(rec.Stage, e.Phase) == commonv1.DownloadPhaseCompleted &&
+			rec.State != schema.TransferStateFailed && !rec.EngineFailureReason.IsFailure()
+	}
+	return false
+}
+
+// NextSeq is a new dispatch seq above recordSeq and statusSeq (loop spec
+// §2.3): importplan's for the inspect and execute tasks.
+func NextSeq(recordSeq, statusSeq int64, now time.Time) int64 {
+	return nextSeq(recordSeq, statusSeq, now)
 }
 
 // toImported is Completed -> Imported or Seeding, once every placed file

@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package rename is the remediation loop's rename actuator (loop spec §3.9):
 // it moves a file to the canonical path its applied status proposes, when
-// its RootFolder allows, through mediafilespec.RenameFile under
+// its RootFolder allows, through specwrite.RenameFile under
 // importarr-worker -- the decision importarr's rename controller made,
 // run by the loop against the status it just applied instead of by a second
 // MediaFile watcher.

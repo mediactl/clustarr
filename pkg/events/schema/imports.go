@@ -107,6 +107,8 @@ type ImportPlan struct {
 	// RootFolder is the library root every destination must be under.
 	RootFolder string `json:"rootFolder"`
 	RecycleBin string `json:"recycleBin,omitempty"`
+	// MinFreeBytes is the root folder's free-space floor (EnsureFreeSpace).
+	MinFreeBytes int64 `json:"minFreeBytes,omitempty"`
 }
 
 // ImportMove places one file.
@@ -114,15 +116,20 @@ type ImportMove struct {
 	Source string  `json:"source"`
 	Dest   string  `json:"dest"`
 	Target ItemRef `json:"target"`
+	// Keys are the item names the file covers, more than one for a
+	// multi-episode file (the MediaFile's spec.mediaRef.keys).
+	Keys []string `json:"keys,omitempty"`
 	// MediaFileName is the MediaFile the manager materialises for it.
 	MediaFileName string       `json:"mediaFileName"`
 	Frozen        FrozenFields `json:"frozen"`
 }
 
-// DonorPlan places an audio donor's payload for reduction.
+// DonorPlan places an audio donor's payload for reduction: Source at Dest,
+// under Dir (the item's donor folder).
 type DonorPlan struct {
 	Source string `json:"source"`
 	Dir    string `json:"dir"`
+	Dest   string `json:"dest,omitempty"`
 }
 
 // ProbeSummary is what an inspect reports of a file's probe: enough for the
@@ -139,6 +146,19 @@ type ProbeSummary struct {
 	ProfileTag      string   `json:"profileTag,omitempty"`
 }
 
+// Kinds of an InspectRejection (InspectRejection.Kind).
+const (
+	// InspectKindBlocked: the item or its root folder cannot take the files
+	// (a target that does not exist, a path that cannot be rendered); the
+	// whole import needs a person.
+	InspectKindBlocked = "blocked"
+	// InspectKindSample: a suspected sample by size, incidental once real
+	// media is beside it.
+	InspectKindSample = "sample"
+	// InspectKindIncidental: explains a file and decides nothing.
+	InspectKindIncidental = "incidental"
+)
+
 // InspectRejection is one reason a file could not be imported, with its
 // remediation class (commonv1.ImportRejectionClass) and error kind.
 type InspectRejection struct {
@@ -154,16 +174,32 @@ type InspectedFile struct {
 	Parsed      ParsedFacts   `json:"parsed"`
 	Probe       *ProbeSummary `json:"probe,omitempty"`
 	Fingerprint string        `json:"fingerprint,omitempty"`
-	// Proposed is the target the file matched.
-	Proposed   *ItemRef           `json:"proposed,omitempty"`
+	// Proposed is the target the file matched: the MediaFile's
+	// spec.mediaRef kind and name, Keys the item names the file covers
+	// (a multi-episode file's episodes; else the one name).
+	Proposed *ItemRef `json:"proposed,omitempty"`
+	Keys     []string `json:"keys,omitempty"`
+	// Dest is the library path the agent rendered for the file
+	// (pkg/naming, from the full probe); the planner checks it, never
+	// renders it.
+	Dest       string             `json:"dest,omitempty"`
 	Frozen     FrozenFields       `json:"frozen"`
 	Sample     bool               `json:"sample,omitempty"`
 	Rejections []InspectRejection `json:"rejections,omitempty"`
 }
 
-// ImportInspection is an inspect task's answer.
+// ImportInspection is an inspect task's answer: every file, and the
+// rejections of the import as a whole (a target that does not exist, a
+// content root that cannot be read).
 type ImportInspection struct {
-	Files []InspectedFile `json:"files,omitempty"`
+	Files      []InspectedFile    `json:"files,omitempty"`
+	Rejections []InspectRejection `json:"rejections,omitempty"`
+	// RootFolder and RecycleBin are the target's root folder path and
+	// recycle bin, as the agent resolved them.
+	RootFolder string `json:"rootFolder,omitempty"`
+	RecycleBin string `json:"recycleBin,omitempty"`
+	// MinFreeBytes is the root folder's free-space floor.
+	MinFreeBytes int64 `json:"minFreeBytes,omitempty"`
 }
 
 // PlacedFile is one file an execute task placed.
@@ -175,6 +211,7 @@ type PlacedFile struct {
 	Fingerprint   string       `json:"fingerprint,omitempty"`
 	ProbeHash     string       `json:"probeHash,omitempty"`
 	Target        ItemRef      `json:"target"`
+	Keys          []string     `json:"keys,omitempty"`
 	MediaFileName string       `json:"mediaFileName"`
 	Frozen        FrozenFields `json:"frozen"`
 }
@@ -187,6 +224,9 @@ type ImportExecution struct {
 	Refused   string       `json:"refused,omitempty"`
 	Recycled  []string     `json:"recycled,omitempty"`
 	DonorPath string       `json:"donorPath,omitempty"`
+	// Replaced are the plan's bases the execute checked and recycled: the
+	// manager deletes each MediaFile with its UID precondition.
+	Replaced []MediaFileBasis `json:"replaced,omitempty"`
 }
 
 // ImportRecord is clustarr-imports' value for one entry's import phase,

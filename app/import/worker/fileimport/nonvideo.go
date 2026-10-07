@@ -21,33 +21,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/importtarget"
-	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/fsops"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -88,310 +76,16 @@ type nonVideoPlan struct {
 	// supply.
 	fileName func(srcRel string) string
 
-	// existing is every MediaFile already backing ref.
-	existing []catalogv1alpha1.MediaFile
-
 	// singleTrack is the recording MBID of an album whose selected release
 	// has exactly one track; empty otherwise. A lone audio file imported
 	// to such an album is that track (commonv1.MediaRef.Track).
 	singleTrack string
 }
 
-// importNonVideo is Handle's path for an album, book, audiobook or issue
-// target. target is what the Download (or its import-target annotation)
-// named; ref is target.FileRef().
-func (w *Worker) importNonVideo(
-	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, target importtarget.ImportTarget, manual bool,
-) error {
-	plan, err := w.resolveNonVideo(ctx, dl, target)
-	if err != nil {
-		return w.conclude(ctx, m, dl, classOfErr(err), nil, nil, blockedMessage(err))
-	}
-
-	if dl.Status.ContentRoot == "" {
-		return fmt.Errorf("fileimport: download %s/%s has no status.contentRoot yet", dl.Namespace, dl.Name)
-	}
-	if _, err := statDir(dl.Status.ContentRoot); err != nil {
-		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassTransient, nil, nil,
-			fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
-	}
-
-	outcome, walkErr := w.runNonVideo(ctx, m, dl, plan, manual)
-	if walkErr != nil {
-		// errBlocked (a placement outside the root folder) is no better on
-		// a redelivery, so it is reported at once.
-		return w.conclude(ctx, m, dl, classOfErr(walkErr), outcome.imported, texts(outcome.rejections), blockedMessage(walkErr))
-	}
-	if len(outcome.imported) == 0 {
-		return w.conclude(ctx, m, dl, classify(outcome.rejections), nil, texts(outcome.rejections),
-			outcomeMessage(outcome.rejections, fmt.Sprintf("no %s files found", plan.ref.Kind)))
-	}
-	return w.finishImported(ctx, dl, outcome.imported, texts(outcome.rejections))
-}
-
-// runNonVideo walks the content root and imports every file of plan.ref's
-// kind. It mirrors processConfig.run, except that a file is classified as
-// plan.ref's kind ([ClassifierFor]) rather than as video.
-func (w *Worker) runNonVideo(
-	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, plan nonVideoPlan, manual bool,
-) (importOutcome, error) {
-	var (
-		out           importOutcome
-		lastHeartbeat time.Time
-		recycledOld   bool
-		dests         = map[string]string{}
-	)
-	root := dl.Status.ContentRoot
-	classifier := ClassifierFor(plan.ref.Kind, root, w.SampleMaxBytes)
-	if plan.singleTrack != "" {
-		// A one-track album's lone file is that track. Two files for it
-		// are not both that track, and choosing one would be a guess, so
-		// neither is narrowed to it.
-		if n, err := countMedia(ctx, classifier, root, 2); err != nil {
-			return out, err
-		} else if n != 1 {
-			plan.singleTrack = ""
-		}
-	}
-	var cands []fileCandidate
-	err := classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
-		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
-			return err
-		}
-		// No non-video kind has a size-suspected sample, so there is no
-		// promo clip to leave behind here (besideMedia is false).
-		if rejection, candidate := w.admit(root, srcPath, info, class, manual, false); !candidate {
-			if !rejection.none() {
-				out.rejections = append(out.rejections, rejection)
-			}
-			return nil
-		}
-		c := fileCandidate{path: srcPath, info: info}
-		if singleFileKind(plan.ref.Kind) {
-			// The probe heartbeats first (audioProbe); a failed beat runs
-			// no probe and aborts the walk, as the walk's own beat does.
-			var hbErr error
-			q, known := FrozenFileQuality(ctx, w.audioProbe(m, &hbErr), plan.ref.Kind, srcPath, dl.Spec.Release.Title,
-				relPath(root, srcPath))
-			if hbErr != nil {
-				return hbErr
-			}
-			c.ranked(plan.profile, q, commonv1.Revision{}, known)
-		}
-		cands = append(cands, c)
-		return nil
-	}, out.unreadable(root))
-	if err != nil {
-		return out, err
-	}
-	out.sampleIsIncidental(len(cands))
-
-	// A book or an issue holds one file: the best candidate -- an ebook
-	// release's AZW3 over its EPUB over its MOBI, as the profile ranks them
-	// -- is imported and the rest rejected (order.go). An album's tracks
-	// and an audiobook's parts are all imported, in walk order.
-	if singleFileKind(plan.ref.Kind) {
-		sortCandidates(cands)
-	}
-	filledBy := ""
-	for _, c := range cands {
-		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
-			return out, err
-		}
-		if filledBy != "" {
-			out.rejections = append(out.rejections, c.lateRejection(relPath(root, c.path),
-				string(plan.ref.Kind)+" "+plan.ref.Name, filledBy))
-			continue
-		}
-		imported, rejection, err := w.importNonVideoFile(ctx, m, dl, plan, manual, c.path, c.info, dests, &recycledOld)
-		if err != nil {
-			return out, err
-		}
-		if !rejection.none() {
-			out.rejections = append(out.rejections, rejection)
-			continue
-		}
-		out.imported = append(out.imported, imported)
-		if singleFileKind(plan.ref.Kind) {
-			filledBy = relPath(root, c.path)
-		}
-	}
-	if manual && !singleFileKind(plan.ref.Kind) && len(out.imported) > 0 {
-		w.supersede(ctx, plan, dests, &out)
-	}
-	return out, nil
-}
-
-// supersede is a manual import of a multi-file item -- an album's tracks,
-// an audiobook's parts -- replacing the files the item had: every existing
-// MediaFile of the item this import did not just write goes to the recycle
-// bin and its MediaFile is deleted. A person importing a release to an album
-// that already has files is replacing the album's release, as Lidarr's and
-// Readarr's manual import do; keeping the old files beside the new ones left
-// the item with two releases' worth of tracks.
-//
-// Which old track a new one replaces is not knowable without probing both,
-// so the replacement is all or nothing: it happens only when the whole of
-// this release was imported. A release with any file rejected -- a quality
-// the profile does not allow, an unreadable folder -- does not wholly replace
-// the old one, so the old files are kept, and a rejection says so.
-func (w *Worker) supersede(ctx context.Context, plan nonVideoPlan, dests map[string]string, out *importOutcome) {
-	var old []catalogv1alpha1.MediaFile
-	for _, mf := range plan.existing {
-		if _, rewritten := dests[mf.Spec.Path]; !rewritten {
-			old = append(old, mf)
-		}
-	}
-	if len(old) == 0 {
-		return
-	}
-	if len(out.rejections) > 0 {
-		out.rejections = append(out.rejections, incidentalRejection("%s %s: kept its %d earlier file(s), because %d file(s) "+
-			"of this release were not imported, so it does not wholly replace them", plan.ref.Kind, plan.ref.Name,
-			len(old), len(out.rejections)))
-		return
-	}
-	log := logging.FromContext(ctx)
-	bin := fsops.RecycleBinPath(plan.rootFolder.Spec.RecycleBin.Path)
-	for i := range old {
-		mf := &old[i]
-		if _, err := fsops.Recycle(bin, mf.Spec.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			log.Warn("fileimport: could not recycle a replaced file; leaving it and its media file in place",
-				"path", mf.Spec.Path, "error", err)
-			continue
-		}
-		if err := w.Client.Delete(ctx, mf); client.IgnoreNotFound(err) != nil {
-			log.Warn("fileimport: could not delete the replaced media file object", "mediaFile", mf.Name, "error", err)
-			continue
-		}
-		log.Info("fileimport: replaced a file of a multi-file item", "kind", plan.ref.Kind, "item", plan.ref.Name,
-			"path", mf.Spec.Path)
-	}
-}
-
-// importNonVideoFile imports one file, or says why it was rejected. A
-// non-nil error aborts the walk, exactly as in processConfig.processFile.
-// A music file's probe heartbeats on m first (audioProbe); a failed beat is
-// such an error.
-func (w *Worker) importNonVideoFile(
-	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, plan nonVideoPlan, manual bool,
-	srcPath string, info os.FileInfo, dests map[string]string, recycledOld *bool,
-) (*downloadac.ImportedFileApplyConfiguration, rejection, error) {
-	log := logging.FromContext(ctx)
-	rel := relPath(dl.Status.ContentRoot, srcPath)
-	kind := plan.ref.Kind
-
-	var hbErr error
-	q, known := FrozenFileQuality(ctx, w.audioProbe(m, &hbErr), kind, srcPath, dl.Spec.Release.Title, rel)
-	if hbErr != nil {
-		return nil, rejection{}, hbErr
-	}
-	switch {
-	case known && !plan.profile.Allowed(q):
-		return nil, notAllowedRejection(rel, q), nil
-	case !known && !manual:
-		return nil, needsPersonRejection("%s: the quality of a %s %s file cannot be determined without probing; "+
-			"only a manual import (spec.manual, or %s=true) accepts it",
-			rel, kind, strings.ToLower(filepath.Ext(srcPath)), importtarget.AnnotationImportOverride), nil
-	}
-
-	// The item's files but this import's own from an earlier delivery
-	// (ownEarlierAttempt): an album's tracks a delivery placed before it
-	// died are not files the album "already has", and a book's file is no
-	// upgrade over itself.
-	compared := comparedFiles(plan.existing, dl)
-	var current *catalogv1alpha1.MediaFile
-	if len(compared) > 0 {
-		current = &compared[0]
-	}
-	if current != nil && !manual {
-		if !singleFileKind(kind) {
-			return nil, needsPersonRejection("%s: %s %s already has %d file(s); adding to or replacing a multi-file item "+
-				"needs a manual import (spec.manual, or %s=true)",
-				rel, kind, plan.ref.Name, len(compared), importtarget.AnnotationImportOverride), nil
-		}
-		verdict := plan.profile.UpgradeDecision(
-			quality.Candidate{Quality: current.Spec.Quality, Revision: current.Spec.Revision},
-			quality.Candidate{Quality: q})
-		if verdict != quality.Upgrade {
-			return nil, verdictRejection(plan.profile, dl, q, fmt.Sprintf("%s: %s", rel, verdictMessage(verdict))), nil
-		}
-	}
-
-	dest := naming.SanitizePath(filepath.Join(plan.folder, plan.fileName(rel)), naming.DefaultSanitizeOptions())
-	if other, dup := dests[dest]; dup {
-		return nil, incidentalRejection("%s: resolves to the same library path as %s, which this import already placed", rel, other), nil
-	}
-
-	if err := fsops.EnsureFreeSpace(plan.rootFolder.Spec.Path, info.Size()+plan.rootFolder.Spec.MinFreeBytes); err != nil {
-		return nil, rejection{}, fmt.Errorf("fileimport: %w", err)
-	}
-	mode := fsops.ImportHardlink
-	if dl.Status.CanMoveFiles {
-		mode = fsops.ImportMove
-	}
-	if err := placeFile(ctx, plan.rootFolder.Spec.Path, plan.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
-		if errors.Is(err, errWouldOverwrite) {
-			return nil, needsPersonRejection("%s: %v", rel, err), nil
-		}
-		return nil, rejection{}, err
-	}
-	dests[dest] = rel
-	destInfo, err := os.Stat(dest)
-	if err != nil {
-		return nil, rejection{}, fmt.Errorf("fileimport: stat imported file %s: %w", dest, err)
-	}
-
-	ref := plan.ref
-	ref.Track = plan.singleTrack
-	spec := catalogac.MediaFileSpec().
-		WithMediaRef(ref).
-		WithPath(dest).
-		WithSizeBytes(destInfo.Size()).
-		WithModTime(metav1.NewTime(destInfo.ModTime())).
-		WithReleaseType(ReleaseTypeFor(kind)).
-		WithOriginal(true).
-		WithImportedFrom(catalogac.ImportSource().
-			WithDownloadRef(dl.Name).
-			WithReleaseTitle(importText(dl.Spec.Release.Title, catalogv1alpha1.MaxReleaseTitleLength)).
-			WithIndexerName(importText(dl.Spec.Release.IndexerName, catalogv1alpha1.MaxIndexerNameLength)).
-			WithProtocol(dl.Spec.Release.Protocol).
-			WithImportedAt(metav1.NewTime(w.now())).
-			WithManual(manual))
-	if known {
-		spec = spec.WithQuality(q)
-	}
-	mfName := k8s.ChildName(plan.ref.Name, "mediafile", dest)
-	if _, err := w.applyMediaFile(ctx, mfName, spec, plan.namespace); err != nil {
-		return nil, rejection{}, err
-	}
-
-	// A single-file item's previous file is replaced here, file by file; an
-	// album's or an audiobook's are replaced as a set once the whole walk
-	// has run (supersede). A file already gone from disk still has its
-	// MediaFile removed, as the movie and episode paths do.
-	if current != nil && singleFileKind(kind) && !*recycledOld && current.Spec.Path != dest {
-		bin := fsops.RecycleBinPath(plan.rootFolder.Spec.RecycleBin.Path)
-		if _, err := fsops.Recycle(bin, current.Spec.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			log.Warn("fileimport: could not recycle the replaced file; leaving it in place",
-				"path", current.Spec.Path, "error", err)
-		} else if err := w.Client.Delete(ctx, current); client.IgnoreNotFound(err) != nil {
-			log.Warn("fileimport: could not delete the replaced media file object",
-				"mediaFile", current.Name, "error", err)
-		}
-		*recycledOld = true
-	}
-
-	metrics.ImportFilesTotal.WithLabelValues(string(kind), mode.String(), "imported").Inc()
-	log.Info("fileimport: imported a file", "kind", kind, "source", rel, "dest", dest, "mediaFile", mfName)
-	return downloadac.ImportedFile().WithSourcePath(rel).WithDestPath(dest).WithMediaFileRef(mfName), rejection{}, nil
-}
-
 // resolveNonVideo reads the target item and its parents and works out where
 // its files go. Errors wrapping errBlocked are terminal for this Download;
 // anything else is worth a redelivery.
-func (w *Worker) resolveNonVideo(ctx context.Context, dl *downloadv1alpha1.Download, target importtarget.ImportTarget) (nonVideoPlan, error) {
-	ns := dl.Namespace
+func (w *Worker) resolveNonVideo(ctx context.Context, ns string, target importtarget.ImportTarget, downloadProfileRef string) (nonVideoPlan, error) {
 	ref := target.FileRef()
 	plan := nonVideoPlan{ref: ref, namespace: ns}
 
@@ -418,8 +112,8 @@ func (w *Worker) resolveNonVideo(ctx context.Context, dl *downloadv1alpha1.Downl
 		return nonVideoPlan{}, err
 	}
 
-	if dl.Spec.QualityProfileRef != "" {
-		profileRef = dl.Spec.QualityProfileRef
+	if downloadProfileRef != "" {
+		profileRef = downloadProfileRef
 	}
 	if rootRef == "" {
 		return nonVideoPlan{}, blocked("%s %s names no root folder", ref.Kind, ref.Name)
@@ -453,10 +147,6 @@ func (w *Worker) resolveNonVideo(ctx context.Context, dl *downloadv1alpha1.Downl
 	plan.folder = folder
 	plan.fileName = fileName
 
-	plan.existing, err = w.existingMediaFiles(ctx, ns, ref)
-	if err != nil {
-		return nonVideoPlan{}, err
-	}
 	return plan, nil
 }
 
@@ -751,17 +441,4 @@ func (w *Worker) resolveIssue(ctx context.Context, ns string, target importtarge
 		return "", "", "", nil, blocked("render issue file: %v", err)
 	}
 	return rootRef, profileRef, folder, withExt(path.Base(file)), nil
-}
-
-// existingMediaFiles lists every MediaFile backing ref through the target
-// index.
-func (w *Worker) existingMediaFiles(ctx context.Context, namespace string, ref commonv1.MediaRef) ([]catalogv1alpha1.MediaFile, error) {
-	var list catalogv1alpha1.MediaFileList
-	if err := w.Client.List(ctx, &list,
-		client.InNamespace(namespace),
-		client.MatchingFields{MediaFileByTargetIndexKey: targetKey(string(ref.Kind), ref.Name)},
-	); err != nil {
-		return nil, fmt.Errorf("fileimport: look up existing media files for %s/%s: %w", ref.Kind, ref.Name, err)
-	}
-	return list.Items, nil
 }

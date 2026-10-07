@@ -43,6 +43,14 @@ type DownloadImportSummaryApplyConfiguration struct {
 	// Imported only when that many MediaFiles name this entry's ID in
 	// spec.importedFrom.downloadRef.
 	Files *int32 `json:"files,omitempty"`
+	// Target is the download.clustarr.io/import intent's target,
+	// "<kind>/<name>[/<key>]": every later inspect of this import keeps it.
+	// Empty for the entry's own target.
+	Target *string `json:"target,omitempty"`
+	// Override is the intent's override: the import is a person's, so a
+	// suspected sample, an unknown quality and a transcoded file are taken
+	// as a manual import takes them (§6.10).
+	Override *bool `json:"override,omitempty"`
 	// Dispatch fences the inspect and execute tasks (§6.9).
 	Dispatch *DispatchApplyConfiguration `json:"dispatch,omitempty"`
 }
@@ -114,6 +122,22 @@ func (b *DownloadImportSummaryApplyConfiguration) WithImportedAt(value v1.Time) 
 // If called multiple times, the Files field is set to the value of the last call.
 func (b *DownloadImportSummaryApplyConfiguration) WithFiles(value int32) *DownloadImportSummaryApplyConfiguration {
 	b.Files = &value
+	return b
+}
+
+// WithTarget sets the Target field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Target field is set to the value of the last call.
+func (b *DownloadImportSummaryApplyConfiguration) WithTarget(value string) *DownloadImportSummaryApplyConfiguration {
+	b.Target = &value
+	return b
+}
+
+// WithOverride sets the Override field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Override field is set to the value of the last call.
+func (b *DownloadImportSummaryApplyConfiguration) WithOverride(value bool) *DownloadImportSummaryApplyConfiguration {
+	b.Override = &value
 	return b
 }
 

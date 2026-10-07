@@ -260,6 +260,17 @@ type DownloadImportSummary struct {
 	// spec.importedFrom.downloadRef.
 	// +optional
 	Files int32 `json:"files,omitempty"`
+	// Target is the download.clustarr.io/import intent's target,
+	// "<kind>/<name>[/<key>]": every later inspect of this import keeps it.
+	// Empty for the entry's own target.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Target string `json:"target,omitempty"`
+	// Override is the intent's override: the import is a person's, so a
+	// suspected sample, an unknown quality and a transcoded file are taken
+	// as a manual import takes them (§6.10).
+	// +optional
+	Override bool `json:"override,omitempty"`
 	// Dispatch fences the inspect and execute tasks (§6.9).
 	Dispatch Dispatch `json:"dispatch"`
 }

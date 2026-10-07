@@ -232,11 +232,3 @@ func ReleaseTypeFor(fileKind commonv1.MediaKind) commonv1.ReleaseType {
 		return ""
 	}
 }
-
-// singleFileKind reports whether one catalog item of fileKind is backed by
-// one file (a book in one format, an issue) rather than a set of files (an
-// album's tracks, an audiobook's parts). Only a single-file item's existing
-// file is something a new import can be an upgrade over.
-func singleFileKind(fileKind commonv1.MediaKind) bool {
-	return fileKind == commonv1.MediaKindBook || fileKind == commonv1.MediaKindIssue
-}

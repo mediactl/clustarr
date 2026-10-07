@@ -68,7 +68,9 @@ type Stage struct {
 	issued    *commandBook
 	unclaimed *Unclaimed
 	boots     *bootBook
-	seedOnce  sync.Once
+	// importsPublished is the import tasks' publish book (A3.8).
+	importsPublished *importBook
+	seedOnce         sync.Once
 }
 
 var (
@@ -92,6 +94,8 @@ func New(o Options) *Stage {
 		issued:    newCommandBook(),
 		unclaimed: NewUnclaimed(),
 		boots:     newBootBook(),
+
+		importsPublished: newImportBook(),
 	}
 }
 
@@ -225,7 +229,7 @@ func (s *Stage) result(ctx context.Context, ow owner, v lifecycle.View, plan lif
 			res.Effects = append(res.Effects, eff)
 		}
 	}
-	res.Effects = append(res.Effects, s.importEffects(ow, plan)...)
+	res.Effects = append(res.Effects, s.importEffects(ow, v, plan)...)
 	now := v.Now
 	for _, p := range plan.Removals {
 		path := p

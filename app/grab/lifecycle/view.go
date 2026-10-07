@@ -272,10 +272,16 @@ type ApplyMediaFile struct {
 	From      catalogv1alpha1.ImportSource
 }
 
-// AudioGraftApply applies a donor's AudioGraft (R26, until F7.1).
+// AudioGraftApply applies a donor's AudioGraft (R26, until F7.1): Item is
+// the Episode or Movie the donor is for, Languages the languages it
+// grafts, Release the donor release's title; OldDonorPath is the donor the
+// AudioGraft named before, whose files go.
 type AudioGraftApply struct {
-	Owner                      schema.ItemRef
+	Item                       schema.ItemRef
 	DonorPath, Anchor, Default string
+	Languages                  []string
+	Release                    string
+	OldDonorPath               string
 }
 
 // Materialise is one MediaFile apply, one replaced MediaFile's delete, or
@@ -293,6 +299,9 @@ type ImportDecision struct {
 	Materialise []Materialise
 	Verdict     ImportVerdict
 	Class       commonv1.ImportRejectionClass
+	// Answered is the dispatch seq whose record this pass incorporated (the
+	// stage tells the ledger), 0 for none.
+	Answered int64
 	// Due is when the import next needs a pass (a retry, a hold's expiry).
 	Due time.Time
 }

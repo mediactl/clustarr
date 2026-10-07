@@ -51,6 +51,7 @@ const (
 	EffectDelete           EffectKind = "delete"
 	EffectSettleCandidate  EffectKind = "settleCandidate"
 	EffectCountGrab        EffectKind = "countGrab"
+	EffectApply            EffectKind = "apply"
 )
 
 // safeRemoveTimeout bounds one payload removal on the I/O pool: a removal
@@ -133,6 +134,17 @@ type CountGrab struct {
 	Namespace, IndexerRef, Key string
 	At                         time.Time
 }
+
+// ApplyObject applies one object a pass owes through Apply, which renders
+// the manager's complete set (an AudioGraft under importarr-worker until
+// F7.1, R26). Desc names it in an error.
+type ApplyObject struct {
+	Desc  string
+	Apply func(ctx context.Context, c client.Client) error
+}
+
+// Kind implements Effect.
+func (ApplyObject) Kind() EffectKind { return EffectApply }
 
 // Kind implements Effect.
 func (EnsureFinalizer) Kind() EffectKind { return EffectFinalizer }
@@ -270,6 +282,14 @@ func (ir *ItemReconciler) runItemEffect(ctx context.Context, item client.Object,
 		default:
 			return Transient(fmt.Errorf("delete %s/%s: %w", e.Object.GetNamespace(), e.Object.GetName(), err))
 		}
+	case ApplyObject:
+		if e.Apply == nil {
+			return nil
+		}
+		if err := e.Apply(ctx, ir.Client); err != nil {
+			return Transient(fmt.Errorf("apply %s: %w", e.Desc, err))
+		}
+		return nil
 	case SettleCandidate:
 		if ir.Inbox != nil {
 			ir.Inbox.Settle(e.MsgID, e.Outcome)
