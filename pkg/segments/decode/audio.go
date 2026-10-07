@@ -56,10 +56,10 @@ func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS
 	}
 	defer func() { _ = sd.Close() }()
 	durUS := ms(durS) * 1000
-	filters := "atrim=starti=0:durationi=" + secs6(durUS) +
-		",aformat=sample_fmts=s16:sample_rates=" + strconv.Itoa(SampleRate) + ":channel_layouts=mono"
+	trim := "atrim=starti=0:durationi=" + secs6(durUS)
+	conv := "aformat=sample_fmts=s16:sample_rates=" + strconv.Itoa(SampleRate) + ":channel_layouts=mono"
 	var (
-		g     *ffgo.FilterGraph
+		g     *audioGraph
 		key   audioKey
 		ts    = newAudioTS()
 		first = int64(-1)
@@ -67,7 +67,7 @@ func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS
 	)
 	defer func() {
 		if g != nil {
-			_ = g.Close()
+			g.close()
 		}
 	}()
 	take := func(fs []*ffgo.Frame) error {
@@ -91,18 +91,15 @@ func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS
 		k := audioKey{rate: rate, format: f.Format(), layout: f.ChannelLayout(), downmix: string(dm)}
 		if g == nil || k != key { // -reinit_filter 1: drain the old graph, build the same chain anew
 			if g != nil {
-				fs, err := g.Flush()
+				fs, err := g.filter(nil)
+				g.close()
+				g = nil
 				if err := errors.Join(err, take(fs)); err != nil {
 					return true, fmt.Errorf("decode: %w", err)
 				}
-				_ = g.Close()
 			}
 			var err error
-			g, err = ffgo.NewFilterGraph(ffgo.FilterGraphConfig{
-				SampleRate: rate, Layout: k.layout, SampleFmt: ffgo.SampleFormat(k.format),
-				TimeBase: ffgo.NewRational(1, int32(rate)), InputSideData: &f, Filters: filters,
-			})
-			if err != nil {
+			if g, err = newAudioGraph(k, &f, trim, conv); err != nil {
 				return true, fmt.Errorf("decode: audio graph: %w", err)
 			}
 			key = k
@@ -111,7 +108,7 @@ func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS
 		if first < 0 && pts+n > 0 {
 			first = max(pts, 0)
 		}
-		fs, err := g.Filter(&f)
+		fs, err := g.filter(&f)
 		if err := errors.Join(err, take(fs)); err != nil {
 			return true, fmt.Errorf("decode: %w", err)
 		}
@@ -122,10 +119,74 @@ func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS
 		return nil, err
 	}
 	if g != nil {
-		fs, err := g.Flush() // aresample's delay
+		fs, err := g.filter(nil) // aresample's delay
 		if err := errors.Join(err, take(fs)); err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
 	}
 	return out, nil
+}
+
+// audioGraph is ffmpeg(1)'s audio chain, atrim then aformat (with the
+// aresample avfilter_graph_config inserts before it), held as two graphs of
+// one filter each: ffgo v0.0.0-clustarr.13 links abuffer and abuffersink to
+// the wrong ends of a parsed audio chain of more than one filter
+// (FilterGraph.setupAudioFilters takes avfilter_graph_parse2's open outputs
+// for its open inputs, so avfilter_link fails with EINVAL). The trim graph
+// negotiates nothing (atrim and an unconstrained abuffersink keep the input's
+// format), so its frames reach the format graph's aresample exactly as they
+// would cross the link inside one graph; both buffer sources get the first
+// frame's side data (F17), the format graph's being the one aresample reads.
+// Collapse it to one graph once the fork links multi-filter audio chains.
+type audioGraph struct{ trim, conv *ffgo.FilterGraph }
+
+func newAudioGraph(k audioKey, f *ffgo.Frame, trim, conv string) (*audioGraph, error) {
+	cfg := ffgo.FilterGraphConfig{
+		SampleRate: k.rate, Layout: k.layout, SampleFmt: ffgo.SampleFormat(k.format),
+		TimeBase: ffgo.NewRational(1, int32(k.rate)), InputSideData: f, Filters: trim,
+	}
+	t, err := ffgo.NewFilterGraph(cfg)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Filters = conv
+	c, err := ffgo.NewFilterGraph(cfg)
+	if err != nil {
+		_ = t.Close()
+		return nil, err
+	}
+	return &audioGraph{trim: t, conv: c}, nil
+}
+
+// filter pushes f through both graphs and returns the format graph's
+// output; nil flushes both, in order.
+func (a *audioGraph) filter(f *ffgo.Frame) ([]*ffgo.Frame, error) {
+	var (
+		mid []*ffgo.Frame
+		err error
+	)
+	if f == nil {
+		mid, err = a.trim.Flush()
+	} else {
+		mid, err = a.trim.Filter(f)
+	}
+	var out []*ffgo.Frame
+	for _, m := range mid {
+		if err == nil {
+			var fs []*ffgo.Frame
+			fs, err = a.conv.Filter(m)
+			out = append(out, fs...)
+		}
+		_ = m.Free()
+	}
+	if f == nil && err == nil {
+		fs, ferr := a.conv.Flush()
+		out, err = append(out, fs...), ferr
+	}
+	return out, err
+}
+
+func (a *audioGraph) close() {
+	_ = a.trim.Close()
+	_ = a.conv.Close()
 }
