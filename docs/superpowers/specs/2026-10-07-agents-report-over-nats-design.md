@@ -1,5 +1,7 @@
 # The manager is the control plane; agents report over NATS; the Download kind is removed (ADR-0019)
 
+> **Names (Wave U, 2026-10-07):** this spec uses the pre-Wave U names; read them through docs/superpowers/specs/2026-10-07-unbranded-names-design.md §6 (as superseded: a cold-turkey swap, no migration).
+
 **Status:** Accepted, 2026-10-07: the owner reviewed it and answered §12. Nothing here is
 implemented; the plan is revised from it (§11).
 

@@ -4,7 +4,7 @@
 # Label an item to opt it in:
 #   kubectl label movie heat clustarr.io/overlay=ratings
 #
-# The renderer (catalogarr --role artwork) draws a badge only for a source
+# The renderer (catalog --role artwork) draws a badge only for a source
 # the item has a rating for; with none, the item keeps its plain poster.
 # Where two profiles select one item the lower name wins and the other
 # reports Overlap=True. status.hash moves with every render field, so an

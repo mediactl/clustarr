@@ -1,5 +1,7 @@
 # Manager, agents and ui: one reconciler process, domain workers, no external media programs
 
+> **Names (Wave U, 2026-10-07):** this spec uses the pre-Wave U names; read them through docs/superpowers/specs/2026-10-07-unbranded-names-design.md §6 (as superseded: a cold-turkey swap, no migration).
+
 **Status:** Accepted for implementation, 2026-10-06. Supersedes
 `docs/superpowers/specs/2026-09-24-unified-manager-design.md` and adopts the
 topology ADR-0013 deferred (the superseding ADR is ADR-0018, §12; ADR-0016 is

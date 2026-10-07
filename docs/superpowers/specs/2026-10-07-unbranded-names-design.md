@@ -1,5 +1,12 @@
 # Unbranded names: the *arr brands leave code and wire, migrated in release N (Wave U)
 
+> **Superseded by the owner, 2026-10-07: cold-turkey swap, no migration.** "This is a new
+> development repo - we can just cold turkey swap." Every name is renamed outright, retired ones
+> included (by the token map; the transcode results durable is `transcode-results`); there is no
+> `pkg/legacynames`, no dual-name read, no displacement, handover, legacy schema or replay mapping,
+> no facade Secret copy and no Migrator names pass, and the gate allows only the dated docs and the
+> installer files W6 rewrites. Read the migration sections (§3, §4, the amendments) as history.
+
 **Status:** Accepted design (owner decisions of 2026-10-07 are binding; §10 holds the only open
 questions). **Plan:** `docs/superpowers/plans/2026-10-07-unbranded-names.md` (Wave U, U1-U7, and the
 amendments to F8.3-F8.5, A8, W6, W10, F9/A9). **Branch:** `unify-manager-agent`, worktree

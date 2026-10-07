@@ -8,6 +8,8 @@ later change can tell whether its premise still holds.
 
 ## Index
 
+Wave U (2026-10-07) renamed the internal *arr names to domain names, cold turkey; ADRs keep the names they were written with -- read them through docs/superpowers/specs/2026-10-07-unbranded-names-design.md §6.
+
 | ADR | Decision | Status |
 |---|---|---|
 | [0001](0001-nats-jetstream-for-events-and-work-queues.md) | NATS JetStream is the event bus and the distributed work queue | Accepted, 2026-09-18 |
@@ -19,7 +21,7 @@ later change can tell whether its premise still holds.
 | [0007](0007-single-replica-metadata-gateway.md) | The metadata gateway is a single replica that owns all outbound provider clients | Accepted, 2026-09-18 |
 | [0008](0008-delay-profile-grab-semantics.md) | Grab semantics are Radarr-shaped delay profiles on scheduled messages, with a keep-best pending record and a grab lease | Accepted, 2026-09-18 |
 | [0009](0009-transcode-worker-pools-over-jetstream.md) | Transcodes run on per-profile-per-hardware-class worker-pool Jobs fed by a JetStream work queue (supersedes 0005) | Accepted, 2026-09-24 |
-| [0010](0010-release-index-engine-selectable.md) | The release index engine is selectable: SQLite FTS5 by default, Postgres FTS via CloudNativePG for multi-replica indexarr (supersedes 0003) | Accepted, 2026-09-24 |
+| [0010](0010-release-index-engine-selectable.md) | The release index engine is selectable: SQLite FTS5 by default, Postgres FTS via CloudNativePG for a multi-replica index domain (supersedes 0003) | Accepted, 2026-09-24 |
 | [0011](0011-artwork-in-jetstream-object-store.md) | Artwork lives in a JetStream object store, one bucket, two writers split by variant | Accepted, 2026-09-24 |
 | [0012](0012-plex-provider-on-the-ui-service.md) | The Plex Metadata Provider is served read-only by the ui service, unauthenticated per protocol, and must not be publicly exposed | Accepted, 2026-09-24 |
 | [0013](0013-per-service-controllers-until-production.md) | Controllers stay one Deployment per service until production ready, then unify into one manager (design recorded, deferred) | Accepted, 2026-09-24 |
@@ -33,9 +35,9 @@ later change can tell whether its premise still holds.
 Refinements that did not change a decision are recorded in the spec, not here:
 
 - **0004:** the one sanctioned exception is `MediaFile`, split spec versus
-  status between importarr and catalogarr (amendment §A1.3 erratum), and the
+  status between import and catalog (amendment §A1.3 erratum), and the
   one cross-service status field is `Download.status.import`, owned by
-  importarr.
+  import.
 - **0008:** the lease bucket has no TTL. The grab path reclaims a lease whose
   holder Download is terminal, being deleted, or missing for ten minutes, and
   re-enters one it holds itself (gap fix X4a, spec §5 and §8.2).
@@ -44,7 +46,7 @@ Refinements that did not change a decision are recorded in the spec, not here:
   `clustarr-pending` retire, because one reconcile per owner serialises grabs (2026-10-07).
 - **0009:** under ADR-0016 the remediation loop admits transcodes from
   `MediaFile.status.transcode` rather than from TranscodeJobs, and is the one
-  writer squasharr was; the pools, the JetStream queue and the task lease are
+  writer the transcode controller was; the pools, the JetStream queue and the task lease are
   unchanged.
 - **0011:** 2026-10-07: no object links; objects carry versioned metadata; the
   ui indexes the bucket by watch; the reaper audits and purges orphan chunks

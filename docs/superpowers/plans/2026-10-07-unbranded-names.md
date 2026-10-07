@@ -1,5 +1,12 @@
 # Unbranded names (Wave U): the *arr brands leave code and wire, migrated in release N -- Implementation Plan, U1-U7 and the amendments
 
+> **Superseded by the owner, 2026-10-07: cold-turkey swap, no migration.** "This is a new
+> development repo - we can just cold turkey swap." Every name is renamed outright, retired ones
+> included (by the token map; the transcode results durable is `transcode-results`); there is no
+> `pkg/legacynames`, no dual-name read, no displacement, handover, legacy schema or replay mapping,
+> no facade Secret copy and no Migrator names pass, and the gate allows only the dated docs and the
+> installer files W6 rewrites. Read the migration sections (§3, §4, the amendments) as history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development or
 > superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax. **Execution mode: implement
 > only**, as for every wave on this branch: no task writes a test; each lists the tests it needs

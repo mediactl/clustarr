@@ -45,12 +45,12 @@ Seven services, one `clustarr` binary, invoked as `clustarr <service> --role <ro
 
 | Service | Responsibility |
 |---|---|
-| **catalogarr** | Inventory (movies, series, episodes, music, books, comics, audiobooks), the metadata gateway, and release decisions: quality/delay profiles, search, grab and RSS matching. |
-| **importarr** | Everything entering the library: root-folder rescan, import lists and completed-download import. |
-| **indexarr** | Aggregates Torznab/Newznab and Cardigann indexers into one search API, with a local release index and RSS sync. |
-| **grabarr** | Download clients: the embedded anacrolix BitTorrent engine and an embedded usenet pipeline, plus download lifecycle and blocklisting. |
-| **squasharr** | Transcoding to HEVC 10-bit + AAC on CPU (libx265) or GPU (hevc_nvenc) workers, with verification and replacement. |
-| **captionarr** | Subtitle search, scoring, fetching and post-processing across providers — Bazarr's behaviour, distributed. |
+| **catalog** | Inventory (movies, series, episodes, music, books, comics, audiobooks), the metadata gateway, and release decisions: quality/delay profiles, search, grab and RSS matching. |
+| **import** | Everything entering the library: root-folder rescan, import lists and completed-download import. |
+| **index** | Aggregates Torznab/Newznab and Cardigann indexers into one search API, with a local release index and RSS sync. |
+| **grab** | Download clients: the embedded anacrolix BitTorrent engine and an embedded usenet pipeline, plus download lifecycle and blocklisting. |
+| **transcode** | Transcoding to HEVC 10-bit + AAC on CPU (libx265) or GPU (hevc_nvenc) workers, with verification and replacement. |
+| **caption** | Subtitle search, scoring, fetching and post-processing across providers — Bazarr's behaviour, distributed. |
 | **ui** | Server-rendered web UI (templ + htmx + SSE) over the same custom resources `kubectl` sees; never writes status and owns no CRD. |
 
 ## Architecture

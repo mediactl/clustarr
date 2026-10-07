@@ -73,7 +73,7 @@ create_cluster() {
     image_line="  image: ${NODE_IMAGE}"
   fi
   # WorkloadWithJob / GenericWorkload / TopologyAwareWorkloadScheduling and
-  # scheduling.k8s.io/v1alpha3 are the gates squasharr's pool Jobs need: the
+  # scheduling.k8s.io/v1alpha3 are the gates transcode's pool Jobs need: the
   # scheduler's gang plugin rides GenericWorkload, and a GPU pool's
   # schedulingConstraints.topology needs TopologyAwareWorkloadScheduling
   # (spec §18.5). All four are shared-registry names the 1.37 apiserver

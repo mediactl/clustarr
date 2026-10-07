@@ -1,5 +1,7 @@
 # MediaFile remediation loop: per-file work as MediaFile status (ADR-0016)
 
+> **Names (Wave U, 2026-10-07):** this spec uses the pre-Wave U names; read them through docs/superpowers/specs/2026-10-07-unbranded-names-design.md §6 (as superseded: a cold-turkey swap, no migration).
+
 **Status:** Accepted for implementation on branch `unify-manager-agent`, 2026-10-06.
 
 **Amended 2026-10-07 (NATS research, `.superpowers/unify/research/nats-object-store.md`).** §4.9 and

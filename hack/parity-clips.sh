@@ -4,7 +4,7 @@
 # parity-clips.sh cuts the ffgo parity harness's inputs (test/parity): the
 # first 60 seconds, stream-copied, of one library file per class the
 # standard tells apart, chosen from a cluster's MediaFile probe summaries
-# (the median-sized Matroska file of each class; a file squasharr or
+# (the median-sized Matroska file of each class; a file the transcode controller or
 # another tool already transcoded is never chosen). It also writes the
 # hevc-mkv TranscodeProfile's spec as profile.json, which the argv engine
 # runs with. Stream copy only: no encode, little CPU.

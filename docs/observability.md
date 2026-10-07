@@ -22,10 +22,10 @@ day debugging a collector that is receiving exactly what it should: nothing.
 | Structured logging, `--log-*` flags, logger in context | **Wired.** Every service builds its logger in `pkg/obs.Bootstrap` and controller-runtime's own output is bridged onto the same stream. | — |
 | `/metrics` endpoint and the 22 registered series | **Wired.** `pkg/obs/metrics.Register` runs once per process, so every series is exposed and scrapeable. Phase C increments three of the domain series — `clustarr_import_unmatched_total`, `clustarr_metadata_cache_hits_total` and `clustarr_search_decisions_total`; the rest still read `0`. | M1–M5, as each controller lands |
 | `TracerProvider`, OTLP exporter, `--tracing-*` flags | **Wired.** `pkg/obs/tracing.Setup` installs the provider and the W3C propagator. | — |
-| Spans around `Reconcile`, work handlers, provider calls, `ffmpeg` | **Partly.** 72 production `tracing.Start` call sites: 42 in the `pkg/` provider clients (metadata, subtitles, torznab, importlist) and 30 across `catalogarr`/`importarr` — every worker handler, the metadata RPC and gateway, and six of the nine catalog controllers. **The Movie, Series and Episode reconcilers have none**, so the three busiest reconcile loops are still invisible to a trace. `ffmpeg` runs are unspanned. | M1–M5, with the code each span wraps |
+| Spans around `Reconcile`, work handlers, provider calls, `ffmpeg` | **Partly.** 72 production `tracing.Start` call sites: 42 in the `pkg/` provider clients (metadata, subtitles, torznab, importlist) and 30 across `catalog`/`import` — every worker handler, the metadata RPC and gateway, and six of the nine catalog controllers. **The Movie, Series and Episode reconcilers have none**, so the three busiest reconcile loops are still invisible to a trace. `ffmpeg` runs are unspanned. | M1–M5, with the code each span wraps |
 | Trace propagation across the bus (`Clustarr-Trace`) | **Wired inside `pkg/events`.** Both `natsbus.Bus` and `membus.Bus` take an `events.Hooks{BeforePublish, AfterReceive}` through a `WithHooks` constructor option and call it around every publish and every receive, before the handler runs; a nil hook (the default) is a no-op, so a bus built with none behaves exactly as before. `pkg/obs.BusHooks()` returns `events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract}` unchanged — `pkg/obs/bootstrap_test.go`'s `TestBusHooksCarryOneTraceAcrossPublishAndConsume` proves a span started before a publish is the parent of the span the consumer starts after receiving, across an in-memory bus. **True in production as of Phase C:** `pkg/k8s.ConnectBus` takes `k8s.WithBusHooks(obs.BusHooks())` from every service's `Run`, and an AST guard over each `run.go` fails the build if a service stops passing them. `pkg/k8s` deliberately does **not** import `pkg/obs` — `Inject`/`Extract` read the otel globals `obs.Bootstrap` installs, so a default inside `ConnectBus` would be a silent no-op whenever bootstrap order slipped. The hooks cover publish, receive and both RPC legs. | Done (M1, amendment §A4). |
 | `/healthz`, `/readyz` and the `ping` check | **Wired** on every service. | — |
-| Per-role readiness checks | **Partly.** The JetStream ping (every service), `catalogarr`'s informer-cache sync and `importarr`'s `/data` present-and-writable check exist; the rest of the table below is design. Every readiness runnable is non-leader-elected, so a non-leader replica can reach Ready — otherwise every rollout deadlocks. Still missing: `indexarr`'s release index and `grabarr`'s torrent re-attach. | M2–M5 |
+| Per-role readiness checks | **Partly.** The JetStream ping (every service), `catalog`'s informer-cache sync and `import`'s `/data` present-and-writable check exist; the rest of the table below is design. Every readiness runnable is non-leader-elected, so a non-leader replica can reach Ready — otherwise every rollout deadlocks. Still missing: `index`'s release index and `grab`'s torrent re-attach. | M2–M5 |
 
 Everything below is written in the present tense where it is built and marked
 where it is not.
@@ -186,19 +186,19 @@ It is the target, not today: none of the spans below exist yet. Amendment §A4
 assigns the first end-to-end exercise of this trace to M1, and the **Status**
 table above says which piece arrives when.
 
-1. **Want** — a `Movie`/`Episode` becomes `Wanted`. `catalogarr`'s reconciler
-   span publishes `work.catalogarr.search.<tier>.<mediaKey>`, carrying the
+1. **Want** — a `Movie`/`Episode` becomes `Wanted`. `catalog`'s reconciler
+   span publishes `work.catalog.search.<tier>.<mediaKey>`, carrying the
    trace.
-2. **Search** — `catalogarr`'s search worker picks up the message (its handler
-   span is a child of the publish span above), calls `rpc.indexarr.search`
-   (`indexarr` runs its query span as a child of that RPC), and evaluates the
+2. **Search** — `catalog`'s search worker picks up the message (its handler
+   span is a child of the publish span above), calls `rpc.index.search`
+   (`index` runs its query span as a child of that RPC), and evaluates the
    results.
 3. **Decide → grab** — still inside the search worker's span tree: `Evaluate`
    and `Rank` run as plain function calls (no HTTP, no NATS hop, so no new
    span), then a delay-profile decision either publishes
-   `work.catalogarr.grab.normal.<mediaKey>` for a delayed grab, or creates the
+   `work.catalog.grab.normal.<mediaKey>` for a delayed grab, or creates the
    `Download` directly and grabs now.
-4. **Download** — `grabarr`'s torrent or usenet engine consumes the grab and
+4. **Download** — `grab`'s torrent or usenet engine consumes the grab and
    drives the transfer; its span covers the client call that starts the
    download. The multi-minute-to-multi-day transfer itself is not one long
    span — it is the `clustarr_download_duration_seconds` histogram above,
@@ -206,16 +206,16 @@ table above says which piece arrives when.
    instead of being clamped into the last bucket — but the engine's periodic
    status reconciles remain part of the same trace via the `Download`'s
    owned events.
-5. **Import** — `importarr`'s fileimport worker consumes
-   `work.importarr.fileimport.<download>` once the `Download` reaches
+5. **Import** — `import`'s fileimport worker consumes
+   `work.import.fileimport.<download>` once the `Download` reaches
    `Completed`/`Seeding`; its span covers probing, naming and the
-   hardlink-or-copy/move. (Amendment §A1.2 moved this out of `catalogarr`.)
-6. **Transcode** — `squasharr`'s `transcodeprofile` controller reacts to the
+   hardlink-or-copy/move. (Amendment §A1.2 moved this out of `catalog`.)
+6. **Transcode** — `transcode`'s `transcodeprofile` controller reacts to the
    new `MediaFile.status.probeHash` (a Kubernetes watch, not a NATS hop, so
    this leg's parent is the import span's trace context carried on the
    resource rather than a message header) and creates a `TranscodeJob`; the
    worker's `ffmpeg` span is the expensive one.
-7. **Subtitles** — `captionarr` reacts to the same `probeHash` change (after
+7. **Subtitles** — `caption` reacts to the same `probeHash` change (after
    the transcode's re-probe) and fetches subtitles; its provider-call spans
    close the trace.
 
@@ -237,10 +237,10 @@ rest land with the code whose dependency they guard.
 
 | Dependency | Checked by | Status | Why it is readiness, not liveness |
 |---|---|---|---|
-| NATS connectivity + JetStream ping (`pkg/k8s.BusReadyChecker`) | Every service that consumes work: `catalogarr`, `indexarr`, `grabarr`, `squasharr`, `captionarr`, `importarr` | **Wired** | A NATS outage should pull the pod out of Service rotation, not restart it — a controller whose Kubernetes watches are still healthy has useful reconcile work to do regardless. |
-| Release index volume open (SQLite FTS5) | `indexarr` | M2 | The local index is how `indexarr` answers queries fast; if it failed to open, the pod cannot do its job even though the process is alive. |
-| `/data` writability | `importarr` today; `grabarr` (engines), `squasharr` (worker) and `captionarr` (worker) as each starts touching files | **Wired for `importarr`** (`importarr.DataReadyChecker`); M3–M5 for the rest | An RWX volume that has gone read-only (a common CephFS/NFS failure mode) must stop new work without crash-looping the pod. The write runs in the background (`app/import/dataready.go`): `/readyz` answers from the last finished write, re-probes once it is 30 s old (at once after a failure), and fails on a write error or a write still running after 60 s -- a write inline in the 1 s probe failed readiness whenever NFS was slow (2026-10-05). |
-| Torrent engine re-attach complete | `grabarr` torrent engines | M3 | An engine restart has to re-attach every persisted torrent from `/data/torrents/.state/*.torrent` before it is safe to accept new adds; readiness gates that, not liveness. |
+| NATS connectivity + JetStream ping (`pkg/k8s.BusReadyChecker`) | Every service that consumes work: `catalog`, `index`, `grab`, `transcode`, `caption`, `import` | **Wired** | A NATS outage should pull the pod out of Service rotation, not restart it — a controller whose Kubernetes watches are still healthy has useful reconcile work to do regardless. |
+| Release index volume open (SQLite FTS5) | `index` | M2 | The local index is how `index` answers queries fast; if it failed to open, the pod cannot do its job even though the process is alive. |
+| `/data` writability | `import` today; `grab` (engines), `transcode` (worker) and `caption` (worker) as each starts touching files | **Wired for `import`** (`import.DataReadyChecker`); M3–M5 for the rest | An RWX volume that has gone read-only (a common CephFS/NFS failure mode) must stop new work without crash-looping the pod. The write runs in the background (`app/import/dataready.go`): `/readyz` answers from the last finished write, re-probes once it is 30 s old (at once after a failure), and fails on a write error or a write still running after 60 s -- a write inline in the 1 s probe failed readiness whenever NFS was slow (2026-10-05). |
+| Torrent engine re-attach complete | `grab` torrent engines | M3 | An engine restart has to re-attach every persisted torrent from `/data/torrents/.state/*.torrent` before it is safe to accept new adds; readiness gates that, not liveness. |
 
 A pod that is unready but alive keeps its existing work going (an engine keeps
 seeding, a controller keeps watching) while Kubernetes stops routing new

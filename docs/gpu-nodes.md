@@ -1,13 +1,13 @@
 # GPU nodes
 
-squasharr's transcode pools run on GPU nodes found by a label and fed a GPU
+The transcode controller's pools run on GPU nodes found by a label and fed a GPU
 through the vendor's device plugin. This is what a node needs for each class,
 and how the owner's `kind-cluster-plex` (one laptop node: an RTX 2070 Max-Q
 and a UHD 630 iGPU) is set up, as of 2026-10-01.
 
-What squasharr expects of a node:
+What the transcode controller expects of a node:
 
-| Class | Node label (flag) | Resource a pool pod requests | Pod settings squasharr sets |
+| Class | Node label (flag) | Resource a pool pod requests | Pod settings the transcode controller sets |
 | --- | --- | --- | --- |
 | `nvidia` | `nvidia.com/gpu.present=true` (`--gpu-node-label-nvidia`) | `nvidia.com/gpu` | `runtimeClassName: nvidia`, `NVIDIA_DRIVER_CAPABILITIES=video,compute,utility` |
 | `intel` | `intel.feature.node.kubernetes.io/gpu=true` (`--gpu-node-label-intel`) | `gpu.intel.com/i915` | the render group from `--intel-render-groups` |
@@ -77,7 +77,7 @@ caps each class.
    and mounts only that GPU's `card*` and `renderD*` into a pod that asks.
 3. The render group. The pool pod runs as uid 1000; it can open the render
    node when the node's `renderD*` is world-writable (kind-cluster-plex's is,
-   `0666`), or when squasharr is given the node's render GID with
+   `0666`), or when the transcode controller is given the node's render GID with
    `--intel-render-groups` (`CLUSTARR_INTEL_RENDER_GROUPS`; 989 on the
    owner's host), or under a container runtime with
    `device_ownership_from_security_context`.
@@ -92,7 +92,7 @@ Two limits to know:
 
 - **The xe kernel driver.** Intel GPUs on `xe` (Lunar Lake, Battlemage and
   newer Arc) register `gpu.intel.com/xe`, which a pool pod does not request
-  (`pool.GPUResource`), so squasharr finds no Intel node there yet.
+  (`pool.GPUResource`), so the transcode controller finds no Intel node there yet.
 - **Several GPUs on a node.** VA-API and legacy QSV open the first render
   node, not the one a pod was given; Intel's plugin docs carry the warning.
   Inside a pool pod the plugin mounts only the assigned GPU, and the engine

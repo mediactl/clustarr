@@ -1,8 +1,8 @@
 # §11 Storage.
 #
 # clustarr-data is the single ReadWriteMany volume mounted at /data in every
-# media-touching pod: catalogarr, grabarr (and its engines), squasharr (and
-# its transcode Jobs), captionarr and captionarr-worker. Import is a hardlink
+# media-touching pod: catalog, grab (and its engines), transcode (and
+# its transcode Jobs), caption and caption-worker. Import is a hardlink
 # or a rename inside this one filesystem, which is why it must be one volume
 # and not one per service.
 #
@@ -29,8 +29,8 @@ spec:
       storage: 100Gi
   # storageClassName: cephfs
 ---
-# The indexarr release index: SQLite (WAL + FTS5), 5Gi, ReadWriteOnce. This
-# is why the indexarr Deployment is pinned to one replica with strategy
+# The index domain's release index: SQLite (WAL + FTS5), 5Gi, ReadWriteOnce. This
+# is why the index Deployment is pinned to one replica with strategy
 # Recreate -- a second pod could neither bind the PVC nor share the database.
 apiVersion: v1
 kind: PersistentVolumeClaim
