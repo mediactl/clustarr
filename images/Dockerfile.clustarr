@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+#
+# ghcr.io/mediactl/clustarr -- the manager and ui binaries, static and
+# cgo-free, on distroless (spec 2026-10-06 §10.1.2, R1). Everything that
+# loads FFmpeg, ONNX Runtime or par2 runs from images/Dockerfile.native. The
+# deps guards (test/guards/deps_test.go) keep both binaries free of a dynamic
+# loader, so they cross-compile from $BUILDPLATFORM.
+#
+# No ENTRYPOINT: the image holds two binaries, so every container names its
+# own (pkg/binpath; TestEveryContainerNamesItsBinary).
+#
+#   make docker-build     # this image and the native one, with the pinned contexts
+
+ARG GO_VERSION=1.27
+
+# Empty unless `--build-context ffgo=<dir>` replaces it. go.mod replaces the
+# ffgo fork with a local directory until its tag is published, and
+# `go mod download` needs its go.mod even for binaries that never link it
+# (spec §7.6, §10.1.5). The COPY target is go.mod's directory as /src/..
+# sees it; TestEveryGoBuildingDockerfileCarriesTheReplaceStages holds it to
+# go.mod. par2go is a published module and needs no stage (upgrade guide U1).
+FROM scratch AS ffgo
+
+# ---------------------------------------------------------------------------
+# build: cmd/manager and cmd/ui, CGO_ENABLED=0
+# ---------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+WORKDIR /src
+ENV CGO_ENABLED=0 \
+    GOFLAGS=-trimpath
+COPY --from=ffgo / /ffgo-unify/
+# Warm the module cache separately so source edits do not re-download.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
+      -o /out/manager ./cmd/manager \
+ && GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
+      -o /out/ui ./cmd/ui
+
+# ---------------------------------------------------------------------------
+# clustarr: distroless static, non-root
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/static:nonroot AS clustarr
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr"
+COPY --from=build /out/manager /out/ui /usr/bin/
+USER 65532:65532

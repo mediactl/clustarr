@@ -197,8 +197,8 @@ build: ## Build the five binaries.
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/markers ./cmd/markers
 
 .PHONY: docker-build
-docker-build: ## Build controller, media and transcoder images.
-	docker build -f images/Dockerfile.controller -t $(IMG) .
+docker-build: contexts ## Build controller, media and transcoder images.
+	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
 	docker build -f images/Dockerfile.media -t $(MEDIA_IMG) .
 	docker build -f images/Dockerfile.transcoder --target transcoder -t $(TRANSCODER_IMG) .
 
