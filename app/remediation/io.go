@@ -160,7 +160,8 @@ func (x *IOExecutor) recordTimeout() {
 			kept = append(kept, at)
 		}
 	}
-	x.timeouts = append(kept, now)
+	kept = append(kept, now)
+	x.timeouts = kept
 	if len(x.timeouts) >= breakerTrips {
 		x.openedAt, x.timeouts = now, nil
 	}
