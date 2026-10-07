@@ -289,6 +289,11 @@ func siteBase(baseURL string) string {
 	return baseURL + "/"
 }
 
+// ReloginFunc logs in again after the tracker killed stale, the session the
+// client was using, and persists the new session. When the login fails, stale
+// is the only session it may drop (SessionStore.Drop, §5.3.2).
+type ReloginFunc func(ctx context.Context, stale *cardigann.Session) (*cardigann.Session, error)
+
 // CardigannClient is one definition-backed Indexer's engine, definition and
 // resolved configuration. It is the Cardigann counterpart of *torznab.Client
 // and is built by the same one function, [buildWireClient], for the same
@@ -308,7 +313,7 @@ type CardigannClient struct {
 	// relogin logs in again and persists the new session. nil means this
 	// client cannot (a unit test, or a definition with no login block), and
 	// an expired session is then an ordinary failure.
-	relogin func(ctx context.Context) (*cardigann.Session, error)
+	relogin ReloginFunc
 
 	// loginMu single-flights relogin: the fan-out searching one indexer from
 	// several requests at once must log in once, not once per request.
@@ -332,7 +337,7 @@ func (c *CardigannClient) Definition() *cardigann.Definition { return c.def }
 // SetRelogin installs fn as the client's re-login (see the relogin field).
 // It is for the code that builds the client, before the client is cached
 // and shared: it takes no lock.
-func (c *CardigannClient) SetRelogin(fn func(ctx context.Context) (*cardigann.Session, error)) {
+func (c *CardigannClient) SetRelogin(fn ReloginFunc) {
 	c.relogin = fn
 }
 
@@ -369,7 +374,7 @@ func (c *CardigannClient) renewSession(ctx context.Context, stale *cardigann.Ses
 	if c.Config().Session != stale {
 		return nil // renewed by the caller ahead of us
 	}
-	sess, err := c.relogin(ctx)
+	sess, err := c.relogin(ctx, stale)
 	if err != nil {
 		return err
 	}

@@ -286,19 +286,21 @@ func buildWireClientFor(
 // writes, so every other path -- the reconciler, the generic fetcher reading
 // the Secret's cookie key -- sees it too.
 //
-// A failed login DROPS the stored session before it returns: the reconciler
-// only logs in when the session is missing or near expiry, so a killed but
-// unexpired session left in place would be reused by every search until it
-// aged out. Dropped, the next reconcile logs in and reports a credential
-// problem as the Authenticated condition, where an operator looks.
-func reloginFunc(cg *idxclients.CardigannClient, owner *indexv1alpha1.Indexer, sessions *idxclients.SessionStore) func(context.Context) (*cardigann.Session, error) {
-	return func(ctx context.Context) (*cardigann.Session, error) {
+// A failed login drops the session it failed with, and only that one: a
+// session the manager saved meanwhile stays (SessionStore.Drop's
+// compare-and-swap). The reconciler only logs in when the session is missing
+// or near expiry, so a killed but unexpired session left in place would be
+// reused by every search until it aged out. Dropped, the next reconcile logs
+// in and reports a credential problem as the Authenticated condition, where
+// an operator looks.
+func reloginFunc(cg *idxclients.CardigannClient, owner *indexv1alpha1.Indexer, sessions *idxclients.SessionStore) idxclients.ReloginFunc {
+	return func(ctx context.Context, stale *cardigann.Session) (*cardigann.Session, error) {
 		log := logging.FromContext(ctx).With("indexer", client.ObjectKeyFromObject(owner))
 		cfg := cg.Config()
 		cfg.Session = nil
 		sess, err := cg.Engine().Login(ctx, cg.Definition(), cfg)
 		if err != nil {
-			if derr := sessions.Drop(ctx, owner); derr != nil {
+			if derr := sessions.Drop(ctx, owner, stale); derr != nil {
 				log.Warn("indexer: dropping the expired session failed", "error", derr)
 			}
 			return nil, fmt.Errorf("indexer: logging in again after the tracker expired the session: %w",

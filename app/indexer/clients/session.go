@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package clients
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -182,36 +184,104 @@ func (s *SessionStore) Save(ctx context.Context, idx *indexv1alpha1.Indexer, ses
 	return nil
 }
 
-// Drop forgets idx's session: the KV entry is deleted and the owned Secret's
-// two keys are emptied, which Load reads as "no session" -- so the next
-// Indexer reconcile logs in again rather than keep reusing a session the
+// Drop forgets idx's session, but only while the stored session is still
+// failed: the one a cached client was using when the tracker killed it and
+// its relogin failed. A session saved since then (the manager's login, in
+// another process since the split) is left alone in the Secret and in KV
+// (§5.3.2). A nil failed drops nothing: a client that had no session has
+// nothing of its own to invalidate.
+//
+// Load reads an emptied Secret and an absent KV key as "no session", so the
+// next Indexer reconcile logs in again rather than keep reusing a session the
 // tracker has already killed.
 //
-// It EMPTIES the Secret rather than deleting it: the Secret is applied under
-// s.Manager with the same complete declaration Save makes (owner,
-// type, both keys), so this needs no verb Save does not already have, and
-// Save's next apply fills it again. A search that re-logged in and still
-// failed calls this; see CardigannClient.Search.
-func (s *SessionStore) Drop(ctx context.Context, idx *indexv1alpha1.Indexer) error {
-	if s == nil {
+// The Secret is emptied rather than deleted, under s.Manager, with the same
+// complete declaration Save makes, so this needs no verb Save lacks. The
+// Secret goes first and KV second, the order Save writes them. A search that
+// re-logged in and still failed calls this; see CardigannClient.Search.
+func (s *SessionStore) Drop(ctx context.Context, idx *indexv1alpha1.Indexer, failed *cardigann.Session) error {
+	if s == nil || failed == nil {
 		return nil
 	}
+	want, err := cardigann.MarshalSession(failed)
+	if err != nil {
+		return err
+	}
 	var errs []error
-	if s.KV != nil {
-		if err := s.KV.Delete(ctx, SessionKey(idx.UID)); err != nil {
-			errs = append(errs, fmt.Errorf("indexer: drop session from %s: %w", events.BucketIndexerSessions, err))
+	if s.Client != nil {
+		if err := s.dropSecret(ctx, idx, want); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	if s.Client != nil {
-		ac := sessionSecretAC(idx, map[string][]byte{
-			SessionSecretKeySession: {},
-			SessionSecretKeyCookie:  {},
-		})
-		if _, err := k8s.Apply(ctx, s.Client, s.Manager, ac); err != nil {
-			errs = append(errs, fmt.Errorf("indexer: empty session secret: %w", err))
+	if s.KV != nil {
+		if err := s.dropKV(ctx, idx, want); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// dropSecret is §5.3.2 steps 1-3. It does a live read (Secrets are never
+// cached), returns without writing unless data.session is still want, and
+// otherwise applies the emptied declaration at the read's resourceVersion.
+// A Conflict means someone wrote in between, so the whole step runs again
+// from a fresh read.
+func (s *SessionStore) dropSecret(ctx context.Context, idx *indexv1alpha1.Indexer, want []byte) error {
+	key := types.NamespacedName{Namespace: idx.Namespace, Name: SessionSecretName(idx.Name)}
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var sec corev1.Secret
+		if err := s.Client.Get(ctx, key, &sec); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		if !ownedBy(sec.OwnerReferences, idx.UID) || !sameSession(sec.Data[SessionSecretKeySession], want) {
+			return nil // a newer session, or not this Indexer's: nothing of ours to drop
+		}
+		ac := sessionSecretAC(idx, map[string][]byte{
+			SessionSecretKeySession: {},
+			SessionSecretKeyCookie:  {},
+		}).WithResourceVersion(sec.ResourceVersion)
+		_, err := k8s.Apply(ctx, s.Client, s.Manager, ac)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("indexer: empty session secret %s: %w", key, err)
+	}
+	return nil
+}
+
+// dropKV is §5.3.2 step 4. A revision mismatch means a newer session was put
+// after the read, and that session stays.
+func (s *SessionStore) dropKV(ctx context.Context, idx *indexv1alpha1.Indexer, want []byte) error {
+	key := SessionKey(idx.UID)
+	e, err := s.KV.Get(ctx, key)
+	switch {
+	case errors.Is(err, events.ErrKeyNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("indexer: read session from %s: %w", events.BucketIndexerSessions, err)
+	}
+	if !sameSession(e.Value, want) {
+		return nil
+	}
+	if err := s.KV.DeleteRevision(ctx, key, e.Revision); err != nil && !errors.Is(err, events.ErrRevisionMismatch) {
+		return fmt.Errorf("indexer: drop session from %s: %w", events.BucketIndexerSessions, err)
+	}
+	return nil
+}
+
+// sameSession reports whether raw holds the session that marshals to want.
+// raw is decoded and re-encoded first, so two encodings of one session
+// compare equal. Empty or undecodable bytes never match.
+func sameSession(raw, want []byte) bool {
+	got, err := cardigann.UnmarshalSession(raw)
+	if err != nil {
+		return false
+	}
+	norm, err := cardigann.MarshalSession(got)
+	return err == nil && bytes.Equal(norm, want)
 }
 
 // sessionSecretAC is the owned session Secret's complete declaration: a
