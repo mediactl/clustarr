@@ -80,7 +80,7 @@ const (
 
 // FetchTaskType is the Clustarr-Type header of every fetch task this
 // controller publishes.
-const FetchTaskType = "subtitle.FetchTask"
+const FetchTaskType = schema.FetchTaskType
 
 const (
 	// requeueDisk re-checks a block that no watch will ever clear: the
@@ -104,7 +104,7 @@ const (
 type Reconciler struct {
 	Client client.Client
 
-	// Bus publishes schema.FetchTask. Nil is a configuration error that
+	// Bus publishes schema.FetchTaskV1. Nil is a configuration error that
 	// surfaces as a reconcile error the first time a task is due, not as a
 	// silently idle planner.
 	Bus events.Publisher
@@ -651,7 +651,7 @@ func (r *Reconciler) apply(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 		})
 }
 
-// publish sends one schema.FetchTask under msgID -- events.MsgIDForSubtitle
+// publish sends one schema.FetchTaskV1 under msgID -- events.MsgIDForSubtitle
 // for a scheduled search, events.MsgIDForForcedSubtitle for a forced one
 // (ruling R6, and doc.go's "Dedup and forceSearch"): a level-driven
 // reconciler publishes on every eligible pass, and the work stream's
@@ -664,7 +664,7 @@ func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleR
 	if r.Bus == nil {
 		return events.Receipt{}, errors.New("subtitlerequest: no bus configured")
 	}
-	schemaName, data, err := schema.Encode(schema.FetchTask{
+	schemaName, data, err := schema.Encode(schema.FetchTaskV1{
 		RequestRef: schema.Ref{Namespace: sr.Namespace, Name: sr.Name, UID: string(sr.UID)},
 		LangKey:    t.langKey,
 		MinScore:   t.minScore,

@@ -163,6 +163,15 @@ rules:
 - apiGroups:
   - subtitle.clustarr.io
   resources:
+  - subtitleprofiles
+  - subtitleproviders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
   - subtitlerequests
   verbs:
   - get

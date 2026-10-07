@@ -145,10 +145,10 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 		return resolveTranscodeTask(env.Key, env.Data), int64(p.Attempt), DispatchSubTranscode, true
 	case schema.FetchTask{}.Schema():
 		var p schema.FetchTask
-		if err := schema.Decode(env.Schema, env.Data, &p); err != nil || p.RequestRef.Name == "" {
+		if err := schema.Decode(env.Schema, env.Data, &p); err != nil || p.MediaFile.Name == "" {
 			return Target{}, 0, "", false
 		}
-		return resolveFetchTask(env.Key, env.Data), 0, DispatchSubSubtitle + "/" + p.LangKey, true
+		return resolveFetchTask(env.Key, env.Data), p.Seq, DispatchSubSubtitle + "/" + p.LangKey, true
 	case schema.SegmentsPlanTask{}.Schema(), schema.AnalyzeTask{}.Schema():
 		t = Resolve(env)
 		return t, 0, DispatchSubSegments, t.KindKnown()

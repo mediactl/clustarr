@@ -163,21 +163,26 @@ func indexSeriesByRootFolder(o client.Object) []string {
 	return []string{s.Spec.RootFolderRef}
 }
 
-// movieNaming, seriesNaming and episodeNaming are the status fields
-// renderNaming reads from each owner kind (catalogctx.Movie, Episode and
-// EpisodeFilePath's series folder); a spec change reaches the watch through
-// GenerationChanged. Everything else in those statuses -- phase, file
-// rollups, artwork -- is churn the naming watch must not wake for.
-type movieNaming struct {
-	title string
-	year  int32
-	imdb  string
+// movieFileInput, seriesFileInput and episodeNaming are the status fields a
+// file's planners read from each owner kind: what renderNaming reads
+// (catalogctx.Movie, Episode and EpisodeFilePath's series folder) and, on a
+// Movie and a Series, the original language the subtitles planner counts
+// untagged audio as (loop spec §3.3 S2', S4'; no watch existed on it
+// before). A spec change reaches the watch through GenerationChanged.
+// Everything else in those statuses -- phase, file rollups, artwork -- is
+// churn the file watches must not wake for.
+type movieFileInput struct {
+	title            string
+	year             int32
+	imdb             string
+	originalLanguage string
 }
 
-type seriesNaming struct {
-	title string
-	year  int32
-	path  string
+type seriesFileInput struct {
+	title            string
+	year             int32
+	path             string
+	originalLanguage string
 }
 
 type episodeNaming struct {
@@ -186,23 +191,23 @@ type episodeNaming struct {
 	airDate  int64
 }
 
-func movieNamingInputs(o client.Object) movieNaming {
+func movieFileInputs(o client.Object) movieFileInput {
 	m, ok := o.(*catalogv1alpha1.Movie)
 	if !ok || m.Status.Metadata == nil {
-		return movieNaming{}
+		return movieFileInput{}
 	}
 	md := m.Status.Metadata
-	return movieNaming{title: md.Title, year: md.Year, imdb: md.ExternalIDs["imdb"]}
+	return movieFileInput{title: md.Title, year: md.Year, imdb: md.ExternalIDs["imdb"], originalLanguage: md.OriginalLanguage}
 }
 
-func seriesNamingInputs(o client.Object) seriesNaming {
+func seriesFileInputs(o client.Object) seriesFileInput {
 	s, ok := o.(*catalogv1alpha1.Series)
 	if !ok {
-		return seriesNaming{}
+		return seriesFileInput{}
 	}
-	out := seriesNaming{path: s.Status.Path}
+	out := seriesFileInput{path: s.Status.Path}
 	if md := s.Status.Metadata; md != nil {
-		out.title, out.year = md.Title, md.Year
+		out.title, out.year, out.originalLanguage = md.Title, md.Year, md.OriginalLanguage
 	}
 	return out
 }
@@ -348,10 +353,11 @@ func (s fileSet) names() []types.NamespacedName {
 }
 
 // MovieNamingChanged, EpisodeNamingChanged, SeriesNamingChanged and
-// RootFolderNamingChanged are the naming watches' predicates: a spec change,
-// or the status fields a render reads.
+// RootFolderNamingChanged are the file watches' predicates (S2'-S4', S11):
+// a spec change, or the status fields a render reads (on a Movie and a
+// Series, the original language too).
 func MovieNamingChanged() predicate.Predicate {
-	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(movieNamingInputs))
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(movieFileInputs))
 }
 
 // EpisodeNamingChanged is an Episode's naming predicate.
@@ -361,7 +367,7 @@ func EpisodeNamingChanged() predicate.Predicate {
 
 // SeriesNamingChanged is a Series' naming predicate.
 func SeriesNamingChanged() predicate.Predicate {
-	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(seriesNamingInputs))
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(seriesFileInputs))
 }
 
 // RootFolderNamingChanged is a RootFolder's naming predicate.

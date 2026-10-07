@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package history
 
 import (
+	"cmp"
 	"context"
 	"strings"
 
@@ -160,6 +161,7 @@ var resolvers = map[string]resolver{
 	transcodeTaskRef{}.Schema():         resolveTranscodeTask,
 	schema.SubtitleEvent{}.Schema():     resolveSubtitleEvent,
 	schema.FetchTask{}.Schema():         resolveFetchTask,
+	schema.FetchTaskV1Schema:            resolveFetchTaskV1,
 	schema.ScanTask{}.Schema():          resolveScanTask,
 	schema.ListTask{}.Schema():          resolveListTask,
 	schema.RecycleSweepTask{}.Schema():  resolveRecycleSweepTask,
@@ -459,9 +461,28 @@ func resolveSubtitleEvent(key string, data []byte) Target {
 	return refTarget(p.RequestRef, subtitlev1alpha1.GroupVersion.String(), "SubtitleRequest")
 }
 
+// resolveFetchTask resolves a v2 fetch task to its MediaFile (loop spec
+// §6.10): the task names the file the loop planned.
 func resolveFetchTask(key string, data []byte) Target {
 	var p schema.FetchTask
-	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.MediaFile.Name == "" {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaFileTarget(cmp.Or(p.MediaFile.Namespace, namespaceOf(key)), p.MediaFile.Name)
+}
+
+// fetchTaskV1Ref is the one field of a v1 FetchTask a dead letter needs.
+type fetchTaskV1Ref struct {
+	RequestRef schema.Ref `json:"requestRef"`
+}
+
+func (fetchTaskV1Ref) Schema() string { return schema.FetchTaskV1Schema }
+
+// resolveFetchTaskV1 keeps a v1 fetch task's SubtitleRequest target until
+// F5.4 makes it namespace-only.
+func resolveFetchTaskV1(key string, data []byte) Target {
+	var p fetchTaskV1Ref
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.RequestRef.Name == "" {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return refTarget(p.RequestRef, subtitlev1alpha1.GroupVersion.String(), "SubtitleRequest")

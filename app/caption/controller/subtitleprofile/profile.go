@@ -20,12 +20,10 @@ package subtitleprofile
 import (
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/app/caption/subtitleplan"
 	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
@@ -62,15 +60,6 @@ const (
 	// rather than re-deriving it."
 	ReasonKeyMismatch = "KeyMismatch"
 )
-
-// eligibleKind reports whether k is a video kind a SubtitleProfile may
-// select. Mirrors transcodeprofile's identical eligibleKind: only movie and
-// episode MediaFiles carry a video stream subtitles can be searched or
-// extracted for. Audio, book, audiobook and comic MediaFiles are never
-// candidates, regardless of whether their labels happen to match a selector.
-func eligibleKind(k commonv1.MediaKind) bool {
-	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
-}
 
 // itemKey names one catalog item a MediaFile can reference.
 type itemKey struct {
@@ -133,87 +122,9 @@ func wantedKeys(spec subtitlev1alpha1.SubtitleProfileSpec) []string {
 	return out
 }
 
-// selectorMatches reports whether p's selector matches mf's labels. A nil
-// selector matches nothing -- only spec.default's fallback applies a profile
-// with no selector at all -- and a malformed selector (which the apiserver's
-// own schema validation should already have rejected, since
-// metav1.LabelSelector's fields are themselves well-formed) matches nothing
-// rather than everything, so a typo in a selector fails safe into "no
-// requests ensured" rather than "every file claimed".
-func selectorMatches(p *subtitlev1alpha1.SubtitleProfile, mf *catalogv1alpha1.MediaFile) bool {
-	if p.Spec.Selector == nil {
-		return false
-	}
-	sel, err := metav1.LabelSelectorAsSelector(p.Spec.Selector)
-	if err != nil {
-		return false
-	}
-	return sel.Matches(labels.Set(mf.Labels))
-}
-
-// profileLess is the deterministic tie-break this package uses everywhere two
-// profiles contend for the same role (both default, or both selecting the
-// same file): the earlier-created profile wins, and a tie on creation
-// timestamp falls back to the lexicographically smaller name. It is a total
-// order, so repeated application across a whole profile list always
-// converges on the same single winner regardless of iteration order. Mirrors
-// transcodeprofile's identical profileLess byte for byte.
-func profileLess(a, b *subtitlev1alpha1.SubtitleProfile) bool {
-	at, bt := a.CreationTimestamp, b.CreationTimestamp
-	if !at.Equal(&bt) {
-		return at.Before(&bt)
-	}
-	return a.Name < b.Name
-}
-
-// defaultWinner returns the single profile that wins spec.default among all,
-// by profileLess, or nil if none is marked default.
-func defaultWinner(all []subtitlev1alpha1.SubtitleProfile) *subtitlev1alpha1.SubtitleProfile {
-	var winner *subtitlev1alpha1.SubtitleProfile
-	for i := range all {
-		p := &all[i]
-		if !p.Spec.Default {
-			continue
-		}
-		if winner == nil || profileLess(p, winner) {
-			winner = p
-		}
-	}
-	return winner
-}
-
-// winningProfile resolves which profile owns mf: the profileLess-least of
-// every profile whose selector matches, or -- when none does -- def (the
-// resolved default winner), or nil when neither applies. Selector-matching
-// profiles are tried before the default fallback (a profile that opts a file
-// in by label always outranks the cluster default), and among
-// selector-matching profiles the earliest-created (then lowest-named) one
-// wins, deterministically, so no file is ever handed to two profiles in the
-// same reconcile pass regardless of which profile's Reconcile happens to run.
-func winningProfile(
-	mf *catalogv1alpha1.MediaFile,
-	profiles []subtitlev1alpha1.SubtitleProfile,
-	def *subtitlev1alpha1.SubtitleProfile,
-) *subtitlev1alpha1.SubtitleProfile {
-	var best *subtitlev1alpha1.SubtitleProfile
-	for i := range profiles {
-		p := &profiles[i]
-		if !selectorMatches(p, mf) {
-			continue
-		}
-		if best == nil || profileLess(p, best) {
-			best = p
-		}
-	}
-	if best != nil {
-		return best
-	}
-	return def
-}
-
 // selectFiles resolves every eligible file in files -- a video kind whose
 // catalog item still exists in items ([itemSet.manages]) -- against the full
-// profiles list and def (profiles' resolved default winner, or nil), and
+// profiles list (subtitleplan.WinningProfile, the loop's one rule), and
 // reports, from sp's point of view:
 //
 //   - matching: the files sp itself wins (these are what status.matchingFiles
@@ -225,23 +136,22 @@ func winningProfile(
 func selectFiles(
 	sp *subtitlev1alpha1.SubtitleProfile,
 	profiles []subtitlev1alpha1.SubtitleProfile,
-	def *subtitlev1alpha1.SubtitleProfile,
 	files []catalogv1alpha1.MediaFile,
 	items itemSet,
 ) (matching []*catalogv1alpha1.MediaFile, overlapped bool) {
 	for i := range files {
 		mf := &files[i]
-		if !eligibleKind(mf.Spec.MediaRef.Kind) || !items.manages(mf) {
+		if !subtitleplan.EligibleKind(mf.Spec.MediaRef.Kind) || !items.manages(mf) {
 			continue
 		}
-		winner := winningProfile(mf, profiles, def)
+		winner := subtitleplan.WinningProfile(mf.Labels, profiles)
 		if winner == nil {
 			continue
 		}
 		switch {
 		case winner.Name == sp.Name:
 			matching = append(matching, mf)
-		case selectorMatches(sp, mf):
+		case subtitleplan.SelectorMatches(sp, mf.Labels):
 			overlapped = true
 		}
 	}
@@ -267,7 +177,7 @@ func selectFiles(
 // Dolby-Vision-shaped check to avoid re-deriving here.
 func validateProfile(sp *subtitlev1alpha1.SubtitleProfile, all []subtitlev1alpha1.SubtitleProfile) (invalid bool, reason, message string) {
 	if sp.Spec.Default {
-		if winner := defaultWinner(all); winner != nil && winner.Name != sp.Name {
+		if winner := subtitleplan.DefaultWinner(all); winner != nil && winner.Name != sp.Name {
 			return true, ReasonDuplicateDefault, fmt.Sprintf(
 				"profile %q is also marked spec.default and takes precedence (created earlier, or sorts first on a tie)", winner.Name)
 		}

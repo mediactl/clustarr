@@ -19,10 +19,6 @@ package naming
 
 import (
 	"context"
-	"errors"
-	"io/fs"
-	"path/filepath"
-	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,7 +38,7 @@ const namingRetry = 30 * time.Second
 type Options struct{}
 
 // Adapter is the naming planner.
-type Adapter struct{ listings listings }
+type Adapter struct{}
 
 // New is the naming planner.
 func New(Options) *Adapter { return &Adapter{} }
@@ -51,8 +47,7 @@ func New(Options) *Adapter { return &Adapter{} }
 type Input struct {
 	Lookup           mediafile.NamingLookup
 	TranscodePending bool
-	Listing          *Listing // nil: neither listed nor remembered
-	Read             bool     // Gather ran
+	Read             bool // Gather ran
 }
 
 // Name implements remediation.Planner.
@@ -65,42 +60,21 @@ func (*Adapter) Applies(mf *catalogv1alpha1.MediaFile) bool {
 }
 
 // Gather reads the item, its RootFolder and the file's TranscodeJobs from the
-// cache, and lists the file's directory through the I/O executor when its
-// listing is not remembered.
-func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (Input, error) {
+// cache. The directory listing (status.sidecars) is the subtitles planner's
+// since F5.1 (loop spec §6.4.3).
+func (*Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (Input, error) {
 	in := Input{Read: true, Lookup: mediafile.LoadNaming(ctx, env.Reader, v.File)}
 	jobs, err := mediafile.TranscodeJobsOf(ctx, env.Reader, v.File)
 	if err != nil {
 		return in, remediation.Transient(err)
 	}
 	in.TranscodePending = mediafile.TranscodeInFlight(jobs)
-	need, remembered := a.listings.need(v.File)
-	if !need {
-		in.Listing = remembered
-		return in, nil
-	}
-	dir := filepath.Dir(v.File.Spec.Path)
-	entries, err := env.IO.ReadDir(ctx, dir)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		entries = nil
-	case err != nil:
-		return in, err // the executor marks a timeout, a busy pool and EIO Transient
-	}
-	li := Listing{Dir: dir}
-	for _, e := range entries {
-		if e.Type().IsRegular() {
-			li.Names = append(li.Names, e.Name())
-		}
-	}
-	a.listings.done(v.File, li)
-	in.Listing = &li
 	return in, nil
 }
 
 // Plan renders status.naming and NamingCurrent against spec.path as of this
-// pass's main apply, and status.sidecars from the listing.
-func (a *Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.MediaFileStatus) (remediation.Result, error) {
+// pass's main apply.
+func (*Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.MediaFileStatus) (remediation.Result, error) {
 	var res remediation.Result
 	if !in.Read {
 		return res, nil
@@ -115,13 +89,6 @@ func (a *Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.Media
 	if retry {
 		res.Due = v.Now.Add(namingRetry)
 	}
-	switch li := in.Listing; {
-	case li == nil:
-	case li.Dir == filepath.Dir(v.SpecPath()):
-		out.Sidecars = sidecars(v.SpecPath(), *li)
-	default:
-		res.Again = true // a swap moved the file to another directory this pass: list it next pass
-	}
 	return res, nil
 }
 
@@ -132,9 +99,8 @@ func probeFailed(s *catalogv1alpha1.MediaFileStatus) bool {
 	return c != nil && c.Status == metav1.ConditionFalse && c.Reason == "ProbeFailed"
 }
 
-// Copy is naming's row of §3.5's table, with sidecars until F5.1.
+// Copy is naming's row of §3.5's table.
 func (*Adapter) Copy(from, into *catalogv1alpha1.MediaFileStatus) {
 	into.Naming = from.Naming.DeepCopy()
-	into.Sidecars = slices.Clone(from.Sidecars)
 	remediation.CopyConditions(from, into, catalogv1alpha1.ConditionNamingCurrent)
 }

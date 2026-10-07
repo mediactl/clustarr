@@ -50,6 +50,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/rename"
 	replayactuator "github.com/mediactl/clustarr/app/remediation/replay"
 	searchstage "github.com/mediactl/clustarr/app/remediation/search"
+	"github.com/mediactl/clustarr/app/remediation/subtitles"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -57,6 +58,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/subtitlestore"
 )
 
 // Options is what the loop's registration takes.
@@ -98,6 +100,9 @@ type Deps struct {
 	// Manager is the controller manager, for the stages that need its
 	// clients and recorders.
 	Manager ctrl.Manager
+	// CaptionBacklog is §6.4.6's gate the subtitles planner reads; nil
+	// keeps every scheduled subtitle dispatch waiting.
+	CaptionBacklog *remediation.CaptionBacklog
 }
 
 // Register adds the loop, its indexes and its sources: the file path's
@@ -123,7 +128,15 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		// items' searchDispatch after a leader change (A4.2 step 4).
 		o.Dispatch.Register(searchstage.LedgerSource{})
 	}
-	d := Deps{Env: env, Options: o, Manager: mgr}
+	admin, ok := bus.(events.StreamAdmin)
+	if !ok {
+		return errors.New("remediation: the subtitle backlog gate needs a bus with a StreamAdmin")
+	}
+	backlog := remediation.NewCaptionBacklog(admin, time.Now)
+	if err := mgr.Add(backlog); err != nil {
+		return fmt.Errorf("remediation: subtitle backlog gate: %w", err)
+	}
+	d := Deps{Env: env, Options: o, Manager: mgr, CaptionBacklog: backlog}
 	r, err := remediation.NewReconciler(mgr.GetClient(), env, mgr.GetEventRecorder(remediation.ControllerName),
 		remediation.Config{Concurrency: o.Concurrency, BulkWritesPerSecond: o.BulkWritesPerSecond},
 		Planners(d), Actuators(mgr, d)...)
@@ -196,9 +209,16 @@ func Planners(d Deps) []remediation.Bound {
 	probes := probestore.New(d.Env.Bus, probestore.WithErrors(func(op string) {
 		metrics.RecordErrorsTotal.WithLabelValues("probe", op).Inc()
 	}))
+	subs := subtitles.Options{Bus: d.Env.Bus, Store: subtitlestore.New(d.Env.Bus, ""), DataDir: d.Env.DataDir}
+	if d.CaptionBacklog != nil {
+		subs.BacklogOpen = d.CaptionBacklog.Open
+	}
 	return []remediation.Bound{
 		remediation.Bind[mediafile.ProbeInput](probe.New(probe.Options{Bus: d.Env.Bus, Probes: probes})),
 		remediation.Bind[naming.Input](naming.New(naming.Options{})),
+		// The subtitles planner (loop spec §6.4); its adapter is also the
+		// Withdrawer of the withdrawals it emits.
+		remediation.Bind[subtitles.In](subtitles.New(subs)),
 		remediation.Bind[markersplanner.Input](markersplanner.New(markersplanner.Options{Bus: d.Env.Bus})),
 	}
 }

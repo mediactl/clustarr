@@ -34,9 +34,8 @@ import (
 
 // Sources: S2', S3', S4' and S11 as the old controller's naming watches;
 // S23's TranscodeJob (deduplicated with the probe's) holds a rename while a
-// transcode runs; S23's SubtitleRequest, until F5.3, wakes the file and
-// marks it for a relist.
-func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
+// transcode runs; S23's SubtitleRequest, until F5.3, wakes the file.
+func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	c := mgr.GetClient()
 	via := func(f func(context.Context, client.Reader, client.Object) []types.NamespacedName) func(context.Context, client.Object) []types.NamespacedName {
 		return func(ctx context.Context, o client.Object) []types.NamespacedName { return f(ctx, c, o) }
@@ -64,18 +63,8 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 		},
 		{
 			Name: "S23/SubtitleRequest", Object: &subtitlev1alpha1.SubtitleRequest{},
-			Handler: remediation.MapFiles(func(ctx context.Context, o client.Object) []types.NamespacedName {
-				nns := mediafile.FileOfSubtitleRequest(ctx, o)
-				for _, nn := range nns {
-					a.listings.MarkStale(nn)
-				}
-				return nns
-			}),
+			Handler:    remediation.MapFiles(mediafile.FileOfSubtitleRequest),
 			Predicates: []predicate.Predicate{mediafile.SubtitleRequestItemsChanged()},
 		},
 	}, nil
 }
-
-// MarkStale is the listing's relist mark, for tests that drive passes
-// without the SubtitleRequest source.
-func (a *Adapter) MarkStale(nn types.NamespacedName) { a.listings.MarkStale(nn) }

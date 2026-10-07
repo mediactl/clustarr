@@ -64,6 +64,7 @@ import (
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/controller/subtitlerequest"
 	captionstatus "github.com/mediactl/clustarr/app/caption/status"
+	"github.com/mediactl/clustarr/app/caption/subtitleplan"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -162,7 +163,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err := r.List(ctx, &episodes, client.UnsafeDisableDeepCopy); err != nil {
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list Episodes: %w", err)
 	}
-	matching, overlapped := selectFiles(&sp, profileList.Items, defaultWinner(profileList.Items), mfList.Items,
+	matching, overlapped := selectFiles(&sp, profileList.Items, mfList.Items,
 		newItemSet(movies.Items, episodes.Items))
 
 	var requests subtitlev1alpha1.SubtitleRequestList
@@ -385,7 +386,7 @@ func (r *Reconciler) mapAllProfiles(ctx context.Context, _ client.Object) []reco
 // audio, book or comic MediaFile never wakes a subtitle profile.
 func (r *Reconciler) mapMediaFileToProfiles(ctx context.Context, o client.Object) []reconcile.Request {
 	mf, ok := o.(*catalogv1alpha1.MediaFile)
-	if !ok || !eligibleKind(mf.Spec.MediaRef.Kind) {
+	if !ok || !subtitleplan.EligibleKind(mf.Spec.MediaRef.Kind) {
 		return nil
 	}
 	var list subtitlev1alpha1.SubtitleProfileList
@@ -395,7 +396,7 @@ func (r *Reconciler) mapMediaFileToProfiles(ctx context.Context, o client.Object
 	var reqs []reconcile.Request
 	for i := range list.Items {
 		p := &list.Items[i]
-		if p.Spec.Default || selectorMatches(p, mf) {
+		if p.Spec.Default || subtitleplan.SelectorMatches(p, mf.Labels) {
 			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Name: p.Name}})
 		}
 	}

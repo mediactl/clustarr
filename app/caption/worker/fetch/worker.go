@@ -184,7 +184,7 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, t events.Topology) error {
 
 // task is a decoded FetchTask plus the request it names.
 type task struct {
-	schema.FetchTask
+	schema.FetchTaskV1
 	key types.NamespacedName
 }
 
@@ -194,7 +194,7 @@ func decodeTask(env *events.Envelope) (task, error) {
 	if env == nil {
 		return task{}, errors.New("fetch: nil envelope")
 	}
-	var ft schema.FetchTask
+	var ft schema.FetchTaskV1
 	if err := schema.Decode(env.Schema, env.Data, &ft); err != nil {
 		return task{}, err
 	}
@@ -208,7 +208,7 @@ func decodeTask(env *events.Envelope) (task, error) {
 	if _, _, _, err := subtitles.ParseLangKey(subtitles.LangKey(ft.LangKey)); err != nil {
 		return task{}, err
 	}
-	return task{FetchTask: ft, key: types.NamespacedName{Namespace: ns, Name: name}}, nil
+	return task{FetchTaskV1: ft, key: types.NamespacedName{Namespace: ns, Name: name}}, nil
 }
 
 // Handle implements events.Handler.

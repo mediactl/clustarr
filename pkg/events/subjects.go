@@ -459,10 +459,17 @@ func WorkRSSSubject(indexerUID string) string {
 }
 
 // WorkFetchSubject builds
-// clustarr.work.caption.fetch.<priority>.<request-uid>.<langKey>.
-func WorkFetchSubject(p Priority, requestUID, langKey string) string {
+// clustarr.work.caption.fetch.<priority>.<mediafile-uid>.<langKey>.
+func WorkFetchSubject(p Priority, fileUID, langKey string) string {
 	return fmt.Sprintf("clustarr.work.caption.fetch.%s.%s.%s",
-		tok(string(p)), tok(requestUID), tok(langKey))
+		tok(string(p)), tok(fileUID), tok(langKey))
+}
+
+// WorkFetchSubjectAnyPriority is fileUID's langKey fetch subject with a
+// wildcard for the lane, for PurgeSubject when the loop withdraws a request
+// (loop spec §3.8): a forced search and a scheduled one go to different lanes.
+func WorkFetchSubjectAnyPriority(fileUID, langKey string) string {
+	return fmt.Sprintf("clustarr.work.caption.fetch.*.%s.%s", tok(fileUID), tok(langKey))
 }
 
 // WorkArtworkFetchSubject builds
@@ -570,6 +577,14 @@ func MsgIDForObject(uid string, generation int64, task string) string {
 func MsgIDForRelease(indexerName, guid string) string {
 	sum := sha1.Sum([]byte(indexerName + ":" + guid))
 	return hex.EncodeToString(sum[:])
+}
+
+// MsgIDForSubtitleFetch is a subtitle fetch task's deduplication ID,
+// "subtitle/<fileUID>/<langKey>/<seq>" (loop spec §6.5): every dispatch
+// carries the sequence the loop issued, so it is unique for the life of the
+// file and the one-hour window absorbs only a republish of that dispatch.
+func MsgIDForSubtitleFetch(fileUID, langKey string, seq int64) string {
+	return fmt.Sprintf("subtitle/%s/%s/%d", fileUID, langKey, seq)
 }
 
 // MsgIDForSubtitle builds the deduplication ID for a scheduled subtitle

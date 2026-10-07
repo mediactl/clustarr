@@ -39,8 +39,13 @@ const UID = "remediation.mediafile.uid"
 // Episodes' files.
 const DownloadRef = "remediation.mediafile.downloadref"
 
-// Register registers the loop's MediaFile indexes on idx: UID, Item and
-// DownloadRef. A
+// Subtitles indexes a MediaFile as "true" while its status carries a
+// subtitles block (loop spec §3.16): S14's embedded-provider fan-out reads
+// the files of a namespace through it.
+const Subtitles = "remediation.mediafile.subtitles"
+
+// Register registers the loop's MediaFile indexes on idx: UID, Item,
+// DownloadRef and Subtitles. A
 // second registration on one cache is an "indexer conflict", so only
 // remediation.RegisterIndexes calls it in a process, and tests that run a
 // reader without the loop.
@@ -64,6 +69,15 @@ func Register(ctx context.Context, idx client.FieldIndexer) error {
 		return []string{mf.Spec.ImportedFrom.DownloadRef}
 	}); err != nil {
 		return fmt.Errorf("mfindex: register %s: %w", DownloadRef, err)
+	}
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, Subtitles, func(o client.Object) []string {
+		mf, ok := o.(*catalogv1alpha1.MediaFile)
+		if !ok || mf.Status.Subtitles == nil {
+			return nil
+		}
+		return []string{"true"}
+	}); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", Subtitles, err)
 	}
 	return nil
 }
