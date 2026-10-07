@@ -1,0 +1,16 @@
+#EXTM3U url-tvg="http://epg.example/guide.xml.gz" x-tvg-url="http://epg.example/alt.xml"
+#EXTINF:-1 tvg-id="bbc1.uk" tvg-name="BBC One HD" tvg-logo="http://logo.example/bbc1.png" group-title="UK | Entertainment",BBC One HD
+http://provider.example/live/user/pass/1001.ts
+#EXTINF:-1 tvg-id="" tvg-name="News, Live" group-title="UK | News",News, Live
+#EXTVLCOPT:http-user-agent=VLC/3.0.20
+http://provider.example/live/user/pass/1002.ts
+#EXTINF:-1 tvg-id=dup.id group-title=Sports,Sports 1
+http://provider.example/live/user/pass/1003.ts
+#EXTINF:-1 tvg-id="dup.id" group-title="Sports",Sports 2
+http://provider.example/live/user/pass/1004.ts
+#EXTINF:-1,No Attributes
+#EXTGRP:Misc
+http://provider.example/live/user/pass/1005.ts
+
+#EXTINF:-1 tvg-id="nogroup",Orphan
+http://provider.example/live/user/pass/1006.ts
