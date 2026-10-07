@@ -34,10 +34,29 @@ type SeasonRow struct {
 	SizeBytes int64
 	// NextAiring is the next air date as YYYY-MM-DD, or "".
 	NextAiring string
+	// Search is the season's place in the Series' season search (Wave S):
+	// Queued, Searching, or "Searched: N approved" with its age; zero for
+	// none.
+	Search SeasonSearchBadge
 	// Error is set on a component rendered as the reply to a toggle that
 	// failed: the stable code (data-action-error) and the detail.
 	Error ActionFailure
 }
+
+// SeasonSearchBadge is a season's search badge, from the Series'
+// status.seasonSearch: Phase is the season's phase ("Queued",
+// "Searching", "Answered"), Label the badge's text and Title its tooltip.
+type SeasonSearchBadge struct {
+	Phase, Label, Title string
+}
+
+// SearchURL is the season's magnifier: the Series searches the season and
+// grabs what it finds.
+func (r SeasonRow) SearchURL() string { return r.URL() + "/search" }
+
+// InteractiveSearchURL is the season's person: an interactive season
+// search, its results in the season's modal.
+func (r SeasonRow) InteractiveSearchURL() string { return r.URL() + "/search/interactive" }
 
 // ActionFailure is an action's failure rendered inside the component it
 // was meant to change, so the page stays usable and the failure is visible
@@ -205,6 +224,16 @@ type SearchPanel struct {
 	Poll bool
 	// Error is a failed grab's, rendered above the table.
 	Error ActionFailure
+	// OtherTitles is how many results, at the end, are for other titles
+	// (status.otherTitles): collapsed behind "N releases for other titles"
+	// (Wave S).
+	OtherTitles int
+	// Season is set for an interactive season search, whose view filters
+	// by Filter ("packs", the default, or "all"); Packs counts the results
+	// that are season packs.
+	Season bool
+	Filter string
+	Packs  int
 }
 
 // Pending is whether the Search has not answered yet.
@@ -215,8 +244,58 @@ func (p SearchPanel) Pending() bool {
 // URL is the panel's own route: the panel to htmx, a page otherwise.
 func (p SearchPanel) URL() string { return fmt.Sprintf("/searches/%s/%s", p.Namespace, p.Name) }
 
-// GrabURL is the download button's action.
-func (p SearchPanel) GrabURL() string { return p.URL() + "/grab" }
+// PollURL is the route the panel asks again at: its URL, with a season
+// search's filter.
+func (p SearchPanel) PollURL() string {
+	if p.Season && p.Filter != "" {
+		return p.FilterURL(p.Filter)
+	}
+	return p.URL()
+}
+
+// FilterURL is a season search's panel under filter ("packs" or "all").
+func (p SearchPanel) FilterURL(filter string) string { return p.URL() + "?filter=" + filter }
+
+// PacksOnly is whether the panel lists season packs alone.
+func (p SearchPanel) PacksOnly() bool { return p.Season && p.Filter == "packs" }
+
+// Listed are the rows the panel lists above the fold: approved and
+// rejected releases (the other titles are OtherRows), season packs alone
+// under the packs filter.
+func (p SearchPanel) Listed() []ReleaseRow {
+	var out []ReleaseRow
+	for _, r := range p.Results {
+		if r.OtherTitle || (p.PacksOnly() && !r.CoversSeason) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// OtherRows are the releases for other titles, collapsed at the end; none
+// under the packs filter.
+func (p SearchPanel) OtherRows() []ReleaseRow {
+	if p.PacksOnly() {
+		return nil
+	}
+	var out []ReleaseRow
+	for _, r := range p.Results {
+		if r.OtherTitle {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// GrabURL is the download button's action, keeping a season search's
+// filter.
+func (p SearchPanel) GrabURL() string {
+	if p.Season && p.Filter != "" {
+		return p.URL() + "/grab?filter=" + p.Filter
+	}
+	return p.URL() + "/grab"
+}
 
 // ReleaseRow is one interactive search result, Sonarr's columns: source,
 // age, title, indexer, size, peers, languages, quality, score, rejections
@@ -247,6 +326,12 @@ type ReleaseRow struct {
 	// GrabError the failure.
 	Grab      string
 	GrabError string
+	// CoversSeason is a season search's pack: a release covering every
+	// aired episode of the season (coversSeason), or one the parser read
+	// as a season pack.
+	CoversSeason bool
+	// OtherTitle is a release for another title, in the collapsed band.
+	OtherTitle bool
 }
 
 // AudioNote is an item's audio languages as one short note: the dub it

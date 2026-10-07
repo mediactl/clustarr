@@ -242,6 +242,7 @@ func seasonRow(series *catalogv1.Series, number int32) views.SeasonRow {
 			row.Monitored = *sp.Monitored
 		}
 	}
+	row.Search = seasonSearchBadge(series, number, time.Now())
 	return row
 }
 

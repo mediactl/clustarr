@@ -134,7 +134,45 @@ templ SeasonHeader(season SeasonRow) {
 			}
 			@actionFailure(season.Error)
 		}
+		@item.Actions(item.ActionsProps{Class: "shrink-0 gap-1"}) {
+			if season.Search.Label != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: seasonSearchTone(season.Search.Phase), Attributes: templ.Attributes{
+					"data-season-search": season.Search.Phase, "title": season.Search.Title,
+				}}) { { season.Search.Label } }
+			}
+			@seasonSearchButtons(season)
+		}
 	}
+}
+
+// seasonSearchButtons are Sonarr's two season searches (Wave S): the
+// magnifier, which the Series plans -- one paced query for the season,
+// grabbing the best release for each wanted episode -- answered into
+// #action-status; and the person, an interactive season search whose
+// results open in the season's modal.
+templ seasonSearchButtons(season SeasonRow) {
+	<form hx-post={ season.SearchURL() } hx-target="#action-status" method="post" action={ templ.URL(season.SearchURL()) } class="contents">
+		<input type="hidden" name="return" value={ season.URL() }/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
+			Attributes: templ.Attributes{"data-action": "season-search", "aria-label": "Search Season", "title": "Search Season"}}) {
+			@icon.Icon("search")()
+		}
+	</form>
+	<form hx-post={ season.InteractiveSearchURL() } hx-target="#episode-modal" hx-swap="innerHTML" method="post" action={ templ.URL(season.InteractiveSearchURL()) } class="contents">
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
+			Attributes: templ.Attributes{"data-action": "season-interactive-search", "aria-label": "Interactive Season Search", "title": "Interactive Season Search"}}) {
+			@icon.Icon("user-search")()
+		}
+	</form>
+}
+
+// seasonSearchTone colours a season's search badge: sky while queued or
+// searching, emerald once searched. Whole literals, for Tailwind's scan.
+func seasonSearchTone(phase string) string {
+	if phase == "Answered" {
+		return "border-emerald-500/40 text-emerald-300"
+	}
+	return "border-sky-500/40 text-sky-300"
 }
 
 // bookmarkToggle is Sonarr's monitor toggle: a bookmark, filled when

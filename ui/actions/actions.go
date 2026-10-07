@@ -189,7 +189,10 @@ func SearchNow(
 	// best approved release; [InteractiveSearch] is the one that lists the
 	// results to pick from. On an author, artist or comic it is Readarr's
 	// and Lidarr's "search monitored": the Search fans out into its missing
-	// or cutoff-unmet items, and each grabs its best.
+	// or cutoff-unmet items, and each grabs its best. On a series it is
+	// Sonarr's series search: the Series plans it, one paced query per
+	// monitored season with a wanted episode (Wave S; [SearchSeason] is one
+	// season's).
 	search.Spec.GrabBest = true
 	if err := c.Create(ctx, search, client.FieldOwner(FieldManager)); err != nil {
 		err = fmt.Errorf("actions: create Search for %s %s/%s: %w", kind, namespace, name, err)

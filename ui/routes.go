@@ -75,6 +75,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /library/{namespace}/series/{name}/seasons/{n}", s.handleSeason)
 	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}/children", s.handleChildren)
 	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/monitor", s.handleSetSeasonMonitored)
+	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/search", s.handleSeasonSearch)
+	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/search/interactive", s.handleSeasonInteractiveSearch)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("GET /library/{namespace}/episode/{name}/details", s.handleEpisodeDetails)

@@ -101,7 +101,8 @@ func (s *Server) handleSearchPanel(w http.ResponseWriter, r *http.Request) {
 	var p views.SearchPanel
 	var search catalogv1.Search
 	if s.getObject(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &search) {
-		p = searchPanel(&search, time.Now())
+		// A season search lists season packs unless ?filter=all (Wave S).
+		p = withFilter(searchPanel(&search, time.Now()), r.URL.Query().Get("filter"))
 	} else {
 		p = views.SearchPanel{Namespace: ns, Name: name, Gone: true}
 	}
@@ -147,7 +148,7 @@ func (s *Server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, searchPanelURL(&search), http.StatusSeeOther)
 		return
 	}
-	p := searchPanel(&search, time.Now())
+	p := withFilter(searchPanel(&search, time.Now()), r.URL.Query().Get("filter"))
 	if err != nil {
 		p.Error = failureOf(r, err)
 	}
@@ -220,14 +221,21 @@ func (s *Server) episodeDetail(ctx context.Context, ns, name string) (views.Epis
 }
 
 // searchPanel is a Search's results panel: its phase, the indexers' tally,
-// the results in their ranked order (approved first) and each one's grab.
-// It polls while the Search has not answered, or a requested grab has no
-// outcome yet.
+// the results in their ranked order -- approved, rejected, then the
+// status.otherTitles releases for other titles, collapsed (Wave S) -- and
+// each one's grab. A season search's panel lists season packs by default
+// (withFilter). It polls while the Search has not answered, or a requested
+// grab has no outcome yet. The ui sorts nothing beyond the controller's
+// rank.
 func searchPanel(search *catalogv1.Search, now time.Time) views.SearchPanel {
 	st := search.Status
 	p := views.SearchPanel{
 		Namespace: search.Namespace, Name: search.Name,
 		Phase: string(st.Phase), Indexers: len(st.IndexerOutcomes),
+		OtherTitles: int(st.OtherTitles), Season: search.Spec.Season != nil,
+	}
+	if p.Season {
+		p.Filter = "packs"
 	}
 	if st.Phase == catalogv1.SearchPhaseFailed {
 		p.Failed = "no reason given"
@@ -246,10 +254,15 @@ func searchPanel(search *catalogv1.Search, now time.Time) views.SearchPanel {
 	results := slices.Clone(st.Results)
 	slices.SortStableFunc(results, func(a, b commonv1.ReleaseDecision) int { return int(a.Rank) - int(b.Rank) })
 	outstanding := false
-	for _, rd := range results {
+	firstOther := len(results) - min(p.OtherTitles, len(results))
+	for i, rd := range results {
 		row := releaseRow(rd, now)
 		row.Grab, row.GrabError = grabState(search, rd.GUID)
+		row.OtherTitle = i >= firstOther
 		outstanding = outstanding || row.Grab == "requested"
+		if row.CoversSeason && !row.OtherTitle {
+			p.Packs++
+		}
 		p.Results = append(p.Results, row)
 	}
 	p.Poll = p.Pending() || outstanding
@@ -289,6 +302,7 @@ func releaseRow(rd commonv1.ReleaseDecision, now time.Time) views.ReleaseRow {
 		Indexer: rd.IndexerName, Size: rd.SizeBytes, Languages: rd.Languages,
 		Quality: qualityLabel(rd.Quality, rd.Revision), Score: rd.FormatScore, Formats: rd.MatchedFormats,
 		Approved: rd.Approved, Override: permanentlyRejected(rd),
+		CoversSeason: rd.CoversSeason || rd.ReleaseType == commonv1.ReleaseTypeSeasonPack,
 	}
 	if row.Indexer == "" {
 		row.Indexer = rd.IndexerRef

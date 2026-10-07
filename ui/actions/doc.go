@@ -23,6 +23,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - an interactive search creates a Search without grabBest
 //     ([InteractiveSearch]), and its download button patches that
 //     Search's spec.grab ([GrabRelease], 2026-10-07);
+//   - a season row's magnifier creates a Search with grabBest and
+//     spec.season, which the Series plans ([SearchSeason]), and its person
+//     an interactive season Search ([InteractiveSeasonSearch]) (Wave S);
 //   - "rescan" creates a LibraryScan ([Rescan]);
 //   - "monitor this" patches a catalog item's spec.monitored ([SetMonitored]);
 //   - the Settings page's edit forms each patch one settings kind's own

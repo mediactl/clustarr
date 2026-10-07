@@ -61,6 +61,68 @@ func InteractiveSearch(
 	return search, nil
 }
 
+// SearchSeason is a season row's magnifier (Wave S, Sonarr's season
+// search): a Search with grabBest and spec.season, which the Series plans
+// -- one paced query for the season, the best release for each wanted
+// episode grabbed, packs preferred on a tie.
+func SearchSeason(ctx context.Context, c Creator, namespace, series string, season int32) (*catalogv1alpha1.Search, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.SearchSeason")
+	defer span.End()
+
+	search, err := seasonSearch(namespace, series, season)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	search.Spec.GrabBest = true
+	if err := c.Create(ctx, search, client.FieldOwner(FieldManager)); err != nil {
+		err = fmt.Errorf("actions: create season Search for series %s/%s season %d: %w", namespace, series, season, err)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	logging.FromContext(ctx).Info("ui action: season search requested",
+		"search", search.Name, "namespace", namespace, "series", series, "season", season)
+	return search, nil
+}
+
+// InteractiveSeasonSearch is a season row's person (Wave S, Sonarr's
+// interactive season search): a Search with spec.season and no grabBest,
+// its ranked results -- packs and singles judged against the season -- in
+// status.results for a person to pick from with [GrabRelease].
+func InteractiveSeasonSearch(ctx context.Context, c Creator, namespace, series string, season int32) (*catalogv1alpha1.Search, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.InteractiveSeasonSearch")
+	defer span.End()
+
+	search, err := seasonSearch(namespace, series, season)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	if err := c.Create(ctx, search, client.FieldOwner(FieldManager)); err != nil {
+		err = fmt.Errorf("actions: create interactive season Search for series %s/%s season %d: %w", namespace, series, season, err)
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	logging.FromContext(ctx).Info("ui action: interactive season search requested",
+		"search", search.Name, "namespace", namespace, "series", series, "season", season)
+	return search, nil
+}
+
+// seasonSearch is the Search a season's two buttons create: [uiSearch] on
+// the series with spec.season set. A negative season is [ErrInvalid].
+func seasonSearch(namespace, series string, season int32) (*catalogv1alpha1.Search, error) {
+	if err := validateItem(namespace, commonv1.MediaKindSeries, series); err != nil {
+		return nil, err
+	}
+	if season < 0 {
+		return nil, fmt.Errorf("%w: season %d is not a season", ErrInvalid, season)
+	}
+	search := uiSearch(namespace, commonv1.MediaKindSeries, series)
+	n := season
+	search.Spec.Season = &n
+	return search, nil
+}
+
 // GrabRelease is the interactive search's download button: it adds guid to
 // the spec.grab of search -- the Search as the caller read it -- and the
 // Search controller sends the pick to the item's owner as a manual
@@ -166,6 +228,23 @@ func (a *Actions) InteractiveSearch(
 		return nil, ErrNoWriter
 	}
 	return InteractiveSearch(ctx, a.w, namespace, kind, name)
+}
+
+// SearchSeason is [SearchSeason] over the Actions' writer.
+func (a *Actions) SearchSeason(ctx context.Context, namespace, series string, season int32) (*catalogv1alpha1.Search, error) {
+	if a == nil || a.w == nil {
+		return nil, ErrNoWriter
+	}
+	return SearchSeason(ctx, a.w, namespace, series, season)
+}
+
+// InteractiveSeasonSearch is [InteractiveSeasonSearch] over the Actions'
+// writer.
+func (a *Actions) InteractiveSeasonSearch(ctx context.Context, namespace, series string, season int32) (*catalogv1alpha1.Search, error) {
+	if a == nil || a.w == nil {
+		return nil, ErrNoWriter
+	}
+	return InteractiveSeasonSearch(ctx, a.w, namespace, series, season)
 }
 
 // GrabRelease is [GrabRelease] over the Actions' writer.

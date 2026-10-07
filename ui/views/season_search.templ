@@ -1,0 +1,42 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/ui/components/dialog"
+)
+
+// SeasonSearchModal is Sonarr's interactive season search (Wave S): the
+// season's results, season packs listed by default, in a modal swapped into
+// the page's #episode-modal, opening as it lands.
+templ SeasonSearchModal(series Detail, season SeasonRow, p SearchPanel) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-season-search-modal": fmt.Sprint(season.Number)},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() { { fmt.Sprintf("%s - %s", series.Item.Title, season.Label()) } }
+				@dialog.Description() { Interactive search }
+			}
+			@SearchPanelView(p)
+		}
+	}
+}
