@@ -28,17 +28,16 @@ package catalogarr
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"reflect"
 	"slices"
 	"strings"
-	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	catalogdomain "github.com/mediactl/clustarr/app/catalog/agent/catalog"
 	eventsdomain "github.com/mediactl/clustarr/app/catalog/agent/events"
+	metadatadomain "github.com/mediactl/clustarr/app/catalog/agent/metadata"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/app/catalog/controller/artist"
@@ -61,14 +60,9 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
-	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
-	artworkgateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
-	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
-	markerworker "github.com/mediactl/clustarr/app/catalog/worker/markers"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -458,6 +452,18 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalogarr: wantedcron: %w", err)
 	}
 
+	// R9 (spec §5.13): the orphan sweep is a cluster singleton behind this
+	// role's lease. It used to run in the metadata gateway's process, which
+	// is pinned to one replica by its Deployment, not by a lease. The
+	// 30-minute grace (artwork.DefaultReapGrace) covers the gateway's Puts
+	// from another process.
+	if err := mgr.Add(&artwork.Reaper{
+		Store:  bus.ObjectStore(events.BucketArtwork),
+		Client: mgr.GetAPIReader(),
+	}); err != nil {
+		return fmt.Errorf("catalogarr: add the artwork reaper: %w", err)
+	}
+
 	// The segment analysis planner reads a season's episodes and files
 	// through this role's cache and its field indexes (segmentplan.Planner).
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
@@ -547,7 +553,8 @@ type agentDomain struct {
 // not partition the domains: worker is the catalog and events domains
 // (search, grab and the renderer; the RSS matcher, redownload, the history
 // sink and the DLQ projector), artwork the catalog domain, history the
-// events domain, all every domain. A domain two roles name runs once.
+// events domain, metadata the metadata domain, all every domain. A domain
+// two roles name runs once.
 // catalogarr's Deployment runs controller,worker,history,artwork -- the
 // catalog and events domains, exactly the consumers it ran before.
 func (r Role) domains() []agentDomain {
@@ -562,12 +569,17 @@ func (r Role) domains() []agentDomain {
 			return eventsdomain.Register(ctx, mgr, bus, eventsdomain.Options{Options: o})
 		}})
 	}
+	if r.Has(RoleMetadata) || r.Has(RoleAll) {
+		out = append(out, agentDomain{"metadata", func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o k8s.Options) (catalogagent.Registration, error) {
+			return metadatadomain.Register(ctx, mgr, bus, metadatadomain.Options{Options: o})
+		}})
+	}
 	return out
 }
 
-// setupWorkers registers every agent domain o.Role names, the metadata
-// gateway for RoleMetadata and RoleAll, and the replay handler for
-// RoleHistory and RoleAll. It then registers the field indexes the domains
+// setupWorkers registers every agent domain o.Role names (the metadata
+// gateway is the metadata domain's), and the replay handler for RoleHistory
+// and RoleAll. It then registers the field indexes the domains
 // declared, once, and asserts they reached the cache. ready gains each
 // domain's checks.
 //
@@ -584,11 +596,6 @@ func setupWorkers(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Optio
 			return fmt.Errorf("catalogarr: %s domain: %w", d.name, err)
 		}
 		indexes = appendNewIndexes(indexes, reg.Indexes)
-	}
-	if o.Role.Has(RoleMetadata) || o.Role.Has(RoleAll) {
-		if err := setupMetadataGateway(mgr, bus); err != nil {
-			return err
-		}
 	}
 	if o.Role.Has(RoleHistory) || o.Role.Has(RoleAll) {
 		if err := setupReplay(mgr, bus); err != nil {
@@ -633,115 +640,3 @@ func setupReplay(mgr ctrl.Manager, bus events.Bus) error {
 	}
 	return nil
 }
-
-// setupMetadataGateway registers RoleMetadata's gateway: every outbound
-// metadata client, their rate limiters and the two cache tiers, serving
-// rpc.catalogarr.metadata.* and the work.catalogarr.metadata.<tier> consumer;
-// and the artwork store's gateway half (spec §B.3-§B.7) -- the Fetcher that
-// both the metadata consumer and the catalogarr-artwork-fetch consumer store
-// originals through, that consumer itself, and the orphan reaper.
-//
-// It is a Runnable rather than a direct call because catalogmetadata.Setup
-// Lists MetadataProviders through the manager's client: called before
-// mgr.Start it would read an unsynced cache and build a registry with no
-// providers in it. Runnables added this way start only after the caches have
-// synced, and the subscription's lifetime is then the manager's.
-//
-// §3 pins this role to exactly one replica -- its in-process rate limiters
-// are what keep Clustarr inside every provider's quota -- which is why
-// `--role all` is not what the manifests run for the main Deployment. It is
-// pinned by the Deployment's replica count, NOT by the leader lease, so the
-// runnable is a k8s.EveryReplica: a plain manager.RunnableFunc would go behind
-// the lease (see EveryReplica). The metadata Deployment runs --role metadata,
-// which does not elect, and controller-runtime treats a non-electing process
-// as elected -- so the gateway did start there. The exposure is a role that
-// elects and also serves metadata: one replica would serve, the rest idle.
-//
-// The one replica is also what makes artworkgateway.Fetcher.Lock -- an in-process
-// lock -- enough to serialise the two artwork consumers per item. The
-// reaper, unlike both consumers, IS behind the lease (§B.5): one sweeper
-// per cluster, and under --role metadata the process counts as elected.
-func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
-	fetcher := &artworkgateway.Fetcher{
-		Store:    bus.ObjectStore(events.BucketArtwork),
-		HTTP:     artworkHTTPClient,
-		Limiter:  artworkgateway.NewHostLimiters(artworkHostRate, artworkHostBurst),
-		Recorder: mgr.GetEventRecorder("metadata-gateway"),
-	}
-	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{
-			Client:     mgr.GetClient(),
-			Reader:     mgr.GetAPIReader(),
-			Bus:        bus,
-			HTTPClient: defaultHTTPClient,
-			Artwork:    fetcher,
-			Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
-				stopMarkers, err := markerworker.Setup(ctx, markerworker.Options{Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}, providers)
-				if err != nil {
-					return nil, err
-				}
-				// Segment analysis results write status.markers beside
-				// TheIntroDB's handler, through the same merge.
-				stopResults, err := segmenting.Setup(ctx, segmenting.Options{
-					Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient(),
-				})
-				if err != nil {
-					stopMarkers()
-					return nil, err
-				}
-				return func() { stopResults(); stopMarkers() }, nil
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("catalogarr: metadata gateway: %w", err)
-		}
-		defer stop()
-		<-ctx.Done()
-		return nil
-	})); err != nil {
-		return fmt.Errorf("catalogarr: add the metadata gateway: %w", err)
-	}
-
-	// The ImportArtwork durable (spec §B.7): a reconciler saw status.artwork
-	// drift from its sources (artwork.Drift). Same Fetcher, so the same per-item lock.
-	spec, ok := events.Default().Consumer(events.ConsumerCatalogArtworkFetch)
-	if !ok {
-		return fmt.Errorf("catalogarr: consumer %q missing from the default topology", events.ConsumerCatalogArtworkFetch)
-	}
-	fetch := &artworkgateway.Handler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
-	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, spec.Subscription(), fetch.Handle)
-		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe %s: %w", events.ConsumerCatalogArtworkFetch, err)
-		}
-		defer stop()
-		<-ctx.Done()
-		return nil
-	})); err != nil {
-		return fmt.Errorf("catalogarr: add the artwork fetch consumer: %w", err)
-	}
-
-	if err := mgr.Add(&artwork.Reaper{
-		Store:  bus.ObjectStore(events.BucketArtwork),
-		Client: mgr.GetAPIReader(),
-	}); err != nil {
-		return fmt.Errorf("catalogarr: add the artwork reaper: %w", err)
-	}
-	return nil
-}
-
-// artworkHTTPClient fetches artwork originals. It is not defaultHTTPClient:
-// an image of up to artworkgateway.MaxImageBytes from a CDN is a longer transfer
-// than a metadata API call, and a stuck one must not hold a gateway handler
-// (and the item's artwork lock) past this timeout.
-var artworkHTTPClient = &http.Client{Timeout: 60 * time.Second}
-
-// Each image host gets its own token bucket. Image CDNs are not the metadata
-// APIs whose MetadataProvider limits the registry applies, and a custom
-// spec.artwork URL may name any host; four a second with a burst of four is
-// polite to a CDN and still fetches an item's nine types in about two
-// seconds.
-const (
-	artworkHostRate  = 4
-	artworkHostBurst = 4
-)
