@@ -1,8 +1,7 @@
 # ADR-0021: Object stores hold self-describing objects under deterministic names, never links
 
-**Status:** Accepted, 2026-10-07. Most of it is already built. The remainder (fingerprint
-metadata and two guards) is implemented with ADR-0020's Wave N, after the current plan's
-implementation waves and before the test batch.
+**Status:** Accepted, 2026-10-07. Built: the fingerprint metadata landed with ADR-0020's
+Wave N (N7, 2026-10-07); its three guards are deferred to the test batch.
 
 ## Context
 

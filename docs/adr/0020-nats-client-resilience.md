@@ -1,9 +1,7 @@
 # ADR-0020: NATS client resilience -- graceful drain, bounded subscription buffers, slow-consumer shedding, object store maintenance, reconnect backoff
 
-**Status:** Accepted, 2026-10-07. Implementation is scheduled after the current plan's last
-implementation wave (`docs/superpowers/plans/2026-10-06-manager-agent-split.md` and
-`docs/superpowers/plans/2026-10-07-agents-report-over-nats.md`, through F9 and A9) and before
-the test batch, so its tests join that batch.
+**Status:** Accepted, 2026-10-07. Built in Wave N (N1-N6, 2026-10-07), after the split's and
+ADR-0019's implementation waves; its tests are deferred to the test batch.
 
 ## Context
 

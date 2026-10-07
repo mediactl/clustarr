@@ -1,6 +1,6 @@
 # ADR-0013: Controllers stay one Deployment per service until the system is production ready; then they unify into one manager
 
-**Status:** Accepted, 2026-09-24 (the unified topology is designed and deferred)
+**Status:** Superseded by ADR-0018, 2026-10-06
 
 ## Context
 
