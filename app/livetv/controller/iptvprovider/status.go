@@ -38,12 +38,12 @@ import (
 // tuner's snapshot -- or, when the tuner does not answer for it, from what
 // the status already says, so an early return never releases a field
 // (CLAUDE.md's SSA gotchas).
-func (r *Reconciler) writeStatus(ctx context.Context, p *clustarrv1.IPTVProvider, address string, valid metav1.Condition, disabled bool) error {
-	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerLiveTV, render(p, address, r.Tuner, valid, disabled))
+func (r *Reconciler) writeStatus(ctx context.Context, p *clustarrv1.IPTVProvider, pl plan, valid metav1.Condition, disabled bool) error {
+	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerLiveTV, render(p, r.Address, pl, r.Tuner, valid, disabled))
 	return err
 }
 
-func render(p *clustarrv1.IPTVProvider, address string, tn Tuner, valid metav1.Condition, disabled bool) *clustarrac.IPTVProviderApplyConfiguration {
+func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid metav1.Condition, disabled bool) *clustarrac.IPTVProviderApplyConfiguration {
 	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
 	snap, ok := tn.Snapshot(key)
 	if disabled {
@@ -61,6 +61,7 @@ func render(p *clustarrv1.IPTVProvider, address string, tn Tuner, valid metav1.C
 	} else {
 		reassertKnownStatus(st, p)
 	}
+	withBlocks(st, p, pl, snap, ok)
 
 	conds := slices.Clone(p.Status.Conditions)
 	set := func(c metav1.Condition) { c.ObservedGeneration = p.Generation; meta.SetStatusCondition(&conds, c) }
@@ -75,6 +76,8 @@ func render(p *clustarrv1.IPTVProvider, address string, tn Tuner, valid metav1.C
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: clustarrv1.ReasonDisabled, Message: "spec.enabled is false"}
 	case valid.Status != metav1.ConditionTrue:
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: valid.Reason, Message: valid.Message}
+	case pl.reason != "":
+		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: pl.reason, Message: pl.message + "; the last good blocks are kept"}
 	case playlist.Status != metav1.ConditionTrue:
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: "PlaylistNotFetched", Message: playlist.Message}
 	case !pms && guides.Status != metav1.ConditionTrue:
@@ -89,6 +92,42 @@ func render(p *clustarrv1.IPTVProvider, address string, tn Tuner, valid metav1.C
 		}
 	}
 	return clustarrac.IPTVProvider(p.Name, p.Namespace).WithStatus(st)
+}
+
+// withBlocks writes the planned blocks, each with its lineup and guide hashes
+// from the snapshot, or, when the tuner does not answer, from the status.
+func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarrv1.IPTVProvider, pl plan, snap tuner.Snapshot, ok bool) {
+	rendered := map[string]tuner.BlockState{}
+	if ok {
+		for _, b := range snap.Blocks {
+			rendered[b.Start] = b
+		}
+	}
+	known := map[string]clustarrv1.BlockStatus{}
+	for _, b := range p.Status.Blocks {
+		known[b.Start] = b
+	}
+	for _, b := range pl.blocks {
+		ac := clustarrac.BlockStatus().WithStart(b.Start).WithChannels(b.Channels).WithFirst(b.First).WithLast(b.Last).
+			WithMapBytes(b.MapBytes).WithDeviceID(b.DeviceID).WithPort(b.Port).WithFriendlyName(b.FriendlyName)
+		if b.GuidePath != "" {
+			ac.WithGuidePath(b.GuidePath)
+		}
+		if b.Owner != "" {
+			ac.WithOwner(b.Owner)
+		}
+		lineupHash, guideHash := known[b.Start].LineupHash, known[b.Start].GuideHash
+		if rb, has := rendered[b.Start]; has {
+			lineupHash, guideHash = rb.LineupHash, rb.GuideHash
+		}
+		if lineupHash != "" {
+			ac.WithLineupHash(lineupHash)
+		}
+		if guideHash != "" {
+			ac.WithGuideHash(guideHash)
+		}
+		st.WithBlocks(ac)
+	}
 }
 
 // fetchConditions are PlaylistFetched and GuidesFetched: from the snapshot,

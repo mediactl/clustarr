@@ -20,6 +20,7 @@ package tuner
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -27,24 +28,29 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 )
 
-// Handler serves every provider's HDHomeRun surface (spec §5.3):
+// Handler serves every block's HDHomeRun surface (spec §5.0, §5.3):
 //
 //   - at the root, /discover.json, /lineup_status.json, /lineup.json,
-//     /lineup.post and /device.xml for the provider whose address is the
-//     request's Host, since Plex adds a device by address and reads its
-//     root;
-//   - under /livetv/<ns>/<name>/, the same plus xmltv.xml and
-//     stream/<number>, for any Host: every URL the tuner hands out is one
-//     of these.
+//     /lineup.post, /device.xml, /xmltv.xml and /stream/<number> for the
+//     block whose port the request's Host names: Plex reaches each block
+//     through a proxy port in its own pod, and the proxy passes Host
+//     untouched;
+//   - under /livetv/<ns>/<name>/<start>/, the same for any Host, for curl and
+//     the e2e tests, and /livetv/<ns>/<name>/xmltv.xml for the whole
+//     provider's guide.
+//
+// Every URL handed out is built from the request's Host, so later requests
+// come back the way the first one came.
 func (t *Tuner) Handler() http.Handler { return http.HandlerFunc(t.serveHTTP) }
 
 func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	var (
-		p    *provider
-		rest string
+		p           *provider
+		start, rest string
+		base        string
 	)
 	if after, ok := strings.CutPrefix(r.URL.Path, "/livetv/"); ok {
-		parts := strings.SplitN(after, "/", 3)
+		parts := strings.SplitN(after, "/", 4)
 		if len(parts) < 3 {
 			http.NotFound(w, r)
 			return
@@ -52,10 +58,20 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		t.mu.Lock()
 		p = t.providers[types.NamespacedName{Namespace: parts[0], Name: parts[1]}]
 		t.mu.Unlock()
-		rest = parts[2]
+		if p != nil && len(parts) == 3 && parts[2] == "xmltv.xml" {
+			t.serveProviderGuide(w, r, p)
+			return
+		}
+		if len(parts) < 4 {
+			http.NotFound(w, r)
+			return
+		}
+		start, rest = parts[2], parts[3]
+		base = "http://" + r.Host + "/livetv/" + parts[0] + "/" + parts[1] + "/" + start
 	} else {
-		p = t.byHost(hostOnly(r.Host))
+		p, start = t.byPort(portOf(r.Host))
 		rest = strings.TrimPrefix(r.URL.Path, "/")
+		base = "http://" + r.Host
 	}
 	if p == nil {
 		http.NotFound(w, r)
@@ -63,7 +79,20 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	p.mu.Lock()
 	cfg := p.cfg
-	fetched, lineup, guideXML := p.playlistFetched, p.lineup, p.guideXML
+	var block *BlockConfig
+	for i := range cfg.Blocks {
+		if cfg.Blocks[i].Start == start {
+			block = &cfg.Blocks[i]
+			break
+		}
+	}
+	sf := p.blocks[start]
+	var entries []hdhr.LineupEntry
+	var guideXML []byte
+	if sf != nil {
+		entries, guideXML = sf.entries, sf.guideXML
+	}
+	fetched := p.playlistFetched
 	upstream, streamOK := "", false
 	number, isStream := strings.CutPrefix(rest, "stream/")
 	if isStream {
@@ -71,8 +100,12 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	rl := p.relay
 	p.mu.Unlock()
+	if block == nil {
+		http.NotFound(w, r)
+		return
+	}
 
-	device := hdhr.Device{FriendlyName: cfg.FriendlyName, DeviceID: cfg.DeviceID, BaseURL: baseURL(cfg), TunerCount: cfg.Tuners}
+	device := hdhr.Device{FriendlyName: block.FriendlyName, DeviceID: block.DeviceID, BaseURL: base, TunerCount: cfg.Tuners}
 	switch {
 	case rest == "discover.json":
 		writeBody(w, "application/json", hdhr.Discover(device))
@@ -83,7 +116,12 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
 			return
 		}
-		writeBody(w, "application/json", lineup)
+		out := make([]hdhr.LineupEntry, len(entries))
+		for i, e := range entries {
+			e.URL = base + "/" + e.URL
+			out[i] = e
+		}
+		writeBody(w, "application/json", hdhr.Lineup(out))
 	case rest == "lineup.post":
 		w.WriteHeader(http.StatusOK)
 	case rest == "device.xml":
@@ -101,30 +139,33 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// serveProviderGuide answers /livetv/<ns>/<name>/xmltv.xml: every block's
+// channels in one guide.
+func (t *Tuner) serveProviderGuide(w http.ResponseWriter, r *http.Request, p *provider) {
+	p.mu.Lock()
+	pms, guideXML := p.cfg.EPGSource == "PMS", p.guideXML
+	p.mu.Unlock()
+	if pms || guideXML == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeBody(w, "application/xml", guideXML)
+}
+
 func writeBody(w http.ResponseWriter, contentType string, b []byte) {
 	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(b)
 }
 
-// byHost is the provider whose address is host.
-func (t *Tuner) byHost(host string) *provider {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for _, p := range t.providers {
-		p.mu.Lock()
-		addr := strings.ToLower(p.cfg.Address)
-		p.mu.Unlock()
-		if addr != "" && addr == host {
-			return p
-		}
+// portOf is a Host header's port, or 0 when it names none.
+func portOf(host string) int32 {
+	_, port, err := net.SplitHostPort(host)
+	if err != nil {
+		return 0
 	}
-	return nil
-}
-
-// hostOnly is a Host header without its port, lowercased.
-func hostOnly(h string) string {
-	if host, _, err := net.SplitHostPort(h); err == nil {
-		h = host
+	n, err := strconv.ParseInt(port, 10, 32)
+	if err != nil || n <= 0 {
+		return 0
 	}
-	return strings.ToLower(strings.Trim(h, "[]"))
+	return int32(n)
 }

@@ -26,7 +26,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -106,10 +105,12 @@ type Options struct {
 	ExternalMetricsSecret      string
 
 	// LiveTVBindAddress is the Live TV tuner's listen address; "0" disables
-	// Live TV. LiveTVServiceSelector is the manager pod's labels as k=v,k=v,
-	// which each provider's Service selects (Live TV spec §5.0).
-	LiveTVBindAddress     string
-	LiveTVServiceSelector string
+	// Live TV. LiveTVPortRange is the ports blocks get ("low-high"), and
+	// LiveTVService the livetv Service the installers render (Live TV spec
+	// §5.0).
+	LiveTVBindAddress string
+	LiveTVPortRange   string
+	LiveTVService     string
 
 	// Test seams; production leaves them zero. RESTConfig nil reads the
 	// kubeconfig; SkipNameValidation lets one test binary start the manager
@@ -136,7 +137,7 @@ func DefaultOptions() Options {
 	o.SearchLivePerMinute = records.DefaultRates()[records.PaceSearch]
 	o.Autoscale = true
 	o.ExternalMetricsBindAddress, o.ExternalMetricsService, o.ExternalMetricsSecret = ":6443", "external-metrics", "external-metrics-tls"
-	o.LiveTVBindAddress, o.LiveTVServiceSelector = ":5004", "app.kubernetes.io/component=manager"
+	o.LiveTVBindAddress, o.LiveTVPortRange, o.LiveTVService = ":5004", livetvmanager.DefaultPortRange, "livetv"
 	return o
 }
 
@@ -209,23 +210,11 @@ func (o Options) validateLiveTV() error {
 	if _, err := livetvmanager.TargetPort(o.LiveTVBindAddress); err != nil {
 		return fmt.Errorf("--livetv-bind-address: %w", err)
 	}
-	if _, err := o.LiveTVSelector(); err != nil {
-		return err
+	if _, err := livetvmanager.ParsePortRange(o.LiveTVPortRange); err != nil {
+		return fmt.Errorf("--livetv-port-range: %w", err)
+	}
+	if strings.TrimSpace(o.LiveTVService) == "" {
+		return errors.New("--livetv-service is required unless --livetv-bind-address is 0")
 	}
 	return nil
-}
-
-// LiveTVSelector parses --livetv-service-selector.
-func (o Options) LiveTVSelector() (map[string]string, error) {
-	if strings.TrimSpace(o.LiveTVServiceSelector) == "" {
-		return nil, errors.New("--livetv-service-selector is required unless --livetv-bind-address is 0")
-	}
-	sel, err := labels.ConvertSelectorToLabelsMap(o.LiveTVServiceSelector)
-	if err != nil || len(sel) == 0 {
-		if err == nil {
-			err = errors.New("no pairs")
-		}
-		return nil, fmt.Errorf("--livetv-service-selector %q: want k=v[,k=v]: %w", o.LiveTVServiceSelector, err)
-	}
-	return sel, nil
 }

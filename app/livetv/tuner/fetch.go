@@ -269,13 +269,13 @@ func (t *Tuner) putGzip(ctx context.Context, name string, b []byte, contentType 
 	}
 }
 
-// loadStoredGuide serves the stored XEPG guide until the guides have been
+// loadStoredGuide serves a block's stored XEPG guide until the guides have been
 // fetched in this process, so a restart never blanks Plex's guide.
-func (t *Tuner) loadStoredGuide(p *provider) {
+func (t *Tuner) loadStoredGuide(p *provider, start string) {
 	if t.o.Store == nil {
 		return
 	}
-	_, rc, err := t.o.Store.Get(t.base, GuideObject(p.key))
+	_, rc, err := t.o.Store.Get(t.base, BlockGuideObject(p.key, start))
 	if err != nil {
 		return
 	}
@@ -290,10 +290,10 @@ func (t *Tuner) loadStoredGuide(p *provider) {
 	}
 	sum := sha256.Sum256(b)
 	p.mu.Lock()
-	if p.guideXML == nil {
-		p.guideXML, p.storedGuide = b, true
-		p.guideHash = hex.EncodeToString(sum[:])
-		p.storedGuideHash = p.guideHash
+	if s := p.blocks[start]; s != nil && s.guideXML == nil {
+		s.guideXML, s.storedGuide = b, true
+		s.guideHash = hex.EncodeToString(sum[:])
+		s.storedGuideHash = s.guideHash
 	}
 	p.mu.Unlock()
 }

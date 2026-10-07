@@ -56,11 +56,6 @@ func (t *Tuner) scheduleRender(p *provider) {
 	p.renderTimer = time.AfterFunc(t.o.Debounce, func() { t.render(p) })
 }
 
-// baseURL is every URL the tuner hands out for p.
-func baseURL(c Config) string {
-	return "http://" + c.Address + "/livetv/" + c.Key.Namespace + "/" + c.Key.Name
-}
-
 // render rebuilds p's lineup, guide and snapshot from its configuration,
 // playlist and guides, stores what changed, and notifies a changed snapshot.
 func (t *Tuner) render(p *provider) {
@@ -114,7 +109,6 @@ func (t *Tuner) render(p *provider) {
 	streams := map[string]string{}
 	states := make(map[string]ChannelState, len(chans))
 	taken := map[string]bool{}
-	base := baseURL(cfg)
 	for _, ch := range chans {
 		var st ChannelState
 		e, ok := candidate[ch.Key]
@@ -159,33 +153,93 @@ func (t *Tuner) render(p *provider) {
 			}
 		}
 		active++
-		entries = append(entries, hdhr.LineupEntry{GuideNumber: ch.Number, GuideName: name, URL: base + "/stream/" + ch.Number})
+		entries = append(entries, hdhr.LineupEntry{GuideNumber: ch.Number, GuideName: name, URL: "stream/" + ch.Number})
 		streams[ch.Number] = e.URL
 		lineupChans = append(lineupChans, lc)
 		states[ch.Object] = st
 	}
 
-	lineup := hdhr.Lineup(entries)
-	lineupHash := ""
-	if p.playlistFetched {
-		sum := sha256.Sum256(lineup)
-		lineupHash = hex.EncodeToString(sum[:])
+	// Split the lineup by block: a channel belongs to the block listing its
+	// number, else to the last block starting at or below it (spec §3.1).
+	starts := make([]string, len(cfg.Blocks))
+	member := map[string]int{}
+	for i, b := range cfg.Blocks {
+		starts[i] = b.Start
+		for _, n := range b.Numbers {
+			member[n] = i
+		}
+	}
+	blockOf := func(number string) int {
+		if i, ok := member[number]; ok {
+			return i
+		}
+		i := 0
+		for j, st := range starts {
+			if xmltv.CompareNumbers(st, number) <= 0 {
+				i = j
+			}
+		}
+		return i
+	}
+	blockEntries := make([][]hdhr.LineupEntry, len(cfg.Blocks))
+	blockChans := make([][]xmltv.LineupChannel, len(cfg.Blocks))
+	if len(cfg.Blocks) > 0 {
+		for i, e := range entries {
+			bi := blockOf(e.GuideNumber)
+			blockEntries[bi] = append(blockEntries[bi], e)
+			blockChans[bi] = append(blockChans[bi], lineupChans[i])
+		}
 	}
 
-	var putGuide []byte
+	type put struct {
+		name string
+		b    []byte
+	}
+	var puts []put
+	buildGuide := func(lc []xmltv.LineupChannel) ([]byte, string) {
+		var b bytes.Buffer
+		_ = xmltv.BuildGuide(&b, lc, loaded, t.o.Now(), guideDays)
+		sum := sha256.Sum256(b.Bytes())
+		return b.Bytes(), hex.EncodeToString(sum[:])
+	}
 	switch {
 	case pms:
-		p.guideXML, p.guideHash, p.storedGuide = nil, "", false
-	case p.playlistFetched && (allLoaded || !p.storedGuide):
-		var b bytes.Buffer
-		_ = xmltv.BuildGuide(&b, lineupChans, loaded, t.o.Now(), guideDays)
-		sum := sha256.Sum256(b.Bytes())
-		p.guideXML, p.guideHash, p.storedGuide = b.Bytes(), hex.EncodeToString(sum[:]), false
+		p.guideXML, p.guideHash = nil, ""
+	case p.playlistFetched:
+		p.guideXML, p.guideHash = buildGuide(lineupChans)
 		if p.guideHash != p.storedGuideHash {
-			putGuide = p.guideXML
+			puts = append(puts, put{GuideObject(p.key), p.guideXML})
 			p.storedGuideHash = p.guideHash
 		}
 	}
+	blockStates := make([]BlockState, len(cfg.Blocks))
+	keep := make(map[string]*surface, len(cfg.Blocks))
+	for i, b := range cfg.Blocks {
+		sf := p.blocks[b.Start]
+		if sf == nil {
+			sf = &surface{}
+		}
+		keep[b.Start] = sf
+		sf.entries = blockEntries[i]
+		sf.lineupHash = ""
+		if p.playlistFetched {
+			sum := sha256.Sum256(hdhr.Lineup(sf.entries))
+			sf.lineupHash = hex.EncodeToString(sum[:])
+		}
+		switch {
+		case pms:
+			sf.guideXML, sf.guideHash, sf.storedGuide = nil, "", false
+		case p.playlistFetched && (allLoaded || !sf.storedGuide):
+			sf.guideXML, sf.guideHash = buildGuide(blockChans[i])
+			sf.storedGuide = false
+			if sf.guideHash != sf.storedGuideHash {
+				puts = append(puts, put{BlockGuideObject(p.key, b.Start), sf.guideXML})
+				sf.storedGuideHash = sf.guideHash
+			}
+		}
+		blockStates[i] = BlockState{Start: b.Start, Active: len(sf.entries), LineupHash: sf.lineupHash, GuideHash: sf.guideHash}
+	}
+	p.blocks = keep
 
 	guideStates := make([]GuideState, 0, len(cfg.Guides))
 	for _, gc := range cfg.Guides {
@@ -202,11 +256,11 @@ func (t *Tuner) render(p *provider) {
 		PlaylistFetched: p.playlistFetched,
 		Playlist:        pl,
 		Guides:          guideStates,
-		Lineup:          LineupState{Active: active, Unmapped: unmapped, Missing: missing, Hash: lineupHash},
-		GuideHash:       p.guideHash,
+		Lineup:          LineupState{Active: active, Unmapped: unmapped, Missing: missing},
+		Blocks:          blockStates,
 		Channels:        states,
 	}
-	p.lineup, p.streams = lineup, streams
+	p.streams = streams
 
 	var putPlaylist []storedEntry
 	if p.playlistFetched && p.playlist.Hash != p.storedPlaylistHash {
@@ -227,8 +281,8 @@ func (t *Tuner) render(p *provider) {
 	if putPlaylist != nil {
 		t.putJSON(t.base, PlaylistObject(p.key), storedPlaylist{Hash: plHash, FetchedAt: plFetched, Entries: putPlaylist})
 	}
-	if putGuide != nil {
-		t.putGzip(t.base, GuideObject(p.key), putGuide, "application/xml")
+	for _, pt := range puts {
+		t.putGzip(t.base, pt.name, pt.b, "application/xml")
 	}
 	if notify {
 		t.o.Notify(p.key)

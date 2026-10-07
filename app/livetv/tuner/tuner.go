@@ -28,6 +28,8 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +37,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/livetv/relay"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -78,6 +81,29 @@ type Tuner struct {
 
 	mu        sync.Mutex
 	providers map[types.NamespacedName]*provider
+	// ports maps each block's port to its provider and block, for the
+	// root routes (spec §5.0). Rebuilt on every Apply and Remove.
+	ports map[int32]blockRef
+}
+
+// blockRef names one block of one provider.
+type blockRef struct {
+	key   types.NamespacedName
+	start string
+}
+
+// surface is one block's rendered HDHomeRun surface and guide.
+type surface struct {
+	// entries' URLs are relative ("stream/<number>"); a request's base is
+	// put in front, so the lineup follows the Host Plex used.
+	entries    []hdhr.LineupEntry
+	lineupHash string
+	guideXML   []byte
+	guideHash  string
+	// storedGuide marks guideXML as the object store's copy, served until
+	// every guide has been fetched in this process.
+	storedGuide     bool
+	storedGuideHash string
 }
 
 type provider struct {
@@ -97,13 +123,12 @@ type provider struct {
 
 	guides map[string]*guide
 
-	lineup    []byte
-	streams   map[string]string // number -> upstream URL
+	streams map[string]string // number -> upstream URL
+	// guideXML is the whole provider's guide, for the UI and curl.
 	guideXML  []byte
 	guideHash string
-	// storedGuide marks guideXML as the object store's copy, served until
-	// every guide has been fetched in this process.
-	storedGuide bool
+	// blocks are each block's surface, by start.
+	blocks map[string]*surface
 
 	snap        Snapshot
 	notified    *Snapshot
@@ -141,7 +166,7 @@ func New(o Options) *Tuner {
 	}
 	registerMetrics()
 	base, cancel := context.WithCancel(context.Background())
-	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), providers: map[types.NamespacedName]*provider{}}
+	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), providers: map[types.NamespacedName]*provider{}, ports: map[int32]blockRef{}}
 }
 
 // NeedLeaderElection makes the tuner a cluster singleton: only the lease
@@ -154,12 +179,23 @@ func (t *Tuner) Apply(c Config) {
 	t.mu.Lock()
 	p, ok := t.providers[c.Key]
 	if !ok {
-		p = &provider{key: c.Key, fetching: map[string]bool{}, guides: map[string]*guide{}, playlistDue: true}
+		p = &provider{key: c.Key, fetching: map[string]bool{}, guides: map[string]*guide{}, blocks: map[string]*surface{}, playlistDue: true}
 		t.providers[c.Key] = p
 	}
 	t.mu.Unlock()
-	if !ok {
-		t.loadStoredGuide(p)
+
+	// A block the tuner has not served before starts from its stored guide.
+	p.mu.Lock()
+	var fresh []string
+	for _, b := range c.Blocks {
+		if p.blocks[b.Start] == nil {
+			p.blocks[b.Start] = &surface{}
+			fresh = append(fresh, b.Start)
+		}
+	}
+	p.mu.Unlock()
+	for _, start := range fresh {
+		t.loadStoredGuide(p, start)
 	}
 
 	p.mu.Lock()
@@ -194,8 +230,45 @@ func (t *Tuner) Apply(c Config) {
 	p.cfg = c
 	t.markWantedGuidesDue(p)
 	p.mu.Unlock()
+	t.reindex()
 	t.scheduleRender(p)
 	t.poke()
+}
+
+// reindex rebuilds the port index from every provider's blocks. A port two
+// blocks claim keeps the first in key order; the controller never hands one
+// out twice (spec §5.0).
+func (t *Tuner) reindex() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	keys := make([]types.NamespacedName, 0, len(t.providers))
+	for k := range t.providers {
+		keys = append(keys, k)
+	}
+	slices.SortFunc(keys, func(a, b types.NamespacedName) int { return strings.Compare(a.String(), b.String()) })
+	ports := make(map[int32]blockRef)
+	for _, k := range keys {
+		p := t.providers[k]
+		p.mu.Lock()
+		for _, b := range p.cfg.Blocks {
+			if _, taken := ports[b.Port]; !taken && b.Port > 0 {
+				ports[b.Port] = blockRef{key: k, start: b.Start}
+			}
+		}
+		p.mu.Unlock()
+	}
+	t.ports = ports
+}
+
+// byPort is the provider and block a port belongs to.
+func (t *Tuner) byPort(port int32) (*provider, string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ref, ok := t.ports[port]
+	if !ok {
+		return nil, ""
+	}
+	return t.providers[ref.key], ref.start
 }
 
 // Remove ends a provider: its streams stop and Plex sees the device gone.
@@ -219,6 +292,7 @@ func (t *Tuner) Remove(key types.NamespacedName) {
 	if rl != nil {
 		rl.Close()
 	}
+	t.reindex()
 	forgetMetrics(key)
 	t.o.Notify(key)
 }
@@ -368,6 +442,7 @@ func label(key types.NamespacedName) string { return key.Namespace + "/" + key.N
 func cloneSnapshot(s Snapshot) Snapshot {
 	out := s
 	out.Guides = append([]GuideState(nil), s.Guides...)
+	out.Blocks = append([]BlockState(nil), s.Blocks...)
 	out.Channels = make(map[string]ChannelState, len(s.Channels))
 	for k, v := range s.Channels {
 		out.Channels[k] = v

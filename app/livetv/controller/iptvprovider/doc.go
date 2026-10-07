@@ -16,17 +16,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package iptvprovider reconciles IPTVProvider (Live TV spec 2026-10-07
-// §6): it gives each provider a Service in the manager's namespace, the
-// address Plex is registered with; reads the provider's Secrets and hands
-// the tuner a resolved configuration; and writes the provider's status, the
-// sole writer under k8s.ManagerLiveTV, from the tuner's snapshot. It does no
-// fetching: that is the tuner's.
+// §6): it packs each provider's active channels into blocks (spec §3.1),
+// gives each block a device ID and a port (§5.0), enforces the rules across
+// providers (unique device IDs, disjoint number spans), reads each block's
+// owner from its Lease, reads the provider's Secrets and hands the tuner a
+// resolved configuration; and writes the provider's status, the sole writer
+// under k8s.ManagerLiveTV, from the tuner's snapshot. It does no fetching:
+// that is the tuner's. It creates no Service: the one livetv Service is the
+// installers'.
 //
-// +kubebuilder:rbac:groups=clustarr.io,resources=iptvproviders,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=clustarr.io,resources=iptvproviders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=clustarr.io,resources=iptvproviders/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=clustarr.io,resources=iptvproviders/finalizers,verbs=update
 // +kubebuilder:rbac:groups=clustarr.io,resources=iptvchannels,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package iptvprovider

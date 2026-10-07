@@ -29,7 +29,6 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
-	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
@@ -93,13 +92,12 @@ func (r *Reconciler) resolveURLs(ctx context.Context, p *clustarrv1.IPTVProvider
 }
 
 // buildConfig is the provider as the tuner sees it: every spec field read
-// through its accessor, its URLs resolved, its channels mapped.
-func buildConfig(p *clustarrv1.IPTVProvider, address string, urls resolved, channels []clustarrv1.IPTVChannel) tuner.Config {
+// through its accessor, its URLs resolved, its channels mapped, its blocks
+// as planned.
+func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, urls resolved, channels []clustarrv1.IPTVChannel) tuner.Config {
 	c := tuner.Config{
 		Key:             types.NamespacedName{Namespace: p.Namespace, Name: p.Name},
-		Address:         address,
-		FriendlyName:    p.Spec.Device.FriendlyNameOrDefault(p.Name),
-		DeviceID:        hdhr.DeviceID(p.Namespace, p.Name),
+		Blocks:          blocks,
 		Tuners:          int(p.Spec.Tuners),
 		UserAgent:       p.Spec.Playlist.UserAgentOrDefault(),
 		PlaylistURL:     urls.playlist,

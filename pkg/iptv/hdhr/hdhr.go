@@ -44,14 +44,6 @@ type LineupEntry struct {
 	URL         string `json:"URL"`
 }
 
-// DeviceID is the device id of the provider namespace/name: eight uppercase
-// hex digits of a SHA-256, so a recreated provider is the same device to
-// Plex.
-func DeviceID(namespace, name string) string {
-	sum := sha256.Sum256([]byte(namespace + "/" + name))
-	return strings.ToUpper(hex.EncodeToString(sum[:4]))
-}
-
 // BlockDeviceID is the device id of the block starting at start in provider
 // namespace/name (Live TV spec §3.1): eight uppercase hex digits of a SHA-256
 // of "namespace/name/start", so a recreated provider gives the same devices.

@@ -31,12 +31,10 @@ import (
 // the cluster.
 type Config struct {
 	Key types.NamespacedName
-	// Address is the provider's Service ClusterIP, without a port: Plex's
-	// requests carry it as their Host, and every URL the tuner hands out is
-	// under it.
-	Address         string
-	FriendlyName    string
-	DeviceID        string
+	// Blocks are the provider's devices, as the controller packed them (Live
+	// TV spec §3.1): each serves the active channels whose numbers it holds,
+	// on its own port.
+	Blocks          []BlockConfig
 	Tuners          int
 	UserAgent       string
 	PlaylistURL     string
@@ -50,6 +48,15 @@ type Config struct {
 	// Refresh is the clustarr.io/livetv-refresh annotation's value. A new
 	// value makes every source of the provider due now (spec §5.1).
 	Refresh string
+}
+
+// BlockConfig is one block: one emulated HDHomeRun, reached through the
+// Plex pods' proxies on Port (spec §5.0).
+type BlockConfig struct {
+	Start, DeviceID, FriendlyName string
+	Port                          int32
+	// Numbers are the block's active channel numbers.
+	Numbers []string
 }
 
 // GuideConfig is one XMLTV guide.
@@ -76,8 +83,9 @@ type Snapshot struct {
 	Playlist        PlaylistState
 	Guides          []GuideState
 	Lineup          LineupState
-	GuideHash       string
-	TunersInUse     int
+	// Blocks are each block's lineup and guide, in Config.Blocks' order.
+	Blocks      []BlockState
+	TunersInUse int
 	// Channels is keyed by IPTVChannel object name.
 	Channels map[string]ChannelState
 }
@@ -97,10 +105,17 @@ type GuideState struct {
 	Error                string
 }
 
-// LineupState describes the rendered lineup.
+// LineupState counts the rendered lineup across every block.
 type LineupState struct {
 	Active, Unmapped, Missing int
-	Hash                      string
+}
+
+// BlockState is one block's rendered lineup and guide. A change in a hash
+// tells cluster-plex to save that DVR's map or reload its guide.
+type BlockState struct {
+	Start                 string
+	Active                int
+	LineupHash, GuideHash string
 }
 
 // ChannelState is one channel's place in the lineup. Guide is the mapping
@@ -122,8 +137,14 @@ func GuideChannelsObject(key types.NamespacedName, guide string) string {
 	return "guide-channels/" + key.Namespace + "/" + key.Name + "/" + guide
 }
 
-// GuideObject is the object holding a provider's rendered XEPG guide,
-// served across restarts.
+// GuideObject is the object holding a provider's whole rendered XEPG guide,
+// for the UI and curl.
 func GuideObject(key types.NamespacedName) string {
 	return "guide/" + key.Namespace + "/" + key.Name
+}
+
+// BlockGuideObject is the object holding one block's rendered guide, served
+// across restarts until the guides are fetched again.
+func BlockGuideObject(key types.NamespacedName, start string) string {
+	return "guide/" + key.Namespace + "/" + key.Name + "/" + start
 }
