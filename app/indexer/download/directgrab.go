@@ -148,7 +148,7 @@ func (r *DirectGrabReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&downloadv1alpha1.Download{}, builder.WithPredicates(directGrabCreated())).
 		WithOptions(controller.Options{
 			ReconciliationTimeout: time.Minute,
-			RecoverPanic:          ptr.To(true),
+			RecoverPanic:          new(true),
 		}).
 		Complete(r)
 }

@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -51,7 +50,7 @@ func TestNonVideoIndexKeys(t *testing.T) {
 	}))
 
 	book := &catalogv1alpha1.Book{
-		Spec: catalogv1alpha1.BookSpec{AuthorRef: ptr.To("frank-herbert")},
+		Spec: catalogv1alpha1.BookSpec{AuthorRef: new("frank-herbert")},
 		Status: catalogv1alpha1.BookStatus{Metadata: &catalogv1alpha1.BookMetadata{
 			Title: "Dune", Subtitle: "Deluxe Edition", Editions: []catalogv1alpha1.Edition{{Title: "Duna"}},
 		}},

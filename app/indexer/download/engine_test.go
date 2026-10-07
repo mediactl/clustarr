@@ -25,7 +25,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -82,7 +81,7 @@ func TestEngineFetcherScrubsTheIndexersSecrets(t *testing.T) {
 
 func definitionIndexer() *indexv1alpha1.Indexer {
 	idx := testIndexer("media", "leetx", "uid-def", indexv1alpha1.LimitUnitDay)
-	idx.Spec.DefinitionRef = ptr.To("1337x")
+	idx.Spec.DefinitionRef = new("1337x")
 	return idx
 }
 

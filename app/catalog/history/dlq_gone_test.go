@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -71,7 +70,7 @@ func TestDLQProjectorNeverRecreatesADeletedItem(t *testing.T) {
 func TestDLQProjectorMarksAnItemThatExists(t *testing.T) {
 	movie := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "films", Name: "heat", Annotations: map[string]string{"keep": "me"}},
-		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies", Monitored: ptr.To(true)},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies", Monitored: new(true)},
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(movie).Build()
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)

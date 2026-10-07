@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -88,7 +87,7 @@ func TestOwnEarlierAttempt(t *testing.T) {
 	file := func(edit func(*catalogv1alpha1.MediaFile)) *catalogv1alpha1.MediaFile {
 		mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{
 			Path:     "/data/media/movies/The Matrix (1999)/The Matrix (1999).mkv",
-			Original: ptr.To(true),
+			Original: new(true),
 			ImportedFrom: &catalogv1alpha1.ImportSource{
 				DownloadRef: "matrix-dl", ImportedAt: metav1.NewTime(created.Add(time.Hour)),
 			},
@@ -126,7 +125,7 @@ func TestOwnEarlierAttempt(t *testing.T) {
 			mf.Spec.ImportedFrom = nil
 		})},
 		{name: "transcoded since: the swap took spec.original", mf: file(func(mf *catalogv1alpha1.MediaFile) {
-			mf.Spec.Original = ptr.To(false)
+			mf.Spec.Original = new(false)
 		})},
 		{name: "transcoded since: the probe read the CLUSTARR_PROFILE tag", mf: file(func(mf *catalogv1alpha1.MediaFile) {
 			mf.Status.MediaInfo = &commonv1.MediaInfo{TranscodeProfile: "hevc-main10@0123"}

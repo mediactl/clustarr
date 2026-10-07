@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -53,7 +52,7 @@ func TestAdmissionMatchesYieldableKinds(t *testing.T) {
 			s.Trakt = &catalogv1alpha1.TraktList{ListType: catalogv1alpha1.TraktListTypeWatchlist, Username: "u"}
 		},
 		"plex":     func(s *catalogv1alpha1.ImportListSpec) { s.Plex = &catalogv1alpha1.PlexWatchlist{} },
-		"tmdb":     func(s *catalogv1alpha1.ImportListSpec) { s.Tmdb = &catalogv1alpha1.TmdbList{ListID: ptr.To("1")} },
+		"tmdb":     func(s *catalogv1alpha1.ImportListSpec) { s.Tmdb = &catalogv1alpha1.TmdbList{ListID: new("1")} },
 		"mdblist":  func(s *catalogv1alpha1.ImportListSpec) { s.Mdblist = &catalogv1alpha1.MdbList{URL: "http://m/l.json"} },
 		"stevenLu": func(s *catalogv1alpha1.ImportListSpec) { s.StevenLu = &catalogv1alpha1.StevenLu{} },
 		"imdbCSV": func(s *catalogv1alpha1.ImportListSpec) {

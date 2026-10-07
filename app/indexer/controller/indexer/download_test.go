@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/download"
@@ -48,7 +47,7 @@ func TestTheDownloadVerbRunsTheDefinitionsDownloadBlock(t *testing.T) {
 
 	idx := &indexv1alpha1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: "leetx", Namespace: "media", UID: "u-dl", ResourceVersion: "1"},
-		Spec:       indexv1alpha1.IndexerSpec{BaseURL: srv.URL, DefinitionRef: ptr.To("leetx-def")},
+		Spec:       indexv1alpha1.IndexerSpec{BaseURL: srv.URL, DefinitionRef: new("leetx-def")},
 	}
 	c := fakeClient(t, idx, idxDefinition("leetx-def", cardigannFixture(t, "1337x.yml"), nil, ""))
 	cc := NewClientCache(c, ratelimit.New(ratelimit.Config{}))

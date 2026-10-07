@@ -32,7 +32,6 @@ import (
 	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
@@ -209,8 +208,8 @@ func prepareNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPr
 			ObjectMeta: metav1.ObjectMeta{Name: "nv-" + string(typ), Namespace: "default"},
 			Spec: catalogv1alpha1.MetadataProviderSpec{
 				Type:             typ,
-				Enabled:          ptr.To(true),
-				BaseURL:          ptr.To(base),
+				Enabled:          new(true),
+				BaseURL:          new(base),
 				ContactUserAgent: "Clustarr-start-test/0 (https://github.com/mediactl/clustarr)",
 			},
 		}

@@ -4,6 +4,7 @@
 
 **Goal:** Plex sees an IPTV provider's channels as one HDHomeRun DVR. This
 plan builds:
+
 - **the kinds:** `IPTVProvider` and `IPTVChannel` (`clustarr.io/v1alpha1`);
 - **the shared rules:** the pure-Go `pkg/iptv` packages;
 - **in the manager:** a tuner runnable with the stream relay, and two
@@ -13,6 +14,7 @@ plan builds:
   e2e scenario 19.
 
 **Architecture:**
+
 - **What stays pure:** every rule (M3U, filters, XMLTV, the HDHomeRun JSON)
   is a pure package under `pkg/iptv`, which the tuner, and later the UI,
   share.
@@ -27,12 +29,14 @@ plan builds:
   `livetv` step, and the tuner runs only on the leader.
 
 **Tech Stack:**
+
 - Go 1.27, controller-runtime, client-go;
 - `encoding/xml` streaming, `net/http`, `compress/gzip`;
 - NATS JetStream object store (`pkg/events`);
 - envtest (`KUBEBUILDER_ASSETS`), testify, kind for e2e.
 
 **Spec:** `/home/appkins/src/mediactl/clustarr/docs/superpowers/specs/2026-10-07-iptv-live-tv-design.md`.
+
 - The spec lives on main. Read it from that path: this plan's code lands
   on another branch.
 - The owner approved it on 2026-10-07, including both §10 consequences.
@@ -120,6 +124,7 @@ plan builds:
 ### Task 1: The `clustarr.io/v1alpha1` group, both kinds, CEL, scheme and field managers
 
 **Files:**
+
 - Create:
   - `api/clustarr/v1alpha1/groupversion_info.go`
   - `api/clustarr/v1alpha1/iptvprovider_types.go`
@@ -142,6 +147,7 @@ plan builds:
   - `test/guards/rbac_markers_test.go` (`apiGroupAliases`: dir `clustarr` maps to `clustarr.io`)
 
 **Interfaces:**
+
 - Produces:
   - `clustarrv1alpha1.{IPTVProvider, IPTVProviderSpec, IPTVProviderStatus, PlaylistSource, XMLTVSource, ChannelFilter, FilterType, EPGSource, DeviceSpec, StreamSpec, PlaylistStatus, GuideStatus, LineupStatus, TunerStatus, IPTVChannel, IPTVChannelSpec, ChannelEPG, IPTVChannelStatus}`;
   - constants `EPGSourceXEPG`, `EPGSourcePMS`, `FilterGroupTitle`, `FilterCustom`;
@@ -168,45 +174,45 @@ plan builds:
 package v1alpha1_test
 
 import (
-	"testing"
-	"time"
+ "testing"
+ "time"
 
-	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
+ "github.com/stretchr/testify/assert"
+ "k8s.io/apimachinery/pkg/api/resource"
+ metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ "k8s.io/utils/ptr"
 
-	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+ clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 )
 
 func TestAnEmptySpecReadsEveryDefault(t *testing.T) {
-	var s clustarrv1.IPTVProviderSpec
-	assert.True(t, s.EnabledOrDefault())
-	assert.Equal(t, clustarrv1.EPGSourceXEPG, s.EPGSourceOrDefault())
-	assert.Equal(t, int32(1000), s.ChannelNumberStartOrDefault())
-	assert.Equal(t, 24*time.Hour, s.Playlist.RefreshOrDefault())
-	assert.Equal(t, "clustarr", s.Playlist.UserAgentOrDefault())
-	assert.Equal(t, 12*time.Hour, clustarrv1.XMLTVSource{}.RefreshOrDefault())
-	assert.True(t, clustarrv1.ChannelFilter{}.EnabledOrDefault())
-	assert.Equal(t, "Clustarr news", s.Device.FriendlyNameOrDefault("news"))
-	assert.Equal(t, int64(8<<20), s.Stream.BufferOrDefault())
-	assert.Equal(t, 10*time.Second, s.Stream.LingerOrDefault())
-	assert.Equal(t, int32(60), clustarrv1.ChannelEPG{Dummy: true}.DummyMinutesOrDefault())
+ var s clustarrv1.IPTVProviderSpec
+ assert.True(t, s.EnabledOrDefault())
+ assert.Equal(t, clustarrv1.EPGSourceXEPG, s.EPGSourceOrDefault())
+ assert.Equal(t, int32(1000), s.ChannelNumberStartOrDefault())
+ assert.Equal(t, 24*time.Hour, s.Playlist.RefreshOrDefault())
+ assert.Equal(t, "clustarr", s.Playlist.UserAgentOrDefault())
+ assert.Equal(t, 12*time.Hour, clustarrv1.XMLTVSource{}.RefreshOrDefault())
+ assert.True(t, clustarrv1.ChannelFilter{}.EnabledOrDefault())
+ assert.Equal(t, "Clustarr news", s.Device.FriendlyNameOrDefault("news"))
+ assert.Equal(t, int64(8<<20), s.Stream.BufferOrDefault())
+ assert.Equal(t, 10*time.Second, s.Stream.LingerOrDefault())
+ assert.Equal(t, int32(60), clustarrv1.ChannelEPG{Dummy: true}.DummyMinutesOrDefault())
 }
 
 func TestASetValueWinsOverItsDefault(t *testing.T) {
-	q := resource.MustParse("4Mi")
-	s := clustarrv1.IPTVProviderSpec{
-		Enabled:            ptr.To(false),
-		EPGSource:          clustarrv1.EPGSourcePMS,
-		ChannelNumberStart: ptr.To(int32(1)),
-		Stream:             clustarrv1.StreamSpec{Buffer: &q, Linger: &metav1.Duration{Duration: time.Second}},
-	}
-	assert.False(t, s.EnabledOrDefault())
-	assert.Equal(t, clustarrv1.EPGSourcePMS, s.EPGSourceOrDefault())
-	assert.Equal(t, int32(1), s.ChannelNumberStartOrDefault())
-	assert.Equal(t, int64(4<<20), s.Stream.BufferOrDefault())
-	assert.Equal(t, time.Second, s.Stream.LingerOrDefault())
+ q := resource.MustParse("4Mi")
+ s := clustarrv1.IPTVProviderSpec{
+  Enabled:            new(false),
+  EPGSource:          clustarrv1.EPGSourcePMS,
+  ChannelNumberStart: new(int32(1)),
+  Stream:             clustarrv1.StreamSpec{Buffer: &q, Linger: &metav1.Duration{Duration: time.Second}},
+ }
+ assert.False(t, s.EnabledOrDefault())
+ assert.Equal(t, clustarrv1.EPGSourcePMS, s.EPGSourceOrDefault())
+ assert.Equal(t, int32(1), s.ChannelNumberStartOrDefault())
+ assert.Equal(t, int64(4<<20), s.Stream.BufferOrDefault())
+ assert.Equal(t, time.Second, s.Stream.LingerOrDefault())
 }
 ```
 
@@ -234,53 +240,55 @@ func TestASetValueWinsOverItsDefault(t *testing.T) {
       - `Match`: MaxLength 256;
       - `Include` and `Exclude` items: `+kubebuilder:validation:items:MaxLength=128`.
   - **Provider status:**
+
     ```go
     type IPTVProviderStatus struct {
-    	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-    	// +listType=map
-    	// +listMapKey=type
-    	// +kubebuilder:validation:MaxItems=8
-    	Conditions []metav1.Condition `json:"conditions,omitempty"`
-    	DeviceID string `json:"deviceID,omitempty"`
-    	Address  string `json:"address,omitempty"`
-    	GuideURL string `json:"guideURL,omitempty"`
-    	Playlist *PlaylistStatus `json:"playlist,omitempty"`
-    	// +listType=map
-    	// +listMapKey=name
-    	// +kubebuilder:validation:MaxItems=16
-    	Guides    []GuideStatus `json:"guides,omitempty"`
-    	Lineup    *LineupStatus `json:"lineup,omitempty"`
-    	GuideHash string        `json:"guideHash,omitempty"`
-    	Tuners    *TunerStatus  `json:"tuners,omitempty"`
+     ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+     // +listType=map
+     // +listMapKey=type
+     // +kubebuilder:validation:MaxItems=8
+     Conditions []metav1.Condition `json:"conditions,omitempty"`
+     DeviceID string `json:"deviceID,omitempty"`
+     Address  string `json:"address,omitempty"`
+     GuideURL string `json:"guideURL,omitempty"`
+     Playlist *PlaylistStatus `json:"playlist,omitempty"`
+     // +listType=map
+     // +listMapKey=name
+     // +kubebuilder:validation:MaxItems=16
+     Guides    []GuideStatus `json:"guides,omitempty"`
+     Lineup    *LineupStatus `json:"lineup,omitempty"`
+     GuideHash string        `json:"guideHash,omitempty"`
+     Tuners    *TunerStatus  `json:"tuners,omitempty"`
     }
     type PlaylistStatus struct {
-    	Entries    int32        `json:"entries"`
-    	Groups     int32        `json:"groups"`
-    	Candidates int32        `json:"candidates"`
-    	FetchedAt  *metav1.Time `json:"fetchedAt,omitempty"`
-    	Hash       string       `json:"hash,omitempty"`
-    	// +kubebuilder:validation:MaxLength=1024
-    	Error string `json:"error,omitempty"`
+     Entries    int32        `json:"entries"`
+     Groups     int32        `json:"groups"`
+     Candidates int32        `json:"candidates"`
+     FetchedAt  *metav1.Time `json:"fetchedAt,omitempty"`
+     Hash       string       `json:"hash,omitempty"`
+     // +kubebuilder:validation:MaxLength=1024
+     Error string `json:"error,omitempty"`
     }
     type GuideStatus struct {
-    	Name       string       `json:"name"`
-    	Channels   int32        `json:"channels"`
-    	Programmes int32        `json:"programmes"`
-    	FetchedAt  *metav1.Time `json:"fetchedAt,omitempty"`
-    	// +kubebuilder:validation:MaxLength=1024
-    	Error string `json:"error,omitempty"`
+     Name       string       `json:"name"`
+     Channels   int32        `json:"channels"`
+     Programmes int32        `json:"programmes"`
+     FetchedAt  *metav1.Time `json:"fetchedAt,omitempty"`
+     // +kubebuilder:validation:MaxLength=1024
+     Error string `json:"error,omitempty"`
     }
     type LineupStatus struct {
-    	Active   int32  `json:"active"`
-    	Unmapped int32  `json:"unmapped"`
-    	Missing  int32  `json:"missing"`
-    	Hash     string `json:"hash,omitempty"`
+     Active   int32  `json:"active"`
+     Unmapped int32  `json:"unmapped"`
+     Missing  int32  `json:"missing"`
+     Hash     string `json:"hash,omitempty"`
     }
     type TunerStatus struct {
-    	Total int32 `json:"total"`
-    	InUse int32 `json:"inUse"`
+     Total int32 `json:"total"`
+     InUse int32 `json:"inUse"`
     }
     ```
+
     The counters are non-`omitempty` on purpose: zero is meaningful.
   - **The provider's root markers:** copy DownloadClient's:
     - `+kubebuilder:object:root=true`, `+kubebuilder:subresource:status`, `+kubebuilder:ac:generate=true`;
@@ -303,24 +311,28 @@ func TestASetValueWinsOverItsDefault(t *testing.T) {
     - **`Name`, `Group`:** MaxLength 256.
     - **`Logo`:** MaxLength 4096.
     - **`ChannelEPG`, on the struct:**
+
       ```go
       // +kubebuilder:validation:XValidation:rule="(has(self.guide) && self.guide != '') != (has(self.dummy) && self.dummy)",message="set exactly one of guide and dummy"
       // +kubebuilder:validation:XValidation:rule="!has(self.guide) || self.guide == '' || (has(self.channelID) && self.channelID != '')",message="channelID is required with guide"
       ```
+
       plus `DummyMinutes`: `+kubebuilder:validation:Enum=30;60;120;180`.
     - **The status:**
+
       ```go
       type IPTVChannelStatus struct {
-      	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-      	// +listType=map
-      	// +listMapKey=type
-      	// +kubebuilder:validation:MaxItems=4
-      	Conditions []metav1.Condition `json:"conditions,omitempty"`
-      	// Guide is the mapping actually used: "<guide>/<channelID>", "dummy/<minutes>", or "" under PMS.
-      	// +kubebuilder:validation:MaxLength=512
-      	Guide string `json:"guide,omitempty"`
+       ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+       // +listType=map
+       // +listMapKey=type
+       // +kubebuilder:validation:MaxItems=4
+       Conditions []metav1.Condition `json:"conditions,omitempty"`
+       // Guide is the mapping actually used: "<guide>/<channelID>", "dummy/<minutes>", or "" under PMS.
+       // +kubebuilder:validation:MaxLength=512
+       Guide string `json:"guide,omitempty"`
       }
       ```
+
     - **Root markers:** `shortName=iptvch`, `categories=clustarr`. Printcolumns:
       - Provider `.spec.providerRef`;
       - Number `.spec.number`;
@@ -348,71 +360,71 @@ func TestASetValueWinsOverItsDefault(t *testing.T) {
 
 ```go
 func TestLiveTVCEL(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test` to install the CRDs")
-	}
-	env := &envtest.Environment{CRDDirectoryPaths: []string{"../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
-	cfg, err := env.Start()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, env.Stop()) })
-	dyn, err := dynamic.NewForConfig(cfg)
-	require.NoError(t, err)
-	ctx := context.Background()
-	providers := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvproviders"}).Namespace("default")
-	channels := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvchannels"}).Namespace("default")
+ if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+  t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test` to install the CRDs")
+ }
+ env := &envtest.Environment{CRDDirectoryPaths: []string{"../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
+ cfg, err := env.Start()
+ require.NoError(t, err)
+ t.Cleanup(func() { require.NoError(t, env.Stop()) })
+ dyn, err := dynamic.NewForConfig(cfg)
+ require.NoError(t, err)
+ ctx := context.Background()
+ providers := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvproviders"}).Namespace("default")
+ channels := dyn.Resource(schema.GroupVersionResource{Group: "clustarr.io", Version: "v1alpha1", Resource: "iptvchannels"}).Namespace("default")
 
-	provider := func(name string, playlist map[string]any) *unstructured.Unstructured {
-		return &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "clustarr.io/v1alpha1", "kind": "IPTVProvider",
-			"metadata": map[string]any{"name": name},
-			"spec":     map[string]any{"tuners": int64(2), "playlist": playlist},
-		}}
-	}
-	_, err = providers.Create(ctx, provider("by-url", map[string]any{"url": "http://p.example/get.php"}), metav1.CreateOptions{})
-	require.NoError(t, err, "url alone is accepted")
-	_, err = providers.Create(ctx, provider("by-secret", map[string]any{"urlFrom": map[string]any{"name": "s", "key": "playlist-url"}}), metav1.CreateOptions{})
-	require.NoError(t, err, "urlFrom alone is accepted")
-	_, err = providers.Create(ctx, provider("both", map[string]any{"url": "http://p.example", "urlFrom": map[string]any{"name": "s", "key": "k"}}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "set exactly one of url and urlFrom")
-	_, err = providers.Create(ctx, provider("neither", map[string]any{}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "set exactly one of url and urlFrom")
+ provider := func(name string, playlist map[string]any) *unstructured.Unstructured {
+  return &unstructured.Unstructured{Object: map[string]any{
+   "apiVersion": "clustarr.io/v1alpha1", "kind": "IPTVProvider",
+   "metadata": map[string]any{"name": name},
+   "spec":     map[string]any{"tuners": int64(2), "playlist": playlist},
+  }}
+ }
+ _, err = providers.Create(ctx, provider("by-url", map[string]any{"url": "http://p.example/get.php"}), metav1.CreateOptions{})
+ require.NoError(t, err, "url alone is accepted")
+ _, err = providers.Create(ctx, provider("by-secret", map[string]any{"urlFrom": map[string]any{"name": "s", "key": "playlist-url"}}), metav1.CreateOptions{})
+ require.NoError(t, err, "urlFrom alone is accepted")
+ _, err = providers.Create(ctx, provider("both", map[string]any{"url": "http://p.example", "urlFrom": map[string]any{"name": "s", "key": "k"}}), metav1.CreateOptions{})
+ require.ErrorContains(t, err, "set exactly one of url and urlFrom")
+ _, err = providers.Create(ctx, provider("neither", map[string]any{}), metav1.CreateOptions{})
+ require.ErrorContains(t, err, "set exactly one of url and urlFrom")
 
-	channel := func(name string, epg map[string]any) *unstructured.Unstructured {
-		spec := map[string]any{"providerRef": "by-url", "key": "t:bbc1.uk", "number": "1001", "active": true}
-		if epg != nil {
-			spec["epg"] = epg
-		}
-		return &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "clustarr.io/v1alpha1", "kind": "IPTVChannel",
-			"metadata": map[string]any{"name": name}, "spec": spec,
-		}}
-	}
-	_, err = channels.Create(ctx, channel("guide", map[string]any{"guide": "main", "channelID": "bbc1.uk"}), metav1.CreateOptions{})
-	require.NoError(t, err)
-	_, err = channels.Create(ctx, channel("dummy", map[string]any{"dummy": true}), metav1.CreateOptions{})
-	require.NoError(t, err)
-	_, err = channels.Create(ctx, channel("both-epg", map[string]any{"guide": "main", "channelID": "x", "dummy": true}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "set exactly one of guide and dummy")
-	_, err = channels.Create(ctx, channel("no-id", map[string]any{"guide": "main"}), metav1.CreateOptions{})
-	require.ErrorContains(t, err, "channelID is required with guide")
-	_, err = channels.Create(ctx, channel("bad-number", nil), metav1.CreateOptions{})
-	require.NoError(t, err)
+ channel := func(name string, epg map[string]any) *unstructured.Unstructured {
+  spec := map[string]any{"providerRef": "by-url", "key": "t:bbc1.uk", "number": "1001", "active": true}
+  if epg != nil {
+   spec["epg"] = epg
+  }
+  return &unstructured.Unstructured{Object: map[string]any{
+   "apiVersion": "clustarr.io/v1alpha1", "kind": "IPTVChannel",
+   "metadata": map[string]any{"name": name}, "spec": spec,
+  }}
+ }
+ _, err = channels.Create(ctx, channel("guide", map[string]any{"guide": "main", "channelID": "bbc1.uk"}), metav1.CreateOptions{})
+ require.NoError(t, err)
+ _, err = channels.Create(ctx, channel("dummy", map[string]any{"dummy": true}), metav1.CreateOptions{})
+ require.NoError(t, err)
+ _, err = channels.Create(ctx, channel("both-epg", map[string]any{"guide": "main", "channelID": "x", "dummy": true}), metav1.CreateOptions{})
+ require.ErrorContains(t, err, "set exactly one of guide and dummy")
+ _, err = channels.Create(ctx, channel("no-id", map[string]any{"guide": "main"}), metav1.CreateOptions{})
+ require.ErrorContains(t, err, "channelID is required with guide")
+ _, err = channels.Create(ctx, channel("bad-number", nil), metav1.CreateOptions{})
+ require.NoError(t, err)
 
-	got, err := channels.Get(ctx, "guide", metav1.GetOptions{})
-	require.NoError(t, err)
-	require.NoError(t, unstructured.SetNestedField(got.Object, "t:other", "spec", "key"))
-	_, err = channels.Update(ctx, got, metav1.UpdateOptions{})
-	require.ErrorContains(t, err, "key is immutable")
-	got, err = channels.Get(ctx, "guide", metav1.GetOptions{})
-	require.NoError(t, err)
-	require.NoError(t, unstructured.SetNestedField(got.Object, "other", "spec", "providerRef"))
-	_, err = channels.Update(ctx, got, metav1.UpdateOptions{})
-	require.ErrorContains(t, err, "providerRef is immutable")
+ got, err := channels.Get(ctx, "guide", metav1.GetOptions{})
+ require.NoError(t, err)
+ require.NoError(t, unstructured.SetNestedField(got.Object, "t:other", "spec", "key"))
+ _, err = channels.Update(ctx, got, metav1.UpdateOptions{})
+ require.ErrorContains(t, err, "key is immutable")
+ got, err = channels.Get(ctx, "guide", metav1.GetOptions{})
+ require.NoError(t, err)
+ require.NoError(t, unstructured.SetNestedField(got.Object, "other", "spec", "providerRef"))
+ _, err = channels.Update(ctx, got, metav1.UpdateOptions{})
+ require.ErrorContains(t, err, "providerRef is immutable")
 
-	bad := channel("bad-number-2", nil)
-	require.NoError(t, unstructured.SetNestedField(bad.Object, "10-01", "spec", "number"))
-	_, err = channels.Create(ctx, bad, metav1.CreateOptions{})
-	require.Error(t, err, "a number is digits with an optional .minor")
+ bad := channel("bad-number-2", nil)
+ require.NoError(t, unstructured.SetNestedField(bad.Object, "10-01", "spec", "number"))
+ _, err = channels.Create(ctx, bad, metav1.CreateOptions{})
+ require.Error(t, err, "a number is digits with an optional .minor")
 }
 ```
 
@@ -450,6 +462,7 @@ git commit -m "feat(api): clustarr.io/v1alpha1 IPTVProvider and IPTVChannel -- L
 ### Task 2: `pkg/iptv`: Redact and the M3U parser with `EntryKey`
 
 **Files:**
+
 - Create:
   - `pkg/iptv/doc.go`
   - `pkg/iptv/redact.go`
@@ -459,6 +472,7 @@ git commit -m "feat(api): clustarr.io/v1alpha1 IPTVProvider and IPTVChannel -- L
   - `test/data/iptv/m3u_plus.m3u`
 
 **Interfaces:**
+
 - Produces:
   - `iptv.Redact(raw string) string`
   - `iptv.RedactError(err error) string`
@@ -497,22 +511,22 @@ http://provider.example/live/user/pass/1006.ts
 package iptv_test
 
 func TestRedact(t *testing.T) {
-	for in, want := range map[string]string{
-		"http://user:pw@provider.example/get.php?username=u&password=p&type=m3u_plus": "http://provider.example/get.php",
-		"http://provider.example/live/user/pass/1001.ts":                             "http://provider.example/…/1001.ts",
-		"http://provider.example:8080/":                                              "http://provider.example:8080/",
-		"https://epg.example/guide.xml.gz?token=abc#frag":                            "https://epg.example/guide.xml.gz",
-		"not a url\x7f":                                                              "<redacted url>",
-	} {
-		assert.Equal(t, want, iptv.Redact(in), in)
-	}
+ for in, want := range map[string]string{
+  "http://user:pw@provider.example/get.php?username=u&password=p&type=m3u_plus": "http://provider.example/get.php",
+  "http://provider.example/live/user/pass/1001.ts":                             "http://provider.example/…/1001.ts",
+  "http://provider.example:8080/":                                              "http://provider.example:8080/",
+  "https://epg.example/guide.xml.gz?token=abc#frag":                            "https://epg.example/guide.xml.gz",
+  "not a url\x7f":                                                              "<redacted url>",
+ } {
+  assert.Equal(t, want, iptv.Redact(in), in)
+ }
 }
 
 func TestRedactErrorRewritesTheURLInsideAURLError(t *testing.T) {
-	err := &url.Error{Op: "Get", URL: "http://provider.example/live/user/pass/1001.ts", Err: errors.New("connection refused")}
-	got := iptv.RedactError(fmt.Errorf("fetch playlist: %w", err))
-	assert.Equal(t, `fetch playlist: Get "http://provider.example/…/1001.ts": connection refused`, got)
-	assert.NotContains(t, got, "pass")
+ err := &url.Error{Op: "Get", URL: "http://provider.example/live/user/pass/1001.ts", Err: errors.New("connection refused")}
+ got := iptv.RedactError(fmt.Errorf("fetch playlist: %w", err))
+ assert.Equal(t, `fetch playlist: Get "http://provider.example/…/1001.ts": connection refused`, got)
+ assert.NotContains(t, got, "pass")
 }
 ```
 
@@ -521,80 +535,80 @@ func TestRedactErrorRewritesTheURLInsideAURLError(t *testing.T) {
 package m3u_test
 
 func fixture(t *testing.T) []byte {
-	b, err := os.ReadFile("../../../test/data/iptv/m3u_plus.m3u")
-	require.NoError(t, err)
-	return b
+ b, err := os.ReadFile("../../../test/data/iptv/m3u_plus.m3u")
+ require.NoError(t, err)
+ return b
 }
 
 func TestParseReadsEveryAttributeForm(t *testing.T) {
-	pl, err := m3u.Parse(bytes.NewReader(fixture(t)))
-	require.NoError(t, err)
-	assert.Equal(t, []string{"http://epg.example/guide.xml.gz", "http://epg.example/alt.xml"}, pl.GuideURLs)
-	require.Len(t, pl.Entries, 6)
-	assert.Equal(t, m3u.Entry{Key: "t:bbc1.uk", Name: "BBC One HD", Group: "UK | Entertainment", TvgID: "bbc1.uk",
-		TvgName: "BBC One HD", Logo: "http://logo.example/bbc1.png", URL: "http://provider.example/live/user/pass/1001.ts"}, pl.Entries[0])
-	assert.Equal(t, "News, Live", pl.Entries[1].Name, "a comma inside the name survives")
-	assert.Equal(t, "News, Live", pl.Entries[1].TvgName, "a comma inside quotes survives")
-	assert.Equal(t, "VLC/3.0.20", pl.Entries[1].UserAgent)
-	assert.Equal(t, "Sports", pl.Entries[2].Group, "an unquoted attribute is read")
-	assert.Equal(t, "Misc", pl.Entries[4].Group, "#EXTGRP gives the group when group-title is absent")
-	assert.Equal(t, "t:nogroup", pl.Entries[5].Key, "a blank line between entries is skipped")
+ pl, err := m3u.Parse(bytes.NewReader(fixture(t)))
+ require.NoError(t, err)
+ assert.Equal(t, []string{"http://epg.example/guide.xml.gz", "http://epg.example/alt.xml"}, pl.GuideURLs)
+ require.Len(t, pl.Entries, 6)
+ assert.Equal(t, m3u.Entry{Key: "t:bbc1.uk", Name: "BBC One HD", Group: "UK | Entertainment", TvgID: "bbc1.uk",
+  TvgName: "BBC One HD", Logo: "http://logo.example/bbc1.png", URL: "http://provider.example/live/user/pass/1001.ts"}, pl.Entries[0])
+ assert.Equal(t, "News, Live", pl.Entries[1].Name, "a comma inside the name survives")
+ assert.Equal(t, "News, Live", pl.Entries[1].TvgName, "a comma inside quotes survives")
+ assert.Equal(t, "VLC/3.0.20", pl.Entries[1].UserAgent)
+ assert.Equal(t, "Sports", pl.Entries[2].Group, "an unquoted attribute is read")
+ assert.Equal(t, "Misc", pl.Entries[4].Group, "#EXTGRP gives the group when group-title is absent")
+ assert.Equal(t, "t:nogroup", pl.Entries[5].Key, "a blank line between entries is skipped")
 }
 
 func TestKeysAreTvgIDWhenUniqueElseNameBased(t *testing.T) {
-	pl, err := m3u.Parse(bytes.NewReader(fixture(t)))
-	require.NoError(t, err)
-	assert.Equal(t, m3u.NameKey("UK | News", "News, Live"), pl.Entries[1].Key, "an empty tvg-id is name-based")
-	assert.Equal(t, m3u.NameKey("Sports", "Sports 1"), pl.Entries[2].Key, "a duplicated tvg-id is name-based")
-	assert.Equal(t, m3u.NameKey("Sports", "Sports 2"), pl.Entries[3].Key)
-	assert.NotEqual(t, pl.Entries[2].Key, pl.Entries[3].Key)
-	assert.Regexp(t, `^n:[a-z2-7]{26}$`, pl.Entries[2].Key)
-	for _, e := range pl.Entries {
-		assert.LessOrEqual(t, len(e.Key), 64)
-	}
+ pl, err := m3u.Parse(bytes.NewReader(fixture(t)))
+ require.NoError(t, err)
+ assert.Equal(t, m3u.NameKey("UK | News", "News, Live"), pl.Entries[1].Key, "an empty tvg-id is name-based")
+ assert.Equal(t, m3u.NameKey("Sports", "Sports 1"), pl.Entries[2].Key, "a duplicated tvg-id is name-based")
+ assert.Equal(t, m3u.NameKey("Sports", "Sports 2"), pl.Entries[3].Key)
+ assert.NotEqual(t, pl.Entries[2].Key, pl.Entries[3].Key)
+ assert.Regexp(t, `^n:[a-z2-7]{26}$`, pl.Entries[2].Key)
+ for _, e := range pl.Entries {
+  assert.LessOrEqual(t, len(e.Key), 64)
+ }
 }
 
 func TestAKeyIsStableAcrossStreamURLTokenChanges(t *testing.T) {
-	a, err := m3u.Parse(bytes.NewReader(fixture(t)))
-	require.NoError(t, err)
-	b, err := m3u.Parse(bytes.NewReader(bytes.ReplaceAll(fixture(t), []byte("/user/pass/"), []byte("/user/rotated/"))))
-	require.NoError(t, err)
-	for i := range a.Entries {
-		assert.Equal(t, a.Entries[i].Key, b.Entries[i].Key)
-	}
+ a, err := m3u.Parse(bytes.NewReader(fixture(t)))
+ require.NoError(t, err)
+ b, err := m3u.Parse(bytes.NewReader(bytes.ReplaceAll(fixture(t), []byte("/user/pass/"), []byte("/user/rotated/"))))
+ require.NoError(t, err)
+ for i := range a.Entries {
+  assert.Equal(t, a.Entries[i].Key, b.Entries[i].Key)
+ }
 }
 
 func TestABOMAndCRLFParseTheSame(t *testing.T) {
-	want, err := m3u.Parse(bytes.NewReader(fixture(t)))
-	require.NoError(t, err)
-	crlf := append([]byte("﻿"), bytes.ReplaceAll(fixture(t), []byte("\n"), []byte("\r\n"))...)
-	got, err := m3u.Parse(bytes.NewReader(crlf))
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
+ want, err := m3u.Parse(bytes.NewReader(fixture(t)))
+ require.NoError(t, err)
+ crlf := append([]byte("﻿"), bytes.ReplaceAll(fixture(t), []byte("\n"), []byte("\r\n"))...)
+ got, err := m3u.Parse(bytes.NewReader(crlf))
+ require.NoError(t, err)
+ assert.Equal(t, want, got)
 }
 
 func TestALongTvgIDFallsBackToANameKey(t *testing.T) {
-	long := strings.Repeat("x", 63)
-	pl, err := m3u.Parse(strings.NewReader("#EXTM3U\n#EXTINF:-1 tvg-id=\"" + long + "\",Long\nhttp://p.example/1.ts\n"))
-	require.NoError(t, err)
-	assert.Equal(t, m3u.NameKey("", "Long"), pl.Entries[0].Key)
+ long := strings.Repeat("x", 63)
+ pl, err := m3u.Parse(strings.NewReader("#EXTM3U\n#EXTINF:-1 tvg-id=\"" + long + "\",Long\nhttp://p.example/1.ts\n"))
+ require.NoError(t, err)
+ assert.Equal(t, m3u.NameKey("", "Long"), pl.Entries[0].Key)
 }
 
 func TestTheCapsAreErrors(t *testing.T) {
-	_, err := m3u.Parse(io.LimitReader(neverEnding{}, m3u.MaxBytes+2))
-	require.ErrorIs(t, err, m3u.ErrResponseTooLarge)
-	var b strings.Builder
-	b.WriteString("#EXTM3U\n")
-	for i := 0; i <= m3u.MaxEntries; i++ {
-		fmt.Fprintf(&b, "#EXTINF:-1,C%d\nhttp://p.example/%d.ts\n", i, i)
-	}
-	_, err = m3u.Parse(strings.NewReader(b.String()))
-	require.ErrorIs(t, err, m3u.ErrTooManyEntries)
+ _, err := m3u.Parse(io.LimitReader(neverEnding{}, m3u.MaxBytes+2))
+ require.ErrorIs(t, err, m3u.ErrResponseTooLarge)
+ var b strings.Builder
+ b.WriteString("#EXTM3U\n")
+ for i := 0; i <= m3u.MaxEntries; i++ {
+  fmt.Fprintf(&b, "#EXTINF:-1,C%d\nhttp://p.example/%d.ts\n", i, i)
+ }
+ _, err = m3u.Parse(strings.NewReader(b.String()))
+ require.ErrorIs(t, err, m3u.ErrTooManyEntries)
 }
 
 func TestAMissingHeaderIsAnError(t *testing.T) {
-	_, err := m3u.Parse(strings.NewReader("<html>login</html>"))
-	require.ErrorContains(t, err, "not an M3U playlist")
+ _, err := m3u.Parse(strings.NewReader("<html>login</html>"))
+ require.ErrorContains(t, err, "not an M3U playlist")
 }
 
 func BenchmarkParseFiftyThousand(b *testing.B) { /* builds 50,000 entries like TestTheCapsAreErrors; b.ReportAllocs(); parse once per b.N */ }
@@ -602,10 +616,10 @@ func BenchmarkParseFiftyThousand(b *testing.B) { /* builds 50,000 entries like T
 type neverEnding struct{}
 
 func (neverEnding) Read(p []byte) (int, error) {
-	for i := range p {
-		p[i] = '#'
-	}
-	return len(p), nil
+ for i := range p {
+  p[i] = '#'
+ }
+ return len(p), nil
 }
 ```
 
@@ -659,9 +673,11 @@ git commit -m "feat(iptv): M3U parser with stable entry keys and URL redaction -
 ### Task 3: `pkg/iptv/filter`
 
 **Files:**
+
 - Create: `pkg/iptv/filter/filter.go`, `pkg/iptv/filter/filter_test.go`
 
 **Interfaces:**
+
 - Consumes: `m3u.Entry`
 - Produces:
   - `filter.Rule{Name, Type, Match string; Include, Exclude []string; CaseSensitive, Enabled bool}`, where `Type` is `"groupTitle"` or `"custom"`;
@@ -675,54 +691,54 @@ git commit -m "feat(iptv): M3U parser with stable entry keys and URL redaction -
 package filter_test
 
 func entries() []m3u.Entry {
-	return []m3u.Entry{
-		{Key: "a", Name: "BBC One HD", Group: "UK | Entertainment"},
-		{Key: "b", Name: "BBC Two SD", Group: "UK | Entertainment"},
-		{Key: "c", Name: "Sky Sports Main Event", Group: "UK | Sports"},
-		{Key: "d", Name: "sky news", Group: "UK | News"},
-	}
+ return []m3u.Entry{
+  {Key: "a", Name: "BBC One HD", Group: "UK | Entertainment"},
+  {Key: "b", Name: "BBC Two SD", Group: "UK | Entertainment"},
+  {Key: "c", Name: "Sky Sports Main Event", Group: "UK | Sports"},
+  {Key: "d", Name: "sky news", Group: "UK | News"},
+ }
 }
 
 func TestMatches(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		rule filter.Rule
-		want []string
-	}{
-		{"a group title matches its group exactly", filter.Rule{Type: "groupTitle", Match: "UK | Entertainment", Enabled: true}, []string{"a", "b"}},
-		{"a group title is case-insensitive by default", filter.Rule{Type: "groupTitle", Match: "uk | entertainment", Enabled: true}, []string{"a", "b"}},
-		{"a case-sensitive group title must match case", filter.Rule{Type: "groupTitle", Match: "uk | entertainment", CaseSensitive: true, Enabled: true}, nil},
-		{"a group title is not a substring", filter.Rule{Type: "groupTitle", Match: "UK", Enabled: true}, nil},
-		{"custom matches a substring of the name", filter.Rule{Type: "custom", Match: "sky", Enabled: true}, []string{"c", "d"}},
-		{"include needs one of its words", filter.Rule{Type: "groupTitle", Match: "UK | Entertainment", Include: []string{"HD", "FHD"}, Enabled: true}, []string{"a"}},
-		{"exclude drops any of its words", filter.Rule{Type: "custom", Match: "sky", Exclude: []string{"news"}, Enabled: true}, []string{"c"}},
-		{"a disabled rule matches nothing", filter.Rule{Type: "custom", Match: "sky"}, nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var got []string
-			for _, e := range entries() {
-				if filter.Matches(tc.rule, e) {
-					got = append(got, e.Key)
-				}
-			}
-			assert.Equal(t, tc.want, got)
-			assert.Equal(t, len(tc.want), filter.Preview(entries(), tc.rule))
-		})
-	}
+ for _, tc := range []struct {
+  name string
+  rule filter.Rule
+  want []string
+ }{
+  {"a group title matches its group exactly", filter.Rule{Type: "groupTitle", Match: "UK | Entertainment", Enabled: true}, []string{"a", "b"}},
+  {"a group title is case-insensitive by default", filter.Rule{Type: "groupTitle", Match: "uk | entertainment", Enabled: true}, []string{"a", "b"}},
+  {"a case-sensitive group title must match case", filter.Rule{Type: "groupTitle", Match: "uk | entertainment", CaseSensitive: true, Enabled: true}, nil},
+  {"a group title is not a substring", filter.Rule{Type: "groupTitle", Match: "UK", Enabled: true}, nil},
+  {"custom matches a substring of the name", filter.Rule{Type: "custom", Match: "sky", Enabled: true}, []string{"c", "d"}},
+  {"include needs one of its words", filter.Rule{Type: "groupTitle", Match: "UK | Entertainment", Include: []string{"HD", "FHD"}, Enabled: true}, []string{"a"}},
+  {"exclude drops any of its words", filter.Rule{Type: "custom", Match: "sky", Exclude: []string{"news"}, Enabled: true}, []string{"c"}},
+  {"a disabled rule matches nothing", filter.Rule{Type: "custom", Match: "sky"}, nil},
+ } {
+  t.Run(tc.name, func(t *testing.T) {
+   var got []string
+   for _, e := range entries() {
+    if filter.Matches(tc.rule, e) {
+     got = append(got, e.Key)
+    }
+   }
+   assert.Equal(t, tc.want, got)
+   assert.Equal(t, len(tc.want), filter.Preview(entries(), tc.rule))
+  })
+ }
 }
 
 func TestCandidatesAreTheUnionInPlaylistOrder(t *testing.T) {
-	got := filter.Candidates(entries(), []filter.Rule{
-		{Type: "custom", Match: "sky", Enabled: true},
-		{Type: "groupTitle", Match: "UK | Sports", Enabled: true},
-		{Type: "custom", Match: "BBC One", Enabled: true},
-	})
-	var keys []string
-	for _, e := range got {
-		keys = append(keys, e.Key)
-	}
-	assert.Equal(t, []string{"a", "c", "d"}, keys, "each entry once, in playlist order")
-	assert.Empty(t, filter.Candidates(entries(), nil), "with no filter nothing is a candidate (xTeVe's rule)")
+ got := filter.Candidates(entries(), []filter.Rule{
+  {Type: "custom", Match: "sky", Enabled: true},
+  {Type: "groupTitle", Match: "UK | Sports", Enabled: true},
+  {Type: "custom", Match: "BBC One", Enabled: true},
+ })
+ var keys []string
+ for _, e := range got {
+  keys = append(keys, e.Key)
+ }
+ assert.Equal(t, []string{"a", "c", "d"}, keys, "each entry once, in playlist order")
+ assert.Empty(t, filter.Candidates(entries(), nil), "with no filter nothing is a candidate (xTeVe's rule)")
 }
 ```
 
@@ -744,6 +760,7 @@ func TestCandidatesAreTheUnionInPlaylistOrder(t *testing.T) {
 ### Task 4: `pkg/iptv/xmltv`: the parser, `BuildGuide`, `AutoMap`
 
 **Files:**
+
 - Create:
   - `pkg/iptv/xmltv/parse.go`
   - `pkg/iptv/xmltv/build.go`
@@ -753,6 +770,7 @@ func TestCandidatesAreTheUnionInPlaylistOrder(t *testing.T) {
   - `test/data/iptv/guide_built.golden.xml` (written by `-update`, then reviewed)
 
 **Interfaces:**
+
 - Produces:
   - `xmltv.Channel{ID string; DisplayNames []string; Icon string}`
   - `xmltv.Programme{Channel string; Start, Stop time.Time; Inner []byte}`.
@@ -794,94 +812,94 @@ var update = flag.Bool("update", false, "rewrite golden files")
 var from = time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)
 
 func open(t *testing.T) []byte {
-	b, err := os.ReadFile("../../../test/data/iptv/guide.xml")
-	require.NoError(t, err)
-	return b
+ b, err := os.ReadFile("../../../test/data/iptv/guide.xml")
+ require.NoError(t, err)
+ return b
 }
 
 func TestParseReadsChannelsAndTheWantedProgrammesInTheWindow(t *testing.T) {
-	g, err := xmltv.Parse(bytes.NewReader(open(t)), map[string]bool{"bbc1.uk": true}, from, from.AddDate(0, 0, 7))
-	require.NoError(t, err)
-	assert.Equal(t, []xmltv.Channel{
-		{ID: "bbc1.uk", DisplayNames: []string{"BBC One HD"}, Icon: "http://logo.example/bbc1.png"},
-		{ID: "news.uk", DisplayNames: []string{"News Live", "News, Live"}},
-	}, g.Channels)
-	require.Len(t, g.Programmes["bbc1.uk"], 2, "only the window, only wanted channels")
-	assert.Empty(t, g.Programmes["news.uk"])
-	p := g.Programmes["bbc1.uk"][0]
-	assert.Equal(t, time.Date(2026, 10, 7, 18, 0, 0, 0, time.UTC), p.Start.UTC())
-	assert.Contains(t, string(p.Inner), `<desc lang="en">Headlines &amp; weather.</desc>`, "inner XML is kept verbatim, escapes included")
+ g, err := xmltv.Parse(bytes.NewReader(open(t)), map[string]bool{"bbc1.uk": true}, from, from.AddDate(0, 0, 7))
+ require.NoError(t, err)
+ assert.Equal(t, []xmltv.Channel{
+  {ID: "bbc1.uk", DisplayNames: []string{"BBC One HD"}, Icon: "http://logo.example/bbc1.png"},
+  {ID: "news.uk", DisplayNames: []string{"News Live", "News, Live"}},
+ }, g.Channels)
+ require.Len(t, g.Programmes["bbc1.uk"], 2, "only the window, only wanted channels")
+ assert.Empty(t, g.Programmes["news.uk"])
+ p := g.Programmes["bbc1.uk"][0]
+ assert.Equal(t, time.Date(2026, 10, 7, 18, 0, 0, 0, time.UTC), p.Start.UTC())
+ assert.Contains(t, string(p.Inner), `<desc lang="en">Headlines &amp; weather.</desc>`, "inner XML is kept verbatim, escapes included")
 }
 
 func TestParseReadsGzip(t *testing.T) {
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	_, _ = zw.Write(open(t))
-	require.NoError(t, zw.Close())
-	g, err := xmltv.Parse(&buf, nil, from, from.AddDate(0, 0, 7))
-	require.NoError(t, err)
-	assert.Len(t, g.Channels, 2)
+ var buf bytes.Buffer
+ zw := gzip.NewWriter(&buf)
+ _, _ = zw.Write(open(t))
+ require.NoError(t, zw.Close())
+ g, err := xmltv.Parse(&buf, nil, from, from.AddDate(0, 0, 7))
+ require.NoError(t, err)
+ assert.Len(t, g.Channels, 2)
 }
 
 func TestParseCapsTheUncompressedSize(t *testing.T) {
-	r := io.MultiReader(strings.NewReader("<tv>"), &repeat{b: []byte("<!-- padding -->"), n: xmltv.MaxBytes / 16 + 1})
-	_, err := xmltv.Parse(r, nil, from, from.AddDate(0, 0, 7))
-	require.ErrorIs(t, err, xmltv.ErrResponseTooLarge)
+ r := io.MultiReader(strings.NewReader("<tv>"), &repeat{b: []byte("<!-- padding -->"), n: xmltv.MaxBytes / 16 + 1})
+ _, err := xmltv.Parse(r, nil, from, from.AddDate(0, 0, 7))
+ require.ErrorIs(t, err, xmltv.ErrResponseTooLarge)
 }
 
 func TestBuildGuide(t *testing.T) {
-	g, err := xmltv.Parse(bytes.NewReader(open(t)), map[string]bool{"bbc1.uk": true}, from, from.AddDate(0, 0, 7))
-	require.NoError(t, err)
-	lineup := []xmltv.LineupChannel{
-		{Number: "1002", Name: "Dummy Chan", DummyMinutes: 60},
-		{Number: "1001", Name: "BBC One", Logo: "http://logo.example/bbc1.png", Map: &xmltv.Mapping{Guide: "main", ChannelID: "bbc1.uk"}, TimeshiftMinutes: 60},
-	}
-	var out bytes.Buffer
-	require.NoError(t, xmltv.BuildGuide(&out, lineup, map[string]xmltv.Guide{"main": g}, from, 7))
-	s := out.String()
-	assert.Contains(t, s, `<channel id="1001"><display-name>BBC One</display-name><icon src="http://logo.example/bbc1.png"></icon></channel>`)
-	assert.Contains(t, s, `<programme start="20261007190000 +0000" stop="20261007200000 +0000" channel="1001">`, "timeshifted by an hour")
-	assert.Less(t, strings.Index(s, `channel id="1001"`), strings.Index(s, `channel id="1002"`), "channels sorted by number")
-	assert.Equal(t, 7*24, strings.Count(s, `channel="1002"`), "one dummy block per hour for seven days")
-	var again bytes.Buffer
-	require.NoError(t, xmltv.BuildGuide(&again, lineup, map[string]xmltv.Guide{"main": g}, from, 7))
-	assert.Equal(t, s, again.String(), "the same input gives the same bytes")
-	golden := "../../../test/data/iptv/guide_built.golden.xml"
-	if *update {
-		require.NoError(t, os.WriteFile(golden, out.Bytes(), 0o644))
-	}
-	want, err := os.ReadFile(golden)
-	require.NoError(t, err)
-	assert.Equal(t, string(want), s)
-	_, err = xmltv.Parse(bytes.NewReader(out.Bytes()), map[string]bool{"1001": true}, from, from.AddDate(0, 0, 7))
-	require.NoError(t, err, "the built guide parses as XMLTV")
+ g, err := xmltv.Parse(bytes.NewReader(open(t)), map[string]bool{"bbc1.uk": true}, from, from.AddDate(0, 0, 7))
+ require.NoError(t, err)
+ lineup := []xmltv.LineupChannel{
+  {Number: "1002", Name: "Dummy Chan", DummyMinutes: 60},
+  {Number: "1001", Name: "BBC One", Logo: "http://logo.example/bbc1.png", Map: &xmltv.Mapping{Guide: "main", ChannelID: "bbc1.uk"}, TimeshiftMinutes: 60},
+ }
+ var out bytes.Buffer
+ require.NoError(t, xmltv.BuildGuide(&out, lineup, map[string]xmltv.Guide{"main": g}, from, 7))
+ s := out.String()
+ assert.Contains(t, s, `<channel id="1001"><display-name>BBC One</display-name><icon src="http://logo.example/bbc1.png"></icon></channel>`)
+ assert.Contains(t, s, `<programme start="20261007190000 +0000" stop="20261007200000 +0000" channel="1001">`, "timeshifted by an hour")
+ assert.Less(t, strings.Index(s, `channel id="1001"`), strings.Index(s, `channel id="1002"`), "channels sorted by number")
+ assert.Equal(t, 7*24, strings.Count(s, `channel="1002"`), "one dummy block per hour for seven days")
+ var again bytes.Buffer
+ require.NoError(t, xmltv.BuildGuide(&again, lineup, map[string]xmltv.Guide{"main": g}, from, 7))
+ assert.Equal(t, s, again.String(), "the same input gives the same bytes")
+ golden := "../../../test/data/iptv/guide_built.golden.xml"
+ if *update {
+  require.NoError(t, os.WriteFile(golden, out.Bytes(), 0o644))
+ }
+ want, err := os.ReadFile(golden)
+ require.NoError(t, err)
+ assert.Equal(t, string(want), s)
+ _, err = xmltv.Parse(bytes.NewReader(out.Bytes()), map[string]bool{"1001": true}, from, from.AddDate(0, 0, 7))
+ require.NoError(t, err, "the built guide parses as XMLTV")
 }
 
 func TestAutoMap(t *testing.T) {
-	g, err := xmltv.Parse(bytes.NewReader(open(t)), nil, from, from.AddDate(0, 0, 7))
-	require.NoError(t, err)
-	guides := map[string]xmltv.Guide{"main": g}
-	m, ok := xmltv.AutoMap("bbc1.uk", "anything", guides)
-	assert.True(t, ok)
-	assert.Equal(t, xmltv.Mapping{Guide: "main", ChannelID: "bbc1.uk"}, m, "tvg-id first")
-	m, ok = xmltv.AutoMap("", "NEWS LIVE", guides)
-	assert.True(t, ok)
-	assert.Equal(t, xmltv.Mapping{Guide: "main", ChannelID: "news.uk"}, m, "then a normalised display name")
-	_, ok = xmltv.AutoMap("", "Unknown Channel", guides)
-	assert.False(t, ok)
+ g, err := xmltv.Parse(bytes.NewReader(open(t)), nil, from, from.AddDate(0, 0, 7))
+ require.NoError(t, err)
+ guides := map[string]xmltv.Guide{"main": g}
+ m, ok := xmltv.AutoMap("bbc1.uk", "anything", guides)
+ assert.True(t, ok)
+ assert.Equal(t, xmltv.Mapping{Guide: "main", ChannelID: "bbc1.uk"}, m, "tvg-id first")
+ m, ok = xmltv.AutoMap("", "NEWS LIVE", guides)
+ assert.True(t, ok)
+ assert.Equal(t, xmltv.Mapping{Guide: "main", ChannelID: "news.uk"}, m, "then a normalised display name")
+ _, ok = xmltv.AutoMap("", "Unknown Channel", guides)
+ assert.False(t, ok)
 }
 
 type repeat struct {
-	b []byte
-	n int64
+ b []byte
+ n int64
 }
 
 func (r *repeat) Read(p []byte) (int, error) {
-	if r.n == 0 {
-		return 0, io.EOF
-	}
-	r.n--
-	return copy(p, r.b), nil
+ if r.n == 0 {
+  return 0, io.EOF
+ }
+ r.n--
+ return copy(p, r.b), nil
 }
 ```
 
@@ -897,9 +915,9 @@ func (r *repeat) Read(p []byte) (int, error) {
       (`golang.org/x/net/html/charset` only if already in go.mod; else
       ISO-8859-1 by a byte-to-rune copy).
     - **Elements:**
-      - on `<channel>`: `DecodeElement` into `struct{ID string `xml:"id,attr"`; DisplayNames []string `xml:"display-name"`; Icon struct{Src string `xml:"src,attr"`} `xml:"icon"`}`;
+      - on `<channel>`: `DecodeElement` into `struct{ID string`xml:"id,attr"`; DisplayNames []string`xml:"display-name"`; Icon struct{Src string`xml:"src,attr"`}`xml:"icon"`}`;
       - on `<programme>`: when `want[channel]`, `DecodeElement` into
-        `struct{Start, Stop, Channel string attrs; Inner []byte `xml:",innerxml"`}`.
+        `struct{Start, Stop, Channel string attrs; Inner []byte`xml:",innerxml"`}`.
         Otherwise skip it with `d.Skip()`.
     - **Times:** parse with layout `"20060102150405 -0700"`, falling back
       to `"20060102150405"` as UTC.
@@ -933,9 +951,11 @@ func (r *repeat) Read(p []byte) (int, error) {
 ### Task 5: `pkg/iptv/hdhr`: the HDHomeRun surface
 
 **Files:**
+
 - Create: `pkg/iptv/hdhr/hdhr.go`, `pkg/iptv/hdhr/hdhr_test.go`
 
 **Interfaces:**
+
 - Produces:
   - `hdhr.Device{FriendlyName, DeviceID, BaseURL string; TunerCount int}`
   - `hdhr.LineupEntry{GuideNumber, GuideName, URL string}`
@@ -951,40 +971,40 @@ func (r *repeat) Read(p []byte) (int, error) {
 package hdhr_test
 
 func device() hdhr.Device {
-	return hdhr.Device{FriendlyName: "Clustarr news", DeviceID: "12AB34CD", BaseURL: "http://10.96.0.5/livetv/media/news", TunerCount: 2}
+ return hdhr.Device{FriendlyName: "Clustarr news", DeviceID: "12AB34CD", BaseURL: "http://10.96.0.5/livetv/media/news", TunerCount: 2}
 }
 
 func TestDiscover(t *testing.T) {
-	assert.JSONEq(t, `{"FriendlyName":"Clustarr news","Manufacturer":"Silicondust","ModelNumber":"HDTC-2US",
-		"FirmwareName":"hdhomeruntc_atsc","FirmwareVersion":"20150826","DeviceID":"12AB34CD","DeviceAuth":"clustarr",
-		"TunerCount":2,"BaseURL":"http://10.96.0.5/livetv/media/news","LineupURL":"http://10.96.0.5/livetv/media/news/lineup.json"}`,
-		string(hdhr.Discover(device())))
+ assert.JSONEq(t, `{"FriendlyName":"Clustarr news","Manufacturer":"Silicondust","ModelNumber":"HDTC-2US",
+  "FirmwareName":"hdhomeruntc_atsc","FirmwareVersion":"20150826","DeviceID":"12AB34CD","DeviceAuth":"clustarr",
+  "TunerCount":2,"BaseURL":"http://10.96.0.5/livetv/media/news","LineupURL":"http://10.96.0.5/livetv/media/news/lineup.json"}`,
+  string(hdhr.Discover(device())))
 }
 
 func TestLineupStatus(t *testing.T) {
-	assert.JSONEq(t, `{"ScanInProgress":0,"ScanPossible":1,"Source":"Cable","SourceList":["Cable"]}`, string(hdhr.LineupStatus()))
+ assert.JSONEq(t, `{"ScanInProgress":0,"ScanPossible":1,"Source":"Cable","SourceList":["Cable"]}`, string(hdhr.LineupStatus()))
 }
 
 func TestLineup(t *testing.T) {
-	assert.JSONEq(t, `[{"GuideNumber":"1001","GuideName":"BBC One","URL":"http://10.96.0.5/livetv/media/news/stream/1001"}]`,
-		string(hdhr.Lineup([]hdhr.LineupEntry{{GuideNumber: "1001", GuideName: "BBC One", URL: "http://10.96.0.5/livetv/media/news/stream/1001"}})))
-	assert.JSONEq(t, `[]`, string(hdhr.Lineup(nil)), "an empty lineup is an empty array, never null")
+ assert.JSONEq(t, `[{"GuideNumber":"1001","GuideName":"BBC One","URL":"http://10.96.0.5/livetv/media/news/stream/1001"}]`,
+  string(hdhr.Lineup([]hdhr.LineupEntry{{GuideNumber: "1001", GuideName: "BBC One", URL: "http://10.96.0.5/livetv/media/news/stream/1001"}})))
+ assert.JSONEq(t, `[]`, string(hdhr.Lineup(nil)), "an empty lineup is an empty array, never null")
 }
 
 func TestDeviceXMLNamesTheDevice(t *testing.T) {
-	x := string(hdhr.DeviceXML(device()))
-	assert.Contains(t, x, `<URLBase>http://10.96.0.5/livetv/media/news</URLBase>`)
-	assert.Contains(t, x, `<friendlyName>Clustarr news</friendlyName>`)
-	assert.Contains(t, x, `<UDN>uuid:12AB34CD</UDN>`)
-	require.NoError(t, xml.Unmarshal([]byte(x), new(struct{})), "well-formed")
+ x := string(hdhr.DeviceXML(device()))
+ assert.Contains(t, x, `<URLBase>http://10.96.0.5/livetv/media/news</URLBase>`)
+ assert.Contains(t, x, `<friendlyName>Clustarr news</friendlyName>`)
+ assert.Contains(t, x, `<UDN>uuid:12AB34CD</UDN>`)
+ require.NoError(t, xml.Unmarshal([]byte(x), new(struct{})), "well-formed")
 }
 
 func TestDeviceIDIsStableAndDistinct(t *testing.T) {
-	a := hdhr.DeviceID("media", "news")
-	assert.Regexp(t, `^[0-9A-F]{8}$`, a)
-	assert.Equal(t, a, hdhr.DeviceID("media", "news"))
-	assert.NotEqual(t, a, hdhr.DeviceID("media", "sports"))
-	assert.NotEqual(t, a, hdhr.DeviceID("other", "news"))
+ a := hdhr.DeviceID("media", "news")
+ assert.Regexp(t, `^[0-9A-F]{8}$`, a)
+ assert.Equal(t, a, hdhr.DeviceID("media", "news"))
+ assert.NotEqual(t, a, hdhr.DeviceID("media", "sports"))
+ assert.NotEqual(t, a, hdhr.DeviceID("other", "news"))
 }
 ```
 
@@ -1006,6 +1026,7 @@ func TestDeviceIDIsStableAndDistinct(t *testing.T) {
 ### Task 6: `app/livetv/relay`: the stream relay
 
 **Files:**
+
 - Create:
   - `app/livetv/relay/ring.go`
   - `app/livetv/relay/relay.go`
@@ -1013,6 +1034,7 @@ func TestDeviceIDIsStableAndDistinct(t *testing.T) {
   - `app/livetv/relay/ring_test.go`
 
 **Interfaces:**
+
 - Produces:
   - `relay.Options{HTTP *http.Client; Tuners int; Buffer int; Linger, Backoff, ReadyTimeout time.Duration; Retries int; UserAgent string; OnChange func(inUse int); OnError func(reason string)}`
   - `relay.New(o Options) *Relay`
@@ -1032,176 +1054,177 @@ func TestDeviceIDIsStableAndDistinct(t *testing.T) {
 package relay_test
 
 type upstream struct {
-	srv   *httptest.Server
-	conns sync.Map // path -> *atomic.Int32
-	kill  chan struct{}
-	hls   bool
+ srv   *httptest.Server
+ conns sync.Map // path -> *atomic.Int32
+ kill  chan struct{}
+ hls   bool
 }
 
 func newUpstream(t *testing.T) *upstream {
-	u := &upstream{kill: make(chan struct{})}
-	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, _ := u.conns.LoadOrStore(r.URL.Path, new(atomic.Int32))
-		c.(*atomic.Int32).Add(1)
-		if u.hls {
-			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-			_, _ = io.WriteString(w, "#EXTM3U\n#EXT-X-TARGETDURATION:6\n")
-			return
-		}
-		w.Header().Set("Content-Type", "video/mp2t")
-		pkt := make([]byte, 188)
-		for i := 0; ; i++ {
-			pkt[0] = 0x47
-			for j := 1; j < 188; j++ {
-				pkt[j] = byte(i)
-			}
-			select {
-			case <-r.Context().Done():
-				return
-			case <-u.kill:
-				return
-			default:
-			}
-			if _, err := w.Write(pkt); err != nil {
-				return
-			}
-			if i%64 == 0 {
-				w.(http.Flusher).Flush()
-				time.Sleep(time.Millisecond)
-			}
-		}
-	}))
-	t.Cleanup(u.srv.Close)
-	return u
+ u := &upstream{kill: make(chan struct{})}
+ u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  c, _ := u.conns.LoadOrStore(r.URL.Path, new(atomic.Int32))
+  c.(*atomic.Int32).Add(1)
+  if u.hls {
+   w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+   _, _ = io.WriteString(w, "#EXTM3U\n#EXT-X-TARGETDURATION:6\n")
+   return
+  }
+  w.Header().Set("Content-Type", "video/mp2t")
+  pkt := make([]byte, 188)
+  for i := 0; ; i++ {
+   pkt[0] = 0x47
+   for j := 1; j < 188; j++ {
+    pkt[j] = byte(i)
+   }
+   select {
+   case <-r.Context().Done():
+    return
+   case <-u.kill:
+    return
+   default:
+   }
+   if _, err := w.Write(pkt); err != nil {
+    return
+   }
+   if i%64 == 0 {
+    w.(http.Flusher).Flush()
+    time.Sleep(time.Millisecond)
+   }
+  }
+ }))
+ t.Cleanup(u.srv.Close)
+ return u
 }
 
 func (u *upstream) connections(path string) int32 {
-	c, ok := u.conns.Load(path)
-	if !ok {
-		return 0
-	}
-	return c.(*atomic.Int32).Load()
+ c, ok := u.conns.Load(path)
+ if !ok {
+  return 0
+ }
+ return c.(*atomic.Int32).Load()
 }
 
 func newRelay(tuners int, linger time.Duration) *relay.Relay {
-	return relay.New(relay.Options{HTTP: http.DefaultClient, Tuners: tuners, Buffer: 1 << 20, Linger: linger,
-		Retries: 3, Backoff: 10 * time.Millisecond, ReadyTimeout: 5 * time.Second, UserAgent: "clustarr-test"})
+ return relay.New(relay.Options{HTTP: http.DefaultClient, Tuners: tuners, Buffer: 1 << 20, Linger: linger,
+  Retries: 3, Backoff: 10 * time.Millisecond, ReadyTimeout: 5 * time.Second, UserAgent: "clustarr-test"})
 }
 
 // watch serves one viewer through the relay and returns the response and a cancel.
 func watch(t *testing.T, r *relay.Relay, channel, up string) (*http.Response, context.CancelFunc) {
-	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { r.Serve(w, req, channel, up) }))
-	t.Cleanup(front.Close)
-	ctx, cancel := context.WithCancel(context.Background())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, front.URL, nil)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	t.Cleanup(func() { cancel(); _ = resp.Body.Close() })
-	return resp, cancel
+ front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { r.Serve(w, req, channel, up) }))
+ t.Cleanup(front.Close)
+ ctx, cancel := context.WithCancel(context.Background())
+ req, _ := http.NewRequestWithContext(ctx, http.MethodGet, front.URL, nil)
+ resp, err := http.DefaultClient.Do(req)
+ require.NoError(t, err)
+ t.Cleanup(func() { cancel(); _ = resp.Body.Close() })
+ return resp, cancel
 }
 
 func TestTwoViewersShareOneUpstreamAndOneTuner(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(1, time.Second)
-	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	b, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	for _, resp := range []*http.Response{a, b} {
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.Equal(t, "video/mp2t", resp.Header.Get("Content-Type"))
-		_, err := io.CopyN(io.Discard, resp.Body, 1<<20)
-		require.NoError(t, err)
-	}
-	assert.Equal(t, int32(1), u.connections("/1001.ts"))
-	assert.Equal(t, 1, r.InUse())
-	assert.Equal(t, 2, r.Viewers())
+ u := newUpstream(t)
+ r := newRelay(1, time.Second)
+ a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ b, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ for _, resp := range []*http.Response{a, b} {
+  require.Equal(t, http.StatusOK, resp.StatusCode)
+  assert.Equal(t, "video/mp2t", resp.Header.Get("Content-Type"))
+  _, err := io.CopyN(io.Discard, resp.Body, 1<<20)
+  require.NoError(t, err)
+ }
+ assert.Equal(t, int32(1), u.connections("/1001.ts"))
+ assert.Equal(t, 1, r.InUse())
+ assert.Equal(t, 2, r.Viewers())
 }
 
 func TestAChannelPastTheTunersIsRefused(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(1, time.Second)
-	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	require.Equal(t, http.StatusOK, a.StatusCode)
-	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
-	assert.Equal(t, http.StatusServiceUnavailable, b.StatusCode)
-	assert.Equal(t, int32(0), u.connections("/1002.ts"))
+ u := newUpstream(t)
+ r := newRelay(1, time.Second)
+ a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ require.Equal(t, http.StatusOK, a.StatusCode)
+ b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
+ assert.Equal(t, http.StatusServiceUnavailable, b.StatusCode)
+ assert.Equal(t, int32(0), u.connections("/1002.ts"))
 }
 
 func TestANewViewerStartsOnAPacketBoundary(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(1, time.Second)
-	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	_, _ = io.CopyN(io.Discard, a.Body, 100_003)
-	b, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	head := make([]byte, 188*4)
-	_, err := io.ReadFull(b.Body, head)
-	require.NoError(t, err)
-	for i := 0; i < 4; i++ {
-		assert.Equal(t, byte(0x47), head[i*188], "sync byte at every 188")
-	}
+ u := newUpstream(t)
+ r := newRelay(1, time.Second)
+ a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ _, _ = io.CopyN(io.Discard, a.Body, 100_003)
+ b, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ head := make([]byte, 188*4)
+ _, err := io.ReadFull(b.Body, head)
+ require.NoError(t, err)
+ for i := 0; i < 4; i++ {
+  assert.Equal(t, byte(0x47), head[i*188], "sync byte at every 188")
+ }
 }
 
 func TestASlowViewerIsCutOffAndTheOtherIsNot(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(1, time.Second)
-	slow, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	fast, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	_, err := io.CopyN(io.Discard, fast.Body, 8<<20) // 8 buffers' worth while slow reads nothing
-	require.NoError(t, err)
-	_, err = io.Copy(io.Discard, slow.Body)
-	assert.NoError(t, err, "the slow viewer's response ends")
-	_, err = io.CopyN(io.Discard, fast.Body, 1<<20)
-	assert.NoError(t, err, "the fast viewer keeps streaming")
+ u := newUpstream(t)
+ r := newRelay(1, time.Second)
+ slow, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ fast, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ _, err := io.CopyN(io.Discard, fast.Body, 8<<20) // 8 buffers' worth while slow reads nothing
+ require.NoError(t, err)
+ _, err = io.Copy(io.Discard, slow.Body)
+ assert.NoError(t, err, "the slow viewer's response ends")
+ _, err = io.CopyN(io.Discard, fast.Body, 1<<20)
+ assert.NoError(t, err, "the fast viewer keeps streaming")
 }
 
 func TestAnUpstreamResetIsReopened(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(1, time.Second)
-	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	_, _ = io.CopyN(io.Discard, a.Body, 1<<20)
-	close(u.kill)
-	u.kill = make(chan struct{}) // the next connection streams
-	_, err := io.CopyN(io.Discard, a.Body, 2<<20)
-	require.NoError(t, err, "the viewer stays attached across the reopen")
-	assert.Equal(t, int32(2), u.connections("/1001.ts"))
+ u := newUpstream(t)
+ r := newRelay(1, time.Second)
+ a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ _, _ = io.CopyN(io.Discard, a.Body, 1<<20)
+ close(u.kill)
+ u.kill = make(chan struct{}) // the next connection streams
+ _, err := io.CopyN(io.Discard, a.Body, 2<<20)
+ require.NoError(t, err, "the viewer stays attached across the reopen")
+ assert.Equal(t, int32(2), u.connections("/1001.ts"))
 }
 
 func TestAVanishedViewerFreesTheTunerAfterLinger(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(1, 50*time.Millisecond)
-	a, cancel := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
-	cancel() // no clean close: the client's context is gone
-	require.Eventually(t, func() bool { return r.InUse() == 0 && r.Viewers() == 0 }, 2*time.Second, 10*time.Millisecond)
-	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
-	assert.Equal(t, http.StatusOK, b.StatusCode, "the freed tuner takes another channel")
+ u := newUpstream(t)
+ r := newRelay(1, 50*time.Millisecond)
+ a, cancel := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ _, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+ cancel() // no clean close: the client's context is gone
+ require.Eventually(t, func() bool { return r.InUse() == 0 && r.Viewers() == 0 }, 2*time.Second, 10*time.Millisecond)
+ b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
+ assert.Equal(t, http.StatusOK, b.StatusCode, "the freed tuner takes another channel")
 }
 
 func TestARejoinInsideLingerReusesTheUpstream(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(1, time.Second)
-	a, cancel := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
-	cancel()
-	b, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	_, err := io.CopyN(io.Discard, b.Body, 1<<16)
-	require.NoError(t, err)
-	assert.Equal(t, int32(1), u.connections("/1001.ts"))
+ u := newUpstream(t)
+ r := newRelay(1, time.Second)
+ a, cancel := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ _, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+ cancel()
+ b, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+ _, err := io.CopyN(io.Discard, b.Body, 1<<16)
+ require.NoError(t, err)
+ assert.Equal(t, int32(1), u.connections("/1001.ts"))
 }
 
 func TestAnHLSAnswerIsRefused(t *testing.T) {
-	u := newUpstream(t)
-	u.hls = true
-	var reasons []string
-	r := relay.New(relay.Options{HTTP: http.DefaultClient, Tuners: 1, Buffer: 1 << 20, Linger: time.Second, ReadyTimeout: time.Second,
-		OnError: func(reason string) { reasons = append(reasons, reason) }})
-	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.m3u8")
-	assert.Equal(t, http.StatusBadGateway, a.StatusCode)
-	assert.Equal(t, []string{relay.ReasonUnsupportedStream}, reasons)
-	require.Eventually(t, func() bool { return r.InUse() == 0 }, time.Second, 10*time.Millisecond)
+ u := newUpstream(t)
+ u.hls = true
+ var reasons []string
+ r := relay.New(relay.Options{HTTP: http.DefaultClient, Tuners: 1, Buffer: 1 << 20, Linger: time.Second, ReadyTimeout: time.Second,
+  OnError: func(reason string) { reasons = append(reasons, reason) }})
+ a, _ := watch(t, r, "1001", u.srv.URL+"/1001.m3u8")
+ assert.Equal(t, http.StatusBadGateway, a.StatusCode)
+ assert.Equal(t, []string{relay.ReasonUnsupportedStream}, reasons)
+ require.Eventually(t, func() bool { return r.InUse() == 0 }, time.Second, 10*time.Millisecond)
 }
 ```
 
 `ring_test.go`:
+
 - `TestRingReaderWaitsThenReads`;
 - `TestRingReaderTooFarBehindGetsErrSlow`;
 - `TestRingCloseEndsReaders`.
@@ -1211,13 +1234,14 @@ Each writes known bytes and reads them back through a cursor.
 - [ ] **Step 2: Run.** `go test -race ./app/livetv/relay`. Expected: FAIL to compile.
 - [ ] **Step 3: Implement.**
   - **`ring.go`:**
+
     ```go
     type ring struct {
-    	mu      sync.Mutex
-    	buf     []byte
-    	written int64         // total bytes ever written
-    	notify  chan struct{} // closed and replaced on every write
-    	err     error         // set by close
+     mu      sync.Mutex
+     buf     []byte
+     written int64         // total bytes ever written
+     notify  chan struct{} // closed and replaced on every write
+     err     error         // set by close
     }
     var errSlow = errors.New("relay: viewer fell a buffer behind")
     func newRing(size int) *ring
@@ -1226,6 +1250,7 @@ Each writes known bytes and reads them back through a cursor.
     func (r *ring) Read(ctx context.Context, cur *int64, p []byte) (int, error)
     func (r *ring) close(err error)
     ```
+
     How `Read` behaves:
     - `written-*cur > len(buf)` returns `errSlow`;
     - `*cur == written` waits on `notify` or `ctx.Done()`, returning
@@ -1280,6 +1305,7 @@ Each writes known bytes and reads them back through a cursor.
 ### Task 7: `app/livetv/tuner`: fetch, render, route, snapshot, store
 
 **Files:**
+
 - Create:
   - `app/livetv/tuner/config.go`
   - `app/livetv/tuner/tuner.go`
@@ -1290,50 +1316,55 @@ Each writes known bytes and reads them back through a cursor.
   - `app/livetv/tuner/tuner_test.go`
 
 **Interfaces:**
+
 - Consumes: Task 2's `m3u`, Task 3's `filter`, Task 4's `xmltv`, Task 5's `hdhr`, Task 6's `relay`, and `events.ObjectStore` (`Put`, `Get`).
 - Produces:
   - **The configuration types:**
+
     ```go
     type Config struct {
-    	Key              types.NamespacedName
-    	Address          string // the Service ClusterIP, without a port
-    	FriendlyName     string
-    	DeviceID         string
-    	Tuners           int
-    	UserAgent        string
-    	PlaylistURL      string
-    	PlaylistRefresh  time.Duration
-    	EPGSource        string // "XEPG" | "PMS"
-    	Guides           []GuideConfig
-    	Filters          []filter.Rule
-    	Channels         []ChannelConfig
-    	Buffer           int
-    	Linger           time.Duration
-    	// Refresh is the clustarr.io/livetv-refresh annotation's value. A new
-    	// value makes every source of the provider due now (spec §5.1).
-    	Refresh          string
+     Key              types.NamespacedName
+     Address          string // the Service ClusterIP, without a port
+     FriendlyName     string
+     DeviceID         string
+     Tuners           int
+     UserAgent        string
+     PlaylistURL      string
+     PlaylistRefresh  time.Duration
+     EPGSource        string // "XEPG" | "PMS"
+     Guides           []GuideConfig
+     Filters          []filter.Rule
+     Channels         []ChannelConfig
+     Buffer           int
+     Linger           time.Duration
+     // Refresh is the clustarr.io/livetv-refresh annotation's value. A new
+     // value makes every source of the provider due now (spec §5.1).
+     Refresh          string
     }
     type GuideConfig struct { Name, URL string; Refresh time.Duration }
     type ChannelConfig struct {
-    	Object, Key, Number, Name, Group, Logo string
-    	Active                                 bool
-    	Map                                    *xmltv.Mapping
-    	DummyMinutes, TimeshiftMinutes         int
+     Object, Key, Number, Name, Group, Logo string
+     Active                                 bool
+     Map                                    *xmltv.Mapping
+     DummyMinutes, TimeshiftMinutes         int
     }
     ```
+
   - **The snapshot types:**
+
     ```go
     type Snapshot struct {
-    	PlaylistFetched bool
-    	Playlist        PlaylistState // Entries, Groups, Candidates int; FetchedAt time.Time; Hash, Error string
-    	Guides          []GuideState  // Name; Channels, Programmes int; FetchedAt time.Time; Error string
-    	Lineup          LineupState   // Active, Unmapped, Missing int; Hash string
-    	GuideHash       string
-    	TunersInUse     int
-    	Channels        map[string]ChannelState // by IPTVChannel object name
+     PlaylistFetched bool
+     Playlist        PlaylistState // Entries, Groups, Candidates int; FetchedAt time.Time; Hash, Error string
+     Guides          []GuideState  // Name; Channels, Programmes int; FetchedAt time.Time; Error string
+     Lineup          LineupState   // Active, Unmapped, Missing int; Hash string
+     GuideHash       string
+     TunersInUse     int
+     Channels        map[string]ChannelState // by IPTVChannel object name
     }
     type ChannelState struct{ Missing, Duplicate, GuideNotFound bool; Guide string }
     ```
+
   - **The tuner itself:**
     - `tuner.Options{BindAddress string; Store events.ObjectStore; HTTP *http.Client; Now func() time.Time; Debounce time.Duration; Notify func(types.NamespacedName)}`
     - `tuner.New(o Options) *Tuner`
@@ -1364,27 +1395,28 @@ Each writes known bytes and reads them back through a cursor.
 
 ```go
 func config(srv string) tuner.Config {
-	return tuner.Config{
-		Key: types.NamespacedName{Namespace: "media", Name: "news"}, Address: "10.96.0.5",
-		FriendlyName: "Clustarr news", DeviceID: hdhr.DeviceID("media", "news"), Tuners: 1, UserAgent: "clustarr",
-		PlaylistURL: srv + "/get.php?username=u&password=p", PlaylistRefresh: time.Hour, EPGSource: "XEPG",
-		Guides:  []tuner.GuideConfig{{Name: "main", URL: srv + "/guide.xml?token=secret", Refresh: time.Hour}},
-		Filters: []filter.Rule{{Type: "groupTitle", Match: "UK | Entertainment", Enabled: true}, {Type: "groupTitle", Match: "UK | News", Enabled: true},
-			{Type: "custom", Match: "Sports 1", Enabled: true}, {Type: "groupTitle", Match: "Misc", Enabled: true}},
-		Channels: []tuner.ChannelConfig{
-			{Object: "news-a", Key: "t:bbc1.uk", Number: "1001", Name: "BBC One", Active: true},             // auto-maps by tvg-id
-			{Object: "news-b", Key: m3u.NameKey("UK | News", "News, Live"), Number: "1002", Active: true},   // auto-maps by display name
-			{Object: "news-c", Key: "t:gone", Number: "1003", Active: true},                                 // missing
-			{Object: "news-d", Key: m3u.NameKey("Sports", "Sports 1"), Number: "1001", Active: true},        // duplicate number
-			{Object: "news-e", Key: m3u.NameKey("Misc", "No Attributes"), Number: "1004", Active: true,
-				Map: &xmltv.Mapping{Guide: "nope", ChannelID: "x"}},                                         // guide not found
-		},
-		Buffer: 1 << 20, Linger: time.Second,
-	}
+ return tuner.Config{
+  Key: types.NamespacedName{Namespace: "media", Name: "news"}, Address: "10.96.0.5",
+  FriendlyName: "Clustarr news", DeviceID: hdhr.DeviceID("media", "news"), Tuners: 1, UserAgent: "clustarr",
+  PlaylistURL: srv + "/get.php?username=u&password=p", PlaylistRefresh: time.Hour, EPGSource: "XEPG",
+  Guides:  []tuner.GuideConfig{{Name: "main", URL: srv + "/guide.xml?token=secret", Refresh: time.Hour}},
+  Filters: []filter.Rule{{Type: "groupTitle", Match: "UK | Entertainment", Enabled: true}, {Type: "groupTitle", Match: "UK | News", Enabled: true},
+   {Type: "custom", Match: "Sports 1", Enabled: true}, {Type: "groupTitle", Match: "Misc", Enabled: true}},
+  Channels: []tuner.ChannelConfig{
+   {Object: "news-a", Key: "t:bbc1.uk", Number: "1001", Name: "BBC One", Active: true},             // auto-maps by tvg-id
+   {Object: "news-b", Key: m3u.NameKey("UK | News", "News, Live"), Number: "1002", Active: true},   // auto-maps by display name
+   {Object: "news-c", Key: "t:gone", Number: "1003", Active: true},                                 // missing
+   {Object: "news-d", Key: m3u.NameKey("Sports", "Sports 1"), Number: "1001", Active: true},        // duplicate number
+   {Object: "news-e", Key: m3u.NameKey("Misc", "No Attributes"), Number: "1004", Active: true,
+    Map: &xmltv.Mapping{Guide: "nope", ChannelID: "x"}},                                         // guide not found
+  },
+  Buffer: 1 << 20, Linger: time.Second,
+ }
 }
 ```
 
 The tests:
+
 - **`TestALineupWaits503UntilThePlaylistIsFetched`**: `Apply` before
   `Start`; `GET /lineup.json` with Host `10.96.0.5` gives 503.
 - **`TestATunerServesItsProvidersLineupByHostAndByPath`**: after `Start`,
@@ -1549,6 +1581,7 @@ The tests:
 ### Task 8: The `clustarr-livetv` object store
 
 **Files:**
+
 - Modify:
   - `pkg/events/subjects.go` (`BucketLiveTV`, `LiveTVMaxBytes`)
   - `pkg/events/topology.go` (`defaultObjectStores`)
@@ -1560,13 +1593,14 @@ The tests:
   expected count from 2 to 3. Assert the new entry:
 
 ```go
-	lt := byName[events.BucketLiveTV]
-	require.NotNil(t, lt, "the Live TV bucket is part of the default topology")
-	assert.Equal(t, events.StorageFile, lt.Storage)
-	assert.Equal(t, events.LiveTVMaxBytes, lt.MaxBytes)
+ lt := byName[events.BucketLiveTV]
+ require.NotNil(t, lt, "the Live TV bucket is part of the default topology")
+ assert.Equal(t, events.StorageFile, lt.Storage)
+ assert.Equal(t, events.LiveTVMaxBytes, lt.MaxBytes)
 ```
 
   Build `byName` from the slice; read the test's existing shape first.
+
 - [ ] **Step 2: Run.** `go test ./pkg/events/ -run TestDefaultObjectStore`. Expected: FAIL to compile on `BucketLiveTV`.
 - [ ] **Step 3: Implement.**
   - **`subjects.go`:**
@@ -1587,12 +1621,14 @@ The tests:
 ### Task 9: The controllers: IPTVProvider and IPTVChannel
 
 **Files:**
+
 - Create:
   - `app/livetv/index/index.go`
   - `app/livetv/controller/iptvprovider/{doc.go,reconciler.go,service.go,config.go,status.go,reconciler_envtest_test.go}`
   - `app/livetv/controller/iptvchannel/{doc.go,reconciler.go,reconciler_envtest_test.go}`
 
 **Interfaces:**
+
 - Consumes:
   - Task 1's types, accessors, managers and reasons;
   - Task 7's `tuner.Config`, `tuner.Snapshot`, `tuner.ChannelState`;
@@ -1770,6 +1806,7 @@ The tests:
 ### Task 10: `app/livetv/manager.Register` and the `livetv` step in `cmd/manager`
 
 **Files:**
+
 - Create:
   - `app/livetv/manager/register.go`
   - `app/livetv/manager/register_test.go`
@@ -1782,6 +1819,7 @@ The tests:
     the `register` doc comment)
 
 **Interfaces:**
+
 - Consumes: Tasks 7-9.
 - Produces:
   - `livetvmanager.Options{k8s.Options; BindAddress string; Selector map[string]string}`
@@ -1798,29 +1836,30 @@ The tests:
 ```go
 // internal/cli/manager/livetv_options_test.go
 func TestLiveTVDefaults(t *testing.T) {
-	o := DefaultOptions()
-	assert.Equal(t, ":5004", o.LiveTVBindAddress)
-	assert.Equal(t, "app.kubernetes.io/component=manager", o.LiveTVServiceSelector)
+ o := DefaultOptions()
+ assert.Equal(t, ":5004", o.LiveTVBindAddress)
+ assert.Equal(t, "app.kubernetes.io/component=manager", o.LiveTVServiceSelector)
 }
 
 func TestLiveTVSelectorMustParse(t *testing.T) {
-	o := DefaultOptions()
-	o.LiveTVServiceSelector = "no-equals"
-	assert.ErrorContains(t, o.Validate(), "--livetv-service-selector")
-	o.LiveTVServiceSelector = ""
-	assert.ErrorContains(t, o.Validate(), "--livetv-service-selector")
-	o.LiveTVBindAddress = k8s.DisabledBindAddress
-	assert.NoError(t, o.Validate(), "a disabled Live TV needs no selector")
+ o := DefaultOptions()
+ o.LiveTVServiceSelector = "no-equals"
+ assert.ErrorContains(t, o.Validate(), "--livetv-service-selector")
+ o.LiveTVServiceSelector = ""
+ assert.ErrorContains(t, o.Validate(), "--livetv-service-selector")
+ o.LiveTVBindAddress = k8s.DisabledBindAddress
+ assert.NoError(t, o.Validate(), "a disabled Live TV needs no selector")
 }
 
 func TestLiveTVBindAddressMustNameAPort(t *testing.T) {
-	o := DefaultOptions()
-	o.LiveTVBindAddress = "localhost"
-	assert.ErrorContains(t, o.Validate(), "--livetv-bind-address")
+ o := DefaultOptions()
+ o.LiveTVBindAddress = "localhost"
+ assert.ErrorContains(t, o.Validate(), "--livetv-bind-address")
 }
 ```
 
 `app/livetv/manager/register_test.go` covers two behaviours:
+
 - **`Register` with `BindAddress: "0"`** adds nothing. Check it with a
   fake `ctrl.Manager`, or an envtest manager whose runnable count is read
   through `mgr.Add` interception: wrap a manager in a struct that counts
@@ -1875,6 +1914,7 @@ stop.
 ### Task 11: RBAC, both installers' manager flags and port, and the NetworkPolicy
 
 **Files:**
+
 - Modify:
   - `Makefile`: add `./app/livetv/...` to `RBAC_PATHS_manager`.
   - `config/rbac/manager_role.yaml` and `charts/clustarr/templates/rbac.yaml`:
@@ -1963,6 +2003,7 @@ livetv:
 ### Task 12: e2e scenario 19 and the `iptv-stub` fixture
 
 **Files:**
+
 - Create:
   - `test/fixtures/iptvstub/server.go`
   - `test/fixtures/iptvstub/server_test.go`
@@ -1976,6 +2017,7 @@ livetv:
     += `iptv-stub`)
 
 **Interfaces:**
+
 - Produces:
   - `iptvstub.NewHandler(base string) http.Handler`, serving:
     - `/get.php`: an M3U of three channels in group `E2E`, whose stream
@@ -1998,52 +2040,53 @@ livetv:
 
 ```go
 func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureIPTVStubService)
-	name := uniqueName("livetv")
-	p := &clustarrv1.IPTVProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
-		Spec: clustarrv1.IPTVProviderSpec{
-			Tuners:   1,
-			Playlist: clustarrv1.PlaylistSource{URL: "http://iptv-stub." + Namespace + ".svc/get.php"},
-			Guides:   []clustarrv1.XMLTVSource{{Name: "e2e", URL: "http://iptv-stub." + Namespace + ".svc/guide.xml"}},
-			Filters:  []clustarrv1.ChannelFilter{{Name: "e2e", Type: clustarrv1.FilterGroupTitle, Match: "E2E"}},
-		},
-	}
-	require.NoError(t, k8sClient.Create(ctx, p))
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), p) })
-	for i, key := range []string{"t:e2e.1", "t:e2e.2"} {
-		ch := &clustarrv1.IPTVChannel{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%d", name, i), Namespace: Namespace},
-			Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: name, Key: key, Number: fmt.Sprintf("%d", 1001+i), Active: true},
-		}
-		require.NoError(t, k8sClient.Create(ctx, ch))
-		cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), ch) })
-	}
-	waitFor(t, ctx, 5*time.Minute, "the provider is Ready with two active channels", func(ctx context.Context) (bool, error) {
-		var got clustarrv1.IPTVProvider
-		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &got); err != nil {
-			return false, err
-		}
-		return meta.IsStatusConditionTrue(got.Status.Conditions, clustarrv1.ConditionReady) &&
-			got.Status.Lineup != nil && got.Status.Lineup.Active == 2 && got.Status.Address != "", nil
-	})
-	base, stop := portForwardService(ctx, t, iptvprovider.ServiceName(Namespace, name), 80)
-	defer stop()
-	prefix := base + "/livetv/" + Namespace + "/" + name
-	// lineup.json: both channels; xmltv.xml: both ids; then two viewers of 1001 over one upstream, and 1002 refused.
-	...
+ ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
+ defer cancel()
+ requireFixtureService(ctx, t, fixtureIPTVStubService)
+ name := uniqueName("livetv")
+ p := &clustarrv1.IPTVProvider{
+  ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
+  Spec: clustarrv1.IPTVProviderSpec{
+   Tuners:   1,
+   Playlist: clustarrv1.PlaylistSource{URL: "http://iptv-stub." + Namespace + ".svc/get.php"},
+   Guides:   []clustarrv1.XMLTVSource{{Name: "e2e", URL: "http://iptv-stub." + Namespace + ".svc/guide.xml"}},
+   Filters:  []clustarrv1.ChannelFilter{{Name: "e2e", Type: clustarrv1.FilterGroupTitle, Match: "E2E"}},
+  },
+ }
+ require.NoError(t, k8sClient.Create(ctx, p))
+ cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), p) })
+ for i, key := range []string{"t:e2e.1", "t:e2e.2"} {
+  ch := &clustarrv1.IPTVChannel{
+   ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%d", name, i), Namespace: Namespace},
+   Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: name, Key: key, Number: fmt.Sprintf("%d", 1001+i), Active: true},
+  }
+  require.NoError(t, k8sClient.Create(ctx, ch))
+  cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), ch) })
+ }
+ waitFor(t, ctx, 5*time.Minute, "the provider is Ready with two active channels", func(ctx context.Context) (bool, error) {
+  var got clustarrv1.IPTVProvider
+  if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &got); err != nil {
+   return false, err
+  }
+  return meta.IsStatusConditionTrue(got.Status.Conditions, clustarrv1.ConditionReady) &&
+   got.Status.Lineup != nil && got.Status.Lineup.Active == 2 && got.Status.Address != "", nil
+ })
+ base, stop := portForwardService(ctx, t, iptvprovider.ServiceName(Namespace, name), 80)
+ defer stop()
+ prefix := base + "/livetv/" + Namespace + "/" + name
+ // lineup.json: both channels; xmltv.xml: both ids; then two viewers of 1001 over one upstream, and 1002 refused.
+ ...
 }
 ```
 
   Write the elided part in full:
-  - `GET prefix/lineup.json` decodes to two entries, `1001` and `1002`;
-  - `GET prefix/xmltv.xml` contains `<channel id="1001">` and
+
+- `GET prefix/lineup.json` decodes to two entries, `1001` and `1002`;
+- `GET prefix/xmltv.xml` contains `<channel id="1001">` and
     `<channel id="1002">`;
-  - two goroutines each `GET prefix/stream/1001` and `io.CopyN` 1 MiB;
-  - then the stub's `/stats`, port-forwarded, shows `connections["1"] == 1`;
-  - while both viewers hold, `GET prefix/stream/1002` gives 503.
+- two goroutines each `GET prefix/stream/1001` and `io.CopyN` 1 MiB;
+- then the stub's `/stats`, port-forwarded, shows `connections["1"] == 1`;
+- while both viewers hold, `GET prefix/stream/1002` gives 503.
 
 - [ ] **Step 4: Wire it.**
   - `config/e2e/iptv-stub.yaml`: a Deployment and a Service, as
@@ -2059,6 +2102,7 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 ### Task 13: Docs, gate and hand-off
 
 **Files:**
+
 - Modify:
   - `CLAUDE.md`:
     - a **Live TV** paragraph after **Transcoding**, a dense summary of

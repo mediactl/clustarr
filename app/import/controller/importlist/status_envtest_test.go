@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -177,7 +176,7 @@ func TestReconcileFoldsTheDeadLetteredAnnotation(t *testing.T) {
 	dl := findCondition(got.Status.Conditions, k8s.ConditionDeadLettered)
 	require.NotNil(t, dl, "the annotation must become a DeadLettered condition")
 	require.Equal(t, metav1.ConditionTrue, dl.Status)
-	require.True(t, dl.LastTransitionTime.Equal(ptr.To(metav1.NewTime(time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)))))
+	require.True(t, dl.LastTransitionTime.Equal(new(metav1.NewTime(time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)))))
 	require.Equal(t, metav1.ConditionTrue, findCondition(got.Status.Conditions, catalogv1alpha1.ImportListConditionReady).Status)
 	require.Equal(t, metav1.ConditionTrue, findCondition(got.Status.Conditions, catalogv1alpha1.ImportListConditionSynced).Status)
 	require.Equal(t, before.ItemCount, got.Status.ItemCount)
@@ -208,7 +207,7 @@ func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
-		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller:             config.Controller{SkipNameValidation: new(true)},
 		Cache:                  cache.Options{DefaultNamespaces: map[string]cache.Config{ns: {}}},
 	})
 	require.NoError(t, err)

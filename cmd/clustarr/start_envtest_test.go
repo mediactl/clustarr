@@ -42,7 +42,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -259,7 +258,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "claim-probe", Namespace: "default"},
 					Spec: downloadv1alpha1.DownloadClientSpec{
 						Protocol: commonv1alpha1.ProtocolTorrent,
-						Torrent:  &downloadv1alpha1.TorrentSpec{EnableDHT: ptr.To(false)},
+						Torrent:  &downloadv1alpha1.TorrentSpec{EnableDHT: new(false)},
 					},
 				}
 				if err := c.Create(ctx, dc); err != nil {
@@ -334,7 +333,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 							// No DHT bootstrap: this suite has no
 							// Internet egress, matching
 							// reconciler_real_test.go's identical reason.
-							EnableDHT: ptr.To(false),
+							EnableDHT: new(false),
 						},
 					},
 				}
@@ -846,8 +845,8 @@ func holdLease(t *testing.T, cfg *rest.Config, namespace, id string) {
 	lease := &coordinationv1.Lease{
 		ObjectMeta: metav1.ObjectMeta{Name: id, Namespace: namespace},
 		Spec: coordinationv1.LeaseSpec{
-			HolderIdentity:       ptr.To("incumbent-pod"),
-			LeaseDurationSeconds: ptr.To(int32(86400)),
+			HolderIdentity:       new("incumbent-pod"),
+			LeaseDurationSeconds: new(int32(86400)),
 			AcquireTime:          &renew,
 			RenewTime:            &renew,
 		},
@@ -1156,7 +1155,7 @@ func verifyFacade(t *testing.T, cfg *rest.Config, addr string) {
 	idx := &indexv1alpha1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: "facade-cardigann", Namespace: "default"},
 		Spec: indexv1alpha1.IndexerSpec{
-			DefinitionRef: ptr.To("no-such-definition"),
+			DefinitionRef: new("no-such-definition"),
 			BaseURL:       "http://127.0.0.1:1/",
 		},
 	}
@@ -1246,7 +1245,7 @@ func verifyCaptionarrController(t *testing.T, cfg *rest.Config, dataDir string) 
 	// below, which the worker case reports.
 	provider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"},
-		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: ptr.To(true)},
+		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: new(true)},
 	}
 	if err := c.Create(ctx, provider); err != nil {
 		t.Fatalf("create SubtitleProvider: %v", err)

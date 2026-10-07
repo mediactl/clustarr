@@ -21,7 +21,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -60,40 +59,40 @@ func TestTrackFileTransitions(t *testing.T) {
 		present := []catalogv1alpha1.MediaFile{file("f2", "rec-2"), file("whole", "")}
 		got := album.TrackFileTransitions(
 			[]catalogv1alpha1.Track{recorded("rec-1", nil), recorded("rec-2", nil)},
-			[]*catalogac.TrackApplyConfiguration{declared("rec-1", nil), declared("rec-2", ptr.To("f2"))},
+			[]*catalogac.TrackApplyConfiguration{declared("rec-1", nil), declared("rec-2", new("f2"))},
 			present)
 		assert.Equal(t, []album.FileEdge{edge(events.ActionImported, "f2", present)}, got)
 	})
 	t.Run("a settled listing announces nothing", func(t *testing.T) {
 		present := []catalogv1alpha1.MediaFile{file("f2", "rec-2")}
 		assert.Empty(t, album.TrackFileTransitions(
-			[]catalogv1alpha1.Track{recorded("rec-2", ptr.To("f2"))},
-			[]*catalogac.TrackApplyConfiguration{declared("rec-2", ptr.To("f2"))},
+			[]catalogv1alpha1.Track{recorded("rec-2", new("f2"))},
+			[]*catalogac.TrackApplyConfiguration{declared("rec-2", new("f2"))},
 			present))
 	})
 	t.Run("another file taking a track over is replaced", func(t *testing.T) {
 		present := []catalogv1alpha1.MediaFile{file("f2", "rec-2"), file("f2-new", "rec-2")}
 		assert.Equal(t, []album.FileEdge{edge(events.ActionReplaced, "f2-new", present)}, album.TrackFileTransitions(
-			[]catalogv1alpha1.Track{recorded("rec-2", ptr.To("f2"))},
-			[]*catalogac.TrackApplyConfiguration{declared("rec-2", ptr.To("f2-new"))},
+			[]catalogv1alpha1.Track{recorded("rec-2", new("f2"))},
+			[]*catalogac.TrackApplyConfiguration{declared("rec-2", new("f2-new"))},
 			present))
 	})
 	t.Run("a track's file that is gone is deleted", func(t *testing.T) {
 		assert.Equal(t, []album.FileEdge{edge(events.ActionDeleted, "f2", nil)}, album.TrackFileTransitions(
-			[]catalogv1alpha1.Track{recorded("rec-2", ptr.To("f2"))},
+			[]catalogv1alpha1.Track{recorded("rec-2", new("f2"))},
 			[]*catalogac.TrackApplyConfiguration{declared("rec-2", nil)},
 			nil))
 	})
 	t.Run("a new release dropping a recording whose file is gone: deleted", func(t *testing.T) {
 		assert.Equal(t, []album.FileEdge{edge(events.ActionDeleted, "f2", nil)}, album.TrackFileTransitions(
-			[]catalogv1alpha1.Track{recorded("rec-2", ptr.To("f2"))},
+			[]catalogv1alpha1.Track{recorded("rec-2", new("f2"))},
 			[]*catalogac.TrackApplyConfiguration{declared("rec-9", nil)},
 			nil))
 	})
 	t.Run("a new release dropping a recording whose file still exists: nothing was deleted", func(t *testing.T) {
 		present := []catalogv1alpha1.MediaFile{file("f2", "rec-2")}
 		assert.Empty(t, album.TrackFileTransitions(
-			[]catalogv1alpha1.Track{recorded("rec-2", ptr.To("f2"))},
+			[]catalogv1alpha1.Track{recorded("rec-2", new("f2"))},
 			[]*catalogac.TrackApplyConfiguration{declared("rec-9", nil)},
 			present))
 	})
@@ -101,7 +100,7 @@ func TestTrackFileTransitions(t *testing.T) {
 		present := []catalogv1alpha1.MediaFile{file("f9", "rec-9")}
 		assert.Equal(t, []album.FileEdge{edge(events.ActionImported, "f9", present)}, album.TrackFileTransitions(
 			[]catalogv1alpha1.Track{recorded("rec-2", nil)},
-			[]*catalogac.TrackApplyConfiguration{declared("rec-9", ptr.To("f9"))},
+			[]*catalogac.TrackApplyConfiguration{declared("rec-9", new("f9"))},
 			present))
 	})
 }

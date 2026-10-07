@@ -19,15 +19,13 @@ package v1alpha1
 
 import (
 	"testing"
-
-	"k8s.io/utils/ptr"
 )
 
 func TestCleanupDaysOrDefault(t *testing.T) {
 	for _, c := range []struct {
 		in   *int32
 		want int32
-	}{{nil, 7}, {ptr.To[int32](0), 0}, {ptr.To[int32](30), 30}} {
+	}{{nil, 7}, {new(int32), 0}, {func() *int32 { i := int32(30); return &i }(), 30}} {
 		if got := (RecycleBin{CleanupDays: c.in}).CleanupDaysOrDefault(); got != c.want {
 			t.Errorf("CleanupDaysOrDefault(%v) = %d, want %d", c.in, got, c.want)
 		}
@@ -41,12 +39,12 @@ func TestOverlayGeometryOrDefault(t *testing.T) {
 	var nilGeometry *OverlayGeometry
 	empty := &OverlayGeometry{}
 	set := &OverlayGeometry{
-		WidthPercent:   ptr.To[int32](20),
-		RadiusPercent:  ptr.To[int32](3),
-		PaddingPercent: ptr.To[int32](4),
-		LogoPercent:    ptr.To[int32](70),
-		ScorePercent:   ptr.To[int32](50),
-		OpacityPercent: ptr.To[int32](100),
+		WidthPercent:   new(int32),
+		RadiusPercent:  new(int32),
+		PaddingPercent: new(int32),
+		LogoPercent:    new(int32),
+		ScorePercent:   new(int32),
+		OpacityPercent: new(int32),
 	}
 
 	for _, c := range []struct {

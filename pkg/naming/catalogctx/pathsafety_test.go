@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
@@ -83,7 +82,7 @@ func TestEpisodeFilePathCannotLeaveTheRootFolder(t *testing.T) {
 	require.Error(t, err, "a series folder of only dots is the root's parent")
 
 	escaping := seriesTitled("Heat")
-	escaping.Spec.Folder = ptr.To("../../etc")
+	escaping.Spec.Folder = new("../../etc")
 	_, err = episodePath(t, escaping)
 	require.Error(t, err, "spec.folder outside the root folder")
 
@@ -93,7 +92,7 @@ func TestEpisodeFilePathCannotLeaveTheRootFolder(t *testing.T) {
 	require.Error(t, err, "status.path outside the root folder")
 
 	sub := seriesTitled("Heat")
-	sub.Spec.Folder = ptr.To("Anime/Heat")
+	sub.Spec.Folder = new("Anime/Heat")
 	got, err = episodePath(t, sub)
 	require.NoError(t, err, "a spec.folder naming a subfolder of the root stays legal")
 	require.True(t, strings.HasPrefix(got, "/data/media/series/Anime/Heat/Season 01/"), got)
@@ -128,11 +127,11 @@ func TestMovieFilePathCannotLeaveTheRootFolder(t *testing.T) {
 	require.Equal(t, "/data/media/movies/a+b (1997) [tmdbid-754]/a+b (1997).mkv", got)
 
 	m := movieTitled("Heat")
-	m.Spec.Folder = ptr.To("x/../../../../etc")
+	m.Spec.Folder = new("x/../../../../etc")
 	_, err = moviePath(m)
 	require.Error(t, err, "spec.folder outside the root folder")
 
-	m.Spec.Folder = ptr.To("..")
+	m.Spec.Folder = new("..")
 	_, err = moviePath(m)
 	require.Error(t, err, "spec.folder naming the root's parent")
 }

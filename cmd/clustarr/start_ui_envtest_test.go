@@ -32,7 +32,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -80,7 +79,7 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 	movie := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: catalogv1alpha1.MovieSpec{
-			TmdbID: 603, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies", Monitored: ptr.To(true),
+			TmdbID: 603, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies", Monitored: new(true),
 		},
 	}
 	if err := c.Create(ctx, movie); err != nil {

@@ -24,7 +24,6 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -94,7 +93,7 @@ func GrabRelease(
 		body.Spec.Grab = append(slices.Clone(search.Spec.Grab), guid)
 	}
 	if override {
-		body.Spec.Override = ptr.To(true)
+		body.Spec.Override = new(true)
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {

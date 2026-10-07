@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/stretchr/testify/require"
@@ -48,7 +47,7 @@ func TestReconcileDisabledListSkipsScheduling(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "watchlist"},
 		Spec: catalogv1alpha1.ImportListSpec{
 			Kinds:    []string{"movie"},
-			Enabled:  ptr.To(false),
+			Enabled:  new(false),
 			StevenLu: &catalogv1alpha1.StevenLu{},
 			Defaults: catalogv1alpha1.ListDefaults{QualityProfileRef: "hd", RootFolderRef: "movies"},
 		},

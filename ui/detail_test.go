@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -65,9 +64,9 @@ func movieFixture(t *testing.T, withActions bool) (*ui.Server, client.Client) {
 	t.Helper()
 	movie := &catalogv1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: "nerve", Namespace: "default", UID: "nerve-uid"},
-		Spec:       catalogv1.MovieSpec{TmdbID: 328387, Monitored: ptr.To(true), QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
+		Spec:       catalogv1.MovieSpec{TmdbID: 328387, Monitored: new(true), QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
 		Status: catalogv1.MovieStatus{
-			Phase: catalogv1.MoviePhaseImported, HasFile: true, Path: nervePath, FileRef: ptr.To("nerve-file"),
+			Phase: catalogv1.MoviePhaseImported, HasFile: true, Path: nervePath, FileRef: new("nerve-file"),
 			Metadata: &catalogv1.MovieMetadata{
 				Title: "Nerve", OriginalTitle: "Nerve", Year: 2016, RuntimeMinutes: 96, Certification: "PG-13",
 				Genres: []string{"Mystery", "Adventure", "Crime"}, OriginalLanguage: "en",

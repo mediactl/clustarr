@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -67,17 +66,17 @@ func TestSelectCandidatesGates(t *testing.T) {
 		{name: "healthy", want: ""},
 		{
 			name:   "disabled",
-			mutate: func(i *indexv1alpha1.Indexer) { i.Spec.Enabled = ptr.To(false) },
+			mutate: func(i *indexv1alpha1.Indexer) { i.Spec.Enabled = new(false) },
 			want:   skipDisabled,
 		},
 		{
 			name:   "automatic search disabled",
-			mutate: func(i *indexv1alpha1.Indexer) { i.Spec.EnableAutomaticSearch = ptr.To(false) },
+			mutate: func(i *indexv1alpha1.Indexer) { i.Spec.EnableAutomaticSearch = new(false) },
 			want:   skipNoAuto,
 		},
 		{
 			name:    "interactive search disabled",
-			mutate:  func(i *indexv1alpha1.Indexer) { i.Spec.EnableInteractiveSearch = ptr.To(false) },
+			mutate:  func(i *indexv1alpha1.Indexer) { i.Spec.EnableInteractiveSearch = new(false) },
 			request: func(r *schema.SearchRequest) { r.UserInvoked = true },
 			want:    skipNoInteractive,
 		},
@@ -85,7 +84,7 @@ func TestSelectCandidatesGates(t *testing.T) {
 			// The switches are per-trigger: an indexer that opts out of
 			// automatic searches is still available interactively.
 			name:    "automatic switch does not gate an interactive search",
-			mutate:  func(i *indexv1alpha1.Indexer) { i.Spec.EnableAutomaticSearch = ptr.To(false) },
+			mutate:  func(i *indexv1alpha1.Indexer) { i.Spec.EnableAutomaticSearch = new(false) },
 			request: func(r *schema.SearchRequest) { r.UserInvoked = true },
 			want:    "",
 		},
@@ -142,7 +141,7 @@ func TestSelectCandidatesGates(t *testing.T) {
 			// (TestAnIndexerAtItsQueryLimitIsAskedAgainOnceTheWindowPasses).
 			name: "the projected query count never gates selection",
 			mutate: func(i *indexv1alpha1.Indexer) {
-				i.Spec.Limits = &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(50))}
+				i.Spec.Limits = &indexv1alpha1.Limits{QueryLimit: new(int32(50))}
 				i.Status.QueriesInWindow = 100000
 			},
 			want: "",

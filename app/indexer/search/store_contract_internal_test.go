@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -63,7 +62,7 @@ func TestIndexRejectReasonAgreesWithTheRealStore(t *testing.T) {
 		Indexer: "idx", GUID: "g-base", Title: "The Matrix 1999",
 		TitleNorm: "matrix 1999", Group: "GRP", Protocol: "torrent",
 		Categories: []int{2040}, SizeBytes: 1024,
-		PublishedAt: ptr.To(at.Add(-time.Hour)), FetchedAt: at,
+		PublishedAt: new(at.Add(-time.Hour)), FetchedAt: at,
 		InfoJSON: []byte(`{}`),
 	}
 
@@ -95,7 +94,7 @@ func TestIndexRejectReasonAgreesWithTheRealStore(t *testing.T) {
 	t.Run("a pointer to the zero time", func(t *testing.T) {
 		row := base
 		row.GUID = "g-zero-ptr"
-		row.PublishedAt = ptr.To(time.Time{})
+		row.PublishedAt = new(time.Time{})
 		assertAgrees(t, store, row)
 	})
 }
@@ -169,7 +168,7 @@ func TestIndexRowCarriesTheProjectionsFetchedAt(t *testing.T) {
 	dated, err := indexRow(schema.Release{
 		Info: commonv1.ReleaseInfo{
 			GUID: "g", Title: "The Matrix 1999",
-			PublishedAt: ptr.To(metav1.NewTime(at.Add(-time.Hour))),
+			PublishedAt: new(metav1.NewTime(at.Add(-time.Hour))),
 		},
 		FetchedAt: at,
 	}, "idx")

@@ -22,7 +22,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
@@ -212,7 +211,7 @@ func fixtureSeriesAndEpisodes() (*catalogv1.Series, []*catalogv1.Episode) {
 							Kind:       "Series",
 							Name:       series.Name,
 							UID:        series.UID,
-							Controller: ptr.To(true),
+							Controller: new(true),
 						},
 					},
 				},
@@ -220,7 +219,7 @@ func fixtureSeriesAndEpisodes() (*catalogv1.Series, []*catalogv1.Episode) {
 					SeriesRef:     series.Name,
 					SeasonNumber:  season,
 					EpisodeNumber: ep,
-					Monitored:     ptr.To(true),
+					Monitored:     new(true),
 				},
 				Status: catalogv1.EpisodeStatus{
 					Title:          titles[key],

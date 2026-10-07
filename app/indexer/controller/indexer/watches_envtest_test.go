@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -49,7 +48,7 @@ func startIndexerController(t *testing.T) {
 		Metrics:                metricsserver.Options{BindAddress: k8s.DisabledBindAddress},
 		HealthProbeBindAddress: k8s.DisabledBindAddress,
 		// Every test in the process registers a controller named "indexer".
-		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller: config.Controller{SkipNameValidation: new(true)},
 	})
 	require.NoError(t, err)
 	r := indexer.NewReconciler(mgr.GetClient(), mgr.GetEventRecorder("indexer"),
@@ -139,7 +138,7 @@ func TestAnIndexerResolvesWhenItsDefinitionAppears(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: ns},
 		Spec: indexv1alpha1.IndexerSpec{
 			BaseURL:       "https://tracker.example.invalid/",
-			DefinitionRef: ptr.To("synthetic-watch-late"),
+			DefinitionRef: new("synthetic-watch-late"),
 		},
 	}))
 	require.Eventually(t, func() bool {

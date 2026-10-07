@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -295,7 +294,7 @@ func TestResolveConfig_EpisodeReadsItsSeries(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "the-wire", Namespace: ns},
 		Spec: catalogv1alpha1.SeriesSpec{
 			TvdbID: 79126, QualityProfileRef: "hd-bluray-web", RootFolderRef: "tv",
-			DelayProfileRef: ptr.To("slow"), Tags: []string{"hd"},
+			DelayProfileRef: new("slow"), Tags: []string{"hd"},
 		},
 	}
 	require.NoError(t, c.Create(ctx, series))
@@ -349,7 +348,7 @@ func TestDecide_TwoSeasonPacksKeepSeparatePendingEntries(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: ns},
 				Spec: catalogv1alpha1.EpisodeSpec{
 					SeriesRef: series.Name, SeasonNumber: season, EpisodeNumber: int32(i + 1),
-					Monitored: ptr.To(true),
+					Monitored: new(true),
 				},
 			}))
 		}

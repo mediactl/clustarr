@@ -178,7 +178,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// A container Search owns its children (container.go): each
 		// child's change reconciles the parent, which counts them.
 		Owns(&catalogv1alpha1.Search{}).
-		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
 

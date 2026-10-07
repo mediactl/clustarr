@@ -144,8 +144,8 @@ func compliantProbe() commonv1.MediaInfo {
 func dolbyVisionProbe() commonv1.MediaInfo {
 	mi := compliantProbe()
 	mi.Hdr = commonv1.HdrFormatDolbyVision
-	mi.DoviProfile = ptr.To(int32(8))
-	mi.DoviBLCompatID = ptr.To(int32(1))
+	mi.DoviProfile = new(int32(8))
+	mi.DoviBLCompatID = new(int32(1))
 	mi.Audio = []commonv1.AudioStream{{Index: 1, Codec: "truehd", Profile: "Dolby TrueHD + Dolby Atmos", Channels: 8}}
 	return mi
 }
@@ -340,7 +340,7 @@ func newDispatched(t *testing.T, ns string, slots map[string]int32) dispatchedFi
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, slots)
 	reconcileTJ(t, r, ns, "heat-hevc")
@@ -364,7 +364,7 @@ func TestDispatchPublishesTheTaskThenQueues(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 
@@ -412,7 +412,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "compliant", "p1", ptr.To(compliantProbe()))
+	newMediaFile(t, c, ns, "compliant", "p1", new(compliantProbe()))
 	// At the stored summary's stream cap: the one refusal left.
 	crowded := compliantProbe()
 	for i := len(crowded.Audio); i < transcode.MaxStreamsPerKind; i++ {
@@ -515,7 +515,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	// (worker.OutputContainer): an .mkv source changes container under
 	// the default profile too.
 	t.Run("container change mkv to mp4", func(t *testing.T) {
-		newMediaFile(t, c, ns, "mkvupper", "p3", ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, "mkvupper", "p3", new(h264Probe()))
 		newTJ(t, c, ns, "mkvupper-hevc", "mkvupper", "hevc", "p3", func(tj *transcodev1alpha1.TranscodeJob) {
 			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MKV"
 		})
@@ -526,13 +526,13 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		newProfile(t, c, "mp4out", "hash3", func(p *transcodev1alpha1.TranscodeProfile) {
 			p.Spec.Container = transcodev1alpha1.ContainerMP4
 		})
-		newMediaFile(t, c, ns, "mkvsrc", "p4", ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, "mkvsrc", "p4", new(h264Probe()))
 		newTJ(t, c, ns, "mkvsrc-mp4out", "mkvsrc", "mp4out", "p4", nil)
 		reconcileTJ(t, r, ns, "mkvsrc-mp4out")
 		assertContainerChangePlanned(t, getTJ(t, c, ns, "mkvsrc-mp4out"), "/data/media/movies/mkvsrc.mp4")
 	})
 	t.Run("same container in a different case is not a change", func(t *testing.T) {
-		newMediaFile(t, c, ns, "upper", "p5", ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, "upper", "p5", new(h264Probe()))
 		newTJ(t, c, ns, "upper-hevc", "upper", "hevc", "p5", func(tj *transcodev1alpha1.TranscodeJob) {
 			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MP4"
 		})
@@ -547,9 +547,9 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	// multiple-version name beside it.
 	t.Run("replaceSource false", func(t *testing.T) {
 		newProfile(t, c, "keep", "hash4", func(p *transcodev1alpha1.TranscodeProfile) {
-			p.Spec.Policy.ReplaceSource = ptr.To(false)
+			p.Spec.Policy.ReplaceSource = new(false)
 		})
-		newMediaFile(t, c, ns, "kept", "p6", ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, "kept", "p6", new(h264Probe()))
 		newTJ(t, c, ns, "kept-keep", "kept", "keep", "p6", nil)
 		reconcileTJ(t, r, ns, "kept-keep")
 		tj := getTJ(t, c, ns, "kept-keep")
@@ -561,9 +561,9 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	// An explicit output path the standard's container (MP4) contradicts
 	// cannot be honoured: failed at plan time, without spending a pod.
 	t.Run("an output path with the wrong container fails", func(t *testing.T) {
-		newMediaFile(t, c, ns, "wrongext", "p7", ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, "wrongext", "p7", new(h264Probe()))
 		newTJ(t, c, ns, "wrongext-hevc", "wrongext", "hevc", "p7", func(tj *transcodev1alpha1.TranscodeJob) {
-			tj.Spec.OutputPath = ptr.To("/data/media/movies/wrongext.mkv")
+			tj.Spec.OutputPath = new("/data/media/movies/wrongext.mkv")
 		})
 		reconcileTJ(t, r, ns, "wrongext-hevc")
 		tj := getTJ(t, c, ns, "wrongext-hevc")
@@ -648,12 +648,12 @@ func TestAdmissionHonoursTheBudget(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
 	for _, name := range []string{"a", "b", "p"} {
-		newMediaFile(t, c, ns, name, "p"+name, ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, name, "p"+name, new(h264Probe()))
 	}
 	newTJ(t, c, ns, "low", "a", "hevc", "pa", func(tj *transcodev1alpha1.TranscodeJob) { tj.Spec.Priority = 10 })
 	newTJ(t, c, ns, "high", "b", "hevc", "pb", func(tj *transcodev1alpha1.TranscodeJob) { tj.Spec.Priority = 90 })
 	newTJ(t, c, ns, "paused", "p", "hevc", "pp", func(tj *transcodev1alpha1.TranscodeJob) {
-		tj.Spec.Priority, tj.Spec.Suspend = 100, ptr.To(true)
+		tj.Spec.Priority, tj.Spec.Suspend = 100, new(true)
 	})
 
 	// Plan all three with a zero cpu budget, low first, so none is
@@ -700,7 +700,7 @@ func TestAdmissionHonoursProfileMaxConcurrent(t *testing.T) {
 	newProfile(t, c, "capped", "hashc", func(p *transcodev1alpha1.TranscodeProfile) { p.Spec.MaxConcurrent = 1 })
 	newProfile(t, c, "open", "hasho", nil)
 	for _, name := range []string{"c1", "c2", "o1", "o2"} {
-		newMediaFile(t, c, ns, name, "p"+name, ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, name, "p"+name, new(h264Probe()))
 	}
 	newTJ(t, c, ns, "c1", "c1", "capped", "pc1", nil)
 	newTJ(t, c, ns, "c2", "c2", "capped", "pc2", nil)
@@ -1030,7 +1030,7 @@ func TestALostDispatchWriteIsAdoptedFromTheWorkersEvent(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 	remaining := &atomic.Int32{}
@@ -1114,7 +1114,7 @@ func TestNoQueuedWithoutAPublish(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 	bus := r.Bus
@@ -1143,7 +1143,7 @@ func TestASourceUnderNoRootFolderBlocksAtDispatch(t *testing.T) {
 	const ns = "tj-noroot"
 	newNamespace(t, c, ns)
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 
@@ -1190,9 +1190,9 @@ func TestAnAutoGPUFailureFallsBackToCPU(t *testing.T) {
 	tp := newProfile(t, c, "nvenc", "hash1", func(p *transcodev1alpha1.TranscodeProfile) {
 		p.Spec.Hardware = transcodev1alpha1.HardwareNVIDIA
 	})
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-nvenc", "heat", "nvenc", "probe1", func(tj *transcodev1alpha1.TranscodeJob) {
-		tj.Spec.Hardware = ptr.To(transcodev1alpha1.HardwareAuto)
+		tj.Spec.Hardware = new(transcodev1alpha1.HardwareAuto)
 	})
 	nvidiaNode(t, c, "gpu-1", "1") // an auto job goes to a GPU only with a GPU node to go to (Task 13)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
@@ -1300,7 +1300,7 @@ func TestWatchesWakeTheController(t *testing.T) {
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
-		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller:             config.Controller{SkipNameValidation: new(true)},
 	})
 	require.NoError(t, err)
 	r := newReconciler(t, mgr.GetClient(), map[string]int32{"cpu": 1})
@@ -1315,8 +1315,8 @@ func TestWatchesWakeTheController(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "", nil)
-	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
-	newMediaFile(t, c, ns, "b", "pb", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "a", "pa", new(h264Probe()))
+	newMediaFile(t, c, ns, "b", "pb", new(h264Probe()))
 	newTJ(t, c, ns, "a-hevc", "a", "hevc", "pa", nil)
 
 	phase := func(name string) transcodev1alpha1.TranscodeJobPhase { return getTJ(t, c, ns, name).Status.Phase }
@@ -1416,7 +1416,7 @@ func TestTheControllerRecordsTheStandardPlan(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 
@@ -1447,7 +1447,7 @@ func TestTheStandardEncodesDolbyVisionOnTheProfilesGPU(t *testing.T) {
 	newProfile(t, c, "hevc-nv", "hash1", func(p *transcodev1alpha1.TranscodeProfile) {
 		p.Spec.Hardware = transcodev1alpha1.HardwareNVIDIA
 	})
-	newMediaFile(t, c, ns, "dune", "probe1", ptr.To(dolbyVisionProbe()))
+	newMediaFile(t, c, ns, "dune", "probe1", new(dolbyVisionProbe()))
 	newTJ(t, c, ns, "dune-hevc", "dune", "hevc-nv", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"nvidia": 0})
 
@@ -1468,7 +1468,7 @@ func TestAJobRecordedWithAnArgvPlanIsReplannedAtDispatch(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	planner := newReconciler(t, c, map[string]int32{"cpu": 0}) // plans, admits nothing
 	reconcileTJ(t, planner, ns, "heat-hevc")
@@ -1491,7 +1491,7 @@ func TestAJobRecordedWithAnArgvPlanIsReplannedAtDispatch(t *testing.T) {
 	assert.Equal(t, "ffgo", tasks[0].Engine)
 	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash)
 
-	newMediaFile(t, c, ns, "ronin", "probe2", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "ronin", "probe2", new(h264Probe()))
 	newTJ(t, c, ns, "ronin-hevc", "ronin", "hevc", "probe2", nil)
 	reconcileTJ(t, planner, ns, "ronin-hevc")
 	got = getTJ(t, c, ns, "ronin-hevc")
@@ -1516,7 +1516,7 @@ func TestAProfileEditReplansAPlannedJobAtDispatch(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	planner := newReconciler(t, c, map[string]int32{"cpu": 0}) // plans, admits nothing
 	reconcileTJ(t, planner, ns, "heat-hevc")
@@ -1540,7 +1540,7 @@ func TestAProfileEditReplansAPlannedJobAtDispatch(t *testing.T) {
 	assert.Equal(t, got.Status.Plan.PlanHash, tasks[0].PlanHash, "the task carries the plan the worker will make")
 
 	// An edit under which the standard skips a planned file.
-	newMediaFile(t, c, ns, "ronin", "probe2", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "ronin", "probe2", new(h264Probe()))
 	newTJ(t, c, ns, "ronin-hevc", "ronin", "hevc", "probe2", nil)
 	reconcileTJ(t, planner, ns, "ronin-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, getTJ(t, c, ns, "ronin-hevc").Status.Phase)

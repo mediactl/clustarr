@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -55,7 +54,7 @@ func (f *fixture) newBook(t *testing.T) (*catalogv1alpha1.RootFolder, *catalogv1
 	require.NoError(t, err)
 	book := &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "the-dispossessed", Namespace: f.ns},
-		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL59863W", AuthorRef: ptr.To(author.Name)},
+		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL59863W", AuthorRef: new(author.Name)},
 	}
 	require.NoError(t, f.c.Create(ctx, book))
 	released := metav1.NewTime(time.Date(1974, 5, 1, 0, 0, 0, 0, time.UTC))

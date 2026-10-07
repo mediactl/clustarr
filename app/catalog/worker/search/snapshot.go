@@ -113,8 +113,8 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		snap.IDs.TvdbID = s.Spec.TvdbID
 		snap.IDs.Anime = s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
 		season, episode, absolute := searchNumbering(scene, &e)
-		snap.IDs.Season = ptr.To(season)
-		snap.IDs.Episode = ptr.To(episode)
+		snap.IDs.Season = new(season)
+		snap.IDs.Episode = new(episode)
 		if snap.IDs.Anime && absolute != nil {
 			// Anime indexers key releases by absolute number, so the
 			// absolute number -- not the in-season number -- is what goes

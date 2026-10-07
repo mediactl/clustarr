@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -144,7 +143,7 @@ func (p *Replayer) SetupWithManager(mgr ctrl.Manager) error {
 		if err := ctrl.NewControllerManagedBy(mgr).
 			Named("replay-"+strings.ToLower(gvk.Kind)).
 			For(obj, builder.WithPredicates(replayRequested())).
-			WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: time.Minute}).
+			WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: time.Minute}).
 			Complete(&replayKind{p: p, gvk: gvk}); err != nil {
 			return fmt.Errorf("history: replay controller for %s: %w", gvk.Kind, err)
 		}

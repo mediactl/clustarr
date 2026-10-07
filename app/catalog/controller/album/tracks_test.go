@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -75,7 +74,7 @@ func TestSelectReleasePinnedAndPresent(t *testing.T) {
 func TestSelectReleasePinnedAbsentFallsBackWhenAnyReleaseOk(t *testing.T) {
 	releases := []pkgmetadata.AlbumRelease{release("rel-1", "Official", "a")}
 	pinned := "does-not-exist"
-	got, sel := album.SelectRelease(catalogv1alpha1.AlbumSpec{ReleaseID: &pinned, AnyReleaseOk: ptr.To(true)}, officialOnly, "", releases, nil)
+	got, sel := album.SelectRelease(catalogv1alpha1.AlbumSpec{ReleaseID: &pinned, AnyReleaseOk: new(true)}, officialOnly, "", releases, nil)
 	assert.Equal(t, "rel-1", selectedID(t, got))
 	assert.Equal(t, album.SelectionBest, sel)
 }
@@ -83,7 +82,7 @@ func TestSelectReleasePinnedAbsentFallsBackWhenAnyReleaseOk(t *testing.T) {
 func TestSelectReleasePinnedAbsentReportsNoneWhenAnyReleaseOkIsFalse(t *testing.T) {
 	releases := []pkgmetadata.AlbumRelease{release("rel-1", "Official", "a")}
 	pinned := "does-not-exist"
-	got, sel := album.SelectRelease(catalogv1alpha1.AlbumSpec{ReleaseID: &pinned, AnyReleaseOk: ptr.To(false)}, officialOnly, "", releases, nil)
+	got, sel := album.SelectRelease(catalogv1alpha1.AlbumSpec{ReleaseID: &pinned, AnyReleaseOk: new(false)}, officialOnly, "", releases, nil)
 	assert.Nil(t, got, "a user who pinned a release and declined others gets nothing rather than a guessed substitute")
 	assert.Equal(t, album.SelectionPinnedReleaseMissing, sel)
 }
@@ -169,7 +168,7 @@ func TestSelectReleaseKeepsThePreviousSelection(t *testing.T) {
 	assert.Equal(t, "vinyl", selectedID(t, got), "with anyReleaseOk, strictly more files moves the selection")
 	assert.Equal(t, album.SelectionBest, sel)
 
-	got, sel = album.SelectRelease(catalogv1alpha1.AlbumSpec{AnyReleaseOk: ptr.To(false)}, officialOnly, "cd", releases, files)
+	got, sel = album.SelectRelease(catalogv1alpha1.AlbumSpec{AnyReleaseOk: new(false)}, officialOnly, "cd", releases, files)
 	assert.Equal(t, "cd", selectedID(t, got), "without anyReleaseOk the selection stays put")
 	assert.Equal(t, album.SelectionKept, sel)
 
@@ -218,7 +217,7 @@ func TestBuildTracksSetsFileRefAndKeepsARepeatedRecordingOnce(t *testing.T) {
 
 func TestTracksFromStatusRefreshesFileRefs(t *testing.T) {
 	existing := []catalogv1alpha1.Track{
-		{RecordingID: "rec-1", Medium: 1, Number: 1, AbsoluteNumber: 1, Title: "Airbag", DurationMs: 284000, FileRef: ptr.To("gone")},
+		{RecordingID: "rec-1", Medium: 1, Number: 1, AbsoluteNumber: 1, Title: "Airbag", DurationMs: 284000, FileRef: new("gone")},
 		{RecordingID: "rec-2", Medium: 1, Number: 2, AbsoluteNumber: 2, Title: "Paranoid Android"},
 	}
 	tracks := album.TracksFromStatus(existing, map[string]string{"rec-2": "paranoid-mf"})

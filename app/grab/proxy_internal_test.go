@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -56,7 +55,7 @@ func TestTorrentProxyReadsItsSecretAndSwitches(t *testing.T) {
 	}).Build()
 	pcfg, err := torrentProxy(context.Background(), reader, proxiedClient(&downloadv1alpha1.TorrentProxy{
 		Host: "localhost", Port: 1080, SecretRef: &corev1.LocalObjectReference{Name: "mullvad"},
-		UDP: ptr.To(false),
+		UDP: new(false),
 	}), nil)
 	require.NoError(t, err)
 	require.Equal(t, "127.0.0.1:1080", pcfg.Proxy.Addr, "a proxy named by host is resolved once, before any resolver goes through it")

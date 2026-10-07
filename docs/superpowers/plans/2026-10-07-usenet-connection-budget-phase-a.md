@@ -5,6 +5,7 @@
 **Goal:** One usenet engine pod runs at most as many downloads as its primary servers' connections allow, at `connectionsPerDownload` connections each. An optional per-pod (per-node) byte rate caps it, and each server's traffic and penalties become visible.
 
 **Architecture:** All of this lives in `pkg/download/usenet` and the CRD types, as clustarr-c3's unify branch asked (it dissolves `app/grab/run.go`). The changes:
+
 - **Admission:** `Client` admits a job's transfer stage through a slot gate placed beside the existing priority gate (`waitForTurn`). A job waiting for a slot reads `Queued`.
 - **Connections per download:** the per-job worker count becomes `connectionsPerDownload`.
 - **Bandwidth:** one injected `rate.Limiter` in the `Pool` meters bytes read from every connection.
@@ -39,12 +40,14 @@ The engine only maps the two new fields in `BuildConfig`. All of `spec.usenet` i
 ### Task 1: The two CRD fields and the engine's mapping
 
 **Files:**
+
 - Modify: `api/download/v1alpha1/downloadclient_types.go` (`UsenetSpec`, plus accessors beside the type)
 - Modify: `pkg/download/usenet/client.go` (`Config.ConnectionsPerDownload`, `Config.Limiter`)
 - Modify: `app/grab/engine/usenet/config.go` (`BuildConfig`)
 - Test: `app/grab/engine/usenet/config_test.go` (or the existing BuildConfig test file), `pkg/crdcheck` (runs as is)
 
 **Interfaces:**
+
 - Produces:
   - `UsenetSpec.ConnectionsPerDownload *int32` (1-256) and `UsenetSpec.MaxBytesPerSecond *resource.Quantity`;
   - `func (u UsenetSpec) ConnectionsPerDownloadOrDefault() int32` (10);
@@ -54,20 +57,20 @@ The engine only maps the two new fields in `BuildConfig`. All of `spec.usenet` i
 
 ```go
 func TestBuildConfigMapsTheConnectionBudget(t *testing.T) {
-	dc := usenetClient(t) // the test file's existing builder of a usenet DownloadClient with one provider Secret
-	cfg, err := BuildConfig(ctx, c, dc, "/data", "/scratch", "/publish")
-	require.NoError(t, err)
-	assert.Equal(t, 10, cfg.ConnectionsPerDownload)
-	assert.Nil(t, cfg.Limiter)
+ dc := usenetClient(t) // the test file's existing builder of a usenet DownloadClient with one provider Secret
+ cfg, err := BuildConfig(ctx, c, dc, "/data", "/scratch", "/publish")
+ require.NoError(t, err)
+ assert.Equal(t, 10, cfg.ConnectionsPerDownload)
+ assert.Nil(t, cfg.Limiter)
 
-	dc.Spec.Usenet.ConnectionsPerDownload = ptr.To(int32(4))
-	q := resource.MustParse("50Mi")
-	dc.Spec.Usenet.MaxBytesPerSecond = &q
-	cfg, err = BuildConfig(ctx, c, dc, "/data", "/scratch", "/publish")
-	require.NoError(t, err)
-	assert.Equal(t, 4, cfg.ConnectionsPerDownload)
-	require.NotNil(t, cfg.Limiter)
-	assert.Equal(t, rate.Limit(52428800), cfg.Limiter.Limit())
+ dc.Spec.Usenet.ConnectionsPerDownload = new(int32(4))
+ q := resource.MustParse("50Mi")
+ dc.Spec.Usenet.MaxBytesPerSecond = &q
+ cfg, err = BuildConfig(ctx, c, dc, "/data", "/scratch", "/publish")
+ require.NoError(t, err)
+ assert.Equal(t, 4, cfg.ConnectionsPerDownload)
+ require.NotNil(t, cfg.Limiter)
+ assert.Equal(t, rate.Limit(52428800), cfg.Limiter.Limit())
 }
 ```
 
@@ -83,11 +86,13 @@ func TestBuildConfigMapsTheConnectionBudget(t *testing.T) {
 ### Task 2: Admission by slots and connections per download
 
 **Files:**
+
 - Create: `pkg/download/usenet/admission.go`
 - Modify: `pkg/download/usenet/client.go` (`New`: workers from `ConnectionsPerDownload`; `Client.admission`), `pkg/download/usenet/segment.go` (`transfer` acquires a slot and releases it on return)
 - Test: `pkg/download/usenet/admission_test.go`, `pkg/download/usenet/client_test.go` (with the package's stub NNTP server, `stub_test.go`)
 
 **Interfaces:**
+
 - Produces:
   - `func connectionSlots(providers []Provider, perDownload int) int`;
   - `type admission struct{ … }` with `acquire(ctx, j) error`, `release(j)` and `limit() int`.
@@ -97,15 +102,16 @@ func TestBuildConfigMapsTheConnectionBudget(t *testing.T) {
 
 ```go
 func TestConnectionSlots(t *testing.T) {
-	p := func(conn int, backup bool) Provider { return Provider{Connections: conn, Backup: backup} }
-	assert.Equal(t, 3, connectionSlots([]Provider{p(30, false)}, 10))
-	assert.Equal(t, 10, connectionSlots([]Provider{p(30, false), p(70, false)}, 10))
-	assert.Equal(t, 10, connectionSlots([]Provider{p(100, false), p(60, true)}, 10), "a backup adds no slots")
-	assert.Equal(t, 1, connectionSlots([]Provider{p(8, false)}, 10), "never zero")
+ p := func(conn int, backup bool) Provider { return Provider{Connections: conn, Backup: backup} }
+ assert.Equal(t, 3, connectionSlots([]Provider{p(30, false)}, 10))
+ assert.Equal(t, 10, connectionSlots([]Provider{p(30, false), p(70, false)}, 10))
+ assert.Equal(t, 10, connectionSlots([]Provider{p(100, false), p(60, true)}, 10), "a backup adds no slots")
+ assert.Equal(t, 1, connectionSlots([]Provider{p(8, false)}, 10), "never zero")
 }
 ```
 
 Then the client-level tests, using the stub server the client tests already run (read `client_test.go`'s helpers first):
+
 - **Holding back the third download:** with one provider of 20 connections and `ConnectionsPerDownload: 10`, adding three jobs leaves the third in `download.StatusQueued` while two transfer. The third starts when one finishes.
 - **A pause gives its slot back:** a paused transferring job lets a queued one start.
 - **Removing a queued job** frees nothing it never held, and every slot comes back.
@@ -128,6 +134,7 @@ Then the client-level tests, using the stub server the client tests already run 
 ### Task 3: The bandwidth limiter and the bandwidth bound on slots
 
 **Files:**
+
 - Modify: `pkg/download/usenet/pool.go` (`NewPool` takes the limiter), `pkg/download/usenet/conn.go` (the article body read waits on the limiter), `pkg/download/usenet/admission.go` (`limit()` applies the bound)
 - Test: `pkg/download/usenet/pool_test.go`, `pkg/download/usenet/admission_test.go`
 
@@ -145,6 +152,7 @@ Then the client-level tests, using the stub server the client tests already run 
 ### Task 4: Per-server traffic and penalties, visible
 
 **Files:**
+
 - Modify: `pkg/download/usenet/pool.go` (count bytes and penalties per server, log a penalty once with its code)
 - Create: `app/grab/engine/usenet/metrics.go` (collectors reading `Client.Info`'s `ServerStats`)
 - Test: `pkg/download/usenet/pool_test.go`, `app/grab/engine/usenet/metrics_test.go`

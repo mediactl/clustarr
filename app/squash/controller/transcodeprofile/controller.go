@@ -43,7 +43,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -346,7 +345,7 @@ func (r *Reconciler) encoderLimits(ctx context.Context) []transcodev1alpha1.Enco
 				NVDEC: nodes[n].NVDEC.Decodable(),
 			}
 			if h, ok := health[n]; ok {
-				l.Healthy, l.Message = ptr.To(h.Healthy), h.Error
+				l.Healthy, l.Message = new(h.Healthy), h.Error
 			}
 			out = append(out, l)
 		}
@@ -663,7 +662,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mapAllProfiles),
 			builder.OnlyMetadata, builder.WithPredicates(createdOrDeleted())).
 		WithOptions(controller.Options{
-			RecoverPanic:          ptr.To(true),
+			RecoverPanic:          new(true),
 			ReconciliationTimeout: 5 * time.Minute,
 		}).
 		Complete(r)

@@ -23,7 +23,6 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -81,7 +80,7 @@ func (r *Retrigger) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("fileimport-retrigger").
 		For(&downloadv1alpha1.Download{}, builder.WithPredicates(ImportAnnotationsChanged())).
-		WithOptions(controller.Options{RecoverPanic: ptr.To(true)}).
+		WithOptions(controller.Options{RecoverPanic: new(true)}).
 		Complete(r)
 }
 

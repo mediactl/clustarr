@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -58,54 +57,54 @@ const monitoredOnly = `{"f:spec":{"f:monitored":{}}}`
 var itemFixtures = map[commonv1.MediaKind]func(name, ns string) client.Object{
 	commonv1.MediaKindMovie: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Movie{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.MovieSpec{
-			TmdbID: 603, QualityProfileRef: "hd-1080p", RootFolderRef: "movies", Monitored: ptr.To(true),
+			TmdbID: 603, QualityProfileRef: "hd-1080p", RootFolderRef: "movies", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindSeries: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Series{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.SeriesSpec{
-			TvdbID: 81189, QualityProfileRef: "hd-1080p", RootFolderRef: "tv", Monitored: ptr.To(true),
+			TvdbID: 81189, QualityProfileRef: "hd-1080p", RootFolderRef: "tv", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindEpisode: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Episode{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.EpisodeSpec{
-			SeriesRef: "breaking-bad", SeasonNumber: 1, EpisodeNumber: 1, Monitored: ptr.To(true),
+			SeriesRef: "breaking-bad", SeasonNumber: 1, EpisodeNumber: 1, Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindArtist: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Artist{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.ArtistSpec{
 			MusicBrainzID: "a74b1b7f-71a5-4011-9441-d0b5e4122711", QualityProfileRef: "lossless",
-			RootFolderRef: "music", Monitored: ptr.To(true),
+			RootFolderRef: "music", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindAlbum: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Album{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.AlbumSpec{
-			ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e666-3926-a536-22c65f834433", Monitored: ptr.To(true),
+			ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e666-3926-a536-22c65f834433", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindAuthor: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Author{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.AuthorSpec{
-			OpenLibraryID: "OL23919A", QualityProfileRef: "ebook", RootFolderRef: "books", Monitored: ptr.To(true),
+			OpenLibraryID: "OL23919A", QualityProfileRef: "ebook", RootFolderRef: "books", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindBook: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Book{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.BookSpec{
-			WorkID: "OL82563W", Monitored: ptr.To(true),
+			WorkID: "OL82563W", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindAudiobook: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Audiobook{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.AudiobookSpec{
-			ASIN: "B017V4IM1G", QualityProfileRef: "audiobook", RootFolderRef: "audiobooks", Monitored: ptr.To(true),
+			ASIN: "B017V4IM1G", QualityProfileRef: "audiobook", RootFolderRef: "audiobooks", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindComic: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Comic{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.ComicSpec{
 			Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "4050-2127", QualityProfileRef: "comic",
-			RootFolderRef: "comics", Monitored: ptr.To(true),
+			RootFolderRef: "comics", Monitored: new(true),
 		}}
 	},
 	commonv1.MediaKindIssue: func(name, ns string) client.Object {
 		return &catalogv1alpha1.Issue{ObjectMeta: meta(name, ns), Spec: catalogv1alpha1.IssueSpec{
-			ComicRef: "saga", Number: "1", CalculatedNumberCentis: 100, Monitored: ptr.To(true),
+			ComicRef: "saga", Number: "1", CalculatedNumberCentis: 100, Monitored: new(true),
 		}}
 	},
 }

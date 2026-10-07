@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -84,9 +83,9 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 	// when the row was indexed.
 	switch {
 	case !r.PubDate.IsZero():
-		info.PublishedAt = ptr.To(metav1.NewTime(r.PubDate))
+		info.PublishedAt = new(metav1.NewTime(r.PubDate))
 	case r.UsenetDate != nil && !r.UsenetDate.IsZero():
-		info.PublishedAt = ptr.To(metav1.NewTime(*r.UsenetDate))
+		info.PublishedAt = new(metav1.NewTime(*r.UsenetDate))
 	}
 
 	// Classify once and pin it. Parse would classify internally, but it does

@@ -22,7 +22,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
@@ -47,6 +46,6 @@ func TestOrphaned(t *testing.T) {
 	assert.True(t, orphaned(job(running, "cpu", &previous), tp), "dispatched to the old UID's pool")
 	assert.True(t, orphaned(job(queued, "nvidia", &recreated), tp), "jobRef is not the pool of its class")
 	assert.True(t, orphaned(job(queued, "cpu", nil), tp), "adopted while its profile was gone")
-	assert.True(t, orphaned(job(running, "cpu", ptr.To("heat-hevc-transcode")), tp), "a pre-pool job's own batch Job")
+	assert.True(t, orphaned(job(running, "cpu", new("heat-hevc-transcode")), tp), "a pre-pool job's own batch Job")
 	assert.False(t, orphaned(job(planned, "cpu", &previous), nil), "not dispatched: holds nothing")
 }

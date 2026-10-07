@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/worker"
@@ -148,7 +147,7 @@ func TestRenderKeepsTheAppliedTemplateWhileRunning(t *testing.T) {
 	k := Key{Profile: "p", ProfileUID: "u", Class: "cpu"}
 	first := rendered(t, k, profile(), Desired{Parallelism: 1}, nil)
 	stored := first.DeepCopy()
-	stored.Spec.Suspend = ptr.To(false)
+	stored.Spec.Suspend = new(false)
 	stored.Status.StartTime = &metav1.Time{}
 
 	edited := profile()

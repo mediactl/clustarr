@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/relindex"
@@ -69,7 +68,7 @@ func TestRejectReasonAgreesWithTheRealStore(t *testing.T) {
 		Indexer: "idx", GUID: "g-base", Title: "The Matrix 1999",
 		TitleNorm: "matrix 1999", Group: "GRP", Protocol: "torrent",
 		Categories: []int{2040}, SizeBytes: 1024,
-		PublishedAt: ptr.To(at.Add(-time.Hour)), FetchedAt: at,
+		PublishedAt: new(at.Add(-time.Hour)), FetchedAt: at,
 		InfoJSON: []byte(`{}`),
 	}
 
@@ -101,7 +100,7 @@ func TestRejectReasonAgreesWithTheRealStore(t *testing.T) {
 	t.Run("a pointer to the zero time", func(t *testing.T) {
 		row := base
 		row.GUID = "g-zero-ptr"
-		row.PublishedAt = ptr.To(time.Time{})
+		row.PublishedAt = new(time.Time{})
 		assertAgrees(t, store, row)
 	})
 }

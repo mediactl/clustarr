@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -172,8 +171,8 @@ func TestAProfileShowsEachNodesDeviceHealth(t *testing.T) {
 	for _, l := range got.Status.EncoderLimits {
 		byNode[l.Node] = l
 	}
-	assert.Equal(t, ptr.To(false), byNode["laptop"].Healthy)
+	assert.Equal(t, new(false), byNode["laptop"].Healthy)
 	assert.Contains(t, byNode["laptop"].Message, "no /dev/nvidia0")
-	assert.Equal(t, ptr.To(true), byNode["nuc"].Healthy)
+	assert.Equal(t, new(true), byNode["nuc"].Healthy)
 	assert.Empty(t, byNode["nuc"].Message)
 }

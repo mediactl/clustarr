@@ -51,7 +51,7 @@ func TestSeriesReconcilerCascadesASeasonOverrideOnce(t *testing.T) {
 		Spec: catalogv1alpha1.SeriesSpec{
 			TvdbID: 1, QualityProfileRef: "hd", RootFolderRef: "tv",
 			SeriesType: catalogv1alpha1.SeriesTypeStandard, MonitorNewItems: catalogv1alpha1.MonitorNewChildrenAll,
-			Seasons: []catalogv1alpha1.SeasonSpec{{Number: 1, Monitored: ptr.To(true)}},
+			Seasons: []catalogv1alpha1.SeasonSpec{{Number: 1, Monitored: new(true)}},
 		},
 		Status: catalogv1alpha1.SeriesStatus{
 			ObservedGeneration: 1, AddOptionsApplied: true, Phase: catalogv1alpha1.SeriesPhaseReady,
@@ -70,7 +70,7 @@ func TestSeriesReconcilerCascadesASeasonOverrideOnce(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name(season, episode)},
 			Spec: catalogv1alpha1.EpisodeSpec{
 				SeriesRef: "show", SeasonNumber: season, EpisodeNumber: episode,
-				Monitored: ptr.To(false),
+				Monitored: new(false),
 			},
 		}
 	}
@@ -104,7 +104,7 @@ func TestSeriesReconcilerCascadesASeasonOverrideOnce(t *testing.T) {
 	var got catalogv1alpha1.Series
 	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
 	require.Len(t, got.Status.Seasons, 2)
-	assert.Equal(t, ptr.To(true), got.Status.Seasons[0].AppliedMonitored)
+	assert.Equal(t, new(true), got.Status.Seasons[0].AppliedMonitored)
 	assert.True(t, got.Status.Seasons[0].Monitored)
 	assert.Nil(t, got.Status.Seasons[1].AppliedMonitored)
 	assert.False(t, got.Status.Seasons[1].Monitored)
@@ -112,7 +112,7 @@ func TestSeriesReconcilerCascadesASeasonOverrideOnce(t *testing.T) {
 	// The owner turns one episode of the season back off: it stays off.
 	var e11 catalogv1alpha1.Episode
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name(1, 1)}, &e11))
-	e11.Spec.Monitored = ptr.To(false)
+	e11.Spec.Monitored = new(false)
 	require.NoError(t, c.Update(ctx, &e11))
 	_, err = r.Reconcile(ctx, req)
 	require.NoError(t, err)

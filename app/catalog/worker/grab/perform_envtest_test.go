@@ -27,7 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -417,7 +416,7 @@ func TestPerformGrab_SeasonPackLeasesAndPatchesEveryEpisode(t *testing.T) {
 		ep := &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: ns},
 			Spec: catalogv1alpha1.EpisodeSpec{
-				SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: int32(i + 1), Monitored: ptr.To(true),
+				SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: int32(i + 1), Monitored: new(true),
 			},
 		}
 		require.NoError(t, c.Create(ctx, ep))
@@ -627,7 +626,7 @@ func TestRecordSearchAttempt_PackStampsEveryEpisode(t *testing.T) {
 		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: ns},
 			Spec: catalogv1alpha1.EpisodeSpec{
-				SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: int32(i + 1), Monitored: ptr.To(true),
+				SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: int32(i + 1), Monitored: new(true),
 			},
 		}))
 	}

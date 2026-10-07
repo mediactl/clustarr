@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -60,7 +59,7 @@ func testSeries(name string, monitored bool) *catalogv1alpha1.Series {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: name},
 		Spec: catalogv1alpha1.SeriesSpec{
 			TvdbID: 1, QualityProfileRef: "hd", RootFolderRef: "tv",
-			Monitored: ptr.To(monitored),
+			Monitored: new(monitored),
 		},
 	}
 }
@@ -71,7 +70,7 @@ func testEpisode(name, series string) *catalogv1alpha1.Episode {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: name},
 		Spec: catalogv1alpha1.EpisodeSpec{
 			SeriesRef: series, SeasonNumber: 1, EpisodeNumber: 1,
-			Monitored: ptr.To(true),
+			Monitored: new(true),
 		},
 		Status: catalogv1alpha1.EpisodeStatus{AirDate: &aired},
 	}

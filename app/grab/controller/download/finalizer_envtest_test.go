@@ -91,7 +91,7 @@ func TestFinalizerKeepsDataWhenRemoveDataOnDeleteIsFalse(t *testing.T) {
 	// Flip RemoveDataOnDelete to false via a spec patch (Source/Release/etc
 	// are immutable, but RemoveDataOnDelete carries no such CEL rule).
 	patch := client.MergeFrom(dl.DeepCopy())
-	dl.Spec.RemoveDataOnDelete = ptr.To(false)
+	dl.Spec.RemoveDataOnDelete = new(false)
 	require.NoError(t, c.Patch(ctx, dl, patch))
 
 	outputPath := filepath.Join(dataDir, "torrents", "movies", dl.Name)

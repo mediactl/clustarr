@@ -28,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -167,7 +166,7 @@ func createMovie(t *testing.T, ctx context.Context, c client.Client, ns, name st
 	m := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: catalogv1alpha1.MovieSpec{
-			TmdbID: tmdbID, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies", Monitored: ptr.To(true),
+			TmdbID: tmdbID, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies", Monitored: new(true),
 		},
 	}
 	require.NoError(t, c.Create(ctx, m))
@@ -192,7 +191,7 @@ func createSeries(t *testing.T, ctx context.Context, c client.Client, ns, name s
 	s := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: catalogv1alpha1.SeriesSpec{
-			TvdbID: tvdbID, QualityProfileRef: "hd-bluray-web", RootFolderRef: "tv", Monitored: ptr.To(true),
+			TvdbID: tvdbID, QualityProfileRef: "hd-bluray-web", RootFolderRef: "tv", Monitored: new(true),
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
@@ -211,7 +210,7 @@ func createEpisode(t *testing.T, ctx context.Context, c client.Client, ns, serie
 	ep := &catalogv1alpha1.Episode{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: catalogv1alpha1.EpisodeSpec{
-			SeriesRef: seriesName, SeasonNumber: season, EpisodeNumber: number, Monitored: ptr.To(true),
+			SeriesRef: seriesName, SeasonNumber: season, EpisodeNumber: number, Monitored: new(true),
 		},
 	}
 	require.NoError(t, c.Create(ctx, ep))
@@ -244,7 +243,7 @@ func createQualityProfile(t *testing.T, ctx context.Context, c client.Client) {
 		ObjectMeta: metav1.ObjectMeta{Name: "hd-bluray-web"},
 		Spec: catalogv1alpha1.QualityProfileSpec{
 			MediaKind:      catalogv1alpha1.ProfileMediaKindVideo,
-			UpgradeAllowed: ptr.To(true),
+			UpgradeAllowed: new(true),
 			Cutoff:         "Bluray-1080p",
 			// language is deliberately LEFT OUT so the apiserver defaults it
 			// to "original", which is what a user who never touched the field
@@ -286,7 +285,7 @@ func createDelayProfile(t *testing.T, ctx context.Context, c client.Client, ns s
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: ns},
 		Spec: catalogv1alpha1.DelayProfileSpec{
 			TorrentDelayMinutes:    torrentMinutes,
-			BypassIfHighestQuality: ptr.To(bypassTopTier),
+			BypassIfHighestQuality: new(bypassTopTier),
 			Order:                  1000,
 		},
 	}

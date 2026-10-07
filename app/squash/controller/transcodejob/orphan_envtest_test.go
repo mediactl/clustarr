@@ -24,7 +24,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
@@ -49,8 +48,8 @@ func TestADeletedProfilesQueuedJobFailsAndFreesItsSlot(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	gone := newProfile(t, c, "hevc", "hash1", nil)
 	newProfile(t, c, "hevc-other", "hash2", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
-	newMediaFile(t, c, ns, "ronin", "probe2", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
+	newMediaFile(t, c, ns, "ronin", "probe2", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	newTJ(t, c, ns, "ronin-other", "ronin", "hevc-other", "probe2", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
@@ -102,7 +101,7 @@ func TestARecreatedProfilesJobIsRequeuedToTheNewPool(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	old := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 	r.Admin = r.Bus.(events.StreamAdmin)

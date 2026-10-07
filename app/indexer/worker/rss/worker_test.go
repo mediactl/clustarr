@@ -31,7 +31,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -410,8 +409,8 @@ func TestHandleSkipsIndexersTheOperatorTurnedOff(t *testing.T) {
 		name  string
 		tweak func(*indexv1alpha1.Indexer)
 	}{
-		{"spec.enabled false", func(i *indexv1alpha1.Indexer) { i.Spec.Enabled = ptr.To(false) }},
-		{"spec.enableRss false", func(i *indexv1alpha1.Indexer) { i.Spec.EnableRss = ptr.To(false) }},
+		{"spec.enabled false", func(i *indexv1alpha1.Indexer) { i.Spec.Enabled = new(false) }},
+		{"spec.enableRss false", func(i *indexv1alpha1.Indexer) { i.Spec.EnableRss = new(false) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -436,7 +435,7 @@ func TestHandleSkipsIndexersTheOperatorTurnedOff(t *testing.T) {
 func TestHandleDoesNotQueryAnIndexerInsideItsBackoffWindow(t *testing.T) {
 	idx := testIndexer("media", "idx", func(i *indexv1alpha1.Indexer) {
 		i.Status.EscalationLevel = 3
-		i.Status.DisabledUntil = ptr.To(metav1.NewTime(t0.Add(10 * time.Minute)))
+		i.Status.DisabledUntil = new(metav1.NewTime(t0.Add(10 * time.Minute)))
 	})
 	c := newFakeClient(idx)
 	searcher := &fakeSearcher{releases: pageOf(5)}

@@ -28,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +50,7 @@ func TestHandleWithAutomaticAddOffListsTheEntriesButAddsNothing(t *testing.T) {
 
 	newConfigMap(t, ctx, c, ns, "watch-csv", csvFixture)
 	watch := newImdbCSVList(ns, "watch", "watch-csv", catalogv1alpha1.SyncLevelRemoveAndKeep)
-	watch.Spec.AutomaticAdd = ptr.To(false)
+	watch.Spec.AutomaticAdd = new(false)
 	require.NoError(t, c.Create(ctx, watch))
 	w := worker.NewWorker(c, bus)
 	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, watch.Name, string(watch.UID))))

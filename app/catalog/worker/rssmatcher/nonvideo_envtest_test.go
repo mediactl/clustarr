@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -79,7 +78,7 @@ func createNonVideoLibrary(t *testing.T, ctx context.Context, c client.Client, n
 		catalogac.AuthorStatus().WithMetadata(catalogac.AuthorMetadata().WithName("Frank Herbert").WithSortName("Herbert, Frank")))))
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: lib.book, Namespace: ns},
-		Spec:       catalogv1alpha1.BookSpec{AuthorRef: ptr.To(lib.author), WorkID: "OL893415W"},
+		Spec:       catalogv1alpha1.BookSpec{AuthorRef: new(lib.author), WorkID: "OL893415W"},
 	}))
 	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Book(lib.book, ns).WithStatus(
 		catalogac.BookStatus().WithMetadata(catalogac.BookMetadata().WithTitle("Dune")))))
@@ -210,7 +209,7 @@ func TestMatch_NonVideoKinds(t *testing.T) {
 	// RSS "Artist/Author is not monitored" rules do.
 	var artist catalogv1alpha1.Artist
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: lib.artist}, &artist))
-	artist.Spec.Monitored = ptr.To(false)
+	artist.Spec.Monitored = new(false)
 	require.NoError(t, c.Update(ctx, &artist))
 	eventually(t, 10*time.Second, "an unmonitored artist to hide its album", func() bool {
 		refs, err := rssmatcher.Match(ctx, c, ns, album)

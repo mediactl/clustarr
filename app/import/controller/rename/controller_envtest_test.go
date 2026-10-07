@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -159,7 +158,7 @@ func newFixture(t *testing.T, ctx context.Context, ns string, o fixtureOpts) *fi
 		ObjectMeta: metav1.ObjectMeta{Name: "elsewhere", Namespace: ns},
 		Spec: catalogv1alpha1.RootFolderSpec{
 			Path: filepath.Join(root, "elsewhere"), Kind: catalogv1alpha1.RootFolderKindMovie,
-			Naming: catalogv1alpha1.NamingSpec{RenameFiles: ptr.To(true)},
+			Naming: catalogv1alpha1.NamingSpec{RenameFiles: new(true)},
 		},
 	}))
 
@@ -302,7 +301,7 @@ func TestReconcileRenamesAFileItsRootFolderAllows(t *testing.T) {
 	ctx := context.Background()
 	for _, episode := range []bool{false, true} {
 		t.Run(fmt.Sprintf("episode=%v", episode), func(t *testing.T) {
-			f := newFixture(t, ctx, fmt.Sprintf("rename-ok-%v", episode), fixtureOpts{renameFiles: ptr.To(true), episode: episode})
+			f := newFixture(t, ctx, fmt.Sprintf("rename-ok-%v", episode), fixtureOpts{renameFiles: new(true), episode: episode})
 			before := f.read(t, ctx)
 
 			assert.Equal(t, ctrl.Result{}, f.reconcile(t, ctx))
@@ -334,7 +333,7 @@ func TestReconcileRenamesAFileItsRootFolderAllows(t *testing.T) {
 // why.
 func TestReconcileReportsACollision(t *testing.T) {
 	ctx := context.Background()
-	f := newFixture(t, ctx, "rename-collision", fixtureOpts{renameFiles: ptr.To(true)})
+	f := newFixture(t, ctx, "rename-collision", fixtureOpts{renameFiles: new(true)})
 	writeFile(t, f.expected, 1234)
 	before := f.read(t, ctx)
 
@@ -354,7 +353,7 @@ func TestReconcileReportsACollision(t *testing.T) {
 // controller looks again in a minute, once the rescan has re-observed it.
 func TestReconcileRequeuesAChangedFile(t *testing.T) {
 	ctx := context.Background()
-	f := newFixture(t, ctx, "rename-changed", fixtureOpts{renameFiles: ptr.To(true), sizeSkew: 1})
+	f := newFixture(t, ctx, "rename-changed", fixtureOpts{renameFiles: new(true), sizeSkew: 1})
 	before := f.read(t, ctx)
 
 	assert.Equal(t, ctrl.Result{RequeueAfter: time.Minute}, f.reconcile(t, ctx))
@@ -377,8 +376,8 @@ func TestReconcileLeavesAFileAlone(t *testing.T) {
 		opts fixtureOpts
 	}{
 		{name: "renamefiles-unset", opts: fixtureOpts{}},
-		{name: "renamefiles-false", opts: fixtureOpts{renameFiles: ptr.To(false)}},
-		{name: "not-ready", opts: fixtureOpts{renameFiles: ptr.To(true), ready: metav1.ConditionFalse}},
+		{name: "renamefiles-false", opts: fixtureOpts{renameFiles: new(false)}},
+		{name: "not-ready", opts: fixtureOpts{renameFiles: new(true), ready: metav1.ConditionFalse}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t, ctx, "rename-alone-"+tc.name, tc.opts)
@@ -400,7 +399,7 @@ func TestReconcileLeavesAFileAlone(t *testing.T) {
 // rename proceeds.
 func TestReconcileHoldsWhileAScanWalksTheFolder(t *testing.T) {
 	ctx := context.Background()
-	f := newFixture(t, ctx, "rename-scan", fixtureOpts{renameFiles: ptr.To(true)})
+	f := newFixture(t, ctx, "rename-scan", fixtureOpts{renameFiles: new(true)})
 	scan := func(name, root string, phase catalogv1alpha1.ScanPhase) {
 		require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.LibraryScan{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
@@ -445,7 +444,7 @@ func TestReconcileHoldsOnlyForAScanWhoseSubpathCoversTheFolder(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			f := newFixture(t, ctx, tc.ns, fixtureOpts{renameFiles: ptr.To(true)})
+			f := newFixture(t, ctx, tc.ns, fixtureOpts{renameFiles: new(true)})
 			require.NoError(t, os.MkdirAll(filepath.Join(f.root, "Heat"), 0o755))
 			require.Equal(t, filepath.Join(f.root, folder), filepath.Dir(f.path), "the fixture's folder")
 			require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.LibraryScan{

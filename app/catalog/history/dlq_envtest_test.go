@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -58,7 +57,7 @@ func TestDLQProjector_AnnotatesExactlyOneLeaf_NeverStatus(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "the-matrix", Namespace: ns},
 		Spec: catalogv1alpha1.MovieSpec{
 			TmdbID: 603, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies",
-			Monitored: ptr.To(true),
+			Monitored: new(true),
 		},
 	}
 	require.NoError(t, c.Create(ctx, movie))
@@ -175,7 +174,7 @@ func TestDLQProjector_UnresolvableKind_NoAnnotation_NamespaceEvent(t *testing.T)
 		ObjectMeta: metav1.ObjectMeta{Name: "bystander", Namespace: ns},
 		Spec: catalogv1alpha1.MovieSpec{
 			TmdbID: 1, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies",
-			Monitored: ptr.To(true),
+			Monitored: new(true),
 		},
 	}
 	require.NoError(t, c.Create(ctx, movie))

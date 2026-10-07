@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -84,7 +83,7 @@ func TestATranscodedFileIsRenamedInItsOwnFolder(t *testing.T) {
 	// false, which catalogarr sets at the swap and never resets.
 	lostRecord := file("s03e21", "Bluey (2018) - S03E21 - Bob Bilby [WEBDL-1080p][EAC3 5.1][h264]-NTb.mkv",
 		"Bluey (2018) - S03E21 - Bob Bilby [WEBDL-1080p]-NTb.mkv", false)
-	lostRecord.Spec.Original = ptr.To(false)
+	lostRecord.Spec.Original = new(false)
 
 	root := &catalogv1alpha1.RootFolder{
 		ObjectMeta: metav1.ObjectMeta{Name: "tv", Namespace: "media"},

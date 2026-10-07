@@ -25,7 +25,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -120,13 +119,13 @@ func withSeason(seasons []catalogv1alpha1.SeasonSpec, number int32, monitored bo
 	found := false
 	for _, s := range seasons {
 		if s.Number == number {
-			s.Monitored = ptr.To(monitored)
+			s.Monitored = new(monitored)
 			found = true
 		}
 		out = append(out, s)
 	}
 	if !found {
-		out = append(out, catalogv1alpha1.SeasonSpec{Number: number, Monitored: ptr.To(monitored)})
+		out = append(out, catalogv1alpha1.SeasonSpec{Number: number, Monitored: new(monitored)})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Number < out[j].Number })
 	return out

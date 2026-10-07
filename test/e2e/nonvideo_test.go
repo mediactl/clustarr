@@ -83,7 +83,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -320,7 +319,7 @@ func TestNonVideoComicIssueManualImport(t *testing.T) {
 			SourceID:          "4050-18257", // test/data/metadata/comicvine/volume_18257.json
 			QualityProfileRef: "comic",      // built-in
 			RootFolderRef:     rf.Name,
-			Monitored:         ptr.To(true),
+			Monitored:         new(true),
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, comic))

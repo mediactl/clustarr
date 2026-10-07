@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -96,7 +95,7 @@ func TestSetSubtitleProviderSettingsReallyDisablesAgainstARealAPIServer(t *testi
 		ObjectMeta: metav1.ObjectMeta{Name: "opensubtitlescom", Namespace: ns},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
 			Type:     subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom,
-			Enabled:  ptr.To(true),
+			Enabled:  new(true),
 			Priority: 50,
 		},
 	}

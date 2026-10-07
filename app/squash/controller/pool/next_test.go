@@ -53,7 +53,7 @@ func TestClassify(t *testing.T) {
 }
 
 func job(suspend bool, par int32, started bool, active int32, failed bool) *batchv1.Job {
-	j := &batchv1.Job{Spec: batchv1.JobSpec{Suspend: ptr.To(suspend), Parallelism: ptr.To(par)}}
+	j := &batchv1.Job{Spec: batchv1.JobSpec{Suspend: new(suspend), Parallelism: ptr.To(par)}}
 	if started {
 		j.Status.StartTime = &metav1.Time{}
 	}

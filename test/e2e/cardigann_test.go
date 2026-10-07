@@ -69,7 +69,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -178,10 +177,10 @@ func TestCardigannIndexerLoginSearchFacadeAndProxy(t *testing.T) {
 	idx := &indexv1alpha1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e10-cardigann"), Namespace: Namespace},
 		Spec: indexv1alpha1.IndexerSpec{
-			DefinitionRef: ptr.To(def.Name),
+			DefinitionRef: new(def.Name),
 			BaseURL:       "http://" + fixtureCardigannStubService + "." + Namespace + ".svc",
 			SecretRef:     &corev1.LocalObjectReference{Name: sec.Name},
-			ProxyRef:      ptr.To(proxy.Name),
+			ProxyRef:      new(proxy.Name),
 			RequestDelay:  &metav1.Duration{Duration: 100 * time.Millisecond},
 			Priority:      25,
 		},

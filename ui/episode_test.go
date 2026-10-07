@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -63,12 +62,12 @@ func episodeFixture(t *testing.T) (*ui.Server, client.Client) {
 		status.Title = title
 		return &catalogv1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("andor-s01e%02d", number), Namespace: "default"},
-			Spec:       catalogv1.EpisodeSpec{SeriesRef: "andor", SeasonNumber: 1, EpisodeNumber: number, Monitored: ptr.To(true)},
+			Spec:       catalogv1.EpisodeSpec{SeriesRef: "andor", SeasonNumber: 1, EpisodeNumber: number, Monitored: new(true)},
 			Status:     status,
 		}
 	}
 	unmonitored := episode(4, "Aldhani", catalogv1.EpisodeStatus{AirDate: &aired, Phase: catalogv1.EpisodePhaseUnmonitored})
-	unmonitored.Spec.Monitored = ptr.To(false)
+	unmonitored.Spec.Monitored = new(false)
 	file := &catalogv1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: "andor-s01e01-file", Namespace: "default"},
 		Spec: catalogv1.MediaFileSpec{
@@ -104,11 +103,11 @@ func episodeFixture(t *testing.T) (*ui.Server, client.Client) {
 	}
 	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(series, file, answered, running,
 		episode(1, "Kassa", catalogv1.EpisodeStatus{
-			AirDate: &aired, HasFile: true, FileRef: ptr.To("andor-s01e01-file"),
+			AirDate: &aired, HasFile: true, FileRef: new("andor-s01e01-file"),
 			FileQuality: &commonv1.Quality{Name: "WEBDL-1080p"}, Phase: catalogv1.EpisodePhaseCutoffUnmet,
 			Overview: "Cassian Andor searches for his sister.", RuntimeMinutes: 39,
 		}),
-		episode(2, "That Would Be Me", catalogv1.EpisodeStatus{AirDate: &aired, Phase: catalogv1.EpisodePhaseDownloading, ActiveDownloadRef: ptr.To("dl"), FinaleType: "midseason"}),
+		episode(2, "That Would Be Me", catalogv1.EpisodeStatus{AirDate: &aired, Phase: catalogv1.EpisodePhaseDownloading, ActiveDownloadRef: new("dl"), FinaleType: "midseason"}),
 		episode(3, "Reckoning", catalogv1.EpisodeStatus{AirDate: &aired, Phase: catalogv1.EpisodePhaseWanted}),
 		unmonitored,
 		episode(5, "The Axe Forgets", catalogv1.EpisodeStatus{AirDate: &future, Phase: catalogv1.EpisodePhaseUnaired}),

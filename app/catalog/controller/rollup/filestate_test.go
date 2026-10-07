@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -78,7 +77,7 @@ func TestFileState(t *testing.T) {
 		better := commonv1.Quality{Name: "Bluray-2160p", Resolution: 2160}
 		p := quality.Profile{Tiers: [][]quality.Definition{{{Quality: better}}, {{Quality: q}}}, CutoffIndex: 0}
 		transcoded := mf.DeepCopy()
-		transcoded.Spec.Original = ptr.To(false)
+		transcoded.Spec.Original = new(false)
 		hasFile, _, fq, _, cutoffMet := rollup.FileState(transcoded, &p)
 		assert.True(t, hasFile)
 		require.NotNil(t, fq)

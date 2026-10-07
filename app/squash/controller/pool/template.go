@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/worker"
@@ -304,11 +303,11 @@ func RequireNodeLabel(key string) *corev1.Affinity {
 // pod start.
 func PodSecurityContext() *corev1.PodSecurityContext {
 	return &corev1.PodSecurityContext{
-		RunAsNonRoot:        ptr.To(true),
-		RunAsUser:           ptr.To(podUID),
-		RunAsGroup:          ptr.To(podGID),
-		FSGroup:             ptr.To(podGID),
-		FSGroupChangePolicy: ptr.To(corev1.FSGroupChangeOnRootMismatch),
+		RunAsNonRoot:        new(true),
+		RunAsUser:           new(podUID),
+		RunAsGroup:          new(podGID),
+		FSGroup:             new(podGID),
+		FSGroupChangePolicy: new(corev1.FSGroupChangeOnRootMismatch),
 		SeccompProfile:      &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
 }
@@ -319,8 +318,8 @@ func PodSecurityContext() *corev1.PodSecurityContext {
 // /tmp, and each of those is a volume.
 func ContainerSecurityContext() *corev1.SecurityContext {
 	return &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr.To(false),
-		ReadOnlyRootFilesystem:   ptr.To(true),
+		AllowPrivilegeEscalation: new(false),
+		ReadOnlyRootFilesystem:   new(true),
 		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 	}
 }
@@ -365,7 +364,7 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 	}
 	pod := corev1.PodSpec{
 		RestartPolicy:                corev1.RestartPolicyNever,
-		AutomountServiceAccountToken: ptr.To(false),
+		AutomountServiceAccountToken: new(false),
 		SecurityContext:              PodSecurityContext(),
 		Containers: []corev1.Container{{
 			Name:            ContainerName,
@@ -417,7 +416,7 @@ func applyHardware(pod *corev1.PodSpec, tp *transcodev1alpha1.TranscodeProfile, 
 		if g := tp.Spec.GPU; g != nil && g.RuntimeClassName != "" {
 			rc = g.RuntimeClassName
 		}
-		pod.RuntimeClassName = ptr.To(rc)
+		pod.RuntimeClassName = new(rc)
 		pod.Affinity = RequireNodeLabel(cfg.NodeLabel(class))
 	case transcodev1alpha1.HardwareIntel:
 		gpuRequests(res)

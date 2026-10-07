@@ -663,7 +663,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{
 			ReconciliationTimeout: 5 * time.Minute,
-			RecoverPanic:          ptr.To(true),
+			RecoverPanic:          new(true),
 		})
 	if r.Bus != nil {
 		b = b.WatchesRawSource(r.limitsSource())

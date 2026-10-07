@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -377,7 +376,7 @@ func TestConfigActionsAgainstARealAPIServer(t *testing.T) {
 		require.NoError(t, c.Create(ctx, &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: frozen, Labels: map[string]string{actions.LabelOrigin: actions.OriginUI}},
 			Data:       map[string][]byte{"username": []byte("u")},
-			Immutable:  ptr.To(true),
+			Immutable:  new(true),
 		}))
 		err := actions.WriteSecret(ctx, rec, ns, frozen, map[string]string{"password": "p"})
 		require.True(t, apierrors.IsInvalid(err), "want the apiserver's Invalid, got %v", err)

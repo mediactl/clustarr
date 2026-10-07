@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -75,12 +74,12 @@ func TestSeedDefaultsLeavesTheOwnersProvidersAlone(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "mb-mirror"},
 		Spec: catalogv1alpha1.MetadataProviderSpec{
 			Type: catalogv1alpha1.MetadataProviderMusicBrainz, ContactUserAgent: "me",
-			BaseURL: ptr.To("http://mb.local/ws/2"),
+			BaseURL: new("http://mb.local/ws/2"),
 		},
 	}
 	off := &catalogv1alpha1.MetadataProvider{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "kitsu"},
-		Spec:       catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderKitsu, Enabled: ptr.To(false)},
+		Spec:       catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderKitsu, Enabled: new(false)},
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(mine, off).Build()
 	require.NoError(t, metadataprovider.SeedDefaults(ctx, c, "media"))

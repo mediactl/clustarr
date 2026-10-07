@@ -123,7 +123,7 @@ func loginIndexer(t *testing.T, c client.Client, ns, name, defName, baseURL, pas
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: indexv1alpha1.IndexerSpec{
 			BaseURL:       baseURL,
-			DefinitionRef: ptr.To(defName),
+			DefinitionRef: new(defName),
 			SecretRef:     &corev1.LocalObjectReference{Name: name + "-creds"},
 		},
 	}))
@@ -263,7 +263,7 @@ func TestAVanishedDefinitionReleasesNothing(t *testing.T) {
 	require.NoError(t, c.Create(ctx, &indexv1alpha1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: ns},
 		Spec: indexv1alpha1.IndexerSpec{
-			BaseURL: "https://semi.invalid", DefinitionRef: ptr.To(d.Name),
+			BaseURL: "https://semi.invalid", DefinitionRef: new(d.Name),
 		},
 	}))
 

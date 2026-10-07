@@ -463,7 +463,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mapItemToProfiles),
 			builder.WithPredicates(createdOrDeleted())).
 		WithOptions(controller.Options{
-			RecoverPanic:          ptr.To(true),
+			RecoverPanic:          new(true),
 			ReconciliationTimeout: 5 * time.Minute,
 		}).
 		Complete(r)

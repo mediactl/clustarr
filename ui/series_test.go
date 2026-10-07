@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -57,7 +56,7 @@ func seriesFixtureOver(t *testing.T, wrap func(client.Reader) client.Reader) (*u
 		ObjectMeta: metav1.ObjectMeta{Name: "andor", Namespace: "default"},
 		Spec: catalogv1.SeriesSpec{
 			TvdbID: 393189, QualityProfileRef: "web-1080p", RootFolderRef: "tv",
-			Seasons: []catalogv1.SeasonSpec{{Number: 2, Monitored: ptr.To(false)}},
+			Seasons: []catalogv1.SeasonSpec{{Number: 2, Monitored: new(false)}},
 		},
 		Status: catalogv1.SeriesStatus{
 			Metadata: &catalogv1.SeriesMetadata{Title: "Andor", Year: 2022},
@@ -223,7 +222,7 @@ func seriesActionFixture(t *testing.T, withActions bool) (*ui.Server, client.Cli
 		ObjectMeta: metav1.ObjectMeta{Name: "andor", Namespace: "default"},
 		Spec: catalogv1.SeriesSpec{
 			TvdbID: 393189, QualityProfileRef: "web-1080p", RootFolderRef: "tv",
-			Seasons: []catalogv1.SeasonSpec{{Number: 2, Monitored: ptr.To(false)}},
+			Seasons: []catalogv1.SeasonSpec{{Number: 2, Monitored: new(false)}},
 		},
 		Status: catalogv1.SeriesStatus{Seasons: []catalogv1.SeasonStatus{
 			{Number: 1, Monitored: true, EpisodeCount: 12, EpisodeFileCount: 8},
@@ -232,7 +231,7 @@ func seriesActionFixture(t *testing.T, withActions bool) (*ui.Server, client.Cli
 	}
 	episode := &catalogv1.Episode{
 		ObjectMeta: metav1.ObjectMeta{Name: "andor-s01e01", Namespace: "default"},
-		Spec:       catalogv1.EpisodeSpec{SeriesRef: "andor", SeasonNumber: 1, EpisodeNumber: 1, Monitored: ptr.To(true)},
+		Spec:       catalogv1.EpisodeSpec{SeriesRef: "andor", SeasonNumber: 1, EpisodeNumber: 1, Monitored: new(true)},
 		Status:     catalogv1.EpisodeStatus{Title: "Kassa", HasFile: true, FileQuality: &commonv1.Quality{Name: "WEBDL-1080p"}},
 	}
 	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(series, episode).Build()
@@ -276,7 +275,7 @@ func TestSeasonMonitorToggleRepliesWithTheComponentToHTMX(t *testing.T) {
 
 	var got catalogv1.Series
 	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor"}, &got))
-	require.Equal(t, []catalogv1.SeasonSpec{{Number: 2, Monitored: ptr.To(true)}}, got.Spec.Seasons)
+	require.Equal(t, []catalogv1.SeasonSpec{{Number: 2, Monitored: new(true)}}, got.Spec.Seasons)
 
 	rec = postForm(t, srv, "/library/default/series/andor/seasons/1/monitor",
 		url.Values{"monitored": {"false"}, "return": {"/library/default/series/andor"}}, false)

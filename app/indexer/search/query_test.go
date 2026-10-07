@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -159,8 +158,8 @@ func TestBuildQuery(t *testing.T) {
 			req: schema.SearchRequest{
 				Kind:       commonv1.MediaKindEpisode,
 				IDs:        map[string]string{commonv1.IDKeyTVDB: "121361"},
-				Season:     ptr.To(int32(2)),
-				Episode:    ptr.To(int32(5)),
+				Season:     new(int32(2)),
+				Episode:    new(int32(5)),
 				Categories: []int32{5000},
 			},
 			idx:  &indexv1alpha1.Indexer{Status: indexv1alpha1.IndexerStatus{Caps: tvCaps}},
@@ -168,7 +167,7 @@ func TestBuildQuery(t *testing.T) {
 			want: torznab.Query{
 				Type: torznab.ModeTVSearch, Limit: 500,
 				Categories: []newznab.CategoryID{5000},
-				TVDBID:     "121361", Season: ptr.To(2), Episode: "5",
+				TVDBID:     "121361", Season: new(2), Episode: "5",
 			},
 			wantOK:   true,
 			wantMode: schema.SearchQueryModeID,
@@ -180,7 +179,7 @@ func TestBuildQuery(t *testing.T) {
 			req: schema.SearchRequest{
 				Kind:       commonv1.MediaKindEpisode,
 				IDs:        map[string]string{commonv1.IDKeyTVDB: "81797"},
-				Episode:    ptr.To(int32(137)),
+				Episode:    new(int32(137)),
 				Categories: []int32{5000},
 			},
 			idx: &indexv1alpha1.Indexer{
@@ -277,8 +276,8 @@ func TestBuildQueryGatesSeasonAndEpisodeOnCaps(t *testing.T) {
 	got, ok, mode := buildQuery(schema.SearchRequest{
 		Kind:    commonv1.MediaKindEpisode,
 		IDs:     map[string]string{commonv1.IDKeyTVDB: "121361"},
-		Season:  ptr.To(int32(2)),
-		Episode: ptr.To(int32(5)),
+		Season:  new(int32(2)),
+		Episode: new(int32(5)),
 	}, idx, torznab.ModeTVSearch, 50)
 	require.True(t, ok)
 	require.Nil(t, got.Season)

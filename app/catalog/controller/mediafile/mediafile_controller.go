@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -741,7 +740,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForRootFolder),
 			builder.WithPredicates(rootFolderNamingChanged())).
 		WithOptions(controller.Options{
-			RecoverPanic:            ptr.To(true),
+			RecoverPanic:            new(true),
 			ReconciliationTimeout:   5 * time.Minute,
 			MaxConcurrentReconciles: MaxConcurrentReconciles,
 		}).

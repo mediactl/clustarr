@@ -29,7 +29,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -380,7 +379,7 @@ func TestReconcileExpiry(t *testing.T) {
 
 			finished := metav1.NewTime(time.Now().Add(tc.finishedAt))
 			scan := seedScan(t, ctx, c, ns,
-				catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies", TTLSecondsAfterFinished: ptr.To(tc.ttl)},
+				catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies", TTLSecondsAfterFinished: new(tc.ttl)},
 				catalogv1alpha1.LibraryScanStatus{
 					Phase: catalogv1alpha1.ScanPhaseCompleted, FinishedAt: &finished, FilesSeen: 4,
 				})

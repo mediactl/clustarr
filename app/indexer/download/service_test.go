@@ -30,7 +30,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -131,14 +130,14 @@ func TestHandleResolvesTheIndexerAndRefusesADisabledOne(t *testing.T) {
 	})
 	t.Run("disabled", func(t *testing.T) {
 		idx := testIndexer("media", "tr", "uid-3", indexv1alpha1.LimitUnitDay)
-		idx.Spec.Enabled = ptr.To(false)
+		idx.Spec.Enabled = new(false)
 		s := &Service{Client: fakeClient(t, idx), Fetch: nilFetcherFor}
 		got := s.Handle(ctx, req)
 		require.Contains(t, got.Error, "disabled")
 	})
 	t.Run("in backoff is still served", func(t *testing.T) {
 		idx := testIndexer("media", "tr", "uid-4", indexv1alpha1.LimitUnitDay)
-		idx.Status.DisabledUntil = ptr.To(metav1.NewTime(time.Now().Add(time.Hour)))
+		idx.Status.DisabledUntil = new(metav1.NewTime(time.Now().Add(time.Hour)))
 		s := &Service{
 			Client: fakeClient(t, idx),
 			Fetch:  stubFetcherFor(&FetchResult{MagnetURL: "magnet:?xt=urn:btih:z"}),

@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -56,7 +55,7 @@ func TestDeletionPrunesTheCapsMemoButNotTheSharedBucket(t *testing.T) {
 			Namespace:         "media",
 			UID:               uid,
 			Generation:        4,
-			DeletionTimestamp: ptr.To(metav1.NewTime(now)),
+			DeletionTimestamp: new(metav1.NewTime(now)),
 			Finalizers:        []string{"test.clustarr.io/keep"},
 		},
 		Spec: indexv1alpha1.IndexerSpec{
@@ -97,19 +96,19 @@ func TestRateLimited(t *testing.T) {
 	}{
 		{name: "no limits", limits: nil},
 		{
-			name: "under", limits: &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(100))},
+			name: "under", limits: &indexv1alpha1.Limits{QueryLimit: new(int32(100))},
 			st: indexv1alpha1.IndexerStatus{QueriesInWindow: 99},
 		},
 		{
-			name: "queries at the limit", limits: &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(100))},
+			name: "queries at the limit", limits: &indexv1alpha1.Limits{QueryLimit: new(int32(100))},
 			st: indexv1alpha1.IndexerStatus{QueriesInWindow: 100}, want: true, message: "queries 100/100 per day",
 		},
 		{
-			name: "grabs over the limit", limits: &indexv1alpha1.Limits{GrabLimit: ptr.To(int32(5)), Unit: indexv1alpha1.LimitUnitHour},
+			name: "grabs over the limit", limits: &indexv1alpha1.Limits{GrabLimit: new(int32(5)), Unit: indexv1alpha1.LimitUnitHour},
 			st: indexv1alpha1.IndexerStatus{GrabsInWindow: 9}, want: true, message: "grabs 9/5 per hour",
 		},
 		{
-			name: "a zero limit is none, as Prowlarr reads it", limits: &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(0))},
+			name: "a zero limit is none, as Prowlarr reads it", limits: &indexv1alpha1.Limits{QueryLimit: new(int32(0))},
 			st: indexv1alpha1.IndexerStatus{QueriesInWindow: 3},
 		},
 	}

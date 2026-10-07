@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -207,7 +206,7 @@ func TestCurrentFileReadsTheMediaFile(t *testing.T) {
 		},
 	).Build()
 
-	cur, err := currentFile(ctx, c, ns, true, ptr.To("file"))
+	cur, err := currentFile(ctx, c, ns, true, new("file"))
 	require.NoError(t, err)
 	require.NotNil(t, cur)
 	assert.Equal(t, web1080, cur.Quality)
@@ -221,9 +220,9 @@ func TestCurrentFileReadsTheMediaFile(t *testing.T) {
 		hasFile bool
 		ref     *string
 	}{
-		"no file":                       {false, ptr.To("file")},
+		"no file":                       {false, new("file")},
 		"a file with no ref":            {true, nil},
-		"a ref to a MediaFile now gone": {true, ptr.To("gone")},
+		"a ref to a MediaFile now gone": {true, new("gone")},
 	} {
 		cur, err := currentFile(ctx, c, ns, c2.hasFile, c2.ref)
 		require.NoError(t, err, name)

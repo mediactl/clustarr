@@ -36,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -332,7 +331,7 @@ func TestDisablingAnIndexerReleasesNothing(t *testing.T) {
 	require.NotNil(t, steady.Status.Caps)
 	wantCaps := steady.Status.Caps.DeepCopy()
 
-	steady.Spec.Enabled = ptr.To(false)
+	steady.Spec.Enabled = new(false)
 	require.NoError(t, c.Update(ctx, &steady))
 	res, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
@@ -379,7 +378,7 @@ func TestAMissingDefinitionIsReportedWithoutAProtocol(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: ns},
 		Spec: indexv1alpha1.IndexerSpec{
 			BaseURL:    "https://1337x.invalid",
-			Definition: ptr.To("1337x-not-provided"),
+			Definition: new("1337x-not-provided"),
 		},
 	}))
 
@@ -627,7 +626,7 @@ func TestLimitsExhaustedSetsRateLimitedWithoutClearingReady(t *testing.T) {
 		Spec: indexv1alpha1.IndexerSpec{
 			BaseURL: srv.URL,
 			Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolUsenet, APIPath: "/api"},
-			Limits:  &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(100))},
+			Limits:  &indexv1alpha1.Limits{QueryLimit: new(int32(100))},
 		},
 	}))
 
@@ -672,7 +671,7 @@ func TestRateLimitedClearsOnceTheWindowPassesWithNoTraffic(t *testing.T) {
 		Spec: indexv1alpha1.IndexerSpec{
 			BaseURL: srv.URL,
 			Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolUsenet, APIPath: "/api"},
-			Limits:  &indexv1alpha1.Limits{QueryLimit: ptr.To(int32(2)), Unit: indexv1alpha1.LimitUnitHour},
+			Limits:  &indexv1alpha1.Limits{QueryLimit: new(int32(2)), Unit: indexv1alpha1.LimitUnitHour},
 		},
 	}))
 

@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -145,7 +144,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			bk, ok := o.(*catalogv1alpha1.Book)
 			return ok && bk.Status.HasFile
 		}))).
-		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
 
@@ -428,7 +427,7 @@ func (r *Reconciler) ensureBook(ctx context.Context, a *catalogv1alpha1.Author, 
 		bk = catalogv1alpha1.Book{
 			ObjectMeta: metav1.ObjectMeta{Name: d.Name, Namespace: a.Namespace},
 			Spec: catalogv1alpha1.BookSpec{
-				AuthorRef: ptr.To(a.Name),
+				AuthorRef: new(a.Name),
 				WorkID:    d.WorkID,
 			},
 		}
