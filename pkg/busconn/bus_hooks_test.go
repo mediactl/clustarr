@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package k8s_test
+package busconn_test
 
 import (
 	"context"
@@ -28,9 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/contracttest"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -59,31 +59,31 @@ func startJetStream(t *testing.T) string {
 	return srv.ClientURL()
 }
 
-// TestConnectBusCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt is Task C12a
+// TestConnectCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt is Task C12a
 // step 2b's proof.
 //
 // Task C1 put the publish and receive hooks inside pkg/events so no bus
 // implementation could forget them, and pkg/obs.BusHooks() supplies the pair
 // that satisfies them -- but the ONE real construction site,
-// [k8s.ConnectBus], passed no options at all. The propagation existed and
+// [busconn.Connect], passed no options at all. The propagation existed and
 // never ran in production, so amendment §A4's "first end-to-end trace at M1"
 // could not have been true.
 //
 // This test builds the bus exactly as catalogarr, importarr, indexarr,
 // grabarr, squasharr and captionarr now build it -- obs.Bootstrap's
-// TracerProvider installed first, then ConnectBus with
-// k8s.WithBusHooks(obs.BusHooks()) -- publishes inside a span, and asserts the
+// TracerProvider installed first, then Connect with
+// busconn.WithHooks(obs.BusHooks()) -- publishes inside a span, and asserts the
 // trace survives the wire: the delivered envelope carries a traceparent for
 // the publishing trace, and the handler's own context is a child of it.
 //
 // cmd/clustarr's TestEveryServicePassesBusHooks is the other half: this test
 // proves the mechanism works, that one proves every service actually calls
 // it.
-func TestConnectBusCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) {
+func TestConnectCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) {
 	url := startJetStream(t)
 
 	// A service's Run calls obs.Bootstrap (which calls tracing.Setup) before
-	// it calls ConnectBus. Order matters: Inject and Extract read and write
+	// it calls Connect. Order matters: Inject and Extract read and write
 	// through the otel globals Setup installs, so hooks wired before it are
 	// a silent no-op.
 	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
@@ -96,7 +96,7 @@ func TestConnectBusCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) 
 		}
 	})
 
-	bus, nc, err := k8s.ConnectBus(url, "catalogarr", k8s.WithBusHooks(obs.BusHooks()))
+	bus, nc, err := busconn.Connect(url, "catalogarr", busconn.WithHooks(obs.BusHooks()))
 	require.NoError(t, err)
 	t.Cleanup(nc.Close)
 	t.Cleanup(func() {
@@ -107,7 +107,7 @@ func TestConnectBusCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) 
 
 	ctx, cancel := context.WithTimeout(context.Background(), contracttest.Timeout)
 	t.Cleanup(cancel)
-	require.NoError(t, k8s.EnsureTopology(ctx, bus, contracttest.Topology()))
+	require.NoError(t, busconn.EnsureTopology(ctx, bus, contracttest.Topology()))
 
 	type delivery struct {
 		envTrace string
@@ -160,7 +160,7 @@ func TestConnectBusCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) 
 	case d := <-got:
 		require.NotEmpty(t, d.envTrace,
 			"the delivered envelope carried no traceparent: obs.BusHooks().BeforePublish never ran, "+
-				"which is exactly the production gap ConnectBus's options close")
+				"which is exactly the production gap Connect's options close")
 		require.Contains(t, d.envTrace, publisher.TraceID().String(),
 			"the envelope's traceparent does not name the publishing trace")
 		require.True(t, d.ctxSpan.IsValid(),
@@ -172,11 +172,11 @@ func TestConnectBusCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) 
 	}
 }
 
-// TestConnectBusWithoutHooksCarriesNoTrace is the control: the same publish
+// TestConnectWithoutHooksCarriesNoTrace is the control: the same publish
 // through a bus built with no options leaves the envelope's traceparent
 // empty. Without it, the test above could pass on an envelope that was
 // stamped somewhere else entirely.
-func TestConnectBusWithoutHooksCarriesNoTrace(t *testing.T) {
+func TestConnectWithoutHooksCarriesNoTrace(t *testing.T) {
 	url := startJetStream(t)
 
 	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
@@ -189,7 +189,7 @@ func TestConnectBusWithoutHooksCarriesNoTrace(t *testing.T) {
 		}
 	})
 
-	bus, nc, err := k8s.ConnectBus(url, "catalogarr")
+	bus, nc, err := busconn.Connect(url, "catalogarr")
 	require.NoError(t, err)
 	t.Cleanup(nc.Close)
 	t.Cleanup(func() {
@@ -200,7 +200,7 @@ func TestConnectBusWithoutHooksCarriesNoTrace(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), contracttest.Timeout)
 	t.Cleanup(cancel)
-	require.NoError(t, k8s.EnsureTopology(ctx, bus, contracttest.Topology()))
+	require.NoError(t, busconn.EnsureTopology(ctx, bus, contracttest.Topology()))
 
 	got := make(chan string, 1)
 	stop, err := bus.Subscribe(ctx, events.Subscription{

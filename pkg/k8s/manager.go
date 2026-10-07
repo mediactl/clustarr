@@ -35,6 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	"github.com/mediactl/clustarr/pkg/busconn"
 )
 
 // Defaults for the flags every service shares.
@@ -48,8 +50,8 @@ const (
 	DefaultHealthProbeBindAddress = ":8081"
 
 	// DefaultNATSURL is the in-cluster address of the JetStream service the
-	// umbrella chart installs.
-	DefaultNATSURL = "nats://clustarr-nats:4222"
+	// umbrella chart installs: busconn.DefaultNATSURL.
+	DefaultNATSURL = busconn.DefaultNATSURL
 
 	// DefaultGracefulShutdownTimeout bounds how long the manager waits for
 	// runnables to stop on SIGTERM. §12 ties a worker's drain to its AckWait,

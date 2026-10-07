@@ -28,7 +28,8 @@ import (
 )
 
 // busSource is one file this test holds to the k8s.WithBusHooks(obs.BusHooks())
-// rule: name is what t.Run reports it under, path is where to find it.
+// (or busconn.WithHooks(obs.BusHooks())) rule: name is what t.Run reports it
+// under, path is where to find it.
 type busSource struct {
 	name string
 	path string
@@ -51,7 +52,7 @@ var busServiceSources = []busSource{
 // TestEveryServicePassesBusHooks is the guard behind Task C12a's step 2b
 // decision.
 //
-// pkg/k8s deliberately does not import pkg/obs (see k8s.WithBusHooks for the
+// pkg/k8s deliberately does not import pkg/obs (see busconn.WithHooks for the
 // two reasons), so the trace hooks are something each service's Run passes
 // in -- and therefore something a new service can forget. That is not a
 // hypothetical: it is exactly how Clustarr shipped a complete W3C
@@ -61,7 +62,8 @@ var busServiceSources = []busSource{
 // every unit test built its own bus.
 //
 // This test reads each source file and insists that every k8s.ConnectBus
-// call site passes obs.BusHooks() through k8s.WithBusHooks. It is
+// call site passes obs.BusHooks() through k8s.WithBusHooks, and every
+// busconn.Connect call site through busconn.WithHooks. It is
 // source-level rather than behavioural because there is nothing to observe
 // at runtime: a missing hook is silence, not an error.
 func TestEveryServicePassesBusHooks(t *testing.T) {
@@ -75,7 +77,11 @@ func TestEveryServicePassesBusHooks(t *testing.T) {
 			var calls int
 			ast.Inspect(file, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
-				if !ok || !isSelector(call.Fun, "k8s", "ConnectBus") {
+				if !ok {
+					return true
+				}
+				conn, ok := connectorOf(call.Fun)
+				if !ok {
 					return true
 				}
 				calls++
@@ -83,7 +89,7 @@ func TestEveryServicePassesBusHooks(t *testing.T) {
 				var hooked bool
 				for _, arg := range call.Args {
 					inner, ok := arg.(*ast.CallExpr)
-					if !ok || !isSelector(inner.Fun, "k8s", "WithBusHooks") {
+					if !ok || !isSelector(inner.Fun, conn.pkg, conn.hooks) {
 						continue
 					}
 					for _, hookArg := range inner.Args {
@@ -94,18 +100,38 @@ func TestEveryServicePassesBusHooks(t *testing.T) {
 					}
 				}
 				require.True(t, hooked,
-					"%s:%d: k8s.ConnectBus is called without k8s.WithBusHooks(obs.BusHooks()); "+
+					"%s:%d: %s.%s is called without %s.%s(obs.BusHooks()); "+
 						"this service publishes and consumes with no trace propagation, silently",
-					path, fset.Position(call.Pos()).Line)
+					path, fset.Position(call.Pos()).Line, conn.pkg, conn.connect, conn.pkg, conn.hooks)
 				return true
 			})
 
 			require.Positive(t, calls,
-				"%s has no k8s.ConnectBus call; either the service stopped using the bus "+
+				"%s has no k8s.ConnectBus or busconn.Connect call; either the service stopped using the bus "+
 					"(remove it from busServiceSources) or the call moved elsewhere "+
 					"(this guard must move with it)", path)
 		})
 	}
+}
+
+// busConnector is a bus constructor the guard follows, with the option that
+// installs the trace hooks on it.
+type busConnector struct{ pkg, connect, hooks string }
+
+// busConnectors are pkg/k8s's wrappers, which the app/<svc> roots call until
+// Wave 5, and the pkg/busconn functions they forward to.
+var busConnectors = []busConnector{
+	{"k8s", "ConnectBus", "WithBusHooks"},
+	{"busconn", "Connect", "WithHooks"},
+}
+
+func connectorOf(e ast.Expr) (busConnector, bool) {
+	for _, c := range busConnectors {
+		if isSelector(e, c.pkg, c.connect) {
+			return c, true
+		}
+	}
+	return busConnector{}, false
 }
 
 // isSelector reports whether e is the expression `pkg.name`.
