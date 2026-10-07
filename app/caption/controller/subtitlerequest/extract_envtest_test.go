@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 )
@@ -35,7 +34,7 @@ func (f *fixture) embeddedProvider(name string) *subtitlev1alpha1.SubtitleProvid
 	f.t.Helper()
 	sp := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
-		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: ptr.To(true)},
+		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: new(true)},
 	}
 	require.NoError(f.t, f.c.Create(f.ctx, sp))
 	return sp
@@ -82,7 +81,7 @@ func TestExtractMakesAnEmbeddedTextTrackAWant(t *testing.T) {
 
 func TestWithExtractOffAnEmbeddedTrackCountsAsExisting(t *testing.T) {
 	f := newFixture(t, "sr-extract-off")
-	f.profile(func(s *subtitlev1alpha1.SubtitleProfileSpec) { s.Embedded.Extract = ptr.To(false) })
+	f.profile(func(s *subtitlev1alpha1.SubtitleProfileSpec) { s.Embedded.Extract = new(false) })
 	f.embeddedProvider("embedded")
 	f.mediaFile("movie", englishTrack())
 	f.request("movie")
@@ -104,7 +103,7 @@ func TestExtractWithoutAnExtractorLeavesTheTrackExisting(t *testing.T) {
 	f := newFixture(t, "sr-extract-none")
 	f.profile(nil)
 	sp := f.embeddedProvider("embedded")
-	sp.Spec.Enabled = ptr.To(false)
+	sp.Spec.Enabled = new(false)
 	require.NoError(t, f.c.Update(f.ctx, sp))
 	f.mediaFile("movie", englishTrack())
 	f.request("movie")
@@ -114,7 +113,7 @@ func TestExtractWithoutAnExtractorLeavesTheTrackExisting(t *testing.T) {
 	require.Len(t, got.Status.Existing, 1, "no extractor: the embedded track still counts")
 	assert.Equal(t, []string{"de"}, dispatched(f))
 
-	sp.Spec.Enabled = ptr.To(true)
+	sp.Spec.Enabled = new(true)
 	require.NoError(t, f.c.Update(f.ctx, sp))
 	f.reconcile("movie")
 	assert.Empty(t, f.get("movie").Status.Existing)

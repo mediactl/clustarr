@@ -82,7 +82,7 @@ func TestSetSeasonMonitoredKeepsTheOtherSeasonsAndSurvivesARacingWriter(t *testi
 
 	series := &catalogv1alpha1.Series{ObjectMeta: meta("simpsons", ns), Spec: catalogv1alpha1.SeriesSpec{
 		TvdbID: 71663, QualityProfileRef: "web-1080p", RootFolderRef: "tv",
-		Seasons: []catalogv1alpha1.SeasonSpec{{Number: 1, Monitored: ptr.To(true)}, {Number: 3, Monitored: ptr.To(false)}},
+		Seasons: []catalogv1alpha1.SeasonSpec{{Number: 1, Monitored: new(true)}, {Number: 3, Monitored: ptr.To(false)}},
 	}}
 	require.NoError(t, c.Create(ctx, series, client.FieldOwner(creatorManager)))
 	gvk := mustGVK(t, series, scheme)
@@ -114,7 +114,7 @@ func TestSetSeasonMonitoredKeepsTheOtherSeasonsAndSurvivesARacingWriter(t *testi
 		racing++
 		var cur catalogv1alpha1.Series
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "simpsons"}, &cur))
-		cur.Spec.Seasons[0].Monitored = ptr.To(false)
+		cur.Spec.Seasons[0].Monitored = new(false)
 		require.NoError(t, c.Update(ctx, &cur, client.FieldOwner(creatorManager)))
 	}}
 	got, err = actions.SetSeasonMonitored(ctx, getter, rec, ns, "simpsons", 2, true)

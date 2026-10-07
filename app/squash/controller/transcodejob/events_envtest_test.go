@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -126,7 +125,7 @@ func TestJobEventsFollowTheLifecycle(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "arrival", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
 
 	bus, captured := subscribeHistory(t)
@@ -191,8 +190,8 @@ func TestSkippedAndFailedEventsCarryTheReason(t *testing.T) {
 	const ns = "tj-events-fail"
 	newNamespace(t, c, ns)
 	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "done", "pdone", ptr.To(compliantProbe()))
-	newMediaFile(t, c, ns, "moved", "pnew", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "done", "pdone", new(compliantProbe()))
+	newMediaFile(t, c, ns, "moved", "pnew", new(h264Probe()))
 	newTJ(t, c, ns, "done-hevc", "done", "hevc", "pdone", nil)
 	newTJ(t, c, ns, "moved-hevc", "moved", "hevc", "pold", nil)
 
@@ -238,8 +237,8 @@ func TestDeadLetteredFoldsIntoTranscodeJobStatus(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
-	newMediaFile(t, c, ns, "waiting", "probe2", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "arrival", "probe1", new(h264Probe()))
+	newMediaFile(t, c, ns, "waiting", "probe2", new(h264Probe()))
 	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
 	newTJ(t, c, ns, "waiting-hevc", "waiting", "hevc", "probe2", nil)
 
@@ -339,7 +338,7 @@ func TestTheTaskCarriesTheReconcileTrace(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "arrival", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 	reconcileTJ(t, r, ns, "arrival-hevc")

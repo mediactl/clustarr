@@ -31,7 +31,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -102,7 +101,7 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			tp := newProfile(t, c, profile, "hash-"+name, func(p *transcodev1alpha1.TranscodeProfile) {
 				p.Spec.Policy.MinDuration = &metav1.Duration{}
 				if tc.keep {
-					p.Spec.Policy.ReplaceSource = ptr.To(false)
+					p.Spec.Policy.ReplaceSource = new(false)
 				}
 				if tc.memoryOnly {
 					p.Spec.Resources = corev1.ResourceRequirements{Limits: corev1.ResourceList{

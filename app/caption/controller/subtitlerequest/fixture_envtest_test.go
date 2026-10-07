@@ -36,7 +36,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -195,7 +194,7 @@ func (f *fixture) profile(mutate func(*subtitlev1alpha1.SubtitleProfileSpec)) *s
 		ObjectMeta: metav1.ObjectMeta{Name: f.ns},
 		Spec: subtitlev1alpha1.SubtitleProfileSpec{
 			Languages: []subtitlev1alpha1.LanguageItem{lang("en", "en"), lang("de", "de")},
-			Cutoff:    ptr.To("de"),
+			Cutoff:    new("de"),
 		},
 	}
 	if mutate != nil {

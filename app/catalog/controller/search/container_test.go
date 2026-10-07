@@ -39,7 +39,7 @@ import (
 func book(name, author string, monitored, hasFile, cutoffMet bool) *catalogv1alpha1.Book {
 	return &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
-		Spec:       catalogv1alpha1.BookSpec{AuthorRef: ptr.To(author), Monitored: ptr.To(monitored)},
+		Spec:       catalogv1alpha1.BookSpec{AuthorRef: new(author), Monitored: ptr.To(monitored)},
 		Status:     catalogv1alpha1.BookStatus{HasFile: hasFile, CutoffMet: cutoffMet},
 	}
 }
@@ -213,14 +213,14 @@ func TestWantedChild(t *testing.T) {
 		"book at cutoff":    {book("b", "a", true, true, true), false},
 		"book unmonitored":  {book("b", "a", false, false, false), false},
 		"album partly missing": {&catalogv1alpha1.Album{
-			Spec:   catalogv1alpha1.AlbumSpec{Monitored: ptr.To(true)},
+			Spec:   catalogv1alpha1.AlbumSpec{Monitored: new(true)},
 			Status: catalogv1alpha1.AlbumStatus{Tracks: tracks, TrackFileCount: 1, CutoffMet: true},
 		}, true},
 		"album complete at cutoff": {&catalogv1alpha1.Album{
-			Spec:   catalogv1alpha1.AlbumSpec{Monitored: ptr.To(true)},
+			Spec:   catalogv1alpha1.AlbumSpec{Monitored: new(true)},
 			Status: catalogv1alpha1.AlbumStatus{Tracks: tracks, TrackFileCount: 2, CutoffMet: true},
 		}, false},
-		"issue missing": {&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)}}, true},
+		"issue missing": {&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Monitored: new(true)}}, true},
 		// Not released yet is not missing, as the *arrs' Missing lists
 		// filter release date <= now (final review, 2026-09-30).
 		"book not released yet": {func() client.Object {
@@ -229,11 +229,11 @@ func TestWantedChild(t *testing.T) {
 			return b
 		}(), false},
 		"issue not on sale yet": {&catalogv1alpha1.Issue{
-			Spec:   catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Spec:   catalogv1alpha1.IssueSpec{Monitored: new(true)},
 			Status: catalogv1alpha1.IssueStatus{Date: &metav1.Time{Time: time.Now().Add(24 * time.Hour)}},
 		}, false},
 		"issue at cutoff": {&catalogv1alpha1.Issue{
-			Spec:   catalogv1alpha1.IssueSpec{Monitored: ptr.To(true)},
+			Spec:   catalogv1alpha1.IssueSpec{Monitored: new(true)},
 			Status: catalogv1alpha1.IssueStatus{HasFile: true, CutoffMet: true},
 		}, false},
 	} {

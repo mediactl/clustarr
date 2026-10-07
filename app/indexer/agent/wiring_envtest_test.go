@@ -43,7 +43,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -566,8 +565,8 @@ func TestReadinessPassesOnANonLeaderReplica(t *testing.T) {
 	require.NoError(t, c.Create(t.Context(), &coordinationv1.Lease{
 		ObjectMeta: metav1.ObjectMeta{Name: leaseID, Namespace: leaseNamespace},
 		Spec: coordinationv1.LeaseSpec{
-			HolderIdentity:       ptr.To("someone-else"),
-			LeaseDurationSeconds: ptr.To(int32(86400)),
+			HolderIdentity:       new("someone-else"),
+			LeaseDurationSeconds: new(int32(86400)),
 			AcquireTime:          &renew,
 			RenewTime:            &renew,
 		},
@@ -874,7 +873,7 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 		idx := &indexv1alpha1.Indexer{
 			ObjectMeta: metav1.ObjectMeta{Name: "cardigann-grab", Namespace: ns},
 			Spec: indexv1alpha1.IndexerSpec{
-				DefinitionRef: ptr.To("no-such-definition"),
+				DefinitionRef: new("no-such-definition"),
 				BaseURL:       "http://127.0.0.1:1/",
 			},
 		}

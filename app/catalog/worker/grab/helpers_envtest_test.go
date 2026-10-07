@@ -24,8 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/utils/ptr"
-
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -204,7 +202,7 @@ func torrentRelease(guid, indexerRef string, q commonv1.Quality, score int32) co
 		// ranking reads. It is optional on the wire (ReleaseInfo.PublishedAt
 		// is a *metav1.Time), so a dateless release persists fine -- this
 		// fixture simply is not one.
-		PublishedAt: ptr.To(metav1.NewTime(testNow.Add(-time.Hour))),
+		PublishedAt: new(metav1.NewTime(testNow.Add(-time.Hour))),
 		MagnetURL:   "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
 		Title:       "The.Thing.1982.1080p.BluRay.x264-GROUP",
 		Quality:     q,

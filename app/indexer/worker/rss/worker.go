@@ -730,7 +730,7 @@ func indexRow(rel schema.Release, indexerName string, now time.Time) (relindex.R
 	// rejects a non-nil pointer to the zero time outright, so absence must
 	// stay absence rather than become a zero date.
 	if p := rel.Info.PublishedAt; p != nil && !p.Time.IsZero() {
-		row.PublishedAt = ptr.To(p.Time)
+		row.PublishedAt = new(p.Time)
 	}
 	return row, nil
 }
@@ -783,7 +783,7 @@ func pollSince(idx *indexv1alpha1.Indexer, task schema.RssTask) *time.Time {
 	}
 	if at := idx.Status.LastRssAt; at != nil && !at.Time.IsZero() {
 		if out == nil || at.After(*out) {
-			out = ptr.To(at.Time)
+			out = new(at.Time)
 		}
 	}
 	return out

@@ -220,7 +220,7 @@ func (f *fixture) newMovie(t *testing.T, name, profile string, monitored bool, a
 	m := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 		Spec: catalogv1alpha1.MovieSpec{
-			TmdbID: 603, QualityProfileRef: profile, RootFolderRef: "movies", Monitored: ptr.To(monitored),
+			TmdbID: 603, QualityProfileRef: profile, RootFolderRef: "movies", Monitored: new(monitored),
 		},
 	}
 	require.NoError(t, f.c.Create(f.ctx, m))
@@ -366,7 +366,7 @@ func TestAFailedDownloadIsRedownloadedAndTheGrabSaysSo(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "torrents", Namespace: f.ns},
 		Spec: downloadv1alpha1.DownloadClientSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Torrent:  &downloadv1alpha1.TorrentSpec{EnableDHT: ptr.To(false)},
+			Torrent:  &downloadv1alpha1.TorrentSpec{EnableDHT: new(false)},
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, dc))
@@ -525,7 +525,7 @@ func TestAPackFailureSearchesEachMonitoredEpisode(t *testing.T) {
 		ep := &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: episodeName(n), Namespace: f.ns},
 			Spec: catalogv1alpha1.EpisodeSpec{
-				SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: n, Monitored: ptr.To(monitored),
+				SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: n, Monitored: new(monitored),
 			},
 		}
 		require.NoError(t, f.c.Create(ctx, ep))

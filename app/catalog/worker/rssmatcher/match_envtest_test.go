@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -128,7 +127,7 @@ func TestMatch_UnmonitoredItemsAreNeverReturned(t *testing.T) {
 		if err := c.Get(ctx, client.ObjectKeyFromObject(m), m); err != nil {
 			return false
 		}
-		m.Spec.Monitored = ptr.To(false)
+		m.Spec.Monitored = new(false)
 		return c.Update(ctx, m) == nil
 	})
 
@@ -273,7 +272,7 @@ func TestMatch_DailySeriesByAirDate(t *testing.T) {
 	createSeries(t, ctx, c, ns, "the-daily-show", 71256, "The Daily Show", 1996)
 	air := time.Date(2026, 9, 17, 22, 0, 0, 0, time.UTC)
 	createEpisode(t, ctx, c, ns, "the-daily-show", 2026, 190, &air)
-	createEpisode(t, ctx, c, ns, "the-daily-show", 2026, 191, ptr.To(air.Add(24*time.Hour)))
+	createEpisode(t, ctx, c, ns, "the-daily-show", 2026, 191, new(air.Add(24*time.Hour)))
 
 	// The release's air date differs in time of day, as an indexer's always
 	// does; only the calendar day may be compared.

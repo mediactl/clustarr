@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -52,7 +51,7 @@ func crdDefaultedSpec(tiers []catalogv1alpha1.Tier, cutoff string) catalogv1alph
 		Tiers:                 tiers,
 		Cutoff:                cutoff,
 		BuiltIn:               false,
-		UpgradeAllowed:        ptr.To(true),
+		UpgradeAllowed:        new(true),
 		MinFormatScore:        0,
 		CutoffFormatScore:     10000,
 		MinUpgradeFormatScore: 1,

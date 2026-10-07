@@ -11,6 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-09-18-clustarr-design.md` §6.2, §5, §16 M2, §12, §13; `docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md` (wins on conflict); `docs/adr/0003-release-index-sqlite-fts5.md`.
 
 **Source research (read these, they carry exact values):**
+
 - `docs/research/phase-d1-indexarr-spec.md` — spec sections verbatim, all three CRDs field by field, the RPC payload types, the shipped `pkg/events` topology, and §12's eight contradictions.
 - `docs/research/phase-d1-libraries-api.md` — exact public APIs of `pkg/torznab`, `pkg/newznab`, `pkg/cardigann`, `pkg/ratelimit`, `pkg/release`, plus the caller-side contract `app/catalog/worker/search` already pins.
 
@@ -91,6 +92,7 @@ Two independent section writers converged on the same gap in the interface contr
 `schema.SearchRequest` carries no namespace. `IndexerRefs []Ref` does carry one — `schema.Ref` has `Namespace`, `Name`, `UID` — but `app/catalog/worker/search` only populates `IndexerRefs` for **interactive** searches (`worker.go:471-482`). So an automatic search arrives at indexarr with no namespace anywhere, and indexarr would have to list `Indexer` objects **cluster-wide**, letting namespace A's Movie be served by namespace B's Indexer, with B's credentials, counted against B's grab limit.
 
 Shipping that silently is not acceptable, and "indexarr lists cluster-wide" is not a decision a task should make by accident because a field was missing. Adding an **optional** field to a versioned payload is backward compatible — an old producer simply omits it — so:
+
 - add `Namespace string \`json:"namespace,omitempty"\`` to `SearchRequest` with a doc comment saying why it exists;
 - populate it in `app/catalog/worker/search`'s `buildRequest` from the namespace the worker already recovers from the envelope key;
 - indexarr scopes its `Indexer` list to it, and when it is **empty** falls back to cluster-wide **with a logged warning naming the request**, so the old behaviour is observable rather than silent.
@@ -428,6 +430,7 @@ The gate is not green tests. It is: `catalogarr`'s search path — built in Phas
 ### Task D1-0: dependencies, the field-manager split, and the six recorded conflicts
 
 **Files:**
+
 - Modify: `go.mod`, `go.sum` (one `go get`, run by the controller only)
 - Create: `hack/deps/deps.go` entry for `modernc.org/sqlite` if no real importer exists yet
 - Modify: `pkg/k8s/fieldmanager.go` (add `ManagerIndexarrWorker`, **and add it to `FieldManagers()`**)
@@ -465,24 +468,24 @@ Record the resolved version in the commit message. **This is the only `go get` i
 This implements Ruling R6 and it is the highest-value step in the task. Add to `pkg/k8s/fieldmanager.go`:
 
 ```go
-	// ManagerIndexarrWorker is the indexarr RSS worker and search fan-out.
-	// It is deliberately distinct from ManagerIndexarr, which the Indexer
-	// reconciler uses for that same object's configuration status.
-	//
-	// Server-side apply replaces a manager's whole ownership set on every
-	// apply, so two writers sharing one manager name on one object silently
-	// release each other's fields. This project hit that eight times in one
-	// phase. Distinct managers make the split native -- and if the two ever
-	// both claim a field, the apiserver reports a loud conflict instead of
-	// losing data quietly.
-	//
-	// The split on IndexerStatus:
-	//   indexarr        -- conditions, protocol, privacy, caps,
-	//                      observedGeneration, sessionSecretRef
-	//   indexarr-worker -- lastRssAt, lastRssNewCount, indexedReleases,
-	//                      queriesInWindow, grabsInWindow, failureLevel,
-	//                      disabledUntil, lastFailureAt, lastFailureMsg
-	ManagerIndexarrWorker FieldManager = "indexarr-worker"
+ // ManagerIndexarrWorker is the indexarr RSS worker and search fan-out.
+ // It is deliberately distinct from ManagerIndexarr, which the Indexer
+ // reconciler uses for that same object's configuration status.
+ //
+ // Server-side apply replaces a manager's whole ownership set on every
+ // apply, so two writers sharing one manager name on one object silently
+ // release each other's fields. This project hit that eight times in one
+ // phase. Distinct managers make the split native -- and if the two ever
+ // both claim a field, the apiserver reports a loud conflict instead of
+ // losing data quietly.
+ //
+ // The split on IndexerStatus:
+ //   indexarr        -- conditions, protocol, privacy, caps,
+ //                      observedGeneration, sessionSecretRef
+ //   indexarr-worker -- lastRssAt, lastRssNewCount, indexedReleases,
+ //                      queriesInWindow, grabsInWindow, failureLevel,
+ //                      disabledUntil, lastFailureAt, lastFailureMsg
+ ManagerIndexarrWorker FieldManager = "indexarr-worker"
 ```
 
 - [ ] **Step 4: Add it to the allow-list — do not skip this**
@@ -508,15 +511,15 @@ Then edit spec §5's consumer table so it says 60s too. The spec pins this value
 Rulings R1 and R2, in `app/indexer/run.go`:
 
 ```go
-	// DefaultIndexPath is the SQLite release index. It must match the PVC
-	// mount in config/manager/indexarr.yaml: readOnlyRootFilesystem makes
-	// anything outside the mount unwritable.
-	DefaultIndexPath = "/var/lib/clustarr/index/releases.db"
+ // DefaultIndexPath is the SQLite release index. It must match the PVC
+ // mount in config/manager/indexarr.yaml: readOnlyRootFilesystem makes
+ // anything outside the mount unwritable.
+ DefaultIndexPath = "/var/lib/clustarr/index/releases.db"
 
-	// DefaultFacadeBindAddress must match the container port the Service
-	// routes to. The facade itself is M6; this constant is fixed now because
-	// it is a landmine, not because the facade is being built.
-	DefaultFacadeBindAddress = ":8080"
+ // DefaultFacadeBindAddress must match the container port the Service
+ // routes to. The facade itself is M6; this constant is fixed now because
+ // it is a landmine, not because the facade is being built.
+ DefaultFacadeBindAddress = ":8080"
 ```
 
 Then write `cmd/clustarr/indexarr_defaults_test.go` asserting both against the manifest, by parsing `config/manager/indexarr.yaml` rather than restating its values — a test that restates the value it is guarding cannot catch drift, which is how `ValidKVKey` shipped wrong in Phase C.
@@ -586,6 +589,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(d1): 
 ### Task D1-1: reshape `torznab.WithRateLimit` to accept the injected limiter
 
 **Files:**
+
 - Modify: `pkg/torznab/client.go` (the `WithRateLimit` option and the field it sets)
 - Modify: `pkg/torznab/doc.go` (the stale `Indexer.spec.rateLimit` reference)
 - Modify: `pkg/torznab/client_test.go` (call sites and a new test)
@@ -594,6 +598,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(d1): 
 
 **Interfaces — Consumes:** `ratelimit.Limiter` (`pkg/ratelimit`, already shipped).
 **Interfaces — Produces:**
+
 ```go
 // WithRateLimit makes the client wait on lim before every outbound request.
 // The caller owns the limiter: indexarr holds one per indexer host and shares
@@ -615,28 +620,28 @@ The behaviour that matters is that **the caller's** limiter is the one consulted
 // that impossible -- each client would get its own allowance and the host
 // would see three times the intended rate.
 func TestWithRateLimitUsesTheCallersLimiter(t *testing.T) {
-	var calls int
-	lim := ratelimit.NewLimiter(rate.Every(time.Hour), 1) // one token, then block
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		w.Header().Set("Content-Type", "application/xml")
-		_, _ = io.WriteString(w, capsXML)
-	}))
-	defer srv.Close()
+ var calls int
+ lim := ratelimit.NewLimiter(rate.Every(time.Hour), 1) // one token, then block
+ srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  calls++
+  w.Header().Set("Content-Type", "application/xml")
+  _, _ = io.WriteString(w, capsXML)
+ }))
+ defer srv.Close()
 
-	c, err := torznab.New(srv.URL, "apikey", torznab.WithRateLimit(lim))
-	require.NoError(t, err)
+ c, err := torznab.New(srv.URL, "apikey", torznab.WithRateLimit(lim))
+ require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
+ ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+ defer cancel()
 
-	_, err = c.Caps(ctx)          // consumes the single token
-	require.NoError(t, err)
+ _, err = c.Caps(ctx)          // consumes the single token
+ require.NoError(t, err)
 
-	_, err = c.Caps(ctx)          // must block on the CALLER's limiter, then time out
-	require.ErrorIs(t, err, context.DeadlineExceeded,
-		"the second call did not wait on the caller's limiter")
-	assert.Equal(t, 1, calls, "the second request reached the server despite an exhausted limiter")
+ _, err = c.Caps(ctx)          // must block on the CALLER's limiter, then time out
+ require.ErrorIs(t, err, context.DeadlineExceeded,
+  "the second call did not wait on the caller's limiter")
+ assert.Equal(t, 1, calls, "the second request reached the server despite an exhausted limiter")
 }
 ```
 
@@ -681,9 +686,11 @@ that does not exist. The CRD has spec.requestDelay and spec.limits." -- pkg/torz
 ```
 
 **Done when:** `WithRateLimit` takes `ratelimit.Limiter`, the new test passes and genuinely fails against the old signature, no default limiter is introduced, the package doc names real CRD fields, and `go test -race ./pkg/torznab/` is green.
+
 ### Task D1-2: `pkg/relindex` — the SQLite FTS5 release index
 
 **Files:**
+
 - Create: `pkg/relindex/doc.go`
 - Create: `pkg/relindex/store.go`
 - Create: `pkg/relindex/schema.go`
@@ -887,33 +894,33 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex
 
   import (
-  	"context"
-  	"errors"
-  	"io"
-  	"time"
+   "context"
+   "errors"
+   "io"
+   "time"
   )
 
   // Sentinel errors. Callers use errors.Is; every returned error wraps one of
   // these where the cause is one of these.
   var (
-  	// ErrInvalidPath means the database path is empty or contains a
-  	// character that cannot survive the SQLite DSN.
-  	ErrInvalidPath = errors.New("relindex: invalid database path")
+   // ErrInvalidPath means the database path is empty or contains a
+   // character that cannot survive the SQLite DSN.
+   ErrInvalidPath = errors.New("relindex: invalid database path")
 
-  	// ErrNoFTS5 means the SQLite build behind the driver has no FTS5
-  	// module, so the index cannot be created.
-  	ErrNoFTS5 = errors.New("relindex: sqlite build has no FTS5")
+   // ErrNoFTS5 means the SQLite build behind the driver has no FTS5
+   // module, so the index cannot be created.
+   ErrNoFTS5 = errors.New("relindex: sqlite build has no FTS5")
 
-  	// ErrSchemaTooNew means the database on disk was written by a newer
-  	// build. Opening it read-write would corrupt it, so Open refuses.
-  	ErrSchemaTooNew = errors.New("relindex: database schema is newer than this build")
+   // ErrSchemaTooNew means the database on disk was written by a newer
+   // build. Opening it read-write would corrupt it, so Open refuses.
+   ErrSchemaTooNew = errors.New("relindex: database schema is newer than this build")
 
-  	// ErrInvalidRelease means a Release in an Upsert batch cannot be
-  	// stored. The whole batch is rejected; nothing is written.
-  	ErrInvalidRelease = errors.New("relindex: invalid release")
+   // ErrInvalidRelease means a Release in an Upsert batch cannot be
+   // stored. The whole batch is rejected; nothing is written.
+   ErrInvalidRelease = errors.New("relindex: invalid release")
 
-  	// ErrInvalidArg means a method argument is unusable.
-  	ErrInvalidArg = errors.New("relindex: invalid argument")
+   // ErrInvalidArg means a method argument is unusable.
+   ErrInvalidArg = errors.New("relindex: invalid argument")
   )
 
   // Store is the release index. ADR-0003 fixes it at exactly four methods so the
@@ -921,119 +928,119 @@ comments; they are the seams where a sibling task will otherwise guess):
   // implementation of this same interface, with no caller changes. Do not widen
   // it.
   type Store interface {
-  	// Upsert writes rels in one transaction, keyed UNIQUE(indexer, guid).
-  	// inserted counts only rows that did not already exist. On any error the
-  	// transaction rolls back and inserted is 0.
-  	Upsert(ctx context.Context, rels []Release) (inserted int, err error)
+   // Upsert writes rels in one transaction, keyed UNIQUE(indexer, guid).
+   // inserted counts only rows that did not already exist. On any error the
+   // transaction rolls back and inserted is 0.
+   Upsert(ctx context.Context, rels []Release) (inserted int, err error)
 
-  	// Search returns releases matching q, newest first, or best-ranked first
-  	// when q.Text is set.
-  	Search(ctx context.Context, q Query) ([]Release, error)
+   // Search returns releases matching q, newest first, or best-ranked first
+   // when q.Text is set.
+   Search(ctx context.Context, q Query) ([]Release, error)
 
-  	// Prune deletes every release fetched before olderThan. It is a pure
-  	// function of its argument: it does not read a clock and it schedules
-  	// nothing.
-  	Prune(ctx context.Context, olderThan time.Time) (deleted int, err error)
+   // Prune deletes every release fetched before olderThan. It is a pure
+   // function of its argument: it does not read a clock and it schedules
+   // nothing.
+   Prune(ctx context.Context, olderThan time.Time) (deleted int, err error)
 
-  	// Stats reports corpus size and on-disk footprint. It is also the
-  	// readiness probe: it fails if the handle is no longer usable.
-  	Stats(ctx context.Context) (Stats, error)
+   // Stats reports corpus size and on-disk footprint. It is also the
+   // readiness probe: it fails if the handle is no longer usable.
+   Stats(ctx context.Context) (Stats, error)
   }
 
   // Release is one indexed release.
   type Release struct {
-  	// Indexer is the Indexer CR's name -- half of UNIQUE(indexer, guid).
-  	Indexer string
+   // Indexer is the Indexer CR's name -- half of UNIQUE(indexer, guid).
+   Indexer string
 
-  	// GUID is the indexer's own id -- the other half.
-  	GUID string
+   // GUID is the indexer's own id -- the other half.
+   GUID string
 
-  	// Title is the raw title, exactly as the indexer returned it.
-  	Title string
+   // Title is the raw title, exactly as the indexer returned it.
+   Title string
 
-  	// TitleNorm is the lowercased/normalised title, the FTS5 column. The
-  	// CALLER normalises: this package stores what it is given. Query.Text
-  	// must be normalised with the same function or nothing will match.
-  	TitleNorm string
+   // TitleNorm is the lowercased/normalised title, the FTS5 column. The
+   // CALLER normalises: this package stores what it is given. Query.Text
+   // must be normalised with the same function or nothing will match.
+   TitleNorm string
 
-  	// Group is the release group, the second FTS5 column. Its SQL column is
-  	// `grp`, because `group` is a reserved word.
-  	Group string
+   // Group is the release group, the second FTS5 column. Its SQL column is
+   // `grp`, because `group` is a reserved word.
+   Group string
 
-  	// Protocol is "torrent" or "usenet".
-  	Protocol string
+   // Protocol is "torrent" or "usenet".
+   Protocol string
 
-  	// Categories are newznab category ids.
-  	Categories []int
+   // Categories are newznab category ids.
+   Categories []int
 
-  	// SizeBytes is the release size.
-  	SizeBytes int64
+   // SizeBytes is the release size.
+   SizeBytes int64
 
-  	// PublishedAt is nil when the indexer reported none. NEVER backfill it.
-  	//
-  	// api/common/v1alpha1.ReleaseInfo.PublishedAt carries the Phase C
-  	// post-mortem at length: substituting "now" makes a dateless release
-  	// sort as brand new and substituting the zero time makes it sort as
-  	// ancient, and neither is true. This package stores NULL and reads it
-  	// back as nil, and Upsert rejects a non-nil pointer to the zero time so
-  	// a caller cannot smuggle the lie past it.
-  	PublishedAt *time.Time
+   // PublishedAt is nil when the indexer reported none. NEVER backfill it.
+   //
+   // api/common/v1alpha1.ReleaseInfo.PublishedAt carries the Phase C
+   // post-mortem at length: substituting "now" makes a dateless release
+   // sort as brand new and substituting the zero time makes it sort as
+   // ancient, and neither is true. This package stores NULL and reads it
+   // back as nil, and Upsert rejects a non-nil pointer to the zero time so
+   // a caller cannot smuggle the lie past it.
+   PublishedAt *time.Time
 
-  	// FetchedAt is when indexarr read the release. Always set; it is what
-  	// Prune and Query.Since work on.
-  	FetchedAt time.Time
+   // FetchedAt is when indexarr read the release. Always set; it is what
+   // Prune and Query.Since work on.
+   FetchedAt time.Time
 
-  	// InfoJSON is the full schema.Release, for replay without re-query. This
-  	// package treats it as opaque bytes and never unmarshals it.
-  	InfoJSON []byte
+   // InfoJSON is the full schema.Release, for replay without re-query. This
+   // package treats it as opaque bytes and never unmarshals it.
+   InfoJSON []byte
   }
 
   // Query selects releases. Every field is optional; the zero Query returns the
   // whole corpus, newest first, unlimited.
   type Query struct {
-  	// Text is an FTS5 MATCH against title_norm and grp; empty means "no text
-  	// filter". It is attacker-controlled -- it reaches here from third-party
-  	// indexer titles and from user input -- and is escaped into a safe MATCH
-  	// expression before use. See fts.go.
-  	Text string
+   // Text is an FTS5 MATCH against title_norm and grp; empty means "no text
+   // filter". It is attacker-controlled -- it reaches here from third-party
+   // indexer titles and from user input -- and is escaped into a safe MATCH
+   // expression before use. See fts.go.
+   Text string
 
-  	// Indexers restricts the search to these Indexer names.
-  	Indexers []string
+   // Indexers restricts the search to these Indexer names.
+   Indexers []string
 
-  	// Categories matches a release carrying ANY of these newznab ids.
-  	Categories []int
+   // Categories matches a release carrying ANY of these newznab ids.
+   Categories []int
 
-  	// Protocol restricts to "torrent" or "usenet".
-  	Protocol string
+   // Protocol restricts to "torrent" or "usenet".
+   Protocol string
 
-  	// Since restricts to releases FETCHED at or after this instant -- not
-  	// published. A release whose indexer reported no publish date must never
-  	// disappear from a window, and fetched_at is the only column that is
-  	// always present.
-  	Since *time.Time
+   // Since restricts to releases FETCHED at or after this instant -- not
+   // published. A release whose indexer reported no publish date must never
+   // disappear from a window, and fetched_at is the only column that is
+   // always present.
+   Since *time.Time
 
-  	// Limit is caller-supplied; the store never invents one. Zero or
-  	// negative emits no LIMIT clause at all.
-  	Limit int
+   // Limit is caller-supplied; the store never invents one. Zero or
+   // negative emits no LIMIT clause at all.
+   Limit int
   }
 
   // Stats is the corpus summary.
   type Stats struct {
-  	// Releases is the row count.
-  	Releases int64
+   // Releases is the row count.
+   Releases int64
 
-  	// Indexers is the number of distinct indexers with at least one row.
-  	Indexers int64
+   // Indexers is the number of distinct indexers with at least one row.
+   Indexers int64
 
-  	// OldestSeen is the earliest fetched_at, or the zero time when empty.
-  	OldestSeen time.Time
+   // OldestSeen is the earliest fetched_at, or the zero time when empty.
+   OldestSeen time.Time
 
-  	// NewestSeen is the latest fetched_at, or the zero time when empty.
-  	NewestSeen time.Time
+   // NewestSeen is the latest fetched_at, or the zero time when empty.
+   NewestSeen time.Time
 
-  	// SizeBytes is the on-disk size of the database file plus its
-  	// write-ahead log.
-  	SizeBytes int64
+   // SizeBytes is the on-disk size of the database file plus its
+   // write-ahead log.
+   SizeBytes int64
   }
 
   // Open returns a Store backed by SQLite FTS5 at path, creating the schema if
@@ -1042,7 +1049,7 @@ comments; they are the seams where a sibling task will otherwise guess):
   // It starts no goroutines. The 10-minute retention sweep spec §6.2 requires is
   // scheduled by the caller around Prune.
   func Open(ctx context.Context, path string) (Store, io.Closer, error) {
-  	return nil, nil, errors.New("relindex: Open not implemented")
+   return nil, nil, errors.New("relindex: Open not implemented")
   }
   ```
 
@@ -1062,14 +1069,14 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex_test
 
   import (
-  	"context"
-  	"path/filepath"
-  	"testing"
-  	"time"
+   "context"
+   "path/filepath"
+   "testing"
+   "time"
 
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/require"
 
-  	"github.com/mediactl/clustarr/pkg/relindex"
+   "github.com/mediactl/clustarr/pkg/relindex"
   )
 
   // Fixed instants. These are deliberately not time.Now(): a time.Time from
@@ -1077,51 +1084,51 @@ comments; they are the seams where a sibling task will otherwise guess):
   // value that has round-tripped through an int64 of Unix nanoseconds has lost
   // it. Nanosecond components are non-zero so a truncating storage bug shows up.
   var (
-  	fetchedAt   = time.Date(2026, 9, 19, 12, 0, 0, 123456789, time.UTC)
-  	publishedAt = time.Date(2026, 9, 18, 3, 30, 0, 987654321, time.UTC)
+   fetchedAt   = time.Date(2026, 9, 19, 12, 0, 0, 123456789, time.UTC)
+   publishedAt = time.Date(2026, 9, 18, 3, 30, 0, 987654321, time.UTC)
   )
 
   // newStore opens a store in a fresh temp directory and closes it on cleanup.
   func newStore(t *testing.T) relindex.Store {
-  	t.Helper()
-  	s, closer, err := relindex.Open(t.Context(), filepath.Join(t.TempDir(), "releases.db"))
-  	require.NoError(t, err)
-  	t.Cleanup(func() { require.NoError(t, closer.Close()) })
-  	return s
+   t.Helper()
+   s, closer, err := relindex.Open(t.Context(), filepath.Join(t.TempDir(), "releases.db"))
+   require.NoError(t, err)
+   t.Cleanup(func() { require.NoError(t, closer.Close()) })
+   return s
   }
 
   // newStoreAt opens a store at an explicit path and closes it on cleanup.
   func newStoreAt(t *testing.T, path string) relindex.Store {
-  	t.Helper()
-  	s, closer, err := relindex.Open(t.Context(), path)
-  	require.NoError(t, err)
-  	t.Cleanup(func() { require.NoError(t, closer.Close()) })
-  	return s
+   t.Helper()
+   s, closer, err := relindex.Open(t.Context(), path)
+   require.NoError(t, err)
+   t.Cleanup(func() { require.NoError(t, closer.Close()) })
+   return s
   }
 
   // rel builds a minimally valid Release.
   func rel(indexer, guid, title string) relindex.Release {
-  	return relindex.Release{
-  		Indexer:     indexer,
-  		GUID:        guid,
-  		Title:       title,
-  		TitleNorm:   title,
-  		Group:       "NTb",
-  		Protocol:    "torrent",
-  		Categories:  []int{2000, 2040},
-  		SizeBytes:   1 << 30,
-  		PublishedAt: &publishedAt,
-  		FetchedAt:   fetchedAt,
-  		InfoJSON:    []byte(`{"info":{"guid":"` + guid + `"}}`),
-  	}
+   return relindex.Release{
+    Indexer:     indexer,
+    GUID:        guid,
+    Title:       title,
+    TitleNorm:   title,
+    Group:       "NTb",
+    Protocol:    "torrent",
+    Categories:  []int{2000, 2040},
+    SizeBytes:   1 << 30,
+    PublishedAt: &publishedAt,
+    FetchedAt:   fetchedAt,
+    InfoJSON:    []byte(`{"info":{"guid":"` + guid + `"}}`),
+   }
   }
 
   // mustUpsert upserts and asserts the inserted count.
   func mustUpsert(t *testing.T, ctx context.Context, s relindex.Store, want int, rels ...relindex.Release) {
-  	t.Helper()
-  	got, err := s.Upsert(ctx, rels)
-  	require.NoError(t, err)
-  	require.Equal(t, want, got)
+   t.Helper()
+   got, err := s.Upsert(ctx, rels)
+   require.NoError(t, err)
+   require.Equal(t, want, got)
   }
   ```
 
@@ -1133,64 +1140,64 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex_test
 
   import (
-  	"path/filepath"
-  	"testing"
+   "path/filepath"
+   "testing"
 
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/require"
 
-  	"github.com/mediactl/clustarr/pkg/relindex"
+   "github.com/mediactl/clustarr/pkg/relindex"
   )
 
   func TestOpenCreatesTheDatabaseFileAndItsParentDirectory(t *testing.T) {
-  	// The PVC mounts at /var/lib/clustarr/index and the database sits
-  	// directly in it, but a dev box running `clustarr all` has neither, and
-  	// a first boot must not need a shell.
-  	path := filepath.Join(t.TempDir(), "index", "releases.db")
-  	s, closer, err := relindex.Open(t.Context(), path)
-  	require.NoError(t, err)
-  	t.Cleanup(func() { require.NoError(t, closer.Close()) })
-  	require.NotNil(t, s)
-  	require.FileExists(t, path)
+   // The PVC mounts at /var/lib/clustarr/index and the database sits
+   // directly in it, but a dev box running `clustarr all` has neither, and
+   // a first boot must not need a shell.
+   path := filepath.Join(t.TempDir(), "index", "releases.db")
+   s, closer, err := relindex.Open(t.Context(), path)
+   require.NoError(t, err)
+   t.Cleanup(func() { require.NoError(t, closer.Close()) })
+   require.NotNil(t, s)
+   require.FileExists(t, path)
   }
 
   func TestOpenIsUsableImmediately(t *testing.T) {
-  	// sql.Open is lazy: it validates nothing and connects to nothing. If
-  	// Open does not ping, a broken path surfaces on the first Upsert
-  	// instead, long after readiness said the service was up (spec §6.2 ties
-  	// readiness to the DB being open).
-  	s := newStore(t)
-  	st, err := s.Stats(t.Context())
-  	require.NoError(t, err)
-  	require.Zero(t, st.Releases)
+   // sql.Open is lazy: it validates nothing and connects to nothing. If
+   // Open does not ping, a broken path surfaces on the first Upsert
+   // instead, long after readiness said the service was up (spec §6.2 ties
+   // readiness to the DB being open).
+   s := newStore(t)
+   st, err := s.Stats(t.Context())
+   require.NoError(t, err)
+   require.Zero(t, st.Releases)
   }
 
   func TestOpenRejectsAnEmptyPath(t *testing.T) {
-  	_, _, err := relindex.Open(t.Context(), "")
-  	require.ErrorIs(t, err, relindex.ErrInvalidPath)
+   _, _, err := relindex.Open(t.Context(), "")
+   require.ErrorIs(t, err, relindex.ErrInvalidPath)
   }
 
   func TestOpenRejectsAPathThatWouldCorruptTheDSN(t *testing.T) {
-  	// The DSN is "file:<path>?<params>". A '?' or '#' in the path would be
-  	// parsed as the start of the query or fragment and silently point the
-  	// driver at a different file.
-  	_, _, err := relindex.Open(t.Context(), filepath.Join(t.TempDir(), "rel?eases.db"))
-  	require.ErrorIs(t, err, relindex.ErrInvalidPath)
+   // The DSN is "file:<path>?<params>". A '?' or '#' in the path would be
+   // parsed as the start of the query or fragment and silently point the
+   // driver at a different file.
+   _, _, err := relindex.Open(t.Context(), filepath.Join(t.TempDir(), "rel?eases.db"))
+   require.ErrorIs(t, err, relindex.ErrInvalidPath)
   }
 
   func TestOpenReopensAnExistingDatabaseWithItsRows(t *testing.T) {
-  	path := filepath.Join(t.TempDir(), "releases.db")
+   path := filepath.Join(t.TempDir(), "releases.db")
 
-  	first, closer, err := relindex.Open(t.Context(), path)
-  	require.NoError(t, err)
-  	n, err := first.Upsert(t.Context(), []relindex.Release{rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264")})
-  	require.NoError(t, err)
-  	require.Equal(t, 1, n)
-  	require.NoError(t, closer.Close())
+   first, closer, err := relindex.Open(t.Context(), path)
+   require.NoError(t, err)
+   n, err := first.Upsert(t.Context(), []relindex.Release{rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264")})
+   require.NoError(t, err)
+   require.Equal(t, 1, n)
+   require.NoError(t, closer.Close())
 
-  	second := newStoreAt(t, path)
-  	st, err := second.Stats(t.Context())
-  	require.NoError(t, err)
-  	require.EqualValues(t, 1, st.Releases)
+   second := newStoreAt(t, path)
+   st, err := second.Stats(t.Context())
+   require.NoError(t, err)
+   require.EqualValues(t, 1, st.Releases)
   }
   ```
 
@@ -1208,9 +1215,9 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex
 
   import (
-  	"context"
-  	"database/sql"
-  	"fmt"
+   "context"
+   "database/sql"
+   "fmt"
   )
 
   // schemaVersion is the DDL revision recorded in SQLite's `user_version`
@@ -1229,7 +1236,7 @@ comments; they are the seams where a sibling task will otherwise guess):
   // user_version is 0 on a brand-new SQLite file, and this package has never
   // shipped an unversioned schema, so 0 unambiguously means "empty".
   var migrations = [][]string{
-  	0: ddlV1,
+   0: ddlV1,
   }
 
   // ddlV1 is the initial schema. Statements run in order, in one transaction.
@@ -1238,78 +1245,78 @@ comments; they are the seams where a sibling task will otherwise guess):
   // Exec: the driver's behaviour with multiple statements and its error
   // reporting are both better one at a time, and a failure names the statement.
   var ddlV1 = []string{
-  	// The content table. `grp` rather than `group` because `group` is a SQL
-  	// reserved word; spec §6.2 names the FTS columns `title_norm, grp` for
-  	// exactly that reason.
-  	//
-  	// INTEGER PRIMARY KEY AUTOINCREMENT, not a bare INTEGER PRIMARY KEY: the
-  	// FTS5 table is external-content keyed on this rowid, and AUTOINCREMENT
-  	// guarantees a rowid freed by Prune is never handed to a later insert. A
-  	// reused rowid plus one missed trigger is a silently wrong search result.
-  	//
-  	// published_at is nullable and fetched_at is not. That asymmetry is the
-  	// whole PublishedAt contract expressed in DDL.
-  	`CREATE TABLE IF NOT EXISTS releases (
-  		id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  		indexer      TEXT    NOT NULL,
-  		guid         TEXT    NOT NULL,
-  		title        TEXT    NOT NULL,
-  		title_norm   TEXT    NOT NULL,
-  		grp          TEXT    NOT NULL DEFAULT '',
-  		protocol     TEXT    NOT NULL DEFAULT '',
-  		categories   TEXT    NOT NULL DEFAULT '[]',
-  		size_bytes   INTEGER NOT NULL DEFAULT 0,
-  		published_at INTEGER,
-  		fetched_at   INTEGER NOT NULL,
-  		info_json    BLOB,
-  		UNIQUE(indexer, guid)
-  	)`,
+   // The content table. `grp` rather than `group` because `group` is a SQL
+   // reserved word; spec §6.2 names the FTS columns `title_norm, grp` for
+   // exactly that reason.
+   //
+   // INTEGER PRIMARY KEY AUTOINCREMENT, not a bare INTEGER PRIMARY KEY: the
+   // FTS5 table is external-content keyed on this rowid, and AUTOINCREMENT
+   // guarantees a rowid freed by Prune is never handed to a later insert. A
+   // reused rowid plus one missed trigger is a silently wrong search result.
+   //
+   // published_at is nullable and fetched_at is not. That asymmetry is the
+   // whole PublishedAt contract expressed in DDL.
+   `CREATE TABLE IF NOT EXISTS releases (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    indexer      TEXT    NOT NULL,
+    guid         TEXT    NOT NULL,
+    title        TEXT    NOT NULL,
+    title_norm   TEXT    NOT NULL,
+    grp          TEXT    NOT NULL DEFAULT '',
+    protocol     TEXT    NOT NULL DEFAULT '',
+    categories   TEXT    NOT NULL DEFAULT '[]',
+    size_bytes   INTEGER NOT NULL DEFAULT 0,
+    published_at INTEGER,
+    fetched_at   INTEGER NOT NULL,
+    info_json    BLOB,
+    UNIQUE(indexer, guid)
+   )`,
 
-  	// Prune scans fetched_at; a no-text Search orders by it.
-  	`CREATE INDEX IF NOT EXISTS releases_fetched_at ON releases(fetched_at)`,
+   // Prune scans fetched_at; a no-text Search orders by it.
+   `CREATE INDEX IF NOT EXISTS releases_fetched_at ON releases(fetched_at)`,
 
-  	// Query.Indexers combined with the default ordering.
-  	`CREATE INDEX IF NOT EXISTS releases_indexer_fetched ON releases(indexer, fetched_at)`,
+   // Query.Indexers combined with the default ordering.
+   `CREATE INDEX IF NOT EXISTS releases_indexer_fetched ON releases(indexer, fetched_at)`,
 
-  	// External-content FTS5: the index stores only the inverted lists and
-  	// reads column values back from `releases` through content_rowid. A
-  	// contentless or self-contained table would duplicate every title.
-  	//
-  	// remove_diacritics 2 is the corrected fold; 1 is retained only for
-  	// backward compatibility with databases built before SQLite 3.27 and
-  	// mishandles codepoints that matter for European release titles.
-  	`CREATE VIRTUAL TABLE IF NOT EXISTS releases_fts USING fts5(
-  		title_norm,
-  		grp,
-  		content='releases',
-  		content_rowid='id',
-  		tokenize='unicode61 remove_diacritics 2'
-  	)`,
+   // External-content FTS5: the index stores only the inverted lists and
+   // reads column values back from `releases` through content_rowid. A
+   // contentless or self-contained table would duplicate every title.
+   //
+   // remove_diacritics 2 is the corrected fold; 1 is retained only for
+   // backward compatibility with databases built before SQLite 3.27 and
+   // mishandles codepoints that matter for European release titles.
+   `CREATE VIRTUAL TABLE IF NOT EXISTS releases_fts USING fts5(
+    title_norm,
+    grp,
+    content='releases',
+    content_rowid='id',
+    tokenize='unicode61 remove_diacritics 2'
+   )`,
 
-  	// The three sync triggers. External content means FTS5 does NOT see
-  	// writes to the content table; these are the only thing keeping the
-  	// index true.
-  	//
-  	// TRAP: the 'delete' command must be given the OLD column values exactly
-  	// as they were indexed. FTS5 subtracts the terms it is handed; hand it
-  	// the new values, or omit a column, and it subtracts the wrong postings
-  	// and the index rots silently -- no error, just wrong results, forever.
-  	`CREATE TRIGGER IF NOT EXISTS releases_ai AFTER INSERT ON releases BEGIN
-  		INSERT INTO releases_fts(rowid, title_norm, grp)
-  		VALUES (new.id, new.title_norm, new.grp);
-  	END`,
+   // The three sync triggers. External content means FTS5 does NOT see
+   // writes to the content table; these are the only thing keeping the
+   // index true.
+   //
+   // TRAP: the 'delete' command must be given the OLD column values exactly
+   // as they were indexed. FTS5 subtracts the terms it is handed; hand it
+   // the new values, or omit a column, and it subtracts the wrong postings
+   // and the index rots silently -- no error, just wrong results, forever.
+   `CREATE TRIGGER IF NOT EXISTS releases_ai AFTER INSERT ON releases BEGIN
+    INSERT INTO releases_fts(rowid, title_norm, grp)
+    VALUES (new.id, new.title_norm, new.grp);
+   END`,
 
-  	`CREATE TRIGGER IF NOT EXISTS releases_ad AFTER DELETE ON releases BEGIN
-  		INSERT INTO releases_fts(releases_fts, rowid, title_norm, grp)
-  		VALUES ('delete', old.id, old.title_norm, old.grp);
-  	END`,
+   `CREATE TRIGGER IF NOT EXISTS releases_ad AFTER DELETE ON releases BEGIN
+    INSERT INTO releases_fts(releases_fts, rowid, title_norm, grp)
+    VALUES ('delete', old.id, old.title_norm, old.grp);
+   END`,
 
-  	`CREATE TRIGGER IF NOT EXISTS releases_au AFTER UPDATE ON releases BEGIN
-  		INSERT INTO releases_fts(releases_fts, rowid, title_norm, grp)
-  		VALUES ('delete', old.id, old.title_norm, old.grp);
-  		INSERT INTO releases_fts(rowid, title_norm, grp)
-  		VALUES (new.id, new.title_norm, new.grp);
-  	END`,
+   `CREATE TRIGGER IF NOT EXISTS releases_au AFTER UPDATE ON releases BEGIN
+    INSERT INTO releases_fts(releases_fts, rowid, title_norm, grp)
+    VALUES ('delete', old.id, old.title_norm, old.grp);
+    INSERT INTO releases_fts(rowid, title_norm, grp)
+    VALUES (new.id, new.title_norm, new.grp);
+   END`,
   }
 
   // checkFTS5 verifies the driver's SQLite build carries the FTS5 module, so the
@@ -1321,19 +1328,19 @@ comments; they are the seams where a sibling task will otherwise guess):
   // different connections and the DROP fails for a reason that has nothing to do
   // with FTS5.
   func checkFTS5(ctx context.Context, db *sql.DB) error {
-  	conn, err := db.Conn(ctx)
-  	if err != nil {
-  		return fmt.Errorf("relindex: acquire connection: %w", err)
-  	}
-  	defer func() { _ = conn.Close() }()
+   conn, err := db.Conn(ctx)
+   if err != nil {
+    return fmt.Errorf("relindex: acquire connection: %w", err)
+   }
+   defer func() { _ = conn.Close() }()
 
-  	if _, err := conn.ExecContext(ctx, `CREATE VIRTUAL TABLE temp.relindex_fts5_probe USING fts5(x)`); err != nil {
-  		return fmt.Errorf("%w: %v", ErrNoFTS5, err)
-  	}
-  	if _, err := conn.ExecContext(ctx, `DROP TABLE temp.relindex_fts5_probe`); err != nil {
-  		return fmt.Errorf("relindex: drop fts5 probe: %w", err)
-  	}
-  	return nil
+   if _, err := conn.ExecContext(ctx, `CREATE VIRTUAL TABLE temp.relindex_fts5_probe USING fts5(x)`); err != nil {
+    return fmt.Errorf("%w: %v", ErrNoFTS5, err)
+   }
+   if _, err := conn.ExecContext(ctx, `DROP TABLE temp.relindex_fts5_probe`); err != nil {
+    return fmt.Errorf("relindex: drop fts5 probe: %w", err)
+   }
+   return nil
   }
 
   // migrate brings the database at db up to schemaVersion, or refuses to touch
@@ -1341,43 +1348,43 @@ comments; they are the seams where a sibling task will otherwise guess):
   // crash mid-migration leaves the recorded version and the actual schema in
   // agreement.
   func migrate(ctx context.Context, db *sql.DB) error {
-  	var have int
-  	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&have); err != nil {
-  		return fmt.Errorf("relindex: read user_version: %w", err)
-  	}
-  	switch {
-  	case have > schemaVersion:
-  		// Refuse rather than downgrade. A newer build may have added a
-  		// column this build does not write; opening read-write and
-  		// upserting would leave rows this build cannot read back.
-  		return fmt.Errorf("%w: database is version %d, this build understands %d",
-  			ErrSchemaTooNew, have, schemaVersion)
-  	case have == schemaVersion:
-  		return nil
-  	}
+   var have int
+   if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&have); err != nil {
+    return fmt.Errorf("relindex: read user_version: %w", err)
+   }
+   switch {
+   case have > schemaVersion:
+    // Refuse rather than downgrade. A newer build may have added a
+    // column this build does not write; opening read-write and
+    // upserting would leave rows this build cannot read back.
+    return fmt.Errorf("%w: database is version %d, this build understands %d",
+     ErrSchemaTooNew, have, schemaVersion)
+   case have == schemaVersion:
+    return nil
+   }
 
-  	tx, err := db.BeginTx(ctx, nil)
-  	if err != nil {
-  		return fmt.Errorf("relindex: begin migration: %w", err)
-  	}
-  	defer func() { _ = tx.Rollback() }()
+   tx, err := db.BeginTx(ctx, nil)
+   if err != nil {
+    return fmt.Errorf("relindex: begin migration: %w", err)
+   }
+   defer func() { _ = tx.Rollback() }()
 
-  	for v := have; v < schemaVersion; v++ {
-  		for _, stmt := range migrations[v] {
-  			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-  				return fmt.Errorf("relindex: migration %d->%d failed on %.60q: %w", v, v+1, stmt, err)
-  			}
-  		}
-  	}
+   for v := have; v < schemaVersion; v++ {
+    for _, stmt := range migrations[v] {
+     if _, err := tx.ExecContext(ctx, stmt); err != nil {
+      return fmt.Errorf("relindex: migration %d->%d failed on %.60q: %w", v, v+1, stmt, err)
+     }
+    }
+   }
 
-  	// A PRAGMA value cannot be a bound parameter -- SQLite parses pragma
-  	// arguments before statement parameters are bound -- so this one is
-  	// formatted. schemaVersion is an untyped integer constant known at
-  	// compile time, so there is no injection surface.
-  	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
-  		return fmt.Errorf("relindex: stamp user_version: %w", err)
-  	}
-  	return tx.Commit()
+   // A PRAGMA value cannot be a bound parameter -- SQLite parses pragma
+   // arguments before statement parameters are bound -- so this one is
+   // formatted. schemaVersion is an untyped integer constant known at
+   // compile time, so there is no injection surface.
+   if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+    return fmt.Errorf("relindex: stamp user_version: %w", err)
+   }
+   return tx.Commit()
   }
   ```
 
@@ -1391,14 +1398,14 @@ comments; they are the seams where a sibling task will otherwise guess):
 
   ```go
   // add to the import block:
-  //	"fmt"
-  //	"os"
-  //	"path/filepath"
-  //	"strings"
-  //	"sync"
-  //	"database/sql"
+  // "fmt"
+  // "os"
+  // "path/filepath"
+  // "strings"
+  // "sync"
+  // "database/sql"
   //
-  //	_ "modernc.org/sqlite" // pure-Go driver, registered as "sqlite" (ADR-0003, R8)
+  // _ "modernc.org/sqlite" // pure-Go driver, registered as "sqlite" (ADR-0003, R8)
 
   // sqliteStore is the only Store implementation.
   //
@@ -1417,9 +1424,9 @@ comments; they are the seams where a sibling task will otherwise guess):
   //     rely on a driver-specific `_txlock=immediate` DSN parameter: correctness
   //     must survive the Store swap ADR-0003 anticipates.
   type sqliteStore struct {
-  	db   *sql.DB
-  	path string
-  	wmu  sync.Mutex
+   db   *sql.DB
+   path string
+   wmu  sync.Mutex
   }
 
   // Open returns a Store backed by SQLite FTS5 at path, creating the schema if
@@ -1428,45 +1435,45 @@ comments; they are the seams where a sibling task will otherwise guess):
   // It starts no goroutines. The 10-minute retention sweep spec §6.2 requires is
   // scheduled by the caller around Prune.
   func Open(ctx context.Context, path string) (Store, io.Closer, error) {
-  	if strings.TrimSpace(path) == "" {
-  		return nil, nil, fmt.Errorf("%w: path is empty", ErrInvalidPath)
-  	}
-  	// The DSN is "file:<path>?<params>". A '?' would start the query string
-  	// and a '#' a fragment, so either silently redirects the driver.
-  	if strings.ContainsAny(path, "?#") {
-  		return nil, nil, fmt.Errorf("%w: %q contains '?' or '#'", ErrInvalidPath, path)
-  	}
-  	// The PVC mounts at the parent directory in-cluster, but `clustarr all`
-  	// on a dev box has neither (Ruling R1), and a first boot must not need a
-  	// shell.
-  	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-  		return nil, nil, fmt.Errorf("relindex: create %s: %w", filepath.Dir(path), err)
-  	}
+   if strings.TrimSpace(path) == "" {
+    return nil, nil, fmt.Errorf("%w: path is empty", ErrInvalidPath)
+   }
+   // The DSN is "file:<path>?<params>". A '?' would start the query string
+   // and a '#' a fragment, so either silently redirects the driver.
+   if strings.ContainsAny(path, "?#") {
+    return nil, nil, fmt.Errorf("%w: %q contains '?' or '#'", ErrInvalidPath, path)
+   }
+   // The PVC mounts at the parent directory in-cluster, but `clustarr all`
+   // on a dev box has neither (Ruling R1), and a first boot must not need a
+   // shell.
+   if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+    return nil, nil, fmt.Errorf("relindex: create %s: %w", filepath.Dir(path), err)
+   }
 
-  	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
-  	if err != nil {
-  		return nil, nil, fmt.Errorf("relindex: open %s: %w", path, err)
-  	}
+   db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
+   if err != nil {
+    return nil, nil, fmt.Errorf("relindex: open %s: %w", path, err)
+   }
 
-  	// sql.Open is lazy: it parses the DSN and connects to nothing. Ping now,
-  	// so a broken path or volume fails here instead of on the first write --
-  	// spec §6.2 ties readiness to the DB being open, and that is only true
-  	// if Open actually opened it.
-  	if err := db.PingContext(ctx); err != nil {
-  		_ = db.Close()
-  		return nil, nil, fmt.Errorf("relindex: ping %s: %w", path, err)
-  	}
-  	if err := checkFTS5(ctx, db); err != nil {
-  		_ = db.Close()
-  		return nil, nil, err
-  	}
-  	if err := migrate(ctx, db); err != nil {
-  		_ = db.Close()
-  		return nil, nil, err
-  	}
+   // sql.Open is lazy: it parses the DSN and connects to nothing. Ping now,
+   // so a broken path or volume fails here instead of on the first write --
+   // spec §6.2 ties readiness to the DB being open, and that is only true
+   // if Open actually opened it.
+   if err := db.PingContext(ctx); err != nil {
+    _ = db.Close()
+    return nil, nil, fmt.Errorf("relindex: ping %s: %w", path, err)
+   }
+   if err := checkFTS5(ctx, db); err != nil {
+    _ = db.Close()
+    return nil, nil, err
+   }
+   if err := migrate(ctx, db); err != nil {
+    _ = db.Close()
+    return nil, nil, err
+   }
 
-  	s := &sqliteStore{db: db, path: path}
-  	return s, s, nil
+   s := &sqliteStore{db: db, path: path}
+   return s, s, nil
   }
 
   // Close checkpoints the write-ahead log into the main database and closes the
@@ -1475,17 +1482,17 @@ comments; they are the seams where a sibling task will otherwise guess):
   // SQLite replays the WAL on the next open -- so the checkpoint error is joined
   // rather than swallowed or returned alone.
   func (s *sqliteStore) Close() error {
-  	s.wmu.Lock()
-  	defer s.wmu.Unlock()
+   s.wmu.Lock()
+   defer s.wmu.Unlock()
 
-  	var errs []error
-  	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-  		errs = append(errs, fmt.Errorf("relindex: checkpoint wal: %w", err))
-  	}
-  	if err := s.db.Close(); err != nil {
-  		errs = append(errs, fmt.Errorf("relindex: close %s: %w", s.path, err))
-  	}
-  	return errors.Join(errs...)
+   var errs []error
+   if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+    errs = append(errs, fmt.Errorf("relindex: checkpoint wal: %w", err))
+   }
+   if err := s.db.Close(); err != nil {
+    errs = append(errs, fmt.Errorf("relindex: close %s: %w", s.path, err))
+   }
+   return errors.Join(errs...)
   }
   ```
 
@@ -1494,19 +1501,19 @@ comments; they are the seams where a sibling task will otherwise guess):
 
   ```go
   func (s *sqliteStore) Upsert(ctx context.Context, rels []Release) (int, error) {
-  	return 0, errors.New("relindex: Upsert not implemented")
+   return 0, errors.New("relindex: Upsert not implemented")
   }
 
   func (s *sqliteStore) Search(ctx context.Context, q Query) ([]Release, error) {
-  	return nil, errors.New("relindex: Search not implemented")
+   return nil, errors.New("relindex: Search not implemented")
   }
 
   func (s *sqliteStore) Prune(ctx context.Context, olderThan time.Time) (int, error) {
-  	return 0, errors.New("relindex: Prune not implemented")
+   return 0, errors.New("relindex: Prune not implemented")
   }
 
   func (s *sqliteStore) Stats(ctx context.Context) (Stats, error) {
-  	return Stats{}, errors.New("relindex: Stats not implemented")
+   return Stats{}, errors.New("relindex: Stats not implemented")
   }
   ```
 
@@ -1522,11 +1529,11 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex
 
   import (
-  	"context"
-  	"database/sql"
-  	"fmt"
-  	"os"
-  	"time"
+   "context"
+   "database/sql"
+   "fmt"
+   "os"
+   "time"
   )
 
   // Stats reports corpus size and on-disk footprint.
@@ -1534,24 +1541,24 @@ comments; they are the seams where a sibling task will otherwise guess):
   // It takes no write lock: WAL readers never block, and a count that is one
   // transaction stale is not worth serialising a writer for.
   func (s *sqliteStore) Stats(ctx context.Context) (Stats, error) {
-  	var (
-  		st             Stats
-  		oldest, newest sql.NullInt64
-  	)
-  	const q = `SELECT COUNT(*), COUNT(DISTINCT indexer), MIN(fetched_at), MAX(fetched_at) FROM releases`
-  	if err := s.db.QueryRowContext(ctx, q).Scan(&st.Releases, &st.Indexers, &oldest, &newest); err != nil {
-  		return Stats{}, fmt.Errorf("relindex: stats: %w", err)
-  	}
-  	// MIN/MAX over zero rows are NULL, which is the zero time -- the Stats
-  	// doc says so, and an empty index is the normal state at first boot.
-  	if oldest.Valid {
-  		st.OldestSeen = time.Unix(0, oldest.Int64).UTC()
-  	}
-  	if newest.Valid {
-  		st.NewestSeen = time.Unix(0, newest.Int64).UTC()
-  	}
-  	st.SizeBytes = s.onDiskBytes()
-  	return st, nil
+   var (
+    st             Stats
+    oldest, newest sql.NullInt64
+   )
+   const q = `SELECT COUNT(*), COUNT(DISTINCT indexer), MIN(fetched_at), MAX(fetched_at) FROM releases`
+   if err := s.db.QueryRowContext(ctx, q).Scan(&st.Releases, &st.Indexers, &oldest, &newest); err != nil {
+    return Stats{}, fmt.Errorf("relindex: stats: %w", err)
+   }
+   // MIN/MAX over zero rows are NULL, which is the zero time -- the Stats
+   // doc says so, and an empty index is the normal state at first boot.
+   if oldest.Valid {
+    st.OldestSeen = time.Unix(0, oldest.Int64).UTC()
+   }
+   if newest.Valid {
+    st.NewestSeen = time.Unix(0, newest.Int64).UTC()
+   }
+   st.SizeBytes = s.onDiskBytes()
+   return st, nil
   }
 
   // onDiskBytes sums the main database file and its write-ahead log, which is
@@ -1561,13 +1568,13 @@ comments; they are the seams where a sibling task will otherwise guess):
   // A missing file counts as zero rather than failing: Stats is the readiness
   // probe and feeds a gauge, and a stat() race must not flap readiness.
   func (s *sqliteStore) onDiskBytes() int64 {
-  	var total int64
-  	for _, p := range []string{s.path, s.path + "-wal"} {
-  		if fi, err := os.Stat(p); err == nil {
-  			total += fi.Size()
-  		}
-  	}
-  	return total
+   var total int64
+   for _, p := range []string{s.path, s.path + "-wal"} {
+    if fi, err := os.Stat(p); err == nil {
+     total += fi.Size()
+    }
+   }
+   return total
   }
   ```
 
@@ -1587,64 +1594,64 @@ comments; they are the seams where a sibling task will otherwise guess):
 
   ```go
   func TestOpenPutsTheDatabaseInWALMode(t *testing.T) {
-  	// Spec §6.2 requires WAL. WAL is what lets Search read while the RSS
-  	// worker writes; in the default rollback-journal mode a writer takes an
-  	// exclusive lock and every concurrent search blocks.
-  	//
-  	// journal_mode is persisted in the file header, so a second handle sees
-  	// it -- which is exactly why this asserts through a second handle rather
-  	// than through the one that set it.
-  	path := filepath.Join(t.TempDir(), "releases.db")
-  	newStoreAt(t, path)
+   // Spec §6.2 requires WAL. WAL is what lets Search read while the RSS
+   // worker writes; in the default rollback-journal mode a writer takes an
+   // exclusive lock and every concurrent search blocks.
+   //
+   // journal_mode is persisted in the file header, so a second handle sees
+   // it -- which is exactly why this asserts through a second handle rather
+   // than through the one that set it.
+   path := filepath.Join(t.TempDir(), "releases.db")
+   newStoreAt(t, path)
 
-  	db, err := sql.Open("sqlite", "file:"+path)
-  	require.NoError(t, err)
-  	t.Cleanup(func() { require.NoError(t, db.Close()) })
+   db, err := sql.Open("sqlite", "file:"+path)
+   require.NoError(t, err)
+   t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-  	var mode string
-  	require.NoError(t, db.QueryRow(`PRAGMA journal_mode`).Scan(&mode))
-  	require.Equal(t, "wal", strings.ToLower(mode))
+   var mode string
+   require.NoError(t, db.QueryRow(`PRAGMA journal_mode`).Scan(&mode))
+   require.Equal(t, "wal", strings.ToLower(mode))
   }
 
   func TestOpenAppliesItsPragmasToEveryPooledConnection(t *testing.T) {
-  	// TRAP: a PRAGMA executed once via db.Exec lands on ONE arbitrary
-  	// connection from the pool. database/sql opens more on demand, and those
-  	// get the defaults -- so busy_timeout is set on connection 1 and the
-  	// search running on connection 3 still returns SQLITE_BUSY instantly.
-  	// The modernc driver's `_pragma=` DSN parameters run on every new
-  	// connection, which is the only correct place for them.
-  	//
-  	// Forcing four concurrent queries forces four connections open.
-  	s := newStore(t)
+   // TRAP: a PRAGMA executed once via db.Exec lands on ONE arbitrary
+   // connection from the pool. database/sql opens more on demand, and those
+   // get the defaults -- so busy_timeout is set on connection 1 and the
+   // search running on connection 3 still returns SQLITE_BUSY instantly.
+   // The modernc driver's `_pragma=` DSN parameters run on every new
+   // connection, which is the only correct place for them.
+   //
+   // Forcing four concurrent queries forces four connections open.
+   s := newStore(t)
 
-  	var wg sync.WaitGroup
-  	for range 8 {
-  		wg.Add(1)
-  		go func() {
-  			defer wg.Done()
-  			_, err := s.Stats(t.Context())
-  			assert.NoError(t, err)
-  		}()
-  	}
-  	wg.Wait()
+   var wg sync.WaitGroup
+   for range 8 {
+    wg.Add(1)
+    go func() {
+     defer wg.Done()
+     _, err := s.Stats(t.Context())
+     assert.NoError(t, err)
+    }()
+   }
+   wg.Wait()
 
-  	inner, ok := relindex.ExportedForTestDB(s)
-  	require.True(t, ok)
+   inner, ok := relindex.ExportedForTestDB(s)
+   require.True(t, ok)
 
-  	// Every connection the pool holds must report the same settings.
-  	for range 8 {
-  		var (
-  			busy int
-  			sync string
-  			temp int
-  		)
-  		require.NoError(t, inner.QueryRow(`PRAGMA busy_timeout`).Scan(&busy))
-  		require.NoError(t, inner.QueryRow(`PRAGMA synchronous`).Scan(&sync))
-  		require.NoError(t, inner.QueryRow(`PRAGMA temp_store`).Scan(&temp))
-  		require.Equal(t, 5000, busy, "busy_timeout")
-  		require.Equal(t, "1", sync, "synchronous should be NORMAL(1)")
-  		require.Equal(t, 2, temp, "temp_store should be MEMORY(2)")
-  	}
+   // Every connection the pool holds must report the same settings.
+   for range 8 {
+    var (
+     busy int
+     sync string
+     temp int
+    )
+    require.NoError(t, inner.QueryRow(`PRAGMA busy_timeout`).Scan(&busy))
+    require.NoError(t, inner.QueryRow(`PRAGMA synchronous`).Scan(&sync))
+    require.NoError(t, inner.QueryRow(`PRAGMA temp_store`).Scan(&temp))
+    require.Equal(t, 5000, busy, "busy_timeout")
+    require.Equal(t, "1", sync, "synchronous should be NORMAL(1)")
+    require.Equal(t, 2, temp, "temp_store should be MEMORY(2)")
+   }
   }
   ```
 
@@ -1661,11 +1668,11 @@ comments; they are the seams where a sibling task will otherwise guess):
   // It is deliberately not part of Store: ADR-0003 fixes that at four methods.
   // Nothing outside pkg/relindex may call it.
   func ExportedForTestDB(s Store) (*sql.DB, bool) {
-  	impl, ok := s.(*sqliteStore)
-  	if !ok {
-  		return nil, false
-  	}
-  	return impl.db, true
+   impl, ok := s.(*sqliteStore)
+   if !ok {
+    return nil, false
+   }
+   return impl.db, true
   }
   ```
 
@@ -1680,42 +1687,42 @@ comments; they are the seams where a sibling task will otherwise guess):
   Replace the `sql.Open` call in `Open` with this block.
 
   ```go
-  	// modernc.org/sqlite applies each `_pragma=` parameter to EVERY new
-  	// connection in the pool. Executing these as statements after opening
-  	// would set them on one connection only -- see the test.
-  	//
-  	//	journal_mode(WAL)   spec §6.2. One writer concurrent with many
-  	//	                    readers; the alternative blocks every search for
-  	//	                    the duration of an RSS batch.
-  	//	busy_timeout(5000)  SQLite returns SQLITE_BUSY immediately by
-  	//	                    default. The Go-side write mutex removes
-  	//	                    in-process contention, so this is the backstop
-  	//	                    for the WAL checkpointer, not the main path.
-  	//	synchronous(NORMAL) With WAL this is the documented safe pairing: a
-  	//	                    power loss can lose the last transactions but
-  	//	                    cannot corrupt the file. ADR-0003 calls the index
-  	//	                    a cache and says backups are unnecessary, so
-  	//	                    FULL's fsync per commit buys nothing.
-  	//	temp_store(MEMORY)  The container runs readOnlyRootFilesystem: true
-  	//	                    with only an emptyDir at /tmp. Keeping FTS5 merges
-  	//	                    and ORDER BY sorts in memory removes any
-  	//	                    dependence on a writable temp directory at all.
-  	const dsnParams = "_pragma=journal_mode(WAL)" +
-  		"&_pragma=busy_timeout(5000)" +
-  		"&_pragma=synchronous(NORMAL)" +
-  		"&_pragma=temp_store(MEMORY)"
+   // modernc.org/sqlite applies each `_pragma=` parameter to EVERY new
+   // connection in the pool. Executing these as statements after opening
+   // would set them on one connection only -- see the test.
+   //
+   // journal_mode(WAL)   spec §6.2. One writer concurrent with many
+   //                     readers; the alternative blocks every search for
+   //                     the duration of an RSS batch.
+   // busy_timeout(5000)  SQLite returns SQLITE_BUSY immediately by
+   //                     default. The Go-side write mutex removes
+   //                     in-process contention, so this is the backstop
+   //                     for the WAL checkpointer, not the main path.
+   // synchronous(NORMAL) With WAL this is the documented safe pairing: a
+   //                     power loss can lose the last transactions but
+   //                     cannot corrupt the file. ADR-0003 calls the index
+   //                     a cache and says backups are unnecessary, so
+   //                     FULL's fsync per commit buys nothing.
+   // temp_store(MEMORY)  The container runs readOnlyRootFilesystem: true
+   //                     with only an emptyDir at /tmp. Keeping FTS5 merges
+   //                     and ORDER BY sorts in memory removes any
+   //                     dependence on a writable temp directory at all.
+   const dsnParams = "_pragma=journal_mode(WAL)" +
+    "&_pragma=busy_timeout(5000)" +
+    "&_pragma=synchronous(NORMAL)" +
+    "&_pragma=temp_store(MEMORY)"
 
-  	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?"+dsnParams)
-  	if err != nil {
-  		return nil, nil, fmt.Errorf("relindex: open %s: %w", path, err)
-  	}
+   db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?"+dsnParams)
+   if err != nil {
+    return nil, nil, fmt.Errorf("relindex: open %s: %w", path, err)
+   }
 
-  	// Readers are cheap and never block under WAL; writers are serialised by
-  	// wmu, so a large pool costs nothing and a small one throttles search
-  	// behind an RSS batch. SetConnMaxLifetime stays 0: recycling a
-  	// connection only re-runs the pragmas for no benefit on a local file.
-  	db.SetMaxOpenConns(8)
-  	db.SetMaxIdleConns(8)
+   // Readers are cheap and never block under WAL; writers are serialised by
+   // wmu, so a large pool costs nothing and a small one throttles search
+   // behind an RSS batch. SetConnMaxLifetime stays 0: recycling a
+   // connection only re-runs the pragmas for no benefit on a local file.
+   db.SetMaxOpenConns(8)
+   db.SetMaxIdleConns(8)
   ```
 
   Run `go test -race ./pkg/relindex/... -run 'TestOpen'` and expect all of them
@@ -1737,61 +1744,61 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex_test
 
   import (
-  	"database/sql"
-  	"path/filepath"
-  	"testing"
+   "database/sql"
+   "path/filepath"
+   "testing"
 
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/require"
 
-  	"github.com/mediactl/clustarr/pkg/relindex"
+   "github.com/mediactl/clustarr/pkg/relindex"
   )
 
   func TestOpenStampsTheSchemaVersion(t *testing.T) {
-  	// A database with no recorded version cannot be migrated later; it can
-  	// only be guessed at. Pinning the value here means a schema change that
-  	// forgets to bump it fails loudly in this test instead of quietly in the
-  	// field.
-  	path := filepath.Join(t.TempDir(), "releases.db")
-  	newStoreAt(t, path)
+   // A database with no recorded version cannot be migrated later; it can
+   // only be guessed at. Pinning the value here means a schema change that
+   // forgets to bump it fails loudly in this test instead of quietly in the
+   // field.
+   path := filepath.Join(t.TempDir(), "releases.db")
+   newStoreAt(t, path)
 
-  	db, err := sql.Open("sqlite", "file:"+path)
-  	require.NoError(t, err)
-  	t.Cleanup(func() { require.NoError(t, db.Close()) })
+   db, err := sql.Open("sqlite", "file:"+path)
+   require.NoError(t, err)
+   t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-  	var v int
-  	require.NoError(t, db.QueryRow(`PRAGMA user_version`).Scan(&v))
-  	require.Equal(t, 1, v)
+   var v int
+   require.NoError(t, db.QueryRow(`PRAGMA user_version`).Scan(&v))
+   require.Equal(t, 1, v)
   }
 
   func TestOpenRefusesADatabaseWrittenByANewerBuild(t *testing.T) {
-  	// Opening it read-write and upserting would write rows a newer build
-  	// cannot read back. Refusing turns a data-loss bug into a crash-loop
-  	// with one clear message.
-  	path := filepath.Join(t.TempDir(), "releases.db")
-  	newStoreAt(t, path)
+   // Opening it read-write and upserting would write rows a newer build
+   // cannot read back. Refusing turns a data-loss bug into a crash-loop
+   // with one clear message.
+   path := filepath.Join(t.TempDir(), "releases.db")
+   newStoreAt(t, path)
 
-  	db, err := sql.Open("sqlite", "file:"+path)
-  	require.NoError(t, err)
-  	_, err = db.Exec(`PRAGMA user_version = 999`)
-  	require.NoError(t, err)
-  	require.NoError(t, db.Close())
+   db, err := sql.Open("sqlite", "file:"+path)
+   require.NoError(t, err)
+   _, err = db.Exec(`PRAGMA user_version = 999`)
+   require.NoError(t, err)
+   require.NoError(t, db.Close())
 
-  	_, _, err = relindex.Open(t.Context(), path)
-  	require.ErrorIs(t, err, relindex.ErrSchemaTooNew)
-  	require.Contains(t, err.Error(), "version 999")
+   _, _, err = relindex.Open(t.Context(), path)
+   require.ErrorIs(t, err, relindex.ErrSchemaTooNew)
+   require.Contains(t, err.Error(), "version 999")
   }
 
   func TestOpenOnAnExistingDatabaseIsIdempotent(t *testing.T) {
-  	// Every restart of the single indexarr replica re-runs Open against a
-  	// populated PVC. It must be a no-op, not a re-migration.
-  	path := filepath.Join(t.TempDir(), "releases.db")
-  	for range 3 {
-  		s, closer, err := relindex.Open(t.Context(), path)
-  		require.NoError(t, err)
-  		_, err = s.Stats(t.Context())
-  		require.NoError(t, err)
-  		require.NoError(t, closer.Close())
-  	}
+   // Every restart of the single indexarr replica re-runs Open against a
+   // populated PVC. It must be a no-op, not a re-migration.
+   path := filepath.Join(t.TempDir(), "releases.db")
+   for range 3 {
+    s, closer, err := relindex.Open(t.Context(), path)
+    require.NoError(t, err)
+    _, err = s.Stats(t.Context())
+    require.NoError(t, err)
+    require.NoError(t, closer.Close())
+   }
   }
   ```
 
@@ -1812,44 +1819,44 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex_test
 
   import (
-  	"testing"
+   "testing"
 
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/require"
 
-  	"github.com/mediactl/clustarr/pkg/relindex"
+   "github.com/mediactl/clustarr/pkg/relindex"
   )
 
   func TestUpsertReportsOnlyGenuineInserts(t *testing.T) {
-  	s := newStore(t)
-  	ctx := t.Context()
+   s := newStore(t)
+   ctx := t.Context()
 
-  	n, err := s.Upsert(ctx, []relindex.Release{
-  		rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb"),
-  		rel("nzbgeek", "g2", "The Matrix Reloaded 2003 1080p BluRay x264-NTb"),
-  	})
-  	require.NoError(t, err)
-  	require.Equal(t, 2, n)
+   n, err := s.Upsert(ctx, []relindex.Release{
+    rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb"),
+    rel("nzbgeek", "g2", "The Matrix Reloaded 2003 1080p BluRay x264-NTb"),
+   })
+   require.NoError(t, err)
+   require.Equal(t, 2, n)
 
-  	st, err := s.Stats(ctx)
-  	require.NoError(t, err)
-  	require.EqualValues(t, 2, st.Releases)
+   st, err := s.Stats(ctx)
+   require.NoError(t, err)
+   require.EqualValues(t, 2, st.Releases)
   }
 
   func TestUpsertOnAnEmptyBatchIsANoOp(t *testing.T) {
-  	s := newStore(t)
-  	n, err := s.Upsert(t.Context(), nil)
-  	require.NoError(t, err)
-  	require.Zero(t, n)
+   s := newStore(t)
+   n, err := s.Upsert(t.Context(), nil)
+   require.NoError(t, err)
+   require.Zero(t, n)
   }
 
   func TestUpsertScopesUniquenessToTheIndexer(t *testing.T) {
-  	// The key is (indexer, guid). Two indexers reusing the same guid string
-  	// -- which they do; "12345" is a popular guid -- are two distinct rows.
-  	s := newStore(t)
-  	mustUpsert(t, t.Context(), s, 2,
-  		rel("nzbgeek", "12345", "The Matrix 1999"),
-  		rel("drunkenslug", "12345", "Dune 2021"),
-  	)
+   // The key is (indexer, guid). Two indexers reusing the same guid string
+   // -- which they do; "12345" is a popular guid -- are two distinct rows.
+   s := newStore(t)
+   mustUpsert(t, t.Context(), s, 2,
+    rel("nzbgeek", "12345", "The Matrix 1999"),
+    rel("drunkenslug", "12345", "Dune 2021"),
+   )
   }
   ```
 
@@ -1864,11 +1871,11 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex
 
   import (
-  	"context"
-  	"database/sql"
-  	"encoding/json"
-  	"fmt"
-  	"time"
+   "context"
+   "database/sql"
+   "encoding/json"
+   "fmt"
+   "time"
   )
 
   // Times are stored as INTEGER Unix nanoseconds, UTC. Nanoseconds because the
@@ -1878,74 +1885,74 @@ comments; they are the seams where a sibling task will otherwise guess):
   // nullNanos is the one place the PublishedAt contract is enforced on the way
   // in: nil becomes SQL NULL, and nothing else.
   func nullNanos(t *time.Time) sql.NullInt64 {
-  	if t == nil {
-  		return sql.NullInt64{}
-  	}
-  	return sql.NullInt64{Int64: t.UTC().UnixNano(), Valid: true}
+   if t == nil {
+    return sql.NullInt64{}
+   }
+   return sql.NullInt64{Int64: t.UTC().UnixNano(), Valid: true}
   }
 
   // timeFromNull is the inverse, and the one place the contract is enforced on
   // the way out: SQL NULL becomes nil, never the zero time and never now.
   func timeFromNull(n sql.NullInt64) *time.Time {
-  	if !n.Valid {
-  		return nil
-  	}
-  	t := time.Unix(0, n.Int64).UTC()
-  	return &t
+   if !n.Valid {
+    return nil
+   }
+   t := time.Unix(0, n.Int64).UTC()
+   return &t
   }
 
   // marshalCategories stores newznab ids as a JSON array so Search can filter
   // with json_each without a join table. An absent or empty list is stored as
   // "[]", never as JSON null, so json_each always has something to iterate.
   func marshalCategories(cats []int) (string, error) {
-  	if len(cats) == 0 {
-  		return "[]", nil
-  	}
-  	b, err := json.Marshal(cats)
-  	if err != nil {
-  		return "", fmt.Errorf("relindex: marshal categories: %w", err)
-  	}
-  	return string(b), nil
+   if len(cats) == 0 {
+    return "[]", nil
+   }
+   b, err := json.Marshal(cats)
+   if err != nil {
+    return "", fmt.Errorf("relindex: marshal categories: %w", err)
+   }
+   return string(b), nil
   }
 
   // unmarshalCategories is the inverse. An empty array comes back as nil, not as
   // an empty slice, so a Release round-trips equal to one built with a nil
   // Categories field.
   func unmarshalCategories(s string) ([]int, error) {
-  	var cats []int
-  	if err := json.Unmarshal([]byte(s), &cats); err != nil {
-  		return nil, fmt.Errorf("relindex: unmarshal categories %q: %w", s, err)
-  	}
-  	if len(cats) == 0 {
-  		return nil, nil
-  	}
-  	return cats, nil
+   var cats []int
+   if err := json.Unmarshal([]byte(s), &cats); err != nil {
+    return nil, fmt.Errorf("relindex: unmarshal categories %q: %w", s, err)
+   }
+   if len(cats) == 0 {
+    return nil, nil
+   }
+   return cats, nil
   }
 
   // validate rejects a Release that cannot be stored truthfully.
   func validate(r Release) error {
-  	switch {
-  	case r.Indexer == "":
-  		return fmt.Errorf("%w: Indexer is empty", ErrInvalidRelease)
-  	case r.GUID == "":
-  		return fmt.Errorf("%w: GUID is empty", ErrInvalidRelease)
-  	case r.TitleNorm == "":
-  		// An empty normalised title indexes nothing, so the row would be
-  		// invisible to every text search while still counting in Stats.
-  		return fmt.Errorf("%w: TitleNorm is empty", ErrInvalidRelease)
-  	case r.FetchedAt.IsZero():
-  		// Prune and Query.Since both work on fetched_at, and the zero
-  		// time's UnixNano overflows int64 into a large negative number --
-  		// so a zero FetchedAt is both meaningless and actively wrong.
-  		return fmt.Errorf("%w: FetchedAt is zero", ErrInvalidRelease)
-  	case r.PublishedAt != nil && r.PublishedAt.IsZero():
-  		// A caller with no publish date MUST send nil. A pointer to the
-  		// zero time is the Phase C defect in a new costume: it persists as
-  		// year 1 and sorts as ancient. See
-  		// api/common/v1alpha1.ReleaseInfo.PublishedAt.
-  		return fmt.Errorf("%w: PublishedAt points at the zero time; send nil instead", ErrInvalidRelease)
-  	}
-  	return nil
+   switch {
+   case r.Indexer == "":
+    return fmt.Errorf("%w: Indexer is empty", ErrInvalidRelease)
+   case r.GUID == "":
+    return fmt.Errorf("%w: GUID is empty", ErrInvalidRelease)
+   case r.TitleNorm == "":
+    // An empty normalised title indexes nothing, so the row would be
+    // invisible to every text search while still counting in Stats.
+    return fmt.Errorf("%w: TitleNorm is empty", ErrInvalidRelease)
+   case r.FetchedAt.IsZero():
+    // Prune and Query.Since both work on fetched_at, and the zero
+    // time's UnixNano overflows int64 into a large negative number --
+    // so a zero FetchedAt is both meaningless and actively wrong.
+    return fmt.Errorf("%w: FetchedAt is zero", ErrInvalidRelease)
+   case r.PublishedAt != nil && r.PublishedAt.IsZero():
+    // A caller with no publish date MUST send nil. A pointer to the
+    // zero time is the Phase C defect in a new costume: it persists as
+    // year 1 and sorts as ancient. See
+    // api/common/v1alpha1.ReleaseInfo.PublishedAt.
+    return fmt.Errorf("%w: PublishedAt points at the zero time; send nil instead", ErrInvalidRelease)
+   }
+   return nil
   }
   ```
 
@@ -1957,37 +1964,37 @@ comments; they are the seams where a sibling task will otherwise guess):
   ```go
   // Upsert writes rels in one transaction.
   func (s *sqliteStore) Upsert(ctx context.Context, rels []Release) (int, error) {
-  	if len(rels) == 0 {
-  		return 0, nil
-  	}
-  	s.wmu.Lock()
-  	defer s.wmu.Unlock()
+   if len(rels) == 0 {
+    return 0, nil
+   }
+   s.wmu.Lock()
+   defer s.wmu.Unlock()
 
-  	tx, err := s.db.BeginTx(ctx, nil)
-  	if err != nil {
-  		return 0, fmt.Errorf("relindex: begin upsert: %w", err)
-  	}
-  	defer func() { _ = tx.Rollback() }()
+   tx, err := s.db.BeginTx(ctx, nil)
+   if err != nil {
+    return 0, fmt.Errorf("relindex: begin upsert: %w", err)
+   }
+   defer func() { _ = tx.Rollback() }()
 
-  	const stmt = `INSERT OR REPLACE INTO releases
-  		(indexer, guid, title, title_norm, grp, protocol, categories, size_bytes, published_at, fetched_at, info_json)
-  		VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-  	for _, r := range rels {
-  		cats, err := marshalCategories(r.Categories)
-  		if err != nil {
-  			return 0, err
-  		}
-  		if _, err := tx.ExecContext(ctx, stmt,
-  			r.Indexer, r.GUID, r.Title, r.TitleNorm, r.Group, r.Protocol,
-  			cats, r.SizeBytes, nullNanos(r.PublishedAt), r.FetchedAt.UTC().UnixNano(), r.InfoJSON,
-  		); err != nil {
-  			return 0, fmt.Errorf("relindex: upsert %s/%s: %w", r.Indexer, r.GUID, err)
-  		}
-  	}
-  	if err := tx.Commit(); err != nil {
-  		return 0, fmt.Errorf("relindex: commit upsert: %w", err)
-  	}
-  	return len(rels), nil
+   const stmt = `INSERT OR REPLACE INTO releases
+    (indexer, guid, title, title_norm, grp, protocol, categories, size_bytes, published_at, fetched_at, info_json)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+   for _, r := range rels {
+    cats, err := marshalCategories(r.Categories)
+    if err != nil {
+     return 0, err
+    }
+    if _, err := tx.ExecContext(ctx, stmt,
+     r.Indexer, r.GUID, r.Title, r.TitleNorm, r.Group, r.Protocol,
+     cats, r.SizeBytes, nullNanos(r.PublishedAt), r.FetchedAt.UTC().UnixNano(), r.InfoJSON,
+    ); err != nil {
+     return 0, fmt.Errorf("relindex: upsert %s/%s: %w", r.Indexer, r.GUID, err)
+    }
+   }
+   if err := tx.Commit(); err != nil {
+    return 0, fmt.Errorf("relindex: commit upsert: %w", err)
+   }
+   return len(rels), nil
   }
   ```
 
@@ -2000,75 +2007,75 @@ comments; they are the seams where a sibling task will otherwise guess):
 
   ```go
   func TestUpsertIsIdempotentAndCountsOnlyNewRows(t *testing.T) {
-  	// The RSS worker re-reads the same feed every 15 minutes and the search
-  	// service upserts every hit of every search. Almost every row it writes
-  	// already exists, and `inserted` is what becomes
-  	// Indexer.status.lastRssNewCount and what the RSS worker publishes to the
-  	// firehose. An inflated count fans stale releases at catalogarr forever.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // The RSS worker re-reads the same feed every 15 minutes and the search
+   // service upserts every hit of every search. Almost every row it writes
+   // already exists, and `inserted` is what becomes
+   // Indexer.status.lastRssNewCount and what the RSS worker publishes to the
+   // firehose. An inflated count fans stale releases at catalogarr forever.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	r := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
-  	mustUpsert(t, ctx, s, 1, r)
-  	mustUpsert(t, ctx, s, 0, r)
-  	mustUpsert(t, ctx, s, 0, r)
+   r := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
+   mustUpsert(t, ctx, s, 1, r)
+   mustUpsert(t, ctx, s, 0, r)
+   mustUpsert(t, ctx, s, 0, r)
 
-  	st, err := s.Stats(ctx)
-  	require.NoError(t, err)
-  	require.EqualValues(t, 1, st.Releases)
+   st, err := s.Stats(ctx)
+   require.NoError(t, err)
+   require.EqualValues(t, 1, st.Releases)
   }
 
   func TestUpsertUpdatesTheExistingRowInPlace(t *testing.T) {
-  	s := newStore(t)
-  	ctx := t.Context()
+   s := newStore(t)
+   ctx := t.Context()
 
-  	first := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
-  	mustUpsert(t, ctx, s, 1, first)
+   first := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
+   mustUpsert(t, ctx, s, 1, first)
 
-  	second := first
-  	second.SizeBytes = 42
-  	second.TitleNorm = "the matrix 1999 2160p remux"
-  	second.FetchedAt = fetchedAt.Add(time.Hour)
-  	mustUpsert(t, ctx, s, 0, second)
+   second := first
+   second.SizeBytes = 42
+   second.TitleNorm = "the matrix 1999 2160p remux"
+   second.FetchedAt = fetchedAt.Add(time.Hour)
+   mustUpsert(t, ctx, s, 0, second)
 
-  	got, err := s.Search(ctx, relindex.Query{Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.EqualValues(t, 42, got[0].SizeBytes)
-  	require.Equal(t, "the matrix 1999 2160p remux", got[0].TitleNorm)
+   got, err := s.Search(ctx, relindex.Query{Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.EqualValues(t, 42, got[0].SizeBytes)
+   require.Equal(t, "the matrix 1999 2160p remux", got[0].TitleNorm)
   }
 
   func TestUpsertCountsARepeatedKeyInTheSameBatchOnce(t *testing.T) {
-  	// A paged RSS response can repeat a guid across page boundaries.
-  	s := newStore(t)
-  	r := rel("nzbgeek", "g1", "The Matrix 1999")
-  	mustUpsert(t, t.Context(), s, 1, r, r, r)
+   // A paged RSS response can repeat a guid across page boundaries.
+   s := newStore(t)
+   r := rel("nzbgeek", "g1", "The Matrix 1999")
+   mustUpsert(t, t.Context(), s, 1, r, r, r)
   }
 
   func TestUpsertKeepsTheFTSIndexInSyncAcrossAnUpdate(t *testing.T) {
-  	// The external-content FTS5 table only learns about writes through the
-  	// triggers. An INSERT OR REPLACE deletes and re-inserts the row with a
-  	// NEW rowid, which fires the delete trigger with values the index may no
-  	// longer hold -- the classic way to rot an external-content index in
-  	// silence.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // The external-content FTS5 table only learns about writes through the
+   // triggers. An INSERT OR REPLACE deletes and re-inserts the row with a
+   // NEW rowid, which fires the delete trigger with values the index may no
+   // longer hold -- the classic way to rot an external-content index in
+   // silence.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	first := rel("nzbgeek", "g1", "matrix")
-  	first.TitleNorm = "matrix"
-  	mustUpsert(t, ctx, s, 1, first)
+   first := rel("nzbgeek", "g1", "matrix")
+   first.TitleNorm = "matrix"
+   mustUpsert(t, ctx, s, 1, first)
 
-  	second := first
-  	second.TitleNorm = "dune"
-  	mustUpsert(t, ctx, s, 0, second)
+   second := first
+   second.TitleNorm = "dune"
+   mustUpsert(t, ctx, s, 0, second)
 
-  	gone, err := s.Search(ctx, relindex.Query{Text: "matrix", Limit: 10})
-  	require.NoError(t, err)
-  	require.Empty(t, gone, "the old term must have been removed from the FTS index")
+   gone, err := s.Search(ctx, relindex.Query{Text: "matrix", Limit: 10})
+   require.NoError(t, err)
+   require.Empty(t, gone, "the old term must have been removed from the FTS index")
 
-  	found, err := s.Search(ctx, relindex.Query{Text: "dune", Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, found, 1)
+   found, err := s.Search(ctx, relindex.Query{Text: "dune", Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, found, 1)
   }
   ```
 
@@ -2107,81 +2114,81 @@ comments; they are the seams where a sibling task will otherwise guess):
   // costs no writes at all. On any error the transaction rolls back and the
   // returned count is 0: nothing was written, so nothing may be claimed.
   func (s *sqliteStore) Upsert(ctx context.Context, rels []Release) (int, error) {
-  	if len(rels) == 0 {
-  		return 0, nil
-  	}
-  	for i := range rels {
-  		if err := validate(rels[i]); err != nil {
-  			return 0, fmt.Errorf("relindex: release %d: %w", i, err)
-  		}
-  	}
+   if len(rels) == 0 {
+    return 0, nil
+   }
+   for i := range rels {
+    if err := validate(rels[i]); err != nil {
+     return 0, fmt.Errorf("relindex: release %d: %w", i, err)
+    }
+   }
 
-  	s.wmu.Lock()
-  	defer s.wmu.Unlock()
+   s.wmu.Lock()
+   defer s.wmu.Unlock()
 
-  	tx, err := s.db.BeginTx(ctx, nil)
-  	if err != nil {
-  		return 0, fmt.Errorf("relindex: begin upsert: %w", err)
-  	}
-  	defer func() { _ = tx.Rollback() }()
+   tx, err := s.db.BeginTx(ctx, nil)
+   if err != nil {
+    return 0, fmt.Errorf("relindex: begin upsert: %w", err)
+   }
+   defer func() { _ = tx.Rollback() }()
 
-  	const insertSQL = `INSERT INTO releases
-  		(indexer, guid, title, title_norm, grp, protocol, categories, size_bytes, published_at, fetched_at, info_json)
-  		VALUES (?,?,?,?,?,?,?,?,?,?,?)
-  		ON CONFLICT(indexer, guid) DO NOTHING`
-  	const updateSQL = `UPDATE releases SET
-  		title = ?, title_norm = ?, grp = ?, protocol = ?, categories = ?,
-  		size_bytes = ?, published_at = ?, fetched_at = ?, info_json = ?
-  		WHERE indexer = ? AND guid = ?`
+   const insertSQL = `INSERT INTO releases
+    (indexer, guid, title, title_norm, grp, protocol, categories, size_bytes, published_at, fetched_at, info_json)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(indexer, guid) DO NOTHING`
+   const updateSQL = `UPDATE releases SET
+    title = ?, title_norm = ?, grp = ?, protocol = ?, categories = ?,
+    size_bytes = ?, published_at = ?, fetched_at = ?, info_json = ?
+    WHERE indexer = ? AND guid = ?`
 
-  	ins, err := tx.PrepareContext(ctx, insertSQL)
-  	if err != nil {
-  		return 0, fmt.Errorf("relindex: prepare insert: %w", err)
-  	}
-  	defer func() { _ = ins.Close() }()
+   ins, err := tx.PrepareContext(ctx, insertSQL)
+   if err != nil {
+    return 0, fmt.Errorf("relindex: prepare insert: %w", err)
+   }
+   defer func() { _ = ins.Close() }()
 
-  	upd, err := tx.PrepareContext(ctx, updateSQL)
-  	if err != nil {
-  		return 0, fmt.Errorf("relindex: prepare update: %w", err)
-  	}
-  	defer func() { _ = upd.Close() }()
+   upd, err := tx.PrepareContext(ctx, updateSQL)
+   if err != nil {
+    return 0, fmt.Errorf("relindex: prepare update: %w", err)
+   }
+   defer func() { _ = upd.Close() }()
 
-  	inserted := 0
-  	for _, r := range rels {
-  		cats, err := marshalCategories(r.Categories)
-  		if err != nil {
-  			return 0, err
-  		}
-  		pub := nullNanos(r.PublishedAt)
-  		fetched := r.FetchedAt.UTC().UnixNano()
+   inserted := 0
+   for _, r := range rels {
+    cats, err := marshalCategories(r.Categories)
+    if err != nil {
+     return 0, err
+    }
+    pub := nullNanos(r.PublishedAt)
+    fetched := r.FetchedAt.UTC().UnixNano()
 
-  		res, err := ins.ExecContext(ctx,
-  			r.Indexer, r.GUID, r.Title, r.TitleNorm, r.Group, r.Protocol,
-  			cats, r.SizeBytes, pub, fetched, r.InfoJSON,
-  		)
-  		if err != nil {
-  			return 0, fmt.Errorf("relindex: insert %s/%s: %w", r.Indexer, r.GUID, err)
-  		}
-  		n, err := res.RowsAffected()
-  		if err != nil {
-  			return 0, fmt.Errorf("relindex: insert %s/%s rows: %w", r.Indexer, r.GUID, err)
-  		}
-  		if n == 1 {
-  			inserted++
-  			continue
-  		}
-  		if _, err := upd.ExecContext(ctx,
-  			r.Title, r.TitleNorm, r.Group, r.Protocol, cats,
-  			r.SizeBytes, pub, fetched, r.InfoJSON,
-  			r.Indexer, r.GUID,
-  		); err != nil {
-  			return 0, fmt.Errorf("relindex: update %s/%s: %w", r.Indexer, r.GUID, err)
-  		}
-  	}
-  	if err := tx.Commit(); err != nil {
-  		return 0, fmt.Errorf("relindex: commit upsert: %w", err)
-  	}
-  	return inserted, nil
+    res, err := ins.ExecContext(ctx,
+     r.Indexer, r.GUID, r.Title, r.TitleNorm, r.Group, r.Protocol,
+     cats, r.SizeBytes, pub, fetched, r.InfoJSON,
+    )
+    if err != nil {
+     return 0, fmt.Errorf("relindex: insert %s/%s: %w", r.Indexer, r.GUID, err)
+    }
+    n, err := res.RowsAffected()
+    if err != nil {
+     return 0, fmt.Errorf("relindex: insert %s/%s rows: %w", r.Indexer, r.GUID, err)
+    }
+    if n == 1 {
+     inserted++
+     continue
+    }
+    if _, err := upd.ExecContext(ctx,
+     r.Title, r.TitleNorm, r.Group, r.Protocol, cats,
+     r.SizeBytes, pub, fetched, r.InfoJSON,
+     r.Indexer, r.GUID,
+    ); err != nil {
+     return 0, fmt.Errorf("relindex: update %s/%s: %w", r.Indexer, r.GUID, err)
+    }
+   }
+   if err := tx.Commit(); err != nil {
+    return 0, fmt.Errorf("relindex: commit upsert: %w", err)
+   }
+   return inserted, nil
   }
   ```
 
@@ -2194,66 +2201,66 @@ comments; they are the seams where a sibling task will otherwise guess):
 
   ```go
   func TestPublishedAtRoundTripsAsNil(t *testing.T) {
-  	// Phase C: a non-pointer time could not be persisted at all, and the
-  	// workaround -- substituting "now" -- made every dateless release sort as
-  	// brand new. Ranking uses publish age as the usenet tiebreaker, so this
-  	// silently promoted the worst releases available. Absence is a fact, and
-  	// it is stored as one: SQL NULL in, nil out.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // Phase C: a non-pointer time could not be persisted at all, and the
+   // workaround -- substituting "now" -- made every dateless release sort as
+   // brand new. Ranking uses publish age as the usenet tiebreaker, so this
+   // silently promoted the worst releases available. Absence is a fact, and
+   // it is stored as one: SQL NULL in, nil out.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	r := rel("nzbgeek", "g1", "The Matrix 1999")
-  	r.PublishedAt = nil
-  	mustUpsert(t, ctx, s, 1, r)
+   r := rel("nzbgeek", "g1", "The Matrix 1999")
+   r.PublishedAt = nil
+   mustUpsert(t, ctx, s, 1, r)
 
-  	got, err := s.Search(ctx, relindex.Query{Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Nil(t, got[0].PublishedAt, "a dateless release must read back dateless")
+   got, err := s.Search(ctx, relindex.Query{Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Nil(t, got[0].PublishedAt, "a dateless release must read back dateless")
   }
 
   func TestPublishedAtRoundTripsExactlyWhenPresent(t *testing.T) {
-  	s := newStore(t)
-  	ctx := t.Context()
-  	mustUpsert(t, ctx, s, 1, rel("nzbgeek", "g1", "The Matrix 1999"))
+   s := newStore(t)
+   ctx := t.Context()
+   mustUpsert(t, ctx, s, 1, rel("nzbgeek", "g1", "The Matrix 1999"))
 
-  	got, err := s.Search(ctx, relindex.Query{Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.NotNil(t, got[0].PublishedAt)
-  	// Nanosecond precision, UTC, and no monotonic reading.
-  	require.Equal(t, publishedAt, *got[0].PublishedAt)
+   got, err := s.Search(ctx, relindex.Query{Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.NotNil(t, got[0].PublishedAt)
+   // Nanosecond precision, UTC, and no monotonic reading.
+   require.Equal(t, publishedAt, *got[0].PublishedAt)
   }
 
   func TestUpsertRejectsAPointerToTheZeroPublishedAt(t *testing.T) {
-  	// The store cannot tell "no date" from "year 1" once it is stored, so it
-  	// refuses to be handed the ambiguity in the first place.
-  	s := newStore(t)
-  	zero := time.Time{}
-  	r := rel("nzbgeek", "g1", "The Matrix 1999")
-  	r.PublishedAt = &zero
+   // The store cannot tell "no date" from "year 1" once it is stored, so it
+   // refuses to be handed the ambiguity in the first place.
+   s := newStore(t)
+   zero := time.Time{}
+   r := rel("nzbgeek", "g1", "The Matrix 1999")
+   r.PublishedAt = &zero
 
-  	n, err := s.Upsert(t.Context(), []relindex.Release{r})
-  	require.ErrorIs(t, err, relindex.ErrInvalidRelease)
-  	require.Contains(t, err.Error(), "send nil instead")
-  	require.Zero(t, n)
+   n, err := s.Upsert(t.Context(), []relindex.Release{r})
+   require.ErrorIs(t, err, relindex.ErrInvalidRelease)
+   require.Contains(t, err.Error(), "send nil instead")
+   require.Zero(t, n)
   }
 
   func TestPruneAndSinceDoNotDropDatelessReleases(t *testing.T) {
-  	// The other half of the contract: a nil PublishedAt must not make a row
-  	// invisible to a window. Both Prune and Query.Since work on fetched_at,
-  	// which is never NULL.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // The other half of the contract: a nil PublishedAt must not make a row
+   // invisible to a window. Both Prune and Query.Since work on fetched_at,
+   // which is never NULL.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	r := rel("nzbgeek", "g1", "The Matrix 1999")
-  	r.PublishedAt = nil
-  	mustUpsert(t, ctx, s, 1, r)
+   r := rel("nzbgeek", "g1", "The Matrix 1999")
+   r.PublishedAt = nil
+   mustUpsert(t, ctx, s, 1, r)
 
-  	since := fetchedAt.Add(-time.Hour)
-  	got, err := s.Search(ctx, relindex.Query{Since: &since, Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
+   since := fetchedAt.Add(-time.Hour)
+   got, err := s.Search(ctx, relindex.Query{Since: &since, Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
   }
   ```
 
@@ -2267,82 +2274,82 @@ comments; they are the seams where a sibling task will otherwise guess):
 
   ```go
   func TestUpsertRejectsAnIncompleteRelease(t *testing.T) {
-  	s := newStore(t)
-  	good := rel("nzbgeek", "g1", "The Matrix 1999")
+   s := newStore(t)
+   good := rel("nzbgeek", "g1", "The Matrix 1999")
 
-  	tests := []struct {
-  		name    string
-  		mutate  func(r *relindex.Release)
-  		wantMsg string
-  	}{
-  		{"empty indexer", func(r *relindex.Release) { r.Indexer = "" }, "Indexer is empty"},
-  		{"empty guid", func(r *relindex.Release) { r.GUID = "" }, "GUID is empty"},
-  		{"empty title_norm", func(r *relindex.Release) { r.TitleNorm = "" }, "TitleNorm is empty"},
-  		{"zero fetchedAt", func(r *relindex.Release) { r.FetchedAt = time.Time{} }, "FetchedAt is zero"},
-  	}
-  	for _, tc := range tests {
-  		t.Run(tc.name, func(t *testing.T) {
-  			r := good
-  			tc.mutate(&r)
-  			n, err := s.Upsert(t.Context(), []relindex.Release{r})
-  			require.ErrorIs(t, err, relindex.ErrInvalidRelease)
-  			require.Contains(t, err.Error(), tc.wantMsg)
-  			require.Zero(t, n)
-  		})
-  	}
+   tests := []struct {
+    name    string
+    mutate  func(r *relindex.Release)
+    wantMsg string
+   }{
+    {"empty indexer", func(r *relindex.Release) { r.Indexer = "" }, "Indexer is empty"},
+    {"empty guid", func(r *relindex.Release) { r.GUID = "" }, "GUID is empty"},
+    {"empty title_norm", func(r *relindex.Release) { r.TitleNorm = "" }, "TitleNorm is empty"},
+    {"zero fetchedAt", func(r *relindex.Release) { r.FetchedAt = time.Time{} }, "FetchedAt is zero"},
+   }
+   for _, tc := range tests {
+    t.Run(tc.name, func(t *testing.T) {
+     r := good
+     tc.mutate(&r)
+     n, err := s.Upsert(t.Context(), []relindex.Release{r})
+     require.ErrorIs(t, err, relindex.ErrInvalidRelease)
+     require.Contains(t, err.Error(), tc.wantMsg)
+     require.Zero(t, n)
+    })
+   }
   }
 
   func TestUpsertWritesNothingWhenAnyReleaseInTheBatchIsInvalid(t *testing.T) {
-  	// One transaction means one outcome. A partially-applied RSS batch would
-  	// leave the index claiming rows the worker never published.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // One transaction means one outcome. A partially-applied RSS batch would
+   // leave the index claiming rows the worker never published.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	bad := rel("nzbgeek", "g2", "Dune 2021")
-  	bad.GUID = ""
+   bad := rel("nzbgeek", "g2", "Dune 2021")
+   bad.GUID = ""
 
-  	n, err := s.Upsert(ctx, []relindex.Release{
-  		rel("nzbgeek", "g1", "The Matrix 1999"),
-  		bad,
-  		rel("nzbgeek", "g3", "Arrival 2016"),
-  	})
-  	require.ErrorIs(t, err, relindex.ErrInvalidRelease)
-  	require.Zero(t, n)
+   n, err := s.Upsert(ctx, []relindex.Release{
+    rel("nzbgeek", "g1", "The Matrix 1999"),
+    bad,
+    rel("nzbgeek", "g3", "Arrival 2016"),
+   })
+   require.ErrorIs(t, err, relindex.ErrInvalidRelease)
+   require.Zero(t, n)
 
-  	st, err := s.Stats(ctx)
-  	require.NoError(t, err)
-  	require.Zero(t, st.Releases, "the whole batch must roll back")
+   st, err := s.Stats(ctx)
+   require.NoError(t, err)
+   require.Zero(t, st.Releases, "the whole batch must roll back")
   }
 
   func TestUpsertRoundTripsEveryField(t *testing.T) {
-  	s := newStore(t)
-  	ctx := t.Context()
+   s := newStore(t)
+   ctx := t.Context()
 
-  	want := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
-  	want.Protocol = "usenet"
-  	want.Categories = []int{2000, 2040, 5040}
-  	want.SizeBytes = 8_589_934_592
-  	want.InfoJSON = []byte(`{"info":{"guid":"g1"},"parsedTitle":"The Matrix"}`)
-  	mustUpsert(t, ctx, s, 1, want)
+   want := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
+   want.Protocol = "usenet"
+   want.Categories = []int{2000, 2040, 5040}
+   want.SizeBytes = 8_589_934_592
+   want.InfoJSON = []byte(`{"info":{"guid":"g1"},"parsedTitle":"The Matrix"}`)
+   mustUpsert(t, ctx, s, 1, want)
 
-  	got, err := s.Search(ctx, relindex.Query{Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Equal(t, want, got[0])
+   got, err := s.Search(ctx, relindex.Query{Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Equal(t, want, got[0])
   }
 
   func TestUpsertRoundTripsAnEmptyCategoryListAsNil(t *testing.T) {
-  	s := newStore(t)
-  	ctx := t.Context()
+   s := newStore(t)
+   ctx := t.Context()
 
-  	r := rel("nzbgeek", "g1", "The Matrix 1999")
-  	r.Categories = []int{}
-  	mustUpsert(t, ctx, s, 1, r)
+   r := rel("nzbgeek", "g1", "The Matrix 1999")
+   r.Categories = []int{}
+   mustUpsert(t, ctx, s, 1, r)
 
-  	got, err := s.Search(ctx, relindex.Query{Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Nil(t, got[0].Categories)
+   got, err := s.Search(ctx, relindex.Query{Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Nil(t, got[0].Categories)
   }
   ```
 
@@ -2369,9 +2376,9 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex
 
   import (
-  	"testing"
+   "testing"
 
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/require"
   )
 
   // Query.Text is attacker-controlled. It arrives from third-party indexer
@@ -2394,37 +2401,37 @@ comments; they are the seams where a sibling task will otherwise guess):
   // and join with AND. Inside a double-quoted FTS5 string every character is a
   // literal to be tokenised -- operators, punctuation and all.
   func TestMatchExprQuotesEveryTermAndNeutralisesTheGrammar(t *testing.T) {
-  	tests := []struct {
-  		name string
-  		in   string
-  		want string
-  	}{
-  		{"plain words", "the matrix", `"the" AND "matrix"`},
-  		{"collapses runs of whitespace", "  the \t matrix \n ", `"the" AND "matrix"`},
-  		{"empty", "", ``},
-  		{"whitespace only", "   \t\n ", ``},
-  		{"a bare quote is dropped", `"`, ``},
-  		{"an embedded quote is doubled", `he said "hi"`, `"he" AND "said" AND """hi"""`},
-  		{"a lone star is dropped", "*", ``},
-  		{"a trailing star becomes a literal", "matrix*", `"matrix*"`},
-  		{"OR is a term, not an operator", "matrix OR dune", `"matrix" AND "OR" AND "dune"`},
-  		{"NEAR is a term, not an operator", "matrix NEAR dune", `"matrix" AND "NEAR" AND "dune"`},
-  		{"NOT is a term, not an operator", "matrix NOT dune", `"matrix" AND "NOT" AND "dune"`},
-  		{"a leading dash is a literal", "-dune", `"-dune"`},
-  		{"a column filter becomes a phrase", "title_norm:foo", `"title_norm:foo"`},
-  		{"parentheses alone are dropped", "( )", ``},
-  		{"an anchor is a literal", "^matrix", `"^matrix"`},
-  		{"punctuation-only tokens are dropped", `matrix -- ( ) * " dune`, `"matrix" AND "dune"`},
-  		{"a hyphenated title survives as a phrase", "spider-man", `"spider-man"`},
-  		{"unicode is preserved", "amélie", `"amélie"`},
-  		{"digits are searchable terms", "1999", `"1999"`},
-  		{"a quote-injection attempt is inert", `a" OR title_norm:"b`, `"a"" AND "OR" AND "title_norm:""b"`},
-  	}
-  	for _, tc := range tests {
-  		t.Run(tc.name, func(t *testing.T) {
-  			require.Equal(t, tc.want, matchExpr(tc.in))
-  		})
-  	}
+   tests := []struct {
+    name string
+    in   string
+    want string
+   }{
+    {"plain words", "the matrix", `"the" AND "matrix"`},
+    {"collapses runs of whitespace", "  the \t matrix \n ", `"the" AND "matrix"`},
+    {"empty", "", ``},
+    {"whitespace only", "   \t\n ", ``},
+    {"a bare quote is dropped", `"`, ``},
+    {"an embedded quote is doubled", `he said "hi"`, `"he" AND "said" AND """hi"""`},
+    {"a lone star is dropped", "*", ``},
+    {"a trailing star becomes a literal", "matrix*", `"matrix*"`},
+    {"OR is a term, not an operator", "matrix OR dune", `"matrix" AND "OR" AND "dune"`},
+    {"NEAR is a term, not an operator", "matrix NEAR dune", `"matrix" AND "NEAR" AND "dune"`},
+    {"NOT is a term, not an operator", "matrix NOT dune", `"matrix" AND "NOT" AND "dune"`},
+    {"a leading dash is a literal", "-dune", `"-dune"`},
+    {"a column filter becomes a phrase", "title_norm:foo", `"title_norm:foo"`},
+    {"parentheses alone are dropped", "( )", ``},
+    {"an anchor is a literal", "^matrix", `"^matrix"`},
+    {"punctuation-only tokens are dropped", `matrix -- ( ) * " dune`, `"matrix" AND "dune"`},
+    {"a hyphenated title survives as a phrase", "spider-man", `"spider-man"`},
+    {"unicode is preserved", "amélie", `"amélie"`},
+    {"digits are searchable terms", "1999", `"1999"`},
+    {"a quote-injection attempt is inert", `a" OR title_norm:"b`, `"a"" AND "OR" AND "title_norm:""b"`},
+   }
+   for _, tc := range tests {
+    t.Run(tc.name, func(t *testing.T) {
+     require.Equal(t, tc.want, matchExpr(tc.in))
+    })
+   }
   }
   ```
 
@@ -2439,8 +2446,8 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex
 
   import (
-  	"strings"
-  	"unicode"
+   "strings"
+   "unicode"
   )
 
   // matchExpr turns arbitrary, attacker-controlled text into an FTS5 MATCH
@@ -2469,26 +2476,26 @@ comments; they are the seams where a sibling task will otherwise guess):
   // front of the store, so the caller must run Query.Text through the same
   // function it ran Release.TitleNorm through, or nothing will match.
   func matchExpr(text string) string {
-  	fields := strings.Fields(text)
-  	terms := make([]string, 0, len(fields))
-  	for _, f := range fields {
-  		if !hasAlnum(f) {
-  			continue
-  		}
-  		terms = append(terms, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
-  	}
-  	return strings.Join(terms, " AND ")
+   fields := strings.Fields(text)
+   terms := make([]string, 0, len(fields))
+   for _, f := range fields {
+    if !hasAlnum(f) {
+     continue
+    }
+    terms = append(terms, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
+   }
+   return strings.Join(terms, " AND ")
   }
 
   // hasAlnum reports whether s contains at least one letter or digit, i.e.
   // whether the unicode61 tokenizer will get at least one term out of it.
   func hasAlnum(s string) bool {
-  	for _, r := range s {
-  		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-  			return true
-  		}
-  	}
-  	return false
+   for _, r := range s {
+    if unicode.IsLetter(r) || unicode.IsDigit(r) {
+     return true
+    }
+   }
+   return false
   }
   ```
 
@@ -2507,11 +2514,11 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex
 
   import (
-  	"context"
-  	"database/sql"
-  	"fmt"
-  	"strings"
-  	"time"
+   "context"
+   "database/sql"
+   "fmt"
+   "strings"
+   "time"
   )
 
   // Search returns releases matching q.
@@ -2524,108 +2531,108 @@ comments; they are the seams where a sibling task will otherwise guess):
   //
   // It takes no write lock: under WAL a reader never blocks and is never blocked.
   func (s *sqliteStore) Search(ctx context.Context, q Query) ([]Release, error) {
-  	var (
-  		sb   strings.Builder
-  		args []any
-  	)
-  	text := matchExpr(q.Text)
+   var (
+    sb   strings.Builder
+    args []any
+   )
+   text := matchExpr(q.Text)
 
-  	sb.WriteString(`SELECT r.indexer, r.guid, r.title, r.title_norm, r.grp, r.protocol, ` +
-  		`r.categories, r.size_bytes, r.published_at, r.fetched_at, r.info_json FROM releases r`)
-  	if text != "" {
-  		// The FTS5 table is NOT aliased: `releases_fts MATCH ?` has to name
-  		// the table for SQLite to route the MATCH to the module.
-  		sb.WriteString(` JOIN releases_fts ON releases_fts.rowid = r.id`)
-  	}
-  	sb.WriteString(` WHERE 1 = 1`)
+   sb.WriteString(`SELECT r.indexer, r.guid, r.title, r.title_norm, r.grp, r.protocol, ` +
+    `r.categories, r.size_bytes, r.published_at, r.fetched_at, r.info_json FROM releases r`)
+   if text != "" {
+    // The FTS5 table is NOT aliased: `releases_fts MATCH ?` has to name
+    // the table for SQLite to route the MATCH to the module.
+    sb.WriteString(` JOIN releases_fts ON releases_fts.rowid = r.id`)
+   }
+   sb.WriteString(` WHERE 1 = 1`)
 
-  	if text != "" {
-  		// Bound, never interpolated. matchExpr has already made the string
-  		// harmless as an FTS5 expression; this keeps it harmless as SQL.
-  		sb.WriteString(` AND releases_fts MATCH ?`)
-  		args = append(args, text)
-  	}
-  	if len(q.Indexers) > 0 {
-  		sb.WriteString(` AND r.indexer IN (` + placeholders(len(q.Indexers)) + `)`)
-  		for _, ix := range q.Indexers {
-  			args = append(args, ix)
-  		}
-  	}
-  	if q.Protocol != "" {
-  		sb.WriteString(` AND r.protocol = ?`)
-  		args = append(args, q.Protocol)
-  	}
-  	if q.Since != nil {
-  		// fetched_at, not published_at. published_at is nullable and a NULL
-  		// compares false against every bound, so filtering on it would
-  		// silently delete every dateless release from every window -- the
-  		// same defect as backfilling it, arriving from the query side.
-  		sb.WriteString(` AND r.fetched_at >= ?`)
-  		args = append(args, q.Since.UTC().UnixNano())
-  	}
-  	if len(q.Categories) > 0 {
-  		// "carries ANY of these". json_each expands the stored JSON array
-  		// into rows; the column is always a valid array, never NULL, so
-  		// this never errors on a row.
-  		sb.WriteString(` AND EXISTS (SELECT 1 FROM json_each(r.categories) je WHERE je.value IN (` +
-  			placeholders(len(q.Categories)) + `))`)
-  		for _, c := range q.Categories {
-  			args = append(args, c)
-  		}
-  	}
+   if text != "" {
+    // Bound, never interpolated. matchExpr has already made the string
+    // harmless as an FTS5 expression; this keeps it harmless as SQL.
+    sb.WriteString(` AND releases_fts MATCH ?`)
+    args = append(args, text)
+   }
+   if len(q.Indexers) > 0 {
+    sb.WriteString(` AND r.indexer IN (` + placeholders(len(q.Indexers)) + `)`)
+    for _, ix := range q.Indexers {
+     args = append(args, ix)
+    }
+   }
+   if q.Protocol != "" {
+    sb.WriteString(` AND r.protocol = ?`)
+    args = append(args, q.Protocol)
+   }
+   if q.Since != nil {
+    // fetched_at, not published_at. published_at is nullable and a NULL
+    // compares false against every bound, so filtering on it would
+    // silently delete every dateless release from every window -- the
+    // same defect as backfilling it, arriving from the query side.
+    sb.WriteString(` AND r.fetched_at >= ?`)
+    args = append(args, q.Since.UTC().UnixNano())
+   }
+   if len(q.Categories) > 0 {
+    // "carries ANY of these". json_each expands the stored JSON array
+    // into rows; the column is always a valid array, never NULL, so
+    // this never errors on a row.
+    sb.WriteString(` AND EXISTS (SELECT 1 FROM json_each(r.categories) je WHERE je.value IN (` +
+     placeholders(len(q.Categories)) + `))`)
+    for _, c := range q.Categories {
+     args = append(args, c)
+    }
+   }
 
-  	if text != "" {
-  		sb.WriteString(` ORDER BY releases_fts.rank, r.id DESC`)
-  	} else {
-  		sb.WriteString(` ORDER BY r.fetched_at DESC, r.id DESC`)
-  	}
-  	// Zero or negative means no LIMIT clause at all: the contract says the
-  	// store never invents one. D1-5 always passes schema.MaxSearchReleases.
-  	if q.Limit > 0 {
-  		sb.WriteString(` LIMIT ?`)
-  		args = append(args, q.Limit)
-  	}
+   if text != "" {
+    sb.WriteString(` ORDER BY releases_fts.rank, r.id DESC`)
+   } else {
+    sb.WriteString(` ORDER BY r.fetched_at DESC, r.id DESC`)
+   }
+   // Zero or negative means no LIMIT clause at all: the contract says the
+   // store never invents one. D1-5 always passes schema.MaxSearchReleases.
+   if q.Limit > 0 {
+    sb.WriteString(` LIMIT ?`)
+    args = append(args, q.Limit)
+   }
 
-  	rows, err := s.db.QueryContext(ctx, sb.String(), args...)
-  	if err != nil {
-  		return nil, fmt.Errorf("relindex: search: %w", err)
-  	}
-  	defer func() { _ = rows.Close() }()
+   rows, err := s.db.QueryContext(ctx, sb.String(), args...)
+   if err != nil {
+    return nil, fmt.Errorf("relindex: search: %w", err)
+   }
+   defer func() { _ = rows.Close() }()
 
-  	capHint := 0
-  	if q.Limit > 0 {
-  		capHint = q.Limit
-  	}
-  	out := make([]Release, 0, capHint)
-  	for rows.Next() {
-  		var (
-  			r        Release
-  			cats     string
-  			pub      sql.NullInt64
-  			fetched  int64
-  		)
-  		if err := rows.Scan(&r.Indexer, &r.GUID, &r.Title, &r.TitleNorm, &r.Group,
-  			&r.Protocol, &cats, &r.SizeBytes, &pub, &fetched, &r.InfoJSON); err != nil {
-  			return nil, fmt.Errorf("relindex: scan release: %w", err)
-  		}
-  		if r.Categories, err = unmarshalCategories(cats); err != nil {
-  			return nil, err
-  		}
-  		r.PublishedAt = timeFromNull(pub)
-  		r.FetchedAt = time.Unix(0, fetched).UTC()
-  		out = append(out, r)
-  	}
-  	// rows.Err reports an error that ended iteration early. Without this
-  	// check a truncated result set reads as a successful empty one.
-  	if err := rows.Err(); err != nil {
-  		return nil, fmt.Errorf("relindex: search rows: %w", err)
-  	}
-  	return out, nil
+   capHint := 0
+   if q.Limit > 0 {
+    capHint = q.Limit
+   }
+   out := make([]Release, 0, capHint)
+   for rows.Next() {
+    var (
+     r        Release
+     cats     string
+     pub      sql.NullInt64
+     fetched  int64
+    )
+    if err := rows.Scan(&r.Indexer, &r.GUID, &r.Title, &r.TitleNorm, &r.Group,
+     &r.Protocol, &cats, &r.SizeBytes, &pub, &fetched, &r.InfoJSON); err != nil {
+     return nil, fmt.Errorf("relindex: scan release: %w", err)
+    }
+    if r.Categories, err = unmarshalCategories(cats); err != nil {
+     return nil, err
+    }
+    r.PublishedAt = timeFromNull(pub)
+    r.FetchedAt = time.Unix(0, fetched).UTC()
+    out = append(out, r)
+   }
+   // rows.Err reports an error that ended iteration early. Without this
+   // check a truncated result set reads as a successful empty one.
+   if err := rows.Err(); err != nil {
+    return nil, fmt.Errorf("relindex: search rows: %w", err)
+   }
+   return out, nil
   }
 
   // placeholders returns "?,?,?" for n > 0.
   func placeholders(n int) string {
-  	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+   return strings.TrimSuffix(strings.Repeat("?,", n), ",")
   }
   ```
 
@@ -2640,175 +2647,175 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex_test
 
   import (
-  	"testing"
-  	"time"
+   "testing"
+   "time"
 
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/require"
 
-  	"github.com/mediactl/clustarr/pkg/relindex"
+   "github.com/mediactl/clustarr/pkg/relindex"
   )
 
   // seed writes a small, deliberately heterogeneous corpus.
   func seed(t *testing.T, s relindex.Store) {
-  	t.Helper()
+   t.Helper()
 
-  	a := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
-  	a.TitleNorm = "matrix 1999 1080p bluray x264"
-  	a.Protocol = "usenet"
-  	a.Categories = []int{2000, 2040}
-  	a.FetchedAt = fetchedAt
+   a := rel("nzbgeek", "g1", "The Matrix 1999 1080p BluRay x264-NTb")
+   a.TitleNorm = "matrix 1999 1080p bluray x264"
+   a.Protocol = "usenet"
+   a.Categories = []int{2000, 2040}
+   a.FetchedAt = fetchedAt
 
-  	b := rel("nzbgeek", "g2", "Dune Part Two 2024 2160p WEB-DL DV HDR10-FLUX")
-  	b.TitleNorm = "dune part two 2024 2160p web dl"
-  	b.Group = "FLUX"
-  	b.Protocol = "usenet"
-  	b.Categories = []int{2000, 2045}
-  	b.FetchedAt = fetchedAt.Add(time.Minute)
+   b := rel("nzbgeek", "g2", "Dune Part Two 2024 2160p WEB-DL DV HDR10-FLUX")
+   b.TitleNorm = "dune part two 2024 2160p web dl"
+   b.Group = "FLUX"
+   b.Protocol = "usenet"
+   b.Categories = []int{2000, 2045}
+   b.FetchedAt = fetchedAt.Add(time.Minute)
 
-  	c := rel("torrentleech", "t1", "Severance S02E01 1080p ATVP WEB-DL-NTb")
-  	c.TitleNorm = "severance s02e01 1080p atvp web dl"
-  	c.Protocol = "torrent"
-  	c.Categories = []int{5000, 5040}
-  	c.FetchedAt = fetchedAt.Add(2 * time.Minute)
-  	c.PublishedAt = nil
+   c := rel("torrentleech", "t1", "Severance S02E01 1080p ATVP WEB-DL-NTb")
+   c.TitleNorm = "severance s02e01 1080p atvp web dl"
+   c.Protocol = "torrent"
+   c.Categories = []int{5000, 5040}
+   c.FetchedAt = fetchedAt.Add(2 * time.Minute)
+   c.PublishedAt = nil
 
-  	mustUpsert(t, t.Context(), s, 3, a, b, c)
+   mustUpsert(t, t.Context(), s, 3, a, b, c)
   }
 
   func TestSearchWithNoFiltersReturnsEverythingNewestFirst(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	got, err := s.Search(t.Context(), relindex.Query{})
-  	require.NoError(t, err)
-  	require.Len(t, got, 3)
-  	require.Equal(t, "t1", got[0].GUID, "newest fetched_at first")
-  	require.Equal(t, "g1", got[2].GUID)
+   got, err := s.Search(t.Context(), relindex.Query{})
+   require.NoError(t, err)
+   require.Len(t, got, 3)
+   require.Equal(t, "t1", got[0].GUID, "newest fetched_at first")
+   require.Equal(t, "g1", got[2].GUID)
   }
 
   func TestSearchMatchesTheNormalisedTitle(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	got, err := s.Search(t.Context(), relindex.Query{Text: "dune", Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Equal(t, "g2", got[0].GUID)
+   got, err := s.Search(t.Context(), relindex.Query{Text: "dune", Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Equal(t, "g2", got[0].GUID)
   }
 
   func TestSearchMatchesTheReleaseGroupColumn(t *testing.T) {
-  	// Spec §6.2 pins the FTS5 columns as `title_norm, grp`. A caller
-  	// searching for a group name must hit the second column.
-  	s := newStore(t)
-  	seed(t, s)
+   // Spec §6.2 pins the FTS5 columns as `title_norm, grp`. A caller
+   // searching for a group name must hit the second column.
+   s := newStore(t)
+   seed(t, s)
 
-  	got, err := s.Search(t.Context(), relindex.Query{Text: "FLUX", Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Equal(t, "g2", got[0].GUID)
+   got, err := s.Search(t.Context(), relindex.Query{Text: "FLUX", Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Equal(t, "g2", got[0].GUID)
   }
 
   func TestSearchRequiresEveryTerm(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	both, err := s.Search(t.Context(), relindex.Query{Text: "dune 2024", Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, both, 1)
+   both, err := s.Search(t.Context(), relindex.Query{Text: "dune 2024", Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, both, 1)
 
-  	none, err := s.Search(t.Context(), relindex.Query{Text: "dune matrix", Limit: 10})
-  	require.NoError(t, err)
-  	require.Empty(t, none)
+   none, err := s.Search(t.Context(), relindex.Query{Text: "dune matrix", Limit: 10})
+   require.NoError(t, err)
+   require.Empty(t, none)
   }
 
   func TestSearchFiltersByIndexer(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	got, err := s.Search(t.Context(), relindex.Query{Indexers: []string{"torrentleech"}, Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Equal(t, "t1", got[0].GUID)
+   got, err := s.Search(t.Context(), relindex.Query{Indexers: []string{"torrentleech"}, Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Equal(t, "t1", got[0].GUID)
   }
 
   func TestSearchFiltersByProtocol(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	got, err := s.Search(t.Context(), relindex.Query{Protocol: "usenet", Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 2)
+   got, err := s.Search(t.Context(), relindex.Query{Protocol: "usenet", Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 2)
   }
 
   func TestSearchFiltersByAnyCategory(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	top, err := s.Search(t.Context(), relindex.Query{Categories: []int{2000}, Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, top, 2)
+   top, err := s.Search(t.Context(), relindex.Query{Categories: []int{2000}, Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, top, 2)
 
-  	sub, err := s.Search(t.Context(), relindex.Query{Categories: []int{2045, 5040}, Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, sub, 2, "ANY of the requested ids, not all")
+   sub, err := s.Search(t.Context(), relindex.Query{Categories: []int{2045, 5040}, Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, sub, 2, "ANY of the requested ids, not all")
 
-  	none, err := s.Search(t.Context(), relindex.Query{Categories: []int{7000}, Limit: 10})
-  	require.NoError(t, err)
-  	require.Empty(t, none)
+   none, err := s.Search(t.Context(), relindex.Query{Categories: []int{7000}, Limit: 10})
+   require.NoError(t, err)
+   require.Empty(t, none)
   }
 
   func TestSearchFiltersBySinceOnFetchedAt(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	since := fetchedAt.Add(time.Minute)
-  	got, err := s.Search(t.Context(), relindex.Query{Since: &since, Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 2, "Since is inclusive")
-  	// t1 has a nil PublishedAt and must still be inside the window.
-  	require.Equal(t, "t1", got[0].GUID)
+   since := fetchedAt.Add(time.Minute)
+   got, err := s.Search(t.Context(), relindex.Query{Since: &since, Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 2, "Since is inclusive")
+   // t1 has a nil PublishedAt and must still be inside the window.
+   require.Equal(t, "t1", got[0].GUID)
   }
 
   func TestSearchCombinesEveryFilter(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	since := fetchedAt.Add(-time.Hour)
-  	got, err := s.Search(t.Context(), relindex.Query{
-  		Text:       "dune",
-  		Indexers:   []string{"nzbgeek", "torrentleech"},
-  		Categories: []int{2000},
-  		Protocol:   "usenet",
-  		Since:      &since,
-  		Limit:      10,
-  	})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Equal(t, "g2", got[0].GUID)
+   since := fetchedAt.Add(-time.Hour)
+   got, err := s.Search(t.Context(), relindex.Query{
+    Text:       "dune",
+    Indexers:   []string{"nzbgeek", "torrentleech"},
+    Categories: []int{2000},
+    Protocol:   "usenet",
+    Since:      &since,
+    Limit:      10,
+   })
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Equal(t, "g2", got[0].GUID)
   }
 
   func TestSearchHonoursTheCallerLimitAndInventsNone(t *testing.T) {
-  	s := newStore(t)
-  	seed(t, s)
+   s := newStore(t)
+   seed(t, s)
 
-  	two, err := s.Search(t.Context(), relindex.Query{Limit: 2})
-  	require.NoError(t, err)
-  	require.Len(t, two, 2)
+   two, err := s.Search(t.Context(), relindex.Query{Limit: 2})
+   require.NoError(t, err)
+   require.Len(t, two, 2)
 
-  	all, err := s.Search(t.Context(), relindex.Query{Limit: 0})
-  	require.NoError(t, err)
-  	require.Len(t, all, 3, "zero means no LIMIT clause, not a default")
+   all, err := s.Search(t.Context(), relindex.Query{Limit: 0})
+   require.NoError(t, err)
+   require.Len(t, all, 3, "zero means no LIMIT clause, not a default")
 
-  	neg, err := s.Search(t.Context(), relindex.Query{Limit: -1})
-  	require.NoError(t, err)
-  	require.Len(t, neg, 3)
+   neg, err := s.Search(t.Context(), relindex.Query{Limit: -1})
+   require.NoError(t, err)
+   require.Len(t, neg, 3)
   }
 
   func TestSearchOnAnEmptyIndexReturnsNoRowsAndNoError(t *testing.T) {
-  	s := newStore(t)
-  	got, err := s.Search(t.Context(), relindex.Query{Text: "matrix", Limit: 10})
-  	require.NoError(t, err)
-  	require.Empty(t, got)
+   s := newStore(t)
+   got, err := s.Search(t.Context(), relindex.Query{Text: "matrix", Limit: 10})
+   require.NoError(t, err)
+   require.Empty(t, got)
   }
   ```
 
@@ -2825,66 +2832,66 @@ comments; they are the seams where a sibling task will otherwise guess):
 
   ```go
   func TestSearchSurvivesHostileQueryText(t *testing.T) {
-  	// Every one of these is a real FTS5 syntax error, a real column filter,
-  	// or a real operator if it reaches MATCH unescaped. None may error, and
-  	// none may return a row it should not.
-  	s := newStore(t)
-  	seed(t, s)
+   // Every one of these is a real FTS5 syntax error, a real column filter,
+   // or a real operator if it reaches MATCH unescaped. None may error, and
+   // none may return a row it should not.
+   s := newStore(t)
+   seed(t, s)
 
-  	hostile := []string{
-  		``,
-  		`   `,
-  		`"`,
-  		`""`,
-  		`"""`,
-  		`*`,
-  		`**`,
-  		`^`,
-  		`(`,
-  		`)`,
-  		`()`,
-  		`-`,
-  		`:`,
-  		`title_norm:dune`,
-  		`matrix OR dune`,
-  		`matrix AND dune`,
-  		`matrix NOT dune`,
-  		`matrix NEAR dune`,
-  		`NEAR(matrix dune, 5)`,
-  		`dune*`,
-  		`"dune" OR "matrix"`,
-  		`dune" OR title_norm:"matrix`,
-  		`'; DROP TABLE releases; --`,
-  		`dune'); DELETE FROM releases; --`,
-  		`{dune matrix}`,
-  		`amélie`,
-  		`日本語`,
-  		"dune\x00matrix",
-  	}
-  	for _, q := range hostile {
-  		t.Run(q, func(t *testing.T) {
-  			got, err := s.Search(t.Context(), relindex.Query{Text: q, Limit: 10})
-  			require.NoError(t, err, "hostile text must not produce an error")
-  			require.LessOrEqual(t, len(got), 3)
-  		})
-  	}
+   hostile := []string{
+    ``,
+    `   `,
+    `"`,
+    `""`,
+    `"""`,
+    `*`,
+    `**`,
+    `^`,
+    `(`,
+    `)`,
+    `()`,
+    `-`,
+    `:`,
+    `title_norm:dune`,
+    `matrix OR dune`,
+    `matrix AND dune`,
+    `matrix NOT dune`,
+    `matrix NEAR dune`,
+    `NEAR(matrix dune, 5)`,
+    `dune*`,
+    `"dune" OR "matrix"`,
+    `dune" OR title_norm:"matrix`,
+    `'; DROP TABLE releases; --`,
+    `dune'); DELETE FROM releases; --`,
+    `{dune matrix}`,
+    `amélie`,
+    `日本語`,
+    "dune\x00matrix",
+   }
+   for _, q := range hostile {
+    t.Run(q, func(t *testing.T) {
+     got, err := s.Search(t.Context(), relindex.Query{Text: q, Limit: 10})
+     require.NoError(t, err, "hostile text must not produce an error")
+     require.LessOrEqual(t, len(got), 3)
+    })
+   }
 
-  	// And the corpus is intact: no statement smuggled a DELETE through.
-  	st, err := s.Stats(t.Context())
-  	require.NoError(t, err)
-  	require.EqualValues(t, 3, st.Releases)
+   // And the corpus is intact: no statement smuggled a DELETE through.
+   st, err := s.Stats(t.Context())
+   require.NoError(t, err)
+   require.EqualValues(t, 3, st.Releases)
   }
 
   func TestSearchTreatsOperatorKeywordsAsLiterals(t *testing.T) {
-  	// `matrix OR dune` must mean "a title containing matrix AND or AND dune",
-  	// which nothing does -- NOT "matrix or dune", which two rows do. If this
-  	// returns rows, the grammar leaked.
-  	s := newStore(t)
-  	seed(t, s)
+   // `matrix OR dune` must mean "a title containing matrix AND or AND dune",
+   // which nothing does -- NOT "matrix or dune", which two rows do. If this
+   // returns rows, the grammar leaked.
+   s := newStore(t)
+   seed(t, s)
 
-  	got, err := s.Search(t.Context(), relindex.Query{Text: "matrix OR dune", Limit: 10})
-  	require.NoError(t, err)
-  	require.Empty(t, got)
+   got, err := s.Search(t.Context(), relindex.Query{Text: "matrix OR dune", Limit: 10})
+   require.NoError(t, err)
+   require.Empty(t, got)
   }
   ```
 
@@ -2909,144 +2916,144 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex_test
 
   import (
-  	"path/filepath"
-  	"testing"
-  	"time"
+   "path/filepath"
+   "testing"
+   "time"
 
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/require"
 
-  	"github.com/mediactl/clustarr/pkg/relindex"
+   "github.com/mediactl/clustarr/pkg/relindex"
   )
 
   func TestPruneDeletesOnlyRowsOlderThanTheCutoff(t *testing.T) {
-  	// Spec §6.2: a sweep every 10 minutes over a 72h window. The window is
-  	// the CALLER's arithmetic -- Prune is a pure function of the instant it
-  	// is handed, reads no clock, and can therefore be tested without one.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // Spec §6.2: a sweep every 10 minutes over a 72h window. The window is
+   // the CALLER's arithmetic -- Prune is a pure function of the instant it
+   // is handed, reads no clock, and can therefore be tested without one.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	old := rel("nzbgeek", "old", "The Matrix 1999")
-  	old.FetchedAt = fetchedAt.Add(-96 * time.Hour)
-  	fresh := rel("nzbgeek", "fresh", "Dune Part Two 2024")
-  	fresh.FetchedAt = fetchedAt
-  	mustUpsert(t, ctx, s, 2, old, fresh)
+   old := rel("nzbgeek", "old", "The Matrix 1999")
+   old.FetchedAt = fetchedAt.Add(-96 * time.Hour)
+   fresh := rel("nzbgeek", "fresh", "Dune Part Two 2024")
+   fresh.FetchedAt = fetchedAt
+   mustUpsert(t, ctx, s, 2, old, fresh)
 
-  	n, err := s.Prune(ctx, fetchedAt.Add(-72*time.Hour))
-  	require.NoError(t, err)
-  	require.Equal(t, 1, n)
+   n, err := s.Prune(ctx, fetchedAt.Add(-72*time.Hour))
+   require.NoError(t, err)
+   require.Equal(t, 1, n)
 
-  	got, err := s.Search(ctx, relindex.Query{Limit: 10})
-  	require.NoError(t, err)
-  	require.Len(t, got, 1)
-  	require.Equal(t, "fresh", got[0].GUID)
+   got, err := s.Search(ctx, relindex.Query{Limit: 10})
+   require.NoError(t, err)
+   require.Len(t, got, 1)
+   require.Equal(t, "fresh", got[0].GUID)
   }
 
   func TestPruneIsExclusiveAtTheBoundary(t *testing.T) {
-  	// `fetched_at < olderThan`. A row fetched exactly at the cutoff stays,
-  	// so a sweep cannot delete a row the previous sweep just decided to keep.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // `fetched_at < olderThan`. A row fetched exactly at the cutoff stays,
+   // so a sweep cannot delete a row the previous sweep just decided to keep.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	r := rel("nzbgeek", "g1", "The Matrix 1999")
-  	r.FetchedAt = fetchedAt
-  	mustUpsert(t, ctx, s, 1, r)
+   r := rel("nzbgeek", "g1", "The Matrix 1999")
+   r.FetchedAt = fetchedAt
+   mustUpsert(t, ctx, s, 1, r)
 
-  	n, err := s.Prune(ctx, fetchedAt)
-  	require.NoError(t, err)
-  	require.Zero(t, n)
+   n, err := s.Prune(ctx, fetchedAt)
+   require.NoError(t, err)
+   require.Zero(t, n)
   }
 
   func TestPruneOnAnEmptyIndexIsANoOp(t *testing.T) {
-  	s := newStore(t)
-  	n, err := s.Prune(t.Context(), fetchedAt)
-  	require.NoError(t, err)
-  	require.Zero(t, n)
+   s := newStore(t)
+   n, err := s.Prune(t.Context(), fetchedAt)
+   require.NoError(t, err)
+   require.Zero(t, n)
   }
 
   func TestPruneRejectsTheZeroTime(t *testing.T) {
-  	// time.Time{}.UnixNano() overflows int64 into a large negative number,
-  	// so a zero cutoff silently deletes nothing while looking like it worked.
-  	s := newStore(t)
-  	_, err := s.Prune(t.Context(), time.Time{})
-  	require.ErrorIs(t, err, relindex.ErrInvalidArg)
+   // time.Time{}.UnixNano() overflows int64 into a large negative number,
+   // so a zero cutoff silently deletes nothing while looking like it worked.
+   s := newStore(t)
+   _, err := s.Prune(t.Context(), time.Time{})
+   require.ErrorIs(t, err, relindex.ErrInvalidArg)
   }
 
   func TestPruneRemovesTheRowsFromTheFTSIndexToo(t *testing.T) {
-  	// External-content FTS5 learns about the DELETE only through the
-  	// releases_ad trigger. If the trigger is wrong, the row vanishes from
-  	// Stats but keeps answering text searches -- with a rowid that no longer
-  	// resolves.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // External-content FTS5 learns about the DELETE only through the
+   // releases_ad trigger. If the trigger is wrong, the row vanishes from
+   // Stats but keeps answering text searches -- with a rowid that no longer
+   // resolves.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	r := rel("nzbgeek", "g1", "matrix")
-  	r.TitleNorm = "matrix"
-  	r.FetchedAt = fetchedAt.Add(-96 * time.Hour)
-  	mustUpsert(t, ctx, s, 1, r)
+   r := rel("nzbgeek", "g1", "matrix")
+   r.TitleNorm = "matrix"
+   r.FetchedAt = fetchedAt.Add(-96 * time.Hour)
+   mustUpsert(t, ctx, s, 1, r)
 
-  	n, err := s.Prune(ctx, fetchedAt.Add(-72*time.Hour))
-  	require.NoError(t, err)
-  	require.Equal(t, 1, n)
+   n, err := s.Prune(ctx, fetchedAt.Add(-72*time.Hour))
+   require.NoError(t, err)
+   require.Equal(t, 1, n)
 
-  	got, err := s.Search(ctx, relindex.Query{Text: "matrix", Limit: 10})
-  	require.NoError(t, err)
-  	require.Empty(t, got)
+   got, err := s.Search(ctx, relindex.Query{Text: "matrix", Limit: 10})
+   require.NoError(t, err)
+   require.Empty(t, got)
   }
 
   func TestStatsReportsTheCorpus(t *testing.T) {
-  	s := newStore(t)
-  	ctx := t.Context()
+   s := newStore(t)
+   ctx := t.Context()
 
-  	a := rel("nzbgeek", "g1", "The Matrix 1999")
-  	a.FetchedAt = fetchedAt
-  	b := rel("nzbgeek", "g2", "Dune Part Two 2024")
-  	b.FetchedAt = fetchedAt.Add(time.Hour)
-  	c := rel("torrentleech", "t1", "Severance S02E01")
-  	c.FetchedAt = fetchedAt.Add(-time.Hour)
-  	mustUpsert(t, ctx, s, 3, a, b, c)
+   a := rel("nzbgeek", "g1", "The Matrix 1999")
+   a.FetchedAt = fetchedAt
+   b := rel("nzbgeek", "g2", "Dune Part Two 2024")
+   b.FetchedAt = fetchedAt.Add(time.Hour)
+   c := rel("torrentleech", "t1", "Severance S02E01")
+   c.FetchedAt = fetchedAt.Add(-time.Hour)
+   mustUpsert(t, ctx, s, 3, a, b, c)
 
-  	st, err := s.Stats(ctx)
-  	require.NoError(t, err)
-  	require.EqualValues(t, 3, st.Releases)
-  	require.EqualValues(t, 2, st.Indexers)
-  	require.Equal(t, fetchedAt.Add(-time.Hour), st.OldestSeen)
-  	require.Equal(t, fetchedAt.Add(time.Hour), st.NewestSeen)
-  	require.Positive(t, st.SizeBytes)
+   st, err := s.Stats(ctx)
+   require.NoError(t, err)
+   require.EqualValues(t, 3, st.Releases)
+   require.EqualValues(t, 2, st.Indexers)
+   require.Equal(t, fetchedAt.Add(-time.Hour), st.OldestSeen)
+   require.Equal(t, fetchedAt.Add(time.Hour), st.NewestSeen)
+   require.Positive(t, st.SizeBytes)
   }
 
   func TestStatsOnAnEmptyIndexReportsZeroTimes(t *testing.T) {
-  	// First boot on a fresh PVC. MIN/MAX over no rows are NULL, and NULL is
-  	// the zero time -- not "now", and not an error that would fail readiness.
-  	s := newStore(t)
-  	st, err := s.Stats(t.Context())
-  	require.NoError(t, err)
-  	require.Zero(t, st.Releases)
-  	require.Zero(t, st.Indexers)
-  	require.True(t, st.OldestSeen.IsZero())
-  	require.True(t, st.NewestSeen.IsZero())
-  	require.Positive(t, st.SizeBytes, "an empty database is still a file with a header")
+   // First boot on a fresh PVC. MIN/MAX over no rows are NULL, and NULL is
+   // the zero time -- not "now", and not an error that would fail readiness.
+   s := newStore(t)
+   st, err := s.Stats(t.Context())
+   require.NoError(t, err)
+   require.Zero(t, st.Releases)
+   require.Zero(t, st.Indexers)
+   require.True(t, st.OldestSeen.IsZero())
+   require.True(t, st.NewestSeen.IsZero())
+   require.Positive(t, st.SizeBytes, "an empty database is still a file with a header")
   }
 
   func TestStatsCountsTheWriteAheadLog(t *testing.T) {
-  	// The -wal file shares the 5Gi PVC, so a SizeBytes that ignored it would
-  	// under-report the thing that actually fills the volume.
-  	path := filepath.Join(t.TempDir(), "releases.db")
-  	s := newStoreAt(t, path)
-  	ctx := t.Context()
+   // The -wal file shares the 5Gi PVC, so a SizeBytes that ignored it would
+   // under-report the thing that actually fills the volume.
+   path := filepath.Join(t.TempDir(), "releases.db")
+   s := newStoreAt(t, path)
+   ctx := t.Context()
 
-  	before, err := s.Stats(ctx)
-  	require.NoError(t, err)
+   before, err := s.Stats(ctx)
+   require.NoError(t, err)
 
-  	rels := make([]relindex.Release, 0, 200)
-  	for i := range 200 {
-  		rels = append(rels, rel("nzbgeek", "g"+strconv.Itoa(i), "The Matrix 1999 "+strconv.Itoa(i)))
-  	}
-  	mustUpsert(t, ctx, s, 200, rels...)
+   rels := make([]relindex.Release, 0, 200)
+   for i := range 200 {
+    rels = append(rels, rel("nzbgeek", "g"+strconv.Itoa(i), "The Matrix 1999 "+strconv.Itoa(i)))
+   }
+   mustUpsert(t, ctx, s, 200, rels...)
 
-  	after, err := s.Stats(ctx)
-  	require.NoError(t, err)
-  	require.Greater(t, after.SizeBytes, before.SizeBytes)
-  	require.FileExists(t, path+"-wal")
+   after, err := s.Stats(ctx)
+   require.NoError(t, err)
+   require.Greater(t, after.SizeBytes, before.SizeBytes)
+   require.FileExists(t, path+"-wal")
   }
   ```
 
@@ -3080,24 +3087,24 @@ comments; they are the seams where a sibling task will otherwise guess):
   // the whole database while holding an exclusive lock, which would stall every
   // search for the duration, every ten minutes.
   func (s *sqliteStore) Prune(ctx context.Context, olderThan time.Time) (int, error) {
-  	if olderThan.IsZero() {
-  		// The zero time's UnixNano overflows int64 into a large negative
-  		// number, so this would delete nothing while reporting success.
-  		return 0, fmt.Errorf("%w: olderThan is the zero time", ErrInvalidArg)
-  	}
+   if olderThan.IsZero() {
+    // The zero time's UnixNano overflows int64 into a large negative
+    // number, so this would delete nothing while reporting success.
+    return 0, fmt.Errorf("%w: olderThan is the zero time", ErrInvalidArg)
+   }
 
-  	s.wmu.Lock()
-  	defer s.wmu.Unlock()
+   s.wmu.Lock()
+   defer s.wmu.Unlock()
 
-  	res, err := s.db.ExecContext(ctx, `DELETE FROM releases WHERE fetched_at < ?`, olderThan.UTC().UnixNano())
-  	if err != nil {
-  		return 0, fmt.Errorf("relindex: prune: %w", err)
-  	}
-  	n, err := res.RowsAffected()
-  	if err != nil {
-  		return 0, fmt.Errorf("relindex: prune rows: %w", err)
-  	}
-  	return int(n), nil
+   res, err := s.db.ExecContext(ctx, `DELETE FROM releases WHERE fetched_at < ?`, olderThan.UTC().UnixNano())
+   if err != nil {
+    return 0, fmt.Errorf("relindex: prune: %w", err)
+   }
+   n, err := res.RowsAffected()
+   if err != nil {
+    return 0, fmt.Errorf("relindex: prune rows: %w", err)
+   }
+   return int(n), nil
   }
   ```
 
@@ -3112,125 +3119,125 @@ comments; they are the seams where a sibling task will otherwise guess):
   package relindex_test
 
   import (
-  	"strconv"
-  	"sync"
-  	"testing"
-  	"time"
+   "strconv"
+   "sync"
+   "testing"
+   "time"
 
-  	"github.com/stretchr/testify/assert"
-  	"github.com/stretchr/testify/require"
+   "github.com/stretchr/testify/assert"
+   "github.com/stretchr/testify/require"
 
-  	"github.com/mediactl/clustarr/pkg/relindex"
+   "github.com/mediactl/clustarr/pkg/relindex"
   )
 
   func TestStoreIsSafeUnderConcurrentWritersAndReaders(t *testing.T) {
-  	// indexarr is one replica, so there is one writer PROCESS -- but inside
-  	// it the RSS worker and the search service both write, concurrently, on
-  	// different goroutines. SQLite allows exactly one writer at a time; the
-  	// store serialises them with a mutex so the loser waits instead of
-  	// getting SQLITE_BUSY. Readers under WAL never block and take no lock.
-  	//
-  	// Must be run with -race. It is the only test here that would notice a
-  	// data race on the store's own fields.
-  	const (
-  		writers      = 4
-  		readers      = 4
-  		perWriter    = 25
-  		pruners      = 1
-  	)
+   // indexarr is one replica, so there is one writer PROCESS -- but inside
+   // it the RSS worker and the search service both write, concurrently, on
+   // different goroutines. SQLite allows exactly one writer at a time; the
+   // store serialises them with a mutex so the loser waits instead of
+   // getting SQLITE_BUSY. Readers under WAL never block and take no lock.
+   //
+   // Must be run with -race. It is the only test here that would notice a
+   // data race on the store's own fields.
+   const (
+    writers      = 4
+    readers      = 4
+    perWriter    = 25
+    pruners      = 1
+   )
 
-  	s := newStore(t)
-  	ctx := t.Context()
-  	var wg sync.WaitGroup
+   s := newStore(t)
+   ctx := t.Context()
+   var wg sync.WaitGroup
 
-  	for w := range writers {
-  		wg.Add(1)
-  		go func() {
-  			defer wg.Done()
-  			indexer := "indexer-" + strconv.Itoa(w)
-  			for i := range perWriter {
-  				r := rel(indexer, "g"+strconv.Itoa(i), "The Matrix 1999 "+strconv.Itoa(i))
-  				r.TitleNorm = "matrix 1999 " + strconv.Itoa(i)
-  				r.FetchedAt = fetchedAt.Add(time.Duration(i) * time.Second)
-  				n, err := s.Upsert(ctx, []relindex.Release{r})
-  				if !assert.NoError(t, err) {
-  					return
-  				}
-  				assert.Equal(t, 1, n)
-  			}
-  		}()
-  	}
+   for w := range writers {
+    wg.Add(1)
+    go func() {
+     defer wg.Done()
+     indexer := "indexer-" + strconv.Itoa(w)
+     for i := range perWriter {
+      r := rel(indexer, "g"+strconv.Itoa(i), "The Matrix 1999 "+strconv.Itoa(i))
+      r.TitleNorm = "matrix 1999 " + strconv.Itoa(i)
+      r.FetchedAt = fetchedAt.Add(time.Duration(i) * time.Second)
+      n, err := s.Upsert(ctx, []relindex.Release{r})
+      if !assert.NoError(t, err) {
+       return
+      }
+      assert.Equal(t, 1, n)
+     }
+    }()
+   }
 
-  	for range readers {
-  		wg.Add(1)
-  		go func() {
-  			defer wg.Done()
-  			for range perWriter {
-  				_, err := s.Search(ctx, relindex.Query{Text: "matrix", Limit: 50})
-  				if !assert.NoError(t, err) {
-  					return
-  				}
-  				if _, err := s.Stats(ctx); !assert.NoError(t, err) {
-  					return
-  				}
-  			}
-  		}()
-  	}
+   for range readers {
+    wg.Add(1)
+    go func() {
+     defer wg.Done()
+     for range perWriter {
+      _, err := s.Search(ctx, relindex.Query{Text: "matrix", Limit: 50})
+      if !assert.NoError(t, err) {
+       return
+      }
+      if _, err := s.Stats(ctx); !assert.NoError(t, err) {
+       return
+      }
+     }
+    }()
+   }
 
-  	for range pruners {
-  		wg.Add(1)
-  		go func() {
-  			defer wg.Done()
-  			for range perWriter {
-  				// Older than anything written, so it competes for the
-  				// write lock without changing the expected row count.
-  				if _, err := s.Prune(ctx, fetchedAt.Add(-24*time.Hour)); !assert.NoError(t, err) {
-  					return
-  				}
-  			}
-  		}()
-  	}
+   for range pruners {
+    wg.Add(1)
+    go func() {
+     defer wg.Done()
+     for range perWriter {
+      // Older than anything written, so it competes for the
+      // write lock without changing the expected row count.
+      if _, err := s.Prune(ctx, fetchedAt.Add(-24*time.Hour)); !assert.NoError(t, err) {
+       return
+      }
+     }
+    }()
+   }
 
-  	wg.Wait()
+   wg.Wait()
 
-  	st, err := s.Stats(ctx)
-  	require.NoError(t, err)
-  	require.EqualValues(t, writers*perWriter, st.Releases)
-  	require.EqualValues(t, writers, st.Indexers)
+   st, err := s.Stats(ctx)
+   require.NoError(t, err)
+   require.EqualValues(t, writers*perWriter, st.Releases)
+   require.EqualValues(t, writers, st.Indexers)
   }
 
   func TestConcurrentUpsertsOfTheSameKeyInsertItExactlyOnce(t *testing.T) {
-  	// Two goroutines racing on the same (indexer, guid) must produce one row
-  	// and exactly one reported insert across all of them. If UNIQUE were
-  	// missing or the count were derived from len(rels), this reports more.
-  	s := newStore(t)
-  	ctx := t.Context()
+   // Two goroutines racing on the same (indexer, guid) must produce one row
+   // and exactly one reported insert across all of them. If UNIQUE were
+   // missing or the count were derived from len(rels), this reports more.
+   s := newStore(t)
+   ctx := t.Context()
 
-  	const goroutines = 8
-  	var (
-  		wg    sync.WaitGroup
-  		mu    sync.Mutex
-  		total int
-  	)
-  	for range goroutines {
-  		wg.Add(1)
-  		go func() {
-  			defer wg.Done()
-  			n, err := s.Upsert(ctx, []relindex.Release{rel("nzbgeek", "g1", "The Matrix 1999")})
-  			if !assert.NoError(t, err) {
-  				return
-  			}
-  			mu.Lock()
-  			total += n
-  			mu.Unlock()
-  		}()
-  	}
-  	wg.Wait()
+   const goroutines = 8
+   var (
+    wg    sync.WaitGroup
+    mu    sync.Mutex
+    total int
+   )
+   for range goroutines {
+    wg.Add(1)
+    go func() {
+     defer wg.Done()
+     n, err := s.Upsert(ctx, []relindex.Release{rel("nzbgeek", "g1", "The Matrix 1999")})
+     if !assert.NoError(t, err) {
+      return
+     }
+     mu.Lock()
+     total += n
+     mu.Unlock()
+    }()
+   }
+   wg.Wait()
 
-  	require.Equal(t, 1, total, "exactly one goroutine may claim the insert")
-  	st, err := s.Stats(ctx)
-  	require.NoError(t, err)
-  	require.EqualValues(t, 1, st.Releases)
+   require.Equal(t, 1, total, "exactly one goroutine may claim the insert")
+   st, err := s.Stats(ctx)
+   require.NoError(t, err)
+   require.EqualValues(t, 1, st.Releases)
   }
   ```
 
@@ -3342,6 +3349,7 @@ tasks' paths):
 ### Task D1-4: the `IndexerDefinition` and `IndexerProxy` controllers
 
 **Files:**
+
 - Create: `app/indexer/controller/indexerdefinition/{doc,controller}.go`, `controller_envtest_test.go`
 - Create: `app/indexer/controller/indexerproxy/{doc,controller}.go`, `controller_envtest_test.go`
 
@@ -3362,17 +3370,17 @@ Assert the reconcile sets `observedGeneration`, a `Ready` condition carrying tha
 
 ```go
 func TestIndexerDefinitionReportsReadyAndSummary(t *testing.T) {
-	c, stop := newTestClient(t)
-	defer stop()
-	// ... create a definition with a known spec, then:
-	require.Eventually(t, func() bool {
-		var got indexv1alpha1.IndexerDefinition
-		if err := c.Get(ctx, key, &got); err != nil {
-			return false
-		}
-		return got.Status.ObservedGeneration == got.Generation &&
-			k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerDefinitionConditionValid) != nil
-	}, 10*time.Second, 50*time.Millisecond)
+ c, stop := newTestClient(t)
+ defer stop()
+ // ... create a definition with a known spec, then:
+ require.Eventually(t, func() bool {
+  var got indexv1alpha1.IndexerDefinition
+  if err := c.Get(ctx, key, &got); err != nil {
+   return false
+  }
+  return got.Status.ObservedGeneration == got.Generation &&
+   k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerDefinitionConditionValid) != nil
+ }, 10*time.Second, 50*time.Millisecond)
 }
 ```
 
@@ -3413,7 +3421,7 @@ require.Eventually(t, /* status fully populated */)
 var after indexv1alpha1.IndexerDefinition
 require.NoError(t, c.Get(ctx, key, &after))
 assert.NotEmpty(t, after.Status.Caps.Modes,
-	"a transient failure released status.caps")
+ "a transient failure released status.caps")
 ```
 
 Confirm it fails if you make the early return build a conditions-only apply.
@@ -3432,6 +3440,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexa
 ```
 
 **Done when:** both controllers reconcile, both declare a complete owned set on every path including early returns, both have a regression test that drives real steady state first and provably fails against a partial apply, RBAC markers are package-level and generated, and the envtest genuinely ran (seconds, not milliseconds).
+
 ### Task D1-3: the `Indexer` reconciler
 
 Reconciles `index.clustarr.io/v1alpha1 Indexer`: validates the spec, probes
@@ -3642,14 +3651,14 @@ them.
   // than merging it -- one shared name means each writer silently releases the
   // other's fields.
   //
-  //	k8s.ManagerIndexarr ("indexarr", this package):
-  //	    observedGeneration, conditions, protocol, privacy, caps,
-  //	    sessionSecretRef
-  //	k8s.ManagerIndexarrWorker ("indexarr-worker", app/indexer/worker/rss and
-  //	app/indexer/search):
-  //	    escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
-  //	    lastFailure, queriesInWindow, grabsInWindow, lastRssAt,
-  //	    lastRssNewCount, indexedReleases
+  // k8s.ManagerIndexarr ("indexarr", this package):
+  //     observedGeneration, conditions, protocol, privacy, caps,
+  //     sessionSecretRef
+  // k8s.ManagerIndexarrWorker ("indexarr-worker", app/indexer/worker/rss and
+  // app/indexer/search):
+  //     escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
+  //     lastFailure, queriesInWindow, grabsInWindow, lastRssAt,
+  //     lastRssNewCount, indexedReleases
   //
   // This package never applies as ManagerIndexarrWorker. It reads the worker's
   // fields to derive conditions and a requeue delay, nothing more.
@@ -4866,7 +4875,7 @@ them.
           For(&indexv1alpha1.Indexer{}, builder.WithPredicates(k8s.GenerationChanged())).
           WithOptions(controller.Options{
               ReconciliationTimeout: 5 * time.Minute,
-              RecoverPanic:          ptr.To(true),
+              RecoverPanic:          new(true),
           }).
           Complete(r)
   }
@@ -5135,6 +5144,7 @@ them.
 - **No registration in `run.go`.** D1-8 wires
   `indexer.NewReconciler(mgr.GetClient(), mgr.GetEventRecorderFor("indexarr"), limiters)`
   into `setupControllers` and constructs the one shared `*ratelimit.Limiter`.
+
 ---
 
 ### Task D1-7: the RSS worker and the release firehose
@@ -5147,6 +5157,7 @@ handler's source, not by a preference. Read
 are requirements written down verbatim, and both are load-bearing.
 
 **Files:**
+
 - Create: `app/indexer/worker/rss/doc.go` (package doc: ownership, the two pinned requirements, the registration D1-8 performs)
 - Create: `app/indexer/worker/rss/project.go` (`ProjectRelease`, the flag mapping, the index-row projection)
 - Create: `app/indexer/worker/rss/project_test.go` (pure, table-driven, no bus, no cluster)
@@ -5283,37 +5294,37 @@ Quality, Revision, ReleaseGroup, Edition, Languages, ReleaseType). Everything el
 
 ```go
 func TestProjectReleaseFillsTheIndexerSourcedFields(t *testing.T) {
-	seeders, leechers := int32(42), int32(7)
-	in := torznab.Release{
-		Title:      "The Matrix 1999 1080p BluRay x264-GROUP",
-		GUID:       "https://idx.example/details/9001",
-		Link:       "https://idx.example/download/9001.torrent",
-		CommentURL: "https://idx.example/details/9001",
-		PubDate:    time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
-		Size:       8_589_934_592,
-		Categories: []newznab.CategoryID{2040, 2000},
-		Seeders:    &seeders,
-		Leechers:   &leechers,
-		InfoHash:   "0123456789abcdef0123456789abcdef01234567",
-		MagnetURL:  "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
-		IDs:        map[string]string{"imdb": "tt0133093"},
-	}
+ seeders, leechers := int32(42), int32(7)
+ in := torznab.Release{
+  Title:      "The Matrix 1999 1080p BluRay x264-GROUP",
+  GUID:       "https://idx.example/details/9001",
+  Link:       "https://idx.example/download/9001.torrent",
+  CommentURL: "https://idx.example/details/9001",
+  PubDate:    time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+  Size:       8_589_934_592,
+  Categories: []newznab.CategoryID{2040, 2000},
+  Seeders:    &seeders,
+  Leechers:   &leechers,
+  InfoHash:   "0123456789abcdef0123456789abcdef01234567",
+  MagnetURL:  "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+  IDs:        map[string]string{"imdb": "tt0133093"},
+ }
 
-	got := rss.ProjectRelease(in, "my-indexer", string(commonv1.ProtocolTorrent))
+ got := rss.ProjectRelease(in, "my-indexer", string(commonv1.ProtocolTorrent))
 
-	require.Equal(t, "https://idx.example/details/9001", got.Info.GUID)
-	require.Equal(t, "my-indexer", got.Info.IndexerRef)
-	require.Equal(t, "The Matrix 1999 1080p BluRay x264-GROUP", got.Info.Title,
-		"Info.Title is the RAW title as published, never a cleaned one")
-	require.Equal(t, commonv1.ProtocolTorrent, got.Info.Protocol)
-	require.Equal(t, int64(8_589_934_592), got.Info.SizeBytes)
-	require.Equal(t, "https://idx.example/download/9001.torrent", got.Info.DownloadURL)
-	require.Equal(t, "https://idx.example/details/9001", got.Info.InfoURL)
-	require.Equal(t, []int32{2040, 2000}, got.Info.Categories)
-	require.Equal(t, &seeders, got.Info.Seeders)
-	require.Equal(t, &leechers, got.Info.Leechers)
-	require.Equal(t, "tt0133093", got.Info.IDs["imdb"], "the tt prefix is canonical on the way in")
-	require.Equal(t, "GROUP", got.Info.ReleaseGroup, "filled by ApplyTo, not by hand")
+ require.Equal(t, "https://idx.example/details/9001", got.Info.GUID)
+ require.Equal(t, "my-indexer", got.Info.IndexerRef)
+ require.Equal(t, "The Matrix 1999 1080p BluRay x264-GROUP", got.Info.Title,
+  "Info.Title is the RAW title as published, never a cleaned one")
+ require.Equal(t, commonv1.ProtocolTorrent, got.Info.Protocol)
+ require.Equal(t, int64(8_589_934_592), got.Info.SizeBytes)
+ require.Equal(t, "https://idx.example/download/9001.torrent", got.Info.DownloadURL)
+ require.Equal(t, "https://idx.example/details/9001", got.Info.InfoURL)
+ require.Equal(t, []int32{2040, 2000}, got.Info.Categories)
+ require.Equal(t, &seeders, got.Info.Seeders)
+ require.Equal(t, &leechers, got.Info.Leechers)
+ require.Equal(t, "tt0133093", got.Info.IDs["imdb"], "the tt prefix is canonical on the way in")
+ require.Equal(t, "GROUP", got.Info.ReleaseGroup, "filled by ApplyTo, not by hand")
 }
 ```
 
@@ -5338,36 +5349,36 @@ half arrives in Step 7.
 // on the consumer side before scoring (rssmatcher/handler.go:270-272), and a
 // value invented here would be overwritten or, worse, believed.
 func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Release {
-	info := commonv1.ReleaseInfo{
-		GUID:        r.GUID,
-		IndexerRef:  indexerName,
-		IndexerName: indexerName,
-		Title:       r.Title,
-		Protocol:    commonv1.Protocol(protocol),
-		SizeBytes:   r.Size,
-		DownloadURL: r.Link,
-		MagnetURL:   r.MagnetURL,
-		InfoHash:    r.InfoHash,
-		InfoURL:     r.CommentURL,
-		Seeders:     r.Seeders,
-		Leechers:    r.Leechers,
-		Categories:  categoryIDs(r.Categories),
-		IDs:         maps.Clone(r.IDs),
-	}
-	return schema.Release{Info: info}
+ info := commonv1.ReleaseInfo{
+  GUID:        r.GUID,
+  IndexerRef:  indexerName,
+  IndexerName: indexerName,
+  Title:       r.Title,
+  Protocol:    commonv1.Protocol(protocol),
+  SizeBytes:   r.Size,
+  DownloadURL: r.Link,
+  MagnetURL:   r.MagnetURL,
+  InfoHash:    r.InfoHash,
+  InfoURL:     r.CommentURL,
+  Seeders:     r.Seeders,
+  Leechers:    r.Leechers,
+  Categories:  categoryIDs(r.Categories),
+  IDs:         maps.Clone(r.IDs),
+ }
+ return schema.Release{Info: info}
 }
 
 // categoryIDs widens newznab ids to the []int32 the CRD carries. A nil slice
 // stays nil so the omitempty tag drops the field rather than encoding [].
 func categoryIDs(cats []newznab.CategoryID) []int32 {
-	if len(cats) == 0 {
-		return nil
-	}
-	out := make([]int32, len(cats))
-	for i, c := range cats {
-		out[i] = int32(c)
-	}
-	return out
+ if len(cats) == 0 {
+  return nil
+ }
+ out := make([]int32, len(cats))
+ for i, c := range cats {
+  out[i] = int32(c)
+ }
+ return out
 }
 ```
 
@@ -5391,39 +5402,39 @@ substituting the zero time makes it sort as ancient, and neither is true.
 
 ```go
 func TestProjectReleasePublishedAtIsNeverBackfilled(t *testing.T) {
-	pub := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	usenet := time.Date(2026, 8, 30, 3, 0, 0, 0, time.UTC)
+ pub := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+ usenet := time.Date(2026, 8, 30, 3, 0, 0, 0, time.UTC)
 
-	tests := []struct {
-		name string
-		in   torznab.Release
-		want *metav1.Time
-	}{
-		{"pubdate wins", torznab.Release{PubDate: pub}, ptr.To(metav1.NewTime(pub))},
-		{"usenetdate when pubdate is absent", torznab.Release{UsenetDate: &usenet}, ptr.To(metav1.NewTime(usenet))},
-		{"neither reported stays nil", torznab.Release{}, nil},
-		{"an explicitly zero usenetdate stays nil", torznab.Release{UsenetDate: &time.Time{}}, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := rss.ProjectRelease(tt.in, "idx", "usenet")
-			require.Equal(t, tt.want, got.Info.PublishedAt)
-		})
-	}
+ tests := []struct {
+  name string
+  in   torznab.Release
+  want *metav1.Time
+ }{
+  {"pubdate wins", torznab.Release{PubDate: pub}, new(metav1.NewTime(pub))},
+  {"usenetdate when pubdate is absent", torznab.Release{UsenetDate: &usenet}, new(metav1.NewTime(usenet))},
+  {"neither reported stays nil", torznab.Release{}, nil},
+  {"an explicitly zero usenetdate stays nil", torznab.Release{UsenetDate: &time.Time{}}, nil},
+ }
+ for _, tt := range tests {
+  t.Run(tt.name, func(t *testing.T) {
+   got := rss.ProjectRelease(tt.in, "idx", "usenet")
+   require.Equal(t, tt.want, got.Info.PublishedAt)
+  })
+ }
 }
 
 func TestProjectReleaseNilPublishedAtSurvivesJSONRoundTrip(t *testing.T) {
-	// A nil that becomes a zero metav1.Time somewhere in encode/decode is the
-	// same corruption by another route, so assert on the far side of the wire.
-	in := rss.ProjectRelease(torznab.Release{Title: "Some.Release.2026", GUID: "g"}, "idx", "usenet")
-	require.Nil(t, in.Info.PublishedAt)
+ // A nil that becomes a zero metav1.Time somewhere in encode/decode is the
+ // same corruption by another route, so assert on the far side of the wire.
+ in := rss.ProjectRelease(torznab.Release{Title: "Some.Release.2026", GUID: "g"}, "idx", "usenet")
+ require.Nil(t, in.Info.PublishedAt)
 
-	name, data, err := schema.Encode(in)
-	require.NoError(t, err)
-	var out schema.Release
-	require.NoError(t, schema.Decode(name, data, &out))
-	require.Nil(t, out.Info.PublishedAt, "nil publishedAt must round-trip as nil, not as the zero time")
-	require.NotContains(t, string(data), "publishedAt", "omitempty must drop the key entirely")
+ name, data, err := schema.Encode(in)
+ require.NoError(t, err)
+ var out schema.Release
+ require.NoError(t, schema.Decode(name, data, &out))
+ require.Nil(t, out.Info.PublishedAt, "nil publishedAt must round-trip as nil, not as the zero time")
+ require.NotContains(t, string(data), "publishedAt", "omitempty must drop the key entirely")
 }
 ```
 
@@ -5438,22 +5449,22 @@ Expected: FAIL — `PublishedAt` is nil in every case, so the first two subtests
 Add to `ProjectRelease`, before the `schema.Release` is returned:
 
 ```go
-	// PublishedAt is a *metav1.Time on purpose: nil means the indexer
-	// reported no date, which is genuinely different from a date. Ranking
-	// uses publish age as the usenet tiebreaker, so backfilling now() makes
-	// a dateless release sort as brand new and backfilling the zero time
-	// makes it sort as ancient. Both are lies. Pass absence through.
-	//
-	// Both candidates are indexer-reported, so preferring one over the other
-	// is a choice between two truths, not a backfill: Newznab-native feeds
-	// carry <newznab:attr name="usenetdate"> and often a later <pubDate> for
-	// when the row was indexed.
-	switch {
-	case !r.PubDate.IsZero():
-		info.PublishedAt = ptr.To(metav1.NewTime(r.PubDate))
-	case r.UsenetDate != nil && !r.UsenetDate.IsZero():
-		info.PublishedAt = ptr.To(metav1.NewTime(*r.UsenetDate))
-	}
+ // PublishedAt is a *metav1.Time on purpose: nil means the indexer
+ // reported no date, which is genuinely different from a date. Ranking
+ // uses publish age as the usenet tiebreaker, so backfilling now() makes
+ // a dateless release sort as brand new and backfilling the zero time
+ // makes it sort as ancient. Both are lies. Pass absence through.
+ //
+ // Both candidates are indexer-reported, so preferring one over the other
+ // is a choice between two truths, not a backfill: Newznab-native feeds
+ // carry <newznab:attr name="usenetdate"> and often a later <pubDate> for
+ // when the row was indexed.
+ switch {
+ case !r.PubDate.IsZero():
+  info.PublishedAt = new(metav1.NewTime(r.PubDate))
+ case r.UsenetDate != nil && !r.UsenetDate.IsZero():
+  info.PublishedAt = new(metav1.NewTime(*r.UsenetDate))
+ }
 ```
 
 ```bash
@@ -5473,33 +5484,33 @@ applies `CleanTitle` itself, so `ParsedTitle` must be the parser's raw
 
 ```go
 func TestProjectReleaseParsedTitleIsRawAndKindAgrees(t *testing.T) {
-	got := rss.ProjectRelease(torznab.Release{
-		Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP",
-		GUID:  "g",
-	}, "idx", "torrent")
+ got := rss.ProjectRelease(torznab.Release{
+  Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP",
+  GUID:  "g",
+ }, "idx", "torrent")
 
-	parsed, err := release.Parse("The.Matrix.1999.1080p.BluRay.x264-GROUP", release.Options{})
-	require.NoError(t, err)
-	require.Equal(t, parsed.Title, got.ParsedTitle,
-		"ParsedTitle is the parser's raw Title; the matcher applies CleanTitle itself")
-	require.Equal(t, int32(1999), got.Year)
-	require.Equal(t, commonv1.MediaKindMovie, got.Kind)
+ parsed, err := release.Parse("The.Matrix.1999.1080p.BluRay.x264-GROUP", release.Options{})
+ require.NoError(t, err)
+ require.Equal(t, parsed.Title, got.ParsedTitle,
+  "ParsedTitle is the parser's raw Title; the matcher applies CleanTitle itself")
+ require.Equal(t, int32(1999), got.Year)
+ require.Equal(t, commonv1.MediaKindMovie, got.Kind)
 
-	// The matcher's own key must be derivable from what we sent.
-	require.Equal(t,
-		release.CleanTitle(parsed.Title)+"|1999",
-		release.CleanTitle(got.ParsedTitle)+"|"+strconv.Itoa(int(got.Year)))
+ // The matcher's own key must be derivable from what we sent.
+ require.Equal(t,
+  release.CleanTitle(parsed.Title)+"|1999",
+  release.CleanTitle(got.ParsedTitle)+"|"+strconv.Itoa(int(got.Year)))
 }
 
 func TestProjectReleaseSeriesFields(t *testing.T) {
-	got := rss.ProjectRelease(torznab.Release{
-		Title: "Some.Show.S02E05.1080p.WEB-DL.x265-GRP", GUID: "g",
-	}, "idx", "torrent")
-	require.Equal(t, commonv1.MediaKindEpisode, got.Kind)
-	require.Equal(t, []int32{2}, got.Seasons)
-	require.Equal(t, []int32{5}, got.Episodes)
-	require.False(t, got.FullSeason)
-	require.False(t, got.MultiSeason)
+ got := rss.ProjectRelease(torznab.Release{
+  Title: "Some.Show.S02E05.1080p.WEB-DL.x265-GRP", GUID: "g",
+ }, "idx", "torrent")
+ require.Equal(t, commonv1.MediaKindEpisode, got.Kind)
+ require.Equal(t, []int32{2}, got.Seasons)
+ require.Equal(t, []int32{5}, got.Episodes)
+ require.False(t, got.FullSeason)
+ require.False(t, got.MultiSeason)
 }
 ```
 
@@ -5516,42 +5527,42 @@ the *id-stripped* title while `ClassifyKind` classifies whatever you hand it. Cl
 once, and pass the result into `Parse` so the two cannot diverge:
 
 ```go
-	// Classify once and pin it. Parse would classify internally, but it does
-	// so on the id-stripped title and does not return the kind it chose, so
-	// calling ClassifyKind separately afterwards can disagree with the parse
-	// that actually ran. rel.Kind is the matcher's first dispatch
-	// (rssmatcher/match.go:45) and a wrong kind matches nothing, silently --
-	// so the classification that steers the parse and the one on the wire
-	// are the same value by construction.
-	kind := release.ClassifyKind(r.Title)
-	parsed, err := release.Parse(r.Title, release.Options{Kind: kind})
-	if err != nil {
-		// An unparsable title is still a real release: it can match on
-		// tmdb/tvdb ids, and dropping it here would hide it from the
-		// matcher entirely. Publish the wire half with no parsed fields.
-		return schema.Release{Info: info, FetchedAt: r.fetchedAt()}
-	}
-	parsed.ApplyTo(&info)
+ // Classify once and pin it. Parse would classify internally, but it does
+ // so on the id-stripped title and does not return the kind it chose, so
+ // calling ClassifyKind separately afterwards can disagree with the parse
+ // that actually ran. rel.Kind is the matcher's first dispatch
+ // (rssmatcher/match.go:45) and a wrong kind matches nothing, silently --
+ // so the classification that steers the parse and the one on the wire
+ // are the same value by construction.
+ kind := release.ClassifyKind(r.Title)
+ parsed, err := release.Parse(r.Title, release.Options{Kind: kind})
+ if err != nil {
+  // An unparsable title is still a real release: it can match on
+  // tmdb/tvdb ids, and dropping it here would hide it from the
+  // matcher entirely. Publish the wire half with no parsed fields.
+  return schema.Release{Info: info, FetchedAt: r.fetchedAt()}
+ }
+ parsed.ApplyTo(&info)
 
-	out := schema.Release{
-		Info: info,
-		// The RAW parser title. TitleYearKey applies CleanTitle itself
-		// (rssmatcher/index.go:96-109); pre-cleaning here is only harmless
-		// because CleanTitle is idempotent, and relying on that is how the
-		// next change breaks it.
-		ParsedTitle: parsed.Title,
-		Year:        int32(parsed.Year),
-		Seasons:     widen(parsed.Seasons),
-		Episodes:    widen(parsed.Episodes),
-		Absolute:    widen(parsed.Absolute),
-		AirDate:     parsed.AirDate,
-		FullSeason:  parsed.FullSeason,
-		MultiSeason: parsed.MultiSeason,
-		Special:     parsed.Special,
-		Kind:        kind,
-		Hints:       hints(parsed.Hints),
-	}
-	return out
+ out := schema.Release{
+  Info: info,
+  // The RAW parser title. TitleYearKey applies CleanTitle itself
+  // (rssmatcher/index.go:96-109); pre-cleaning here is only harmless
+  // because CleanTitle is idempotent, and relying on that is how the
+  // next change breaks it.
+  ParsedTitle: parsed.Title,
+  Year:        int32(parsed.Year),
+  Seasons:     widen(parsed.Seasons),
+  Episodes:    widen(parsed.Episodes),
+  Absolute:    widen(parsed.Absolute),
+  AirDate:     parsed.AirDate,
+  FullSeason:  parsed.FullSeason,
+  MultiSeason: parsed.MultiSeason,
+  Special:     parsed.Special,
+  Kind:        kind,
+  Hints:       hints(parsed.Hints),
+ }
+ return out
 ```
 
 `widen([]int) []int32` and `hints(release.Hints) map[string][]string` are two small
@@ -5575,26 +5586,26 @@ A flag outside those seven is rejected when a `Download.spec.release` is later p
 
 ```go
 func TestProjectReleaseIndexerFlagsStayInsideTheEnum(t *testing.T) {
-	zero, half := 0.0, 0.5
-	tests := []struct {
-		name string
-		in   torznab.Release
-		want []string
-	}{
-		{"dvf 0 is freeleech", torznab.Release{DownloadVolumeFactor: &zero}, []string{"freeleech"}},
-		{"dvf 0.5 is halfleech", torznab.Release{DownloadVolumeFactor: &half}, []string{"halfleech"}},
-		{"dvf 1 is neither", torznab.Release{DownloadVolumeFactor: ptr.To(1.0)}, nil},
-		{"tag attrs pass through when known", torznab.Release{
-			Attrs: map[string][]string{"tag": {"internal", "scene"}}}, []string{"internal", "scene"}},
-		{"unknown tags are dropped, not forwarded", torznab.Release{
-			Attrs: map[string][]string{"tag": {"internal", "PersonalRelease", "trumpable"}}}, []string{"internal"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := rss.ProjectRelease(tt.in, "idx", "torrent")
-			require.Equal(t, tt.want, got.Info.IndexerFlags)
-		})
-	}
+ zero, half := 0.0, 0.5
+ tests := []struct {
+  name string
+  in   torznab.Release
+  want []string
+ }{
+  {"dvf 0 is freeleech", torznab.Release{DownloadVolumeFactor: &zero}, []string{"freeleech"}},
+  {"dvf 0.5 is halfleech", torznab.Release{DownloadVolumeFactor: &half}, []string{"halfleech"}},
+  {"dvf 1 is neither", torznab.Release{DownloadVolumeFactor: new(1.0)}, nil},
+  {"tag attrs pass through when known", torznab.Release{
+   Attrs: map[string][]string{"tag": {"internal", "scene"}}}, []string{"internal", "scene"}},
+  {"unknown tags are dropped, not forwarded", torznab.Release{
+   Attrs: map[string][]string{"tag": {"internal", "PersonalRelease", "trumpable"}}}, []string{"internal"}},
+ }
+ for _, tt := range tests {
+  t.Run(tt.name, func(t *testing.T) {
+   got := rss.ProjectRelease(tt.in, "idx", "torrent")
+   require.Equal(t, tt.want, got.Info.IndexerFlags)
+  })
+ }
 }
 ```
 
@@ -5614,28 +5625,28 @@ field is a closed enum:
 // is dropped: the apiserver rejects the whole object otherwise, and it would
 // do so at grab time, in grabarr, not here.
 var knownFlags = map[string]string{
-	"freeleech": commonv1.IndexerFlagFreeleech, "halfleech": commonv1.IndexerFlagHalfleech,
-	"neutralleech": commonv1.IndexerFlagNeutralleech, "doubleupload": commonv1.IndexerFlagDoubleUpload,
-	"internal": commonv1.IndexerFlagInternal, "exclusive": commonv1.IndexerFlagExclusive,
-	"scene": commonv1.IndexerFlagScene,
+ "freeleech": commonv1.IndexerFlagFreeleech, "halfleech": commonv1.IndexerFlagHalfleech,
+ "neutralleech": commonv1.IndexerFlagNeutralleech, "doubleupload": commonv1.IndexerFlagDoubleUpload,
+ "internal": commonv1.IndexerFlagInternal, "exclusive": commonv1.IndexerFlagExclusive,
+ "scene": commonv1.IndexerFlagScene,
 }
 
 func indexerFlags(r torznab.Release) []string {
-	var out []string
-	if f := r.DownloadVolumeFactor; f != nil {
-		switch {
-		case *f == 0:
-			out = append(out, commonv1.IndexerFlagFreeleech)
-		case *f > 0 && *f < 1:
-			out = append(out, commonv1.IndexerFlagHalfleech)
-		}
-	}
-	for _, tag := range r.Attrs["tag"] {
-		if v, ok := knownFlags[strings.ToLower(strings.TrimSpace(tag))]; ok && !slices.Contains(out, v) {
-			out = append(out, v)
-		}
-	}
-	return out
+ var out []string
+ if f := r.DownloadVolumeFactor; f != nil {
+  switch {
+  case *f == 0:
+   out = append(out, commonv1.IndexerFlagFreeleech)
+  case *f > 0 && *f < 1:
+   out = append(out, commonv1.IndexerFlagHalfleech)
+  }
+ }
+ for _, tag := range r.Attrs["tag"] {
+  if v, ok := knownFlags[strings.ToLower(strings.TrimSpace(tag))]; ok && !slices.Contains(out, v) {
+   out = append(out, v)
+  }
+ }
+ return out
 }
 ```
 
@@ -5651,9 +5662,9 @@ Expected: PASS.
 
 ```go
 func TestProjectReleaseLeavesScoringToTheConsumer(t *testing.T) {
-	got := rss.ProjectRelease(torznab.Release{Title: "X.2026.1080p-G", GUID: "g"}, "idx", "torrent")
-	require.Zero(t, got.Info.FormatScore, "pkg/decision.Evaluate writes this on the consumer side")
-	require.Empty(t, got.Info.MatchedFormats)
+ got := rss.ProjectRelease(torznab.Release{Title: "X.2026.1080p-G", GUID: "g"}, "idx", "torrent")
+ require.Zero(t, got.Info.FormatScore, "pkg/decision.Evaluate writes this on the consumer side")
+ require.Empty(t, got.Info.MatchedFormats)
 }
 ```
 
@@ -5678,39 +5689,39 @@ In `app/indexer/worker/rss/publish_test.go`:
 
 ```go
 func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
-	bus := membus.New()
-	t.Cleanup(func() { _ = bus.Close() })
+ bus := membus.New()
+ t.Cleanup(func() { _ = bus.Close() })
 
-	var got []*events.Envelope
-	stop, err := bus.Subscribe(t.Context(), events.Subscription{
-		Stream: events.StreamReleases, Durable: "test", Filters: []string{events.FilterAllReleases},
-	}, func(_ context.Context, m events.Message) error {
-		got = append(got, m.Envelope().Clone())
-		return nil
-	})
-	require.NoError(t, err)
-	t.Cleanup(stop)
+ var got []*events.Envelope
+ stop, err := bus.Subscribe(t.Context(), events.Subscription{
+  Stream: events.StreamReleases, Durable: "test", Filters: []string{events.FilterAllReleases},
+ }, func(_ context.Context, m events.Message) error {
+  got = append(got, m.Envelope().Clone())
+  return nil
+ })
+ require.NoError(t, err)
+ t.Cleanup(stop)
 
-	rels := []schema.Release{rss.ProjectRelease(torznab.Release{
-		Title: "The.Matrix.1999.1080p-G", GUID: "g1", Categories: []newznab.CategoryID{2040},
-	}, "my-indexer", "torrent")}
+ rels := []schema.Release{rss.ProjectRelease(torznab.Release{
+  Title: "The.Matrix.1999.1080p-G", GUID: "g1", Categories: []newznab.CategoryID{2040},
+ }, "my-indexer", "torrent")}
 
-	n, err := rss.PublishReleases(t.Context(), bus, "media", "my-indexer", rels)
-	require.NoError(t, err)
-	require.Equal(t, 1, n)
-	require.Eventually(t, func() bool { return len(got) == 1 }, 5*time.Second, 10*time.Millisecond)
+ n, err := rss.PublishReleases(t.Context(), bus, "media", "my-indexer", rels)
+ require.NoError(t, err)
+ require.Equal(t, 1, n)
+ require.Eventually(t, func() bool { return len(got) == 1 }, 5*time.Second, 10*time.Millisecond)
 
-	// Exactly what app/catalog/worker/rssmatcher/handler.go:171 does.
-	ns, indexer, ok := strings.Cut(got[0].Key, "/")
-	require.True(t, ok, "key %q has no slash: the matcher Discards it STRAIGHT TO THE DLQ, bypassing MaxDeliver", got[0].Key)
-	require.Equal(t, "media", ns)
-	require.Equal(t, "my-indexer", indexer)
-	require.Equal(t, got[0].Key, "media/my-indexer")
+ // Exactly what app/catalog/worker/rssmatcher/handler.go:171 does.
+ ns, indexer, ok := strings.Cut(got[0].Key, "/")
+ require.True(t, ok, "key %q has no slash: the matcher Discards it STRAIGHT TO THE DLQ, bypassing MaxDeliver", got[0].Key)
+ require.Equal(t, "media", ns)
+ require.Equal(t, "my-indexer", indexer)
+ require.Equal(t, got[0].Key, "media/my-indexer")
 
-	// And the negative: a media key is not an envelope key. If someone ever
-	// swaps one in, this is the assertion that catches it.
-	require.NotEqual(t, events.MediaKey("movie", "media", "my-indexer"), got[0].Key)
-	require.NotContains(t, events.MediaKey("movie", "media", "my-indexer"), "/")
+ // And the negative: a media key is not an envelope key. If someone ever
+ // swaps one in, this is the assertion that catches it.
+ require.NotEqual(t, events.MediaKey("movie", "media", "my-indexer"), got[0].Key)
+ require.NotContains(t, events.MediaKey("movie", "media", "my-indexer"), "/")
 }
 ```
 
@@ -5734,46 +5745,46 @@ In `app/indexer/worker/rss/publish.go`:
 // figure and is NOT Indexer.status.lastRssNewCount -- see the Worker, which
 // takes that count from relindex.Upsert instead.
 func PublishReleases(ctx context.Context, bus events.Bus, ns, indexerName string, rels []schema.Release) (published int, err error) {
-	if ns == "" || indexerName == "" {
-		// Refuse rather than publish an uncuttable key. The matcher would
-		// Discard every one of these to the DLQ without a retry, and
-		// nothing downstream would report it.
-		return 0, fmt.Errorf("rss: publish releases: namespace=%q indexer=%q: both are required to build the envelope key", ns, indexerName)
-	}
-	// Built explicitly, once, in its own variable. A media-key-style token is
-	// NOT an envelope key: it has been through tok() and has no slash left to
-	// cut on. Conflating the two dead-lettered every metadata refresh in
-	// Phase C, silently, because the consumer discards on a failed split.
-	key := ns + "/" + indexerName
+ if ns == "" || indexerName == "" {
+  // Refuse rather than publish an uncuttable key. The matcher would
+  // Discard every one of these to the DLQ without a retry, and
+  // nothing downstream would report it.
+  return 0, fmt.Errorf("rss: publish releases: namespace=%q indexer=%q: both are required to build the envelope key", ns, indexerName)
+ }
+ // Built explicitly, once, in its own variable. A media-key-style token is
+ // NOT an envelope key: it has been through tok() and has no slash left to
+ // cut on. Conflating the two dead-lettered every metadata refresh in
+ // Phase C, silently, because the consumer discards on a failed split.
+ key := ns + "/" + indexerName
 
-	for _, rel := range rels {
-		schemaName, data, encErr := schema.Encode(rel)
-		if encErr != nil {
-			return published, encErr
-		}
-		env := &events.Envelope{
-			ID:     events.MsgIDForRelease(indexerName, rel.Info.GUID),
-			Type:   "index.Release",
-			Schema: schemaName,
-			Source: "indexarr@" + version.String(),
-			Key:    key,
-			Time:   rel.FetchedAt,
-			Data:   data,
-		}
-		// The matcher calls tracing.Extract before Start so its span
-		// continues indexarr's poll. Without this Inject the RSS leg of
-		// every trace is orphaned (rssmatcher/handler.go:157-159).
-		tracing.Inject(ctx, env)
+ for _, rel := range rels {
+  schemaName, data, encErr := schema.Encode(rel)
+  if encErr != nil {
+   return published, encErr
+  }
+  env := &events.Envelope{
+   ID:     events.MsgIDForRelease(indexerName, rel.Info.GUID),
+   Type:   "index.Release",
+   Schema: schemaName,
+   Source: "indexarr@" + version.String(),
+   Key:    key,
+   Time:   rel.FetchedAt,
+   Data:   data,
+  }
+  // The matcher calls tracing.Extract before Start so its span
+  // continues indexarr's poll. Without this Inject the RSS leg of
+  // every trace is orphaned (rssmatcher/handler.go:157-159).
+  tracing.Inject(ctx, env)
 
-		rcpt, pubErr := bus.Publish(ctx, subjectFor(rel, indexerName), env, events.WithMsgID(env.ID))
-		if pubErr != nil {
-			return published, fmt.Errorf("rss: publish %s/%s: %w", indexerName, rel.Info.GUID, pubErr)
-		}
-		if !rcpt.Duplicate {
-			published++
-		}
-	}
-	return published, nil
+  rcpt, pubErr := bus.Publish(ctx, subjectFor(rel, indexerName), env, events.WithMsgID(env.ID))
+  if pubErr != nil {
+   return published, fmt.Errorf("rss: publish %s/%s: %w", indexerName, rel.Info.GUID, pubErr)
+  }
+  if !rcpt.Duplicate {
+   published++
+  }
+ }
+ return published, nil
 }
 ```
 
@@ -5787,17 +5798,17 @@ Expected: FAIL — `subjectFor` is undefined. Next step.
 
 ```go
 func TestSubjectUsesTheAlignedParentCategory(t *testing.T) {
-	tests := []struct {
-		name string
-		cats []newznab.CategoryID
-		want string
-	}{
-		{"2040 aligns to 2000", []newznab.CategoryID{2040}, events.ReleaseSubject("torrent", "idx", 2000)},
-		{"first category wins", []newznab.CategoryID{5030, 2040}, events.ReleaseSubject("torrent", "idx", 5000)},
-		{"a custom id is its own parent", []newznab.CategoryID{100042}, events.ReleaseSubject("torrent", "idx", 100042)},
-		{"no category at all", nil, events.ReleaseSubject("torrent", "idx", 0)},
-	}
-	...
+ tests := []struct {
+  name string
+  cats []newznab.CategoryID
+  want string
+ }{
+  {"2040 aligns to 2000", []newznab.CategoryID{2040}, events.ReleaseSubject("torrent", "idx", 2000)},
+  {"first category wins", []newznab.CategoryID{5030, 2040}, events.ReleaseSubject("torrent", "idx", 5000)},
+  {"a custom id is its own parent", []newznab.CategoryID{100042}, events.ReleaseSubject("torrent", "idx", 100042)},
+  {"no category at all", nil, events.ReleaseSubject("torrent", "idx", 0)},
+ }
+ ...
 }
 ```
 
@@ -5811,11 +5822,11 @@ Implement:
 // Movies/HD. A release with no category publishes under 0, which
 // clustarr.rel.> still matches.
 func subjectFor(rel schema.Release, indexerName string) string {
-	var top newznab.CategoryID
-	if len(rel.Info.Categories) > 0 {
-		top = newznab.CategoryID(rel.Info.Categories[0]).Parent()
-	}
-	return events.ReleaseSubject(string(rel.Info.Protocol), indexerName, int(top))
+ var top newznab.CategoryID
+ if len(rel.Info.Categories) > 0 {
+  top = newznab.CategoryID(rel.Info.Categories[0]).Parent()
+ }
+ return events.ReleaseSubject(string(rel.Info.Protocol), indexerName, int(top))
 }
 ```
 
@@ -5835,28 +5846,28 @@ embedded `natsserver.NewServer` with `JetStream: true`, `Port: -1`, `StoreDir` u
 
 ```go
 func TestPublishReleasesDedupsOnIndexerAndGUID(t *testing.T) {
-	bus := newJetStreamBus(t) // embedded server + k8s.EnsureTopology(events.Default())
-	rels := []schema.Release{rss.ProjectRelease(
-		torznab.Release{Title: "A.2026.1080p-G", GUID: "same-guid", Categories: []newznab.CategoryID{2040}},
-		"idx", "torrent")}
+ bus := newJetStreamBus(t) // embedded server + k8s.EnsureTopology(events.Default())
+ rels := []schema.Release{rss.ProjectRelease(
+  torznab.Release{Title: "A.2026.1080p-G", GUID: "same-guid", Categories: []newznab.CategoryID{2040}},
+  "idx", "torrent")}
 
-	first, err := rss.PublishReleases(t.Context(), bus, "media", "idx", rels)
-	require.NoError(t, err)
-	require.Equal(t, 1, first)
+ first, err := rss.PublishReleases(t.Context(), bus, "media", "idx", rels)
+ require.NoError(t, err)
+ require.Equal(t, 1, first)
 
-	// Re-reading the same RSS page is the normal case at a 15m interval on a
-	// slow-moving feed. CLUSTARR_RELEASES has Duplicates: 2h, so the second
-	// publish stores nothing and the matcher never sees it twice.
-	second, err := rss.PublishReleases(t.Context(), bus, "media", "idx", rels)
-	require.NoError(t, err)
-	require.Equal(t, 0, second, "a duplicate is a stored-nothing, not an error")
+ // Re-reading the same RSS page is the normal case at a 15m interval on a
+ // slow-moving feed. CLUSTARR_RELEASES has Duplicates: 2h, so the second
+ // publish stores nothing and the matcher never sees it twice.
+ second, err := rss.PublishReleases(t.Context(), bus, "media", "idx", rels)
+ require.NoError(t, err)
+ require.Equal(t, 0, second, "a duplicate is a stored-nothing, not an error")
 
-	// The same guid from a DIFFERENT indexer is a different release.
-	other, err := rss.PublishReleases(t.Context(), bus, "media", "idx2",
-		[]schema.Release{rss.ProjectRelease(torznab.Release{Title: "A.2026.1080p-G", GUID: "same-guid",
-			Categories: []newznab.CategoryID{2040}}, "idx2", "torrent")})
-	require.NoError(t, err)
-	require.Equal(t, 1, other)
+ // The same guid from a DIFFERENT indexer is a different release.
+ other, err := rss.PublishReleases(t.Context(), bus, "media", "idx2",
+  []schema.Release{rss.ProjectRelease(torznab.Release{Title: "A.2026.1080p-G", GUID: "same-guid",
+   Categories: []newznab.CategoryID{2040}}, "idx2", "torrent")})
+ require.NoError(t, err)
+ require.Equal(t, 1, other)
 }
 ```
 
@@ -5874,45 +5885,45 @@ consumer definition, without a cluster.
 
 ```go
 func TestPublishedReleaseReachesTheShippedMatcherSubscription(t *testing.T) {
-	bus := newJetStreamBus(t)
+ bus := newJetStreamBus(t)
 
-	// Not a subscription written for this test: the one the shipped handler
-	// asks for. If the tuning or the filter ever moves, this moves with it.
-	sub := (&rssmatcher.Handler{}).Subscription()
-	require.Equal(t, events.StreamReleases, sub.Stream)
+ // Not a subscription written for this test: the one the shipped handler
+ // asks for. If the tuning or the filter ever moves, this moves with it.
+ sub := (&rssmatcher.Handler{}).Subscription()
+ require.Equal(t, events.StreamReleases, sub.Stream)
 
-	var seen []*events.Envelope
-	var mu sync.Mutex
-	stop, err := bus.Subscribe(t.Context(), sub, func(_ context.Context, m events.Message) error {
-		mu.Lock(); defer mu.Unlock()
-		seen = append(seen, m.Envelope().Clone())
-		return nil
-	})
-	require.NoError(t, err)
-	t.Cleanup(stop)
+ var seen []*events.Envelope
+ var mu sync.Mutex
+ stop, err := bus.Subscribe(t.Context(), sub, func(_ context.Context, m events.Message) error {
+  mu.Lock(); defer mu.Unlock()
+  seen = append(seen, m.Envelope().Clone())
+  return nil
+ })
+ require.NoError(t, err)
+ t.Cleanup(stop)
 
-	rel := rss.ProjectRelease(torznab.Release{
-		Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP", GUID: "g1",
-		Categories: []newznab.CategoryID{2040}, IDs: map[string]string{"tmdb": "603"},
-	}, "my-indexer", "torrent")
-	_, err = rss.PublishReleases(t.Context(), bus, "media", "my-indexer", []schema.Release{rel})
-	require.NoError(t, err)
+ rel := rss.ProjectRelease(torznab.Release{
+  Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP", GUID: "g1",
+  Categories: []newznab.CategoryID{2040}, IDs: map[string]string{"tmdb": "603"},
+ }, "my-indexer", "torrent")
+ _, err = rss.PublishReleases(t.Context(), bus, "media", "my-indexer", []schema.Release{rel})
+ require.NoError(t, err)
 
-	require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(seen) == 1 },
-		10*time.Second, 20*time.Millisecond)
+ require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(seen) == 1 },
+  10*time.Second, 20*time.Millisecond)
 
-	env := seen[0]
-	ns, _, ok := strings.Cut(env.Key, "/")
-	require.True(t, ok); require.Equal(t, "media", ns)
+ env := seen[0]
+ ns, _, ok := strings.Cut(env.Key, "/")
+ require.True(t, ok); require.Equal(t, "media", ns)
 
-	var out schema.Release
-	require.NoError(t, schema.Decode(env.Schema, env.Data, &out))
-	require.Equal(t, commonv1.MediaKindMovie, out.Kind, "match.go:45 dispatches on this first")
-	require.Equal(t, "603", out.Info.IDs["tmdb"], "match.go:59 keys movies on this")
-	require.Equal(t, "my-indexer", out.Info.IndexerRef, "resolve.go:216 looks up priority by this")
-	require.NotEmpty(t, out.ParsedTitle)
-	require.NotZero(t, out.Info.Title)
-	require.NotEmpty(t, env.Trace, "tracing.Inject must run or the matcher's span starts a new trace")
+ var out schema.Release
+ require.NoError(t, schema.Decode(env.Schema, env.Data, &out))
+ require.Equal(t, commonv1.MediaKindMovie, out.Kind, "match.go:45 dispatches on this first")
+ require.Equal(t, "603", out.Info.IDs["tmdb"], "match.go:59 keys movies on this")
+ require.Equal(t, "my-indexer", out.Info.IndexerRef, "resolve.go:216 looks up priority by this")
+ require.NotEmpty(t, out.ParsedTitle)
+ require.NotZero(t, out.Info.Title)
+ require.NotEmpty(t, env.Trace, "tracing.Inject must run or the matcher's span starts a new trace")
 }
 ```
 
@@ -5938,15 +5949,15 @@ reconciler at wiring time (D1-8), already carrying that host's single
 // concrete *torznab.Client, already built with this host's single injected
 // rate limiter; this package never constructs one.
 type Searcher interface {
-	Search(ctx context.Context, q torznab.Query) ([]torznab.Release, error)
+ Search(ctx context.Context, q torznab.Query) ([]torznab.Release, error)
 }
 
 type Deps struct {
-	Client   client.Client
-	Bus      events.Bus
-	Index    relindex.Store
-	SearcherFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (Searcher, error)
-	Clock    func() time.Time
+ Client   client.Client
+ Bus      events.Bus
+ Index    relindex.Store
+ SearcherFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (Searcher, error)
+ Clock    func() time.Time
 }
 
 type Worker struct{ Deps Deps }
@@ -5956,21 +5967,21 @@ type Worker struct{ Deps Deps }
 // rssmatcher.Handler.Subscription does, so AckWait and Heartbeat live in one
 // place.
 func (w *Worker) Subscription() events.Subscription {
-	spec, ok := events.Default().Consumer(events.ConsumerIndexRSS)
-	if !ok {
-		return events.Subscription{} // fails Validate loudly at Subscribe time
-	}
-	return spec.Subscription()
+ spec, ok := events.Default().Consumer(events.ConsumerIndexRSS)
+ if !ok {
+  return events.Subscription{} // fails Validate loudly at Subscribe time
+ }
+ return spec.Subscription()
 }
 
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
-	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, w.Subscription(), w.Handle)
-		if err != nil { return fmt.Errorf("indexarr: subscribe rss: %w", err) }
-		defer stop()
-		<-ctx.Done()
-		return nil
-	}))
+ return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+  stop, err := bus.Subscribe(ctx, w.Subscription(), w.Handle)
+  if err != nil { return fmt.Errorf("indexarr: subscribe rss: %w", err) }
+  defer stop()
+  <-ctx.Done()
+  return nil
+ }))
 }
 ```
 
@@ -5978,13 +5989,13 @@ Test, which pins Ruling R7 from the consumer's side:
 
 ```go
 func TestSubscriptionFitsThePodsGracePeriod(t *testing.T) {
-	sub := (&rss.Worker{}).Subscription()
-	require.Equal(t, events.StreamWorkIndexarr, sub.Stream)
-	require.Equal(t, events.ConsumerIndexRSS, sub.Durable)
-	require.LessOrEqual(t, sub.AckWait, 60*time.Second,
-		"terminationGracePeriodSeconds is 60; work that can outlast AckWait heartbeats instead")
-	require.Equal(t, 30*time.Second, sub.Heartbeat)
-	require.NoError(t, sub.Validate())
+ sub := (&rss.Worker{}).Subscription()
+ require.Equal(t, events.StreamWorkIndexarr, sub.Stream)
+ require.Equal(t, events.ConsumerIndexRSS, sub.Durable)
+ require.LessOrEqual(t, sub.AckWait, 60*time.Second,
+  "terminationGracePeriodSeconds is 60; work that can outlast AckWait heartbeats instead")
+ require.Equal(t, 30*time.Second, sub.Heartbeat)
+ require.NoError(t, sub.Validate())
 }
 ```
 
@@ -5999,20 +6010,20 @@ which tells you D1-0 did not land.
 
 ```go
 func TestHandleDiscardsUnusableTasks(t *testing.T) {
-	tests := []struct{ name string; env *events.Envelope }{
-		{"no envelope", nil},
-		{"undecodable", &events.Envelope{Schema: "index.RssTask.v1", Data: []byte("{[")}},
-		{"wrong schema", &events.Envelope{Schema: "index.SearchRequest.v1", Data: []byte("{}")}},
-		{"no indexer name", mustEnv(t, schema.RssTask{IndexerRef: schema.Ref{Namespace: "media"}})},
-		{"no namespace", mustEnv(t, schema.RssTask{IndexerRef: schema.Ref{Name: "idx"}})},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := (&rss.Worker{}).Handle(t.Context(), &fakeMessage{env: tt.env})
-			var d *events.DiscardError
-			require.ErrorAs(t, err, &d, "an unusable task must be terminated, not retried four times")
-		})
-	}
+ tests := []struct{ name string; env *events.Envelope }{
+  {"no envelope", nil},
+  {"undecodable", &events.Envelope{Schema: "index.RssTask.v1", Data: []byte("{[")}},
+  {"wrong schema", &events.Envelope{Schema: "index.SearchRequest.v1", Data: []byte("{}")}},
+  {"no indexer name", mustEnv(t, schema.RssTask{IndexerRef: schema.Ref{Namespace: "media"}})},
+  {"no namespace", mustEnv(t, schema.RssTask{IndexerRef: schema.Ref{Name: "idx"}})},
+ }
+ for _, tt := range tests {
+  t.Run(tt.name, func(t *testing.T) {
+   err := (&rss.Worker{}).Handle(t.Context(), &fakeMessage{env: tt.env})
+   var d *events.DiscardError
+   require.ErrorAs(t, err, &d, "an unusable task must be terminated, not retried four times")
+  })
+ }
 }
 ```
 
@@ -6030,28 +6041,28 @@ Expected: FAIL to build — `Handle` is undefined.
 
 ```go
 func (w *Worker) Handle(ctx context.Context, m events.Message) error {
-	ctx, span := tracing.Start(ctx, "rss.Worker.Handle")
-	defer span.End()
+ ctx, span := tracing.Start(ctx, "rss.Worker.Handle")
+ defer span.End()
 
-	env := m.Envelope()
-	if env == nil {
-		return events.Discard("rss task has no envelope", errors.New("rss: nil envelope"))
-	}
-	var task schema.RssTask
-	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
-		return events.Discard("undecodable rss task", err)
-	}
-	if task.IndexerRef.Name == "" || task.IndexerRef.Namespace == "" {
-		// Both halves are required: the envelope key this poll will publish
-		// under is namespace + "/" + name, and the matcher Discards a key
-		// it cannot Cut. Refuse here, where it is one message, rather than
-		// there, where it is every release from this indexer.
-		return events.Discard("rss task is missing a namespaced indexer reference",
-			fmt.Errorf("rss: indexerRef=%q", task.IndexerRef.String()))
-	}
-	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With(
-		"indexer", task.IndexerRef.Name, "namespace", task.IndexerRef.Namespace))
-	...
+ env := m.Envelope()
+ if env == nil {
+  return events.Discard("rss task has no envelope", errors.New("rss: nil envelope"))
+ }
+ var task schema.RssTask
+ if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
+  return events.Discard("undecodable rss task", err)
+ }
+ if task.IndexerRef.Name == "" || task.IndexerRef.Namespace == "" {
+  // Both halves are required: the envelope key this poll will publish
+  // under is namespace + "/" + name, and the matcher Discards a key
+  // it cannot Cut. Refuse here, where it is one message, rather than
+  // there, where it is every release from this indexer.
+  return events.Discard("rss task is missing a namespaced indexer reference",
+   fmt.Errorf("rss: indexerRef=%q", task.IndexerRef.String()))
+ }
+ ctx = logging.NewContext(ctx, logging.FromContext(ctx).With(
+  "indexer", task.IndexerRef.Name, "namespace", task.IndexerRef.Namespace))
+ ...
 }
 ```
 
@@ -6070,33 +6081,33 @@ of a slow indexer can plausibly exceed it. `fakeMessage.InProgress` counts beats
 
 ```go
 func TestPollHeartbeatsWhileItPages(t *testing.T) {
-	clock := newFakeClock(time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC))
-	msg := &fakeMessage{env: mustEnv(t, schema.RssTask{IndexerRef: schema.Ref{Namespace: "media", Name: "idx"}})}
+ clock := newFakeClock(time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC))
+ msg := &fakeMessage{env: mustEnv(t, schema.RssTask{IndexerRef: schema.Ref{Namespace: "media", Name: "idx"}})}
 
-	// Four pages, each "taking" 25 seconds of fake time.
-	searcher := &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
-		clock.Advance(25 * time.Second)
-		return pageOf(100), nil
-	}}
-	w := newTestWorker(t, clock, searcher) // 4 pages then empty
-	_ = w.Handle(t.Context(), msg)
+ // Four pages, each "taking" 25 seconds of fake time.
+ searcher := &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
+  clock.Advance(25 * time.Second)
+  return pageOf(100), nil
+ }}
+ w := newTestWorker(t, clock, searcher) // 4 pages then empty
+ _ = w.Handle(t.Context(), msg)
 
-	require.GreaterOrEqual(t, msg.heartbeats.Load(), int32(4),
-		"a 100s poll with a 60s AckWait must extend its deadline or the broker redelivers it and two workers poll one indexer")
+ require.GreaterOrEqual(t, msg.heartbeats.Load(), int32(4),
+  "a 100s poll with a 60s AckWait must extend its deadline or the broker redelivers it and two workers poll one indexer")
 }
 
 func TestPollAtSigtermRetriesWithoutEscalatingTheIndexer(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	searcher := &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
-		cancel()
-		return nil, ctx.Err()
-	}}
-	w := newTestWorker(t, clock, searcher)
-	err := w.Handle(ctx, msg)
+ ctx, cancel := context.WithCancel(t.Context())
+ searcher := &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
+  cancel()
+  return nil, ctx.Err()
+ }}
+ w := newTestWorker(t, clock, searcher)
+ err := w.Handle(ctx, msg)
 
-	var r *events.RetryError
-	require.ErrorAs(t, err, &r, "a cancelled poll is unfinished work, not a failed indexer")
-	require.Zero(t, appliedEscalationCount(t), "a rollout must not escalate every indexer at once")
+ var r *events.RetryError
+ require.ErrorAs(t, err, &r, "a cancelled poll is unfinished work, not a failed indexer")
+ require.Zero(t, appliedEscalationCount(t), "a rollout must not escalate every indexer at once")
 }
 ```
 
@@ -6114,57 +6125,57 @@ so the only way a poll outlives AckWait is by making several of them.
 
 ```go
 const (
-	// heartbeatInterval is how often the poll extends its ack deadline.
-	// ConsumerIndexRSS's AckWait is 60s, pinned to the pod's
-	// terminationGracePeriodSeconds by Ruling R7; topology.go's own rule is
-	// that work which can outlast the grace period heartbeats rather than
-	// raising AckWait past it. 20s leaves two missed beats of headroom.
-	// This is NOT Subscription.Heartbeat, which is the broker's idle
-	// heartbeat for connection liveness and extends nothing.
-	heartbeatInterval = 20 * time.Second
+ // heartbeatInterval is how often the poll extends its ack deadline.
+ // ConsumerIndexRSS's AckWait is 60s, pinned to the pod's
+ // terminationGracePeriodSeconds by Ruling R7; topology.go's own rule is
+ // that work which can outlast the grace period heartbeats rather than
+ // raising AckWait past it. 20s leaves two missed beats of headroom.
+ // This is NOT Subscription.Heartbeat, which is the broker's idle
+ // heartbeat for connection liveness and extends nothing.
+ heartbeatInterval = 20 * time.Second
 
-	// maxPages bounds one poll. An indexer that keeps returning full pages
-	// would otherwise hold the delivery open indefinitely; the next poll
-	// picks up where this one stopped, and RSS only needs the newest rows.
-	maxPages = 4
+ // maxPages bounds one poll. An indexer that keeps returning full pages
+ // would otherwise hold the delivery open indefinitely; the next poll
+ // picks up where this one stopped, and RSS only needs the newest rows.
+ maxPages = 4
 
-	// pageSize is per Torznab request. Prowlarr's RSS default.
-	pageSize = 100
+ // pageSize is per Torznab request. Prowlarr's RSS default.
+ pageSize = 100
 )
 
 func (w *Worker) poll(ctx context.Context, m events.Message, s Searcher, idx *indexv1alpha1.Indexer, task schema.RssTask) ([]torznab.Release, error) {
-	var (
-		all  []torznab.Release
-		last time.Time
-	)
-	for page := 0; page < maxPages; page++ {
-		if ctx.Err() != nil {
-			return all, ctx.Err()
-		}
-		if now := w.now(); last.IsZero() || now.Sub(last) >= heartbeatInterval {
-			last = now
-			if err := m.InProgress(ctx); err != nil {
-				return all, fmt.Errorf("rss: heartbeat: %w", err)
-			}
-		}
-		// t=search with an empty q is the RSS call: the indexer's newest
-		// rows, unfiltered (design.md:621).
-		q := torznab.Query{
-			Type:       torznab.ModeSearch,
-			Categories: categoryIDsFor(idx, task),
-			Limit:      pageSize,
-			Offset:     page * pageSize,
-		}
-		batch, err := s.Search(ctx, q)
-		if err != nil {
-			return all, err
-		}
-		all = append(all, batch...)
-		if len(batch) < pageSize || reachedSince(batch, task.Since) {
-			break // RssTask.Since exists so the worker can stop paging early.
-		}
-	}
-	return all, nil
+ var (
+  all  []torznab.Release
+  last time.Time
+ )
+ for page := 0; page < maxPages; page++ {
+  if ctx.Err() != nil {
+   return all, ctx.Err()
+  }
+  if now := w.now(); last.IsZero() || now.Sub(last) >= heartbeatInterval {
+   last = now
+   if err := m.InProgress(ctx); err != nil {
+    return all, fmt.Errorf("rss: heartbeat: %w", err)
+   }
+  }
+  // t=search with an empty q is the RSS call: the indexer's newest
+  // rows, unfiltered (design.md:621).
+  q := torznab.Query{
+   Type:       torznab.ModeSearch,
+   Categories: categoryIDsFor(idx, task),
+   Limit:      pageSize,
+   Offset:     page * pageSize,
+  }
+  batch, err := s.Search(ctx, q)
+  if err != nil {
+   return all, err
+  }
+  all = append(all, batch...)
+  if len(batch) < pageSize || reachedSince(batch, task.Since) {
+   break // RssTask.Since exists so the worker can stop paging early.
+  }
+ }
+ return all, nil
 }
 ```
 
@@ -6173,15 +6184,15 @@ handlers, the in-flight HTTP request returns `ctx.Err()`, and `poll` returns it.
 then does:
 
 ```go
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		// The pod is going away mid-poll. This is our shutdown, not the
-		// indexer's fault: recording a failure here would escalate every
-		// indexer in the namespace on every rollout, and Prowlarr's ladder
-		// would then disable them for minutes. Nak and let the next pod
-		// take it; nothing has been indexed or published, so redelivery is
-		// a clean retry.
-		return events.Retry(retryAfterShutdown, err)
-	}
+ if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+  // The pod is going away mid-poll. This is our shutdown, not the
+  // indexer's fault: recording a failure here would escalate every
+  // indexer in the namespace on every rollout, and Prowlarr's ladder
+  // would then disable them for minutes. Nak and let the next pod
+  // take it; nothing has been indexed or published, so redelivery is
+  // a clean retry.
+  return events.Retry(retryAfterShutdown, err)
+ }
 ```
 
 `retryAfterShutdown` is 30s. Note the ordering guarantee this relies on: the worker
@@ -6201,22 +6212,22 @@ and the spec's RSS clause is "insert **new rows** (`UNIQUE(indexer, guid)`)". Ne
 *new to the index*. There are three different counts in flight and they routinely differ:
 
 | count | source | means |
-|---|---|---|
+| --- | --- | --- |
 | `len(fetched)` | `torznab.Search` | how many rows the feed had — on a quiet feed this is the same 100 rows every 15 minutes |
 | `inserted` | `relindex.Upsert` | **how many were new to the index** ← this one |
 | `published` | `PublishReleases` | how many the bus stored, suppressed by a **2h** dedup window against a **72h** index |
 
 ```go
 func TestLastRssNewCountComesFromTheIndexNotTheFeed(t *testing.T) {
-	// 5 rows on the wire; the store reports 1 was new.
-	store := &fakeStore{inserted: 1}
-	w := newTestWorker(t, clock, &fakeSearcher{releases: pageOf(5)}, withStore(store))
-	require.NoError(t, w.Handle(t.Context(), msg))
+ // 5 rows on the wire; the store reports 1 was new.
+ store := &fakeStore{inserted: 1}
+ w := newTestWorker(t, clock, &fakeSearcher{releases: pageOf(5)}, withStore(store))
+ require.NoError(t, w.Handle(t.Context(), msg))
 
-	st := getIndexerStatus(t)
-	require.Equal(t, int32(1), st.LastRssNewCount, "new means new to the index, not fetched")
-	require.Equal(t, int64(1), st.IndexedReleases, "running total advances by the insert count")
-	require.Len(t, store.upserted, 5, "every fetched row is offered to the index; the store decides")
+ st := getIndexerStatus(t)
+ require.Equal(t, int32(1), st.LastRssNewCount, "new means new to the index, not fetched")
+ require.Equal(t, int64(1), st.IndexedReleases, "running total advances by the insert count")
+ require.Len(t, store.upserted, 5, "every fetched row is offered to the index; the store decides")
 }
 ```
 
@@ -6229,37 +6240,37 @@ Expected: FAIL.
 - [ ] **Step 22: Implement index-then-publish, and document the two windows**
 
 ```go
-	rows := make([]relindex.Release, 0, len(fetched))
-	projected := make([]schema.Release, 0, len(fetched))
-	for _, r := range fetched {
-		rel := ProjectRelease(r, idx.Name, string(protocol))
-		rel.FetchedAt = now
-		projected = append(projected, rel)
-		rows = append(rows, indexRow(rel, idx.Name, now))
-	}
+ rows := make([]relindex.Release, 0, len(fetched))
+ projected := make([]schema.Release, 0, len(fetched))
+ for _, r := range fetched {
+  rel := ProjectRelease(r, idx.Name, string(protocol))
+  rel.FetchedAt = now
+  projected = append(projected, rel)
+  rows = append(rows, indexRow(rel, idx.Name, now))
+ }
 
-	// Upsert first, and take lastRssNewCount from its truthful `inserted`.
-	// Every fetched row is offered; UNIQUE(indexer, guid) decides what is
-	// new. Counting len(fetched) instead would report 100 new releases every
-	// 15 minutes on a feed that has not moved.
-	inserted, err := w.Deps.Index.Upsert(ctx, rows)
-	if err != nil { ... }
+ // Upsert first, and take lastRssNewCount from its truthful `inserted`.
+ // Every fetched row is offered; UNIQUE(indexer, guid) decides what is
+ // new. Counting len(fetched) instead would report 100 new releases every
+ // 15 minutes on a feed that has not moved.
+ inserted, err := w.Deps.Index.Upsert(ctx, rows)
+ if err != nil { ... }
 
-	// Then publish ALL of them, not just the new ones. Upsert returns a
-	// count, not a set (ADR-0003 fixes Store at four methods), and the
-	// firehose is idempotent by design: Nats-Msg-Id is
-	// sha1(indexer:guid) and CLUSTARR_RELEASES dedups for 2h, so
-	// re-reading the same RSS page republishes nothing.
-	//
-	// The two windows are deliberately different and the asymmetry is
-	// correct: the index keeps 72h, the dedup window is 2h. A release last
-	// seen three hours ago is still in the index (inserted == 0) but its
-	// dedup entry has expired, so it is republished and the matcher
-	// re-evaluates it once. That costs one evaluation and can only help --
-	// the item's monitored state or quality profile may have changed since.
-	// What it must never do is inflate lastRssNewCount, which is why that
-	// number comes from `inserted` and not from `published`.
-	published, err := PublishReleases(ctx, w.Deps.Bus, idx.Namespace, idx.Name, projected)
+ // Then publish ALL of them, not just the new ones. Upsert returns a
+ // count, not a set (ADR-0003 fixes Store at four methods), and the
+ // firehose is idempotent by design: Nats-Msg-Id is
+ // sha1(indexer:guid) and CLUSTARR_RELEASES dedups for 2h, so
+ // re-reading the same RSS page republishes nothing.
+ //
+ // The two windows are deliberately different and the asymmetry is
+ // correct: the index keeps 72h, the dedup window is 2h. A release last
+ // seen three hours ago is still in the index (inserted == 0) but its
+ // dedup entry has expired, so it is republished and the matcher
+ // re-evaluates it once. That costs one evaluation and can only help --
+ // the item's monitored state or quality profile may have changed since.
+ // What it must never do is inflate lastRssNewCount, which is why that
+ // number comes from `inserted` and not from `published`.
+ published, err := PublishReleases(ctx, w.Deps.Bus, idx.Namespace, idx.Name, projected)
 ```
 
 `indexRow` fills `relindex.Release`: `Indexer`, `GUID`, `Title` (raw), `TitleNorm` =
@@ -6286,20 +6297,20 @@ download verb — so each of them must declare **all nine** of that manager's fi
 // Patch is the subset of the indexarr-worker fields one writer changed.
 // Everything it leaves nil is carried forward from cur.
 type Patch struct {
-	LastRssAt       *metav1.Time
-	LastRssNewCount *int32
-	IndexedReleases *int64
-	QueriesInWindow *int32
-	GrabsInWindow   *int32
-	Escalation      *indexer.Escalation
+ LastRssAt       *metav1.Time
+ LastRssNewCount *int32
+ IndexedReleases *int64
+ QueriesInWindow *int32
+ GrabsInWindow   *int32
+ Escalation      *indexer.Escalation
 }
 
 // WorkerStatus builds the COMPLETE set of IndexerStatus fields the
 // "indexarr-worker" field manager owns:
 //
-//	lastRssAt, lastRssNewCount, indexedReleases,
-//	queriesInWindow, grabsInWindow,
-//	escalationLevel, disabledUntil, initialFailureAt, lastFailureAt, lastFailure
+// lastRssAt, lastRssNewCount, indexedReleases,
+// queriesInWindow, grabsInWindow,
+// escalationLevel, disabledUntil, initialFailureAt, lastFailureAt, lastFailure
 //
 // It is a COMPLETE declaration on purpose. Server-side apply replaces the
 // manager's ownership set rather than merging it, so a field this manager
@@ -6315,22 +6326,22 @@ type Patch struct {
 // them hand-rolls an apply that omits lastRssAt, the next search zeroes the
 // RSS timestamps.
 func WorkerStatus(ns, name string, cur indexv1alpha1.IndexerStatus, p Patch) *indexac.IndexerApplyConfiguration {
-	st := indexac.IndexerStatus().
-		WithLastRssAt(derefOr(p.LastRssAt, cur.LastRssAt)).
-		WithLastRssNewCount(derefOr(p.LastRssNewCount, cur.LastRssNewCount)).
-		WithIndexedReleases(derefOr(p.IndexedReleases, cur.IndexedReleases)).
-		WithQueriesInWindow(derefOr(p.QueriesInWindow, cur.QueriesInWindow)).
-		WithGrabsInWindow(derefOr(p.GrabsInWindow, cur.GrabsInWindow))
-	// Escalation is sent EVERY time, not only when it changes. A field that
-	// stops being sent once it reaches a value flips back to zero; keep
-	// sending it. RecordSuccess returns Changed=false for an
-	// already-healthy indexer, and that is a signal to skip the whole
-	// apply -- never a signal to send a shorter one.
-	esc := currentEscalation(cur)
-	if p.Escalation != nil { esc = *p.Escalation }
-	st = applyEscalation(st, esc)
+ st := indexac.IndexerStatus().
+  WithLastRssAt(derefOr(p.LastRssAt, cur.LastRssAt)).
+  WithLastRssNewCount(derefOr(p.LastRssNewCount, cur.LastRssNewCount)).
+  WithIndexedReleases(derefOr(p.IndexedReleases, cur.IndexedReleases)).
+  WithQueriesInWindow(derefOr(p.QueriesInWindow, cur.QueriesInWindow)).
+  WithGrabsInWindow(derefOr(p.GrabsInWindow, cur.GrabsInWindow))
+ // Escalation is sent EVERY time, not only when it changes. A field that
+ // stops being sent once it reaches a value flips back to zero; keep
+ // sending it. RecordSuccess returns Changed=false for an
+ // already-healthy indexer, and that is a signal to skip the whole
+ // apply -- never a signal to send a shorter one.
+ esc := currentEscalation(cur)
+ if p.Escalation != nil { esc = *p.Escalation }
+ st = applyEscalation(st, esc)
 
-	return indexac.Indexer(name, ns).WithStatus(st)
+ return indexac.Indexer(name, ns).WithStatus(st)
 }
 ```
 
@@ -6352,50 +6363,50 @@ Create `suite_envtest_test.go` by copying `app/catalog/worker/rssmatcher/suite_e
 
 ```go
 func TestStatusApplyDoesNotReleaseWhatItDidNotChange(t *testing.T) {
-	requireEnvtest(t)
-	ctx, c, ns := setup(t)
+ requireEnvtest(t)
+ ctx, c, ns := setup(t)
 
-	idx := newIndexer(t, ctx, c, ns, "idx")
+ idx := newIndexer(t, ctx, c, ns, "idx")
 
-	// STEADY STATE FIRST. Two writers, both real:
-	//   - the reconciler's manager, "indexarr"
-	//   - this worker's manager, "indexarr-worker", with all nine fields set
-	// A test that skips this and applies to a blank object proves nothing.
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerIndexarr,
-		indexac.Indexer("idx", ns).WithStatus(indexac.IndexerStatus().
-			WithObservedGeneration(1).WithProtocol(commonv1.ProtocolTorrent).
-			WithPrivacy("private").WithSessionSecretRef("idx-session")))
-	require.NoError(t, err)
+ // STEADY STATE FIRST. Two writers, both real:
+ //   - the reconciler's manager, "indexarr"
+ //   - this worker's manager, "indexarr-worker", with all nine fields set
+ // A test that skips this and applies to a blank object proves nothing.
+ _, err := k8s.PatchStatus(ctx, c, k8s.ManagerIndexarr,
+  indexac.Indexer("idx", ns).WithStatus(indexac.IndexerStatus().
+   WithObservedGeneration(1).WithProtocol(commonv1.ProtocolTorrent).
+   WithPrivacy("private").WithSessionSecretRef("idx-session")))
+ require.NoError(t, err)
 
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
-		rss.WorkerStatus(ns, "idx", indexv1alpha1.IndexerStatus{}, rss.Patch{
-			LastRssAt:       ptr.To(metav1.NewTime(t0)),
-			LastRssNewCount: ptr.To(int32(7)),
-			IndexedReleases: ptr.To(int64(4242)),
-			QueriesInWindow: ptr.To(int32(11)),
-			GrabsInWindow:   ptr.To(int32(3)),
-		}))
-	require.NoError(t, err)
+ _, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
+  rss.WorkerStatus(ns, "idx", indexv1alpha1.IndexerStatus{}, rss.Patch{
+   LastRssAt:       new(metav1.NewTime(t0)),
+   LastRssNewCount: new(int32(7)),
+   IndexedReleases: new(int64(4242)),
+   QueriesInWindow: new(int32(11)),
+   GrabsInWindow:   new(int32(3)),
+  }))
+ require.NoError(t, err)
 
-	// Now the path under test: a poll that finds nothing new. It changes
-	// lastRssAt and lastRssNewCount and touches nothing else.
-	before := getStatus(t, ctx, c, ns, "idx")
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
-		rss.WorkerStatus(ns, "idx", before, rss.Patch{
-			LastRssAt: ptr.To(metav1.NewTime(t1)), LastRssNewCount: ptr.To(int32(0)),
-		}))
-	require.NoError(t, err)
+ // Now the path under test: a poll that finds nothing new. It changes
+ // lastRssAt and lastRssNewCount and touches nothing else.
+ before := getStatus(t, ctx, c, ns, "idx")
+ _, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
+  rss.WorkerStatus(ns, "idx", before, rss.Patch{
+   LastRssAt: new(metav1.NewTime(t1)), LastRssNewCount: ptr.To(int32(0)),
+  }))
+ require.NoError(t, err)
 
-	after := getStatus(t, ctx, c, ns, "idx")
-	require.Equal(t, int32(11), after.QueriesInWindow, "released by an apply that omitted it")
-	require.Equal(t, int32(3), after.GrabsInWindow)
-	require.Equal(t, int64(4242), after.IndexedReleases)
-	// And the OTHER manager's fields must be untouched: this is the whole
-	// point of Ruling R6's split.
-	require.Equal(t, int64(1), after.ObservedGeneration)
-	require.Equal(t, commonv1.ProtocolTorrent, after.Protocol)
-	require.Equal(t, "idx-session", after.SessionSecretRef)
-	require.Equal(t, "private", after.Privacy)
+ after := getStatus(t, ctx, c, ns, "idx")
+ require.Equal(t, int32(11), after.QueriesInWindow, "released by an apply that omitted it")
+ require.Equal(t, int32(3), after.GrabsInWindow)
+ require.Equal(t, int64(4242), after.IndexedReleases)
+ // And the OTHER manager's fields must be untouched: this is the whole
+ // point of Ruling R6's split.
+ require.Equal(t, int64(1), after.ObservedGeneration)
+ require.Equal(t, commonv1.ProtocolTorrent, after.Protocol)
+ require.Equal(t, "idx-session", after.SessionSecretRef)
+ require.Equal(t, "private", after.Privacy)
 }
 ```
 
@@ -6416,24 +6427,24 @@ and `indexedReleases` off a healthy object.
 
 ```go
 func TestFailedPollKeepsTheRssFieldsItDidNotChange(t *testing.T) {
-	requireEnvtest(t)
-	ctx, c, ns := setup(t)
-	idx := newIndexer(t, ctx, c, ns, "idx")
-	driveToSteadyState(t, ctx, c, ns, "idx") // lastRssAt=t0, newCount=7, indexed=4242, queries=11
+ requireEnvtest(t)
+ ctx, c, ns := setup(t)
+ idx := newIndexer(t, ctx, c, ns, "idx")
+ driveToSteadyState(t, ctx, c, ns, "idx") // lastRssAt=t0, newCount=7, indexed=4242, queries=11
 
-	w := newWorker(t, c, &fakeSearcher{err: errors.New("indexer returned 503")})
-	err := w.Handle(ctx, rssTaskMessage(t, ns, "idx"))
-	require.Error(t, err, "a failed poll is retried")
+ w := newWorker(t, c, &fakeSearcher{err: errors.New("indexer returned 503")})
+ err := w.Handle(ctx, rssTaskMessage(t, ns, "idx"))
+ require.Error(t, err, "a failed poll is retried")
 
-	st := getStatus(t, ctx, c, ns, "idx")
-	require.Equal(t, int32(1), st.EscalationLevel, "the failure was recorded")
-	require.Equal(t, "indexer returned 503", st.LastFailure)
-	require.NotNil(t, st.InitialFailureAt)
-	// The three fields the failure path did not touch must survive it.
-	require.Equal(t, int64(4242), st.IndexedReleases)
-	require.Equal(t, int32(7), st.LastRssNewCount)
-	require.Equal(t, t0, st.LastRssAt.Time.UTC(), "a 503 must not erase when we last polled successfully")
-	require.Equal(t, int32(11), st.QueriesInWindow)
+ st := getStatus(t, ctx, c, ns, "idx")
+ require.Equal(t, int32(1), st.EscalationLevel, "the failure was recorded")
+ require.Equal(t, "indexer returned 503", st.LastFailure)
+ require.NotNil(t, st.InitialFailureAt)
+ // The three fields the failure path did not touch must survive it.
+ require.Equal(t, int64(4242), st.IndexedReleases)
+ require.Equal(t, int32(7), st.LastRssNewCount)
+ require.Equal(t, t0, st.LastRssAt.Time.UTC(), "a 503 must not erase when we last polled successfully")
+ require.Equal(t, int32(11), st.QueriesInWindow)
 }
 ```
 
@@ -6449,41 +6460,41 @@ There is exactly one `PatchStatus` call in the worker and every path reaches it.
 `Handle` so the apply is unconditional:
 
 ```go
-	fetched, pollErr := w.poll(ctx, m, s, idx, task)
+ fetched, pollErr := w.poll(ctx, m, s, idx, task)
 
-	patch := Patch{}
-	switch {
-	case pollErr != nil && (errors.Is(pollErr, context.Canceled) || errors.Is(pollErr, context.DeadlineExceeded)):
-		// Shutdown. Record nothing, release nothing, retry.
-		return events.Retry(retryAfterShutdown, pollErr)
-	case pollErr != nil:
-		esc := indexer.RecordFailure(idx.Status, now, pollErr.Error())
-		patch.Escalation = &esc
-	default:
-		inserted, published := ... // Step 22
-		esc := indexer.RecordSuccess(idx.Status, now)
-		patch = Patch{
-			LastRssAt:       ptr.To(metav1.NewTime(now)),
-			LastRssNewCount: ptr.To(int32(inserted)),
-			IndexedReleases: ptr.To(idx.Status.IndexedReleases + int64(inserted)),
-			Escalation:      &esc,
-		}
-	}
+ patch := Patch{}
+ switch {
+ case pollErr != nil && (errors.Is(pollErr, context.Canceled) || errors.Is(pollErr, context.DeadlineExceeded)):
+  // Shutdown. Record nothing, release nothing, retry.
+  return events.Retry(retryAfterShutdown, pollErr)
+ case pollErr != nil:
+  esc := indexer.RecordFailure(idx.Status, now, pollErr.Error())
+  patch.Escalation = &esc
+ default:
+  inserted, published := ... // Step 22
+  esc := indexer.RecordSuccess(idx.Status, now)
+  patch = Patch{
+   LastRssAt:       new(metav1.NewTime(now)),
+   LastRssNewCount: new(int32(inserted)),
+   IndexedReleases: new(idx.Status.IndexedReleases + int64(inserted)),
+   Escalation:      &esc,
+  }
+ }
 
-	// ONE apply, whatever happened. Never an early return with a partial
-	// status: the early return is usually the transient case, which is
-	// exactly when a healthy object would be gutted by a blip.
-	if _, err := k8s.PatchStatus(ctx, w.Deps.Client, k8s.ManagerIndexarrWorker,
-		WorkerStatus(idx.Namespace, idx.Name, idx.Status, patch)); err != nil {
-		return events.Retry(statusRetry, err)
-	}
-	// Reschedule BEFORE returning the poll error, so a failing indexer keeps
-	// its cadence and recovers on its own (Step 28).
-	if err := ScheduleNext(ctx, w.Deps.Bus, idx, now.Add(interval(idx))); err != nil { ... }
-	if pollErr != nil {
-		return events.Retry(indexer.BackoffFor(idx.Status), pollErr)
-	}
-	return nil
+ // ONE apply, whatever happened. Never an early return with a partial
+ // status: the early return is usually the transient case, which is
+ // exactly when a healthy object would be gutted by a blip.
+ if _, err := k8s.PatchStatus(ctx, w.Deps.Client, k8s.ManagerIndexarrWorker,
+  WorkerStatus(idx.Namespace, idx.Name, idx.Status, patch)); err != nil {
+  return events.Retry(statusRetry, err)
+ }
+ // Reschedule BEFORE returning the poll error, so a failing indexer keeps
+ // its cadence and recovers on its own (Step 28).
+ if err := ScheduleNext(ctx, w.Deps.Bus, idx, now.Add(interval(idx))); err != nil { ... }
+ if pollErr != nil {
+  return events.Retry(indexer.BackoffFor(idx.Status), pollErr)
+ }
+ return nil
 ```
 
 `idx.Status.IndexedReleases + inserted` is a read-modify-write. `relindex.Store` is fixed
@@ -6506,31 +6517,31 @@ out across indexers — but it has to be *asserted*, because the cheap implement
 
 ```go
 func TestOneFailingIndexerDoesNotStopTheOthers(t *testing.T) {
-	requireEnvtest(t)
-	ctx, c, ns := setup(t)
-	newIndexer(t, ctx, c, ns, "broken"); newIndexer(t, ctx, c, ns, "healthy")
+ requireEnvtest(t)
+ ctx, c, ns := setup(t)
+ newIndexer(t, ctx, c, ns, "broken"); newIndexer(t, ctx, c, ns, "healthy")
 
-	w := newWorker(t, c, searcherFunc(func(idx string) (Searcher, error) {
-		if idx == "broken" { return &fakeSearcher{err: errors.New("503")}, nil }
-		return &fakeSearcher{releases: pageOf(3)}, nil
-	}))
+ w := newWorker(t, c, searcherFunc(func(idx string) (Searcher, error) {
+  if idx == "broken" { return &fakeSearcher{err: errors.New("503")}, nil }
+  return &fakeSearcher{releases: pageOf(3)}, nil
+ }))
 
-	require.Error(t, w.Handle(ctx, rssTaskMessage(t, ns, "broken")))
-	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "healthy")),
-		"one indexer's failure must not reach another's delivery")
+ require.Error(t, w.Handle(ctx, rssTaskMessage(t, ns, "broken")))
+ require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "healthy")),
+  "one indexer's failure must not reach another's delivery")
 
-	require.Equal(t, int32(1), getStatus(t, ctx, c, ns, "broken").EscalationLevel)
-	require.Zero(t, getStatus(t, ctx, c, ns, "healthy").EscalationLevel)
-	require.Equal(t, int32(3), getStatus(t, ctx, c, ns, "healthy").LastRssNewCount)
+ require.Equal(t, int32(1), getStatus(t, ctx, c, ns, "broken").EscalationLevel)
+ require.Zero(t, getStatus(t, ctx, c, ns, "healthy").EscalationLevel)
+ require.Equal(t, int32(3), getStatus(t, ctx, c, ns, "healthy").LastRssNewCount)
 }
 
 func TestHandleNeverListsIndexers(t *testing.T) {
-	// A Get of exactly one object, by the name in the task. If this ever
-	// becomes a List, the failure of one indexer can abort the loop and
-	// starve every indexer after it in the slice.
-	rec := &countingClient{}
-	_ = newWorker(t, rec, ...).Handle(ctx, rssTaskMessage(t, ns, "idx"))
-	require.Equal(t, 1, rec.gets); require.Zero(t, rec.lists)
+ // A Get of exactly one object, by the name in the task. If this ever
+ // becomes a List, the failure of one indexer can abort the loop and
+ // starve every indexer after it in the slice.
+ rec := &countingClient{}
+ _ = newWorker(t, rec, ...).Handle(ctx, rssTaskMessage(t, ns, "idx"))
+ require.Equal(t, 1, rec.gets); require.Zero(t, rec.lists)
 }
 ```
 
@@ -6565,34 +6576,34 @@ id to the slot:
 // seeding one while a poll schedules the next -- collapse to one delivery,
 // which is exactly what we want.
 func TaskMsgID(uid string, generation int64, slot time.Time) string {
-	return events.MsgIDForObject(uid, generation, "rss:"+slot.UTC().Truncate(time.Second).Format(time.RFC3339))
+ return events.MsgIDForObject(uid, generation, "rss:"+slot.UTC().Truncate(time.Second).Format(time.RFC3339))
 }
 
 func ScheduleNext(ctx context.Context, bus events.Bus, idx *indexv1alpha1.Indexer, at time.Time) error {
-	name, data, err := schema.Encode(schema.RssTask{
-		IndexerRef: schema.Ref{Namespace: idx.Namespace, Name: idx.Name, UID: string(idx.UID)},
-		Categories: idx.Spec.Categories,
-		Since:      newestSeen(idx),
-	})
-	if err != nil { return err }
-	id := TaskMsgID(string(idx.UID), idx.Generation, at)
-	env := &events.Envelope{
-		ID: id, Type: "index.RssTask", Schema: name,
-		Source: "indexarr@" + version.String(),
-		// The work-task envelope key is the same <namespace>/<name> shape
-		// as the firehose's, for the same reason: whoever handles it cuts
-		// it to recover the namespace.
-		Key: idx.Namespace + "/" + idx.Name, Time: at, Data: data,
-	}
-	tracing.Inject(ctx, env)
-	// Publish to the TARGET subject; the bus rewrites it onto
-	// clustarr.work.indexarr.sched.rss.normal.<uid> and asks the broker to
-	// republish it to the target when the schedule fires
-	// (natsbus.go:210-218). Publishing to the holding subject directly
-	// would make the message re-trigger itself.
-	_, err = bus.Publish(ctx, events.WorkRSSSubject(string(idx.UID)), env,
-		events.WithMsgID(id), events.WithScheduleAt(at))
-	return err
+ name, data, err := schema.Encode(schema.RssTask{
+  IndexerRef: schema.Ref{Namespace: idx.Namespace, Name: idx.Name, UID: string(idx.UID)},
+  Categories: idx.Spec.Categories,
+  Since:      newestSeen(idx),
+ })
+ if err != nil { return err }
+ id := TaskMsgID(string(idx.UID), idx.Generation, at)
+ env := &events.Envelope{
+  ID: id, Type: "index.RssTask", Schema: name,
+  Source: "indexarr@" + version.String(),
+  // The work-task envelope key is the same <namespace>/<name> shape
+  // as the firehose's, for the same reason: whoever handles it cuts
+  // it to recover the namespace.
+  Key: idx.Namespace + "/" + idx.Name, Time: at, Data: data,
+ }
+ tracing.Inject(ctx, env)
+ // Publish to the TARGET subject; the bus rewrites it onto
+ // clustarr.work.indexarr.sched.rss.normal.<uid> and asks the broker to
+ // republish it to the target when the schedule fires
+ // (natsbus.go:210-218). Publishing to the holding subject directly
+ // would make the message re-trigger itself.
+ _, err = bus.Publish(ctx, events.WorkRSSSubject(string(idx.UID)), env,
+  events.WithMsgID(id), events.WithScheduleAt(at))
+ return err
 }
 ```
 
@@ -6607,21 +6618,21 @@ Test:
 
 ```go
 func TestScheduleNextDedupsPerSlotAndAdvancesBetweenSlots(t *testing.T) {
-	bus := newJetStreamBus(t)
-	idx := indexerWithUID("u1", 3)
+ bus := newJetStreamBus(t)
+ idx := indexerWithUID("u1", 3)
 
-	require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, t0.Add(15*time.Minute)))
-	require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, t0.Add(15*time.Minute)))
-	require.Equal(t, uint64(1), storedOn(t, bus, events.WorkRSSSubject("u1")),
-		"the reconciler and the worker racing on one slot must collapse to one poll")
+ require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, t0.Add(15*time.Minute)))
+ require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, t0.Add(15*time.Minute)))
+ require.Equal(t, uint64(1), storedOn(t, bus, events.WorkRSSSubject("u1")),
+  "the reconciler and the worker racing on one slot must collapse to one poll")
 
-	require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, t0.Add(30*time.Minute)))
-	require.Equal(t, uint64(2), storedOn(t, bus, events.WorkRSSSubject("u1")),
-		"a constant per-object msg-id would swallow this and polling would stop dead")
+ require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, t0.Add(30*time.Minute)))
+ require.Equal(t, uint64(2), storedOn(t, bus, events.WorkRSSSubject("u1")),
+  "a constant per-object msg-id would swallow this and polling would stop dead")
 
-	require.NotEqual(t,
-		rss.TaskMsgID("u1", 3, t0.Add(15*time.Minute)),
-		rss.TaskMsgID("u1", 3, t0.Add(30*time.Minute)))
+ require.NotEqual(t,
+  rss.TaskMsgID("u1", 3, t0.Add(15*time.Minute)),
+  rss.TaskMsgID("u1", 3, t0.Add(30*time.Minute)))
 }
 ```
 
@@ -6635,9 +6646,9 @@ Three shipped metrics, all with bounded labels (`indexer` is an object name, bou
 the number of `Indexer` objects; **never** label by release title or feed URL):
 
 ```go
-	metrics.IndexerQueryDuration.WithLabelValues(idx.Name, "rss").Observe(time.Since(start).Seconds())
-	metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, outcome).Inc()   // ok | error | rate_limited | banned
-	metrics.IndexerReleasesReturned.WithLabelValues(idx.Name).Observe(float64(len(fetched)))
+ metrics.IndexerQueryDuration.WithLabelValues(idx.Name, "rss").Observe(time.Since(start).Seconds())
+ metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, outcome).Inc()   // ok | error | rate_limited | banned
+ metrics.IndexerReleasesReturned.WithLabelValues(idx.Name).Observe(float64(len(fetched)))
 ```
 
 Derive `rate_limited` and `banned` from `*torznab.Error` (`HTTPStatus == 429` and
@@ -6739,6 +6750,7 @@ others untouched; the next poll is scheduled with a slot-quantised msg-id; `make
   **1 hour** (`topology.go:372-384`). A duplicate *schedule* is therefore suppressed by
   the 1h window, and only if that window is exceeded does the 2h release window do the
   work. The two are often quoted as one; they are not, and the worker relies on both.
+
 ### Task D1-5: the search fan-out and `rpc.indexarr.search`
 
 **Why this task is different from every other task in D1.** The wire contract is
@@ -8467,6 +8479,7 @@ reach a label.
    `make generate && make manifests` leaves no diff.
 5. D1-9's e2e adds the live-indexer scenario against the in-cluster fixture indexer;
    this task is not "done end to end" until that scenario is green on kind.
+
 ### Task D1-6: `rpc.indexarr.download` and `rpc.indexarr.query`
 
 **Why this task is different from D1-5.** D1-5 serves a verb whose response has no
@@ -8793,6 +8806,7 @@ this repo, not a pattern.
 
 **D4. `RedirectURL` is "indexarr will not proxy this", and it has exactly two
 causes.** Both are *successes*, not errors, and both still count the grab:
+
 1. the chain left the indexer's origin, where our session cookie would not be sent
    anyway and proxying buys nothing but memory;
 2. `Content-Length` exceeds `MaxPayloadBytes` — checked **before** the body is read,
@@ -10113,14 +10127,14 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       })
       t.Run("disabled", func(t *testing.T) {
           idx := testIndexer("media", "tr", "uid-3", indexv1alpha1.LimitUnitDay)
-          idx.Spec.Enabled = ptr.To(false)
+          idx.Spec.Enabled = new(false)
           s := &Service{Client: fakeClient(t, idx), Fetch: nilFetcherFor}
           got := s.Handle(ctx, req)
           require.Contains(t, got.Error, "disabled")
       })
       t.Run("in backoff is still served", func(t *testing.T) {
           idx := testIndexer("media", "tr", "uid-4", indexv1alpha1.LimitUnitDay)
-          idx.Status.DisabledUntil = ptr.To(metav1.NewTime(time.Now().Add(time.Hour)))
+          idx.Status.DisabledUntil = new(metav1.NewTime(time.Now().Add(time.Hour)))
           s := &Service{Client: fakeClient(t, idx), Fetch: stubFetcherFor(&FetchResult{MagnetURL: "magnet:?xt=urn:btih:z"})}
           got := s.Handle(ctx, req)
           require.Empty(t, got.Error, "escalation is health, not authorisation: an approved grab must not be stranded")
@@ -10961,10 +10975,10 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   ```go
   // Wiring (Task D1-8, in app/indexer/run.go):
   //
-  //	dl := &download.Service{Client: mgr.GetClient(), Bus: bus,
-  //	    Fetch: download.NewFetcherFor(mgr.GetClient(), limiters)}
-  //	q  := &query.Service{Store: store}
-  //	svc := &search.Service{..., Download: dl.Handle, Query: q.Handle}
+  // dl := &download.Service{Client: mgr.GetClient(), Bus: bus,
+  //     Fetch: download.NewFetcherFor(mgr.GetClient(), limiters)}
+  // q  := &query.Service{Store: store}
+  // svc := &search.Service{..., Download: dl.Handle, Query: q.Handle}
   //
   // `limiters` is the ONE *ratelimit.Limiter D1-3 constructs and shares with the
   // fan-out and the RSS worker, so all three pace against the same per-host
@@ -11017,6 +11031,7 @@ does not have to reverse-engineer it:
 ### Task D1-8: wiring, RBAC, readiness
 
 **Files:**
+
 - Modify: `app/indexer/run.go` (`setupControllers`, `setupWorkers`, the RPC server, readiness)
 - Create: `app/indexer/wiring_envtest_test.go`
 - Modify: `config/rbac/role.yaml`, `charts/clustarr/templates/rbac.yaml` (generated + the drift test)
@@ -11037,9 +11052,9 @@ Write the guard **first**, as a test that discovers rather than lists:
 // A hand-maintained list is the anti-pattern: the next component added to
 // indexarr would simply not be added to it. Walk the packages instead.
 func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
-	// AST-walk app/indexer/**, collect every exported type with Start and
-	// NeedLeaderElection, and every SetupWithManager; assert run.go names
-	// each one. require.Positive on the count so it cannot pass vacuously.
+ // AST-walk app/indexer/**, collect every exported type with Start and
+ // NeedLeaderElection, and every SetupWithManager; assert run.go names
+ // each one. require.Positive on the count so it cannot pass vacuously.
 }
 ```
 
@@ -11078,6 +11093,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexa
 ```
 
 **Done when:** every component is registered and a discovering guard proves it; readiness is `EveryReplica` and tested with leader election on; the bus hooks are passed; every kind indexarr touches has a package-level RBAC marker; the chart cannot drift in either direction; the full gate is green.
+
 ### Task D1-9: the fixture indexer and end-to-end scenario 17
 
 The standing rule is that nothing is finished until it is proven end to end on a
@@ -12197,7 +12213,7 @@ merely consistent.
                   APIPath:  apiPath,
               },
               SecretRef:   &corev1.LocalObjectReference{Name: "torznab-fixture-credentials"},
-              EnableRss:   ptr.To(enableRss),
+              EnableRss:   new(enableRss),
               RssInterval: metav1.Duration{Duration: rssInterval},
               // 2s is the CRD default and would pace three fan-out requests
               // across six seconds for no reason against a local fixture.
@@ -12873,6 +12889,7 @@ someone else's machine without a rerun:
 ### Task D1-10: gate, status and carries
 
 **Files:**
+
 - Modify: `hack/deps/deps.go` (delete the `modernc.org/sqlite` keeper — `pkg/relindex` imports it for real now)
 - Modify: `go.mod`, `go.sum` (one `go mod tidy`)
 - Modify: `CLAUDE.md` Status

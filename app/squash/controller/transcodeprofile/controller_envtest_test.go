@@ -583,7 +583,7 @@ func TestAMovieReturningWakesTheProfile(t *testing.T) {
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
-		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller:             config.Controller{SkipNameValidation: new(true)},
 	})
 	require.NoError(t, err)
 	require.NoError(t, transcodeprofile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), events.NewFakeRecorder(50)).SetupWithManager(mgr))

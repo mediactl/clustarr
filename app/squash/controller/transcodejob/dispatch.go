@@ -25,7 +25,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -349,7 +348,7 @@ func markQueued(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.Transc
 	st.WorkerPod, st.NextAttemptAt, st.Progress = "", nil, nil
 	st.Message = fmt.Sprintf("attempt %d queued", attempt)
 	if poolName != "" {
-		st.JobRef = ptr.To(poolName)
+		st.JobRef = new(poolName)
 		st.Message = fmt.Sprintf("attempt %d queued for pool %s", attempt, poolName)
 	}
 	k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonDispatched, "%s", st.Message)

@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -224,9 +223,9 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		LeaderElectionID:              leaderElectionID,
 		LeaderElectionNamespace:       o.leaderElectionNamespace(),
 		LeaderElectionReleaseOnCancel: true,
-		LeaseDuration:                 ptr.To(LeaseDuration),
-		RenewDeadline:                 ptr.To(RenewDeadline),
-		RetryPeriod:                   ptr.To(RetryPeriod),
+		LeaseDuration:                 new(LeaseDuration),
+		RenewDeadline:                 new(RenewDeadline),
+		RetryPeriod:                   new(RetryPeriod),
 		GracefulShutdownTimeout:       &shutdown,
 		Controller:                    config.Controller{CacheSyncTimeout: CacheSyncTimeout},
 		// Every cache strips managedFields: on a real library they are a
@@ -263,7 +262,7 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 // holds.
 func (o Options) AgentManagerOptions() ctrl.Options {
 	opts := o.ManagerOptions("", false)
-	opts.Controller.NeedLeaderElection = ptr.To(false)
+	opts.Controller.NeedLeaderElection = new(false)
 	opts.Client.FieldOwner = string(DefaultFieldOwner)
 	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
 	return opts

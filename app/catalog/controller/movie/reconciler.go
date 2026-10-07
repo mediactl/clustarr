@@ -183,7 +183,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&transcodev1alpha1.AudioGraft{}, handler.EnqueueRequestsFromMapFunc(rollup.ItemOfAudioGraft(commonv1.MediaKindMovie)),
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState)))).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
-		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
 

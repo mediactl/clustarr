@@ -24,7 +24,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -104,11 +103,11 @@ func buildItem(req AddRequest) (client.Object, error) {
 		return &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: names.Movie(req.Title, id), Namespace: req.Namespace},
 			Spec: catalogv1alpha1.MovieSpec{
-				TmdbID: id, Monitored: ptr.To(req.Monitored),
+				TmdbID: id, Monitored: new(req.Monitored),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
 				MinimumAvailability: catalogv1alpha1.MinimumAvailability(req.MinimumAvailability),
 				AddOptions: catalogv1alpha1.MovieAddOptions{
-					Monitor: catalogv1alpha1.MovieMonitorMode(req.Monitor), SearchForMovie: ptr.To(req.SearchOnAdd),
+					Monitor: catalogv1alpha1.MovieMonitorMode(req.Monitor), SearchForMovie: new(req.SearchOnAdd),
 				},
 				Source: source,
 			},
@@ -121,15 +120,15 @@ func buildItem(req AddRequest) (client.Object, error) {
 		return &catalogv1alpha1.Series{
 			ObjectMeta: metav1.ObjectMeta{Name: names.Series(req.Title, id), Namespace: req.Namespace},
 			Spec: catalogv1alpha1.SeriesSpec{
-				TvdbID: id, Monitored: ptr.To(req.Monitored),
+				TvdbID: id, Monitored: new(req.Monitored),
 				SeriesType:        catalogv1alpha1.SeriesType(req.SeriesType),
 				MonitorNewItems:   catalogv1alpha1.MonitorNewChildrenMode(req.MonitorNewItems),
-				SeasonFolder:      ptr.To(req.SeasonFolder),
+				SeasonFolder:      new(req.SeasonFolder),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
 				AddOptions: catalogv1alpha1.SeriesAddOptions{
 					Monitor:              catalogv1alpha1.SeriesMonitorMode(req.Monitor),
-					SearchForMissing:     ptr.To(req.SearchOnAdd),
-					SearchForCutoffUnmet: ptr.To(req.SearchCutoffUnmet),
+					SearchForMissing:     new(req.SearchOnAdd),
+					SearchForCutoffUnmet: new(req.SearchCutoffUnmet),
 				},
 				Source: source,
 			},
@@ -138,7 +137,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 		return &catalogv1alpha1.Artist{
 			ObjectMeta: metav1.ObjectMeta{Name: names.Artist(req.Title, req.ProviderID), Namespace: req.Namespace},
 			Spec: catalogv1alpha1.ArtistSpec{
-				MusicBrainzID: req.ProviderID, Monitored: ptr.To(req.Monitored),
+				MusicBrainzID: req.ProviderID, Monitored: new(req.Monitored),
 				MonitorNewItems:   catalogv1alpha1.MonitorNewItemsMode(req.MonitorNewItems),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
 				AddOptions: catalogv1alpha1.ArtistAddOptions{
@@ -151,7 +150,7 @@ func buildItem(req AddRequest) (client.Object, error) {
 		return &catalogv1alpha1.Author{
 			ObjectMeta: metav1.ObjectMeta{Name: names.Author(req.Title, req.ProviderID), Namespace: req.Namespace},
 			Spec: catalogv1alpha1.AuthorSpec{
-				OpenLibraryID: req.ProviderID, Monitored: ptr.To(req.Monitored),
+				OpenLibraryID: req.ProviderID, Monitored: new(req.Monitored),
 				MonitorNewItems:   catalogv1alpha1.MonitorNewChildrenMode(req.MonitorNewItems),
 				QualityProfileRef: req.QualityProfileRef, RootFolderRef: req.RootFolderRef,
 				AddOptions: catalogv1alpha1.AuthorAddOptions{

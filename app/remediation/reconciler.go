@@ -184,7 +184,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 			r.keys.forget(nn)
 			return reconcile.Result{}, nil
 		}
-		return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: ptr.To(0)}), nil
+		return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: new(0)}), nil
 	}
 	if k8s.IsDeleting(&mf) {
 		return reconcile.Result{}, nil
@@ -269,9 +269,9 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		applied, err := k8s.Apply(ctx, r.c, k8s.ManagerCatalogarr, mac.WithResourceVersion(mf.ResourceVersion))
 		switch {
 		case apierrors.IsConflict(err):
-			return r.count(passConflict, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: ptr.To(0)}), nil
+			return r.count(passConflict, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: new(0)}), nil
 		case err != nil && IsTransient(err):
-			return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: ptr.To(0)}), nil
+			return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: new(0)}), nil
 		case err != nil:
 			return reconcile.Result{}, fmt.Errorf("remediation: main apply: %w", err)
 		}
@@ -286,7 +286,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	changed := !equality.Semantic.DeepEqual(normalize(rendered), normalize(v.Prev))
 	if changed && !anyUnpaced(results) {
 		if wait := r.limiter.Admit(mf.UID, now.Time); wait > 0 {
-			return r.count(passPaced, reconcile.Result{RequeueAfter: wait, Priority: ptr.To(PriorityTimed)}), nil
+			return r.count(passPaced, reconcile.Result{RequeueAfter: wait, Priority: new(PriorityTimed)}), nil
 		}
 	}
 	outcomeLabel := passUnchanged
@@ -302,9 +302,9 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 			}, 1)
 		switch {
 		case apierrors.IsConflict(err):
-			return r.count(passConflict, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: ptr.To(0)}), nil
+			return r.count(passConflict, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: new(0)}), nil
 		case err != nil && IsTransient(err):
-			return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: ptr.To(0)}), nil
+			return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: new(0)}), nil
 		case err != nil:
 			return reconcile.Result{}, fmt.Errorf("remediation: status apply: %w", err)
 		}
@@ -317,7 +317,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	} else if v.Stale {
 		// The cache has not caught up with this process's last apply: a
 		// quiet pass now would end on a view that is behind (§3.7).
-		return r.count(passStale, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: ptr.To(0)}), nil
+		return r.count(passStale, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: new(0)}), nil
 	}
 
 	// 8. Effects, in Order, after the status that owes them landed.
@@ -400,7 +400,7 @@ func (r *Reconciler) result(ks *keyState, now time.Time, results []Result, fails
 	if after == 0 {
 		return reconcile.Result{}
 	}
-	return reconcile.Result{RequeueAfter: after, Priority: ptr.To(prio)}
+	return reconcile.Result{RequeueAfter: after, Priority: new(prio)}
 }
 
 // markPlannerConditions sets each planner's <Planner>PlannerError from its
@@ -539,7 +539,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return b.WithOptions(controller.TypedOptions[Key]{
 		MaxConcurrentReconciles: r.cfg.Concurrency,
-		RecoverPanic:            ptr.To(true),
+		RecoverPanic:            new(true),
 		ReconciliationTimeout:   5 * time.Minute,
 	}).Complete(r)
 }

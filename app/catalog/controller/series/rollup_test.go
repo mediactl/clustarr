@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
@@ -96,7 +95,7 @@ func TestRollupAirings(t *testing.T) {
 	at := func(d time.Duration) *metav1.Time { v := metav1.NewTime(now.Add(d)); return &v }
 	ep := func(season, number int32, air *metav1.Time, monitored bool) catalogv1alpha1.Episode {
 		return catalogv1alpha1.Episode{
-			Spec:   catalogv1alpha1.EpisodeSpec{SeasonNumber: season, EpisodeNumber: number, Monitored: ptr.To(monitored)},
+			Spec:   catalogv1alpha1.EpisodeSpec{SeasonNumber: season, EpisodeNumber: number, Monitored: new(monitored)},
 			Status: catalogv1alpha1.EpisodeStatus{AirDate: air},
 		}
 	}

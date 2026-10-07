@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -46,7 +45,7 @@ func pxy(name string, typ indexv1alpha1.IndexerProxyType, sel map[string]string)
 func idxWith(labels map[string]string, ref string) *indexv1alpha1.Indexer {
 	idx := &indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{Name: "tr", Namespace: "media", Labels: labels}}
 	if ref != "" {
-		idx.Spec.ProxyRef = ptr.To(ref)
+		idx.Spec.ProxyRef = new(ref)
 	}
 	return idx
 }

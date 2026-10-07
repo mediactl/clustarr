@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -161,12 +160,12 @@ func TestHandleCreatesASeriesFromTheTvdbIDInItsFolder(t *testing.T) {
 	assert.Equal(t, k8s.ChildName("Bob's Burgers", "series", "194031"), s.Name)
 	assert.Equal(t, "web-1080p", s.Spec.QualityProfileRef)
 	assert.Equal(t, f.rf.Name, s.Spec.RootFolderRef)
-	assert.Equal(t, ptr.To(bobs), s.Spec.Folder, "pinned to the folder it was found in")
+	assert.Equal(t, new(bobs), s.Spec.Folder, "pinned to the folder it was found in")
 	assert.Equal(t, catalogv1alpha1.SeriesMonitorNone, s.Spec.AddOptions.Monitor, "nothing monitored until the owner turns a season on")
-	assert.Equal(t, ptr.To(false), s.Spec.AddOptions.SearchForMissing, "no search for what is already on disk")
-	assert.Equal(t, ptr.To(false), s.Spec.AddOptions.SearchForCutoffUnmet)
+	assert.Equal(t, new(false), s.Spec.AddOptions.SearchForMissing, "no search for what is already on disk")
+	assert.Equal(t, new(false), s.Spec.AddOptions.SearchForCutoffUnmet)
 	assert.Equal(t, string(rescan.FieldManager), managerFor(t, s.ManagedFields, "", "spec.tvdbID"))
-	assert.Equal(t, ptr.To(wire), byTvdb[79126].Spec.Folder)
+	assert.Equal(t, new(wire), byTvdb[79126].Spec.Folder)
 }
 
 // A scan that finds a series with no episodes yet -- one an earlier scan

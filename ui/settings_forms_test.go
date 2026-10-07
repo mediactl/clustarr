@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -52,10 +51,10 @@ func usenetClient() *downloadv1.DownloadClient {
 	return &downloadv1.DownloadClient{
 		ObjectMeta: metav1.ObjectMeta{Name: "eweka", Namespace: "media"},
 		Spec: downloadv1.DownloadClientSpec{
-			Protocol: commonv1alpha1.ProtocolUsenet, Enabled: ptr.To(true), Priority: 2,
+			Protocol: commonv1alpha1.ProtocolUsenet, Enabled: new(true), Priority: 2,
 			Categories: map[string]string{"movie": "films"},
 			Usenet: &downloadv1.UsenetSpec{Providers: []downloadv1.NNTPProvider{{
-				Name: "main", Host: "news.eweka.nl", Port: 563, TLS: ptr.To(true), Connections: 8,
+				Name: "main", Host: "news.eweka.nl", Port: 563, TLS: new(true), Connections: 8,
 				SecretRef: corev1.LocalObjectReference{Name: "eweka-main-credentials"},
 			}}},
 		},

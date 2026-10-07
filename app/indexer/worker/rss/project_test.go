@@ -24,7 +24,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
@@ -95,8 +94,8 @@ func TestProjectReleasePublishedAtIsNeverBackfilled(t *testing.T) {
 		in   torznab.Release
 		want *metav1.Time
 	}{
-		{"pubdate wins", torznab.Release{PubDate: pub}, ptr.To(metav1.NewTime(pub))},
-		{"usenetdate when pubdate is absent", torznab.Release{UsenetDate: &usenet}, ptr.To(metav1.NewTime(usenet))},
+		{"pubdate wins", torznab.Release{PubDate: pub}, new(metav1.NewTime(pub))},
+		{"usenetdate when pubdate is absent", torznab.Release{UsenetDate: &usenet}, new(metav1.NewTime(usenet))},
 		{"neither reported stays nil", torznab.Release{}, nil},
 		{"an explicitly zero usenetdate stays nil", torznab.Release{UsenetDate: &time.Time{}}, nil},
 	}
@@ -194,15 +193,15 @@ func TestProjectReleaseIndexerFlagsStayInsideTheEnum(t *testing.T) {
 	}{
 		{"dvf 0 is freeleech", torznab.Release{DownloadVolumeFactor: &zero}, []string{"freeleech"}},
 		{"dvf 0.5 is halfleech", torznab.Release{DownloadVolumeFactor: &half}, []string{"halfleech"}},
-		{"dvf 1 is neither", torznab.Release{DownloadVolumeFactor: ptr.To(1.0)}, nil},
+		{"dvf 1 is neither", torznab.Release{DownloadVolumeFactor: new(1.0)}, nil},
 		// Sonarr's Freeleech25/Freeleech75 have no CRD member. They are
 		// dropped, not rounded onto halfleech, which they are not.
-		{"dvf 0.75 has no enum member", torznab.Release{DownloadVolumeFactor: ptr.To(0.75)}, nil},
-		{"dvf 0.25 has no enum member", torznab.Release{DownloadVolumeFactor: ptr.To(0.25)}, nil},
-		{"uvf 2 is doubleupload", torznab.Release{UploadVolumeFactor: ptr.To(2.0)}, []string{"doubleupload"}},
-		{"uvf 1 is nothing", torznab.Release{UploadVolumeFactor: ptr.To(1.0)}, nil},
+		{"dvf 0.75 has no enum member", torznab.Release{DownloadVolumeFactor: new(0.75)}, nil},
+		{"dvf 0.25 has no enum member", torznab.Release{DownloadVolumeFactor: new(0.25)}, nil},
+		{"uvf 2 is doubleupload", torznab.Release{UploadVolumeFactor: new(2.0)}, []string{"doubleupload"}},
+		{"uvf 1 is nothing", torznab.Release{UploadVolumeFactor: new(1.0)}, nil},
 		{"freeleech and doubleupload together", torznab.Release{
-			DownloadVolumeFactor: &zero, UploadVolumeFactor: ptr.To(2.0),
+			DownloadVolumeFactor: &zero, UploadVolumeFactor: new(2.0),
 		}, []string{"freeleech", "doubleupload"}},
 		{"a factor flag and the same tag do not double up", torznab.Release{
 			DownloadVolumeFactor: &zero, Attrs: map[string][]string{"tag": {"freeleech"}},
@@ -235,7 +234,7 @@ func TestProjectReleaseIndexerFlagsAreAllEnumMembers(t *testing.T) {
 		commonv1.IndexerFlagScene: true,
 	}
 	got := rss.ProjectRelease(torznab.Release{
-		DownloadVolumeFactor: ptr.To(0.0),
+		DownloadVolumeFactor: new(0.0),
 		Attrs: map[string][]string{"tag": {
 			"FreeLeech", "halfleech", "NEUTRALLEECH", "doubleupload",
 			"internal", "exclusive", "scene", "nuked", "",

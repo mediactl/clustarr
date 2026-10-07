@@ -55,7 +55,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 			NeverTranscodeModifiers:  []string{"remux", "brdisk"},
 			MinDuration:              &metav1.Duration{Duration: time.Minute},
 			MaxOutputToSourcePercent: ptr.To[int32](100),
-			ReplaceSource:            ptr.To(true), RecycleBin: ptr.To(true),
+			ReplaceSource:            new(true), RecycleBin: ptr.To(true),
 		},
 	}
 }
@@ -177,7 +177,7 @@ func sha256Hex(t *testing.T, v any) string {
 // apiserver defaulted must not be told apart.
 func TestTheHashReadsUnsetFieldsAsTheirDefaults(t *testing.T) {
 	set := renderSpec()
-	set.Quality = ptr.To(transcodev1alpha1.DefaultQuality)
+	set.Quality = new(transcodev1alpha1.DefaultQuality)
 	set.Policy.MinDuration = &metav1.Duration{Duration: jobspec.DefaultMinDuration}
 	set.Policy.MaxOutputToSourcePercent = ptr.To[int32](jobspec.DefaultMaxOutputToSourcePercent)
 	unset := set
@@ -398,7 +398,7 @@ func TestAlreadyTranscodedAndProbed(t *testing.T) {
 
 	// So does a swap catalogarr incorporated (spec.original false).
 	mf.Status.MediaInfo.TranscodeProfile = ""
-	mf.Spec.Original = ptr.To(false)
+	mf.Spec.Original = new(false)
 	assert.True(t, alreadyTranscoded(&mf, "hevc"))
 }
 

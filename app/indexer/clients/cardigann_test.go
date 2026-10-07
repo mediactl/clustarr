@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -114,30 +113,30 @@ func TestResolveDefinition(t *testing.T) {
 	yaml := cardigannFixture(t, "search-error.yml")
 	c := fakeClient(t,
 		idxDefinition("by-name", yaml, nil, "synthetic-search-error"),
-		idxDefinition("overrides-1337x", yaml, ptr.To("1337x"), "synthetic-search-error"),
+		idxDefinition("overrides-1337x", yaml, new("1337x"), "synthetic-search-error"),
 		idxDefinition("broken", "id: nope\n", nil, ""),
 	)
 	ctx := context.Background()
 
-	def, err := ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{DefinitionRef: ptr.To("by-name")})
+	def, err := ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{DefinitionRef: new("by-name")})
 	require.NoError(t, err)
 	require.Equal(t, "synthetic-search-error", def.ID)
 
 	// spec.definition resolves through spec.replaces first ...
-	def, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: ptr.To("1337x")})
+	def, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: new("1337x")})
 	require.NoError(t, err)
 	require.Equal(t, "synthetic-search-error", def.ID)
 
 	// ... and through a parsed status.id second.
-	def, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: ptr.To("synthetic-search-error")})
+	def, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: new("synthetic-search-error")})
 	require.NoError(t, err)
 	require.NotNil(t, def)
 
-	_, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: ptr.To("unknown")})
+	_, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: new("unknown")})
 	require.ErrorIs(t, err, ErrDefinitionNotFound)
-	_, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{DefinitionRef: ptr.To("missing")})
+	_, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{DefinitionRef: new("missing")})
 	require.ErrorIs(t, err, ErrDefinitionNotFound)
-	_, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{DefinitionRef: ptr.To("broken")})
+	_, err = ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{DefinitionRef: new("broken")})
 	require.ErrorIs(t, err, ErrDefinitionInvalid)
 	require.LessOrEqual(t, len(err.Error()), maxDefinitionErr+200, "a schema error must fit a condition message")
 }
@@ -158,7 +157,7 @@ func TestResolveDefinitionThroughReplacedIDs(t *testing.T) {
 
 	c := fakeClient(t, renamed, second)
 	for _, old := range []string{"old-tracker", "older-tracker"} {
-		def, err := ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: ptr.To(old)})
+		def, err := ResolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: new(old)})
 		require.NoError(t, err, "the retired id %q must resolve", old)
 		require.Equal(t, "synthetic-search-error", def.ID, "%q resolved to the wrong definition", old)
 	}
@@ -170,7 +169,7 @@ func TestResolveDefinitionThroughReplacedIDs(t *testing.T) {
 	require.Equal(t, "z-live", d.Name, "status.id must win over status.replaces")
 
 	// So does an explicit override.
-	override := idxDefinition("z-override", "id: nope\n", ptr.To("older-tracker"), "x")
+	override := idxDefinition("z-override", "id: nope\n", new("older-tracker"), "x")
 	d, err = definitionByID(ctx, fakeClient(t, renamed, override), "older-tracker")
 	require.NoError(t, err)
 	require.Equal(t, "z-override", d.Name, "spec.replaces must win over status.replaces")
@@ -190,7 +189,7 @@ func TestEveryProxyTypeResolves(t *testing.T) {
 		})
 		idx := &indexv1alpha1.Indexer{
 			ObjectMeta: metav1.ObjectMeta{Name: "t", Namespace: "media"},
-			Spec:       indexv1alpha1.IndexerSpec{ProxyRef: ptr.To("egress")},
+			Spec:       indexv1alpha1.IndexerSpec{ProxyRef: new("egress")},
 		}
 		rt, err := ResolveProxy(context.Background(), c, idx)
 		require.NoError(t, err, "%s", typ)

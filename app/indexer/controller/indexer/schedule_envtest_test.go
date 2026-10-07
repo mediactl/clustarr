@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
@@ -306,7 +305,7 @@ func TestAnIndexerWithRssTurnedOffIsNotSeeded(t *testing.T) {
 	name := newSchedulableIndexer(t, c, ns, "norss")
 
 	idx := mustGet(t, c, name)
-	idx.Spec.EnableRss = ptr.To(false)
+	idx.Spec.EnableRss = new(false)
 	require.NoError(t, c.Update(ctx, &idx))
 
 	r, nc := newJetStreamReconciler(t, c)
@@ -345,6 +344,6 @@ func pendingPoll(t *testing.T, nc *nats.Conn, uid string) (out struct {
 func setEnabled(t *testing.T, c client.Client, name types.NamespacedName, enabled bool) {
 	t.Helper()
 	idx := mustGet(t, c, name)
-	idx.Spec.Enabled = ptr.To(enabled)
+	idx.Spec.Enabled = new(enabled)
 	require.NoError(t, c.Update(context.Background(), &idx))
 }

@@ -68,7 +68,7 @@ func TestHandleImportsOnlyTheBestFormatOfABookRelease(t *testing.T) {
 	book := &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "the-left-hand-of-darkness", Namespace: f.ns},
 		Spec: catalogv1alpha1.BookSpec{
-			WorkID: "OL59821W", RootFolderRef: ptr.To(rf.Name), QualityProfileRef: ptr.To(qp.Name),
+			WorkID: "OL59821W", RootFolderRef: new(rf.Name), QualityProfileRef: ptr.To(qp.Name),
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, book))

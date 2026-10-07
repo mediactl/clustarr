@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -120,7 +119,7 @@ func TestChildRowsAreItems(t *testing.T) {
 	}
 	album := &catalogv1.Album{
 		ObjectMeta: metav1.ObjectMeta{Name: "post", Namespace: "default"},
-		Spec:       catalogv1.AlbumSpec{ArtistRef: "bjork", ReleaseGroupID: "rg-post", Monitored: ptr.To(true)},
+		Spec:       catalogv1.AlbumSpec{ArtistRef: "bjork", ReleaseGroupID: "rg-post", Monitored: new(true)},
 		Status: catalogv1.AlbumStatus{
 			Metadata: &catalogv1.AlbumMetadata{Title: "Post", ReleaseDate: &released}, Phase: "Imported", TrackFileCount: 11,
 			Quality: &commonv1.Quality{Name: "FLAC"},

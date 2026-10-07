@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -39,8 +38,8 @@ func TestPickMediaFile(t *testing.T) {
 		older := metav1.NewTime(time.Now().Add(-time.Hour))
 		newer := metav1.NewTime(time.Now())
 		items := []catalogv1alpha1.MediaFile{
-			{ObjectMeta: metav1.ObjectMeta{Name: "newer-not-original", CreationTimestamp: newer}, Spec: catalogv1alpha1.MediaFileSpec{Original: ptr.To(false)}},
-			{ObjectMeta: metav1.ObjectMeta{Name: "older-original", CreationTimestamp: older}, Spec: catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "newer-not-original", CreationTimestamp: newer}, Spec: catalogv1alpha1.MediaFileSpec{Original: new(false)}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "older-original", CreationTimestamp: older}, Spec: catalogv1alpha1.MediaFileSpec{Original: new(true)}},
 		}
 		got := rollup.PickMediaFile(items)
 		require.NotNil(t, got)
@@ -66,8 +65,8 @@ func TestPickMediaFile(t *testing.T) {
 	t.Run("two files flagged Original: the newest, whatever the list order", func(t *testing.T) {
 		older := metav1.NewTime(time.Now().Add(-time.Hour))
 		newer := metav1.NewTime(time.Now())
-		a := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "older", CreationTimestamp: older}, Spec: catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)}}
-		b := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "newer", CreationTimestamp: newer}, Spec: catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)}}
+		a := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "older", CreationTimestamp: older}, Spec: catalogv1alpha1.MediaFileSpec{Original: new(true)}}
+		b := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "newer", CreationTimestamp: newer}, Spec: catalogv1alpha1.MediaFileSpec{Original: new(true)}}
 		for _, items := range [][]catalogv1alpha1.MediaFile{{a, b}, {b, a}} {
 			got := rollup.PickMediaFile(items)
 			require.NotNil(t, got)

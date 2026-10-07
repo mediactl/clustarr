@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -403,7 +402,7 @@ func TestAnUnrenderableMoviePathBlocksTheImport(t *testing.T) {
 	var movie catalogv1alpha1.Movie
 	require.NoError(t, f.c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: f.movieName}, &movie))
 	patched := movie.DeepCopy()
-	patched.Spec.Folder = ptr.To("../../etc")
+	patched.Spec.Folder = new("../../etc")
 	require.NoError(t, f.c.Patch(ctx, patched, client.MergeFrom(&movie)))
 	waitFor(t, 5*time.Second, func() bool {
 		var got catalogv1alpha1.Movie

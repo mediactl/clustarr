@@ -55,7 +55,7 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 	album := func(name, artistRef, title string, y int, files int32) *catalogv1.Album {
 		a := &catalogv1.Album{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec:       catalogv1.AlbumSpec{ArtistRef: artistRef, ReleaseGroupID: "rg-" + name, Monitored: ptr.To(true)},
+			Spec:       catalogv1.AlbumSpec{ArtistRef: artistRef, ReleaseGroupID: "rg-" + name, Monitored: new(true)},
 			Status: catalogv1.AlbumStatus{
 				Metadata: &catalogv1.AlbumMetadata{Title: title, ReleaseDate: year(y)}, Phase: "Imported", TrackFileCount: files,
 			},
@@ -71,7 +71,7 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 	}
 	book := &catalogv1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "dispossessed", Namespace: "default"},
-		Spec:       catalogv1.BookSpec{AuthorRef: ptr.To("le-guin"), WorkID: "OL2W", Monitored: ptr.To(true)},
+		Spec:       catalogv1.BookSpec{AuthorRef: new("le-guin"), WorkID: "OL2W", Monitored: ptr.To(true)},
 		Status: catalogv1.BookStatus{
 			Metadata: &catalogv1.BookMetadata{Title: "The Dispossessed", ReleaseDate: year(1974)},
 			HasFile:  true, FileFormat: "epub", Phase: "Imported",

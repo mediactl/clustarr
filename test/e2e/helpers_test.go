@@ -734,7 +734,7 @@ func newIndexer(ctx context.Context, t *testing.T, prefix, apiPath string, rssIn
 				APIPath:  apiPath,
 			},
 			SecretRef:   &corev1.LocalObjectReference{Name: "torznab-fixture-credentials"},
-			EnableRss:   ptr.To(enableRss),
+			EnableRss:   new(enableRss),
 			RssInterval: metav1.Duration{Duration: rssInterval},
 			// 2s is the CRD default and would pace three fan-out requests
 			// across six seconds for no reason against a local fixture.
@@ -858,7 +858,7 @@ func newRankedQualityProfile(ctx context.Context, t *testing.T, prefix string, t
 		MediaKind:      catalogv1alpha1.ProfileMediaKindVideo,
 		BuiltIn:        false,
 		Cutoff:         tiers[len(tiers)-1].name,
-		UpgradeAllowed: ptr.To(true),
+		UpgradeAllowed: new(true),
 	}
 	for _, tr := range tiers {
 		spec.Tiers = append(spec.Tiers, catalogv1alpha1.Tier{Name: tr.name, Qualities: tr.qualities})
@@ -894,12 +894,12 @@ func newDelayProfile(ctx context.Context, t *testing.T, prefix string, torrentDe
 	dp := &catalogv1alpha1.DelayProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
 		Spec: catalogv1alpha1.DelayProfileSpec{
-			EnableTorrent:          ptr.To(true),
-			EnableUsenet:           ptr.To(true),
+			EnableTorrent:          new(true),
+			EnableUsenet:           new(true),
 			PreferredProtocol:      catalogv1alpha1.DelayPreferredProtocolTorrent,
 			TorrentDelayMinutes:    torrentDelayMinutes,
 			UsenetDelayMinutes:     torrentDelayMinutes,
-			BypassIfHighestQuality: ptr.To(false),
+			BypassIfHighestQuality: new(false),
 			// Lowest wins, and a scenario's own profile must beat the
 			// catch-all the chart installs at order 1000 if one is present.
 			Order: 1,
@@ -932,7 +932,7 @@ func newMovie(
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
 		Spec: catalogv1alpha1.MovieSpec{
 			TmdbID:              tmdbID,
-			Monitored:           ptr.To(true),
+			Monitored:           new(true),
 			MinimumAvailability: minAvail,
 			QualityProfileRef:   qualityProfileRef,
 			RootFolderRef:       rootFolderRef,
@@ -951,7 +951,7 @@ func patchMovieDelayProfile(ctx context.Context, t *testing.T, m *catalogv1alpha
 	var live catalogv1alpha1.Movie
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(m), &live))
 	patch := client.MergeFrom(live.DeepCopy())
-	live.Spec.DelayProfileRef = ptr.To(delayProfileRef)
+	live.Spec.DelayProfileRef = new(delayProfileRef)
 	require.NoError(t, k8sClient.Patch(ctx, &live, patch))
 }
 
@@ -1137,7 +1137,7 @@ func newTorrentDownloadClientE2E(ctx context.Context, t *testing.T, prefix strin
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
 		Spec: downloadv1alpha1.DownloadClientSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Enabled:  ptr.To(true),
+			Enabled:  new(true),
 			Priority: 10,
 			Replicas: 1,
 			Torrent:  &downloadv1alpha1.TorrentSpec{},
@@ -1179,18 +1179,18 @@ func newUsenetDownloadClientE2E(ctx context.Context, t *testing.T, prefix string
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
 		Spec: downloadv1alpha1.DownloadClientSpec{
 			Protocol: commonv1.ProtocolUsenet,
-			Enabled:  ptr.To(true),
+			Enabled:  new(true),
 			Priority: 10,
 			Replicas: 1,
 			Usenet: &downloadv1alpha1.UsenetSpec{
 				Providers: []downloadv1alpha1.NNTPProvider{
 					{
 						Name: "primary", Host: fixtureNNTPStubAService + "." + Namespace + ".svc",
-						Port: fixtureNNTPPort, TLS: ptr.To(false), Priority: 1, SecretRef: secret,
+						Port: fixtureNNTPPort, TLS: new(false), Priority: 1, SecretRef: secret,
 					},
 					{
 						Name: "secondary", Host: fixtureNNTPStubBService + "." + Namespace + ".svc",
-						Port: fixtureNNTPPort, TLS: ptr.To(false), Priority: 2, SecretRef: secret,
+						Port: fixtureNNTPPort, TLS: new(false), Priority: 2, SecretRef: secret,
 					},
 				},
 			},
@@ -1248,7 +1248,7 @@ func newTorrentDownloadE2E(ctx context.Context, t *testing.T, prefix string, mov
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{TorrentURL: ptr.To(torrentURL)},
+			Source:   downloadv1alpha1.DownloadSource{TorrentURL: new(torrentURL)},
 			Release: commonv1.ReleaseInfo{
 				GUID: guid, IndexerRef: "e2e-fixture", IndexerName: "e2e fixture",
 				Title: "Fixture.Movie.2019.1080p.BluRay.x264-CLUSTARR", Protocol: commonv1.ProtocolTorrent,
@@ -1276,7 +1276,7 @@ func newUsenetDownloadE2E(ctx context.Context, t *testing.T, prefix string, movi
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolUsenet,
-			Source:   downloadv1alpha1.DownloadSource{NZBURL: ptr.To(nzbURL)},
+			Source:   downloadv1alpha1.DownloadSource{NZBURL: new(nzbURL)},
 			Release: commonv1.ReleaseInfo{
 				GUID: guid, IndexerRef: "e2e-fixture", IndexerName: "e2e fixture",
 				Title: "Fixture.Movie.2019.WEB-DL.x264-CLUSTARR", Protocol: commonv1.ProtocolUsenet,

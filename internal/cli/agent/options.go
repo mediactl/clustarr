@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/pkg/agentdomain"
@@ -140,7 +139,7 @@ func (o Options) Validate() error {
 func managerOptions(o Options) ctrl.Options {
 	opts := o.Options.AgentManagerOptions()
 	if o.SkipNameValidation {
-		opts.Controller.SkipNameValidation = ptr.To(true)
+		opts.Controller.SkipNameValidation = new(true)
 	}
 	return opts
 }

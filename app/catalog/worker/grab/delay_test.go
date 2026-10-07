@@ -145,25 +145,25 @@ func TestBypasses(t *testing.T) {
 	}{
 		{"defaulted profile, top tier bypasses", catalogv1alpha1.DelayProfileSpec{}, true, 0, true},
 		{"defaulted profile, not top tier does not bypass", catalogv1alpha1.DelayProfileSpec{}, false, 999, false},
-		{"BypassIfHighestQuality explicitly off", catalogv1alpha1.DelayProfileSpec{BypassIfHighestQuality: ptr.To(false)}, true, 0, false},
+		{"BypassIfHighestQuality explicitly off", catalogv1alpha1.DelayProfileSpec{BypassIfHighestQuality: new(false)}, true, 0, false},
 		{
 			"BypassIfAboveFormatScore at the minimum bypasses",
 			catalogv1alpha1.DelayProfileSpec{
-				BypassIfHighestQuality: ptr.To(false), BypassIfAboveFormatScore: ptr.To(true), MinimumFormatScore: 100,
+				BypassIfHighestQuality: new(false), BypassIfAboveFormatScore: ptr.To(true), MinimumFormatScore: 100,
 			},
 			false, 100, true,
 		},
 		{
 			"BypassIfAboveFormatScore below the minimum does not bypass",
 			catalogv1alpha1.DelayProfileSpec{
-				BypassIfHighestQuality: ptr.To(false), BypassIfAboveFormatScore: ptr.To(true), MinimumFormatScore: 100,
+				BypassIfHighestQuality: new(false), BypassIfAboveFormatScore: ptr.To(true), MinimumFormatScore: 100,
 			},
 			false, 99, false,
 		},
 		{
 			"an explicitly-set profile from the apiserver never sees a nil default",
 			catalogv1alpha1.DelayProfileSpec{
-				BypassIfHighestQuality: ptr.To(true), BypassIfAboveFormatScore: ptr.To(false),
+				BypassIfHighestQuality: new(true), BypassIfAboveFormatScore: ptr.To(false),
 			},
 			false, 10_000, false,
 		},
@@ -186,7 +186,7 @@ func TestDelayFor(t *testing.T) {
 func TestProtocolEnabled(t *testing.T) {
 	assert.True(t, ProtocolEnabled(catalogv1alpha1.DelayProfileSpec{}, commonv1.ProtocolUsenet))
 	assert.True(t, ProtocolEnabled(catalogv1alpha1.DelayProfileSpec{}, commonv1.ProtocolTorrent))
-	assert.False(t, ProtocolEnabled(catalogv1alpha1.DelayProfileSpec{EnableTorrent: ptr.To(false)}, commonv1.ProtocolTorrent))
+	assert.False(t, ProtocolEnabled(catalogv1alpha1.DelayProfileSpec{EnableTorrent: new(false)}, commonv1.ProtocolTorrent))
 	assert.False(t, ProtocolEnabled(catalogv1alpha1.DelayProfileSpec{}, commonv1.Protocol("")))
 }
 

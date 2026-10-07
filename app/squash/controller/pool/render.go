@@ -204,7 +204,7 @@ func Render(k Key, tp *transcodev1alpha1.TranscodeProfile, want Spec, d Desired,
 	}
 	sched := &batchv1.JobSchedulingConfiguration{
 		SchedulingPolicy: &schedulingv1alpha3.WorkloadPodGroupSchedulingPolicy{
-			Gang: &schedulingv1alpha3.WorkloadPodGroupGangSchedulingPolicy{MinCount: ptr.To(d.Parallelism)},
+			Gang: &schedulingv1alpha3.WorkloadPodGroupGangSchedulingPolicy{MinCount: new(d.Parallelism)},
 		},
 	}
 	if spec.Constraint != "" {
@@ -224,15 +224,15 @@ func Render(k Key, tp *transcodev1alpha1.TranscodeProfile, want Spec, d Desired,
 			Annotations: map[string]string{AnnotationAppliedTemplate: string(raw)},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: transcodev1alpha1.GroupVersion.String(), Kind: "TranscodeProfile",
-				Name: tp.Name, UID: tp.UID, Controller: ptr.To(true), BlockOwnerDeletion: ptr.To(true),
+				Name: tp.Name, UID: tp.UID, Controller: new(true), BlockOwnerDeletion: ptr.To(true),
 			}},
 		},
 		Spec: batchv1.JobSpec{
-			Parallelism:          ptr.To(d.Parallelism),
-			Suspend:              ptr.To(d.Suspend),
-			CompletionMode:       ptr.To(batchv1.NonIndexedCompletion),
-			BackoffLimit:         ptr.To(BackoffLimit),
-			PodReplacementPolicy: ptr.To(batchv1.Failed),
+			Parallelism:          new(d.Parallelism),
+			Suspend:              new(d.Suspend),
+			CompletionMode:       new(batchv1.NonIndexedCompletion),
+			BackoffLimit:         new(BackoffLimit),
+			PodReplacementPolicy: new(batchv1.Failed),
 			PodFailurePolicy:     podFailurePolicy(),
 			Scheduling:           sched,
 			Template:             spec.Template,
@@ -275,11 +275,11 @@ func podFailurePolicy() *batchv1.PodFailurePolicy {
 			{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue},
 		}},
 		{Action: batchv1.PodFailurePolicyActionIgnore, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
-			ContainerName: ptr.To(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,
+			ContainerName: new(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,
 			Values: []int32{jobspec.WorkerExitDrained, ExitOOMKilled}, // ascending, as the apiserver requires
 		}},
 		{Action: batchv1.PodFailurePolicyActionFailJob, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
-			ContainerName: ptr.To(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,
+			ContainerName: new(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,
 			Values: []int32{jobspec.WorkerExitMisconfigured},
 		}},
 	}}

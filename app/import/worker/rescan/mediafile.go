@@ -28,7 +28,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -436,8 +435,8 @@ func (w *Worker) freshVideoSpec(
 		Quality:      &parsed.Quality,
 		Revision:     &parsed.Revision,
 		ReleaseType:  parsed.ReleaseType,
-		ReleaseGroup: ptr.To(parsed.Group),
-		Edition:      ptr.To(parsed.Edition),
+		ReleaseGroup: new(parsed.Group),
+		Edition:      new(parsed.Edition),
 		Languages:    parsed.Languages,
 	}
 	profile := w.profile(ctx, st, profileRef)
@@ -454,7 +453,7 @@ func (w *Worker) freshVideoSpec(
 			OriginalLanguageName: languageName, ReleaseType: parsed.ReleaseType,
 			ReleaseTitle: filepath.Base(path), Filename: filepath.Base(path),
 		})
-	f.FormatScore = ptr.To(int32(score)) //nolint:gosec // a custom-format score is a small bounded sum
+	f.FormatScore = new(int32(score)) //nolint:gosec // a custom-format score is a small bounded sum
 	if len(matched) > maxMatchedFormats {
 		matched = matched[:maxMatchedFormats]
 	}

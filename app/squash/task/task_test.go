@@ -38,7 +38,7 @@ func TestTaskJSONKeepsFalsePolicyPointers(t *testing.T) {
 		Job:     schema.Ref{Namespace: "media", Name: "tj", UID: "u1"},
 		Attempt: 2,
 		Profile: task.Profile{Name: "p", Hash: "h", Spec: transcodev1alpha1.TranscodeProfileSpec{
-			Policy: transcodev1alpha1.PolicySpec{ReplaceSource: ptr.To(false), RecycleBin: ptr.To(false)},
+			Policy: transcodev1alpha1.PolicySpec{ReplaceSource: new(false), RecycleBin: ptr.To(false)},
 		}},
 	}
 	_, data, err := schema.Encode(in)

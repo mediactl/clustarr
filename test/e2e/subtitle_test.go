@@ -116,7 +116,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -333,9 +332,9 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 	provider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-sub13-os"), Namespace: Namespace},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 10,
+			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: new(true), Priority: 10,
 			SecretRef: &corev1.LocalObjectReference{Name: "opensubtitles-fixture-credentials"},
-			Endpoint:  ptr.To("http://opensubtitles-stub." + Namespace + ".svc"),
+			Endpoint:  new("http://opensubtitles-stub." + Namespace + ".svc"),
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, provider))
@@ -563,9 +562,9 @@ func TestSubtitleThrottleFallsThroughToGestdown(t *testing.T) {
 	osProvider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-sub13-thr-os"), Namespace: Namespace},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 10,
+			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: new(true), Priority: 10,
 			SecretRef: &corev1.LocalObjectReference{Name: "opensubtitles-fixture-credentials"},
-			Endpoint:  ptr.To("http://opensubtitles-stub." + Namespace + ".svc"),
+			Endpoint:  new("http://opensubtitles-stub." + Namespace + ".svc"),
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, osProvider))
@@ -574,8 +573,8 @@ func TestSubtitleThrottleFallsThroughToGestdown(t *testing.T) {
 	gdProvider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-sub13-thr-gd"), Namespace: Namespace},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: ptr.To(true), Priority: 20,
-			Endpoint: ptr.To("http://gestdown-stub." + Namespace + ".svc"),
+			Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: new(true), Priority: 20,
+			Endpoint: new("http://gestdown-stub." + Namespace + ".svc"),
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, gdProvider))
@@ -753,9 +752,9 @@ func TestDownloadScenario1SubtitleLeg(t *testing.T) {
 	provider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-dl1sub-os"), Namespace: Namespace},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 10,
+			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: new(true), Priority: 10,
 			SecretRef: &corev1.LocalObjectReference{Name: "opensubtitles-fixture-credentials"},
-			Endpoint:  ptr.To("http://opensubtitles-stub." + Namespace + ".svc"),
+			Endpoint:  new("http://opensubtitles-stub." + Namespace + ".svc"),
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, provider))

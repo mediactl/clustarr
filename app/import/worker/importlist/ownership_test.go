@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -49,7 +48,7 @@ func handAdded(t *testing.T, ctx context.Context, c client.Client, ns, name stri
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
 		Spec: catalogv1alpha1.MovieSpec{
-			TmdbID: 603, Monitored: ptr.To(true),
+			TmdbID: 603, Monitored: new(true),
 			QualityProfileRef: "owners-profile", RootFolderRef: "owners-root",
 			Source: &commonv1.AddSource{},
 		},

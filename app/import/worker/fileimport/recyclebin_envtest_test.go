@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -63,7 +62,7 @@ func TestRecycleSweeperEmptiesExpiredDays(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 			Spec: catalogv1alpha1.RootFolderSpec{
 				Path: path, Kind: catalogv1alpha1.RootFolderKindMovie,
-				RecycleBin: catalogv1alpha1.RecycleBin{Path: bin, CleanupDays: ptr.To(days)},
+				RecycleBin: catalogv1alpha1.RecycleBin{Path: bin, CleanupDays: new(days)},
 			},
 		}))
 	}

@@ -22,7 +22,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
@@ -151,7 +150,7 @@ func userLabelsDiffer(a, b map[string]string) bool {
 
 func addWithPriority(q workqueue.TypedRateLimitingInterface[Key], k Key, p int) {
 	if pq, ok := q.(priorityqueue.PriorityQueue[Key]); ok {
-		pq.AddWithOpts(priorityqueue.AddOpts{Priority: ptr.To(p)}, k)
+		pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(p)}, k)
 		return
 	}
 	q.Add(k)

@@ -87,12 +87,12 @@ func TestLibraryProjectionPutsEveryParentInATabWithArtYearAndProfile(t *testing.
 	}
 	standalone := &catalogv1.Book{ // no authorRef: its own parent
 		ObjectMeta: metav1.ObjectMeta{Name: "lone-book", Namespace: "default", UID: "lone-book-uid"},
-		Spec:       catalogv1.BookSpec{QualityProfileRef: ptr.To("ebook")},
+		Spec:       catalogv1.BookSpec{QualityProfileRef: new("ebook")},
 		Status:     catalogv1.BookStatus{Metadata: &catalogv1.BookMetadata{Title: "Lone Book"}},
 	}
 	owned := &catalogv1.Book{ // an author's child
 		ObjectMeta: metav1.ObjectMeta{Name: "dispossessed", Namespace: "default", UID: "dispossessed-uid"},
-		Spec:       catalogv1.BookSpec{AuthorRef: ptr.To("le-guin"), QualityProfileRef: ptr.To("ebook")},
+		Spec:       catalogv1.BookSpec{AuthorRef: new("le-guin"), QualityProfileRef: ptr.To("ebook")},
 		Status:     catalogv1.BookStatus{Metadata: &catalogv1.BookMetadata{Title: "The Dispossessed"}},
 	}
 	audiobook := &catalogv1.Audiobook{

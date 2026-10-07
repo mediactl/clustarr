@@ -88,9 +88,9 @@ func withApplied(seasons []catalogv1alpha1.SeasonStatus, s *catalogv1alpha1.Seri
 		if v, ok := overrides[st.Number]; ok {
 			switch {
 			case cascaded:
-				st.AppliedMonitored = ptr.To(v)
+				st.AppliedMonitored = new(v)
 			case prior[st.Number] != nil:
-				st.AppliedMonitored = ptr.To(*prior[st.Number])
+				st.AppliedMonitored = new(*prior[st.Number])
 			}
 		}
 		out[i] = st

@@ -36,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -163,7 +162,7 @@ func TestPoolFollowsDispatch(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	for _, name := range []string{"a", "b"} {
-		newMediaFile(t, c, ns, name, "p"+name, ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, name, "p"+name, new(h264Probe()))
 		newTJ(t, c, ns, name+"-hevc", name, "hevc", "p"+name, nil)
 	}
 	r := newReconciler(t, c, map[string]int32{"cpu": 2})
@@ -256,7 +255,7 @@ func TestDrainingPoolHoldsNewWorkThenReshapes(t *testing.T) {
 	})
 	require.Equal(t, pool.DriftReshape, pool.Classify(getPool(t, f.c, f.tp, "cpu"), pool.Want(tp, "cpu", f.r.Pool)))
 
-	newMediaFile(t, f.c, f.ns, "b", "pb", ptr.To(h264Probe()))
+	newMediaFile(t, f.c, f.ns, "b", "pb", new(h264Probe()))
 	newTJ(t, f.c, f.ns, "b-hevc", "b", "hevc", "pb", nil)
 	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	b := getTJ(t, f.c, f.ns, "b-hevc")
@@ -306,7 +305,7 @@ func TestImageChangeRecreatesTheIdlePool(t *testing.T) {
 	admitPass(t, f.r)
 	assert.True(t, poolGone(t, f.c, f.tp, "cpu"), "an idle pool with immutable drift is deleted")
 
-	newMediaFile(t, f.c, f.ns, "b", "pb", ptr.To(h264Probe()))
+	newMediaFile(t, f.c, f.ns, "b", "pb", new(h264Probe()))
 	newTJ(t, f.c, f.ns, "b-hevc", "b", "hevc", "pb", nil)
 	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, f.c, f.ns, "b-hevc").Status.Phase)
@@ -368,7 +367,7 @@ func TestFailedPoolIsRecreatedWithBackoff(t *testing.T) {
 
 	first := getPool(t, f.c, f.tp, "cpu")
 	setPoolFailed(t, f.c, first)
-	newMediaFile(t, f.c, f.ns, "b", "pb", ptr.To(h264Probe()))
+	newMediaFile(t, f.c, f.ns, "b", "pb", new(h264Probe()))
 	newTJ(t, f.c, f.ns, "b-hevc", "b", "hevc", "pb", nil)
 	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	assert.True(t, poolGone(t, f.c, f.tp, "cpu"), "a Failed pool is deleted")
@@ -435,7 +434,7 @@ func TestAPoolWithoutItsAppliedTemplateIsReplaced(t *testing.T) {
 	require.NoError(t, f.c.Patch(ctx, j, patch))
 	require.NotContains(t, getPool(t, f.c, f.tp, "cpu").Annotations, pool.AnnotationAppliedTemplate)
 
-	newMediaFile(t, f.c, f.ns, "b", "pb", ptr.To(h264Probe()))
+	newMediaFile(t, f.c, f.ns, "b", "pb", new(h264Probe()))
 	newTJ(t, f.c, f.ns, "b-hevc", "b", "hevc", "pb", nil)
 	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	b := getTJ(t, f.c, f.ns, "b-hevc")
@@ -500,7 +499,7 @@ func TestAGateEnabledLaterDrainsAndRecreatesThePool(t *testing.T) {
 	setPoolRunning(t, c, old, 1)
 
 	for _, name := range []string{"a", "b", "c"} {
-		newMediaFile(t, c, ns, name, "p"+name, ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, name, "p"+name, new(h264Probe()))
 		newTJ(t, c, ns, name+"-hevc", name, "hevc", "p"+name, nil)
 	}
 	reconcileTJ(t, r, ns, "a-hevc") // one task, parallelism 1: nothing to apply
@@ -554,7 +553,7 @@ func TestAPoolWithAnOlderFailurePolicyIsRecreatedForItsWork(t *testing.T) {
 	require.NoError(t, err)
 	old := getPool(t, c, tp, "cpu")
 
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	reconcileTJ(t, r, ns, "heat-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, c, ns, "heat-hevc").Status.Phase)
@@ -580,7 +579,7 @@ func TestAPoolJobChangeWakesAdmission(t *testing.T) {
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
-		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller:             config.Controller{SkipNameValidation: new(true)},
 		// As squasharr's manager caches Jobs (R21): the pool Jobs alone.
 		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
 			&batchv1.Job{}: transcodejob.PoolJobCache("default"),
@@ -598,7 +597,7 @@ func TestAPoolJobChangeWakesAdmission(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "a", "pa", new(h264Probe()))
 	newTJ(t, c, ns, "a-hevc", "a", "hevc", "pa", nil)
 
 	var first *batchv1.Job
@@ -632,7 +631,7 @@ func TestALongProfileNameGetsAWorkingPool(t *testing.T) {
 	name := strings.Repeat("h", 50) + "." + strings.Repeat("e", 49)
 	require.Len(t, name, 100)
 	tp := newProfile(t, c, name, "hash1", nil)
-	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "a", "pa", new(h264Probe()))
 	newTJ(t, c, ns, "a-long", "a", name, "pa", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 
@@ -665,7 +664,7 @@ func TestAPoolJobItDoesNotOwnHoldsItsWork(t *testing.T) {
 	require.NoError(t, f.c.Patch(ctx, j, patch))
 	rv := getPool(t, f.c, f.tp, "cpu").ResourceVersion
 
-	newMediaFile(t, f.c, f.ns, "b", "pb", ptr.To(h264Probe()))
+	newMediaFile(t, f.c, f.ns, "b", "pb", new(h264Probe()))
 	newTJ(t, f.c, f.ns, "b-hevc", "b", "hevc", "pb", nil)
 	reconcileTJ(t, f.r, f.ns, "b-hevc")
 	b := getTJ(t, f.c, f.ns, "b-hevc")

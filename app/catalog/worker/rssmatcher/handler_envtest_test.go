@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -528,7 +527,7 @@ func transcodedFile(t *testing.T, ctx context.Context, c client.Client, ns strin
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: catalogv1alpha1.MediaFileSpec{
-			MediaRef: ref, Path: "/data/media/" + name + ".mkv", Quality: q, Original: ptr.To(false),
+			MediaRef: ref, Path: "/data/media/" + name + ".mkv", Quality: q, Original: new(false),
 		},
 	}))
 	return name

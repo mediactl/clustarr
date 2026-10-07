@@ -24,7 +24,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -67,7 +66,7 @@ func TestPoolJobPredicate(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "squasharr-pool-hevc-cpu", Labels: map[string]string{
 			pool.LabelManagedBy: pool.ManagedByValue, pool.LabelProfile: "hevc", pool.LabelTemplateHash: "h1",
 		}},
-		Spec:   batchv1.JobSpec{Suspend: ptr.To(false)},
+		Spec:   batchv1.JobSpec{Suspend: new(false)},
 		Status: batchv1.JobStatus{StartTime: &metav1.Time{}, Active: 2},
 	}
 	changed := func(mutate func(*batchv1.Job)) *batchv1.Job {
@@ -76,7 +75,7 @@ func TestPoolJobPredicate(t *testing.T) {
 		return j
 	}
 	for name, next := range map[string]*batchv1.Job{
-		"suspended":        changed(func(j *batchv1.Job) { j.Spec.Suspend = ptr.To(true) }),
+		"suspended":        changed(func(j *batchv1.Job) { j.Spec.Suspend = new(true) }),
 		"a pod went":       changed(func(j *batchv1.Job) { j.Status.Active = 1 }),
 		"startTime clears": changed(func(j *batchv1.Job) { j.Status.StartTime = nil }),
 		"failed": changed(func(j *batchv1.Job) {
@@ -86,7 +85,7 @@ func TestPoolJobPredicate(t *testing.T) {
 	} {
 		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: running, ObjectNew: next}), name)
 	}
-	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: running, ObjectNew: changed(func(j *batchv1.Job) { j.Status.Ready = ptr.To(int32(2)) })}),
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: running, ObjectNew: changed(func(j *batchv1.Job) { j.Status.Ready = new(int32(2)) })}),
 		"a ready count is not a wake")
 	assert.True(t, p.Create(event.CreateEvent{Object: running}))
 	assert.True(t, p.Delete(event.DeleteEvent{Object: running}))

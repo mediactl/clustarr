@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
@@ -42,13 +41,13 @@ func episode(name string, season int32, monitored *bool) catalogv1alpha1.Episode
 // touches no other season.
 func TestSeasonCascadeSetsTheSeasonsEpisodes(t *testing.T) {
 	s := &catalogv1alpha1.Series{Spec: catalogv1alpha1.SeriesSpec{
-		Seasons: []catalogv1alpha1.SeasonSpec{{Number: 2, Monitored: ptr.To(true)}},
+		Seasons: []catalogv1alpha1.SeasonSpec{{Number: 2, Monitored: new(true)}},
 	}}
 	eps := []catalogv1alpha1.Episode{
-		episode("s01e01", 1, ptr.To(false)),
-		episode("s02e02", 2, ptr.To(false)),
-		episode("s02e01", 2, ptr.To(false)),
-		episode("s02e03", 2, ptr.To(true)),
+		episode("s01e01", 1, new(false)),
+		episode("s02e02", 2, new(false)),
+		episode("s02e01", 2, new(false)),
+		episode("s02e03", 2, new(true)),
 	}
 	assert.Equal(t, []series.MonitoredChange{
 		{Name: "s02e01", Monitored: true},
@@ -60,17 +59,17 @@ func TestSeasonCascadeSetsTheSeasonsEpisodes(t *testing.T) {
 // its own afterwards keeps its flag: the cascade runs once per change.
 func TestSeasonCascadeLeavesAnAppliedSeasonAlone(t *testing.T) {
 	s := &catalogv1alpha1.Series{
-		Spec: catalogv1alpha1.SeriesSpec{Seasons: []catalogv1alpha1.SeasonSpec{{Number: 1, Monitored: ptr.To(true)}}},
+		Spec: catalogv1alpha1.SeriesSpec{Seasons: []catalogv1alpha1.SeasonSpec{{Number: 1, Monitored: new(true)}}},
 		Status: catalogv1alpha1.SeriesStatus{Seasons: []catalogv1alpha1.SeasonStatus{
-			{Number: 1, AppliedMonitored: ptr.To(true)},
+			{Number: 1, AppliedMonitored: new(true)},
 		}},
 	}
-	eps := []catalogv1alpha1.Episode{episode("s01e01", 1, ptr.To(false))}
+	eps := []catalogv1alpha1.Episode{episode("s01e01", 1, new(false))}
 	assert.Empty(t, series.SeasonCascade(s, eps))
 
 	// Turning the season off again is a new change, and cascades.
-	s.Spec.Seasons[0].Monitored = ptr.To(false)
-	eps = []catalogv1alpha1.Episode{episode("s01e01", 1, ptr.To(false)), episode("s01e02", 1, nil)}
+	s.Spec.Seasons[0].Monitored = new(false)
+	eps = []catalogv1alpha1.Episode{episode("s01e01", 1, new(false)), episode("s01e02", 1, nil)}
 	assert.Equal(t, []series.MonitoredChange{{Name: "s01e02", Monitored: false}}, series.SeasonCascade(s, eps))
 }
 
@@ -79,16 +78,16 @@ func TestSeasonCascadeIgnoresSeasonsWithoutAnOverride(t *testing.T) {
 	s := &catalogv1alpha1.Series{Spec: catalogv1alpha1.SeriesSpec{
 		Seasons: []catalogv1alpha1.SeasonSpec{{Number: 1}},
 	}}
-	assert.Empty(t, series.SeasonCascade(s, []catalogv1alpha1.Episode{episode("s01e01", 1, ptr.To(false))}))
+	assert.Empty(t, series.SeasonCascade(s, []catalogv1alpha1.Episode{episode("s01e01", 1, new(false))}))
 }
 
 // A season reads monitored when any of its episodes is, so a season whose
 // episodes were all left unmonitored shows its toggle off.
 func TestRollupSeasonMonitoredWhenAnyEpisodeIs(t *testing.T) {
 	got := series.Rollup([]catalogv1alpha1.Episode{
-		episode("s01e01", 1, ptr.To(false)),
-		episode("s01e02", 1, ptr.To(true)),
-		episode("s02e01", 2, ptr.To(false)),
+		episode("s01e01", 1, new(false)),
+		episode("s01e02", 1, new(true)),
+		episode("s02e01", 2, new(false)),
 		episode("s03e01", 3, nil),
 	}, time.Now())
 	require.Len(t, got.Seasons, 3)
@@ -108,8 +107,8 @@ func TestDesiredEpisodesNewEpisodeTakesItsSeasonOverride(t *testing.T) {
 			MonitorNewItems: catalogv1alpha1.MonitorNewChildrenAll,
 			AddOptions:      catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorNone},
 			Seasons: []catalogv1alpha1.SeasonSpec{
-				{Number: 1, Monitored: ptr.To(true)},
-				{Number: 7, Monitored: ptr.To(false)},
+				{Number: 1, Monitored: new(true)},
+				{Number: 7, Monitored: new(false)},
 			},
 		},
 	}
@@ -137,7 +136,7 @@ func TestRollupLeavesSpecialsOutOfTheSeriesTotals(t *testing.T) {
 	now := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
 	at := func(d time.Duration) *metav1.Time { t := metav1.NewTime(now.Add(d)); return &t }
 	ep := func(season int32, hasFile bool, air *metav1.Time) catalogv1alpha1.Episode {
-		e := episode("e", season, ptr.To(true))
+		e := episode("e", season, new(true))
 		e.Status.HasFile, e.Status.AirDate = hasFile, air
 		return e
 	}
@@ -168,7 +167,7 @@ func TestRollupLeavesSpecialsOutOfTheSeriesTotals(t *testing.T) {
 // can tell a complete series from one with gaps.
 func TestRollupCountsMissingAndDownloadingEpisodes(t *testing.T) {
 	ep := func(season int32, phase catalogv1alpha1.EpisodePhase) catalogv1alpha1.Episode {
-		e := episode("e", season, ptr.To(true))
+		e := episode("e", season, new(true))
 		e.Status.Phase = phase
 		return e
 	}

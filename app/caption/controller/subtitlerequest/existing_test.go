@@ -59,7 +59,7 @@ func TestISO6392StreamLanguagesCountAsExisting(t *testing.T) {
 			{Key: "es", Language: "es", HI: subtitlev1alpha1.HIPolicyPrefer},
 			{Key: "it", Language: "it", HI: subtitlev1alpha1.HIPolicyPrefer},
 		},
-		Cutoff: ptr.To("de"),
+		Cutoff: new("de"),
 	}
 	// "it" is satisfied by a sidecar tagged with its ISO 639-2 code.
 	names := []string{"Movie.mkv", "Movie.ita.srt"}
@@ -83,7 +83,7 @@ func TestISO6392AudioTripsAudioExclude(t *testing.T) {
 		{Key: "fr", Language: "fr", HI: subtitlev1alpha1.HIPolicyPrefer, AudioExclude: true},
 		{Key: "en", Language: "en", HI: subtitlev1alpha1.HIPolicyPrefer, AudioOnlyInclude: true},
 		{Key: "de", Language: "de", HI: subtitlev1alpha1.HIPolicyPrefer},
-	}, Cutoff: ptr.To("de")}
+	}, Cutoff: new("de")}
 	pp, _, _ := plannerProfile(spec, nil)
 	assert.Equal(t, []string{"fr"}, audioLanguages(mi, ""), "und is dropped, fre becomes fr")
 	wanted, _ := subtitles.Plan(pp, audioLanguages(mi, ""), nil)
@@ -114,7 +114,7 @@ func TestEmbeddedPolicy(t *testing.T) {
 			// skipCommentary defaults to true when unset, as the apiserver
 			// would default it, so "nothing ignored" has to say false.
 			name:   "nothing ignored: every resolvable stream counts, bitmap included",
-			policy: subtitlev1alpha1.EmbeddedSpec{SkipCommentary: ptr.To(false)},
+			policy: subtitlev1alpha1.EmbeddedSpec{SkipCommentary: new(false)},
 			want:   []string{"en", "fr", "de", "es", "it", "ja:forced", "pt:hi"},
 		},
 		{
@@ -123,17 +123,17 @@ func TestEmbeddedPolicy(t *testing.T) {
 		},
 		{
 			name:   "every knob on",
-			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true, IgnoreVobSub: true, IgnoreASS: true, SkipCommentary: ptr.To(true)},
+			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true, IgnoreVobSub: true, IgnoreASS: true, SkipCommentary: new(true)},
 			want:   []string{"ja:forced", "pt:hi"},
 		},
 		{
 			name:   "ignorePGS is by codec, not by the bitmap flag",
-			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true, SkipCommentary: ptr.To(false)},
+			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true, SkipCommentary: new(false)},
 			want:   []string{"fr", "de", "es", "it", "ja:forced", "pt:hi"},
 		},
 		{
 			name:   "ignoreASS covers ssa",
-			policy: subtitlev1alpha1.EmbeddedSpec{IgnoreASS: true, SkipCommentary: ptr.To(false)},
+			policy: subtitlev1alpha1.EmbeddedSpec{IgnoreASS: true, SkipCommentary: new(false)},
 			want:   []string{"en", "fr", "it", "ja:forced", "pt:hi"},
 		},
 	}
@@ -242,8 +242,8 @@ func TestExtractableStreams(t *testing.T) {
 	assert.Equal(t, map[int32]bool{2: true, 7: true},
 		extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{IgnoreASS: true}, all), "ignoreASS")
 	assert.Equal(t, map[int32]bool{2: true, 4: true, 5: true, 7: true},
-		extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{SkipCommentary: ptr.To(false)}, all), "skipCommentary off")
-	assert.Nil(t, extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{Extract: ptr.To(false)}, all), "extract off")
+		extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{SkipCommentary: new(false)}, all), "skipCommentary off")
+	assert.Nil(t, extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{Extract: new(false)}, all), "extract off")
 	assert.Nil(t, extractableStreams(ctx, mi, on, nil), "nothing to extract with")
 	assert.Nil(t, extractableStreams(ctx, nil, on, all), "not probed")
 
@@ -259,7 +259,7 @@ func TestExtractableStreams(t *testing.T) {
 func TestExtractorsAreTheProvidersTheWorkerWouldTask(t *testing.T) {
 	sp := func(name string, typ subtitlev1alpha1.SubtitleProviderType, enabled bool) subtitlev1alpha1.SubtitleProvider {
 		var p subtitlev1alpha1.SubtitleProvider
-		p.Name, p.Spec.Type, p.Spec.Enabled = name, typ, ptr.To(enabled)
+		p.Name, p.Spec.Type, p.Spec.Enabled = name, typ, new(enabled)
 		return p
 	}
 	providers := []subtitlev1alpha1.SubtitleProvider{

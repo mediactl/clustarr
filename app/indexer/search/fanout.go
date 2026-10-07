@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
@@ -699,5 +698,5 @@ func timePtr(t *metav1.Time) *time.Time {
 	if t == nil || t.Time.IsZero() {
 		return nil
 	}
-	return ptr.To(t.Time)
+	return new(t.Time)
 }

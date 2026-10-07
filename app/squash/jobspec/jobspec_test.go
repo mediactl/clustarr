@@ -87,12 +87,12 @@ func TestProfileHardwareTakesTheJobsOverride(t *testing.T) {
 		"an auto override of a pinned profile keeps its class")
 	spec.Hardware = transcodev1alpha1.HardwareAuto
 	assert.Equal(t, transcode.HardwareCPU, ProfileHardware(spec, nil), "auto with no class chosen plans for the CPU")
-	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(spec, ptr.To(transcodev1alpha1.HardwareNVIDIA)), "a chosen class overrides auto")
+	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(spec, new(transcodev1alpha1.HardwareNVIDIA)), "a chosen class overrides auto")
 	// gpu (2026-10-01) is auto that never takes a CPU slot for want of a GPU
 	// one: before a class is chosen it plans, and hashes, as auto does.
 	spec.Hardware = transcodev1alpha1.HardwareGPU
 	assert.Equal(t, transcode.HardwareCPU, ProfileHardware(spec, nil), "gpu with no class chosen plans for the CPU")
-	assert.Equal(t, transcode.HardwareIntel, ProfileHardware(spec, ptr.To(transcodev1alpha1.HardwareIntel)), "a chosen class overrides gpu")
+	assert.Equal(t, transcode.HardwareIntel, ProfileHardware(spec, new(transcodev1alpha1.HardwareIntel)), "a chosen class overrides gpu")
 	gpu := transcodev1alpha1.HardwareGPU
 	assert.Equal(t, transcode.HardwareNVIDIA, ProfileHardware(transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareNVIDIA}, &gpu),
 		"a gpu override of a pinned profile defers to it, as auto does")
@@ -125,7 +125,7 @@ func TestPolicyPointersDefaultToTrue(t *testing.T) {
 	assert.True(t, ReplaceSource(unset))
 	assert.True(t, RecycleBin(unset))
 
-	off := transcodev1alpha1.PolicySpec{ReplaceSource: ptr.To(false), RecycleBin: ptr.To(false)}
+	off := transcodev1alpha1.PolicySpec{ReplaceSource: new(false), RecycleBin: ptr.To(false)}
 	assert.False(t, ReplaceSource(off))
 	assert.False(t, RecycleBin(off))
 }
@@ -218,23 +218,23 @@ func TestOutputPath(t *testing.T) {
 			want: "/data/media/movies/F/F - hevc.mkv",
 		},
 		{
-			name: "spec.outputPath wins", spec: spec(src, ptr.To("/data/media/movies/Other/Film.mkv")), container: "mkv", replace: true,
+			name: "spec.outputPath wins", spec: spec(src, new("/data/media/movies/Other/Film.mkv")), container: "mkv", replace: true,
 			want: "/data/media/movies/Other/Film.mkv",
 		},
 		{
-			name: "spec.outputPath is cleaned", spec: spec(src, ptr.To("/data/media/movies/./Other//Film.mkv")), container: "mkv", replace: false,
+			name: "spec.outputPath is cleaned", spec: spec(src, new("/data/media/movies/./Other//Film.mkv")), container: "mkv", replace: false,
 			want: "/data/media/movies/Other/Film.mkv",
 		},
 		{
-			name: "spec.outputPath must match the container", spec: spec(src, ptr.To("/data/media/x.mp4")), container: "mkv", replace: true,
+			name: "spec.outputPath must match the container", spec: spec(src, new("/data/media/x.mp4")), container: "mkv", replace: true,
 			wantErr: "extension",
 		},
 		{
-			name: "spec.outputPath must be absolute", spec: spec(src, ptr.To("x.mkv")), container: "mkv", replace: true,
+			name: "spec.outputPath must be absolute", spec: spec(src, new("x.mkv")), container: "mkv", replace: true,
 			wantErr: "not absolute",
 		},
 		{
-			name: "a kept source cannot be the output", spec: spec(src, ptr.To(src)), container: "mkv", replace: false,
+			name: "a kept source cannot be the output", spec: spec(src, new(src)), container: "mkv", replace: false,
 			wantErr: "keeps the source",
 		},
 	} {

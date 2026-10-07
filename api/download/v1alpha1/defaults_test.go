@@ -39,7 +39,7 @@ func TestTorrentProxyDefaults(t *testing.T) {
 	require.Equal(t, "[fd00::1]:1080", downloadv1alpha1.TorrentProxy{Host: "fd00::1", Port: 1080}.Address())
 
 	p = downloadv1alpha1.TorrentProxy{
-		HostnameLookup: ptr.To(false), PeerConnections: ptr.To(false), UDP: ptr.To(false), DNSServer: "9.9.9.9:53",
+		HostnameLookup: new(false), PeerConnections: ptr.To(false), UDP: ptr.To(false), DNSServer: "9.9.9.9:53",
 	}
 	require.False(t, p.HostnameLookupOrDefault())
 	require.False(t, p.PeerConnectionsOrDefault())

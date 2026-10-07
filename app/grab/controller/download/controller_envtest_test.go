@@ -28,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -118,7 +117,7 @@ func newTorrentClient(t *testing.T, ctx context.Context, c client.Client, ns, na
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: downloadv1alpha1.DownloadClientSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Enabled:  ptr.To(true),
+			Enabled:  new(true),
 			Priority: priority,
 			Replicas: replicas,
 			Torrent:  &downloadv1alpha1.TorrentSpec{},
@@ -134,7 +133,7 @@ func newUsenetClient(t *testing.T, ctx context.Context, c client.Client, ns, nam
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: downloadv1alpha1.DownloadClientSpec{
 			Protocol: commonv1.ProtocolUsenet,
-			Enabled:  ptr.To(true),
+			Enabled:  new(true),
 			Priority: 1,
 			Replicas: 1,
 			Usenet: &downloadv1alpha1.UsenetSpec{

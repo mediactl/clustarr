@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -147,7 +146,7 @@ func TestAutoGoesToTheGPUPoolWhenOneIsFree(t *testing.T) {
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	require.Equal(t, transcodev1alpha1.HardwareAuto, tp.Spec.Hardware, "the CRD default is auto")
 	nvidiaNode(t, c, "gpu-1", "1")
-	mf := newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	mf := newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 1})
 
@@ -208,7 +207,7 @@ func TestAutoFallsBackToCPUWithoutAGPUNodeOrSlot(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	for _, name := range []string{"a", "b", "c"} {
-		newMediaFile(t, c, ns, name, "p-"+name, ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, name, "p-"+name, new(h264Probe()))
 	}
 	r := newReconciler(t, c, map[string]int32{"cpu": 3, "nvidia": 1})
 
@@ -267,7 +266,7 @@ func TestAGPUEncodeFailureMovesAnAutoJobToCPU(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
 	now := time.Now()
@@ -330,7 +329,7 @@ func TestAPinnedGPUJobNeverFallsBack(t *testing.T) {
 		p.Spec.Hardware = transcodev1alpha1.HardwareNVIDIA
 	})
 	node := nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-nvenc", "heat", "nvenc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
 	now := time.Now()
@@ -374,7 +373,7 @@ func TestAnAutoJobIsHeldOnlyForThePoolItWouldUse(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	for _, name := range []string{"a", "b", "c"} {
-		newMediaFile(t, c, ns, name, "p-"+name, ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, name, "p-"+name, new(h264Probe()))
 	}
 	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 2})
 
@@ -426,11 +425,11 @@ func TestAnUnschedulableGPUPoolReroutesItsQueuedJobs(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	nvidiaNode(t, c, "gpu-1", "2")
-	newMediaFile(t, c, ns, "a", "p-a", ptr.To(h264Probe()))
-	newMediaFile(t, c, ns, "p", "p-p", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "a", "p-a", new(h264Probe()))
+	newMediaFile(t, c, ns, "p", "p-p", new(h264Probe()))
 	newTJ(t, c, ns, "a-hevc", "a", "hevc", "p-a", nil)
 	newTJ(t, c, ns, "p-hevc", "p", "hevc", "p-p", func(tj *transcodev1alpha1.TranscodeJob) {
-		tj.Spec.Hardware = ptr.To(transcodev1alpha1.HardwareNVIDIA) // pinned, under the auto profile
+		tj.Spec.Hardware = new(transcodev1alpha1.HardwareNVIDIA) // pinned, under the auto profile
 	})
 	r := newReconciler(t, c, map[string]int32{"cpu": 0, "nvidia": 2})
 	r.Admin = r.Bus.(events.StreamAdmin)
@@ -527,7 +526,7 @@ func TestTheUnschedulableMarkLastsThirtyMinutesAndIsInMemory(t *testing.T) {
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	nvidiaNode(t, c, "gpu-1", "2")
 	for _, name := range []string{"a", "b", "d"} {
-		newMediaFile(t, c, ns, name, "p-"+name, ptr.To(h264Probe()))
+		newMediaFile(t, c, ns, name, "p-"+name, new(h264Probe()))
 	}
 	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 2})
 	r.Admin = r.Bus.(events.StreamAdmin)
@@ -630,7 +629,7 @@ func TestARerouteRacingAClaimDoesNotWedgeTheJob(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "a", "p-a", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "a", "p-a", new(h264Probe()))
 	newTJ(t, c, ns, "a-hevc", "a", "hevc", "p-a", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
 	r.Admin = r.Bus.(events.StreamAdmin)
@@ -686,7 +685,7 @@ func TestAReplanThatSkipsPublishesNothing(t *testing.T) {
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
 	nvidiaNode(t, c, "gpu-1", "1")
 
-	newMediaFile(t, c, ns, "short", "p-short", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "short", "p-short", new(h264Probe()))
 	newTJ(t, c, ns, "short-hevc", "short", "hevc", "p-short", nil)
 	slots := r.Slots
 	r.Slots = map[string]int32{}
@@ -750,7 +749,7 @@ func TestADispatchAdoptedFirstStillRecordsItsReplan(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
 	inner := r.Bus
@@ -790,8 +789,8 @@ func TestAnAutoJobAvoidsAnUnhealthyGPUClass(t *testing.T) {
 		p.Spec.Hardware = transcodev1alpha1.HardwareNVIDIA
 	})
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
-	newMediaFile(t, c, ns, "ronin", "probe2", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
+	newMediaFile(t, c, ns, "ronin", "probe2", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	newTJ(t, c, ns, "ronin-hevc", "ronin", "hevc-nv", "probe2", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 2})
@@ -816,7 +815,7 @@ func TestAStaleUnhealthyReportLeavesTheClassEligible(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 1})
 	require.NoError(t, task.PublishEncoderHealth(context.Background(), r.Bus.KV(events.BucketProgress), "nvidia", "gpu-1",
@@ -839,7 +838,7 @@ func TestAQueuedAutoJobLeavesAClassReportedUnhealthy(t *testing.T) {
 	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 1})
 	r.Admin = r.Bus.(events.StreamAdmin) // withdrawing purges the dispatched task
@@ -871,8 +870,8 @@ func TestAGPUJobWaitsForAGPUSlotNotACPUOne(t *testing.T) {
 		tp.Spec.Hardware = transcodev1alpha1.HardwareGPU
 	})
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "a", "p-a", ptr.To(h264Probe()))
-	newMediaFile(t, c, ns, "b", "p-b", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "a", "p-a", new(h264Probe()))
+	newMediaFile(t, c, ns, "b", "p-b", new(h264Probe()))
 	newTJ(t, c, ns, "a-hevc", "a", "hevc", "p-a", nil)
 	newTJ(t, c, ns, "b-hevc", "b", "hevc", "p-b", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 2, "nvidia": 1})
@@ -912,7 +911,7 @@ func TestAGPUJobRoutedOffAnUnschedulablePoolKeepsNoFallback(t *testing.T) {
 		tp.Spec.Hardware = transcodev1alpha1.HardwareGPU
 	})
 	nvidiaNode(t, c, "gpu-1", "1")
-	newMediaFile(t, c, ns, "a", "p-a", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "a", "p-a", new(h264Probe()))
 	newTJ(t, c, ns, "a-hevc", "a", "hevc", "p-a", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 0, "nvidia": 1})
 	r.Admin = r.Bus.(events.StreamAdmin)

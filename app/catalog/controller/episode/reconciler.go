@@ -233,7 +233,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState)))).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.mapSeries), builder.WithPredicates(seriesMonitoredChanged())).
-		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
 

@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -56,7 +55,7 @@ func TestIndexersForDefinitionFollowsReplacedIDs(t *testing.T) {
 	byID := func(name, id string) *indexv1alpha1.Indexer {
 		return &indexv1alpha1.Indexer{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
-			Spec:       indexv1alpha1.IndexerSpec{Definition: ptr.To(id)},
+			Spec:       indexv1alpha1.IndexerSpec{Definition: new(id)},
 		}
 	}
 	c := fakeClient(t, byID("by-old", "old-tracker"), byID("by-new", "new-tracker"), byID("unrelated", "other"))

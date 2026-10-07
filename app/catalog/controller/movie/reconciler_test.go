@@ -37,7 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -863,7 +862,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		var mf catalogv1alpha1.MediaFile
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "dune-part-two-abc1234567"}, &mf))
 		mfPatch := client.MergeFrom(mf.DeepCopy())
-		mf.Spec.Original = ptr.To(false)
+		mf.Spec.Original = new(false)
 		require.NoError(t, c.Patch(ctx, &mf, mfPatch))
 		transcoded(t, "dune-part-two")
 		stays(t, "dune-part-two")
@@ -1222,7 +1221,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		var cur catalogv1alpha1.MediaFile
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: mf.Name}, &cur))
 		patch := client.MergeFrom(cur.DeepCopy())
-		cur.Spec.Original = ptr.To(false)
+		cur.Spec.Original = new(false)
 		require.NoError(t, c.Patch(ctx, &cur, patch))
 		got = read("a transcoded Korean file must read Transcoded", func(m catalogv1alpha1.Movie) bool {
 			return m.Status.Phase == catalogv1alpha1.MoviePhaseTranscoded

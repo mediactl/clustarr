@@ -22,7 +22,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -41,7 +40,7 @@ func fakeDownloadClient(name string, protocol commonv1alpha1.Protocol, enabled *
 
 func TestPickClientIgnoresOtherProtocols(t *testing.T) {
 	items := []downloadv1alpha1.DownloadClient{
-		fakeDownloadClient("usenet-a", commonv1alpha1.ProtocolUsenet, ptr.To(true), 1),
+		fakeDownloadClient("usenet-a", commonv1alpha1.ProtocolUsenet, new(true), 1),
 	}
 	_, ok := pickClient(items, commonv1alpha1.ProtocolTorrent)
 	assert.False(t, ok)
@@ -49,7 +48,7 @@ func TestPickClientIgnoresOtherProtocols(t *testing.T) {
 
 func TestPickClientIgnoresDisabled(t *testing.T) {
 	items := []downloadv1alpha1.DownloadClient{
-		fakeDownloadClient("torrent-off", commonv1alpha1.ProtocolTorrent, ptr.To(false), 1),
+		fakeDownloadClient("torrent-off", commonv1alpha1.ProtocolTorrent, new(false), 1),
 	}
 	_, ok := pickClient(items, commonv1alpha1.ProtocolTorrent)
 	assert.False(t, ok)
@@ -67,9 +66,9 @@ func TestPickClientTreatsNilEnabledAsTrue(t *testing.T) {
 
 func TestPickClientPrefersLowestPriorityNumber(t *testing.T) {
 	items := []downloadv1alpha1.DownloadClient{
-		fakeDownloadClient("torrent-high", commonv1alpha1.ProtocolTorrent, ptr.To(true), 10),
-		fakeDownloadClient("torrent-low", commonv1alpha1.ProtocolTorrent, ptr.To(true), 1),
-		fakeDownloadClient("torrent-mid", commonv1alpha1.ProtocolTorrent, ptr.To(true), 5),
+		fakeDownloadClient("torrent-high", commonv1alpha1.ProtocolTorrent, new(true), 10),
+		fakeDownloadClient("torrent-low", commonv1alpha1.ProtocolTorrent, new(true), 1),
+		fakeDownloadClient("torrent-mid", commonv1alpha1.ProtocolTorrent, new(true), 5),
 	}
 	got, ok := pickClient(items, commonv1alpha1.ProtocolTorrent)
 	if assert.True(t, ok) {
@@ -79,8 +78,8 @@ func TestPickClientPrefersLowestPriorityNumber(t *testing.T) {
 
 func TestPickClientBreaksPriorityTiesOnName(t *testing.T) {
 	items := []downloadv1alpha1.DownloadClient{
-		fakeDownloadClient("torrent-zeta", commonv1alpha1.ProtocolTorrent, ptr.To(true), 1),
-		fakeDownloadClient("torrent-alpha", commonv1alpha1.ProtocolTorrent, ptr.To(true), 1),
+		fakeDownloadClient("torrent-zeta", commonv1alpha1.ProtocolTorrent, new(true), 1),
+		fakeDownloadClient("torrent-alpha", commonv1alpha1.ProtocolTorrent, new(true), 1),
 	}
 	got, ok := pickClient(items, commonv1alpha1.ProtocolTorrent)
 	if assert.True(t, ok) {

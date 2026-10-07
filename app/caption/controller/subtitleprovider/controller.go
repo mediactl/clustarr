@@ -38,7 +38,6 @@ import (
 	"github.com/jonboulle/clockwork"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -306,7 +305,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("subtitleprovider").
 		For(&subtitlev1alpha1.SubtitleProvider{}, builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{
-			RecoverPanic:          ptr.To(true),
+			RecoverPanic:          new(true),
 			ReconciliationTimeout: 5 * time.Minute,
 		}).
 		Complete(r)

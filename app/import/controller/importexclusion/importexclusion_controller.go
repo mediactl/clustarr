@@ -25,7 +25,6 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -290,7 +289,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("importexclusion").
 		For(&catalogv1alpha1.ImportExclusion{},
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.Deleting()))).
-		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
 

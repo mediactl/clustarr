@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -81,14 +80,14 @@ func TestWorkerSkipsAnAutomaticSearchOfAnUnmonitoredEpisode(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: "show"},
 						Spec: catalogv1alpha1.SeriesSpec{
 							TvdbID: 1, QualityProfileRef: "hd", RootFolderRef: "tv",
-							Monitored: ptr.To(tc.seriesMonitored),
+							Monitored: new(tc.seriesMonitored),
 						},
 					},
 					&catalogv1alpha1.Episode{
 						ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: "show-s01e01"},
 						Spec: catalogv1alpha1.EpisodeSpec{
 							SeriesRef: "show", SeasonNumber: 1, EpisodeNumber: 1,
-							Monitored: ptr.To(tc.episodeMonitor),
+							Monitored: new(tc.episodeMonitor),
 						},
 						Status: catalogv1alpha1.EpisodeStatus{AirDate: &aired},
 					}).

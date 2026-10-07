@@ -27,7 +27,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -269,7 +268,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.Movie{}, handler.EnqueueRequestsFromMapFunc(r.mapNamespaceProfiles), items).
 		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.mapNamespaceProfiles), items).
 		WithOptions(controller.Options{
-			RecoverPanic:          ptr.To(true),
+			RecoverPanic:          new(true),
 			ReconciliationTimeout: 5 * time.Minute,
 		}).
 		Complete(r)

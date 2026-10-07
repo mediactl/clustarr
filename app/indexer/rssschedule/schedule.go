@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/utils/ptr"
-
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -171,7 +169,7 @@ func ScheduleNext(ctx context.Context, bus events.Bus, idx *indexv1alpha1.Indexe
 // change no Phase D1 task owns.
 func newestSeen(idx *indexv1alpha1.Indexer) *time.Time {
 	if at := idx.Status.LastRssAt; at != nil && !at.Time.IsZero() {
-		return ptr.To(at.Time)
+		return new(at.Time)
 	}
 	return nil
 }

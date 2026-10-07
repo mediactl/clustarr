@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -83,13 +82,13 @@ func TestBuildTask(t *testing.T) {
 	assert.Equal(t, "/data/media/movies/Heat (1995)/Heat.mp4", got.OutputPath)
 
 	elsewhere := tj.DeepCopy()
-	elsewhere.Spec.OutputPath = ptr.To("/data/media/other/Heat.mp4")
+	elsewhere.Spec.OutputPath = new("/data/media/other/Heat.mp4")
 	got, err = BuildTask(elsewhere, tp, mf, folders, 1, transcodev1alpha1.HardwareCPU)
 	require.NoError(t, err)
 	assert.Equal(t, "/data/media", got.OutputRoot)
 
 	outside := tj.DeepCopy()
-	outside.Spec.OutputPath = ptr.To("/tmp/Heat.mp4")
+	outside.Spec.OutputPath = new("/tmp/Heat.mp4")
 	_, err = BuildTask(outside, tp, mf, folders, 1, transcodev1alpha1.HardwareCPU)
 	assert.ErrorIs(t, err, ErrNoRootFolder)
 

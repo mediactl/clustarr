@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	indexv1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -94,7 +93,7 @@ func TestSettingsPagesUseComponentsOnTheTheme(t *testing.T) {
 		&indexv1.Indexer{
 			ObjectMeta: metav1.ObjectMeta{Name: "geek", Namespace: "media"},
 			Spec: indexv1.IndexerSpec{
-				BaseURL: "https://api.example.invalid", Enabled: ptr.To(false), Priority: 25,
+				BaseURL: "https://api.example.invalid", Enabled: new(false), Priority: 25,
 				SecretRef: &corev1.LocalObjectReference{Name: "geek-credentials"},
 			},
 		},

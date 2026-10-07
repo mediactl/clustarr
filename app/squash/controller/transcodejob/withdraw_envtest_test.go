@@ -31,7 +31,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -73,7 +72,7 @@ var _ events.StreamAdmin = erroringAdmin{}
 func setSuspend(t *testing.T, f dispatchedFixture, suspend bool) {
 	t.Helper()
 	live := f.get(t)
-	live.Spec.Suspend = ptr.To(suspend)
+	live.Spec.Suspend = new(suspend)
 	require.NoError(t, f.c.Update(context.Background(), live))
 }
 
@@ -258,7 +257,7 @@ func TestSweepPurgesTasksOfDeletedJobs(t *testing.T) {
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	live := newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
@@ -336,7 +335,7 @@ func TestDeleteAfterALostQueuedWriteWithdrawsTheUnrecordedAttempt(t *testing.T) 
 	newNamespace(t, c, ns)
 	newRootFolder(t, c, ns, "/data/media/movies")
 	tp := newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "heat", "probe1", new(h264Probe()))
 	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 	r.Admin = r.Bus.(events.StreamAdmin)

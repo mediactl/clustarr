@@ -286,7 +286,7 @@ metrics. **Amended:**
 Domain table as ruled (consumers in §3.5.3, scaling in §9):
 
 | Domain | What | Replicas |
-|---|---|---|
+| --- | --- | --- |
 | `catalog` | search-high, search-normal, grab, artwork render | HPA 0..1 (max 1 while search and grab are throttled, R5 amendment, §9.1.1) |
 | `events` | rss-matcher, history sink, DLQ projector, redownload | HPA 1..N |
 | `metadata` | gateway, markers (TheIntroDB), segments-result, artwork fetch | fixed 1, Recreate (ADR-0007, RPC) |
@@ -436,6 +436,7 @@ rebase onto local main before handing back. Other sessions keep committing to
 main.
 
 ---
+
 ## 3. Binaries, domains and process wiring
 
 Five binaries replace `cmd/clustarr`, `cmd/segmentarr-worker` and
@@ -447,7 +448,7 @@ are §10.
 ### 3.1 The five binaries
 
 | Binary | Replaces | CLI | Build | Path in image | Runs as | Lease | tracing `service.name` | NATS client name |
-|---|---|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `cmd/manager` | Every `--role controller` (catalogarr, importarr, indexarr's controller half, grabarr, squasharr, captionarr), plus the history replay controllers, `artwork.Reaper` and `bundle.Loader` (R9) | cobra | `CGO_ENABLED=0`, static | `/usr/bin/manager` in `clustarr` | Deployment, 1 replica, RollingUpdate | `manager.clustarr.io` | `manager` | `clustarr-manager@<version>` |
 | `cmd/agent` | Every worker, metadata, history and artwork role; indexarr's workers; the grabarr engines | cobra | `CGO_ENABLED=1` (R13) | `/usr/bin/agent` in `native` | One Deployment per domain; engines rendered by the manager | none | `agent-<domain>` | `clustarr-agent-<domain>@<version>` |
 | `cmd/ui` | `clustarr ui` | cobra | `CGO_ENABLED=0`, static | `/usr/bin/ui` in `clustarr` | Deployment | none | `ui` | `clustarr-ui@<version>` |
@@ -579,7 +580,7 @@ markers rows; transcode has none (its Job pod is fenced by its lease).
   child the old code SIGKILLed.
 
 | Process | readyz checks | healthz checks |
-|---|---|---|
+| --- | --- | --- |
 | manager | `ping`, `jetstream`, `cache`. No `external-metrics` check: the External Metrics API is reached through its own Service, which publishes not-ready addresses (§9.4), so the manager's readiness neither gates nor is gated by it | `ping` |
 | agent (every domain) | `ping`, `jetstream`, `cache` | `ping` |
 | agent `import` | adds `import.data`: `DataReadyChecker(--data-dir)`, moved from `app/import/dataready.go:57` to `pkg/k8s.DataReadyChecker` | adds `ffgo` |
@@ -615,7 +616,7 @@ markers rows; transcode has none (its Job pod is fenced by its lease).
 come from `obsflags.Bind`.
 
 | Flag | Default | Env | Comes from | Used by |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `--metrics-bind-address` | `:8443` | — | every service | controller-runtime metrics server (`"0"` disables) |
 | `--metrics-secure` | `true` | — | every service | |
 | `--health-probe-bind-address` | `:8081` | — | every service | `/healthz`, `/readyz` |
@@ -707,7 +708,7 @@ mirrors `EveryReplica` (`manager.go:348-355`), so every runnable declares its
 election explicitly; `TestNoBareRunnableFunc` already bans bare `RunnableFunc`.
 
 | Component | Reconcilers (L) | Other runnables | Today |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | catalog (`app/catalog/manager`) | movie, series, episode, artist, album, author, book, audiobook, comic, issue, mediafile (with the probe-record KV watch `probeRecordsSource` as a raw source, §6.5.3), rootfolder, qualityprofile, delayprofile, metadataprovider, search, overlayprofile, the metadata refresher (`app/catalog/controller/metadatarefresh`), and the 16 `replay-<kind>` controllers (`app/catalog/history/replay`) | `qualityprofile.Bootstrap` (L); `metadataprovider.Bootstrap` (L); `wantedcron.Runnable` (L); the segment planner on durable `catalogarr-segments-plan` (E); `artwork.Reaper` (L, `app/catalog/artwork`) | `app/catalog/run.go:344-470`; replay moves from the history role (`:632-639`), the reaper from the metadata role (`:848-853`) |
 | import (`app/import/manager`) | libraryscan, rename, rootfolderschedule, importexclusion, librarydelete, importlist, retrigger (`app/import/controller/retrigger`) | `recyclesweep.Scheduler` (L, new, §3.5.3) | `app/import/run.go:379-453` |
 | index (`app/indexer/manager`) | indexer (its own limiter and no ClientCache, R8), indexerdefinition, directgrab (`app/indexer/controller/directgrab`), indexerproxy | `bundle.Loader` as `k8s.LeaderOnly`; today `EveryReplica` (`indexer/run.go:663`), repeating about 1,500 API calls on every pod start | `app/indexer/run.go:595-667` |
@@ -756,7 +757,7 @@ that each domain appears in exactly one Deployment per installer.
 **Common flags** (every domain):
 
 | Flag | Default | Env | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--domain` | — (required) | — | above |
 | `--metrics-bind-address` | `:8443` | — | |
 | `--metrics-secure` | `true` | — | |
@@ -781,7 +782,7 @@ does not run is an error, for example
 not count as set.
 
 | Flag | Default | Env | Domains | Comes from |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `--data-dir` | `/data` | — | import, caption, torrent-engine, usenet-engine | importarr `--data-path` (renamed); captionarr and grabarr `--data-dir` |
 | `--sample-max-bytes` | `52428800` (`fsops.DefaultSampleMaxBytes`) | — | import | importarr |
 | `--trakt-base-url` | `""` | `CLUSTARR_TRAKT_BASE_URL` | import (list worker) | importarr |
@@ -814,7 +815,7 @@ unless `--index-dsn` is set; `--nats-url` must be non-empty.
 4. **`k8s.RegisterRESTClientMetrics()`.**
 5. **Build the manager** from `k8s.Options.AgentManagerOptions()`
    (`ManagerOptions("", false)` with
-   `Controller.NeedLeaderElection = ptr.To(false)`, controller-runtime
+   `Controller.NeedLeaderElection = new(false)`, controller-runtime
    `pkg/config/controller.go:66-68`), through `ctrl.NewManager(cfg,
    k8s.WithBaseContext(opts, ctx))`:
    - No election and no `LeaderElectionID`. Engine reconcilers run as declared
@@ -867,7 +868,7 @@ unless `--index-dsn` is set; `--nats-url` must be non-empty.
 Durables are named with their stream and retention (WQ = WorkQueue).
 
 | Domain | Durables | RPC and servers | Runnables, indexes, process-local state | Extra checks | Scaling |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | `catalog` (`app/catalog/agent/catalog`: search, grab, renderer) | `catalogarr-search-high`, `catalogarr-search-normal` (`search.Worker`, `search/worker.go:936-970`); `catalogarr-grab` (`grab.Handler`, `grab/handler.go:122`); `catalogarr-artwork-render` (`worker/artwork/handler.go:198-217`). All on `CLUSTARR_WORK_CATALOGARR`, WQ | — | index `search.IndexDownloadTarget` and its assert; TheXEM scene maps (`wiring.go:223`) | — | HPA 0..1 (throttled, §9.1.1) |
 | `events` (`app/catalog/agent/events`: RSS matcher, history, redownload) | `catalogarr-rss-matcher` (`CLUSTARR_RELEASES`, Limits); `catalogarr-redownload` (`CLUSTARR_EVENTS`, Limits); `catalogarr-history` (`CLUSTARR_EVENTS`, Limits); `clustarr-dlq-projector` (`CLUSTARR_DLQ`, Limits) | — | the 13 RSS-matcher indexes plus `search.IndexDownloadTarget` (`wiring.go:95-109`) and their assert; its own TheXEM scene maps | — | HPA **1**..N (§3.5.4) |
 | `metadata` (`app/catalog/agent/metadata`: gateway) | `catalogarr-metadata` and `catalogarr-artwork-fetch` (`CLUSTARR_WORK_CATALOGARR`, WQ); `catalogarr-markers` and `catalogarr-segments-result` (`CLUSTARR_WORK_SEGMENTARR`, WQ, Durable) | `clustarr.rpc.catalogarr.metadata.lookup`, `.search`, `.resolve`, `.extras`, queue group `catalogarr` (`metadata/gateway.go:138-146`) | `catalogmetadata.Setup` wrapping `markers.Setup` and `segmenting.Setup{Results: true}` (`catalog/run.go:788-823`), now `app/catalog/worker/markers` and `app/catalog/worker/segmentresults`; provider limiters; L1 cache; the artwork `Fetcher` lock and per-host limiters. No `artwork.Reaper` (the manager's) | — | fixed 1, Recreate (ADR-0007, RPC) |
@@ -944,7 +945,7 @@ reads `Queued`. For this design that means:
 Ruled per consumer from `pkg/events/topology.go`:
 
 | Durable | Stream | Retention (`topology.go`) | Domain |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `catalogarr-search-high`, `catalogarr-search-normal`, `catalogarr-grab`, `catalogarr-artwork-render` | `CLUSTARR_WORK_CATALOGARR` | WorkQueue (`:545-556`, `:664-717`) | catalog, HPA 0..N |
 | `catalogarr-rss-matcher` | `CLUSTARR_RELEASES` | **Limits**, 72 h / 4 GiB (`:580-590`, `:657`) | events |
 | `catalogarr-history` | `CLUSTARR_EVENTS` | **Limits**, 168 h / 2 GiB (`:566-579`, `:758`) | events |
@@ -1064,7 +1065,7 @@ consumer whose `AckWait` it changes.
 log and tracing flags:
 
 | Flag | Default | Env |
-|---|---|---|
+| --- | --- | --- |
 | `--bind-address` | `:8080` (`ui.DefaultBindAddress`) | — |
 | `--auth-mode` | `""`, required (`ui.Run` refuses to serve without it) | — |
 | `--nats-url` | `$NATS_URL`, else `nats://clustarr-nats:4222` | `NATS_URL` |
@@ -1131,7 +1132,7 @@ own tests. No moved test names them.
 `markers [flags]`, pflag, flag set `markers`.
 
 | Flag | Default | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `--decode-threads` | `0`: `max(1, runtime.GOMAXPROCS(0) / slots)`, where slots is `segmentarr-analyze`'s per-pod slot count | replaces `--ffmpeg-threads`; follows the cgroup quota (§7.2.8) |
 | `--metrics-bind-address` | `:8080` (`""` serves nothing) | also serves `/healthz` and `/readyz` |
 | `--self-check` | `false` | runs steps 3-6 below with no NATS or env, prints a JSON report, exits 0 or 3 |
@@ -1239,7 +1240,7 @@ label stay.
 ### 3.9 Build modes
 
 | Binary | Build | Image |
-|---|---|---|
+| --- | --- | --- |
 | `bin/manager` | `CGO_ENABLED=0` | `clustarr` (cross-compiled from `$BUILDPLATFORM`) |
 | `bin/ui` | `CGO_ENABLED=0` | `clustarr` |
 | `bin/agent` | `CGO_ENABLED=1` (R13) | `native` (built on the target platform) |
@@ -1331,6 +1332,7 @@ which skips today).
   them, §10.0).
 
 ---
+
 ## 4. Package layout and dependency guards
 
 Where every package lives after the split; which leaf extractions make that
@@ -1349,7 +1351,7 @@ simulation. Re-run the §4.1 chains after the R14 rebase.
 **Manager-side packages that pull agent or heavy code:**
 
 | Package (manager side) | Unwanted dependency | Shortest chain (`go list`) | What it actually uses |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `app/catalog/controller/{movie,series,album,artist,audiobook,author,book,comic}` | `golang.org/x/image/webp` | `golang.org/x/image/webp <- app/catalog/metadata/artwork <- app/catalog/controller/movie` | Only `artwork.PublishFetch`: movie/reconciler.go:345, series:238, album:395, artist:188, audiobook:324, author:196, book:390, comic:192. x/image comes through one blank import, `metadata/artwork/fetcher.go:37`. |
 | `app/catalog/controller/mediafile` | go-ffprobe + ffprobe exec | `gopkg.in/vansante/go-ffprobe.v2 <- pkg/mediainfo <- app/catalog/controller/mediafile` | Default `Probe: mediainfo.Probe` (mediafile_controller.go:165), which calls `ffprobe.ProbeURL` (pkg/mediainfo/mediainfo.go:119) and `exec.CommandContext(ctx, "ffprobe", …)` (pkg/mediainfo/ffprobe.go:146). |
 | 〃 | go-astisub | `github.com/asticode/go-astisub <- pkg/subtitles <- app/catalog/controller/mediafile` | `subtitles.LangKey/ParseLangKey` (sidecars.go:45). astisub is imported only by pkg/subtitles/postprocess.go and uppercase.go. |
@@ -1374,7 +1376,7 @@ simulation. Re-run the §4.1 chains after the R14 rebase.
 **ui and the native workers:**
 
 | Binary | Edge | Chain | Cause |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | ui | controller-runtime root and `pkg/manager` | `sigs.k8s.io/controller-runtime/pkg/manager <- sigs.k8s.io/controller-runtime <- pkg/obs <- ui` | Only `ctrl.SetLogger` (pkg/obs/bootstrap.go:91), an alias of `pkg/log.SetLogger` (controller-runtime@v0.25.1/alias.go:191). |
 | 〃 | `pkg/k8s` | `pkg/k8s <- pkg/pipeline <- ui` | `k8s.IsConditionTrue`, `k8s.StatusUpToDate` (pipeline/project.go:591–592). |
 | 〃 | `pkg/k8s` | services.go `k8s.ConnectBus` | pkg/k8s/bus.go |
@@ -1418,7 +1420,7 @@ also imported.
   (`app/catalog/run.go:690–695`).
 
 | Package | Exports | Source today |
-|---|---|---|
+| --- | --- | --- |
 | `app/catalog/manager` | `Register`: movie, series, episode, the 7 non-video reconcilers, mediafile, rootfolder, qualityprofile + `Bootstrap`, delayprofile, metadataprovider + `Bootstrap`, search, overlayprofile, `metadatarefresh.Refresher`, `wantedcron`, the segment planner, the replay controllers (R9) and `artwork.Reaper` (R9) | catalog/run.go:344–537; replay from :632; Reaper from :848 |
 | `app/catalog/agent` | leaf: `Deps{Manager, Bus, Topology}`, `Registration`, and the index-assert helper generalised from `assertWorkerIndexes`; imports no worker package | `setupWorkers` (catalog/run.go:539-569); wiring.go:165-192 |
 | `app/catalog/agent/catalog` | `Register`: catalogarr-search-high/-normal and catalogarr-grab (the search and grab halves of `buildQueueWorkers`/`setupQueueWorkers`), catalogarr-artwork-render (`setupArtworkWorker`); declares `search.IndexDownloadTarget`; TheXEM scene maps (`newSceneMaps`) | catalog/run.go:570-614, 669-787; wiring.go:50-105, 223 |
@@ -1778,7 +1780,7 @@ pkg/importlist, pkg/importlist/trakt [S]   pkg/importlist/{arr,custom,imdbcsv,md
 **Simulated closures** (total / non-stdlib / own packages):
 
 | Binary | Closure | Notes |
-|---|---|---|
+| --- | --- | --- |
 | cmd/manager | 1201 / 954 / 142 | 71 `app` packages. Without the Wave 2 cuts: 1259 / 1008 / 150. |
 | cmd/ui | 762 / 526 / 57 | today's ui closure is 1063 |
 | cmd/agent | 1520 / 1262 / 146 | |
@@ -1823,7 +1825,7 @@ cmd/clustarr/static_link_guard_test.go:33), `TestManagerLinksNoAgentCode`,
 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` (images/Dockerfile.controller:21).
 
 | Group | Denied (prefix unless exact) | Why |
-|---|---|---|
+| --- | --- | --- |
 | Dynamic loading and native media | `github.com/ebitengine/purego`, `github.com/obinnaokechukwu/ffgo`, `github.com/shota3506/onnxruntime-purego`, `github.com/mediactl/par2go`, `…/clustarr/pkg/par2child`, `…/pkg/ffruntime`, `…/pkg/mediainfo/native`, `…/pkg/mediainfo/ffprobeexec`, `…/pkg/subtitles/providers/embedded/native`, `…/embedded/execextract`, `…/pkg/segments/{decode,textdet,chromaprint,frames,align}` | static distroless image (R1); the manager never probes (R3) |
 | Storage and index | `modernc.org/sqlite`, `modernc.org/libc`, `github.com/jackc/pgx`, `github.com/go-llsqlite`, `zombiezen.com/go/sqlite`, `…/pkg/relindex` | R6, R8 |
 | Download engines | `github.com/anacrolix`, `github.com/pion`, `github.com/Tensai75/nntp`, `github.com/javi11/`, `github.com/nwaples/rardecode`, `github.com/bodgit/sevenzip`, `…/pkg/download/torrent`, `…/pkg/download/usenet`, `…/pkg/socks5` | R6 |
@@ -2010,7 +2012,7 @@ today's unstripped `cmd/clustarr`, attribute its non-BSS symbol bytes
 closure, scale to the stripped size. Projections are upper bounds.
 
 | Binary | Today (measured) | Projected | Direction |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | cmd/clustarr | 1569 pkgs; 93.9 MB static (CGO=0, Makefile:165, controller image); 95.6 MB dynamic (CGO=1, media image) | removed | — |
 | cmd/manager | — | ≈ 60 MB static (1201 pkgs) | Without the cuts ≈ 70 MB, linking sqlite, pgx, x/image, astisub, rardecode and the list providers. ≈ 3.0 MB (+34 pkgs) is metadata clients via metadataprovider (§13 OD10). |
 | cmd/ui | (its closure alone: 1063 pkgs ≈ 51 MB) | ≈ 48 MB static (762 pkgs) | −301 pkgs but only ≈ 3 MB: k8s API (core/v1 is 1.9 MB of symbols), templ views (1 MB) and ui/static (4.9 MB) dominate. Main's `b77c30d2` grew both after the measurement (generated templ Go 1.53 → 1.71 MB of source, `ui/static` 553 → 825 KB, the shadcn-templ bundle 6,038 → 11,665 lines): add about 0.5 MB. |
@@ -2027,6 +2029,7 @@ worker. The media image (95.6 MB + ≈ 31 MB) is retired. R6 makes each binary
 smaller and the images bigger (§14).
 
 ---
+
 ## 5. Writers, caches, leases and the indexarr split
 
 "Process" means `manager`; one `agent --domain <d>` per domain (`catalog`,
@@ -2708,6 +2711,7 @@ ONNX or par2 library (R3).
   `events.AckDeadline(sub, 1)`, so two heartbeats can be lost before a lapse.
 
 ---
+
 ## 6. Probing without ffprobe
 
 Every ffprobe run (pkg/mediainfo's go-ffprobe call, its exec'd first-frame
@@ -2755,7 +2759,7 @@ crafted files; and on the live library, read-only (`kubectl get mediafiles`,
 11,958 objects).
 
 | ffgo .9-.11 vs ffprobe | Reproduced | Live impact |
-|---|---|---|
+| --- | --- | --- |
 | Codec `profile` is absent | every file | `videoProfile` set on 11,942 files. Audio profile strings: "Dolby Digital Plus + Dolby Atmos" ×582, "DTS-HD MA" ×207, "Dolby TrueHD + Dolby Atmos" ×4, "DTS-ES" ×1. Naming's `AudioCodecLabel` reads them: 573 names change, and 146 transcoded files would be renamed on disk under `renameTranscoded`. |
 | An unspecified channel order is described as "2 channels", where ffprobe omits it | pcm in mkv: ffprobe `channelLayout:""`, ffgo `"2 channels"` | 249 audio streams on 128 mkv files (mostly eac3 2ch); 45 of them the lead track. Read by `ui/detail.go:261` and cluster-plex's `ma:audioChannelLayout`. Naming unaffected (`render.go:385-394` uses `channels`). |
 | Chapter times computed as `pts*num*1000000/den` in int64 (ffgo `chapters.go:57-58`), which wraps for a Matroska 1/1e9 time past 9,223.372 s | chapters at 9,300,000 ms read 0/0 | 44 files' `chapterList`. Segment detection reads chapter times, and a "Credits" chapter outranks TheIntroDB. |
@@ -2856,7 +2860,7 @@ the parity oracle on hosts that have ffprobe.
 refers to the unified fork additions of §7.5.
 
 | ffprobe field | Read by | ffgo .9-.11 | Native source |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | format.filename | container (`containerFromPath`, classify.go:74), `AtPath` | – | the path argument |
 | format.format_name | `FromProbe` Format.Name | `Decoder.FormatName()` | inprocess |
 | format.duration | runtimeMillis (map.go:61), `FromProbe`, standard minDuration | `DurationMicroseconds()` | `ffprobeTime`: replicates ffprobe's `print_time` (`float64(ts)*(float64(num)/float64(den))`, formatted `%.6f`, then `ParseFloat`, as go-ffprobe's `,string` decodes it) and the N/A rule (a duration of 0, or a non-duration at AV_NOPTS_VALUE, becomes 0) |
@@ -2916,7 +2920,7 @@ present; every new field against `ffprobe -show_streams` JSON),
 #### 6.5.1 Names
 
 | Kind | Name and settings |
-|---|---|
+| --- | --- |
 | Stream | `events.StreamWorkProbe = "CLUSTARR_WORK_PROBE"`, subjects `events.FilterWorkProbe = "clustarr.work.probe.>"`. WorkQueue retention, File storage, **DiscardNew** with no message schedules: a full queue refuses the publish and the reconcile retries, rather than dropping a queued task. MaxBytes 64 MiB (a task is about 0.8 KB, so about 80k tasks; a full 11,958-file re-probe is about 10 MiB). Duplicates 1h, Replicas 3, `Durable: true`, which keeps it outside ForSingleNode's 64 MiB memory budget; inside it, the bump would discard-oldest the import stream's work (the 2026-10-01 gotcha). |
 | Subject | `events.WorkProbeSubject(p events.Priority, mediaKey string)` gives `clustarr.work.probe.file.<high\|low>.<mediaKey>`, mediaKey = `events.MediaKey("mediafile", ns, name)`. |
 | Consumers | `events.ConsumerImportProbeHigh = "importarr-probe-high"`, filter `events.FilterProbeHigh = "clustarr.work.probe.file.high.>"`; `events.ConsumerImportProbeLow = "importarr-probe-low"`, filter `events.FilterProbeLow = "clustarr.work.probe.file.low.>"`. Both: AckWait 60 s, BackOff [60 s, 5 m, 30 m], MaxDeliver 4, `Slots: 4`, MaxAckPending 32 (`Slots × events.AutoscaleReplicaCeiling`, §9.2). Two lanes of 4 slots give one pod today's 8 concurrent probes (`MaxConcurrentReconciles = 8`), and a ProbeVersion re-probe never queues ahead of a new import's probe. No Heartbeat, because `probe.TaskTimeout` (45 s) is below BackOff[0]. |
@@ -2998,7 +3002,7 @@ decides; the first matching row wins. "Matching" means the record's UID, Path
 and ProbeHash equal `want`'s.
 
 | Record | Verdict | What is written |
-|---|---|---|
+| --- | --- | --- |
 | `probed`, matching, `ProbeVersion >= want` | **incorporate** | today's success block (:300-415), unchanged: one `k8s.Apply` with the labels, plus spec path, size, modTime and `original=false` after a swap; `known.ProbeHash`, `ProbedAt = now`, `ProbeVersion = rec.ProbeVersion`, `MediaInfo = rec.MediaInfo`; a swap gives a Compliant `TranscodeState`, a kept job its profileTag, changed bytes `staleTranscodeState`; Probed and Ready True; the `Probed` Event |
 | `probed` or `failed`, matching, `ProbeVersion < want` and `RequestedVersion < want`: an importer's seed, or an answer to a request made before a `mediainfo.ProbeVersion` raise | **request** | at once (`Seq + 1`), on the lane the lane rule picks: low when `status.probeHash` already equals the hash (a version-only re-probe, which changes no condition), else high |
 | `probed`, matching, `ProbeVersion < want` and `RequestedVersion >= want`: an agent older than the manager answered a current request (skew during a rollout, or an import pod draining fetched tasks) | **incorporate as is**, when `status.probeHash != rec.ProbeHash` (the stored summary does not describe these bytes, for example a new file); otherwise **wait** | incorporation as in row 1 but with `ProbeVersion = rec.ProbeVersion`, so the file is named, Ready and usable now and stays due by version; either way requeue at `rec.ProbedAt + probeSkewRetry` (30 m), when the next row applies. Never re-request sooner: while the old agent still answers, that would loop. A `failed` record in skew falls through to the `failed` rows below |
@@ -3214,7 +3218,7 @@ construction; `ffprobeTime`'s print-and-parse makes the floats identical.
 **pkg/mediainfo**
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `probe_test.go` | `TestProbeH264MP4`, `TestProbeHEVC10bitMKV`, `TestProbeMissingFileReturnsWrappedError` move to `native/probe_test.go`, assertions unchanged; "Constrained Baseline" and "Main 10" now prove F11a. |
 | `audio_test.go` | `TestAudioProbeFrom` uses `AudioProbeFromRaw`; `TestProbeAudioReadsTheFixtures` moves to native. |
 | `ffprobe_test.go` | all five tests (`TestBuildRaw*`, `TestMergeFrame*`) move to `test/ffprobeoracle`. |
@@ -3225,7 +3229,7 @@ construction; `ffprobeTime`'s print-and-parse makes the floats identical.
 **app/squash**
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `worker/inprocess/probe_test.go` | `TestTheInProcessProbeAgreesWithFFprobe` deleted (native's parity test replaces it); `TestDoviRecordReadsEveryField` moves to native. |
 | `worker/inprocess/incomplete_test.go` | both tests move to native with `hdr10WithStreamSideData`. |
 | `worker/inprocess/measure_test.go` | `Engine{}` literals become `New()`. |
@@ -3235,7 +3239,7 @@ construction; `ffprobeTime`'s print-and-parse makes the floats identical.
 **pkg/transcode, pkg/naming, test/parity**
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `pkg/transcode/standard/parity_test.go` | `TestTheSummaryAndTheProbePlanTheSameStandard`, `TestContainerNamesFromTheSummaryAndTheDemuxer` and main's `TestTheSummaryAndTheProbePlanSubtitlesAlike` (`fbfd754c`: the stored summary and a live probe give the same sidecars and drops, so subtitle titles and dispositions must survive the native probe byte for byte) use native. |
 | `pkg/transcode/engine/video_test.go` | `TestTheStandardsNVENCPlanHoldsALeanSourceUnderItsBitRate` uses native. |
 | `pkg/naming/catalogctx/context_test.go` | `TestContainerExtReadsWhatTheProbeRecords` uses native. |
@@ -3244,7 +3248,7 @@ construction; `ffprobeTime`'s print-and-parse makes the floats identical.
 **app/catalog/controller/mediafile**
 
 | File | Change |
-|---|---|
+| --- | --- |
 | new `probe_helper_test.go` | `settle(t, r, key)`: Reconcile; run `app/import/worker/probe/probetest.Agent` (the real `probe.Worker` over membus with a fake Prober); Reconcile again. `fakeProbe` becomes `fakeProber`. |
 | `mediafile_envtest_test.go` | `TestMediaFileFieldManagersStayDisjoint` also asserts no new manager appears, that `catalogarr` never owns `f:status.f:markers`, and that `catalogarr-markers` owns nothing under `f:status` but `f:markers` (R3 amendment). `TestReconcileRealFFprobe` is deleted (the real end-to-end check moves to the probe package). `TestReconcileRecordsAnEarlierInstallsTranscode`, `TestTranscodeJobWatchTriggersReconcile`, `TestSubtitleRequestWatchTriggersReconcile` use `settle`. `TestTransientFileFailuresPreserveProbedStatus` gets its ProbeFailed case from a `failed` record. |
 | `transcoded_envtest_test.go` | `TestTranscodedFileBytesChangedOnDisk`, `TestObservedFingerprintWakesTheController`, `TestContainerChangeMovesSpecPath` use `settle`; `TestReplaceSourceFalseIsNotASwap` also asserts no task is published. |
@@ -3256,7 +3260,7 @@ construction; `ffprobeTime`'s print-and-parse makes the floats identical.
 **app/import/worker**
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `fileimport/probe_envtest_test.go` | `TestAnImportIsQualifiedAndNamedFromItsProbe`, `TestAProbedDVDRipIsStillDVD` use `NewWorker(c, bus, native)` with native as the oracle; `TestAnImportHeartbeatsImmediatelyBeforeItsProbe` uses a fake Prober. |
 | `fileimport/ackdeadline_test.go` | `TestTheImportFitsTheFileConsumersAckDeadline` also holds `audioProbeTimeout`. |
 | `rescan/folder_envtest_test.go` | `TestHandleCorrectsANamedQualityFromTheProbe`, `TestHandleHeartbeatsImmediatelyBeforeAProbe` and the oracle at :89 use `NewWorker(c, bus, prober)` or native. |
@@ -3264,7 +3268,7 @@ construction; `ffprobeTime`'s print-and-parse makes the floats identical.
 **pkg/events**
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `events_test.go` | `TestWorkStreamsAllowSchedules` exempts every WorkQueue stream with `Discard == DiscardNew` (squasharr and `StreamWorkProbe`), matching `Topology.Validate`'s new rule (§9.2), instead of naming squasharr; `TestEveryWorkStreamHasAConsumer` drops its advisory-stream exception, since the dead-letter watchers are now topology consumers (§5.9); `TestDefaultTopologyIsValid` covers the new entries, and a new `TestEveryStaticConsumerHasOneDeadLetterWatcher` holds `DeadLetterWatcherSpec` for each. |
 | natsbus `singlenode_limits_test.go` | re-run with the additions. |
 
@@ -3336,6 +3340,7 @@ and transcode (§4.5). `TestEveryConsumerHasExactlyOneHome` (§10.3.2) places
    ADR-0017.
 
 ---
+
 ## 7. Markers decode, embedded subtitles, the ffgo runtime gate and the fork
 
 This section moves the last two FFmpeg-executable users other than the probe
@@ -3529,6 +3534,7 @@ the F8 rescale helpers). Each method runs its body inside `ffruntime.Do(ctx, …
   (`RoundUp`) and `ffgo.RescaleDelta` (F8). A frame without pts takes the
   predicted pts.
 - **Graph** (F6):
+
   ```go
   ffgo.NewFilterGraph(ffgo.FilterGraphConfig{
       SampleRate: rate,
@@ -3540,6 +3546,7 @@ the F8 rescale helpers). Each method runs its body inside `ffruntime.Do(ctx, …
                   ",aformat=sample_fmts=s16:sample_rates=11025:channel_layouts=mono",
   })
   ```
+
   Without the downmix info, `aresample` folds 5.1 to mono with swr's defaults
   (centre and surround at -3 dB, no LFE) instead of the levels the AC-3/E-AC-3
   decoder attaches to every surround frame, so the PCM, and the fingerprint,
@@ -4083,6 +4090,7 @@ task bound, not for decode.
   `cmd/squasharr-worker/main_test.go`'s self-check test.
 
 ---
+
 ## 8. PAR2 as a library
 
 **Decision.** PAR2 verify and repair no longer exec the `par2` program.
@@ -4240,7 +4248,7 @@ the virtuals `SigProgress(int)` and `SigDone(name, available, total)`; protected
 hit). "Handled by" says where the fix lives now that par2go is the library.
 
 | # | Trap | Evidence | Handled by |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | T1 | `Process` ignores its `basepath` argument: the nzbget branch dropped `basepath = _basepath`, so only `PreProcess(CommandLine)` sets it, and every target resolves against the process's cwd | `src/par2repairer.cpp:124-197` has no assignment; `:374` | par2go's shim sets the protected `basepath` (absolute, trailing `/`) before `Process` (its plan's upstream fact 1); clustarr's regression test `TestLibraryRepairerResolvesTargetsAgainstTheJobDir` (proto passed from another cwd). Report upstream: §13 OD23 |
 | T2 | `libpar2.h` includes `config.h`, `<inttypes.h>`, `<string.h>` **inside** `namespace Par2`; a later `<cstring>` fails ("'memchr' has not been declared in '::'") | `include/par2/libpar2.h:28,51,54,85`; proto, g++ 16 | par2go shim: system headers first |
 | T3 | Scanning checks `cancelled` only inside `if (noiselevel > nlQuiet)` | `par2repairer.cpp:1758-1766` | par2go runs at `nlNormal` (its spec §4.2) |
@@ -4290,7 +4298,7 @@ hit). "Handled by" says where the fix lives now that par2go is the library.
 #### 8.3.2 Prototype evidence (the section draft's in-tree shim, run on this host)
 
 | Check | Result |
-|---|---|
+| --- | --- |
 | Tools | `/usr/bin/cmake` 4.4.3, `/usr/bin/g++` 16.2.1 (clang++, ninja and make present); CMake 4 accepts par2's `cmake_minimum_required(VERSION 3.13)` |
 | Configure + build | 33 s wall on 12 CPUs; the `.so` is 2.8 MB, 2.3 MB stripped (2.2 MB without the creator) |
 | `readelf -d` | NEEDED only `libm.so.6`, `libc.so.6`, `ld-linux-x86-64.so.2`; BIND_NOW (static libstdc++/libgcc) |
@@ -4542,7 +4550,7 @@ type LibraryRepairer struct {
 table-tested without the library.
 
 | Library outcome | Today's equivalent | Result |
-|---|---|---|
+| --- | --- | --- |
 | `Status AllCorrect` | "All files are correct…", or exit 0 with no recognised line (a missing *non-recoverable* file: `Process` returns eSuccess without "Repair complete") | `AllCorrect` |
 | `Status Repaired` (a rename-only repair included) | "Repair complete." | `Repaired` |
 | `Status RepairNotPossible` | "Repair is not possible / You need N more recovery blocks" | `ErrRepairFailed`, `BlocksNeeded = Result.BlocksNeeded` |
@@ -4719,7 +4727,7 @@ the workflow's other actions; key over `images/Dockerfile.native`,
 **Test conversions**
 
 | Today | After |
-|---|---|
+| --- | --- |
 | `repair_test.go:35` `par2Binary` | removed; real tests call `nativetest.Require` and use `&LibraryRepairer{Runner: par2child.InProcess{}}` |
 | `TestPar2RunnerReportsAMissingBinary` | `TestLibraryRepairerReportsAMissingLibrary`: `par2child.Exec{Path:"/nonexistent/agent"}`, expecting `Available()==false` and `ErrPar2Unavailable`; no library needed |
 | `TestPar2RunnerVerifiesAnIntactSet` / `…RepairsADamagedFile` / `…RepairsASetWhoseFilesCarryOtherNames` | `TestLibraryRepairer…`, same names after the prefix, with `par2test.CreateSet(…,16,20,0)` / `(16,50,0)` / `(16,20,0)` |
@@ -4811,6 +4819,7 @@ behaviour and needs step 5's image before any deploy, because an engine on the
 media image would find no library and fail repairs as writeError.
 
 ---
+
 ## 9. Autoscaling without KEDA
 
 The opt-in KEDA path is replaced by three things: the manager serves the External
@@ -5074,11 +5083,11 @@ the manager-published `importarr-recycle` task (§3.5.3). Scheduled publishes
 ```go
 // topology.go
 type ConsumerSpec struct {
-	// ...existing fields...
-	// Slots is how many handlers one process runs for this durable: the
-	// per-pod concurrency and the HPA AverageValue target. MaxAckPending is
-	// the durable's cap across every process.
-	Slots int
+ // ...existing fields...
+ // Slots is how many handlers one process runs for this durable: the
+ // per-pod concurrency and the HPA AverageValue target. MaxAckPending is
+ // the durable's cap across every process.
+ Slots int
 }
 // AutoscaleReplicaCeiling sizes an autoscaled consumer's MaxAckPending:
 // Slots × 8, so up to 8 replicas each fill their slots.
@@ -5088,27 +5097,27 @@ func (c ConsumerSpec) Subscription() Subscription // MaxInFlight: c.Slots, MaxAc
 
 // bus.go
 type Subscription struct {
-	// ...existing...
-	MaxInFlight   int           // handlers this subscription runs at once (per process)
-	MaxAckPending int           // the durable's cross-process cap (Pull writes it; Subscribe only binds)
-	Drain         time.Duration // after ctx ends, how long running handlers keep their context; 0 = cancel at once
+ // ...existing...
+ MaxInFlight   int           // handlers this subscription runs at once (per process)
+ MaxAckPending int           // the durable's cross-process cap (Pull writes it; Subscribe only binds)
+ Drain         time.Duration // after ctx ends, how long running handlers keep their context; 0 = cancel at once
 }
 
 type ConsumerState struct {
-	Pending       uint64    // JetStream NumPending: matching, not yet delivered
-	AckPending    uint64    // NumAckPending: in a handler, waiting out a delayed nak, or lapsed
-	MaxAckPending int
-	ObservedAt    time.Time // ConsumerInfo.TimeStamp
+ Pending       uint64    // JetStream NumPending: matching, not yet delivered
+ AckPending    uint64    // NumAckPending: in a handler, waiting out a delayed nak, or lapsed
+ MaxAckPending int
+ ObservedAt    time.Time // ConsumerInfo.TimeStamp
 }
 func (s ConsumerState) Lag() uint64 { return s.Pending + s.AckPending }
 
 type StreamAdmin interface {
-	// ...existing four methods...
-	// ConsumerState reads one durable's backlog. A missing stream is
-	// ErrStreamNotFound, a missing durable ErrConsumerNotFound.
-	ConsumerState(ctx context.Context, stream, durable string) (ConsumerState, error)
-	// Missing names every stream, bucket, object store and consumer of t that does not exist (§3.5.2).
-	Missing(ctx context.Context, t Topology) ([]string, error)
+ // ...existing four methods...
+ // ConsumerState reads one durable's backlog. A missing stream is
+ // ErrStreamNotFound, a missing durable ErrConsumerNotFound.
+ ConsumerState(ctx context.Context, stream, durable string) (ConsumerState, error)
+ // Missing names every stream, bucket, object store and consumer of t that does not exist (§3.5.2).
+ Missing(ctx context.Context, t Topology) ([]string, error)
 }
 
 // errors.go
@@ -5167,9 +5176,9 @@ const HeaderID = "Clustarr-Id"
 
 // bus.go (S5): the broker's timing of a bound durable.
 type Timing struct {
-	AckWait    time.Duration
-	Backoff    []time.Duration
-	MaxDeliver int
+ AckWait    time.Duration
+ Backoff    []time.Duration
+ MaxDeliver int
 }
 func (s Subscription) Timing() Timing
 func (s Subscription) WithTiming(t Timing) Subscription // AckDeadline, nakDelay and Settle read it
@@ -5186,10 +5195,10 @@ type WedgeReporter interface{ Wedged() error }
 
 // consumerstate.go (HPA): the counters QueueGauge exports separately.
 type ConsumerState struct {
-	Pending, AckPending uint64
-	Waiting             int // NumWaiting: open pull requests; never part of Lag
-	MaxAckPending       int
-	ObservedAt          time.Time
+ Pending, AckPending uint64
+ Waiting             int // NumWaiting: open pull requests; never part of Lag
+ MaxAckPending       int
+ ObservedAt          time.Time
 }
 // ErrConsumerUnavailable: the broker answered without the durable's cluster
 // placement while the connection is to a cluster -- the "assigned, no Raft node
@@ -5200,7 +5209,7 @@ var ErrConsumerUnavailable = errors.New("events: consumer state unavailable")
 // streamfill.go (S10): an optional interface both buses implement.
 type StreamFill struct{ Bytes, MaxBytes, Messages uint64 }
 type StreamStater interface {
-	StreamFill(ctx context.Context, stream string) (StreamFill, error)
+ StreamFill(ctx context.Context, stream string) (StreamFill, error)
 }
 
 // could-defer (S3, S4): an application retry schedule apart from the broker's
@@ -5963,6 +5972,7 @@ name):
 - **Guard, `test/guards`:** `TestHeartbeatsFitTheirDeadline` (§5.15 as amended).
 
 ---
+
 ## 10. Images, installers, RBAC and tests
 
 The two images and how they are built; the Helm chart (`charts/clustarr`) and the
@@ -6158,39 +6168,39 @@ NATIVE_ASSETS ?= $(GOBIN)/native-assets
 LDFLAGS := -s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build: ## Build bin/manager, bin/ui, bin/agent, bin/markers and bin/transcode.
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/manager ./cmd/manager
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/ui ./cmd/ui
-	CGO_ENABLED=1 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/agent ./cmd/agent
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/markers ./cmd/markers
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/transcode ./cmd/transcode
+ CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/manager ./cmd/manager
+ CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/ui ./cmd/ui
+ CGO_ENABLED=1 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/agent ./cmd/agent
+ CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/markers ./cmd/markers
+ CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/transcode ./cmd/transcode
 
 contexts: ## Export clean trees of $(FFGO_REF) and $(PAR2GO_REF) for the image builds (§7.6); refuses a dirty or mismatched checkout.
-	hack/contexts.sh $(CONTEXTS) $(FFGO_DIR) $(FFGO_REF) $(PAR2GO_DIR) $(PAR2GO_REF)
+ hack/contexts.sh $(CONTEXTS) $(FFGO_DIR) $(FFGO_REF) $(PAR2GO_DIR) $(PAR2GO_REF)
 
 docker-build: contexts ## Build the clustarr and native images.
-	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
-	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
+ docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
+ docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
 
 docker-build-native: contexts ## Build the native image and its -debug twin.
-	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
-	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
+ docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
+ docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
 
 docker-selfcheck: ## Check the built images as CI and release do.
-	hack/image-checks.sh $(IMG) version:manager version:ui no-shell
-	hack/image-checks.sh $(NATIVE_IMG) $(foreach c,$(NATIVE_CLASSES),self-check:transcode:$(c)) self-check:agent self-check:markers self-check:par2-child version:agent version:markers version:transcode no-shell
-	hack/image-checks.sh $(NATIVE_DEBUG_IMG) notices no-media-executables
+ hack/image-checks.sh $(IMG) version:manager version:ui no-shell
+ hack/image-checks.sh $(NATIVE_IMG) $(foreach c,$(NATIVE_CLASSES),self-check:transcode:$(c)) self-check:agent self-check:markers self-check:par2-child version:agent version:markers version:transcode no-shell
+ hack/image-checks.sh $(NATIVE_DEBUG_IMG) notices no-media-executables
 
 kind-load: ## Load the clustarr and native images into kind, skipping any the node already holds.
-	IMG=$(IMG) NATIVE_IMG=$(NATIVE_IMG) hack/kind.sh load
+ IMG=$(IMG) NATIVE_IMG=$(NATIVE_IMG) hack/kind.sh load
 
 native-assets: ## FFmpeg 9 shared libs + libffshim, ONNX Runtime, libpar2shim and the test-only CLIs.
-	hack/native-assets.sh $(NATIVE_ASSETS)
+ hack/native-assets.sh $(NATIVE_ASSETS)
 
 chart-deps: ## Vendor the chart's nats and cloudnative-pg tarballs when charts/clustarr/charts is empty.
-	@ls charts/clustarr/charts/nats-*.tgz charts/clustarr/charts/cloudnative-pg-*.tgz >/dev/null 2>&1 || { \
-	  helm repo add nats https://nats-io.github.io/k8s/helm/charts/ --force-update && \
-	  helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts --force-update && \
-	  helm dependency build charts/clustarr; }
+ @ls charts/clustarr/charts/nats-*.tgz charts/clustarr/charts/cloudnative-pg-*.tgz >/dev/null 2>&1 || { \
+   helm repo add nats https://nats-io.github.io/k8s/helm/charts/ --force-update && \
+   helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts --force-update && \
+   helm dependency build charts/clustarr; }
 ```
 
 **`hack/native-assets.sh <dir>`**, the analogue of `make pg-assets`, idempotent and
@@ -6256,12 +6266,14 @@ additions needs a dirty tree.
   static ffmpeg and par2 executables.
 - **`env`:** drop `FFMPEG_BRANCH` and `PAR2_VERSION` (`:35-36`).
 - **`generated` job** gains "go.mod carries no local replace":
+
   ```sh
   if grep -nE '^replace .* => \.{1,2}/' go.mod; then
     echo "::error::go.mod replaces a module with a local directory; push that module's tag and replace with the tagged version"
     exit 1
   fi
   ```
+
 - **`test` job:** "Install ffmpeg and par2" (`:121-136`) becomes `make native-assets`
   with an `actions/cache` step (pinned by SHA; path `~/go/bin/native-assets`; key
   over `images/Dockerfile.native`, `hack/native-assets.sh` and the par2go pin);
@@ -6312,10 +6324,12 @@ remain in GHCR (§13 OD38).
   `"${IMG}" "${NATIVE_IMG}"` and skips an image the node already holds, so a deploy
   loads only images whose inputs changed (CLAUDE.md, "loading an image into the
   node stalls etcd"):
+
   ```bash
   node_id=$(docker exec "${CLUSTER_NAME}-control-plane" crictl inspecti -o go-template --template '{{.status.id}}' "${img}" 2>/dev/null || true)
   [[ "${node_id}" == "$(docker image inspect -f '{{.Id}}' "${img}")" ]] && { log "${img} unchanged on the node, skipping"; continue; }
   ```
+
   `create_cluster` needs no feature gate (HPAScaleToZero is Beta and on in 1.37) and
   no metrics-server (the manager serves `external.metrics.k8s.io` itself).
 - **`hack/e2e.sh`:** §10.4.
@@ -6353,7 +6367,7 @@ remain in GHCR (§13 OD38).
     percentage as its second argument; kustomize literals are computed the same
     way and held by `TestGOMEMLIMITIsItsShareOfTheLimit`;
   - autoscaled rows: `CLUSTARR_CONSUMER_SLOTS` when `consumerSlots` is set;
-  - `manager`: `CLUSTARR_NATIVE_IMAGE` (the native image); 
+  - `manager`: `CLUSTARR_NATIVE_IMAGE` (the native image);
     `CLUSTARR_ENGINE_SERVICE_ACCOUNT` = `<fullname>-grabarr-engine` (kustomize
     `grabarr-engine`); `CLUSTARR_DATA_CLAIM`; with autoscaling,
     `CLUSTARR_EXTERNAL_METRICS_SECRET` = `<fullname>-external-metrics-tls`
@@ -6602,6 +6616,7 @@ ui: {...}            # unchanged
   `unsetOnly: true`, so the kube-system RoleBinding keeps its namespace (the plain
   `namespace:` field overwrites every namespaced resource); updates the header
   comment ("nine Deployments", no `../keda`):
+
   ```yaml
   transformers:
   - |-
@@ -6610,6 +6625,7 @@ ui: {...}            # unchanged
     metadata: { name: clustarr-namespace, namespace: clustarr-system }
     unsetOnly: true
   ```
+
   `TestChartAndKustomizeAgreePerComponent` asserts the RoleBinding's namespace is
   `kube-system` in both installers.
 - **`config/prometheus/servicemonitors.yaml`:** eight entries (§10.2.3).
@@ -6941,6 +6957,7 @@ compiling under `go vet -tags e2e ./test/...` (`ci.yml:94`) and naming what will
 | new `test/e2e/zzz_scale_from_zero_test.go` | `TestCaptionAgentScalesFromZero`, the §11.2 gate-6 scenario. It runs after every other scenario (file order: `zzz_observability` < `zzz_scale…`) because it removes the always-a-pod guarantee the others rely on. Steps: `kubectl annotate deployment agent-caption autoscale.clustarr.io/min-replicas-`, with `t.Cleanup` restoring `"1"` and waiting for the Deployment to be Available; wait up to 7 min for `status.replicas == 0` (the 300 s scale-down window plus HPA syncs); assert `kubectl get --raw /apis/external.metrics.k8s.io/v1beta1/namespaces/<ns>/clustarr_consumer_lag?labelSelector=consumer%3Dcaptionarr-fetch-high` answers an item with value `0`; create the subtitle fixture `TestSubtitleRequestSidecarPipelineAndLanguageRemoval` uses (its setup moves to a shared helper), so the manager publishes fetch tasks; assert the HPA scales `agent-caption` to 1 within 2 min and the sidecar appears; then wait up to 7 min for 0 again. The test takes up to about 17 min, so the `make e2e` target's whole-suite `-timeout 30m` (`Makefile:247`, the one definition `hack/e2e.sh` calls) becomes `60m` |
 
 ---
+
 ## 11. Migration and cutover (not executed)
 
 Nothing in this section has been run. §11.1 and §11.2 are for the sessions that
@@ -6955,7 +6972,7 @@ three go.mod edits are made serially by the controlling session, never by a
 parallel agent and never with `go mod tidy`.
 
 | # | Step | Depends on | Section |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 0a | ffgo fork F1-F17 on `clustarr/unify-media` (worktree `../ffgo-unify`, cut from main's `.12`), `go test ./...`, tag `v0.0.0-clustarr.13` locally | — | §7.5 |
 | 0b | par2go Tasks 1-8, locally | — | §8.11 |
 | 0c | go.mod: ffgo replace `=> ../ffgo-unify`; par2go require + replace `=> ../par2go`; `k8s.io/component-helpers v0.37.0` (network once) | 0a, 0b; the R14 rebase (purego v0.11.1) | §7.6, §9.5 |
@@ -7296,6 +7313,7 @@ writes:
   in cluster-plex (artwork design §B.8 as amended).
 
 ---
+
 ## 13. Owner decisions
 
 Each has a recommendation; the spec is written to the recommendation. Duplicates
@@ -7635,7 +7653,7 @@ across the section drafts are merged.
 ## Appendix A. Contradictions between the section drafts, and how they were resolved
 
 | # | Topic | Drafts disagreed | Resolution | Why |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | A1 | Probe queue names | binaries: durable `importarr-probe` and a leader-only consumer `catalogarr-probe-results`; autoscale: `importarr-probe` 8/64; writers: bucket `clustarr-probe-results`, waker via `source.Channel`; probe: stream `CLUSTARR_WORK_PROBE`, durables `importarr-probe-high`/`-low`, bucket `clustarr-probes`, KV-watch `probeRecordsSource` via `WatchesRawSource` | the probe section's names everywhere; no `catalogarr-probe-results` durable | the probe section owns R3 and designed the record protocol; a KV watch needs no durable |
 | A2 | Probe slots | probe: MaxAckPending 32 as "16 pods × 2", flags `--probe-slots-high/low`; autoscale: one consumer at 8/64 | two lanes at `Slots: 4`, MaxAckPending 32 each; no `--probe-slots-*` flags | autoscale's `Slots × 8` rule and env override; 4 + 4 keeps today's 8 concurrent probes |
 | A3 | Recycle sweep | binaries: one manager-published task every 6 h on `clustarr.work.importarr.recycle.sweep`, MaxDeliver 3, BackOff [5m,30m], MAP 1; autoscale: hourly per-RootFolder tasks from the RootFolder schedule controller, MaxDeliver 4, BackOff 30s/2m/10m, Slots 1/MAP 8 | binaries' single task (`recyclesweep.Scheduler`) and retry spec, with autoscale's Slots 1 / MAP 8; cadence left to OD36 | `SweepOnce` dedupes shared bins with the longest retention, which per-RootFolder tasks would break; MAP must follow the ceiling rule |
@@ -7684,7 +7702,7 @@ the body; the table records where. Minor findings are listed with what was done.
 **Important findings**
 
 | # | Finding | Verified | Disposition |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | B1 | `Subscribe` creates the per-durable dead-letter watchers, which a bind-only `Subscribe` and `AwaitTopology` ignored (invariants and completeness lenses) | natsbus.go:319-331, deadletter.go:44-127, pull.go:53-57, admin.go:51, topology.go:630-649 | Fixed: watchers are topology objects (`events.DeadLetterWatcherSpec`), created by the manager, bound by `Subscribe`, checked by `Missing`; `Pull` keeps creating its own; the manager runs every static watcher as a backstop; new contract cases (§5.9, §9.3). **Partly disputed:** the completeness lens said a lapsed final delivery in a domain at zero is never dead-lettered. A lapsed delivery stays in the consumer's pending set until the server raises the advisory on its next pull (nats-server consumer.go:4976-4993), so `NumAckPending` holds the domain at 1 or more and its own watcher handles it; only an advisory raised by a pull a draining pod left behind waits. The manager backstop covers that case |
 | B2 | `judgeProbe` never re-requests a matching record below the wanted version, so a ProbeVersion raise skips every file seeded or probed in the last 7 days, and skew leaves new files unready for days | probe.go:56-58; spec §6.5.2-6.5.3 | Fixed: `ProbeRecord.RequestedVersion`; rows split into pre-raise (request at once), skew (incorporate an unincorporated file with the old version, else wait `probeSkewRetry`), skew expired (request); new tests (§6.5) |
 | B3 | `TestEveryFieldManagerHasItsHome` used package-granular `go list -deps` over one package holding three domains | §4.2.1 as drafted | Fixed: one registration package per domain (`app/catalog/agent/{catalog,events,metadata}`, `app/grab/agent/{torrent,usenet}`); `grabarr-engine` allowlisted; non-constant manager arguments attributed through their constructor sites; `linkedNotWritten` for over-approximation (§4.2.1, §5.15) |
@@ -7708,7 +7726,7 @@ the body; the table records where. Minor findings are listed with what was done.
 **Minor findings**
 
 | Finding | Disposition |
-|---|---|
+| --- | --- |
 | A rename is path-only staleness, yet read as a high-lane request with Probed=False | Applied: incorporated in the reconcile with `mediainfo.AtPath`, no task (§6.5.3) |
 | `ProbeCurrent()` gate list incomplete (transcodejob dispatch, `segmenting.Applier`) | Applied (§6.5.3) |
 | `TestSessionDropDoesNotWipeANewerSave` asserted an impossible managedFields shape | Applied: two cases with achievable assertions (§5.15) |

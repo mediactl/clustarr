@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -82,24 +81,24 @@ func TestSettingsPageRendersEachKindWithDataAttributes(t *testing.T) {
 		Spec: catalogv1.QualityProfileSpec{
 			MediaKind: catalogv1.ProfileMediaKindVideo,
 			Tiers:     []catalogv1.Tier{{Name: "hd", Qualities: []string{"WEBDL-1080p"}}},
-			Cutoff:    "hd", UpgradeAllowed: ptr.To(true),
+			Cutoff:    "hd", UpgradeAllowed: new(true),
 		},
 	}
 	indexer := &indexv1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: "1337x", Namespace: "default"},
-		Spec:       indexv1.IndexerSpec{BaseURL: "https://example.invalid", Enabled: ptr.To(true), Priority: 25},
+		Spec:       indexv1.IndexerSpec{BaseURL: "https://example.invalid", Enabled: new(true), Priority: 25},
 	}
 	downloadClient := &downloadv1.DownloadClient{
 		ObjectMeta: metav1.ObjectMeta{Name: "qbittorrent", Namespace: "default"},
-		Spec:       downloadv1.DownloadClientSpec{Protocol: commonv1alpha1.ProtocolTorrent, Enabled: ptr.To(true), Priority: 1},
+		Spec:       downloadv1.DownloadClientSpec{Protocol: commonv1alpha1.ProtocolTorrent, Enabled: new(true), Priority: 1},
 	}
 	metadataProvider := &catalogv1.MetadataProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: "tmdb", Namespace: "default"},
-		Spec:       catalogv1.MetadataProviderSpec{Type: catalogv1.MetadataProviderTMDB, Enabled: ptr.To(true), Priority: 50},
+		Spec:       catalogv1.MetadataProviderSpec{Type: catalogv1.MetadataProviderTMDB, Enabled: new(true), Priority: 50},
 	}
 	subtitleProvider := &subtitlev1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: "opensubtitlescom", Namespace: "default"},
-		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 50},
+		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: new(true), Priority: 50},
 	}
 	subtitleProfile := &subtitlev1.SubtitleProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "english"},
@@ -174,24 +173,24 @@ func TestSettingsActionHandlersSucceedAndRedirect(t *testing.T) {
 		Spec: catalogv1.QualityProfileSpec{
 			MediaKind: catalogv1.ProfileMediaKindVideo,
 			Tiers:     []catalogv1.Tier{{Name: "hd", Qualities: []string{"WEBDL-1080p"}}},
-			Cutoff:    "hd", UpgradeAllowed: ptr.To(true),
+			Cutoff:    "hd", UpgradeAllowed: new(true),
 		},
 	}
 	indexer := &indexv1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: "1337x", Namespace: "default"},
-		Spec:       indexv1.IndexerSpec{BaseURL: "https://example.invalid", Enabled: ptr.To(true), Priority: 25},
+		Spec:       indexv1.IndexerSpec{BaseURL: "https://example.invalid", Enabled: new(true), Priority: 25},
 	}
 	downloadClient := &downloadv1.DownloadClient{
 		ObjectMeta: metav1.ObjectMeta{Name: "qbittorrent", Namespace: "default"},
-		Spec:       downloadv1.DownloadClientSpec{Protocol: commonv1alpha1.ProtocolTorrent, Enabled: ptr.To(true), Priority: 1},
+		Spec:       downloadv1.DownloadClientSpec{Protocol: commonv1alpha1.ProtocolTorrent, Enabled: new(true), Priority: 1},
 	}
 	metadataProvider := &catalogv1.MetadataProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: "tmdb", Namespace: "default"},
-		Spec:       catalogv1.MetadataProviderSpec{Type: catalogv1.MetadataProviderTMDB, Enabled: ptr.To(true), Priority: 50},
+		Spec:       catalogv1.MetadataProviderSpec{Type: catalogv1.MetadataProviderTMDB, Enabled: new(true), Priority: 50},
 	}
 	subtitleProvider := &subtitlev1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: "opensubtitlescom", Namespace: "default"},
-		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 50},
+		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: new(true), Priority: 50},
 	}
 	subtitleProfile := &subtitlev1.SubtitleProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "english"},

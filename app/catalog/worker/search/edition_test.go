@@ -68,10 +68,10 @@ var radiohead = &catalogv1alpha1.Artist{Status: catalogv1alpha1.ArtistStatus{
 // is off (Lidarr's `Where(r => r.Monitored || album.AnyReleaseOk)`).
 func TestAlbumIdentityCarriesTheEditionYearsTheAlbumAccepts(t *testing.T) {
 	require.Equal(t, []int{2000, 2009}, AlbumIdentity(kidA(nil, "cd-2000", nil), radiohead).EditionYears)
-	require.Equal(t, []int{2000, 2009}, AlbumIdentity(kidA(ptr.To(true), "", nil), radiohead).EditionYears)
-	require.Equal(t, []int{2009}, AlbumIdentity(kidA(ptr.To(false), "ce-2009", nil), radiohead).EditionYears)
-	require.Equal(t, []int{2009}, AlbumIdentity(kidA(ptr.To(false), "", ptr.To("ce-2009")), radiohead).EditionYears)
-	require.Empty(t, AlbumIdentity(kidA(ptr.To(false), "vinyl", nil), radiohead).EditionYears, "an undated release has no year")
+	require.Equal(t, []int{2000, 2009}, AlbumIdentity(kidA(new(true), "", nil), radiohead).EditionYears)
+	require.Equal(t, []int{2009}, AlbumIdentity(kidA(new(false), "ce-2009", nil), radiohead).EditionYears)
+	require.Equal(t, []int{2009}, AlbumIdentity(kidA(new(false), "", ptr.To("ce-2009")), radiohead).EditionYears)
+	require.Empty(t, AlbumIdentity(kidA(new(false), "vinyl", nil), radiohead).EditionYears, "an undated release has no year")
 }
 
 // TestARemasterDatedYearsLaterMatchesItsAlbum is the edition year end to
@@ -103,7 +103,7 @@ func TestARemasterDatedYearsLaterMatchesItsAlbum(t *testing.T) {
 		"a year either side of an edition")
 	require.NotEmpty(t, identityRejections(kidA(nil, "cd-2000", nil), "Radiohead - Kid A (2016) [FLAC]"),
 		"near no edition and beyond five years of the album")
-	require.NotEmpty(t, identityRejections(kidA(ptr.To(false), "cd-2000", nil), "Radiohead - Kid A (2009) [FLAC]"),
+	require.NotEmpty(t, identityRejections(kidA(new(false), "cd-2000", nil), "Radiohead - Kid A (2009) [FLAC]"),
 		"an album that accepts only its selected 2000 release refuses the 2009 edition")
 }
 

@@ -157,7 +157,7 @@ an enum duplicates a profile's enum, a crdcheck mirror test holds the two togeth
 ### 2.2 `MediaFileStatus`, complete
 
 | JSON path | Status | Type, cap | Owner (§3.5) |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `observedGeneration` | kept | int64 | loop |
 | `conditions` | **cap 8 to 12** | `[]metav1.Condition`, map by `type` | per type, §2.8 |
 | `lastSeq` | **new** | int64, Minimum=0 | loop (issued by the planners' dispatches) |
@@ -178,64 +178,64 @@ an enum duplicates a profile's enum, a crdcheck mirror test holds the two togeth
 // MediaFileStatus is written by one remediation loop in the manager, under
 // field manager catalogarr, always through k8s.PatchStatusCAS (ADR-0016).
 type MediaFileStatus struct {
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+ // +optional
+ ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// +optional
-	// +listType=map
-	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	// +kubebuilder:validation:MaxItems=12
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+ // +optional
+ // +listType=map
+ // +listMapKey=type
+ // +patchStrategy=merge
+ // +patchMergeKey=type
+ // +kubebuilder:validation:MaxItems=12
+ Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
-	// LastSeq is the last sequence the loop issued to any remediation task
-	// for this file (subtitles, transcode, graft). It never decreases while
-	// the MediaFile exists; the probe and markers keep their record-local
-	// Seq (split §6.5.2).
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	LastSeq int64 `json:"lastSeq,omitempty"`
+ // LastSeq is the last sequence the loop issued to any remediation task
+ // for this file (subtitles, transcode, graft). It never decreases while
+ // the MediaFile exists; the probe and markers keep their record-local
+ // Seq (split §6.5.2).
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ LastSeq int64 `json:"lastSeq,omitempty"`
 
-	// +optional
-	// +kubebuilder:validation:MaxLength=128
-	ProbeHash string `json:"probeHash,omitempty"`
-	// +optional
-	ProbedAt *metav1.Time `json:"probedAt,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	ProbeVersion int32 `json:"probeVersion,omitempty"`
-	// +optional
-	MediaInfo *commonv1.MediaInfo `json:"mediaInfo,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=128
+ ProbeHash string `json:"probeHash,omitempty"`
+ // +optional
+ ProbedAt *metav1.Time `json:"probedAt,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ ProbeVersion int32 `json:"probeVersion,omitempty"`
+ // +optional
+ MediaInfo *commonv1.MediaInfo `json:"mediaInfo,omitempty"`
 
-	// Sidecars are the subtitle sidecars beside the file, found on disk by
-	// the subtitles planner's directory read, sorted by name. Release N keeps
-	// today's map list keyed by path (§2.16); N+1 makes it atomic.
-	// +optional
-	// +listType=map
-	// +listMapKey=path
-	// +kubebuilder:validation:MaxItems=32
-	Sidecars []Sidecar `json:"sidecars,omitempty"`
+ // Sidecars are the subtitle sidecars beside the file, found on disk by
+ // the subtitles planner's directory read, sorted by name. Release N keeps
+ // today's map list keyed by path (§2.16); N+1 makes it atomic.
+ // +optional
+ // +listType=map
+ // +listMapKey=path
+ // +kubebuilder:validation:MaxItems=32
+ Sidecars []Sidecar `json:"sidecars,omitempty"`
 
-	// +optional
-	Naming *NamingStatus `json:"naming,omitempty"`
-	// +optional
-	Markers *FileMarkers `json:"markers,omitempty"`
-	// +optional
-	Subtitles *SubtitlesStatus `json:"subtitles,omitempty"`
-	// +optional
-	Transcode *TranscodeState `json:"transcode,omitempty"`
-	// +optional
-	Graft *GraftState `json:"graft,omitempty"`
+ // +optional
+ Naming *NamingStatus `json:"naming,omitempty"`
+ // +optional
+ Markers *FileMarkers `json:"markers,omitempty"`
+ // +optional
+ Subtitles *SubtitlesStatus `json:"subtitles,omitempty"`
+ // +optional
+ Transcode *TranscodeState `json:"transcode,omitempty"`
+ // +optional
+ Graft *GraftState `json:"graft,omitempty"`
 
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	GraftTag string `json:"graftTag,omitempty"`
-	// +optional
-	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ GraftTag string `json:"graftTag,omitempty"`
+ // +optional
+ GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
 
-	// +optional
-	HandledNonces *HandledNonces `json:"handledNonces,omitempty"`
+ // +optional
+ HandledNonces *HandledNonces `json:"handledNonces,omitempty"`
 }
 ```
 
@@ -247,26 +247,26 @@ type MediaFileStatus struct {
 ```go
 // Dispatch fences one remediation's task and the record that answers it.
 type Dispatch struct {
-	// Seq is the sequence of the last task issued for this remediation.
-	// +kubebuilder:validation:Minimum=1
-	Seq int64 `json:"seq"`
-	// AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
-	// answer, a withdrawal or a timeout. A task is in flight while
-	// Seq > AnsweredSeq.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	AnsweredSeq int64 `json:"answeredSeq,omitempty"`
-	// DispatchedAt is when Seq was issued; the republish window and the
-	// request timeout run from it.
-	DispatchedAt metav1.Time `json:"dispatchedAt"`
-	// Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
-	// not by an answer. For transcode and graft a fact (a change already
-	// made on disk) can still land after that: the planner keeps reading
-	// the record while Withdrawn is true and now < DispatchedAt +
-	// records.FactWindow, and incorporates a fact at Seq whatever the
-	// phase (§4.10, §5.9). Incorporating it clears Withdrawn.
-	// +optional
-	Withdrawn bool `json:"withdrawn,omitempty"`
+ // Seq is the sequence of the last task issued for this remediation.
+ // +kubebuilder:validation:Minimum=1
+ Seq int64 `json:"seq"`
+ // AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+ // answer, a withdrawal or a timeout. A task is in flight while
+ // Seq > AnsweredSeq.
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ AnsweredSeq int64 `json:"answeredSeq,omitempty"`
+ // DispatchedAt is when Seq was issued; the republish window and the
+ // request timeout run from it.
+ DispatchedAt metav1.Time `json:"dispatchedAt"`
+ // Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+ // not by an answer. For transcode and graft a fact (a change already
+ // made on disk) can still land after that: the planner keeps reading
+ // the record while Withdrawn is true and now < DispatchedAt +
+ // records.FactWindow, and incorporates a fact at Seq whatever the
+ // phase (§4.10, §5.9). Incorporating it clears Withdrawn.
+ // +optional
+ Withdrawn bool `json:"withdrawn,omitempty"`
 }
 ```
 
@@ -296,11 +296,11 @@ design does not reopen §6.5.3's judge. Markers keep no sequence in status (§2.
 type SubtitlesPhase string
 
 const (
-	SubtitlesPhaseNotWanted SubtitlesPhase = "NotWanted" // the profile wants nothing for this file's audio, and no item remains
-	SubtitlesPhaseWanted    SubtitlesPhase = "Wanted"    // a language is missing and waits for its next search
-	SubtitlesPhaseSearching SubtitlesPhase = "Searching" // a fetch is outstanding for at least one language
-	SubtitlesPhaseSatisfied SubtitlesPhase = "Satisfied" // every wanted language is present
-	SubtitlesPhaseBlocked   SubtitlesPhase = "Blocked"   // no plan is possible; reason says why
+ SubtitlesPhaseNotWanted SubtitlesPhase = "NotWanted" // the profile wants nothing for this file's audio, and no item remains
+ SubtitlesPhaseWanted    SubtitlesPhase = "Wanted"    // a language is missing and waits for its next search
+ SubtitlesPhaseSearching SubtitlesPhase = "Searching" // a fetch is outstanding for at least one language
+ SubtitlesPhaseSatisfied SubtitlesPhase = "Satisfied" // every wanted language is present
+ SubtitlesPhaseBlocked   SubtitlesPhase = "Blocked"   // no plan is possible; reason says why
 )
 
 // SubtitleState is one language's state, derived by the loop on every plan.
@@ -308,80 +308,80 @@ const (
 type SubtitleState string
 
 type SubtitlesStatus struct {
-	// +required
-	Phase SubtitlesPhase `json:"phase"`
-	// Reason is why the phase is Blocked: ItemNotFound, NoProfile,
-	// ProfileInvalid, MediaFileNotOnDataVolume, MediaDirUnreadable or
-	// MediaFileNotOnDisk.
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	Reason string `json:"reason,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=1024
-	Message string `json:"message,omitempty"`
-	// Profile is the SubtitleProfile the plan used.
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	Profile string `json:"profile,omitempty"`
-	// ProbeHash is the status.probeHash the items describe; a new one resets
-	// every language's attempts. Written only while items exist, so a
-	// NotWanted block with no items does not change with the bytes.
-	// (No profileGeneration: nothing reads it from status, and on a block
-	// every probed video file carries it would make one SubtitleProfile
-	// edit rewrite every MediaFile. The task and the record carry it, §6.6.)
-	// +optional
-	// +kubebuilder:validation:MaxLength=128
-	ProbeHash string `json:"probeHash,omitempty"`
-	// Wanted is the langKeys still missing.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=20
-	// +kubebuilder:validation:items:MaxLength=64
-	Wanted []string `json:"wanted,omitempty"`
-	// CutoffMet is sent false as well as true (no omitempty, no default).
-	CutoffMet bool `json:"cutoffMet"`
-	// Items is one entry per wanted language or language on disk, sorted by langKey.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=20
-	Items []SubtitleItemStatus `json:"items,omitempty"`
+ // +required
+ Phase SubtitlesPhase `json:"phase"`
+ // Reason is why the phase is Blocked: ItemNotFound, NoProfile,
+ // ProfileInvalid, MediaFileNotOnDataVolume, MediaDirUnreadable or
+ // MediaFileNotOnDisk.
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ Reason string `json:"reason,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=1024
+ Message string `json:"message,omitempty"`
+ // Profile is the SubtitleProfile the plan used.
+ // +optional
+ // +kubebuilder:validation:MaxLength=253
+ Profile string `json:"profile,omitempty"`
+ // ProbeHash is the status.probeHash the items describe; a new one resets
+ // every language's attempts. Written only while items exist, so a
+ // NotWanted block with no items does not change with the bytes.
+ // (No profileGeneration: nothing reads it from status, and on a block
+ // every probed video file carries it would make one SubtitleProfile
+ // edit rewrite every MediaFile. The task and the record carry it, §6.6.)
+ // +optional
+ // +kubebuilder:validation:MaxLength=128
+ ProbeHash string `json:"probeHash,omitempty"`
+ // Wanted is the langKeys still missing.
+ // +optional
+ // +listType=atomic
+ // +kubebuilder:validation:MaxItems=20
+ // +kubebuilder:validation:items:MaxLength=64
+ Wanted []string `json:"wanted,omitempty"`
+ // CutoffMet is sent false as well as true (no omitempty, no default).
+ CutoffMet bool `json:"cutoffMet"`
+ // Items is one entry per wanted language or language on disk, sorted by langKey.
+ // +optional
+ // +listType=atomic
+ // +kubebuilder:validation:MaxItems=20
+ Items []SubtitleItemStatus `json:"items,omitempty"`
 }
 
 type SubtitleItemStatus struct {
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=64
-	LangKey string `json:"langKey"`
-	// +required
-	State SubtitleState `json:"state"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	Score int32 `json:"score,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	ScoreOutOf int32 `json:"scoreOutOf,omitempty"`
-	// Provider is the SubtitleProvider's name.
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	Provider string `json:"provider,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=256
-	SubtitleID string `json:"subtitleID,omitempty"`
-	// Name is the sidecar written for this language: a file name in the media
-	// file's directory.
-	// +optional
-	// +kubebuilder:validation:MaxLength=255
-	Name string `json:"name,omitempty"`
-	// +optional
-	DownloadedAt *metav1.Time `json:"downloadedAt,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=512
-	LastError string `json:"lastError,omitempty"`
-	// +optional
-	Attempts commonv1.Attempts `json:"attempts,omitempty"`
-	// +optional
-	NextSearchAt *metav1.Time `json:"nextSearchAt,omitempty"`
-	// +optional
-	Dispatch *Dispatch `json:"dispatch,omitempty"`
+ // +kubebuilder:validation:MinLength=1
+ // +kubebuilder:validation:MaxLength=64
+ LangKey string `json:"langKey"`
+ // +required
+ State SubtitleState `json:"state"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ Score int32 `json:"score,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ ScoreOutOf int32 `json:"scoreOutOf,omitempty"`
+ // Provider is the SubtitleProvider's name.
+ // +optional
+ // +kubebuilder:validation:MaxLength=253
+ Provider string `json:"provider,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=256
+ SubtitleID string `json:"subtitleID,omitempty"`
+ // Name is the sidecar written for this language: a file name in the media
+ // file's directory.
+ // +optional
+ // +kubebuilder:validation:MaxLength=255
+ Name string `json:"name,omitempty"`
+ // +optional
+ DownloadedAt *metav1.Time `json:"downloadedAt,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=512
+ LastError string `json:"lastError,omitempty"`
+ // +optional
+ Attempts commonv1.Attempts `json:"attempts,omitempty"`
+ // +optional
+ NextSearchAt *metav1.Time `json:"nextSearchAt,omitempty"`
+ // +optional
+ Dispatch *Dispatch `json:"dispatch,omitempty"`
 }
 ```
 
@@ -396,7 +396,7 @@ type SubtitleItemStatus struct {
 **Where every SubtitleRequest field goes:**
 
 | SubtitleRequest | Fate |
-|---|---|
+| --- | --- |
 | `spec.mediaFileRef` | Gone: the block sits on the file. |
 | `spec.profileRef` | `status.subtitles.profile` records the winner. A user pins a profile with a MediaFile label a profile's selector matches (§6.4.2). |
 | `spec.languages`, `spec.minScoreOverride` | Dropped (§9, decision D16). Neither is set live, and the ui has no action for them. |
@@ -428,182 +428,182 @@ type TranscodeClass string
 type TranscodeMode string
 
 type TranscodeState struct {
-	// Phase is always written by the loop. +optional in release N only, so
-	// the previous release's phase-less apply is still accepted after a
-	// rollback (§2.16); +required from N+1.
-	// +optional
-	Phase TranscodePhase `json:"phase"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	Reason string `json:"reason,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=1024
-	Message string `json:"message,omitempty"`
-	// Profile is the TranscodeProfile that won the file, and ProfileHash the
-	// hash the block is planned under (jobspec.ProfileHash over the
-	// standard's inputs and standard.Version, the function the profile's
-	// status.hash uses). Pending, Failed and Skipped are verdicts for this
-	// (ProfileHash, ProbeHash) only.
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	Profile string `json:"profile,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	ProfileHash string `json:"profileHash,omitempty"`
-	// ProbeHash is the status.probeHash the plan or verdict was made for.
-	// +optional
-	// +kubebuilder:validation:MaxLength=128
-	ProbeHash string `json:"probeHash,omitempty"`
-	// +optional
-	Plan *TranscodePlan `json:"plan,omitempty"`
-	// Hardware is the hardware in force: the transcode.clustarr.io/hardware
-	// annotation when valid, else the profile's.
-	// +optional
-	Hardware TranscodeHardware `json:"hardware,omitempty"`
-	// Priority is the priority admission used: the annotation's, else the
-	// profile's spec.priority.
-	// +optional
-	Priority int32 `json:"priority,omitempty"`
-	// Suspended is the transcode.clustarr.io/suspend annotation in force.
-	// +optional
-	Suspended bool `json:"suspended,omitempty"`
-	// PlannedAt is when this (ProfileHash, ProbeHash) first reached Planned;
-	// admission orders by priority, then PlannedAt, then name (it replaces
-	// TranscodeJob.metadata.creationTimestamp in admitsBefore).
-	// +optional
-	PlannedAt *metav1.Time `json:"plannedAt,omitempty"`
-	// +optional
-	Class TranscodeClass `json:"class,omitempty"`
-	// Pool is the pool Job of the in-flight or last dispatch.
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	Pool string `json:"pool,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=256
-	FallbackReason string `json:"fallbackReason,omitempty"`
-	// Attempts counts dispatches in the current cycle; the retry budget
-	// (transcodeplan.MaxAttempts) reads it. A retry, new bytes or a new
-	// ProfileHash reset it. Dispatch.Seq never resets.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	Attempts int32 `json:"attempts,omitempty"`
-	// +optional
-	NextAttemptAt *metav1.Time `json:"nextAttemptAt,omitempty"`
-	// Blocked is a Failed verdict that is not retried without
-	// transcode.clustarr.io/retry, new bytes or a new ProfileHash.
-	// +optional
-	Blocked bool `json:"blocked,omitempty"`
-	// +optional
-	Dispatch *Dispatch `json:"dispatch,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	WorkerPod string `json:"workerPod,omitempty"`
-	// +optional
-	StartedAt *metav1.Time `json:"startedAt,omitempty"`
-	// +optional
-	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
-	// Result stays until the swap is incorporated, and for good for a
-	// replaceSource=false copy (the rescan protects result.outputPath).
-	// +optional
-	Result *TranscodeOutput `json:"result,omitempty"`
-	// StderrTail is the last 1 KiB of the encoder's stderr on Failed; the
-	// record keeps 4 KiB.
-	// +optional
-	// +kubebuilder:validation:MaxLength=1024
-	StderrTail string `json:"stderrTail,omitempty"`
-	// Compliant and ProfileTag are kept from today's TranscodeState: set when
-	// a swap is incorporated (ProfileTag = <Profile>@<ProfileHash>, from this
-	// block, never from a TranscodeProfile Get).
-	// +optional
-	Compliant bool `json:"compliant,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=320
-	ProfileTag string `json:"profileTag,omitempty"`
-	// JoinedGraft is the graft the dispatch at Dispatch.Seq carries
-	// (task.Graft), written by the transcode planner in the apply that
-	// dispatches, and kept until its next dispatch. The graft planner
-	// derives its Running/JoinedTranscode block from it and incorporates the
-	// joined result from the transcode record's Answer.Graft (§5.13), so the
-	// join lives in the block of the planner that decided it (§3.5).
-	// +optional
-	JoinedGraft *TranscodeGraftJoin `json:"joinedGraft,omitempty"`
+ // Phase is always written by the loop. +optional in release N only, so
+ // the previous release's phase-less apply is still accepted after a
+ // rollback (§2.16); +required from N+1.
+ // +optional
+ Phase TranscodePhase `json:"phase"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ Reason string `json:"reason,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=1024
+ Message string `json:"message,omitempty"`
+ // Profile is the TranscodeProfile that won the file, and ProfileHash the
+ // hash the block is planned under (jobspec.ProfileHash over the
+ // standard's inputs and standard.Version, the function the profile's
+ // status.hash uses). Pending, Failed and Skipped are verdicts for this
+ // (ProfileHash, ProbeHash) only.
+ // +optional
+ // +kubebuilder:validation:MaxLength=253
+ Profile string `json:"profile,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ ProfileHash string `json:"profileHash,omitempty"`
+ // ProbeHash is the status.probeHash the plan or verdict was made for.
+ // +optional
+ // +kubebuilder:validation:MaxLength=128
+ ProbeHash string `json:"probeHash,omitempty"`
+ // +optional
+ Plan *TranscodePlan `json:"plan,omitempty"`
+ // Hardware is the hardware in force: the transcode.clustarr.io/hardware
+ // annotation when valid, else the profile's.
+ // +optional
+ Hardware TranscodeHardware `json:"hardware,omitempty"`
+ // Priority is the priority admission used: the annotation's, else the
+ // profile's spec.priority.
+ // +optional
+ Priority int32 `json:"priority,omitempty"`
+ // Suspended is the transcode.clustarr.io/suspend annotation in force.
+ // +optional
+ Suspended bool `json:"suspended,omitempty"`
+ // PlannedAt is when this (ProfileHash, ProbeHash) first reached Planned;
+ // admission orders by priority, then PlannedAt, then name (it replaces
+ // TranscodeJob.metadata.creationTimestamp in admitsBefore).
+ // +optional
+ PlannedAt *metav1.Time `json:"plannedAt,omitempty"`
+ // +optional
+ Class TranscodeClass `json:"class,omitempty"`
+ // Pool is the pool Job of the in-flight or last dispatch.
+ // +optional
+ // +kubebuilder:validation:MaxLength=253
+ Pool string `json:"pool,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=256
+ FallbackReason string `json:"fallbackReason,omitempty"`
+ // Attempts counts dispatches in the current cycle; the retry budget
+ // (transcodeplan.MaxAttempts) reads it. A retry, new bytes or a new
+ // ProfileHash reset it. Dispatch.Seq never resets.
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ Attempts int32 `json:"attempts,omitempty"`
+ // +optional
+ NextAttemptAt *metav1.Time `json:"nextAttemptAt,omitempty"`
+ // Blocked is a Failed verdict that is not retried without
+ // transcode.clustarr.io/retry, new bytes or a new ProfileHash.
+ // +optional
+ Blocked bool `json:"blocked,omitempty"`
+ // +optional
+ Dispatch *Dispatch `json:"dispatch,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=253
+ WorkerPod string `json:"workerPod,omitempty"`
+ // +optional
+ StartedAt *metav1.Time `json:"startedAt,omitempty"`
+ // +optional
+ FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+ // Result stays until the swap is incorporated, and for good for a
+ // replaceSource=false copy (the rescan protects result.outputPath).
+ // +optional
+ Result *TranscodeOutput `json:"result,omitempty"`
+ // StderrTail is the last 1 KiB of the encoder's stderr on Failed; the
+ // record keeps 4 KiB.
+ // +optional
+ // +kubebuilder:validation:MaxLength=1024
+ StderrTail string `json:"stderrTail,omitempty"`
+ // Compliant and ProfileTag are kept from today's TranscodeState: set when
+ // a swap is incorporated (ProfileTag = <Profile>@<ProfileHash>, from this
+ // block, never from a TranscodeProfile Get).
+ // +optional
+ Compliant bool `json:"compliant,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=320
+ ProfileTag string `json:"profileTag,omitempty"`
+ // JoinedGraft is the graft the dispatch at Dispatch.Seq carries
+ // (task.Graft), written by the transcode planner in the apply that
+ // dispatches, and kept until its next dispatch. The graft planner
+ // derives its Running/JoinedTranscode block from it and incorporates the
+ // joined result from the transcode record's Answer.Graft (§5.13), so the
+ // join lives in the block of the planner that decided it (§3.5).
+ // +optional
+ JoinedGraft *TranscodeGraftJoin `json:"joinedGraft,omitempty"`
 
-	// JobRef and LastResult are today's fields, kept in release N's schema
-	// only so the previous release's apply is still valid after a rollback
-	// (§2.16). The loop never writes them; LastResult loses its
-	// +kubebuilder:default. Both are deleted in N+1 (F9.2).
-	// +optional
-	JobRef *string `json:"jobRef,omitempty"`
-	// +optional
-	LastResult TranscodeResult `json:"lastResult,omitempty"`
+ // JobRef and LastResult are today's fields, kept in release N's schema
+ // only so the previous release's apply is still valid after a rollback
+ // (§2.16). The loop never writes them; LastResult loses its
+ // +kubebuilder:default. Both are deleted in N+1 (F9.2).
+ // +optional
+ JobRef *string `json:"jobRef,omitempty"`
+ // +optional
+ LastResult TranscodeResult `json:"lastResult,omitempty"`
 }
 
 type TranscodeGraftJoin struct {
-	// +kubebuilder:validation:MaxLength=512
-	DonorRelease string `json:"donorRelease"`
-	// +optional
-	DonorImportedAt *metav1.Time `json:"donorImportedAt,omitempty"`
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=4
-	// +kubebuilder:validation:items:MaxLength=35
-	Languages []string `json:"languages,omitempty"`
-	// +kubebuilder:validation:MaxLength=128
-	ProbeHash string `json:"probeHash"`
+ // +kubebuilder:validation:MaxLength=512
+ DonorRelease string `json:"donorRelease"`
+ // +optional
+ DonorImportedAt *metav1.Time `json:"donorImportedAt,omitempty"`
+ // +optional
+ // +listType=atomic
+ // +kubebuilder:validation:MaxItems=4
+ // +kubebuilder:validation:items:MaxLength=35
+ Languages []string `json:"languages,omitempty"`
+ // +kubebuilder:validation:MaxLength=128
+ ProbeHash string `json:"probeHash"`
 }
 
 type TranscodePlan struct {
-	// +required
-	Mode TranscodeMode `json:"mode"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	Encoder string `json:"encoder,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Enum=copy;encode
-	VideoAction string `json:"videoAction,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Enum=cpu;nvdec;upload;vaapi;qsv
-	Decode string `json:"decode,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	HDRMode string `json:"hdrMode,omitempty"`
-	// +required
-	// +kubebuilder:validation:MaxLength=64
-	PlanHash string `json:"planHash"`
-	// Dropped names each source subtitle the output carries neither embedded
-	// nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
-	// not carry, or a second track for a sidecar name already planned), each
-	// clamped on a rune boundary; past 8, the eighth reads "and N more". It
-	// replaces the "; dropped …" suffix main's c0fb39b7 adds to TranscodeJob's
-	// Planned condition, which the fold removes.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=8
-	// +kubebuilder:validation:items:MaxLength=320
-	Dropped []string `json:"dropped,omitempty"`
+ // +required
+ Mode TranscodeMode `json:"mode"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ Encoder string `json:"encoder,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Enum=copy;encode
+ VideoAction string `json:"videoAction,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Enum=cpu;nvdec;upload;vaapi;qsv
+ Decode string `json:"decode,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ HDRMode string `json:"hdrMode,omitempty"`
+ // +required
+ // +kubebuilder:validation:MaxLength=64
+ PlanHash string `json:"planHash"`
+ // Dropped names each source subtitle the output carries neither embedded
+ // nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
+ // not carry, or a second track for a sidecar name already planned), each
+ // clamped on a rune boundary; past 8, the eighth reads "and N more". It
+ // replaces the "; dropped …" suffix main's c0fb39b7 adds to TranscodeJob's
+ // Planned condition, which the fold removes.
+ // +optional
+ // +listType=atomic
+ // +kubebuilder:validation:MaxItems=8
+ // +kubebuilder:validation:items:MaxLength=320
+ Dropped []string `json:"dropped,omitempty"`
 }
 
 type TranscodeOutput struct {
-	// +required
-	// +kubebuilder:validation:MaxLength=4096
-	OutputPath string `json:"outputPath"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	OutputSizeBytes int64 `json:"outputSizeBytes,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	OutputToSourcePercent int32 `json:"outputToSourcePercent,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=10000
-	VMAFCentis *int32 `json:"vmafCentis,omitempty"`
+ // +required
+ // +kubebuilder:validation:MaxLength=4096
+ OutputPath string `json:"outputPath"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ OutputSizeBytes int64 `json:"outputSizeBytes,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ OutputToSourcePercent int32 `json:"outputToSourcePercent,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ // +kubebuilder:validation:Maximum=10000
+ VMAFCentis *int32 `json:"vmafCentis,omitempty"`
 }
 ```
 
 **Phases:**
 
 | Phase | Meaning |
-|---|---|
+| --- | --- |
 | `Pending` | In the window but cannot be planned yet. Reasons: `Unprobed`, `ProbePending` (`ProbeCurrent()` false), `Grafting` (a standalone graft holds the file). |
 | `Planned` | Waiting for admission. Reasons: `WaitingForSlot`, `WaitingForGPU`, `PoolDraining`, `Suspended`, `Backoff` (`nextAttemptAt`), `Unclaimed`, `WorkerLost`, `Rerouted`. |
 | `Queued`, `Running` | In flight (`dispatch.seq > dispatch.answeredSeq`). |
@@ -643,86 +643,86 @@ rescan/keptoutput.go:131).
 type GraftPhase string
 
 type GraftState struct {
-	// +required
-	Phase GraftPhase `json:"phase"`
-	// Reason: Waiting -- FileUnprobed, TranscodeRunning, WaitingForTranscode,
-	// WaitingForSlot, Backoff; Running -- JoinedTranscode; Succeeded --
-	// Grafted, Present; Failed -- the grafttask reasons (grafttask.go:88-99)
-	// and JobLost.
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	Reason string `json:"reason,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=1024
-	Message string `json:"message,omitempty"`
-	// DonorRelease and DonorImportedAt identify the item's donor this graft
-	// is for (status.audio.donor); a Failed graft is retried only for another
-	// donor or another ProbeHash.
-	// +optional
-	// +kubebuilder:validation:MaxLength=512
-	DonorRelease string `json:"donorRelease,omitempty"`
-	// +optional
-	DonorImportedAt *metav1.Time `json:"donorImportedAt,omitempty"`
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=4
-	// +kubebuilder:validation:items:MaxLength=35
-	Languages []string `json:"languages,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=128
-	ProbeHash string `json:"probeHash,omitempty"`
-	// DonorFault marks a failure that rejects the donor's release
-	// (AlignmentRejected, VerifyFailed, MuxFailed, DonorLacksLanguage).
-	// +optional
-	DonorFault bool `json:"donorFault,omitempty"`
-	// JoinedTranscodeSeq is the transcode dispatch this graft rides.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	JoinedTranscodeSeq int64 `json:"joinedTranscodeSeq,omitempty"`
-	// +optional
-	Dispatch *Dispatch `json:"dispatch,omitempty"`
-	// JobName is the standalone graft Job of the in-flight dispatch.
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	JobName string `json:"jobName,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=32
-	RateName string `json:"rateName,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	RateMicros int64 `json:"rateMicros,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	RateMarginMilli int32 `json:"rateMarginMilli,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=100
-	CoveragePercent int32 `json:"coveragePercent,omitempty"`
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=16
-	Segments []GraftSegment `json:"segments,omitempty"`
-	// +optional
-	ResidualMillis int32 `json:"residualMillis,omitempty"`
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=100
-	Within80Percent int32 `json:"within80Percent,omitempty"`
-	// Tag is the CLUSTARR_GRAFT tag the worker wrote; status.graftTag takes
-	// it when the grafted bytes' probe is incorporated.
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	Tag string `json:"tag,omitempty"`
-	// +optional
-	StartedAt *metav1.Time `json:"startedAt,omitempty"`
-	// +optional
-	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+ // +required
+ Phase GraftPhase `json:"phase"`
+ // Reason: Waiting -- FileUnprobed, TranscodeRunning, WaitingForTranscode,
+ // WaitingForSlot, Backoff; Running -- JoinedTranscode; Succeeded --
+ // Grafted, Present; Failed -- the grafttask reasons (grafttask.go:88-99)
+ // and JobLost.
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ Reason string `json:"reason,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=1024
+ Message string `json:"message,omitempty"`
+ // DonorRelease and DonorImportedAt identify the item's donor this graft
+ // is for (status.audio.donor); a Failed graft is retried only for another
+ // donor or another ProbeHash.
+ // +optional
+ // +kubebuilder:validation:MaxLength=512
+ DonorRelease string `json:"donorRelease,omitempty"`
+ // +optional
+ DonorImportedAt *metav1.Time `json:"donorImportedAt,omitempty"`
+ // +optional
+ // +listType=atomic
+ // +kubebuilder:validation:MaxItems=4
+ // +kubebuilder:validation:items:MaxLength=35
+ Languages []string `json:"languages,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=128
+ ProbeHash string `json:"probeHash,omitempty"`
+ // DonorFault marks a failure that rejects the donor's release
+ // (AlignmentRejected, VerifyFailed, MuxFailed, DonorLacksLanguage).
+ // +optional
+ DonorFault bool `json:"donorFault,omitempty"`
+ // JoinedTranscodeSeq is the transcode dispatch this graft rides.
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ JoinedTranscodeSeq int64 `json:"joinedTranscodeSeq,omitempty"`
+ // +optional
+ Dispatch *Dispatch `json:"dispatch,omitempty"`
+ // JobName is the standalone graft Job of the in-flight dispatch.
+ // +optional
+ // +kubebuilder:validation:MaxLength=253
+ JobName string `json:"jobName,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=32
+ RateName string `json:"rateName,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ RateMicros int64 `json:"rateMicros,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ RateMarginMilli int32 `json:"rateMarginMilli,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ // +kubebuilder:validation:Maximum=100
+ CoveragePercent int32 `json:"coveragePercent,omitempty"`
+ // +optional
+ // +listType=atomic
+ // +kubebuilder:validation:MaxItems=16
+ Segments []GraftSegment `json:"segments,omitempty"`
+ // +optional
+ ResidualMillis int32 `json:"residualMillis,omitempty"`
+ // +optional
+ // +kubebuilder:validation:Minimum=0
+ // +kubebuilder:validation:Maximum=100
+ Within80Percent int32 `json:"within80Percent,omitempty"`
+ // Tag is the CLUSTARR_GRAFT tag the worker wrote; status.graftTag takes
+ // it when the grafted bytes' probe is incorporated.
+ // +optional
+ // +kubebuilder:validation:MaxLength=64
+ Tag string `json:"tag,omitempty"`
+ // +optional
+ StartedAt *metav1.Time `json:"startedAt,omitempty"`
+ // +optional
+ CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 }
 
 type GraftSegment struct {
-	DonorStartMillis  int64 `json:"donorStartMillis"`
-	TargetStartMillis int64 `json:"targetStartMillis"`
-	LengthMillis      int64 `json:"lengthMillis"`
+ DonorStartMillis  int64 `json:"donorStartMillis"`
+ TargetStartMillis int64 `json:"targetStartMillis"`
+ LengthMillis      int64 `json:"lengthMillis"`
 }
 ```
 
@@ -742,33 +742,33 @@ used by `Movie.status.audio` (movie_types.go:547) and `Episode.status.audio`
 (episode_types.go:229), gains:
 
 ```go
-	// Donor is the newest audio donor imported for this item: from the
-	// item's Download with spec.purpose audioDonor whose import finished
-	// (status.import.imported[].destPath, spec.release.title,
-	// status.import.importedAt), carried forward from this status once seen,
-	// so deleting the Download loses nothing.
-	// +optional
-	Donor *AudioDonor `json:"donor,omitempty"`
-	// RejectedReleases are donor releases a graft of this item failed with
-	// (status.graft.donorFault on its file); the donor search never takes
-	// them again. Oldest dropped past 16.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:items:MaxLength=512
-	RejectedReleases []string `json:"rejectedReleases,omitempty"`
+ // Donor is the newest audio donor imported for this item: from the
+ // item's Download with spec.purpose audioDonor whose import finished
+ // (status.import.imported[].destPath, spec.release.title,
+ // status.import.importedAt), carried forward from this status once seen,
+ // so deleting the Download loses nothing.
+ // +optional
+ Donor *AudioDonor `json:"donor,omitempty"`
+ // RejectedReleases are donor releases a graft of this item failed with
+ // (status.graft.donorFault on its file); the donor search never takes
+ // them again. Oldest dropped past 16.
+ // +optional
+ // +listType=atomic
+ // +kubebuilder:validation:MaxItems=16
+ // +kubebuilder:validation:items:MaxLength=512
+ RejectedReleases []string `json:"rejectedReleases,omitempty"`
 
 type AudioDonor struct {
-	// Path is the reduced donor audio (<stem>.mka), which fileimport writes
-	// at import (§4.12, graft).
-	// +kubebuilder:validation:MaxLength=4096
-	Path string `json:"path"`
-	// +kubebuilder:validation:MaxLength=512
-	Release string `json:"release"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	DownloadRef string `json:"downloadRef,omitempty"`
-	ImportedAt metav1.Time `json:"importedAt"`
+ // Path is the reduced donor audio (<stem>.mka), which fileimport writes
+ // at import (§4.12, graft).
+ // +kubebuilder:validation:MaxLength=4096
+ Path string `json:"path"`
+ // +kubebuilder:validation:MaxLength=512
+ Release string `json:"release"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=253
+ DownloadRef string `json:"downloadRef,omitempty"`
+ ImportedAt metav1.Time `json:"importedAt"`
 }
 ```
 
@@ -787,29 +787,29 @@ releases, even with no file; today `AudioStateFor` returns nil without a file
 
 ```go
 type Sidecar struct {
-	// Path is the sidecar's absolute path: today's field and the list's map
-	// key, written by the loop on every entry in release N (dir(spec.path) +
-	// "/" + Name) so that the previous release can read and re-send the
-	// list after a rollback (§2.16). The loop also fills each half from the
-	// other on a stored entry it carries forward: Name = filepath.Base(Path)
-	// on an entry the previous release wrote, Path from Name on one N+1
-	// wrote. Deleted in N+1.
-	// +required
-	// +kubebuilder:validation:MaxLength=4096
-	Path string `json:"path"`
-	// Name is the sidecar's file name in the media file's directory.
-	// +optional in release N (an entry the previous release wrote after a
-	// rollback has none); +required with MinLength=1 from N+1.
-	// +optional
-	// +kubebuilder:validation:MaxLength=255
-	Name string `json:"name,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=35
-	Language string `json:"language,omitempty"`
-	// +optional
-	Forced bool `json:"forced,omitempty"`
-	// +optional
-	HI bool `json:"hi,omitempty"`
+ // Path is the sidecar's absolute path: today's field and the list's map
+ // key, written by the loop on every entry in release N (dir(spec.path) +
+ // "/" + Name) so that the previous release can read and re-send the
+ // list after a rollback (§2.16). The loop also fills each half from the
+ // other on a stored entry it carries forward: Name = filepath.Base(Path)
+ // on an entry the previous release wrote, Path from Name on one N+1
+ // wrote. Deleted in N+1.
+ // +required
+ // +kubebuilder:validation:MaxLength=4096
+ Path string `json:"path"`
+ // Name is the sidecar's file name in the media file's directory.
+ // +optional in release N (an entry the previous release wrote after a
+ // rollback has none); +required with MinLength=1 from N+1.
+ // +optional
+ // +kubebuilder:validation:MaxLength=255
+ Name string `json:"name,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=35
+ Language string `json:"language,omitempty"`
+ // +optional
+ Forced bool `json:"forced,omitempty"`
+ // +optional
+ HI bool `json:"hi,omitempty"`
 }
 ```
 
@@ -858,7 +858,7 @@ language (§9 D43).
 The set is closed at 10 types; MaxItems is 12.
 
 | Type | Present | Owner | Meaning |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `Probed` | always | probe | unchanged (split §6.5.3 adds reason `ProbePending`) |
 | `Ready` | always | probe | unchanged; rename's `Renameable` reads it |
 | `NamingCurrent` | while `naming` exists | naming | unchanged |
@@ -879,7 +879,7 @@ Constants: `MediaFileConditionProbePlannerError` … `MediaFileConditionMarkersP
 ### 2.9 User intent: annotations on the MediaFile
 
 | Annotation | Kind | Value | Status that records it | Replaces |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `subtitle.clustarr.io/search` | one-shot | nonce | `handledNonces.subtitleSearch` | SubtitleRequest `spec.forceSearch` |
 | `transcode.clustarr.io/retry` | one-shot | nonce | `handledNonces.transcodeRetry` | deleting a Blocked TranscodeJob |
 | `transcode.clustarr.io/cancel` | one-shot | nonce | `handledNonces.transcodeCancel` | deleting a TranscodeJob |
@@ -889,15 +889,15 @@ Constants: `MediaFileConditionProbePlannerError` … `MediaFileConditionMarkersP
 
 ```go
 type HandledNonces struct {
-	// +optional
-	// +kubebuilder:validation:MaxLength=63
-	SubtitleSearch string `json:"subtitleSearch,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=63
-	TranscodeRetry string `json:"transcodeRetry,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=63
-	TranscodeCancel string `json:"transcodeCancel,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=63
+ SubtitleSearch string `json:"subtitleSearch,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=63
+ TranscodeRetry string `json:"transcodeRetry,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=63
+ TranscodeCancel string `json:"transcodeCancel,omitempty"`
 }
 ```
 
@@ -1004,7 +1004,7 @@ mediafile_types.go:434).
 #### 2.11.2 Caps added so the budget is provable
 
 | Where | Field | MaxLength |
-|---|---|---|
+| --- | --- | --- |
 | `commonv1.MediaInfo` | `container`, `videoCodec`, `videoProfile`, `pixelFormat` | 64 |
 | audio streams | `codec`, `profile`, `language` | 64 |
 | audio streams | `title` | 256 |
@@ -1031,7 +1031,7 @@ Measured worst case of the api draft's shape (scratchpad `foldapi/worst.py`: eve
 MaxItems, every string at MaxLength, condition messages at the clamp):
 
 | Block | Bytes |
-|---|---|
+| --- | --- |
 | `mediaInfo` | 95,286 |
 | `subtitles` | 37,333 |
 | `conditions` (12 × 1 KiB) | 15,001 |
@@ -1098,7 +1098,7 @@ Budget constants (`pkg/crdcheck`): `MediaFileStatusBudgetBytes = 320 << 10` in r
 ### 2.12 Field ownership on MediaFile after the fold
 
 | Manager | Object part |
-|---|---|
+| --- | --- |
 | `catalogarr` | All of `status` (subresource), always through `PatchStatusCAS`. Main resource: the seven `catalog.clustarr.io/*` labels, plus spec `path`, `sizeBytes`, `modTime` and `original` after a swap or graft. |
 | `importarr-worker` | Spec, through rescan's one renderer (`mediafilespec.Apply`), including the rename the loop's rename actuator runs. |
 | `importarr` | The `catalog.clustarr.io/observed-fingerprint` annotation. |
@@ -1132,7 +1132,7 @@ pool Jobs under `squasharr-pool`, §5.12). Triggers: its own generation, owned p
 and `source.Channel(ledger.profileWake)`.
 
 | Field | After the fold |
-|---|---|
+| --- | --- |
 | `hash` | `jobspec.ProfileHash(spec)`, pure over spec and `standard.Version`; the transcode planner uses the same function for `status.transcode.profileHash`, so no file waits on `status.hash`. From Version 2 (main `b33e4417`) `ProfileHashAt` hashes `OutputContainer` in place of `spec.container`, so editing a profile's `container` (now documented as ignored, default `mp4`) changes no hash and re-plans nothing. |
 | `matchingFiles` | Files with `status.transcode.profile == name`, plus backlog files the ledger holds for it. |
 | `pendingJobs` | Window files under the profile in `Pending`, `Planned` or `Queued`. The doc text changes to "files"; the name stays. |
@@ -1147,7 +1147,7 @@ generation, and `source.Channel(subtitleProfileWake)` that the loop signals (deb
 when a file's winning profile or subtitle phase changes.
 
 | Field | After the fold |
-|---|---|
+| --- | --- |
 | `observedGeneration`, `wantedKeys` | Unchanged. |
 | `matchingFiles` | Files with `status.subtitles.profile == name`, through the index `remediation.mediafile.subtitleProfile`. |
 | `Invalid` | `DuplicateDefault`, `KeyMismatch`, plus new `InvalidFilter`: a `mustContain` or `mustNotContain` entry (subtitleprofile_types.go:339-351) fails `regexp2.Compile(p, regexp2.IgnoreCase)`. Today that fails per task in the worker (fetch/worker.go:287-290, select.go:124-143). |
@@ -1170,7 +1170,7 @@ each kind's existing single renderer (and `reassertKnownStatus` on Movie). Leave
 from `catalogarr-grab`, `catalogarr-metadata`, `catalogarr-artwork` and `catalogarr-series`.
 
 | Kind | File-derived fields (unchanged names) | What changes |
-|---|---|---|
+| --- | --- | --- |
 | Movie | `hasFile`, `fileRef`, `fileQuality`, `fileFormatScore`, `cutoffMet`, phase (Downloaded/Transcoded/CutoffUnmet), `audio`, conditions `HasFile`, `CutoffMet`, `WrongLanguage` | `audio.graft` reads the file's `status.graft`, not the AudioGraft. New `audio.donor` and `audio.rejectedReleases` (§2.6). |
 | Episode | same set (episode/reconciler.go:578 apply) | same as Movie; a multi-episode file gives `audio.graft: failed`, reason `MultiItemFile`. |
 | Album | `tracks[].fileRef`, `trackFileCount`, `quality`, `formatScore`, `cutoffMet`, phase | none in the API |
@@ -1182,7 +1182,7 @@ from `catalogarr-grab`, `catalogarr-metadata`, `catalogarr-artwork` and `catalog
 **How `audio.graft` derives:**
 
 | Item and file state | `audio.graft` |
-|---|---|
+| --- | --- |
 | no donor, languages missing | `searching` |
 | donor Download non-terminal | `grabbed` |
 | file's graft `Waiting` or `Queued` | `pending` |
@@ -1235,7 +1235,7 @@ with `WithPath(s.Path)` from what it read. So release N's MediaFile schema is a 
 that accepts those applies:
 
 | Leaf | Release N | N+1 |
-|---|---|---|
+| --- | --- | --- |
 | `status.transcode.phase` | `+optional`; the loop always writes it | `+required` |
 | `status.transcode.jobRef`, `lastResult` | kept, deprecated, never written; `lastResult` has no default | deleted |
 | `status.sidecars[]` | map list keyed by `path` (`+required`, MaxLength 4096, always written by the loop), plus `name` `+optional` | atomic, `name` `+required`, `path` deleted |
@@ -1287,7 +1287,7 @@ scheduling, field managers, indexes and throughput, and gives every current watc
 ### 3.1 Packages and registration
 
 | Package | Holds | Linked by |
-|---|---|---|
+| --- | --- | --- |
 | `app/remediation` | `Key`, `Reconciler`, `SetupWithManager`, every source, the pass (gather, plan, render, apply, effects, actuators), isolation, `Order`, `Planner`, `Effect`, `RegisterIndexes` | manager |
 | `app/remediation/manager` | `Register(mgr ctrl.Manager, bus events.Bus, o Options) error`, the split's manager-side registration contract (.superpowers/unify/plan/04-registration.md:29) | manager |
 | `app/remediation/mfindex` | MediaFile index names and extractors (§3.16) | manager: librarydelete, segmentplan, the item packages, the planners, the profile reconcilers |
@@ -1324,21 +1324,21 @@ rename. `app/catalog/manager` loses mediafile, movie, episode, album, book, audi
 ```go
 // Key is the loop's request: one controller, one queue; Kind picks the path.
 type Key struct {
-	Kind      KeyKind
-	Namespace string
-	Name      string
+ Kind      KeyKind
+ Namespace string
+ Name      string
 }
 
 type KeyKind string
 
 const (
-	KindMediaFile KeyKind = "MediaFile"
-	KindMovie     KeyKind = "Movie"
-	KindEpisode   KeyKind = "Episode"
-	KindAlbum     KeyKind = "Album"
-	KindBook      KeyKind = "Book"
-	KindAudiobook KeyKind = "Audiobook"
-	KindIssue     KeyKind = "Issue"
+ KindMediaFile KeyKind = "MediaFile"
+ KindMovie     KeyKind = "Movie"
+ KindEpisode   KeyKind = "Episode"
+ KindAlbum     KeyKind = "Album"
+ KindBook      KeyKind = "Book"
+ KindAudiobook KeyKind = "Audiobook"
+ KindIssue     KeyKind = "Issue"
 )
 ```
 
@@ -1367,7 +1367,7 @@ Every source is registered on the one controller
 "Files of X" means a List through an index (§3.16) with `UnsafeDisableDeepCopy`.
 
 | # | Source | Predicate | Enqueues |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | S1 | MediaFile, typed handler `mediaFileEvents`, wrapped in `handler.WithLowPriorityWhenUnchanged` | Create and delete always. On update: generation changed; a watched annotation changed: `catalog.clustarr.io/observed-fingerprint` (mediafile_controller.go:93), `clustarr.io/dead-lettered` (pkg/k8s/deadletter.go:78), `clustarr.io/replay` (history/replay.go:55), and the six intent annotations (§2.9); or a label changed other than the seven `catalog.clustarr.io/*` keys `mirrorLabels` writes (labels.go:32-52), which is how a user pins a file to a profile (§6.4.2) | The file key (at `PriorityUser` when an intent annotation or a user label changed), plus the item keys of the old and new `mediaRef` |
 | S1' | Same handler, update that changes only status | `FileSignature` changed: `Transcoded()`, `rollup.AudioLanguagesObject`, probeHash empty or not, Ready status, `status.transcode.phase`, `status.graft.phase` and its tag. `ProfileSignature` changed: the winning subtitle profile or its phase | Item keys; a non-blocking send on `subtitleProfileWake` (§2.13). **Never the file key itself** |
 | S2 | Movie | `moviePredicate` (movie/reconciler.go:211-230) | Movie key |
@@ -1466,13 +1466,13 @@ with a complete status.
 type PlannerName string
 
 const (
-	PlannerAdopt     PlannerName = "adopt" // release N only (§7)
-	PlannerProbe     PlannerName = "probe"
-	PlannerTranscode PlannerName = "transcode"
-	PlannerGraft     PlannerName = "graft"
-	PlannerNaming    PlannerName = "naming"
-	PlannerSubtitles PlannerName = "subtitles"
-	PlannerMarkers   PlannerName = "markers"
+ PlannerAdopt     PlannerName = "adopt" // release N only (§7)
+ PlannerProbe     PlannerName = "probe"
+ PlannerTranscode PlannerName = "transcode"
+ PlannerGraft     PlannerName = "graft"
+ PlannerNaming    PlannerName = "naming"
+ PlannerSubtitles PlannerName = "subtitles"
+ PlannerMarkers   PlannerName = "markers"
 )
 
 // Order is the order planners run in within one pass. TestPlannerOrder holds it.
@@ -1480,13 +1480,13 @@ var Order = []PlannerName{PlannerProbe, PlannerTranscode, PlannerGraft, PlannerN
 
 // View is everything a planner may read, read-only. Plan writes only out.
 type View struct {
-	File   *catalogv1alpha1.MediaFile       // the cached object this pass planned from
-	Prev   *catalogv1alpha1.MediaFileStatus // the stored status, File.Status
-	Draft  *catalogv1alpha1.MediaFileStatus // the status after the earlier planners in Order
-	Now    metav1.Time                      // UTC, whole seconds
-	Ledger admission.Snapshot               // this file's ledger entry, grant and directives; zero when none
-	Stale  bool                             // the cache has not caught up with the loop's own last apply (§3.4 step 2)
-	seqFloor int64
+ File   *catalogv1alpha1.MediaFile       // the cached object this pass planned from
+ Prev   *catalogv1alpha1.MediaFileStatus // the stored status, File.Status
+ Draft  *catalogv1alpha1.MediaFileStatus // the status after the earlier planners in Order
+ Now    metav1.Time                      // UTC, whole seconds
+ Ledger admission.Snapshot               // this file's ledger entry, grant and directives; zero when none
+ Stale  bool                             // the cache has not caught up with the loop's own last apply (§3.4 step 2)
+ seqFloor int64
 }
 
 // Labels returns File's labels overlaid with mirrorLabels over Draft's
@@ -1502,21 +1502,21 @@ func (v *View) Issue(recordSeq int64) int64
 
 // Planner is one remediation. Gather reads, Plan decides, Copy names its fields.
 type Planner[In any] interface {
-	Name() PlannerName
-	Applies(mf *catalogv1alpha1.MediaFile) bool
-	Gather(ctx context.Context, env *Env, v *View) (In, error)
-	Plan(v *View, in In, out *catalogv1alpha1.MediaFileStatus) (Result, error)
-	// Copy copies exactly this planner's fields -- its block, flat fields,
-	// nonce leaves and condition types -- from one status into another.
-	Copy(from, into *catalogv1alpha1.MediaFileStatus)
+ Name() PlannerName
+ Applies(mf *catalogv1alpha1.MediaFile) bool
+ Gather(ctx context.Context, env *Env, v *View) (In, error)
+ Plan(v *View, in In, out *catalogv1alpha1.MediaFileStatus) (Result, error)
+ // Copy copies exactly this planner's fields -- its block, flat fields,
+ // nonce leaves and condition types -- from one status into another.
+ Copy(from, into *catalogv1alpha1.MediaFileStatus)
 }
 
 type Result struct {
-	Main    *MainIntent // probe only: the spec takeover of §3.10
-	Effects []Effect    // run after the status apply lands (§3.8)
-	Due     time.Time   // when this planner next needs a pass; zero is no timer
-	Again   bool        // an earlier planner's input changed this pass: requeue in 1 s
-	Events  []Event     // Kubernetes Events on the MediaFile, for transitions Prev -> out only
+ Main    *MainIntent // probe only: the spec takeover of §3.10
+ Effects []Effect    // run after the status apply lands (§3.8)
+ Due     time.Time   // when this planner next needs a pass; zero is no timer
+ Again   bool        // an earlier planner's input changed this pass: requeue in 1 s
+ Events  []Event     // Kubernetes Events on the MediaFile, for transitions Prev -> out only
 }
 ```
 
@@ -1542,7 +1542,7 @@ prepends `PlannerAdopt` (§7.3.3).
 **Every MediaFileStatus field has exactly one owner:**
 
 | Owner | Status fields | Condition types |
-|---|---|---|
+| --- | --- | --- |
 | probe | `probeHash`, `probedAt`, `probeVersion`, `mediaInfo`; `graftTag`, `graftedAt` until F7 (today mediafile_controller.go:338-339) | `Probed`, `Ready` |
 | transcode | `transcode` (including `joinedGraft`, the join it decided), `handledNonces.transcodeRetry`, `handledNonces.transcodeCancel` | none |
 | graft | `graft` (including a joined graft's `Running`/`JoinedTranscode` state and result, derived from the draft's `transcode.joinedGraft`, §5.13); `graftTag`, `graftedAt` from F7 | none |
@@ -1593,7 +1593,7 @@ keeps split §6.5's record-local sequence; markers keep none in status.
 its own deadline, and classifies the outcome:
 
 | Outcome | Status | Requeue | Metric |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | ok | the planner's fields from `out`; its `<Planner>PlannerError` condition removed | per `Due` and `Again` | none |
 | `remediation.Transient(err)`: bus, KV or apiserver unavailable, a context deadline, EIO from `/data`, the I/O executor saturated or its breaker open (§3.17) | last block kept; **nothing recorded**, the condition untouched | per-key backoff of 30 s, 1 m, 2 m, then 5 m; a clean pass resets it | `clustarr_remediation_planner_failures_total{planner,reason="transient"}` |
 | any other error | last block kept; `<Planner>PlannerError` True, reason `PlannerError`, message clamped | `plannerFailedRetry` = 10 m | `reason="error"` |
@@ -1619,13 +1619,13 @@ its own deadline, and classifies the outcome:
 
 ```go
 _, applied, err := k8s.PatchStatusCAS(ctx, viewReader{obj: v.File, rv: rv, gen: gen}, r.Client,
-	k8s.ManagerCatalogarr, client.ObjectKeyFromObject(v.File), newMediaFile,
-	func(fresh *catalogv1alpha1.MediaFile) (*catalogac.MediaFileApplyConfiguration, bool, error) {
-		if equality.Semantic.DeepEqual(normalize(draft), normalize(&fresh.Status)) {
-			return nil, true, nil // nothing changed: no request, no watch event
-		}
-		return statusApply(fresh.Name, fresh.Namespace, draft)
-	}, 1)
+ k8s.ManagerCatalogarr, client.ObjectKeyFromObject(v.File), newMediaFile,
+ func(fresh *catalogv1alpha1.MediaFile) (*catalogac.MediaFileApplyConfiguration, bool, error) {
+  if equality.Semantic.DeepEqual(normalize(draft), normalize(&fresh.Status)) {
+   return nil, true, nil // nothing changed: no request, no watch event
+  }
+  return statusApply(fresh.Name, fresh.Namespace, draft)
+ }, 1)
 ```
 
 **The reader serves the planned view, and there is one attempt.** `viewReader` serves the object
@@ -1819,7 +1819,7 @@ times.
 **Priorities.** Every return sets `Result.Priority` explicitly:
 
 | Priority | Used for |
-|---|---|
+| --- | --- |
 | `admission.GrantPriority` = `PriorityUser` = 100 | admission grants and directives enqueued to files; S1 updates caused by an intent annotation |
 | `0` | watch events |
 | `PriorityTimed = -50` | requeues from `Due` |
@@ -1904,7 +1904,7 @@ inputs and outputs:
 ### 3.14 Field managers
 
 | Object and fields | Manager | Write site |
-|---|---|---|
+| --- | --- | --- |
 | MediaFile status, all of it | `catalogarr` | `remediation.applyStatus`, the only `PatchStatus*` call made with a MediaFile apply configuration |
 | MediaFile labels and spec takeover (§3.10) | `catalogarr` | `remediation.applyMain` |
 | MediaFile spec on rename | `importarr-worker` | `mediafilespec.RenameFile`, from the rename actuator |
@@ -1943,7 +1943,7 @@ All are registered once by `remediation.RegisterIndexes`, from `app/remediation/
 **New, on MediaFile** (`app/remediation/mfindex`):
 
 | Name | Values | Serves |
-|---|---|---|
+| --- | --- | --- |
 | `remediation.mediafile.item` | `<kind>/<name>` for `mediaRef.name` and every `mediaRef.keys` entry | replaces nine indexes (below); covering `keys` adds wake-ups for the second episode of a multi-episode file, which the caption index missed |
 | `remediation.mediafile.uid` | `metadata.uid` | the task sweep; resolving a record with no usable ref |
 | `remediation.mediafile.transcodeProfile` | `<profile>` and `<profile>/<phase>` | the TranscodeProfile reconciler's counts |
@@ -2027,7 +2027,7 @@ workqueue metrics under `controller="mediafile"` cover both key kinds.
 ### 3.18 What becomes of every current watcher
 
 | Today | Where | Fate |
-|---|---|---|
+| --- | --- | --- |
 | catalogarr `mediafile` | mediafile_controller.go:715-748 | Dissolved into the loop (below); the controller name survives as the loop's |
 | catalogarr `movie`, `episode`, `album`, `book`, `audiobook`, `issue` | movie:179-186, episode:228-236, album:192-198, book:173-179, audiobook:174-180, issue:145-151 | Item path (§3.12) |
 | importarr `rename` | rename/controller.go:342-344 | Rename actuator (§3.9), same gates, Events and field manager; `Predicate()` (:288-307) deleted |
@@ -2128,7 +2128,7 @@ plus the probe. Nothing here adds a field manager or a CRD writer; the loop's on
 ### 4.1 What this replaces
 
 | # | Result path today | Who writes, and how | How the write is fenced |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | TheIntroDB markers | The metadata gateway's `catalogarr-markers` handler (`app/catalog/markers/handler.go:100-168`) re-reads the MediaFile, Movie, Episode and Series uncached, then applies `status.markers` under `catalogarr-markers` (:285) through `segmenting.Applier.ApplyMerged` (`app/catalog/segmenting/apply.go:80-109`). | resourceVersion CAS plus `forProbeHash`; Msg-Id is uid + probeHash + last `fetchedAt` (`app/catalog/markers/due.go:96-105`). |
 | 2 | Segment analysis results | `segmentarr-worker` publishes `SegmentsResult` (`app/segments/worker/worker.go:351-370`); the `catalogarr-segments-result` consumer (`app/catalog/segmenting/results.go:42-70`) does an unconditional `KV.Put` into `clustarr-segments` (`apply.go:126`), then the same `ApplyMerged`. | No CAS on the KV write. The result's Msg-Id carries no sequence (`worker.go:358`) and `env.ID` becomes the Msg-Id (`pkg/events/bus.go:78-87`), so a season amendment (`withIntro`, `worker.go:143`) inside the stream's 1 h `Duplicates` window is absorbed as a duplicate (inferred from code, not reproduced). |
 | 3 | Transcode | Workers publish `StatusEvent`s (claimed, progress about every 10 s, finished; `app/squash/worker/serve.go:380,384,452-464`) to `clustarr.work.transcode.result.<jobUID>`; the leader-only `squasharr-transcode-results` consumer (`app/squash/controller/transcodejob/results.go:42-66`; MaxAckPending 1, `pkg/events/topology.go:856-861`) writes TranscodeJob status through `writeStatus`. | Job UID + attempt. A lost Queued write is repaired by adopting attempt N+1 (R16, `results.go:98-114`). Progress is written to etcd (`results.go:158`). |
@@ -2177,7 +2177,7 @@ Every bucket shares `History: 1`, `Durable: true`, `Replicas: 3` (1 under `ForSi
 records.
 
 | Constant (`pkg/events/subjects.go`) | Name | Key | TTL | MaxBytes | MaxValueSize | Requests by | Answers by |
-|---|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- | --- |
 | `BucketProbes` (split) | `clustarr-probes` | `RecordKey(uid)` (= `ProbeKey`) | 7 d | 256 MiB | 256 KiB | the loop | `agent --domain import` (probe worker; `Seed` from fileimport and rescan) |
 | `BucketTranscodes` | `clustarr-transcodes` | `RecordKey(uid)` | 7 d | 128 MiB | 32 KiB | the loop | `cmd/transcode` pool pods |
 | `BucketGrafts` | `clustarr-grafts` | `RecordKey(uid)` | 7 d | 16 MiB | 16 KiB | the loop | `cmd/transcode --graft-task` Job pods |
@@ -2229,40 +2229,40 @@ Every record embeds one flat header, so the probe record keeps its JSON:
 ```go
 // schema.RecordHeader is embedded (flat) in every record type.
 type RecordHeader struct {
-	Schema        string     `json:"schema,omitempty"`        // "records.<remediation>.v1"; absent on probe records
-	MediaFile     Ref        `json:"mediaFile"`               // whose status incorporates it
-	Sub           string     `json:"sub,omitempty"`           // the unescaped second key token (a langKey)
-	Seq           int64      `json:"seq"`
-	State         string     `json:"state"`
-	RequestedAt   time.Time  `json:"requestedAt"`
-	ClaimedAt     *time.Time `json:"claimedAt,omitempty"`
-	DeferredUntil *time.Time `json:"deferredUntil,omitempty"`
-	AnsweredAt    *time.Time `json:"answeredAt,omitempty"`
-	Writer        string     `json:"writer,omitempty"`        // pod name of the last worker write
-	WriterVersion string     `json:"writerVersion,omitempty"` // version.String() of that worker, for skew
-	Failure       string     `json:"failure,omitempty"`       // at most 1024 bytes
-	Transient     bool       `json:"transient,omitempty"`
-	Failures      int32      `json:"failures,omitempty"`      // consecutive failures for the same inputs
+ Schema        string     `json:"schema,omitempty"`        // "records.<remediation>.v1"; absent on probe records
+ MediaFile     Ref        `json:"mediaFile"`               // whose status incorporates it
+ Sub           string     `json:"sub,omitempty"`           // the unescaped second key token (a langKey)
+ Seq           int64      `json:"seq"`
+ State         string     `json:"state"`
+ RequestedAt   time.Time  `json:"requestedAt"`
+ ClaimedAt     *time.Time `json:"claimedAt,omitempty"`
+ DeferredUntil *time.Time `json:"deferredUntil,omitempty"`
+ AnsweredAt    *time.Time `json:"answeredAt,omitempty"`
+ Writer        string     `json:"writer,omitempty"`        // pod name of the last worker write
+ WriterVersion string     `json:"writerVersion,omitempty"` // version.String() of that worker, for skew
+ Failure       string     `json:"failure,omitempty"`       // at most 1024 bytes
+ Transient     bool       `json:"transient,omitempty"`
+ Failures      int32      `json:"failures,omitempty"`      // consecutive failures for the same inputs
 }
 
 // States of the new buckets. The probe keeps requested|probed|failed, its Spec
 // mapping probed to answered.
 const (
-	StateRequested = "requested" // the loop
-	StateWithdrawn = "withdrawn" // the loop
-	StateClaimed   = "claimed"   // a worker started (transcode, graft)
-	StateDeferred  = "deferred"  // a worker postponed to DeferredUntil (markers)
-	StateAnswered  = "answered"  // a worker's answer: success or a remediation-level failure
-	StateFailed    = "failed"    // no answer could be produced: a transient error's final delivery,
-	                             // an oversized answer, inputs the worker cannot run
+ StateRequested = "requested" // the loop
+ StateWithdrawn = "withdrawn" // the loop
+ StateClaimed   = "claimed"   // a worker started (transcode, graft)
+ StateDeferred  = "deferred"  // a worker postponed to DeferredUntil (markers)
+ StateAnswered  = "answered"  // a worker's answer: success or a remediation-level failure
+ StateFailed    = "failed"    // no answer could be produced: a transient error's final delivery,
+                              // an oversized answer, inputs the worker cannot run
 )
 
 type Spec[R Record] struct {
-	Remediation string       // "probe", "transcode", "graft", "subtitle", "markers"
-	Bucket      string
-	MaxValue    int          // the bucket's MaxValueSize
-	Answered    func(state string) bool
-	Fact        func(R) bool // an answer recording a change already made on disk
+ Remediation string       // "probe", "transcode", "graft", "subtitle", "markers"
+ Bucket      string
+ MaxValue    int          // the bucket's MaxValueSize
+ Answered    func(state string) bool
+ Fact        func(R) bool // an answer recording a change already made on disk
 }
 ```
 
@@ -2290,7 +2290,7 @@ graft and markers stores in their task packages.
 ```go
 // NextSeq is the Seq the loop issues for a new request.
 func NextSeq(recordSeq, statusSeq int64, now time.Time) int64 {
-	return max(recordSeq+1, statusSeq+1, now.UnixMilli())
+ return max(recordSeq+1, statusSeq+1, now.UnixMilli())
 }
 ```
 
@@ -2335,7 +2335,7 @@ the dedupe window; §6.4.6 says how the caption and segmentarr streams republish
 (transcode, graft, subtitles, markers), with §5.10's semantics:
 
 | Current record | Result |
-|---|---|
+| --- | --- |
 | absent, or any state at a Seq below `seq` | `withdrawn{seq}`, so a task that surfaces late cannot run |
 | `requested`, `claimed` or `deferred` at `seq` | `withdrawn{seq}` |
 | `withdrawn` at `seq` | nothing (done) |
@@ -2378,7 +2378,7 @@ The worker re-reads the record immediately before its CAS, after any slow work (
 rule); `Answer` performs the re-read itself.
 
 | Current record (task has Seq S) | `Superseded(S)`, checked before work | `Claim` / `Defer` | `Answer` |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | absent: expired, or the bucket was lost | false | **no write**: the worker naks with a 30 s delay and does not start (the loop's owed write recreates the record within a pass, §4.7); on the last delivery it acks | write, with Seq S and the task's inputs: work already started |
 | Seq < S: the loop's record was lost or not yet rewritten | false | as for absent | write |
 | Seq = S; `requested` | false | write | write |
@@ -2417,7 +2417,7 @@ attributes them to the file either way.
 
 ```go
 func New(bus events.Bus, bucket string,
-	toKey func(schema.Ref) (remediation.Key, bool)) source.TypedSource[remediation.Key]
+ toKey func(schema.Ref) (remediation.Key, bool)) source.TypedSource[remediation.Key]
 ```
 
 The loop registers six with `WatchesRawSource`, one per bucket (S16-S21). They start only on the
@@ -2463,7 +2463,7 @@ bucket on kind is the live trigger. No loop source watches an object store.
 ### 4.10 Incorporation
 
 | Remediation | When the loop reads its record |
-|---|---|
+| --- | --- |
 | probe | when the probe is due (split §6.5.3) |
 | transcode | when `dispatch.seq > dispatch.answeredSeq`; when a dispatch grant is held; and while `dispatch.withdrawn` is true and `now < dispatch.dispatchedAt + records.FactWindow` |
 | graft | likewise; the graft planner also reads the **transcode** record while `Prev.transcode.joinedGraft` names a dispatch whose joined result its block has not incorporated (§5.13) |
@@ -2626,7 +2626,7 @@ The protocol, names and constants stay as split §6.5 has them: `CLUSTARR_WORK_P
 **Loop rows** (`status.graft`):
 
 | Situation | Action |
-|---|---|
+| --- | --- |
 | Granted a graft slot by the ledger (`--graft-concurrency`, §5.13) | apply `Queued{dispatch.seq, jobName}`; then `Request` and create the Job |
 | record `claimed` | `Running`, `startedAt` from `ClaimedAt`; the pod's name in `message` |
 | record `answered` | `Grafted`: `Swapping` with `tag`; the bytes changed, so the probe follows and its incorporation gives `Succeeded` and sets `status.graftTag`. `Present`: `Succeeded`. `DonorFault` reasons (`AlignmentRejected`, `VerifyFailed`, `MuxFailed`, `DonorLacksLanguage`): `Failed`, `donorFault: true` (the item key rejects the release). Any other failure: `Waiting`, reason `Backoff`, retried after `failureBackoff` (15 min). Then `dispatch.answeredSeq = seq`, and the Job is deleted with Background propagation. |
@@ -2706,7 +2706,7 @@ today's 8-attempt contention between siblings (`apply.go:334`). Task, answer, wo
 ### 4.13 Names added and retired
 
 | Added | Where |
-|---|---|
+| --- | --- |
 | `pkg/records` (`RecordHeader` in schema, `Spec`, `Requester`, `Answerer`, `NextSeq`, `Pacer` with `Reserve`/`Consume`, `CASAttempts`, `RepublishWindow`, `FactWindow`, `IncorporatedThrough`, `ErrRaced`, `ErrTooLarge`, `ErrUnincorporatedFact`) | new |
 | `pkg/records/recordsource.New` | new; manager only |
 | `BucketTranscodes`, `BucketGrafts`, `BucketSubtitles`, `BucketMarkers`, `RecordKey`, `RecordSubKey`, `ParseKVKeyToken`, `KV.Keys`, `WatchUpdatesOnly`, `WatchFromRevision` | `pkg/events` |
@@ -2715,7 +2715,7 @@ today's 8-attempt contention between siblings (`apply.go:334`). Task, answer, wo
 | `segmenting.Sweeper`; `segments.Store`; `segments.Record` v2 | manager; `pkg/segments` |
 
 | Retired | Replaced by |
-|---|---|
+| --- | --- |
 | durable `squasharr-transcode-results`; `FilterTranscodeResults` (subjects.go:102); `WorkTranscodeResultSubject`; `MsgIDForTranscodeEvent`; `task.StatusEvent`; `transcodejob.ResultsConsumer`; `ConsumerSquasharrResults` (:137) | `clustarr-transcodes` |
 | durable `catalogarr-segments-result`; `FilterCatalogSegmentsResult` (subjects.go:119); `WorkSegmentsResultSubject` | `clustarr-segments` CAS |
 | field managers `catalogarr-markers` (`fieldmanager.go:164`) and `captionarr-worker` (`:261`) | the loop's `catalogarr` |
@@ -2732,7 +2732,7 @@ No worker identity keeps any verb on `mediafiles/status`, `subtitlerequests` or 
 Pool, graft and markers pods hold no Kubernetes credentials at all.
 
 | Identity (split §4.6) | Package | Removed | Kept |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `agent-caption` | `app/caption/worker/fetch` (`doc.go:107-114`) | `subtitlerequests` get/list/watch; `subtitlerequests/status` get, patch; `mediafiles`, `movies`, `episodes`, `series`, `rootfolders` get/list/watch | `subtitleprofiles` get/list/watch |
 | `agent-caption` | `app/caption/providerset` (`doc.go:71-72`) | none | `subtitleproviders` get/list/watch; `secrets` get |
 | `agent-metadata` | `app/catalog/worker/markers` (today `markers/handler.go:60-61`) | `mediafiles;movies;episodes;series` get; `mediafiles/status` patch | none: the task carries the query |
@@ -2846,7 +2846,7 @@ status leaves admission depends on and names everything it adds.
 ### 5.1 What it replaces (verified)
 
 | Today | Where | After the fold |
-|---|---|---|
+| --- | --- | --- |
 | The admission pass: one synthetic request `(admission)`, `MaxConcurrentReconciles: 1`, up to three **uncached** Lists of every TranscodeJob per pass | `transcodejob/controller.go:82`, `:673-813` (Lists at `:685`, `:711`, `:807`), `:946` | The `transcode-admission` controller in `app/squash/admission`. It reads the in-memory ledger; in steady state it makes no apiserver List (§5.7). |
 | In-memory admission state: `recreate`, `poolBackoff`, `unschedulable`, `nextSweep` | `transcodejob/controller.go:169-186` | `admission.Ledger` (§5.5) |
 | The slot scheduler and class choice: `Admit`, `admitsBefore`, `ChooseClass`, `assignClasses`, `unhealthyClasses` | `admit.go:91-133`, `class.go:51-71`, `:145-183`, `:206-245` | Moved unchanged into `app/squash/admission` |
@@ -2897,7 +2897,7 @@ Two defects disappear by construction:
 ### 5.3 Names
 
 | Kind | Name |
-|---|---|
+| --- | --- |
 | Ledger package | `app/squash/admission`: `type Ledger`, `func NewLedger(o Options) *Ledger`, `type Reconciler` (controller name `transcode-admission`), `var Request = reconcile.Request{NamespacedName: types.NamespacedName{Name: "(admission)"}}`, `Snapshot`, `FileView`, `LoopSource()` |
 | Planner packages | `app/squash/transcodeplan`: `Plan`, `Eligible`, `Decide`, `MaxAttempts` (5), `RequeueBackoff` (1m, 5m, 15m, 30m); it defines `type Admission interface`, which `*admission.Ledger` implements, so `transcodeplan` never imports `admission`. `app/squash/graftplan` likewise. |
 | Pool reconciler | `app/squash/controller/transcodeprofile`, controller name `transcodeprofile` (unchanged), `MaxConcurrentReconciles: 1` |
@@ -2916,7 +2916,7 @@ Two defects disappear by construction:
 ### 5.4 The status admission reads
 
 | Leaf (§2.5) | Admission's use |
-|---|---|
+| --- | --- |
 | `phase` | Window phases: `Pending`, `Planned`, `Queued`, `Running`, `Swapping`. Slot phases: `Queued`, `Running`. `Succeeded`, `Failed`, `Skipped` are verdicts. |
 | `dispatch.seq`, `dispatch.answeredSeq` | the in-flight dispatch |
 | `attempts` | dispatches in the current cycle; reset by retry, new bytes or a new tag; never resets the sequence |
@@ -2933,20 +2933,20 @@ Two defects disappear by construction:
 
 ```go
 type Ledger struct {
-	mu         sync.Mutex
-	files      map[types.UID]*entry             // every file with a window phase or in a backlog
-	byKey      map[types.NamespacedName]types.UID
-	grants     map[types.UID]*grant             // window and dispatch reservations, not yet written
-	directives map[types.UID]Directive          // reroutes: withdraw seq N, back to Planned
-	pools      map[pool.Key]*PoolState          // held message, unschedulable-until, backoff, recreate
-	devices    map[transcodev1alpha1.Hardware]Device // tier and limits from clustarr-progress, per pass
-	unhealthy  map[transcodev1alpha1.Hardware]string
-	gpuNodes   map[transcodev1alpha1.Hardware]bool
-	graft      graftSlots                       // per namespace: job names, reservations
-	waitReason map[types.UID]string             // the Planned message, written only on change
-	leaseMissingSince map[types.UID]time.Time
-	rebuilt    bool
-	loopQueue  priorityqueue.PriorityQueue[remediation.Key]
+ mu         sync.Mutex
+ files      map[types.UID]*entry             // every file with a window phase or in a backlog
+ byKey      map[types.NamespacedName]types.UID
+ grants     map[types.UID]*grant             // window and dispatch reservations, not yet written
+ directives map[types.UID]Directive          // reroutes: withdraw seq N, back to Planned
+ pools      map[pool.Key]*PoolState          // held message, unschedulable-until, backoff, recreate
+ devices    map[transcodev1alpha1.Hardware]Device // tier and limits from clustarr-progress, per pass
+ unhealthy  map[transcodev1alpha1.Hardware]string
+ gpuNodes   map[transcodev1alpha1.Hardware]bool
+ graft      graftSlots                       // per namespace: job names, reservations
+ waitReason map[types.UID]string             // the Planned message, written only on change
+ leaseMissingSince map[types.UID]time.Time
+ rebuilt    bool
+ loopQueue  priorityqueue.PriorityQueue[remediation.Key]
 }
 ```
 
@@ -2988,7 +2988,7 @@ it if it was in flight (a file deleted and recreated under the same name).
 
 **Waking the loop.** `LoopSource()` returns a `source.TypedFunc` (`controller-runtime@v0.25.1/pkg/source/source.go:308-316`)
 that captures the loop's queue. Grants and changed wait reasons are added with
-`priorityqueue.AddOpts{Priority: ptr.To(GrantPriority)}`; initial-list events are `LowPriority` = -100
+`priorityqueue.AddOpts{Priority: new(GrantPriority)}`; initial-list events are `LowPriority` = -100
 (`pkg/handler/eventhandler.go:135-137`, `:178`), so a grant jumps the 11,958-file startup flood
 rather than expiring behind it.
 
@@ -3067,7 +3067,7 @@ Each pass:
    or unadmitted candidate gets a wait reason (`waitingForGPU`, `class.go:105`; the pool's held
    message; or `waiting for a free <class> slot`), and is enqueued only when its reason changed.
 8. **Window grants** (§5.11). 9. **Graft slot grants** (§5.13).
-10. **Metrics.** `setActive` (`metrics.go:42-59`) over in-flight entries plus dispatch grants; when a
+9. **Metrics.** `setActive` (`metrics.go:42-59`) over in-flight entries plus dispatch grants; when a
     per-pool dispatched count changed, send on `ledger.profileWake` for that profile.
 
 Today every pass makes up to three uncached Lists of every TranscodeJob, plus pool Jobs, Nodes and
@@ -3109,10 +3109,10 @@ If the file is no longer eligible, the planner releases the grant.
 
 After the apply lands (`applied == true`), as effects:
 
-6. The record: `Create`, or `Update(rev)`, to `requested{Seq: S, Inputs}`, unless already at `S`.
-7. `Publish` on `WorkTranscodeTaskSubject(profileUID, C, mfUID)` with
+1. The record: `Create`, or `Update(rev)`, to `requested{Seq: S, Inputs}`, unless already at `S`.
+2. `Publish` on `WorkTranscodeTaskSubject(profileUID, C, mfUID)` with
    `WithMsgID(transcode/<mfUID>/<S>)` and `WithExpectStream(CLUSTARR_WORK_SQUASHARR)`.
-8. `ledger.Confirm(uid, S)`; the `Dispatched` Event; history `clustarr.evt.transcode.job.queued.<mfUID>`.
+3. `ledger.Confirm(uid, S)`; the `Dispatched` Event; history `clustarr.evt.transcode.job.queued.<mfUID>`.
 
 **Republish.** A Queued block whose record shows no `claimed` at `S` requeues every
 `republishEvery`; while `now - dispatchedAt < republishWindow`, each pass re-runs steps 6–7 with the
@@ -3146,7 +3146,7 @@ before any other check (§4.12).
 **Loop rows** (the record's Seq is the block's `dispatch.seq` unless stated):
 
 | Block | Record or lease | Action |
-|---|---|---|
+| --- | --- | --- |
 | `Planned` with a dispatch grant | — | §5.8 |
 | `Queued` or `Running`, withdrawing `S` (reason set, message `withdrawing attempt S`) | any | the `Withdraw` effect (§5.10); never the owed request below |
 | `Queued` | absent, or Seq below the block's and not an unincorporated fact | write the record and publish (owed) |
@@ -3329,7 +3329,7 @@ and `DefaultJobRetention` are deleted. Failed and Skipped "records that stop re-
 ### 5.15 Crash and failure semantics
 
 | Point of failure | State left | Recovery |
-|---|---|---|
+| --- | --- | --- |
 | After a grant, before the file pass | Planned, grant in memory | Lost with the process; the new leader rebuilds and the file competes again. |
 | After Queued landed, before the record or publish | Queued(S), no record or message | Rebuild counts the slot from the apiserver; the initial pass writes `requested{S}` and publishes `transcode/<uid>/<S>` (owed effects). |
 | After the publish, before `Confirm` | Queued(S), task stored | Rebuild counts it; a republish is absorbed. |
@@ -3488,17 +3488,17 @@ probe, transcode, graft and naming planners in the same pass and before markers.
 
 ```go
 type Input struct {
-	File        *catalogv1alpha1.MediaFile         // the pass's view
-	Item        Item                               // from the owner objects the loop already reads (naming.go:199-264)
-	Profiles    []subtitlev1alpha1.SubtitleProfile // cache, cluster-scoped, not deep-copied
-	Extractors  []providerset.Entry                // enabled embedded SubtitleProviders in the namespace (providerset's light half, split P1)
-	RootFolders []catalogv1alpha1.RootFolder       // the namespace's, already listed for naming
-	Records     map[string]subtitlestore.Entry     // records read this pass, by langKey (record, revision, ok)
-	Listing     *Listing                           // nil when Needs said not to list
-	ForceNonce  string                             // the annotation's value
-	BacklogOpen bool                               // §6.4.6
-	DataDir     string
-	Now         time.Time
+ File        *catalogv1alpha1.MediaFile         // the pass's view
+ Item        Item                               // from the owner objects the loop already reads (naming.go:199-264)
+ Profiles    []subtitlev1alpha1.SubtitleProfile // cache, cluster-scoped, not deep-copied
+ Extractors  []providerset.Entry                // enabled embedded SubtitleProviders in the namespace (providerset's light half, split P1)
+ RootFolders []catalogv1alpha1.RootFolder       // the namespace's, already listed for naming
+ Records     map[string]subtitlestore.Entry     // records read this pass, by langKey (record, revision, ok)
+ Listing     *Listing                           // nil when Needs said not to list
+ ForceNonce  string                             // the annotation's value
+ BacklogOpen bool                               // §6.4.6
+ DataDir     string
+ Now         time.Time
 }
 type Item struct { Exists bool; OriginalLanguage string; Query schema.SubtitleQuery }
 type Listing struct { Names []string; Err error } // regular files in filepath.Dir(local path)
@@ -3529,7 +3529,7 @@ gone), from existing.go; `planItems` (items.go) without the liveness rule; all o
 The first row that applies decides.
 
 | Condition | Result |
-|---|---|
+| --- | --- |
 | Kind is not movie or episode | No block. |
 | `!Item.Exists`: the Movie, or the Episode named by `spec.mediaRef.name`, is gone (removeAndKeep) | `Blocked`, `ItemNotFound`. Items stay verbatim; no listing, no dispatch, no wake (the item watch brings it back). |
 | `!File.ProbeCurrent()` (covers "never probed") | Hold: the previous block (or none) stays verbatim; nothing is listed or dispatched. Incorporating the probe runs this planner in the same pass, so no wake is needed. |
@@ -3697,7 +3697,7 @@ as well.
 #### 6.4.7 What wakes a file for subtitles
 
 | Source (§3.3) | Predicate | Enqueues |
-|---|---|---|
+| --- | --- | --- |
 | S1 MediaFile | the `subtitle.clustarr.io/search` annotation changed, beside `observedFingerprint` (mediafile_controller.go:721-724, :883-888) | the file |
 | S19 `clustarr-subtitles` | `answered` or `failed` values | the record's file |
 | S2' Movie | `movieFileInputs` = `movieNamingInputs` plus `status.metadata.originalLanguage` | the movie's files |
@@ -3740,7 +3740,7 @@ MediaFile at all. Today such an event re-plans 2,445 requests with a `ReadDir` e
 ### 6.6 Records: `clustarr-subtitles` and `pkg/subtitlestore`
 
 | Kind | Name and settings |
-|---|---|
+| --- | --- |
 | Bucket | `events.BucketSubtitles = "clustarr-subtitles"` (§4.3). |
 | Key | `events.RecordSubKey(fileUID, langKey)` = `KVKeyToken(fileUID) + "." + KVKeyToken(langKey)`; each language has its own key, so concurrent languages never contend, and the 8-attempt CAS loop (apply.go:334) goes. |
 | Record | `schema.SubtitleRecord`, schema `captionarr.SubtitleRecord.v1`, embedding `schema.RecordHeader` (`mediaFile`, `sub` = langKey, `seq`, `state`, `requestedAt`, `answeredAt`, `writer`) plus `ProbeHash`, `ProfileGeneration`, and when answered `Verdict` (`downloaded`, `kept`, `unavailable`, `failed`, `throttled` or `dropped`), `Score`, `ScoreOutOf`, `Provider` (≤253), `SubtitleID` (≤256), `Name` (base name, ≤255), `ReplacedName`, `LastError` (≤512), `ThrottledUntil`. Capped at the bucket's 8 KiB. An undecodable value, or one whose `mediaFile.UID` differs from its key's, reads as absent. |
@@ -3762,7 +3762,7 @@ its result. Nobody deletes records; the 7-day TTL retires them.
 **Incorporation,** for each item with a dispatch in flight, and for records §6.4.6 step 1 found:
 
 | Record | Verdict |
-|---|---|
+| --- | --- |
 | answered, `Seq == dispatch.seq`, `ProbeHash == block.probeHash` | incorporate (next table); `answeredSeq = seq` |
 | answered, `Seq == dispatch.seq`, another `ProbeHash` | discard; `answeredSeq = seq` |
 | `requested`, `Seq == dispatch.seq`, `now < dispatchedAt + 26h` | outstanding (Searching); wake at the timeout |
@@ -3773,7 +3773,7 @@ its result. Nobody deletes records; the 7-day TTL retires them.
 | the same, past `records.RepublishWindow` | `answeredSeq = seq`, lastError `request lost`: the request was lost; attempts were stamped at dispatch, so the schedule decides the next search |
 
 | Verdict | Effect on the item |
-|---|---|
+| --- | --- |
 | `downloaded` | sets `score`, `scoreOutOf`, `provider`, `subtitleID`, `name` and `downloadedAt` (= `AnsweredAt`), clears `lastError`; state is derived (§6.4.5) |
 | `kept` | nothing beyond closing the dispatch: the upgrade found nothing better |
 | `unavailable`, `failed` | with a subtitle on disk, only `lastError` (apply.go:224-227); otherwise the candidate is cleared (apply.go:212-218) and the state follows the verdict |
@@ -3789,30 +3789,30 @@ its result. Nobody deletes records; the 7-day TTL retires them.
 
 ```go
 type FetchTask struct {
-	MediaFile           Ref                       `json:"mediaFile"` // namespace, name, uid
-	Path                string                    `json:"path"`      // logical /data path planned against
-	ProbeHash           string                    `json:"probeHash"`
-	LangKey             string                    `json:"langKey"`
-	Seq                 int64                     `json:"seq"`
-	Profile             string                    `json:"profile"`
-	ProfileGeneration   int64                     `json:"profileGeneration"`
-	MinScore            int32                     `json:"minScore"`            // absolute, from the loop (§6.4.5)
-	UpgradeMarginPoints int32                     `json:"upgradeMarginPoints"` // the profile's upgrade.minDeltaPoints
-	Upgrade             bool                      `json:"upgrade,omitempty"`
-	Forced              bool                      `json:"forced,omitempty"`
-	OnDisk              *OnDiskSubtitle           `json:"onDisk,omitempty"`      // {Name, Score}
-	SidecarMode         uint32                    `json:"sidecarMode,omitempty"` // the RootFolder's fileMode; 0 means 0664
-	Query               SubtitleQuery             `json:"query"`
-	Extract             []commonv1.SubtitleStream `json:"extract,omitempty"` // embedded streams to write out (extractableStreams)
+ MediaFile           Ref                       `json:"mediaFile"` // namespace, name, uid
+ Path                string                    `json:"path"`      // logical /data path planned against
+ ProbeHash           string                    `json:"probeHash"`
+ LangKey             string                    `json:"langKey"`
+ Seq                 int64                     `json:"seq"`
+ Profile             string                    `json:"profile"`
+ ProfileGeneration   int64                     `json:"profileGeneration"`
+ MinScore            int32                     `json:"minScore"`            // absolute, from the loop (§6.4.5)
+ UpgradeMarginPoints int32                     `json:"upgradeMarginPoints"` // the profile's upgrade.minDeltaPoints
+ Upgrade             bool                      `json:"upgrade,omitempty"`
+ Forced              bool                      `json:"forced,omitempty"`
+ OnDisk              *OnDiskSubtitle           `json:"onDisk,omitempty"`      // {Name, Score}
+ SidecarMode         uint32                    `json:"sidecarMode,omitempty"` // the RootFolder's fileMode; 0 means 0664
+ Query               SubtitleQuery             `json:"query"`
+ Extract             []commonv1.SubtitleStream `json:"extract,omitempty"` // embedded streams to write out (extractableStreams)
 }
 type SubtitleQuery struct {
-	Kind         commonv1.MediaKind `json:"kind"`
-	IDs          map[string]string  `json:"ids,omitempty"` // pkg/subtitles.Query keys: tmdb, imdb, tvdb, parent_imdb, parent_tmdb
-	Title        string             `json:"title,omitempty"`
-	Year         int32              `json:"year,omitempty"`
-	Season       int32              `json:"season,omitempty"`
-	Episode      int32              `json:"episode,omitempty"`
-	ReleaseTitle string             `json:"releaseTitle,omitempty"` // spec.importedFrom.releaseTitle, else the file stem
+ Kind         commonv1.MediaKind `json:"kind"`
+ IDs          map[string]string  `json:"ids,omitempty"` // pkg/subtitles.Query keys: tmdb, imdb, tvdb, parent_imdb, parent_tmdb
+ Title        string             `json:"title,omitempty"`
+ Year         int32              `json:"year,omitempty"`
+ Season       int32              `json:"season,omitempty"`
+ Episode      int32              `json:"episode,omitempty"`
+ ReleaseTitle string             `json:"releaseTitle,omitempty"` // spec.importedFrom.releaseTitle, else the file stem
 }
 ```
 
@@ -3974,7 +3974,7 @@ Counted from read-only dumps of `clustarr-system` (`scratchpad/migr/{sr,tj,mf}.j
 jq.
 
 | Kind | Objects | State nothing can rebuild | Rebuildable, or already on the MediaFile |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | SubtitleRequest | 2,445 | 283 items (269 `pending`, 14 `failed`): `attempts{initial,latest,count}` (277 at count 14), `nextSearchAt` and `lastError`. No item has a `provider`, `subtitleID`, `path`, `score` or `downloadedAt`, and `status.sidecars` is empty on all 11,958 MediaFiles. | `existing[]` (998 entries), phase, conditions, probeHash, fileFingerprint, profileGeneration (2 everywhere) |
 | TranscodeJob | 626 | None. All 48 Succeeded jobs are incorporated: their MediaFile's `probedAt` equals the job's `finishedAt` on 48/48, which is incorporation by catalogarr's test (`mediafile_controller.go:803-818`, `!FinishedAt.After(probedAt)`). The 31 Planned and 1 Running jobs all have attempts 0. The 2 Blocked Failed jobs sit under superseded hashes. | 541 Skipped (a pure plan over the stored probe); 3 Failed `SourceChanged` |
 | AudioGraft | 0 | — | — |
@@ -4035,30 +4035,30 @@ In `api/catalog/v1alpha1/mediafile_legacyfold_types.go`, which N+1 deletes:
 // and AudioGraft objects whose state the remediation loop adopted onto this
 // file (ADR-0016). Release N+1 removes it.
 type LegacyFoldStatus struct {
-	// +optional
-	// +listType=map
-	// +listMapKey=uid
-	// +kubebuilder:validation:MaxItems=16
-	Adopted []LegacyAdoption `json:"adopted,omitempty"`
-	// Held says why adoption waits on this file; empty when nothing waits.
-	// +optional
-	// +kubebuilder:validation:Enum=Mode;Preparation;TooMany
-	Held LegacyFoldHold `json:"held,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=256
-	Message string `json:"message,omitempty"`
+ // +optional
+ // +listType=map
+ // +listMapKey=uid
+ // +kubebuilder:validation:MaxItems=16
+ Adopted []LegacyAdoption `json:"adopted,omitempty"`
+ // Held says why adoption waits on this file; empty when nothing waits.
+ // +optional
+ // +kubebuilder:validation:Enum=Mode;Preparation;TooMany
+ Held LegacyFoldHold `json:"held,omitempty"`
+ // +optional
+ // +kubebuilder:validation:MaxLength=256
+ Message string `json:"message,omitempty"`
 }
 
 type LegacyAdoption struct {
-	// +kubebuilder:validation:Enum=SubtitleRequest;TranscodeJob;AudioGraft
-	Kind LegacyKind `json:"kind"`
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name"`
-	// +kubebuilder:validation:MaxLength=36
-	UID types.UID `json:"uid"`
-	// +kubebuilder:validation:Enum=Copied;Dismissed
-	Outcome LegacyOutcome `json:"outcome"`
-	At metav1.Time `json:"at"`
+ // +kubebuilder:validation:Enum=SubtitleRequest;TranscodeJob;AudioGraft
+ Kind LegacyKind `json:"kind"`
+ // +kubebuilder:validation:MaxLength=253
+ Name string `json:"name"`
+ // +kubebuilder:validation:MaxLength=36
+ UID types.UID `json:"uid"`
+ // +kubebuilder:validation:Enum=Copied;Dismissed
+ Outcome LegacyOutcome `json:"outcome"`
+ At metav1.Time `json:"at"`
 }
 ```
 
@@ -4099,7 +4099,7 @@ command, so all three agree.
 **SubtitleRequest → `status.subtitles`:**
 
 | From | To | Rule |
-|---|---|---|
+| --- | --- | --- |
 | `status.items[]`: `langKey`, `state`, `score`, `scoreOutOf`, `provider`, `subtitleID`, `path`, `lastError`, `downloadedAt`, `attempts.{initial,latest,count}`, `nextSearchAt` | `items[]` leaf for leaf; `path` → `name` | One per langKey, cap 20 on both sides. `path` is taken as a base name; one over 255 characters is dropped and the item reads `pending`. `state` `""` and `searching` become `pending`. `lastError` is clamped. `dispatch` starts nil. |
 | `status.probeHash` | `probeHash` | Copied, so the planner resets `attempts` when it differs from `status.probeHash`, as `plan` does today (`subtitlerequest/reconciler.go:411-415`). |
 | `spec.profileRef` | `profile` | Copied. (`status.profileGeneration` is not copied: the block has no such field, §2.4.) |
@@ -4194,7 +4194,7 @@ included.
 Migrator acts as the user's proxy, once.
 
 | Legacy intent | Annotation |
-|---|---|
+| --- | --- |
 | TranscodeJob `spec.suspend: true` on a non-terminal job | `transcode.clustarr.io/suspend: "true"` |
 | `spec.priority` | not carried and not counted as `intent_dropped` (every live job holds 50, the profile default): it is the profile's priority copied at creation (transcodeprofile/controller.go:552-558) and never re-applied (:231-233), not a user's choice, so an annotation would pin a stale copy over every later profile edit |
 | `spec.hardware` set | `transcode.clustarr.io/hardware: "<class>"` |
@@ -4309,7 +4309,7 @@ survive under `catalogarr-markers` for the whole release, the stale-`notFoundSin
 #### 7.3.10 Flags, values, RBAC (release N only)
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--legacy-fold` | `apply` | `apply` or `hold` (§7.3.6) |
 | `--legacy-fold-retain` | `72h` | how long an adoption must stand before the Migrator deletes the object; `0s` deletes at the next census |
 
@@ -4345,7 +4345,7 @@ In `pkg/obs/metrics/legacyfold.go`, through `newGaugeVec`/`newCounterVec`, so
 `TestNoMetricIsLabelledByAnUnboundedDimension` sees them; N+1 deletes the file.
 
 | Metric | Labels |
-|---|---|
+| --- | --- |
 | `clustarr_legacy_fold_objects` (gauge) | `kind`, `state` |
 | `clustarr_legacy_fold_adoptions_total` | `kind`, `outcome` ∈ {`copied`, `dismissed_empty`, `copied_swap`, `copied_verdict`, `dismissed_open`, `dismissed_incorporated`, `dismissed_source_changed`, `dismissed_superseded`, `dismissed_block_exists`, `dismissed_multi_item`, `copied_graft`} |
 | `clustarr_legacy_fold_deletions_total` | `kind`, `result` ∈ {`deleted`, `not_found`, `error`} |
@@ -4580,7 +4580,7 @@ N to the previous release is this procedure**, which replaces split §11.3's rol
 6. **Unsuspend** the TranscodeJobs with the owner's OK.
 
 | From → to | When | Effect | Operator |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | N (`hold`) → previous | any time | Lossless with steps 1-6: nothing was adopted, prepared or deleted; markers survive through step 3; N's blocks are pruned (step 4) or released by the previous `catalogarr` apply; sidecars N listed are on disk and read as existing. | Steps 1-6. |
 | N (`apply`) → previous | within `retain` | Legacy objects are present and frozen, and the previous controllers resume from them. Transcodes N did carry `CLUSTARR_PROFILE`, so the old worker skips them; cancel markers expire after 90 s; the previous `catalogarr` apply releases the blocks and `legacyFold`. A later roll-forward adopts again, because UIDs the previous release created are new and the record was released. | Steps 1-6. The 32 jobs keep `spec.suspend=true` until unsuspended with the owner's OK. |
 | N (`apply`) → previous | after deletion | Lossy: the previous SubtitleProfile recreates requests with fresh backoff (the §7.1 burst), the TranscodeProfile recreates current-hash jobs in the window (Blocked and fallback verdicts lost), AudioGraft intent is lost (0 live). Markers survive through step 3. | Not recommended; roll forward. If forced, steps 1-6, and scale the previous caption worker to 0 first. |
@@ -4813,7 +4813,7 @@ as callers that survive until the fold, or as transitional code.
 **Wave 2a (catalog leaves, C6 and C7):**
 
 | Task | Disposition | Change |
-|---|---|---|
+| --- | --- | --- |
 | W2.9, C6 (plan:8368) | Change (inverted) | As written it moves `segmenting.Applier` and `Results` (the `catalogarr-markers` write and the `catalogarr-segments-result` consumer) into a new agent package `app/catalog/worker/segmentresults` (plan:8373-8381), which the fold then deletes: the move the ruling forbids. **Instead** move the planner, which the fold keeps (`plan.go`, `plan_test.go`, the `Planner` half of `setup.go`; today's `segmenting.Setup(… Planner: true)`, plan:8544), to a new manager package `app/catalog/segmentplan`, producing `segmentplan.{PublishPlan, Planner, Options{Bus, Reader}, Setup, Due}`. `app/catalog/segmenting` keeps `Applier`, `NewApplier`, `Results`, `TheIntroDBUpdate`, `AnalysisUpdate`, and `Options{Bus, Reader, Client}`/`Setup` for Results only; once the planner leaves it imports no `app/catalog/controller/*` (today `go list` shows `controller/episode`, `controller/series`, which W3.14's rule forbids for agents). **Guards:** `go list -deps ./app/catalog/segmenting` contains no `app/catalog/controller/`; `go list -deps ./app/catalog/segmentplan` contains no `app/catalog/segmenting`. The MediaFile reconciler's `segmenting.PublishPlan` call becomes `segmentplan.PublishPlan`. |
 | W2.10, C7 (plan:8582) | Keep the move; change the imports | The TheIntroDB handler survives; only its write changes, to a record, in F3.4. It imports `segmenting.{Applier, TheIntroDBUpdate}` instead of `segmentresults.*`; the Step 1 guards (plan:8603-8604) deny `app/catalog/(controller/\|segmentplan$)` instead of `segmenting$`. |
 | W2.11, C8 (plan:8683) | Keep | F8.6 retargets `target.go` and `ReplayKinds`. |
@@ -4822,7 +4822,7 @@ as callers that survive until the fold, or as transitional code.
 **Wave 2b:**
 
 | Task | Disposition | Change |
-|---|---|---|
+| --- | --- | --- |
 | W2.21, I2 (plan:9278, `mediafilespec.RenameFile`) | Keep | The rename actuator calls it (F3.3). |
 | W2.30, S1 (plan:10581, `app/squash/jobspec`) | Keep, with an MP4 note | The transcode planner reuses `BuildTask`, `OutputPath`, `ProfileHash`, `StandardProfile`; the edits to `audiograft/controller.go` and `transcodejob/*.go` are import rewrites the doomed controllers need to compile. **MP4 note:** main's `b33e4417` added `worker.OutputContainer`, and it is on the branch since the rebase onto `80175fdc`: `OutputContainer` and `ProfileHashAt` move into `jobspec` with `profile.go`, and their call sites (`transcodejob/controller.go:541,577`, `dispatch.go:266,275,323`, `transcodeprofile/profile_test.go:68,163`) read `jobspec.OutputContainer`. The task's symbol list, comment sweep and test cut gain them (listed, uncommitted, in `.superpowers/unify/plan-edits-80175fdc.md`). |
 | W2.31, P1 (plan:10800, providerset split) | Keep | The subtitles planner and the slim SubtitleProfile reconciler use the light half. |
@@ -4830,7 +4830,7 @@ as callers that survive until the fold, or as transitional code.
 **Wave 3 (registrations):**
 
 | Task | Disposition | Change |
-|---|---|---|
+| --- | --- | --- |
 | W3.7 metadata domain (plan:13279) | Change | Register `segmenting.Setup(ctx, segmenting.Options{Bus, Reader: APIReader, Client})` instead of `segmentresults.Setup` (plan:13416), with the import (plan:13389) changed the same way. F3.4 removes it. |
 | W3.8 catalog manager (plan:13477) | Change | Register `segmentplan.Setup` where it registers the planner half of `segmenting.{Setup, Options}` (plan:13500). |
 | W3.9 import manager (plan:13805) | Keep | It registers the rename controller from its package; F3.3 removes it. |
@@ -4840,7 +4840,7 @@ as callers that survive until the fold, or as transitional code.
 **Wave 4a (the probe queue):**
 
 | Task | Disposition | Change |
-|---|---|---|
+| --- | --- | --- |
 | W4.1-W4.4, W4.6-W4.13 | Keep | `pkg/probestore`, `schema.ProbeRecord`, `clustarr-probes`, `judgeProbe`, `probeRecordsSource` (W4.12, plan:19345) and the reconciler's queued probe (W4.13, plan:19600) are the template the fold generalises: F1.1 moves the CAS core into `pkg/records` without changing probestore's API or the record's JSON; F1.4 turns `probeRecordsSource` into `recordsource.New(bus, events.BucketProbes, …)`; F3.2 recasts the probe path as the probe planner (status before request, §3.8). No snippet in these tasks changes. |
 | W4.5 (plan:17406) | Keep, renamed by F1.1 | W4.5 adds `clustarr_probe_requests_total` and `clustarr_probe_duration_seconds` to `wantSeries` (plan:17413-17432) and observability.md. F1.1 renames the first to `clustarr_record_requests_total{remediation,lane}` (§4.12) in `wantSeries`, amendment §A2.3 and observability.md. |
 | W4.14 (plan:20794) | **Drop** | It gates five controllers and the `segmentresults` Applier, all of which the fold deletes. Replacement: F3.2's structural gate (every planner after the probe returns its last block while `!view.ProbeCurrent()`), held by `TestNoPlannerPlansFromAPendingProbe`. Between W4.13 and F8.12 the backstops are the worker-side checks split §6.5.3 cites (the transcode worker re-probes and exits `ExitInvalidSource`, `app/squash/worker/run.go:211-214`; the fetch worker compares `ProbeHash(path,size,mtime)`; `markers.Due` fetches again on the new probe hash). The window is accepted only because nothing in it is deployed (§9, D1). |
@@ -4858,7 +4858,7 @@ fixtures mechanically; the per-profile pool durables they touch survive.
 **Wave 5 (binaries and guards):**
 
 | Task | Disposition | Change |
-|---|---|---|
+| --- | --- | --- |
 | W5.4 `starttest.ManagersOf` (plan:35333; the map, plan:35528) | Keep | F3.4 sets `"agent-metadata": {"catalogarr-metadata"}`; F5.3 sets `"agent-caption": {}`. |
 | W5.6 (plan:35765, `/usr/bin/transcode` for pool and graft Jobs) | Keep | Pools survive; the graft Job survives as `transcode --graft-task` (F7.2). |
 | W5.7 `cmd/manager` (plan:35820) | Keep | The `squasharr.audiograft.*` index prefix (plan:35827, 35846-35847) is needed for the manager to start at all. F4.1, F5.3, F6.6 and F7.3 amend `TestManagerFieldIndexes` (plan:36082). F6.6 removes the `--job-retention` flag row (plan:36305) and its default test (`assert.Equal(t, 24*time.Hour, o.JobRetention)`, plan:35905). F3.1 adds `--remediation-concurrency`, `--remediation-bulk-writes-per-second` and `--remediation-io-workers` to the flag table and their default tests. |
@@ -4871,7 +4871,7 @@ fixtures mechanically; the per-profile pool durables they touch survive.
 **Wave 6 (installers, RBAC, images, e2e renames)**, text amendments, written after the fold:
 
 | Task | Disposition | Change |
-|---|---|---|
+| --- | --- | --- |
 | W6.1 (plan:39823) | Change | Depends on F8.12 (it depended on Wave 5). Its `.13` checks are already in the plan. |
 | W6.2 (plan:39911, `TestEveryConsumerHasExactlyOneHome`) | Change | Reads the post-fold `Fixed()` and domain table. |
 | W6.9 (plan:41974) | Change | `RBAC_PATHS_manager` names `./app/catalog/segmentplan`, `./app/remediation/...`, `./app/squash/admission` and `./app/catalog/legacyfold` instead of `./app/catalog/segmenting`; `RBAC_PATHS_agent-metadata := ./app/catalog/metadata/... ./app/catalog/worker/markers`. In release N the manager role keeps the adoption grants (§7.3.10). agent-caption and agent-metadata hold no write verb on any `*.clustarr.io` per-file resource. |
@@ -4883,7 +4883,7 @@ fixtures mechanically; the per-profile pool durables they touch survive.
 **Waves 7-10:**
 
 | Task | Disposition | Change |
-|---|---|---|
+| --- | --- | --- |
 | W7.4 (plan:48101) | Change | Drop the `segmentresults` file edits (the code is gone). `Due` moves to `app/catalog/segmentplan.Due`, not `segmenting.Due` as its heading says. `app/segments/worker/worker.go` is edited on top of F3.4's record writer. |
 | W8.5 (plan:50687), W8.9 (plan:51359) | Keep | They touch worker internals that survive; their file lists follow F5.2 and F6.4. |
 | W8.7 (plan:50999) | Change | The parity test path follows its move to `transcodeplan` (plan:51048, 51103, and the final gate's list, plan:54512). |
@@ -4977,7 +4977,7 @@ Each wave gate runs `make test` (envtest, pg-assets, chart dependencies) and `ma
 wave's guards.
 
 | Wave | Tasks | Depends on | Gate adds |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | F0: prerequisites | F0.1-F0.3 | W5.18, W5.19 | `TestOnlyTheLoopWatchesMediaFile` with its allow-list |
 | F1: records core | F1.1-F1.5 | F0 | `pkg/records` suite; natsbus and membus Watch contract; records-bucket `Validate` rule; KV key contract |
 | F2: API | F2.1-F2.4 | F1 | `TestMediaFileStringsAreBounded`, `TestMediaFileAtEveryCapFitsTheBudget`, `TestMediaFileStatusPhasesAreSelectable` |
@@ -5242,7 +5242,7 @@ need the owner's explicit OK. Where two drafts recommended different things, the
 the other is recorded in Appendix A. Every deploy step stays under "Build, don't deploy".
 
 | # | Decision | Status | Basis |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | D1 | The split and the fold deploy together as release N (everything through W10.8); release N+1 removes the kinds (F9). No commit between W4.13 and F8.12 is deployed, so W4.14's interim probe gates are dropped. | Taken (deploying it is open) | integration D1. Migration's "split and fold as separate releases with a soak" is not taken: the fold lands before W6, so no split-only release with images and installers can be built; release N's `hold` stage (D30) is the soak. |
 | D2 | The fold's waves F0-F8 run between W5.18 and W6.1, so installers, RBAC, images and docs are written once for the folded system. | Taken | integration D2 |
 | D3 | The loop is `app/remediation`, controller name `mediafile`, with two key types (file and item). Transcode admission (`transcode-admission`) and the slim `transcodeprofile` and `subtitleprofile` reconcilers are separate controllers that never watch MediaFile; they are woken by two channels the loop and the ledger signal, the only MediaFile-driven wakes outside the loop that `TestOnlyTheLoopWatchesMediaFile` allows. | **Open: confirm the reading.** The ruling lists the TranscodeProfile and SubtitleProfile controllers among those that merge into the loop; this design merges their per-file halves and keeps their per-profile status writers outside it (§1 item 2). The alternative is per-profile keys in the loop's queue (Appendix A item 2, the loop draft's), which ADR-0016's two key types rule out. | ADR-0016's two key types; admission and api drafts |
@@ -5560,7 +5560,7 @@ a sentence, it is in the body too.
 ### B.1 Critical and important findings, and where the body fixes them
 
 | Finding | Fixed in |
-|---|---|
+| --- | --- |
 | A transcode or graft fact that lands after the closing withdrawal pass was never read, could be overwritten by the next `Request`, and was lost when its `Answer` failed after the purge; §4.8's "a Seq above S cannot coexist with a fact" was false (worker/run.go:404-445 re-asserts the lease, then swaps, then probes the output in `finish`, :606-626) | §2.3 (`Dispatch.withdrawn`), §4.2 item 5, §4.7 (`ErrUnincorporatedFact`), §4.8 (table and the corrected paragraph), §4.10, §4.12 (worker), §5.9, §5.10, §5.15, D41 |
 | The transcode planner wrote the graft block, which the Copy partition discards | §2.5 (`joinedGraft`), §3.5, §5.8 step 4-5, §5.13, §4.12 graft rows, D42 |
 | Subtitle items closed a dispatch as lost instead of re-sending the owed record, and a forced search racing an answer lost both | §4.7 (owed effects), §6.6 |

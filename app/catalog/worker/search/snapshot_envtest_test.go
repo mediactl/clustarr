@@ -26,7 +26,6 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -364,7 +363,7 @@ func TestWorkerSnapshotMarksATranscodedCurrentFile(t *testing.T) {
 			var mf catalogv1alpha1.MediaFile
 			require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: mfName}, &mf))
 			patch := client.MergeFrom(mf.DeepCopy())
-			mf.Spec.Original = ptr.To(false)
+			mf.Spec.Original = new(false)
 			require.NoError(t, c.Patch(ctx, &mf, patch))
 		}},
 		{name: "the probe's tag", mfName: "the-matrix-tagged", mark: func(t *testing.T, mfName string) {

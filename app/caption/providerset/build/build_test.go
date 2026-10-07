@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -51,7 +50,7 @@ func provider(name string, typ subtitlev1alpha1.SubtitleProviderType, prio int32
 	sp := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: types.UID("uid-" + name), Generation: 1},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: typ, Enabled: ptr.To(true), Priority: prio, RequestsPerSecondMilli: 5000,
+			Type: typ, Enabled: new(true), Priority: prio, RequestsPerSecondMilli: 5000,
 		},
 	}
 	if secret != "" {
@@ -85,7 +84,7 @@ func names(es []providerset.Entry) []string {
 
 func TestBuildOrdersByPriorityThenNameAndSkipsWhatItCannotBuild(t *testing.T) {
 	disabled := provider("off", subtitlev1alpha1.SubtitleProviderGestdown, 1, "")
-	disabled.Spec.Enabled = ptr.To(false)
+	disabled.Spec.Enabled = new(false)
 	c := newClient(t,
 		provider("zeta", subtitlev1alpha1.SubtitleProviderGestdown, 20, ""),
 		provider("alpha", subtitlev1alpha1.SubtitleProviderGestdown, 20, ""),
@@ -237,7 +236,7 @@ func TestOpenSubtitlesReplicasShareOneLoginThroughTheThrottleKV(t *testing.T) {
 	kv := bus.KV(events.BucketProviderThrottle)
 
 	sp := provider("os", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "os")
-	sp.Spec.Endpoint = ptr.To(srv.URL)
+	sp.Spec.Endpoint = new(srv.URL)
 	c := newClient(t, sp, osSecret("os", fullOSCreds))
 	q := subtitles.Query{Kind: "movie", IDs: map[string]string{"imdb": "133093"}, Languages: []subtitles.LangKey{"en"}}
 

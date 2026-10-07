@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -227,7 +226,7 @@ func TestProfileFieldsResendsEveryEncoderLimitLeaf(t *testing.T) {
 	st := fullProfileStatus()
 	st.EncoderLimits = []transcodev1alpha1.EncoderLimit{{
 		Class: transcodev1alpha1.HardwareNVIDIA, Node: "n1",
-		NVDEC: []string{"h264:8", "hevc:10"}, Healthy: ptr.To(false), Message: "no /dev/nvidia0",
+		NVDEC: []string{"h264:8", "hevc:10"}, Healthy: new(false), Message: "no /dev/nvidia0",
 	}}
 	ac := status.ProfileFields(st)
 	require.Len(t, ac.EncoderLimits, 1)

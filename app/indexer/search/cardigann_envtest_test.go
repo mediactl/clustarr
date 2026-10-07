@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -72,7 +71,7 @@ func cardigannIndexer(t *testing.T, ctx context.Context, c client.Client, ns, na
 
 	idx := &indexv1alpha1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-		Spec:       indexv1alpha1.IndexerSpec{BaseURL: baseURL, DefinitionRef: ptr.To(def.Name)},
+		Spec:       indexv1alpha1.IndexerSpec{BaseURL: baseURL, DefinitionRef: new(def.Name)},
 	}
 	require.NoError(t, c.Create(ctx, idx))
 

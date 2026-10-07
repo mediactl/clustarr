@@ -90,7 +90,7 @@ func TestBookReconcilerPublishesMediaFileEvents(t *testing.T) {
 
 	bk := &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "the-hobbit", Namespace: ns},
-		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", RootFolderRef: ptr.To("book-root")},
+		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", RootFolderRef: new("book-root")},
 	}
 	require.NoError(t, c.Create(ctx, bk))
 	waitCached(t, ctx, c, bk)

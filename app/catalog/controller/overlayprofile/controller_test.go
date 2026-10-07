@@ -32,7 +32,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -111,12 +110,12 @@ func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
 		def := geometryDefault(t, f.Name)
 
 		g := catalogv1alpha1.OverlayGeometry{}
-		reflect.ValueOf(&g).Elem().Field(i).Set(reflect.ValueOf(ptr.To(def + 1)))
+		reflect.ValueOf(&g).Elem().Field(i).Set(reflect.ValueOf(new(def + 1)))
 		assert.NotEqual(t, base, overlayprofile.Hash(catalogv1alpha1.OverlayProfileSpec{Geometry: &g}),
 			"geometry.%s stopped moving status.hash", f.Name)
 
 		same := catalogv1alpha1.OverlayGeometry{}
-		reflect.ValueOf(&same).Elem().Field(i).Set(reflect.ValueOf(ptr.To(def)))
+		reflect.ValueOf(&same).Elem().Field(i).Set(reflect.ValueOf(new(def)))
 		assert.Equal(t, base, overlayprofile.Hash(catalogv1alpha1.OverlayProfileSpec{Geometry: &same}),
 			"geometry.%s set to its default hashes as unset", f.Name)
 	}

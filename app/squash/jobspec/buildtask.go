@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -70,7 +69,7 @@ func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transco
 		Attempt: attempt,
 		Class:   string(class),
 		Profile: task.Profile{
-			Name: tp.Name, Hash: tp.Status.Hash, Spec: *tp.Spec.DeepCopy(), Hardware: ptr.To(class),
+			Name: tp.Name, Hash: tp.Status.Hash, Spec: *tp.Spec.DeepCopy(), Hardware: new(class),
 		},
 		SourcePath:      source,
 		SourceProbeHash: tj.Spec.SourceProbeHash,

@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -34,7 +33,7 @@ func rel(indexerRef, guid, hash string, seeders int32) schema.Release {
 		GUID:       guid,
 		Title:      guid,
 		InfoHash:   hash,
-		Seeders:    ptr.To(seeders),
+		Seeders:    new(seeders),
 	}}
 }
 

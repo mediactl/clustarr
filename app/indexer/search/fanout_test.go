@@ -449,7 +449,7 @@ func TestFanOutRepliesOnTheBudgetWithAStragglerNamed(t *testing.T) {
 // A skipped candidate is named and reported without ever being queried.
 func TestFanOutReportsSkipsWithoutQuerying(t *testing.T) {
 	idx := healthyIndexer("off")
-	idx.Spec.Enabled = ptr.To(false)
+	idx.Spec.Enabled = new(false)
 	s := &Service{
 		Client: newFakeClient(&idx),
 		ClientFor: func(context.Context, *indexv1alpha1.Indexer) (IndexerClient, error) {
@@ -580,7 +580,7 @@ func TestSearchShapes(t *testing.T) {
 
 	t.Run("one disabled indexer", func(t *testing.T) {
 		idx := healthyIndexer("a")
-		idx.Spec.Enabled = ptr.To(false)
+		idx.Spec.Enabled = new(false)
 		s := &Service{
 			Client:    newFakeClient(&idx),
 			ClientFor: stubClientFor(nil),

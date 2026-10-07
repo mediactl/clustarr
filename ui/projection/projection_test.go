@@ -28,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -90,7 +89,7 @@ func ownerRef(owner client.Object, kind string) metav1.OwnerReference {
 		Kind:       kind,
 		Name:       owner.GetName(),
 		UID:        owner.GetUID(),
-		Controller: ptr.To(true),
+		Controller: new(true),
 	}
 }
 
@@ -343,7 +342,7 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 
 	movie := &catalogv1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: "movie-1", Namespace: "default", UID: "movie-1-uid"},
-		Spec:       catalogv1.MovieSpec{Monitored: ptr.To(true)},
+		Spec:       catalogv1.MovieSpec{Monitored: new(true)},
 		Status: catalogv1.MovieStatus{
 			Metadata: &catalogv1.MovieMetadata{Title: "Movie One"},
 			Phase:    catalogv1.MoviePhase("Wanted"),
@@ -360,12 +359,12 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	}
 	episode := &catalogv1.Episode{
 		ObjectMeta: metav1.ObjectMeta{Name: "episode-1", Namespace: "default", UID: "episode-1-uid"},
-		Spec:       catalogv1.EpisodeSpec{Monitored: ptr.To(true)},
+		Spec:       catalogv1.EpisodeSpec{Monitored: new(true)},
 		Status:     catalogv1.EpisodeStatus{Title: "Episode One", Phase: catalogv1.EpisodePhase("Downloading"), HasFile: true},
 	}
 	album := &catalogv1.Album{
 		ObjectMeta: metav1.ObjectMeta{Name: "album-1", Namespace: "default", UID: "album-1-uid"},
-		Spec:       catalogv1.AlbumSpec{Monitored: ptr.To(true)},
+		Spec:       catalogv1.AlbumSpec{Monitored: new(true)},
 		Status: catalogv1.AlbumStatus{
 			Metadata:       &catalogv1.AlbumMetadata{Title: "Album One"},
 			Phase:          catalogv1.AlbumPhaseDownloading,
@@ -374,7 +373,7 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	}
 	artist := &catalogv1.Artist{
 		ObjectMeta: metav1.ObjectMeta{Name: "artist-1", Namespace: "default", UID: "artist-1-uid"},
-		Spec:       catalogv1.ArtistSpec{Monitored: ptr.To(true)},
+		Spec:       catalogv1.ArtistSpec{Monitored: new(true)},
 		Status: catalogv1.ArtistStatus{
 			Metadata:       &catalogv1.ArtistMetadata{Name: "Artist One"},
 			AlbumFileCount: 2,
@@ -387,7 +386,7 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	}
 	book := &catalogv1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: "book-1", Namespace: "default", UID: "book-1-uid"},
-		Spec:       catalogv1.BookSpec{Monitored: ptr.To(true)},
+		Spec:       catalogv1.BookSpec{Monitored: new(true)},
 		Status: catalogv1.BookStatus{
 			Metadata: &catalogv1.BookMetadata{Title: "Book One"},
 			Phase:    catalogv1.BookPhaseCutoffUnmet,
@@ -405,7 +404,7 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	}
 	comic := &catalogv1.Comic{
 		ObjectMeta: metav1.ObjectMeta{Name: "comic-1", Namespace: "default", UID: "comic-1-uid"},
-		Spec:       catalogv1.ComicSpec{Monitored: ptr.To(true)},
+		Spec:       catalogv1.ComicSpec{Monitored: new(true)},
 		Status: catalogv1.ComicStatus{
 			Metadata:       &catalogv1.ComicMetadata{Title: "Comic One"},
 			IssueFileCount: 1,
@@ -413,7 +412,7 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	}
 	issue := &catalogv1.Issue{
 		ObjectMeta: metav1.ObjectMeta{Name: "issue-1", Namespace: "default", UID: "issue-1-uid"},
-		Spec:       catalogv1.IssueSpec{Monitored: ptr.To(true)},
+		Spec:       catalogv1.IssueSpec{Monitored: new(true)},
 		Status:     catalogv1.IssueStatus{Title: "Issue One", HasFile: true},
 	}
 
@@ -546,7 +545,7 @@ func TestImportListProjectionDerivesScheduleCountsAndDeviceAuth(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "trakt-watchlist", Namespace: "default"},
 		Spec: catalogv1.ImportListSpec{
 			Kinds:   []string{"movie", "series"},
-			Enabled: ptr.To(true),
+			Enabled: new(true),
 			Trakt:   &catalogv1.TraktList{ListType: catalogv1.TraktListTypeWatchlist},
 			Defaults: catalogv1.ListDefaults{
 				QualityProfileRef: "hd-1080p", RootFolderRef: "movies",
@@ -565,7 +564,7 @@ func TestImportListProjectionDerivesScheduleCountsAndDeviceAuth(t *testing.T) {
 	noAuth := &catalogv1.ImportList{
 		ObjectMeta: metav1.ObjectMeta{Name: "plex-watchlist", Namespace: "default"},
 		Spec: catalogv1.ImportListSpec{
-			Kinds: []string{"movie"}, Enabled: ptr.To(false),
+			Kinds: []string{"movie"}, Enabled: new(false),
 			Plex: &catalogv1.PlexWatchlist{},
 			Defaults: catalogv1.ListDefaults{
 				QualityProfileRef: "hd-1080p", RootFolderRef: "movies",

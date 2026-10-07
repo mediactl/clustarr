@@ -695,7 +695,7 @@ func (r *Reconciler) job(g *transcodev1alpha1.AudioGraft, t grafttask.Task) (*ba
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit:            ptr.To[int32](0),
-			ActiveDeadlineSeconds:   ptr.To(int64(jobDeadline.Seconds())),
+			ActiveDeadlineSeconds:   new(int64(jobDeadline.Seconds())),
 			TTLSecondsAfterFinished: ptr.To[int32](int32((24 * time.Hour).Seconds())),
 			Template:                tmpl,
 		},

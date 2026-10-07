@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -163,7 +162,7 @@ func TestReplayer(t *testing.T) {
 
 	movie := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: ns},
-		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies", Monitored: ptr.To(true)},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd", RootFolderRef: "movies", Monitored: new(true)},
 	}
 	require.NoError(t, c.Create(ctx, movie))
 

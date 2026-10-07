@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -69,7 +68,7 @@ func TestIndexLookups(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "s-s01e01", Namespace: "default", UID: episodeUID,
 			OwnerReferences: []metav1.OwnerReference{
-				{APIVersion: catalogv1.GroupVersion.String(), Kind: "Series", Name: series.Name, UID: series.UID, Controller: ptr.To(true)},
+				{APIVersion: catalogv1.GroupVersion.String(), Kind: "Series", Name: series.Name, UID: series.UID, Controller: new(true)},
 			},
 		},
 		Spec: catalogv1.EpisodeSpec{SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: 1},

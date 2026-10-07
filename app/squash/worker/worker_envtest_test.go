@@ -664,7 +664,7 @@ func TestRunWithRecycleBinOffSwapsWithoutRecycling(t *testing.T) {
 
 	var tp transcodev1alpha1.TranscodeProfile
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
-	tp.Spec.Policy.RecycleBin = ptr.To(false)
+	tp.Spec.Policy.RecycleBin = new(false)
 	require.NoError(t, c.Update(ctx, &tp))
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
 	require.NotNil(t, tp.Spec.Policy.RecycleBin, "a typed false must survive the round trip, not be re-defaulted")
@@ -736,7 +736,7 @@ func TestRunWithReplaceSourceFalseKeepsTheSource(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
 	f := newFixtureWith(t, c, fixtureOptions{mutateProfile: func(tp *transcodev1alpha1.TranscodeProfile) {
-		tp.Spec.Policy.ReplaceSource = ptr.To(false)
+		tp.Spec.Policy.ReplaceSource = new(false)
 	}})
 	name := "Film.2020.1080p - " + f.profileName + ".mp4"
 	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)", name)
@@ -885,7 +885,7 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: f.job, Namespace: f.ns},
 		Spec: transcodev1alpha1.TranscodeJobSpec{
 			MediaFileRef: "film-2020", ProfileRef: f.profileName,
-			SourcePath: f.logical, SourceProbeHash: f.probeHash, OutputPath: ptr.To(logicalOut),
+			SourcePath: f.logical, SourceProbeHash: f.probeHash, OutputPath: new(logicalOut),
 		},
 	}))
 
@@ -908,7 +908,7 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: f2.job, Namespace: f2.ns},
 		Spec: transcodev1alpha1.TranscodeJobSpec{
 			MediaFileRef: "film-2020", ProfileRef: f2.profileName,
-			SourcePath: f2.logical, SourceProbeHash: f2.probeHash, OutputPath: ptr.To("/data/elsewhere/Film.mp4"),
+			SourcePath: f2.logical, SourceProbeHash: f2.probeHash, OutputPath: new("/data/elsewhere/Film.mp4"),
 		},
 	}))
 	out2 := f2.process(t, c)

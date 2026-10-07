@@ -87,7 +87,7 @@ func nonVideoKinds() []nonVideoKind {
 					ObjectMeta: metav1.ObjectMeta{Name: "radiohead", Namespace: ns},
 					Spec: catalogv1alpha1.ArtistSpec{
 						MusicBrainzID: "a74b1b7f-71a5-4011-9441-d0b5e4122711", QualityProfileRef: "music-artist", RootFolderRef: "music",
-						DelayProfileRef: ptr.To("slow-music"), Tags: []string{"lossless"},
+						DelayProfileRef: new("slow-music"), Tags: []string{"lossless"},
 					},
 				}))
 				require.NoError(t, c.Create(ctx, &catalogv1alpha1.Album{
@@ -121,7 +121,7 @@ func nonVideoKinds() []nonVideoKind {
 				require.NoError(t, c.Create(ctx, &catalogv1alpha1.Book{
 					ObjectMeta: metav1.ObjectMeta{Name: "dune", Namespace: ns},
 					Spec: catalogv1alpha1.BookSpec{
-						AuthorRef: ptr.To("frank-herbert"), WorkID: "OL893415W", QualityProfileRef: ptr.To("book-override"),
+						AuthorRef: new("frank-herbert"), WorkID: "OL893415W", QualityProfileRef: ptr.To("book-override"),
 					},
 				}))
 				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Book("dune", ns).WithStatus(
@@ -199,7 +199,7 @@ func usenetRelease(guid, title string) commonv1.ReleaseInfo {
 		Protocol:    commonv1.ProtocolUsenet,
 		DownloadURL: "https://example.invalid/nzb/" + guid,
 		Title:       title,
-		PublishedAt: ptr.To(metav1.NewTime(testNow.Add(-time.Hour))),
+		PublishedAt: new(metav1.NewTime(testNow.Add(-time.Hour))),
 	}
 }
 

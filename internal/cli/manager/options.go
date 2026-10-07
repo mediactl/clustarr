@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -168,7 +167,7 @@ func managerOptions(o Options) ctrl.Options {
 	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
 	opts.Cache.ByObject = map[client.Object]cache.ByObject{&batchv1.Job{}: transcodejob.PoolJobCache(o.Namespace)}
 	if o.SkipNameValidation {
-		opts.Controller.SkipNameValidation = ptr.To(true)
+		opts.Controller.SkipNameValidation = new(true)
 	}
 	return opts
 }

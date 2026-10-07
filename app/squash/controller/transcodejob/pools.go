@@ -539,7 +539,7 @@ func poolApplyAction(cur *batchv1.Job, d pool.Desired, drift pool.Drift) string 
 func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.TranscodeProfile, j *batchv1.Job, why string) error {
 	log := logging.FromContext(ctx)
 	err := r.Client.Delete(ctx, j, client.PropagationPolicy(metav1.DeletePropagationBackground),
-		client.Preconditions{UID: ptr.To(j.UID)})
+		client.Preconditions{UID: new(j.UID)})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("transcodejob: delete pool %s: %w", j.Name, err)
 	}

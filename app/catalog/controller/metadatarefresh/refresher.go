@@ -36,7 +36,6 @@ import (
 	gvkschema "k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -112,7 +111,7 @@ func (r *Refresher) SetupWithManager(mgr ctrl.Manager) error {
 		if err := ctrl.NewControllerManagedBy(mgr).
 			Named("metadata-refresh-"+strings.ToLower(gvk.Kind)).
 			For(obj, builder.WithPredicates(refreshRequested())).
-			WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: time.Minute}).
+			WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: time.Minute}).
 			Complete(&refreshKind{r: r, gvk: gvk, kind: kind}); err != nil {
 			return fmt.Errorf("metadata: refresh controller for %s: %w", gvk.Kind, err)
 		}

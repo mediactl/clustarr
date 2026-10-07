@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -83,8 +82,8 @@ func TestTheProxyRoutesBothSourceKinds(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "t", Namespace: "media", UID: "u1", ResourceVersion: "1"},
 		Spec: indexv1alpha1.IndexerSpec{
 			BaseURL:       tracker.URL,
-			DefinitionRef: ptr.To("def"),
-			ProxyRef:      ptr.To("egress"),
+			DefinitionRef: new("def"),
+			ProxyRef:      new("egress"),
 		},
 	}
 	c := fakeClient(t, idxDefinition("def", yaml, nil, ""), &indexv1alpha1.IndexerProxy{
@@ -101,7 +100,7 @@ func TestTheProxyRoutesBothSourceKinds(t *testing.T) {
 	require.Zero(t, direct, "the search bypassed the proxy and reached the tracker directly")
 
 	// A proxy that does not exist fails closed.
-	idx.Spec.ProxyRef = ptr.To("absent")
+	idx.Spec.ProxyRef = new("absent")
 	_, err = buildWireClient(context.Background(), c, idx, nil, idxclients.NewSessionStore(c, nil))
 	require.ErrorIs(t, err, idxclients.ErrProxyUnavailable)
 }
@@ -126,7 +125,7 @@ func TestClientCacheBuildsTheCardigannEngineForADefinition(t *testing.T) {
 
 	idx := &indexv1alpha1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: "t", Namespace: "media", UID: "u1", ResourceVersion: "1"},
-		Spec:       indexv1alpha1.IndexerSpec{BaseURL: srv.URL, DefinitionRef: ptr.To("def")},
+		Spec:       indexv1alpha1.IndexerSpec{BaseURL: srv.URL, DefinitionRef: new("def")},
 	}
 	c := fakeClient(t, idxDefinition("def", cardigannFixture(t, "search-error.yml"), nil, ""))
 	cc := NewClientCache(c, ratelimit.New(ratelimit.Config{}))

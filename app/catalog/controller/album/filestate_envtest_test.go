@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -61,7 +60,7 @@ func TestAlbumReconcilerRanksByEveryTrackFile(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "ok-computer", Namespace: ns},
 		Spec: catalogv1alpha1.AlbumSpec{
 			ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e5a3-37d1-83d3-b8b08ca6c4d9",
-			QualityProfileRef: ptr.To("album-rank-qp"),
+			QualityProfileRef: new("album-rank-qp"),
 		},
 	}
 	require.NoError(t, c.Create(ctx, alb))

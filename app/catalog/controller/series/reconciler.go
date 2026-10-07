@@ -172,7 +172,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// waits days for its next metadata refresh.
 		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mapRootFolder),
 			builder.WithPredicates(k8s.GenerationChanged())).
-		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
 
@@ -613,7 +613,7 @@ func (r *Reconciler) cascadeSeasons(
 			}
 			return out, fmt.Errorf("set episode %s monitored=%t: %w", out[i].Name, v, err)
 		}
-		out[i].Spec.Monitored = ptr.To(v)
+		out[i].Spec.Monitored = new(v)
 		set++
 	}
 	logging.FromContext(ctx).Info("series: season override applied to its episodes",

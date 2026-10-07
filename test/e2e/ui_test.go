@@ -97,7 +97,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -554,7 +553,7 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 		dc := &downloadv1alpha1.DownloadClient{
 			ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e14-settings-dc"), Namespace: Namespace},
 			Spec: downloadv1alpha1.DownloadClientSpec{
-				Protocol: commonv1.ProtocolTorrent, Enabled: ptr.To(true), Priority: 10, Replicas: 1,
+				Protocol: commonv1.ProtocolTorrent, Enabled: new(true), Priority: 10, Replicas: 1,
 				Torrent: &downloadv1alpha1.TorrentSpec{},
 			},
 		}

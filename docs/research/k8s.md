@@ -41,7 +41,7 @@ Probe project lives at `<scratchpad>/k8sprobe` (not in the repo).
 ## 1. Verified versions and environment
 
 | Thing | Verified value | How |
-|---|---|---|
+| --- | --- | --- |
 | Go | `go1.27.0` | `go version` |
 | sigs.k8s.io/controller-runtime | **v0.25.1** (v0.25.0 = k8s 1.37; v0.25.1 fixes priorityqueue data race + subresource create RV parse under read-your-writes) | `go list -m -versions`, GitHub releases |
 | sigs.k8s.io/controller-tools | **v0.22.0** (k8s v0.37; deprecates `+kubebuilder:validation:Required/Optional` for `+required/+optional`; adds `k8s:listType`/`k8s:listMapKey`; envtest 1.36.2 and 1.37.0 published) | `go list`, releases page, `controller-gen --version` |
@@ -167,23 +167,23 @@ Targets and exact recipes:
 
 ```make
 manifests: controller-gen   ## CRDs, RBAC, webhooks, apply configurations
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook applyconfiguration:headerFile="hack/boilerplate.go.txt" paths="./..." output:crd:artifacts:config=config/crd/bases
+ "$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook applyconfiguration:headerFile="hack/boilerplate.go.txt" paths="./..." output:crd:artifacts:config=config/crd/bases
 generate: controller-gen    ## deepcopy
-	"$(CONTROLLER_GEN)" object:headerFile="hack/boilerplate.go.txt",year=$(YEAR) paths="./..."
+ "$(CONTROLLER_GEN)" object:headerFile="hack/boilerplate.go.txt",year=$(YEAR) paths="./..."
 fmt: go fmt ./...      vet: go vet ./...
 test: manifests generate fmt vet setup-envtest
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+ KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 setup-envtest: envtest
-	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path || { echo "Error: ..."; exit 1; }
+ @"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path || { echo "Error: ..."; exit 1; }
 test-e2e: setup-test-e2e manifests generate fmt vet      # kind cluster "$(KIND_CLUSTER)"
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v ; $(MAKE) cleanup-test-e2e
+ KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v ; $(MAKE) cleanup-test-e2e
 lint / lint-fix / lint-config:  "$(GOLANGCI_LINT)" run | run --fix | config verify
 build: manifests generate fmt vet ; go build -o bin/manager cmd/main.go
 run:   manifests generate fmt vet ; go run ./cmd/main.go
 docker-build: $(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) -t ${IMG} .
 docker-buildx: buildx create/use/build --push --platform=$(PLATFORMS) -f Dockerfile.cross   # PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 build-installer: manifests generate kustomize
-	mkdir -p dist ; cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG} ; "$(KUSTOMIZE)" build config/default > dist/install.yaml
+ mkdir -p dist ; cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG} ; "$(KUSTOMIZE)" build config/default > dist/install.yaml
 install:   "$(KUSTOMIZE)" build config/crd | "$(KUBECTL)" apply -f -        (skips when no CRDs)
 uninstall: "$(KUSTOMIZE)" build config/crd | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 deploy:    cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG} ; "$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
@@ -207,6 +207,7 @@ markers help: controller-gen crd -w / -ww / -www / -wwww (json)
 ```
 
 Verified quirks:
+
 * `applyconfiguration` generates nothing unless the API package carries `// +kubebuilder:ac:generate=true` (or per-type). Output goes to
   `api/<ver>/applyconfiguration/{api/<ver>/*.go,internal/internal.go,utils.go}` (override with `+kubebuilder:ac:output:package=`).
   The generated `utils.go` references **`v1alpha1.SchemeGroupVersion`**, which the kubebuilder scaffold does not define (it defines `GroupVersion`);
@@ -249,6 +250,7 @@ Verified quirks:
 ```
 
 CEL notes (verified against apiserver 1.37):
+
 * Field-level `rule="self == oldSelf"` produces `spec.source: Invalid value: "other.mkv": spec.source is immutable` on update. Transition
   rules (`oldSelf`) are skipped on create automatically.
 * Type-level rules see the whole object (`self.spec...`, `has(self.status)`); the error path is `<nil>` unless `fieldPath=` is given.
@@ -291,8 +293,8 @@ ctrl.NewControllerManagedBy(mgr).
     WatchesMetadata(&corev1.Secret{}, h)                      // PartialObjectMetadata informer (cheap)
     WatchesRawSource(source.Channel(ch, h, source.WithBufferSize[...](1024)))   // external events (NATS!) -> GenericEvent
     WithEventFilter(p).WithLogConstructor(f).
-    WithOptions(controller.Options{MaxConcurrentReconciles: 4, RecoverPanic: ptr.To(true), UsePriorityQueue: ptr.To(true),
-                                   ReconciliationTimeout: 2*time.Minute, RateLimiter: ..., NeedLeaderElection: ptr.To(true), EnableWarmup: ptr.To(true)}).
+    WithOptions(controller.Options{MaxConcurrentReconciles: 4, RecoverPanic: new(true), UsePriorityQueue: ptr.To(true),
+                                   ReconciliationTimeout: 2*time.Minute, RateLimiter: ..., NeedLeaderElection: new(true), EnableWarmup: ptr.To(true)}).
     Complete(r)   // or Build(r) to keep the controller.TypedController handle
 ```
 
@@ -308,7 +310,7 @@ Handlers/predicates/sources (verified): `handler.EnqueueRequestForObject`, `Enqu
 `source.Channel(<-chan event.TypedGenericEvent[T], handler, opts...)`, `source.TypedInformer`, `source.Func`. `event.TypedCreateEvent.IsInInitialList` is available to handlers.
 
 Priority queue (`pkg/controller/priorityqueue`, verified): `PriorityQueue[T]` = `workqueue.TypedRateLimitingInterface[T]` + `AddWithOpts(AddOpts{After, RateLimited, Priority *int}, items...)`
-+ `GetWithPriority()`. De-duplicates; keeps max priority / min delay; FIFO within a priority level. To map `spec.priority` onto queue priority, write a custom
+* `GetWithPriority()`. De-duplicates; keeps max priority / min delay; FIFO within a priority level. To map `spec.priority` onto queue priority, write a custom
 `handler.TypedEventHandler` that type-asserts the queue to `priorityqueue.PriorityQueue[reconcile.Request]` and calls `AddWithOpts`; `reconcile.Result.Priority`
 only affects requeues.
 
@@ -335,7 +337,7 @@ only affects requeues.
 * `cache.Options{DefaultNamespaces: map[string]cache.Config{"media": {}}, DefaultLabelSelector, DefaultFieldSelector, DefaultTransform, ByObject: map[client.Object]cache.ByObject{...},
   SyncPeriod, ReaderFailOnMissingInformer, DefaultUnsafeDisableDeepCopy, DefaultEnableWatchBookmarks}` — use `ByObject` to restrict Secrets to a label selector
   and `cache.TransformStripManagedFields()` to cut memory.
-* `client.Options{Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}, Unstructured: false, EnableReadYourWritesConsistency: ptr.To(true) /* experimental */}, FieldOwner: "transcodarr", FieldValidation: "Strict", DryRun}`.
+* `client.Options{Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}, Unstructured: false, EnableReadYourWritesConsistency: new(true) /* experimental */}, FieldOwner: "transcodarr", FieldValidation: "Strict", DryRun}`.
 * `mgr.GetAPIReader()` bypasses the cache for one-off strongly consistent reads (e.g. Secrets, or right after Create).
 
 ---
@@ -355,8 +357,8 @@ mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
     LeaseDuration/RenewDeadline/RetryPeriod: 15s/10s/2s defaults,
     Cache: cache.Options{...}, Client: client.Options{...},
     WebhookServer: webhook.NewServer(webhook.Options{Port: -1}),   // -1 disables the webhook server (v0.25); default 9443, CertDir /tmp/k8s-webhook-server/serving-certs
-    Controller: config.Controller{RecoverPanic: ptr.To(true), UsePriorityQueue: ptr.To(true), EnableWarmup: ptr.To(true), GroupKindConcurrency: map[string]int{"TranscodeJob.transcode.clustarr.io": 8}},
-    GracefulShutdownTimeout: ptr.To(30*time.Second),
+    Controller: config.Controller{RecoverPanic: new(true), UsePriorityQueue: ptr.To(true), EnableWarmup: ptr.To(true), GroupKindConcurrency: map[string]int{"TranscodeJob.transcode.clustarr.io": 8}},
+    GracefulShutdownTimeout: new(30*time.Second),
     BaseContext: func() context.Context { ... },
 })
 mgr.AddHealthzCheck("healthz", healthz.Ping); mgr.AddReadyzCheck("readyz", healthz.Ping)   // add a NATS/JetStream ping for readiness
@@ -387,7 +389,7 @@ Add `events.k8s.io/events create,patch` for the new recorder.
 Options considered:
 
 | Option | Pros | Cons |
-|---|---|---|
+| --- | --- | --- |
 | A. One image, one process, one manager, all controllers | simplest ops; one Lease; kubebuilder default | one crash/leak kills every service; all services scale as one; RBAC is a superset |
 | B. One image, **cobra subcommands**, one manager per subcommand (`clustarr transcodarr`, `clustarr all`) | single build/release; per-service Deployments, replicas, RBAC, LE lease, resource limits; `all` mode for homelabs | slightly larger image; must keep scheme registration per subcommand |
 | C. One image per service (separate `cmd/<svc>/main.go`) | strict isolation; cluster-api style | 5x CI/CD/artifacts; shared-code drift is not an issue in a monorepo but release coordination is |
@@ -446,9 +448,9 @@ Labels the Job controller stamps on pods: `batch.kubernetes.io/job-name`, `batch
 ### 10.2 Hardware transcoding placement
 
 | Vendor | Extended resource (limits) | Runtime / env | Node labels for affinity | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | NVIDIA (k8s-device-plugin v0.17.1, helm `nvdp/nvidia-device-plugin`) | `nvidia.com/gpu: 1` | `runtimeClassName: nvidia` (RuntimeClass handler `nvidia`, from nvidia-container-toolkit >= 1.7); env `NVIDIA_DRIVER_CAPABILITIES=video,compute,utility` for NVENC/NVDEC; `NVIDIA_VISIBLE_DEVICES` set by the runtime | GFD: `nvidia.com/gpu.present=true`, `nvidia.com/gpu.product`, `nvidia.com/gpu.count`, `nvidia.com/gpu.replicas`, `nvidia.com/gpu.sharing-strategy` | Time-slicing config `sharing.timeSlicing.resources[{name: nvidia.com/gpu, replicas: N}]` lets N ffmpeg pods share one GPU (NVENC session limit still applies); MPS is the alternative. Typical taint `nvidia.com/gpu:NoSchedule` -> add toleration |
-| Intel (intel-device-plugins-for-kubernetes gpu_plugin) | `gpu.intel.com/i915: 1` (legacy i915 KMD) or `gpu.intel.com/xe: 1` (xe KMD); `gpu.intel.com/monitoring` | plugin bind-mounts `/dev/dri/renderD128` etc.; no special runtime; VAAPI/QSV via `-hwaccel vaapi -vaapi_device /dev/dri/renderD128` | NFD: `intel.feature.node.kubernetes.io/gpu=true`, `gpu.intel.com/family`, `gpu.intel.com/device-id`, `gpu.intel.com/millicores` (GAS) | `-shared-dev-num N` allows N containers per GPU; `by-path` symlink strategies `single|none|all`; install via kustomize overlays w/ NFD or the Intel Device Plugin Operator |
+| Intel (intel-device-plugins-for-kubernetes gpu_plugin) | `gpu.intel.com/i915: 1` (legacy i915 KMD) or `gpu.intel.com/xe: 1` (xe KMD); `gpu.intel.com/monitoring` | plugin bind-mounts `/dev/dri/renderD128` etc.; no special runtime; VAAPI/QSV via `-hwaccel vaapi -vaapi_device /dev/dri/renderD128` | NFD: `intel.feature.node.kubernetes.io/gpu=true`, `gpu.intel.com/family`, `gpu.intel.com/device-id`, `gpu.intel.com/millicores` (GAS) | `-shared-dev-num N` allows N containers per GPU; `by-path` symlink strategies `single | none | all`; install via kustomize overlays w/ NFD or the Intel Device Plugin Operator |
 | AMD | `amd.com/gpu: 1` (AMD GPU device plugin) | ROCm/VAAPI via `/dev/dri` + `/dev/kfd` | `amd.com/gpu.*` labels from amd node labeller | not verified in this pass |
 | Any / no device plugin | hostPath `/dev/dri` + `securityContext.privileged` or `supplementalGroups: [render gid]` | — | `feature.node.kubernetes.io/pci-0300_8086.present=true` (NFD PCI class 0300 vendor 8086/10de/1002) | fallback for homelabs; avoid privileged in the default chart |
 
@@ -548,19 +550,19 @@ Covered: CRD install from `config/crd/bases`; `+kubebuilder:default` applied on 
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
+ "k8s.io/apimachinery/pkg/runtime/schema"
+ "sigs.k8s.io/controller-runtime/pkg/scheme"
 )
 
 var (
-	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "clustarr.io", Version: "v1alpha1"}
+ // GroupVersion is group version used to register these objects.
+ GroupVersion = schema.GroupVersion{Group: "clustarr.io", Version: "v1alpha1"}
 
-	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
-	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
+ // SchemeBuilder is used to add go types to the GroupVersionKind scheme.
+ SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 
-	// AddToScheme adds the types in this group-version to the given scheme.
-	AddToScheme = SchemeBuilder.AddToScheme
+ // AddToScheme adds the types in this group-version to the given scheme.
+ AddToScheme = SchemeBuilder.AddToScheme
 )
 
 // SchemeGroupVersion is required by controller-gen's applyconfiguration generator (utils.go references it).
@@ -573,7 +575,7 @@ var SchemeGroupVersion = GroupVersion
 package v1alpha1
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // VideoCodec is the target video codec.
@@ -582,35 +584,35 @@ type VideoCodec string
 
 // TranscodeProfileSpec is the opinionated target format for a transcode.
 type TranscodeProfileSpec struct {
-	// +kubebuilder:default=hevc
-	// +optional
-	VideoCodec VideoCodec `json:"videoCodec,omitempty"`
+ // +kubebuilder:default=hevc
+ // +optional
+ VideoCodec VideoCodec `json:"videoCodec,omitempty"`
 
-	// CRF quality (lower is better). x265 default 28; trash-style "optimized" ~22-24.
-	// +kubebuilder:default=23
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=51
-	// +optional
-	CRF int32 `json:"crf,omitempty"`
+ // CRF quality (lower is better). x265 default 28; trash-style "optimized" ~22-24.
+ // +kubebuilder:default=23
+ // +kubebuilder:validation:Minimum=0
+ // +kubebuilder:validation:Maximum=51
+ // +optional
+ CRF int32 `json:"crf,omitempty"`
 
-	// +kubebuilder:validation:Enum=ultrafast;superfast;veryfast;faster;fast;medium;slow;slower;veryslow
-	// +kubebuilder:default=medium
-	// +optional
-	Preset string `json:"preset,omitempty"`
+ // +kubebuilder:validation:Enum=ultrafast;superfast;veryfast;faster;fast;medium;slow;slower;veryslow
+ // +kubebuilder:default=medium
+ // +optional
+ Preset string `json:"preset,omitempty"`
 
-	// +kubebuilder:default=true
-	// +optional
-	TenBit *bool `json:"tenBit,omitempty"`
+ // +kubebuilder:default=true
+ // +optional
+ TenBit *bool `json:"tenBit,omitempty"`
 
-	// +kubebuilder:validation:Enum=aac;opus;copy
-	// +kubebuilder:default=aac
-	// +optional
-	AudioCodec string `json:"audioCodec,omitempty"`
+ // +kubebuilder:validation:Enum=aac;opus;copy
+ // +kubebuilder:default=aac
+ // +optional
+ AudioCodec string `json:"audioCodec,omitempty"`
 
-	// +kubebuilder:validation:Pattern=`^[0-9]+k$`
-	// +kubebuilder:default="160k"
-	// +optional
-	AudioBitrate string `json:"audioBitrate,omitempty"`
+ // +kubebuilder:validation:Pattern=`^[0-9]+k$`
+ // +kubebuilder:default="160k"
+ // +optional
+ AudioBitrate string `json:"audioBitrate,omitempty"`
 }
 
 // TranscodeProfile is a cluster-scoped, reusable encode target.
@@ -621,21 +623,21 @@ type TranscodeProfileSpec struct {
 // +kubebuilder:printcolumn:name="CRF",type=integer,JSONPath=`.spec.crf`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type TranscodeProfile struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+ metav1.TypeMeta   `json:",inline"`
+ metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec TranscodeProfileSpec `json:"spec"`
+ Spec TranscodeProfileSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true
 type TranscodeProfileList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []TranscodeProfile `json:"items"`
+ metav1.TypeMeta `json:",inline"`
+ metav1.ListMeta `json:"metadata,omitempty"`
+ Items           []TranscodeProfile `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&TranscodeProfile{}, &TranscodeProfileList{})
+ SchemeBuilder.Register(&TranscodeProfile{}, &TranscodeProfileList{})
 }
 ```
 
@@ -643,8 +645,8 @@ func init() {
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ corev1 "k8s.io/api/core/v1"
+ metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // HardwareAccel selects the hardware encoder family a worker Pod needs.
@@ -652,56 +654,56 @@ import (
 type HardwareAccel string
 
 const (
-	HardwareNone   HardwareAccel = "none"
-	HardwareNvidia HardwareAccel = "nvidia"
-	HardwareIntel  HardwareAccel = "intel"
-	HardwareAMD    HardwareAccel = "amd"
+ HardwareNone   HardwareAccel = "none"
+ HardwareNvidia HardwareAccel = "nvidia"
+ HardwareIntel  HardwareAccel = "intel"
+ HardwareAMD    HardwareAccel = "amd"
 )
 
 // Condition types follow the k8s api-conventions: adjectives / past-tense verbs, positive polarity.
 const (
-	ConditionReady      = "Ready"      // summary condition
-	ConditionJobCreated = "JobCreated" // batch/v1 Job exists
-	ConditionSucceeded  = "Succeeded"  // terminal success
+ ConditionReady      = "Ready"      // summary condition
+ ConditionJobCreated = "JobCreated" // batch/v1 Job exists
+ ConditionSucceeded  = "Succeeded"  // terminal success
 )
 
 // TranscodeJobSpec is the desired state of a single transcode.
 type TranscodeJobSpec struct {
-	// Source is the media path (relative to the media PVC mount) to transcode. Immutable.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=4096
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.source is immutable"
-	Source string `json:"source"`
+ // Source is the media path (relative to the media PVC mount) to transcode. Immutable.
+ // +required
+ // +kubebuilder:validation:MinLength=1
+ // +kubebuilder:validation:MaxLength=4096
+ // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.source is immutable"
+ Source string `json:"source"`
 
-	// ProfileRef names a cluster-scoped TranscodeProfile.
-	// +required
-	ProfileRef corev1.LocalObjectReference `json:"profileRef"`
+ // ProfileRef names a cluster-scoped TranscodeProfile.
+ // +required
+ ProfileRef corev1.LocalObjectReference `json:"profileRef"`
 
-	// Priority 0-100, higher is scheduled first (mapped onto the controller-runtime priority queue).
-	// +kubebuilder:default=50
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=100
-	// +optional
-	Priority int32 `json:"priority,omitempty"`
+ // Priority 0-100, higher is scheduled first (mapped onto the controller-runtime priority queue).
+ // +kubebuilder:default=50
+ // +kubebuilder:validation:Minimum=0
+ // +kubebuilder:validation:Maximum=100
+ // +optional
+ Priority int32 `json:"priority,omitempty"`
 
-	// +kubebuilder:default=none
-	// +optional
-	Hardware HardwareAccel `json:"hardware,omitempty"`
+ // +kubebuilder:default=none
+ // +optional
+ Hardware HardwareAccel `json:"hardware,omitempty"`
 
-	// Resources for the worker container (CPU/memory). GPU limits are injected by the controller from Hardware.
-	// +optional
-	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+ // Resources for the worker container (CPU/memory). GPU limits are injected by the controller from Hardware.
+ // +optional
+ Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
-	// +kubebuilder:default=3600
-	// +kubebuilder:validation:Minimum=0
-	// +optional
-	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+ // +kubebuilder:default=3600
+ // +kubebuilder:validation:Minimum=0
+ // +optional
+ TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
 
-	// +kubebuilder:default=2
-	// +kubebuilder:validation:Minimum=0
-	// +optional
-	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
+ // +kubebuilder:default=2
+ // +kubebuilder:validation:Minimum=0
+ // +optional
+ BackoffLimit *int32 `json:"backoffLimit,omitempty"`
 }
 
 // TranscodePhase is a coarse, human-facing summary (conditions are the source of truth).
@@ -709,35 +711,35 @@ type TranscodeJobSpec struct {
 type TranscodePhase string
 
 const (
-	PhasePending   TranscodePhase = "Pending"
-	PhaseRunning   TranscodePhase = "Running"
-	PhaseSucceeded TranscodePhase = "Succeeded"
-	PhaseFailed    TranscodePhase = "Failed"
+ PhasePending   TranscodePhase = "Pending"
+ PhaseRunning   TranscodePhase = "Running"
+ PhaseSucceeded TranscodePhase = "Succeeded"
+ PhaseFailed    TranscodePhase = "Failed"
 )
 
 // TranscodeJobStatus is the observed state.
 type TranscodeJobStatus struct {
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+ // +optional
+ ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// +optional
-	Phase TranscodePhase `json:"phase,omitempty"`
+ // +optional
+ Phase TranscodePhase `json:"phase,omitempty"`
 
-	// JobName is the batch/v1 Job created for this transcode.
-	// +optional
-	JobName string `json:"jobName,omitempty"`
+ // JobName is the batch/v1 Job created for this transcode.
+ // +optional
+ JobName string `json:"jobName,omitempty"`
 
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+ // +optional
+ StartTime *metav1.Time `json:"startTime,omitempty"`
+ // +optional
+ CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 
-	// +optional
-	// +listType=map
-	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+ // +optional
+ // +listType=map
+ // +listMapKey=type
+ // +patchStrategy=merge
+ // +patchMergeKey=type
+ Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 // TranscodeJob requests one transcode of one source file into a TranscodeProfile.
@@ -753,24 +755,24 @@ type TranscodeJobStatus struct {
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="self.spec.hardware != 'nvidia' || !has(self.spec.resources.limits) || !('nvidia.com/gpu' in self.spec.resources.limits)",message="do not set nvidia.com/gpu limits directly; the controller injects them from spec.hardware"
 type TranscodeJob struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+ metav1.TypeMeta   `json:",inline"`
+ metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// +required
-	Spec TranscodeJobSpec `json:"spec"`
-	// +optional
-	Status TranscodeJobStatus `json:"status,omitempty"`
+ // +required
+ Spec TranscodeJobSpec `json:"spec"`
+ // +optional
+ Status TranscodeJobStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 type TranscodeJobList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []TranscodeJob `json:"items"`
+ metav1.TypeMeta `json:",inline"`
+ metav1.ListMeta `json:"metadata,omitempty"`
+ Items           []TranscodeJob `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&TranscodeJob{}, &TranscodeJobList{})
+ SchemeBuilder.Register(&TranscodeJob{}, &TranscodeJobList{})
 }
 ```
 
@@ -780,47 +782,47 @@ func init() {
 package controller
 
 import (
-	"context"
-	"fmt"
-	"time"
+ "context"
+ "fmt"
+ "time"
 
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/recorder"
+ batchv1 "k8s.io/api/batch/v1"
+ corev1 "k8s.io/api/core/v1"
+ apierrors "k8s.io/apimachinery/pkg/api/errors"
+ "k8s.io/apimachinery/pkg/api/meta"
+ "k8s.io/apimachinery/pkg/api/resource"
+ metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ "k8s.io/apimachinery/pkg/runtime"
+ "k8s.io/apimachinery/pkg/types"
+ "k8s.io/utils/ptr"
+ ctrl "sigs.k8s.io/controller-runtime"
+ "sigs.k8s.io/controller-runtime/pkg/builder"
+ "sigs.k8s.io/controller-runtime/pkg/client"
+ "sigs.k8s.io/controller-runtime/pkg/controller"
+ "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+ "sigs.k8s.io/controller-runtime/pkg/handler"
+ logf "sigs.k8s.io/controller-runtime/pkg/log"
+ "sigs.k8s.io/controller-runtime/pkg/predicate"
+ "sigs.k8s.io/controller-runtime/pkg/reconcile"
+ "sigs.k8s.io/controller-runtime/pkg/recorder"
 
-	clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
+ clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
 )
 
 const (
-	// Finalizer is namespaced with the API group, per api-conventions.
-	Finalizer = "clustarr.io/transcodejob"
-	// profileIndexKey is a cache field index so profile changes fan out to jobs.
-	profileIndexKey = ".spec.profileRef.name"
+ // Finalizer is namespaced with the API group, per api-conventions.
+ Finalizer = "clustarr.io/transcodejob"
+ // profileIndexKey is a cache field index so profile changes fan out to jobs.
+ profileIndexKey = ".spec.profileRef.name"
 )
 
 // TranscodeJobReconciler turns a TranscodeJob into a batch/v1 Job and mirrors its outcome.
 type TranscodeJobReconciler struct {
-	client.Client
-	Scheme      *runtime.Scheme
-	Recorder    recorder.EventRecorder // new events.k8s.io API (mgr.GetEventRecorder)
-	WorkerImage string
-	MediaPVC    string
+ client.Client
+ Scheme      *runtime.Scheme
+ Recorder    recorder.EventRecorder // new events.k8s.io API (mgr.GetEventRecorder)
+ WorkerImage string
+ MediaPVC    string
 }
 
 // RBAC markers: `controller-gen rbac:roleName=manager-role paths=./...` collects these into config/rbac/role.yaml.
@@ -833,274 +835,274 @@ type TranscodeJobReconciler struct {
 
 // Reconcile is idempotent: it observes the TranscodeJob + its child Job and converges status.
 func (r *TranscodeJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
+ log := logf.FromContext(ctx)
 
-	tj := &clustarrv1alpha1.TranscodeJob{}
-	if err := r.Get(ctx, req.NamespacedName, tj); err != nil {
-		// NotFound after delete: nothing to do (finalizer already ran or never set).
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
+ tj := &clustarrv1alpha1.TranscodeJob{}
+ if err := r.Get(ctx, req.NamespacedName, tj); err != nil {
+  // NotFound after delete: nothing to do (finalizer already ran or never set).
+  return ctrl.Result{}, client.IgnoreNotFound(err)
+ }
 
-	// ---- deletion path -------------------------------------------------------------------
-	if !tj.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(tj, Finalizer) {
-			// External cleanup goes here (e.g. NAK the NATS message, delete scratch files).
-			// The child Job is garbage collected by the API server via ownerReferences.
-			controllerutil.RemoveFinalizer(tj, Finalizer)
-			if err := r.Update(ctx, tj); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
-	}
+ // ---- deletion path -------------------------------------------------------------------
+ if !tj.DeletionTimestamp.IsZero() {
+  if controllerutil.ContainsFinalizer(tj, Finalizer) {
+   // External cleanup goes here (e.g. NAK the NATS message, delete scratch files).
+   // The child Job is garbage collected by the API server via ownerReferences.
+   controllerutil.RemoveFinalizer(tj, Finalizer)
+   if err := r.Update(ctx, tj); err != nil {
+    return ctrl.Result{}, err
+   }
+  }
+  return ctrl.Result{}, nil
+ }
 
-	// ---- ensure finalizer (metadata-only update: does NOT bump generation) ----------------
-	if controllerutil.AddFinalizer(tj, Finalizer) {
-		if err := r.Update(ctx, tj); err != nil {
-			return ctrl.Result{}, err
-		}
-		// Do not return here: with GenerationChangedPredicate on For(), the resulting update
-		// event is filtered and we would stall until resync. Continue with the fresh object.
-	}
+ // ---- ensure finalizer (metadata-only update: does NOT bump generation) ----------------
+ if controllerutil.AddFinalizer(tj, Finalizer) {
+  if err := r.Update(ctx, tj); err != nil {
+   return ctrl.Result{}, err
+  }
+  // Do not return here: with GenerationChangedPredicate on For(), the resulting update
+  // event is filtered and we would stall until resync. Continue with the fresh object.
+ }
 
-	// ---- main path; status is patched once at the end ------------------------------------
-	before := tj.DeepCopy()
-	res, err := r.reconcileNormal(ctx, tj)
-	tj.Status.ObservedGeneration = tj.Generation
-	if perr := r.Status().Patch(ctx, tj, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); perr != nil {
-		if apierrors.IsConflict(perr) {
-			log.V(1).Info("status conflict, requeueing")
-			return ctrl.Result{RequeueAfter: time.Second}, nil
-		}
-		if err == nil {
-			err = perr
-		}
-	}
-	return res, err
+ // ---- main path; status is patched once at the end ------------------------------------
+ before := tj.DeepCopy()
+ res, err := r.reconcileNormal(ctx, tj)
+ tj.Status.ObservedGeneration = tj.Generation
+ if perr := r.Status().Patch(ctx, tj, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); perr != nil {
+  if apierrors.IsConflict(perr) {
+   log.V(1).Info("status conflict, requeueing")
+   return ctrl.Result{RequeueAfter: time.Second}, nil
+  }
+  if err == nil {
+   err = perr
+  }
+ }
+ return res, err
 }
 
 func (r *TranscodeJobReconciler) reconcileNormal(ctx context.Context, tj *clustarrv1alpha1.TranscodeJob) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
+ log := logf.FromContext(ctx)
 
-	profile := &clustarrv1alpha1.TranscodeProfile{}
-	if err := r.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef.Name}, profile); err != nil {
-		if apierrors.IsNotFound(err) {
-			setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "ProfileNotFound",
-				fmt.Sprintf("TranscodeProfile %q does not exist", tj.Spec.ProfileRef.Name))
-			tj.Status.Phase = clustarrv1alpha1.PhasePending
-			// No requeue needed: Watches(TranscodeProfile) + field index re-enqueues us when it appears.
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, err
-	}
+ profile := &clustarrv1alpha1.TranscodeProfile{}
+ if err := r.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef.Name}, profile); err != nil {
+  if apierrors.IsNotFound(err) {
+   setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "ProfileNotFound",
+    fmt.Sprintf("TranscodeProfile %q does not exist", tj.Spec.ProfileRef.Name))
+   tj.Status.Phase = clustarrv1alpha1.PhasePending
+   // No requeue needed: Watches(TranscodeProfile) + field index re-enqueues us when it appears.
+   return ctrl.Result{}, nil
+  }
+  return ctrl.Result{}, err
+ }
 
-	job := &batchv1.Job{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: jobNameFor(tj)}, job)
-	switch {
-	case apierrors.IsNotFound(err):
-		if tj.Status.Phase == clustarrv1alpha1.PhaseSucceeded || tj.Status.Phase == clustarrv1alpha1.PhaseFailed {
-			// Job was TTL-collected after completion; keep terminal status, do not recreate.
-			return ctrl.Result{}, nil
-		}
-		job = r.buildJob(tj, profile)
-		if err := controllerutil.SetControllerReference(tj, job, r.Scheme); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.Create(ctx, job); err != nil {
-			if apierrors.IsAlreadyExists(err) { // cache lag: someone (we) created it already
-				return ctrl.Result{RequeueAfter: time.Second}, nil
-			}
-			return ctrl.Result{}, err
-		}
-		r.Recorder.Eventf(tj, nil, corev1.EventTypeNormal, "JobCreated", "Reconcile", "created Job %s", job.Name)
-		tj.Status.JobName = job.Name
-		tj.Status.StartTime = ptr.To(metav1.Now())
-		tj.Status.Phase = clustarrv1alpha1.PhaseRunning
-		setCondition(tj, clustarrv1alpha1.ConditionJobCreated, metav1.ConditionTrue, "Created", "batch/v1 Job "+job.Name)
-		setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "Running", "transcode in progress")
-		log.Info("created worker Job", "job", job.Name, "hardware", tj.Spec.Hardware)
-		return ctrl.Result{}, nil
-	case err != nil:
-		return ctrl.Result{}, err
-	}
+ job := &batchv1.Job{}
+ err := r.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: jobNameFor(tj)}, job)
+ switch {
+ case apierrors.IsNotFound(err):
+  if tj.Status.Phase == clustarrv1alpha1.PhaseSucceeded || tj.Status.Phase == clustarrv1alpha1.PhaseFailed {
+   // Job was TTL-collected after completion; keep terminal status, do not recreate.
+   return ctrl.Result{}, nil
+  }
+  job = r.buildJob(tj, profile)
+  if err := controllerutil.SetControllerReference(tj, job, r.Scheme); err != nil {
+   return ctrl.Result{}, err
+  }
+  if err := r.Create(ctx, job); err != nil {
+   if apierrors.IsAlreadyExists(err) { // cache lag: someone (we) created it already
+    return ctrl.Result{RequeueAfter: time.Second}, nil
+   }
+   return ctrl.Result{}, err
+  }
+  r.Recorder.Eventf(tj, nil, corev1.EventTypeNormal, "JobCreated", "Reconcile", "created Job %s", job.Name)
+  tj.Status.JobName = job.Name
+  tj.Status.StartTime = new(metav1.Now())
+  tj.Status.Phase = clustarrv1alpha1.PhaseRunning
+  setCondition(tj, clustarrv1alpha1.ConditionJobCreated, metav1.ConditionTrue, "Created", "batch/v1 Job "+job.Name)
+  setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "Running", "transcode in progress")
+  log.Info("created worker Job", "job", job.Name, "hardware", tj.Spec.Hardware)
+  return ctrl.Result{}, nil
+ case err != nil:
+  return ctrl.Result{}, err
+ }
 
-	// Mirror the Job's terminal conditions into ours.
-	switch {
-	case jobConditionTrue(job, batchv1.JobComplete):
-		tj.Status.Phase = clustarrv1alpha1.PhaseSucceeded
-		tj.Status.CompletionTime = job.Status.CompletionTime
-		setCondition(tj, clustarrv1alpha1.ConditionSucceeded, metav1.ConditionTrue, "JobComplete", "worker exited 0")
-		setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionTrue, "Succeeded", "transcode finished")
-	case jobConditionTrue(job, batchv1.JobFailed):
-		c := findJobCondition(job, batchv1.JobFailed)
-		tj.Status.Phase = clustarrv1alpha1.PhaseFailed
-		setCondition(tj, clustarrv1alpha1.ConditionSucceeded, metav1.ConditionFalse, c.Reason, c.Message)
-		setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "Failed", c.Message)
-		r.Recorder.Eventf(tj, job, corev1.EventTypeWarning, "JobFailed", "Reconcile", "%s: %s", c.Reason, c.Message)
-	default:
-		tj.Status.Phase = clustarrv1alpha1.PhaseRunning
-		setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "Running",
-			fmt.Sprintf("active=%d succeeded=%d failed=%d", job.Status.Active, job.Status.Succeeded, job.Status.Failed))
-	}
-	return ctrl.Result{}, nil
+ // Mirror the Job's terminal conditions into ours.
+ switch {
+ case jobConditionTrue(job, batchv1.JobComplete):
+  tj.Status.Phase = clustarrv1alpha1.PhaseSucceeded
+  tj.Status.CompletionTime = job.Status.CompletionTime
+  setCondition(tj, clustarrv1alpha1.ConditionSucceeded, metav1.ConditionTrue, "JobComplete", "worker exited 0")
+  setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionTrue, "Succeeded", "transcode finished")
+ case jobConditionTrue(job, batchv1.JobFailed):
+  c := findJobCondition(job, batchv1.JobFailed)
+  tj.Status.Phase = clustarrv1alpha1.PhaseFailed
+  setCondition(tj, clustarrv1alpha1.ConditionSucceeded, metav1.ConditionFalse, c.Reason, c.Message)
+  setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "Failed", c.Message)
+  r.Recorder.Eventf(tj, job, corev1.EventTypeWarning, "JobFailed", "Reconcile", "%s: %s", c.Reason, c.Message)
+ default:
+  tj.Status.Phase = clustarrv1alpha1.PhaseRunning
+  setCondition(tj, clustarrv1alpha1.ConditionReady, metav1.ConditionFalse, "Running",
+   fmt.Sprintf("active=%d succeeded=%d failed=%d", job.Status.Active, job.Status.Succeeded, job.Status.Failed))
+ }
+ return ctrl.Result{}, nil
 }
 
 // buildJob is the "scheduler": it translates spec.hardware into device requests + node affinity.
 func (r *TranscodeJobReconciler) buildJob(tj *clustarrv1alpha1.TranscodeJob, p *clustarrv1alpha1.TranscodeProfile) *batchv1.Job {
-	labels := map[string]string{
-		"app.kubernetes.io/name":       "transcodarr-worker",
-		"app.kubernetes.io/managed-by": "transcodarr",
-		"clustarr.io/transcodejob":     tj.Name,
-		"clustarr.io/profile":          p.Name,
-	}
-	res := tj.Spec.Resources.DeepCopy()
-	if res.Limits == nil {
-		res.Limits = corev1.ResourceList{}
-	}
-	podSpec := corev1.PodSpec{
-		RestartPolicy: corev1.RestartPolicyNever,
-		Containers: []corev1.Container{{
-			Name:  "ffmpeg",
-			Image: r.WorkerImage,
-			Args: []string{
-				"transcode",
-				"--source", tj.Spec.Source,
-				"--video-codec", string(p.Spec.VideoCodec),
-				"--crf", fmt.Sprint(p.Spec.CRF),
-				"--preset", p.Spec.Preset,
-				"--audio-codec", p.Spec.AudioCodec,
-				"--audio-bitrate", p.Spec.AudioBitrate,
-				"--hw", string(tj.Spec.Hardware),
-			},
-			Resources:    *res,
-			VolumeMounts: []corev1.VolumeMount{{Name: "media", MountPath: "/media"}},
-			SecurityContext: &corev1.SecurityContext{
-				AllowPrivilegeEscalation: ptr.To(false),
-				Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-			},
-		}},
-		Volumes: []corev1.Volume{{
-			Name:         "media",
-			VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: r.MediaPVC}},
-		}},
-	}
+ labels := map[string]string{
+  "app.kubernetes.io/name":       "transcodarr-worker",
+  "app.kubernetes.io/managed-by": "transcodarr",
+  "clustarr.io/transcodejob":     tj.Name,
+  "clustarr.io/profile":          p.Name,
+ }
+ res := tj.Spec.Resources.DeepCopy()
+ if res.Limits == nil {
+  res.Limits = corev1.ResourceList{}
+ }
+ podSpec := corev1.PodSpec{
+  RestartPolicy: corev1.RestartPolicyNever,
+  Containers: []corev1.Container{{
+   Name:  "ffmpeg",
+   Image: r.WorkerImage,
+   Args: []string{
+    "transcode",
+    "--source", tj.Spec.Source,
+    "--video-codec", string(p.Spec.VideoCodec),
+    "--crf", fmt.Sprint(p.Spec.CRF),
+    "--preset", p.Spec.Preset,
+    "--audio-codec", p.Spec.AudioCodec,
+    "--audio-bitrate", p.Spec.AudioBitrate,
+    "--hw", string(tj.Spec.Hardware),
+   },
+   Resources:    *res,
+   VolumeMounts: []corev1.VolumeMount{{Name: "media", MountPath: "/media"}},
+   SecurityContext: &corev1.SecurityContext{
+    AllowPrivilegeEscalation: new(false),
+    Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+   },
+  }},
+  Volumes: []corev1.Volume{{
+   Name:         "media",
+   VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: r.MediaPVC}},
+  }},
+ }
 
-	switch tj.Spec.Hardware {
-	case clustarrv1alpha1.HardwareNvidia:
-		// Device plugin extended resource + RuntimeClass from nvidia-container-toolkit.
-		res.Limits["nvidia.com/gpu"] = resource.MustParse("1")
-		podSpec.RuntimeClassName = ptr.To("nvidia")
-		podSpec.Containers[0].Env = append(podSpec.Containers[0].Env,
-			corev1.EnvVar{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "video,compute,utility"})
-		podSpec.Affinity = nodeAffinityIn("nvidia.com/gpu.present", "true")
-		podSpec.Tolerations = []corev1.Toleration{{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
-	case clustarrv1alpha1.HardwareIntel:
-		// Intel GPU device plugin exposes /dev/dri render nodes through this extended resource.
-		res.Limits["gpu.intel.com/i915"] = resource.MustParse("1")
-		podSpec.Affinity = nodeAffinityIn("intel.feature.node.kubernetes.io/gpu", "true")
-	case clustarrv1alpha1.HardwareAMD:
-		res.Limits["amd.com/gpu"] = resource.MustParse("1")
-	}
-	podSpec.Containers[0].Resources = *res
+ switch tj.Spec.Hardware {
+ case clustarrv1alpha1.HardwareNvidia:
+  // Device plugin extended resource + RuntimeClass from nvidia-container-toolkit.
+  res.Limits["nvidia.com/gpu"] = resource.MustParse("1")
+  podSpec.RuntimeClassName = new("nvidia")
+  podSpec.Containers[0].Env = append(podSpec.Containers[0].Env,
+   corev1.EnvVar{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "video,compute,utility"})
+  podSpec.Affinity = nodeAffinityIn("nvidia.com/gpu.present", "true")
+  podSpec.Tolerations = []corev1.Toleration{{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
+ case clustarrv1alpha1.HardwareIntel:
+  // Intel GPU device plugin exposes /dev/dri render nodes through this extended resource.
+  res.Limits["gpu.intel.com/i915"] = resource.MustParse("1")
+  podSpec.Affinity = nodeAffinityIn("intel.feature.node.kubernetes.io/gpu", "true")
+ case clustarrv1alpha1.HardwareAMD:
+  res.Limits["amd.com/gpu"] = resource.MustParse("1")
+ }
+ podSpec.Containers[0].Resources = *res
 
-	return &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobNameFor(tj),
-			Namespace: tj.Namespace,
-			Labels:    labels,
-		},
-		Spec: batchv1.JobSpec{
-			Parallelism:             ptr.To[int32](1),
-			Completions:             ptr.To[int32](1),
-			BackoffLimit:            tj.Spec.BackoffLimit,
-			TTLSecondsAfterFinished: tj.Spec.TTLSecondsAfterFinished,
-			ActiveDeadlineSeconds:   ptr.To[int64](6 * 3600),
-			PodReplacementPolicy:    ptr.To(batchv1.Failed),
-			PodFailurePolicy: &batchv1.PodFailurePolicy{Rules: []batchv1.PodFailurePolicyRule{
-				{ // preemption / node drain: do not count against backoffLimit
-					Action:          batchv1.PodFailurePolicyActionIgnore,
-					OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue}},
-				},
-				{ // ffmpeg "bad input" exit code: fail fast, no retry
-					Action:      batchv1.PodFailurePolicyActionFailJob,
-					OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{ContainerName: ptr.To("ffmpeg"), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn, Values: []int32{64, 65, 66}},
-				},
-			}},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec:       podSpec,
-			},
-		},
-	}
+ return &batchv1.Job{
+  ObjectMeta: metav1.ObjectMeta{
+   Name:      jobNameFor(tj),
+   Namespace: tj.Namespace,
+   Labels:    labels,
+  },
+  Spec: batchv1.JobSpec{
+   Parallelism:             ptr.To[int32](1),
+   Completions:             ptr.To[int32](1),
+   BackoffLimit:            tj.Spec.BackoffLimit,
+   TTLSecondsAfterFinished: tj.Spec.TTLSecondsAfterFinished,
+   ActiveDeadlineSeconds:   ptr.To[int64](6 * 3600),
+   PodReplacementPolicy:    new(batchv1.Failed),
+   PodFailurePolicy: &batchv1.PodFailurePolicy{Rules: []batchv1.PodFailurePolicyRule{
+    { // preemption / node drain: do not count against backoffLimit
+     Action:          batchv1.PodFailurePolicyActionIgnore,
+     OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue}},
+    },
+    { // ffmpeg "bad input" exit code: fail fast, no retry
+     Action:      batchv1.PodFailurePolicyActionFailJob,
+     OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{ContainerName: new("ffmpeg"), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn, Values: []int32{64, 65, 66}},
+    },
+   }},
+   Template: corev1.PodTemplateSpec{
+    ObjectMeta: metav1.ObjectMeta{Labels: labels},
+    Spec:       podSpec,
+   },
+  },
+ }
 }
 
 func nodeAffinityIn(key string, values ...string) *corev1.Affinity {
-	return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-				MatchExpressions: []corev1.NodeSelectorRequirement{{Key: key, Operator: corev1.NodeSelectorOpIn, Values: values}},
-			}},
-		},
-	}}
+ return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+  RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+   NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+    MatchExpressions: []corev1.NodeSelectorRequirement{{Key: key, Operator: corev1.NodeSelectorOpIn, Values: values}},
+   }},
+  },
+ }}
 }
 
 func jobNameFor(tj *clustarrv1alpha1.TranscodeJob) string { return "transcode-" + tj.Name }
 
 func setCondition(tj *clustarrv1alpha1.TranscodeJob, t string, s metav1.ConditionStatus, reason, msg string) {
-	meta.SetStatusCondition(&tj.Status.Conditions, metav1.Condition{
-		Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: tj.Generation,
-	})
+ meta.SetStatusCondition(&tj.Status.Conditions, metav1.Condition{
+  Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: tj.Generation,
+ })
 }
 
 func findJobCondition(job *batchv1.Job, t batchv1.JobConditionType) batchv1.JobCondition {
-	for _, c := range job.Status.Conditions {
-		if c.Type == t {
-			return c
-		}
-	}
-	return batchv1.JobCondition{Type: t, Reason: "Unknown"}
+ for _, c := range job.Status.Conditions {
+  if c.Type == t {
+   return c
+  }
+ }
+ return batchv1.JobCondition{Type: t, Reason: "Unknown"}
 }
 
 func jobConditionTrue(job *batchv1.Job, t batchv1.JobConditionType) bool {
-	return findJobCondition(job, t).Status == corev1.ConditionTrue
+ return findJobCondition(job, t).Status == corev1.ConditionTrue
 }
 
 // SetupWithManager wires watches: own CR, owned Jobs, and a fan-out from TranscodeProfile.
 func (r *TranscodeJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &clustarrv1alpha1.TranscodeJob{}, profileIndexKey,
-		func(o client.Object) []string {
-			return []string{o.(*clustarrv1alpha1.TranscodeJob).Spec.ProfileRef.Name}
-		}); err != nil {
-		return err
-	}
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("transcodejob").
-		For(&clustarrv1alpha1.TranscodeJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, // spec changes
-			predicate.AnnotationChangedPredicate{}, // allow "kick" via annotation
-		))).
-		Owns(&batchv1.Job{}). // EnqueueRequestForOwner(OnlyControllerOwner) under the hood
-		Watches(&clustarrv1alpha1.TranscodeProfile{}, handler.EnqueueRequestsFromMapFunc(r.jobsForProfile)).
-		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 4,
-			RecoverPanic:            ptr.To(true),
-			UsePriorityQueue:        ptr.To(true), // default in v0.25 anyway
-			ReconciliationTimeout:   2 * time.Minute,
-		}).
-		Complete(r)
+ if err := mgr.GetFieldIndexer().IndexField(context.Background(), &clustarrv1alpha1.TranscodeJob{}, profileIndexKey,
+  func(o client.Object) []string {
+   return []string{o.(*clustarrv1alpha1.TranscodeJob).Spec.ProfileRef.Name}
+  }); err != nil {
+  return err
+ }
+ return ctrl.NewControllerManagedBy(mgr).
+  Named("transcodejob").
+  For(&clustarrv1alpha1.TranscodeJob{}, builder.WithPredicates(predicate.Or(
+   predicate.GenerationChangedPredicate{}, // spec changes
+   predicate.AnnotationChangedPredicate{}, // allow "kick" via annotation
+  ))).
+  Owns(&batchv1.Job{}). // EnqueueRequestForOwner(OnlyControllerOwner) under the hood
+  Watches(&clustarrv1alpha1.TranscodeProfile{}, handler.EnqueueRequestsFromMapFunc(r.jobsForProfile)).
+  WithOptions(controller.Options{
+   MaxConcurrentReconciles: 4,
+   RecoverPanic:            new(true),
+   UsePriorityQueue:        new(true), // default in v0.25 anyway
+   ReconciliationTimeout:   2 * time.Minute,
+  }).
+  Complete(r)
 }
 
 func (r *TranscodeJobReconciler) jobsForProfile(ctx context.Context, o client.Object) []reconcile.Request {
-	var list clustarrv1alpha1.TranscodeJobList
-	if err := r.List(ctx, &list, client.MatchingFields{profileIndexKey: o.GetName()}); err != nil {
-		logf.FromContext(ctx).Error(err, "listing TranscodeJobs for profile", "profile", o.GetName())
-		return nil
-	}
-	reqs := make([]reconcile.Request, 0, len(list.Items))
-	for i := range list.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
-	}
-	return reqs
+ var list clustarrv1alpha1.TranscodeJobList
+ if err := r.List(ctx, &list, client.MatchingFields{profileIndexKey: o.GetName()}); err != nil {
+  logf.FromContext(ctx).Error(err, "listing TranscodeJobs for profile", "profile", o.GetName())
+  return nil
+ }
+ reqs := make([]reconcile.Request, 0, len(list.Items))
+ for i := range list.Items {
+  reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+ }
+ return reqs
 }
 ```
 
@@ -1110,29 +1112,29 @@ SSA variant for status (`internal/controller/ssa_probe.go`, compiles with genera
 package controller
 
 import (
-	"context"
+ "context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+ metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+ "sigs.k8s.io/controller-runtime/pkg/client"
 
-	clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
-	acv1alpha1 "example.com/k8sprobe/api/v1alpha1/applyconfiguration/api/v1alpha1"
+ clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
+ acv1alpha1 "example.com/k8sprobe/api/v1alpha1/applyconfiguration/api/v1alpha1"
 )
 
 // applyStatusSSA shows the server-side-apply way to write status (only fields we own, no conflicts).
 func applyStatusSSA(ctx context.Context, c client.Client, tj *clustarrv1alpha1.TranscodeJob) error {
-	ac := acv1alpha1.TranscodeJob(tj.Name, tj.Namespace).
-		WithStatus(acv1alpha1.TranscodeJobStatus().
-			WithPhase(clustarrv1alpha1.PhaseRunning).
-			WithObservedGeneration(tj.Generation).
-			WithConditions(metav1ac.Condition().
-				WithType(clustarrv1alpha1.ConditionReady).
-				WithStatus(metav1.ConditionFalse).
-				WithReason("Running").
-				WithObservedGeneration(tj.Generation).
-				WithLastTransitionTime(metav1.Now())))
-	return c.Status().Apply(ctx, ac, client.FieldOwner("transcodarr"), client.ForceOwnership)
+ ac := acv1alpha1.TranscodeJob(tj.Name, tj.Namespace).
+  WithStatus(acv1alpha1.TranscodeJobStatus().
+   WithPhase(clustarrv1alpha1.PhaseRunning).
+   WithObservedGeneration(tj.Generation).
+   WithConditions(metav1ac.Condition().
+    WithType(clustarrv1alpha1.ConditionReady).
+    WithStatus(metav1.ConditionFalse).
+    WithReason("Running").
+    WithObservedGeneration(tj.Generation).
+    WithLastTransitionTime(metav1.Now())))
+ return c.Status().Apply(ctx, ac, client.FieldOwner("transcodarr"), client.ForceOwnership)
 }
 ```
 
@@ -1142,188 +1144,188 @@ func applyStatusSSA(ctx context.Context, c client.Client, tj *clustarrv1alpha1.T
 package controller
 
 import (
-	"context"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
+ "context"
+ "os"
+ "path/filepath"
+ "strings"
+ "testing"
+ "time"
 
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	eventsv1 "k8s.io/api/events/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+ batchv1 "k8s.io/api/batch/v1"
+ corev1 "k8s.io/api/core/v1"
+ eventsv1 "k8s.io/api/events/v1"
+ apierrors "k8s.io/apimachinery/pkg/api/errors"
+ "k8s.io/apimachinery/pkg/api/meta"
+ metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ "k8s.io/apimachinery/pkg/types"
+ "k8s.io/apimachinery/pkg/util/wait"
+ "k8s.io/client-go/kubernetes/scheme"
+ ctrl "sigs.k8s.io/controller-runtime"
+ "sigs.k8s.io/controller-runtime/pkg/client"
+ "sigs.k8s.io/controller-runtime/pkg/envtest"
+ logf "sigs.k8s.io/controller-runtime/pkg/log"
+ "sigs.k8s.io/controller-runtime/pkg/log/zap"
+ metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
+ clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
 )
 
 func TestTranscodeJobReconciler(t *testing.T) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(os.Stderr)))
-	testEnv := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
-	cfg, err := testEnv.Start()
-	if err != nil {
-		t.Fatalf("envtest start: %v", err)
-	}
-	t.Cleanup(func() { _ = testEnv.Stop() })
-	if err := clustarrv1alpha1.AddToScheme(scheme.Scheme); err != nil {
-		t.Fatal(err)
-	}
+ logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(os.Stderr)))
+ testEnv := &envtest.Environment{
+  CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+  ErrorIfCRDPathMissing: true,
+ }
+ cfg, err := testEnv.Start()
+ if err != nil {
+  t.Fatalf("envtest start: %v", err)
+ }
+ t.Cleanup(func() { _ = testEnv.Stop() })
+ if err := clustarrv1alpha1.AddToScheme(scheme.Scheme); err != nil {
+  t.Fatal(err)
+ }
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:                 scheme.Scheme,
-		Metrics:                metricsserver.Options{BindAddress: "0"},
-		HealthProbeBindAddress: "0",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := &TranscodeJobReconciler{
-		Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("transcodejob-controller"),
-		WorkerImage: "ghcr.io/clustarr/worker:test", MediaPVC: "media",
-	}
-	if err := r.SetupWithManager(mgr); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = mgr.Start(ctx) }()
-	if !mgr.GetCache().WaitForCacheSync(ctx) {
-		t.Fatal("cache sync")
-	}
-	k8s := mgr.GetClient()
+ mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+  Scheme:                 scheme.Scheme,
+  Metrics:                metricsserver.Options{BindAddress: "0"},
+  HealthProbeBindAddress: "0",
+ })
+ if err != nil {
+  t.Fatal(err)
+ }
+ r := &TranscodeJobReconciler{
+  Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
+  Recorder: mgr.GetEventRecorder("transcodejob-controller"),
+  WorkerImage: "ghcr.io/clustarr/worker:test", MediaPVC: "media",
+ }
+ if err := r.SetupWithManager(mgr); err != nil {
+  t.Fatal(err)
+ }
+ ctx, cancel := context.WithCancel(context.Background())
+ t.Cleanup(cancel)
+ go func() { _ = mgr.Start(ctx) }()
+ if !mgr.GetCache().WaitForCacheSync(ctx) {
+  t.Fatal("cache sync")
+ }
+ k8s := mgr.GetClient()
 
-	// --- 1. create TranscodeJob before its profile exists -> Ready=False/ProfileNotFound
-	tj := &clustarrv1alpha1.TranscodeJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "movie-1", Namespace: "default"},
-		Spec: clustarrv1alpha1.TranscodeJobSpec{
-			Source: "movies/Example (2020)/Example.mkv", ProfileRef: corev1.LocalObjectReference{Name: "hevc-opt"}, Hardware: clustarrv1alpha1.HardwareNvidia,
-		},
-	}
-	if err := k8s.Create(ctx, tj); err != nil {
-		t.Fatal(err)
-	}
-	// API-server defaulting from +kubebuilder:default markers
-	if tj.Spec.Priority != 50 || tj.Spec.TTLSecondsAfterFinished == nil || *tj.Spec.TTLSecondsAfterFinished != 3600 || tj.Spec.BackoffLimit == nil || *tj.Spec.BackoffLimit != 2 {
-		t.Fatalf("defaults not applied: %+v", tj.Spec)
-	}
-	key := types.NamespacedName{Namespace: "default", Name: "movie-1"}
-	waitFor(t, ctx, func() bool {
-		_ = k8s.Get(ctx, key, tj)
-		c := meta.FindStatusCondition(tj.Status.Conditions, clustarrv1alpha1.ConditionReady)
-		return c != nil && c.Reason == "ProfileNotFound" && len(tj.Finalizers) == 1
-	}, "Ready=False/ProfileNotFound + finalizer")
-	t.Logf("phase=%s conditions=%+v finalizers=%v", tj.Status.Phase, tj.Status.Conditions, tj.Finalizers)
+ // --- 1. create TranscodeJob before its profile exists -> Ready=False/ProfileNotFound
+ tj := &clustarrv1alpha1.TranscodeJob{
+  ObjectMeta: metav1.ObjectMeta{Name: "movie-1", Namespace: "default"},
+  Spec: clustarrv1alpha1.TranscodeJobSpec{
+   Source: "movies/Example (2020)/Example.mkv", ProfileRef: corev1.LocalObjectReference{Name: "hevc-opt"}, Hardware: clustarrv1alpha1.HardwareNvidia,
+  },
+ }
+ if err := k8s.Create(ctx, tj); err != nil {
+  t.Fatal(err)
+ }
+ // API-server defaulting from +kubebuilder:default markers
+ if tj.Spec.Priority != 50 || tj.Spec.TTLSecondsAfterFinished == nil || *tj.Spec.TTLSecondsAfterFinished != 3600 || tj.Spec.BackoffLimit == nil || *tj.Spec.BackoffLimit != 2 {
+  t.Fatalf("defaults not applied: %+v", tj.Spec)
+ }
+ key := types.NamespacedName{Namespace: "default", Name: "movie-1"}
+ waitFor(t, ctx, func() bool {
+  _ = k8s.Get(ctx, key, tj)
+  c := meta.FindStatusCondition(tj.Status.Conditions, clustarrv1alpha1.ConditionReady)
+  return c != nil && c.Reason == "ProfileNotFound" && len(tj.Finalizers) == 1
+ }, "Ready=False/ProfileNotFound + finalizer")
+ t.Logf("phase=%s conditions=%+v finalizers=%v", tj.Status.Phase, tj.Status.Conditions, tj.Finalizers)
 
-	// --- 2. CEL: spec.source immutable
-	mut := tj.DeepCopy()
-	mut.Spec.Source = "other.mkv"
-	err = k8s.Update(ctx, mut)
-	if !apierrors.IsInvalid(err) || !strings.Contains(err.Error(), "spec.source is immutable") {
-		t.Fatalf("expected CEL immutability error, got: %v", err)
-	}
-	t.Logf("CEL immutability OK: %v", err)
+ // --- 2. CEL: spec.source immutable
+ mut := tj.DeepCopy()
+ mut.Spec.Source = "other.mkv"
+ err = k8s.Update(ctx, mut)
+ if !apierrors.IsInvalid(err) || !strings.Contains(err.Error(), "spec.source is immutable") {
+  t.Fatalf("expected CEL immutability error, got: %v", err)
+ }
+ t.Logf("CEL immutability OK: %v", err)
 
-	// --- 3. CEL: object-level cross-field rule
-	bad := &clustarrv1alpha1.TranscodeJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "bad", Namespace: "default"},
-		Spec: clustarrv1alpha1.TranscodeJobSpec{Source: "x.mkv", ProfileRef: corev1.LocalObjectReference{Name: "hevc-opt"}, Hardware: clustarrv1alpha1.HardwareNvidia,
-			Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"nvidia.com/gpu": resourceMustParse("1")}}},
-	}
-	err = k8s.Create(ctx, bad)
-	if !apierrors.IsInvalid(err) || !strings.Contains(err.Error(), "do not set nvidia.com/gpu limits directly") {
-		t.Fatalf("expected object-level CEL error, got: %v", err)
-	}
-	t.Logf("CEL cross-field OK: %v", err)
+ // --- 3. CEL: object-level cross-field rule
+ bad := &clustarrv1alpha1.TranscodeJob{
+  ObjectMeta: metav1.ObjectMeta{Name: "bad", Namespace: "default"},
+  Spec: clustarrv1alpha1.TranscodeJobSpec{Source: "x.mkv", ProfileRef: corev1.LocalObjectReference{Name: "hevc-opt"}, Hardware: clustarrv1alpha1.HardwareNvidia,
+   Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"nvidia.com/gpu": resourceMustParse("1")}}},
+ }
+ err = k8s.Create(ctx, bad)
+ if !apierrors.IsInvalid(err) || !strings.Contains(err.Error(), "do not set nvidia.com/gpu limits directly") {
+  t.Fatalf("expected object-level CEL error, got: %v", err)
+ }
+ t.Logf("CEL cross-field OK: %v", err)
 
-	// --- 4. create the (cluster-scoped) profile -> Watches()+index fan-out re-enqueues the job
-	profile := &clustarrv1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "hevc-opt"}}
-	if err := k8s.Create(ctx, profile); err != nil {
-		t.Fatal(err)
-	}
-	if profile.Spec.CRF != 23 || profile.Spec.VideoCodec != "hevc" || profile.Spec.AudioBitrate != "160k" {
-		t.Fatalf("profile defaults not applied: %+v", profile.Spec)
-	}
-	job := &batchv1.Job{}
-	waitFor(t, ctx, func() bool {
-		return k8s.Get(ctx, types.NamespacedName{Namespace: "default", Name: "transcode-movie-1"}, job) == nil
-	}, "batch/v1 Job created")
-	if !metav1.IsControlledBy(job, tj) {
-		t.Fatalf("job not controlled by TranscodeJob: %+v", job.OwnerReferences)
-	}
-	ps := job.Spec.Template.Spec
-	if ps.RuntimeClassName == nil || *ps.RuntimeClassName != "nvidia" || ps.Containers[0].Resources.Limits.Name("nvidia.com/gpu", "").String() != "1" || ps.Affinity == nil {
-		t.Fatalf("gpu scheduling not applied: %+v", ps)
-	}
-	if job.Spec.TTLSecondsAfterFinished == nil || *job.Spec.TTLSecondsAfterFinished != 3600 || job.Spec.PodFailurePolicy == nil {
-		t.Fatalf("job spec: %+v", job.Spec)
-	}
-	t.Logf("Job OK: owner=%s ttl=%d runtimeClass=%s limits=%v", job.OwnerReferences[0].Name, *job.Spec.TTLSecondsAfterFinished, *ps.RuntimeClassName, ps.Containers[0].Resources.Limits)
-	waitFor(t, ctx, func() bool {
-		_ = k8s.Get(ctx, key, tj)
-		return tj.Status.Phase == clustarrv1alpha1.PhaseRunning && tj.Status.JobName == job.Name && tj.Status.ObservedGeneration == tj.Generation
-	}, "phase Running")
+ // --- 4. create the (cluster-scoped) profile -> Watches()+index fan-out re-enqueues the job
+ profile := &clustarrv1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "hevc-opt"}}
+ if err := k8s.Create(ctx, profile); err != nil {
+  t.Fatal(err)
+ }
+ if profile.Spec.CRF != 23 || profile.Spec.VideoCodec != "hevc" || profile.Spec.AudioBitrate != "160k" {
+  t.Fatalf("profile defaults not applied: %+v", profile.Spec)
+ }
+ job := &batchv1.Job{}
+ waitFor(t, ctx, func() bool {
+  return k8s.Get(ctx, types.NamespacedName{Namespace: "default", Name: "transcode-movie-1"}, job) == nil
+ }, "batch/v1 Job created")
+ if !metav1.IsControlledBy(job, tj) {
+  t.Fatalf("job not controlled by TranscodeJob: %+v", job.OwnerReferences)
+ }
+ ps := job.Spec.Template.Spec
+ if ps.RuntimeClassName == nil || *ps.RuntimeClassName != "nvidia" || ps.Containers[0].Resources.Limits.Name("nvidia.com/gpu", "").String() != "1" || ps.Affinity == nil {
+  t.Fatalf("gpu scheduling not applied: %+v", ps)
+ }
+ if job.Spec.TTLSecondsAfterFinished == nil || *job.Spec.TTLSecondsAfterFinished != 3600 || job.Spec.PodFailurePolicy == nil {
+  t.Fatalf("job spec: %+v", job.Spec)
+ }
+ t.Logf("Job OK: owner=%s ttl=%d runtimeClass=%s limits=%v", job.OwnerReferences[0].Name, *job.Spec.TTLSecondsAfterFinished, *ps.RuntimeClassName, ps.Containers[0].Resources.Limits)
+ waitFor(t, ctx, func() bool {
+  _ = k8s.Get(ctx, key, tj)
+  return tj.Status.Phase == clustarrv1alpha1.PhaseRunning && tj.Status.JobName == job.Name && tj.Status.ObservedGeneration == tj.Generation
+ }, "phase Running")
 
-	// --- 5. simulate the Job controller marking completion (no kube-controller-manager in envtest)
-	// k8s >=1.33 Job status validation: finished Jobs need startTime, and Complete=True requires
-	// SuccessCriteriaMet=True to be set first (KEP-3998 success policy, GA).
-	now := metav1.Now()
-	job.Status.StartTime = &now
-	job.Status.Conditions = append(job.Status.Conditions, batchv1.JobCondition{Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue, LastTransitionTime: now})
-	if err := k8s.Status().Update(ctx, job); err != nil {
-		t.Fatal(err)
-	}
-	job.Status.Conditions = append(job.Status.Conditions, batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue, LastTransitionTime: now})
-	job.Status.Succeeded = 1
-	job.Status.CompletionTime = &now
-	if err := k8s.Status().Update(ctx, job); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, ctx, func() bool {
-		_ = k8s.Get(ctx, key, tj)
-		return tj.Status.Phase == clustarrv1alpha1.PhaseSucceeded && meta.IsStatusConditionTrue(tj.Status.Conditions, clustarrv1alpha1.ConditionReady)
-	}, "phase Succeeded via Owns(Job)")
-	t.Logf("final conditions: %+v", tj.Status.Conditions)
+ // --- 5. simulate the Job controller marking completion (no kube-controller-manager in envtest)
+ // k8s >=1.33 Job status validation: finished Jobs need startTime, and Complete=True requires
+ // SuccessCriteriaMet=True to be set first (KEP-3998 success policy, GA).
+ now := metav1.Now()
+ job.Status.StartTime = &now
+ job.Status.Conditions = append(job.Status.Conditions, batchv1.JobCondition{Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue, LastTransitionTime: now})
+ if err := k8s.Status().Update(ctx, job); err != nil {
+  t.Fatal(err)
+ }
+ job.Status.Conditions = append(job.Status.Conditions, batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue, LastTransitionTime: now})
+ job.Status.Succeeded = 1
+ job.Status.CompletionTime = &now
+ if err := k8s.Status().Update(ctx, job); err != nil {
+  t.Fatal(err)
+ }
+ waitFor(t, ctx, func() bool {
+  _ = k8s.Get(ctx, key, tj)
+  return tj.Status.Phase == clustarrv1alpha1.PhaseSucceeded && meta.IsStatusConditionTrue(tj.Status.Conditions, clustarrv1alpha1.ConditionReady)
+ }, "phase Succeeded via Owns(Job)")
+ t.Logf("final conditions: %+v", tj.Status.Conditions)
 
-	// --- 6. events.k8s.io/v1 Event recorded through the new recorder API
-	evs := &eventsv1.EventList{}
-	waitFor(t, ctx, func() bool {
-		_ = k8s.List(ctx, evs, client.InNamespace("default"))
-		for _, e := range evs.Items {
-			if e.Reason == "JobCreated" && e.ReportingController == "transcodejob-controller" {
-				return true
-			}
-		}
-		return false
-	}, "events.k8s.io event")
-	t.Logf("event: %s %s regarding=%s/%s", evs.Items[0].Reason, evs.Items[0].Note, evs.Items[0].Regarding.Kind, evs.Items[0].Regarding.Name)
+ // --- 6. events.k8s.io/v1 Event recorded through the new recorder API
+ evs := &eventsv1.EventList{}
+ waitFor(t, ctx, func() bool {
+  _ = k8s.List(ctx, evs, client.InNamespace("default"))
+  for _, e := range evs.Items {
+   if e.Reason == "JobCreated" && e.ReportingController == "transcodejob-controller" {
+    return true
+   }
+  }
+  return false
+ }, "events.k8s.io event")
+ t.Logf("event: %s %s regarding=%s/%s", evs.Items[0].Reason, evs.Items[0].Note, evs.Items[0].Regarding.Kind, evs.Items[0].Regarding.Name)
 
-	// --- 7. delete -> finalizer removed -> object gone
-	if err := k8s.Delete(ctx, tj); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, ctx, func() bool { return apierrors.IsNotFound(k8s.Get(ctx, key, tj)) }, "deleted after finalizer")
+ // --- 7. delete -> finalizer removed -> object gone
+ if err := k8s.Delete(ctx, tj); err != nil {
+  t.Fatal(err)
+ }
+ waitFor(t, ctx, func() bool { return apierrors.IsNotFound(k8s.Get(ctx, key, tj)) }, "deleted after finalizer")
 }
 
 func waitFor(t *testing.T, ctx context.Context, cond func() bool, what string) {
-	t.Helper()
-	if err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) { return cond(), nil }); err != nil {
-		t.Fatalf("timeout waiting for %s: %v", what, err)
-	}
+ t.Helper()
+ if err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) { return cond(), nil }); err != nil {
+  t.Fatalf("timeout waiting for %s: %v", what, err)
+ }
 }
 ```
 
@@ -1333,129 +1335,129 @@ func waitFor(t *testing.T, ctx context.Context, cond func() bool, what string) {
 package main
 
 import (
-	"crypto/tls"
-	"flag"
-	"os"
+ "crypto/tls"
+ "flag"
+ "os"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	_ "k8s.io/client-go/plugin/pkg/client/auth" // cloud auth providers
-	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
+ "github.com/prometheus/client_golang/prometheus"
+ "k8s.io/apimachinery/pkg/runtime"
+ utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+ _ "k8s.io/client-go/plugin/pkg/client/auth" // cloud auth providers
+ "k8s.io/utils/ptr"
+ ctrl "sigs.k8s.io/controller-runtime"
+ "sigs.k8s.io/controller-runtime/pkg/cache"
+ "sigs.k8s.io/controller-runtime/pkg/config"
+ "sigs.k8s.io/controller-runtime/pkg/healthz"
+ "sigs.k8s.io/controller-runtime/pkg/log/zap"
+ "sigs.k8s.io/controller-runtime/pkg/metrics"
+ "sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+ metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+ "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
-	"example.com/k8sprobe/internal/controller"
+ clustarrv1alpha1 "example.com/k8sprobe/api/v1alpha1"
+ "example.com/k8sprobe/internal/controller"
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+ scheme   = runtime.NewScheme()
+ setupLog = ctrl.Log.WithName("setup")
 
-	// Custom metric registered on controller-runtime's registry -> served on /metrics with the built-ins.
-	transcodeJobsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "clustarr_transcodejobs_total", Help: "TranscodeJobs by terminal phase.",
-	}, []string{"phase", "hardware"})
+ // Custom metric registered on controller-runtime's registry -> served on /metrics with the built-ins.
+ transcodeJobsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+  Name: "clustarr_transcodejobs_total", Help: "TranscodeJobs by terminal phase.",
+ }, []string{"phase", "hardware"})
 )
 
 func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(clustarrv1alpha1.AddToScheme(scheme))
-	metrics.Registry.MustRegister(transcodeJobsTotal)
+ utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+ utilruntime.Must(clustarrv1alpha1.AddToScheme(scheme))
+ metrics.Registry.MustRegister(transcodeJobsTotal)
 }
 
 func main() {
-	var (
-		metricsAddr, probeAddr, watchNamespace, workerImage, mediaPVC string
-		enableLeaderElection, secureMetrics, enableHTTP2         bool
-	)
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics endpoint; \"0\" disables, \":8443\" secure, \":8080\" plain")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe endpoint")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "enable leader election (one active replica)")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true, "serve metrics over HTTPS with authn/authz")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false, "enable HTTP/2 for metrics and webhook servers")
-	flag.StringVar(&watchNamespace, "watch-namespace", "", "restrict cache to one namespace (empty = cluster-wide)")
-	flag.StringVar(&workerImage, "worker-image", "ghcr.io/clustarr/transcodarr-worker:latest", "ffmpeg worker image")
-	flag.StringVar(&mediaPVC, "media-pvc", "media", "PVC holding the media library")
-	opts := zap.Options{Development: true}
-	opts.BindFlags(flag.CommandLine) // adds --zap-devel, --zap-encoder, --zap-log-level, --zap-stacktrace-level, --zap-time-encoding
-	flag.Parse()
+ var (
+  metricsAddr, probeAddr, watchNamespace, workerImage, mediaPVC string
+  enableLeaderElection, secureMetrics, enableHTTP2         bool
+ )
+ flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics endpoint; \"0\" disables, \":8443\" secure, \":8080\" plain")
+ flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe endpoint")
+ flag.BoolVar(&enableLeaderElection, "leader-elect", false, "enable leader election (one active replica)")
+ flag.BoolVar(&secureMetrics, "metrics-secure", true, "serve metrics over HTTPS with authn/authz")
+ flag.BoolVar(&enableHTTP2, "enable-http2", false, "enable HTTP/2 for metrics and webhook servers")
+ flag.StringVar(&watchNamespace, "watch-namespace", "", "restrict cache to one namespace (empty = cluster-wide)")
+ flag.StringVar(&workerImage, "worker-image", "ghcr.io/clustarr/transcodarr-worker:latest", "ffmpeg worker image")
+ flag.StringVar(&mediaPVC, "media-pvc", "media", "PVC holding the media library")
+ opts := zap.Options{Development: true}
+ opts.BindFlags(flag.CommandLine) // adds --zap-devel, --zap-encoder, --zap-log-level, --zap-stacktrace-level, --zap-time-encoding
+ flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+ ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	// HTTP/2 off by default (CVE-2023-44487 / -39325 mitigations), same as kubebuilder scaffold.
-	tlsOpts := []func(*tls.Config){}
-	if !enableHTTP2 {
-		tlsOpts = append(tlsOpts, func(c *tls.Config) { c.NextProtos = []string{"http/1.1"} })
-	}
+ // HTTP/2 off by default (CVE-2023-44487 / -39325 mitigations), same as kubebuilder scaffold.
+ tlsOpts := []func(*tls.Config){}
+ if !enableHTTP2 {
+  tlsOpts = append(tlsOpts, func(c *tls.Config) { c.NextProtos = []string{"http/1.1"} })
+ }
 
-	metricsOpts := metricsserver.Options{BindAddress: metricsAddr, SecureServing: secureMetrics, TLSOpts: tlsOpts}
-	if secureMetrics {
-		// TokenReview/SubjectAccessReview-protected /metrics (needs the metrics_auth_role RBAC).
-		metricsOpts.FilterProvider = filters.WithAuthenticationAndAuthorization
-	}
+ metricsOpts := metricsserver.Options{BindAddress: metricsAddr, SecureServing: secureMetrics, TLSOpts: tlsOpts}
+ if secureMetrics {
+  // TokenReview/SubjectAccessReview-protected /metrics (needs the metrics_auth_role RBAC).
+  metricsOpts.FilterProvider = filters.WithAuthenticationAndAuthorization
+ }
 
-	cacheOpts := cache.Options{}
-	if watchNamespace != "" {
-		cacheOpts.DefaultNamespaces = map[string]cache.Config{watchNamespace: {}}
-	}
+ cacheOpts := cache.Options{}
+ if watchNamespace != "" {
+  cacheOpts.DefaultNamespaces = map[string]cache.Config{watchNamespace: {}}
+ }
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                        scheme,
-		Metrics:                       metricsOpts,
-		HealthProbeBindAddress:        probeAddr,
-		LeaderElection:                enableLeaderElection,
-		LeaderElectionID:              "transcodarr.clustarr.io",
-		LeaderElectionReleaseOnCancel: true,
-		Cache:                         cacheOpts,
-		// No admission webhooks in this binary: -1 disables the webhook server entirely (new in v0.25).
-		WebhookServer: webhook.NewServer(webhook.Options{Port: -1, TLSOpts: tlsOpts}),
-		Controller: config.Controller{
-			RecoverPanic:     ptr.To(true),
-			UsePriorityQueue: ptr.To(true),
-			// Per-kind concurrency without touching each controller: key is "Kind.group".
-			GroupKindConcurrency: map[string]int{"TranscodeJob.clustarr.io": 8},
-		},
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
-	}
+ mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+  Scheme:                        scheme,
+  Metrics:                       metricsOpts,
+  HealthProbeBindAddress:        probeAddr,
+  LeaderElection:                enableLeaderElection,
+  LeaderElectionID:              "transcodarr.clustarr.io",
+  LeaderElectionReleaseOnCancel: true,
+  Cache:                         cacheOpts,
+  // No admission webhooks in this binary: -1 disables the webhook server entirely (new in v0.25).
+  WebhookServer: webhook.NewServer(webhook.Options{Port: -1, TLSOpts: tlsOpts}),
+  Controller: config.Controller{
+   RecoverPanic:     new(true),
+   UsePriorityQueue: new(true),
+   // Per-kind concurrency without touching each controller: key is "Kind.group".
+   GroupKindConcurrency: map[string]int{"TranscodeJob.clustarr.io": 8},
+  },
+ })
+ if err != nil {
+  setupLog.Error(err, "unable to start manager")
+  os.Exit(1)
+ }
 
-	if err := (&controller.TranscodeJobReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorder("transcodejob-controller"),
-		WorkerImage: workerImage,
-		MediaPVC:    mediaPVC,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "TranscodeJob")
-		os.Exit(1)
-	}
+ if err := (&controller.TranscodeJobReconciler{
+  Client:      mgr.GetClient(),
+  Scheme:      mgr.GetScheme(),
+  Recorder:    mgr.GetEventRecorder("transcodejob-controller"),
+  WorkerImage: workerImage,
+  MediaPVC:    mediaPVC,
+ }).SetupWithManager(mgr); err != nil {
+  setupLog.Error(err, "unable to create controller", "controller", "TranscodeJob")
+  os.Exit(1)
+ }
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
-	}
+ if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+  setupLog.Error(err, "unable to set up health check")
+  os.Exit(1)
+ }
+ if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+  setupLog.Error(err, "unable to set up ready check")
+  os.Exit(1)
+ }
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
+ setupLog.Info("starting manager")
+ if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+  setupLog.Error(err, "problem running manager")
+  os.Exit(1)
+ }
 }
 ```
 
@@ -1621,13 +1623,13 @@ type Options struct { MetricsAddr, ProbeAddr, WatchNamespace string; LeaderElect
 * `go doc` / `go list -m -versions` on this machine for sigs.k8s.io/controller-runtime v0.25.1, k8s.io/* v0.37.0, controller-tools v0.22.0, keda v2.20.2 (2026-09-18)
 * `controller-gen -h`, `controller-gen crd|rbac|webhook|object|applyconfiguration -w` (v0.22.0)
 * `setup-envtest --help`, `setup-envtest list`, envtest run with kube-apiserver 1.37.0
-* https://github.com/kubernetes-sigs/controller-runtime/releases (v0.25.0, v0.25.1, v0.24.0)
+* <https://github.com/kubernetes-sigs/controller-runtime/releases> (v0.25.0, v0.25.1, v0.24.0)
 * controller-runtime module cache: `designs/priorityqueue.md`, `designs/warmreplicas.md`, `examples/priorityqueue/main.go`, `pkg/recorder/recorder.go`
-* https://github.com/kubernetes-sigs/controller-tools/releases (v0.22.0, v0.21.0, v0.20.0)
-* https://github.com/kubernetes-sigs/kubebuilder/releases (v4.16.0 ... v4.11.0) and https://api.github.com/repos/kubernetes-sigs/kubebuilder/releases/latest
-* https://raw.githubusercontent.com/kubernetes-sigs/kubebuilder/master/testdata/project-v4/{Makefile,cmd/main.go,Dockerfile,PROJECT,.golangci.yml,config/**}
-* https://book.kubebuilder.io/plugins/available/helm-v2-alpha ; https://book.kubebuilder.io/migration/multi-group
+* <https://github.com/kubernetes-sigs/controller-tools/releases> (v0.22.0, v0.21.0, v0.20.0)
+* <https://github.com/kubernetes-sigs/kubebuilder/releases> (v4.16.0 ... v4.11.0) and <https://api.github.com/repos/kubernetes-sigs/kubebuilder/releases/latest>
+* <https://raw.githubusercontent.com/kubernetes-sigs/kubebuilder/master/testdata/project-v4/{Makefile,cmd/main.go,Dockerfile,PROJECT,.golangci.yml,config/**}>
+* <https://book.kubebuilder.io/plugins/available/helm-v2-alpha> ; <https://book.kubebuilder.io/migration/multi-group>
 * DeepWiki: kubernetes-sigs/kubebuilder (layout + Makefile), kedacore/keda (nats-jetstream scaler internals), kubernetes-sigs/kueue (single-binary multi-controller structure)
-* https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md (conditions)
-* https://keda.sh/docs/2.20/scalers/nats-jetstream/ ; https://keda.sh/docs/2.20/reference/scaledjob-spec/
-* https://github.com/NVIDIA/k8s-device-plugin/blob/main/README.md ; https://github.com/intel/intel-device-plugins-for-kubernetes/blob/main/cmd/gpu_plugin/README.md
+* <https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md> (conditions)
+* <https://keda.sh/docs/2.20/scalers/nats-jetstream/> ; <https://keda.sh/docs/2.20/reference/scaledjob-spec/>
+* <https://github.com/NVIDIA/k8s-device-plugin/blob/main/README.md> ; <https://github.com/intel/intel-device-plugins-for-kubernetes/blob/main/cmd/gpu_plugin/README.md>

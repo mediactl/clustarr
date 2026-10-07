@@ -24,7 +24,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -59,7 +58,7 @@ func TestWatchesWakeTheController(t *testing.T) {
 		Scheme:                 k8s.MustNewScheme(),
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
-		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller:             config.Controller{SkipNameValidation: new(true)},
 		// Only this test's namespace: the other tests' requests share the
 		// apiserver and must not be reconciled by this manager.
 		Cache: cache.Options{DefaultNamespaces: map[string]cache.Config{f.ns: {}}},
