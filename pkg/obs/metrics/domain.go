@@ -443,3 +443,15 @@ var (
 		"remediation", "op",
 	)
 )
+
+// Agent write refusals (ADR-0019 §9.2). pkg/k8s.ReadOnly counts every
+// Kubernetes write it refuses, by verb (create, update, patch, apply,
+// delete, deleteAllOf, or <subresource>/<verb>). Agents never write the
+// Kubernetes API, so any value above zero is a bug.
+var (
+	AgentWriteRefusedTotal = newCounterVec(
+		"clustarr_agent_write_refused_total",
+		"Kubernetes writes an agent attempted and the read-only client refused (ADR-0019); any value above zero is a bug.",
+		"verb",
+	)
+)

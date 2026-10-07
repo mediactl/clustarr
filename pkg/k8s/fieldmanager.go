@@ -336,6 +336,10 @@ const (
 // and an unreadable audit across the split. It is untyped on purpose: it is
 // not a FieldManager, so Validate never accepts it for server-side apply,
 // and every PatchStatus, Apply and client.FieldOwner site keeps its own name.
+// It is also the item finalizer's field owner: EnsureFinalizer and
+// RemoveFinalizer write catalogv1alpha1.FinalizerTransfers
+// (download.clustarr.io/transfers) on an owning item under it, from
+// cmd/manager only (ADR-0019 §6.8).
 const DefaultFieldOwner = "clustarr"
 
 // FieldManagers lists every manager name §2 allows, in spec order.
