@@ -59,10 +59,10 @@ type Profile struct {
 	// AudioLanguages are QualityProfileSpec.Audio.Languages verbatim (BCP-47
 	// tags or "original"), nil when the profile sets no audio policy; when
 	// set, pkg/decision's audio check replaces the Language one (anime
-	// dual-audio spec §5). AudioGraft and AudioDefault are the policy's
+	// dual-audio spec §5). GraftAudio and AudioDefault are the policy's
 	// other two fields.
 	AudioLanguages []string
-	AudioGraft     bool
+	GraftAudio     bool
 	AudioDefault   string
 	// ScoreSet is the resolved score set ("default", "anime-sonarr",
 	// "anime-radarr"). Scores already reflects it, so Hash leaves it out;
@@ -315,7 +315,7 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
-		AudioLanguages: audio, AudioGraft: audioGraft, AudioDefault: audioDefault, ScoreSet: scoreSet,
+		AudioLanguages: audio, GraftAudio: audioGraft, AudioDefault: audioDefault, ScoreSet: scoreSet,
 		ProperPolicy: string(p.Spec.ProperPolicy),
 		Sizes:        sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
 		MediaKind: kind,
@@ -395,7 +395,7 @@ func hashProfile(p Profile) string {
 	_, _ = fmt.Fprintf(h, "cutoff=%d|upgrade=%t|min=%d|cutoffFmt=%d|minUpgrade=%d|lang=%s|proper=%s|protocol=%s\n",
 		p.CutoffIndex, p.UpgradeAllowed, p.MinFormatScore, p.CutoffFormatScore, p.MinUpgradeFormatScore, p.Language, p.ProperPolicy, p.PreferredProtocol)
 	if p.AudioLanguages != nil {
-		_, _ = fmt.Fprintf(h, "audio=%s|graft=%t|default=%s\n", strings.Join(p.AudioLanguages, ","), p.AudioGraft, p.AudioDefault)
+		_, _ = fmt.Fprintf(h, "audio=%s|graft=%t|default=%s\n", strings.Join(p.AudioLanguages, ","), p.GraftAudio, p.AudioDefault)
 	}
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))

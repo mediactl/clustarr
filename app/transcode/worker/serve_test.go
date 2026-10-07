@@ -402,7 +402,7 @@ func TestServeReportsClaimedProgressFinishedAndAcks(t *testing.T) {
 	assert.Equal(t, int32(40), progress.Progress.Percent)
 	assert.Equal(t, transcodev1alpha1.HardwareCPU, progress.Class)
 
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{OutputPath: "/data/x.mkv"}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{OutputPath: "/data/x.mkv"}}
 	fin := h.next(task.EventFinished)
 	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
 	assert.Equal(t, "/data/x.mkv", fin.Result.OutputPath)
@@ -467,7 +467,7 @@ func TestServeReplacesACancelledLeaseFromAnEarlierAttempt(t *testing.T) {
 	h.publish(2, 0)
 	assert.Equal(t, int32(2), h.next(task.EventClaimed).Attempt, "attempt 2 was dropped by attempt 1's cancel marker")
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
 	assert.Equal(t, int32(2), h.next(task.EventFinished).Attempt)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 }
@@ -552,7 +552,7 @@ func TestServeAdoptsARevisionAfterALostUpdateReply(t *testing.T) {
 		t.Fatal("a lost Update reply for the worker's own lease must not stop the encode")
 	default:
 	}
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
 	fin := h.next(task.EventFinished)
 	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
@@ -564,7 +564,7 @@ func TestServeFinishesASucceededTaskDespiteDrain(t *testing.T) {
 	h.serve()
 	h.publish(1, 0)
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{OutputPath: "/data/x.mkv"}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{OutputPath: "/data/x.mkv"}}
 	h.cancel() // SIGTERM lands as Process returns
 	assert.Equal(t, task.OutcomeSucceeded, h.next(task.EventFinished).Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
@@ -639,7 +639,7 @@ func TestServeReportsSuccessEvenAfterTheDeadlineFired(t *testing.T) {
 	<-h.started
 	h.clock.Advance(61 * time.Second)
 	time.Sleep(20 * time.Millisecond) // let the deadline timer fire and cancel work
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{OutputPath: "/data/x.mkv"}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{OutputPath: "/data/x.mkv"}}
 	fin := h.next(task.EventFinished)
 	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
 	assert.Equal(t, "/data/x.mkv", fin.Result.OutputPath)
@@ -660,7 +660,7 @@ func TestServeRetriesAClaimAfterALostMarkerReplace(t *testing.T) {
 	assert.Equal(t, int32(2), claimed.Attempt, "the claim retried after its first replace attempt's reply was lost")
 	assert.True(t, failFirst.failed.Load())
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
 	assert.Equal(t, int32(2), h.next(task.EventFinished).Attempt)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 }
@@ -674,7 +674,7 @@ func TestServeReleasesTheLeaseWhenTheFinishedPublishFails(t *testing.T) {
 	h.serveOnBus(fb)
 	h.publish(1, 0)
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
 	s := h.nextSettlement()
 	assert.Equal(t, settleNak, s.kind)
 	assert.Zero(t, s.delay)
@@ -684,7 +684,7 @@ func TestServeReleasesTheLeaseWhenTheFinishedPublishFails(t *testing.T) {
 	// release made that possible instead of leaving the redelivery to wait
 	// out the lease TTL) and this time the publish succeeds.
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
 	fin := h.next(task.EventFinished)
 	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
@@ -802,7 +802,7 @@ func TestServeRetriesTransientPullErrorsThenClaimsTheTask(t *testing.T) {
 	})
 	h.publish(1, 0)
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
 	fin := h.next(task.EventFinished)
 	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
@@ -906,7 +906,7 @@ func TestServeRetriesTheInitialPull(t *testing.T) {
 	})
 	h.publish(1, 0)
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
 	fin := h.next(task.EventFinished)
 	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)

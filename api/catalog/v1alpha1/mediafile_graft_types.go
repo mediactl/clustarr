@@ -34,9 +34,9 @@ const (
 )
 
 // GraftState is the file's audio graft, written by the remediation loop's
-// graft planner (loop spec §2.6; ADR-0016). It replaces AudioGraft's
-// per-file half; the item-scoped half (the donor, the rejected releases) is
-// the item's status.audio. It exists only on a single-item file whose item
+// graft planner (loop spec §2.6; ADR-0016): the file's half of a graft;
+// the item-scoped half (the donor, the rejected releases) is the item's
+// status.audio. It exists only on a single-item file whose item
 // has a donor and is missing languages, or has a graft result for this
 // probe.
 type GraftState struct {

@@ -24,15 +24,14 @@ package v1alpha1
 //
 // Sidecar is a subtitle sidecar beside the media file (loop spec §2.7):
 // every attributable one the subtitles planner's directory read finds,
-// downloaded, written by the MP4 standard or placed by hand.
+// downloaded, written by the MP4 standard or placed by hand. A reader that
+// needs its path calls PathBeside.
 type SidecarApplyConfiguration struct {
-	// Path is the sidecar's absolute path: today's field and the list's map
-	// key, written by the loop on every entry in release N (dir(spec.path)
-	// list after a rollback (§2.16). The loop fills each half from the
-	// other on an entry it carries forward. Deleted in N+1.
-	Path *string `json:"path,omitempty"`
 	// Name is the sidecar's file name in the media file's directory.
-	// rollback has none); +required with MinLength=1 from N+1.
+	// It is omitted when empty in Go so that an entry a 0.4.x install
+	// stored with a path alone (pruned on read) is re-sent as stored and
+	// ratcheted, never as an empty name the schema refuses; the loop's next
+	// listing replaces it.
 	Name *string `json:"name,omitempty"`
 	// Language is the sidecar's language tag.
 	Language *string `json:"language,omitempty"`
@@ -46,14 +45,6 @@ type SidecarApplyConfiguration struct {
 // apply.
 func Sidecar() *SidecarApplyConfiguration {
 	return &SidecarApplyConfiguration{}
-}
-
-// WithPath sets the Path field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Path field is set to the value of the last call.
-func (b *SidecarApplyConfiguration) WithPath(value string) *SidecarApplyConfiguration {
-	b.Path = &value
-	return b
 }
 
 // WithName sets the Name field in the declarative configuration to the given value

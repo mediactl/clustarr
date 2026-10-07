@@ -19,22 +19,6 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-// TranscodeResult is the outcome of the most recent transcode of a file:
-// today's lastResult, kept in release N's schema only so the previous
-// release's apply stays valid after a rollback (loop spec §2.16). The loop
-// never writes it; F9.2 deletes it.
-//
-// +kubebuilder:validation:Enum=none;succeeded;failed;skipped
-type TranscodeResult string
-
-// Transcode results.
-const (
-	TranscodeResultNone      TranscodeResult = "none"
-	TranscodeResultSucceeded TranscodeResult = "succeeded"
-	TranscodeResultFailed    TranscodeResult = "failed"
-	TranscodeResultSkipped   TranscodeResult = "skipped"
-)
-
 // TranscodePhase is status.transcode's phase (loop spec §2.5).
 // +kubebuilder:validation:Enum=Pending;Planned;Queued;Running;Swapping;Succeeded;Failed;Skipped
 type TranscodePhase string
@@ -98,14 +82,14 @@ const (
 )
 
 // TranscodeState is the file's transcode, written by the remediation loop's
-// transcode planner (loop spec §2.5; ADR-0016). It replaces TranscodeJob.
+// transcode planner (loop spec §2.5; ADR-0016).
 type TranscodeState struct {
-	// Phase is always written by the loop. It is +optional, and omitted
-	// when empty, in release N only: the previous release applies this
-	// block with no phase under the same field manager, and a typed
-	// phase-less block must not send phase:"" (§2.16). F9.2 makes it
-	// +required.
-	// +optional
+	// Phase is always written by the loop. It is omitted when empty in Go
+	// so that a phase-less block a 0.4.x install stored, which the loop
+	// carries unchanged until its transcode planner rewrites it (§2.5
+	// "Legacy objects"), is re-sent as stored and ratcheted rather than as
+	// phase:"", which the enum refuses.
+	// +required
 	Phase TranscodePhase `json:"phase,omitempty"`
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
@@ -196,16 +180,6 @@ type TranscodeState struct {
 	// its next dispatch (§5.13).
 	// +optional
 	JoinedGraft *TranscodeGraftJoin `json:"joinedGraft,omitempty"`
-
-	// JobRef and LastResult are today's fields, kept in release N's schema
-	// only so the previous release's apply is still valid after a rollback
-	// (§2.16). The loop never writes them; LastResult has no default. F9.2
-	// deletes both.
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	JobRef *string `json:"jobRef,omitempty"`
-	// +optional
-	LastResult TranscodeResult `json:"lastResult,omitempty"`
 }
 
 // TranscodeGraftJoin is the graft a transcode dispatch carries.
@@ -245,9 +219,8 @@ type TranscodePlan struct {
 	// Dropped names each source subtitle the output carries neither embedded
 	// nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
 	// not carry, or a second track for a sidecar name already planned), each
-	// clamped on a rune boundary; past 8, the eighth reads "and N more". It
-	// replaces the "; dropped …" suffix main's c0fb39b7 adds to TranscodeJob's
-	// Planned condition, which the fold removes (loop spec §2.5, D44).
+	// clamped on a rune boundary; past 8, the eighth reads "and N more"
+	// (loop spec §2.5, D44).
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=8

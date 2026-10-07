@@ -28,12 +28,13 @@ import (
 // with apply.
 //
 // TranscodeState is the file's transcode, written by the remediation loop's
-// transcode planner (loop spec §2.5; ADR-0016). It replaces TranscodeJob.
+// transcode planner (loop spec §2.5; ADR-0016).
 type TranscodeStateApplyConfiguration struct {
-	// Phase is always written by the loop. It is +optional, and omitted
-	// when empty, in release N only: the previous release applies this
-	// block with no phase under the same field manager, and a typed
-	// phase-less block must not send phase:"" (§2.16). F9.2 makes it
+	// Phase is always written by the loop. It is omitted when empty in Go
+	// so that a phase-less block a 0.4.x install stored, which the loop
+	// carries unchanged until its transcode planner rewrites it (§2.5
+	// "Legacy objects"), is re-sent as stored and ratcheted rather than as
+	// phase:"", which the enum refuses.
 	Phase   *catalogv1alpha1.TranscodePhase `json:"phase,omitempty"`
 	Reason  *string                         `json:"reason,omitempty"`
 	Message *string                         `json:"message,omitempty"`
@@ -88,12 +89,6 @@ type TranscodeStateApplyConfiguration struct {
 	// by the transcode planner in the apply that dispatches and kept until
 	// its next dispatch (§5.13).
 	JoinedGraft *TranscodeGraftJoinApplyConfiguration `json:"joinedGraft,omitempty"`
-	// JobRef and LastResult are today's fields, kept in release N's schema
-	// only so the previous release's apply is still valid after a rollback
-	// (§2.16). The loop never writes them; LastResult has no default. F9.2
-	// deletes both.
-	JobRef     *string                          `json:"jobRef,omitempty"`
-	LastResult *catalogv1alpha1.TranscodeResult `json:"lastResult,omitempty"`
 }
 
 // TranscodeStateApplyConfiguration constructs a declarative configuration of the TranscodeState type for use with
@@ -307,21 +302,5 @@ func (b *TranscodeStateApplyConfiguration) WithProfileTag(value string) *Transco
 // If called multiple times, the JoinedGraft field is set to the value of the last call.
 func (b *TranscodeStateApplyConfiguration) WithJoinedGraft(value *TranscodeGraftJoinApplyConfiguration) *TranscodeStateApplyConfiguration {
 	b.JoinedGraft = value
-	return b
-}
-
-// WithJobRef sets the JobRef field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the JobRef field is set to the value of the last call.
-func (b *TranscodeStateApplyConfiguration) WithJobRef(value string) *TranscodeStateApplyConfiguration {
-	b.JobRef = &value
-	return b
-}
-
-// WithLastResult sets the LastResult field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the LastResult field is set to the value of the last call.
-func (b *TranscodeStateApplyConfiguration) WithLastResult(value catalogv1alpha1.TranscodeResult) *TranscodeStateApplyConfiguration {
-	b.LastResult = &value
 	return b
 }

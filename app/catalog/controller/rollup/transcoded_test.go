@@ -57,7 +57,7 @@ func TestTranscoded(t *testing.T) {
 			Spec: catalogv1alpha1.MediaFileSpec{Original: new(true)},
 			Status: catalogv1alpha1.MediaFileStatus{
 				MediaInfo: &commonv1.MediaInfo{VideoCodec: "h264"},
-				Transcode: &catalogv1alpha1.TranscodeState{ProfileTag: "default@abc", LastResult: catalogv1alpha1.TranscodeResultSucceeded},
+				Transcode: &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "default@abc"},
 			},
 		}, want: false},
 	}

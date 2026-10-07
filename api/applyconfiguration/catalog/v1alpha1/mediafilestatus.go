@@ -59,8 +59,8 @@ type MediaFileStatusApplyConfiguration struct {
 	// a file an earlier install transcoded, found by a rescan.
 	MediaInfo *commonv1alpha1.MediaInfo `json:"mediaInfo,omitempty"`
 	// Sidecars are the subtitle sidecars beside the file, found on disk by
-	// the subtitles planner's directory read, sorted by name. Release N keeps
-	// today's map list keyed by path (loop spec §2.16); N+1 makes it atomic.
+	// the subtitles planner's directory read, sorted by name (loop spec
+	// §2.7). The list is atomic: the loop always sends all of it.
 	Sidecars []SidecarApplyConfiguration `json:"sidecars,omitempty"`
 	// Naming is the file's canonical path under its RootFolder's naming
 	// preset, rendered by catalog from the item's metadata, the
@@ -71,14 +71,15 @@ type MediaFileStatusApplyConfiguration struct {
 	// catalog-markers) with the probe's duration, and seeded into Plex
 	// by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
 	Markers *FileMarkersApplyConfiguration `json:"markers,omitempty"`
-	// Subtitles is the remediation loop's subtitles block (loop spec §2.4);
-	// it replaces SubtitleRequest.
+	// Subtitles is the remediation loop's subtitles block (loop spec §2.4;
+	// ADR-0016).
 	Subtitles *SubtitlesStatusApplyConfiguration `json:"subtitles,omitempty"`
-	// Transcode is the remediation loop's transcode block (loop spec §2.5);
-	// it replaces TranscodeJob.
+	// Transcode is the remediation loop's transcode block (loop spec §2.5;
+	// ADR-0016).
 	Transcode *TranscodeStateApplyConfiguration `json:"transcode,omitempty"`
-	// Graft is the remediation loop's graft block (loop spec §2.6); it
-	// replaces AudioGraft's per-file half.
+	// Graft is the remediation loop's graft block (loop spec §2.6;
+	// ADR-0016): the file's half of a graft; the item's donor is its
+	// status.audio.donor.
 	Graft *GraftStateApplyConfiguration `json:"graft,omitempty"`
 	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalog
 	// incorporated into this file (anime dual-audio spec §7.2), and

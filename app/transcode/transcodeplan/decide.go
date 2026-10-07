@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/task"
 )
 
@@ -153,7 +152,7 @@ func applyAnswer(b *catalogv1alpha1.TranscodeState, a task.Answer, n Next, now t
 }
 
 // outputOf is a worker's result as status.transcode.result.
-func outputOf(r *transcodev1alpha1.Result) *catalogv1alpha1.TranscodeOutput {
+func outputOf(r *task.Result) *catalogv1alpha1.TranscodeOutput {
 	if r == nil {
 		return nil
 	}

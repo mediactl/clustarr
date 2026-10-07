@@ -40,27 +40,6 @@ func Parser() *typed.Parser {
 var parserOnce sync.Once
 var parser *typed.Parser
 var schemaYAML = typed.YAMLObject(`types:
-- name: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
-  map:
-    fields:
-    - name: count
-      type:
-        scalar: numeric
-    - name: initial
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: latest
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-- name: com.github.mediactl.clustarr.api.common.v1alpha1.FileFingerprint
-  map:
-    fields:
-    - name: modTime
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: sizeBytes
-      type:
-        scalar: numeric
 - name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.EmbeddedSpec
   map:
     fields:
@@ -84,21 +63,6 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.ExistingSub
-  map:
-    fields:
-    - name: langKey
-      type:
-        scalar: string
-    - name: path
-      type:
-        scalar: string
-    - name: source
-      type:
-        namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleSource
-    - name: streamIndex
-      type:
-        scalar: numeric
 - name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.HIExtension
   scalar: string
 - name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.HIPolicy
@@ -163,44 +127,6 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
       default: 6h
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleItem
-  map:
-    fields:
-    - name: attempts
-      type:
-        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
-    - name: downloadedAt
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: langKey
-      type:
-        scalar: string
-    - name: lastError
-      type:
-        scalar: string
-    - name: nextSearchAt
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: path
-      type:
-        scalar: string
-    - name: provider
-      type:
-        scalar: string
-    - name: score
-      type:
-        scalar: numeric
-    - name: scoreOutOf
-      type:
-        scalar: numeric
-    - name: state
-      type:
-        namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleItemState
-    - name: subtitleID
-      type:
-        scalar: string
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleItemState
-  scalar: string
 - name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleMod
   scalar: string
 - name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleProfile
@@ -450,108 +376,6 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
 - name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleProviderType
-  scalar: string
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequest
-  map:
-    fields:
-    - name: apiVersion
-      type:
-        scalar: string
-    - name: kind
-      type:
-        scalar: string
-    - name: metadata
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
-    - name: spec
-      type:
-        namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequestSpec
-    - name: status
-      type:
-        namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequestStatus
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequestList
-  map:
-    fields:
-    - name: apiVersion
-      type:
-        scalar: string
-    - name: items
-      type:
-        list:
-          elementType:
-            namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequest
-          elementRelationship: atomic
-    - name: kind
-      type:
-        scalar: string
-    - name: metadata
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequestPhase
-  scalar: string
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequestSpec
-  map:
-    fields:
-    - name: forceSearch
-      type:
-        scalar: boolean
-      default: false
-    - name: languages
-      type:
-        list:
-          elementType:
-            scalar: string
-          elementRelationship: associative
-    - name: mediaFileRef
-      type:
-        scalar: string
-    - name: minScoreOverride
-      type:
-        scalar: numeric
-    - name: profileRef
-      type:
-        scalar: string
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequestStatus
-  map:
-    fields:
-    - name: conditions
-      type:
-        list:
-          elementType:
-            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
-          elementRelationship: associative
-          keys:
-          - type
-    - name: existing
-      type:
-        list:
-          elementType:
-            namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.ExistingSub
-          elementRelationship: atomic
-    - name: fileFingerprint
-      type:
-        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.FileFingerprint
-    - name: items
-      type:
-        list:
-          elementType:
-            namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleItem
-          elementRelationship: associative
-          keys:
-          - langKey
-    - name: observedGeneration
-      type:
-        scalar: numeric
-    - name: phase
-      type:
-        namedType: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleRequestPhase
-    - name: probeHash
-      type:
-        scalar: string
-    - name: profileGeneration
-      type:
-        scalar: numeric
-- name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SubtitleSource
   scalar: string
 - name: com.github.mediactl.clustarr.api.subtitle.v1alpha1.SyncSpec
   map:

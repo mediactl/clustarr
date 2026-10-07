@@ -33,16 +33,6 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=transcode.clustarr.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraft"):
-		return &transcodev1alpha1.AudioGraftApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraftSegment"):
-		return &transcodev1alpha1.AudioGraftSegmentApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraftSpec"):
-		return &transcodev1alpha1.AudioGraftSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("AudioGraftStatus"):
-		return &transcodev1alpha1.AudioGraftStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("AudioPlan"):
-		return &transcodev1alpha1.AudioPlanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudioSpec"):
 		return &transcodev1alpha1.AudioSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChunkSpec"):
@@ -51,22 +41,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &transcodev1alpha1.EncoderLimitApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GPUSpec"):
 		return &transcodev1alpha1.GPUSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("GraftResult"):
-		return &transcodev1alpha1.GraftResultApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("Plan"):
-		return &transcodev1alpha1.PlanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PolicySpec"):
 		return &transcodev1alpha1.PolicySpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("Progress"):
-		return &transcodev1alpha1.ProgressApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("Result"):
-		return &transcodev1alpha1.ResultApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeJob"):
-		return &transcodev1alpha1.TranscodeJobApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeJobSpec"):
-		return &transcodev1alpha1.TranscodeJobSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeJobStatus"):
-		return &transcodev1alpha1.TranscodeJobStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeProfile"):
 		return &transcodev1alpha1.TranscodeProfileApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeProfileSpec"):

@@ -252,7 +252,7 @@ func TestOutputPath(t *testing.T) {
 }
 
 func TestOutputPathIsAlwaysMP4(t *testing.T) {
-	out, err := OutputPath(transcodev1alpha1.TranscodeJobSpec{SourcePath: "/data/media/m/F.mkv"}, "p", OutputContainer, true)
+	out, err := OutputPath("/data/media/m/F.mkv", "p", OutputContainer, true)
 	require.NoError(t, err)
 	assert.Equal(t, "/data/media/m/F.mp4", out)
 }

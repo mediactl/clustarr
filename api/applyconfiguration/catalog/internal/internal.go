@@ -2884,9 +2884,7 @@ var schemaYAML = typed.YAMLObject(`types:
         list:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Sidecar
-          elementRelationship: associative
-          keys:
-          - path
+          elementRelationship: atomic
     - name: subtitles
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitlesStatus
@@ -4669,9 +4667,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: name
       type:
         scalar: string
-    - name: path
-      type:
-        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SizeLimit
   map:
     fields:
@@ -4914,8 +4909,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: videoAction
       type:
         scalar: string
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeResult
-  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeState
   map:
     fields:
@@ -4943,15 +4936,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hardware
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeHardware
-    - name: jobRef
-      type:
-        scalar: string
     - name: joinedGraft
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeGraftJoin
-    - name: lastResult
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeResult
     - name: message
       type:
         scalar: string

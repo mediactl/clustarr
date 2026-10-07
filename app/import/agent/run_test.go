@@ -100,7 +100,7 @@ func TestTheControllerRoleCachesMediaFilesWithoutMediaInfo(t *testing.T) {
 		Status: catalogv1alpha1.MediaFileStatus{
 			Conditions: []metav1.Condition{{Type: catalogv1alpha1.ConditionNamingCurrent, Status: metav1.ConditionFalse}},
 			MediaInfo:  &commonv1.MediaInfo{Width: 1920, Height: 1080},
-			Sidecars:   []catalogv1alpha1.Sidecar{{Path: "/data/media/movies/Heat/heat.en.srt", Language: "en"}},
+			Sidecars:   []catalogv1alpha1.Sidecar{{Name: "heat.en.srt", Language: "en"}},
 			Naming:     &catalogv1alpha1.NamingStatus{ExpectedPath: "/data/media/movies/Heat/Heat (1995).mkv"},
 			ProbeHash:  "hash",
 		},

@@ -1,11 +1,12 @@
-# squasharr -- TranscodeProfile/TranscodeJob controllers and the slot
-# scheduler. Design spec §3, §6.4.
+# squasharr -- the TranscodeProfile controller and the slot scheduler (each
+# file's transcode is its MediaFile status.transcode, ADR-0016). Design spec
+# §3, §6.4.
 #
 # The transcode work itself runs as per-(profile, class) pool Jobs that this
 # controller manages (X14): the pool binary, cmd/squasharr-worker, holds no
 # Kubernetes credentials at all -- it reports over NATS (spec §18.1) and the
-# pool pods carry no ServiceAccount -- so squasharr is the sole writer of
-# TranscodeJob.status.
+# pool pods carry no ServiceAccount -- so the manager is the sole writer of
+# MediaFile status.
 #
 # /data is mounted so the controller can stat sources and sweep the recycle
 # bin; the heavy I/O happens in the pool Jobs.

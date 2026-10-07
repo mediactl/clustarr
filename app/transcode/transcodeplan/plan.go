@@ -196,9 +196,9 @@ func plan(in Inputs) Decision {
 	return Decision{Block: prev.DeepCopy()} // verdicts and Succeeded stay untouched (§5.11)
 }
 
-// legacy is §2.5 "Legacy objects": a phase-less block reads as Succeeded
-// when it carries a profileTag, else as absent; jobRef and lastResult are
-// not carried.
+// legacy is §2.5 "Legacy objects": a phase-less block a 0.4.x install
+// stored reads as Succeeded when it carries a profileTag, else as absent;
+// its other 0.4.x leaves are gone from the schema and pruned on read.
 func legacy(p *catalogv1alpha1.TranscodeState) *catalogv1alpha1.TranscodeState {
 	if p.ProfileTag == "" {
 		return nil

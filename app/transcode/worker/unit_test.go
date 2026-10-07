@@ -24,13 +24,11 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -118,57 +116,6 @@ func TestProcessLogsWithTheTaskJob(t *testing.T) {
 	defer h.mu.Unlock()
 	require.NotEmpty(t, h.calls, "Process must call logging.With before run()")
 	assert.Contains(t, h.calls[0], slog.String("transcodeJob", "media/film-hevc"))
-}
-
-// Progress arrives from ffmpeg once a second. The reporter must turn a
-// burst of samples into at most one apply per interval, and must apply the
-// LAST sample when stopped, so the final state is never lost to throttling.
-func TestProgressReporterThrottlesAndFlushesTheLastSample(t *testing.T) {
-	var mu sync.Mutex
-	var applied []transcodev1alpha1.Progress
-	apply := func(_ context.Context, p transcodev1alpha1.Progress) error {
-		mu.Lock()
-		defer mu.Unlock()
-		applied = append(applied, p)
-		return nil
-	}
-	rep := newProgressReporter(time.Hour, 10_000, time.Now, apply)
-	ctx := context.Background()
-	rep.start(ctx)
-	for i := int64(1); i <= 50; i++ {
-		rep.observe(transcode.Progress{Frame: i, OutTimeMillis: i * 100})
-	}
-	rep.stop(ctx)
-
-	require.Len(t, applied, 1, "fifty samples inside one interval must be one apply")
-	assert.Equal(t, int64(50), applied[0].Frame, "the apply on stop must carry the last sample")
-	assert.Equal(t, int32(50), applied[0].Percent, "5000ms of 10000ms")
-	assert.False(t, applied[0].UpdatedAt.IsZero())
-}
-
-func TestProgressReporterRetriesAFailedApplyAndAppliesNothingWhenIdle(t *testing.T) {
-	calls := 0
-	fail := true
-	apply := func(context.Context, transcodev1alpha1.Progress) error {
-		calls++
-		if fail {
-			return errors.New("apiserver blip")
-		}
-		return nil
-	}
-	rep := newProgressReporter(time.Hour, 0, time.Now, apply)
-	ctx := context.Background()
-
-	rep.flush(ctx)
-	assert.Zero(t, calls, "no sample, no apply")
-
-	rep.observe(transcode.Progress{Frame: 1})
-	rep.flush(ctx)
-	fail = false
-	rep.flush(ctx)
-	assert.Equal(t, 2, calls, "a failed apply is retried on the next tick")
-	rep.flush(ctx)
-	assert.Equal(t, 2, calls, "and not re-applied once it landed")
 }
 
 func TestPercentOf(t *testing.T) {

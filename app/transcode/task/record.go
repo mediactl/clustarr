@@ -20,7 +20,6 @@ package task
 import (
 	"time"
 
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -32,17 +31,17 @@ import (
 // clamped to MaxAnswerMessage and StderrTail to MaxAnswerStderr before the
 // compare-and-swap.
 type Answer struct {
-	Outcome    Outcome                   `json:"outcome"`
-	Reason     Reason                    `json:"reason,omitempty"`
-	Message    string                    `json:"message,omitempty"`
-	Class      string                    `json:"class,omitempty"`
-	Pod        string                    `json:"pod,omitempty"`
-	Node       string                    `json:"node,omitempty"`
-	StartedAt  *time.Time                `json:"startedAt,omitempty"`
-	FinishedAt *time.Time                `json:"finishedAt,omitempty"`
-	Result     *transcodev1alpha1.Result `json:"result,omitempty"` // MediaInfo always nil
-	StderrTail string                    `json:"stderrTail,omitempty"`
-	Graft      *grafttask.Result         `json:"graft,omitempty"`
+	Outcome    Outcome           `json:"outcome"`
+	Reason     Reason            `json:"reason,omitempty"`
+	Message    string            `json:"message,omitempty"`
+	Class      string            `json:"class,omitempty"`
+	Pod        string            `json:"pod,omitempty"`
+	Node       string            `json:"node,omitempty"`
+	StartedAt  *time.Time        `json:"startedAt,omitempty"`
+	FinishedAt *time.Time        `json:"finishedAt,omitempty"`
+	Result     *Result           `json:"result,omitempty"`
+	StderrTail string            `json:"stderrTail,omitempty"`
+	Graft      *grafttask.Result `json:"graft,omitempty"`
 }
 
 // The answer's bounds: the record's value fits clustarr-transcodes'

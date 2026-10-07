@@ -132,7 +132,7 @@ func (p *pass) run() {
 	}
 	p.d.FileUID = string(mf.UID)
 	p.d.Block = st.Subtitles.DeepCopy()
-	p.d.Sidecars = carriedSidecars(mf.Spec.Path, st.Sidecars)
+	p.d.Sidecars = carriedSidecars(st.Sidecars)
 	if st.HandledNonces != nil {
 		p.d.HandledNonce = st.HandledNonces.SubtitleSearch
 	}

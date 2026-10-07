@@ -116,21 +116,16 @@ const (
 
 // Sidecar is a subtitle sidecar beside the media file (loop spec §2.7):
 // every attributable one the subtitles planner's directory read finds,
-// downloaded, written by the MP4 standard or placed by hand.
+// downloaded, written by the MP4 standard or placed by hand. A reader that
+// needs its path calls PathBeside.
 type Sidecar struct {
-	// Path is the sidecar's absolute path: today's field and the list's map
-	// key, written by the loop on every entry in release N (dir(spec.path)
-	// + "/" + Name) so that the previous release can read and re-send the
-	// list after a rollback (§2.16). The loop fills each half from the
-	// other on an entry it carries forward. Deleted in N+1.
-	// +required
-	// +kubebuilder:validation:MaxLength=4096
-	Path string `json:"path"`
-
 	// Name is the sidecar's file name in the media file's directory.
-	// +optional in release N (an entry the previous release wrote after a
-	// rollback has none); +required with MinLength=1 from N+1.
-	// +optional
+	// It is omitted when empty in Go so that an entry a 0.4.x install
+	// stored with a path alone (pruned on read) is re-sent as stored and
+	// ratcheted, never as an empty name the schema refuses; the loop's next
+	// listing replaces it.
+	// +required
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=255
 	Name string `json:"name,omitempty"`
 
@@ -289,11 +284,10 @@ type MediaFileStatus struct {
 	MediaInfo *commonv1.MediaInfo `json:"mediaInfo,omitempty"`
 
 	// Sidecars are the subtitle sidecars beside the file, found on disk by
-	// the subtitles planner's directory read, sorted by name. Release N keeps
-	// today's map list keyed by path (loop spec §2.16); N+1 makes it atomic.
+	// the subtitles planner's directory read, sorted by name (loop spec
+	// §2.7). The list is atomic: the loop always sends all of it.
 	// +optional
-	// +listType=map
-	// +listMapKey=path
+	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=32
 	Sidecars []Sidecar `json:"sidecars,omitempty"`
 
@@ -310,18 +304,19 @@ type MediaFileStatus struct {
 	// +optional
 	Markers *FileMarkers `json:"markers,omitempty"`
 
-	// Subtitles is the remediation loop's subtitles block (loop spec §2.4);
-	// it replaces SubtitleRequest.
+	// Subtitles is the remediation loop's subtitles block (loop spec §2.4;
+	// ADR-0016).
 	// +optional
 	Subtitles *SubtitlesStatus `json:"subtitles,omitempty"`
 
-	// Transcode is the remediation loop's transcode block (loop spec §2.5);
-	// it replaces TranscodeJob.
+	// Transcode is the remediation loop's transcode block (loop spec §2.5;
+	// ADR-0016).
 	// +optional
 	Transcode *TranscodeState `json:"transcode,omitempty"`
 
-	// Graft is the remediation loop's graft block (loop spec §2.6); it
-	// replaces AudioGraft's per-file half.
+	// Graft is the remediation loop's graft block (loop spec §2.6;
+	// ADR-0016): the file's half of a graft; the item's donor is its
+	// status.audio.donor.
 	// +optional
 	Graft *GraftState `json:"graft,omitempty"`
 

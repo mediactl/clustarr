@@ -156,7 +156,7 @@ func audioRejection(an audioNames, p quality.Profile, parsed *release.ParsedRele
 	if len(missing) == 0 {
 		return nil, true
 	}
-	if p.AudioGraft && (an.anchor == "" || containsFold(have, an.anchor)) {
+	if p.GraftAudio && (an.anchor == "" || containsFold(have, an.anchor)) {
 		return nil, false
 	}
 	r := newRejection(ReasonWantedLanguage, "audio %v wanted, found %v", an.wanted, have)

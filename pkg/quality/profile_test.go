@@ -222,7 +222,7 @@ func TestFromCRDResolvesAudio(t *testing.T) {
 	dual, errs := quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true}), cat)
 	require.Empty(t, errs)
 	require.Equal(t, []string{"en", "original"}, dual.AudioLanguages)
-	require.True(t, dual.AudioGraft)
+	require.True(t, dual.GraftAudio)
 	require.NotEqual(t, plain.Hash, dual.Hash)
 
 	noGraft, errs := quality.FromCRD(build(&catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}}), cat)

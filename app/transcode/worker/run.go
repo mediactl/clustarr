@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -647,7 +646,7 @@ func (r *runner) alreadySwappedOrChanged(ctx context.Context, sourceSize int64,
 	return sourceChanged("transcode worker: source %s changed since it was planned (probe hash mismatch)", source)
 }
 
-// finish records status.result for the output now at out (logical; local in
+// finish records the answer's result for the output now at out (logical; local in
 // this process) -- the source path itself for an in-place swap -- into
 // r.out.Result. sourceSize is the original's size, for the ratio; zero
 // leaves it at 0.
@@ -656,17 +655,13 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 	if err != nil {
 		return retriable("transcode worker: stat output: %w", err)
 	}
-	res := transcodev1alpha1.Result{
+	// No probe of the output here: the loop's re-probe of the swapped file
+	// is the record of it (loop spec §4.12).
+	r.out.Result = &task.Result{
 		OutputPath:            out,
 		OutputSizeBytes:       st.Size(),
 		OutputToSourcePercent: sizePercent(st.Size(), sourceSize),
 	}
-	if mi, _, err := r.probe(ctx, local); err == nil {
-		res.MediaInfo = mi
-	} else {
-		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: probing the output for status.result failed", "error", err)
-	}
-	r.out.Result = &res
 
 	if sourceSize > 0 && r.tier != "" {
 		metrics.TranscodeSizeRatio.WithLabelValues(r.tier, r.resolution).Observe(float64(st.Size()) / float64(sourceSize))

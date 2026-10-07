@@ -37,9 +37,8 @@ type TranscodePlanApplyConfiguration struct {
 	// Dropped names each source subtitle the output carries neither embedded
 	// nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
 	// not carry, or a second track for a sidecar name already planned), each
-	// clamped on a rune boundary; past 8, the eighth reads "and N more". It
-	// replaces the "; dropped …" suffix main's c0fb39b7 adds to TranscodeJob's
-	// Planned condition, which the fold removes (loop spec §2.5, D44).
+	// clamped on a rune boundary; past 8, the eighth reads "and N more"
+	// (loop spec §2.5, D44).
 	Dropped []string `json:"dropped,omitempty"`
 }
 

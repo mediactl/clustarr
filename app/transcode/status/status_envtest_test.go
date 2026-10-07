@@ -29,8 +29,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -59,20 +57,6 @@ func newTestClient(t *testing.T) client.Client {
 	return c
 }
 
-func newTranscodeJob(t *testing.T, ctx context.Context, c client.Client, ns, name string) *transcodev1alpha1.TranscodeJob {
-	t.Helper()
-	tj := &transcodev1alpha1.TranscodeJob{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-		Spec: transcodev1alpha1.TranscodeJobSpec{
-			MediaFileRef: "arrival-2016",
-			ProfileRef:   "default",
-			SourcePath:   "/data/movies/Arrival (2016)/Arrival.2016.1080p.mkv",
-		},
-	}
-	require.NoError(t, c.Create(ctx, tj))
-	return tj
-}
-
 func newTranscodeProfile(t *testing.T, ctx context.Context, c client.Client, name string) *transcodev1alpha1.TranscodeProfile {
 	t.Helper()
 	tp := &transcodev1alpha1.TranscodeProfile{
@@ -80,241 +64,6 @@ func newTranscodeProfile(t *testing.T, ctx context.Context, c client.Client, nam
 	}
 	require.NoError(t, c.Create(ctx, tp))
 	return tp
-}
-
-// This is the test the TranscodeJob half of this package exists for.
-//
-// transcode owns all of TranscodeJob.status, and server-side apply replaces
-// a manager's ownership set on every apply, so [status.ControllerFields]
-// must re-declare every field on every write -- the reconciler's AND the
-// results consumer's -- or a write that changes one field releases the
-// others. progress, result and stderrTail are the fields most at risk: until
-// the pools, a separate worker manager owned them, and a renderer that still
-// left them out would zero the encode's progress on every reconcile.
-//
-// The object is driven to a populated steady state FIRST, every field set,
-// before any apply that changes only one of them. A test that starts from a
-// blank object cannot observe a release, because there is nothing to
-// release.
-func TestTheJobDeclarationIsComplete(t *testing.T) {
-	c := newTestClient(t)
-	ctx := context.Background()
-
-	const ns = "transcode-status-split"
-	require.NoError(t, client.IgnoreAlreadyExists(
-		c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
-
-	tj := newTranscodeJob(t, ctx, c, ns, "split")
-	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
-	jobRef := "split-a1b2c3d4"
-
-	// Steady state: every field transcode owns.
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerTranscode, tj,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithObservedGeneration(1).
-				WithPhase(transcodev1alpha1.TranscodeJobPhaseRunning).
-				WithPlan(transcodeac.Plan().
-					WithEncoder("libx265").
-					WithMode(transcodev1alpha1.PlanModeTranscode).
-					WithHDRMode("hdr10").
-					WithEngine("ffgo").
-					WithPlanHash("deadbeef").
-					WithVideoAction("encode").
-					WithDecode("nvdec")).
-				WithJobRef(jobRef).
-				WithAttempts(1).
-				WithStartedAt(now).
-				WithMessage("encoding").
-				WithWorkerPod("split-worker-0").
-				WithHardware(transcodev1alpha1.HardwareNVIDIA).
-				WithFallbackReason("gpuBusy: no free nvidia slot").
-				WithNextAttemptAt(now).
-				WithProgress(transcodeac.Progress().
-					WithPercent(42).
-					WithFrame(1200).
-					WithFPSMilli(23976).
-					WithSpeedMilli(1500).
-					WithOutTimeMillis(60000).
-					WithBitrateKbps(4500).
-					WithUpdatedAt(now)).
-				WithResult(transcodeac.Result().
-					WithOutputPath("/data/movies/Arrival (2016)/Arrival.2016.1080p.mkv").
-					WithOutputSizeBytes(4 << 30).
-					WithOutputToSourcePercent(45).
-					WithVMAFCentis(9542)).
-				WithStderrTail("frame=1200 fps=24 speed=1.5x").
-				WithGraft(transcodeac.GraftResult().WithPhase(transcodev1alpha1.GraftJoined).WithAudioGraft("split-audiograft")).
-				WithConditions(k8s.ConditionAC(metav1.Condition{
-					Type: transcodev1alpha1.TranscodeJobConditionJobCreated, Status: metav1.ConditionTrue,
-					Reason: "JobCreated", LastTransitionTime: now, ObservedGeneration: 1,
-				}))
-		}))
-
-	var seeded transcodev1alpha1.TranscodeJob
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &seeded))
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, seeded.Status.Phase, "setup: the steady state did not land")
-	require.NotNil(t, seeded.Status.Result, "setup: the steady state did not land")
-	require.EqualValues(t, 45, seeded.Status.Result.OutputToSourcePercent, "setup: the steady state did not land")
-
-	// Re-apply changing only observedGeneration and a condition's reason --
-	// the reconciler's kind of write -- through the CAS path both of
-	// transcode's writers use.
-	require.NoError(t, status.PatchCAS(ctx, c, &seeded,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithObservedGeneration(2).WithConditions(k8s.ConditionAC(metav1.Condition{
-				Type: transcodev1alpha1.TranscodeJobConditionJobCreated, Status: metav1.ConditionTrue,
-				Reason: "StillCreated", LastTransitionTime: now, ObservedGeneration: 2,
-			}))
-		}))
-	var afterReconcile transcodev1alpha1.TranscodeJob
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &afterReconcile))
-	assertJobIntact(t, afterReconcile.Status, "a write that changed only observedGeneration")
-	assert.EqualValues(t, 2, afterReconcile.Status.ObservedGeneration, "the write's own field did not update")
-
-	// Re-apply changing only stderrTail -- the results consumer's kind of
-	// write -- with the conditions sent again, once, as every writer does.
-	afterReconcile.Status.StderrTail = "frame=2400 fps=24 speed=1.5x"
-	require.NoError(t, status.PatchCAS(ctx, c, &afterReconcile,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithConditions(k8s.ConditionACs(afterReconcile.Status.Conditions)...)
-		}))
-	var afterEvent transcodev1alpha1.TranscodeJob
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &afterEvent))
-	assertJobIntact(t, afterEvent.Status, "a write that changed only stderrTail")
-	assert.Equal(t, "frame=2400 fps=24 speed=1.5x", afterEvent.Status.StderrTail, "the write's own field did not update")
-
-	// status.plan, status.progress and status.result are structs, and server-
-	// side apply tracks ownership per LEAF inside them rather than for the
-	// sub-object as a whole. A renderer that sent only one leaf would pass a
-	// NotNil check while silently releasing the others on every write.
-	if p := afterEvent.Status.Plan; assert.NotNil(t, p, "released status.plan") {
-		assert.Equal(t, "libx265", p.Encoder, "released plan.encoder")
-		assert.Equal(t, transcodev1alpha1.PlanModeTranscode, p.Mode, "released plan.mode")
-		assert.Equal(t, "hdr10", p.HDRMode, "released plan.hdrMode")
-		assert.Equal(t, "ffgo", p.Engine, "released plan.engine")
-		assert.Equal(t, "deadbeef", p.PlanHash, "released plan.planHash")
-		assert.Equal(t, "encode", p.VideoAction, "released plan.videoAction")
-		assert.Equal(t, "nvdec", p.Decode, "released plan.decode")
-	}
-	if pr := afterEvent.Status.Progress; assert.NotNil(t, pr, "released status.progress") {
-		assert.EqualValues(t, 42, pr.Percent, "released progress.percent")
-		assert.EqualValues(t, 1200, pr.Frame, "released progress.frame")
-		assert.EqualValues(t, 23976, pr.FPSMilli, "released progress.fpsMilli")
-		assert.EqualValues(t, 1500, pr.SpeedMilli, "released progress.speedMilli")
-		assert.EqualValues(t, 60000, pr.OutTimeMillis, "released progress.outTimeMillis")
-		assert.EqualValues(t, 4500, pr.BitrateKbps, "released progress.bitrateKbps")
-		assert.False(t, pr.UpdatedAt.IsZero(), "released progress.updatedAt")
-	}
-	if r := afterEvent.Status.Result; assert.NotNil(t, r, "released status.result") {
-		assert.Equal(t, "/data/movies/Arrival (2016)/Arrival.2016.1080p.mkv", r.OutputPath, "released result.outputPath")
-		assert.EqualValues(t, 4<<30, r.OutputSizeBytes, "released result.outputSizeBytes")
-		assert.EqualValues(t, 45, r.OutputToSourcePercent, "released result.outputToSourcePercent")
-		if assert.NotNil(t, r.VMAFCentis, "released result.vmafCentis") {
-			assert.EqualValues(t, 9542, *r.VMAFCentis)
-		}
-	}
-
-	// Conditions is a listType=map too, and ControllerFields leaves it
-	// unseeded so the caller sets it exactly once. Re-applying with a
-	// changed reason must update the entry rather than duplicate or drop it.
-	if assert.Len(t, afterEvent.Status.Conditions, 1, "the conditions list did not survive") {
-		assert.Equal(t, "StillCreated", afterEvent.Status.Conditions[0].Reason)
-	}
-
-	// Finally, assert OWNERSHIP rather than values: managedFields is the only
-	// place an over-claim or a stray second manager is visible.
-	assertJobManagedFields(t, &afterEvent)
-}
-
-// assertJobIntact checks every field the steady state set survived a write
-// that did not mean to change it.
-func assertJobIntact(t *testing.T, st transcodev1alpha1.TranscodeJobStatus, who string) {
-	t.Helper()
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, st.Phase, who+" released phase")
-	assert.NotNil(t, st.Plan, who+" released plan")
-	if assert.NotNil(t, st.JobRef, who+" released jobRef") {
-		assert.Equal(t, "split-a1b2c3d4", *st.JobRef)
-	}
-	assert.EqualValues(t, 1, st.Attempts, who+" released attempts")
-	assert.NotNil(t, st.StartedAt, who+" released startedAt")
-	assert.Equal(t, "encoding", st.Message, who+" released message")
-	assert.NotEmpty(t, st.Conditions, who+" released conditions")
-	assert.Equal(t, "split-worker-0", st.WorkerPod, who+" released workerPod")
-	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, st.Hardware, who+" released hardware")
-	assert.Equal(t, "gpuBusy: no free nvidia slot", st.FallbackReason, who+" released fallbackReason")
-	assert.NotNil(t, st.NextAttemptAt, who+" released nextAttemptAt")
-	if assert.NotNil(t, st.Progress, who+" released status.progress") {
-		assert.EqualValues(t, 42, st.Progress.Percent, who+" released progress.percent")
-	}
-	if assert.NotNil(t, st.Result, who+" released status.result") {
-		assert.EqualValues(t, 45, st.Result.OutputToSourcePercent, who+" released result.outputToSourcePercent")
-	}
-	assert.NotEmpty(t, st.StderrTail, who+" released stderrTail")
-}
-
-// assertJobManagedFields reads the apiserver's own record of who owns what
-// on TranscodeJob.status: transcode, and only transcode, owns exactly the
-// set it declares.
-func assertJobManagedFields(t *testing.T, tj *transcodev1alpha1.TranscodeJob) {
-	t.Helper()
-
-	// finishedAt is absent here because the job in this test never leaves
-	// phase=Running -- a finishedAt would be a fabricated value, not
-	// something either apply set. That is the field's documented absence
-	// (ControllerFields omits it while nil), not a release.
-	want := jsonNames(transcodev1alpha1.TranscodeJobStatus{}, without(jobControllerOwned, "FinishedAt"))
-
-	var seen bool
-	for _, entry := range tj.ManagedFields {
-		if entry.Subresource != "status" || entry.FieldsV1 == nil {
-			continue
-		}
-		require.Equalf(t, string(k8s.ManagerTranscode), entry.Manager,
-			"%q owns fields on TranscodeJob.status; only transcode may", entry.Manager)
-		seen = true
-
-		var fields map[string]any
-		require.NoError(t, json.Unmarshal(entry.FieldsV1.GetRawBytes(), &fields))
-		st, ok := fields["f:status"].(map[string]any)
-		require.True(t, ok, "transcode has a status managedFields entry with no f:status")
-
-		var got []string
-		for key := range st {
-			got = append(got, strings.TrimPrefix(key, "f:"))
-		}
-		sort.Strings(got)
-		assert.Equal(t, want, got, "the apiserver records transcode as owning a different set than it declares")
-	}
-	assert.True(t, seen, "transcode owns nothing on TranscodeJob.status; its apply never landed")
-}
-
-// PatchCAS is the lost-update guard of spec §18.2: a write seeded from a
-// read that another write has since overtaken must fail with a Conflict, not
-// roll that other write back.
-func TestPatchCASRejectsAStaleResourceVersion(t *testing.T) {
-	c := newTestClient(t)
-	ctx := context.Background()
-	const ns = "transcode-status-cas"
-	require.NoError(t, client.IgnoreAlreadyExists(
-		c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
-	job := newTranscodeJob(t, ctx, c, ns, "cas")
-	stale := job.DeepCopy()
-
-	job.Status.Message = "first"
-	require.NoError(t, status.PatchCAS(ctx, c, job, nil))
-
-	stale.Status.Message = "second"
-	err := status.PatchCAS(ctx, c, stale, nil)
-	require.True(t, apierrors.IsConflict(err), "a stale write must conflict, got %v", err)
-
-	var got transcodev1alpha1.TranscodeJob
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(job), &got))
-	assert.Equal(t, "first", got.Status.Message, "the stale write must not have landed")
-
-	// Without a resourceVersion there is nothing to be conditional on, so
-	// PatchCAS refuses rather than silently applying unconditionally.
-	got.ResourceVersion = ""
-	require.ErrorContains(t, status.PatchCAS(ctx, c, &got, nil), "no resourceVersion")
 }
 
 // This is the test the TranscodeProfile half of this package exists for.
@@ -412,16 +161,6 @@ func assertProfileManagedFields(t *testing.T, tp *transcodev1alpha1.TranscodePro
 	assert.True(t, found, "transcode owns nothing on TranscodeProfile.status; its apply never landed")
 }
 
-func without(names []string, drop string) []string {
-	out := make([]string, 0, len(names))
-	for _, n := range names {
-		if n != drop {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
 // jsonNames maps Go field names onto the JSON names managedFields uses, for
 // whichever status struct typ is.
 func jsonNames(typ any, goNames []string) []string {
@@ -437,18 +176,6 @@ func jsonNames(typ any, goNames []string) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// A manager other than transcode must be refused rather than allowed to
-// claim fields -- the retired transcode-worker manager included.
-func TestPatchRefusesAManagerOutsideTheSplit(t *testing.T) {
-	for _, mgr := range []k8s.FieldManager{
-		k8s.ManagerCatalog, k8s.ManagerGrab, k8s.FieldManager("transcode-worker"), k8s.FieldManager("nonsense"),
-	} {
-		err := status.Patch(context.Background(), nil, mgr,
-			&transcodev1alpha1.TranscodeJob{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "y"}}, nil)
-		require.ErrorContains(t, err, "owns no part of TranscodeJob.status")
-	}
 }
 
 // PatchProfile must refuse every manager but k8s.ManagerTranscode.

@@ -29,8 +29,7 @@ import (
 // handled; three are standing values the transcode block records in force.
 const (
 	// AnnotationSubtitleSearch forces a subtitle search now (a nonce;
-	// handledNonces.subtitleSearch). It replaces SubtitleRequest
-	// spec.forceSearch.
+	// handledNonces.subtitleSearch).
 	AnnotationSubtitleSearch = "subtitle.clustarr.io/search"
 	// AnnotationTranscodeRetry clears a Failed or Skipped verdict for the
 	// current tag and resets attempts (a nonce; handledNonces.transcodeRetry).

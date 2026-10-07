@@ -436,7 +436,9 @@ func (r *Reconciler) removeWithFiles(
 		for _, mf := range owned {
 			candidates := []string{mf.Spec.Path}
 			for _, sc := range mf.Status.Sidecars {
-				candidates = append(candidates, sc.Path)
+				if p, ok := sc.PathBeside(mf.Spec.Path); ok {
+					candidates = append(candidates, p)
+				}
 			}
 			for _, p := range candidates {
 				if !fsops.StrictlyUnder(p, rf.Spec.Path) {

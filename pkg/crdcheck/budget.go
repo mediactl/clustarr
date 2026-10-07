@@ -22,15 +22,11 @@ package crdcheck
 // at its MaxItems, every string at its MaxLength and 256 KiB of
 // annotations.
 const (
-	// MediaFileStatusBudgetBytes is release N's: its sidecars carry the
-	// absolute path beside the name (§2.16), about 131 KB at 32 entries.
-	// F9.2 lowers it to 256 << 10 when Sidecar.path goes.
-	MediaFileStatusBudgetBytes = 320 << 10
+	// MediaFileStatusBudgetBytes bounds status: its sidecars carry a name
+	// alone, the path being dir(spec.path) (§2.7, §2.15).
+	MediaFileStatusBudgetBytes = 256 << 10
 	// MediaFileObjectBudgetBytes bounds the stored object, managedFields
-	// included. Release N's is 832 KiB, not §2.11.3's 768: N's sidecars list
-	// is a map keyed by that 4,096-byte path, so catalog's managedFields
-	// entry repeats every key (32 × about 4.2 KB), which the spec's estimate
-	// leaves out; the modelled worst case is about 781 KiB. F9.2 restores
-	// 768 << 10 with the atomic list. etcd's request limit is 1.5 MiB.
-	MediaFileObjectBudgetBytes = 832 << 10
+	// included: the atomic sidecars list adds no per-entry keys to catalog's
+	// managedFields entry. etcd's request limit is 1.5 MiB.
+	MediaFileObjectBudgetBytes = 768 << 10
 )

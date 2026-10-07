@@ -52,7 +52,7 @@ func TestKeptOutputNameReadsTheTranscodeName(t *testing.T) {
 		{"/data/media/movies/Heat (1995)/Heat (1995).MP4", "hevc.small", transcodev1alpha1.ContainerMKV},
 		{"/data/media/tv/Show/Season 01/Show - S01E01 - Pilot.avi", "mp4out", transcodev1alpha1.ContainerMP4},
 	} {
-		out, err := jobspec.OutputPath(transcodev1alpha1.TranscodeJobSpec{SourcePath: tc.source}, tc.profile, tc.container, false)
+		out, err := jobspec.OutputPath(tc.source, tc.profile, tc.container, false)
 		require.NoError(t, err)
 		stem, profile, ok := rescan.KeptOutputName(filepath.Base(out))
 		require.True(t, ok, "%s is transcode's name", out)
@@ -101,12 +101,12 @@ func TestHandleKeepsAKeptSourcesOutputOnceItsJobIsGone(t *testing.T) {
 			ctx := context.Background()
 			f := newFixture(t, ctx, fmt.Sprintf("rw-kept-%d", i), catalogv1alpha1.RootFolderKindMovie,
 				"hd-bluray-web", catalogv1alpha1.ScanModeIncremental)
-			name, source, _ := f.importedFile(t, ctx) // Heat, recorded, no TranscodeJob anywhere
+			name, source, _ := f.importedFile(t, ctx) // Heat, recorded, no transcode in flight
 			f.waitOriginal(t, ctx, name, true)
 			if tc.sourceTag != "" {
 				_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.MediaFile(name, f.ns).WithStatus(
 					catalogac.MediaFileStatus().WithTranscode(catalogac.TranscodeState().
-						WithProfileTag(tc.sourceTag).WithLastResult(catalogv1alpha1.TranscodeResultSucceeded))))
+						WithPhase(catalogv1alpha1.TranscodePhaseSucceeded).WithProfileTag(tc.sourceTag))))
 				require.NoError(t, err)
 				waitFor(t, 10*time.Second, func() bool {
 					var mf catalogv1alpha1.MediaFile

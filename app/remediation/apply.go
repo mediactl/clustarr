@@ -61,7 +61,7 @@ func normalize(s *catalogv1alpha1.MediaFileStatus) *catalogv1alpha1.MediaFileSta
 	if len(out.Sidecars) == 0 {
 		out.Sidecars = nil
 	}
-	slices.SortFunc(out.Sidecars, func(a, b catalogv1alpha1.Sidecar) int { return strings.Compare(a.Path, b.Path) })
+	slices.SortFunc(out.Sidecars, func(a, b catalogv1alpha1.Sidecar) int { return strings.Compare(a.Name, b.Name) })
 	if st := out.Subtitles; st != nil {
 		if len(st.Items) == 0 {
 			st.Items = nil

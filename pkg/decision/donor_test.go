@@ -37,7 +37,7 @@ func donorProfile(t *testing.T) quality.Profile {
 	require.True(t, ok)
 	return quality.Profile{
 		Tiers: [][]quality.Definition{{web1080}}, UpgradeAllowed: true, CutoffFormatScore: 10000,
-		ScoreSet: "anime-sonarr", AudioLanguages: []string{"en", "original"}, AudioGraft: true,
+		ScoreSet: "anime-sonarr", AudioLanguages: []string{"en", "original"}, GraftAudio: true,
 		Sizes: quality.MovieSizeTable(), LanguageName: "any",
 	}
 }

@@ -251,7 +251,11 @@ func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.E
 	}
 	var extras []views.ExtraRow
 	for _, sc := range f.Status.Sidecars {
-		e := views.ExtraRow{Path: rel(sc.Path), Kind: "Subtitle", Language: sc.Language}
+		p, ok := sc.PathBeside(f.Spec.Path)
+		if !ok {
+			continue
+		}
+		e := views.ExtraRow{Path: rel(p), Kind: "Subtitle", Language: sc.Language}
 		if sc.Forced {
 			e.Language += " (forced)"
 		}

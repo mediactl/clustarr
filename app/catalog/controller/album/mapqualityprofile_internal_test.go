@@ -49,7 +49,7 @@ func newIndexedFakeClient(t *testing.T) client.Client {
 
 func TestMapQualityProfileWrongTypeReturnsNil(t *testing.T) {
 	r := &Reconciler{Client: newIndexedFakeClient(t)}
-	other := &subtitlev1alpha1.SubtitleRequest{}
+	other := &subtitlev1alpha1.SubtitleProfile{}
 	assert.Nil(t, r.mapQualityProfile(t.Context(), other), "wrong type returns nil, never panics")
 }
 

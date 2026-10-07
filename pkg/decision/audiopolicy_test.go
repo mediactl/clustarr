@@ -29,9 +29,9 @@ import (
 )
 
 func TestAudioRejection(t *testing.T) {
-	dual := quality.Profile{ScoreSet: "anime-sonarr", AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	dual := quality.Profile{ScoreSet: "anime-sonarr", AudioLanguages: []string{"en", "original"}, GraftAudio: true}
 	noGraft := dual
-	noGraft.AudioGraft = false
+	noGraft.GraftAudio = false
 	cases := []struct {
 		name         string
 		p            quality.Profile
@@ -83,7 +83,7 @@ func TestLacksLanguageUsesTheAnchorUnderAnAudioPolicy(t *testing.T) {
 func TestAudioRejectionReadsAKoreanDualAudioTitleAsKorean(t *testing.T) {
 	// The phase 2 review: TRaSH's pattern also matches KOREAN.ENGLISH and
 	// Korean dual audio, which must not read as the Japanese original.
-	dual := quality.Profile{ScoreSet: "anime-sonarr", AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	dual := quality.Profile{ScoreSet: "anime-sonarr", AudioLanguages: []string{"en", "original"}, GraftAudio: true}
 	for _, title := range []string{"Show.S01E01.KOREAN.ENGLISH.1080p.WEB-DL-GRP", "Show.S01E01.1080p.WEB-DL.Korean.Dual.Audio-GRP"} {
 		parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
 		require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestAudioRejectionReadsAKoreanDualAudioTitleAsKorean(t *testing.T) {
 }
 
 func TestAnAudioPolicyWithoutOriginalAnchorsOnItsOwnLanguage(t *testing.T) {
-	en := quality.Profile{AudioLanguages: []string{"en"}, AudioGraft: true}
+	en := quality.Profile{AudioLanguages: []string{"en"}, GraftAudio: true}
 	require.False(t, LacksLanguage(en, "ja", []string{"en"}), "an English file meets an [en] policy")
 	require.True(t, LacksLanguage(en, "ja", []string{"ja"}), "a Japanese-only file lacks the [en] policy's anchor")
 	title := "Show.S01E01.1080p.WEB-DL-GRP" // untagged: assumes Japanese
@@ -104,7 +104,7 @@ func TestAnAudioPolicyWithoutOriginalAnchorsOnItsOwnLanguage(t *testing.T) {
 	parsed.Languages = parsed.LanguagesFor("Japanese")
 	rej, _ := audioRejection(resolveAudioNames(context.Background(), en, "Japanese"), en, parsed, title)
 	require.NotNil(t, rej, "a Japanese release lacks the [en] policy's anchor, English")
-	enfr := quality.Profile{AudioLanguages: []string{"en", "fr"}, AudioGraft: true, AudioDefault: "fr"}
+	enfr := quality.Profile{AudioLanguages: []string{"en", "fr"}, GraftAudio: true, AudioDefault: "fr"}
 	require.False(t, LacksLanguage(enfr, "ja", []string{"fr"}), "the default is the anchor when original is not listed")
 }
 
@@ -112,7 +112,7 @@ func TestAnAudioPolicyWithoutOriginalAnchorsOnItsOwnLanguage(t *testing.T) {
 // named once per Evaluate, and an English original beside "en" is wanted
 // once (phase 2 review).
 func TestAudioNamesAreResolvedOnceAndListedOnce(t *testing.T) {
-	p := quality.Profile{AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	p := quality.Profile{AudioLanguages: []string{"en", "original"}, GraftAudio: true}
 	an := resolveAudioNames(context.Background(), p, "English")
 	require.Equal(t, []string{"English"}, an.wanted)
 	require.Equal(t, "English", an.anchor)

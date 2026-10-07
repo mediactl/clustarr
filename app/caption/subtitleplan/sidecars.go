@@ -27,21 +27,15 @@ import (
 )
 
 // carriedSidecars is status.sidecars carried from the stored status when
-// this pass did not list (§2.7): each entry's Name filled from its Path and
-// its Path from its Name, sorted by name, at most 32.
-func carriedSidecars(videoPath string, stored []catalogv1alpha1.Sidecar) []catalogv1alpha1.Sidecar {
+// this pass did not list (§2.7): every entry with a name, sorted by name, at
+// most 32. An entry with none (a 0.4.x install's, whose path the schema no
+// longer has) is dropped until the next listing finds the file again.
+func carriedSidecars(stored []catalogv1alpha1.Sidecar) []catalogv1alpha1.Sidecar {
 	if len(stored) == 0 {
 		return nil
 	}
-	dir := filepath.Dir(videoPath)
 	out := make([]catalogv1alpha1.Sidecar, 0, len(stored))
 	for _, s := range stored {
-		if s.Name == "" && s.Path != "" {
-			s.Name = filepath.Base(s.Path)
-		}
-		if s.Path == "" && s.Name != "" {
-			s.Path = dir + "/" + s.Name
-		}
 		if s.Name == "" {
 			continue
 		}
@@ -58,7 +52,6 @@ func carriedSidecars(videoPath string, stored []catalogv1alpha1.Sidecar) []catal
 func listedSidecars(videoPath string, names []string) []catalogv1alpha1.Sidecar {
 	base := filepath.Base(videoPath)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	dir := filepath.Dir(videoPath)
 	var out []catalogv1alpha1.Sidecar
 	for _, name := range names {
 		raw, ok := subtitles.ParseSidecar(stem, name)
@@ -73,7 +66,7 @@ func listedSidecars(videoPath string, names []string) []catalogv1alpha1.Sidecar 
 		if err != nil {
 			continue
 		}
-		out = append(out, catalogv1alpha1.Sidecar{Path: dir + "/" + name, Name: name, Language: lang, Forced: forced, HI: hi})
+		out = append(out, catalogv1alpha1.Sidecar{Name: name, Language: lang, Forced: forced, HI: hi})
 	}
 	slices.SortFunc(out, func(a, b catalogv1alpha1.Sidecar) int { return strings.Compare(a.Name, b.Name) })
 	return out[:min(len(out), maxSidecars)]

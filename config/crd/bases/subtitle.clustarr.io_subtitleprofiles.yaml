@@ -168,8 +168,8 @@ spec:
                       description: |-
                         Key is the stable identity of this entry inside the profile, of the form
                         <language>[:forced][:hi], e.g. "en", "en:forced" or "pt-BR:hi". It is the
-                        langKey referenced by spec.cutoff, SubtitleRequest.spec.languages and
-                        SubtitleRequest.status.items[].langKey.
+                        langKey referenced by spec.cutoff and by a file's
+                        status.subtitles.items[].langKey (MediaFile status, ADR-0016).
 
                         The canonical key is derivable from language, forced and hi; the
                         controller rejects a key that does not match them.

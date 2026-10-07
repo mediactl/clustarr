@@ -35,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What it refuses to do
 //
 // A scenario never installs anything. TestMain gates on the cluster already
-// being complete -- 29 CRDs, a ready NATS StatefulSet, every Clustarr
+// being complete -- 26 CRDs, a ready NATS StatefulSet, every Clustarr
 // Deployment Available -- and exits non-zero with an explanation otherwise.
 // That gate is structurally impossible to exercise under envtest, which runs
 // no kube-controller-manager and therefore never populates
@@ -81,8 +81,8 @@ const (
 	// installs and every scenario's Movie/Series references.
 	QualityProfileName = "e2e-any"
 
-	// expectedCRDCount is config/crd/kustomization.yaml's 29 entries.
-	expectedCRDCount = 29
+	// expectedCRDCount is config/crd/kustomization.yaml's 26 entries.
+	expectedCRDCount = 26
 
 	// gateTimeout bounds each individual readiness poll.
 	gateTimeout = 5 * time.Minute
@@ -186,7 +186,7 @@ func checkDataDir() error {
 	return nil
 }
 
-// waitReady is the "TestMain refuses to run" gate: 29 CRDs installed, NATS's
+// waitReady is the "TestMain refuses to run" gate: 26 CRDs installed, NATS's
 // StatefulSet has a ready replica, and every Clustarr Deployment reports
 // Available=True. It cannot be exercised under envtest (docs/research/k8s.md
 // §8: no kube-controller-manager, so Deployment.status.conditions never

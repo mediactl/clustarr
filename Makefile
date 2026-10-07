@@ -78,8 +78,8 @@ CRD_DIR := config/crd/bases
 #     everything under app/grab/ EXCEPT the engines -- the controller never
 #     needs an engine's grants. The transcode pool Jobs cmd/transcode
 #     runs are the other kind of per-pod workload, but carry no
-#     ServiceAccount and so no role of their own: squasharr is the sole
-#     writer of TranscodeJob.status, over NATS (X14), and app/transcode/worker
+#     ServiceAccount and so no role of their own: they answer over NATS
+#     (X14), the manager writes MediaFile status, and app/transcode/worker
 #     holds no RBAC markers.
 #
 # test/guards reads RBAC_ROLES and RBAC_PATHS_* from here rather than
@@ -283,7 +283,7 @@ docker-selfcheck: ## Check the built images as CI and the release do (hack/image
 TEST_PARALLEL ?= 4
 
 .PHONY: test-race
-# -timeout 60m: transcodejob's envtests take some 460 s without the race
+# -timeout 60m: the transcode envtests took some 460 s without the race
 # detector, which multiplies that several times; go's 10m default panics.
 test-race: envtest pg-assets native-assets chart-deps fork-status ## Run the suites under the race detector.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || true
@@ -292,7 +292,7 @@ test-race: envtest pg-assets native-assets chart-deps fork-status ## Run the sui
 	$(NATIVE_ENV) \
 	go test ./... -race -p $(TEST_PARALLEL) -timeout 60m
 
-# -timeout 20m: transcodejob's envtests take some 460 s alone and passed
+# -timeout 20m: the transcode envtests took some 460 s alone and passed
 # go's 10m default under the whole suite's load (2026-10-06).
 test: envtest pg-assets native-assets chart-deps fork-status ## Run unit and envtest suites; a missing tool fails.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; importarr's scan suites will skip"

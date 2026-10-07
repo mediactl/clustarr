@@ -535,7 +535,6 @@ func (s *server) answerOf(ctx context.Context, t task.Task, out Outcome, cause e
 		a.Outcome = task.OutcomeSucceeded
 		if out.Result != nil {
 			res := *out.Result
-			res.MediaInfo = nil // the loop's probe of the output is the record of it
 			a.Result = &res
 		}
 	case errors.Is(cause, errCancelled):

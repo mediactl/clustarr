@@ -86,7 +86,7 @@ func TestResolveBookRefDangling(t *testing.T) {
 func TestMapBookRefWrongTypeReturnsNil(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 	r := &Reconciler{Client: c}
-	other := &subtitlev1alpha1.SubtitleRequest{}
+	other := &subtitlev1alpha1.SubtitleProfile{}
 	assert.Nil(t, r.mapBookRef(t.Context(), other), "wrong type returns nil, never panics")
 }
 

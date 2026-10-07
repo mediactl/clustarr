@@ -264,8 +264,8 @@ type TranscodeProfileSpec struct {
 	// +kubebuilder:default=50
 	Priority int32 `json:"priority,omitempty"`
 
-	// MaxConcurrent caps how many TranscodeJobs created from this profile may
-	// run at once, across every hardware class -- the "per-profile counts"
+	// MaxConcurrent caps how many files of this profile may transcode at
+	// once, across every hardware class -- the "per-profile counts"
 	// admission applies alongside the --slots budgets. Zero or absent means no
 	// per-profile cap: only the hardware slot budget applies.
 	// +optional

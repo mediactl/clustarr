@@ -89,7 +89,6 @@ var bounds = map[string]bound{
 	"mediaInfo.subtitles[].title":     {256, keep},
 	"mediaInfo.chapterList[].title":   {128, keep},
 
-	"sidecars[].path":     {4096, dropElement},
 	"sidecars[].name":     {255, dropElement},
 	"sidecars[].language": {35, dropElement},
 
@@ -130,7 +129,6 @@ var bounds = map[string]bound{
 	"transcode.joinedGraft.donorRelease": {512, keep},
 	"transcode.joinedGraft.languages[]":  {35, dropElement},
 	"transcode.joinedGraft.probeHash":    {128, keep},
-	"transcode.jobRef":                   {253, keep},
 
 	"graft.reason":       {64, keep},
 	"graft.message":      {1024, keep},
@@ -327,7 +325,8 @@ func (r *renderer) conditions(draft, stored []metav1.Condition) []metav1.Conditi
 	return out
 }
 
-// uniqueSidecars keeps the first sidecar per path, the list's map key.
+// uniqueSidecars keeps the first sidecar per name: the list is atomic, and
+// a name is one file in the media file's folder.
 func (r *renderer) uniqueSidecars(in []catalogv1alpha1.Sidecar) []catalogv1alpha1.Sidecar {
 	if in == nil {
 		return nil
@@ -335,28 +334,22 @@ func (r *renderer) uniqueSidecars(in []catalogv1alpha1.Sidecar) []catalogv1alpha
 	seen := make(map[string]bool, len(in))
 	out := in[:0]
 	for _, s := range in {
-		if seen[s.Path] {
-			r.drops = append(r.drops, Drop{Field: "sidecars[].path", Reason: DropDuplicate, Bytes: len(s.Path)})
+		if seen[s.Name] {
+			r.drops = append(r.drops, Drop{Field: "sidecars[].name", Reason: DropDuplicate, Bytes: len(s.Name)})
 			continue
 		}
-		seen[s.Path] = true
+		seen[s.Name] = true
 		out = append(out, s)
 	}
 	return out
 }
 
 // sortLists sorts what the spec sorts (rule 4): conditions by type,
-// sidecars by name then path (§2.7), subtitles' wanted and items by langKey
+// sidecars by name (§2.7), subtitles' wanted and items by langKey
 // (§2.4). Stream lists and segments keep the order their producer gave.
 func sortLists(st *catalogv1alpha1.MediaFileStatus) {
 	sort.SliceStable(st.Conditions, func(i, j int) bool { return st.Conditions[i].Type < st.Conditions[j].Type })
-	sort.SliceStable(st.Sidecars, func(i, j int) bool {
-		a, b := st.Sidecars[i], st.Sidecars[j]
-		if a.Name != b.Name {
-			return a.Name < b.Name
-		}
-		return a.Path < b.Path
-	})
+	sort.SliceStable(st.Sidecars, func(i, j int) bool { return st.Sidecars[i].Name < st.Sidecars[j].Name })
 	if s := st.Subtitles; s != nil {
 		sort.Strings(s.Wanted)
 		sort.SliceStable(s.Items, func(i, j int) bool { return s.Items[i].LangKey < s.Items[j].LangKey })

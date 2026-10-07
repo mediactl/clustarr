@@ -241,7 +241,7 @@ func TestEvaluateADualAudioReleaseNamesItsLanguages(t *testing.T) {
 		Tiers: [][]quality.Definition{{bluray1080}}, CutoffIndex: 0, UpgradeAllowed: true,
 		CutoffFormatScore: 10000, MinUpgradeFormatScore: 1, ProperPolicy: "preferAndUpgrade",
 		Language: "original", LanguageName: "original", ScoreSet: "anime-radarr",
-		AudioLanguages: []string{"en", "original"}, AudioGraft: true,
+		AudioLanguages: []string{"en", "original"}, GraftAudio: true,
 	}
 	tg := decision.Target{
 		Kind: common.MediaKindMovie, Available: true, OriginalLanguageTag: "ja",

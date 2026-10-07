@@ -35,8 +35,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	// Group=subtitle.clustarr.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithKind("EmbeddedSpec"):
 		return &subtitlev1alpha1.EmbeddedSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("ExistingSub"):
-		return &subtitlev1alpha1.ExistingSubApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LanguageItem"):
 		return &subtitlev1alpha1.LanguageItemApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ProviderQuota"):
@@ -45,8 +43,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &subtitlev1alpha1.ScorePctApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SearchSpec"):
 		return &subtitlev1alpha1.SearchSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleItem"):
-		return &subtitlev1alpha1.SubtitleItemApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleProfile"):
 		return &subtitlev1alpha1.SubtitleProfileApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleProfileSpec"):
@@ -59,12 +55,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &subtitlev1alpha1.SubtitleProviderSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleProviderStatus"):
 		return &subtitlev1alpha1.SubtitleProviderStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleRequest"):
-		return &subtitlev1alpha1.SubtitleRequestApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleRequestSpec"):
-		return &subtitlev1alpha1.SubtitleRequestSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleRequestStatus"):
-		return &subtitlev1alpha1.SubtitleRequestStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SyncSpec"):
 		return &subtitlev1alpha1.SyncSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("UpgradeSpec"):

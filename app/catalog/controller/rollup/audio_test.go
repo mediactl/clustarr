@@ -57,7 +57,7 @@ func TestAudioLanguagesObjectKeysTheProbedLanguages(t *testing.T) {
 }
 
 func TestAudioStateFor(t *testing.T) {
-	p := &quality.Profile{AudioLanguages: []string{"en", "original"}, AudioGraft: true}
+	p := &quality.Profile{AudioLanguages: []string{"en", "original"}, GraftAudio: true}
 	mf := func(langs ...string) *catalogv1alpha1.MediaFile {
 		var a []commonv1.AudioStream
 		for _, l := range langs {

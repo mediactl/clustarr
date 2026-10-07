@@ -22,7 +22,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,14 +30,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -243,31 +240,6 @@ func mutate(t *testing.T, v reflect.Value, name string) {
 	}
 }
 
-func TestTranscodeJobNameIsDeterministicOnFileAndHash(t *testing.T) {
-	a := transcodeJobName("arrival-2016", "deadbeefcafe0102")
-	b := transcodeJobName("arrival-2016", "deadbeefcafe0102")
-	require.Equal(t, a, b, "the same (file, hash) pair must render the same name")
-	assert.Equal(t, "arrival-2016-deadbeef", a, "only the first 8 hex characters of the hash are kept")
-
-	// A different hash -- the only thing that changes when a profile is
-	// edited -- must render a different name, which is what makes a profile
-	// edit create a NEW TranscodeJob instead of mutating the CEL-immutable
-	// spec of the old one.
-	c := transcodeJobName("arrival-2016", "0102cafedeadbeef")
-	assert.NotEqual(t, a, c)
-}
-
-func TestTranscodeJobNameTruncatesOnlyWhenOverLimit(t *testing.T) {
-	short := transcodeJobName("short-name", "01234567890123456789")
-	assert.LessOrEqual(t, len(short), k8s.MaxNameLength)
-	assert.True(t, strings.HasPrefix(short, "short-name-"), "a name well under the limit is never trimmed")
-
-	long := strings.Repeat("x", 300)
-	got := transcodeJobName(long, "01234567")
-	assert.LessOrEqual(t, len(got), k8s.MaxNameLength)
-	assert.True(t, strings.HasSuffix(got, "-01234567"), "the hash suffix is never the part that is trimmed")
-}
-
 func TestProfileTagMatchesTheMediafileControllerConvention(t *testing.T) {
 	// This exact "<name>@<hash>" shape is also rendered by
 	// app/catalog/controller/mediafile.transcodeProfileTag and by
@@ -445,48 +417,4 @@ func TestAlreadyTranscodedCountsATranscodeFromElsewhere(t *testing.T) {
 	assert.True(t, alreadyTranscoded(&mf, "hevc"))
 	mf.Status.MediaInfo.VideoEncoder = "Lavc61.3.100 libx264"
 	assert.False(t, alreadyTranscoded(&mf, "hevc"), "an H.264 release made with ffmpeg is not a transcode")
-}
-
-// A Succeeded job holds its file until catalog has incorporated the
-// swap (re-probed the file after the job finished): until then the file
-// reads untranscoded -- its probe is the original's -- and a job under a
-// newer hash would be planned against bytes the swap already replaced, and
-// fail SourceChanged at dispatch (kind-cluster-plex, 2026-10-01).
-func TestASucceededJobHoldsItsFileUntilTheSwapIsIncorporated(t *testing.T) {
-	finished := metav1.NewTime(time.Date(2026, 10, 1, 20, 0, 0, 0, time.UTC))
-	job := func(name, file string, phase transcodev1alpha1.TranscodeJobPhase) transcodev1alpha1.TranscodeJob {
-		tj := transcodev1alpha1.TranscodeJob{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
-			Spec:       transcodev1alpha1.TranscodeJobSpec{ProfileRef: "hevc", MediaFileRef: file},
-		}
-		tj.Status.Phase = phase
-		if phase == transcodev1alpha1.TranscodeJobPhaseSucceeded {
-			tj.Status.FinishedAt = &finished
-		}
-		return tj
-	}
-	file := func(name string, probed time.Time) catalogv1alpha1.MediaFile {
-		mf := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"}}
-		at := metav1.NewTime(probed)
-		mf.Status.ProbedAt = &at
-		return mf
-	}
-	jobs := []transcodev1alpha1.TranscodeJob{
-		job("a-old", "a", transcodev1alpha1.TranscodeJobPhaseSucceeded),
-		job("b-old", "b", transcodev1alpha1.TranscodeJobPhaseSucceeded),
-		job("c-old", "c", transcodev1alpha1.TranscodeJobPhaseSkipped),
-		job("d-old", "d", transcodev1alpha1.TranscodeJobPhasePlanned),
-	}
-	files := []catalogv1alpha1.MediaFile{
-		file("a", finished.Add(-time.Hour)),  // probed before the swap: not incorporated
-		file("b", finished.Add(time.Second)), // re-probed after it: incorporated
-		file("c", finished.Add(-time.Hour)),
-		file("d", finished.Add(-time.Hour)),
-	}
-	busy := openFiles(jobs, "hevc", files)
-	key := func(n string) types.NamespacedName { return types.NamespacedName{Namespace: "media", Name: n} }
-	assert.True(t, busy[key("a")], "a swap catalog has not read yet holds the file")
-	assert.False(t, busy[key("b")], "an incorporated swap does not: the file's own record decides")
-	assert.False(t, busy[key("c")], "a skip holds nothing")
-	assert.True(t, busy[key("d")], "an open job holds its file")
 }

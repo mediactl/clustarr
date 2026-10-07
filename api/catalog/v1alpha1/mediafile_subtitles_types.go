@@ -53,7 +53,7 @@ const (
 )
 
 // SubtitlesStatus is the file's subtitles, written by the remediation loop's
-// subtitles planner (loop spec §2.4; ADR-0016). It replaces SubtitleRequest.
+// subtitles planner (loop spec §2.4; ADR-0016).
 type SubtitlesStatus struct {
 	// +required
 	Phase SubtitlesPhase `json:"phase"`

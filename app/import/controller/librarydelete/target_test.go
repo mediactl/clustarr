@@ -37,7 +37,7 @@ func mediaFile(name string, ref commonv1.MediaRef, path string, sidecars ...stri
 		Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: ref, Path: path},
 	}
 	for _, s := range sidecars {
-		mf.Status.Sidecars = append(mf.Status.Sidecars, catalogv1alpha1.Sidecar{Path: s})
+		mf.Status.Sidecars = append(mf.Status.Sidecars, catalogv1alpha1.Sidecar{Name: filepath.Base(s)})
 	}
 	return mf
 }
@@ -91,10 +91,6 @@ func TestCheckRefusesAFolderHoldingAnotherItemsFile(t *testing.T) {
 func TestCheckRefusesAPathOutsideTheRootFolder(t *testing.T) {
 	root := t.TempDir()
 	tgt, _ := heatTarget(root)
-	tgt.Files[0].Status.Sidecars = append(tgt.Files[0].Status.Sidecars, catalogv1alpha1.Sidecar{Path: "/etc/passwd"})
-	require.ErrorIs(t, Check(tgt, tgt.Files, nil), ErrRefused)
-
-	tgt, _ = heatTarget(root)
 	tgt.Folder = root
 	require.ErrorIs(t, Check(tgt, tgt.Files, nil), ErrRefused, "the RootFolder itself")
 }

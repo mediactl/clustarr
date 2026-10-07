@@ -1,5 +1,5 @@
-# captionarr -- SubtitleProfile / SubtitleRequest / SubtitleProvider
-# controllers plus the cron republishers (adaptive search cadence, the 12h
+# captionarr -- SubtitleProfile / SubtitleProvider controllers (each file's
+# subtitles are its MediaFile status.subtitles, ADR-0016) plus the cron republishers (adaptive search cadence, the 12h
 # upgrade pass). Design spec §3, §6.5.
 #
 # The provider fetches do NOT happen here; they run in captionarr-worker.

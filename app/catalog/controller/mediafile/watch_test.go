@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -34,31 +33,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
-
-func TestExtractTranscodeJobPhase(t *testing.T) {
-	tj := &transcodev1alpha1.TranscodeJob{Status: transcodev1alpha1.TranscodeJobStatus{Phase: transcodev1alpha1.TranscodeJobPhaseSucceeded}}
-	assert.Equal(t, "Succeeded", extractTranscodeJobPhase(tj))
-
-	other := &subtitlev1alpha1.SubtitleRequest{}
-	assert.Equal(t, "", extractTranscodeJobPhase(other), "wrong type returns the zero value, never panics")
-}
-
-func TestMediaFileForTranscodeJob(t *testing.T) {
-	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
-	tj := &transcodev1alpha1.TranscodeJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "inception-abc12345", Namespace: "media"},
-		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: "inception-abc1234567"},
-	}
-
-	reqs := (&Reconciler{Client: c}).mediaFileForTranscodeJob(t.Context(), tj)
-
-	want := []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: "media", Name: "inception-abc1234567"}}}
-	assert.Equal(t, want, reqs)
-}
 
 // namingFixture is a library of two root folders: a movie under "movies",
 // and under "tv" a series whose first two episodes share one multi-episode
@@ -209,39 +185,6 @@ func TestRootFolderNamingChanged(t *testing.T) {
 	assert.True(t, update(func(rf *catalogv1alpha1.RootFolder) { rf.Spec.Path = "/data/media/films" }))
 	assert.True(t, p.Create(event.CreateEvent{Object: base}))
 	assert.True(t, p.Delete(event.DeleteEvent{Object: base}), "a deleted RootFolder turns its files Unrenderable")
-}
-
-// TestTranscodeHolds covers the two things Reconcile derives from its one
-// TranscodeJob list (ruling R18): the unincorporated swap, and whether any
-// job still holds the file -- every non-terminal phase, the unset one a
-// just-created job has included.
-func TestTranscodeHolds(t *testing.T) {
-	job := func(phase transcodev1alpha1.TranscodeJobPhase, finished *metav1.Time) transcodev1alpha1.TranscodeJob {
-		return transcodev1alpha1.TranscodeJob{Status: transcodev1alpha1.TranscodeJobStatus{Phase: phase, FinishedAt: finished}}
-	}
-	probed := metav1.NewTime(metav1.Now().Add(-time.Hour))
-	before, after := metav1.NewTime(probed.Add(-time.Minute)), metav1.NewTime(probed.Add(time.Minute))
-
-	for _, phase := range []transcodev1alpha1.TranscodeJobPhase{
-		"", transcodev1alpha1.TranscodeJobPhasePending,
-		transcodev1alpha1.TranscodeJobPhasePlanned, transcodev1alpha1.TranscodeJobPhaseQueued,
-		transcodev1alpha1.TranscodeJobPhaseRunning, transcodev1alpha1.TranscodeJobPhaseVerifying,
-	} {
-		assert.True(t, transcodeInFlight([]transcodev1alpha1.TranscodeJob{job(phase, nil)}), "phase %q holds the file", phase)
-	}
-	assert.False(t, transcodeInFlight([]transcodev1alpha1.TranscodeJob{
-		job(transcodev1alpha1.TranscodeJobPhaseSucceeded, &after), job(transcodev1alpha1.TranscodeJobPhaseFailed, nil),
-		job(transcodev1alpha1.TranscodeJobPhaseSkipped, nil),
-	}))
-
-	old := job(transcodev1alpha1.TranscodeJobPhaseSucceeded, &before)
-	fresh := job(transcodev1alpha1.TranscodeJobPhaseSucceeded, &after)
-	assert.Nil(t, latestUnincorporatedTranscode([]transcodev1alpha1.TranscodeJob{old}, &probed), "finished before the probe: incorporated")
-	got := latestUnincorporatedTranscode([]transcodev1alpha1.TranscodeJob{old, fresh}, &probed)
-	if assert.NotNil(t, got) {
-		assert.Equal(t, after, *got.Status.FinishedAt)
-	}
-	assert.NotNil(t, latestUnincorporatedTranscode([]transcodev1alpha1.TranscodeJob{old}, nil), "never probed: every Succeeded job counts")
 }
 
 // TestKeepNamingRejudgesCurrent: a proposal kept over a failed lookup still

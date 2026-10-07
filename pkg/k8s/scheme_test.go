@@ -43,8 +43,8 @@ func TestSchemeKnowsEveryGroupAServiceTouches(t *testing.T) {
 		"catalog":   &catalogv1alpha1.Movie{},
 		"index":     &indexv1alpha1.Indexer{},
 		"download":  &downloadv1alpha1.Download{},
-		"transcode": &transcodev1alpha1.TranscodeJob{},
-		"subtitle":  &subtitlev1alpha1.SubtitleRequest{},
+		"transcode": &transcodev1alpha1.TranscodeProfile{},
+		"subtitle":  &subtitlev1alpha1.SubtitleProfile{},
 
 		// What the managers create and consume.
 		"core secret":      &corev1.Secret{},

@@ -106,7 +106,7 @@ func movieFixture(t *testing.T, withActions bool) (*ui.Server, client.Client) {
 				VideoCodec: "h264",
 				Audio:      []commonv1.AudioStream{{Codec: "dts", Channels: 6, ChannelLayout: "5.1(side)", Language: "eng"}},
 			},
-			Sidecars: []catalogv1.Sidecar{{Path: nervePath + "/Nerve (2016) {tmdb-328387}.en.srt", Language: "en"}},
+			Sidecars: []catalogv1.Sidecar{{Name: "Nerve (2016) {tmdb-328387}.en.srt", Language: "en"}},
 		},
 	}
 	rf := &catalogv1.RootFolder{

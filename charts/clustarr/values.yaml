@@ -326,9 +326,10 @@ grabarr:
   tolerations: []
   affinity: {}
 
-# TranscodeProfile/TranscodeJob controllers + slot scheduler. Transcodes run
-# as batch/v1 Jobs this controller creates suspended and admits against the
-# slot budget below.
+# TranscodeProfile controller, the transcode pools and the slot budget below:
+# each file's transcode is its MediaFile status.transcode (ADR-0016),
+# admitted against these slots and run in the pool Jobs this controller
+# creates.
 squasharr:
   enabled: true
   replicas: 1

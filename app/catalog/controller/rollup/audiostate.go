@@ -81,7 +81,7 @@ func AudioStateFor(p *quality.Profile, originalTag string, mf *catalogv1alpha1.M
 			}
 		}
 	}
-	if p.AudioGraft {
+	if p.GraftAudio {
 		st.Graft, st.Reason = graftState(len(st.Missing) > 0, g, mf.Status.GraftTag)
 	}
 	return st

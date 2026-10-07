@@ -85,7 +85,9 @@ func (t Target) paths() []string {
 	for _, mf := range t.Files {
 		add(mf.Spec.Path)
 		for _, sc := range mf.Status.Sidecars {
-			add(sc.Path)
+			if p, ok := sc.PathBeside(mf.Spec.Path); ok {
+				add(p)
+			}
 		}
 		found, _ := subtitles.SidecarsOf(mf.Spec.Path) // an unreadable folder adds none
 		for _, p := range found {

@@ -409,8 +409,9 @@ spec:
                 x-kubernetes-list-type: map
               graft:
                 description: |-
-                  Graft is the remediation loop's graft block (loop spec §2.6); it
-                  replaces AudioGraft's per-file half.
+                  Graft is the remediation loop's graft block (loop spec §2.6;
+                  ADR-0016): the file's half of a graft; the item's donor is its
+                  status.audio.donor.
                 properties:
                   completedAt:
                     format: date-time
@@ -1129,13 +1130,14 @@ spec:
               sidecars:
                 description: |-
                   Sidecars are the subtitle sidecars beside the file, found on disk by
-                  the subtitles planner's directory read, sorted by name. Release N keeps
-                  today's map list keyed by path (loop spec §2.16); N+1 makes it atomic.
+                  the subtitles planner's directory read, sorted by name (loop spec
+                  §2.7). The list is atomic: the loop always sends all of it.
                 items:
                   description: |-
                     Sidecar is a subtitle sidecar beside the media file (loop spec §2.7):
                     every attributable one the subtitles planner's directory read finds,
-                    downloaded, written by the MP4 standard or placed by hand.
+                    downloaded, written by the MP4 standard or placed by hand. A reader that
+                    needs its path calls PathBeside.
                   properties:
                     forced:
                       description: Forced is true when the sidecar is a forced subtitle
@@ -1152,29 +1154,23 @@ spec:
                     name:
                       description: |-
                         Name is the sidecar's file name in the media file's directory.
-                        rollback has none); +required with MinLength=1 from N+1.
+                        It is omitted when empty in Go so that an entry a 0.4.x install
+                        stored with a path alone (pruned on read) is re-sent as stored and
+                        ratcheted, never as an empty name the schema refuses; the loop's next
+                        listing replaces it.
                       maxLength: 255
-                      type: string
-                    path:
-                      description: |-
-                        Path is the sidecar's absolute path: today's field and the list's map
-                        key, written by the loop on every entry in release N (dir(spec.path)
-                        list after a rollback (§2.16). The loop fills each half from the
-                        other on an entry it carries forward. Deleted in N+1.
-                      maxLength: 4096
+                      minLength: 1
                       type: string
                   required:
-                  - path
+                  - name
                   type: object
                 maxItems: 32
                 type: array
-                x-kubernetes-list-map-keys:
-                - path
-                x-kubernetes-list-type: map
+                x-kubernetes-list-type: atomic
               subtitles:
                 description: |-
-                  Subtitles is the remediation loop's subtitles block (loop spec §2.4);
-                  it replaces SubtitleRequest.
+                  Subtitles is the remediation loop's subtitles block (loop spec §2.4;
+                  ADR-0016).
                 properties:
                   cutoffMet:
                     description: CutoffMet is sent false as well as true (no omitempty,
@@ -1394,8 +1390,8 @@ spec:
                 type: object
               transcode:
                 description: |-
-                  Transcode is the remediation loop's transcode block (loop spec §2.5);
-                  it replaces TranscodeJob.
+                  Transcode is the remediation loop's transcode block (loop spec §2.5;
+                  ADR-0016).
                 properties:
                   attempts:
                     description: |-
@@ -1525,14 +1521,6 @@ spec:
                     - auto
                     - gpu
                     type: string
-                  jobRef:
-                    description: |-
-                      JobRef and LastResult are today's fields, kept in release N's schema
-                      only so the previous release's apply is still valid after a rollback
-                      (§2.16). The loop never writes them; LastResult has no default. F9.2
-                      deletes both.
-                    maxLength: 253
-                    type: string
                   joinedGraft:
                     description: |-
                       JoinedGraft is the graft the dispatch at Dispatch.Seq carries, written
@@ -1559,18 +1547,6 @@ spec:
                     - donorRelease
                     - probeHash
                     type: object
-                  lastResult:
-                    description: |-
-                      TranscodeResult is the outcome of the most recent transcode of a file:
-                      today's lastResult, kept in release N's schema only so the previous
-                      release's apply stays valid after a rollback (loop spec §2.16). The loop
-                      never writes it; F9.2 deletes it.
-                    enum:
-                    - none
-                    - succeeded
-                    - failed
-                    - skipped
-                    type: string
                   message:
                     maxLength: 1024
                     type: string
@@ -1579,10 +1555,11 @@ spec:
                     type: string
                   phase:
                     description: |-
-                      Phase is always written by the loop. It is +optional, and omitted
-                      when empty, in release N only: the previous release applies this
-                      block with no phase under the same field manager, and a typed
-                      phase-less block must not send phase:"" (§2.16). F9.2 makes it
+                      Phase is always written by the loop. It is omitted when empty in Go
+                      so that a phase-less block a 0.4.x install stored, which the loop
+                      carries unchanged until its transcode planner rewrites it (§2.5
+                      "Legacy objects"), is re-sent as stored and ratcheted rather than as
+                      phase:"", which the enum refuses.
                     enum:
                     - Pending
                     - Planned
@@ -1610,9 +1587,8 @@ spec:
                           Dropped names each source subtitle the output carries neither embedded
                           nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
                           not carry, or a second track for a sidecar name already planned), each
-                          clamped on a rune boundary; past 8, the eighth reads "and N more". It
-                          replaces the "; dropped …" suffix main's c0fb39b7 adds to TranscodeJob's
-                          Planned condition, which the fold removes (loop spec §2.5, D44).
+                          clamped on a rune boundary; past 8, the eighth reads "and N more"
+                          (loop spec §2.5, D44).
                         items:
                           maxLength: 320
                           type: string
@@ -1725,6 +1701,8 @@ spec:
                   workerPod:
                     maxLength: 253
                     type: string
+                required:
+                - phase
                 type: object
             type: object
         type: object

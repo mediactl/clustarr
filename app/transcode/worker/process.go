@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -34,7 +33,7 @@ import (
 type Outcome struct {
 	Code       int
 	Err        error
-	Result     *transcodev1alpha1.Result
+	Result     *task.Result
 	StderrTail string
 	Reason     task.Reason
 	// Graft is what came of the task's graft, when it carried one.

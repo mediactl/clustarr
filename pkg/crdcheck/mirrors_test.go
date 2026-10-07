@@ -199,8 +199,6 @@ func TestMaxTranscodeProfileLengthMatchesTheCRD(t *testing.T) {
 	for where, schema := range map[string]*apiextensionsv1.JSONSchemaProps{
 		"MediaFile status.mediaInfo.transcodeProfile": crdSchemaAt(t, "catalog.clustarr.io_mediafiles.yaml",
 			"status", "mediaInfo", "transcodeProfile"),
-		"TranscodeJob status.result.mediaInfo.transcodeProfile": crdSchemaAt(t, "transcode.clustarr.io_transcodejobs.yaml",
-			"status", "result", "mediaInfo", "transcodeProfile"),
 	} {
 		require.NotNil(t, schema.MaxLength, "%s is unbounded", where)
 		require.Equal(t, int64(mediainfo.MaxTranscodeProfileLength), *schema.MaxLength,

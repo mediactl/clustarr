@@ -241,18 +241,6 @@ func TestDecide(t *testing.T) {
 	}
 }
 
-func TestMinScore(t *testing.T) {
-	pct := subtitlev1alpha1.ScorePct{Movie: 70, Episode: 90}
-	ov := int32(50)
-	onDisk := &subtitlev1alpha1.SubtitleItem{Score: 150}
-
-	assert.Equal(t, 126, minScore(commonv1.MediaKindMovie, pct, nil, 0, nil, false))
-	assert.Equal(t, 324, minScore(commonv1.MediaKindEpisode, pct, nil, 0, nil, false))
-	assert.Equal(t, 90, minScore(commonv1.MediaKindMovie, pct, &ov, 0, nil, false), "minScoreOverride wins")
-	assert.Equal(t, 140, minScore(commonv1.MediaKindMovie, pct, nil, 140, nil, false), "the upgrade pass's score+1")
-	assert.Equal(t, 151, minScore(commonv1.MediaKindMovie, pct, nil, 0, onDisk, true), "never replace with worse or equal")
-}
-
 func TestChooseProfile(t *testing.T) {
 	old := metav1.NewTime(time.Unix(1000, 0))
 	newer := metav1.NewTime(time.Unix(2000, 0))

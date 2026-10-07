@@ -27,7 +27,7 @@ import (
 // with apply.
 //
 // SubtitlesStatus is the file's subtitles, written by the remediation loop's
-// subtitles planner (loop spec §2.4; ADR-0016). It replaces SubtitleRequest.
+// subtitles planner (loop spec §2.4; ADR-0016).
 type SubtitlesStatusApplyConfiguration struct {
 	Phase *catalogv1alpha1.SubtitlesPhase `json:"phase,omitempty"`
 	// Reason is why the phase is Blocked: ItemNotFound, NoProfile,

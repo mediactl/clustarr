@@ -351,7 +351,9 @@ func moveSidecars(ctx context.Context, sidecars []catalogv1alpha1.Sidecar, from,
 	// §4.1).
 	paths := map[string]bool{}
 	for _, s := range sidecars {
-		paths[s.Path] = true
+		if p, ok := s.PathBeside(from); ok {
+			paths[p] = true
+		}
 	}
 	found, err := subtitles.SidecarsOf(from)
 	if err != nil {
