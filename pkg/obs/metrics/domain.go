@@ -283,3 +283,24 @@ var (
 		"controller",
 	)
 )
+
+// Probe queue telemetry (spec 2026-10-06 §6.5.3, §6.6).
+var (
+	// ProbeRequestsTotal counts probes catalogarr's MediaFile reconciler
+	// asked the import domain for, by lane (high, low).
+	ProbeRequestsTotal = newCounterVec(
+		"clustarr_probe_requests_total",
+		"Total MediaFile probes requested, by lane.",
+		"lane",
+	)
+
+	// ProbeDuration is how long the import domain's probe worker took per
+	// task, by lane and outcome (probed, failed, transient, abandoned,
+	// superseded).
+	ProbeDuration = newHistogramVec(
+		"clustarr_probe_duration_seconds",
+		"Duration of MediaFile probes in seconds, by lane and outcome.",
+		durationBucketsShort,
+		"lane", "outcome",
+	)
+)
