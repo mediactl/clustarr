@@ -71,12 +71,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing in this package registers itself; app/catalog/run.go's setupHistory
-// does that, the same way setupQueueWorkers wires
-// app/catalog/worker/rssmatcher:
+// Nothing in this package registers itself; the manager's catalog step
+// (app/catalog/manager's registerHistory) does that, leader-only (ADR-0019
+// §7.7), with the projector cmd/manager built and shares with its advisory
+// intake:
 //
 //	sink := history.NewSink(history.SinkDeps{Recorder: mgr.GetEventRecorder("catalogarr-history")})
-//	if err := sink.SetupWithManager(mgr, bus); err != nil { ... }
+//	if err := sink.SetupLeaderOnly(mgr, bus); err != nil { ... }
 //
 //	reader, _ := cataloghistory.DLQReaderFor(bus) // nil on the in-memory bus
 //	dlq := history.NewDLQProjector(history.DLQDeps{
@@ -84,7 +85,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //		Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"),
 //		DLQ:      reader,
 //	})
-//	if err := dlq.SetupWithManager(mgr, bus); err != nil { ... }
+//	if err := dlq.SetupLeaderOnly(mgr, bus); err != nil { ... }
 //
 // The replay controllers are app/catalog/history/replay.
 package history

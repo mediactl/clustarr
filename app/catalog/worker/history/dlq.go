@@ -175,11 +175,13 @@ func (p *DLQProjector) Subscription() events.Subscription {
 	return spec.Subscription()
 }
 
-// SetupWithManager registers the subscription as a manager.Runnable. See
-// Sink.SetupWithManager's doc comment for why this must be a k8s.EveryReplica
-// rather than a manager.RunnableFunc.
-func (p *DLQProjector) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
-	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+// SetupLeaderOnly registers the subscription as a leader-only runnable of
+// the manager (ADR-0019 §7.7, §8.5): the projector moved out of the agent's
+// events domain into cmd/manager, same durable (clustarr-dlq-projector),
+// same field manager, annotations and Events. The advisory intake reads its
+// Seen reports and calls its Annotate (the second net).
+func (p *DLQProjector) SetupLeaderOnly(mgr ctrl.Manager, bus events.Bus) error {
+	return mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, p.Subscription(), p.Handle)
 		if err != nil {
 			return fmt.Errorf("catalogarr: subscribe dlq-projector: %w", err)

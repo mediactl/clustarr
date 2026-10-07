@@ -78,11 +78,11 @@ func Domains() []Domain {
 			events.ConsumerCatalogSearchHigh, events.ConsumerCatalogSearchNorm,
 			events.ConsumerCatalogGrab, events.ConsumerCatalogArtworkRender,
 		}},
-		// events stays at one or more: its three Limits streams are memory
-		// with discard-old on single-node NATS (§3.5.4, OD30).
+		// events stays at one or more: its Limits streams are memory with
+		// discard-old on single-node NATS (§3.5.4, OD30). The history sink
+		// and the DLQ projector moved into the manager (ADR-0019 §7.7).
 		{Name: Events, Autoscaled: true, MinReplicas: 1, Consumers: []string{
 			events.ConsumerCatalogRSSMatcher, events.ConsumerCatalogRedownload,
-			events.ConsumerCatalogHistory, events.ConsumerDLQProjector,
 		}},
 		// One replica: RPC responders and in-process provider limiters
 		// (ADR-0007).
@@ -130,6 +130,8 @@ func Fixed() map[string]string {
 		events.ConsumerIntakeCandidate:     "manager: the leader-only candidate inbox, acked after the owner's pass decides (app/intake, ADR-0019 §8.4)",
 		events.ConsumerIntakeScan:          "manager: the leader-only scan intake, acked after the scan applier writes (app/intake, ADR-0019 §8.4)",
 		events.ConsumerTaskEvents:          "manager: the leader-only advisory intake, nak and term advisories to delivery state (app/intake/advisory, ADR-0019 §8.2)",
+		events.ConsumerCatalogHistory:      "manager: the leader-only history sink, domain events to Kubernetes Events (app/catalog/worker/history, ADR-0019 §7.7)",
+		events.ConsumerDLQProjector:        "manager: the leader-only DLQ projector, shared with the advisory intake's second net (app/catalog/worker/history, ADR-0019 §8.5)",
 	}
 }
 

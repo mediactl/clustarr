@@ -74,18 +74,13 @@ func (s *Sink) Subscription() events.Subscription {
 	return spec.Subscription()
 }
 
-// SetupWithManager registers the subscription as a manager.Runnable so it
-// starts with the manager and drains on shutdown.
-//
-// It is a k8s.EveryReplica rather than a manager.RunnableFunc: catalogarr's
-// controller,worker,history Deployment runs every RoleHistory replica behind
-// the same leader lease its controllers use, and a bare RunnableFunc has no
-// NeedLeaderElection method, so controller-runtime would put it behind that
-// lease -- exactly one replica would ever drain CLUSTARR_EVENTS, however many
-// were scaled up. See k8s.EveryReplica's doc comment; app/catalog/worker/
-// rssmatcher.Handler.SetupWithManager hit this first.
-func (s *Sink) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
-	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+// SetupLeaderOnly registers the subscription as a leader-only runnable of
+// the manager (ADR-0019 §7.7, §8.1): the history sink moved out of the
+// agent's events domain into cmd/manager, where only the lease holder
+// consumes, and the process exits on lease loss. Durable, recorder and
+// field manager are unchanged (R7).
+func (s *Sink) SetupLeaderOnly(mgr ctrl.Manager, bus events.Bus) error {
+	return mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, s.Subscription(), s.Handle)
 		if err != nil {
 			return fmt.Errorf("catalogarr: subscribe history: %w", err)

@@ -29,6 +29,7 @@ import (
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
 	captionmanager "github.com/mediactl/clustarr/app/caption/manager"
 	catalogmanager "github.com/mediactl/clustarr/app/catalog/manager"
+	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/app/dispatch"
 	grabmanager "github.com/mediactl/clustarr/app/grab/manager"
 	importmanager "github.com/mediactl/clustarr/app/import/manager"
@@ -167,6 +168,10 @@ type planes struct {
 	// Dispatch.delivery from (R8); tasks is the intake that fills it.
 	book  *dispatch.DeliveryBook
 	tasks *advisory.Intake
+	// projector is the one DLQ projector: the catalog step consumes
+	// clustarr-dlq-projector with it, and the advisory intake's second net
+	// annotates through it (§8.5).
+	projector *historyworker.DLQProjector
 }
 
 // newPlanes builds the shared planes and adds the leader-only runnables
@@ -202,10 +207,12 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	}
 	// The task-events intake (§8.2): nak and term advisories of every
 	// dispatched task into the delivery book, and ack sampling for metrics.
-	// Its DLQ projector (the second net) is the history step's, A2.5.
+	// Its second net annotates through the DLQ projector the catalog step
+	// consumes with (§8.5).
+	p.projector = catalogmanager.NewDLQProjector(mgr, bus)
 	p.book = dispatch.NewDeliveryBook()
 	p.tasks = &advisory.Intake{
-		Bus: bus, Admin: admin, Book: p.book, Topology: top,
+		Bus: bus, Admin: admin, Book: p.book, Topology: top, Projector: p.projector,
 		ByUID: advisory.CacheResolver{Reader: mgr.GetClient()},
 	}
 	if err := mgr.Add(p.tasks); err != nil {
@@ -229,7 +236,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	}
 	steps := []step{
 		{"catalog", func() error {
-			return catalogmanager.Register(mgr, bus, catalogmanager.Options{Options: o.Options})
+			return catalogmanager.Register(mgr, bus, catalogmanager.Options{Options: o.Options, DLQProjector: p.projector})
 		}},
 		{"import", func() error {
 			return importmanager.Register(mgr, bus, importmanager.Options{Options: o.Options, TraktBaseURL: o.TraktBaseURL})

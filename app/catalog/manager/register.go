@@ -47,6 +47,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
+	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -57,6 +58,10 @@ import (
 // wanted sweep, both from the embedded k8s.Options.
 type Options struct {
 	k8s.Options
+	// DLQProjector is the manager's one DLQ projector, which cmd/manager
+	// shares with its advisory intake (the second net, ADR-0019 §8.5); nil
+	// builds one (NewDLQProjector).
+	DLQProjector *historyworker.DLQProjector
 }
 
 // Register adds every catalog reconciler and manager-side runnable.
@@ -67,7 +72,40 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := registerControllers(mgr, bus, o); err != nil {
 		return err
 	}
+	if err := registerHistory(mgr, bus, o.DLQProjector); err != nil {
+		return err
+	}
 	return registerReplay(mgr, bus)
+}
+
+// NewDLQProjector is the manager's DLQ projector: recorder
+// clustarr-dlq-projector, the manager's client, and the DLQ reader on a
+// JetStream bus (none on membus, which leaves the sequence out).
+func NewDLQProjector(mgr ctrl.Manager, bus events.Bus) *historyworker.DLQProjector {
+	reader, _ := history.DLQReaderFor(bus)
+	return historyworker.NewDLQProjector(historyworker.DLQDeps{
+		Client: mgr.GetClient(), Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"), DLQ: reader,
+	})
+}
+
+// registerHistory registers the history sink (catalogarr-history, recorder
+// catalogarr-history) and the DLQ projector (clustarr-dlq-projector)
+// leader-only (ADR-0019 §7.7, §8.1, §8.5): they moved out of the agent's
+// events domain, same durables, field manager and recorders (R7), and a new
+// leader binds the same durables, so whatever the old one had not acked is
+// redelivered.
+func registerHistory(mgr ctrl.Manager, bus events.Bus, proj *historyworker.DLQProjector) error {
+	sink := historyworker.NewSink(historyworker.SinkDeps{Recorder: mgr.GetEventRecorder("catalogarr-history")})
+	if err := sink.SetupLeaderOnly(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: history sink: %w", err)
+	}
+	if proj == nil {
+		proj = NewDLQProjector(mgr, bus)
+	}
+	if err := proj.SetupLeaderOnly(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: dlq projector: %w", err)
+	}
+	return nil
 }
 
 // registerReplay registers the clustarr.io/replay handler (design §5) behind
