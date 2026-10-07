@@ -62,10 +62,11 @@ func TestDeviceXMLNamesTheDevice(t *testing.T) {
 	assert.Equal(t, "root", root.XMLName.Local)
 }
 
-func TestDeviceIDIsStableAndDistinct(t *testing.T) {
-	a := hdhr.DeviceID("media", "news")
+func TestABlocksDeviceIDIsStableAndDistinct(t *testing.T) {
+	a := hdhr.BlockDeviceID("media", "news", "1000")
 	assert.Regexp(t, `^[0-9A-F]{8}$`, a)
-	assert.Equal(t, a, hdhr.DeviceID("media", "news"))
-	assert.NotEqual(t, a, hdhr.DeviceID("media", "sports"))
-	assert.NotEqual(t, a, hdhr.DeviceID("other", "news"))
+	assert.Equal(t, a, hdhr.BlockDeviceID("media", "news", "1000"), "a recreated provider gets the same devices")
+	assert.NotEqual(t, a, hdhr.BlockDeviceID("media", "news", "1400"), "each block is its own device")
+	assert.NotEqual(t, a, hdhr.BlockDeviceID("media", "sports", "1000"))
+	assert.NotEqual(t, a, hdhr.BlockDeviceID("other", "news", "1000"))
 }
