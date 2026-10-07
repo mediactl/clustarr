@@ -387,6 +387,13 @@ type job struct {
 	outputPath   string
 	downloaded   int64
 	lastProgress time.Time
+	// stageStarted is when the job entered its current stage (setStage),
+	// for the elapsed time postProcessMessageLocked reports.
+	stageStarted time.Time
+	// unpack counts what the extracting stage has written, and
+	// archiveBytes is the size of the archives it is unpacking.
+	unpack       *unpackProgress
+	archiveBytes int64
 	lastError    error
 	encrypted    bool
 	imported     bool
@@ -449,6 +456,9 @@ func (j *job) downloadedBytes() int64 {
 
 func (j *job) setStage(stage downloadv1alpha1.DownloadStage, status download.Status) {
 	j.mu.Lock()
+	if stage != j.stage {
+		j.stageStarted = time.Now()
+	}
 	j.stage, j.status = stage, status
 	j.mu.Unlock()
 	_ = j.checkpoint()
@@ -1042,15 +1052,24 @@ func (j *job) postProcess(ctx context.Context) error {
 
 	publishFrom := content
 	if j.client.cfg.PostProcess.Unpack && len(archiveEntryPoints(j.nzb.Files)) > 0 {
+		progress, archives := &unpackProgress{}, archiveBytes(j.nzb.Files)
+		j.mu.Lock()
+		j.unpack, j.archiveBytes = progress, archives
+		j.mu.Unlock()
 		j.setStage(downloadv1alpha1.DownloadStageExtracting, download.StatusDownloading)
+		log := logging.FromContext(ctx)
+		log.InfoContext(ctx, "usenet: unpacking", "download", j.id, "archiveBytes", archives)
+		started := time.Now()
 		unpackDir := filepath.Join(j.dir, unpackDirName)
-		res, err := unpackArchives(ctx, content, unpackDir, j.nzb.Password, j.nzb.Files)
+		res, err := unpackArchives(ctx, content, unpackDir, j.nzb.Password, j.nzb.Files, progress)
 		if err != nil {
 			return err
 		}
 		if res.Encrypted {
 			return fmt.Errorf("%w: %s", ErrEncrypted, j.name)
 		}
+		log.InfoContext(ctx, "usenet: unpacked", "download", j.id, "files", res.Extracted,
+			"bytes", progress.Written(), "duration", time.Since(started).Round(time.Second))
 		publishFrom = unpackDir
 	}
 
@@ -1118,6 +1137,10 @@ func (j *job) repair(ctx context.Context) error {
 			ErrPar2Unavailable, j.failedArticles())
 	}
 	j.setStage(downloadv1alpha1.DownloadStageRepairing, download.StatusDownloading)
+	log := logging.FromContext(ctx)
+	log.InfoContext(ctx, "usenet: par2 verifying and repairing", "download", j.id,
+		"failedArticles", j.failedArticles(), "setBytes", j.nzb.TotalBytes)
+	started := time.Now()
 	// A deadline, so a par2 wedged on a slow volume is a failed job to retry
 	// rather than a job stuck in Repairing for good: udl's 30 minutes plus a
 	// budget for the set's size.
@@ -1129,6 +1152,7 @@ func (j *job) repair(ctx context.Context) error {
 		}
 		return err
 	}
+	log.InfoContext(ctx, "usenet: par2 repaired", "download", j.id, "duration", time.Since(started).Round(time.Second))
 	if err := removePar2Backups(ctx, j.contentDir(), j.nzb.Files); err != nil {
 		return err
 	}
@@ -1268,6 +1292,15 @@ func (j *job) item() download.Item {
 	if total > 0 {
 		progress = int32(downloaded * 100 / total) //nolint:gosec // bounded by 100.
 	}
+	if message == "" {
+		message = j.postProcessMessageLocked(time.Now())
+	}
+	// The download rate is the transfer's: once it ends, the meter's last
+	// sample would stand for as long as post-processing runs.
+	var rate int64
+	if j.stage == downloadv1alpha1.DownloadStageTransferring {
+		rate = j.rate.bps()
+	}
 
 	failed := 0
 	for _, b := range j.failedSegs {
@@ -1286,7 +1319,7 @@ func (j *job) item() download.Item {
 		TotalBytes:      total,
 		RemainingBytes:  remaining,
 		DownloadedBytes: downloaded,
-		DownRate:        j.rate.bps(),
+		DownRate:        rate,
 		ProgressPercent: progress,
 		OutputPath:      j.outputPath,
 		IsEncrypted:     j.encrypted,
@@ -1326,7 +1359,7 @@ func (j *job) item() download.Item {
 		at := j.lastProgress
 		it.LastProgressAt = &at
 	}
-	if rate := j.rate.bps(); rate > 0 && remaining > 0 {
+	if rate > 0 && remaining > 0 {
 		eta := time.Duration(remaining/rate) * time.Second
 		it.ETA = &eta
 	}

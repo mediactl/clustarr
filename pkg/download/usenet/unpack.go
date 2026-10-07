@@ -30,6 +30,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/bodgit/sevenzip"
 	"github.com/nwaples/rardecode/v2"
@@ -91,12 +92,44 @@ type unpackResult struct {
 	Encrypted bool
 }
 
-// unpackArchives extracts every archive set in srcDir into dstDir.
+// unpackProgress counts the bytes an extraction has written so far, which
+// the job reports in status.message while its extracting stage runs: an
+// unpack of a 20 GB set over NFS takes half an hour, and with nothing in
+// status moving it read as a stall (2026-10-07). A nil *unpackProgress
+// counts nothing.
+type unpackProgress struct{ written atomic.Int64 }
+
+// Written is the bytes extraction has written so far.
+func (p *unpackProgress) Written() int64 {
+	if p == nil {
+		return 0
+	}
+	return p.written.Load()
+}
+
+// countingReader adds every byte read through it to p.
+type countingReader struct {
+	r io.Reader
+	p *unpackProgress
+}
+
+func (c countingReader) Read(b []byte) (int, error) {
+	n, err := c.r.Read(b)
+	if c.p != nil && n > 0 {
+		c.p.written.Add(int64(n))
+	}
+	return n, err
+}
+
+// unpackArchives extracts every archive set in srcDir into dstDir, counting
+// the bytes it writes into progress.
 //
 // Only FIRST volumes are opened: rardecode.OpenReader follows the volume chain
 // itself, so handing it name.part02.rar as well would extract the tail of the
 // set a second time.
-func unpackArchives(ctx context.Context, srcDir, dstDir, password string, files []nzbFile) (unpackResult, error) {
+func unpackArchives(
+	ctx context.Context, srcDir, dstDir, password string, files []nzbFile, progress *unpackProgress,
+) (unpackResult, error) {
 	ctx, span := tracing.Start(ctx, "usenet.unpack")
 	defer span.End()
 
@@ -121,11 +154,11 @@ func unpackArchives(ctx context.Context, srcDir, dstDir, password string, files 
 		)
 		switch strings.ToLower(path.Ext(name)) {
 		case ".7z":
-			n, err = unpack7z(ctx, src, dstDir, password)
+			n, err = unpack7z(ctx, src, dstDir, password, progress)
 		case ".zip":
-			n, err = unpackZip(ctx, src, dstDir)
+			n, err = unpackZip(ctx, src, dstDir, progress)
 		default:
-			n, err = unpackRar(ctx, src, dstDir, password)
+			n, err = unpackRar(ctx, src, dstDir, password, progress)
 		}
 		res.Extracted += n
 		if err != nil {
@@ -162,7 +195,7 @@ func archiveEntryPoints(files []nzbFile) []string {
 	return out
 }
 
-func unpackRar(ctx context.Context, src, dst, password string) (int, error) {
+func unpackRar(ctx context.Context, src, dst, password string, progress *unpackProgress) (int, error) {
 	opts := []rardecode.Option{}
 	if password != "" {
 		opts = append(opts, rardecode.Password(password))
@@ -198,7 +231,7 @@ func unpackRar(ctx context.Context, src, dst, password string) (int, error) {
 		if (hdr.Encrypted || hdr.HeaderEncrypted) && password == "" {
 			return written, fmt.Errorf("%w: %s holds encrypted entry %q", ErrEncrypted, filepath.Base(src), hdr.Name)
 		}
-		if err := writeArchiveEntry(dst, hdr.Name, rc); err != nil {
+		if err := writeArchiveEntry(dst, hdr.Name, rc, progress); err != nil {
 			if errors.Is(err, rardecode.ErrBadPassword) {
 				return written, fmt.Errorf("%w: %s: %w", ErrEncrypted, filepath.Base(src), err)
 			}
@@ -208,7 +241,7 @@ func unpackRar(ctx context.Context, src, dst, password string) (int, error) {
 	}
 }
 
-func unpack7z(ctx context.Context, src, dst, password string) (int, error) {
+func unpack7z(ctx context.Context, src, dst, password string, progress *unpackProgress) (int, error) {
 	var (
 		rc  *sevenzip.ReadCloser
 		err error
@@ -242,7 +275,7 @@ func unpack7z(ctx context.Context, src, dst, password string) (int, error) {
 		if err != nil {
 			return written, fmt.Errorf("usenet: open 7z entry %q: %w", f.Name, err)
 		}
-		err = writeArchiveEntry(dst, f.Name, r)
+		err = writeArchiveEntry(dst, f.Name, r, progress)
 		_ = r.Close()
 		if err != nil {
 			return written, err
@@ -252,7 +285,7 @@ func unpack7z(ctx context.Context, src, dst, password string) (int, error) {
 	return written, nil
 }
 
-func unpackZip(ctx context.Context, src, dst string) (int, error) {
+func unpackZip(ctx context.Context, src, dst string, progress *unpackProgress) (int, error) {
 	zr, err := zip.OpenReader(src)
 	if err != nil {
 		return 0, fmt.Errorf("usenet: open zip %s: %w", filepath.Base(src), err)
@@ -277,7 +310,7 @@ func unpackZip(ctx context.Context, src, dst string) (int, error) {
 		if err != nil {
 			return written, fmt.Errorf("usenet: open zip entry %q: %w", f.Name, err)
 		}
-		err = writeArchiveEntry(dst, f.Name, r)
+		err = writeArchiveEntry(dst, f.Name, r, progress)
 		_ = r.Close()
 		if err != nil {
 			return written, err
@@ -288,8 +321,8 @@ func unpackZip(ctx context.Context, src, dst string) (int, error) {
 }
 
 // writeArchiveEntry writes one entry under dst, refusing any name that would
-// land outside it.
-func writeArchiveEntry(dst, name string, r io.Reader) error {
+// land outside it, and counts what it writes into progress.
+func writeArchiveEntry(dst, name string, r io.Reader, progress *unpackProgress) error {
 	target, err := safeJoin(dst, name)
 	if err != nil {
 		return err
@@ -301,7 +334,7 @@ func writeArchiveEntry(dst, name string, r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("usenet: create %s: %w", target, err)
 	}
-	if _, err := io.Copy(f, r); err != nil {
+	if _, err := io.Copy(f, countingReader{r: r, p: progress}); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("usenet: write %s: %w", target, err)
 	}

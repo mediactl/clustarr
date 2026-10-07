@@ -68,7 +68,7 @@ func TestUnpackZipRefusesAnEntryThatEscapes(t *testing.T) {
 	require.NoError(t, f.Close())
 
 	dst := filepath.Join(dir, "out")
-	_, err = unpackZip(context.Background(), src, dst)
+	_, err = unpackZip(context.Background(), src, dst, nil)
 	require.ErrorIs(t, err, ErrUnsafeArchivePath)
 	require.NoFileExists(t, filepath.Join(dir, "escaped.txt"))
 }
@@ -78,7 +78,7 @@ func TestUnpackArchivesReportsAnEncryptedZip(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "locked.zip"), encryptedZip(t), 0o644))
 
 	res, err := unpackArchives(context.Background(), dir, filepath.Join(dir, "out"), "",
-		[]nzbFile{{Name: "locked.zip", Kind: kindArchive}})
+		[]nzbFile{{Name: "locked.zip", Kind: kindArchive}}, nil)
 	require.ErrorIs(t, err, ErrEncrypted)
 	require.True(t, res.Encrypted)
 }
@@ -89,7 +89,7 @@ func TestUnpackArchivesSkipsAVolumeThatNeverLanded(t *testing.T) {
 	// is viable.
 	dir := t.TempDir()
 	res, err := unpackArchives(context.Background(), dir, filepath.Join(dir, "out"), "",
-		[]nzbFile{{Name: "gone.rar", Kind: kindArchive}})
+		[]nzbFile{{Name: "gone.rar", Kind: kindArchive}}, nil)
 	require.NoError(t, err)
 	require.Zero(t, res.Extracted)
 }
