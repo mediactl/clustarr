@@ -1,0 +1,26 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-agent-catalog-role
+rules:
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - issues
+  - movies
+  - overlayprofiles
+  - qualityprofiles
+  - searches
+  - series
+  verbs:
+  - get
+  - list
+  - watch

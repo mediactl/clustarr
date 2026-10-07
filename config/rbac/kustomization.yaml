@@ -19,7 +19,7 @@ resources:
 - importarr_role.yaml
 - indexarr_role.yaml
 - grabarr_role.yaml
-- grabarr_engine_role.yaml
+- grab_engine_role.yaml
 - squasharr_role.yaml
 - captionarr_role.yaml
 - role_binding.yaml

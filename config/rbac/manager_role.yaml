@@ -1,0 +1,336 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - apiregistration.k8s.io
+  resourceNames:
+  - v1beta1.external.metrics.k8s.io
+  resources:
+  - apiservices
+  verbs:
+  - delete
+  - get
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - books
+  - episodes
+  - importexclusions
+  - issues
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums/finalizers
+  - artists/finalizers
+  - audiobooks/finalizers
+  - authors/finalizers
+  - books/finalizers
+  - comics/finalizers
+  - episodes/finalizers
+  - importexclusions/finalizers
+  - issues/finalizers
+  - movies/finalizers
+  - series/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums/status
+  - artists/status
+  - audiobooks/status
+  - authors/status
+  - books/status
+  - comics/status
+  - delayprofiles/status
+  - episodes/status
+  - importexclusions/status
+  - importlists/status
+  - issues/status
+  - libraryscans/status
+  - metadataproviders/status
+  - movies/status
+  - overlayprofiles/status
+  - qualityprofiles/status
+  - rootfolders/status
+  - searches/status
+  - series/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - artists
+  - audiobooks
+  - authors
+  - comics
+  - libraryscans
+  - mediafiles
+  - movies
+  - searches
+  - series
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - delayprofiles
+  - overlayprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - importlists
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - mediafiles/status
+  verbs:
+  - get
+  - patch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - metadataproviders
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - qualityprofiles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - rootfolders
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerdefinitions
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerdefinitions/status
+  - indexerproxies/status
+  - indexers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerproxies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles/status
+  - subtitleproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleproviders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles/status
+  verbs:
+  - get
+  - patch
+  - update

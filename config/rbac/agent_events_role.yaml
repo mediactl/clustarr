@@ -1,0 +1,24 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-agent-events-role
+rules:
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - issues
+  - movies
+  - qualityprofiles
+  - series
+  verbs:
+  - get
+  - list
+  - watch

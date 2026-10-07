@@ -1,0 +1,35 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-agent-import-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - importlists
+  - issues
+  - libraryscans
+  - mediafiles
+  - movies
+  - qualityprofiles
+  - rootfolders
+  - series
+  verbs:
+  - get
+  - list
+  - watch

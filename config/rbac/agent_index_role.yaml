@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: clustarr-grabarr-engine-role
+  name: clustarr-agent-index-role
 rules:
 - apiGroups:
   - ""
@@ -11,9 +11,11 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - download.clustarr.io
+  - index.clustarr.io
   resources:
-  - downloadclients
+  - indexerdefinitions
+  - indexerproxies
+  - indexers
   verbs:
   - get
   - list

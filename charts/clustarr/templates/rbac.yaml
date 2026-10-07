@@ -510,7 +510,7 @@ metadata:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: grabarr-engine
 rules:
-# BEGIN generated from config/rbac/grabarr_engine_role.yaml -- do not edit by hand.
+# BEGIN generated from config/rbac/grab_engine_role.yaml -- do not edit by hand.
 - apiGroups:
   - ""
   resources:
@@ -525,7 +525,7 @@ rules:
   - get
   - list
   - watch
-# END generated from config/rbac/grabarr_engine_role.yaml.
+# END generated from config/rbac/grab_engine_role.yaml.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -725,6 +725,548 @@ rules:
   - list
   - watch
 # END generated from config/rbac/captionarr_role.yaml.
+{{- end }}
+{{- if has "manager" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-manager
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: manager
+rules:
+# BEGIN generated from config/rbac/manager_role.yaml -- do not edit by hand.
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - apiregistration.k8s.io
+  resourceNames:
+  - v1beta1.external.metrics.k8s.io
+  resources:
+  - apiservices
+  verbs:
+  - delete
+  - get
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - books
+  - episodes
+  - importexclusions
+  - issues
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums/finalizers
+  - artists/finalizers
+  - audiobooks/finalizers
+  - authors/finalizers
+  - books/finalizers
+  - comics/finalizers
+  - episodes/finalizers
+  - importexclusions/finalizers
+  - issues/finalizers
+  - movies/finalizers
+  - series/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums/status
+  - artists/status
+  - audiobooks/status
+  - authors/status
+  - books/status
+  - comics/status
+  - delayprofiles/status
+  - episodes/status
+  - importexclusions/status
+  - importlists/status
+  - issues/status
+  - libraryscans/status
+  - metadataproviders/status
+  - movies/status
+  - overlayprofiles/status
+  - qualityprofiles/status
+  - rootfolders/status
+  - searches/status
+  - series/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - artists
+  - audiobooks
+  - authors
+  - comics
+  - libraryscans
+  - mediafiles
+  - movies
+  - searches
+  - series
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - delayprofiles
+  - overlayprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - importlists
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - mediafiles/status
+  verbs:
+  - get
+  - patch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - metadataproviders
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - qualityprofiles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - rootfolders
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerdefinitions
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerdefinitions/status
+  - indexerproxies/status
+  - indexers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerproxies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles/status
+  - subtitleproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleproviders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+# END generated from config/rbac/manager_role.yaml.
+{{- end }}
+{{- if has "agent-catalog" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-agent-catalog
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-catalog
+rules:
+# BEGIN generated from config/rbac/agent_catalog_role.yaml -- do not edit by hand.
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - issues
+  - movies
+  - overlayprofiles
+  - qualityprofiles
+  - searches
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/agent_catalog_role.yaml.
+{{- end }}
+{{- if has "agent-events" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-agent-events
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-events
+rules:
+# BEGIN generated from config/rbac/agent_events_role.yaml -- do not edit by hand.
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - issues
+  - movies
+  - qualityprofiles
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/agent_events_role.yaml.
+{{- end }}
+{{- if has "agent-metadata" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-agent-metadata
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-metadata
+rules:
+# BEGIN generated from config/rbac/agent_metadata_role.yaml -- do not edit by hand.
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - metadataproviders
+  - movies
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/agent_metadata_role.yaml.
+{{- end }}
+{{- if has "agent-import" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-agent-import
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-import
+rules:
+# BEGIN generated from config/rbac/agent_import_role.yaml -- do not edit by hand.
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - importlists
+  - issues
+  - libraryscans
+  - mediafiles
+  - movies
+  - qualityprofiles
+  - rootfolders
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/agent_import_role.yaml.
+{{- end }}
+{{- if has "agent-index" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-agent-index
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-index
+rules:
+# BEGIN generated from config/rbac/agent_index_role.yaml -- do not edit by hand.
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerdefinitions
+  - indexerproxies
+  - indexers
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/agent_index_role.yaml.
+{{- end }}
+{{- if has "agent-caption" $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-agent-caption
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-caption
+rules:
+# BEGIN generated from config/rbac/agent_caption_role.yaml -- do not edit by hand.
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  - subtitleproviders
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/agent_caption_role.yaml.
 {{- end }}
 {{- if .Values.ui.enabled }}
 ---
