@@ -403,6 +403,8 @@ Waves 0-5, 4a-4f, 7 and 8 are built.
 
 **Cold-turkey revision (owner, 2026-10-07):** supersedes the order notes above (and the table's A8 and A9 rows): Wave U and the applyconfiguration flatten (done) → A4 / A5 / A6 → the Download removal (A9.1 → A9.2 → A9.3 → A9.5) → F5 → F6 → F7 → F8.6 → F8.7 → the folded-kinds removal (F9.2 → F9.4 → F9.5's gate) → F8.9 → F8.11 → F8.12 → A7 → W6.9-W6.17 → W6b → W9 → W10 → Wave N (ADR-0020/0021) → the test batch. Dropped: F8.1-F8.5, F9.1, A8.1-A8.3, A8.5, A9.4. The section "Cold-turkey revision (owner, 2026-10-07)" near the top of this plan and of the split plan lists every task.
 
+**Wave S (owner, 2026-10-07):** series and season search and the interactive results order (`docs/superpowers/specs/2026-10-07-series-search-design.md`, plan `docs/superpowers/plans/2026-10-07-series-search.md`, S1-S12) runs after Wave N and before W10 and the test batch: … → Wave N → Wave S → W10 → the test batch (Wave N is being built now, ahead of W10).
+
 | Wave | Tasks | Depends on | Parallel with |
 |---|---|---|---|
 | A1 API and topology | A1.1-A1.8 (8) | F4.4 green | nothing (serial, one owner: `api/`, `pkg/events`, `pkg/records` are shared) |
