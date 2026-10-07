@@ -2,6 +2,15 @@
 
 Status: design, for the owner's approval (2026-10-07).
 
+**Owner rulings (2026-10-07):**
+- **No new service:** the tuner and its controller both run inside the
+  unified manager (`cmd/manager`, branch `unify-manager-agent`), with no
+  Deployment or service of their own.
+- **The group:** `IPTVProvider` belongs to the `clustarr.io` group.
+- **The stream format:** the provider serves MPEG-TS, so HLS is deferred.
+
+The sections below are written to these rulings.
+
 ## 1. What the owner asked, and what this design assumes
 
 **Asked:**
@@ -32,6 +41,9 @@ Status: design, for the owner's approval (2026-10-07).
   and serves the guide.
 - **Network:** Plex reaches the proxy inside the cluster, as cluster-plex's
   PMS already reaches clustarr.
+- **Where it runs:** the manager is one replica, and its runnables run on
+  the leader, so the leader holds every provider's upstream connections. No
+  two pods ever hold a provider's tuners at once, even during a rollout.
 
 ## 2. How xTeVe works, and what we keep
 
@@ -80,13 +92,14 @@ Its model has four parts:
 
 ## 3. The resource: `IPTVProvider`
 
-A new group, `livetv.clustarr.io/v1alpha1`, holds one kind: `IPTVProvider`
-(short name `iptv`). Like a DownloadClient, it is reconciled into a
-workload of its own: one tuner pod and a Service.
+`IPTVProvider` (short name `iptv`) is the first kind of the
+`clustarr.io/v1alpha1` group, in `api/clustarr/v1alpha1`. Its controller
+gives it one Service, its address in Plex. Its tuner is a runnable of the
+manager (§5), not a pod of its own.
 
 ```go
 type IPTVProviderSpec struct {
-	// Enabled false scales the tuner to zero; Plex then sees the device gone.
+	// Enabled false stops this provider's tuner; Plex then sees the device gone.
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// Playlist is the provider's M3U.
@@ -134,11 +147,6 @@ type IPTVProviderSpec struct {
 
 	// Stream tunes the relay.
 	Stream StreamSpec `json:"stream,omitempty"`
-
-	// Resources, NodeSelector, Tolerations: as DownloadClient's engine.
-	Resources    corev1.ResourceRequirements `json:"resources,omitempty"`
-	NodeSelector map[string]string           `json:"nodeSelector,omitempty"`
-	Tolerations  []corev1.Toleration         `json:"tolerations,omitempty"`
 }
 
 type PlaylistSource struct {
@@ -245,30 +253,39 @@ names it:
 CEL covers the cheap rules: exactly one of `url` and `urlFrom`, exactly one
 of `epg.guide` and `epg.dummy`, and `channelID` required with `guide`.
 
-### 3.2 Status: two writers, split by field
+### 3.2 Status: one writer
 
-The split is DownloadClient's controller/engine split (`app/grab/status`
-`ControllerFields`/`EngineFields`). `app/tune/status` declares both sets,
-and its `Patch` refuses any other manager.
+The reconciler is the sole writer of status, under `k8s.ManagerLiveTV`.
 
-- **The controller (`k8s.ManagerTunearr`):**
-  - `conditions`: `Ready`, `Valid`, `TunerReady`;
-  - `observedGeneration`;
-  - `deviceID`: eight hex digits from a hash of namespace/name, so a
-    recreated CR is the same device to Plex;
-  - `address`: the Service's ClusterIP, which is what Plex's "enter address
-    manually" takes;
-  - `guideURL`: `http://<address>/xmltv.xml`, XEPG only.
-- **The tuner (`k8s.ManagerTunearrTuner`):**
-  - `playlist`: entries, groups, candidates, fetchedAt, hash, error;
-  - `guides[]`: name, channels, programmes, fetchedAt, error; `MaxItems=16`;
-  - `lineup`: active, unmapped (on dummy), missing (active keys absent from
-    the playlist);
-  - `tuners`: inUse, written on change and debounced to 5 s.
+- **Why one writer works:** the tuner runs in the same process and exposes
+  `tuner.Snapshot(ref)`: playlist, guides, lineup and tuners in use.
+- **How status is written:** after each fetch, and on a change in tuners in
+  use (debounced to 5 s), the tuner enqueues the provider through a
+  `source.Channel`. The reconciler then renders one complete status from
+  the CR and the snapshot.
+- **What that avoids:**
+  - a second field manager;
+  - compare-and-swap between writers;
+  - slow work between a read and its apply, the lost-update gotcha. A fetch
+    happens in the tuner, never in the reconcile.
 
-Each status write by the tuner follows a slow fetch, so it re-`Get`s
-immediately before the apply. That is the lost-update gotcha, and the RSS
-worker's "the poll closes the window" is the pattern to copy.
+**Fields:**
+- `conditions`:
+  - `Ready`;
+  - `Valid` (§3.1);
+  - `PlaylistFetched`;
+  - `GuidesFetched`;
+- `observedGeneration`;
+- `deviceID`: eight hex digits from a hash of namespace/name, so a
+  recreated CR is the same device to Plex;
+- `address`: the provider's Service ClusterIP, which is what Plex's "enter
+  address manually" takes;
+- `guideURL`: XEPG only;
+- `playlist`: entries, groups, candidates, fetchedAt, hash, error;
+- `guides[]`: name, channels, programmes, fetchedAt, error; `MaxItems=16`;
+- `lineup`: active, unmapped (on dummy), missing (active keys absent from
+  the playlist);
+- `tuners`: total, inUse.
 
 **Printer columns:** Tuners, Active, Candidates, EPG, Ready, Address. So
 `kubectl get iptv` shows what Plex will get.
@@ -343,21 +360,60 @@ counts, filters and previews the UI shows are the ones Plex gets.
 - **`ModelNumber`:** `HDTC-2US`, and `FirmwareName`: `hdhomeruntc_atsc`,
   the values Plex accepts from xTeVe.
 
-## 5. The tuner pod: `app/tune/tuner`
+## 5. The tuner: a manager runnable, `app/livetv/tuner`
 
-`clustarr tunearr --role tuner --provider <ns>/<name>` runs one per
-provider:
-- **Deployment:** replicas 1, `strategy: Recreate`. Two pods would open two
-  sets of upstream connections, and providers ban accounts for exceeding
-  their connection limits.
-- **Image:** the controller image, which is pure Go and distroless. It
-  links no ffgo or purego.
-- **Service:** port 80. The pod listens on 5004, HDHomeRun's stream port.
+There is no tuner pod and no new service. `cmd/manager` registers the
+tuner beside the IPTVProvider controller as a leader-only runnable
+(`NeedLeaderElection` true).
+
+- **One listener for every provider:** `--livetv-bind-address`, default
+  `:5004` (HDHomeRun's stream port), opened when the pod wins the election.
+  A non-leader pod refuses connections on it.
+- **The manager's image:** pure Go and distroless. The tuner links no ffgo
+  or purego, so the manager's own dynamic-loader guard still holds.
+
+### 5.0 One address per provider
+
+Plex adds a device by an address and reads `/discover.json` at its root.
+So each provider needs an address of its own:
+
+- **A Service per provider:** the controller (§6) gives each one its own
+  Service, `livetv-<hash of ns/name>`.
+  - It lives in the manager's namespace: a selector reaches only its own
+    namespace's pods.
+  - It selects the manager pod, port 80 to `5004`.
+  - Its ClusterIP is `status.address`.
+- **Routing:**
+  - **At the root:** Plex sends `Host: <the address it was given>`. The
+    tuner routes `/discover.json`, `/lineup_status.json`, `/device.xml`,
+    `/lineup.json` and `/lineup.post` to the provider whose
+    `status.address` that host is. An unknown host at the root gets 404.
+  - **Everything else:** each URL the tuner hands out is absolute under
+    `http://<address>/livetv/<ns>/<name>/`. That covers `BaseURL`,
+    `LineupURL`, the stream URLs and the guide URL. So every later request
+    names its provider in the path, which also serves curl and the e2e
+    tests.
+
+### 5.0.1 What sharing the manager's process costs
+
+The relay runs in the process that runs every controller, so it is
+bounded:
+
+- **Memory:** it is at most `Σ tuners × stream.buffer`, 64 MiB at 8 tuners
+  of 8 MiB. The chart adds `livetv.memory` (default 128Mi) to the manager's
+  request and limit, and `GOMEMLIMIT` follows.
+- **Failures:** each stream's goroutines recover their own panic and close
+  only that stream's viewers. No stream code holds a lock the controllers
+  share.
+- **Readiness:** a provider that cannot fetch its playlist never fails the
+  manager's `/readyz`. It reads `PlaylistFetched=False`, and its
+  `lineup.json` answers 503.
+- **Bandwidth:** bytes pass straight through. Eight HD channels are about
+  80 Mbit/s.
 
 ### 5.1 Startup and refresh
 
-1. **Read the CR** from a cache scoped to one object (a field selector on
-   its name).
+1. **Read the CR** from the manager's cache, for every enabled provider.
 2. **Fetch the playlist**, with the URL from the Secret. A Secret is read
    by name with `get` only, as the usenet engine reads provider Secrets.
    - The playlist, stream URLs included, is held in memory only.
@@ -370,15 +426,14 @@ provider:
    - Until the fetch finishes, the stored guide is served, so a restart
      never blanks Plex's guide.
 4. **Re-render on a spec change:** `lineup.json` and the guide are rendered
-   again on a spec change (channels, filters or guides). The pod rolls only
-   when a pod-template field changes (resources, placement, image), through
-   a config hash as the engines use.
+   again on a spec change (channels, filters or guides). A playlist URL
+   change fetches the playlist again. Nothing restarts.
 5. **Refresh on schedule or by request:** fetches repeat on each source's
-   `refresh`. The `livetv.clustarr.io/refresh` annotation, which the UI's
+   `refresh`. The `clustarr.io/livetv-refresh` annotation, which the UI's
    "Refresh now" sets, forces one.
 
-**Readiness:** the pod reads ready once the playlist has been fetched once.
-Until then, `lineup.json` answers 503 and Plex retries.
+**Before the first fetch:** until a provider's playlist has been fetched
+once, its `lineup.json` answers 503 and Plex retries.
 
 ### 5.2 The stream relay
 
@@ -403,34 +458,35 @@ Until then, `lineup.json` answers 503 and Plex retries.
   end.
 - **The last viewer leaving:** the upstream stays open for `stream.linger`,
   then closes and gives back its tuner.
-- **HLS** (phase 3): an upstream answering `application/vnd.apple.mpegurl`
-  is followed by polling its media playlist and feeding its MPEG-TS
-  segments into the same ring.
-  - TS segments concatenate into a valid stream, so no remux is needed.
-  - fMP4 segments are refused as `unsupportedStream` on the stream's error
-    counter.
-  - Before phase 3, an HLS channel answers 502 with that reason.
+- **The stream format:** the relay expects MPEG-TS, which is what the
+  provider serves.
+  - An upstream answering an HLS playlist
+    (`application/vnd.apple.mpegurl`) is refused with 502, as
+    `unsupportedStream` on the error counter.
+  - HLS is deferred (§9).
 
 This is xTeVe's own buffer, minus the ffmpeg and VLC options:
 - one upstream connection per channel, however many Plex clients watch;
-- memory bounded at `tuners × buffer` (64 MiB at 8 tuners);
+- memory bounded at `tuners × buffer` (§5.0.1);
 - no disk.
 
 ### 5.3 The HTTP surface
 
 | Path | Serves |
 |---|---|
-| `/discover.json`, `/lineup_status.json`, `/lineup.json`, `/device.xml`, `/lineup.post` | §2, from `pkg/iptv/hdhr` |
-| `/xmltv.xml` | the XEPG guide (404 under PMS) |
-| `/stream/<number>` | §5.2 |
-| `/logo/<sha>` (phase 3) | cached channel logos, so Plex never hotlinks a provider host |
-| `/healthz`, `/readyz`, `/metrics` | as every service |
+| `/discover.json`, `/lineup_status.json`, `/device.xml`, `/lineup.json`, `/lineup.post` | §2, routed by `Host` (§5.0), from `pkg/iptv/hdhr` |
+| `/livetv/<ns>/<name>/{discover.json,lineup.json,…}` | the same, by path |
+| `/livetv/<ns>/<name>/xmltv.xml` | the XEPG guide (404 under PMS) |
+| `/livetv/<ns>/<name>/stream/<number>` | §5.2 |
+| `/livetv/<ns>/<name>/logo/<sha>` (phase 3) | cached channel logos, so Plex never hotlinks a provider host |
+
+Metrics ride the manager's own `/metrics`.
 
 **Authentication:** the surface has none, because Plex sends none. The
-Service is ClusterIP only, and nothing in the chart routes an Ingress to
-it: whoever reaches `/stream` watches on the owner's subscription. The
-chart gains a NetworkPolicy, `tunearr.allowFrom` (namespace selectors),
-off by default (open question 5).
+Services are ClusterIP only, and nothing in the chart routes an Ingress to
+them: whoever reaches a stream watches on the owner's subscription. The
+chart gains a NetworkPolicy on the manager pod's `5004` port alone,
+`livetv.allowFrom` (namespace selectors), off by default (open question 3).
 
 ### 5.4 What the UI reads: the `clustarr-livetv` object store
 
@@ -459,34 +515,37 @@ nothing that has not changed.
 
 There is no channel label: a channel name is a title.
 
-## 6. The controller: `app/tune/controller/iptvprovider`
+## 6. The controller: `app/livetv/controller/iptvprovider`
 
-- Reconciles each IPTVProvider into:
-  - a ServiceAccount-bound Deployment;
-  - a Service, owned by the CR and never recreated on a spec edit, so the
-    ClusterIP Plex was given stays.
-- The pod spec is built in Go, so the engines' gotcha applies. It carries:
-  - the installer-bound ServiceAccount;
-  - `POD_NAMESPACE`, the NATS URL and UMASK;
-  - `GOMEMLIMIT`, from the limit;
-  - the Deployments' securityContext.
-- **Guard test:** `TestTunearrTunersRunAsAnAccountTheInstallerBinds` holds
-  the pod spec to what the chart creates, as
-  `TestGrabarrEnginesRunAsAnAccountTheInstallerBinds` does.
-- **The controller's own checks:**
-  - it runs the §3.1 checks and writes `Valid`;
-  - it reads `TunerReady` from the Deployment;
-  - it writes `deviceID`, `address` and `guideURL`.
-- It does no fetching. Fetching is the tuner's.
+`cmd/manager` registers the controller beside the tuner.
 
-**Placement:**
-- **On main:** a new service, `tunearr`, in `app/tune/`, with roles
-  `controller` and `tuner`. `clustarr all` runs only the controller, just
-  as it never runs grab engines.
-- **On the unify-manager-agent branch:** the controller registers in
-  `cmd/manager`, and the tuner is an agent role, like the grab engines. The
-  package boundary is the same either way, so nothing here needs that
-  branch first.
+**Each provider's Service (§5.0):**
+- **Created:** by the controller, labelled with the provider.
+- **Cleaned up:** an owner reference cannot cross namespaces, so finalizer
+  `clustarr.io/livetv-service` deletes the Service when the CR goes.
+- **Kept:** it is never recreated on a spec edit, so the ClusterIP Plex was
+  given stays.
+
+**Its other work:**
+- the §3.1 checks, written as `Valid`;
+- `deviceID`, `address` and `guideURL`;
+- status from the tuner's snapshot (§3.2).
+
+It does no fetching. Fetching is the tuner's.
+
+**Guard test:** `TestLiveTVServicesSelectTheManager` holds each Service's
+selector and target port to the manager pod's labels and
+`--livetv-bind-address`, as the chart and kustomize render them. A
+controller-built Service is the same class as the engines' controller-built
+pods: nothing else would notice it drifting from the installer.
+
+**Placement:** the work lands on the `unify-manager-agent` branch, where
+`cmd/manager` exists, coordinated with that branch's session. Nothing lands
+on main first.
+
+**RBAC:** the manager role needs:
+- `create`, `get`, `list`, `watch`, `update` and `delete` on Services;
+- `get` on Secrets, for named reads, unless it already has it.
 
 ## 7. The UI
 
@@ -625,7 +684,9 @@ under the same precondition.
   - a slow viewer is cut off and the other is unharmed;
   - an upstream reset is reopened;
   - linger works, and so does the tuner coming back after linger;
-  - an HLS-of-TS upstream concatenates (phase 3).
+  - an HLS answer is refused as `unsupportedStream`;
+  - `Host` routing picks the provider, an unknown host gets 404, and path
+    routing works on any host.
   - The tests run under `-race`.
 - **`pkg/crdcheck`:**
   - 480 active channels are admitted, 481 are refused with the message;
@@ -634,12 +695,13 @@ under the same precondition.
   - `guide` and `dummy` are exclusive.
   - These run under `KUBEBUILDER_ASSETS`.
 - **envtest:**
-  - the controller renders the Deployment and Service;
+  - the controller creates the Service, keeps it across a spec edit, and
+    deletes it through the finalizer;
   - `Valid=False` on a duplicate number;
-  - status writes by both managers, asserted on `managedFields`, with each
-    path run against an object that already has status (the release
-    gotchas);
-  - the pod-spec guard.
+  - status rendered from a snapshot is complete: it is run against an
+    object that already has status, and `managedFields` show one manager
+    (the release gotchas);
+  - the Service selector guard.
 - **The UI:**
   - activation past 480 is refused with the fit count, and nothing is
     written;
@@ -664,19 +726,20 @@ under the same precondition.
    - the API and CEL;
    - `pkg/iptv` (M3U, filter, XMLTV, hdhr);
    - the controller;
-   - the tuner with the TS relay and fan-out;
+   - the tuner runnable in the manager, with the TS relay and fan-out;
    - the object store;
    - the chart, kustomize and RBAC;
    - e2e 19.
 2. **The UI:** the Settings section and the Live TV page (Mapping, Filters,
    Guides), with bulk edits and the 480 checks.
 3. **Breadth:**
-   - HLS upstreams;
    - the logo cache (`/logo`, used in the lineup, the guide and the UI);
    - a `/playlist.m3u` output for players other than Plex (cheap, since the
      lineup is already rendered).
 
 **Not planned:**
+- HLS upstreams: the provider serves MPEG-TS. They would add polling a
+  media playlist into the same ring, since TS segments concatenate;
 - recording (Plex's DVR does it);
 - transcoding or an ffmpeg buffer;
 - catch-up TV;
@@ -686,21 +749,14 @@ under the same precondition.
 
 ## 10. Open questions for the owner
 
-1. **Names:** the service is `tunearr` (`app/tune/`), the group
-   `livetv.clustarr.io`, the kind `IPTVProvider`. Tunarr is an unrelated
-   project with a similar name. Is `tunearr` acceptable, or is another name
-   better?
-2. **The 480 limit per DVR:** this design assumes Plex's 480 applies to
+1. **The 480 limit per DVR:** this design assumes Plex's 480 applies to
    each tuner device's lineup, so two providers give two DVRs of 480. Is
    that what your PMS shows, or should 480 bound every provider together?
    A total limit cannot be CEL; it would be a controller condition, plus
    the UI's check.
-3. **Adding the device to Plex:** this design shows the address to enter by
+2. **Adding the device to Plex:** this design shows the address to enter by
    hand. Should cluster-plex instead create the DVR through PMS's API
    (`POST /livetv/dvrs`, then the lineup and the XMLTV guide), as it seeds
    markers? That would be a separate change in cluster-plex.
-4. **HLS:** does your provider serve MPEG-TS (`output=ts` on an Xtream
-   `get.php`) or HLS? If HLS, the relay's HLS support moves from phase 3 to
-   phase 1.
-5. **Exposure:** should the chart ship the NetworkPolicy on, allowing only
+3. **Exposure:** should the chart ship the NetworkPolicy on, allowing only
    Plex's namespace, rather than off?
