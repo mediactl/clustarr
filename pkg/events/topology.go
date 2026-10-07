@@ -440,7 +440,9 @@ func (t Topology) clone() Topology {
 //   - every consumer names a stream in the topology;
 //   - every consumer filter is covered by that stream's subjects;
 //   - MaxDeliver is strictly greater than len(BackOff), so the last attempt
-//     is a real attempt and not an unused backoff step;
+//     is a real attempt and not an unused backoff step, except a dead-letter
+//     watcher's -1 (a consumer on StreamAdvisories, which retries without
+//     limit);
 //   - every consumer has at least one slot and a MaxAckPending of at least
 //     its slots;
 //   - every WorkQueue work stream allows message schedules unless it
@@ -500,10 +502,14 @@ func (t Topology) Validate() error {
 				"unknown stream "+c.Stream))
 			continue
 		}
-		if c.MaxDeliver <= len(c.BackOff) {
+		switch {
+		case c.MaxDeliver == -1 && c.Stream == StreamAdvisories:
+			// A dead-letter watcher retries a failed copy without limit.
+		case c.MaxDeliver <= len(c.BackOff):
 			errs = append(errs, fieldErr(c.Name+".MaxDeliver",
-				fmt.Sprintf("must be strictly greater than len(BackOff)=%d, got %d",
-					len(c.BackOff), c.MaxDeliver)))
+				fmt.Sprintf("must be strictly greater than len(BackOff)=%d, got %d "+
+					"(only a dead-letter watcher on %s may be -1, unlimited)",
+					len(c.BackOff), c.MaxDeliver, StreamAdvisories)))
 		}
 		if c.Slots < 1 {
 			errs = append(errs, fieldErr(c.Name+".Slots",
@@ -605,8 +611,9 @@ const (
 	FilterDownloadBlocklisted = "clustarr.evt.download.download.blocklisted.>"
 )
 
-// Default returns the production topology from the Clustarr design: eight
-// streams, fourteen durable consumers and ten key/value buckets.
+// Default returns the production topology from the Clustarr design: its
+// streams, every static durable consumer and, for each, the dead-letter
+// watcher Subscribe binds, its key/value buckets and its object stores.
 //
 // Three declarations the design once carried are gone because nothing ever
 // used them (gap fixes Z2): the catalogarr-import consumer and its
@@ -620,7 +627,7 @@ const (
 func Default() Topology {
 	return Topology{
 		Streams:      defaultStreams(),
-		Consumers:    defaultConsumers(),
+		Consumers:    withDeadLetterWatchers(defaultConsumers()),
 		Buckets:      defaultBuckets(),
 		ObjectStores: defaultObjectStores(),
 	}

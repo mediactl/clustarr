@@ -48,7 +48,7 @@ func (b *Bus) lookupStream(ctx context.Context, stream string) (jetstream.Stream
 
 // DeleteSubscription implements events.StreamAdmin.
 func (b *Bus) DeleteSubscription(ctx context.Context, stream, durable string) error {
-	for _, c := range [][2]string{{stream, durable}, {events.StreamAdvisories, dlqWatchName(stream, durable)}} {
+	for _, c := range [][2]string{{stream, durable}, {events.StreamAdvisories, events.DeadLetterWatcherName(stream, durable)}} {
 		err := b.js.DeleteConsumer(ctx, c[0], c[1])
 		if err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) && !errors.Is(err, jetstream.ErrStreamNotFound) {
 			return fmt.Errorf("natsbus: delete consumer %s/%s: %w", c[0], c[1], err)
