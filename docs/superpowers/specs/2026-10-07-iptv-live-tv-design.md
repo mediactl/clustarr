@@ -8,6 +8,12 @@ Status: design, for the owner's approval (2026-10-07).
   Deployment or service of their own.
 - **The group:** `IPTVProvider` belongs to the `clustarr.io` group.
 - **The stream format:** the provider serves MPEG-TS, so HLS is deferred.
+- **The 480 limit:** it applies to each DVR (§3.1).
+- **cluster-plex adds each provider to Plex:** it registers the device and
+  creates the DVR through PMS's API (§6.1). No address is entered by hand.
+- **The NetworkPolicy ships on.** clustarr and cluster-plex are being
+  combined into one namespace. So the policy selects Plex's pods by label,
+  not by namespace (§5.3).
 
 The sections below are written to these rulings.
 
@@ -31,16 +37,16 @@ The sections below are written to these rulings.
 - A new **Live TV** page that does what xTeVe's tables do: filtering,
   mapping and channel selection.
 
-**Assumed (correct any of these):**
+**Settled:**
 
 - **One provider, one device:** each provider is one emulated HDHomeRun
-  device, so Plex adds it as one DVR.
-- **The 480 limit:** it applies to each device's lineup. Two providers make
-  two DVRs of up to 480 channels each (open question 2).
+  device and one Plex DVR.
+- **The 480 limit:** it applies to each DVR (owner, 2026-10-07). Two
+  providers make two DVRs of up to 480 channels each.
 - **Plex's job:** Plex records and transcodes. Clustarr only relays streams
   and serves the guide.
-- **Network:** Plex reaches the proxy inside the cluster, as cluster-plex's
-  PMS already reaches clustarr.
+- **Network:** Plex reaches the proxy inside the cluster. Plex and clustarr
+  share one namespace.
 - **Where it runs:** the manager is one replica, and its runnables run on
   the leader, so the leader holds every provider's upstream connections. No
   two pods ever hold a provider's tuners at once, even during a rollout.
@@ -233,6 +239,9 @@ be reached.
 
 ### 3.1 The 480 limit, in three places
 
+The limit is per DVR, and one provider is one DVR. So every check below
+counts one provider's active channels.
+
 1. **Admission:** the CEL rule on `spec.channels` rejects a 481st active
    channel, from kubectl or the UI alike. `MaxItems=1024` bounds the CEL
    cost. Inactive mappings count toward 1024, not 480.
@@ -278,13 +287,16 @@ The reconciler is the sole writer of status, under `k8s.ManagerLiveTV`.
 - `observedGeneration`;
 - `deviceID`: eight hex digits from a hash of namespace/name, so a
   recreated CR is the same device to Plex;
-- `address`: the provider's Service ClusterIP, which is what Plex's "enter
-  address manually" takes;
+- `address`: the provider's Service ClusterIP, which cluster-plex registers
+  with PMS (§6.1);
 - `guideURL`: XEPG only;
 - `playlist`: entries, groups, candidates, fetchedAt, hash, error;
 - `guides[]`: name, channels, programmes, fetchedAt, error; `MaxItems=16`;
 - `lineup`: active, unmapped (on dummy), missing (active keys absent from
-  the playlist);
+  the playlist), and `hash`, a hash of the rendered `lineup.json`. A change
+  in it tells cluster-plex to save the DVR's channel map again;
+- `guideHash`: a hash of the rendered XEPG guide. A change in it tells
+  cluster-plex to reload Plex's guide;
 - `tuners`: total, inUse.
 
 **Printer columns:** Tuners, Active, Candidates, EPG, Ready, Address. So
@@ -484,9 +496,22 @@ Metrics ride the manager's own `/metrics`.
 
 **Authentication:** the surface has none, because Plex sends none. The
 Services are ClusterIP only, and nothing in the chart routes an Ingress to
-them: whoever reaches a stream watches on the owner's subscription. The
-chart gains a NetworkPolicy on the manager pod's `5004` port alone,
-`livetv.allowFrom` (namespace selectors), off by default (open question 3).
+them: whoever reaches a stream watches on the owner's subscription.
+
+**The NetworkPolicy (on by default):**
+- **What it selects:** the manager pod.
+- **Port 5004:** allowed only from pods matching
+  `livetv.allowFrom.podSelector`, by default cluster-plex's PMS pods. The
+  two share one namespace, so a namespace selector could not tell them
+  apart.
+- **The manager's other ports (metrics, health, webhooks):** allowed from
+  anywhere, as today. A policy that selects a pod denies every port it does
+  not list, so leaving a port out would cut it off.
+- **Guard test:** `TestLiveTVPolicyListsEveryManagerPort` holds the
+  policy's port list to the manager container's ports. A new manager port
+  can then never be blocked silently.
+- **Turning it off:** `livetv.networkPolicy.enabled: false`, for a cluster
+  whose CNI enforces no policies.
 
 ### 5.4 What the UI reads: the `clustarr-livetv` object store
 
@@ -547,6 +572,66 @@ on main first.
 - `create`, `get`, `list`, `watch`, `update` and `delete` on Services;
 - `get` on Secrets, for named reads, unless it already has it.
 
+### 6.1 cluster-plex adds each provider to Plex
+
+cluster-plex already has the pieces:
+- a watcher on clustarr's namespace (`pkg/clustarrwatch`);
+- a PMS provisioner (`pkg/plex/provision`) that converges metadata
+  providers and libraries through PMS's API, with the server's own token.
+
+**What changes:**
+- **The watch:** the watcher adds `iptvproviders.clustarr.io`.
+- **The provisioner:** it gains DVRs, run by cluster-plex's leader. That
+  makes it the one writer of Plex's Live TV state.
+
+**What it converges, for each IPTVProvider that is `Ready` and enabled:**
+
+1. **The device.** If `GET /media/grabbers/devices` has no device whose
+   identifier is `device://tv.plex.grabbers.hdhomerun/<status.deviceID>`,
+   it registers one with `POST /media/grabbers/devices?uri=http://<status.address>`.
+   PMS then reads `discover.json`.
+2. **The DVR.**
+   - **Under XEPG:** if `GET /livetv/dvrs` has no DVR on that device, it
+     creates one with `POST /livetv/dvrs?device=<identifier>&lineup=lineup://tv.plex.providers.epg.xmltv/<url-encoded status.guideURL>#<friendlyName>&language=<lang>`.
+   - **Under PMS:** a Plex lineup depends on the owner's location, which
+     the CR does not know. So cluster-plex registers the device only and
+     records `DVRNeedsLineup`. The owner then finishes the setup once in
+     Plex's wizard.
+3. **The channel map.** When `status.lineup.hash` differs from the hash it
+   last saved, it saves the device's channel map. Every lineup channel is
+   enabled and mapped to the XMLTV channel of the same id, since under XEPG
+   a channel's guide id is its number. So an activation on the Live TV page
+   reaches Plex without the wizard.
+4. **The guide.** When `status.guideHash` changes, it asks PMS to reload
+   that DVR's guide.
+
+**Which DVRs it manages:** cluster-plex manages exactly the devices whose
+identifier carries an IPTVProvider's `deviceID`. Every other tuner and DVR
+in Plex is left alone.
+
+**Deleting a provider** removes its DVR and its device, through the
+watcher's tombstone handling. That also removes the DVR's recording rules:
+the tuner they would record from is gone. `enabled: false` removes
+nothing, and Plex shows the device offline until it is enabled again.
+
+**Reporting:** cluster-plex never writes clustarr's status (one writer). It
+records Events on the IPTVProvider instead:
+- `DVRProvisioned`;
+- `DVRChannelMapSaved`;
+- `DVRNeedsLineup`;
+- `DVRProvisionFailed`, with PMS's answer through cluster-plex's existing
+  `snippet`.
+
+`kubectl describe iptv` and the Settings panel (§7.1) show them.
+
+**The PMS calls are to be confirmed.** Steps 1 and 2 follow the calls Plex
+Web makes and that the community's tools use. The channel-map and
+guide-reload calls are known only from those tools, not from Plex's
+documentation. So the plan's first cluster-plex task records the real
+calls Plex Web makes against the owner's PMS (1.43.4). It does that once,
+by hand, through the wizard, and replays them as `fakepms` fixtures. This
+is how `ui/plex`'s extras route was pinned down.
+
 ## 7. The UI
 
 The UI writes only spec, Secrets and annotations, through `ui/actions`,
@@ -571,9 +656,11 @@ A section in the same form system as Download Clients (`ui/forms`).
     URL in the same Secret under `guide-<name>-url`. The playlist's own
     `url-tvg` header is offered as a one-click guide.
 - **A status panel:**
-  - the address to enter in Plex (*Live TV & DVR → Set up → enter its
-    network address manually*);
-  - the XMLTV URL to give it under XEPG;
+  - **Plex:** the DVR's state, from the latest of the Events cluster-plex
+    records on the provider (§6.1); the ui role gains `list` and `watch` on
+    events;
+  - the device address and the XMLTV URL, for a Plex that cluster-plex does
+    not manage;
   - entries, candidates, active out of 480;
   - each guide's last fetch and error;
   - tuners in use.
@@ -710,6 +797,15 @@ under the same precondition.
   - the Missing rows;
   - `TestBothUICommandsWireEveryUIOption` covers the new
     `ui.Options.LiveTV`.
+- **cluster-plex, against its `fakepms`, with fixtures recorded from the
+  owner's PMS:**
+  - a Ready provider gets one device and one DVR;
+  - a second run changes nothing;
+  - a new `lineup.hash` saves the channel map once;
+  - a new `guideHash` reloads the guide once;
+  - a provider under PMS gets a device and `DVRNeedsLineup`, and no DVR;
+  - a deleted provider removes its DVR and device;
+  - a DVR whose device no IPTVProvider names is never touched.
 - **e2e scenario 19** (`test/e2e/livetv_test.go`, with an `iptvstub`
   fixture serving an M3U, an MPEG-TS loop and an XMLTV guide):
   - create an IPTVProvider;
@@ -728,8 +824,10 @@ under the same precondition.
    - the controller;
    - the tuner runnable in the manager, with the TS relay and fan-out;
    - the object store;
-   - the chart, kustomize and RBAC;
-   - e2e 19.
+   - the chart, kustomize and RBAC, with the NetworkPolicy;
+   - e2e 19;
+   - in cluster-plex: the IPTVProvider watch and the DVR provisioner
+     (§6.1), after the recorded PMS fixtures.
 2. **The UI:** the Settings section and the Live TV page (Mapping, Filters,
    Guides), with bulk edits and the 480 checks.
 3. **Breadth:**
@@ -749,14 +847,6 @@ under the same precondition.
 
 ## 10. Open questions for the owner
 
-1. **The 480 limit per DVR:** this design assumes Plex's 480 applies to
-   each tuner device's lineup, so two providers give two DVRs of 480. Is
-   that what your PMS shows, or should 480 bound every provider together?
-   A total limit cannot be CEL; it would be a controller condition, plus
-   the UI's check.
-2. **Adding the device to Plex:** this design shows the address to enter by
-   hand. Should cluster-plex instead create the DVR through PMS's API
-   (`POST /livetv/dvrs`, then the lineup and the XMLTV guide), as it seeds
-   markers? That would be a separate change in cluster-plex.
-3. **Exposure:** should the chart ship the NetworkPolicy on, allowing only
-   Plex's namespace, rather than off?
+None. The rulings at the top settle the five earlier questions. One
+consequence to confirm while reviewing: deleting a provider removes its
+Plex DVR and that DVR's recording rules (§6.1).
