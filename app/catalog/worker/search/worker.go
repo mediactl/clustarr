@@ -386,12 +386,19 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	// After the RPC, because a search that never reached an indexer is not an
 	// attempt: stamping it would let the backoff ladder grow while nothing was
 	// actually being searched for.
-	if purpose != "" {
-		if err := grab.RecordDonorSearchAttempt(ctx, w.Client, ns, task.MediaRef, w.now()); err != nil {
-			w.log(ctx).Warn("search: could not record the donor search attempt", "err", err)
+	//
+	// ... and a search no indexer was asked is not one either: when every
+	// indexer's query was paced out of the search's budget, the item keeps
+	// its live search -- the video's or the donor's -- for the next sweep
+	// instead of falling to IndexOnly (spec 2026-10-06 §9.1.1, OD46).
+	if !allPaced(resp.Outcomes) {
+		if purpose != "" {
+			if err := grab.RecordDonorSearchAttempt(ctx, w.Client, ns, task.MediaRef, w.now()); err != nil {
+				w.log(ctx).Warn("search: could not record the donor search attempt", "err", err)
+			}
+		} else {
+			w.recordAttempt(ctx, ns, grabTarget(task))
 		}
-	} else {
-		w.recordAttempt(ctx, ns, grabTarget(task))
 	}
 
 	opts, err := w.decisionOptions(ctx, ns, task)
@@ -445,6 +452,21 @@ func Searchable(kind commonv1.MediaKind) bool {
 	default:
 		return false
 	}
+}
+
+// allPaced reports whether outs is non-empty and every outcome is a paced
+// skip: indexarr sent no query at all. An index-only search (searchIndex)
+// reports no outcomes, so it is recorded as an attempt as before.
+func allPaced(outs []schema.SearchOutcome) bool {
+	if len(outs) == 0 {
+		return false
+	}
+	for _, o := range outs {
+		if o.Status != schema.SearchOutcomeSkipped || o.Error != schema.SkipReasonPaced {
+			return false
+		}
+	}
+	return true
 }
 
 // recordAttempt stamps status.lastSearchedAt and status.searchAttempts on the

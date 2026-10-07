@@ -169,6 +169,12 @@ const (
 	SearchOutcomeSkipped SearchOutcomeStatus = "skipped"
 )
 
+// SkipReasonPaced is SearchOutcome.Error for a query its indexer's rate
+// limiter (spec.requestDelay) could not send inside the search's budget:
+// never sent, so never the indexer's failure, and not a search attempt
+// (spec 2026-10-06 §9.1.1).
+const SkipReasonPaced = "paced: no request slot within the search's deadline"
+
 // SearchQueryMode names which parameter set a per-indexer query used.
 type SearchQueryMode string
 

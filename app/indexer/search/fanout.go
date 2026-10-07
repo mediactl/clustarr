@@ -399,13 +399,14 @@ type pacedClient interface {
 	WaitTurn(ctx context.Context) (context.Context, error)
 }
 
-// pacedOutcome is a query the indexer's rate limiter could not send inside
-// the search's budget: a named skip, counted as skipped and recorded
-// nowhere, since the indexer never saw it.
+// pacedOutcome is a query its indexer's rate limiter (spec.requestDelay)
+// could not send before the search's budget ran out: never sent, so never
+// the indexer's failure. It is a named skip (schema.SkipReasonPaced),
+// counted as skipped and recorded nowhere, since the indexer never saw it.
 func pacedOutcome(out schema.SearchOutcome) schema.SearchOutcome {
 	metrics.IndexerQueriesTotal.WithLabelValues(out.IndexerRef.Name, metricSkipped).Inc()
 	out.Status = schema.SearchOutcomeSkipped
-	out.Error = skipPaced
+	out.Error = schema.SkipReasonPaced
 	return out
 }
 
