@@ -46,7 +46,9 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
+	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -81,8 +83,15 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // JetStream bus (none on membus, which leaves the sequence out).
 func NewDLQProjector(mgr ctrl.Manager, bus events.Bus) *historyworker.DLQProjector {
 	reader, _ := history.DLQReaderFor(bus)
+	c := mgr.GetClient()
 	return historyworker.NewDLQProjector(historyworker.DLQDeps{
-		Client: mgr.GetClient(), Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"), DLQ: reader,
+		Client: c, Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"), DLQ: reader,
+		// A Download-keyed dead letter resolves to the owner holding the
+		// entry (ADR-0019 §8.5).
+		Owners: func(ctx context.Context, namespace, idOrUID string) (schema.ItemRef, bool) {
+			o, ok, err := dlindex.OwnerOf(ctx, c, namespace, idOrUID)
+			return o, ok && err == nil
+		},
 	})
 }
 

@@ -39,9 +39,9 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -59,12 +59,6 @@ import (
 )
 
 const (
-	// downloadByMovieIndexKey indexes Download by the Movie its
-	// spec.target names (kind movie only). It is how the reconciler finds
-	// the Downloads it derives status.activeDownloadRef from. spec.target is
-	// immutable, so the index never has to follow an edit.
-	downloadByMovieIndexKey = ".spec.target.movie"
-
 	// movieByQualityProfileIndexKey indexes Movie by the QualityProfile it
 	// is ranked against, so a watched QualityProfile can be mapped back to
 	// every Movie whose cutoffMet depends on it.
@@ -77,7 +71,6 @@ const (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/finalizers,verbs=update
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
@@ -125,22 +118,12 @@ type Reconciler struct {
 	OnReconcile func()
 }
 
-// RegisterIndexes registers the Download and QualityProfile indexes
-// ReconcileItem's Lists and the watches' map functions read. A Movie's
-// MediaFiles are found through the remediation loop's one item index
-// (mfindex.Item, loop spec §3.16), which the loop registers; a test
-// that drives ReconcileItem against a bare cache registers those beside this.
+// RegisterIndexes registers the QualityProfile index the watches' map
+// functions read. A Movie's MediaFiles are found through the remediation
+// loop's one item index (mfindex.Item, loop spec §3.16), and its grabs are
+// its own status.downloads (ADR-0019 §6.11), so it registers no Download
+// index any more.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByMovieIndexKey,
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindMovie {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}); err != nil {
-		return err
-	}
 	return idx.IndexField(ctx, &catalogv1alpha1.Movie{}, movieByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			m, ok := o.(*catalogv1alpha1.Movie)
@@ -158,7 +141,6 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Movie{}, Map: rollup.Self, Predicates: []predicate.Predicate{moviePredicate()}},
-		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
 		{
 			Object: &transcodev1alpha1.AudioGraft{}, Map: rollup.ItemOfAudioGraft(commonv1.MediaKindMovie),
 			Predicates: []predicate.Predicate{k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState))},
@@ -209,18 +191,6 @@ func moviePredicate() predicate.Predicate {
 		}),
 		k8s.DeadLetteredAnnotationChanged(),
 	)
-}
-
-// mapDownload needs no List either: a Download names its target in
-// spec.target, so a Download that appears -- before anything has set the
-// ref, which is the whole point of deriving the ref from the Download --
-// reaches its Movie directly.
-func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
-	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindMovie {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
 }
 
 // mapQualityProfile is the reverse direction from an edited QualityProfile
@@ -293,6 +263,22 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 // failed removal re-announces with the same envelope id rather than losing
 // the event; a Movie that never held the finalizer never reaches here.
 func (r *Reconciler) reconcileDelete(ctx context.Context, m *catalogv1alpha1.Movie) (ctrl.Result, error) {
+	// The grabs go first (ADR-0019 §6.8): while the downloads stage moves
+	// every entry to Removing, the pass applies its contribution over the
+	// stored status -- the complete declaration, so nothing is released --
+	// and the Movie's own finalizer waits for FinalizerTransfers.
+	if itempass.HasContribution(itempass.From(ctx)) {
+		statusAC := catalogac.MovieStatus().WithObservedGeneration(m.Status.ObservedGeneration).
+			WithAddOptionsApplied(m.Status.AddOptionsApplied)
+		statusAC = reassertKnownStatus(statusAC, m)
+		statusAC = statusAC.WithConditions(k8s.ConditionACs(m.Status.Conditions)...)
+		if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
+			return itemstatus.Requeue(conflicted), err
+		}
+	}
+	if controllerutil.ContainsFinalizer(m, catalogv1alpha1.FinalizerTransfers) {
+		return ctrl.Result{}, nil
+	}
 	name, err := k8s.FinalizerFor(m, r.Scheme)
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
@@ -304,6 +290,28 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, m *catalogv1alpha1.Mov
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
+}
+
+// withEntries folds the grab entries, the download phase, the intent nonces
+// and release N's legacy record into a catalogarr status apply: this pass's
+// decisions when the item stages made them, else the stored values, on
+// every apply site -- the complete declaration (ADR-0019 §7.0, Review
+// Focus 4). It is called once per apply: the list setters append.
+func withEntries(ctx context.Context, ac *catalogac.MovieStatusApplyConfiguration, m *catalogv1alpha1.Movie) *catalogac.MovieStatusApplyConfiguration {
+	p := itempass.From(ctx)
+	if es := itempass.Downloads(p, m.Status.Downloads); len(es) > 0 {
+		ac = ac.WithDownloads(itempass.EntryACs(es)...)
+	}
+	if ph := itempass.Phase(p, m.Status.DownloadPhase); ph != "" {
+		ac = ac.WithDownloadPhase(ph)
+	}
+	if n := itempass.NoncesAC(itempass.Nonces(p, m.Status.DownloadNonces)); n != nil {
+		ac = ac.WithDownloadNonces(n)
+	}
+	if l := itempass.LegacyAC(itempass.Legacy(p, m.Status.LegacyDownloads)); l != nil {
+		ac = ac.WithLegacyDownloads(l)
+	}
+	return ac
 }
 
 // reconcileNormal implements spec §8.1's Want flow for Movie: addOptions
@@ -383,7 +391,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 				k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
 					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -413,7 +421,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 				k8s.MarkFalse(m, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", m.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, perr := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+				if conflicted, perr := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); perr != nil || conflicted {
 					return itemstatus.Requeue(conflicted), perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -486,10 +494,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		r.publishFile(ctx, m, action, file, mf, now)
 	}
 
-	dl, donorOpen, err := r.activeDownload(ctx, m)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	dl, donorOpen := activeDownload(ctx, m)
 	ag, err := r.audioGraft(ctx, m)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -519,7 +524,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
 	if dl != nil {
-		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
+		statusAC = statusAC.WithActiveDownloadRef(dl.ID)
 	}
 	// With no non-terminal Download, WithActiveDownloadRef is deliberately
 	// not called: omitting a field this manager owns releases it under SSA
@@ -587,7 +592,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	k8s.MarkReady(m, &conditions, metaReady && phase != catalogv1alpha1.MoviePhasePending, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
 	// After the apply, so a phase that never landed is never announced. The

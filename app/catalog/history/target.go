@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package history
 
 import (
+	"context"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -350,6 +351,49 @@ func resolveImportTask(key string, data []byte) Target {
 	return refTarget(p.DownloadRef, downloadv1alpha1.GroupVersion.String(), "Download")
 }
 
+// EntryOwners finds the owner holding a grab entry by its id or uid (the
+// manager's remediation.item.download index, dlindex.OwnerOf), in namespace
+// (every namespace when empty).
+type EntryOwners func(ctx context.Context, namespace, idOrUID string) (schema.ItemRef, bool)
+
+// ResolveWith is Resolve with the entry index (ADR-0019 §6.11, §8.5): a
+// Download-keyed v1 ImportTask, and a DownloadEvent naming no media, resolve
+// to the owner holding the entry the Download became, so a dead letter of
+// either lands on the owner where every resolver now points. owners nil is
+// Resolve.
+func ResolveWith(ctx context.Context, env *events.Envelope, owners EntryOwners) Target {
+	t := Resolve(env)
+	if owners == nil || env == nil || (t.Kind != "Download") {
+		return t
+	}
+	var ref schema.Ref
+	switch env.Schema {
+	case schema.ImportTask{}.Schema():
+		var p schema.ImportTask
+		if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
+			return t
+		}
+		ref = p.DownloadRef
+	case schema.DownloadEvent{}.Schema():
+		var p schema.DownloadEvent
+		if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
+			return t
+		}
+		ref = p.DownloadRef
+	default:
+		return t
+	}
+	for _, id := range []string{ref.UID, ref.Name} {
+		if id == "" {
+			continue
+		}
+		if o, ok := owners(ctx, ref.Namespace, id); ok {
+			return itemTarget(o)
+		}
+	}
+	return t
+}
+
 // resolveRelease is indexarr's parsed-release payload. It carries no Ref of
 // its own; the producer convention (see app/catalog/worker/rssmatcher.Handle)
 // is Clustarr-Key = "<namespace>/<indexerName>", so the key alone resolves
@@ -384,10 +428,21 @@ func resolveRssTask(key string, data []byte) Target {
 	return refTarget(p.IndexerRef, indexv1alpha1.GroupVersion.String(), "Indexer")
 }
 
+// resolveDownloadEvent resolves a grab's event to its owner (ADR-0019
+// §6.11): Media names the owner item (or, from before A3, the Download's
+// target); an event naming no media keeps the Download it names, which
+// ResolveWith maps to the owner holding that entry.
 func resolveDownloadEvent(key string, data []byte) Target {
 	var p schema.DownloadEvent
 	if err := schema.Decode(p.Schema(), data, &p); err != nil {
 		return Target{Namespace: namespaceOf(key)}
+	}
+	if p.Media.Name != "" && p.Media.Kind != "" {
+		ns := p.DownloadRef.Namespace
+		if ns == "" {
+			ns = namespaceOf(key)
+		}
+		return mediaTarget(ns, p.Media.Name, p.Media.Kind)
 	}
 	return refTarget(p.DownloadRef, downloadv1alpha1.GroupVersion.String(), "Download")
 }

@@ -28,8 +28,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -38,19 +38,13 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// activeDownload is the Download status.activeDownloadRef names (ruling
-// R-5): the oldest non-terminal Download whose spec.target is this Movie and
-// which this Movie owns, by UID. Matching the owner's UID as well as the
-// target's name keeps a Download that belonged to a deleted Movie of the same
-// name -- one the garbage collector has not reached yet -- from being
-// adopted by its successor.
-func (r *Reconciler) activeDownload(ctx context.Context, m *catalogv1alpha1.Movie) (*downloadv1alpha1.Download, bool, error) {
-	var list downloadv1alpha1.DownloadList
-	if err := r.List(ctx, &list, client.InNamespace(m.Namespace), client.MatchingFields{downloadByMovieIndexKey: m.Name}); err != nil {
-		return nil, false, err
-	}
-	owns := func(d *downloadv1alpha1.Download) bool { return k8s.IsOwnedBy(d, m) }
-	return rollup.ActiveDownload(list.Items, owns), rollup.DonorDownloading(list.Items, owns), nil
+// activeDownload is the grab entry status.activeDownloadRef names (ruling
+// R-5, ADR-0019 §6.11): the oldest non-terminal entry of the Movie's own
+// status.downloads -- this pass's, when a stage decided them -- and whether
+// an audio donor entry is open.
+func activeDownload(ctx context.Context, m *catalogv1alpha1.Movie) (*catalogv1alpha1.DownloadEntry, bool) {
+	entries := itempass.Downloads(itempass.From(ctx), m.Status.Downloads)
+	return rollup.ActiveEntry(entries, nil), rollup.DonorEntryOpen(entries, nil)
 }
 
 // audioGraft is m's AudioGraft, nil when it has none.

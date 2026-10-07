@@ -38,8 +38,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -56,13 +56,6 @@ import (
 )
 
 const (
-	// downloadByAudiobookIndexKey indexes Download by the Audiobook its spec.target names
-	// (kind audiobook only). It is how the reconciler finds the Downloads it
-	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
-	// shape as movie.downloadByMovieIndexKey. spec.target is immutable, so
-	// the index never has to follow an edit.
-	downloadByAudiobookIndexKey = ".spec.target.audiobook"
-
 	// audiobookByQualityProfileIndexKey indexes Audiobook by the
 	// QualityProfile it is ranked against, so a watched QualityProfile can
 	// be mapped back to every Audiobook whose cutoffMet depends on it.
@@ -80,7 +73,6 @@ const (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=books,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
@@ -122,16 +114,6 @@ type Reconciler struct {
 // ReconcileItem against a bare cache calls it, and mfindex.Register for the
 // MediaFiles, which the loop registers.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByAudiobookIndexKey,
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAudiobook {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}); err != nil {
-		return err
-	}
 	if err := idx.IndexField(ctx, &catalogv1alpha1.Audiobook{}, audiobookByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			a, ok := o.(*catalogv1alpha1.Audiobook)
@@ -159,7 +141,6 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Audiobook{}, Map: rollup.Self, Predicates: []predicate.Predicate{audiobookPredicate()}},
-		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 		{Object: &catalogv1alpha1.Book{}, Map: r.mapBookRef, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
@@ -197,32 +178,11 @@ func audiobookPredicate() predicate.Predicate {
 	)
 }
 
-// mapDownload needs no List: a Download names its target in spec.target,
-// so a Download that appears -- before anything has set the ref, which is
-// the whole point of deriving the ref from the Download -- reaches its
-// Audiobook directly.
-func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
-	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAudiobook {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
-}
-
-// activeDownload is the Download status.activeDownloadRef names, derived
-// level-style (gap-fix ruling R-5, which makes this reconciler the field's
-// only writer): the oldest Download targeting this Audiobook that it owns and
-// that rollup.DownloadNonTerminal still counts, or nil. Ownership is by UID,
-// so a Download left behind by a deleted Audiobook of the same name is never
-// adopted.
-func (r *Reconciler) activeDownload(ctx context.Context, m *catalogv1alpha1.Audiobook) (*downloadv1alpha1.Download, error) {
-	var list downloadv1alpha1.DownloadList
-	if err := r.List(ctx, &list, client.InNamespace(m.Namespace), client.MatchingFields{downloadByAudiobookIndexKey: m.Name}); err != nil {
-		return nil, err
-	}
-	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
-		return k8s.IsOwnedBy(d, m)
-	}), nil
+// activeDownload is the grab entry status.activeDownloadRef names (ruling
+// R-5, ADR-0019 §6.11): the oldest non-terminal entry of the Audiobook's own
+// status.downloads -- this pass's, when a stage decided them.
+func activeDownload(ctx context.Context, m *catalogv1alpha1.Audiobook) *catalogv1alpha1.DownloadEntry {
+	return rollup.ActiveEntry(itempass.Downloads(itempass.From(ctx), m.Status.Downloads), nil)
 }
 
 // mapQualityProfile is the reverse direction from an edited QualityProfile
@@ -286,6 +246,20 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 // state of its own) has no clustarr-leases or clustarr-pending entries
 // created by this controller to clean up.
 func (r *Reconciler) reconcileDelete(ctx context.Context, m *catalogv1alpha1.Audiobook) (ctrl.Result, error) {
+	// The grabs go first (ADR-0019 §6.8): while the downloads stage moves
+	// every entry to Removing, the pass applies its contribution over the
+	// stored status -- the complete declaration, so nothing is released --
+	// and the Audiobook's own finalizer waits for FinalizerTransfers.
+	if itempass.HasContribution(itempass.From(ctx)) {
+		statusAC := reassertKnownStatus(catalogac.AudiobookStatus().WithObservedGeneration(m.Status.ObservedGeneration), m)
+		statusAC = statusAC.WithConditions(k8s.ConditionACs(m.Status.Conditions)...)
+		if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
+			return itemstatus.Requeue(conflicted), err
+		}
+	}
+	if controllerutil.ContainsFinalizer(m, catalogv1alpha1.FinalizerTransfers) {
+		return ctrl.Result{}, nil
+	}
 	name, err := k8s.FinalizerFor(m, r.Scheme)
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
@@ -390,7 +364,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 				k8s.MarkTrue(m, &conditions, catalogv1alpha1.AudiobookConditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
 					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -411,7 +385,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 				k8s.MarkFalse(m, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", m.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, perr := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+				if conflicted, perr := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); perr != nil || conflicted {
 					return itemstatus.Requeue(conflicted), perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -456,10 +430,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 		r.publishFile(ctx, m, e.Action, e.File, e.MediaFile, now)
 	}
 
-	dl, err := r.activeDownload(ctx, m)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	dl := activeDownload(ctx, m)
 	overlayPhase, active := DownloadOverlay(dl)
 
 	phase := Phase(monitored, hasFile, cutoffMet, m.Status.PendingGrab != nil)
@@ -476,7 +447,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 		statusAC = statusAC.WithQuality(*fileQuality)
 	}
 	if active {
-		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
+		statusAC = statusAC.WithActiveDownloadRef(dl.ID)
 	}
 	// With no Download still working on this item, WithActiveDownloadRef is
 	// deliberately not called: omitting a field this manager owns releases
@@ -512,7 +483,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	k8s.MarkReady(m, &conditions, metaReady, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
 
@@ -584,4 +555,26 @@ func reassertKnownStatus(statusAC *catalogac.AudiobookStatusApplyConfiguration, 
 		statusAC = statusAC.WithActiveDownloadRef(*m.Status.ActiveDownloadRef)
 	}
 	return statusAC
+}
+
+// withEntries folds the grab entries, the download phase, the intent nonces
+// and release N's legacy record into a catalogarr status apply: this pass's
+// decisions when the item stages made them, else the stored values, on
+// every apply site -- the complete declaration (ADR-0019 §7.0, Review
+// Focus 4). It is called once per apply: the list setters append.
+func withEntries(ctx context.Context, ac *catalogac.AudiobookStatusApplyConfiguration, o *catalogv1alpha1.Audiobook) *catalogac.AudiobookStatusApplyConfiguration {
+	p := itempass.From(ctx)
+	if es := itempass.Downloads(p, o.Status.Downloads); len(es) > 0 {
+		ac = ac.WithDownloads(itempass.EntryACs(es)...)
+	}
+	if ph := itempass.Phase(p, o.Status.DownloadPhase); ph != "" {
+		ac = ac.WithDownloadPhase(ph)
+	}
+	if n := itempass.NoncesAC(itempass.Nonces(p, o.Status.DownloadNonces)); n != nil {
+		ac = ac.WithDownloadNonces(n)
+	}
+	if l := itempass.LegacyAC(itempass.Legacy(p, o.Status.LegacyDownloads)); l != nil {
+		ac = ac.WithLegacyDownloads(l)
+	}
+	return ac
 }

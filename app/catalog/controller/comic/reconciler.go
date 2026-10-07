@@ -39,6 +39,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -233,6 +234,20 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 // by the apiserver via their controller reference; there is nothing else
 // owned outside Kubernetes at this phase.
 func (r *Reconciler) reconcileDelete(ctx context.Context, c *catalogv1alpha1.Comic) (ctrl.Result, error) {
+	// The grabs go first (ADR-0019 §6.8): while the downloads stage moves
+	// every entry to Removing, the pass applies its contribution over the
+	// stored status -- the complete declaration, so nothing is released --
+	// and the Comic's own finalizer waits for FinalizerTransfers.
+	if itempass.HasContribution(itempass.From(ctx)) {
+		statusAC := reassertKnownStatus(catalogac.ComicStatus().WithObservedGeneration(c.Status.ObservedGeneration), c)
+		statusAC = statusAC.WithConditions(k8s.ConditionACs(c.Status.Conditions)...)
+		if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); err != nil || conflicted {
+			return itemstatus.Requeue(conflicted), err
+		}
+	}
+	if controllerutil.ContainsFinalizer(c, catalogv1alpha1.FinalizerTransfers) {
+		return ctrl.Result{}, nil
+	}
 	name, err := k8s.FinalizerFor(c, r.Scheme)
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
@@ -312,7 +327,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 				k8s.MarkTrue(c, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, c)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); err != nil || conflicted {
 					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -332,7 +347,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 				k8s.MarkFalse(c, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", c.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, c)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, perr := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+				if conflicted, perr := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); perr != nil || conflicted {
 					return itemstatus.Requeue(conflicted), perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -371,18 +386,23 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 		k8s.MarkTrue(c, &conditions, catalogv1alpha1.ComicConditionIssuesSynced, k8s.ReasonReconciled, "issues synced")
 	}
 
-	var issueFileCount int32
+	var issueFileCount, downloading int32
 	for _, iss := range issues {
 		if iss.Status.HasFile {
 			issueFileCount++
 		}
+		// downloadingIssueCount (ruling R11): the Issues whose view of this
+		// Comic's entries reads a non-terminal download phase.
+		if downloadingPhase(iss.Status.DownloadPhase) {
+			downloading++
+		}
 	}
-	statusAC = statusAC.WithIssueFileCount(issueFileCount)
+	statusAC = statusAC.WithIssueFileCount(issueFileCount).WithDownloadingIssueCount(downloading)
 
 	k8s.MarkReady(c, &conditions, metaReady && issuesSynced, k8s.ReasonReconciled, "metadataReady=%t issuesSynced=%t", metaReady, issuesSynced)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
 
@@ -406,6 +426,7 @@ func reassertKnownStatus(statusAC *catalogac.ComicStatusApplyConfiguration, c *c
 		statusAC = statusAC.WithPath(c.Status.Path)
 	}
 	statusAC = statusAC.WithIssueFileCount(c.Status.IssueFileCount)
+	statusAC = statusAC.WithDownloadingIssueCount(c.Status.DownloadingIssueCount)
 	if c.Status.NextPullDate != nil {
 		statusAC = statusAC.WithNextPullDate(*c.Status.NextPullDate)
 	}
@@ -532,4 +553,37 @@ func (r *Reconciler) ensureIssue(ctx context.Context, c *catalogv1alpha1.Comic, 
 	// k8s.ManagerCatalogarrFanout's own doc comment for the full reasoning.
 	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarrFanout, catalogac.Issue(d.Name, c.Namespace).WithStatus(statusAC))
 	return err
+}
+
+// withEntries folds the grab entries, the download phase, the intent nonces
+// and release N's legacy record into a catalogarr status apply: this pass's
+// decisions when the item stages made them, else the stored values, on
+// every apply site -- the complete declaration (ADR-0019 §7.0, Review
+// Focus 4). It is called once per apply: the list setters append.
+func withEntries(ctx context.Context, ac *catalogac.ComicStatusApplyConfiguration, o *catalogv1alpha1.Comic) *catalogac.ComicStatusApplyConfiguration {
+	p := itempass.From(ctx)
+	if es := itempass.Downloads(p, o.Status.Downloads); len(es) > 0 {
+		ac = ac.WithDownloads(itempass.EntryACs(es)...)
+	}
+	if ph := itempass.Phase(p, o.Status.DownloadPhase); ph != "" {
+		ac = ac.WithDownloadPhase(ph)
+	}
+	if n := itempass.NoncesAC(itempass.Nonces(p, o.Status.DownloadNonces)); n != nil {
+		ac = ac.WithDownloadNonces(n)
+	}
+	if l := itempass.LegacyAC(itempass.Legacy(p, o.Status.LegacyDownloads)); l != nil {
+		ac = ac.WithLegacyDownloads(l)
+	}
+	return ac
+}
+
+// downloadingPhase reports an entry phase that still delivers content: set,
+// and neither Imported, Failed, Blocklisted nor Removing.
+func downloadingPhase(p commonv1.DownloadPhase) bool {
+	switch p {
+	case "", commonv1.DownloadPhaseImported, commonv1.DownloadPhaseFailed,
+		commonv1.DownloadPhaseBlocklisted, commonv1.DownloadPhaseRemoving:
+		return false
+	}
+	return true
 }

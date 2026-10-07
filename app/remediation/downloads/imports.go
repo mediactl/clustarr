@@ -15,22 +15,21 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package episode
+package downloads
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"context"
+
+	"github.com/mediactl/clustarr/app/grab/lifecycle"
+	"github.com/mediactl/clustarr/app/remediation"
 )
 
-// DownloadOverlay maps rollup.EntryOverlay's phase-independent verdict onto
-// EpisodePhase: e is the active entry covering the Episode on its Series
-// (ADR-0019 §6.1), nil for none.
-func DownloadOverlay(e *catalogv1alpha1.DownloadEntry) (phase catalogv1alpha1.EpisodePhase, active bool) {
-	overlay, active := rollup.EntryOverlay(e)
-	switch overlay {
-	case rollup.OverlayDownloading:
-		return catalogv1alpha1.EpisodePhaseDownloading, active
-	default:
-		return "", active
-	}
-}
+// importDecisions fills v.Import with importplan's decision for each
+// Completed entry (A3.8).
+func (s *Stage) importDecisions(_ context.Context, _ owner, _ *lifecycle.View) error { return nil }
+
+// importEffects renders the plan's import dispatches (A3.8).
+func (s *Stage) importEffects(_ owner, _ lifecycle.Plan) []remediation.Effect { return nil }
+
+// materialise renders the plan's MediaFile applies and deletes (A3.8).
+func (s *Stage) materialise(_ owner, _ lifecycle.Plan) []remediation.Effect { return nil }

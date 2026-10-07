@@ -38,7 +38,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -49,20 +49,10 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
-const (
-	// downloadByIssueIndexKey indexes Download by the Issue its spec.target names
-	// (kind issue only). It is how the reconciler finds the Downloads it
-	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
-	// shape as movie.downloadByMovieIndexKey. spec.target is immutable, so
-	// the index never has to follow an edit.
-	downloadByIssueIndexKey = ".spec.target.issue"
-)
-
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=issues,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=issues/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=issues/finalizers,verbs=update
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=comics,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
@@ -101,20 +91,9 @@ type Reconciler struct {
 }
 
 // RegisterIndexes registers the field indexes ReconcileItem's Lists and the
-// watches' map functions read. The remediation loop calls it once
-// (remediation.RegisterIndexes, loop spec §3.16); a test that drives
-// ReconcileItem against a bare cache calls it, and mfindex.Register for the
-// MediaFiles, which the loop registers.
-func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	return idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByIssueIndexKey,
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindIssue {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		})
-}
+// watches' map functions read: none since an Issue's grabs became its
+// Comic's entries (ADR-0019 §6.1). It stays for the loop's one registrar.
+func RegisterIndexes(context.Context, client.FieldIndexer) error { return nil }
 
 // Watches is the Issue's item path on the remediation loop (loop spec §3.12;
 // S8, S9, S10): every watch that wakes an Issue except its files', which the
@@ -130,7 +109,6 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Issue{}, Map: rollup.Self, Predicates: []predicate.Predicate{issuePredicate()}},
-		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
 		{Object: &catalogv1alpha1.Comic{}, Map: r.mapComic, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
@@ -163,32 +141,28 @@ func issuePredicate() predicate.Predicate {
 	)
 }
 
-// mapDownload needs no List: a Download names its target in spec.target,
-// so a Download that appears -- before anything has set the ref, which is
-// the whole point of deriving the ref from the Download -- reaches its
-// Issue directly.
-func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
-	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindIssue {
-		return nil
+// downloadView is the Issue's view of its Comic's grab entries (ADR-0019
+// §6.1): the entries covering it -- the downloads stage's view this pass,
+// else read off its Comic in the cache -- and their active one, whose id is
+// status.activeDownloadRef and whose phase status.downloadPhase.
+func (r *Reconciler) downloadView(ctx context.Context, iss *catalogv1alpha1.Issue) (*catalogv1alpha1.DownloadEntry, error) {
+	var covering []catalogv1alpha1.DownloadEntry
+	if p := itempass.From(ctx); p != nil && p.Contribution.Viewed {
+		covering = p.Contribution.Covering
+	} else if iss.Spec.ComicRef != "" {
+		var c catalogv1alpha1.Comic
+		if err := r.Get(ctx, client.ObjectKey{Namespace: iss.Namespace, Name: iss.Spec.ComicRef}, &c); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return nil, err
+			}
+		}
+		for i := range c.Status.Downloads {
+			if rollup.CoversIssue(&c.Status.Downloads[i], iss.Name, iss.Spec.Number) {
+				covering = append(covering, c.Status.Downloads[i])
+			}
+		}
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
-}
-
-// activeDownload is the Download status.activeDownloadRef names, derived
-// level-style (gap-fix ruling R-5, which makes this reconciler the field's
-// only writer): the oldest Download targeting this Issue that it owns and
-// that rollup.DownloadNonTerminal still counts, or nil. Ownership is by UID,
-// so a Download left behind by a deleted Issue of the same name is never
-// adopted.
-func (r *Reconciler) activeDownload(ctx context.Context, iss *catalogv1alpha1.Issue) (*downloadv1alpha1.Download, error) {
-	var list downloadv1alpha1.DownloadList
-	if err := r.List(ctx, &list, client.InNamespace(iss.Namespace), client.MatchingFields{downloadByIssueIndexKey: iss.Name}); err != nil {
-		return nil, err
-	}
-	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
-		return k8s.IsOwnedBy(d, iss)
-	}), nil
+	return rollup.ActiveEntry(covering, nil), nil
 }
 
 // mapComic wakes every Issue of an edited Comic. It filters a namespaced
@@ -337,11 +311,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 		r.publishFile(ctx, iss, action, file, mf, now)
 	}
 
-	dl, err := r.activeDownload(ctx, iss)
+	dl, err := r.downloadView(ctx, iss)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	_, active := rollup.DownloadOverlay(dl)
+	_, active := rollup.EntryOverlay(dl)
 
 	state := State(monitored, hasFile, cutoffMet, active, iss.Status.PendingGrab != nil)
 
@@ -383,7 +357,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
 	if active {
-		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
+		statusAC = statusAC.WithActiveDownloadRef(dl.ID).WithDownloadPhase(dl.Phase)
 	}
 	// With no Download still working on this item, WithActiveDownloadRef is
 	// deliberately not called: omitting a field this manager owns releases

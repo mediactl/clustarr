@@ -38,8 +38,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -56,13 +56,6 @@ import (
 )
 
 const (
-	// downloadByBookIndexKey indexes Download by the Book its spec.target names
-	// (kind book only). It is how the reconciler finds the Downloads it
-	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
-	// shape as movie.downloadByMovieIndexKey. spec.target is immutable, so
-	// the index never has to follow an edit.
-	downloadByBookIndexKey = ".spec.target.book"
-
 	// bookByQualityProfileIndexKey indexes Book by its OWN direct
 	// spec.qualityProfileRef override only -- not the profile it effectively
 	// resolves to via an owning Author (BookSpec.QualityProfileRef's own doc
@@ -89,7 +82,6 @@ const rootFolderRequeueAfter = time.Minute
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=authors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
@@ -130,16 +122,6 @@ type Reconciler struct {
 // ReconcileItem against a bare cache calls it, and mfindex.Register for the
 // MediaFiles, which the loop registers.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByBookIndexKey,
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindBook {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}); err != nil {
-		return err
-	}
 	return idx.IndexField(ctx, &catalogv1alpha1.Book{}, bookByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			bk, ok := o.(*catalogv1alpha1.Book)
@@ -160,7 +142,6 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Book{}, Map: rollup.Self, Predicates: []predicate.Predicate{bookPredicate()}},
-		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
 		{Object: &catalogv1alpha1.Author{}, Map: r.mapAuthor, Predicates: []predicate.Predicate{authorPredicate()}},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
@@ -212,32 +193,11 @@ func authorPredicate() predicate.Predicate {
 	)
 }
 
-// mapDownload needs no List: a Download names its target in spec.target,
-// so a Download that appears -- before anything has set the ref, which is
-// the whole point of deriving the ref from the Download -- reaches its
-// Book directly.
-func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
-	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindBook {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
-}
-
-// activeDownload is the Download status.activeDownloadRef names, derived
-// level-style (gap-fix ruling R-5, which makes this reconciler the field's
-// only writer): the oldest Download targeting this Book that it owns and
-// that rollup.DownloadNonTerminal still counts, or nil. Ownership is by UID,
-// so a Download left behind by a deleted Book of the same name is never
-// adopted.
-func (r *Reconciler) activeDownload(ctx context.Context, bk *catalogv1alpha1.Book) (*downloadv1alpha1.Download, error) {
-	var list downloadv1alpha1.DownloadList
-	if err := r.List(ctx, &list, client.InNamespace(bk.Namespace), client.MatchingFields{downloadByBookIndexKey: bk.Name}); err != nil {
-		return nil, err
-	}
-	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
-		return k8s.IsOwnedBy(d, bk)
-	}), nil
+// activeDownload is the grab entry status.activeDownloadRef names (ruling
+// R-5, ADR-0019 §6.11): the oldest non-terminal entry of the Book's own
+// status.downloads -- this pass's, when a stage decided them.
+func activeDownload(ctx context.Context, bk *catalogv1alpha1.Book) *catalogv1alpha1.DownloadEntry {
+	return rollup.ActiveEntry(itempass.Downloads(itempass.From(ctx), bk.Status.Downloads), nil)
 }
 
 // mapAuthor is a plain filtered List, NOT an indexed lookup: the author
@@ -358,6 +318,20 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 }
 
 func (r *Reconciler) reconcileDelete(ctx context.Context, bk *catalogv1alpha1.Book) (ctrl.Result, error) {
+	// The grabs go first (ADR-0019 §6.8): while the downloads stage moves
+	// every entry to Removing, the pass applies its contribution over the
+	// stored status -- the complete declaration, so nothing is released --
+	// and the Book's own finalizer waits for FinalizerTransfers.
+	if itempass.HasContribution(itempass.From(ctx)) {
+		statusAC := reassertKnownStatus(catalogac.BookStatus().WithObservedGeneration(bk.Status.ObservedGeneration), bk)
+		statusAC = statusAC.WithConditions(k8s.ConditionACs(bk.Status.Conditions)...)
+		if conflicted, err := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(withEntries(ctx, statusAC, bk))); err != nil || conflicted {
+			return itemstatus.Requeue(conflicted), err
+		}
+	}
+	if controllerutil.ContainsFinalizer(bk, catalogv1alpha1.FinalizerTransfers) {
+		return ctrl.Result{}, nil
+	}
 	name, err := k8s.FinalizerFor(bk, r.Scheme)
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
@@ -435,7 +409,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 				k8s.MarkTrue(bk, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, bk)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, err := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(withEntries(ctx, statusAC, bk))); err != nil || conflicted {
 					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -456,7 +430,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		k8s.MarkFalse(bk, &conditions, k8s.ConditionReady, "Unresolved", "%s", problem)
 		statusAC = reassertKnownStatus(statusAC, bk)
 		statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-		if conflicted, perr := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+		if conflicted, perr := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(withEntries(ctx, statusAC, bk))); perr != nil || conflicted {
 			return itemstatus.Requeue(conflicted), perr
 		}
 		return ctrl.Result{RequeueAfter: rootFolderRequeueAfter}, nil
@@ -500,10 +474,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		r.publishFile(ctx, bk, action, file, mf, now)
 	}
 
-	dl, err := r.activeDownload(ctx, bk)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	dl := activeDownload(ctx, bk)
 	overlayPhase, active := DownloadOverlay(dl)
 
 	phase := Phase(monitored, hasFile, cutoffMet, bk.Status.PendingGrab != nil)
@@ -522,7 +493,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 		statusAC = statusAC.WithFileFormat(fileFormat)
 	}
 	if active {
-		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
+		statusAC = statusAC.WithActiveDownloadRef(dl.ID)
 	}
 	// With no Download still working on this item, WithActiveDownloadRef is
 	// deliberately not called: omitting a field this manager owns releases
@@ -551,7 +522,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 	k8s.MarkReady(bk, &conditions, metaReady, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if conflicted, err := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, bk, catalogac.Book(bk.Name, bk.Namespace).WithStatus(withEntries(ctx, statusAC, bk))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
 	return ctrl.Result{}, nil
@@ -673,4 +644,26 @@ func reassertKnownStatus(statusAC *catalogac.BookStatusApplyConfiguration, bk *c
 		statusAC = statusAC.WithActiveDownloadRef(*bk.Status.ActiveDownloadRef)
 	}
 	return statusAC
+}
+
+// withEntries folds the grab entries, the download phase, the intent nonces
+// and release N's legacy record into a catalogarr status apply: this pass's
+// decisions when the item stages made them, else the stored values, on
+// every apply site -- the complete declaration (ADR-0019 §7.0, Review
+// Focus 4). It is called once per apply: the list setters append.
+func withEntries(ctx context.Context, ac *catalogac.BookStatusApplyConfiguration, o *catalogv1alpha1.Book) *catalogac.BookStatusApplyConfiguration {
+	p := itempass.From(ctx)
+	if es := itempass.Downloads(p, o.Status.Downloads); len(es) > 0 {
+		ac = ac.WithDownloads(itempass.EntryACs(es)...)
+	}
+	if ph := itempass.Phase(p, o.Status.DownloadPhase); ph != "" {
+		ac = ac.WithDownloadPhase(ph)
+	}
+	if n := itempass.NoncesAC(itempass.Nonces(p, o.Status.DownloadNonces)); n != nil {
+		ac = ac.WithDownloadNonces(n)
+	}
+	if l := itempass.LegacyAC(itempass.Legacy(p, o.Status.LegacyDownloads)); l != nil {
+		ac = ac.WithLegacyDownloads(l)
+	}
+	return ac
 }

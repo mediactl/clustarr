@@ -128,6 +128,7 @@ rules:
   - audiobooks
   - authors
   - comics
+  - mediafiles
   - movies
   - searches
   - series
@@ -154,7 +155,6 @@ rules:
   resources:
   - importlists
   - libraryscans
-  - mediafiles
   verbs:
   - get
   - list
@@ -234,10 +234,12 @@ rules:
   - transcode.clustarr.io
   resources:
   - audiografts
-  - transcodeprofiles
   verbs:
+  - create
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - transcode.clustarr.io
@@ -247,6 +249,14 @@ rules:
   - get
   - list
   - patch
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
   - watch
 # END generated from config/rbac/catalogarr_role.yaml.
 {{- end }}

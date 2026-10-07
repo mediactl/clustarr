@@ -19,18 +19,16 @@ package movie
 
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 )
 
-// DownloadOverlay maps rollup.DownloadOverlay's phase-independent verdict
-// onto MoviePhase. The decision logic (which Download phases mean what)
-// lives once, in app/catalog/controller/rollup, per the C6 controller
-// amendment -- this is only the type translation, not a second copy of the
-// switch. See rollup.DownloadOverlay's doc comment for the mapping
-// rationale.
-func DownloadOverlay(dl *downloadv1alpha1.Download) (phase catalogv1alpha1.MoviePhase, active bool) {
-	overlay, active := rollup.DownloadOverlay(dl)
+// DownloadOverlay maps rollup.EntryOverlay's phase-independent verdict
+// onto MoviePhase. The decision logic (which entry phases mean what) lives
+// once, in app/catalog/controller/rollup -- this is only the type
+// translation. e is the Movie's active grab entry (rollup.ActiveEntry), nil
+// for none (ADR-0019 §6.11).
+func DownloadOverlay(e *catalogv1alpha1.DownloadEntry) (phase catalogv1alpha1.MoviePhase, active bool) {
+	overlay, active := rollup.EntryOverlay(e)
 	switch overlay {
 	case rollup.OverlayDownloading:
 		return catalogv1alpha1.MoviePhaseDownloading, active

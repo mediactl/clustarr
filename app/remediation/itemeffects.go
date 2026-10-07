@@ -93,7 +93,11 @@ type RPC struct {
 
 // SafeRemove removes Path under the data root (fsops.SafeRemove) on the
 // I/O pool. A missing path is success: a lost removal book removes again.
-type SafeRemove struct{ Path string }
+// Done, when set, is told the outcome (the downloads stage's removal book).
+type SafeRemove struct {
+	Path string
+	Done func(err error)
+}
 
 // ApplyMediaFileSpec applies a placed file's MediaFile spec under
 // importarr-worker (the import materialisation, A3.8): RV "" creates.
@@ -227,8 +231,14 @@ func (ir *ItemReconciler) runItemEffect(ctx context.Context, item client.Object,
 		err := ir.Env.IO.Run(ctx, "remove", safeRemoveTimeout, func() error {
 			return fsops.SafeRemove(ctx, root, e.Path)
 		})
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
+		if e.Done != nil {
+			e.Done(err)
+		}
 		switch {
-		case err == nil, errors.Is(err, fs.ErrNotExist):
+		case err == nil:
 			return nil
 		case errors.Is(err, fsops.ErrOutsideRoot):
 			return err

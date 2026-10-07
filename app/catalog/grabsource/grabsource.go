@@ -39,7 +39,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -200,4 +203,29 @@ func Covers(dl *downloadv1alpha1.Download, kind commonv1.MediaKind, name string,
 	return kind == commonv1.MediaKindEpisode &&
 		t.Kind == commonv1.MediaKindSeries &&
 		slices.Contains(t.Keys, name)
+}
+
+// CoversEntry is Covers over a grab entry (ADR-0019 §6.11): an entry on an
+// owner covers the owner itself; a Series entry covers the Episode
+// (season, number) it names, a Comic entry the issue number it names. name
+// is the item's, for symmetry with Covers; the entry's place on its owner
+// already identifies the owner.
+func CoversEntry(e *catalogv1alpha1.DownloadEntry, kind commonv1.MediaKind, name string, season, number int32) bool {
+	if e == nil {
+		return false
+	}
+	_ = name
+	switch kind {
+	case commonv1.MediaKindEpisode:
+		for _, n := range e.Episodes {
+			if n.Season == season && n.Number == number {
+				return true
+			}
+		}
+		return false
+	case commonv1.MediaKindIssue:
+		return slices.Contains(e.Issues, strconv.Itoa(int(number)))
+	default:
+		return true
+	}
 }

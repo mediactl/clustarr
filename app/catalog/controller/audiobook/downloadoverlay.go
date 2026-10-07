@@ -19,7 +19,6 @@ package audiobook
 
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 )
 
@@ -30,8 +29,8 @@ import (
 // follow -- this is only the type translation, not a second copy of the
 // switch. See rollup.DownloadOverlay's doc comment for the mapping
 // rationale.
-func DownloadOverlay(dl *downloadv1alpha1.Download) (phase catalogv1alpha1.AudiobookPhase, active bool) {
-	overlay, active := rollup.DownloadOverlay(dl)
+func DownloadOverlay(dl *catalogv1alpha1.DownloadEntry) (phase catalogv1alpha1.AudiobookPhase, active bool) {
+	overlay, active := rollup.EntryOverlay(dl)
 	switch overlay {
 	case rollup.OverlayDelayed:
 		return catalogv1alpha1.AudiobookPhaseDelayed, active

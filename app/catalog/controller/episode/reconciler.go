@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -39,7 +38,6 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -55,14 +53,6 @@ import (
 )
 
 const (
-	// downloadByEpisodeIndexKey indexes Download by every Episode its
-	// spec.target covers: the episode itself for a single-episode grab
-	// (kind episode), and each of spec.target.keys for a season pack (kind
-	// series), whose keys are Episode names. It is how the reconciler finds
-	// the Downloads it derives status.activeDownloadRef from. spec.target is
-	// immutable, so the index never has to follow an edit.
-	downloadByEpisodeIndexKey = ".spec.target.episode"
-
 	// seriesByQualityProfileIndexKey indexes SERIES, not Episode, by the
 	// QualityProfile it is ranked against: an Episode carries no
 	// QualityProfileRef of its own, so the reverse hop from an edited
@@ -76,7 +66,6 @@ const (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
@@ -119,24 +108,12 @@ type Reconciler struct {
 	OnReconcile func()
 }
 
-// RegisterIndexes registers the Download and QualityProfile indexes
-// ReconcileItem's Lists and the watches' map functions read. An Episode's
-// MediaFiles are found through the remediation loop's one item index
-// (mfindex.Item, loop spec §3.16), which the loop registers, and a Series'
-// Episodes through the Series controller's seriesctl.EpisodeBySeriesRefIndex;
-// a test that drives ReconcileItem against a bare cache registers those
-// beside this.
+// RegisterIndexes registers the QualityProfile index the watches' map
+// functions read. An Episode's MediaFiles are found through the remediation
+// loop's one item index (mfindex.Item, loop spec §3.16) and a Series'
+// Episodes through seriesctl.EpisodeBySeriesRefIndex; its grabs are the
+// Series' entries (ADR-0019 §6.1), so it registers no Download index.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByEpisodeIndexKey,
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok {
-				return nil
-			}
-			return coveredEpisodes(dl.Spec.Target)
-		}); err != nil {
-		return err
-	}
 	return idx.IndexField(ctx, &catalogv1alpha1.Series{}, seriesByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			s, ok := o.(*catalogv1alpha1.Series)
@@ -147,40 +124,6 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		})
 }
 
-// coveredEpisodes names every Episode a MediaRef covers, for both of the
-// references this controller follows to an Episode:
-//
-//   - a MediaFile's spec.mediaRef. A multi-episode file ("S01E01E02") is
-//     one MediaFile naming its first episode, with every episode it covers
-//     in keys (importarr's fileimport.EpisodeFileRef); each covered Episode
-//     must see that file as its own, not only the first.
-//   - a Download's spec.target. A single-episode grab names the Episode; a
-//     season pack names the Series and narrows to Episodes through keys,
-//     the way the grab path's StatusTargets expands it. A Series target
-//     with no keys covers no Episode that can be named, so it names none
-//     rather than guessing at the whole series.
-//
-// Any other kind covers no Episode. The result is deduplicated: an episode
-// reference lists its own name in keys as well.
-func coveredEpisodes(ref commonv1.MediaRef) []string {
-	var names []string
-	switch ref.Kind {
-	case commonv1.MediaKindEpisode:
-		names = append([]string{ref.Name}, ref.Keys...)
-	case commonv1.MediaKindSeries:
-		names = ref.Keys
-	default:
-		return nil
-	}
-	out := make([]string, 0, len(names))
-	for _, n := range names {
-		if n != "" && !slices.Contains(out, n) {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
 // Watches is the Episode's item path on the remediation loop (loop spec
 // §3.12; S3, S4, S9, S10): every watch that wakes an Episode except its
 // files'. A Series' Episodes are found through
@@ -189,7 +132,6 @@ func coveredEpisodes(ref commonv1.MediaRef) []string {
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Episode{}, Map: rollup.Self, Predicates: []predicate.Predicate{episodePredicate()}},
-		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
 		{
 			Object: &transcodev1alpha1.AudioGraft{}, Map: rollup.ItemOfAudioGraft(commonv1.MediaKindEpisode),
 			Predicates: []predicate.Predicate{k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState))},
@@ -231,22 +173,6 @@ func episodePredicate() predicate.Predicate {
 		// status; see the movie package's moviePredicate.
 		k8s.DeadLetteredAnnotationChanged(),
 	)
-}
-
-// mapDownload needs no List: a Download names what it covers in
-// spec.target, so a new Download -- single episode or season pack --
-// reaches every Episode it covers directly, before anything has set a ref.
-func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
-	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok {
-		return nil
-	}
-	names := coveredEpisodes(dl.Spec.Target)
-	reqs := make([]reconcile.Request, 0, len(names))
-	for _, n := range names {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: n}})
-	}
-	return reqs
 }
 
 // mapQualityProfile is the reverse direction from an edited QualityProfile
@@ -420,10 +346,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
 
-	dl, donorOpen, err := r.activeDownload(ctx, ep, series)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	dl, donorOpen := downloadView(ctx, ep, series)
 	ag, err := r.audioGraft(ctx, ep)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -502,7 +425,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
 	if dl != nil {
-		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
+		// The covering entry's id on the Series, and its phase as the
+		// Episode's downloadPhase (ADR-0019 §6.2).
+		statusAC = statusAC.WithActiveDownloadRef(dl.ID).WithDownloadPhase(dl.Phase)
 	}
 	// With no non-terminal Download, WithActiveDownloadRef is deliberately
 	// not called -- see the identical rationale in the movie package's

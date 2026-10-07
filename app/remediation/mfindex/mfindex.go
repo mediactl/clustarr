@@ -33,7 +33,14 @@ import (
 // ref with no name, and segmentplan.Sweeper.
 const UID = "remediation.mediafile.uid"
 
-// Register registers the loop's MediaFile indexes on idx: UID and Item. A
+// DownloadRef indexes a MediaFile by spec.importedFrom.downloadRef: the
+// grab entry id that imported it (ADR-0019 §6.9). The downloads stage counts
+// an entry's MediaFiles through it, which a Series' pack spreads over many
+// Episodes' files.
+const DownloadRef = "remediation.mediafile.downloadref"
+
+// Register registers the loop's MediaFile indexes on idx: UID, Item and
+// DownloadRef. A
 // second registration on one cache is an "indexer conflict", so only
 // remediation.RegisterIndexes calls it in a process, and tests that run a
 // reader without the loop.
@@ -48,6 +55,15 @@ func Register(ctx context.Context, idx client.FieldIndexer) error {
 	}
 	if err := idx.IndexField(ctx, Index.Object, Index.Name, Index.Extract); err != nil {
 		return fmt.Errorf("mfindex: register %s: %w", Item, err)
+	}
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, DownloadRef, func(o client.Object) []string {
+		mf, ok := o.(*catalogv1alpha1.MediaFile)
+		if !ok || mf.Spec.ImportedFrom == nil || mf.Spec.ImportedFrom.DownloadRef == "" {
+			return nil
+		}
+		return []string{mf.Spec.ImportedFrom.DownloadRef}
+	}); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", DownloadRef, err)
 	}
 	return nil
 }

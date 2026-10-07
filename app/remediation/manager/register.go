@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/downloads"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	"github.com/mediactl/clustarr/app/remediation/naming"
 	"github.com/mediactl/clustarr/app/remediation/probe"
@@ -114,8 +115,16 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // search, A5 metadata, artwork and overlay. The loop orders them by
 // remediation.StageOrder.
 func Stages(d Deps) []remediation.ItemStage {
-	_ = d
-	return nil
+	if d.Manager == nil {
+		return nil
+	}
+	recorder := func(name string) k8sevents.EventRecorder { return d.Manager.GetEventRecorder(name) }
+	return []remediation.ItemStage{
+		downloads.New(downloads.Options{
+			Reader: d.Manager.GetClient(), APIReader: d.Manager.GetAPIReader(), Bus: d.Env.Bus,
+			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Recorder: recorder,
+		}),
+	}
 }
 
 // Planners is every planner the loop binds; the loop sorts them by Order.

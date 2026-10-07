@@ -41,6 +41,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/episodeorder"
@@ -290,6 +291,21 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 // The deleted ItemEvent goes out before the finalizer comes off, so a failed
 // removal re-announces under the same envelope id rather than losing it.
 func (r *Reconciler) reconcileDelete(ctx context.Context, s *catalogv1alpha1.Series) (ctrl.Result, error) {
+	// The grabs go first (ADR-0019 §6.8): while the downloads stage moves
+	// every entry to Removing, the pass applies its contribution over the
+	// stored status -- the complete declaration, so nothing is released --
+	// and the Series's own finalizer waits for FinalizerTransfers.
+	if itempass.HasContribution(itempass.From(ctx)) {
+		statusAC := reassertKnownStatus(catalogac.SeriesStatus().WithObservedGeneration(s.Status.ObservedGeneration).
+			WithAddOptionsApplied(s.Status.AddOptionsApplied), s)
+		statusAC = statusAC.WithConditions(k8s.ConditionACs(s.Status.Conditions)...)
+		if conflicted, err := itemstatus.Apply(ctx, r.Client, s, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); err != nil || conflicted {
+			return itemstatus.Requeue(conflicted), err
+		}
+	}
+	if controllerutil.ContainsFinalizer(s, catalogv1alpha1.FinalizerTransfers) {
+		return ctrl.Result{}, nil
+	}
 	name, err := k8s.FinalizerFor(s, r.Scheme)
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
@@ -375,7 +391,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 				k8s.MarkTrue(s, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
+				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); err != nil {
 					return ctrl.Result{}, err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -403,7 +419,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 				k8s.MarkFalse(s, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", s.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); perr != nil {
+				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); perr != nil {
 					return ctrl.Result{}, perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -503,7 +519,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		statusAC = statusAC.WithClassification(classificationAC(classification))
 	}
 
-	if conflicted, err := itemstatus.Apply(ctx, r.Client, s, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, s, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
 	if s.Status.Phase != "" && s.Status.Phase != phase {
@@ -859,4 +875,26 @@ func seriesRefreshState(s *catalogv1alpha1.Series, now time.Time) string {
 	default: // continuing, upcoming
 		return metadata.RefreshStateContinuing
 	}
+}
+
+// withEntries folds the grab entries, the download phase, the intent nonces
+// and release N's legacy record into a catalogarr status apply: this pass's
+// decisions when the item stages made them, else the stored values, on
+// every apply site -- the complete declaration (ADR-0019 §7.0, Review
+// Focus 4). It is called once per apply: the list setters append.
+func withEntries(ctx context.Context, ac *catalogac.SeriesStatusApplyConfiguration, o *catalogv1alpha1.Series) *catalogac.SeriesStatusApplyConfiguration {
+	p := itempass.From(ctx)
+	if es := itempass.Downloads(p, o.Status.Downloads); len(es) > 0 {
+		ac = ac.WithDownloads(itempass.EntryACs(es)...)
+	}
+	if ph := itempass.Phase(p, o.Status.DownloadPhase); ph != "" {
+		ac = ac.WithDownloadPhase(ph)
+	}
+	if n := itempass.NoncesAC(itempass.Nonces(p, o.Status.DownloadNonces)); n != nil {
+		ac = ac.WithDownloadNonces(n)
+	}
+	if l := itempass.LegacyAC(itempass.Legacy(p, o.Status.LegacyDownloads)); l != nil {
+		ac = ac.WithLegacyDownloads(l)
+	}
+	return ac
 }

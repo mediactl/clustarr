@@ -40,8 +40,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -72,13 +72,6 @@ const conditionQueueFull = "QueueFull"
 const conditionTracksSynced = "TracksSynced"
 
 const (
-	// downloadByAlbumIndexKey indexes Download by the Album its spec.target names
-	// (kind album only). It is how the reconciler finds the Downloads it
-	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
-	// shape as movie.downloadByMovieIndexKey. spec.target is immutable, so
-	// the index never has to follow an edit.
-	downloadByAlbumIndexKey = ".spec.target.album"
-
 	// albumByQualityProfileIndexKey indexes Album by its OWN
 	// spec.qualityProfileRef override (nil/empty excluded); mapQualityProfile
 	// reaches the Albums inheriting a profile through their Artist instead.
@@ -108,7 +101,6 @@ type bus interface {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
@@ -156,16 +148,6 @@ func (r *Reconciler) releaseCache() *ReleaseCache {
 // ReconcileItem against a bare cache calls it, and mfindex.Register for the
 // MediaFiles, which the loop registers.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByAlbumIndexKey,
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAlbum {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}); err != nil {
-		return err
-	}
 	return idx.IndexField(ctx, &catalogv1alpha1.Album{}, albumByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			alb, ok := o.(*catalogv1alpha1.Album)
@@ -197,7 +179,6 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Album{}, Map: rollup.Self, Predicates: []predicate.Predicate{albumPredicate()}},
-		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 		{Object: &catalogv1alpha1.Artist{}, Map: r.mapArtist, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
@@ -236,32 +217,11 @@ func albumPredicate() predicate.Predicate {
 	)
 }
 
-// mapDownload needs no List: a Download names its target in spec.target,
-// so a Download that appears -- before anything has set the ref, which is
-// the whole point of deriving the ref from the Download -- reaches its
-// Album directly.
-func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
-	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAlbum {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
-}
-
-// activeDownload is the Download status.activeDownloadRef names, derived
-// level-style (gap-fix ruling R-5, which makes this reconciler the field's
-// only writer): the oldest Download targeting this Album that it owns and
-// that rollup.DownloadNonTerminal still counts, or nil. Ownership is by UID,
-// so a Download left behind by a deleted Album of the same name is never
-// adopted.
-func (r *Reconciler) activeDownload(ctx context.Context, alb *catalogv1alpha1.Album) (*downloadv1alpha1.Download, error) {
-	var list downloadv1alpha1.DownloadList
-	if err := r.List(ctx, &list, client.InNamespace(alb.Namespace), client.MatchingFields{downloadByAlbumIndexKey: alb.Name}); err != nil {
-		return nil, err
-	}
-	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
-		return k8s.IsOwnedBy(d, alb)
-	}), nil
+// activeDownload is the grab entry status.activeDownloadRef names (ruling
+// R-5, ADR-0019 §6.11): the oldest non-terminal entry of the Album's own
+// status.downloads -- this pass's, when a stage decided them.
+func activeDownload(ctx context.Context, alb *catalogv1alpha1.Album) *catalogv1alpha1.DownloadEntry {
+	return rollup.ActiveEntry(itempass.Downloads(itempass.From(ctx), alb.Status.Downloads), nil)
 }
 
 // mapQualityProfile is the reverse direction from an edited QualityProfile
@@ -378,6 +338,20 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 }
 
 func (r *Reconciler) reconcileDelete(ctx context.Context, alb *catalogv1alpha1.Album) (ctrl.Result, error) {
+	// The grabs go first (ADR-0019 §6.8): while the downloads stage moves
+	// every entry to Removing, the pass applies its contribution over the
+	// stored status -- the complete declaration, so nothing is released --
+	// and the Album's own finalizer waits for FinalizerTransfers.
+	if itempass.HasContribution(itempass.From(ctx)) {
+		statusAC := reassertKnownStatus(catalogac.AlbumStatus().WithObservedGeneration(alb.Status.ObservedGeneration), alb)
+		statusAC = statusAC.WithConditions(k8s.ConditionACs(alb.Status.Conditions)...)
+		if conflicted, err := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(withEntries(ctx, statusAC, alb))); err != nil || conflicted {
+			return itemstatus.Requeue(conflicted), err
+		}
+	}
+	if controllerutil.ContainsFinalizer(alb, catalogv1alpha1.FinalizerTransfers) {
+		return ctrl.Result{}, nil
+	}
 	name, err := k8s.FinalizerFor(alb, r.Scheme)
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
@@ -448,7 +422,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 				k8s.MarkTrue(alb, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, alb)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, err := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(withEntries(ctx, statusAC, alb))); err != nil || conflicted {
 					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -467,7 +441,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 			k8s.MarkFalse(alb, &conditions, k8s.ConditionReady, "ArtistNotFound", "artist %q not found", alb.Spec.ArtistRef)
 			statusAC = reassertKnownStatus(statusAC, alb)
 			statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-			if conflicted, perr := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+			if conflicted, perr := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(withEntries(ctx, statusAC, alb))); perr != nil || conflicted {
 				return itemstatus.Requeue(conflicted), perr
 			}
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -482,7 +456,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 				k8s.MarkFalse(alb, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", artistObj.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, alb)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, perr := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+				if conflicted, perr := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(withEntries(ctx, statusAC, alb))); perr != nil || conflicted {
 					return itemstatus.Requeue(conflicted), perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -571,11 +545,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		r.publishFile(ctx, alb, e.Action, e.File, e.MediaFile, now)
 	}
 
-	dl, err := r.activeDownload(ctx, alb)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	overlay, active := rollup.DownloadOverlay(dl)
+	dl := activeDownload(ctx, alb)
+	overlay, active := rollup.EntryOverlay(dl)
 
 	phase := Phase(monitored, hasFile, cutoffMet, alb.Status.PendingGrab != nil)
 	switch overlay {
@@ -591,7 +562,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		statusAC = statusAC.WithQuality(*fileQuality)
 	}
 	if active {
-		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
+		statusAC = statusAC.WithActiveDownloadRef(dl.ID)
 	}
 	// With no Download still working on this item, WithActiveDownloadRef is
 	// deliberately not called: omitting a field this manager owns releases
@@ -601,7 +572,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	k8s.MarkReady(alb, &conditions, metaReady && tracksSynced, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if conflicted, err := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, alb, catalogac.Album(alb.Name, alb.Namespace).WithStatus(withEntries(ctx, statusAC, alb))); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err
 	}
 
@@ -799,4 +770,26 @@ func (r *Reconciler) resolveProfile(ctx context.Context, alb *catalogv1alpha1.Al
 		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
 	}
 	return &p, "", nil
+}
+
+// withEntries folds the grab entries, the download phase, the intent nonces
+// and release N's legacy record into a catalogarr status apply: this pass's
+// decisions when the item stages made them, else the stored values, on
+// every apply site -- the complete declaration (ADR-0019 §7.0, Review
+// Focus 4). It is called once per apply: the list setters append.
+func withEntries(ctx context.Context, ac *catalogac.AlbumStatusApplyConfiguration, o *catalogv1alpha1.Album) *catalogac.AlbumStatusApplyConfiguration {
+	p := itempass.From(ctx)
+	if es := itempass.Downloads(p, o.Status.Downloads); len(es) > 0 {
+		ac = ac.WithDownloads(itempass.EntryACs(es)...)
+	}
+	if ph := itempass.Phase(p, o.Status.DownloadPhase); ph != "" {
+		ac = ac.WithDownloadPhase(ph)
+	}
+	if n := itempass.NoncesAC(itempass.Nonces(p, o.Status.DownloadNonces)); n != nil {
+		ac = ac.WithDownloadNonces(n)
+	}
+	if l := itempass.LegacyAC(itempass.Legacy(p, o.Status.LegacyDownloads)); l != nil {
+		ac = ac.WithLegacyDownloads(l)
+	}
+	return ac
 }

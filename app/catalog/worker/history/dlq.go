@@ -60,6 +60,11 @@ type DLQDeps struct {
 	// in-memory bus has no stream to read) just leaves the sequence out.
 	DLQ cataloghistory.DLQReader
 
+	// Owners resolves a grab entry to its owner (the manager's
+	// remediation.item.download, ADR-0019 §8.5), so a Download-keyed dead
+	// letter lands on the owner. nil resolves as before.
+	Owners cataloghistory.EntryOwners
+
 	// Now is a seam for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -234,7 +239,7 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 	attempts := env.Header(events.HeaderDLQAttempts)
 	log = log.With("schema", env.Schema, "originalSubject", origSubject, "originalConsumer", consumer)
 
-	target := cataloghistory.Resolve(env)
+	target := cataloghistory.ResolveWith(ctx, env, p.Deps.Owners)
 	value := origSubject
 	if value == "" {
 		// Every real dead letter carries Clustarr-DLQ-Subject (see

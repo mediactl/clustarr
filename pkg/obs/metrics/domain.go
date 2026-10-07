@@ -532,3 +532,23 @@ var (
 		"consumer",
 	)
 )
+
+// Grabs (ADR-0019 §6.7, §6.14): what the manager's downloads stage owed the
+// engines and the release index's blocklist.
+var (
+	// BlocklistCallsTotal counts clustarr.rpc.indexarr.blocklist calls by op
+	// (block, unblock) and outcome (applied, stale, error).
+	BlocklistCallsTotal = newCounterVec(
+		"clustarr_blocklist_calls_total",
+		"Blocklist calls the manager made to the release index, by op and outcome.",
+		"op", "outcome",
+	)
+	// EngineCommandsTotal counts engine commands the manager published, by
+	// desired state (present, absent, resync) and outcome (published,
+	// republished, error).
+	EngineCommandsTotal = newCounterVec(
+		"clustarr_engine_commands_total",
+		"Engine commands the manager published, by desired state and outcome.",
+		"desired", "outcome",
+	)
+)
