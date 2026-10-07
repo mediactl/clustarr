@@ -2,8 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Plex sees an IPTV provider's channels as one HDHomeRun DVR. This
-plan builds:
+**Goal:** Plex sees an IPTV provider's channels as one contiguous lineup
+split across HDHomeRun DVRs, one per block of up to 400 channels (spec
+§3.1, amended 2026-10-07). This plan builds:
 
 - **the kinds:** `IPTVProvider` and `IPTVChannel` (`clustarr.io/v1alpha1`);
 - **the shared rules:** the pure-Go `pkg/iptv` packages;
@@ -27,6 +28,13 @@ plan builds:
   - reports a `Snapshot`, from which both controllers write status.
 - **Where it runs:** everything is registered in `cmd/manager` as the
   `livetv` step, and the tuner runs only on the leader.
+- **Blocks and ports (Part A2):**
+  - The controller packs each provider's channels into sticky blocks
+    (`pkg/iptv/blocks`), and gives each a device ID and a port.
+  - The tuner serves each block behind one `livetv` Service, routed by the
+    port in `Host`.
+  - cluster-plex's proxies, on a link-local address in every Plex pod, are
+    what Plex dials (its own plan).
 
 **Tech Stack:**
 
@@ -61,6 +69,12 @@ plan builds:
 - **Until then, `make test` may be red on the branch** for reasons outside
   this plan (moved test packages). Each Part A task runs its own packages'
   tests. Task 13 runs `make test` and `make lint`.
+- **Tests after implementation (the owner, 2026-10-07):** implement each
+  task, and write and run its tests in Task 19 once the feature is
+  complete. Part A tasks that already carry test steps were executed
+  under this rule, with those tests deferred.
+- **Order:** Part A (Tasks 1-10, built), then Part A2 (Tasks 14-19), then
+  Part B (Tasks 11-13).
 - **Every Go file:** the GPL header from `hack/boilerplate.go.txt`.
 - **Logging:** `slog` from context (`pkg/obs/logging.FromContext`). No
   package-level logger and no logger struct fields.
@@ -101,10 +115,10 @@ plan builds:
    last good lineup. It sets `status.playlist.error`, redacted, and never
    blanks Plex's channels. Before the first good fetch, `lineup.json` is
    503. Covered by Task 7, `TestAFailedRefreshKeepsServingTheLastLineup`.
-2. **Plex sends `Host: 10.96.0.5:80`** (with a port) or any host
-   casing/port form. The root routes still find the provider; an unknown
-   host is 404; path routes work under any host. Covered by Task 7,
-   `TestRootRoutesMatchTheHostWithOrWithoutAPort`.
+2. **Plex sends `Host: 169.254.47.1:47012`**, in any casing, perhaps with
+   a trailing dot. The root routes find the block by the port. A `Host`
+   with no port, or an unknown one, is 404. Path routes work under any
+   host. Covered by Task 19, `TestRootRoutesFindTheBlockByThePortInHost`.
 3. **A channel whose key leaves the playlist and later returns** reads
    `Missing`, then `Active`. Its mapping is intact and nothing is deleted.
    Covered by Task 9, `TestAChannelGoneFromThePlaylistIsMissingThenActiveAgain`.
@@ -116,6 +130,16 @@ plan builds:
    redacted in status errors, logs and objects: `/live/user/pass/1001.ts`
    and `get.php?username=…`. Covered by Task 2, `TestRedact`, and by Task 7,
    `TestNoStoredOrReportedStringCarriesACredential`.
+6. **A channel added in the middle of a 3-block provider** lands in the
+   block covering its number. No other channel changes block, and no port
+   or device ID changes. Covered by Task 19,
+   `TestAnAddedChannelMovesNoOtherChannel`.
+7. **Two providers reconciled back to back** never share a port, though
+   the cache still holds the first one's old status. Covered by Task 19,
+   `TestPortsAreUniqueAcrossProvidersDespiteACacheLag`.
+8. **An edit that makes two providers' spans overlap** leaves both
+   providers' blocks, and so their Plex DVRs, as they were. Covered by
+   Task 19, `TestAnOverlapKeepsTheLastGoodBlocks`.
 
 ---
 
@@ -1905,6 +1929,351 @@ func TestLiveTVBindAddressMustNameAPort(t *testing.T) {
 
 ---
 
+## Part A2: blocks and ports (the spec as amended on 2026-10-07)
+
+Tasks 1-10 built one device per provider: one Service, one `lineup.json`
+and one guide. The spec, as amended on 2026-10-07 (main `195d1ef7`,
+`006e8bca`) and approved by the owner, replaces that with **blocks**:
+- §3.1: sticky runs of contiguous channel numbers, one Plex device and DVR
+  each;
+- §5.0: one port per block, which cluster-plex's proxies serve on a
+  link-local address in every Plex pod, and one `livetv` Service for every
+  provider;
+- the cross-provider rules: unique device IDs, non-overlapping number
+  spans, and one owner per block.
+
+Tasks 14-18 move the built code to that. Task 19 is the test pass the
+owner asked for once the feature is complete. It writes and runs every
+test deferred from Tasks 9-10 and 14-18. Part B follows it.
+
+Cold turkey (the owner's rule for this repo): replace fields and code
+outright. Keep no aliases, and no migration for the single-device fields.
+
+### Task 14: The API for blocks
+
+**Files:**
+- Modify:
+  - `api/clustarr/v1alpha1/iptvprovider_types.go`
+  - `api/clustarr/v1alpha1/defaults.go`
+- Regenerate: `make generate manifests`. That covers the deepcopy, the
+  apply configurations and `config/crd/bases`.
+
+**Interfaces:**
+- Produces:
+  - **`DVRSpec{MaxChannels *int32}`**, with `Minimum=1` and `Maximum=450`,
+    and `(*IPTVProviderSpec).MaxChannelsOrDefault() int32` (400).
+  - **`DeviceSpec.ID string`**, with `Pattern=^[0-9A-F]{8}$`, and
+    `IPTVProviderSpec.DVR DVRSpec`.
+  - **`IPTVProviderStatus`:**
+    - **Gains:**
+      - `Address string`;
+      - `Blocks []BlockStatus`, `MaxItems=32`, `listType=map`,
+        `listMapKey=start`.
+    - **Loses:** `DeviceID`, `Address`'s old meaning (the Service IP),
+      `GuideURL`, `GuideHash` and `Lineup.Hash`. `Lineup` keeps `active`,
+      `unmapped` and `missing`.
+  - **`BlockStatus`**, with every field `omitempty` except `start`:
+    - `Start string`;
+    - `Channels int32`, `First string`, `Last string`, `MapBytes int32`;
+    - `DeviceID string`, `Port int32`, `FriendlyName string`;
+    - `GuidePath string` and `Owner string`;
+    - `LineupHash string` and `GuideHash string`.
+  - **The reasons:**
+    - `ReasonTooManyChannels = "TooManyChannels"`;
+    - `ReasonDuplicateDeviceID = "DuplicateDeviceID"`;
+    - `ReasonNumberRangeOverlap = "NumberRangeOverlap"`.
+  - **Printer columns:** `Blocks` (`.status.blocks[*].start` cannot be
+    counted in JSONPath, so print the first block's port as `Port`), plus
+    `Active` and `Ready`.
+
+**Rulings to ledger:**
+- `guideURL` becomes `guidePath` (`/xmltv.xml`, empty under PMS). clustarr
+  does not know the link-local address; cluster-plex joins the path to
+  `http://<localAddress>:<port>`.
+- `friendlyName` is in status, so cluster-plex never re-derives the default
+  `Clustarr <name>` and the `<start>+` suffix.
+
+- [ ] **Step 1:** edit the types and accessors as above. The GPL header and
+  the typed-client defaulting rule apply.
+- [ ] **Step 2:** `make generate manifests`, then `go build ./...`. Fix every
+  compile error the removed fields cause in `app/livetv` by deleting the
+  use. Tasks 16-17 rebuild those paths.
+- [ ] **Step 3:** commit. `git add` the regenerated files, then
+  `git commit -m "feat(api): IPTVProvider blocks -- spec.dvr.maxChannels, spec.device.id, status.address and status.blocks[] (Live TV spec §3.1, §3.2)" -- api config/crd app`.
+
+### Task 15: `pkg/iptv/blocks`
+
+**Files:**
+- Create: `pkg/iptv/blocks/blocks.go`
+- Modify: `pkg/iptv/hdhr/hdhr.go`, adding
+  `BlockDeviceID(namespace, name, start string) string`: the first 4 bytes
+  of SHA-256 of `ns/name/start`, as upper-case hex, as `DeviceID` does
+  today.
+
+**Interfaces:**
+- Produces, exactly:
+
+```go
+// Package blocks splits a provider's active channel numbers into the runs
+// Plex sees as one DVR each (Live TV spec §3.1, §4.5).
+package blocks
+
+const (
+	// DefaultMaxChannels is spec.dvr.maxChannels' default.
+	DefaultMaxChannels = 400
+	// DefaultMaxBytes keeps a block's channel-map query under PMS's 32 KiB
+	// request line, with room for the path (recorded 2026-10-07: 454
+	// four-digit channels are a 32,738-byte path and query).
+	DefaultMaxBytes = 30000
+	// FirstFill is how full a first packing leaves each block, in percent.
+	FirstFill = 75
+	// MaxBlocks bounds status.blocks.
+	MaxBlocks = 32
+)
+
+// ErrTooManyBlocks is a lineup that needs more than MaxBlocks blocks.
+var ErrTooManyBlocks = errors.New("blocks: the lineup needs more than 32 blocks")
+
+// Limits bound one block.
+type Limits struct{ MaxChannels, MaxBytes int }
+
+// Block is one device's run of numbers. Start is its identity and lower
+// boundary; Numbers are sorted by xmltv.CompareNumbers.
+type Block struct {
+	Start   string
+	Numbers []string
+}
+
+// MapBytes is the length of the channel-map query cluster-plex sends for
+// numbers, under url.Values' encoding, where PMS's three identifiers are
+// each the GuideNumber. channelsEnabled=<n,…> and, per channel,
+// channelMapping[n]=n and channelMappingByKey[n]=n:
+// 13 + Σ(52 + 5·len(n)) (verified against the recording: 454 four-digit
+// numbers give 32,701, plus the 37-byte path, 32,738).
+func MapBytes(numbers []string) int
+
+// Next renders the blocks for numbers (sorted, unique) from the previous
+// blocks' starts:
+//   - with no previous blocks, a first packing fills each block to
+//     FirstFill percent of both limits, and always takes a block's first
+//     number;
+//   - otherwise each number joins the last block whose Start is at or below
+//     it, or the first block when it is below every Start (a Start is an
+//     identity, never moved);
+//   - a block with no numbers is dropped, and blocks are never merged;
+//   - a block over either limit splits at its median: the median number
+//     becomes the new block's Start, and only the upper half moves;
+//   - more than MaxBlocks blocks is ErrTooManyBlocks.
+func Next(prev []string, numbers []string, lim Limits) ([]Block, error)
+```
+
+- [ ] **Step 1:** implement as documented.
+  - **Per-channel cost:** `52 + 5*len(n)`, the base 13. Pack
+    incrementally, not by recomputing `MapBytes`, so it is linear.
+  - **The split loop:** walk the blocks by index. While block `i` does not
+    fit, cut it at `len/2` and insert the upper half at `i+1`; the loop
+    reaches `i+1` next.
+  - **Ordering:** use `xmltv.CompareNumbers` everywhere. `pkg/iptv/blocks`
+    imports only the standard library and `pkg/iptv/xmltv`.
+- [ ] **Step 2:** `go build ./pkg/iptv/...` and `go vet ./pkg/iptv/...`.
+- [ ] **Step 3:** commit. `git add pkg/iptv/blocks && git commit -m "feat(iptv): blocks -- sticky runs of contiguous channel numbers under PMS's per-device channel-map budget (Live TV spec §3.1, §4.5)" -- pkg/iptv`.
+
+### Task 16: The IPTVProvider controller: blocks, ports, the cross-provider rules and owners
+
+**Files:**
+- Delete: `app/livetv/controller/iptvprovider/service.go`. That removes the
+  Service, its finalizer `clustarr.io/livetv-service` and the
+  `--livetv-service-selector` plumbing.
+- Create: `app/livetv/controller/iptvprovider/blocks.go`
+- Modify:
+  - `reconciler.go`, `status.go` and `config.go`;
+  - `doc.go`, the RBAC markers: drop `services`; add
+    `coordination.k8s.io` `leases` `get;list;watch`.
+
+**Interfaces:**
+- Consumes: Task 15's `blocks.Next`, `blocks.MapBytes` and
+  `hdhr.BlockDeviceID`.
+- Produces:
+  - **The reconciler's fields:** `Reconciler.Address string`, which the
+    manager sets to `livetv.<pod namespace>.svc:80` (Task 18), and
+    `Reconciler.Ports PortRange{Low, High int32}`.
+  - **The tuner's config:** `tuner.Config.Blocks []tuner.BlockConfig`
+    (Task 17) is built here.
+
+**What `Reconcile` does, in order:**
+1. **Read** the provider, its active channels (the `spec.providerRef`
+   index), and every IPTVProvider in the cluster from the cache. Providers
+   are few.
+2. **The numbers:** active channels' `spec.number`, unique, sorted with
+   `xmltv.CompareNumbers`. A duplicate counts once; the IPTVChannel
+   reconciler already reports it.
+3. **The next blocks:** `blocks.Next(<starts of status.blocks>, numbers,
+   {MaxChannelsOrDefault, DefaultMaxBytes})`. `ErrTooManyBlocks` reads
+   `Ready=False` `TooManyChannels`, and keeps the last good blocks.
+4. **Identities**, carried from the previous block of the same `start`:
+   `deviceID` and `port`. A new block gets:
+   - **its `deviceID`:** `spec.device.id` when this is a first packing
+     (no previous blocks) and it is the lowest block, else
+     `hdhr.BlockDeviceID`;
+   - **its `port`:** the lowest port in the range that no provider's
+     status holds and no reservation holds. The reconciler keeps an
+     in-memory reservation map, so a cache that lags its own last write
+     never hands one port out twice. `MaxConcurrentReconciles` stays 1.
+5. **The cross-provider checks.** Each provider's span runs from its first
+   block's `first` to its last block's `last`. The provider created later
+   (by `creationTimestamp`, then namespace/name) loses:
+   - `NumberRangeOverlap` when the spans intersect, naming the other
+     provider and the shared span;
+   - `DuplicateDeviceID` when two blocks share an ID;
+   - a port held by two providers: the later one's block gets a new port
+     on this pass.
+
+   **A loser keeps its previous `status.blocks` unchanged and reads
+   `Ready=False`.** Only a winner's new blocks are published.
+6. **Each block's `owner`:** the `holderIdentity` of Lease
+   `livetv-<lower-case deviceID>` in the provider's namespace, when it has
+   not expired (`renewTime + leaseDurationSeconds` after now). Leases are
+   read from the cache. A watch on Leases labelled `clustarr.io/iptv-provider`
+   maps each Lease to its provider.
+7. **The tuner:** `tuner.Apply` with the blocks, then status as before.
+   Each block's `lineupHash`, `guideHash` and `channels` come from the
+   snapshot's `BlockState` (Task 17). `mapBytes`, `first` and `last` come
+   from `blocks.MapBytes` and the numbers.
+
+- [ ] **Step 1:** implement. Status remains one complete apply under
+  `k8s.ManagerLiveTV`. Every early return reasserts the known status,
+  `status.blocks` included.
+- [ ] **Step 2:** `make manifests`, then `go build ./... && go vet ./app/livetv/...`.
+- [ ] **Step 3:** commit with `git rm` of `service.go`, `git add` of
+  `blocks.go`, then `git commit -m "feat(livetv): the provider controller packs blocks, allocates their ports and device IDs, enforces unique IDs and disjoint spans across providers, and reads each block's owner Lease (Live TV spec §3.1, §5.0, §6)" -- app/livetv config/rbac`.
+
+### Task 17: The tuner: one surface per block, routed by the port in `Host`
+
+**Files:**
+- Modify:
+  - `app/livetv/tuner/config.go`, `render.go`, `http.go` and `tuner.go`;
+  - `pkg/iptv/hdhr/hdhr.go`, where `LineupEntry` keeps its stream URL
+    relative.
+
+**Interfaces:**
+- Produces:
+  - `tuner.BlockConfig{Start, DeviceID, FriendlyName string; Port int32; Numbers []string}`.
+    The provider's `Config` loses `Address`, `DeviceID` and
+    `FriendlyName`, and gains `Blocks []BlockConfig`.
+  - `tuner.BlockState{Start, LineupHash, GuideHash string; Active int}`,
+    in `Snapshot.Blocks`. `Snapshot.GuideHash` and `Lineup.Hash` go.
+
+**The changes:**
+- **`render`:** renders as today, then splits the active lineup by block,
+  through a number → start map. Per block it keeps:
+  - the `[]hdhr.LineupEntry` with stream paths relative
+    (`stream/<number>`);
+  - the guide from `xmltv.BuildGuide` over the block's channels only,
+    which is the subset (§4.3);
+  - the hashes of both. The lineup hash is taken over the entries without
+    a base URL, so a different `Host` never changes it.
+
+  It also keeps the provider-wide guide for
+  `/livetv/<ns>/<name>/xmltv.xml`.
+- **Routing (`serveHTTP`):**
+  - **By port:** with no `/livetv/` prefix, `net.SplitHostPort(r.Host)`
+    gives the port, and a `map[int32]blockRef` (rebuilt on every `Apply`)
+    gives the provider and block. No port, or an unknown one, is 404.
+  - **By path:** `/livetv/<ns>/<name>/<start>/<rest>`, plus
+    `/livetv/<ns>/<name>/xmltv.xml` for the provider guide.
+  - **The base URL:** `http://` + `r.Host` when routed by port, and
+    `http://` + `r.Host` + `/livetv/<ns>/<name>/<start>` when routed by
+    path. `discover.json`'s `BaseURL` and `LineupURL`, and each entry's
+    stream URL, are built from it at request time.
+  - **Streams:** `stream/<number>` answers for any of the provider's
+    numbers under any of its blocks. The relay is per provider.
+  - **Each block's `discover.json`:** the block's `DeviceID` and
+    `FriendlyName`, and `TunerCount` = `spec.tuners`.
+- **Removed:** the provider-root routes by Service IP and `byHost`.
+
+- [ ] **Step 1:** implement.
+- [ ] **Step 2:** `go build ./... && go vet ./app/livetv/... ./pkg/iptv/...`.
+- [ ] **Step 3:** commit. `git commit -m "feat(livetv): the tuner serves one HDHomeRun surface and guide per block, routed by the port in Host, with URLs built from it (Live TV spec §5.0, §5.3)" -- app/livetv pkg/iptv`.
+
+### Task 18: The manager's flags and wiring
+
+**Files:**
+- Modify:
+  - `internal/cli/manager/options.go`, `command.go` and `run.go`;
+  - `app/livetv/manager/register.go`.
+
+**The changes:**
+- **Removed:** `--livetv-service-selector`.
+- **Added:**
+  - `--livetv-port-range`, default `47000-47999`. It is parsed and
+    validated: low < high, both 1024-65535.
+  - `--livetv-service`, default `livetv`. Its address is
+    `<name>.<POD_NAMESPACE>.svc:80`.
+- **`manager.Options`** carries `PortRange` and `ServiceAddress` into the
+  reconciler. `TargetPort` stays, for the installers' guard.
+- **Task 10's tests:** its `Validate` tests of `--livetv-service-selector`
+  become tests of `--livetv-port-range` in Task 19: a malformed range, a
+  low port above the high one, and a port below 1024 each fail.
+
+- [ ] **Step 1:** implement. `go build ./... && go vet ./internal/cli/... ./app/livetv/...`.
+- [ ] **Step 2:** commit. `git commit -m "feat(manager): --livetv-port-range and --livetv-service replace the per-provider Service selector (Live TV spec §5.0)" -- internal/cli/manager app/livetv`.
+
+### Task 19: The test pass (the owner's rule: tests once the feature is complete)
+
+Write and run every test deferred from Tasks 9, 10 and 14-18. The spec's
+§8 is the list. Build inputs through the real producers: the M3U parser,
+real IPTVChannels, a real `httptest` Host.
+
+- **`pkg/iptv/blocks`,** table-driven, on numbers from the real parser's
+  fixture plus generated runs:
+  - first packing: 75% fill, deterministic;
+  - contiguity: every number in block k+1 is above every number in block k;
+  - stickiness: a channel added inside a block stays in it, and later
+    blocks keep their `start`;
+  - a split at the median moves only the upper half;
+  - an emptied block is dropped, and nothing is merged;
+  - a number below the first start joins the first block;
+  - long numbers close on the byte budget first;
+  - `MapBytes` equals `len(url.Values{…}.Encode())` for the same numbers,
+    and 454 four-digit numbers give 32,701;
+  - more than 32 blocks is `ErrTooManyBlocks`.
+- **`app/livetv/tuner`,** with `httptest` and real `Host` values:
+  - `Host: 169.254.47.1:47012` reaches its block, with and without upper
+    case or a trailing dot; no port, or an unknown one, is 404;
+  - path routing works under any host;
+  - each block's `lineup.json` holds only its numbers, and its URLs carry
+    the request's `Host`;
+  - each block's guide holds only its channels;
+  - a stream answers under a block that does not hold its number;
+  - a lineup hash is unchanged by a different `Host`;
+  - Review Focus 1, 4 and 5 still hold.
+- **envtest** (`app/livetv/controller/...`), each against an object that
+  already has status:
+  - ports are unique across providers, stable across a spec edit and a
+    split, and stay with the older provider when claimed twice;
+  - `spec.device.id` pins the first block of a first packing, and a
+    duplicate reads `DuplicateDeviceID`;
+  - overlapping spans read `NumberRangeOverlap`, and the loser's blocks
+    are unchanged;
+  - an expired Lease gives no owner, and a live one gives its holder;
+  - `TooManyChannels` keeps the last good blocks;
+  - the deferred Task 9 tests: Missing then Active; `DuplicateNumber`; a
+    no-op refresh writes nothing across 3,000 channels; and
+    `managedFields` shows one manager;
+  - Task 10's manager tests, the new flags included.
+- **`pkg/crdcheck`:** the `device.id` pattern and the
+  `dvr.maxChannels` bounds.
+
+- [ ] **Step 1:** write the tests. Each one names the behaviour, and is
+  falsified once by reverting the line it guards: watch it fail by name,
+  then restore the line.
+- [ ] **Step 2:** run them.
+  `KUBEBUILDER_ASSETS=… go test -race ./pkg/iptv/... ./app/livetv/... ./internal/cli/manager/... ./pkg/crdcheck/...`.
+  Expected: PASS. A red test outside these packages is recorded by name in
+  the ledger.
+- [ ] **Step 3:** commit. `git add` every new test file, then
+  `git commit -m "test(livetv): the deferred tests -- blocks, port routing, per-block lineups and guides, ports, IDs, spans and owners across providers, and Tasks 9-10's envtests" -- pkg app internal test`.
+
 ## Part B: installers, e2e and docs (after Wave 6 lands)
 
 Before Task 11, rebase `livetv` onto the current `unify-manager-agent` and
@@ -1922,8 +2291,8 @@ stop.
   - `charts/clustarr/templates/deployments.yaml`:
     - in `$managerArgs`, `--livetv-bind-address=:<livetv.port>` (or `0`
       when `livetv.enabled` is false);
-    - `--livetv-service-selector=` the manager's selector labels joined
-      `k=v,k=v`;
+    - `--livetv-port-range=<livetv.portRange>` (default `47000-47999`)
+      and `--livetv-service=<release>-livetv`;
     - a container port `livetv`.
   - `charts/clustarr/values.yaml` and `values.schema.json`: a top-level
     `livetv` block, closed with `additionalProperties: false`.
@@ -1931,6 +2300,10 @@ stop.
     kustomize's selector labels.
 - Create:
   - `charts/clustarr/templates/livetv-networkpolicy.yaml`
+  - `charts/clustarr/templates/livetv-service.yaml` and
+    `config/manager/livetv-service.yaml`: the one `livetv` Service
+    (port 80 to the manager's `livetv` port), added to
+    `config/manager/kustomization.yaml` (Part A2, spec §5.0)
   - `config/manager/livetv-networkpolicy.yaml`, added to
     `config/manager/kustomization.yaml`
   - `test/guards/livetv_test.go`
@@ -1942,6 +2315,9 @@ livetv:
   # Live TV (spec 2026-10-07): the tuner runs in the manager on this port.
   enabled: true
   port: 5004
+  # Ports the blocks get; cluster-plex serves them on a link-local address
+  # inside its Plex pods (spec §5.0).
+  portRange: "47000-47999"
   networkPolicy:
     enabled: true
     # Peers allowed to reach the tuner port. Default: Plex's pods in this
@@ -1963,13 +2339,13 @@ livetv:
   `test/guards/topology_test.go` (`installers`, `containerEnv`, `argIn`)
   and `test/installtest.Workloads`. Read those first and use their exact
   signatures.
-  - **`TestLiveTVServicesSelectTheManager`:** for each installer:
-    - `--livetv-service-selector`'s pairs are a subset of the manager pod
-      template's labels;
-    - and match none of the other Deployments' pod templates in the
-      render;
-    - `--livetv-bind-address`'s port equals the manager container's
-      `livetv` port.
+  - **`TestLiveTVServiceSelectsTheManager`:** for each installer:
+    - the `livetv` Service's selector is a subset of the manager pod
+      template's labels, and matches none of the other Deployments' pod
+      templates in the render;
+    - its target port is the manager container's `livetv` port, which
+      equals `--livetv-bind-address`'s port;
+    - `--livetv-service` names it.
   - **`TestLiveTVPolicyListsEveryManagerPort`:** for each installer, the
     NetworkPolicy:
     - selects the manager pod (its `podSelector` labels are a subset of
@@ -2048,6 +2424,7 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
   ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
   Spec: clustarrv1.IPTVProviderSpec{
    Tuners:   1,
+   DVR:      clustarrv1.DVRSpec{MaxChannels: ptr(int32(1))}, // two channels, so two blocks
    Playlist: clustarrv1.PlaylistSource{URL: "http://iptv-stub." + Namespace + ".svc/get.php"},
    Guides:   []clustarrv1.XMLTVSource{{Name: "e2e", URL: "http://iptv-stub." + Namespace + ".svc/guide.xml"}},
    Filters:  []clustarrv1.ChannelFilter{{Name: "e2e", Type: clustarrv1.FilterGroupTitle, Match: "E2E"}},
@@ -2069,9 +2446,9 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
    return false, err
   }
   return meta.IsStatusConditionTrue(got.Status.Conditions, clustarrv1.ConditionReady) &&
-   got.Status.Lineup != nil && got.Status.Lineup.Active == 2 && got.Status.Address != "", nil
+   got.Status.Lineup != nil && got.Status.Lineup.Active == 2 && len(got.Status.Blocks) == 2, nil
  })
- base, stop := portForwardService(ctx, t, iptvprovider.ServiceName(Namespace, name), 80)
+ base, stop := portForwardService(ctx, t, "livetv", 80)
  defer stop()
  prefix := base + "/livetv/" + Namespace + "/" + name
  // lineup.json: both channels; xmltv.xml: both ids; then two viewers of 1001 over one upstream, and 1002 refused.
@@ -2081,12 +2458,15 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 
   Write the elided part in full:
 
-- `GET prefix/lineup.json` decodes to two entries, `1001` and `1002`;
-- `GET prefix/xmltv.xml` contains `<channel id="1001">` and
-    `<channel id="1002">`;
-- two goroutines each `GET prefix/stream/1001` and `io.CopyN` 1 MiB;
+- two blocks, `1001` and `1002`, each with its own port and device ID;
+- `GET prefix/1001/lineup.json` decodes to one entry, `1001`. So does a
+    `GET base/lineup.json` sent with `Host: 169.254.47.1:<block 1001's port>`,
+    and its stream URL carries that `Host`;
+- `GET prefix/1002/xmltv.xml` holds `<channel id="1002">` and not `1001`;
+    `GET prefix/xmltv.xml` holds both;
+- two goroutines each `GET prefix/1001/stream/1001` and `io.CopyN` 1 MiB;
 - then the stub's `/stats`, port-forwarded, shows `connections["1"] == 1`;
-- while both viewers hold, `GET prefix/stream/1002` gives 503.
+- while both viewers hold, `GET prefix/1002/stream/1002` gives 503.
 
 - [ ] **Step 4: Wire it.**
   - `config/e2e/iptv-stub.yaml`: a Deployment and a Service, as
