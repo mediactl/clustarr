@@ -89,7 +89,7 @@ type GrabResult struct {
 	// +required
 	GUID string `json:"guid"`
 
-	// DownloadRef is the Download that was created.
+	// DownloadRef is the id of the grab entry the release became.
 	// +optional
 	DownloadRef string `json:"downloadRef,omitempty"`
 
@@ -134,7 +134,7 @@ type SearchSpec struct {
 	Limit int32 `json:"limit,omitempty"`
 
 	// Grab lists the release GUIDs the user wants grabbed; the controller
-	// creates a Download for each.
+	// grabs each on the item.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	Grab []string `json:"grab,omitempty"`
@@ -147,7 +147,7 @@ type SearchSpec struct {
 	// in, as the automatic search would: Readarr's and Lidarr's "search
 	// monitored". A release with any rejection, temporary included, is
 	// never grabbed this way, so an item already queued, downloading or at
-	// cutoff is not grabbed again. The Download is grabbedBy search and not
+	// cutoff is not grabbed again. The grab is grabbedBy search and not
 	// manual, so the importer applies its upgrade rules. A Search on an
 	// author, artist or comic passes it to each child Search.
 	// +optional
@@ -176,7 +176,7 @@ type SearchChildren struct {
 	// Failed is how many failed.
 	// +optional
 	Failed int32 `json:"failed,omitempty"`
-	// Grabbed is how many created a Download.
+	// Grabbed is how many grabbed a release.
 	// +optional
 	Grabbed int32 `json:"grabbed,omitempty"`
 }

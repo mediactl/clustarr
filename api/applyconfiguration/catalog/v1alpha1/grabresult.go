@@ -26,7 +26,7 @@ package v1alpha1
 type GrabResultApplyConfiguration struct {
 	// GUID is the release GUID the user asked to grab.
 	GUID *string `json:"guid,omitempty"`
-	// DownloadRef is the Download that was created.
+	// DownloadRef is the id of the grab entry the release became.
 	DownloadRef *string `json:"downloadRef,omitempty"`
 	// Error is why the grab failed, if it did.
 	Error *string `json:"error,omitempty"`

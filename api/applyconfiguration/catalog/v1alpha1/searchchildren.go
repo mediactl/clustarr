@@ -33,7 +33,7 @@ type SearchChildrenApplyConfiguration struct {
 	Completed *int32 `json:"completed,omitempty"`
 	// Failed is how many failed.
 	Failed *int32 `json:"failed,omitempty"`
-	// Grabbed is how many created a Download.
+	// Grabbed is how many grabbed a release.
 	Grabbed *int32 `json:"grabbed,omitempty"`
 }
 

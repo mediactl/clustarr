@@ -179,8 +179,8 @@ spec:
             description: AudiobookStatus describes the observed state of Audiobook.
             properties:
               activeDownloadRef:
-                description: ActiveDownloadRef is the Download currently working on
-                  this audiobook.
+                description: ActiveDownloadRef is the id of the grab entry currently
+                  working on this audiobook.
                 type: string
               artwork:
                 description: |-
@@ -555,9 +555,9 @@ spec:
                     id:
                       description: |-
                         ID is the grab's stable name: k8s.ChildName(target, guid), or
-                        k8s.ChildName(target, purpose, guid) for a donor, the name the
-                        Download had (adopted entries keep it, so MediaFile
-                        spec.importedFrom.downloadRef, history and ui links still resolve).
+                        k8s.ChildName(target, purpose, guid) for a donor, so a re-grab of the
+                        same release gets the same id; MediaFile spec.importedFrom.downloadRef,
+                        history and ui links name it.
                       maxLength: 253
                       type: string
                     import:
@@ -733,8 +733,8 @@ spec:
                       type: string
                     phase:
                       description: |-
-                        DownloadPhase is the lifecycle phase of a Download, owned by the grab
-                        controller.
+                        DownloadPhase is the lifecycle phase of a grab entry, decided by its
+                        owner's downloads stage.
                       enum:
                       - Pending
                       - Assigned
@@ -749,7 +749,7 @@ spec:
                       - Removing
                       type: string
                     purpose:
-                      description: DownloadPurpose is what a Download is for.
+                      description: DownloadPurpose is what a grab is for.
                       enum:
                       - audioDonor
                       type: string
@@ -957,7 +957,7 @@ spec:
                             guid:
                               description: |-
                                 GUID is the indexer-scoped unique identifier of the release. It is the
-                                input to the Download's deterministic name.
+                                input to the grab entry's deterministic id.
                               minLength: 1
                               type: string
                             indexerRef:
@@ -1018,11 +1018,10 @@ spec:
                       type: string
                     uid:
                       description: |-
-                        UID is issued by the manager when it admits the grab (an adopted
-                        entry keeps its Download's UID). It keys clustarr-transfers,
-                        clustarr-imports, the engine command subject and the clustarr-progress
-                        key download.<uid>, so a re-grab under the same ID never reads an old
-                        transfer's records.
+                        UID is issued by the manager when it admits the grab. It keys
+                        clustarr-transfers, clustarr-imports, the engine command subject and
+                        the clustarr-progress key download.<uid>, so a re-grab under the same
+                        ID never reads an old transfer's records.
                       maxLength: 36
                       type: string
                   required:
@@ -1232,7 +1231,7 @@ spec:
                       manual:
                         type: boolean
                       purpose:
-                        description: DownloadPurpose is what a Download is for.
+                        description: DownloadPurpose is what a grab is for.
                         enum:
                         - audioDonor
                         type: string
@@ -1397,7 +1396,7 @@ spec:
                               guid:
                                 description: |-
                                   GUID is the indexer-scoped unique identifier of the release. It is the
-                                  input to the Download's deterministic name.
+                                  input to the grab entry's deterministic id.
                                 minLength: 1
                                 type: string
                               indexerRef:

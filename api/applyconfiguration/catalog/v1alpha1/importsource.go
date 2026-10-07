@@ -29,7 +29,7 @@ import (
 //
 // ImportSource records where an imported file came from.
 type ImportSourceApplyConfiguration struct {
-	// DownloadRef is the name of the Download the file was imported from.
+	// DownloadRef is the id of the grab entry the file was imported from.
 	DownloadRef *string `json:"downloadRef,omitempty"`
 	// ReleaseTitle is the raw title of the release the file came from.
 	ReleaseTitle *string `json:"releaseTitle,omitempty"`

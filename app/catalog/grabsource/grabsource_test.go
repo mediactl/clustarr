@@ -22,11 +22,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
 const hexHash = "0123456789abcdef0123456789abcdef01234567"
@@ -170,32 +168,4 @@ func TestSourceApplyConfigurationRoundTripsEveryMember(t *testing.T) {
 	assert.Equal(t, "t", *direct.TorrentURL)
 	assert.Equal(t, "n", *direct.NZBURL)
 	assert.Equal(t, "m", *direct.MagnetURL)
-}
-
-func TestCovers(t *testing.T) {
-	movie := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{UID: "movie-uid"}}},
-		Spec:       downloadv1alpha1.DownloadSpec{Target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "alien"}},
-	}
-	pack := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{UID: "series-uid"}}},
-		Spec: downloadv1alpha1.DownloadSpec{Target: commonv1.MediaRef{
-			Kind: commonv1.MediaKindSeries, Name: "the-wire", Keys: []string{"the-wire-s01e01", "the-wire-s01e02"},
-		}},
-	}
-	orphan := &downloadv1alpha1.Download{
-		Spec: downloadv1alpha1.DownloadSpec{Target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "alien"}},
-	}
-
-	assert.True(t, Covers(movie, commonv1.MediaKindMovie, "alien", "movie-uid"))
-	assert.True(t, Covers(movie, commonv1.MediaKindMovie, "renamed", "movie-uid"), "the ownerReference alone is enough")
-	assert.True(t, Covers(orphan, commonv1.MediaKindMovie, "alien", "movie-uid"),
-		"a Download the Search controller made while the item was missing has no owner but still targets it")
-	assert.False(t, Covers(movie, commonv1.MediaKindMovie, "aliens", "other-uid"))
-	assert.False(t, Covers(movie, commonv1.MediaKindEpisode, "alien", ""), "kind is part of the identity")
-
-	assert.True(t, Covers(pack, commonv1.MediaKindEpisode, "the-wire-s01e02", "episode-uid"),
-		"an episode inside a pack is covered although the Series owns the Download")
-	assert.False(t, Covers(pack, commonv1.MediaKindEpisode, "the-wire-s01e03", "episode-uid"))
-	assert.True(t, Covers(pack, commonv1.MediaKindSeries, "the-wire", ""))
 }

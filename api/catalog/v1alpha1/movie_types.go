@@ -58,7 +58,7 @@ const (
 // destination: it reads Transcoded where it would otherwise read Imported,
 // CutoffUnmet or CutoffUnevaluated, counts as meeting the cutoff (the
 // CutoffMet condition is True with reason Transcoded), is never selected by
-// the wanted sweep and is never upgraded automatically. Only a Download in
+// the wanted sweep and is never upgraded automatically. Only a grab in
 // flight (Downloading), Unmonitored and Pending outrank it.
 //
 // +kubebuilder:validation:Enum=Pending;Unavailable;Wanted;Delayed;Downloading;Imported;Transcoded;CutoffUnmet;CutoffUnevaluated;Unmonitored
@@ -506,7 +506,7 @@ type MovieStatus struct {
 	// +optional
 	CutoffMet bool `json:"cutoffMet,omitempty"`
 
-	// ActiveDownloadRef is the Download currently working on this movie.
+	// ActiveDownloadRef is the id of the grab entry currently working on this movie.
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 
@@ -527,7 +527,6 @@ type MovieStatus struct {
 	// (ADR-0019 §6.10).
 	// +optional
 	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
-
 
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
 	// under catalog-grab.

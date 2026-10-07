@@ -274,7 +274,7 @@ type AlbumStatus struct {
 	// +optional
 	CutoffMet bool `json:"cutoffMet,omitempty"`
 
-	// ActiveDownloadRef is the Download currently working on this album.
+	// ActiveDownloadRef is the id of the grab entry currently working on this album.
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 
@@ -295,7 +295,6 @@ type AlbumStatus struct {
 	// (ADR-0019 §6.10).
 	// +optional
 	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
-
 
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
 	// under catalog-grab.

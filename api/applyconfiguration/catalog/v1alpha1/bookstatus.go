@@ -49,7 +49,7 @@ type BookStatusApplyConfiguration struct {
 	FileFormat *string `json:"fileFormat,omitempty"`
 	// CutoffMet is true when the imported file meets the profile cutoff.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
-	// ActiveDownloadRef is the Download currently working on this book.
+	// ActiveDownloadRef is the id of the grab entry currently working on this book.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key

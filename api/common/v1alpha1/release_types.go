@@ -70,7 +70,7 @@ const (
 )
 
 // ReleaseInfo is a snapshot of an indexer release as parsed by the search
-// pipeline. It is stored on Download.spec.release and in Search results.
+// pipeline. It is stored on grab entries and in Search results.
 type ReleaseInfo struct {
 	// GUID is the indexer-scoped unique identifier of the release.
 	// +optional

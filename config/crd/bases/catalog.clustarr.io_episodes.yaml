@@ -124,8 +124,8 @@ spec:
                 format: int32
                 type: integer
               activeDownloadRef:
-                description: ActiveDownloadRef is the Download currently working on
-                  this episode.
+                description: ActiveDownloadRef is the id of the grab entry currently
+                  working on this episode.
                 type: string
               airDate:
                 description: AirDate is when the episode first aired.
@@ -139,15 +139,14 @@ spec:
                   donor:
                     description: |-
                       Donor is the newest audio donor imported for this item: from the
-                      item's Download with spec.purpose audioDonor whose import finished
-                      (status.import.imported[].destPath, spec.release.title,
-                      status.import.importedAt), carried forward from this status once
-                      seen, so deleting the Download loses nothing (loop spec §2.6). A
+                      item's grab entry with purpose audioDonor whose import finished,
+                      carried forward from this status once seen, so removing the entry
+                      loses nothing (loop spec §2.6). A
                       MediaFile is named per file path, so an upgrade under a new filename
                       would lose it if it lived on the file.
                     properties:
                       downloadRef:
-                        description: DownloadRef names the donor Download.
+                        description: DownloadRef is the donor grab entry's id.
                         maxLength: 253
                         type: string
                       importedAt:
@@ -161,7 +160,7 @@ spec:
                         maxLength: 4096
                         type: string
                       release:
-                        description: Release is the donor Download's release title.
+                        description: Release is the donor grab's release title.
                         maxLength: 512
                         type: string
                     required:
@@ -454,7 +453,7 @@ spec:
                       manual:
                         type: boolean
                       purpose:
-                        description: DownloadPurpose is what a Download is for.
+                        description: DownloadPurpose is what a grab is for.
                         enum:
                         - audioDonor
                         type: string
@@ -619,7 +618,7 @@ spec:
                               guid:
                                 description: |-
                                   GUID is the indexer-scoped unique identifier of the release. It is the
-                                  input to the Download's deterministic name.
+                                  input to the grab entry's deterministic id.
                                 minLength: 1
                                 type: string
                               indexerRef:

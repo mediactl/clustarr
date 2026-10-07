@@ -127,10 +127,9 @@ type AudioState struct {
 	Reason string `json:"reason,omitempty"`
 
 	// Donor is the newest audio donor imported for this item: from the
-	// item's Download with spec.purpose audioDonor whose import finished
-	// (status.import.imported[].destPath, spec.release.title,
-	// status.import.importedAt), carried forward from this status once
-	// seen, so deleting the Download loses nothing (loop spec §2.6). A
+	// item's grab entry with purpose audioDonor whose import finished,
+	// carried forward from this status once seen, so removing the entry
+	// loses nothing (loop spec §2.6). A
 	// MediaFile is named per file path, so an upgrade under a new filename
 	// would lose it if it lived on the file.
 	// +optional
@@ -153,10 +152,10 @@ type AudioDonor struct {
 	// at import.
 	// +kubebuilder:validation:MaxLength=4096
 	Path string `json:"path"`
-	// Release is the donor Download's release title.
+	// Release is the donor grab's release title.
 	// +kubebuilder:validation:MaxLength=512
 	Release string `json:"release"`
-	// DownloadRef names the donor Download.
+	// DownloadRef is the donor grab entry's id.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	DownloadRef string `json:"downloadRef,omitempty"`

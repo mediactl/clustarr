@@ -67,7 +67,7 @@ const (
 
 // ImportSource records where an imported file came from.
 type ImportSource struct {
-	// DownloadRef is the name of the Download the file was imported from.
+	// DownloadRef is the id of the grab entry the file was imported from.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	DownloadRef string `json:"downloadRef,omitempty"`
@@ -102,8 +102,8 @@ type ImportSource struct {
 }
 
 // Bounds of the MediaFile spec's paths and the release text import
-// freezes into it from a Download (loop spec §2.11.2), mirrored by
-// pkg/crdcheck.TestProbeAndImportBoundsMatchTheCRD. A Download's release
+// freezes into it from a grab (loop spec §2.11.2), mirrored by
+// pkg/crdcheck.TestProbeAndImportBoundsMatchTheCRD. A grab's release
 // fields are unbounded, so fileimport clamps to these where it freezes them;
 // the item's audio donor (AudioDonor) uses the same path and release bounds.
 const (

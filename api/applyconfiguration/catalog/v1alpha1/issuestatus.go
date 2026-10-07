@@ -52,7 +52,7 @@ type IssueStatusApplyConfiguration struct {
 	// CutoffMet is true when the imported file meets the cutoff of the owning
 	// Comic's quality profile, so the issue is no longer an upgrade candidate.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
-	// ActiveDownloadRef is the Download currently working on this issue.
+	// ActiveDownloadRef is the id of the grab entry currently working on this issue.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 	// DownloadPhase is the phase of the entry on the Comic covering this
 	// issue, "" when none: a print column and a selectable field (ADR-0019

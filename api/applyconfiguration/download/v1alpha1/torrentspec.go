@@ -50,13 +50,13 @@ type TorrentSpecApplyConfiguration struct {
 	// MaxUnverifiedBytes caps how many downloaded-but-unhashed bytes the engine
 	// keeps in flight before it stops requesting more pieces.
 	MaxUnverifiedBytes *int64 `json:"maxUnverifiedBytes,omitempty"`
-	// Seed is the default seed goal for torrents on this client. A Download may
-	// override it with its own spec.seedCriteria.
+	// Seed is the default seed goal for torrents on this client. A grab may
+	// override it with its own seed criteria.
 	Seed *commonv1alpha1.SeedCriteria `json:"seed,omitempty"`
 	// RemoveCompleted removes a torrent from the engine once it has been
 	// imported and its seed goal is met: Sonarr's and Radarr's "Remove
-	// Completed" download-client setting. It combines with each Download's
-	// spec.removeOnImport, and a torrent is removed only when both are true;
+	// Completed" download-client setting. It combines with each grab's
+	// removeOnImport, and a torrent is removed only when both are true;
 	// false keeps every imported torrent on the engine, uploading nothing
 	// once its goal is met. The engine reads it on every reconcile.
 	RemoveCompleted *bool `json:"removeCompleted,omitempty"`
@@ -83,7 +83,7 @@ type TorrentSpecApplyConfiguration struct {
 	// Scratch keeps a torrent in a working area while it downloads, as
 	// qBittorrent's "keep incomplete torrents in" does: once every wanted
 	// piece is verified the engine moves it to publishDir and seeds it from
-	// there, and only then does the Download read Completed. The placements
+	// there, and only then does the grab read Completed. The placements
 	// are the usenet engine's (ScratchSpec); a controller-made claim is one
 	// per replica, a volumeName needs replicas 1, and an existingClaim is
 	// mounted by every replica, so it must be ReadWriteMany when there are

@@ -135,7 +135,7 @@ type IssueStatus struct {
 	// +optional
 	CutoffMet bool `json:"cutoffMet,omitempty"`
 
-	// ActiveDownloadRef is the Download currently working on this issue.
+	// ActiveDownloadRef is the id of the grab entry currently working on this issue.
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 

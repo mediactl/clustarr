@@ -45,7 +45,7 @@ const (
 // a cutoff; see MoviePhase for why CutoffUnmet was the wrong answer there.
 //
 // Transcoded is Imported's twin for a transcoded file, which is final; see
-// MoviePhase. Only a Download in flight (Downloading) and Unmonitored
+// MoviePhase. Only a grab in flight (Downloading) and Unmonitored
 // outrank it.
 //
 // +kubebuilder:validation:Enum=Unaired;Wanted;Delayed;Downloading;Imported;Transcoded;CutoffUnmet;CutoffUnevaluated;Unmonitored
@@ -201,7 +201,7 @@ type EpisodeStatus struct {
 	// +optional
 	CutoffMet bool `json:"cutoffMet,omitempty"`
 
-	// ActiveDownloadRef is the Download currently working on this episode.
+	// ActiveDownloadRef is the id of the grab entry currently working on this episode.
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 

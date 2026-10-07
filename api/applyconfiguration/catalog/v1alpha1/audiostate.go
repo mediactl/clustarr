@@ -37,10 +37,9 @@ type AudioStateApplyConfiguration struct {
 	// Reason says why, when Graft is failed.
 	Reason *string `json:"reason,omitempty"`
 	// Donor is the newest audio donor imported for this item: from the
-	// item's Download with spec.purpose audioDonor whose import finished
-	// (status.import.imported[].destPath, spec.release.title,
-	// status.import.importedAt), carried forward from this status once
-	// seen, so deleting the Download loses nothing (loop spec §2.6). A
+	// item's grab entry with purpose audioDonor whose import finished,
+	// carried forward from this status once seen, so removing the entry
+	// loses nothing (loop spec §2.6). A
 	// MediaFile is named per file path, so an upgrade under a new filename
 	// would lose it if it lived on the file.
 	Donor *AudioDonorApplyConfiguration `json:"donor,omitempty"`

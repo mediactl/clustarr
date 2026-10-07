@@ -118,7 +118,7 @@ spec:
                 description: ImportedFrom records where the file came from.
                 properties:
                   downloadRef:
-                    description: DownloadRef is the name of the Download the file
+                    description: DownloadRef is the id of the grab entry the file
                       was imported from.
                     maxLength: 253
                     type: string

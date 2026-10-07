@@ -37,11 +37,11 @@ type DownloadClientSpecApplyConfiguration struct {
 	// its engine running for in-flight work but is not assigned new Downloads.
 	Enabled *bool `json:"enabled,omitempty"`
 	// Priority orders clients of the same protocol when grab picks one for a
-	// Download; lower wins.
+	// grab; lower wins.
 	Priority *int32 `json:"priority,omitempty"`
 	// Replicas is the number of engine shards, backing a StatefulSet owned by
-	// this client. Each Download is pinned to one ordinal for its lifetime; see
-	// Download.status.engine. Usenet clients are limited to one replica in
+	// this client. Each grab is pinned to one ordinal for its lifetime (its
+	// entry's engine). Usenet clients are limited to one replica in
 	// v1alpha1.
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Categories maps a media kind to the subdirectory downloads of that kind

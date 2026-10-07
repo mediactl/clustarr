@@ -53,7 +53,7 @@ type AlbumStatusApplyConfiguration struct {
 	FormatScore *int32 `json:"formatScore,omitempty"`
 	// CutoffMet is true when the imported tracks meet the profile cutoff.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
-	// ActiveDownloadRef is the Download currently working on this album.
+	// ActiveDownloadRef is the id of the grab entry currently working on this album.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key

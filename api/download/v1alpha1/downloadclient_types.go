@@ -50,10 +50,10 @@ type HealthAction string
 // Health actions.
 const (
 	// HealthActionPause pauses the download and waits for operator input,
-	// NZBGet's HealthCheck=pause: the Download reads phase Paused with
-	// status.healthPaused set and the engine's message saying why. Setting
-	// spec.paused to true and back to false continues it without the health
-	// check; deleting it, or labelling it blocklisted, gives up on it.
+	// NZBGet's HealthCheck=pause: the grab reads phase Paused with the
+	// engine's message saying why. Resuming it (the item's
+	// download.clustarr.io/resume) continues it without the health check;
+	// removing it, or blocklisting it, gives up on it.
 	HealthActionPause HealthAction = "pause"
 	// HealthActionDelete fails the download with reason missingArticles,
 	// which blocklists the release and removes the job from the engine.
@@ -110,16 +110,16 @@ type TorrentSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	MaxUnverifiedBytes int64 `json:"maxUnverifiedBytes,omitempty"`
 
-	// Seed is the default seed goal for torrents on this client. A Download may
-	// override it with its own spec.seedCriteria.
+	// Seed is the default seed goal for torrents on this client. A grab may
+	// override it with its own seed criteria.
 	// +optional
 	// +kubebuilder:default={ratio:"1",seedTime:"168h",packSeedTime:"336h",inactiveTime:"24h"}
 	Seed *commonv1alpha1.SeedCriteria `json:"seed,omitempty"`
 
 	// RemoveCompleted removes a torrent from the engine once it has been
 	// imported and its seed goal is met: Sonarr's and Radarr's "Remove
-	// Completed" download-client setting. It combines with each Download's
-	// spec.removeOnImport, and a torrent is removed only when both are true;
+	// Completed" download-client setting. It combines with each grab's
+	// removeOnImport, and a torrent is removed only when both are true;
 	// false keeps every imported torrent on the engine, uploading nothing
 	// once its goal is met. The engine reads it on every reconcile.
 	// +optional
@@ -154,7 +154,7 @@ type TorrentSpec struct {
 	// Scratch keeps a torrent in a working area while it downloads, as
 	// qBittorrent's "keep incomplete torrents in" does: once every wanted
 	// piece is verified the engine moves it to publishDir and seeds it from
-	// there, and only then does the Download read Completed. The placements
+	// there, and only then does the grab read Completed. The placements
 	// are the usenet engine's (ScratchSpec); a controller-made claim is one
 	// per replica, a volumeName needs replicas 1, and an existingClaim is
 	// mounted by every replica, so it must be ReadWriteMany when there are
@@ -502,7 +502,7 @@ type DownloadClientSpec struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// Priority orders clients of the same protocol when grab picks one for a
-	// Download; lower wins.
+	// grab; lower wins.
 	// +optional
 	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=1
@@ -510,8 +510,8 @@ type DownloadClientSpec struct {
 	Priority int32 `json:"priority,omitempty"`
 
 	// Replicas is the number of engine shards, backing a StatefulSet owned by
-	// this client. Each Download is pinned to one ordinal for its lifetime; see
-	// Download.status.engine. Usenet clients are limited to one replica in
+	// this client. Each grab is pinned to one ordinal for its lifetime (its
+	// entry's engine). Usenet clients are limited to one replica in
 	// v1alpha1.
 	// +optional
 	// +kubebuilder:default=1

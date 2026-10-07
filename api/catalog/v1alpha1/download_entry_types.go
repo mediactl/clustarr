@@ -43,19 +43,18 @@ const (
 // in the remediation loop, under field manager catalog (ADR-0019 §6.2).
 type DownloadEntry struct {
 	// ID is the grab's stable name: k8s.ChildName(target, guid), or
-	// k8s.ChildName(target, purpose, guid) for a donor, the name the
-	// Download had (adopted entries keep it, so MediaFile
-	// spec.importedFrom.downloadRef, history and ui links still resolve).
+	// k8s.ChildName(target, purpose, guid) for a donor, so a re-grab of the
+	// same release gets the same id; MediaFile spec.importedFrom.downloadRef,
+	// history and ui links name it.
 	// +kubebuilder:validation:MaxLength=253
 	ID string `json:"id"`
 	// The UIDs here are strings, not types.UID: controller-gen's
 	// apply-configuration generator cannot apply MaxLength to types.UID.
 
-	// UID is issued by the manager when it admits the grab (an adopted
-	// entry keeps its Download's UID). It keys clustarr-transfers,
-	// clustarr-imports, the engine command subject and the clustarr-progress
-	// key download.<uid>, so a re-grab under the same ID never reads an old
-	// transfer's records.
+	// UID is issued by the manager when it admits the grab. It keys
+	// clustarr-transfers, clustarr-imports, the engine command subject and
+	// the clustarr-progress key download.<uid>, so a re-grab under the same
+	// ID never reads an old transfer's records.
 	// +kubebuilder:validation:MaxLength=36
 	UID string `json:"uid"`
 	// +optional
@@ -304,4 +303,3 @@ type GrabCandidate struct {
 	// +optional
 	Manual bool `json:"manual,omitempty"`
 }
-

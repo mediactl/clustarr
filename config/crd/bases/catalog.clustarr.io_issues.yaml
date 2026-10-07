@@ -120,8 +120,8 @@ spec:
             description: IssueStatus describes the observed state of Issue.
             properties:
               activeDownloadRef:
-                description: ActiveDownloadRef is the Download currently working on
-                  this issue.
+                description: ActiveDownloadRef is the id of the grab entry currently
+                  working on this issue.
                 type: string
               conditions:
                 description: Conditions represent the latest available observations
@@ -297,7 +297,7 @@ spec:
                       manual:
                         type: boolean
                       purpose:
-                        description: DownloadPurpose is what a Download is for.
+                        description: DownloadPurpose is what a grab is for.
                         enum:
                         - audioDonor
                         type: string
@@ -462,7 +462,7 @@ spec:
                               guid:
                                 description: |-
                                   GUID is the indexer-scoped unique identifier of the release. It is the
-                                  input to the Download's deterministic name.
+                                  input to the grab entry's deterministic id.
                                 minLength: 1
                                 type: string
                               indexerRef:

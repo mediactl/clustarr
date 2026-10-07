@@ -32,15 +32,14 @@ import (
 // in the remediation loop, under field manager catalog (ADR-0019 §6.2).
 type DownloadEntryApplyConfiguration struct {
 	// ID is the grab's stable name: k8s.ChildName(target, guid), or
-	// k8s.ChildName(target, purpose, guid) for a donor, the name the
-	// Download had (adopted entries keep it, so MediaFile
-	// spec.importedFrom.downloadRef, history and ui links still resolve).
+	// k8s.ChildName(target, purpose, guid) for a donor, so a re-grab of the
+	// same release gets the same id; MediaFile spec.importedFrom.downloadRef,
+	// history and ui links name it.
 	ID *string `json:"id,omitempty"`
-	// UID is issued by the manager when it admits the grab (an adopted
-	// entry keeps its Download's UID). It keys clustarr-transfers,
-	// clustarr-imports, the engine command subject and the clustarr-progress
-	// key download.<uid>, so a re-grab under the same ID never reads an old
-	// transfer's records.
+	// UID is issued by the manager when it admits the grab. It keys
+	// clustarr-transfers, clustarr-imports, the engine command subject and
+	// the clustarr-progress key download.<uid>, so a re-grab under the same
+	// ID never reads an old transfer's records.
 	UID     *string                         `json:"uid,omitempty"`
 	Purpose *commonv1alpha1.DownloadPurpose `json:"purpose,omitempty"`
 	// Episodes names the covered episodes on a Series entry (season and

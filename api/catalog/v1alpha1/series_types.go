@@ -519,7 +519,6 @@ type SeriesStatus struct {
 	// +optional
 	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
 
-
 	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
 	// each naming the episodes it covers (ADR-0019 §6.2), written under
 	// catalog-grab.

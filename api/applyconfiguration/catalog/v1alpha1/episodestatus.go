@@ -70,7 +70,7 @@ type EpisodeStatusApplyConfiguration struct {
 	FileFormatScore *int32 `json:"fileFormatScore,omitempty"`
 	// CutoffMet is true when the imported file meets the profile cutoff.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
-	// ActiveDownloadRef is the Download currently working on this episode.
+	// ActiveDownloadRef is the id of the grab entry currently working on this episode.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 	// DownloadPhase is the phase of the entry on the Series covering this
 	// episode, "" when none: a print column and a selectable field (ADR-0019

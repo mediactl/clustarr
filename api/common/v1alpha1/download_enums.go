@@ -21,15 +21,15 @@ package v1alpha1
 // §6.2): phases, stages, failure reasons, purposes, grab sources, import
 // rejection classes, priorities and the payload source.
 
-// DownloadPhase is the lifecycle phase of a Download, owned by the grab
-// controller.
+// DownloadPhase is the lifecycle phase of a grab entry, decided by its
+// owner's downloads stage.
 //
 // +kubebuilder:validation:Enum=Pending;Assigned;Queued;Downloading;Paused;Completed;Seeding;Imported;Failed;Blocklisted;Removing
 type DownloadPhase string
 
 // Download phases.
 const (
-	// DownloadPhasePending means the Download exists but has no client yet.
+	// DownloadPhasePending means the grab exists but has no client yet.
 	DownloadPhasePending DownloadPhase = "Pending"
 	// DownloadPhaseAssigned means a client and engine ordinal were chosen.
 	DownloadPhaseAssigned DownloadPhase = "Assigned"
@@ -45,7 +45,7 @@ const (
 	DownloadPhaseSeeding DownloadPhase = "Seeding"
 	// DownloadPhaseImported means catalog finished importing the content.
 	DownloadPhaseImported DownloadPhase = "Imported"
-	// DownloadPhaseFailed means the Download cannot make progress; see status.failureReason.
+	// DownloadPhaseFailed means the grab cannot make progress; see status.failureReason.
 	DownloadPhaseFailed DownloadPhase = "Failed"
 	// DownloadPhaseBlocklisted means the release is blocklisted until status.blocklistedUntil.
 	DownloadPhaseBlocklisted DownloadPhase = "Blocklisted"
@@ -97,7 +97,7 @@ const (
 	DownloadFailureStalled DownloadFailureReason = "stalled"
 	// DownloadFailureWriteError means the engine could not write to its volume.
 	DownloadFailureWriteError DownloadFailureReason = "writeError"
-	// DownloadFailureTimeout means the Download exceeded its overall deadline.
+	// DownloadFailureTimeout means the grab exceeded its overall deadline.
 	DownloadFailureTimeout DownloadFailureReason = "timeout"
 	// DownloadFailureImportRejected means catalog refused every file.
 	DownloadFailureImportRejected DownloadFailureReason = "importRejected"
@@ -108,7 +108,7 @@ const (
 	// release is not blocklisted and no redownload is searched, since
 	// nothing showed the release was at fault.
 	DownloadFailureImportExpired DownloadFailureReason = "importExpired"
-	// DownloadFailureManual means an operator failed the Download by hand.
+	// DownloadFailureManual means an operator failed the grab by hand.
 	DownloadFailureManual DownloadFailureReason = "manual"
 	// DownloadFailurePayloadMismatch means the resolved torrent's info hash
 	// is not spec.source.expectedInfoHash: the indexer served different
@@ -141,7 +141,7 @@ const (
 // Failed, which Sonarr's FailedDownloadService blocklists.
 //
 // manual counts as the release's fault because it is an operator saying so:
-// it is recorded when someone labels a Download blocklisted by hand.
+// it is recorded when someone blocklists a grab by hand.
 func (r DownloadFailureReason) IsReleaseFault() bool {
 	switch r {
 	case DownloadFailureMissingArticles, DownloadFailureEncrypted, DownloadFailureStalled,
@@ -212,7 +212,7 @@ type IndexerDownload struct {
 	IndexerRef string `json:"indexerRef"`
 
 	// GUID is the indexer-scoped unique identifier of the release. It is the
-	// input to the Download's deterministic name.
+	// input to the grab entry's deterministic id.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	GUID string `json:"guid"`
@@ -270,7 +270,7 @@ type DownloadSource struct {
 	ExpectedInfoHash *string `json:"expectedInfoHash,omitempty"`
 }
 
-// DownloadPurpose is what a Download is for.
+// DownloadPurpose is what a grab is for.
 //
 // +kubebuilder:validation:Enum=audioDonor
 type DownloadPurpose string

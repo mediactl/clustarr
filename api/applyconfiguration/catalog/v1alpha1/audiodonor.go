@@ -32,9 +32,9 @@ type AudioDonorApplyConfiguration struct {
 	// Path is the reduced donor audio (<stem>.mka), which fileimport writes
 	// at import.
 	Path *string `json:"path,omitempty"`
-	// Release is the donor Download's release title.
+	// Release is the donor grab's release title.
 	Release *string `json:"release,omitempty"`
-	// DownloadRef names the donor Download.
+	// DownloadRef is the donor grab entry's id.
 	DownloadRef *string `json:"downloadRef,omitempty"`
 	// ImportedAt is when the donor's import finished.
 	ImportedAt *v1.Time `json:"importedAt,omitempty"`
