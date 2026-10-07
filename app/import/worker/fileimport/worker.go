@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -411,12 +412,41 @@ func (w *Worker) existingMovieFiles(ctx context.Context, namespace, name string)
 // under [FieldManager]. It writes MediaFileSpec only, per CLAUDE.md's
 // invariant: nothing here touches MediaFileStatus. It returns the applied
 // MediaFile's UID, under which the import seeds its probe record (seedProbe).
+//
+// The apply is a compare-and-swap (spec 2026-10-06 §5.5, OD13): it reads
+// the MediaFile live (through [Worker.APIReader], falling back to Client),
+// applies with that read's resourceVersion when the object exists, and
+// redoes the read and the apply on a Conflict. So no apply lands on an
+// object another writer changed after this import read it without the
+// import seeing that object again, and the UID returned is the one the
+// apply wrote. A MediaFile whose spec.mediaRef names another item is never
+// taken over: that is a blocked import, not an overwrite.
 func (w *Worker) applyMediaFile(ctx context.Context, name string, spec *catalogac.MediaFileSpecApplyConfiguration, namespace string) (types.UID, error) {
-	applied, err := k8s.Apply(ctx, w.Client, FieldManager, catalogac.MediaFile(name, namespace).WithSpec(spec))
-	if err != nil {
-		return "", fmt.Errorf("fileimport: apply media file %s: %w", name, err)
+	var r client.Reader = w.APIReader
+	if r == nil {
+		r = w.Client
 	}
-	return ptr.Deref(applied.UID, ""), nil
+	var uid types.UID
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		ac := catalogac.MediaFile(name, namespace).WithSpec(spec)
+		var live catalogv1alpha1.MediaFile
+		switch err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &live); {
+		case err == nil:
+			if ref := spec.MediaRef; ref != nil && (live.Spec.MediaRef.Kind != ref.Kind || live.Spec.MediaRef.Name != ref.Name) {
+				return blocked("media file %s already belongs to %s %s", name, live.Spec.MediaRef.Kind, live.Spec.MediaRef.Name)
+			}
+			ac = ac.WithResourceVersion(live.ResourceVersion)
+		case !apierrors.IsNotFound(err):
+			return fmt.Errorf("fileimport: read media file %s: %w", name, err)
+		}
+		applied, err := k8s.Apply(ctx, w.Client, FieldManager, ac)
+		if err != nil {
+			return fmt.Errorf("fileimport: apply media file %s: %w", name, err)
+		}
+		uid = ptr.Deref(applied.UID, "")
+		return nil
+	})
+	return uid, err
 }
 
 // finalAttempt reports whether this delivery is the last one
