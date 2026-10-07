@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -216,9 +215,9 @@ func (a *Adapter) queued(ctx context.Context, env *remediation.Env, in *In) erro
 }
 
 // list reads the media directory through the I/O executor (§6.4.3). An EIO,
-// a timeout, a busy pool or an open breaker is transient, never a block; a
-// directory that does not exist lists empty, which Plan blocks as
-// MediaFileNotOnDisk.
+// a timeout, a busy pool or an open breaker is transient, never a block;
+// any other error -- a directory gone or unreadable -- is the listing's,
+// which Plan blocks as MediaDirUnreadable.
 func (a *Adapter) list(ctx context.Context, env *remediation.Env, in *In) error {
 	local, err := datapath.Local(a.o.DataDir, in.File.Spec.Path)
 	if err != nil {
@@ -228,8 +227,6 @@ func (a *Adapter) list(ctx context.Context, env *remediation.Env, in *In) error 
 	switch {
 	case errors.Is(err, syscall.EIO), remediation.IsTransient(err):
 		return remediation.Transient(err)
-	case errors.Is(err, fs.ErrNotExist):
-		entries = nil
 	case err != nil:
 		in.Listing = &subtitleplan.Listing{Err: err}
 		return nil
@@ -268,10 +265,7 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 	// A person's forced search is exempt from the bulk status-write limiter
 	// (§3.7): the apply that records its nonce goes out at once.
 	res.Unpaced = d.HandledNonce != stored
-	var err error
-	if res.Effects, err = effectsOf(d, in.Now); err != nil {
-		return remediation.Result{}, err
-	}
+	res.Effects = effectsOf(d, in.Now)
 	if d.SidecarsListed {
 		a.listed.set(v.File.UID, subtitleplan.Listed{Path: v.File.Spec.Path, ProbeHash: v.Draft.ProbeHash})
 	}
@@ -341,7 +335,7 @@ func stampDestinations(d *subtitleplan.Decision) {
 
 // effectsOf renders withdrawals first, then for each dispatch its record
 // write and its publish (§3.8: the record, then the task).
-func effectsOf(d subtitleplan.Decision, now time.Time) ([]remediation.Effect, error) {
+func effectsOf(d subtitleplan.Decision, now time.Time) []remediation.Effect {
 	var out []remediation.Effect
 	for _, w := range d.Withdraws {
 		out = append(out, remediation.Withdraw{UID: d.FileUID, Sub: w.LangKey, Seq: w.Seq})
@@ -350,10 +344,7 @@ func effectsOf(d subtitleplan.Decision, now time.Time) ([]remediation.Effect, er
 		uid := x.Task.MediaFile.UID
 		if x.Record {
 			rec := subtitlestore.Requested(x.Task, now)
-			b, err := json.Marshal(rec)
-			if err != nil {
-				return nil, fmt.Errorf("subtitles: encode the request: %w", err)
-			}
+			b, _ := json.Marshal(rec) // strings, ints, times and a map of strings: Marshal cannot fail
 			rw := remediation.RecordWrite{
 				Bucket: events.BucketSubtitles, Key: subtitlestore.Key(uid, x.LangKey), Revision: x.Revision, Value: b,
 				Remediation: subtitlestore.Remediation, Lane: string(x.Priority),
@@ -369,10 +360,7 @@ func effectsOf(d subtitleplan.Decision, now time.Time) ([]remediation.Effect, er
 			// in the dedupe map for the window (§6.4.6).
 			id = fmt.Sprintf("%s/r%d", id, now.Unix()/60)
 		}
-		name, data, err := schema.Encode(x.Task)
-		if err != nil {
-			return nil, fmt.Errorf("subtitles: encode the fetch task: %w", err)
-		}
+		name, data, _ := schema.Encode(x.Task) // as above: a FetchTask always encodes
 		out = append(out, remediation.Publish{
 			Subject:      events.WorkFetchSubject(events.Priority(x.Priority), uid, x.LangKey),
 			MsgID:        id,
@@ -383,7 +371,7 @@ func effectsOf(d subtitleplan.Decision, now time.Time) ([]remediation.Effect, er
 			},
 		})
 	}
-	return out, nil
+	return out
 }
 
 // Withdraw runs a subtitle withdrawal (§4.7): withdrawn{seq} at a fresh
