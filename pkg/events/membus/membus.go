@@ -26,8 +26,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // final delivery whose handler hangs past its ack deadline, which natsbus
 // catches from JetStream's MAX_DELIVERIES advisory), publish
 // deduplication by message ID inside the stream's duplicate window,
-// DiscardNew back-pressure, scheduled publishes, and key/value create,
-// compare-and-swap and TTL.
+// DiscardNew back-pressure, scheduled publishes, per-subscription slots with
+// lapse reclaim and drain, as natsbus, each durable's MaxAckPending across
+// every subscription of it, and key/value create, compare-and-swap and TTL.
 //
 // It is not a durable store: everything lives in memory and dies with the
 // process.
@@ -267,7 +268,13 @@ func (b *Bus) ObjectStore(name string) events.ObjectStore {
 	return &objectHandle{bus: b, name: name}
 }
 
-// Subscribe starts a durable consumer over an in-memory stream.
+// Subscribe starts a durable consumer over an in-memory stream. Like
+// natsbus's, it runs up to sub.MaxInFlight handlers at once, claiming a
+// message only into a free slot; a handler past its delivery's
+// acknowledgement deadline gives its slot back while fewer than
+// sub.MaxInFlight are past theirs (memSub); and the stop function lets
+// running handlers keep their context for up to sub.Drain before cancelling
+// it and waiting for them. Close cancels it at once.
 func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	h events.Handler,
 ) (func(), error) {
@@ -287,75 +294,159 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	}
 	st.bindDurable(sub.Durable, sub.Filters, cmp.Or(sub.MaxAckPending, max(sub.MaxInFlight, 1)))
 
-	loopCtx, cancel := context.WithCancel(ctx)
-	inFlight := sub.MaxInFlight
-	if inFlight <= 0 {
-		inFlight = 1
-	}
+	loopCtx, stopLoop := context.WithCancel(ctx)
+	// Handlers outlive the loop by up to sub.Drain, so their context is not
+	// the subscription's, though it keeps its values.
+	hctx, cancelHandlers := context.WithCancel(context.WithoutCancel(ctx))
+	ms := &memSub{slots: max(sub.MaxInFlight, 1), running: map[*memDelivery]struct{}{}}
 	ackWait := func(attempt uint64) time.Duration { return events.AckDeadline(sub, attempt) }
-
 	var handlers sync.WaitGroup
+	drained := make(chan struct{})
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		defer handlers.Wait()
-		sem := make(chan struct{}, inFlight)
-		for {
-			select {
-			case <-loopCtx.Done():
-				return
-			case <-b.done:
-				return
-			default:
-			}
-			m := b.claimNext(loopCtx, st, sub, ackWait)
-			if m == nil {
-				select {
-				case <-loopCtx.Done():
-				case <-b.done:
-				case <-b.clock.After(pollInterval):
-				}
-				continue
-			}
-			// Wait for a free handler slot. Every slot may be held by a
-			// handler that has hung, so keep sweeping while waiting:
-			// JetStream expires a final delivery on the server whatever the
-			// client is doing, and so must this bus.
-		wait:
-			for {
-				select {
-				case sem <- struct{}{}:
-					break wait
-				case <-loopCtx.Done():
-					return
-				case <-b.done:
-					return
-				case <-b.clock.After(pollInterval):
-					b.deadLetterLapsed(loopCtx, st, sub, ackWait)
-				}
-			}
-			handlers.Add(1)
-			go func(m *memMsg) {
-				defer handlers.Done()
-				defer func() { <-sem }()
-				b.deliver(loopCtx, st, sub, h, m, ackWait)
-			}(m)
+		closing := b.consume(loopCtx, hctx, st, sub, h, ms, &handlers, ackWait)
+		if !closing && sub.Drain > 0 {
+			b.awaitIdle(&handlers, sub.Drain)
 		}
+		cancelHandlers()
+		close(drained)
+		handlers.Wait()
 	}()
-
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			cancel()
+			stopLoop()
+			<-drained
 			handlers.Wait()
 		})
 	}, nil
 }
 
+// memSub is one Subscribe call's handler slots. A message is claimed only
+// into a free slot, as natsbus fetches only for free slots, and a delivery
+// past its acknowledgement deadline gives its slot back while fewer than
+// slots are lapsed (spec §9.3). memSub.mu then stream.mu is the only order
+// either is taken in.
+type memSub struct {
+	slots   int
+	mu      sync.Mutex
+	live    int
+	lapsed  int
+	running map[*memDelivery]struct{}
+}
+
+// memDelivery is one running handler's message and the attempt it runs.
+type memDelivery struct {
+	msg     *memMsg
+	attempt uint64
+	lapsed  bool
+}
+
+func (s *memSub) acquire() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.live >= s.slots {
+		return false
+	}
+	s.live++
+	return true
+}
+
+func (s *memSub) unacquire() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.live--
+}
+
+func (s *memSub) track(m *memMsg, attempt uint64) *memDelivery {
+	d := &memDelivery{msg: m, attempt: attempt}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.running[d] = struct{}{}
+	return d
+}
+
+func (s *memSub) finish(d *memDelivery) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.running, d)
+	if d.lapsed {
+		s.lapsed--
+	} else {
+		s.live--
+	}
+}
+
+// reclaim marks running deliveries past their deadline, or made again since,
+// lapsed, freeing their slots, while fewer than slots are lapsed.
+func (s *memSub) reclaim(st *stream, durable string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for d := range s.running {
+		if d.lapsed || s.lapsed >= s.slots || !st.overdue(d.msg, durable, d.attempt, now) {
+			continue
+		}
+		d.lapsed = true
+		s.live--
+		s.lapsed++
+	}
+}
+
+// consume claims into free slots until ctx ends (false) or the bus closes
+// (true). Lapsed final deliveries are swept on every pass, with or without a
+// free slot: JetStream gives up on them whatever the client is doing.
+func (b *Bus) consume(ctx, hctx context.Context, st *stream, sub events.Subscription, h events.Handler,
+	ms *memSub, handlers *sync.WaitGroup, ackWait func(uint64) time.Duration,
+) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-b.done:
+			return true
+		default:
+		}
+		now := b.clock.Now()
+		b.deadLetterLapsed(ctx, st, sub, ackWait)
+		ms.reclaim(st, sub.Durable, now)
+		if ms.acquire() {
+			if m := st.claim(sub.Durable, sub.Filters, now, ackWait, sub.MaxDeliver); m != nil {
+				d := ms.track(m, st.attemptOf(m, sub.Durable))
+				handlers.Add(1)
+				go func() {
+					defer handlers.Done()
+					defer ms.finish(d)
+					b.deliver(hctx, st, sub, h, m, ackWait)
+				}()
+				continue
+			}
+			ms.unacquire()
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-b.done:
+			return true
+		case <-b.clock.After(pollInterval):
+		}
+	}
+}
+
+// awaitIdle waits up to d for every handler to return.
+func (b *Bus) awaitIdle(handlers *sync.WaitGroup, d time.Duration) {
+	idle := make(chan struct{})
+	go func() { handlers.Wait(); close(idle) }()
+	select {
+	case <-idle:
+	case <-b.clock.After(d):
+	case <-b.done:
+	}
+}
+
 // claimNext sweeps st for sub's lapsed final deliveries and then claims the
-// next deliverable message, if any. Subscribe's delivery loop and Pull's Next
-// (pull.go) share this so a claim behaves identically whether a handler or a
-// caller settles the result; do not copy the two calls separately.
+// next deliverable message, if any, for Pull's Next (pull.go). Subscribe's
+// consume makes the same two calls around its slots.
 func (b *Bus) claimNext(ctx context.Context, st *stream, sub events.Subscription,
 	ackWait func(attempt uint64) time.Duration,
 ) *memMsg {

@@ -37,6 +37,10 @@ type message struct {
 	// negative acknowledgement asks the server for; see nakDelay.
 	backoff []time.Duration
 
+	// onProgress, when set, is told of every InProgress, so the
+	// subscription moves the delivery's lapse deadline with the server's.
+	onProgress func()
+
 	mu      sync.Mutex
 	settled bool
 }
@@ -133,8 +137,17 @@ func (m *message) Term(_ context.Context, reason string) error {
 	return m.jm.TermWithReason(reason)
 }
 
-// InProgress resets the server's redelivery timer for this delivery.
-func (m *message) InProgress(context.Context) error { return m.jm.InProgress() }
+// InProgress resets the server's redelivery timer for this delivery, and the
+// subscription's lapse deadline with it.
+func (m *message) InProgress(context.Context) error {
+	if err := m.jm.InProgress(); err != nil {
+		return err
+	}
+	if m.onProgress != nil {
+		m.onProgress()
+	}
+	return nil
+}
 
 func (m *message) markSettled() bool {
 	m.mu.Lock()

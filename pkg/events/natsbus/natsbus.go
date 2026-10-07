@@ -23,8 +23,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // acknowledgements and dead-letter copies by the shared events.Settle policy,
 // a final delivery whose handler hangs past its acknowledgement deadline is
 // dead-lettered from JetStream's MAX_DELIVERIES advisory, which every
-// subscription watches for its own consumer, and up to MaxInFlight handlers
-// run at once per subscription, so its observable behaviour matches membus.
+// subscription watches for its own consumer, and each subscription runs up
+// to MaxInFlight handlers, plus as many again while handlers are past their
+// acknowledgement deadline, so its observable behaviour matches membus.
 package natsbus
 
 import (
@@ -278,18 +279,24 @@ func publishError(top events.Topology, subject string, err error) error {
 }
 
 // Subscribe creates or updates the durable pull consumer described by sub and
-// starts consuming.
+// starts consuming it.
 //
-// Up to sub.MaxInFlight handlers run at once (one when it is unset), as on
-// membus, each on its own goroutine; see subscription for why the Consume
-// callback hands them out rather than running them. Before, the callback ran
-// the handler itself, so a handler hung on an early delivery stalled the
-// whole subscription on this replica until a restart, however large
-// MaxInFlight was.
+// Slots. Up to sub.MaxInFlight handlers run at once (one when it is unset),
+// as on membus, each on its own goroutine, and the subscription fetches only
+// for free slots: sub.MaxInFlight is this process's share, and the durable's
+// MaxAckPending, the topology's, is the cap across every process. A handler
+// past its delivery's acknowledgement deadline (events.AckDeadline) gives its
+// slot back while fewer than MaxInFlight are past theirs, so a hung handler
+// does not stop the next task, and at most twice MaxInFlight handlers ever
+// run at once. See subscription.
 //
-// The stop function cancels the handlers' context, stops the pull and the
-// advisory watcher, and waits for handlers still running, as membus's does.
-// Close does the same without the wait.
+// The subscription binds its durable by name. If the durable or its stream
+// disappears while it runs, as a NATS restart wipes a memory-backed stream,
+// it waits for the durable to come back and resumes.
+//
+// The stop function stops fetching, lets running handlers keep their context
+// for up to sub.Drain, then cancels it and waits for them, as membus's does.
+// Close cancels the handlers' context at once and does not wait.
 func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	h events.Handler,
 ) (func(), error) {
@@ -303,14 +310,10 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, events.ErrClosed
 	}
 
-	// An unset MaxInFlight is one, as on membus, not JetStream's default of
-	// a thousand unacknowledged messages for one handler slot.
-	inFlight := max(sub.MaxInFlight, 1)
 	// The cap is the topology's (sub.MaxAckPending), not this process's
 	// slots, so a Subscribe agrees with EnsureTopology instead of rewriting it.
 	cfg := events.ConsumerConfig(events.SubscriptionSpec(sub))
-	cons, err := b.js.CreateOrUpdateConsumer(ctx, sub.Stream, cfg)
-	if err != nil {
+	if _, err := b.js.CreateOrUpdateConsumer(ctx, sub.Stream, cfg); err != nil {
 		if errors.Is(err, jetstream.ErrStreamNotFound) {
 			return nil, fmt.Errorf("natsbus: stream %s: %w",
 				sub.Stream, events.ErrStreamNotFound)
@@ -326,18 +329,10 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, err
 	}
 
-	hctx, cancel := context.WithCancel(ctx)
-	s := newSubscription(inFlight, cancel, watch, func(m jetstream.Msg) {
-		b.handle(hctx, sub, h, m)
+	s := newSubscription(ctx, b, sub, func(hctx context.Context, m jetstream.Msg, onProgress func()) {
+		b.handle(hctx, sub, h, m, onProgress)
 	})
-	cctx, err := cons.Consume(s.dispatch, jetstream.PullMaxMessages(inFlight))
-	if err != nil {
-		cancel()
-		watch.Stop()
-		return nil, fmt.Errorf("natsbus: consume %s: %w", sub.Durable, err)
-	}
-	s.setConsume(cctx)
-
+	s.watch = watch
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -346,27 +341,30 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	}
 	b.subs = append(b.subs, s)
 	b.mu.Unlock()
-
-	return func() {
-		s.halt()
-		s.wait()
-	}, nil
+	s.start()
+	return s.stop, nil
 }
 
 // receive wraps one delivery the way every consumer path must: decode the
 // envelope, run Hooks.AfterReceive, and bind the message to its subscription.
 // Subscribe's handle and Pull's Next share it, so a message looks identical
 // whether a handler or a caller settles it.
-func (b *Bus) receive(ctx context.Context, jm jetstream.Msg, sub events.Subscription) (context.Context, *message, error) {
+//
+// onProgress, when set, is called on every InProgress the handler sends, so
+// the subscription's lapse deadline follows the server's; Pull passes nil.
+func (b *Bus) receive(ctx context.Context, jm jetstream.Msg, sub events.Subscription,
+	onProgress func(),
+) (context.Context, *message, error) {
 	msg := newMessage(jm, sub.Backoff)
+	msg.onProgress = onProgress
 	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
 	return hctx, msg, nil
 }
 
 func (b *Bus) handle(ctx context.Context, sub events.Subscription,
-	h events.Handler, jm jetstream.Msg,
+	h events.Handler, jm jetstream.Msg, onProgress func(),
 ) {
-	hctx, msg, rerr := b.receive(ctx, jm, sub)
+	hctx, msg, rerr := b.receive(ctx, jm, sub, onProgress)
 	if rerr != nil {
 		// receive cannot fail today (see its doc comment); if a future step
 		// inside it can, leave the delivery unsettled for redelivery rather

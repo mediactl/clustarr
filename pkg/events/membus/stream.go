@@ -49,6 +49,12 @@ type consumerState struct {
 	// settled is set once the consumer has acknowledged or terminated the
 	// message; it is never delivered to that consumer again.
 	settled bool
+
+	// deadLettered is set when lapsed gave up on the final delivery: the
+	// message is settled, but a handler may still be running it, and that
+	// handler's slot is reclaimed as natsbus reclaims any lapsed delivery's
+	// (overdue).
+	deadLettered bool
 }
 
 // due reports whether the message would be redelivered to this consumer at
@@ -260,6 +266,7 @@ func (s *stream) lapsed(durable string, filters []string, now time.Time,
 			continue
 		}
 		cs.settled = true
+		cs.deadLettered = true
 		cs.ackDeadline = time.Time{}
 		out = append(out, m)
 	}
@@ -308,6 +315,31 @@ func (s *stream) nak(m *memMsg, durable string, now time.Time, delay time.Durati
 		// it; the durable still owns it, as JetStream does.
 		m.claim = durable
 	}
+}
+
+// attemptOf is durable's delivery count of m.
+func (s *stream) attemptOf(m *memMsg, durable string) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return m.stateFor(durable).attempts
+}
+
+// overdue reports whether durable's delivery attempt of m is past its
+// acknowledgement deadline, or has been made again since. A final delivery
+// lapsed has dead-lettered is overdue too: its handler may still be running,
+// and natsbus frees that handler's slot at the deadline whatever the
+// advisory watcher has done.
+func (s *stream) overdue(m *memMsg, durable string, attempt uint64, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cs, ok := m.state[durable]
+	if !ok {
+		return false
+	}
+	if cs.settled {
+		return cs.deadLettered && cs.attempts == attempt
+	}
+	return cs.attempts != attempt || (!cs.ackDeadline.IsZero() && !now.Before(cs.ackDeadline))
 }
 
 func (s *stream) inProgress(m *memMsg, durable string, now time.Time,
