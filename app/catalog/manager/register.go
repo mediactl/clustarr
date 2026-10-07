@@ -49,6 +49,7 @@ import (
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -63,6 +64,11 @@ type Options struct {
 	// shares with its advisory intake (the second net, ADR-0019 §8.5); nil
 	// builds one (NewDLQProjector).
 	DLQProjector *historyworker.DLQProjector
+	// Artwork is the manager's objindex over clustarr-artwork (ADR-0019
+	// §7.1, D13): the Artist and Author reconcilers render status.artwork
+	// from it and plan their fetches against it. Nil keeps their stored
+	// status.artwork and plans none.
+	Artwork *objindex.Index
 }
 
 // Register adds every catalog reconciler and manager-side runnable.
@@ -194,7 +200,7 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// The Series is the remediation loop's item key now (ADR-0019 A3.2,
 	// app/remediation/manager), as are the Movie, Episode and the non-video
 	// items.
-	if err := registerNonVideoControllers(mgr, bus); err != nil {
+	if err := registerNonVideoControllers(mgr, bus, o.Artwork); err != nil {
 		return err
 	}
 
@@ -275,20 +281,13 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// from another process.
 	//
 	// It also purges the orphaned chunks two racing Puts leak, in the
-	// artwork and fingerprint buckets (Admin), and audits status.artwork and
-	// status.overlay, read from this manager's cache, against the bucket,
-	// publishing paced fetch and render tasks for what is missing,
-	// mismatched or metadata-stale (artwork design §B.5 as amended
-	// 2026-10-07). A bus that is not a StreamAdmin publishes unpaced; one
-	// that is not an ObjectStoreAdmin purges nothing.
+	// artwork and fingerprint buckets (Admin); a bus that is not an
+	// ObjectStoreAdmin purges nothing. Its status audit retired with
+	// ADR-0019 A5.2: the item keys render status.artwork and status.overlay
+	// from the bucket and repair what is missing on every pass.
 	reaper := &artwork.Reaper{
-		Store:     bus.ObjectStore(events.BucketArtwork),
-		Client:    mgr.GetAPIReader(),
-		Cache:     mgr.GetClient(),
-		Publisher: bus,
-	}
-	if lag, ok := bus.(events.StreamAdmin); ok {
-		reaper.Lag = lag
+		Store:  bus.ObjectStore(events.BucketArtwork),
+		Client: mgr.GetAPIReader(),
 	}
 	if admin, ok := bus.(events.ObjectStoreAdmin); ok {
 		reaper.Admin = admin
@@ -338,12 +337,14 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // Every recorder is named after its kind, the convention movie and series
 // set, so `kubectl get events` attributes each Event to the controller that
 // raised it.
-func registerNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
+func registerNonVideoControllers(mgr ctrl.Manager, bus events.Bus, art *objindex.Index) error {
 	c := mgr.GetClient()
 	scheme := mgr.GetScheme()
 	// Neither is a loop key, so each incorporates its metadata record and
 	// artwork objects itself (ADR-0019 A5.1 step 4).
 	incorporator := metadataset.NewIncorporator(bus)
+	incorporator.Index, incorporator.Publisher = art, bus
+	incorporator.Recorder = mgr.GetEventRecorder(artwork.RecorderGateway)
 
 	if err := (&artist.Reconciler{
 		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("artist"), Bus: bus, Metadata: incorporator,

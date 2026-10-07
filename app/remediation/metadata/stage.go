@@ -21,7 +21,6 @@ import (
 	"context"
 	"math"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/app/catalog/metadataset"
@@ -36,14 +35,10 @@ import (
 type Options struct {
 	Bus events.Bus
 	// Artwork renders status.artwork from the artwork objects' metadata
-	// (A5.2); nil re-declares the stored entries.
-	Artwork EntriesFunc
+	// (A5.2, catalogartwork.Entries over the manager's index); nil
+	// re-declares the stored entries.
+	Artwork metadataset.EntriesFunc
 }
-
-// EntriesFunc is status.artwork as the manager's artwork index has it for
-// one item, and whether the index is synced (false keeps the stored
-// entries).
-type EntriesFunc func(item schema.ItemRef) (entries []catalogv1alpha1.ArtworkEntry, known bool)
 
 // Stage is the metadata item stage (remediation.ItemStage and Watcher).
 type Stage struct {
@@ -92,7 +87,7 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 		in.Record = rec
 	}
 	if s.o.Artwork != nil {
-		in.Entries, in.EntriesKnown = s.o.Artwork(metadatainputs.ItemRef(v.Item))
+		in.Entries, in.EntriesKnown = s.o.Artwork(v.Item)
 	}
 	var res remediation.ItemResult
 	if set, owed := metadataset.Build(in); owed {

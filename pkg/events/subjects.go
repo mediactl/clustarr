@@ -206,9 +206,12 @@ const (
 
 // ArtworkMetaVersion is the version of the metadata set every artwork object
 // carries (artwork design §B.2 as amended 2026-10-07), recorded under
-// ArtworkMetaKeyVersion. Raise it when the set changes: the writers' lazy
-// backfill and the reaper's audit key on it.
-const ArtworkMetaVersion = "1"
+// ArtworkMetaKeyVersion. Raise it when the set changes: the item key plans a
+// backfill for an object below it, which its writer makes with SetMeta.
+// 2 (ADR-0019 A5.2, D13) adds the source, source URL and update time every
+// object carries and an overlay's inputs digest, from which the manager
+// renders status.artwork and status.overlay.
+const ArtworkMetaVersion = "2"
 
 // ArtworkMaxImageBytes caps one artwork image: the gateway's fetch limit
 // (artwork design §B.4) and the ui's whole-object read bound (§B.8 as
@@ -219,7 +222,10 @@ const ArtworkMaxImageBytes = 20 << 20
 // 2026-10-07). Every object carries the version, kind, uid, namespace,
 // name, image type and variant; language when its provider image names
 // one; width and height when known; and an overlay its profile and the
-// digest of the original it was drawn on. BucketMetaKeyKeyScheme is a
+// digest of the original it was drawn on. Since version 2 every object also
+// carries its source (provider, custom or render), its source URL and when
+// it was stored (RFC 3339, UTC, seconds), and an overlay the inputs digest
+// it was rendered from (ADR-0019 D13). BucketMetaKeyKeyScheme is a
 // bucket's, not an object's.
 const (
 	ArtworkMetaKeyVersion        = "clustarr.io/meta-version"
@@ -234,6 +240,10 @@ const (
 	ArtworkMetaKeyHeight         = "clustarr.io/height"
 	ArtworkMetaKeyProfile        = "clustarr.io/profile"
 	ArtworkMetaKeyOriginalDigest = "clustarr.io/original-digest"
+	ArtworkMetaKeySource         = "clustarr.io/source"
+	ArtworkMetaKeySourceURL      = "clustarr.io/source-url"
+	ArtworkMetaKeyUpdatedAt      = "clustarr.io/updated-at"
+	ArtworkMetaKeyRenderedFrom   = "clustarr.io/rendered-from"
 	BucketMetaKeyKeyScheme       = "clustarr.io/key-scheme"
 )
 

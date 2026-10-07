@@ -58,11 +58,26 @@ type Entry struct {
 }
 
 // Change is one name whose digest changed; NewDigest is "" on a delete and
-// OldDigest "" for a name the index did not hold.
-type Change struct{ Name, OldDigest, NewDigest string }
+// OldDigest "" for a name the index did not hold. Metadata is the object's
+// metadata after the change, or before a delete -- what names the item it
+// belongs to (ADR-0019 S26) -- shared with the index: read it, never
+// modify it. Under WithMetadataChanges a metadata-only change (a SetMeta)
+// is a Change with OldDigest equal to NewDigest.
+type Change struct {
+	Name, OldDigest, NewDigest string
+	Metadata                   map[string]string
+}
 
 // Option configures an Index.
 type Option func(*Index)
+
+// WithMetadataChanges makes a metadata-only change (a SetMeta: the same
+// digest, other metadata) a Change too. The manager's index needs it: the
+// item key renders status from the metadata, and a backfill changes only
+// that (ADR-0019 D13). The ui's, which serves bytes by digest, does not.
+func WithMetadataChanges() Option {
+	return func(x *Index) { x.metaChanges = true }
+}
 
 // WithCheckEvery sets how often the index compares the bucket's creation
 // time; 60 s by default.
@@ -86,8 +101,9 @@ const (
 // Index is a read-only index of one bucket. Build it with New and run it
 // with Run.
 type Index struct {
-	store      events.ObjectStore
-	checkEvery time.Duration
+	store       events.ObjectStore
+	checkEvery  time.Duration
+	metaChanges bool
 
 	mu      sync.RWMutex
 	entries map[string]Entry
@@ -251,13 +267,13 @@ func (x *Index) swap(fresh map[string]Entry) {
 	x.mu.Unlock()
 	var changes []Change
 	for name, e := range fresh {
-		if o, ok := old[name]; !ok || o.Digest != e.Digest {
-			changes = append(changes, Change{Name: name, OldDigest: o.Digest, NewDigest: e.Digest})
+		if o, ok := old[name]; !ok || o.Digest != e.Digest || (x.metaChanges && !maps.Equal(o.Metadata, e.Metadata)) {
+			changes = append(changes, Change{Name: name, OldDigest: o.Digest, NewDigest: e.Digest, Metadata: e.Metadata})
 		}
 	}
 	for name, o := range old {
 		if _, ok := fresh[name]; !ok {
-			changes = append(changes, Change{Name: name, OldDigest: o.Digest})
+			changes = append(changes, Change{Name: name, OldDigest: o.Digest, Metadata: o.Metadata})
 		}
 	}
 	for _, c := range changes {
@@ -266,7 +282,8 @@ func (x *Index) swap(fresh map[string]Entry) {
 }
 
 // apply folds one live event into the map, emitting a change when a digest
-// moved. A SetMeta (same digest) updates the entry and emits nothing.
+// moved. A SetMeta (same digest) updates the entry and emits nothing,
+// unless WithMetadataChanges asked for those too.
 func (x *Index) apply(e events.ObjectEvent) {
 	if e.Synced {
 		return
@@ -278,15 +295,15 @@ func (x *Index) apply(e events.ObjectEvent) {
 		delete(x.entries, name)
 		x.mu.Unlock()
 		if had {
-			x.emit(Change{Name: name, OldDigest: old.Digest})
+			x.emit(Change{Name: name, OldDigest: old.Digest, Metadata: old.Metadata})
 		}
 		return
 	}
 	n := entryOf(e.Info)
 	x.entries[name] = n
 	x.mu.Unlock()
-	if !had || old.Digest != n.Digest {
-		x.emit(Change{Name: name, OldDigest: old.Digest, NewDigest: n.Digest})
+	if !had || old.Digest != n.Digest || (x.metaChanges && !maps.Equal(old.Metadata, n.Metadata)) {
+		x.emit(Change{Name: name, OldDigest: old.Digest, NewDigest: n.Digest, Metadata: n.Metadata})
 	}
 }
 

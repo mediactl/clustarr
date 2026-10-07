@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +33,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -73,14 +73,13 @@ const (
 // deleted and re-created item has a new UID, so its predecessor's objects
 // are orphans even though the name lives on.
 //
-// Two duties join the delete (artwork design §B.5 as amended 2026-10-07),
-// both inside the sweep that already lists the whole bucket: it purges the
-// orphaned chunks two racing Puts leak (Admin), and it audits status
-// against the bucket (Cache, Publisher), publishing a paced fetch or render
-// task for a missing, mismatched or metadata-stale object. It sweeps every
-// Interval, at once when the bucket's creation time changes (checked every
-// Check), and every Backlog while a paced audit left tasks unpublished. It
-// never Puts and never calls SetMeta.
+// One duty joins the delete (artwork design §B.5 as amended 2026-10-07),
+// inside the sweep that already lists the whole bucket: it purges the
+// orphaned chunks two racing Puts leak (Admin). Its status audit retired
+// with ADR-0019 (A5.2): status.artwork and status.overlay are rendered from
+// the objects' metadata by the item keys, which plan a missing,
+// metadata-stale or changed object's fetch or render on every pass. It
+// sweeps every Interval and never Puts or calls SetMeta.
 type Reaper struct {
 	// Store is Bus.ObjectStore(events.BucketArtwork).
 	Store events.ObjectStore
@@ -96,18 +95,7 @@ type Reaper struct {
 	// Clock is the sweep's "now". Nil is the real clock.
 	Clock clockwork.Clock
 
-	// New (artwork design §B.5 as amended 2026-10-07). Each nil disables
-	// its duty.
-
-	// Cache reads status.artwork and status.overlay for the audit: the
-	// manager's cached client, synced before leader-only runnables start.
-	Cache client.Reader
-	// Publisher publishes the audit's paced repair and backfill tasks.
-	Publisher events.Publisher
-	// Lag paces the audit against its consumers' backlog; nil publishes
-	// unpaced. events.StreamAdmin is one.
-	Lag LagReader
-	// Admin purges orphaned chunks (PurgeOrphanChunks).
+	// Admin purges orphaned chunks (PurgeOrphanChunks); nil purges none.
 	Admin events.ObjectStoreAdmin
 	// Buckets are purged each sweep; nil is Store's own bucket (the
 	// artwork bucket, as Status names it) and events.ObjectStoreFingerprints.
@@ -115,21 +103,6 @@ type Reaper struct {
 	// (TestArtworkWritersAreTheTwoVariantOwners), so the default reads it
 	// off the store.
 	Buckets []string
-	// Pace: the audit publishes while a consumer's lag is below it;
-	// DefaultAuditPace when zero.
-	Pace int
-	// Check is how often the bucket's creation time is compared;
-	// DefaultAuditCheck when zero.
-	Check time.Duration
-	// Backlog is how often a sweep re-runs while the last audit left tasks
-	// unpublished; DefaultAuditBacklog when zero.
-	Backlog time.Duration
-
-	// gen is the bucket's creation time at the last audit, and backlog
-	// whether that audit left tasks unpublished. Only Start's goroutine
-	// (through Sweep) touches them.
-	gen     time.Time
-	backlog bool
 }
 
 // NeedLeaderElection makes the reaper a cluster singleton (spec §B.5): the
@@ -143,59 +116,25 @@ func (r *Reaper) clock() clockwork.Clock {
 	return clockwork.NewRealClock()
 }
 
-// Start sweeps at once and then on three clocks until ctx is done: every
-// Interval; at once when the bucket's creation time differs from the last
-// audit's (checked every Check, while the audit is on), so a re-created
-// bucket is audited under its new generation; and every Backlog while the
-// last audit left tasks unpublished. A failed sweep is logged and retried on
-// the next tick; it never stops the loop.
+// Start sweeps at once and then every Interval until ctx is done. A failed
+// sweep is logged and retried on the next tick; it never stops the loop.
 func (r *Reaper) Start(ctx context.Context) error {
 	interval := r.Interval
 	if interval <= 0 {
 		interval = DefaultReapInterval
 	}
-	clk := r.clock()
-	sweep := clk.NewTicker(interval)
+	sweep := r.clock().NewTicker(interval)
 	defer sweep.Stop()
-	var checkC, backlogC <-chan time.Time
-	if r.auditing() {
-		check := clk.NewTicker(r.checkEvery())
-		defer check.Stop()
-		backlog := clk.NewTicker(r.backlogEvery())
-		defer backlog.Stop()
-		checkC, backlogC = check.Chan(), backlog.Chan()
-	}
 	for {
 		if n, err := r.Sweep(ctx); err != nil {
 			logging.FromContext(ctx).Warn("artwork: reap sweep incomplete", "deleted", n, "err", err)
 		} else if n > 0 {
 			logging.FromContext(ctx).Info("artwork: reaped orphaned objects", "deleted", n)
 		}
-		if !r.waitForSweep(ctx, sweep.Chan(), checkC, backlogC) {
-			return nil
-		}
-	}
-}
-
-// waitForSweep blocks until a sweep is due, reporting false when ctx ends.
-func (r *Reaper) waitForSweep(ctx context.Context, sweep, check, backlog <-chan time.Time) bool {
-	for {
 		select {
 		case <-ctx.Done():
-			return false
-		case <-sweep:
-			return true
-		case <-backlog:
-			if r.backlog {
-				return true
-			}
-		case <-check:
-			st, err := r.Store.Status(ctx)
-			if err == nil && !st.Created.Equal(r.gen) {
-				logging.FromContext(ctx).Info("artwork: the bucket's generation changed; auditing at once",
-					"created", st.Created)
-				return true
-			}
+			return nil
+		case <-sweep.Chan():
 		}
 	}
 }
@@ -248,20 +187,12 @@ func (r *Reaper) Sweep(ctx context.Context) (deleted int, err error) {
 		deleted++
 	}
 	countObjects(objects)
-	if r.Admin != nil || r.auditing() {
+	if r.Admin != nil {
 		st, err := r.Store.Status(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("artwork: the bucket's status: %w", err))
 		}
 		errs = append(errs, r.purge(ctx, st.Bucket, grace)...)
-		if err == nil && r.auditing() {
-			r.gen = st.Created
-			backlog, err := r.audit(ctx, objects, strconv.FormatInt(st.Created.Unix(), 10))
-			r.backlog = backlog
-			if err != nil {
-				errs = append(errs, err)
-			}
-		}
 	}
 	err = errors.Join(errs...)
 	if err != nil {
@@ -334,5 +265,30 @@ func (r *Reaper) liveUIDs(ctx context.Context, kind commonv1.MediaKind) (sets.Se
 		if cont == "" {
 			return uids, nil
 		}
+	}
+}
+
+// metaVersionNone labels ArtworkObjects for an object stored before object
+// metadata existed.
+const metaVersionNone = "none"
+
+// countObjects sets ArtworkObjects from a bucket listing: the backfill's
+// progress, by variant and metadata version.
+func countObjects(objects []events.ObjectInfo) {
+	counts := map[[2]string]int{}
+	for _, o := range objects {
+		variant := o.Name[strings.LastIndex(o.Name, "/")+1:]
+		if variant != events.ArtworkVariantOriginal && variant != events.ArtworkVariantOverlay {
+			continue
+		}
+		v := o.Metadata[events.ArtworkMetaKeyVersion]
+		if v == "" {
+			v = metaVersionNone
+		}
+		counts[[2]string{variant, v}]++
+	}
+	metrics.ArtworkObjects.Reset()
+	for k, n := range counts {
+		metrics.ArtworkObjects.WithLabelValues(k[0], k[1]).Set(float64(n))
 	}
 }

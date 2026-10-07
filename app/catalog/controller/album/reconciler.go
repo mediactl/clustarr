@@ -40,7 +40,6 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -326,12 +325,6 @@ func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName)
 		return ctrl.Result{}, reconcile.TerminalError(err)
 	}
 	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &alb, name); err != nil {
-		return ctrl.Result{}, err
-	}
-	// status.artwork drifted from its sources: ask the metadata gateway to
-	// re-fetch (spec §B.7). Before any status apply, so a failed publish
-	// returns without writing and the requeue retries it.
-	if err := artwork.PublishFetch(ctx, r.Bus, &alb, commonv1.MediaKindAlbum); err != nil {
 		return ctrl.Result{}, err
 	}
 	return r.reconcileNormal(ctx, &alb)

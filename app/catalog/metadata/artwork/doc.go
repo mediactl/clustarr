@@ -16,43 +16,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package artwork is the metadata gateway's half of the artwork store (spec
-// §B.3-§B.7): it fetches every item's artwork originals into
-// events.BucketArtwork, records them in status.artwork, and re-fetches when an
-// item's sources (spec.artwork, status.metadata.images) drift from what
-// was stored. What the reconcilers share with it (Drift, PublishFetch,
-// ResolveSources, Item, RenderToken, PublishRender), and the Reaper that
-// deletes a gone item's artwork, are app/catalog/artwork, which links no
-// image decoder.
+// §B.3-§B.7, as ADR-0019 §7.1 changed it): the catalog-artwork-fetch
+// consumer, which stores exactly the originals an item key's fetch task
+// names into events.BucketArtwork, each with its complete metadata
+// (app/catalog/artwork.ObjectMeta), deletes the originals of the types the
+// task drops, and records each failure in the item's clustarr-item-metadata
+// record. Which image to fetch is the item key's plan
+// (app/catalog/artwork.PlanFetch); status.artwork is rendered in the
+// manager from the objects' metadata. This package writes no Kubernetes
+// object and records no Event (the item key emits ArtworkFetchFailed).
 //
 // # Writers
 //
-// The gateway (catalog --role metadata) is the sole writer of "original"
-// objects and of status.artwork, under k8s.ManagerCatalogMetadata -- the
-// manager that already writes each kind's status.metadata, and in the SAME
-// apply (app/catalog/status.GatewayStatusFields): server-side apply replaces
-// a manager's whole ownership set on every apply, so an apply that carried
-// status.metadata without status.artwork would release every entry, and one
-// carrying status.artwork without status.metadata would release the
-// metadata. The renderer (catalog --role artwork, task C3) owns
-// "overlay" objects and status.overlay under k8s.ManagerCatalogArtwork.
+// The gateway (the agent's metadata domain) is the sole writer of
+// "original" objects. The renderer owns "overlay" objects.
 // app/catalog/artwork.Reaper is the only code that deletes both variants.
 //
 // # One item at a time
 //
-// Two consumers write the same leaves: the metadata work queue (after every
-// successful metadata fetch) and the artwork-fetch queue ([Handler], on an
-// app/catalog/artwork.Drift). Both hold [Fetcher.Lock] for the item from before
-// they decide what to fetch until after they apply, and both re-read the
-// object from the apiserver, uncached, after the slow fetches and immediately
-// before the apply -- CLAUDE.md's lost-update rule -- merging only what their
-// own Sync changed onto that fresh read ([Merge]).
+// Two fetch tasks of one item (each plan its own Msg-Id) hold
+// [Fetcher.Lock] for the item while they fetch and Put, so no two Puts of
+// one original race and leak a chunk set.
 //
-// RBAC: the gateway's Event recorder writes events.k8s.io Events (already
-// granted to catalog), and the passes read and apply the eight kinds'
-// status; the reaper's list is app/catalog/artwork's own marker. The
-// markers below restate exactly that, so this package's needs are visible
-// where the calls are, and `make manifests` generates no new rule.
-//
-// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;albums;authors;books;audiobooks;comics,verbs=get;list;watch
+// RBAC: none of its own; the gateway reads nothing of the item.
 package artwork

@@ -19,6 +19,7 @@ package artwork
 
 import (
 	"strconv"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,16 +76,22 @@ type Facts struct {
 	SourceURL     string // header Clustarr-Source-URL; an overlay carries its original's
 	Language      string // ISO 639-1 of a provider image; "" leaves the key out
 	Width, Height int    // pixels; zero or less leaves the key out
-	Overlay       *OverlayFacts
+	// UpdatedAt is when the bytes were stored (a fetch or a render), the
+	// clustarr.io/updated-at the manager renders status.artwork[].updatedAt
+	// and status.overlay.updatedAt from (ADR-0019 D13). Zero leaves the key
+	// out.
+	UpdatedAt time.Time
+	Overlay   *OverlayFacts
 }
 
 // ObjectMeta is the complete header and metadata set of one artwork object
 // (artwork design §B.2 as amended 2026-10-07). Every Put and SetMeta sends
 // all of it: a Put that omits a key releases it (research E3).
 //
-// It always sets the version, kind, uid, namespace, name, image type and
-// variant; width and height when positive; language when non-empty; and,
-// for an overlay, its profile and original digest. The headers are
+// It always sets the version, kind, uid, namespace, name, image type,
+// variant and source; the source URL when non-empty; the update time when
+// set; width and height when positive; language when non-empty; and, for an
+// overlay, its profile, original digest and inputs digest. The headers are
 // Content-Type, Clustarr-Source, Clustarr-Source-URL when non-empty and, for
 // an overlay, Clustarr-Rendered-From.
 func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Facts) events.ObjectMeta {
@@ -103,6 +110,13 @@ func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Fa
 		events.ArtworkMetaKeyName:      ref.Name,
 		events.ArtworkMetaKeyImageType: string(t),
 		events.ArtworkMetaKeyVariant:   variant,
+		events.ArtworkMetaKeySource:    f.Source,
+	}
+	if f.SourceURL != "" {
+		meta[events.ArtworkMetaKeySourceURL] = f.SourceURL
+	}
+	if !f.UpdatedAt.IsZero() {
+		meta[events.ArtworkMetaKeyUpdatedAt] = FormatUpdatedAt(f.UpdatedAt)
 	}
 	if f.Width > 0 {
 		meta[events.ArtworkMetaKeyWidth] = strconv.Itoa(f.Width)
@@ -117,6 +131,7 @@ func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Fa
 		headers[HeaderRenderedFrom] = o.RenderedFrom
 		meta[events.ArtworkMetaKeyProfile] = o.Profile
 		meta[events.ArtworkMetaKeyOriginalDigest] = o.OriginalDigest
+		meta[events.ArtworkMetaKeyRenderedFrom] = o.RenderedFrom
 	}
 	return events.ObjectMeta{Headers: headers, Metadata: meta}
 }
@@ -126,4 +141,28 @@ func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Fa
 // under an older version, is backfilled by its writer.
 func MetaCurrent(info events.ObjectInfo) bool {
 	return info.Metadata[events.ArtworkMetaKeyVersion] == events.ArtworkMetaVersion
+}
+
+// FormatUpdatedAt is clustarr.io/updated-at's form: RFC 3339, UTC, whole
+// seconds -- what a metav1.Time keeps, so the status rendered from it reads
+// back equal.
+func FormatUpdatedAt(t time.Time) string { return t.UTC().Truncate(time.Second).Format(time.RFC3339) }
+
+// ParseUpdatedAt reads clustarr.io/updated-at back; false when absent or
+// malformed.
+func ParseUpdatedAt(meta map[string]string) (time.Time, bool) {
+	v, ok := meta[events.ArtworkMetaKeyUpdatedAt]
+	if !ok {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
+}
+
+// MetaCurrentMap is MetaCurrent of an index entry's metadata.
+func MetaCurrentMap(meta map[string]string) bool {
+	return meta[events.ArtworkMetaKeyVersion] == events.ArtworkMetaVersion
 }

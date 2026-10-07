@@ -16,13 +16,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package metadata is the agent's metadata domain (spec §3.5.3): the
-// metadata gateway (rpc.catalog.metadata.* and catalog-metadata),
-// catalog-markers (answering into clustarr-markers) and
-// catalog-artwork-fetch.
+// metadata gateway (rpc.catalog.metadata.* and catalog-metadata, answering
+// in clustarr-item-metadata), catalog-markers (answering into
+// clustarr-markers) and catalog-artwork-fetch (storing originals). It
+// writes no Kubernetes object (ADR-0019).
 // Fixed at one replica (ADR-0007): its in-process rate limiters are what keep
 // Clustarr inside every provider's quota, and artwork.Fetcher's in-process
-// lock serialises the two artwork consumers per item. The orphan reaper is
-// not here: it is the manager's (R9).
+// lock serialises two fetch tasks of one item. The orphan reaper is not
+// here: it is the manager's (R9).
 package metadata
 
 import (
@@ -55,9 +56,9 @@ type Options struct {
 // Register adds the metadata gateway: every outbound metadata client, their
 // rate limiters and the two cache tiers, serving rpc.catalog.metadata.*
 // and the work.catalog.metadata.<tier> consumer; and the artwork store's
-// gateway half (spec §B.3-§B.7) -- the Fetcher that both the metadata
-// consumer and the catalog-artwork-fetch consumer store originals
-// through, and that consumer itself.
+// gateway half (spec §B.3-§B.7) -- the catalog-artwork-fetch consumer and
+// the Fetcher it stores the originals the item key names through. Both
+// answer in clustarr-item-metadata through one records writer.
 //
 // Both are k8s.EveryReplica: the gateway lists MetadataProviders through the
 // cache, so it starts only after the caches sync, and it is pinned to one
@@ -81,7 +82,7 @@ type Options struct {
 // elects and also serves metadata: one replica would serve, the rest idle.
 //
 // The one replica is also what makes artwork.Fetcher.Lock -- an in-process
-// lock -- enough to serialise the two artwork consumers per item. The reaper
+// lock -- enough to serialise two fetch tasks of one item. The reaper
 // is the manager's (R9, spec §5.13): one sweeper behind the lease, which the
 // gateway's replica count never was.
 func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
@@ -94,10 +95,9 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	answers := records.NewWriter(bus.KV(events.BucketItemMetadata), agentrecords.ItemMetadata(),
 		os.Getenv("POD_NAME"), version.String())
 	fetcher := &artwork.Fetcher{
-		Store:    bus.ObjectStore(events.BucketArtwork),
-		HTTP:     artworkHTTPClient,
-		Limiter:  artwork.NewHostLimiters(artworkHostRate, artworkHostBurst),
-		Recorder: mgr.GetEventRecorder("metadata-gateway"),
+		Store:   bus.ObjectStore(events.BucketArtwork),
+		HTTP:    artworkHTTPClient,
+		Limiter: artwork.NewHostLimiters(artworkHostRate, artworkHostBurst),
 	}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{
@@ -122,13 +122,14 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		return catalogagent.Registration{}, fmt.Errorf("catalog: add the metadata gateway: %w", err)
 	}
 
-	// The ImportArtwork durable (spec §B.7): a reconciler saw status.artwork
-	// drift from its sources (artwork.Drift). Same Fetcher, so the same per-item lock.
+	// The artwork-fetch durable (ADR-0019 §7.1): the item key names the
+	// originals to fetch; the fetcher stores them and records its failures
+	// through the same item-metadata writer.
 	spec, ok := o.BusTopology().Consumer(events.ConsumerCatalogArtworkFetch)
 	if !ok {
 		return catalogagent.Registration{}, fmt.Errorf("catalog: consumer %q missing from the bus topology", events.ConsumerCatalogArtworkFetch)
 	}
-	fetch := &artwork.Handler{Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
+	fetch := &artwork.Handler{Fetcher: fetcher, Records: answers}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, spec.Subscription(), fetch.Handle)
 		if err != nil {

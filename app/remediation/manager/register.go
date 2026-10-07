@@ -30,6 +30,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
@@ -37,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/mediafilespec/specwrite"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/remediation"
+	artworkstage "github.com/mediactl/clustarr/app/remediation/artwork"
 	"github.com/mediactl/clustarr/app/remediation/downloads"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	metadatastage "github.com/mediactl/clustarr/app/remediation/metadata"
@@ -45,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/rename"
 	replayactuator "github.com/mediactl/clustarr/app/remediation/replay"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/probestore"
@@ -67,6 +71,13 @@ type Options struct {
 	Inbox         *intake.Inbox
 	DeliveryWakes <-chan history.Target
 	Book          *dispatch.DeliveryBook
+
+	// Artwork is the manager's objindex over clustarr-artwork (ADR-0019
+	// §7.1-§7.2, D13): the metadata stage renders status.artwork from it,
+	// the artwork stages plan fetches and overlays against it, and its
+	// changes wake the items (S26). Nil runs no artwork stage and keeps
+	// every stored status.artwork.
+	Artwork *objindex.Index
 }
 
 // Deps is what Planners, Actuators and Stages build from.
@@ -132,13 +143,25 @@ func Stages(d Deps) []remediation.ItemStage {
 		return nil
 	}
 	recorder := func(name string) k8sevents.EventRecorder { return d.Manager.GetEventRecorder(name) }
-	return []remediation.ItemStage{
+	stages := []remediation.ItemStage{
 		downloads.New(downloads.Options{
 			Reader: d.Manager.GetClient(), APIReader: d.Manager.GetAPIReader(), Bus: d.Env.Bus,
 			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Recorder: recorder,
 		}),
-		metadatastage.New(metadatastage.Options{Bus: d.Env.Bus}),
 	}
+	meta := metadatastage.Options{Bus: d.Env.Bus}
+	if idx := d.Options.Artwork; idx != nil {
+		meta.Artwork = func(obj client.Object) ([]catalogv1alpha1.ArtworkEntry, bool) {
+			return catalogartwork.Entries(idx, obj)
+		}
+	}
+	stages = append(stages, metadatastage.New(meta))
+	if d.Options.Artwork != nil {
+		stages = append(stages, artworkstage.New(artworkstage.Options{
+			Bus: d.Env.Bus, Index: d.Options.Artwork, Dispatch: d.Options.Dispatch,
+		}))
+	}
+	return stages
 }
 
 // Planners is every planner the loop binds; the loop sorts them by Order.

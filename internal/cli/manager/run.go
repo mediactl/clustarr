@@ -43,6 +43,7 @@ import (
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -167,6 +168,10 @@ type planes struct {
 	// clustarr-dlq-projector with it, and the advisory intake's second net
 	// annotates through it (§8.5).
 	projector *historyworker.DLQProjector
+	// artwork is the manager's objindex over clustarr-artwork, leader-only
+	// (ADR-0019 §7.1, §8.1 S26): the item keys and the Artist and Author
+	// reconcilers render status.artwork and status.overlay from it.
+	artwork *objindex.Index
 }
 
 // newPlanes builds the shared planes and adds the leader-only runnables
@@ -213,6 +218,13 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	if err := mgr.Add(p.tasks); err != nil {
 		return planes{}, fmt.Errorf("manager: add the task-events intake: %w", err)
 	}
+	// The artwork index (D13): one watch of the bucket, its creation time
+	// checked so a re-created bucket reads as no artwork at once, and
+	// metadata-only changes (a backfill) reported too.
+	p.artwork = objindex.New(bus.ObjectStore(events.BucketArtwork), objindex.WithMetadataChanges())
+	if err := mgr.Add(k8s.LeaderOnly(p.artwork.Run)); err != nil {
+		return planes{}, fmt.Errorf("manager: add the artwork index: %w", err)
+	}
 	return p, nil
 }
 
@@ -242,7 +254,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	}
 	steps := []step{
 		{"catalog", func() error {
-			return catalogmanager.Register(mgr, bus, catalogmanager.Options{Options: o.Options, DLQProjector: p.projector})
+			return catalogmanager.Register(mgr, bus, catalogmanager.Options{Options: o.Options, DLQProjector: p.projector, Artwork: p.artwork})
 		}},
 		{"import", func() error {
 			return importmanager.Register(mgr, bus, importmanager.Options{Options: o.Options, TraktBaseURL: o.TraktBaseURL})
@@ -283,6 +295,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				// The planes the item stages admit, settle and wake through
 				// (ADR-0019 A3.3; A2's hand-off).
 				Dispatch: p.ledger, Inbox: p.inbox, DeliveryWakes: p.tasks.Wakes(), Book: p.book,
+				Artwork: p.artwork,
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge

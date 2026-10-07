@@ -37,9 +37,6 @@ import (
 	"github.com/jonboulle/clockwork"
 	_ "golang.org/x/image/webp" // registers the WebP decoder with image.DecodeConfig
 	"golang.org/x/time/rate"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sevents "k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -47,7 +44,6 @@ import (
 	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/version"
 )
@@ -75,12 +71,6 @@ const (
 	HeaderSourceURL   = catalogartwork.HeaderSourceURL
 )
 
-// ReasonFetchFailed is the Kubernetes Event reason a failed fetch records on
-// the item (spec §B.4). The Event's note says why.
-const ReasonFetchFailed = "ArtworkFetchFailed"
-
-const actionFetch = "FetchArtwork"
-
 var (
 	// ErrNotAnImage is a response whose Content-Type is not image/jpeg,
 	// image/png or image/webp, or whose body does not decode as one --
@@ -89,6 +79,11 @@ var (
 
 	// ErrImageTooLarge is an image wider or taller than MaxImageDimension.
 	ErrImageTooLarge = errors.New("too large")
+
+	// ErrStore is the object store failing a Put, SetMeta or Delete: a
+	// fault of the store, not the source, which the handler redelivers
+	// rather than records as the source's failure.
+	ErrStore = errors.New("artwork store")
 )
 
 // acceptedContentTypes is spec §B.4's list. Anything else is ErrNotAnImage
@@ -110,7 +105,7 @@ const svgContentType = "image/svg+xml"
 
 // Fetcher fetches artwork originals into the object store. It is the
 // metadata gateway's only path to events.BucketArtwork's "original"
-// variant.
+// variant, and it writes nothing else: no status, no Event (ADR-0019 A5.2).
 type Fetcher struct {
 	// Store is Bus.ObjectStore(events.BucketArtwork).
 	Store events.ObjectStore
@@ -126,11 +121,8 @@ type Fetcher struct {
 	// passes NewHostLimiters.
 	Limiter func(host string) *rate.Limiter
 
-	// Recorder writes the ArtworkFetchFailed Event on the item. Nil records
-	// nothing.
-	Recorder k8sevents.EventRecorder
-
-	// Clock stamps status.artwork[].updatedAt. Nil is the real clock.
+	// Clock stamps an original's clustarr.io/updated-at, from which the
+	// manager renders status.artwork[].updatedAt. Nil is the real clock.
 	Clock clockwork.Clock
 
 	// SVGRenditionHosts are the image hosts that render each SVG they serve
@@ -153,15 +145,14 @@ type itemLock struct {
 	refs int
 }
 
-// Lock serialises the gateway's two writers of one item's artwork -- the
-// metadata work-queue handler and the artwork-fetch Handler -- from before
-// Sync decides what to fetch until after the apply that records it. It
+// Lock serialises two fetch tasks of one item (each plan is its own
+// Msg-Id), so no two Puts of one original race and leak a chunk set. It
 // blocks until the item is free or ctx is done, and the returned func
 // releases it.
 //
 // key names the item ([LockKey]). It is in-process: the gateway runs as
-// exactly one replica (§3), and [Merge] onto a fresh read covers the brief
-// overlap a rolling update can cause.
+// exactly one replica (§3); the reaper purges what a rolling update's
+// overlap could leak.
 func (f *Fetcher) Lock(ctx context.Context, key string) (unlock func(), err error) {
 	f.mu.Lock()
 	if f.locks == nil {
@@ -212,123 +203,49 @@ func (f *Fetcher) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-// Sync fetches every image type whose resolved source URL differs from the
-// current entry or whose object is missing.
-// It returns the complete new status.artwork list (previous entries kept where a fetch failed, R3) and whether the poster's digest changed.
-//
-// In full, per image type:
-//
-//   - a source whose URL and kind match the current entry, and whose object
-//     is present with the entry's digest, keeps the entry verbatim and is
-//     not fetched;
-//   - any other source is fetched; success replaces the entry, failure keeps
-//     the previous entry and object exactly as they were and records one
-//     ArtworkFetchFailed Event. A failed custom URL never falls back to the
-//     provider's image (R3): the user asked for that image, and a silent
-//     substitute is a guess;
-//   - no source at all keeps a provider entry (a provider that did not list
-//     a type this time is no reason to drop art already stored), and drops
-//     a custom entry -- its override was removed and there is nothing to
-//     replace it with -- deleting its original, so the reconciler's Drift
-//     stops reporting the removed override.
-//
-// posterChanged is true only when a stored poster's digest differs from the
-// previous poster entry's (no previous entry counts as different).
-func (f *Fetcher) Sync(ctx context.Context, obj client.Object, kind commonv1.MediaKind,
-	overrides []catalogv1alpha1.ArtworkOverride, images []catalogv1alpha1.Image,
-	current []catalogv1alpha1.ArtworkEntry,
-) (entries []catalogv1alpha1.ArtworkEntry, posterChanged bool) {
-	ctx, span := tracing.Start(ctx, "artwork.Fetcher.Sync")
+// FetchOne stores src as ref's original of type t (ADR-0019 A5.2: the item
+// key named it): an object already fetched from that URL whose metadata
+// predates events.ArtworkMetaVersion is backfilled with SetMeta, no refetch
+// (ADR-0021 §3); anything else is fetched, validated and Put with its
+// complete metadata. A failure of the store wraps ErrStore; any other is
+// the source's.
+func (f *Fetcher) FetchOne(ctx context.Context, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType, src catalogartwork.Source) error {
+	ctx, span := tracing.Start(ctx, "artwork.Fetcher.fetch")
 	defer span.End()
-
-	sources := catalogartwork.ResolveSources(overrides, images)
-	prev := catalogartwork.Index(current)
-	ref := catalogartwork.RefOf(obj, kind)
-	for _, t := range catalogartwork.ImageTypes {
-		src, hasSrc := sources[t]
-		cur, hasCur := prev[t]
-		key := events.ArtworkKey(kind, obj.GetUID(), string(t), events.ArtworkVariantOriginal)
-
-		if !hasSrc {
-			if !hasCur {
-				continue
-			}
-			if cur.Source == catalogv1alpha1.ArtworkSourceCustom {
-				if err := f.Store.Delete(ctx, key); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
-					// Keep the entry while its object stands, so status
-					// never claims less than the store serves; the next
-					// Sync retries the delete.
-					logging.FromContext(ctx).Warn("artwork: delete a removed override's original",
-						"kind", kind, "namespace", obj.GetNamespace(), "name", obj.GetName(), "type", t, "err", err)
-					entries = append(entries, cur)
-				}
-				continue
-			}
-			entries = append(entries, cur)
-			continue
-		}
-
-		if hasCur {
-			stale, info, have := f.stale(ctx, key, cur, src)
-			if !stale {
-				if have && !catalogartwork.MetaCurrent(info) {
-					f.backfill(ctx, key, ref, t, src, info)
-				}
-				entries = append(entries, cur)
-				continue
-			}
-		}
-		e, err := f.fetchOne(ctx, key, ref, t, src)
-		if err != nil {
-			tracing.RecordError(span, err)
-			f.recordFailure(ctx, obj, kind, t, src, err)
-			if hasCur {
-				entries = append(entries, cur)
-			}
-			continue
-		}
-		entries = append(entries, e)
-		if t == catalogv1alpha1.ImageTypePoster && (!hasCur || cur.Digest != e.Digest) {
-			posterChanged = true
-		}
-	}
-	return entries, posterChanged
-}
-
-// stale reports whether cur no longer describes what src would store: a
-// different URL or kind, a missing object, or an object whose digest is not
-// the entry's (a crash between a Put and the apply that records it). A
-// store that cannot be asked is not taken as "missing": that would turn
-// every store blip into a refetch of every image.
-//
-// info is the object's, and have true, whenever the Info call succeeded, so
-// Sync's keep-verbatim branch can backfill its metadata without a second
-// read.
-func (f *Fetcher) stale(ctx context.Context, key string, cur catalogv1alpha1.ArtworkEntry,
-	src catalogartwork.Source,
-) (stale bool, info events.ObjectInfo, have bool) {
-	if cur.SourceURL != src.URL || cur.Source != src.Kind {
-		return true, events.ObjectInfo{}, false
-	}
+	key := events.ArtworkKey(ref.Kind, ref.UID, string(t), events.ArtworkVariantOriginal)
 	info, err := f.Store.Info(ctx, key)
 	switch {
-	case errors.Is(err, events.ErrObjectNotFound):
-		return true, events.ObjectInfo{}, false
-	case err != nil:
-		logging.FromContext(ctx).Warn("artwork: object info", "key", key, "err", err)
-		return false, events.ObjectInfo{}, false
+	case err == nil && !catalogartwork.MetaCurrent(info) && info.Headers[HeaderSourceURL] == src.URL:
+		return f.backfill(ctx, key, ref, t, src, info)
+	case err != nil && !errors.Is(err, events.ErrObjectNotFound):
+		tracing.RecordError(span, err)
+		return fmt.Errorf("%w: info %s: %w", ErrStore, key, err)
 	}
-	return info.Digest != cur.Digest, info, true
+	if err := f.fetchAndPut(ctx, key, ref, t, src); err != nil {
+		tracing.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
-// backfill gives an original stored before object metadata existed its full
-// set with SetMeta (artwork design §B.4 as amended): no refetch, no chunk
-// rewrite. Status records no dimensions, so it reads the object's first 64 KiB
-// for image.DecodeConfig and closes the reader. Callers hold Fetcher.Lock for
+// Drop deletes ref's original of type t: its override was removed and no
+// provider image replaces it. An absent object is success.
+func (f *Fetcher) Drop(ctx context.Context, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType) error {
+	key := events.ArtworkKey(ref.Kind, ref.UID, string(t), events.ArtworkVariantOriginal)
+	if err := f.Store.Delete(ctx, key); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
+		return fmt.Errorf("%w: delete %s: %w", ErrStore, key, err)
+	}
+	return nil
+}
+
+// backfill gives an original stored under an older metadata version its
+// full set with SetMeta (artwork design §B.4 as amended; ADR-0021 §3): no
+// refetch, no chunk rewrite. It reads the object's first 64 KiB for
+// image.DecodeConfig and closes the reader. Callers hold Fetcher.Lock for
 // the item, which SetMeta, having no compare-and-swap, relies on.
 func (f *Fetcher) backfill(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
 	src catalogartwork.Source, info events.ObjectInfo,
-) {
+) error {
 	var w, h int
 	if _, rc, err := f.Store.Get(ctx, key); err == nil {
 		if cfg, _, err := image.DecodeConfig(io.LimitReader(rc, 64<<10)); err == nil {
@@ -336,54 +253,44 @@ func (f *Fetcher) backfill(ctx context.Context, key string, ref catalogartwork.O
 		}
 		_ = rc.Close()
 	}
+	// The bytes were stored at the object's last write, which a SetMeta
+	// never preceded on an object below the current version.
 	meta := catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal, catalogartwork.Facts{
 		ContentType: info.Headers[events.HeaderContentType], Source: string(src.Kind), SourceURL: src.URL,
-		Language: src.Language, Width: w, Height: h,
+		Language: src.Language, Width: w, Height: h, UpdatedAt: info.ModTime,
 	})
 	if err := f.Store.SetMeta(ctx, key, meta); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
-		logging.FromContext(ctx).Warn("artwork: backfill an original's metadata", "key", key, "err", err)
+		return fmt.Errorf("%w: backfill %s: %w", ErrStore, key, err)
 	}
+	return nil
 }
 
-// fetchOne fetches src, validates it (spec §B.4 steps 1-2) and stores it at
-// key (step 3), returning the entry that records it (step 4's value).
-func (f *Fetcher) fetchOne(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
-	src catalogartwork.Source,
-) (catalogv1alpha1.ArtworkEntry, error) {
-	ctx, span := tracing.Start(ctx, "artwork.Fetcher.fetch")
-	defer span.End()
-
-	entry, err := f.fetchAndPut(ctx, key, ref, t, src)
-	if err != nil {
-		tracing.RecordError(span, err)
-	}
-	return entry, err
-}
-
+// fetchAndPut fetches src, validates it (spec §B.4 steps 1-2) and stores it
+// at key with its complete metadata (step 3).
 func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
 	src catalogartwork.Source,
-) (catalogv1alpha1.ArtworkEntry, error) {
+) error {
 	u, err := url.Parse(src.URL)
 	if err != nil || !catalogartwork.Fetchable(src.URL) {
-		return catalogv1alpha1.ArtworkEntry{}, errors.New("not an absolute http(s) URL")
+		return errors.New("not an absolute http(s) URL")
 	}
 	body, contentType, err := f.get(ctx, u)
 	if contentType == svgContentType {
 		// Converted by its host: the same image as a PNG, at .png.
 		png, ok := f.pngRendition(u)
 		if !ok {
-			return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: an SVG, and %s serves no PNG rendition of it", ErrNotAnImage, u.Host)
+			return fmt.Errorf("%w: an SVG, and %s serves no PNG rendition of it", ErrNotAnImage, u.Host)
 		}
 		if body, contentType, err = f.get(ctx, png); contentType == svgContentType {
-			return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: an SVG whose PNG rendition is an SVG too", ErrNotAnImage)
+			return fmt.Errorf("%w: an SVG whose PNG rendition is an SVG too", ErrNotAnImage)
 		}
 	}
 	if err != nil {
-		return catalogv1alpha1.ArtworkEntry{}, err
+		return err
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(body))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
-		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: a %s body that does not decode", ErrNotAnImage, contentType)
+		return fmt.Errorf("%w: a %s body that does not decode", ErrNotAnImage, contentType)
 	}
 	// The stored Content-Type is what the bytes ARE, not what the server
 	// said: a PNG labelled image/jpeg is stored, and served, as image/png.
@@ -392,33 +299,24 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, ref catalogartwor
 	// in this binary, say GIF, is not an accepted original).
 	stored := "image/" + format
 	if !acceptedContentTypes[stored] {
-		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: a %s body served as %s", ErrNotAnImage, format, contentType)
+		return fmt.Errorf("%w: a %s body served as %s", ErrNotAnImage, format, contentType)
 	}
 	if cfg.Width > MaxImageDimension || cfg.Height > MaxImageDimension {
-		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: %s is %dx%d, more than %d pixels on a side",
+		return fmt.Errorf("%w: %s is %dx%d, more than %d pixels on a side",
 			ErrImageTooLarge, format, cfg.Width, cfg.Height, MaxImageDimension)
 	}
 
 	// The complete set (artwork design §B.2 as amended): a Put that omits a
 	// key releases it.
-	info, err := f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal,
+	_, err = f.Store.Put(ctx, key, bytes.NewReader(body), catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal,
 		catalogartwork.Facts{
 			ContentType: stored, Source: string(src.Kind), SourceURL: src.URL, Language: src.Language,
-			Width: cfg.Width, Height: cfg.Height,
+			Width: cfg.Width, Height: cfg.Height, UpdatedAt: f.now(),
 		}))
 	if err != nil {
-		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("store: %w", err)
+		return fmt.Errorf("%w: put %s: %w", ErrStore, key, err)
 	}
-	return catalogv1alpha1.ArtworkEntry{
-		Type:      t,
-		Source:    src.Kind,
-		SourceURL: src.URL,
-		Digest:    info.Digest,
-		SizeBytes: info.Size,
-		// Second precision, UTC: what the apiserver keeps of a metav1.Time
-		// anyway, so the value this returns equals the value read back.
-		UpdatedAt: metav1.NewTime(f.now().UTC().Truncate(time.Second)),
-	}, nil
+	return nil
 }
 
 // get fetches u under its host's rate limit and returns its body and media
@@ -479,72 +377,6 @@ func (f *Fetcher) pngRendition(u *url.URL) (*url.URL, bool) {
 	png.Path = u.Path[:len(u.Path)-len(".svg")] + ".png"
 	png.RawPath = ""
 	return &png, true
-}
-
-func (f *Fetcher) recordFailure(ctx context.Context, obj client.Object, kind commonv1.MediaKind,
-	t catalogv1alpha1.ImageType, src catalogartwork.Source, err error,
-) {
-	where := redactURL(src.URL)
-	logging.FromContext(ctx).Warn("artwork: fetch failed",
-		"kind", kind, "namespace", obj.GetNamespace(), "name", obj.GetName(),
-		"type", t, "source", src.Kind, "url", where, "err", err)
-	if f.Recorder == nil {
-		return
-	}
-	f.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, ReasonFetchFailed, actionFetch,
-		"%s %s image from %s was not stored: %s", src.Kind, t, where, err.Error())
-}
-
-// redactURL drops a URL's userinfo, query and fragment before it reaches an
-// Event or a log line: a custom URL may carry a token, and a provider's
-// image URL has no business carrying a key, but CLAUDE.md records two that
-// did in error strings.
-func redactURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "an unparseable URL"
-	}
-	redacted := u.RawQuery != "" || u.User != nil
-	u.User, u.RawQuery, u.Fragment, u.RawFragment = nil, "", "", ""
-	if redacted {
-		return u.String() + "?<redacted>"
-	}
-	return u.String()
-}
-
-func sameEntry(a, b catalogv1alpha1.ArtworkEntry) bool {
-	return a.Type == b.Type && a.Source == b.Source && a.SourceURL == b.SourceURL &&
-		a.Digest == b.Digest && a.SizeBytes == b.SizeBytes && a.UpdatedAt.Equal(&b.UpdatedAt)
-}
-
-// Merge folds the change one Sync made -- before is the list it was given,
-// after the list it returned -- onto fresh, the item's status.artwork as
-// re-read from the apiserver immediately before the apply. A type Sync
-// replaced or added takes Sync's entry; a type Sync dropped is dropped;
-// every other type keeps fresh's entry, so an entry another writer
-// recorded while this Sync was fetching is not rolled back to the value
-// read before the fetch (CLAUDE.md's lost-update rule). The result is in
-// the ImageType enum's order.
-func Merge(before, after, fresh []catalogv1alpha1.ArtworkEntry) []catalogv1alpha1.ArtworkEntry {
-	b, a := catalogartwork.Index(before), catalogartwork.Index(after)
-	out := catalogartwork.Index(fresh)
-	for t, e := range a {
-		if prev, ok := b[t]; !ok || !sameEntry(prev, e) {
-			out[t] = e
-		}
-	}
-	for t := range b {
-		if _, kept := a[t]; !kept {
-			delete(out, t)
-		}
-	}
-	merged := make([]catalogv1alpha1.ArtworkEntry, 0, len(out))
-	for _, t := range catalogartwork.ImageTypes {
-		if e, ok := out[t]; ok {
-			merged = append(merged, e)
-		}
-	}
-	return merged
 }
 
 // NewHostLimiters returns a Fetcher.Limiter that gives every image host its
