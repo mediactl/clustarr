@@ -62,6 +62,7 @@ func Payloads() []schema.Payload {
 		schema.FetchTask{},
 		schema.ScanTask{},
 		schema.ListTask{},
+		schema.RecycleSweepTask{},
 		schema.ArtworkFetchTask{},
 		schema.RenderOverlayTask{},
 	}

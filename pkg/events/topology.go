@@ -938,6 +938,20 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 4, Slots: 4, Heartbeat: 30 * s,
 		},
 		{
+			// The recycle-bin sweep (spec 2026-10-06 §3.5.3, OD36): one
+			// global task the manager queues every 6 h, so the import
+			// domain can scale to zero instead of keeping an hourly timer.
+			// JetStream replaces AckWait with BackOff[0] on a first
+			// delivery, so a sweep has 5 min; the handler sends in-progress
+			// acks while it removes folders.
+			Name: ConsumerImportRecycle, Stream: StreamWorkImportarr,
+			Filters: []string{FilterImportRecycle},
+			AckWait: 60 * s, MaxDeliver: 3,
+			BackOff:       []time.Duration{5 * m, 30 * m},
+			Slots:         1,
+			MaxAckPending: 1 * AutoscaleReplicaCeiling, Heartbeat: 30 * s,
+		},
+		{
 			// AckWait is 60s, the floor set by indexarr's
 			// terminationGracePeriodSeconds: 60 (config/manager/indexarr.yaml).
 			// It was 120s, which broke the rule the importarr block above

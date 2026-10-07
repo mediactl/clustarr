@@ -17,6 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package schema
 
+import "time"
+
 // ScanTask asks a rescan worker to walk one RootFolder -- or the subpath of
 // it a LibraryScan names -- on behalf of that LibraryScan. Subject:
 // clustarr.work.importarr.scan.<rootfolder> (amendment §A1.4, §A1.6).
@@ -79,3 +81,22 @@ type ListTask struct {
 
 // Schema implements Payload.
 func (ListTask) Schema() string { return "importarr.ListTask.v1" }
+
+// RecycleSweepTask asks the import domain to sweep every recycle bin once
+// (fileimport.RecycleSweeper.SweepOnce). Subject:
+// clustarr.work.importarr.recycle.sweep, consumed by ConsumerImportRecycle
+// ("importarr-recycle"). The manager's recyclesweep.Scheduler publishes one
+// per 6-hour UTC slot (spec 2026-10-06 §3.5.3, OD36).
+//
+// It names no object: a bin shared by several RootFolders is swept with the
+// longest retention any of them asks for, which one task over every bin
+// knows and a per-RootFolder task would not.
+type RecycleSweepTask struct {
+	// Period is the start of the 6-hour UTC slot the sweep was queued for.
+	// The handler does not read it; a dead letter carries it so an operator
+	// can tell which sweep failed.
+	Period time.Time `json:"period"`
+}
+
+// Schema implements Payload.
+func (RecycleSweepTask) Schema() string { return "importarr.RecycleSweepTask.v1" }

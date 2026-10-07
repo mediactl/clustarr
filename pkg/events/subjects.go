@@ -118,6 +118,10 @@ const (
 	FilterCatalogSegmentsAnalyze = "clustarr.work.segmentarr.analyze.>"
 	FilterCatalogSegmentsResult  = "clustarr.work.segmentarr.result.>"
 	FilterCatalogArtworkRender   = "clustarr.work.catalogarr.artwork.render.>"
+	// FilterImportRecycle is the recycle-bin sweep the manager queues
+	// (spec 2026-10-06 §3.5.3). It lies inside FilterWorkImportarr, so the
+	// stream is unchanged.
+	FilterImportRecycle = "clustarr.work.importarr.recycle.>"
 )
 
 // Durable consumer names.
@@ -131,6 +135,7 @@ const (
 	ConsumerImportScan           = "importarr-scan"
 	ConsumerImportList           = "importarr-list"
 	ConsumerImportFile           = "importarr-fileimport"
+	ConsumerImportRecycle        = "importarr-recycle"
 	ConsumerIndexRSS             = "indexarr-rss"
 	ConsumerCaptionFetchHigh     = "captionarr-fetch-high"
 	ConsumerCaptionFetchNormal   = "captionarr-fetch-normal"
@@ -389,6 +394,13 @@ func WorkListSubject(importList string) string {
 func WorkFileImportSubject(downloadUID string) string {
 	return "clustarr.work.importarr.fileimport." + tok(downloadUID)
 }
+
+// SubjectImportRecycleSweep is the one subject the recycle sweep task rides.
+// It carries no object token: one task sweeps every bin, each once, with the
+// longest retention any RootFolder sharing it asks for
+// (fileimport.RecycleSweeper.SweepOnce), which a per-RootFolder task could
+// not know.
+const SubjectImportRecycleSweep = "clustarr.work.importarr.recycle.sweep"
 
 // WorkRSSSubject builds clustarr.work.indexarr.rss.normal.<indexer-uid>.
 func WorkRSSSubject(indexerUID string) string {

@@ -141,11 +141,9 @@ type resolver func(key string, data []byte) Target
 //
 // catalog.WantedScan names no single object -- it is a namespace sweep,
 // Namespace and no Name -- so resolveWantedScan resolves it to its namespace
-// alone rather than pretending it names one object. A payload with no
-// namespace either, a cluster-global task, would fall through with an empty
-// key and resolve to nothing; no schema publishes one today (the
-// index.DefinitionsSync this comment once cited never had a producer and was
-// removed in gap fixes Z2).
+// alone rather than pretending it names one object.
+// importarr.RecycleSweepTask is the one cluster-global task: it names
+// neither, and resolveRecycleSweepTask says so by returning the zero Target.
 var resolvers = map[string]resolver{
 	schema.ItemEvent{}.Schema():         resolveItemEvent,
 	schema.ReleaseEvent{}.Schema():      resolveReleaseEvent,
@@ -166,6 +164,7 @@ var resolvers = map[string]resolver{
 	schema.FetchTask{}.Schema():         resolveFetchTask,
 	schema.ScanTask{}.Schema():          resolveScanTask,
 	schema.ListTask{}.Schema():          resolveListTask,
+	schema.RecycleSweepTask{}.Schema():  resolveRecycleSweepTask,
 	schema.ArtworkFetchTask{}.Schema():  resolveArtworkFetchTask,
 	schema.RenderOverlayTask{}.Schema(): resolveRenderOverlayTask,
 	schema.SegmentsPlanTask{}.Schema():  resolveSegmentsPlanTask,
@@ -435,3 +434,9 @@ func resolveListTask(key string, data []byte) Target {
 	}
 	return refTarget(p.ListRef, catalogv1alpha1.GroupVersion.String(), "ImportList")
 }
+
+// resolveRecycleSweepTask is importarr's recycle-bin sweep (spec 2026-10-06
+// §3.5.3). One task sweeps every bin, so it names no object and no
+// namespace, and the DLQ projector logs its dead letter instead of
+// annotating anything.
+func resolveRecycleSweepTask(string, []byte) Target { return Target{} }
