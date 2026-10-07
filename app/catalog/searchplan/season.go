@@ -246,6 +246,12 @@ func (p *SeasonPlan) step(v SeasonView, st *catalogv1alpha1.SeasonSearchState, n
 	if d != nil {
 		d.Delivery = nil
 	}
+	if cur != nil {
+		// A season reading Searching with no dispatch in flight (a state
+		// written by hand, or a seq the ledger never saw) is searched again
+		// rather than left to stall the request.
+		cur.Phase = catalogv1alpha1.SeasonSearchQueued
+	}
 
 	// The next season: one at a time, behind its pace slot and the ledger.
 	next := nextQueued(st)
