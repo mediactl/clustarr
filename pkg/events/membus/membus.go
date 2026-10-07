@@ -192,7 +192,9 @@ func (b *Bus) ensure(t events.Topology) error {
 			existing.mu.Unlock()
 			continue
 		}
-		b.buckets[spec.Name] = &bucket{spec: spec, vals: map[string]*kvValue{}}
+		// created stamps the bucket's generation, as a stream's creation
+		// time does on NATS (KV.Status).
+		b.buckets[spec.Name] = &bucket{spec: spec, vals: map[string]*kvValue{}, created: b.clock.Now().UTC()}
 	}
 	for _, spec := range t.ObjectStores {
 		if existing, ok := b.objectStores[spec.Name]; ok {

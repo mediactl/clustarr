@@ -437,6 +437,16 @@ func ResolveWatchOptions(opts []WatchOption) WatchOptions {
 // refuses WatchFromRevision rather than pretend.
 var ErrWatchOptionUnsupported = errors.New("events: watch option unsupported")
 
+// KVStatus is a bucket's backing stream: its last revision, and when it was
+// created. A bucket deleted and created again has a new Created, and its
+// revisions start over (loop spec 2026-10-06 §4.9: the records waker reads
+// both to resume or replay).
+type KVStatus struct {
+	Bucket       string
+	LastRevision uint64
+	Created      time.Time
+}
+
 // KV is a single bucket of the broker's key/value store.
 type KV interface {
 	// Get returns the current revision of key, or ErrKeyNotFound.
@@ -465,10 +475,21 @@ type KV interface {
 	// meanwhile, as a value check followed by Delete can.
 	DeleteRevision(ctx context.Context, key string, rev uint64) error
 
-	// Watch streams the current value of every key matching pattern and then
-	// every subsequent change. The channel is closed when ctx is cancelled or
-	// the bus closes.
-	Watch(ctx context.Context, pattern string) (<-chan Entry, error)
+	// Watch streams the current value of every key matching pattern, in
+	// revision order, then every subsequent change, never dropping one: a
+	// slow reader neither loses an update nor blocks a writer.
+	// WatchUpdatesOnly skips the current values; WatchFromRevision starts at
+	// a revision. The channel is closed when ctx is cancelled or the bus
+	// closes.
+	Watch(ctx context.Context, pattern string, opts ...WatchOption) (<-chan Entry, error)
+
+	// Keys lists every live key, sorted. An empty bucket is no keys and no
+	// error.
+	Keys(ctx context.Context) ([]string, error)
+
+	// Status reads the bucket's last revision and creation time. A missing
+	// bucket is ErrBucketNotFound.
+	Status(ctx context.Context) (KVStatus, error)
 }
 
 // ObjectInfo describes one object in an ObjectStore, or the outcome of a

@@ -25,6 +25,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/internal/evqueue"
 )
 
 // KV binds to a bucket. The binding is lazy and cached: the first call
@@ -205,19 +206,32 @@ func (k *kvHandle) DeleteRevision(ctx context.Context, key string, rev uint64) e
 
 // Watch streams the current value of every key matching pattern and then
 // every subsequent change. The JetStream end-of-initial-values marker is
-// swallowed, because events.Entry has no nil form.
-func (k *kvHandle) Watch(ctx context.Context, pattern string) (<-chan events.Entry, error) {
+// swallowed, because events.Entry has no nil form. A pump drains nats.go's
+// channel at once into an unbounded queue (evqueue) and a relay hands it on
+// at the reader's pace, so a slow reader neither loses an update nor stalls
+// the ordered consumer (loop spec 2026-10-06 §4.15). An Updates channel that
+// closes while ctx is live means nats.go gave up resetting the consumer: the
+// queue closes, the channel closes once drained, and the reader reopens.
+func (k *kvHandle) Watch(ctx context.Context, pattern string, opts ...events.WatchOption) (<-chan events.Entry, error) {
 	kv, err := k.resolve(ctx)
 	if err != nil {
 		return nil, err
 	}
-	w, err := kv.Watch(ctx, pattern)
+	var wopts []jetstream.WatchOpt
+	switch o := events.ResolveWatchOptions(opts); {
+	case o.UpdatesOnly:
+		wopts = append(wopts, jetstream.UpdatesOnly())
+	case o.FromRevision > 0:
+		wopts = append(wopts, jetstream.ResumeFromRevision(o.FromRevision))
+	}
+	w, err := kv.Watch(ctx, pattern, wopts...)
 	if err != nil {
 		return nil, kvError("watch", k.name, pattern, err)
 	}
-	out := make(chan events.Entry, 64)
+	out := make(chan events.Entry)
+	q := evqueue.New[events.Entry]()
 	go func() {
-		defer close(out)
+		defer q.Close()
 		defer func() { _ = w.Stop() }()
 		for {
 			select {
@@ -230,13 +244,48 @@ func (k *kvHandle) Watch(ctx context.Context, pattern string) (<-chan events.Ent
 				if e == nil {
 					continue
 				}
-				select {
-				case out <- entryOf(k.name, e):
-				case <-ctx.Done():
-					return
-				}
+				q.Push(entryOf(k.name, e))
 			}
 		}
 	}()
+	go q.Relay(ctx, out)
 	return out, nil
+}
+
+// Keys lists every live key, sorted (nats.go's Keys ignores deletes).
+func (k *kvHandle) Keys(ctx context.Context) ([]string, error) {
+	kv, err := k.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := kv.Keys(ctx)
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, kvError("keys", k.name, ">", err)
+	}
+	return keys, nil
+}
+
+// Status reads the bucket's backing stream: its last sequence (the last
+// revision) and creation time.
+func (k *kvHandle) Status(ctx context.Context) (events.KVStatus, error) {
+	kv, err := k.resolve(ctx)
+	if err != nil {
+		return events.KVStatus{}, err
+	}
+	st, err := kv.Status(ctx)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) || errors.Is(err, jetstream.ErrBucketNotFound) {
+			return events.KVStatus{}, fmt.Errorf("natsbus: status %s: %w", k.name, events.ErrBucketNotFound)
+		}
+		return events.KVStatus{}, fmt.Errorf("natsbus: status %s: %w", k.name, err)
+	}
+	bs, ok := st.(*jetstream.KeyValueBucketStatus)
+	if !ok || bs.StreamInfo() == nil {
+		return events.KVStatus{}, fmt.Errorf("natsbus: status %s: %T carries no stream info", k.name, st)
+	}
+	info := bs.StreamInfo()
+	return events.KVStatus{Bucket: k.name, LastRevision: info.State.LastSeq, Created: info.Created}, nil
 }

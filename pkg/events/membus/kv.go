@@ -18,17 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package membus
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/internal/evqueue"
 )
-
-// watchBuffer is how many entries a watcher may fall behind before updates
-// are dropped for it. A dropped update never blocks a writer.
-const watchBuffer = 64
 
 // kvValue is one live key.
 type kvValue struct {
@@ -41,18 +40,13 @@ type kvValue struct {
 	expires time.Time
 }
 
+// watcher is one Watch: an unbounded queue (evqueue) a relay drains into the
+// reader's channel, in order, so a slow reader neither loses an update nor
+// blocks a writer -- natsbus's parity, which relays nats.go's watch through
+// the same queue (loop spec 2026-10-06 §4.15: membus Watch never drops).
 type watcher struct {
 	pattern string
-	ch      chan events.Entry
-	done    chan struct{}
-	once    sync.Once
-}
-
-func (w *watcher) close() {
-	w.once.Do(func() {
-		close(w.done)
-		close(w.ch)
-	})
+	q       *evqueue.Queue[events.Entry]
 }
 
 // bucket is one in-memory key/value bucket.
@@ -62,6 +56,8 @@ type bucket struct {
 	rev      uint64
 	vals     map[string]*kvValue
 	watchers []*watcher
+	// created is when Ensure created it (events.KVStatus.Created).
+	created time.Time
 }
 
 func (b *bucket) closeWatchers() {
@@ -70,7 +66,7 @@ func (b *bucket) closeWatchers() {
 	b.watchers = nil
 	b.mu.Unlock()
 	for _, w := range ws {
-		w.close()
+		w.q.Close()
 	}
 }
 
@@ -98,11 +94,7 @@ func (b *bucket) notifyLocked(e events.Entry) {
 		if !events.SubjectMatches(w.pattern, e.Key) {
 			continue
 		}
-		select {
-		case w.ch <- e:
-		case <-w.done:
-		default:
-		}
+		w.q.Push(e)
 	}
 }
 
@@ -304,49 +296,50 @@ func (k *kvHandle) DeleteRevision(ctx context.Context, key string, rev uint64) e
 	return nil
 }
 
-// Watch streams the current value of every matching key and then every
-// subsequent change. Unlike JetStream it sends no end-of-initial-values
-// marker, because events.Entry has no nil form; callers that need one should
-// read the current keys themselves before watching.
-func (k *kvHandle) Watch(ctx context.Context, pattern string) (<-chan events.Entry, error) {
+// Watch streams the current value of every matching key, in revision order,
+// then every subsequent change (events.KV.Watch), through an unbounded queue
+// that never drops one. Like JetStream it sends no end-of-initial-values
+// marker, because events.Entry has no nil form. WatchUpdatesOnly skips the
+// current values; WatchFromRevision replays only the live values written at
+// or after it (membus keeps no history or tombstones).
+func (k *kvHandle) Watch(ctx context.Context, pattern string, opts ...events.WatchOption) (<-chan events.Entry, error) {
 	b, err := k.resolve()
 	if err != nil {
 		return nil, err
 	}
-	w := &watcher{
-		pattern: pattern,
-		ch:      make(chan events.Entry, watchBuffer),
-		done:    make(chan struct{}),
-	}
+	o := events.ResolveWatchOptions(opts)
+	w := &watcher{pattern: pattern, q: evqueue.New[events.Entry]()}
 	now := k.bus.clock.Now()
 	b.mu.Lock()
-	for key := range b.vals {
-		v, ok := b.liveLocked(key, now)
-		if !ok || !events.SubjectMatches(pattern, key) {
-			continue
+	if !o.UpdatesOnly {
+		var initial []events.Entry
+		for key := range b.vals {
+			v, ok := b.liveLocked(key, now)
+			if !ok || !events.SubjectMatches(pattern, key) || v.rev < o.FromRevision {
+				continue
+			}
+			initial = append(initial, events.Entry{
+				Bucket: b.spec.Name, Key: key, Value: append([]byte(nil), v.value...),
+				Revision: v.rev, Created: v.created, Operation: events.KVPut,
+			})
 		}
-		select {
-		case w.ch <- events.Entry{
-			Bucket:    b.spec.Name,
-			Key:       key,
-			Value:     append([]byte(nil), v.value...),
-			Revision:  v.rev,
-			Created:   v.created,
-			Operation: events.KVPut,
-		}:
-		default:
+		slices.SortFunc(initial, func(x, y events.Entry) int { return cmp.Compare(x.Revision, y.Revision) })
+		for _, e := range initial {
+			w.q.Push(e)
 		}
 	}
 	b.watchers = append(b.watchers, w)
 	b.mu.Unlock()
 
+	wctx, cancel := context.WithCancel(ctx)
+	out := make(chan events.Entry)
+	go w.q.Relay(wctx, out)
 	k.bus.wg.Add(1)
 	go func() {
 		defer k.bus.wg.Done()
 		select {
 		case <-ctx.Done():
 		case <-k.bus.done:
-		case <-w.done:
 		}
 		b.mu.Lock()
 		kept := b.watchers[:0]
@@ -357,7 +350,44 @@ func (k *kvHandle) Watch(ctx context.Context, pattern string) (<-chan events.Ent
 		}
 		b.watchers = kept
 		b.mu.Unlock()
-		w.close()
+		w.q.Close()
+		cancel()
 	}()
-	return w.ch, nil
+	return out, nil
+}
+
+// Keys lists every live key, sorted.
+func (k *kvHandle) Keys(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	b, err := k.resolve()
+	if err != nil {
+		return nil, err
+	}
+	now := k.bus.clock.Now()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []string
+	for key := range b.vals {
+		if _, ok := b.liveLocked(key, now); ok {
+			out = append(out, key)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// Status reads the bucket's last revision and creation time.
+func (k *kvHandle) Status(ctx context.Context) (events.KVStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return events.KVStatus{}, err
+	}
+	b, err := k.resolve()
+	if err != nil {
+		return events.KVStatus{}, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return events.KVStatus{Bucket: b.spec.Name, LastRevision: b.rev, Created: b.created}, nil
 }
