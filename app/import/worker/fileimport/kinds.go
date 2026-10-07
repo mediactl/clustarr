@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -161,6 +162,14 @@ func FrozenQuality(fileKind commonv1.MediaKind, path string, declared ...string)
 // file: ffprobeexec.ProbeAudio in production, a stub in a test.
 type AudioProber func(ctx context.Context, path string) (mediainfo.AudioProbe, error)
 
+// AudioProbeTimeout bounds one audio probe (FrozenFileQuality). A probe reads
+// a stream header, which a healthy file answers in well under a second; one
+// that hangs freezes the file by its extension, as any failed probe does
+// (spec 2026-10-06 §13 OD47). It fits the file and scan consumers' ack
+// deadlines with each worker's heartbeat interval
+// (TestTheAudioProbeFitsTheFileConsumersAckDeadline and the rescan's twin).
+const AudioProbeTimeout = 15 * time.Second
+
 // FrozenFileQuality is the quality a non-video file of fileKind is frozen
 // with, reading a music file itself when probe is non-nil.
 //
@@ -180,7 +189,10 @@ func FrozenFileQuality(
 	ctx context.Context, probe AudioProber, fileKind commonv1.MediaKind, path string, declared ...string,
 ) (commonv1.Quality, bool) {
 	if fileKind == commonv1.MediaKindAlbum && probe != nil {
-		if ap, err := probe(ctx, path); err == nil {
+		pctx, cancel := context.WithTimeout(ctx, AudioProbeTimeout)
+		ap, err := probe(pctx, path)
+		cancel()
+		if err == nil {
 			name := release.AudioFileQuality(ap.Codec, ap.BitrateKbps, ap.SampleBits).Name
 			if def, ok := quality.Lookup(ProfileKindFor(fileKind), name); ok {
 				return def.Quality, true
