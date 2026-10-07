@@ -148,6 +148,21 @@ Library `sidebar.MenuItem`, since 2026-09-24; before that a tab strip in
 the top bar). Each sub-entry swaps the page body through htmx so the
 sidebar stays put.
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
+A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
+`ui/episode.go`, `ui/views/episode.templ`): the monitor bookmark, number,
+title (opening the episode's details modal, Details and Search tabs), air
+date, Sonarr's status cell (`episodeStatus`: downloading, pending, the
+file's quality -- amber below the cutoff -- TBA, unaired, unmonitored,
+missing) and two searches: the magnifier is "search now" (a Search with
+`grabBest`), the person an interactive search -- a Search without
+`grabBest` (`actions.InteractiveSearch`) whose ranked `status.results`
+the modal polls (`GET /searches/{ns}/{name}`) and whose download button
+adds the release to `spec.grab` (`actions.GrabRelease`: a merge patch of
+the whole list under the read resourceVersion, so a concurrent grab
+conflicts; `spec.override` for a permanent rejection, after a confirm).
+The ui role patches `searches` for it. A season has no search of its own:
+a Series is not a Search fan-out kind, and N episode searches at once is
+the indexer burst the wanted-sweep gotcha forbids.
 Series monitoring is Sonarr's (2026-09-29): an episode is searched only
 when its Series and the episode itself are monitored (the Episode
 reconciler reads its Series, a Series' `spec.monitored` change wakes its

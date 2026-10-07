@@ -1,0 +1,392 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// EpisodeModal is Sonarr's episode details modal, opened from an episode's
+// title or its interactive search: "Series - 1x03 - Title", then the
+// Details and Search tabs. It is swapped into the page's #episode-modal and
+// opens as it lands; the next one swapped in retires it.
+templ EpisodeModal(d EpisodeDetail) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-episode-modal": d.Row.Name},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() { { episodeHeading(d) } }
+				@dialog.Description() { { episodeFacts(d) } }
+			}
+			@episodeTabs(d)
+		}
+	}
+}
+
+// EpisodePage is the episode's details as a page, for a browser without
+// JavaScript: the modal's tabs under the series' crumbs.
+templ EpisodePage(d EpisodeDetail, series projection.LibraryItem) {
+	@Shell(Chrome{Title: episodeHeading(d), Crumbs: childCrumbs(series, d.Row.Code()), Tab: series.Tab}) {
+		<div class="space-y-4" data-episode-page={ d.Row.Name }>
+			<div>
+				<h1 class="text-xl font-semibold">{ episodeHeading(d) }</h1>
+				<p class="text-sm text-muted-foreground">{ episodeFacts(d) }</p>
+			</div>
+			@episodeTabs(d)
+		</div>
+		@ActionStatusRegion()
+	}
+}
+
+// episodeHeading is Sonarr's modal title.
+func episodeHeading(d EpisodeDetail) string {
+	title := d.Row.Title
+	if title == "" {
+		title = "TBA"
+	}
+	return fmt.Sprintf("%s - %s - %s", d.SeriesTitle, d.Row.Code(), title)
+}
+
+// episodeFacts is the line under the title: air date, runtime, status.
+func episodeFacts(d EpisodeDetail) string {
+	var facts []string
+	if d.Row.AirDate != "" {
+		facts = append(facts, "Aired "+d.Row.AirDateLabel)
+	}
+	if d.Runtime != "" {
+		facts = append(facts, d.Runtime)
+	}
+	if d.Row.Status.Label != "" {
+		facts = append(facts, d.Row.Status.Label)
+	}
+	return strings.Join(facts, " · ")
+}
+
+// episodeTabs are the modal's Details and Search tabs, d.Tab open.
+templ episodeTabs(d EpisodeDetail) {
+	@tabs.Tabs(tabs.Props{DefaultValue: d.Tab, Class: "min-w-0"}) {
+		@tabs.List() {
+			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) { Details }
+			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) { Search }
+		}
+		@tabs.Content(tabs.ContentProps{Value: "details", Class: "space-y-4 pt-2"}) {
+			@episodeSummary(d)
+		}
+		@tabs.Content(tabs.ContentProps{Value: "search", Class: "pt-2"}) {
+			@EpisodeSearchTab(d)
+		}
+	}
+}
+
+// episodeSummary is Sonarr's EpisodeSummary: the overview, the audio note
+// and the file.
+templ episodeSummary(d EpisodeDetail) {
+	<p class="leading-relaxed" data-episode-overview>
+		if d.Overview != "" {
+			{ d.Overview }
+		} else {
+			<span class="text-muted-foreground">No overview.</span>
+		}
+	</p>
+	if d.Row.Audio.Text != "" {
+		<p>
+			@audioBadge(d.Row.Audio)
+		</p>
+	}
+	if d.File == nil {
+		<p class="rounded-md border border-border px-4 py-3 text-muted-foreground" data-episode-file="">No file on disk.</p>
+	} else {
+		<div class="rounded-md border border-border" data-episode-file={ d.File.Name }>
+			@table.Table() {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() { Path }
+						@table.Head() { Size }
+						@table.Head() { Languages }
+						@table.Head() { Quality }
+						@table.Head() { Formats }
+						@table.Head(table.HeadProps{Class: "text-right"}) { Score }
+					}
+				}
+				@table.Body() {
+					@table.Row() {
+						@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) { { d.File.RelativePath } }
+						@table.Cell() { { formatBytes(d.File.SizeBytes) } }
+						@table.Cell() {
+							<span class="flex flex-wrap gap-1">
+								for _, l := range d.File.Languages {
+									@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { l } }
+								}
+							</span>
+						}
+						@table.Cell() {
+							if d.File.Quality != "" {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(d.Row.Status.Warn)}) { { d.File.Quality } }
+							}
+						}
+						@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+							<span class="flex flex-wrap gap-1">
+								for _, f := range d.File.Formats {
+									@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { f } }
+								}
+							</span>
+						}
+						@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) { { signed(d.File.Score) } }
+					}
+				}
+			}
+		</div>
+	}
+}
+
+// EpisodeSearchTab is Sonarr's EpisodeSearch: the two searches as large
+// buttons, or, once an interactive search runs, its results in their
+// place. #episode-search-body is what the Interactive Search button swaps
+// (htmx selects it out of the modal the action answers with).
+templ EpisodeSearchTab(d EpisodeDetail) {
+	<div id="episode-search-body" data-episode-search={ d.Row.Name }>
+		if d.Search != nil {
+			@SearchPanelView(*d.Search)
+		} else {
+			<div class="flex flex-col items-center gap-3 py-10">
+				<form hx-post={ d.Row.SearchURL() } hx-target="#action-status" method="post" action={ templ.URL(d.Row.SearchURL()) }>
+					<input type="hidden" name="return" value={ d.Row.ReturnURL() }/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Class: "w-56", Attributes: templ.Attributes{"data-action": "episode-search"}}) {
+						@icon.Icon("search")()
+						Automatic Search
+					}
+				</form>
+				<form
+					hx-post={ d.Row.InteractiveSearchURL() }
+					hx-target="#episode-search-body"
+					hx-select="#episode-search-body"
+					hx-swap="outerHTML"
+					method="post"
+					action={ templ.URL(d.Row.InteractiveSearchURL()) }
+				>
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Class: "w-56", Attributes: templ.Attributes{"data-action": "episode-interactive-search"}}) {
+						@icon.Icon("user-search")()
+						Interactive Search
+					}
+				</form>
+			</div>
+		}
+	</div>
+}
+
+// SearchPage is an interactive search as a page: where a form post lands
+// without JavaScript, and the panel's own route outside htmx.
+templ SearchPage(p SearchPanel, title string) {
+	@Shell(Chrome{Title: title}) {
+		<h1 class="mb-4 text-xl font-semibold">{ title }</h1>
+		@SearchPanelView(p)
+	}
+}
+
+// SearchPanelView is Sonarr's InteractiveSearch: a line saying where the
+// search is, then the releases, best first, each with its verdict and its
+// download button. While Poll is set the panel replaces itself every two
+// seconds, until the results and every requested grab's outcome are in.
+templ SearchPanelView(p SearchPanel) {
+	<div
+		class="min-w-0 space-y-3"
+		data-search-panel={ p.Name }
+		data-search-phase={ p.Phase }
+		if p.Poll {
+			hx-get={ p.URL() }
+			hx-trigger="load delay:2s"
+			hx-swap="outerHTML"
+		}
+	>
+		@actionFailure(p.Error)
+		<p class="flex items-center gap-2 text-sm text-muted-foreground" data-search-summary>
+			switch {
+				case p.Gone:
+					This search has expired; run it again.
+				case p.Pending():
+					<span class="animate-spin [&_svg]:size-4">
+						@icon.Icon("loader-circle")()
+					</span>
+					Searching indexers…
+				case p.Phase == "Failed":
+					<span class="text-red-300">Search failed: { p.Failed }</span>
+				default:
+					{ searchSummary(p) }
+			}
+		</p>
+		if len(p.Results) > 0 {
+			<div class="rounded-md border border-border">
+				@table.Table(table.Props{Attributes: templ.Attributes{"data-release-table": ""}}) {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() { Source }
+							@table.Head() { Age }
+							@table.Head() { Title }
+							@table.Head() { Indexer }
+							@table.Head(table.HeadProps{Class: "text-right"}) { Size }
+							@table.Head() { Peers }
+							@table.Head() { Languages }
+							@table.Head() { Quality }
+							@table.Head(table.HeadProps{Class: "text-right"}) { Score }
+							@table.Head() { <span class="sr-only">Rejections</span> }
+							@table.Head() { <span class="sr-only">Download</span> }
+						}
+					}
+					@table.Body() {
+						for _, r := range p.Results {
+							@releaseRow(p, r)
+						}
+					}
+				}
+			</div>
+		} else if !p.Pending() && !p.Gone && p.Phase != "Failed" {
+			<p class="rounded-md border border-border px-4 py-6 text-center text-muted-foreground" data-search-empty>No results found.</p>
+		}
+	</div>
+}
+
+// searchSummary is the completed search's line: results and indexers.
+func searchSummary(p SearchPanel) string {
+	s := fmt.Sprintf("%d results from %d indexers", len(p.Results), p.Indexers)
+	if p.IndexerErrors > 0 {
+		s += fmt.Sprintf(" (%d failed or timed out)", p.IndexerErrors)
+	}
+	return s
+}
+
+// releaseRow is one result, Sonarr's columns.
+templ releaseRow(p SearchPanel, r ReleaseRow) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{
+		"data-release":  r.GUID,
+		"data-approved": fmt.Sprintf("%t", r.Approved),
+		"data-grab":     r.Grab,
+	}}) {
+		@table.Cell() {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: protocolTone(r.Protocol)}) { { r.Protocol } }
+		}
+		@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { { r.Age } }
+		@table.Cell(table.CellProps{Class: "max-w-xl break-all whitespace-normal"}) {
+			if r.InfoURL != "" {
+				<a href={ templ.URL(r.InfoURL) } target="_blank" rel="noopener noreferrer" class="hover:underline">{ r.Title }</a>
+			} else {
+				{ r.Title }
+			}
+		}
+		@table.Cell() { { r.Indexer } }
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) { { formatBytes(r.Size) } }
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) { { r.Peers } }
+		@table.Cell() {
+			<span class="flex flex-wrap gap-1">
+				for _, l := range r.Languages {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { l } }
+				}
+			</span>
+		}
+		@table.Cell() {
+			if r.Quality != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { r.Quality } }
+			}
+		}
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": strings.Join(r.Formats, ", ")}}) { { signed(r.Score) } }
+		@table.Cell() {
+			if len(r.Rejections) > 0 {
+				<span class="text-red-300 [&_svg]:size-4" title={ strings.Join(r.Rejections, "\n") } data-rejections={ fmt.Sprint(len(r.Rejections)) }>
+					@icon.Icon("circle-alert")()
+				</span>
+			}
+		}
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			@grabCell(p, r)
+		}
+	}
+}
+
+// grabCell is the download button, or how the grab it made went. A
+// release with a permanent rejection asks first, naming the rejections,
+// and is grabbed with spec.override.
+templ grabCell(p SearchPanel, r ReleaseRow) {
+	switch r.Grab {
+		case "grabbed":
+			<span class="text-emerald-300 [&_svg]:size-4" title="Grabbed" data-grab-state="grabbed">
+				@icon.Icon("check")()
+			</span>
+		case "requested":
+			<span class="animate-spin text-muted-foreground [&_svg]:size-4" title="Grabbing…" data-grab-state="requested">
+				@icon.Icon("loader-circle")()
+			</span>
+		default:
+			<form
+				hx-post={ p.GrabURL() }
+				hx-target="closest [data-search-panel]"
+				hx-swap="outerHTML"
+				if r.Override {
+					hx-confirm={ "This release was rejected:\n" + strings.Join(r.Rejections, "\n") + "\n\nGrab it anyway?" }
+				}
+				method="post"
+				action={ templ.URL(p.GrabURL()) }
+				class="contents"
+			>
+				<input type="hidden" name="guid" value={ r.GUID }/>
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
+					Attributes: templ.Attributes{"data-action": "grab-release", "aria-label": "Download", "title": grabTitle(r)}}) {
+					if r.Grab == "failed" {
+						<span class="text-red-300">
+							@icon.Icon("download")()
+						</span>
+					} else {
+						@icon.Icon("download")()
+					}
+				}
+			</form>
+	}
+}
+
+// grabTitle is the download button's tooltip: a failed grab's reason.
+func grabTitle(r ReleaseRow) string {
+	if r.Grab == "failed" {
+		return "Grab failed: " + r.GrabError + " -- try again"
+	}
+	return "Download"
+}
+
+// protocolTone is Sonarr's source badge colour.
+func protocolTone(protocol string) string {
+	if protocol == "torrent" {
+		return "border-emerald-500/40 text-emerald-300"
+	}
+	return "border-sky-500/40 text-sky-300"
+}
+
+// signed is a custom-format score as Sonarr writes it: +25, -10000, 0.
+func signed(n int32) string {
+	if n > 0 {
+		return fmt.Sprintf("+%d", n)
+	}
+	return fmt.Sprint(n)
+}

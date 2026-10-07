@@ -832,7 +832,8 @@ rules:
      ruling R3): get/list/watch over the catalog, download, index, transcode
      and subtitle groups, plus exactly the writes ui/actions' actions make
      (Phase G ruling R2) -- create on searches, libraryscans and the four Add
-     New kinds (movies, series, artists, authors), patch on the
+     New kinds (movies, series, artists, authors), patch on searches
+     (an interactive search's grab), patch on the
      ten catalog kinds with a spec.monitored, and patch on the eight
      Settings-page kinds (Task G3-4) -- and no update, no delete and no
      resource whose name ends in "status" anywhere in it. This is a
@@ -932,6 +933,7 @@ rules:
   - episodes
   - issues
   - movies
+  - searches
   - series
   verbs:
   - patch

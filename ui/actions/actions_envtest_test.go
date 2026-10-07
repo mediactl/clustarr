@@ -210,6 +210,40 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 		requireStatusStillOwnedBy(t, got, k8s.ManagerCatalogarr.String())
 	})
 
+	// An interactive search's grab is a merge patch of spec.grab carrying
+	// the read resourceVersion: on a real apiserver it lands under
+	// clustarr-ui beside the create, leaves status alone, and a grab from
+	// a stale read is a Conflict rather than a silent replacement of the
+	// list.
+	t.Run("interactive search and grab", func(t *testing.T) {
+		s, err := actions.InteractiveSearch(ctx, rec, ns, commonv1.MediaKindMovie, "item-movie")
+		require.NoError(t, err)
+		require.False(t, s.Spec.GrabBest)
+
+		gvk := mustGVK(t, s, scheme)
+		seedStatus(ctx, t, c, k8s.ManagerCatalogarr, gvk, s.Name, ns)
+		var read catalogv1alpha1.Search
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(s), &read))
+
+		got, err := actions.GrabRelease(ctx, rec, &read, "guid-a", true)
+		require.NoError(t, err)
+		require.Equal(t, []string{"guid-a"}, got.Spec.Grab)
+		require.True(t, got.Spec.Override)
+
+		_, err = actions.GrabRelease(ctx, rec, &read, "guid-b", false)
+		require.True(t, apierrors.IsConflict(err), "a grab from a stale read must conflict, got %v", err)
+
+		after := getUnstructured(ctx, t, c, gvk, s.Name, ns)
+		grab, _, err := unstructured.NestedStringSlice(after.Object, "spec", "grab")
+		require.NoError(t, err)
+		require.Equal(t, []string{"guid-a"}, grab, "the stale grab replaced nothing")
+		entry := requireOneUIEntry(t, after)
+		requireFieldsContain(t, entry, "f:spec", "f:grab")
+		requireFieldsContain(t, entry, "f:spec", "f:override")
+		requireNeverOnStatus(t, after)
+		requireStatusStillOwnedBy(t, after, k8s.ManagerCatalogarr.String())
+	})
+
 	t.Run("rescan", func(t *testing.T) {
 		scan, err := actions.Rescan(ctx, rec, ns, "movies")
 		require.NoError(t, err)
@@ -314,9 +348,9 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 				requireNeverOnStatus(t, &list.Items[i])
 			}
 		}
-		require.Equal(t, len(actions.MediaKinds())+4, inspected,
-			"expected one clustarr-ui entry per catalog item patched plus the Search, the rescan LibraryScan "+
-				"and the two rename LibraryScans (dryRun and apply)")
+		require.Equal(t, len(actions.MediaKinds())+5, inspected,
+			"expected one clustarr-ui entry per catalog item patched plus the two Searches (search now and "+
+				"interactive), the rescan LibraryScan and the two rename LibraryScans (dryRun and apply)")
 	})
 
 	// This subtest asserted declared == used until Task G3-4 added
@@ -351,10 +385,10 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 					"config/rbac/ui_role.yaml would never grant it, so this would pass every test here and "+
 					"be Forbidden only in a real cluster", g)
 		}
-		require.Len(t, used, len(actions.MediaKinds())+2,
-			"expected exactly one grant per §A3.2 action this envtest exercises -- create Search, create "+
-				"LibraryScan, patch each MediaKind -- see this subtest's own comment for why actions.Grants() "+
-				"itself is now larger than that")
+		require.Len(t, used, len(actions.MediaKinds())+3,
+			"expected exactly one grant per action this envtest exercises -- create Search, patch Search "+
+				"(an interactive grab), create LibraryScan, patch each MediaKind -- see this subtest's own "+
+				"comment for why actions.Grants() itself is now larger than that")
 	})
 }
 

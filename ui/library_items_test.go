@@ -85,7 +85,10 @@ func TestDetailHeaderIsRadarrsHeroWithTheActionsInTheToolbar(t *testing.T) {
 	require.Regexp(t, `data-slot="badge"[^>]*>[^<]*hd-bluray-web`, body, "the quality profile is a badge in the facts")
 }
 
-func TestSeasonHeadersAndEpisodeRowsAreItems(t *testing.T) {
+// Season headers stay items; a season's episodes are Sonarr's table
+// (2026-10-07): one row per episode, keyed by the same data attributes,
+// whose monitor bookmark swaps the row it sits in.
+func TestSeasonHeadersAreItemsAndEpisodesASonarrTable(t *testing.T) {
 	srv, _ := seriesFixture(t)
 
 	rec := httptest.NewRecorder()
@@ -103,13 +106,13 @@ func TestSeasonHeadersAndEpisodeRowsAreItems(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	partial := rec.Body.String()
-	require.Equal(t, 1, strings.Count(partial, `data-slot="item-group"`), "the episodes are one item group")
-	require.Equal(t, 2, strings.Count(partial, `data-slot="item"`), "one item per episode")
-	requireTag(t, partial, `data-episode="1"`, `data-slot="item"`, `data-monitored="true"`, `data-hasfile="true"`,
-		`data-quality="WEBDL-1080p"`, `data-phase="Imported"`)
-	require.Contains(t, partial, `hx-target="closest [data-slot=item]"`, "a toggle swaps the item it sits in")
+	require.Equal(t, 1, strings.Count(partial, `data-episode-table`), "the episodes are one table")
+	require.Equal(t, 2, strings.Count(partial, `data-episode=`), "one row per episode")
+	requireTag(t, partial, `data-episode="1"`, `data-slot="table-row"`, `data-monitored="true"`, `data-hasfile="true"`,
+		`data-quality="WEBDL-1080p"`, `data-phase="Imported"`, `data-status="file"`)
+	require.Contains(t, partial, `hx-target="closest tr"`, "a toggle swaps the row it sits in")
 	require.Regexp(t, `data-slot="badge"[^>]*>WEBDL-1080p<`, partial, "the file's quality is a badge")
-	require.Regexp(t, `data-slot="item-title"[^>]*>.*?Kassa`, partial, "the number and title are the item's title")
+	require.Regexp(t, `data-episode-title[^>]*>\s*Kassa`, partial, "the title opens the episode's details")
 }
 
 func TestChildRowsAreItems(t *testing.T) {

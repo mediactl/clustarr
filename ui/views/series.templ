@@ -22,18 +22,22 @@ import (
 
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/table"
 )
 
 // SeriesDetail is a series' page (spec 2026-09-23-library-page-design):
 // the item header -- poster, title, monitored toggle, profile, search now
 // -- followed by one season component per season. Episodes are not on the
-// page; each season loads its own on first expand.
+// page; each season loads its own on first expand. #episode-modal holds
+// an episode's details or interactive search once one is opened, and
+// #action-status says how an episode's automatic search went.
 templ SeriesDetail(d Detail, seasons []SeasonRow) {
 	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 space-y-3" data-seasons={ fmt.Sprint(len(seasons)) }>
+		<div class="mt-6 space-y-4" data-seasons={ fmt.Sprint(len(seasons)) }>
 			if len(seasons) == 0 {
 				<p class="text-slate-400">No seasons yet: they arrive with the series' metadata.</p>
 			}
@@ -41,37 +45,64 @@ templ SeriesDetail(d Detail, seasons []SeasonRow) {
 				@SeasonComponent(season)
 			}
 		</div>
+		@episodeRegions()
 	}
 }
 
-// SeasonComponent is one season: its header, and a <details> whose first
-// open fetches the season's episodes into its body (hx-trigger "toggle
-// once"). The header links to the season's own page, so a browser without
-// JavaScript still gets there.
+// episodeRegions are what an episode's actions answer into: the modal's
+// mount point and the action status, above the modal's overlay.
+templ episodeRegions() {
+	<div id="episode-modal"></div>
+	@ActionStatusRegion()
+}
+
+// ActionStatusRegion is where an htmx action says how it went
+// (ActionStatus, ActionError); ui/static/library.js clears it after a
+// while. It sits above a dialog's overlay, so an action posted from a
+// modal answers where it can be seen.
+templ ActionStatusRegion() {
+	<div id="action-status" aria-live="polite" class="fixed top-16 left-1/2 z-[60] w-max max-w-[90vw] -translate-x-1/2 empty:hidden"></div>
+}
+
+// SeasonComponent is one season, Sonarr's season block: its header, and a
+// <details> whose first open fetches the season's episodes table into its
+// body (hx-trigger "toggle once"). The header links to the season's own
+// page, so a browser without JavaScript still gets there.
 templ SeasonComponent(season SeasonRow) {
-	<div class="rounded-md border border-border bg-card" id={ fmt.Sprintf("season-%d", season.Number) }>
+	<div class="overflow-hidden rounded-md border border-border bg-card" id={ fmt.Sprintf("season-%d", season.Number) }>
 		@SeasonHeader(season)
 		<details
-			class="border-t border-border"
+			class="group border-t border-border"
 			hx-get={ season.URL() }
 			hx-trigger="toggle once"
 			hx-target="find .episodes"
 			hx-swap="innerHTML"
 		>
-			<summary class="cursor-pointer px-4 py-2 text-sm text-muted-foreground">Episodes</summary>
-			<div class="episodes px-4 py-3 text-sm text-muted-foreground">Loading…</div>
+			<summary class="flex cursor-pointer list-none items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
+				<span class="group-open:hidden">Show episodes</span>
+				<span class="hidden group-open:inline">Hide episodes</span>
+				<span class="transition-transform group-open:rotate-180 [&_svg]:size-4">
+					@icon.Icon("chevron-down")()
+				</span>
+			</summary>
+			<div class="episodes border-t border-border text-sm text-muted-foreground">
+				<p class="px-4 py-3">Loading…</p>
+			</div>
 		</details>
 	</div>
 }
 
-// SeasonHeader is the season's heading row, and what its monitor toggle
-// swaps in place -- the header alone, so an expanded episode list below it
-// stays put. Its data attributes carry the counts and the effective
-// monitored flag for the tests; a failed toggle renders its error here.
+// SeasonHeader is the season's heading row, Sonarr's: the monitor
+// bookmark, the season's name, the files-of-episodes badge (green when
+// complete, red when monitored and missing, amber when unmonitored), the
+// size on disk and the next airing. It is what its monitor toggle swaps in
+// place -- the header alone, so an expanded episode list below it stays
+// put. Its data attributes carry the counts and the effective monitored
+// flag for the tests; a failed toggle renders its error here.
 templ SeasonHeader(season SeasonRow) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
-		Class:   "season-header rounded-b-none border-0",
+		Class:   "season-header flex-nowrap rounded-none border-0",
 		Attributes: templ.Attributes{
 			"data-season":    fmt.Sprint(season.Number),
 			"data-monitored": fmt.Sprintf("%t", season.Monitored),
@@ -79,34 +110,70 @@ templ SeasonHeader(season SeasonRow) {
 			"data-files":     fmt.Sprint(season.Files),
 		},
 	}) {
+		<form
+			hx-post={ season.MonitorURL() }
+			hx-target="closest .season-header"
+			hx-swap="outerHTML"
+			method="post"
+			action={ templ.URL(season.MonitorURL()) }
+			class="contents"
+		>
+			<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !season.Monitored) }/>
+			@bookmarkToggle(season.Monitored, "set-season-monitored", true)
+		</form>
 		@item.Content() {
-			@item.Title() {
-				<a href={ templ.URL(season.URL()) } class="hover:underline">{ season.Label() }</a>
-			}
-			@item.Description() {
-				{ fmt.Sprintf("%d of %d on disk", season.Files, season.Episodes) }
-				if season.NextAiring != "" {
-					· next { season.NextAiring }
+			@item.Title(item.TitleProps{Class: "flex-wrap gap-x-3 gap-y-1"}) {
+				<a href={ templ.URL(season.URL()) } class="text-lg font-semibold hover:underline">{ season.Label() }</a>
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: season.CountTone(), Attributes: templ.Attributes{"data-season-count": season.CountLabel()}}) { { season.CountLabel() } }
+				if season.SizeBytes > 0 {
+					<span class="text-xs font-normal text-muted-foreground" data-season-size>{ formatBytes(season.SizeBytes) }</span>
 				}
 			}
+			if season.NextAiring != "" {
+				@item.Description() { Next airing { season.NextAiring } }
+			}
 			@actionFailure(season.Error)
-		}
-		@item.Actions() {
-			<form
-				hx-post={ season.MonitorURL() }
-				hx-target="closest .season-header"
-				hx-swap="outerHTML"
-				method="post"
-				action={ templ.URL(season.MonitorURL()) }
-			>
-				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !season.Monitored) }/>
-				@monitorToggle(season.Monitored, "set-season-monitored")
-			</form>
 		}
 	}
 }
 
-// monitorToggle is the toggle button every monitorable row shows: the
+// bookmarkToggle is Sonarr's monitor toggle: a bookmark, filled when
+// monitored and hollow when not, whose press flips it; large is the
+// season header's.
+templ bookmarkToggle(monitored bool, action string, large bool) {
+	@button.Button(button.Props{
+		Type:    button.TypeSubmit,
+		Variant: button.VariantGhost,
+		Size:    button.SizeIconSm,
+		Class:   "text-foreground",
+		Attributes: templ.Attributes{
+			"data-action": action,
+			"aria-label":  bookmarkLabel(monitored),
+			"title":       bookmarkLabel(monitored),
+		},
+	}) {
+		<span class={ bookmarkClass(monitored, large) }>
+			@icon.Icon("bookmark")()
+		</span>
+	}
+}
+
+// bookmarkClass sizes and fills a bookmarkToggle's icon. The classes are
+// whole literals so Tailwind's scan finds them.
+func bookmarkClass(monitored, large bool) string {
+	switch {
+	case monitored && large:
+		return "[&_svg]:size-6 [&_svg]:fill-current"
+	case monitored:
+		return "[&_svg]:size-4 [&_svg]:fill-current"
+	case large:
+		return "text-muted-foreground [&_svg]:size-6"
+	default:
+		return "text-muted-foreground [&_svg]:size-4"
+	}
+}
+
+// monitorToggle is the toggle button an album or book row shows: the
 // current state as its label, the primary look when monitored and the
 // outline look when not, so it reads as the badge it flips.
 templ monitorToggle(monitored bool, action string) {
@@ -133,73 +200,165 @@ templ SeasonPage(d Detail, season SeasonRow, episodes []EpisodeRow) {
 	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", d.Item.Title, season.Label()), Crumbs: childCrumbs(d.Item, season.Label()), Tab: d.Item.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 rounded-md border border-border bg-card">
+		<div class="mt-6 overflow-hidden rounded-md border border-border bg-card">
 			@SeasonHeader(season)
 			<div class="episodes border-t border-border">
 				@EpisodeRows(episodes)
 			</div>
 		</div>
+		@episodeRegions()
 	}
 }
 
-// EpisodeRows is the episodes component: what a season's first expand
-// fetches, and what the season page renders inline -- one item group, one
-// item per episode.
+// EpisodeRows is the episodes component, Sonarr's season table: what a
+// season's first expand fetches, and what the season page renders inline.
+// Air dates fold away on a narrow screen.
 templ EpisodeRows(episodes []EpisodeRow) {
 	if len(episodes) == 0 {
 		<p class="px-4 py-3 text-sm text-muted-foreground">No episodes in this season yet.</p>
 	} else {
-		@item.Group(item.GroupProps{Class: "gap-0 p-2"}) {
-			for _, ep := range episodes {
-				@EpisodeRowView(ep)
+		@table.Table(table.Props{Attributes: templ.Attributes{"data-episode-table": ""}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head(table.HeadProps{Class: "w-10"}) { <span class="sr-only">Monitored</span> }
+					@table.Head(table.HeadProps{Class: "w-10"}) { # }
+					@table.Head() { Title }
+					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) { Air Date }
+					@table.Head(table.HeadProps{Class: "w-36"}) { Status }
+					@table.Head(table.HeadProps{Class: "w-20"}) { <span class="sr-only">Actions</span> }
+				}
+			}
+			@table.Body() {
+				for _, ep := range episodes {
+					@EpisodeRowView(ep)
+				}
 			}
 		}
 	}
 }
 
-// EpisodeRowView is one episode as an item, and what its monitor toggle
-// swaps in place: number and title as the item's title, the air date its
-// description, the file's quality or the phase as a badge, and the toggle
-// itself, an hx-post that replaces this item with the re-rendered one.
+// EpisodeRowView is one episode, Sonarr's episode row, and what its monitor
+// toggle swaps in place: the bookmark, the number, the title (opening the
+// episode's details) with its finale and audio badges, the air date, the
+// status cell, and the automatic and interactive searches. An unmonitored
+// episode reads dimmed.
 templ EpisodeRowView(ep EpisodeRow) {
-	@item.Item(item.Props{
-		Size:  item.SizeSm,
-		Class: "flex-nowrap",
+	@table.Row(table.RowProps{
+		Class: rowTone(ep.Monitored),
 		Attributes: templ.Attributes{
 			"data-episode":   fmt.Sprint(ep.Number),
 			"data-monitored": fmt.Sprintf("%t", ep.Monitored),
 			"data-hasfile":   fmt.Sprintf("%t", ep.HasFile),
 			"data-quality":   ep.Quality,
 			"data-phase":     ep.Phase,
+			"data-status":    ep.Status.Kind,
 		},
 	}) {
-		@item.Content() {
-			@item.Title() {
-				<span class="w-8 text-muted-foreground">{ fmt.Sprint(ep.Number) }</span>
-				{ ep.Title }
-			}
-			if ep.AirDate != "" {
-				@item.Description() { { ep.AirDate } }
-			}
-			@actionFailure(ep.Error)
-		}
-		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
-			if ep.Audio.Text != "" {
-				@audioBadge(ep.Audio)
-			}
-			if ep.HasFile {
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone("Imported")}) { { ep.Quality } }
-			} else if ep.Phase != "" {
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: phaseTone(ep.Phase)}) { { ep.Phase } }
-			}
-		}
-		@item.Actions() {
-			<form hx-post={ ep.MonitorURL() } hx-target="closest [data-slot=item]" hx-swap="outerHTML" method="post" action={ templ.URL(ep.MonitorURL()) }>
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			<form hx-post={ ep.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(ep.MonitorURL()) } class="contents">
+				<input type="hidden" name="return" value={ ep.ReturnURL() }/>
 				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !ep.Monitored) }/>
-				@monitorToggle(ep.Monitored, "set-monitored")
+				@bookmarkToggle(ep.Monitored, "set-monitored", false)
 			</form>
 		}
+		@table.Cell(table.CellProps{Class: "tabular-nums text-muted-foreground"}) { { fmt.Sprint(ep.Number) } }
+		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+			<span class="flex flex-wrap items-center gap-2">
+				<a
+					href={ templ.URL(ep.DetailsURL()) }
+					hx-get={ ep.DetailsURL() }
+					hx-target="#episode-modal"
+					hx-swap="innerHTML"
+					class="font-medium hover:underline"
+					data-episode-title
+				>
+					if ep.Title != "" {
+						{ ep.Title }
+					} else {
+						TBA
+					}
+				</a>
+				if ep.FinaleLabel() != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-sky-300", Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) { { ep.FinaleLabel() } }
+				}
+				if ep.Audio.Text != "" {
+					@audioBadge(ep.Audio)
+				}
+			</span>
+			@actionFailure(ep.Error)
+		}
+		@table.Cell(table.CellProps{Class: "hidden text-muted-foreground sm:table-cell"}) {
+			if ep.AirDate != "" {
+				<time datetime={ ep.AirDate } title={ ep.AirDate }>{ ep.AirDateLabel }</time>
+			}
+		}
+		@table.Cell() {
+			@episodeStatusCell(ep.Status)
+		}
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			<span class="flex justify-end">
+				@episodeSearchButtons(ep)
+			</span>
+		}
 	}
+}
+
+// rowTone dims an unmonitored episode, as Sonarr does.
+func rowTone(monitored bool) string {
+	if monitored {
+		return ""
+	}
+	return "text-muted-foreground"
+}
+
+// episodeSearchButtons are Sonarr's two row actions: the magnifier is the
+// automatic search, answered into #action-status; the person is the
+// interactive search, which opens the episode's modal on its results.
+// Both are forms, so a browser without JavaScript still gets there.
+templ episodeSearchButtons(ep EpisodeRow) {
+	<form hx-post={ ep.SearchURL() } hx-target="#action-status" method="post" action={ templ.URL(ep.SearchURL()) } class="contents">
+		<input type="hidden" name="return" value={ ep.ReturnURL() }/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
+			Attributes: templ.Attributes{"data-action": "episode-search", "aria-label": "Automatic Search", "title": "Automatic Search"}}) {
+			@icon.Icon("search")()
+		}
+	</form>
+	<form hx-post={ ep.InteractiveSearchURL() } hx-target="#episode-modal" hx-swap="innerHTML" method="post" action={ templ.URL(ep.InteractiveSearchURL()) } class="contents">
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
+			Attributes: templ.Attributes{"data-action": "episode-interactive-search", "aria-label": "Interactive Search", "title": "Interactive Search"}}) {
+			@icon.Icon("user-search")()
+		}
+	</form>
+}
+
+// episodeStatusCell is Sonarr's status cell: the file's quality as a
+// badge (amber below the cutoff), or what the episode is waiting on.
+templ episodeStatusCell(s EpisodeStatus) {
+	switch s.Kind {
+		case "file":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(s.Warn), Attributes: templ.Attributes{"title": s.Title}}) { { s.Label } }
+		case "missing":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-red-500/20 text-red-300", Attributes: templ.Attributes{"title": s.Title}}) { { s.Label } }
+		case "downloading", "pending":
+			<span class="inline-flex items-center gap-1 text-sky-300 [&_svg]:size-4" title={ s.Title }>
+				if s.Kind == "downloading" {
+					@icon.Icon("download")()
+				} else {
+					@icon.Icon("clock")()
+				}
+				{ s.Label }
+			</span>
+		default:
+			<span class="text-xs text-muted-foreground" title={ s.Title }>{ s.Label }</span>
+	}
+}
+
+// fileTone is a file's quality badge: amber below the cutoff, else done.
+func fileTone(warn bool) string {
+	if warn {
+		return phaseTone("CutoffUnmet")
+	}
+	return phaseTone("Imported")
 }
 
 // audioBadge is an AudioNote: a quiet badge, toned as a problem when it

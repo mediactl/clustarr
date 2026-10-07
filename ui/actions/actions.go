@@ -132,7 +132,8 @@ type Grant struct {
 }
 
 // Grants returns every RBAC permission this package's actions need, and
-// nothing else: create on searches and libraryscans, create on each
+// nothing else: create on searches and libraryscans, patch on searches
+// (an interactive search's grab, 2026-10-07), create on each
 // [AddableKinds] kind (Add New, 2026-09-29), patch on each catalog
 // kind in [MediaKinds] ("monitor this", §A3.2), plus -- Task G3-4, the
 // Settings page -- patch on each kind [settingsGrants] (settings.go) names.
@@ -147,6 +148,9 @@ func Grants() []Grant {
 	grants := []Grant{
 		{Group: group, Resource: "libraryscans", Verb: "create"},
 		{Group: group, Resource: "searches", Verb: "create"},
+		// An interactive search's download button adds a release to
+		// spec.grab (GrabRelease, search.go).
+		{Group: group, Resource: "searches", Verb: "patch"},
 	}
 	for _, kind := range AddableKinds {
 		grants = append(grants, Grant{Group: group, Resource: monitorables[kind].resource, Verb: "create"})
@@ -180,22 +184,13 @@ func SearchNow(
 		return nil, err
 	}
 
-	search := &catalogv1alpha1.Search{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: name + "-",
-			Namespace:    namespace,
-			Labels:       map[string]string{LabelOrigin: OriginUI},
-		},
-		Spec: catalogv1alpha1.SearchSpec{
-			MediaRef: &commonv1.MediaRef{Kind: kind, Name: name},
-			// On an item it is Radarr's and Sonarr's automatic search,
-			// grabbing the best approved release: the ui lists no results
-			// to pick from. On an author, artist or comic it is Readarr's
-			// and Lidarr's "search monitored": the Search fans out into
-			// its missing or cutoff-unmet items, and each grabs its best.
-			GrabBest: true,
-		},
-	}
+	search := uiSearch(namespace, kind, name)
+	// On an item it is Radarr's and Sonarr's automatic search, grabbing the
+	// best approved release; [InteractiveSearch] is the one that lists the
+	// results to pick from. On an author, artist or comic it is Readarr's
+	// and Lidarr's "search monitored": the Search fans out into its missing
+	// or cutoff-unmet items, and each grabs its best.
+	search.Spec.GrabBest = true
 	if err := c.Create(ctx, search, client.FieldOwner(FieldManager)); err != nil {
 		err = fmt.Errorf("actions: create Search for %s %s/%s: %w", kind, namespace, name, err)
 		tracing.RecordError(span, err)

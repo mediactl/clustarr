@@ -76,9 +76,8 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 			</div>
 			@jumpBar(jumpsFor)
 			@bulkBar(tab)
-			// Where a card's action says how it went (ActionStatus,
-			// ActionError); ui/static/library.js clears it after a while.
-			<div id="action-status" aria-live="polite" class="fixed top-16 left-1/2 z-50 w-max max-w-[90vw] -translate-x-1/2 empty:hidden"></div>
+			// Where a card's action says how it went.
+			@ActionStatusRegion()
 		</div>
 	}
 }

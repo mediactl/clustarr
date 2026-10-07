@@ -20,6 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Task G3-4 (the Settings and Unmatched pages) let the UI write:
 //
 //   - "search now" creates a Search ([SearchNow]);
+//   - an interactive search creates a Search without grabBest
+//     ([InteractiveSearch]), and its download button patches that
+//     Search's spec.grab ([GrabRelease], 2026-10-07);
 //   - "rescan" creates a LibraryScan ([Rescan]);
 //   - "monitor this" patches a catalog item's spec.monitored ([SetMonitored]);
 //   - the Settings page's edit forms each patch one settings kind's own
