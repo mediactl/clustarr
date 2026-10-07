@@ -35,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // reason in message and the Planned condition (ruling R1: PlanMode has no
 // reject value, and Skipped already means "decided not to transcode").
 //
-// The output's location is app/squash/worker.OutputPath (gap-fix ruling
+// The output's location is app/squash/jobspec.OutputPath (gap-fix ruling
 // R-11): in place for a same-container profile, a new name beside the
 // source for a container change (an .mp4 source under an mkv profile, or the
 // reverse -- Phase E's ruling R8 skipped these; they are now transcoded, with
@@ -45,7 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Failed (InvalidOutput) at plan time.
 //
 // The plan is made through pkg/transcode.FromSummary from the stored probe,
-// with the profile converted by app/squash/worker.ProfileSpec, the worker's
+// with the profile converted by app/squash/jobspec.StandardProfile, the worker's
 // own converter, the thread count a pool pod's CLUSTARR_CPU_LIMIT will hand
 // the worker (pool.Threads: the Downward API's limits.cpu, or a stated
 // default when the profile sets no CPU limit), and the worker's output
@@ -77,7 +77,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // rerouteUnschedulable).
 //
 // Queued: each admitted job is dispatched (dispatch.go): its task, built by
-// app/squash/worker.BuildTask, is published to its (profile, class) pool's
+// app/squash/jobspec.BuildTask, is published to its (profile, class) pool's
 // subject, and only then is the job recorded Queued with attempts+1 and
 // jobRef naming the pool Job. A job whose plan is for another class is
 // planned again for the class it was given first, and the Queued write

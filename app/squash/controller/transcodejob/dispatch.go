@@ -32,8 +32,8 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/task"
-	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -163,8 +163,8 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	}
 
 	attempt := tj.Status.Attempts + 1
-	t, buildErr := worker.BuildTask(&tj, tp, &mf, folders.Items, attempt, class)
-	if errors.Is(buildErr, worker.ErrNoRootFolder) || errors.Is(buildErr, worker.ErrInvalidOutput) {
+	t, buildErr := jobspec.BuildTask(&tj, tp, &mf, folders.Items, attempt, class)
+	if errors.Is(buildErr, jobspec.ErrNoRootFolder) || errors.Is(buildErr, jobspec.ErrInvalidOutput) {
 		before, after, err := r.writeStatus(ctx, key, func(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) bool {
 			if st.Phase != transcodev1alpha1.TranscodeJobPhasePlanned {
 				return false
@@ -263,7 +263,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		adoptedFirst = false // this may run again, from a fresh read, after a Conflict
 		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && st.Attempts == attempt-1 {
 			if replanned != nil {
-				r.recordPlan(tj, st, *replanned, worker.OutputContainer) // the plan the task was built from
+				r.recordPlan(tj, st, *replanned, jobspec.OutputContainer) // the plan the task was built from
 			}
 			markQueued(tj, st, attempt, class, pool.Name(k))
 			recordJoined(st, joined)
@@ -272,7 +272,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		if tj.UID == uid && dispatched(st.Phase) && st.Attempts == attempt && st.Hardware == class &&
 			(replanned != nil || (joined != nil && st.Graft == nil)) {
 			if replanned != nil {
-				markPlanned(tj, st, *replanned, worker.OutputContainer) // adopted first: the re-plan, and the join
+				markPlanned(tj, st, *replanned, jobspec.OutputContainer) // adopted first: the re-plan, and the join
 			}
 			recordJoined(st, joined)
 			adoptedFirst = true
@@ -320,7 +320,7 @@ func (r *Reconciler) keepPlanned(ctx context.Context, key types.NamespacedName, 
 			r.fail(tj, st, fail.reason, "%s", fail.msg)
 			return true
 		}
-		r.recordPlan(tj, st, p, worker.OutputContainer)
+		r.recordPlan(tj, st, p, jobspec.OutputContainer)
 		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && choosesClassFor(tj, tp) {
 			st.FallbackReason = truncate(fmt.Sprintf("a plan for %s encodes with %s, which needs no GPU", class, st.Plan.Encoder),
 				maxFallbackReason)

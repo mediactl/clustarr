@@ -26,8 +26,8 @@ import (
 	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/task"
-	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
@@ -45,8 +45,8 @@ func TestTaskJSONKeepsFalsePolicyPointers(t *testing.T) {
 	require.NoError(t, err)
 	var out task.Task
 	require.NoError(t, schema.Decode(in.Schema(), data, &out))
-	assert.False(t, worker.ReplaceSource(out.Profile.Spec.Policy))
-	assert.False(t, worker.RecycleBin(out.Profile.Spec.Policy))
+	assert.False(t, jobspec.ReplaceSource(out.Profile.Spec.Policy))
+	assert.False(t, jobspec.RecycleBin(out.Profile.Spec.Policy))
 	assert.Equal(t, in.Attempt, out.Attempt)
 }
 

@@ -31,8 +31,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/grafttask"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -82,42 +82,16 @@ type GraftEngine interface {
 // GraftPrepared is a graft ready to mux (grafttask.Prepared).
 type GraftPrepared = grafttask.Prepared
 
-// StandardProfile is a TranscodeProfile as the standard reads it (spec §5:
-// quality, audio languages, the modifier policy and the container); the
-// controller and the worker both build it here, so their plans agree.
-func StandardProfile(name, hash string, spec transcodev1alpha1.TranscodeProfileSpec) standard.Profile {
-	return standard.Profile{
-		Name: name, Hash: hash, Quality: spec.QualityOrDefault(),
-		Languages: spec.Audio.Languages, NeverTranscodeModifiers: spec.Policy.NeverTranscodeModifiers,
-		Container:   transcode.ContainerMP4, // the standard writes MP4 (OutputContainer)
-		MinDuration: MinDuration(spec.Policy),
-	}
-}
-
-// StandardTier is the tier the standard encodes on for a class (from
-// ProfileHardware): the class's own encoder, Dolby Vision included -- the
-// standard encodes its base layer like any HDR10 or HLG source. The
-// controller and the worker both pick it here, so their plans hash alike.
-func StandardTier(hw transcode.Hardware) transcode.Tier {
-	switch hw {
-	case transcode.HardwareNVIDIA:
-		return transcode.TierNVENC
-	case transcode.HardwareIntel:
-		return transcode.TierQSV
-	}
-	return transcode.TierCPUx265
-}
-
 // ffgoJob plans with the standard and encodes in-process on ffgo.
 func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap, local string) (encodeJob, error) {
 	log := logging.FromContext(ctx)
-	m, err := r.measurement(ctx, ProfileHardware(r.t.Profile.Spec, r.t.Profile.Hardware))
+	m, err := r.measurement(ctx, jobspec.ProfileHardware(r.t.Profile.Spec, r.t.Profile.Hardware))
 	if err != nil {
 		return encodeJob{}, err
 	}
 	tier := m.Tier
 	hw := standard.Hardware{Tier: tier, Limits: m.Limits}
-	profile := StandardProfile(r.t.Profile.Name, r.t.Profile.Hash, r.t.Profile.Spec)
+	profile := jobspec.StandardProfile(r.t.Profile.Name, r.t.Profile.Hash, r.t.Profile.Spec)
 	plan := standard.Plan(info, profile, hw)
 	if plan.Decision == standard.DecisionSkip {
 		return encodeJob{}, invalidSource("squasharr worker: live plan is skip (%s), not the work the controller planned", plan.Reason)

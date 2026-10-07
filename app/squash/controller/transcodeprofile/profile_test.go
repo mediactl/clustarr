@@ -37,7 +37,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -60,12 +60,12 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 	}
 }
 
-// standardInputs are the leaves the standard reads (worker.StandardProfile)
+// standardInputs are the leaves the standard reads (jobspec.StandardProfile)
 // and the size limit that decides whether its output is kept: a change to
 // any of them moves status.hash, so a file a terminal job skipped or failed
 // under the old values is planned again (a new job name) under the new.
 // Container is not one since standard.Version 2: every transcode writes MP4
-// (worker.OutputContainer).
+// (jobspec.OutputContainer).
 var standardInputs = map[string]bool{
 	"Quality": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true,
 	"Policy.MinDuration": true, "Policy.MaxOutputToSourcePercent": true,
@@ -132,8 +132,8 @@ func TestTheHashCoversOnlyTheStandardsInputs(t *testing.T) {
 		require.Truef(t, ok, "operationalFields names %s, which TranscodeProfileSpec no longer has", name)
 	}
 
-	assert.NotEqual(t, baseHash, worker.ProfileHashAt(base, standard.Version+1), "a new standard.Version moves every hash")
-	assert.Equal(t, baseHash, worker.ProfileHashAt(base, standard.Version))
+	assert.NotEqual(t, baseHash, jobspec.ProfileHashAt(base, standard.Version+1), "a new standard.Version moves every hash")
+	assert.Equal(t, baseHash, jobspec.ProfileHashAt(base, standard.Version))
 }
 
 // The two lists are sets -- a language is kept or not, a modifier skips or
@@ -160,7 +160,7 @@ func TestTheHashTreatsItsListsAsSets(t *testing.T) {
 		NeverTranscodeModifiers  []string
 		MinDuration              time.Duration
 		MaxOutputToSourcePercent int32
-	}{standard.Version, 30, worker.OutputContainer, []string{"eng"}, []string{"remux", "brdisk"}, time.Minute, 100})
+	}{standard.Version, 30, jobspec.OutputContainer, []string{"eng"}, []string{"remux", "brdisk"}, time.Minute, 100})
 	assert.Equal(t, before, profileHash(stable), "the hash's shape is unchanged: the container field holds the MP4 standard's")
 }
 
@@ -178,8 +178,8 @@ func sha256Hex(t *testing.T, v any) string {
 func TestTheHashReadsUnsetFieldsAsTheirDefaults(t *testing.T) {
 	set := renderSpec()
 	set.Quality = ptr.To(transcodev1alpha1.DefaultQuality)
-	set.Policy.MinDuration = &metav1.Duration{Duration: worker.DefaultMinDuration}
-	set.Policy.MaxOutputToSourcePercent = ptr.To[int32](worker.DefaultMaxOutputToSourcePercent)
+	set.Policy.MinDuration = &metav1.Duration{Duration: jobspec.DefaultMinDuration}
+	set.Policy.MaxOutputToSourcePercent = ptr.To[int32](jobspec.DefaultMaxOutputToSourcePercent)
 	unset := set
 	unset.Quality = nil
 	unset.Container = ""

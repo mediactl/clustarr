@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -209,8 +209,8 @@ func TestAnOlderPodFailurePolicyReadsAsRecreateOnly(t *testing.T) {
 	ac, err := Render(k, tp, Want(tp, "cpu", cfg), Desired{Parallelism: 1}, nil, cfg)
 	require.NoError(t, err)
 	// The pool as the release before I1 created it: exit 10 ignored, 137 not.
-	require.Equal(t, []int32{worker.WorkerExitDrained, ExitOOMKilled}, ac.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values)
-	ac.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values = []int32{worker.WorkerExitDrained}
+	require.Equal(t, []int32{jobspec.WorkerExitDrained, ExitOOMKilled}, ac.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values)
+	ac.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values = []int32{jobspec.WorkerExitDrained}
 	_, err = k8s.Apply(context.Background(), c, k8s.ManagerSquasharrPool, ac)
 	require.NoError(t, err)
 

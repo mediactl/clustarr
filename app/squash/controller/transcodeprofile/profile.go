@@ -29,7 +29,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -68,7 +68,7 @@ func eligibleKind(k commonv1.MediaKind) bool {
 	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
 }
 
-// profileHash is status.hash: app/squash/worker.ProfileHash, over the
+// profileHash is status.hash: app/squash/jobspec.ProfileHash, over the
 // standard's inputs (quality, container, audio.languages,
 // policy.neverTranscodeModifiers, policy.minDuration,
 // policy.maxOutputToSourcePercent) and standard.Version. The worker tags its
@@ -77,7 +77,7 @@ func eligibleKind(k commonv1.MediaKind) bool {
 // selector plans nothing. A new hash plans jobs only for files not yet
 // transcoded (alreadyTranscoded).
 func profileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
-	return worker.ProfileHash(spec)
+	return jobspec.ProfileHash(spec)
 }
 
 // transcodeJobName renders the exact scheme TranscodeJob's own doc comment

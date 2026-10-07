@@ -35,7 +35,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -52,7 +52,7 @@ func TestKeptOutputNameReadsSquasharrsName(t *testing.T) {
 		{"/data/media/movies/Heat (1995)/Heat (1995).MP4", "hevc.small", transcodev1alpha1.ContainerMKV},
 		{"/data/media/tv/Show/Season 01/Show - S01E01 - Pilot.avi", "mp4out", transcodev1alpha1.ContainerMP4},
 	} {
-		out, err := worker.OutputPath(transcodev1alpha1.TranscodeJobSpec{SourcePath: tc.source}, tc.profile, tc.container, false)
+		out, err := jobspec.OutputPath(transcodev1alpha1.TranscodeJobSpec{SourcePath: tc.source}, tc.profile, tc.container, false)
 		require.NoError(t, err)
 		stem, profile, ok := rescan.KeptOutputName(filepath.Base(out))
 		require.True(t, ok, "%s is squasharr's name", out)

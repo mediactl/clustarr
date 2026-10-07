@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package worker
+package jobspec
 
 import (
 	"fmt"
@@ -28,18 +28,18 @@ import (
 
 // LogicalDataRoot is where every path stored in a CRD lives: RootFolder
 // paths must start with /data/media/ (a CEL rule), and MediaFile and
-// TranscodeJob paths are under a root folder. [Options.DataDir] is where
-// that volume is mounted in THIS process -- /data in a Job pod, so the
-// mapping is the identity in production.
+// TranscodeJob paths are under a root folder. app/squash/worker's
+// Options.DataDir is where that volume is mounted in THIS process -- /data in
+// a Job pod, so the mapping is the identity in production.
 const LogicalDataRoot = "/data"
 
 // defaultRecycleBin is RecycleBin.Path's CRD default, used when a
 // RootFolder's is somehow empty.
 const defaultRecycleBin = "/data/.recycle"
 
-// localPath maps a logical /data path to this process's filesystem. A path
+// LocalPath maps a logical /data path to this process's filesystem. A path
 // outside /data is refused rather than guessed at.
-func localPath(dataDir, logical string) (string, error) {
+func LocalPath(dataDir, logical string) (string, error) {
 	if !filepath.IsAbs(logical) {
 		return "", fmt.Errorf("path %q is not absolute", logical)
 	}
@@ -51,20 +51,20 @@ func localPath(dataDir, logical string) (string, error) {
 	return filepath.Join(dataDir, rel), nil
 }
 
-// within reports whether path is strictly inside dir (both logical, both
+// Within reports whether path is strictly inside dir (both logical, both
 // already cleaned by the caller or the CRD).
-func within(dir, path string) bool {
+func Within(dir, path string) bool {
 	dir = filepath.Clean(dir)
 	return strings.HasPrefix(filepath.Clean(path), dir+"/")
 }
 
-// rootFolderFor picks the RootFolder whose path contains source, the
+// RootFolderFor picks the RootFolder whose path contains source, the
 // deepest one if root folders nest. nil means none does.
-func rootFolderFor(folders []catalogv1alpha1.RootFolder, source string) *catalogv1alpha1.RootFolder {
+func RootFolderFor(folders []catalogv1alpha1.RootFolder, source string) *catalogv1alpha1.RootFolder {
 	var best *catalogv1alpha1.RootFolder
 	for i := range folders {
 		rf := &folders[i]
-		if !within(rf.Spec.Path, source) {
+		if !Within(rf.Spec.Path, source) {
 			continue
 		}
 		if best == nil || len(filepath.Clean(rf.Spec.Path)) > len(filepath.Clean(best.Spec.Path)) {
@@ -134,17 +134,6 @@ func OutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
 		return stem + "." + ext, nil
 	}
 	return stem + " - " + profileName + "." + ext, nil
-}
-
-// LocalPath is localPath for the graft run (app/squash/worker/graft).
-func LocalPath(dataDir, logical string) (string, error) { return localPath(dataDir, logical) }
-
-// Within is within, for the same.
-func Within(dir, path string) bool { return within(dir, path) }
-
-// RootFolderFor is rootFolderFor, for the AudioGraft controller.
-func RootFolderFor(folders []catalogv1alpha1.RootFolder, path string) *catalogv1alpha1.RootFolder {
-	return rootFolderFor(folders, path)
 }
 
 // RecycleBinOf is the recycle bin a RootFolder's swaps link into.

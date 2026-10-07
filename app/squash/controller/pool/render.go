@@ -32,7 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -276,11 +276,11 @@ func podFailurePolicy() *batchv1.PodFailurePolicy {
 		}},
 		{Action: batchv1.PodFailurePolicyActionIgnore, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
 			ContainerName: ptr.To(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,
-			Values: []int32{worker.WorkerExitDrained, ExitOOMKilled}, // ascending, as the apiserver requires
+			Values: []int32{jobspec.WorkerExitDrained, ExitOOMKilled}, // ascending, as the apiserver requires
 		}},
 		{Action: batchv1.PodFailurePolicyActionFailJob, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
 			ContainerName: ptr.To(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,
-			Values: []int32{worker.WorkerExitMisconfigured},
+			Values: []int32{jobspec.WorkerExitMisconfigured},
 		}},
 	}}
 }

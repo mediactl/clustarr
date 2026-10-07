@@ -28,7 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 )
 
 // Labels, annotations and env names squasharr-pool stamps on the Jobs and
@@ -223,7 +223,7 @@ func wholeCores(q resource.Quantity) int32 {
 // resources r, and whether it comes from a CPU limit.
 //
 // With a CPU limit it is the limit rounded up to whole cores: exactly what
-// the Downward API renders into worker.CPULimitEnv, which Template then
+// the Downward API renders into jobspec.CPULimitEnv, which Template then
 // wires from limits.cpu (§6.4). With no limit the Downward API would render
 // the NODE's allocatable CPU, which the controller planning the job cannot
 // know, so status.plan's pools= would differ from the worker's argv. Such a
@@ -329,17 +329,17 @@ func fieldRef(path string) *corev1.EnvVarSource {
 	return &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: path}}
 }
 
-// cpuLimitEnv is worker.CPULimitEnv's entry (§6.4): x265 reads the host's CPU
+// cpuLimitEnv is jobspec.CPULimitEnv's entry (§6.4): x265 reads the host's CPU
 // count, not the cgroup quota, so the worker sizes its thread pools from
 // CLUSTARR_CPU_LIMIT -- the Downward API's limits.cpu when the container has
 // a CPU limit, else the stated default Threads used, never the node's CPUs.
 func cpuLimitEnv(threads int32, fromLimit bool) corev1.EnvVar {
 	if fromLimit {
-		return corev1.EnvVar{Name: worker.CPULimitEnv, ValueFrom: &corev1.EnvVarSource{ResourceFieldRef: &corev1.ResourceFieldSelector{
+		return corev1.EnvVar{Name: jobspec.CPULimitEnv, ValueFrom: &corev1.EnvVarSource{ResourceFieldRef: &corev1.ResourceFieldSelector{
 			ContainerName: ContainerName, Resource: "limits.cpu", Divisor: resource.MustParse("1"),
 		}}}
 	}
-	return corev1.EnvVar{Name: worker.CPULimitEnv, Value: strconv.Itoa(int(threads))}
+	return corev1.EnvVar{Name: jobspec.CPULimitEnv, Value: strconv.Itoa(int(threads))}
 }
 
 // Template is the pod template a (profile, class) pool asks for. The image,

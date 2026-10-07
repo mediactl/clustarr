@@ -46,7 +46,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
@@ -94,7 +94,7 @@ func TestParity(t *testing.T) {
 			require.NoError(t, err)
 			info.Path = clip
 
-			sp := standard.Plan(info, worker.StandardProfile("hevc-mkv", "parity", spec),
+			sp := standard.Plan(info, jobspec.StandardProfile("hevc-mkv", "parity", spec),
 				standard.Hardware{Tier: transcode.TierNVENC, Limits: measured.Limits})
 			if strings.HasSuffix(class, "-synthetic") {
 				require.NotEqual(t, standard.DecisionSkip, sp.Decision, "a synthetic clip exists to be encoded: %s", sp.Reason)

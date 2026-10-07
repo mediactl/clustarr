@@ -82,7 +82,7 @@ func recordedTag(mf *catalogv1alpha1.MediaFile, tag string) string {
 // the Planned condition's message. The comparison is case-insensitive on the
 // extension; an empty profile container means the CRD default, mkv. Since
 // gap-fix ruling R-11 a container change is transcoded -- to a new name
-// beside the source (worker.OutputPath) -- rather than skipped as Phase E's
+// beside the source (jobspec.OutputPath) -- rather than skipped as Phase E's
 // R8 did; this only labels it.
 func containerChange(source string, container transcodev1alpha1.Container) (src, want string, changed bool) {
 	src = strings.ToLower(strings.TrimPrefix(filepath.Ext(source), "."))

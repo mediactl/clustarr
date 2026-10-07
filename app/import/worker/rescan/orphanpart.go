@@ -29,7 +29,7 @@ import (
 
 // OrphanPartAge is how long a transcode attempt's part file must have gone
 // unwritten before the rescan removes it as abandoned: the worker's default
-// per-task deadline (app/squash/worker.DefaultActiveDeadline, 48h, the
+// per-task deadline (app/squash/jobspec.DefaultActiveDeadline, 48h, the
 // TranscodeProfile CRD default) plus a day. A running encode writes its
 // part continuously, so its modification time stays fresh however long a
 // profile's own deadline is; one this old belongs to an attempt that died

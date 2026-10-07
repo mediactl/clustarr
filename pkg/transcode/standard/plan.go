@@ -45,7 +45,7 @@ import (
 )
 
 // Version is the standard's revision, part of every profile's status.hash
-// (app/squash/worker.ProfileHash). Raise it when Plan or the engine starts
+// (app/squash/jobspec.ProfileHash). Raise it when Plan or the engine starts
 // writing different output for the same input -- a new encoder setting, a
 // colour rule -- so files not yet transcoded are planned under the new
 // standard. Files already transcoded are final and are never redone.

@@ -31,6 +31,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -84,14 +85,6 @@ func TraceParent(ctx context.Context) string {
 	propagation.TraceContext{}.Inject(ctx, carrier)
 	return carrier.Get("traceparent")
 }
-
-// CPULimitEnv carries x265's pools= size (§6.4): x265 otherwise sizes its
-// pool from the host's CPU count, not the cgroup quota (note §3.7). The
-// TranscodeJob controller wires it from the Downward API's limits.cpu when
-// the Job's container has a CPU limit, and otherwise writes the stated
-// default it planned with (its threadsFromResources) as a literal, because
-// the Downward API would then report the node's CPUs.
-const CPULimitEnv = "CLUSTARR_CPU_LIMIT"
 
 // Options configures one [Process] call.
 type Options struct {
@@ -159,11 +152,11 @@ type Options struct {
 	BeforeSwap func(context.Context) error
 }
 
-// ThreadsFromEnv reads [CPULimitEnv]. The Downward API renders limits.cpu
+// ThreadsFromEnv reads [jobspec.CPULimitEnv]. The Downward API renders limits.cpu
 // as a whole number of cores (rounded up) with divisor 1, and a literal is
 // already one; an unset or unparseable value yields 0.
 func ThreadsFromEnv() int32 {
-	n, err := strconv.ParseInt(os.Getenv(CPULimitEnv), 10, 32)
+	n, err := strconv.ParseInt(os.Getenv(jobspec.CPULimitEnv), 10, 32)
 	if err != nil || n < 0 {
 		return 0
 	}
@@ -172,7 +165,7 @@ func ThreadsFromEnv() int32 {
 
 func (o Options) withDefaults() Options {
 	if o.DataDir == "" {
-		o.DataDir = LogicalDataRoot
+		o.DataDir = jobspec.LogicalDataRoot
 	}
 	if o.ProgressInterval <= 0 {
 		o.ProgressInterval = DefaultProgressInterval
@@ -269,14 +262,14 @@ func (r *runner) run(ctx context.Context) error {
 	}
 
 	source := r.t.SourcePath
-	local, err := localPath(r.o.DataDir, source)
+	local, err := jobspec.LocalPath(r.o.DataDir, source)
 	if err != nil {
 		return invalidSource("squasharr worker: source: %w", err)
 	}
-	if !within(r.t.Root.Path, source) {
+	if !jobspec.Within(r.t.Root.Path, source) {
 		return invalidSource("squasharr worker: source %s is outside root folder %s", source, r.t.Root.Path)
 	}
-	bin, err := localPath(r.o.DataDir, r.t.Root.RecycleBin)
+	bin, err := jobspec.LocalPath(r.o.DataDir, r.t.Root.RecycleBin)
 	if err != nil {
 		return invalidSource("squasharr worker: recycle bin: %w", err)
 	}
@@ -287,13 +280,13 @@ func (r *runner) run(ctx context.Context) error {
 	// (replaceSource=true) or kept (false).
 	sw := swap{
 		source: source, local: local, bin: bin,
-		replace: ReplaceSource(r.t.Profile.Spec.Policy), recycle: RecycleBin(r.t.Profile.Spec.Policy),
+		replace: jobspec.ReplaceSource(r.t.Profile.Spec.Policy), recycle: jobspec.RecycleBin(r.t.Profile.Spec.Policy),
 	}
 	sw.out = r.t.OutputPath
-	if sw.localOut, err = localPath(r.o.DataDir, sw.out); err != nil {
+	if sw.localOut, err = jobspec.LocalPath(r.o.DataDir, sw.out); err != nil {
 		return invalidSource("squasharr worker: output: %w", err)
 	}
-	if !sw.inPlace() && (r.t.OutputRoot == "" || !within(r.t.OutputRoot, sw.out)) {
+	if !sw.inPlace() && (r.t.OutputRoot == "" || !jobspec.Within(r.t.OutputRoot, sw.out)) {
 		return invalidSource("squasharr worker: output %s is under no RootFolder; refusing to write it", sw.out)
 	}
 	tag := r.t.Profile.Name + "@" + r.t.Profile.Hash
@@ -388,7 +381,7 @@ func (r *runner) run(ctx context.Context) error {
 		removePart(ctx, job.part)
 		return verifyFailed("squasharr worker: output failed verification: %v", report.Problems)
 	}
-	if limit := MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
+	if limit := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
 		removePart(ctx, job.part)
 		return verifyFailed("squasharr worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
 			sizePercent(report.SizeBytes, st.Size()), limit)

@@ -24,7 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	squashworker "github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 )
 
 type partInfo struct {
@@ -71,5 +71,5 @@ func TestOrphanPartIsAnAbandonedTranscodeAttemptsOutputOnly(t *testing.T) {
 // The age outlives any attempt the default deadline lets run, with a day
 // to spare: a part that old with no live job is no attempt's.
 func TestOrphanPartAgeOutlivesTheDefaultDeadline(t *testing.T) {
-	assert.GreaterOrEqual(t, OrphanPartAge, squashworker.DefaultActiveDeadline+24*time.Hour)
+	assert.GreaterOrEqual(t, OrphanPartAge, jobspec.DefaultActiveDeadline+24*time.Hour)
 }

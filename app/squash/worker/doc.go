@@ -17,8 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package worker transcodes one task.Task: [Process] is the whole of it, and
 // it never talks to Kubernetes (spec §9) -- every input it needs is resolved
-// onto the task by [BuildTask] before Process is ever called, and every
-// output (progress, the result, stderr) comes back on the returned Outcome
+// onto the task by [jobspec.BuildTask] before Process is ever called, and
+// every output (progress, the result, stderr) comes back on the returned Outcome
 // for the caller to do something with. The caller is [Serve], the pool
 // worker loop cmd/squasharr-worker runs, which reports each Outcome to
 // squasharr as a finished status event (spec §18.1).
@@ -57,8 +57,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Where the output goes (gap-fix ruling R-11)
 //
-// [OutputPath] decides, and the TranscodeJob controller plans with the same
-// function: spec.outputPath when set; otherwise <stem>.<container> beside
+// [jobspec.OutputPath] decides, and the TranscodeJob controller plans with
+// the same function: spec.outputPath when set; otherwise <stem>.<container> beside
 // the source when policy.replaceSource is true (the source path itself for a
 // same-container profile -- the in-place swap below -- or a new name for a
 // container change); otherwise "<stem> - <profile>.<container>" beside the

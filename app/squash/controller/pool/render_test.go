@@ -32,7 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 )
 
 var cfg = Config{
@@ -88,10 +88,10 @@ func TestRenderIsACompletePoolDeclaration(t *testing.T) {
 	require.Len(t, rules, 3)
 	assert.Equal(t, batchv1.PodFailurePolicyActionIgnore, rules[0].Action)
 	assert.Equal(t, batchv1.PodFailurePolicyActionIgnore, rules[1].Action)
-	assert.Equal(t, []int32{worker.WorkerExitDrained, ExitOOMKilled}, rules[1].OnExitCodes.Values,
+	assert.Equal(t, []int32{jobspec.WorkerExitDrained, ExitOOMKilled}, rules[1].OnExitCodes.Values,
 		"an OOM-killed worker spends none of the pool's lifetime backoffLimit (final-review I1)")
 	assert.Equal(t, batchv1.PodFailurePolicyActionFailJob, rules[2].Action)
-	assert.Equal(t, []int32{worker.WorkerExitMisconfigured}, rules[2].OnExitCodes.Values)
+	assert.Equal(t, []int32{jobspec.WorkerExitMisconfigured}, rules[2].OnExitCodes.Values)
 
 	pod := j.Spec.Template.Spec
 	assert.False(t, *pod.AutomountServiceAccountToken, "the worker holds no Kubernetes credentials")

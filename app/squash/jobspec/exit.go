@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package worker
+package jobspec
 
 // Process-level exit codes of cmd/squasharr-worker, distinct from the task
 // classifications in run.go: those end up in a task.Result, never in a pod's

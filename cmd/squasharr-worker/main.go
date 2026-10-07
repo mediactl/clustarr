@@ -34,6 +34,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/mediactl/clustarr/app/squash/grafttask"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/app/squash/worker/graft"
 	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
@@ -54,7 +55,7 @@ func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 // run never returns 0: a work-queue Job ends when any pod succeeds.
 func run(args []string, getenv func(string) string) int {
 	fs := pflag.NewFlagSet("squasharr-worker", pflag.ContinueOnError)
-	dataDir := fs.String("data-dir", worker.LogicalDataRoot, "Where the RWX /data volume is mounted.")
+	dataDir := fs.String("data-dir", jobspec.LogicalDataRoot, "Where the RWX /data volume is mounted.")
 	selfCheck := fs.String("self-check", "", "Check this image can transcode for a class (cpu, cuda, intel), print the report as JSON and exit: 0 when it can.")
 	trial := fs.Bool("trial", false, "With --self-check, also encode for real on the class's GPU.")
 	scratchDir := fs.String("scratch-dir", os.TempDir(), "With --trial, where the trial writes its clip.")
@@ -63,14 +64,14 @@ func run(args []string, getenv func(string) string) int {
 	lo, to := obsflags.Bind(fs)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
-		return worker.WorkerExitMisconfigured
+		return jobspec.WorkerExitMisconfigured
 	}
 	if *selfCheck != "" {
 		return runSelfCheck(selfcheck.Class(*selfCheck), *trial, *scratchDir)
 	}
 	if err := fsops.ApplyUmaskFromEnv(); err != nil {
 		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
-		return worker.WorkerExitMisconfigured
+		return jobspec.WorkerExitMisconfigured
 	}
 	if *graftTask != "" {
 		return runGraft(*graftTask, *termLog, *dataDir, logging.New(*lo))
@@ -79,7 +80,7 @@ func run(args []string, getenv func(string) string) int {
 	for _, k := range []string{"NATS_URL", "CLUSTARR_POOL_PROFILE_UID", "CLUSTARR_POOL_CLASS", "POD_NAME"} {
 		if need[k] = getenv(k); need[k] == "" {
 			fmt.Fprintf(os.Stderr, "squasharr-worker: $%s is required\n", k)
-			return worker.WorkerExitMisconfigured
+			return jobspec.WorkerExitMisconfigured
 		}
 	}
 
@@ -91,7 +92,7 @@ func run(args []string, getenv func(string) string) int {
 	shutdown, err := tracing.Setup(ctx, *to)
 	if err != nil {
 		log.ErrorContext(ctx, "tracing", "error", err)
-		return worker.WorkerExitMisconfigured
+		return jobspec.WorkerExitMisconfigured
 	}
 	defer func() {
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -106,12 +107,12 @@ func run(args []string, getenv func(string) string) int {
 	eng, err := inprocess.New()
 	if err != nil {
 		log.ErrorContext(ctx, "the in-process engine is unavailable", "error", err)
-		return worker.WorkerExitRetriable
+		return jobspec.WorkerExitRetriable
 	}
 	nc, err := nats.Connect(need["NATS_URL"], nats.Name("squasharr-worker/"+need["POD_NAME"]))
 	if err != nil {
 		log.ErrorContext(ctx, "nats connect", "error", err)
-		return worker.WorkerExitRetriable
+		return jobspec.WorkerExitRetriable
 	}
 	defer nc.Close()
 	// Equivalent to obs.BusHooks(), inlined: pkg/obs (the top-level package)
@@ -122,7 +123,7 @@ func run(args []string, getenv func(string) string) int {
 	}))
 	if err != nil {
 		log.ErrorContext(ctx, "bus", "error", err)
-		return worker.WorkerExitRetriable
+		return jobspec.WorkerExitRetriable
 	}
 	opts := worker.Options{
 		DataDir: *dataDir, Threads: worker.ThreadsFromEnv(), PodName: need["POD_NAME"],
@@ -135,10 +136,10 @@ func run(args []string, getenv func(string) string) int {
 		Leases: bus.KV(events.BucketTranscodeLeases), // status events go to the stream through bus
 	})
 	if ctx.Err() != nil {
-		return worker.WorkerExitDrained
+		return jobspec.WorkerExitDrained
 	}
 	log.ErrorContext(ctx, "serve", "error", err)
-	return worker.WorkerExitRetriable
+	return jobspec.WorkerExitRetriable
 }
 
 // runSelfCheck runs the image check CI and the pool's start run: no
@@ -158,7 +159,7 @@ func runSelfCheck(class selfcheck.Class, trial bool, dir string) int {
 	fmt.Println(string(out))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "squasharr-worker: self-check:", err)
-		return worker.WorkerExitMisconfigured
+		return jobspec.WorkerExitMisconfigured
 	}
 	return 0
 }

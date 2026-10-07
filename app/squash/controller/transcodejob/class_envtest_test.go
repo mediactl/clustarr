@@ -39,8 +39,8 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/app/squash/controller/transcodejob"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/task"
-	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -177,9 +177,9 @@ func TestAutoGoesToTheGPUPoolWhenOneIsFree(t *testing.T) {
 	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(mf), mf))
 	info, err := transcode.FromSummary(tk.SourcePath, mf.Status.MediaInfo)
 	require.NoError(t, err)
-	tier := worker.StandardTier(worker.ProfileHardware(tk.Profile.Spec, tk.Profile.Hardware))
+	tier := jobspec.StandardTier(jobspec.ProfileHardware(tk.Profile.Spec, tk.Profile.Hardware))
 	assert.Equal(t, transcode.TierNVENC, tier)
-	wp := standard.Plan(info, worker.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec), standard.Hardware{Tier: tier})
+	wp := standard.Plan(info, jobspec.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec), standard.Hardware{Tier: tier})
 	assert.Equal(t, wp.Hash(), tk.PlanHash, "status.plan.planHash is the hash of the plan the nvidia worker runs")
 
 	gpuPool := getPool(t, c, tp, transcodev1alpha1.HardwareNVIDIA)

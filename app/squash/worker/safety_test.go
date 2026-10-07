@@ -33,6 +33,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -166,7 +167,7 @@ func planHashOf(t *testing.T, mi *commonv1alpha1.MediaInfo, raw *mediainfo.Raw, 
 	t.Helper()
 	info, err := transcode.FromProbe(mi, raw)
 	require.NoError(t, err)
-	p := standard.Plan(info, StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec),
+	p := standard.Plan(info, jobspec.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec),
 		standard.Hardware{Tier: transcode.TierCPUx265})
 	require.Equal(t, standard.DecisionEncode, p.Decision, p.Reason)
 	return p.Hash()

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package worker
+package jobspec
 
 import (
 	"errors"
@@ -50,7 +50,7 @@ func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transco
 		source = mf.Spec.Path
 	}
 	source = filepath.Clean(source)
-	rf := rootFolderFor(folders, source)
+	rf := RootFolderFor(folders, source)
 	if rf == nil {
 		return task.Task{}, fmt.Errorf("source %s: %w", source, ErrNoRootFolder)
 	}
@@ -85,7 +85,7 @@ func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transco
 		t.PlanHash = tj.Status.Plan.PlanHash
 	}
 	if filepath.Clean(out) != source {
-		orf := rootFolderFor(folders, out)
+		orf := RootFolderFor(folders, out)
 		if orf == nil {
 			return task.Task{}, fmt.Errorf("output %s: %w", out, ErrNoRootFolder)
 		}

@@ -187,7 +187,7 @@ func Decode(b []byte) (Result, error) {
 }
 
 // LogicalDataRoot is where every path a Task names lives (as
-// app/squash/worker.LogicalDataRoot): the RWX /data volume.
+// app/squash/jobspec.LogicalDataRoot): the RWX /data volume.
 const LogicalDataRoot = "/data"
 
 // LocalPath maps a logical /data path to dataDir, refusing one outside it.

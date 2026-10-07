@@ -44,8 +44,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/task"
-	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -538,7 +538,7 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 		r.fail(tj, st, fail.reason, "%s", fail.msg)
 		return ctrl.Result{}, nil
 	}
-	r.recordPlan(tj, st, p, worker.OutputContainer)
+	r.recordPlan(tj, st, p, jobspec.OutputContainer)
 	return ctrl.Result{}, nil
 }
 
@@ -561,9 +561,9 @@ type planFailure struct{ reason, msg string }
 // planFor plans tj under tp from mf's stored probe with the standard, for
 // hardware: nil, or tj.Spec.Hardware, is the job's own override of its
 // profile's class, and auto with no class chosen yet plans for cpu
-// (worker.ProfileHardware). plan uses it for a new job; dispatch uses it to plan
+// (jobspec.ProfileHardware). plan uses it for a new job; dispatch uses it to plan
 // again for the class admission chose, when the recorded plan is for another
-// (spec §18.5). The tier is the class's (worker.StandardTier) and the
+// (spec §18.5). The tier is the class's (jobspec.StandardTier) and the
 // limits the class's pods published, as the worker's own plan is, so
 // status.plan.planHash is the hash of the plan the worker runs.
 func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
@@ -574,7 +574,7 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 		source = mf.Spec.Path
 	}
 	source = filepath.Clean(source)
-	outPath, err := worker.OutputPath(tj.Spec, tp.Name, worker.OutputContainer, worker.ReplaceSource(tp.Spec.Policy))
+	outPath, err := jobspec.OutputPath(tj.Spec, tp.Name, jobspec.OutputContainer, jobspec.ReplaceSource(tp.Spec.Policy))
 	if err != nil {
 		return planning{}, &planFailure{ReasonInvalidOutput, fmt.Sprintf("cannot place the output: %v", err)}
 	}
@@ -589,11 +589,11 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 		p.reject = why
 		return p, nil
 	}
-	tier := worker.StandardTier(worker.ProfileHardware(tp.Spec, hardware))
+	tier := jobspec.StandardTier(jobspec.ProfileHardware(tp.Spec, hardware))
 	if dev.tier != "" {
 		tier = dev.tier // what the class's pods measured: the worker plans with it too
 	}
-	p.plan = standard.Plan(info, worker.StandardProfile(tp.Name, tp.Status.Hash, tp.Spec),
+	p.plan = standard.Plan(info, jobspec.StandardProfile(tp.Name, tp.Status.Hash, tp.Spec),
 		standard.Hardware{Tier: tier, Limits: dev.limits[tier]})
 	return p, nil
 }

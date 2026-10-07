@@ -49,6 +49,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/status"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -341,7 +342,7 @@ func (f *fixture) processWith(t *testing.T, c client.Client, o Options) Outcome 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 	var folders catalogv1alpha1.RootFolderList
 	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
 	if err != nil {
 		return Outcome{Code: ExitInvalidSource, Err: err}
 	}
@@ -494,7 +495,7 @@ func TestProcessReportsSourceChangedWhenTheSourceIsEditedAfterPlanning(t *testin
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 	var folders catalogv1alpha1.RootFolderList
 	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
 	require.NoError(t, err)
 
 	// The source is edited (different size, so a different ProbeHash) after
@@ -577,7 +578,7 @@ func TestRunClassifiesInputFailures(t *testing.T) {
 		require.NoError(t, c.Delete(ctx, &rf))
 		out := f.process(t, c)
 		assert.Equal(t, ExitInvalidSource, out.Code)
-		assert.ErrorIs(t, out.Err, ErrNoRootFolder, "BuildTask refuses before Process ever runs")
+		assert.ErrorIs(t, out.Err, jobspec.ErrNoRootFolder, "BuildTask refuses before Process ever runs")
 		f.requireSourceUntouched(t)
 	})
 
@@ -637,8 +638,8 @@ func TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode(t *testing.T) {
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
 	require.Equal(t, ptr.To[int32](100), tp.Spec.Policy.MaxOutputToSourcePercent,
 		"the apiserver's default for policy.maxOutputToSourcePercent: an output no bigger than its source")
-	require.True(t, ReplaceSource(tp.Spec.Policy))
-	require.True(t, RecycleBin(tp.Spec.Policy))
+	require.True(t, jobspec.ReplaceSource(tp.Spec.Policy))
+	require.True(t, jobspec.RecycleBin(tp.Spec.Policy))
 
 	out := f.process(t, c)
 	require.NoError(t, out.Err)
@@ -1007,7 +1008,7 @@ func TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 	var folders catalogv1alpha1.RootFolderList
 	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
 	require.NoError(t, err)
 	tk.Engine = task.EngineFFgo
 
@@ -1048,7 +1049,7 @@ func TestAnFFgoTaskOnAWorkerWithoutTheEngineIsRetriable(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 	var folders catalogv1alpha1.RootFolderList
 	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
 	require.NoError(t, err)
 	tk.Engine = task.EngineFFgo
 
@@ -1129,7 +1130,7 @@ func TestTheFFgoJobUsesTheMeasuredTier(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 	var folders catalogv1alpha1.RootFolderList
 	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, transcodev1alpha1.HardwareIntel)
+	tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, transcodev1alpha1.HardwareIntel)
 	require.NoError(t, err)
 	tk.Engine = task.EngineFFgo
 
@@ -1177,7 +1178,7 @@ func TestTheEnginesFailuresAreClassified(t *testing.T) {
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 			var folders catalogv1alpha1.RootFolderList
 			require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-			tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+			tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
 			require.NoError(t, err)
 			tk.Engine = task.EngineFFgo
 
@@ -1355,7 +1356,7 @@ func TestATaskForAnotherContainerIsRetried(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 	var folders catalogv1alpha1.RootFolderList
 	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
 	require.NoError(t, err)
 	tk.OutputPath = f.logical // what a Version 1 dispatcher rendered: in place, .mkv
 	out := Process(ctx, tk, f.options())

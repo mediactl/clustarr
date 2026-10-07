@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 )
 
 // Every transcode pool pod runs with the security settings every Deployment
@@ -123,7 +123,7 @@ func TestFlooredDefaultsMatchTheGeneratedCRD(t *testing.T) {
 
 	d, err := time.ParseDuration(props["activeDeadline"].Default.(string))
 	require.NoError(t, err)
-	assert.Equal(t, worker.DefaultActiveDeadline, d, "worker.DefaultActiveDeadline no longer mirrors spec.activeDeadline's default")
+	assert.Equal(t, jobspec.DefaultActiveDeadline, d, "jobspec.DefaultActiveDeadline no longer mirrors spec.activeDeadline's default")
 	assert.Equal(t, defaultScratch.String(), props["scratch"].Default, "defaultScratch no longer mirrors spec.scratch's default")
 
 	var want corev1.ResourceRequirements
@@ -200,7 +200,7 @@ func TestJobCPULimitEnvIsThePlannedThreads(t *testing.T) {
 			ctr := Template(p, transcodev1alpha1.HardwareCPU, Config{Image: "cpu:1"}).Spec.Containers[0]
 			var env *corev1.EnvVar
 			for i := range ctr.Env {
-				if ctr.Env[i].Name == worker.CPULimitEnv {
+				if ctr.Env[i].Name == jobspec.CPULimitEnv {
 					env = &ctr.Env[i]
 				}
 			}

@@ -37,7 +37,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -47,7 +47,7 @@ import (
 // arguments [the controller] renders into status.plan may differ from the
 // worker's": for a real HDR10 source with mastering metadata, the
 // controller plans from the probe summary catalogarr stores, the worker's
-// own path (the task worker.BuildTask renders, FromProbe of a live probe,
+// own path (the task jobspec.BuildTask renders, FromProbe of a live probe,
 // ProbeCapabilities, ThreadsFromEnv from the pool template's value) plans
 // from the file, and the two argv are the same -- status.plan.argsHash IS the hash of what the worker
 // runs, HDR arguments and all, for an in-place job, a container change and
@@ -122,21 +122,21 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			class := transcodev1alpha1.HardwareCPU // the class a libx265 plan dispatches to
 
 			// The worker's own inputs, as squasharr dispatches them: the task
-			// worker.BuildTask renders, and CLUSTARR_CPU_LIMIT as the class's
+			// jobspec.BuildTask renders, and CLUSTARR_CPU_LIMIT as the class's
 			// pool template delivers it.
 			folders := []catalogv1alpha1.RootFolder{{Spec: catalogv1alpha1.RootFolderSpec{Path: dir}}}
-			tk, err := worker.BuildTask(tj, tp, mf, folders, 1, class)
+			tk, err := jobspec.BuildTask(tj, tp, mf, folders, 1, class)
 			require.NoError(t, err)
 			cfg := pool.Config{Image: "transcoder:test"}
-			t.Setenv(worker.CPULimitEnv, cpuLimitEnv(t, pool.Template(tp, class, cfg)))
+			t.Setenv(jobspec.CPULimitEnv, cpuLimitEnv(t, pool.Template(tp, class, cfg)))
 
 			// The worker's own path, as app/squash/worker.Process takes it:
 			// the standard's plan from its live probe, on its class's tier.
 			info, err := transcode.FromProbe(mi, raw)
 			require.NoError(t, err)
 			info.Path = src
-			plan := standard.Plan(info, worker.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec),
-				standard.Hardware{Tier: worker.StandardTier(worker.ProfileHardware(tk.Profile.Spec, tk.Profile.Hardware))})
+			plan := standard.Plan(info, jobspec.StandardProfile(tk.Profile.Name, tk.Profile.Hash, tk.Profile.Spec),
+				standard.Hardware{Tier: jobspec.StandardTier(jobspec.ProfileHardware(tk.Profile.Spec, tk.Profile.Hardware))})
 			require.Equal(t, standard.DecisionEncode, plan.Decision)
 			assert.Equal(t, tj.Status.Plan.PlanHash, plan.Hash(), "status.plan.planHash is the worker's plan")
 			assert.Equal(t, "hdr10", plan.Video.HDR)
@@ -144,7 +144,7 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 	}
 }
 
-// cpuLimitEnv is worker.CPULimitEnv as the kubelet hands it to a pool pod's
+// cpuLimitEnv is jobspec.CPULimitEnv as the kubelet hands it to a pool pod's
 // container: a literal value as written, or the Downward API's limits.cpu
 // with divisor 1, which rounds up to whole cores. With no CPU limit the
 // Downward API would report the node's allocatable CPU, which no plan can
@@ -153,7 +153,7 @@ func cpuLimitEnv(t *testing.T, tmpl corev1.PodTemplateSpec) string {
 	t.Helper()
 	ctr := tmpl.Spec.Containers[0]
 	for _, e := range ctr.Env {
-		if e.Name != worker.CPULimitEnv {
+		if e.Name != jobspec.CPULimitEnv {
 			continue
 		}
 		if e.ValueFrom == nil {
@@ -165,6 +165,6 @@ func cpuLimitEnv(t *testing.T, tmpl corev1.PodTemplateSpec) string {
 		require.True(t, ok, "the Downward API is wired only when the container has a CPU limit")
 		return strconv.FormatInt((cpu.MilliValue()+999)/1000, 10)
 	}
-	t.Fatalf("the pool template has no %s", worker.CPULimitEnv)
+	t.Fatalf("the pool template has no %s", jobspec.CPULimitEnv)
 	return ""
 }

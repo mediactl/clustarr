@@ -57,7 +57,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/controller/transcodeprofile"
 	"github.com/mediactl/clustarr/app/squash/graftstate"
 	"github.com/mediactl/clustarr/app/squash/grafttask"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -452,7 +452,7 @@ func (r *Reconciler) start(ctx context.Context, g *transcodev1alpha1.AudioGraft,
 	if err := r.List(ctx, &folders, ctrl.InNamespace(g.Namespace)); err != nil {
 		return reconcile.Result{}, fmt.Errorf("audiograft: list RootFolders: %w", err)
 	}
-	rf := worker.RootFolderFor(folders.Items, mf.Spec.Path)
+	rf := jobspec.RootFolderFor(folders.Items, mf.Spec.Path)
 	if rf == nil {
 		st.Phase, st.Reason, st.Message = transcodev1alpha1.AudioGraftFailed, grafttask.ReasonInvalidTask, "the file "+mf.Spec.Path+" is under no RootFolder"
 		st.MediaFileRef, st.TargetProbeHash = mf.Name, mf.Status.ProbeHash
@@ -463,7 +463,7 @@ func (r *Reconciler) start(ctx context.Context, g *transcodev1alpha1.AudioGraft,
 		Graft: g.Namespace + "/" + g.Name, Target: mf.Spec.Path, TargetProbeHash: mf.Status.ProbeHash,
 		Root: rf.Spec.Path, Donor: donorPath(g), Language: l, Anchor: g.Spec.Anchor,
 		Default:    g.Spec.Default != "" && base(g.Spec.Default) == base(l),
-		RecycleBin: worker.RecycleBinOf(rf),
+		RecycleBin: jobspec.RecycleBinOf(rf),
 	}
 	task.Languages = g.Spec.Languages
 	// The TranscodeProfile and this controller wake on one MediaFile event
@@ -543,7 +543,7 @@ func (r *Reconciler) reduce(ctx context.Context, g *transcodev1alpha1.AudioGraft
 	if err := r.List(ctx, &folders, ctrl.InNamespace(g.Namespace)); err != nil {
 		return reconcile.Result{}, true, fmt.Errorf("audiograft: list RootFolders: %w", err)
 	}
-	rf := worker.RootFolderFor(folders.Items, g.Spec.DonorPath)
+	rf := jobspec.RootFolderFor(folders.Items, g.Spec.DonorPath)
 	if rf == nil {
 		st.Phase, st.Reason, st.Message = transcodev1alpha1.AudioGraftFailed, grafttask.ReasonInvalidTask, "the donor "+g.Spec.DonorPath+" is under no RootFolder"
 		return reconcile.Result{}, true, r.apply(ctx, g, *st)
@@ -647,7 +647,7 @@ func JoinTask(g *transcodev1alpha1.AudioGraft, mf *catalogv1alpha1.MediaFile, fo
 		return grafttask.Task{}, false
 	}
 	l := missing(g, mf)
-	rf := worker.RootFolderFor(folders, mf.Spec.Path)
+	rf := jobspec.RootFolderFor(folders, mf.Spec.Path)
 	if l == "" || rf == nil {
 		return grafttask.Task{}, false
 	}
@@ -655,7 +655,7 @@ func JoinTask(g *transcodev1alpha1.AudioGraft, mf *catalogv1alpha1.MediaFile, fo
 		Graft: g.Namespace + "/" + g.Name, Target: mf.Spec.Path, TargetProbeHash: mf.Status.ProbeHash,
 		Root: rf.Spec.Path, Donor: g.Status.DonorAudioPath, Language: l, Languages: g.Spec.Languages, Anchor: g.Spec.Anchor,
 		Default:    g.Spec.Default != "" && base(g.Spec.Default) == base(l),
-		RecycleBin: worker.RecycleBinOf(rf),
+		RecycleBin: jobspec.RecycleBinOf(rf),
 	}, true
 }
 

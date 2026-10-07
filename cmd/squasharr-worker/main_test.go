@@ -37,7 +37,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/app/squash/grafttask"
-	"github.com/mediactl/clustarr/app/squash/worker"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 )
@@ -81,12 +81,12 @@ func ensureTopology(t *testing.T, url string) {
 }
 
 func TestMissingEnvironmentIsMisconfigured(t *testing.T) {
-	assert.Equal(t, worker.WorkerExitMisconfigured, run(nil, env(nil)))
+	assert.Equal(t, jobspec.WorkerExitMisconfigured, run(nil, env(nil)))
 }
 
 func TestUnreachableNATSIsRetriable(t *testing.T) {
 	t.Setenv("PATH", fakeTools(t))
-	assert.Equal(t, worker.WorkerExitRetriable, run(nil, env(map[string]string{
+	assert.Equal(t, jobspec.WorkerExitRetriable, run(nil, env(map[string]string{
 		"NATS_URL": "nats://127.0.0.1:1", "CLUSTARR_POOL_PROFILE_UID": "p", "CLUSTARR_POOL_CLASS": "cpu", "POD_NAME": "w",
 	})))
 }
@@ -111,7 +111,7 @@ func TestSIGTERMIsDrained(t *testing.T) {
 	err = cmd.Wait()
 	var ee *exec.ExitError
 	require.ErrorAs(t, err, &ee)
-	assert.Equal(t, worker.WorkerExitDrained, ee.ExitCode())
+	assert.Equal(t, jobspec.WorkerExitDrained, ee.ExitCode())
 }
 
 // A work-queue Job ends the whole pool when one pod exits 0 (spec §9).

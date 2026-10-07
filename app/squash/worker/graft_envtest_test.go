@@ -38,6 +38,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/grafttask"
+	"github.com/mediactl/clustarr/app/squash/jobspec"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
 	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
@@ -120,7 +121,7 @@ func joinedGraftFixture(t *testing.T, c client.Client, other bool) (*fixture, ta
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
 	var folders catalogv1alpha1.RootFolderList
 	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
-	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	tk, err := jobspec.BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
 	require.NoError(t, err)
 	tk.Engine = task.EngineFFgo
 	tk.Graft = &grafttask.Task{

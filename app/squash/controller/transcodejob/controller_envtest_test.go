@@ -356,7 +356,7 @@ func (f dispatchedFixture) get(t *testing.T) *transcodev1alpha1.TranscodeJob {
 }
 
 // TestDispatchPublishesTheTaskThenQueues is spec §8's dispatch order: the
-// task is on its (profile, class) pool's queue, built by worker.BuildTask,
+// task is on its (profile, class) pool's queue, built by jobspec.BuildTask,
 // before the job reads Queued with attempts 1 and jobRef naming the pool.
 func TestDispatchPublishesTheTaskThenQueues(t *testing.T) {
 	_, c := startEnv(t)
@@ -512,7 +512,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	// directions and case-insensitively, and the .part the plan renders is
 	// beside that name; a same-container source in another case is in place.
 	// The standard writes MP4 whatever the profile's container says
-	// (worker.OutputContainer): an .mkv source changes container under
+	// (jobspec.OutputContainer): an .mkv source changes container under
 	// the default profile too.
 	t.Run("container change mkv to mp4", func(t *testing.T) {
 		newMediaFile(t, c, ns, "mkvupper", "p3", ptr.To(h264Probe()))

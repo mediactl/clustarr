@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package transcodeprofile reconciles TranscodeProfile: it hashes each
-// profile (worker.ProfileHash, over the standard's inputs) and validates it
+// profile (jobspec.ProfileHash, over the standard's inputs) and validates it
 // (a second default is Invalid), and is the mapper that makes the rest of
 // squasharr do anything -- for every MediaFile a profile wins (its own
 // spec.selector, or spec.default when no selector-matching profile claims
