@@ -61,10 +61,14 @@ func TestDownloadNonTerminal(t *testing.T) {
 		{"blocklisted", dl(downloadv1alpha1.DownloadPhaseBlocklisted), false},
 		{"removing", dl(downloadv1alpha1.DownloadPhaseRemoving), false},
 		{"labelled blocklisted before grabarr writes the phase", labelled(dl(downloadv1alpha1.DownloadPhaseDownloading)), false},
-		{"refused over a transcoded file: waits for a person, not the item's download",
-			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportMessageExistingFileFinal), false},
-		{"blocked for another reason (a full disk) still holds the item",
-			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), "fileimport: fsops: insufficient free space"), true},
+		{
+			"refused over a transcoded file: waits for a person, not the item's download",
+			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportMessageExistingFileFinal), false,
+		},
+		{
+			"blocked for another reason (a full disk) still holds the item",
+			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), "fileimport: fsops: insufficient free space"), true,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
