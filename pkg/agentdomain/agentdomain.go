@@ -74,15 +74,18 @@ type Domain struct {
 // slice on every call.
 func Domains() []Domain {
 	return []Domain{
+		// The grab worker retired (ADR-0019 A4.4): every grab is the owner
+		// key's in the manager.
 		{Name: Catalog, Autoscaled: true, Consumers: []string{
 			events.ConsumerCatalogSearchHigh, events.ConsumerCatalogSearchNorm,
-			events.ConsumerCatalogGrab, events.ConsumerCatalogArtworkRender,
+			events.ConsumerCatalogArtworkRender,
 		}},
 		// events stays at one or more: its Limits streams are memory with
 		// discard-old on single-node NATS (§3.5.4, OD30). The history sink
-		// and the DLQ projector moved into the manager (ADR-0019 §7.7).
+		// and the DLQ projector moved into the manager (ADR-0019 §7.7), and
+		// the redownload consumer retired (A4.4).
 		{Name: Events, Autoscaled: true, MinReplicas: 1, Consumers: []string{
-			events.ConsumerCatalogRSSMatcher, events.ConsumerCatalogRedownload,
+			events.ConsumerCatalogRSSMatcher,
 		}},
 		// One replica: RPC responders and in-process provider limiters
 		// (ADR-0007).
@@ -146,7 +149,6 @@ func Throttled() map[string]string {
 	return map[string]string{
 		events.ConsumerCatalogSearchHigh:  indexLimiter,
 		events.ConsumerCatalogSearchNorm:  indexLimiter,
-		events.ConsumerCatalogGrab:        indexLimiter + "; a grab fetches its payload through rpc.index.download",
 		events.ConsumerCaptionFetchHigh:   provider,
 		events.ConsumerCaptionFetchNormal: provider,
 	}

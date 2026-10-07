@@ -17,11 +17,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package events is the agent's events domain (spec §3.5.3, §3.5.4, as
 // ADR-0019 §7.7 amends them): the consumers of the Limits streams that
-// cannot buffer through a scale to zero -- catalog-rss-matcher
-// (CLUSTARR_RELEASES) and, until A4.4 retires it, catalog-redownload
-// (CLUSTARR_EVENTS). The history sink (catalog-history) and the DLQ
-// projector (clustarr-dlq-projector) moved into the manager, leader-only
-// (app/catalog/manager's registerHistory).
+// cannot buffer through a scale to zero: only catalog-rss-matcher
+// (CLUSTARR_RELEASES), which sends its matches to their owners as
+// candidates. The redownload consumer retired (A4.4: a redownload is the
+// owner's search planner's, R25), and the history sink (catalog-history) and
+// the DLQ projector (clustarr-dlq-projector) moved into the manager,
+// leader-only (app/catalog/manager's registerHistory).
 package events
 
 import (
@@ -32,7 +33,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
-	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -44,9 +44,8 @@ type Options struct {
 	k8s.Options
 }
 
-// Register adds the events domain's two consumers. The RSS matcher reads
-// the live queue through the search worker's Download target index, so this
-// domain declares that index beside its own thirteen (spec §5.7).
+// Register adds the events domain's consumer and declares the RSS
+// matcher's thirteen field indexes (spec §5.7).
 func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 	if bus == nil {
 		return catalogagent.Registration{}, errors.New("events domain: Register needs the bus")
@@ -60,7 +59,6 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		setup   func(ctrl.Manager, events.Bus) error
 	}{
 		{events.ConsumerCatalogRSSMatcher, w.rss.SetupWithManager},
-		{events.ConsumerCatalogRedownload, w.redownload.SetupWithManager},
 	} {
 		if err := s.setup(mgr, bus); err != nil {
 			return catalogagent.Registration{}, fmt.Errorf("events domain: subscribe %s: %w", s.durable, err)
@@ -71,18 +69,10 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 
 type workers struct {
 	rss *rssmatcher.Handler
-	// redownload is spec §8.3's failed-Download consumer (gap fix Y3): it
-	// frees the item's grab lease and publishes a redownload search, which
-	// the catalog domain's search worker turns into a grab recorded as
-	// grabbedBy=redownload. A4.4 retires it.
-	redownload *redownload.Handler
 }
 
-// buildWorkers builds the two consumers with every seam set.
-//
-// The RSS matcher shares the catalog domain's seams (catalog.buildWorkers'
-// doc): the installed topology, the uncached reader for the double-grab
-// guard, and its own TheXEM source.
+// buildWorkers builds the consumer with every seam set: the installed
+// topology and its own TheXEM source (catalog.buildWorkers' doc).
 func buildWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (workers, error) {
 	c := mgr.GetClient()
 	topo := o.BusTopology()
@@ -91,10 +81,8 @@ func buildWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (workers, error) 
 		return workers{}, err
 	}
 	rss := rssmatcher.NewHandler(rssmatcher.Deps{
-		Client: c, Reader: mgr.GetAPIReader(), Bus: bus, Topology: &topo,
+		Client: c, Bus: bus, Topology: &topo,
 		SceneMaps: sceneMaps, Catalogue: catalogue.LoadedCatalogue(),
 	})
-	rd := redownload.NewHandler(c, bus)
-	rd.Topology = &topo
-	return workers{rss: rss, redownload: rd}, nil
+	return workers{rss: rss}, nil
 }

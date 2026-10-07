@@ -199,11 +199,7 @@ rules:
   resources:
   - downloads
   verbs:
-  - create
-  - get
-  - list
   - patch
-  - watch
 - apiGroups:
   - events.k8s.io
   resources:

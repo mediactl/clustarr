@@ -42,9 +42,9 @@ import (
 // never returned -- §8.7 says "monitored items", and grabbing for an item the
 // user switched off would be a surprise with a download attached.
 //
-// A returned MediaRef is shaped for grab.StatusTargets: a movie, a single
-// episode, an album, a book, an audiobook or a comic issue is itself, and a
-// pack is the Series with the Episode names in Keys.
+// A returned MediaRef is a movie, a single episode, an album, a book, an
+// audiobook or a comic issue itself, and a pack is the Series with the
+// Episode names in Keys; the handler sends each to its grab owner.
 //
 // Match reads every episode number literally. The handler matches through
 // matchWith, handing it the series' scene-numbering table.
@@ -353,7 +353,7 @@ func newSceneIndex(rows []decision.SceneMapping) sceneIndex {
 	return idx
 }
 
-// packRef shapes the matched episodes the way grab.StatusTargets expects: one
+// packRef shapes the matched episodes as a target: one
 // episode is itself, several are the Series narrowed by Keys, none is no
 // match at all.
 func packRef(seriesName string, episodes []string) (commonv1.MediaRef, bool) {

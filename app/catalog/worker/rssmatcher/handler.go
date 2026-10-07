@@ -28,10 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -43,19 +40,20 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // matchRetry is how long Handle waits before re-reading the catalog after a
-// failed List. It is short because the read is against the manager's cache and
+// failed List. It is short because the read is against the agent's cache and
 // a failure there is a blip, and because CLUSTARR_RELEASES is a high-volume
 // stream whose consumer holds only 256 in flight.
 const matchRetry = 5 * time.Second
 
-// grabRetry is how long Handle waits after a failed grab, matching the grab
-// worker's own figure.
-const grabRetry = 10 * time.Second
+// sendRetry is how long Handle waits after a candidate it could not send.
+const sendRetry = 10 * time.Second
 
-// EvaluateFunc is pkg/decision.Evaluate's signature, injectable for tests.
+// EvaluateFunc is pkg/decision.EvaluateRelease's signature, injectable for
+// tests.
 type EvaluateFunc func(
 	ctx context.Context,
 	t decision.Target,
@@ -68,16 +66,8 @@ type EvaluateFunc func(
 // Deps is everything the handler needs from the process around it.
 type Deps struct {
 	Client client.Client
-	Bus    events.Bus
-
-	// Reader is an uncached reader -- manager.GetAPIReader() -- handed to
-	// the grab path (grab.Deps.Reader), whose double-grab guard reads the
-	// item's Downloads live. Through the cache a Download another path
-	// created milliseconds earlier can be missed, and the RSS grab is the
-	// likeliest racer of all: it fires the moment an indexer publishes a
-	// release a search may just have grabbed. Nil falls back to Client, the
-	// cache, which is only right in a test with no second writer.
-	Reader client.Reader
+	// Bus publishes the candidates.
+	Bus events.Bus
 
 	// Topology is the bus topology this process installed
 	// (k8s.Options.BusTopology()); Subscription looks the consumer up in it.
@@ -94,7 +84,7 @@ type Deps struct {
 	// catalogue.LoadedCatalogue().
 	Catalogue *catalogue.Catalogue
 
-	// Evaluate defaults to decision.Evaluate.
+	// Evaluate defaults to decision.EvaluateRelease.
 	Evaluate EvaluateFunc
 
 	// Now is a seam for tests; nil means time.Now.
@@ -119,12 +109,11 @@ func (d Deps) evaluate() EvaluateFunc {
 	if d.Evaluate != nil {
 		return d.Evaluate
 	}
-	return decision.Evaluate
+	return decision.EvaluateRelease
 }
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;mediafiles;delayprofiles;qualityprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;qualityprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 
 // Handler is the catalog-rss-matcher consumer.
 type Handler struct {
@@ -135,11 +124,7 @@ type Handler struct {
 func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
 
 // Subscription is the catalog-rss-matcher durable consumer from §5's
-// table: the whole clustarr.rel.> firehose, AckWait 30s, MaxDeliver 6,
-// BackOff 1s/5s/30s/2m/10m, 256 slots per pod (MaxAckPending = Slots x
-// AutoscaleReplicaCeiling across replicas). It is read from the topology
-// the process installed (Deps.Topology) rather than restated, so the tuning
-// lives in one place and the consumer subscribed to is the one created.
+// table, read from the topology the process installed (Deps.Topology).
 func (h *Handler) Subscription() events.Subscription {
 	topo := events.Default()
 	if h.Deps.Topology != nil {
@@ -155,16 +140,8 @@ func (h *Handler) Subscription() events.Subscription {
 	return spec.Subscription()
 }
 
-// SetupWithManager registers the subscription as a manager.Runnable so it
-// starts with the manager and drains on shutdown. See the package doc for the
-// full registration, including the declared FieldIndexes the agent
-// registers.
-//
-// It is a k8s.EveryReplica rather than a manager.RunnableFunc: §3 runs the
-// queue workers on every replica, and a bare RunnableFunc has no
-// NeedLeaderElection method, so controller-runtime puts it behind the leader
-// lease (see k8s.EveryReplica). Before Task C12a's review that meant exactly
-// one replica consumed the release firehose, however many were scaled up.
+// SetupWithManager registers the subscription as a k8s.EveryReplica
+// manager.Runnable, so every replica consumes the firehose.
 func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
@@ -177,11 +154,14 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	}))
 }
 
-// Handle runs §8.7's per-release evaluation: match, decide, and hand an
-// approved release to the same grab path a search uses.
+// Handle matches one firehose release to monitored items, evaluates it
+// against each with the release rules, and sends each approved match to
+// its owner as a Candidate (ADR-0019 §6.6 step 1). It writes nothing else:
+// the owner's grab planner re-checks the item state, delays, narrows a pack
+// and grabs.
 //
-// Most releases match nothing. That is the expected case on a firehose, and it
-// acknowledges immediately without a single write.
+// Most releases match nothing. That is the expected case on a firehose, and
+// it acknowledges immediately.
 func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
 	// Extract before Start, so this span continues index's RSS poll rather
@@ -195,16 +175,13 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return events.Discard("rssmatcher: malformed Release", err)
 	}
 	// Every catalog consumer splits the envelope key on "/" for its
-	// namespace, and index must follow the same convention on
-	// clustarr.rel.> -- "<namespace>/<indexerName>". Guessing a namespace
-	// instead would fan one indexer's releases across the whole cluster.
+	// namespace -- "<namespace>/<indexerName>" on clustarr.rel.>.
 	ns, _, ok := strings.Cut(env.Key, "/")
 	if !ok || ns == "" {
 		return events.Discard("rssmatcher: envelope key is not <namespace>/<indexerName>",
 			fmt.Errorf("key=%q", env.Key))
 	}
 	ctx = logging.With(ctx, "kind", string(rel.Kind), "namespace", ns, "indexer", rel.Info.IndexerRef)
-	log := logging.FromContext(ctx)
 
 	// One scene-table read per series per message, shared by the match and
 	// by every decision it leads to.
@@ -216,12 +193,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	if len(targets) == 0 {
 		return nil
 	}
-	log.Debug("rssmatcher: release matched", "targets", len(targets))
+	logging.FromContext(ctx).Debug("rssmatcher: release matched", "targets", len(targets))
 
 	now := h.Deps.now()
-	// The blocklist is the release's own block state (ADR-0019 §6.14): the
-	// index agent put every scope that blocks it on the firehose release;
-	// each matched item keeps those naming it or every item.
 	for _, ref := range targets {
 		if err := h.decideOne(ctx, ns, ref, rel, scenes, now); err != nil {
 			return err
@@ -230,18 +204,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// decideOne evaluates the release against one matched item and, if it is
-// approved, hands it to grab.Decide -- the same entry point the search
-// worker's sink uses, which is what makes §8.7's "the same delay/lease/grab
-// path" literally true.
-func (h *Handler) decideOne(
-	ctx context.Context,
-	ns string,
-	ref commonv1.MediaRef,
-	rel schema.Release,
-	scenes sceneLookup,
-	now time.Time,
-) error {
+// decideOne evaluates the release against one matched item and, if the
+// release rules approve it, sends it to the item's owner.
+func (h *Handler) decideOne(ctx context.Context, ns string, ref commonv1.MediaRef, rel schema.Release, scenes sceneLookup, now time.Time) error {
 	log := logging.FromContext(ctx).With("item", ref.Name)
 
 	st, err := resolve(ctx, h.Deps.Client, ns, ref, now, scenes)
@@ -251,28 +216,22 @@ func (h *Handler) decideOne(
 			log.Debug("rssmatcher: matched item no longer exists")
 			return nil
 		}
-		if errors.Is(err, grab.ErrUnsupportedKind) {
+		if errors.Is(err, errUnsupportedKind) {
 			return nil
 		}
 		return events.Retry(matchRetry, err)
 	}
-	if !st.monitored {
+	// The monitored pre-filter (P22) bounds the work; the owner re-checks.
+	if !st.monitored || st.owner.UID == "" {
 		return nil
 	}
 
 	profile, err := resolveQualityProfile(ctx, h.Deps.Client, st.qualityProfile, h.Deps.catalogue())
 	if err != nil {
-		// A missing or invalid profile is a configuration problem, not a
-		// transient one: retrying it six times and dead-lettering would bury
-		// one release per indexer row. Skipping this item and acknowledging
-		// keeps the firehose flowing; the next RSS row for the same item
-		// retries it for free once the profile is fixed.
+		// A missing or invalid profile is a configuration problem: skipping
+		// this item and acknowledging keeps the firehose flowing.
 		log.Warn("rssmatcher: cannot resolve the quality profile; skipping this item", "error", err)
 		return nil
-	}
-	delaySpec, err := resolveDelayProfile(ctx, h.Deps.Client, ns, st.delayProfileRef, st.tags)
-	if err != nil {
-		return events.Retry(matchRetry, err)
 	}
 
 	input := decision.Target{
@@ -282,58 +241,59 @@ func (h *Handler) decideOne(
 		Available:           st.available,
 		RuntimeMinutes:      st.runtimeMinutes,
 		OriginalLanguageTag: st.originalLanguageTag,
-		Current:             st.currentFile,
-		Queue:               queueFor(ctx, h.Deps.Client, ns, ref),
-		Blocklist:           search.ScopedBlocklist([]schema.Release{rel}, st.scope),
 		// No IDQueryIndexers: a firehose release was not found by any query,
 		// so nothing vouches for it but its own ids and title.
 		Identity: st.identity,
 	}
-	opts := decisionOptions(ctx, h.Deps.Client, ns, delaySpec, rel)
-
-	decisions := h.Deps.evaluate()(ctx, input, profile, h.Deps.catalogue(), []commonv1.ReleaseInfo{rel.Info}, opts)
+	decisions := h.Deps.evaluate()(ctx, input, profile, h.Deps.catalogue(), []commonv1.ReleaseInfo{rel.Info}, releaseOptions())
 	if len(decisions) == 0 || !decisions[0].Approved {
 		recordRejections(ref.Kind, decisions)
 		return nil
 	}
-
-	approved := decisions[0]
-	keys := ref.Keys
-	if ref.Kind == commonv1.MediaKindSeries {
-		keys = wantedKeys(profile, approved.Release, st.episodes, st.episodeFiles)
-		if len(keys) == 0 {
-			// Every episode the pack covers already has a file this release
-			// would not improve on: nothing here is wanted.
-			log.Debug("rssmatcher: pack approved, but no episode it covers wants it")
-			return nil
-		}
+	if err := h.send(ctx, st, rel, decisions[0], now); err != nil {
+		return events.Retry(sendRetry, err)
 	}
-	if err := grab.Decide(ctx,
-		grab.Deps{Client: h.Deps.Client, Reader: h.Deps.Reader, Bus: h.Deps.Bus, Now: h.Deps.Now},
-		profile,
-		delaySpec,
-		grab.Approved{
-			Namespace: ns,
-			Target:    commonv1.MediaRef{Kind: ref.Kind, Name: ref.Name},
-			Keys:      keys,
-			// Decision.Release already carries the resolved FormatScore and
-			// MatchedFormats -- pkg/decision.Evaluate writes both onto it
-			// before scoring -- so there is nothing to fold back on.
-			Release:   approved.Release,
-			GrabbedBy: downloadv1alpha1.GrabSourceRSS,
-		}); err != nil {
-		if errors.Is(err, grab.ErrDuplicateGrab) {
-			// Another path got there first. Acknowledge: redelivering would
-			// only lose the same race again, and the grab path has already
-			// cleared status.pendingGrab so the item does not strand at
-			// Delayed.
-			log.Debug("rssmatcher: already grabbed elsewhere")
-			return nil
+	return nil
+}
+
+// send publishes one approved match to its owner's candidate intake, Msg-Id
+// rss/<owner uid>/<sha1(indexer:guid)[:16]>, so a redelivered release is
+// absorbed.
+func (h *Handler) send(ctx context.Context, st resolveState, rel schema.Release, d decision.Decision, now time.Time) error {
+	scored := search.RankScored([]decision.Decision{d}, decision.Options{}, nil, 1)
+	if len(scored) == 0 {
+		return nil
+	}
+	sr := scored[0]
+	sr.Blocked = blockFor(rel, st.scope)
+	c := schema.Candidate{
+		Owner: st.owner, Targets: st.targets, Origin: schema.CandidateOriginRSS,
+		GrabbedBy: commonv1.GrabSourceRSS, Release: sr, At: now.UTC(),
+	}
+	name, data, err := schema.Encode(c)
+	if err != nil {
+		return err
+	}
+	id := events.MsgIDForCandidate(events.CandidateMsgOriginRSS, st.owner.UID, rel.Info.IndexerRef, rel.Info.GUID)
+	env := &events.Envelope{
+		ID: id, Type: "catalog.Candidate", Schema: name, Source: "catalog-agent@" + version.String(),
+		Key: st.owner.Namespace + "/" + st.owner.Name, Time: now.UTC(), Data: data,
+	}
+	tracing.Inject(ctx, env)
+	if _, err := h.Deps.Bus.Publish(ctx, events.IntakeCandidateSubject(st.owner.Kind, st.owner.UID), env, events.WithMsgID(id)); err != nil {
+		return fmt.Errorf("rssmatcher: send the candidate: %w", err)
+	}
+	metrics.SearchDecisionsTotal.WithLabelValues(string(rel.Kind), "candidate", "rss").Inc()
+	return nil
+}
+
+// blockFor is the firehose release's block for the owner's scope or every
+// item (ADR-0019 §6.14), nil when none blocks it.
+func blockFor(rel schema.Release, scope string) *schema.ReleaseBlock {
+	for i := range rel.Blocks {
+		if b := rel.Blocks[i]; b.Scope == schema.BlockScopeGlobal || (scope != "" && b.Scope == scope) {
+			return &b
 		}
-		if errors.Is(err, grab.ErrUnsupportedKind) {
-			return nil
-		}
-		return events.Retry(grabRetry, err)
 	}
 	return nil
 }
@@ -355,47 +315,9 @@ func (h *Handler) sceneMemo() sceneLookup {
 	}
 }
 
-// wantedKeys narrows a pack's episodes to those that want the approved
-// release: an episode with no file, or whose file the release is an upgrade
-// of under profile (quality.Profile.UpgradeDecision, the rule the decision
-// engine applies to a single episode's current file) -- and never one whose
-// file is transcoded, which is final however the qualities compare. files is
-// each episode's current file, read from its MediaFile (resolveState's
-// episodeFiles), so the comparison carries the file's revision: a PROPER of
-// the quality on disk is an upgrade of it.
-//
-// The matcher resolves a season pack to every monitored episode of the
-// season, including ones already at their cutoff, and grab downloads only
-// the files of the Download's spec.target.keys. Handing the grab every
-// episode made a pack for one missing episode download the whole season.
-// Sonarr, with no file selection, refuses such a pack outright
-// (UpgradeDiskSpecification rejects a release when any episode it covers
-// already has an equal or better file); Clustarr can take just the episodes
-// that want it, which is what the keys are for.
-func wantedKeys(profile quality.Profile, rel commonv1.ReleaseInfo, eps []*catalogv1alpha1.Episode, files map[string]*decision.Current) []string {
-	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: int(rel.FormatScore)}
-	keys := make([]string, 0, len(eps))
-	for _, ep := range eps {
-		if cur := files[ep.Name]; cur != nil {
-			if cur.Transcoded {
-				// A transcoded file is final (CLAUDE.md, "Transcoding"):
-				// the single-episode path rejects it as TranscodedFinal,
-				// and a pack must not reach it by the back door.
-				continue
-			}
-			current := quality.Candidate{Quality: cur.Quality, Revision: cur.Revision, FormatScore: cur.FormatScore}
-			if profile.UpgradeDecision(current, candidate) != quality.Upgrade {
-				continue
-			}
-		}
-		keys = append(keys, ep.Name)
-	}
-	return keys
-}
-
-// recordRejections reports why a matched release was turned down. The labels
-// are kind, decision and reason -- all bounded -- and never the release title
-// or the item name.
+// recordRejections reports why a matched release was turned down, in
+// metrics and nowhere else. The labels are kind, decision and reason -- all
+// bounded -- and never the release title or the item name.
 func recordRejections(kind commonv1.MediaKind, ds []decision.Decision) {
 	for _, d := range ds {
 		if d.Approved {

@@ -86,30 +86,22 @@ const (
 	// deleted status.activeDownloadRef and status.pendingGrab (dropping a
 	// delayed item out of Phase=Delayed back to Wanted, where the wanted
 	// cron re-searched an item that already had a grab scheduled). Both
-	// directions were reproduced against a real apiserver; see
-	// app/catalog/worker/grab's field-manager tests.
+	// directions were reproduced against a real apiserver.
 	ManagerCatalogMetadata FieldManager = "catalog-metadata"
 
-	// ManagerCatalogGrab is the catalog grab path -- the grab worker,
-	// the RSS matcher and the search worker's grab sink, which all write
-	// through one code path. On a catalog item it applies exactly
-	// status.pendingGrab, status.lastSearchedAt and status.searchAttempts.
+	// ManagerCatalogGrab is the remediation loop's grab and search stages
+	// (ADR-0019 §6.6, §7.3; A4.1, A4.2), one complete set per item pass,
+	// written only from cmd/manager: status.pendingGrab (pendingGrabs on a
+	// Series or Comic), status.searchDispatch, status.lastSearchedAt,
+	// status.searchAttempts and status.donorSearchAttempts. The two stages
+	// contribute to one set, and a pass in which either failed applies none
+	// of it (remediation.SetDeclarer), so neither releases the other's
+	// fields. The grab worker, the RSS matcher's grab and the search worker's
+	// attempt writes that used to apply it retired.
 	//
-	// It does NOT own status.activeDownloadRef (gap-fix ruling R-5). That
-	// field has one writer: the item's own reconciler, under
-	// ManagerCatalog, which derives it level-style from the item's owned
-	// non-terminal Download. The grab path's double-grab guard looks up the
-	// existing Downloads for the target instead of reading the ref. The grab
-	// path used to apply the ref as well, so the two managers co-owned it
-	// under ForceOwnership and ownership migrated to whichever applied last;
-	// the reconciler's "omit to clear on a terminal Download" only worked
-	// while it happened to hold the field. Gap-fix task X4a removed the grab
-	// path's write, and its first apply under this manager releases any ref
-	// an older object still credits to it.
-	//
-	// It never applies status.phase: the reconcilers own phase and
-	// conditions under ManagerCatalog, and recompute Phase=Delayed from
-	// the pendingGrab this manager writes.
+	// It never applies status.phase: the item kinds own phase and
+	// conditions under ManagerCatalog, and recompute Phase=Delayed from the
+	// pendingGrab this manager writes.
 	//
 	// See ManagerCatalogMetadata for why this is not
 	// ManagerCatalogWorker.

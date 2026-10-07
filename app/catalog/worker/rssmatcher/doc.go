@@ -15,59 +15,33 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package rssmatcher is spec §8.7's first clause: "rss-matcher maps each
-// release to monitored items (ids or normalized title+year via informer
-// index) and runs the same Evaluate for the single release; approved -> the
-// same delay/lease/grab path (pending CAS keep-best updates a delayed grab)".
+// Package rssmatcher is spec §8.7's first clause, as ADR-0019 (§6.6 step 1,
+// A4.4) amends it: the RSS matcher maps each release to the monitored items
+// it could satisfy (ids or normalized title+year via informer indexes),
+// runs pkg/decision's release rules (EvaluateRelease) for the single
+// release, and sends each approved match to the item's grab owner as a
+// Candidate on the CLUSTARR_INTAKE stream. It decides nothing else and
+// writes nothing: the owner's grab planner (app/catalog/grabplan) re-checks
+// the item state, applies the delay profile, narrows a pack to the episodes
+// that want it and grabs -- the same path a search answer takes, which is
+// what keeps §8.7's "the same delay/grab path" true.
 //
 // It consumes the CLUSTARR_RELEASES firehose that index publishes on
-// clustarr.rel.>: one message per new indexer row. Most of them match nothing,
-// so the matching has to be cheap -- which is what the field indexes in
-// index.go are for.
+// clustarr.rel.>: one message per new indexer row. Most of them match
+// nothing, so the matching has to be cheap -- which is what the field
+// indexes in index.go are for.
 //
 // # The "informer-backed in-memory map" is a field index
 //
 // §6.1 asks for an "informer-backed in-memory map tmdb/tvdb/imdb/mbid/
 // normalizedTitle+year -> monitored items". A controller-runtime field index
-// IS that map: the manager's informers maintain it, lookups are in-memory, and
-// it needs no second cache layer, no invalidation and no code of its own
-// beyond the extractor functions. FieldIndexes declares thirteen of them: six
-// for movies and series, seven for the non-video kinds (nonvideo.go).
+// IS that map: the agent's informers maintain it, lookups are in-memory, and
+// it needs no second cache layer. FieldIndexes declares thirteen of them:
+// six for movies and series, seven for the non-video kinds (nonvideo.go).
+// The events domain declares them and the agent registers them once (spec
+// §3.5.2 step 9).
 //
-// # Approved releases take the same path as a search's
-//
-// The last step is grab.Decide, the same function the search worker's sink
-// calls. That is what makes §8.7's "the same delay/lease/grab path" true by
-// construction rather than by two implementations agreeing: an RSS hit inside
-// an open delay window lands in the same clustarr-pending entry and replaces
-// the candidate if it is better, without restarting the window.
-//
-// # Registration
-//
-// Nothing registers itself. The events domain declares this package's
-// thirteen indexes and app/catalog/worker/search's Download target index
-// (FieldIndexes), the agent registers them once (spec §3.5.2 step 9), and
-// the domain then:
-//
-//	h := rssmatcher.NewHandler(rssmatcher.Deps{
-//		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus,
-//		Catalogue: catalogue.LoadedCatalogue(), Topology: &topology,
-//		SceneMaps: sceneMaps,
-//	})
-//	if err := h.SetupWithManager(mgr, bus); err != nil {
-//		return fmt.Errorf("catalog: subscribe rss-matcher: %w", err)
-//	}
-//
-// The Download indexes are NOT registered by the search worker. They used to
-// be -- search.Worker.SetupWithManager registered them itself -- which made
-// them a side effect of whichever worker happened to be
-// enabled, while this package read the blocklist and the live queue through
-// them and, when they were absent, degraded to "not blocklisted, empty queue"
-// with a WARNING rather than an error. Task C12a moved the registration into
-// one deterministic call and added a startup assertion (assertWorkerIndexes)
-// that fails the manager when any index it names is missing -- every one of
-// this package's too. The blocklist is now the firehose release's own block
-// state (ADR-0019 §6.14): index puts every scope that blocks a release on
-// it, and the matcher keeps those naming the matched item or every item
-// (search.ScopedBlocklist); only the queue still reads a Download index.
+// The blocklist is the firehose release's own block state (ADR-0019
+// §6.14): index puts every scope that blocks a release on it, and the
+// candidate carries the block naming the owner or every item.
 package rssmatcher

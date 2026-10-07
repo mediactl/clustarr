@@ -15,39 +15,24 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package grabsource holds the facts about a Download that both grab paths
-// must agree on: which spec.source a release maps to, and which Downloads are
-// working on a given catalog item.
+// Package grabsource maps a release to how an engine fetches it: the one
+// mapping every grab uses (ADR-0019 §6.6: the owner key's grab planner,
+// whose candidates come from a search, the RSS matcher or a Search's pick).
 //
-// It is a leaf -- it imports only API types -- so the Search controller and
-// the grab worker share it without either importing the other's package. The
-// source mapping used to live in both, restated slightly differently, which is
-// how an interactive grab and an automatic grab of one release came to be
-// unable to coexist.
-//
-// Whether a Download is still live is not decided here: that is
-// app/catalog/controller/rollup.DownloadNonTerminal, the set the Movie and
-// Episode reconcilers derive status.activeDownloadRef from (gap-fix ruling
-// R-5), which the grab path's guard uses too so the two cannot disagree.
-//
-// It left app/catalog/worker/grab/downloads so the manager's Search
-// controller links no worker package (design 2026-10-06 §4.3 C5).
+// It is a leaf -- it imports only API types -- so the manager's grab planner
+// links nothing else for it. The mapping used to live in the grab worker and
+// the Search controller both, restated slightly differently, which is how an
+// interactive grab and an automatic grab of one release came to be unable to
+// coexist.
 package grabsource
 
 import (
 	"encoding/base32"
 	"encoding/hex"
 	"errors"
-	"slices"
-	"strconv"
 	"strings"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-
-	"k8s.io/apimachinery/pkg/types"
-
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
 // ErrNoSource reports a release with nothing a download engine could fetch it
@@ -56,20 +41,10 @@ import (
 // on the release rather than retry it.
 var ErrNoSource = errors.New("downloads: release has no downloadable source")
 
-// ResolveSource maps a release to the spec.source of the Download that grabs
-// it. It is the only such mapping: the grab worker (automatic search, RSS and
-// delayed grabs) and the Search controller (a user's spec.grab, through
-// app/catalog/controller/search.BuildDownloadSource) both call it.
-//
-// It has to be one function, and a function of the release snapshot alone,
-// because both paths name the Download identically -- k8s.ChildName(target,
-// guid) -- and DownloadSpec.Source is `self == oldSelf`. When the two paths
-// mapped one release differently (one added expectedInfoHash, one could pick
-// a direct URL depending on whether the Indexer had a Secret), whichever
-// applied second was rejected with "source is immutable", and a delayed grab
-// rejected that way dead-lettered and left its item at Phase=Delayed for
-// good. Nothing read here can change between two paths' grabs of one release,
-// so the two cannot disagree.
+// ResolveSource maps a release to the source of the grab entry that fetches
+// it (ADR-0019 §6.2). It is a function of the release snapshot alone, so a
+// delayed grab made from status, an RSS match and a pick of one release all
+// fetch it the same way.
 //
 // The order is:
 //
@@ -92,14 +67,14 @@ var ErrNoSource = errors.New("downloads: release has no downloadable source")
 // hash, on every branch: it is what stops an indexer swapping content out from
 // under a grab decision, and it is orthogonal to how the payload is
 // addressed. See expectedInfoHash for the forms accepted.
-func ResolveSource(rel commonv1.ReleaseInfo) (downloadv1alpha1.DownloadSource, error) {
-	var src downloadv1alpha1.DownloadSource
+func ResolveSource(rel commonv1.ReleaseInfo) (commonv1.DownloadSource, error) {
+	var src commonv1.DownloadSource
 	switch {
 	case isMagnet(rel.MagnetURL):
 		m := rel.MagnetURL
 		src.MagnetURL = &m
 	case rel.IndexerRef != "" && rel.GUID != "":
-		src.IndexerDownload = &downloadv1alpha1.IndexerDownload{
+		src.IndexerDownload = &commonv1.IndexerDownload{
 			IndexerRef: rel.IndexerRef,
 			GUID:       rel.GUID,
 			URL:        rel.DownloadURL,
@@ -111,7 +86,7 @@ func ResolveSource(rel commonv1.ReleaseInfo) (downloadv1alpha1.DownloadSource, e
 		u := rel.DownloadURL
 		src.NZBURL = &u
 	default:
-		return downloadv1alpha1.DownloadSource{}, ErrNoSource
+		return commonv1.DownloadSource{}, ErrNoSource
 	}
 	if rel.Protocol == commonv1.ProtocolTorrent {
 		if h, ok := expectedInfoHash(rel.InfoHash); ok {
@@ -154,127 +129,5 @@ func expectedInfoHash(h string) (string, bool) {
 		return hex.EncodeToString(raw), true
 	default:
 		return "", false
-	}
-}
-
-// SourceApplyConfiguration returns the spec.source a Download apply sends:
-// a deep copy of src. DownloadSource moved to api/common (ADR-0019 §6.2),
-// which generates no apply configurations, so the apply sends the plain
-// struct. Its indexerDownload.url has no omitempty, so it is sent even when
-// empty, as every apply before the move sent it: source is `self == oldSelf`,
-// and an absent key does not equal an empty one, so omitting it would make a
-// re-apply onto an existing Download fail as "source is immutable".
-func SourceApplyConfiguration(src downloadv1alpha1.DownloadSource) downloadv1alpha1.DownloadSource {
-	return *src.DeepCopy()
-}
-
-// Covers reports whether dl is a grab for the catalog item of the given kind,
-// name and UID -- the grab path's double-grab guard's notion of "this item
-// already has a Download".
-//
-// It does if dl carries an ownerReference to the item's UID -- every grab
-// path makes the Download's target its owner -- or if dl's spec.target names
-// the item: directly, or, for an Episode, as one of the keys of a season pack
-// whose target is the Series. The second arm is what makes a pack visible from
-// its episodes: a pack's owner is its Series, so no Episode in it has an
-// ownerReference to match, and an owner-only check would let an episode
-// already inside a downloading pack be grabbed a second time.
-//
-// It is deliberately wider than the reconcilers' choice of which Download
-// status.activeDownloadRef names (rollup.ActiveDownload, which also requires
-// the owner). A Download the Search controller created while its item was
-// missing has no owner, but import still imports it into whatever
-// spec.target names, so for refusing a second grab it counts.
-//
-// uid may be empty when the caller has only a name; the ownerReference arm
-// then never matches and spec.target decides alone.
-func Covers(dl *downloadv1alpha1.Download, kind commonv1.MediaKind, name string, uid types.UID) bool {
-	if uid != "" {
-		for _, ref := range dl.OwnerReferences {
-			if ref.UID == uid {
-				return true
-			}
-		}
-	}
-	t := dl.Spec.Target
-	if t.Kind == kind && t.Name == name {
-		return true
-	}
-	return kind == commonv1.MediaKindEpisode &&
-		t.Kind == commonv1.MediaKindSeries &&
-		slices.Contains(t.Keys, name)
-}
-
-// CoversEntry is Covers over a grab entry (ADR-0019 §6.11): an entry on an
-// owner covers the owner itself; a Series entry covers the Episode
-// (season, number) it names, a Comic entry the issue number it names. name
-// is the item's, for symmetry with Covers; the entry's place on its owner
-// already identifies the owner.
-func CoversEntry(e *catalogv1alpha1.DownloadEntry, kind commonv1.MediaKind, name string, season, number int32) bool {
-	if e == nil {
-		return false
-	}
-	_ = name
-	switch kind {
-	case commonv1.MediaKindEpisode:
-		for _, n := range e.Episodes {
-			if n.Season == season && n.Number == number {
-				return true
-			}
-		}
-		return false
-	case commonv1.MediaKindIssue:
-		return slices.Contains(e.Issues, strconv.Itoa(int(number)))
-	default:
-		return true
-	}
-}
-
-// DownloadNonTerminal reports whether dl can still deliver content to the
-// catalog item it targets, which is what status.activeDownloadRef means
-// (gap-fix ruling R-5). A Download is terminal once it is Imported, Failed,
-// Blocklisted or Removing, or once it carries a deletion timestamp: grab
-// never sets Removing itself (its finalizer tears the transfer down without
-// a phase change), so a Download on its way out would otherwise read as
-// active for as long as its engine takes to let go of it.
-//
-// Completed and Seeding are deliberately NOT terminal. The content is on
-// disk and waiting for import, and derivePhase makes Imported sticky
-// over Seeding, so a Seeding Download has not been imported yet. Clearing
-// the ref there would tell every reader -- the grab path's double-grab
-// guard above all -- that nothing is working on an item whose file is one
-// import away.
-//
-// It moved here from app/catalog/controller/rollup with ADR-0019 A3.9:
-// only the grab worker, which A4 retires, still reads a Download.
-//
-// A Download labelled blocklisted is terminal whatever its phase reads:
-// grab labels a release fault first, then publishes blocklisted, then
-// writes the phase, so the redownload search that event starts would
-// otherwise find the dead release still queued and reject every release
-// that does not beat it (2026-09-30).
-func DownloadNonTerminal(dl *downloadv1alpha1.Download) bool {
-	if dl == nil || dl.DeletionTimestamp != nil {
-		return false
-	}
-	if dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue {
-		return false
-	}
-	// An import held for a person (status.import.heldSince) keeps
-	// the Download and its files for their decision, but nothing more comes
-	// of it on its own: it is not the item's active download, so a
-	// transcoded movie reads Transcoded, not Downloading, while it waits.
-	// One still being retried (pending, nextAttemptAt) is.
-	if imp := dl.Status.Import; imp != nil && imp.State == downloadv1alpha1.ImportPhaseBlocked && imp.HeldSince != nil {
-		return false
-	}
-	switch dl.Status.Phase {
-	case downloadv1alpha1.DownloadPhaseImported,
-		downloadv1alpha1.DownloadPhaseFailed,
-		downloadv1alpha1.DownloadPhaseBlocklisted,
-		downloadv1alpha1.DownloadPhaseRemoving:
-		return false
-	default:
-		return true
 	}
 }

@@ -28,89 +28,49 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/delay"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
-
-	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 )
 
-// defaultIndexerPriority is the priority the decision engine assumes for an
-// indexer it cannot read. It matches docs/research/indexers.md's documented
-// default, which pkg/decision applies for a missing key anyway; restating it
-// keeps the ranking stable when the Indexer object is momentarily unreadable.
-const defaultIndexerPriority = 25
+// errUnsupportedKind is a matched target of a kind the matcher cannot
+// resolve.
+var errUnsupportedKind = fmt.Errorf("rssmatcher: unsupported kind")
 
-// resolveState is the per-item state Handle assembles for the decision engine.
-// It is a struct so the "what does an item look like to pkg/decision" logic
-// stays in one readable place instead of being threaded through six
-// parameters.
+// resolveState is what the release rules need about one matched item, and
+// where its candidate goes. Since ADR-0019 (§6.6, A4.4) it reads no current
+// file, queue, delay profile or indexer priority: the owner's grab planner
+// re-checks those against fresh state.
 type resolveState struct {
 	monitored      bool
 	available      bool
 	runtimeMinutes int
 	// originalLanguageTag is the BCP-47 tag verbatim from
-	// status.metadata.originalLanguage, which is what
-	// decision.Target.OriginalLanguageTag wants. Never a display name.
+	// status.metadata.originalLanguage. Never a display name.
 	originalLanguageTag string
 	qualityProfile      string
-	delayProfileRef     *string
-	tags                []string
-	currentFile         *decision.Current
 	// identity is built by app/catalog/worker/search's own MovieIdentity,
 	// EpisodeIdentity and (through search.ReadNonVideo) the non-video
 	// builders, so an RSS decision and a search decision agree on what the
-	// item is. The matcher already picked the item by id or by name; the
-	// decision engine checks the release against it anyway, because a
-	// title match is exactly the kind of guess that check exists to confirm
-	// -- and a release whose own id contradicts the item it was title-matched
-	// to must not be grabbed for it.
+	// item is.
 	identity decision.Identity
-	// episodes are the Episode objects a pack target covers (ref.Keys), for
-	// narrowing the grab to the ones that want the release (wantedKeys).
-	// Empty for every other target.
-	episodes []*catalogv1alpha1.Episode
-	// episodeFiles is the current file of each pack episode that has one,
-	// keyed by episode name and read from its MediaFile exactly as
-	// currentFile is. wantedKeys compares the release against it -- revision
-	// included -- and never hands the grab an episode whose file is
-	// transcoded (Current.Transcoded), which is final however much better
-	// the pack is. A single target carries the same verdict on currentFile.
-	episodeFiles map[string]*decision.Current
-	// scope is the grab owner's release-index block scope (ADR-0019 §6.1,
-	// §6.14): the item's own, or an Episode's or a pack's Series'.
+	// owner is the grab owner (ADR-0019 §6.1): the item itself, an
+	// Episode's or a pack's Series, an Issue's Comic. targets are the
+	// matched Episodes or Issues under a container owner.
+	owner   schema.ItemRef
+	targets []schema.ItemRef
+	// scope is the owner's release-index block scope (§6.14).
 	scope string
 }
 
-// blockScope is a grab owner's release-index block scope.
-func blockScope(kind string, o client.Object) string {
-	return schema.BlockScopeOf(schema.ItemRef{Kind: kind, Ref: schema.Ref{
-		Namespace: o.GetNamespace(), Name: o.GetName(), UID: string(o.GetUID()),
-	}})
+func itemRef(kind string, o client.Object) schema.ItemRef {
+	return schema.ItemRef{Kind: kind, Ref: schema.Ref{Namespace: o.GetNamespace(), Name: o.GetName(), UID: string(o.GetUID())}}
 }
 
-// resolve fetches the item named by ref and reads off everything the decision
-// engine and the delay profile need.
-//
-// The current file is read from the item's MediaFile through the search
-// worker's own search.CurrentFile -- quality, revision, format score, matched
-// formats, the source title and the info hash frozen at import, and the
-// transcoded verdict -- not from the item's status rollup
-// (hasFile/fileQuality/fileFormatScore), which carries neither the revision
-// nor the source. A non-video item is read whole through
-// search.ReadNonVideo, the function the search worker's snapshot uses. So an
-// RSS decision and a search decision about one item see the same current
-// file, and the RSS path rejects a re-post of the release already imported
-// and takes a PROPER of the quality on disk, as the search path does.
-//
-// It stays narrower than the search worker's snapshot in two deliberate
-// ways: the queue is read leniently (queueFor), and a pack target -- a
-// Series narrowed to episodes -- is a shape only the RSS path produces.
+// resolve fetches the item named by ref and reads off what the release
+// rules need and where the candidate goes.
 func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef, now time.Time, scenes sceneLookup) (resolveState, error) {
 	var st resolveState
 	switch ref.Kind {
@@ -122,86 +82,60 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		st.monitored = ptr.Deref(m.Spec.Monitored, true)
 		st.available = m.Status.Available
 		st.qualityProfile = m.Spec.QualityProfileRef
-		st.delayProfileRef = m.Spec.DelayProfileRef
-		st.tags = m.Spec.Tags
 		if m.Status.Metadata != nil {
 			st.runtimeMinutes = int(m.Status.Metadata.RuntimeMinutes)
 			st.originalLanguageTag = m.Status.Metadata.OriginalLanguage
 		}
-		cur, err := currentFile(ctx, c, ns, m.Status.HasFile, m.Status.FileRef)
-		if err != nil {
-			return st, err
-		}
-		st.currentFile = cur
 		st.identity = search.MovieIdentity(&m)
-		st.scope = blockScope(string(commonv1.MediaKindMovie), &m)
+		st.owner = itemRef(string(commonv1.MediaKindMovie), &m)
 
 	case commonv1.MediaKindEpisode, commonv1.MediaKindSeries:
 		seriesName := ref.Name
-		var eps []*catalogv1alpha1.Episode
+		names := ref.Keys
 		if ref.Kind == commonv1.MediaKindEpisode {
 			var ep catalogv1alpha1.Episode
 			if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, &ep); err != nil {
 				return st, err
 			}
-			seriesName = ep.Spec.SeriesRef
-			st.monitored = ptr.Deref(ep.Spec.Monitored, true)
-			st.available = ep.Status.AirDate != nil && !now.Before(ep.Status.AirDate.Time)
-			cur, err := currentFile(ctx, c, ns, ep.Status.HasFile, ep.Status.FileRef)
-			if err != nil {
+			seriesName, names = ep.Spec.SeriesRef, []string{ep.Name}
+		}
+		// A pack's numbering is exactly the episodes the matcher resolved
+		// it to (packRef's Keys): without them a pack target has no
+		// numbering and every pack release fails closed as UnknownItem.
+		var eps []*catalogv1alpha1.Episode
+		st.monitored, st.available = true, true
+		for _, name := range names {
+			var ep catalogv1alpha1.Episode
+			if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &ep); err != nil {
+				if apierrors.IsNotFound(err) && ref.Kind == commonv1.MediaKindSeries {
+					continue
+				}
 				return st, err
 			}
-			st.currentFile = cur
 			eps = append(eps, &ep)
-		} else {
-			// A pack has no single file or air date of its own. It is
-			// available because its episodes were matched, and its current
-			// file is per-episode -- the importer re-checks each one.
-			st.monitored = true
-			st.available = true
-			// Its numbering, though, is exactly the episodes the matcher
-			// resolved it to (packRef's Keys), and the decision engine's
-			// identity check needs them: without them a pack target has no
-			// numbering and every pack release fails closed as UnknownItem.
-			for _, name := range ref.Keys {
-				var ep catalogv1alpha1.Episode
-				if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &ep); err != nil {
-					return st, err
-				}
-				eps = append(eps, &ep)
-				cur, err := currentFile(ctx, c, ns, ep.Status.HasFile, ep.Status.FileRef)
-				if err != nil {
-					return st, err
-				}
-				if cur != nil {
-					if st.episodeFiles == nil {
-						st.episodeFiles = map[string]*decision.Current{}
-					}
-					st.episodeFiles[ep.Name] = cur
-				}
+			st.targets = append(st.targets, itemRef(string(commonv1.MediaKindEpisode), &ep))
+			if ref.Kind == commonv1.MediaKindEpisode {
+				st.monitored = ptr.Deref(ep.Spec.Monitored, true)
+				st.available = ep.Status.AirDate != nil && !now.Before(ep.Status.AirDate.Time)
 			}
-			st.episodes = eps
 		}
 		var s catalogv1alpha1.Series
 		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: seriesName}, &s); err != nil {
 			return st, fmt.Errorf("rssmatcher: get series %q: %w", seriesName, err)
 		}
 		st.identity = search.EpisodeIdentity(&s, eps...)
-		st.scope = blockScope(string(commonv1.MediaKindSeries), &s)
 		// The series' whole scene table, read by the same code as the
-		// search worker's (search.SceneMappings), so the two paths read a
-		// scene number the same way. SingleEpisodeSearch stays false: an
-		// RSS release was not asked for anything, and a pack that covers
-		// the episodes it was matched to is exactly what it may grab.
+		// search worker's. SingleEpisodeSearch stays false: an RSS release
+		// was not asked for anything, and a pack that covers the episodes
+		// it was matched to is exactly what it may grab.
 		st.identity.SceneMappings = scenes.table(ctx, s.Spec.TvdbID)
 		st.qualityProfile = s.Spec.QualityProfileRef
-		st.delayProfileRef = s.Spec.DelayProfileRef
-		st.tags = s.Spec.Tags
 		st.monitored = st.monitored && ptr.Deref(s.Spec.Monitored, true)
 		if s.Status.Metadata != nil {
 			st.runtimeMinutes = int(s.Status.Metadata.RuntimeMinutes)
 			st.originalLanguageTag = s.Status.Metadata.OriginalLanguage
 		}
+		st.owner = itemRef("Series", &s)
 
 	case commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
 		v, err := search.ReadNonVideo(ctx, c, ns, ref, now)
@@ -212,100 +146,34 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		st.available = v.Available
 		st.qualityProfile = v.QualityProfileRef
 		st.identity = v.Identity
-		if v.Owner.UID != "" {
-			st.scope = schema.BlockScopeOf(v.Owner)
+		st.owner = v.Owner
+		if ref.Kind == commonv1.MediaKindIssue {
+			var iss catalogv1alpha1.Issue
+			if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, &iss); err != nil {
+				return st, err
+			}
+			st.targets = []schema.ItemRef{itemRef("Issue", &iss)}
 		}
-		// The delay profile and tags come from the same place the grab
-		// records them from: the container (Artist, Author, Comic), or the
-		// Audiobook itself (grab.ResolveConfig).
-		cfg, err := grab.ResolveConfig(ctx, c, ns, ref)
-		if err != nil {
-			return st, err
-		}
-		st.delayProfileRef = cfg.DelayProfileRef
-		st.tags = cfg.Tags
 
 	default:
-		return st, fmt.Errorf("%w: %s", grab.ErrUnsupportedKind, ref.Kind)
+		return st, fmt.Errorf("%w: %s", errUnsupportedKind, ref.Kind)
+	}
+	if st.owner.UID != "" {
+		st.scope = schema.BlockScopeOf(st.owner)
 	}
 	return st, nil
 }
 
-// currentFile reads the file an item has through search.CurrentFile, the
-// search worker's own reader, or nil when it has none. A MediaFile that is
-// gone reads as no file, as it does for the search worker: the item's rollup
-// has not caught up with a deletion yet, and deciding as if there were no
-// file can only approve an upgrade of a file that no longer exists. Any other
-// read failure is returned, so the release is retried rather than decided
-// against a guess; the error never wraps NotFound, which decideOne reads as
-// "the item itself is gone".
-func currentFile(context.Context, client.Reader, string, bool, *string) (*decision.Current, error) {
-	// The current file is the manager's item-state input (ADR-0019 §6.6);
-	// A4.4 turns this matcher into a candidate sender.
-	return nil, nil
-}
-
-// queueFor is the live grabs already working on ref, through the search
-// worker's search.QueuedFor, so an RSS decision and a search decision see
-// one queue. A read failure is a warning, not an error: an empty queue can
-// only approve a release the fuller check might have deferred, and the
-// grab's own admission still stops a second grab for the same item.
-func queueFor(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef) []decision.Queued {
-	q, err := search.QueuedFor(ctx, c, ns, ref)
-	if err != nil {
-		logging.FromContext(ctx).Warn("rssmatcher: queue lookup failed; deciding against an empty queue", "error", err)
-		return nil
-	}
-	return q
-}
-
-// decisionOptions folds the delay profile's protocol switches and the
-// indexer's priority into pkg/decision's Options.
-//
-// ProtocolsEnabled is populated for BOTH protocols on every call because
-// pkg/decision fails closed on a missing key: leaving one out would silently
-// reject every release of that protocol.
-func decisionOptions(ctx context.Context, c client.Client, ns string, dp catalogv1alpha1.DelayProfileSpec, rel schema.Release) decision.Options {
-	o := decision.Options{
+// releaseOptions are the release rules' options for a firehose release:
+// both protocols, since which are enabled -- and the indexer's priority --
+// are the owner's grab planner's now (P22).
+func releaseOptions() decision.Options {
+	return decision.Options{
 		ProtocolsEnabled: map[string]bool{
-			string(commonv1.ProtocolTorrent): grab.ProtocolEnabled(dp, commonv1.ProtocolTorrent),
-			string(commonv1.ProtocolUsenet):  grab.ProtocolEnabled(dp, commonv1.ProtocolUsenet),
+			string(commonv1.ProtocolTorrent): true,
+			string(commonv1.ProtocolUsenet):  true,
 		},
-		IndexerPriority:   map[string]int{},
-		PreferredProtocol: string(dp.PreferredProtocol),
 	}
-	if name := rel.Info.IndexerRef; name != "" {
-		var idx indexerSpecView
-		if err := idx.get(ctx, c, ns, name); err == nil {
-			o.IndexerPriority[name] = idx.priority
-		} else {
-			o.IndexerPriority[name] = defaultIndexerPriority
-		}
-	}
-	return o
-}
-
-// resolveDelayProfile lists the namespace's DelayProfiles and runs spec
-// §8.2's resolution order (item ref -> tag match -> lowest order) through
-// app/catalog/delay's pure Resolve.
-//
-// It resolves through a List rather than a client-side helper because
-// delay.Resolve is deliberately pure -- it takes the candidate slice,
-// not a client. A namespace with no catch-all profile configured yields
-// ErrNoMatch, which this treats as "no delay", not as a failure: the chart
-// installs a catch-all, and an operator who removed it meant grabs to be
-// immediate.
-func resolveDelayProfile(ctx context.Context, c client.Client, ns string, ref *string, tags []string) (catalogv1alpha1.DelayProfileSpec, error) {
-	var list catalogv1alpha1.DelayProfileList
-	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
-		return catalogv1alpha1.DelayProfileSpec{}, fmt.Errorf("rssmatcher: list delay profiles: %w", err)
-	}
-	dp, err := delay.Resolve(ref, tags, list.Items)
-	if err != nil {
-		logging.FromContext(ctx).Debug("rssmatcher: no delay profile applies; grabbing without a delay", "reason", err)
-		return catalogv1alpha1.DelayProfileSpec{}, nil
-	}
-	return dp.Spec, nil
 }
 
 func resolveQualityProfile(ctx context.Context, c client.Client, name string, cat *catalogue.Catalogue) (quality.Profile, error) {
@@ -322,15 +190,4 @@ func resolveQualityProfile(ctx context.Context, c client.Client, name string, ca
 		return quality.Profile{}, fmt.Errorf("rssmatcher: resolve quality profile %q: %w", name, errs[0])
 	}
 	return p, nil
-}
-
-type indexerSpecView struct{ priority int }
-
-func (v *indexerSpecView) get(ctx context.Context, c client.Client, ns, name string) error {
-	var idx indexv1alpha1.Indexer
-	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &idx); err != nil {
-		return err
-	}
-	v.priority = int(idx.Spec.Priority)
-	return nil
 }

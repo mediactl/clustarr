@@ -15,9 +15,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package catalog is the agent's catalog domain (spec §3.5.3): the
-// catalog-search-high, catalog-search-normal, catalog-grab and
-// catalog-artwork-render consumers on CLUSTARR_WORK_CATALOG.
+// Package catalog is the agent's catalog domain (spec §3.5.3, as ADR-0019
+// amends it): the catalog-search-high, catalog-search-normal and
+// catalog-artwork-render consumers on CLUSTARR_WORK_CATALOG. The grab
+// worker retired (A4.4): the owner key's grab planner decides every grab.
 package catalog
 
 import (
@@ -30,7 +31,6 @@ import (
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -59,24 +59,20 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	if err := w.search.SetupWithManager(mgr, bus); err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("catalog domain: subscribe search: %w", err)
 	}
-	if err := w.grab.SetupWithManager(mgr, bus); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("catalog domain: subscribe grab: %w", err)
-	}
 	if err := w.render.SetupWithManager(mgr, bus); err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("catalog domain: subscribe the artwork renderer: %w", err)
 	}
 	return catalogagent.Registration{}, nil
 }
 
-// workers is the domain's three consumers, built but not subscribed, so a
-// test can inspect exactly what Register hands each one.
+// workers is the domain's consumers, built but not subscribed, so a test
+// can inspect exactly what Register hands each one.
 type workers struct {
 	search *search.Worker
-	grab   *grab.Handler
 	render *renderer.Handler
 }
 
-// buildWorkers builds them with every seam set. Three things the consumers
+// buildWorkers builds them with every seam set. Two things the consumers
 // share, each set once:
 //
 //   - the bus topology (o.BusTopology(), the topology the manager ensures
@@ -85,11 +81,6 @@ type workers struct {
 //     events.Default(), which is only right while BusTopology's single-node
 //     collapse happens to leave consumers untouched -- an invariant nothing
 //     enforces;
-//   - an uncached reader (mgr.GetAPIReader()) for the grab path's
-//     double-grab guard, on every route into it: the search sink and the
-//     scheduled grab (the events domain's RSS matcher is the third). Through
-//     the cache, a Download another path created milliseconds earlier can be
-//     missed and grabbed beside (x4a-report "cache window");
 //   - one TheXEM scene-numbering source (catalogagent.NewSceneMaps), so the
 //     search worker reads a scene number the way the RSS matcher does.
 //
@@ -115,12 +106,10 @@ func buildWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (workers, error) 
 	sw.Topology, sw.SceneMaps = &topo, sceneMaps
 	sw.Records = records.NewWriter(kv, agentrecords.Searches(), pod, version.String())
 	sw.Answers = records.NewReader(kv, agentrecords.Searches())
-	gh := grab.NewHandler(grab.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: bus})
-	gh.Topology = &topo
 	render := &renderer.Handler{
 		Reader:   mgr.GetAPIReader(),
 		Store:    bus.ObjectStore(events.BucketArtwork),
 		Topology: &topo,
 	}
-	return workers{search: sw, grab: gh, render: render}, nil
+	return workers{search: sw, render: render}, nil
 }
