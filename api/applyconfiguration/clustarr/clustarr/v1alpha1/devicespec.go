@@ -22,10 +22,16 @@ package v1alpha1
 // DeviceSpecApplyConfiguration represents a declarative configuration of the DeviceSpec type for use
 // with apply.
 //
-// DeviceSpec names the emulated HDHomeRun.
+// DeviceSpec names the emulated HDHomeRuns.
 type DeviceSpecApplyConfiguration struct {
-	// FriendlyName is the name Plex shows. Default "Clustarr <name>".
+	// FriendlyName is the name Plex shows, before each block's "<start>+".
+	// Default "Clustarr <name>".
 	FriendlyName *string `json:"friendlyName,omitempty"`
+	// ID pins the first block's DeviceID when the provider's blocks are
+	// first packed: eight upper-case hex digits, unique among every
+	// provider's blocks. Unset, every DeviceID is a hash of namespace, name
+	// and the block's start (Live TV spec §3.1).
+	ID *string `json:"id,omitempty"`
 }
 
 // DeviceSpecApplyConfiguration constructs a declarative configuration of the DeviceSpec type for use with
@@ -39,5 +45,13 @@ func DeviceSpec() *DeviceSpecApplyConfiguration {
 // If called multiple times, the FriendlyName field is set to the value of the last call.
 func (b *DeviceSpecApplyConfiguration) WithFriendlyName(value string) *DeviceSpecApplyConfiguration {
 	b.FriendlyName = &value
+	return b
+}
+
+// WithID sets the ID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ID field is set to the value of the last call.
+func (b *DeviceSpecApplyConfiguration) WithID(value string) *DeviceSpecApplyConfiguration {
+	b.ID = &value
 	return b
 }

@@ -34,9 +34,9 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    - jsonPath: .status.address
-      name: Address
-      type: string
+    - jsonPath: .status.blocks[0].port
+      name: Port
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -44,9 +44,9 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          IPTVProvider is one IPTV provider routed to Plex as an emulated HDHomeRun
-          (Live TV spec §3). Its tuner runs in the manager; its controller gives it
-          one Service, its address in Plex.
+          IPTVProvider is one IPTV provider routed to Plex as emulated HDHomeRuns,
+          one per block of its channels (Live TV spec §3). Its tuner runs in the
+          manager, behind one livetv Service; each block has a port of its own.
         properties:
           apiVersion:
             description: |-
@@ -67,8 +67,9 @@ spec:
             type: object
           spec:
             description: |-
-              IPTVProviderSpec is one IPTV provider: one emulated HDHomeRun device and
-              one Plex DVR (Live TV spec §3).
+              IPTVProviderSpec is one IPTV provider. Its active channels are split into
+              blocks of contiguous numbers, each one emulated HDHomeRun device and one
+              Plex DVR (Live TV spec §3, §3.1).
             properties:
               channelNumberStart:
                 description: ChannelNumberStart is where the UI's auto-numbering begins.
@@ -78,13 +79,35 @@ spec:
                 minimum: 1
                 type: integer
               device:
-                description: Device names the emulated HDHomeRun.
+                description: Device names the emulated HDHomeRuns, one per block.
                 properties:
                   friendlyName:
-                    description: FriendlyName is the name Plex shows. Default "Clustarr
-                      <name>".
+                    description: |-
+                      FriendlyName is the name Plex shows, before each block's "<start>+".
+                      Default "Clustarr <name>".
                     maxLength: 128
                     type: string
+                  id:
+                    description: |-
+                      ID pins the first block's DeviceID when the provider's blocks are
+                      first packed: eight upper-case hex digits, unique among every
+                      provider's blocks. Unset, every DeviceID is a hash of namespace, name
+                      and the block's start (Live TV spec §3.1).
+                    pattern: ^[0-9A-F]{8}$
+                    type: string
+                type: object
+              dvr:
+                description: DVR sizes the blocks the lineup is split into, one Plex
+                  DVR each.
+                properties:
+                  maxChannels:
+                    description: |-
+                      MaxChannels is a block's most channels. A block is also held under
+                      30,000 bytes of channel map, whichever comes first. Default 400.
+                    format: int32
+                    maximum: 450
+                    minimum: 1
+                    type: integer
                 type: object
               enabled:
                 description: |-
@@ -299,9 +322,93 @@ spec:
             properties:
               address:
                 description: |-
-                  Address is the provider's Service ClusterIP, the device address
-                  cluster-plex registers with PMS.
+                  Address is the tuner Service, host:port, where the Plex pods' proxies
+                  send each block's port (Live TV spec §5.0).
                 type: string
+              blocks:
+                description: |-
+                  Blocks are the lineup's runs of contiguous numbers, one Plex DVR each,
+                  ordered by start (Live TV spec §3.1).
+                items:
+                  description: |-
+                    BlockStatus is one block: one emulated HDHomeRun and one Plex DVR (Live TV
+                    spec §3.1, §3.2).
+                  properties:
+                    channels:
+                      description: Channels counts the block's active channels.
+                      format: int32
+                      type: integer
+                    deviceID:
+                      description: |-
+                        DeviceID is the block's HDHomeRun id: spec.device.id for the first
+                        block of a first packing, else a hash of namespace, name and start.
+                      pattern: ^[0-9A-F]{8}$
+                      type: string
+                    first:
+                      description: First and Last are the numbers the block's channels
+                        span.
+                      maxLength: 16
+                      type: string
+                    friendlyName:
+                      description: FriendlyName is the name Plex shows for the block's
+                        device and DVR.
+                      maxLength: 160
+                      type: string
+                    guideHash:
+                      description: |-
+                        GuideHash is a hash of the block's guide. A change tells cluster-plex
+                        to reload that DVR's guide.
+                      maxLength: 64
+                      type: string
+                    guidePath:
+                      description: |-
+                        GuidePath is the block's XEPG guide path under its address; empty
+                        under PMS.
+                      maxLength: 64
+                      type: string
+                    last:
+                      maxLength: 16
+                      type: string
+                    lineupHash:
+                      description: |-
+                        LineupHash is a hash of the block's lineup.json. A change tells
+                        cluster-plex to save that DVR's channel map again.
+                      maxLength: 64
+                      type: string
+                    mapBytes:
+                      description: MapBytes is the size of the block's channel-map
+                        query.
+                      format: int32
+                      type: integer
+                    owner:
+                      description: |-
+                        Owner is the cluster-plex installation registered for the block,
+                        read from its Lease. Empty while none holds it.
+                      maxLength: 128
+                      type: string
+                    port:
+                      description: |-
+                        Port is the block's port: the Plex pods' proxies listen on it, and the
+                        tuner routes by it.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1024
+                      type: integer
+                    start:
+                      description: |-
+                        Start is the block's boundary and identity: the number its channels
+                        begin at. A channel belongs to the last block whose start is at or
+                        below its number.
+                      maxLength: 16
+                      type: string
+                  required:
+                  - start
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - start
+                x-kubernetes-list-type: map
               conditions:
                 description: 'Conditions: Ready, Valid, PlaylistFetched, GuidesFetched.'
                 items:
@@ -363,19 +470,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              deviceID:
-                description: |-
-                  DeviceID is the emulated HDHomeRun's id: eight hex digits from a hash
-                  of namespace/name, so a recreated provider is the same device to Plex.
-                type: string
-              guideHash:
-                description: |-
-                  GuideHash is a hash of the rendered XEPG guide. A change in it tells
-                  cluster-plex to reload Plex's guide.
-                type: string
-              guideURL:
-                description: GuideURL is the XEPG guide's URL; empty under PMS.
-                type: string
               guides:
                 description: Guides describes each guide's last fetch.
                 items:
@@ -406,16 +500,11 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               lineup:
-                description: Lineup describes the rendered lineup.json.
+                description: Lineup counts the rendered lineup across every block.
                 properties:
                   active:
                     format: int32
                     type: integer
-                  hash:
-                    description: |-
-                      Hash is a hash of the rendered lineup.json. A change in it tells
-                      cluster-plex to save the DVR's channel map again.
-                    type: string
                   missing:
                     format: int32
                     type: integer

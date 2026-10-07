@@ -26,8 +26,9 @@ import (
 // IPTVProviderSpecApplyConfiguration represents a declarative configuration of the IPTVProviderSpec type for use
 // with apply.
 //
-// IPTVProviderSpec is one IPTV provider: one emulated HDHomeRun device and
-// one Plex DVR (Live TV spec §3).
+// IPTVProviderSpec is one IPTV provider. Its active channels are split into
+// blocks of contiguous numbers, each one emulated HDHomeRun device and one
+// Plex DVR (Live TV spec §3, §3.1).
 type IPTVProviderSpecApplyConfiguration struct {
 	// Enabled false stops this provider's tuner; Plex then sees the device
 	// gone. Default true.
@@ -49,8 +50,10 @@ type IPTVProviderSpecApplyConfiguration struct {
 	Filters []ChannelFilterApplyConfiguration `json:"filters,omitempty"`
 	// ChannelNumberStart is where the UI's auto-numbering begins. Default 1000.
 	ChannelNumberStart *int32 `json:"channelNumberStart,omitempty"`
-	// Device names the emulated HDHomeRun.
+	// Device names the emulated HDHomeRuns, one per block.
 	Device *DeviceSpecApplyConfiguration `json:"device,omitempty"`
+	// DVR sizes the blocks the lineup is split into, one Plex DVR each.
+	DVR *DVRSpecApplyConfiguration `json:"dvr,omitempty"`
 	// Stream tunes the relay.
 	Stream *StreamSpecApplyConfiguration `json:"stream,omitempty"`
 }
@@ -132,6 +135,14 @@ func (b *IPTVProviderSpecApplyConfiguration) WithChannelNumberStart(value int32)
 // If called multiple times, the Device field is set to the value of the last call.
 func (b *IPTVProviderSpecApplyConfiguration) WithDevice(value *DeviceSpecApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
 	b.Device = value
+	return b
+}
+
+// WithDVR sets the DVR field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DVR field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithDVR(value *DVRSpecApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
+	b.DVR = value
 	return b
 }
 

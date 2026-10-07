@@ -33,12 +33,16 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=clustarr.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("BlockStatus"):
+		return &clustarrv1alpha1.BlockStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelEPG"):
 		return &clustarrv1alpha1.ChannelEPGApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelFilter"):
 		return &clustarrv1alpha1.ChannelFilterApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DeviceSpec"):
 		return &clustarrv1alpha1.DeviceSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DVRSpec"):
+		return &clustarrv1alpha1.DVRSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GuideStatus"):
 		return &clustarrv1alpha1.GuideStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("IPTVChannel"):

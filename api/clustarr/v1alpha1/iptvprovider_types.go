@@ -47,8 +47,9 @@ const (
 	FilterCustom FilterType = "custom"
 )
 
-// IPTVProviderSpec is one IPTV provider: one emulated HDHomeRun device and
-// one Plex DVR (Live TV spec §3).
+// IPTVProviderSpec is one IPTV provider. Its active channels are split into
+// blocks of contiguous numbers, each one emulated HDHomeRun device and one
+// Plex DVR (Live TV spec §3, §3.1).
 type IPTVProviderSpec struct {
 	// Enabled false stops this provider's tuner; Plex then sees the device
 	// gone. Default true.
@@ -94,9 +95,13 @@ type IPTVProviderSpec struct {
 	// +kubebuilder:validation:Maximum=99999
 	ChannelNumberStart *int32 `json:"channelNumberStart,omitempty"`
 
-	// Device names the emulated HDHomeRun.
+	// Device names the emulated HDHomeRuns, one per block.
 	// +optional
 	Device DeviceSpec `json:"device,omitempty"`
+
+	// DVR sizes the blocks the lineup is split into, one Plex DVR each.
+	// +optional
+	DVR DVRSpec `json:"dvr,omitempty"`
 
 	// Stream tunes the relay.
 	// +optional
@@ -192,12 +197,33 @@ type ChannelFilter struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
-// DeviceSpec names the emulated HDHomeRun.
+// DeviceSpec names the emulated HDHomeRuns.
 type DeviceSpec struct {
-	// FriendlyName is the name Plex shows. Default "Clustarr <name>".
+	// FriendlyName is the name Plex shows, before each block's "<start>+".
+	// Default "Clustarr <name>".
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
 	FriendlyName string `json:"friendlyName,omitempty"`
+
+	// ID pins the first block's DeviceID when the provider's blocks are
+	// first packed: eight upper-case hex digits, unique among every
+	// provider's blocks. Unset, every DeviceID is a hash of namespace, name
+	// and the block's start (Live TV spec §3.1).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9A-F]{8}$`
+	ID string `json:"id,omitempty"`
+}
+
+// DVRSpec sizes the blocks a provider's lineup is split into (Live TV spec
+// §3.1). PMS takes at most ~450 channels per device: one channel-map request
+// is capped at 32 KiB of request line.
+type DVRSpec struct {
+	// MaxChannels is a block's most channels. A block is also held under
+	// 30,000 bytes of channel map, whichever comes first. Default 400.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=450
+	MaxChannels *int32 `json:"maxChannels,omitempty"`
 }
 
 // StreamSpec tunes the stream relay.
@@ -226,19 +252,18 @@ type IPTVProviderStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// DeviceID is the emulated HDHomeRun's id: eight hex digits from a hash
-	// of namespace/name, so a recreated provider is the same device to Plex.
-	// +optional
-	DeviceID string `json:"deviceID,omitempty"`
-
-	// Address is the provider's Service ClusterIP, the device address
-	// cluster-plex registers with PMS.
+	// Address is the tuner Service, host:port, where the Plex pods' proxies
+	// send each block's port (Live TV spec §5.0).
 	// +optional
 	Address string `json:"address,omitempty"`
 
-	// GuideURL is the XEPG guide's URL; empty under PMS.
+	// Blocks are the lineup's runs of contiguous numbers, one Plex DVR each,
+	// ordered by start (Live TV spec §3.1).
 	// +optional
-	GuideURL string `json:"guideURL,omitempty"`
+	// +listType=map
+	// +listMapKey=start
+	// +kubebuilder:validation:MaxItems=32
+	Blocks []BlockStatus `json:"blocks,omitempty"`
 
 	// Playlist describes the last playlist fetch.
 	// +optional
@@ -251,14 +276,9 @@ type IPTVProviderStatus struct {
 	// +kubebuilder:validation:MaxItems=16
 	Guides []GuideStatus `json:"guides,omitempty"`
 
-	// Lineup describes the rendered lineup.json.
+	// Lineup counts the rendered lineup across every block.
 	// +optional
 	Lineup *LineupStatus `json:"lineup,omitempty"`
-
-	// GuideHash is a hash of the rendered XEPG guide. A change in it tells
-	// cluster-plex to reload Plex's guide.
-	// +optional
-	GuideHash string `json:"guideHash,omitempty"`
 
 	// Tuners counts the provider's tuners.
 	// +optional
@@ -293,15 +313,80 @@ type GuideStatus struct {
 	Error string `json:"error,omitempty"`
 }
 
-// LineupStatus describes the rendered lineup.
+// LineupStatus counts the rendered lineup.
 type LineupStatus struct {
 	Active   int32 `json:"active"`
 	Unmapped int32 `json:"unmapped"`
 	Missing  int32 `json:"missing"`
-	// Hash is a hash of the rendered lineup.json. A change in it tells
-	// cluster-plex to save the DVR's channel map again.
+}
+
+// BlockStatus is one block: one emulated HDHomeRun and one Plex DVR (Live TV
+// spec §3.1, §3.2).
+type BlockStatus struct {
+	// Start is the block's boundary and identity: the number its channels
+	// begin at. A channel belongs to the last block whose start is at or
+	// below its number.
+	// +required
+	// +kubebuilder:validation:MaxLength=16
+	Start string `json:"start"`
+
+	// Channels counts the block's active channels.
 	// +optional
-	Hash string `json:"hash,omitempty"`
+	Channels int32 `json:"channels,omitempty"`
+
+	// First and Last are the numbers the block's channels span.
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	First string `json:"first,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	Last string `json:"last,omitempty"`
+
+	// MapBytes is the size of the block's channel-map query.
+	// +optional
+	MapBytes int32 `json:"mapBytes,omitempty"`
+
+	// DeviceID is the block's HDHomeRun id: spec.device.id for the first
+	// block of a first packing, else a hash of namespace, name and start.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9A-F]{8}$`
+	DeviceID string `json:"deviceID,omitempty"`
+
+	// Port is the block's port: the Plex pods' proxies listen on it, and the
+	// tuner routes by it.
+	// +optional
+	// +kubebuilder:validation:Minimum=1024
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port,omitempty"`
+
+	// FriendlyName is the name Plex shows for the block's device and DVR.
+	// +optional
+	// +kubebuilder:validation:MaxLength=160
+	FriendlyName string `json:"friendlyName,omitempty"`
+
+	// GuidePath is the block's XEPG guide path under its address; empty
+	// under PMS.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	GuidePath string `json:"guidePath,omitempty"`
+
+	// Owner is the cluster-plex installation registered for the block,
+	// read from its Lease. Empty while none holds it.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	Owner string `json:"owner,omitempty"`
+
+	// LineupHash is a hash of the block's lineup.json. A change tells
+	// cluster-plex to save that DVR's channel map again.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	LineupHash string `json:"lineupHash,omitempty"`
+
+	// GuideHash is a hash of the block's guide. A change tells cluster-plex
+	// to reload that DVR's guide.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	GuideHash string `json:"guideHash,omitempty"`
 }
 
 // TunerStatus counts a provider's tuners.
@@ -310,9 +395,9 @@ type TunerStatus struct {
 	InUse int32 `json:"inUse"`
 }
 
-// IPTVProvider is one IPTV provider routed to Plex as an emulated HDHomeRun
-// (Live TV spec §3). Its tuner runs in the manager; its controller gives it
-// one Service, its address in Plex.
+// IPTVProvider is one IPTV provider routed to Plex as emulated HDHomeRuns,
+// one per block of its channels (Live TV spec §3). Its tuner runs in the
+// manager, behind one livetv Service; each block has a port of its own.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -323,7 +408,7 @@ type TunerStatus struct {
 // +kubebuilder:printcolumn:name="Candidates",type="integer",JSONPath=".status.playlist.candidates"
 // +kubebuilder:printcolumn:name="EPG",type="string",JSONPath=".spec.epgSource"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
-// +kubebuilder:printcolumn:name="Address",type="string",JSONPath=".status.address"
+// +kubebuilder:printcolumn:name="Port",type="integer",JSONPath=".status.blocks[0].port"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type IPTVProvider struct {
 	metav1.TypeMeta   `json:",inline"`

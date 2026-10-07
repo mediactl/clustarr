@@ -39,6 +39,12 @@ const (
 	ReasonDisabled          = "Disabled"
 	ReasonSecretNotFound    = "SecretNotFound"
 	ReasonSecretKeyNotFound = "SecretKeyNotFound"
+
+	// A provider's Ready=False reasons from its blocks (Live TV spec §3.1).
+	// Each keeps the last good status.blocks, so no Plex DVR is removed.
+	ReasonTooManyChannels    = "TooManyChannels"
+	ReasonDuplicateDeviceID  = "DuplicateDeviceID"
+	ReasonNumberRangeOverlap = "NumberRangeOverlap"
 )
 
 // The defaults the accessors apply to an unset field. A field the CRD could
@@ -52,6 +58,7 @@ const (
 	DefaultStreamBuffer       int64 = 8 << 20
 	DefaultStreamLinger             = 10 * time.Second
 	DefaultDummyMinutes       int32 = 60
+	DefaultMaxChannels        int32 = 400
 )
 
 // EnabledOrDefault is spec.enabled, true when unset.
@@ -63,6 +70,14 @@ func (s IPTVProviderSpec) EPGSourceOrDefault() EPGSource {
 		return EPGSourceXEPG
 	}
 	return s.EPGSource
+}
+
+// MaxChannelsOrDefault is spec.dvr.maxChannels, 400 when unset.
+func (s IPTVProviderSpec) MaxChannelsOrDefault() int32 {
+	if s.DVR.MaxChannels == nil {
+		return DefaultMaxChannels
+	}
+	return *s.DVR.MaxChannels
 }
 
 // ChannelNumberStartOrDefault is spec.channelNumberStart, 1000 when unset.

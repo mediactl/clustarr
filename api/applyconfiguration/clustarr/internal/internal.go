@@ -40,6 +40,45 @@ func Parser() *typed.Parser {
 var parserOnce sync.Once
 var parser *typed.Parser
 var schemaYAML = typed.YAMLObject(`types:
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.BlockStatus
+  map:
+    fields:
+    - name: channels
+      type:
+        scalar: numeric
+    - name: deviceID
+      type:
+        scalar: string
+    - name: first
+      type:
+        scalar: string
+    - name: friendlyName
+      type:
+        scalar: string
+    - name: guideHash
+      type:
+        scalar: string
+    - name: guidePath
+      type:
+        scalar: string
+    - name: last
+      type:
+        scalar: string
+    - name: lineupHash
+      type:
+        scalar: string
+    - name: mapBytes
+      type:
+        scalar: numeric
+    - name: owner
+      type:
+        scalar: string
+    - name: port
+      type:
+        scalar: numeric
+    - name: start
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ChannelEPG
   map:
     fields:
@@ -85,10 +124,19 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: type
       type:
         namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.FilterType
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DVRSpec
+  map:
+    fields:
+    - name: maxChannels
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DeviceSpec
   map:
     fields:
     - name: friendlyName
+      type:
+        scalar: string
+    - name: id
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.EPGSource
@@ -241,6 +289,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: device
       type:
         namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DeviceSpec
+    - name: dvr
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DVRSpec
     - name: enabled
       type:
         scalar: boolean
@@ -278,6 +329,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: address
       type:
         scalar: string
+    - name: blocks
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.BlockStatus
+          elementRelationship: associative
+          keys:
+          - start
     - name: conditions
       type:
         list:
@@ -286,15 +345,6 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
-    - name: deviceID
-      type:
-        scalar: string
-    - name: guideHash
-      type:
-        scalar: string
-    - name: guideURL
-      type:
-        scalar: string
     - name: guides
       type:
         list:
@@ -321,9 +371,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: active
       type:
         scalar: numeric
-    - name: hash
-      type:
-        scalar: string
     - name: missing
       type:
         scalar: numeric

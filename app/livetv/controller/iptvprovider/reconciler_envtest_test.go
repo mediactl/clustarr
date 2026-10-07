@@ -233,8 +233,6 @@ func TestAProviderGetsAServiceInTheManagersNamespaceAndAnAddress(t *testing.T) {
 	require.Eventually(t, func() bool { return h.get(t, "news").Status.Address != "" }, 10*time.Second, 50*time.Millisecond)
 	p := h.get(t, "news")
 	assert.Equal(t, svc.Spec.ClusterIP, p.Status.Address)
-	assert.Equal(t, hdhr.DeviceID(h.ns, "news"), p.Status.DeviceID)
-	assert.Equal(t, "http://"+svc.Spec.ClusterIP+"/livetv/"+h.ns+"/news/xmltv.xml", p.Status.GuideURL)
 	assert.Contains(t, p.Finalizers, iptvprovider.Finalizer)
 	c, ok := h.tuner.last(h.key("news"))
 	require.True(t, ok)

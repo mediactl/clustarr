@@ -33,23 +33,18 @@ type IPTVProviderStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions: Ready, Valid, PlaylistFetched, GuidesFetched.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// DeviceID is the emulated HDHomeRun's id: eight hex digits from a hash
-	// of namespace/name, so a recreated provider is the same device to Plex.
-	DeviceID *string `json:"deviceID,omitempty"`
-	// Address is the provider's Service ClusterIP, the device address
-	// cluster-plex registers with PMS.
+	// Address is the tuner Service, host:port, where the Plex pods' proxies
+	// send each block's port (Live TV spec §5.0).
 	Address *string `json:"address,omitempty"`
-	// GuideURL is the XEPG guide's URL; empty under PMS.
-	GuideURL *string `json:"guideURL,omitempty"`
+	// Blocks are the lineup's runs of contiguous numbers, one Plex DVR each,
+	// ordered by start (Live TV spec §3.1).
+	Blocks []BlockStatusApplyConfiguration `json:"blocks,omitempty"`
 	// Playlist describes the last playlist fetch.
 	Playlist *PlaylistStatusApplyConfiguration `json:"playlist,omitempty"`
 	// Guides describes each guide's last fetch.
 	Guides []GuideStatusApplyConfiguration `json:"guides,omitempty"`
-	// Lineup describes the rendered lineup.json.
+	// Lineup counts the rendered lineup across every block.
 	Lineup *LineupStatusApplyConfiguration `json:"lineup,omitempty"`
-	// GuideHash is a hash of the rendered XEPG guide. A change in it tells
-	// cluster-plex to reload Plex's guide.
-	GuideHash *string `json:"guideHash,omitempty"`
 	// Tuners counts the provider's tuners.
 	Tuners *TunerStatusApplyConfiguration `json:"tuners,omitempty"`
 }
@@ -81,14 +76,6 @@ func (b *IPTVProviderStatusApplyConfiguration) WithConditions(values ...*v1.Cond
 	return b
 }
 
-// WithDeviceID sets the DeviceID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DeviceID field is set to the value of the last call.
-func (b *IPTVProviderStatusApplyConfiguration) WithDeviceID(value string) *IPTVProviderStatusApplyConfiguration {
-	b.DeviceID = &value
-	return b
-}
-
 // WithAddress sets the Address field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Address field is set to the value of the last call.
@@ -97,11 +84,16 @@ func (b *IPTVProviderStatusApplyConfiguration) WithAddress(value string) *IPTVPr
 	return b
 }
 
-// WithGuideURL sets the GuideURL field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the GuideURL field is set to the value of the last call.
-func (b *IPTVProviderStatusApplyConfiguration) WithGuideURL(value string) *IPTVProviderStatusApplyConfiguration {
-	b.GuideURL = &value
+// WithBlocks adds the given value to the Blocks field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Blocks field.
+func (b *IPTVProviderStatusApplyConfiguration) WithBlocks(values ...*BlockStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithBlocks")
+		}
+		b.Blocks = append(b.Blocks, *values[i])
+	}
 	return b
 }
 
@@ -131,14 +123,6 @@ func (b *IPTVProviderStatusApplyConfiguration) WithGuides(values ...*GuideStatus
 // If called multiple times, the Lineup field is set to the value of the last call.
 func (b *IPTVProviderStatusApplyConfiguration) WithLineup(value *LineupStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
 	b.Lineup = value
-	return b
-}
-
-// WithGuideHash sets the GuideHash field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the GuideHash field is set to the value of the last call.
-func (b *IPTVProviderStatusApplyConfiguration) WithGuideHash(value string) *IPTVProviderStatusApplyConfiguration {
-	b.GuideHash = &value
 	return b
 }
 

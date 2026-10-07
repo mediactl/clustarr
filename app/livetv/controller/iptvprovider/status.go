@@ -31,7 +31,6 @@ import (
 	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/clustarr/v1alpha1"
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
-	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -53,14 +52,9 @@ func render(p *clustarrv1.IPTVProvider, address string, tn Tuner, valid metav1.C
 	if address == "" {
 		address = p.Status.Address
 	}
-	st := clustarrac.IPTVProviderStatus().
-		WithObservedGeneration(p.Generation).
-		WithDeviceID(hdhr.DeviceID(p.Namespace, p.Name))
+	st := clustarrac.IPTVProviderStatus().WithObservedGeneration(p.Generation)
 	if address != "" {
 		st.WithAddress(address)
-		if p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourceXEPG {
-			st.WithGuideURL("http://" + address + "/livetv/" + p.Namespace + "/" + p.Name + "/xmltv.xml")
-		}
 	}
 	if ok {
 		fromSnapshot(st, snap, p.Spec.Tuners)
@@ -197,14 +191,7 @@ func fromSnapshot(st *clustarrac.IPTVProviderStatusApplyConfiguration, s tuner.S
 		}
 		st.WithGuides(gs)
 	}
-	lu := clustarrac.LineupStatus().WithActive(int32(s.Lineup.Active)).WithUnmapped(int32(s.Lineup.Unmapped)).WithMissing(int32(s.Lineup.Missing))
-	if s.Lineup.Hash != "" {
-		lu.WithHash(s.Lineup.Hash)
-	}
-	st.WithLineup(lu)
-	if s.GuideHash != "" {
-		st.WithGuideHash(s.GuideHash)
-	}
+	st.WithLineup(clustarrac.LineupStatus().WithActive(int32(s.Lineup.Active)).WithUnmapped(int32(s.Lineup.Unmapped)).WithMissing(int32(s.Lineup.Missing)))
 	st.WithTuners(clustarrac.TunerStatus().WithTotal(tuners).WithInUse(int32(s.TunersInUse)))
 }
 
@@ -236,14 +223,7 @@ func reassertKnownStatus(st *clustarrac.IPTVProviderStatusApplyConfiguration, p 
 		st.WithGuides(ac)
 	}
 	if lu := cur.Lineup; lu != nil {
-		ac := clustarrac.LineupStatus().WithActive(lu.Active).WithUnmapped(lu.Unmapped).WithMissing(lu.Missing)
-		if lu.Hash != "" {
-			ac.WithHash(lu.Hash)
-		}
-		st.WithLineup(ac)
-	}
-	if cur.GuideHash != "" {
-		st.WithGuideHash(cur.GuideHash)
+		st.WithLineup(clustarrac.LineupStatus().WithActive(lu.Active).WithUnmapped(lu.Unmapped).WithMissing(lu.Missing))
 	}
 	if t := cur.Tuners; t != nil {
 		st.WithTuners(clustarrac.TunerStatus().WithTotal(t.Total).WithInUse(t.InUse))

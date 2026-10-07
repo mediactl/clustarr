@@ -22,14 +22,11 @@ package v1alpha1
 // LineupStatusApplyConfiguration represents a declarative configuration of the LineupStatus type for use
 // with apply.
 //
-// LineupStatus describes the rendered lineup.
+// LineupStatus counts the rendered lineup.
 type LineupStatusApplyConfiguration struct {
 	Active   *int32 `json:"active,omitempty"`
 	Unmapped *int32 `json:"unmapped,omitempty"`
 	Missing  *int32 `json:"missing,omitempty"`
-	// Hash is a hash of the rendered lineup.json. A change in it tells
-	// cluster-plex to save the DVR's channel map again.
-	Hash *string `json:"hash,omitempty"`
 }
 
 // LineupStatusApplyConfiguration constructs a declarative configuration of the LineupStatus type for use with
@@ -59,13 +56,5 @@ func (b *LineupStatusApplyConfiguration) WithUnmapped(value int32) *LineupStatus
 // If called multiple times, the Missing field is set to the value of the last call.
 func (b *LineupStatusApplyConfiguration) WithMissing(value int32) *LineupStatusApplyConfiguration {
 	b.Missing = &value
-	return b
-}
-
-// WithHash sets the Hash field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Hash field is set to the value of the last call.
-func (b *LineupStatusApplyConfiguration) WithHash(value string) *LineupStatusApplyConfiguration {
-	b.Hash = &value
 	return b
 }
