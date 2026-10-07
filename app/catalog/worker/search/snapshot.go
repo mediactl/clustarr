@@ -50,7 +50,8 @@ type itemSnapshot struct {
 }
 
 // snapshot fetches the item named by ref in namespace ns: movie, episode,
-// album, book, audiobook and issue -- the kinds Searchable admits.
+// album, book, audiobook and issue -- the kinds Searchable admits. A season
+// of a series is snapshotSeason's.
 func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef) (itemSnapshot, error) {
 	snap := itemSnapshot{
 		Target: decision.Target{
@@ -78,6 +79,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		snap.Target.Identity = MovieIdentity(&m)
+		snap.Target.Identity.Namesakes = w.namesakes(ctx, ns, &m)
 		snap.Owner = ownerRef(string(commonv1.MediaKindMovie), &m)
 
 	case commonv1.MediaKindEpisode:
@@ -150,6 +152,8 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		// shares that builder, and an RSS pack target can resolve to a
 		// single episode too.
 		snap.Target.Identity.SingleEpisodeSearch = true
+		snap.Target.Identity.Namesakes = w.namesakes(ctx, ns, &s)
+		snap.Target.Anime = snap.IDs.Anime
 
 	case commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
 		v, err := ReadNonVideo(ctx, w.Client, ns, ref, w.now())

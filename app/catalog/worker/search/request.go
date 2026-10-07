@@ -116,7 +116,12 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 			idmap[commonv1.IDKeyTVDB] = strconv.FormatInt(ids.TvdbID, 10)
 		}
 		req.Episode = ids.Episode
-		if !ids.Anime {
+		req.Anime = ids.Anime
+		// An anime episode request carries its absolute number in Episode
+		// and no season; an anime season request (Episode nil) keeps its
+		// season, which index sends an id indexer and leaves off a text
+		// query (series search design §5.3).
+		if !ids.Anime || ids.Episode == nil {
 			req.Season = ids.Season
 		}
 	}
@@ -138,6 +143,11 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 // number into Episode instead (see its own doc comment) -- so its fallback
 // text follows the same shape: "<series> <absolute>", which is how *arr
 // indexers and their trackers key anime releases.
+//
+// A season search (Season set, Episode nil, series search design §5.2) is
+// the title alone: no SxxEyy and no number, for a standard series and an
+// anime one alike. The season goes on the wire as a parameter, never in the
+// text.
 //
 // ids.Title empty means no metadata has landed yet. This returns "" rather
 // than guess a title from a release name or an id: an empty Text leaves

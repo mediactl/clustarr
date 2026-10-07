@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/worker/titleindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -43,16 +44,21 @@ const (
 	// differ, and an indexer may use any of them).
 	IndexMovieTitleYear = "rssmatcher.clustarr.io/movie-title-year"
 
+	// IndexMovieTitle indexes Movie by release.CleanTitle of every title,
+	// yearless (Wave S): the search worker's namesake lookup. It lives in
+	// titleindex, which the search worker imports.
+	IndexMovieTitle = titleindex.IndexMovieTitle
+
 	// IndexSeriesTitleYear indexes Series by SeriesTitleKey: its clean title
 	// alone, and its clean title with its first-aired year appended -- for
 	// its title and every alternate title. The name keeps "year" because
 	// the year is still part of one of the two keys; see SeriesTitleKey for
 	// why a series is not keyed like a movie.
-	IndexSeriesTitleYear = "rssmatcher.clustarr.io/series-title-year"
+	IndexSeriesTitleYear = titleindex.IndexSeriesTitleYear
 
 	// IndexEpisodeSeriesSeason indexes Episode by "<seriesRef>/<season>", so
 	// one List resolves a whole season pack and a single episode alike.
-	IndexEpisodeSeriesSeason = "rssmatcher.clustarr.io/episode-series-season"
+	IndexEpisodeSeriesSeason = titleindex.IndexEpisodeSeriesSeason
 
 	// IndexEpisodeSeriesAbsolute indexes Episode by
 	// "<seriesRef>#<absoluteNumber>", for an anime release numbered only
@@ -83,17 +89,18 @@ const (
 	IndexIssueComicNumber = "rssmatcher.clustarr.io/issue-comic-number"
 )
 
-// FieldIndexes declares the thirteen indexes Match needs: six for movies
-// and series, then seven for the non-video kinds (nonvideo.go). The events
-// domain declares them and the agent registers each once (spec §3.5.2 step
-// 9, §5.7).
+// FieldIndexes declares the fourteen indexes Match and the search worker's
+// namesake lookup need: seven for movies and series, then seven for the
+// non-video kinds (nonvideo.go). The events domain declares them and the
+// agent registers each once (spec §3.5.2 step 9, §5.7).
 func FieldIndexes() []k8s.FieldIndex {
 	return []k8s.FieldIndex{
 		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTmdbID, Extract: movieTmdbIDKeys},
 		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTvdbID, Extract: seriesTvdbIDKeys},
 		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTitleYear, Extract: movieTitleYearKeys},
-		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTitleYear, Extract: seriesTitleYearKeys},
-		{Object: &catalogv1alpha1.Episode{}, Name: IndexEpisodeSeriesSeason, Extract: episodeSeasonKeys},
+		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTitle, Extract: titleindex.MovieTitleKeys},
+		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTitleYear, Extract: titleindex.SeriesTitleYearKeys},
+		{Object: &catalogv1alpha1.Episode{}, Name: IndexEpisodeSeriesSeason, Extract: titleindex.EpisodeSeasonKeys},
 		{Object: &catalogv1alpha1.Episode{}, Name: IndexEpisodeSeriesAbsolute, Extract: episodeAbsoluteKeys},
 		{Object: &catalogv1alpha1.Artist{}, Name: IndexArtistName, Extract: artistNameKeys},
 		{Object: &catalogv1alpha1.Album{}, Name: IndexAlbumArtistTitle, Extract: albumKeys},
@@ -104,6 +111,11 @@ func FieldIndexes() []k8s.FieldIndex {
 		{Object: &catalogv1alpha1.Issue{}, Name: IndexIssueComicNumber, Extract: issueKeys},
 	}
 }
+
+// SearchIndexes are the indexes the catalog domain's search worker reads
+// (Wave S): IndexMovieTitle, IndexSeriesTitleYear and
+// IndexEpisodeSeriesSeason (titleindex.SearchIndexes).
+func SearchIndexes() []k8s.FieldIndex { return titleindex.SearchIndexes() }
 
 // movieTmdbIDKeys is IndexMovieTmdbID's value function: spec.tmdbID as a
 // decimal string, and nothing for a Movie without one.
@@ -123,15 +135,6 @@ func seriesTvdbIDKeys(o client.Object) []string {
 		return nil
 	}
 	return []string{strconv.FormatInt(s.Spec.TvdbID, 10)}
-}
-
-// episodeSeasonKeys is IndexEpisodeSeriesSeason's value function.
-func episodeSeasonKeys(o client.Object) []string {
-	ep, ok := o.(*catalogv1alpha1.Episode)
-	if !ok || ep.Spec.SeriesRef == "" {
-		return nil
-	}
-	return []string{seasonKey(ep.Spec.SeriesRef, ep.Spec.SeasonNumber)}
 }
 
 // episodeAbsoluteKeys is IndexEpisodeSeriesAbsolute's value function: only
@@ -197,42 +200,11 @@ func movieTitleYearKeys(o client.Object) []string {
 // under both its clean title and its title plus first-aired year answers
 // both of those lookups with the one key a release produces.
 func SeriesTitleKey(title string, year int32) string {
-	if year > 0 {
-		title += " " + strconv.Itoa(int(year))
-	}
-	return release.CleanTitle(title)
-}
-
-// seriesTitleYearKeys indexes a Series under SeriesTitleKey of its title,
-// yearless and with its first-aired year: "Doctor Who" (2005) answers both
-// "Doctor.Who.S01E01" and "Doctor.Who.2005.S01E01". A series titled with its
-// year already ("Doctor Who (2005)") answers only the second, as in Sonarr,
-// whose clean title for it includes the year.
-//
-// Every alternate title metadata lists is keyed the same two ways, so a
-// series whose releases use an alias ("Shingeki no Kyojin" for Attack on
-// Titan) is title-matchable, not only tvdb-id-matchable. Sonarr resolves a
-// release title through its alternate (scene) titles before its own
-// (ParsingService.GetSeries -> SceneMappingService.FindTvdbId, then
-// SeriesService.FindByTitle; develop). An alternate title's scene season
-// (AltTitle.SceneSeason) is not read: the identity check has no
-// season-by-title reading either (pkg/decision's releaseCoverage), and the
-// two must agree.
-func seriesTitleYearKeys(o client.Object) []string {
-	s, ok := o.(*catalogv1alpha1.Series)
-	if !ok || s.Status.Metadata == nil {
-		return nil
-	}
-	md := s.Status.Metadata
-	keys := []string{SeriesTitleKey(md.Title, 0), SeriesTitleKey(md.Title, md.Year)}
-	for _, alt := range md.AlternateTitles {
-		keys = append(keys, SeriesTitleKey(alt.Title, 0), SeriesTitleKey(alt.Title, md.Year))
-	}
-	return dedupeNonEmpty(keys...)
+	return titleindex.SeriesTitleKey(title, year)
 }
 
 func seasonKey(seriesRef string, season int32) string {
-	return seriesRef + "/" + strconv.Itoa(int(season))
+	return titleindex.SeasonKey(seriesRef, season)
 }
 
 func absoluteKey(seriesRef string, absolute int32) string {

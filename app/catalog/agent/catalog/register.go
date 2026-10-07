@@ -32,6 +32,7 @@ import (
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
+	"github.com/mediactl/clustarr/app/catalog/worker/titleindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -46,8 +47,10 @@ type Options struct {
 	k8s.Options
 }
 
-// Register adds the catalog domain's consumers to mgr. It declares the one
-// field index they read and registers none; it adds no leader-only runnable.
+// Register adds the catalog domain's consumers to mgr. It declares the
+// field indexes the search worker reads -- the namesake and season lookups
+// (titleindex.SearchIndexes, Wave S) -- and registers none; it adds no
+// leader-only runnable.
 func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 	if bus == nil {
 		return catalogagent.Registration{}, errors.New("catalog domain: Register needs the bus")
@@ -62,7 +65,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	if err := w.render.SetupWithManager(mgr, bus); err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("catalog domain: subscribe the artwork renderer: %w", err)
 	}
-	return catalogagent.Registration{}, nil
+	return catalogagent.Registration{Indexes: titleindex.SearchIndexes()}, nil
 }
 
 // workers is the domain's consumers, built but not subscribed, so a test

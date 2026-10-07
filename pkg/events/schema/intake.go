@@ -88,9 +88,9 @@ const MaxCoverageNumbers = 1000
 
 // ReleaseCoverage is a release's coverage in a series' stored (TVDB)
 // numbering, read through its TheXEM scene table first (Wave S): whole
-// seasons it is a pack of, the season and episode pairs it names, and the
-// absolute numbers no pair accounted for. At most MaxCoverageNumbers
-// entries in each list.
+// seasons it is a pack of (read literally: a pack of a scene season is its
+// TVDB episodes), the season and episode pairs it names, and the absolute
+// numbers it names. At most MaxCoverageNumbers entries in each list.
 type ReleaseCoverage struct {
 	FullSeasons []int32         `json:"fullSeasons,omitempty"`
 	Episodes    []SeasonEpisode `json:"episodes,omitempty"`

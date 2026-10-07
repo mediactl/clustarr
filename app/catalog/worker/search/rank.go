@@ -44,24 +44,32 @@ const MaxResults = 200
 // Options and the release itself. Duplicating that chain here would silently
 // diverge from the engine the automatic grab path uses.
 //
-// Approved releases sort ahead of every rejected one: a rejected Decision has
-// a zero RankKey (Evaluate only fills it when Approved), so they are split
-// out first and appended afterwards in arrival order rather than interleaved
-// by a meaningless key. That ordering is what makes status.results readable
-// in the UI -- grabbable releases first, then the ones explaining why the
-// rest were not.
+// The result is banded (series search design §8.2, decision.BandOf):
+// approved releases first, ranked; then rejected ones, ranked by the same
+// comparator (Evaluate fills a RankKey for every parsed release); then the
+// releases for other titles -- a WrongItem, UnknownItem or UnableToParse
+// rejection -- in arrival order. The bands are cut BEFORE the cap, so
+// identity noise is what the cap drops first, never a real rejected
+// release. That ordering is what makes status.results readable in the UI:
+// grabbable releases first, then the ones explaining why the rest were
+// not, then the other titles it collapses.
 func RankAndCap(ds []decision.Decision, o decision.Options, limit int) []commonv1.ReleaseDecision {
 	approved := make([]decision.Decision, 0, len(ds))
 	rejected := make([]decision.Decision, 0, len(ds))
+	other := make([]decision.Decision, 0, len(ds))
 	for _, d := range ds {
-		if d.Approved {
+		switch decision.BandOf(d.Approved, d.Rejections) {
+		case decision.BandApproved:
 			approved = append(approved, d)
-			continue
+		case decision.BandRejected:
+			rejected = append(rejected, d)
+		default:
+			other = append(other, d)
 		}
-		rejected = append(rejected, d)
 	}
 
-	ordered := append(decision.Rank(approved, o), rejected...)
+	ordered := append(decision.Rank(approved, o), decision.Rank(rejected, o)...)
+	ordered = append(ordered, other...)
 
 	n := limit
 	if n <= 0 || n > MaxResults {
@@ -85,10 +93,10 @@ func RankAndCap(ds []decision.Decision, o decision.Options, limit int) []commonv
 }
 
 // RankScored is RankAndCap for a search record (ADR-0019 §7.4): the
-// decisions best-first, approved ahead of rejected, at most limit, each
-// with what the manager's grab planner re-checks it by -- its parsed
-// coverage, the release index's block state from the answer (rels), its
-// format score and its indexer's priority.
+// decisions banded and best-first, at most limit, each with what the
+// manager's grab planner re-checks it by -- its parsed facts and its
+// scene-mapped coverage, the release index's block state from the answer
+// (rels), its format score and its indexer's priority.
 func RankScored(ds []decision.Decision, o decision.Options, rels []schema.Release, limit int) []schema.ScoredRelease {
 	ranked := RankAndCap(ds, o, limit)
 	byRelease := make(map[string]*decision.Decision, len(ds))
@@ -147,7 +155,29 @@ func parsedFacts(d *decision.Decision) schema.ParsedFacts {
 	if p.Comic != nil {
 		f.Issue = p.Comic.Issue
 	}
+	f.Coverage = coverageFacts(d.Coverage)
 	return f
+}
+
+// coverageFacts is a decision's coverage on the wire, each list clamped to
+// schema.MaxCoverageNumbers; nil for none.
+func coverageFacts(c *decision.Coverage) *schema.ReleaseCoverage {
+	if c == nil || (len(c.FullSeasons) == 0 && len(c.Episodes) == 0 && len(c.Absolute) == 0) {
+		return nil
+	}
+	out := &schema.ReleaseCoverage{
+		FullSeasons: int32s(c.FullSeasons[:min(len(c.FullSeasons), schema.MaxCoverageNumbers)]),
+		Absolute:    int32s(c.Absolute[:min(len(c.Absolute), schema.MaxCoverageNumbers)]),
+	}
+	for i, e := range c.Episodes {
+		if i == schema.MaxCoverageNumbers {
+			break
+		}
+		out.Episodes = append(out.Episodes, schema.SeasonEpisode{
+			Season: int32(e.Season), Episode: int32(e.Episode), //nolint:gosec // season and episode numbers fit
+		})
+	}
+	return out
 }
 
 func int32s(ns []int) []int32 {

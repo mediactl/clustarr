@@ -34,6 +34,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // protocols (P7), the indexer priorities (P9), the release index scope,
 // IndexOnly and the donor want -- so the worker reads no DownloadClient,
 // no grab entry and no MediaFile.
+//
+// A task on a Series names a season (Wave S, SeasonSearchable): the worker
+// searches the season as one query per indexer, judges the answer in
+// season-search identity mode against every episode of the season, and
+// answers at the series' season key (agentrecords.SeasonSearchKey) for a
+// task the Series planned, or at the Search's UID for an interactive one.
+// Every answer's releases carry their scene-mapped coverage and are banded
+// approved, rejected, other titles before the record's cap; every
+// identity carries the library's namesakes.
 package search
 
 import (
@@ -164,11 +173,21 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	}
 }
 
-// answer is one search's record in the making.
+// answer is one search's record in the making: keyed by uid (the task's
+// uid) and, for a season task the Series planned, sub
+// (schema.SeasonSub).
 type answer struct {
-	key  string
-	item schema.ItemRef
-	task schema.SearchTask
+	uid, sub string
+	item     schema.ItemRef
+	task     schema.SearchTask
+}
+
+// key is the answer's clustarr-searches key.
+func (a answer) key() string {
+	if a.sub != "" {
+		return events.RecordSubKey(a.uid, a.sub)
+	}
+	return agentrecords.SearchKey(a.uid)
 }
 
 // handleSearchTask answers one search task in a record (§7.4).
@@ -187,18 +206,22 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		"namespace", ns, "reason", string(task.Reason))
 
 	// The record's key is the Search's UID for an interactive search, the
-	// item's for an automatic one (R13). A task naming neither has nowhere
-	// to answer.
+	// item's for an automatic one (R13), and the series' season key for a
+	// season task the Series planned (Wave S). A task naming none has
+	// nowhere to answer.
 	a := answer{task: task, item: task.Item}
 	switch {
 	case task.SearchRef != nil && task.SearchRef.UID != "":
-		a.key = task.SearchRef.UID
+		a.uid = task.SearchRef.UID
 		a.item = schema.ItemRef{Kind: "Search", Ref: *task.SearchRef}
 		if a.item.Namespace == "" {
 			a.item.Namespace = ns
 		}
 	case task.Item.UID != "":
-		a.key = task.Item.UID
+		a.uid = task.Item.UID
+		if SeasonSearchable(task) {
+			a.sub = schema.SeasonSub(*task.Season)
+		}
 	default:
 		return events.Discard("the search task names no record key (a v1 task)", nil)
 	}
@@ -207,8 +230,8 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	}
 
 	// Superseded: the record already answers this seq or a later one.
-	if rec, _, ok, err := w.Answers.Get(ctx, agentrecords.SearchKey(a.key)); err != nil {
-		return fmt.Errorf("search: read the record of %s: %w", a.key, err)
+	if rec, _, ok, err := w.Answers.Get(ctx, a.key()); err != nil {
+		return fmt.Errorf("search: read the record of %s: %w", a.key(), err)
 	} else if ok && rec.Seq >= task.Seq {
 		w.log(ctx).Debug("search: the task is superseded by its record; dropping it", "seq", task.Seq, "recordSeq", rec.Seq)
 		return nil
@@ -231,11 +254,20 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		}
 	}
 
-	if !Searchable(task.MediaRef.Kind) {
+	season := SeasonSearchable(task)
+	switch {
+	case task.MediaRef.Kind == commonv1.MediaKindSeries && !season:
+		return w.fail(ctx, a, "a series search names a season")
+	case !season && !Searchable(task.MediaRef.Kind):
 		return w.fail(ctx, a, fmt.Sprintf("kind %s is not searchable; search one of its items instead", task.MediaRef.Kind))
 	}
 
-	snap, err := w.snapshot(ctx, ns, task.MediaRef)
+	var snap itemSnapshot
+	if season {
+		snap, err = w.snapshotSeason(ctx, ns, task.MediaRef, *task.Season)
+	} else {
+		snap, err = w.snapshot(ctx, ns, task.MediaRef)
+	}
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			if m.Attempt() > 1 {
@@ -345,9 +377,13 @@ func (w *Worker) record(a answer) *schema.SearchRecord {
 	item := a.item
 	rec := &schema.SearchRecord{
 		RecordHeader: schema.RecordHeader{
-			Item: &item, Seq: a.task.Seq, State: records.StateAnswered, AnsweredAt: &now,
+			Item: &item, Sub: a.sub, Seq: a.task.Seq, State: records.StateAnswered, AnsweredAt: &now,
 		},
-		Task: a.key, Purpose: a.task.Purpose, FinishedAt: now,
+		Task: a.uid, Purpose: a.task.Purpose, FinishedAt: now,
+	}
+	if a.task.Season != nil {
+		season := *a.task.Season
+		rec.Season = &season
 	}
 	if a.task.SearchRef == nil {
 		// An automatic answer is the container's grab input too (R7); an
@@ -359,16 +395,16 @@ func (w *Worker) record(a answer) *schema.SearchRecord {
 
 // store writes rec; a record above rec's seq already stored is no error.
 func (w *Worker) store(ctx context.Context, a answer, rec *schema.SearchRecord) error {
-	if _, err := w.Records.Write(ctx, agentrecords.SearchKey(a.key), rec); err != nil {
+	if _, err := w.Records.Write(ctx, a.key(), rec); err != nil {
 		if errors.Is(err, records.ErrTooLarge) {
 			// Too many candidates for the bucket's value cap: keep the best
 			// half and say so, rather than lose the answer.
 			rec.Candidates = rec.Candidates[:len(rec.Candidates)/2]
-			if _, err2 := w.Records.Write(ctx, agentrecords.SearchKey(a.key), rec); err2 == nil {
+			if _, err2 := w.Records.Write(ctx, a.key(), rec); err2 == nil {
 				return nil
 			}
 		}
-		return fmt.Errorf("search: write the record of %s: %w", a.key, err)
+		return fmt.Errorf("search: write the record of %s: %w", a.key(), err)
 	}
 	return nil
 }
@@ -502,7 +538,13 @@ func (w *Worker) buildRequest(ns string, task schema.SearchTask, snap itemSnapsh
 			indexerRefs = append(indexerRefs, schema.Ref{Namespace: srch.Namespace, Name: name})
 		}
 	}
-	req := BuildSearchRequest(ns, task.MediaRef.Kind, snap.IDs, schema.MaxSearchReleases,
+	kind := task.MediaRef.Kind
+	if SeasonSearchable(task) {
+		// A season is a tv-search: the series' tvdb id and the season,
+		// no episode (series search design §5.2).
+		kind = commonv1.MediaKindEpisode
+	}
+	req := BuildSearchRequest(ns, kind, snap.IDs, schema.MaxSearchReleases,
 		task.UserInvoked, indexerRefs, categories)
 	req.Protocols = task.Protocols
 	switch {
