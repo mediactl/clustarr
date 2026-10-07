@@ -56,7 +56,8 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
-Image reference. Call with (dict "root" $ "which" "media"|"controller"|"transcoder").
+Image reference. Call with (dict "root" $ "which" "clustarr"|"native"), the
+key under .Values.image.
 */}}
 {{- define "clustarr.image" -}}
 {{- $img := index .root.Values.image .which -}}
@@ -101,30 +102,32 @@ false
 {{- end -}}
 
 {{/*
-GOMEMLIMIT: 80% of a Kubernetes memory quantity, in whole bytes (§12:
-"Torrent engines: GOMEMLIMIT = 80% of limit"). The Downward API's
-resourceFieldRef on a container's own limit only ever gives back 100% of it
--- there is no scaling operator -- so the 80% figure has to be computed once,
-here, from the same quantity values.yaml already puts in
-resources.limits.memory, and baked into the rendered env var as a literal.
+GOMEMLIMIT: a share of a Kubernetes memory quantity, in whole bytes. Call
+with (list <resources.limits.memory> <percent>): 80 for every Go-heavy
+process, 60 for agent-import and agent-caption and 50 for markers, whose
+FFmpeg, par2 and ONNX Runtime allocations live outside the Go heap (spec
+2026-10-06 §10.2.1, OD42). The Downward API's resourceFieldRef on a
+container's own limit only ever gives back 100% of it -- there is no scaling
+operator -- so the share is computed once, here, from the same quantity
+values.yaml puts in resources.limits.memory, and baked into the rendered env
+var as a literal.
 
-This is applied to every Clustarr service the chart renders (clustarr.workload
-below), which covers the grabarr *controller* pod but not the torrent/usenet
-engine StatefulSets and Deployments it creates per DownloadClient at runtime
--- those get their resources from DownloadClient.spec.resources, a CRD field
-this chart never sees, so the identical 80% calculation has to be made again
-in app/grab/controller/downloadclient (Go, not a template); see the gap-fixes
-X12a report.
+This covers every workload the chart renders but not the torrent/usenet
+engine StatefulSets and Deployments the manager's DownloadClient controller
+creates at runtime: those take their resources from
+DownloadClient.spec.resources, a CRD field this chart never sees, so the same
+calculation is made again in app/grab/controller/downloadclient (Go).
 
-Call with the raw resources.limits.memory string. Handles the binary
-(Ki/Mi/Gi/Ti) and decimal (K/M/G/T) Kubernetes quantity suffixes and a bare
-byte count -- every form this chart's own values.yaml uses and the ones
+The quantity may be a bare byte count or carry a binary (Ki/Mi/Gi/Ti) or
+decimal (K/M/G/T) suffix -- every form values.yaml uses and the ones
 `kubectl` normally accepts for memory. Anything else (exponent form, a "m"
 milli-suffix, which is meaningless for memory) fails the render rather than
-silently emitting a wrong number.
+silently emitting a wrong number. x pct / 100 rather than x 0.8: the product
+of two integers is exact, so the chart and an integer check agree to the byte.
 */}}
 {{- define "clustarr.gomemlimit" -}}
-{{- $q := . -}}
+{{- $q := index . 0 -}}
+{{- $pct := index . 1 -}}
 {{- $mult := 1.0 -}}
 {{- $num := $q -}}
 {{- if hasSuffix "Ki" $q -}}{{- $mult = 1024.0 -}}{{- $num = trimSuffix "Ki" $q -}}
@@ -138,7 +141,20 @@ silently emitting a wrong number.
 {{- else if not (regexMatch "^[0-9]+$" $q) -}}
 {{- fail (printf "clustarr.gomemlimit: %q is not a supported memory quantity (want a bare byte count, or a Ki/Mi/Gi/Ti/K/M/G/T suffix)" $q) -}}
 {{- end -}}
-{{- printf "%.0f" (mulf ($num | float64) $mult 0.8) -}}
+{{- printf "%.0f" (divf (mulf ($num | float64) $mult $pct) 100.0) -}}
+{{- end -}}
+
+{{/*
+CLUSTARR_CONSUMER_SLOTS from a consumerSlots map (consumer -> per-pod
+slots): "a=1,b=2", keys in sorted order (spec 2026-10-06 §9.2). The
+autoscale reconciler reads the same value from the pod template.
+*/}}
+{{- define "clustarr.consumerSlots" -}}
+{{- $pairs := list -}}
+{{- range $consumer, $slots := . -}}
+{{- $pairs = append $pairs (printf "%s=%d" $consumer (int $slots)) -}}
+{{- end -}}
+{{- join "," $pairs -}}
 {{- end -}}
 
 {{/*
@@ -169,24 +185,36 @@ preferences, so they fail the render rather than warn.
 The shared workload shape: ServiceAccount + Service + Deployment.
 
 Call with a dict:
-  root       $
-  component  "catalogarr"           -- also the ServiceAccount/Service name suffix
-  image      "media" | "controller" -- key under .Values.image
-  args       list of container args
-  values     the per-service values block (enabled/replicas/resources/...)
-  data       true to mount the RWX /data volume
-  index      true to mount the RWO index volume at /var/lib/clustarr/index
-  strategy   "Recreate" to pin the update strategy, "" for the default
-  grace      terminationGracePeriodSeconds
-  httpPort   true to expose the Torznab facade port
-  extraEnv   list of extra env maps (optional)
-  extraVolumeMounts list of extra container volumeMount maps (optional)
-  extraVolumes      list of extra pod volume maps (optional)
-  leaderElect true for a component that runs controllers (§3, §12)
+  root               $
+  component          "manager" | "agent-<domain>" -- also the ServiceAccount/Service name suffix
+  image              "clustarr" | "native" -- key under .Values.image
+  command            the binary (pkg/binpath); every container names one, no image has an ENTRYPOINT
+  args               list of container args
+  values             the workload's values block (resources, consumerSlots, scheduling)
+  replicas           the fixed replica count
+  autoscaled         true for a domain whose HPA the manager owns (pkg/agentdomain): with
+                     autoscaling.enabled the Deployment carries autoscale.clustarr.io/domain
+                     and no spec.replicas; a soft hostname spread applies either way
+  domain             that label's value
+  natsSingleNodeFlag append --nats-single-node when the JetStream topology is single-node
+                     (the manager only: agents never ensure topology)
+  leaderElect        append --leader-elect (the manager only)
+  data               true to mount the RWX /data volume read-write, with UMASK 002
+  index              true to mount the RWO index volume at /var/lib/clustarr/index
+  strategy           a Deployment strategy map, or "" for the apps/v1 default
+  grace              terminationGracePeriodSeconds (longest AckWait drained + 25 s, spec §3.5.6)
+  gomemPercent       GOMEMLIMIT's share of resources.limits.memory (default 80)
+  serviceType        the Service's type (default ClusterIP)
+  extraPorts         list of (dict "name" "containerPort") before metrics and health
+  extraServicePorts  list of (dict "name" "port" "targetPort") before metrics
+  extraEnv / extraVolumeMounts / extraVolumes   lists, rendered as given
 */}}
 {{- define "clustarr.workload" }}
 {{- $root := .root }}
 {{- $name := printf "%s-%s" (include "clustarr.fullname" $root) .component }}
+{{- /* `and` stops at a false .autoscaled, so .Values.autoscaling is read
+       only by a caller that asks for autoscaling. */}}
+{{- $autoscaled := and .autoscaled $root.Values.autoscaling.enabled }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -208,14 +236,14 @@ metadata:
     {{- include "clustarr.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ .component }}
 spec:
-  type: {{ if .httpPort }}{{ .values.facade.service.type }}{{ else }}ClusterIP{{ end }}
+  type: {{ default "ClusterIP" .serviceType }}
   selector:
     {{- include "clustarr.selectorLabels" (dict "root" $root "component" .component) | nindent 4 }}
   ports:
-  {{- if .httpPort }}
-  - name: http
-    port: {{ .values.facade.service.port }}
-    targetPort: http
+  {{- range .extraServicePorts }}
+  - name: {{ .name }}
+    port: {{ .port }}
+    targetPort: {{ .targetPort }}
     protocol: TCP
   {{- end }}
   - name: metrics
@@ -230,11 +258,20 @@ metadata:
   labels:
     {{- include "clustarr.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ .component }}
+    {{- if $autoscaled }}
+    autoscale.clustarr.io/domain: {{ .domain }}
+    {{- end }}
 spec:
-  replicas: {{ .values.replicas }}
+  {{- if $autoscaled }}
+  # replicas omitted: the manager's autoscale reconciler owns this
+  # Deployment's HPA. Created without it, it starts at 1; an explicit 0 would
+  # leave it paused and never woken (spec §10.2.2).
+  {{- else }}
+  replicas: {{ .replicas }}
+  {{- end }}
   {{- with .strategy }}
   strategy:
-    type: {{ . }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   selector:
     matchLabels:
@@ -273,11 +310,15 @@ spec:
       - name: {{ .component }}
         image: {{ include "clustarr.image" (dict "root" $root "which" .image) }}
         imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+        {{- with .command }}
+        command:
+        {{- toYaml (list .) | nindent 8 }}
+        {{- end }}
         {{- $args := .args }}
         {{- if .leaderElect }}
         {{- $args = append $args "--leader-elect" }}
         {{- end }}
-        {{- if eq (include "clustarr.natsSingleNode" $root) "true" }}
+        {{- if and .natsSingleNodeFlag (eq (include "clustarr.natsSingleNode" $root) "true") }}
         {{- $args = append $args "--nats-single-node" }}
         {{- end }}
         args:
@@ -299,15 +340,19 @@ spec:
         {{- end }}
         {{- with dig "resources" "limits" "memory" "" .values }}
         - name: GOMEMLIMIT
-          value: {{ include "clustarr.gomemlimit" . | quote }}
+          value: {{ include "clustarr.gomemlimit" (list . (default 80 $.gomemPercent)) | quote }}
+        {{- end }}
+        {{- with .values.consumerSlots }}
+        - name: CLUSTARR_CONSUMER_SLOTS
+          value: {{ include "clustarr.consumerSlots" . | quote }}
         {{- end }}
         {{- with .extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
         ports:
-        {{- if .httpPort }}
-        - name: http
-          containerPort: 8080
+        {{- range .extraPorts }}
+        - name: {{ .name }}
+          containerPort: {{ .containerPort }}
           protocol: TCP
         {{- end }}
         - name: metrics
@@ -357,6 +402,17 @@ spec:
       {{- with .values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .autoscaled }}
+      # Soft: a required anti-affinity would stall a RollingUpdate surge on a
+      # single node (spec §10.2.1, OD33).
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            {{- include "clustarr.selectorLabels" (dict "root" $root "component" .component) | nindent 12 }}
       {{- end }}
       volumes:
       {{- if .data }}

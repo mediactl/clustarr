@@ -79,7 +79,7 @@ spec:
           value: "002"
         {{- with dig "resources" "limits" "memory" "" .Values.segmentarrWorker }}
         - name: GOMEMLIMIT
-          value: {{ include "clustarr.gomemlimit" . | quote }}
+          value: {{ include "clustarr.gomemlimit" (list . 80) | quote }}
         {{- end }}
         ports:
         - name: metrics

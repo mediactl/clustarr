@@ -13,6 +13,9 @@ asked for them, so they can never be chart templates.
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "catalogarr"
+      "replicas" .Values.catalogarr.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.catalogarr
       "image" "media"
       "args" (list "catalogarr" "--role" "controller,worker,history,artwork")
@@ -20,22 +23,23 @@ asked for them, so they can never be chart templates.
       "data" true
       "index" false
       "strategy" ""
-      "grace" 60
-      "httpPort" false) }}
+      "grace" 60) }}
 {{- end }}
 {{- if .Values.catalogarrMetadata.enabled }}
 {{/* Recreate: never two metadata gateways at once, not even mid-rollout. */}}
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "catalogarr-metadata"
+      "replicas" .Values.catalogarrMetadata.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.catalogarrMetadata
       "image" "media"
       "args" (list "catalogarr" "--role" "metadata")
       "data" false
       "index" false
-      "strategy" "Recreate"
-      "grace" 60
-      "httpPort" false) }}
+      "strategy" (dict "type" "Recreate")
+      "grace" 60) }}
 {{- end }}
 {{- if .Values.importarr.enabled }}
 {{/* The controllers mount /data too: the rename controller moves library
@@ -44,6 +48,9 @@ asked for them, so they can never be chart templates.
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "importarr"
+      "replicas" .Values.importarr.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.importarr
       "image" "media"
       "args" (list "importarr" "--role" "controller")
@@ -51,8 +58,7 @@ asked for them, so they can never be chart templates.
       "data" true
       "index" false
       "strategy" ""
-      "grace" 60
-      "httpPort" false) }}
+      "grace" 60) }}
 {{- end }}
 {{- if .Values.importarrWorker.enabled }}
 {{/* Every replica needs a writable /data: a worker that cannot write the
@@ -60,14 +66,16 @@ asked for them, so they can never be chart templates.
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "importarr-worker"
+      "replicas" .Values.importarrWorker.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.importarrWorker
       "image" "media"
       "args" (list "importarr" "--role" "worker")
       "data" true
       "index" false
       "strategy" ""
-      "grace" 60
-      "httpPort" false) }}
+      "grace" 60) }}
 {{- end }}
 {{- if .Values.indexarr.enabled }}
 {{- $indexEnv := list
@@ -118,14 +126,19 @@ asked for them, so they can never be chart templates.
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "indexarr"
+      "replicas" .Values.indexarr.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.indexarr
       "image" "controller"
       "args" (list "indexarr" "--role" "all")
       "data" false
       "index" (not .Values.postgres.enabled)
-      "strategy" (ternary "" "Recreate" .Values.postgres.enabled)
+      "strategy" (ternary "" (dict "type" "Recreate") .Values.postgres.enabled)
       "grace" 60
-      "httpPort" true
+      "serviceType" .Values.indexarr.facade.service.type
+      "extraPorts" (list (dict "name" "http" "containerPort" 8080))
+      "extraServicePorts" (list (dict "name" "http" "port" .Values.indexarr.facade.service.port "targetPort" "http"))
       "extraEnv" $indexEnv
       "extraVolumeMounts" $indexMounts
       "extraVolumes" $indexVolumes) }}
@@ -134,6 +147,9 @@ asked for them, so they can never be chart templates.
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "grabarr"
+      "replicas" .Values.grabarr.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.grabarr
       "image" "media"
       "args" (list "grabarr" "--role" "controller")
@@ -142,7 +158,6 @@ asked for them, so they can never be chart templates.
       "index" false
       "strategy" ""
       "grace" 60
-      "httpPort" false
       "extraEnv" (list
         (dict "name" "CLUSTARR_ENGINE_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "media")))
         (dict "name" "CLUSTARR_ENGINE_SERVICE_ACCOUNT" "value" (printf "%s-grabarr-engine" (include "clustarr.fullname" $)))
@@ -168,6 +183,9 @@ asked for them, so they can never be chart templates.
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "squasharr"
+      "replicas" .Values.squasharr.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.squasharr
       "image" "media"
       "args" (list "squasharr" "--role" "controller" "--slots" .Values.squasharr.slots)
@@ -176,13 +194,15 @@ asked for them, so they can never be chart templates.
       "index" false
       "strategy" ""
       "grace" 60
-      "httpPort" false
       "extraEnv" $squashEnv) }}
 {{- end }}
 {{- if .Values.captionarr.enabled }}
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "captionarr"
+      "replicas" .Values.captionarr.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.captionarr
       "image" "media"
       "args" (list "captionarr" "--role" "controller")
@@ -190,8 +210,7 @@ asked for them, so they can never be chart templates.
       "data" true
       "index" false
       "strategy" ""
-      "grace" 60
-      "httpPort" false) }}
+      "grace" 60) }}
 {{- end }}
 {{- if .Values.captionarrWorker.enabled }}
 {{/* grace = the consumer AckWait: workers drain their in-flight fetch on
@@ -199,14 +218,16 @@ asked for them, so they can never be chart templates.
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "captionarr-worker"
+      "replicas" .Values.captionarrWorker.replicas
+      "natsSingleNodeFlag" true
+      "gomemPercent" 80
       "values" .Values.captionarrWorker
       "image" "media"
       "args" (list "captionarr" "--role" "worker")
       "data" true
       "index" false
       "strategy" ""
-      "grace" .Values.captionarrWorker.ackWaitSeconds
-      "httpPort" false) }}
+      "grace" .Values.captionarrWorker.ackWaitSeconds) }}
 {{- end }}
 {{- if .Values.ui.enabled }}
 {{/* ui does not fit clustarr.workload: it runs no controller-runtime
@@ -302,7 +323,7 @@ spec:
               key: key
         {{- with dig "resources" "limits" "memory" "" .Values.ui }}
         - name: GOMEMLIMIT
-          value: {{ include "clustarr.gomemlimit" . | quote }}
+          value: {{ include "clustarr.gomemlimit" (list . 80) | quote }}
         {{- end }}
         ports:
         - name: http
