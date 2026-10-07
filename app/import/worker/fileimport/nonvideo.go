@@ -104,40 +104,28 @@ func (w *Worker) importNonVideo(
 ) error {
 	plan, err := w.resolveNonVideo(ctx, dl, target)
 	if err != nil {
-		if errors.Is(err, errBlocked) || w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, nil, nil, blockedMessage(err))
-		}
-		return err
+		return w.conclude(ctx, m, dl, classOfErr(err), nil, nil, blockedMessage(err))
 	}
 
 	if dl.Status.ContentRoot == "" {
 		return fmt.Errorf("fileimport: download %s/%s has no status.contentRoot yet", dl.Namespace, dl.Name)
 	}
 	if _, err := statDir(dl.Status.ContentRoot); err != nil {
-		if w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, nil, nil,
-				fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
-		}
-		return fmt.Errorf("fileimport: stat content root %s: %w", dl.Status.ContentRoot, err)
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassTransient, nil, nil,
+			fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
 	}
 
 	outcome, walkErr := w.runNonVideo(ctx, m, dl, plan, manual)
 	if walkErr != nil {
 		// errBlocked (a placement outside the root folder) is no better on
 		// a redelivery, so it is reported at once.
-		if errors.Is(walkErr, errBlocked) || w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, blockedMessage(walkErr))
-		}
-		return fmt.Errorf("fileimport: import %s/%s: %w", dl.Namespace, dl.Name, walkErr)
+		return w.conclude(ctx, m, dl, classOfErr(walkErr), outcome.imported, texts(outcome.rejections), blockedMessage(walkErr))
 	}
 	if len(outcome.imported) == 0 {
-		msg := fmt.Sprintf("no %s files found", plan.ref.Kind)
-		if len(outcome.rejections) > 0 {
-			msg = downloadv1alpha1.ImportMessageEveryFileRejected
-		}
-		return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, msg)
+		return w.conclude(ctx, m, dl, classify(outcome.rejections), nil, texts(outcome.rejections),
+			outcomeMessage(outcome.rejections, fmt.Sprintf("no %s files found", plan.ref.Kind)))
 	}
-	return w.finishImported(ctx, dl, outcome.imported, outcome.rejections)
+	return w.finishImported(ctx, dl, outcome.imported, texts(outcome.rejections))
 }
 
 // runNonVideo walks the content root and imports every file of plan.ref's
@@ -172,7 +160,7 @@ func (w *Worker) runNonVideo(
 		// No non-video kind has a size-suspected sample, so there is no
 		// promo clip to leave behind here (besideMedia is false).
 		if rejection, candidate := w.admit(root, srcPath, info, class, manual, false); !candidate {
-			if rejection != "" {
+			if !rejection.none() {
 				out.rejections = append(out.rejections, rejection)
 			}
 			return nil
@@ -189,6 +177,7 @@ func (w *Worker) runNonVideo(
 	if err != nil {
 		return out, err
 	}
+	out.sampleIsIncidental(len(cands))
 
 	// A book or an issue holds one file: the best candidate -- an ebook
 	// release's AZW3 over its EPUB over its MOBI, as the profile ranks them
@@ -211,7 +200,7 @@ func (w *Worker) runNonVideo(
 		if err != nil {
 			return out, err
 		}
-		if rejection != "" {
+		if !rejection.none() {
 			out.rejections = append(out.rejections, rejection)
 			continue
 		}
@@ -250,7 +239,7 @@ func (w *Worker) supersede(ctx context.Context, plan nonVideoPlan, dests map[str
 		return
 	}
 	if len(out.rejections) > 0 {
-		out.rejections = append(out.rejections, fmt.Sprintf("%s %s: kept its %d earlier file(s), because %d file(s) "+
+		out.rejections = append(out.rejections, incidentalRejection("%s %s: kept its %d earlier file(s), because %d file(s) "+
 			"of this release were not imported, so it does not wholly replace them", plan.ref.Kind, plan.ref.Name,
 			len(old), len(out.rejections)))
 		return
@@ -278,7 +267,7 @@ func (w *Worker) supersede(ctx context.Context, plan nonVideoPlan, dests map[str
 func (w *Worker) importNonVideoFile(
 	ctx context.Context, dl *downloadv1alpha1.Download, plan nonVideoPlan, manual bool,
 	srcPath string, info os.FileInfo, dests map[string]string, recycledOld *bool,
-) (*downloadac.ImportedFileApplyConfiguration, string, error) {
+) (*downloadac.ImportedFileApplyConfiguration, rejection, error) {
 	log := logging.FromContext(ctx)
 	rel := relPath(dl.Status.ContentRoot, srcPath)
 	kind := plan.ref.Kind
@@ -288,7 +277,7 @@ func (w *Worker) importNonVideoFile(
 	case known && !plan.profile.Allowed(q):
 		return nil, notAllowedRejection(rel, q), nil
 	case !known && !manual:
-		return nil, fmt.Sprintf("%s: the quality of a %s %s file cannot be determined without probing; "+
+		return nil, needsPersonRejection("%s: the quality of a %s %s file cannot be determined without probing; "+
 			"only a manual import (spec.manual, or %s=true) accepts it",
 			rel, kind, strings.ToLower(filepath.Ext(srcPath)), AnnotationImportOverride), nil
 	}
@@ -304,7 +293,7 @@ func (w *Worker) importNonVideoFile(
 	}
 	if current != nil && !manual {
 		if !singleFileKind(kind) {
-			return nil, fmt.Sprintf("%s: %s %s already has %d file(s); adding to or replacing a multi-file item "+
+			return nil, needsPersonRejection("%s: %s %s already has %d file(s); adding to or replacing a multi-file item "+
 				"needs a manual import (spec.manual, or %s=true)",
 				rel, kind, plan.ref.Name, len(compared), AnnotationImportOverride), nil
 		}
@@ -312,17 +301,17 @@ func (w *Worker) importNonVideoFile(
 			quality.Candidate{Quality: current.Spec.Quality, Revision: current.Spec.Revision},
 			quality.Candidate{Quality: q})
 		if verdict != quality.Upgrade {
-			return nil, fmt.Sprintf("%s: %s", rel, verdictMessage(verdict)), nil
+			return nil, verdictRejection(plan.profile, dl, q, fmt.Sprintf("%s: %s", rel, verdictMessage(verdict))), nil
 		}
 	}
 
 	dest := naming.SanitizePath(filepath.Join(plan.folder, plan.fileName(rel)), naming.DefaultSanitizeOptions())
 	if other, dup := dests[dest]; dup {
-		return nil, fmt.Sprintf("%s: resolves to the same library path as %s, which this import already placed", rel, other), nil
+		return nil, incidentalRejection("%s: resolves to the same library path as %s, which this import already placed", rel, other), nil
 	}
 
 	if err := fsops.EnsureFreeSpace(plan.rootFolder.Spec.Path, info.Size()+plan.rootFolder.Spec.MinFreeBytes); err != nil {
-		return nil, "", fmt.Errorf("fileimport: %w", err)
+		return nil, rejection{}, fmt.Errorf("fileimport: %w", err)
 	}
 	mode := fsops.ImportHardlink
 	if dl.Status.CanMoveFiles {
@@ -330,14 +319,14 @@ func (w *Worker) importNonVideoFile(
 	}
 	if err := placeFile(ctx, plan.rootFolder.Spec.Path, plan.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
 		if errors.Is(err, errWouldOverwrite) {
-			return nil, fmt.Sprintf("%s: %v", rel, err), nil
+			return nil, needsPersonRejection("%s: %v", rel, err), nil
 		}
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 	dests[dest] = rel
 	destInfo, err := os.Stat(dest)
 	if err != nil {
-		return nil, "", fmt.Errorf("fileimport: stat imported file %s: %w", dest, err)
+		return nil, rejection{}, fmt.Errorf("fileimport: stat imported file %s: %w", dest, err)
 	}
 
 	ref := plan.ref
@@ -361,7 +350,7 @@ func (w *Worker) importNonVideoFile(
 	}
 	mfName := k8s.ChildName(plan.ref.Name, "mediafile", dest)
 	if err := w.applyMediaFile(ctx, mfName, spec, plan.namespace); err != nil {
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 
 	// A single-file item's previous file is replaced here, file by file; an
@@ -382,7 +371,7 @@ func (w *Worker) importNonVideoFile(
 
 	metrics.ImportFilesTotal.WithLabelValues(string(kind), mode.String(), "imported").Inc()
 	log.Info("fileimport: imported a file", "kind", kind, "source", rel, "dest", dest, "mediaFile", mfName)
-	return downloadac.ImportedFile().WithSourcePath(rel).WithDestPath(dest).WithMediaFileRef(mfName), "", nil
+	return downloadac.ImportedFile().WithSourcePath(rel).WithDestPath(dest).WithMediaFileRef(mfName), rejection{}, nil
 }
 
 // resolveNonVideo reads the target item and its parents and works out where

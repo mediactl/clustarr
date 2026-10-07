@@ -90,39 +90,27 @@ func (w *Worker) importEpisodes(
 ) error {
 	plan, err := w.resolveSeries(ctx, dl, target)
 	if err != nil {
-		if errors.Is(err, errBlocked) || w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, nil, nil, blockedMessage(err))
-		}
-		return err
+		return w.conclude(ctx, m, dl, classOfErr(err), nil, nil, blockedMessage(err))
 	}
 	if dl.Status.ContentRoot == "" {
 		return fmt.Errorf("fileimport: download %s/%s has no status.contentRoot yet", dl.Namespace, dl.Name)
 	}
 	if _, err := statDir(dl.Status.ContentRoot); err != nil {
-		if w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, nil, nil,
-				fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
-		}
-		return fmt.Errorf("fileimport: stat content root %s: %w", dl.Status.ContentRoot, err)
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassTransient, nil, nil,
+			fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
 	}
 
 	outcome, walkErr := w.runEpisodes(ctx, m, dl, plan, manual)
 	if walkErr != nil {
 		// errBlocked (a placement outside the root folder) is no better on
 		// a redelivery, so it is reported at once.
-		if errors.Is(walkErr, errBlocked) || w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, blockedMessage(walkErr))
-		}
-		return fmt.Errorf("fileimport: import %s/%s: %w", dl.Namespace, dl.Name, walkErr)
+		return w.conclude(ctx, m, dl, classOfErr(walkErr), outcome.imported, texts(outcome.rejections), blockedMessage(walkErr))
 	}
 	if len(outcome.imported) == 0 {
-		msg := "no episode files found"
-		if len(outcome.rejections) > 0 {
-			msg = blockedRejectionMessage(outcome)
-		}
-		return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, msg)
+		return w.conclude(ctx, m, dl, classify(outcome.rejections), nil, texts(outcome.rejections),
+			outcomeMessage(outcome.rejections, "no episode files found"))
 	}
-	return w.finishImported(ctx, dl, outcome.imported, outcome.rejections)
+	return w.finishImported(ctx, dl, outcome.imported, texts(outcome.rejections))
 }
 
 // resolveSeries reads the target's Series, its root folder, profile and
@@ -228,7 +216,7 @@ func (w *Worker) runEpisodes(
 			return err
 		}
 		if rejection, candidate := w.admit(root, srcPath, info, class, manual, besideMedia); !candidate {
-			if rejection != "" {
+			if !rejection.none() {
 				out.rejections = append(out.rejections, rejection)
 			}
 			return nil
@@ -243,6 +231,7 @@ func (w *Worker) runEpisodes(
 	if err != nil {
 		return out, err
 	}
+	out.sampleIsIncidental(len(cands))
 
 	// Each episode holds one file: candidates are imported best first, and
 	// a file whose episodes this import already filled is rejected
@@ -253,12 +242,11 @@ func (w *Worker) runEpisodes(
 		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
 			return out, err
 		}
-		imported, rejection, err := w.importEpisodeFile(ctx, m, dl, plan, manual, c.path, c.info, dests, replaced, filled,
-			&out.transcodedFinal)
+		imported, rejection, err := w.importEpisodeFile(ctx, m, dl, plan, manual, c.path, c.info, dests, replaced, filled)
 		if err != nil {
 			return out, err
 		}
-		if rejection != "" {
+		if !rejection.none() {
 			out.rejections = append(out.rejections, rejection)
 			continue
 		}
@@ -275,8 +263,7 @@ func (w *Worker) runEpisodes(
 func (w *Worker) importEpisodeFile(
 	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, plan episodePlan, manual bool,
 	srcPath string, info os.FileInfo, dests map[string]string, replaced map[string]bool, filled map[string]string,
-	transcodedFinal *bool,
-) (*downloadac.ImportedFileApplyConfiguration, string, error) {
+) (*downloadac.ImportedFileApplyConfiguration, rejection, error) {
 	log := logging.FromContext(ctx)
 	rel := relPath(dl.Status.ContentRoot, srcPath)
 	series := plan.series
@@ -285,12 +272,12 @@ func (w *Worker) importEpisodeFile(
 	// download, so a pack's files never take the pack's title.
 	parsed, perr := parseMediaFile(srcPath, plan.sceneName, commonv1.MediaKindEpisode)
 	if perr != nil {
-		return nil, fmt.Sprintf("%s: could not parse the filename: %v", rel, perr), nil
+		return nil, needsPersonRejection("%s: could not parse the filename: %v", rel, perr), nil
 	}
 	eps, reason := MatchEpisodes(parsed, series.Spec.SeriesType, plan.episodes)
 	if reason != "" {
 		if !manual || plan.named == nil || len(parsed.Episodes)+len(parsed.Absolute) > 0 || parsed.AirDate != nil {
-			return nil, fmt.Sprintf("%s: not attributable to an episode of series %s: %s", rel, series.Name, reason), nil
+			return nil, needsPersonRejection("%s: not attributable to an episode of series %s: %s", rel, series.Name, reason), nil
 		}
 		// A manual import to one named episode, of a file whose name
 		// carries no numbering at all: the person said which it is.
@@ -302,7 +289,7 @@ func (w *Worker) importEpisodeFile(
 	// as processConfig.processFile does for a movie.
 	mi, err := probeVideo(ctx, m, srcPath, rel)
 	if err != nil {
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 	if !plan.profile.Allowed(parsed.Quality) {
@@ -328,7 +315,7 @@ func (w *Worker) importEpisodeFile(
 
 	existing, err := w.existingForEpisodes(ctx, plan.namespace, eps)
 	if err != nil {
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 	// The gates skip this import's own file from an earlier delivery, as
 	// the movie path's do (ownEarlierAttempt).
@@ -336,8 +323,7 @@ func (w *Worker) importEpisodeFile(
 	// A transcoded file is final: only a person's choice replaces it
 	// (transcoded.go), whichever of the covered episodes it backs.
 	for i := range compared {
-		if r := transcodedRejection(rel, &compared[i], dl, manual); r != "" {
-			*transcodedFinal = true
+		if r := transcodedRejection(rel, &compared[i], dl, manual); !r.none() {
 			return nil, r, nil
 		}
 	}
@@ -351,7 +337,8 @@ func (w *Worker) importEpisodeFile(
 			current := quality.Candidate{Quality: mf.Spec.Quality, Revision: mf.Spec.Revision, FormatScore: int(mf.Spec.FormatScore)}
 			if verdict := plan.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade &&
 				!replacesWrongLanguage(plan.profile, originalTag, &mf, mi) {
-				return nil, fmt.Sprintf("%s: %s (%s)", rel, verdictMessage(verdict), mf.Spec.MediaRef.Name), nil
+				return nil, verdictRejection(plan.profile, dl, parsed.Quality,
+					fmt.Sprintf("%s: %s (%s)", rel, verdictMessage(verdict), mf.Spec.MediaRef.Name)), nil
 			}
 		}
 	}
@@ -369,13 +356,13 @@ func (w *Worker) importEpisodeFile(
 		// dot-only name), not the release's: blocked, as the non-video
 		// paths already are, never a rejection that grabarr would read as
 		// a bad release to blocklist and delete.
-		return nil, "", blocked("%s: could not render a destination path: %v", rel, derr)
+		return nil, rejection{}, blocked("%s: could not render a destination path: %v", rel, derr)
 	}
 	if other, dup := dests[dest]; dup {
-		return nil, fmt.Sprintf("%s: resolves to the same library path as %s, which this import already placed", rel, other), nil
+		return nil, incidentalRejection("%s: resolves to the same library path as %s, which this import already placed", rel, other), nil
 	}
 	if err := fsops.EnsureFreeSpace(plan.rootFolder.Spec.Path, info.Size()+plan.rootFolder.Spec.MinFreeBytes); err != nil {
-		return nil, "", fmt.Errorf("fileimport: %w", err)
+		return nil, rejection{}, fmt.Errorf("fileimport: %w", err)
 	}
 	mode := fsops.ImportHardlink
 	if dl.Status.CanMoveFiles {
@@ -383,14 +370,14 @@ func (w *Worker) importEpisodeFile(
 	}
 	if err := placeFile(ctx, plan.rootFolder.Spec.Path, plan.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
 		if errors.Is(err, errWouldOverwrite) {
-			return nil, fmt.Sprintf("%s: %v", rel, err), nil
+			return nil, needsPersonRejection("%s: %v", rel, err), nil
 		}
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 	dests[dest] = rel
 	destInfo, err := os.Stat(dest)
 	if err != nil {
-		return nil, "", fmt.Errorf("fileimport: stat imported file %s: %w", dest, err)
+		return nil, rejection{}, fmt.Errorf("fileimport: stat imported file %s: %w", dest, err)
 	}
 
 	ref := EpisodeFileRef(eps)
@@ -422,7 +409,7 @@ func (w *Worker) importEpisodeFile(
 	}
 	mfName := k8s.ChildName(ref.Name, "mediafile", dest)
 	if err := w.applyMediaFile(ctx, mfName, spec, plan.namespace); err != nil {
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 
 	// The covered episodes' previous files are replaced, as a movie's is.
@@ -451,7 +438,7 @@ func (w *Worker) importEpisodeFile(
 	metrics.ImportFilesTotal.WithLabelValues(metricKindEpisode, mode.String(), "imported").Inc()
 	log.Info("fileimport: imported an episode file", "source", rel, "dest", dest, "mediaFile", mfName,
 		"episodes", strings.Join(names(eps), ","), "formatScore", score)
-	return downloadac.ImportedFile().WithSourcePath(rel).WithDestPath(dest).WithMediaFileRef(mfName), "", nil
+	return downloadac.ImportedFile().WithSourcePath(rel).WithDestPath(dest).WithMediaFileRef(mfName), rejection{}, nil
 }
 
 // existingForEpisodes is every MediaFile backing any of eps, each once --

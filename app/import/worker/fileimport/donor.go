@@ -75,14 +75,17 @@ func (w *Worker) importDonor(ctx context.Context, m events.Message, dl *download
 		return err
 	}
 	if item == nil {
-		return w.finishBlocked(ctx, dl, nil, nil, fmt.Sprintf("a donor is for an episode or a movie; %s %q is gone or neither", ref.Kind, ref.Name))
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassItemState, nil, nil,
+			fmt.Sprintf("a donor is for an episode or a movie; %s %q is gone or neither", ref.Kind, ref.Name))
 	}
 	if item.audio == nil || len(item.audio.Missing) == 0 {
-		return w.finishBlocked(ctx, dl, nil, nil, fmt.Sprintf("%s %q no longer lacks a language a donor could graft", ref.Kind, ref.Name))
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassItemState, nil, nil,
+			fmt.Sprintf("%s %q no longer lacks a language a donor could graft", ref.Kind, ref.Name))
 	}
 	anchor, ok := lang.Normalize(item.original)
 	if !ok {
-		return w.finishBlocked(ctx, dl, nil, nil, fmt.Sprintf("%s %q has no known original language to align a donor on", ref.Kind, ref.Name))
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil,
+			fmt.Sprintf("%s %q has no known original language to align a donor on", ref.Kind, ref.Name))
 	}
 	root, err := w.getRoot(ctx, dl.Namespace, item.rootFolder)
 	if err != nil {
@@ -93,13 +96,12 @@ func (w *Worker) importDonor(ctx context.Context, m events.Message, dl *download
 	}
 	src, info, err := donorFile(dl.Status.ContentRoot)
 	if err != nil {
-		if w.finalAttempt(m) {
-			return w.finishBlocked(ctx, dl, nil, nil, fmt.Sprintf("content root %q: %v", dl.Status.ContentRoot, err))
-		}
-		return fmt.Errorf("fileimport: find the donor's file under %s: %w", dl.Status.ContentRoot, err)
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassTransient, nil, nil,
+			fmt.Sprintf("content root %q: %v", dl.Status.ContentRoot, err))
 	}
 	if src == "" {
-		return w.finishBlocked(ctx, dl, nil, []string{"no video or audio file in the download"}, downloadv1alpha1.ImportMessageEveryFileRejected)
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassReleaseFault, nil,
+			[]string{"no video or audio file in the download"}, downloadv1alpha1.ImportMessageEveryFileRejected)
 	}
 	rel, _ := filepath.Rel(dl.Status.ContentRoot, src)
 
@@ -108,7 +110,8 @@ func (w *Worker) importDonor(ctx context.Context, m events.Message, dl *download
 		return err
 	}
 	if mi == nil {
-		return w.finishBlocked(ctx, dl, nil, []string{rel + ": could not be probed"}, downloadv1alpha1.ImportMessageEveryFileRejected)
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassTransient, nil,
+			[]string{rel + ": could not be probed"}, "the donor's file could not be probed")
 	}
 	have := map[string]bool{}
 	for _, a := range mi.Audio {
@@ -124,7 +127,8 @@ func (w *Worker) importDonor(ctx context.Context, m events.Message, dl *download
 	}
 	if len(lacks) > 0 {
 		log.Info("fileimport: the donor lacks a language its release promised", "file", rel, "lacks", lacks)
-		return w.finishBlocked(ctx, dl, nil, []string{fmt.Sprintf("%s: no tagged %s audio track", rel, strings.Join(lacks, ", "))},
+		return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassReleaseFault, nil,
+			[]string{fmt.Sprintf("%s: no tagged %s audio track", rel, strings.Join(lacks, ", "))},
 			downloadv1alpha1.ImportMessageEveryFileRejected)
 	}
 
@@ -138,7 +142,7 @@ func (w *Worker) importDonor(ctx context.Context, m events.Message, dl *download
 	}
 	if err := placeFile(ctx, root.Spec.Path, root.Spec.RecycleBin.Path, src, info, dest, mode); err != nil {
 		if errors.Is(err, errBlocked) {
-			return w.finishBlocked(ctx, dl, nil, nil, blockedMessage(err))
+			return w.conclude(ctx, m, dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil, blockedMessage(err))
 		}
 		return err
 	}

@@ -585,9 +585,20 @@ var schemaYAML = typed.YAMLObject(`types:
   scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.ImportPhase
   scalar: string
+- name: com.github.mediactl.clustarr.api.download.v1alpha1.ImportRejectionClass
+  scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.ImportState
   map:
     fields:
+    - name: attempts
+      type:
+        scalar: numeric
+    - name: class
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ImportRejectionClass
+    - name: heldSince
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: imported
       type:
         list:
@@ -600,6 +611,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: message
       type:
         scalar: string
+    - name: nextAttemptAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: rejections
       type:
         list:

@@ -229,7 +229,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	// Download stays importable once the annotation is fixed (Retrigger).
 	dirs, derr := readDirectives(dl.Annotations)
 	if derr != nil {
-		return w.finishBlocked(ctx, &dl, nil, nil, "invalid annotation: "+derr.Error())
+		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil, "invalid annotation: "+derr.Error())
 	}
 	manual := dl.Spec.Manual || dirs.override
 	target := targetFromSpec(dl.Spec.Target)
@@ -254,7 +254,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		// An artist, author, or comic without an issue key: a container
 		// whose files belong to one of its children, and choosing which
 		// is the guess this worker does not make.
-		return w.finishBlocked(ctx, &dl, nil, nil, fmt.Sprintf(
+		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil, fmt.Sprintf(
 			"target %s is a %s, which holds no files itself; set %s to the album, book or issue "+
 				"(comic/<comic>/<issue>) the files belong to", target, ref.Kind, AnnotationImportTarget))
 	}
@@ -262,7 +262,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	var movie catalogv1alpha1.Movie
 	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &movie); err != nil {
 		if apierrors.IsNotFound(err) {
-			return w.finishBlocked(ctx, &dl, nil, nil, fmt.Sprintf("movie %q does not exist", ref.Name))
+			return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassItemState, nil, nil, fmt.Sprintf("movie %q does not exist", ref.Name))
 		}
 		return fmt.Errorf("fileimport: get movie %s/%s: %w", ns, ref.Name, err)
 	}
@@ -284,11 +284,8 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return fmt.Errorf("fileimport: download %s/%s has no status.contentRoot yet", ns, name)
 	}
 	if _, err := statDir(dl.Status.ContentRoot); err != nil {
-		if w.finalAttempt(m) {
-			return w.finishBlocked(ctx, &dl, nil, nil,
-				fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
-		}
-		return fmt.Errorf("fileimport: stat content root %s: %w", dl.Status.ContentRoot, err)
+		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassTransient, nil, nil,
+			fmt.Sprintf("content root %q is not accessible: %v", dl.Status.ContentRoot, err))
 	}
 
 	existing, err := w.existingMovieFiles(ctx, ns, ref.Name)
@@ -326,20 +323,14 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if walkErr != nil {
 		// errBlocked (a placement outside the root folder) is no better on
 		// a redelivery, so it is reported at once.
-		if errors.Is(walkErr, errBlocked) || w.finalAttempt(m) {
-			return w.finishBlocked(ctx, &dl, outcome.imported, outcome.rejections, blockedMessage(walkErr))
-		}
-		return fmt.Errorf("fileimport: import %s/%s: %w", ns, name, walkErr)
+		return w.conclude(ctx, m, &dl, classOfErr(walkErr), outcome.imported, texts(outcome.rejections), blockedMessage(walkErr))
 	}
 
 	if len(outcome.imported) == 0 {
-		msg := "no importable files found"
-		if len(outcome.rejections) > 0 {
-			msg = blockedRejectionMessage(outcome)
-		}
-		return w.finishBlocked(ctx, &dl, outcome.imported, outcome.rejections, msg)
+		return w.conclude(ctx, m, &dl, classify(outcome.rejections), nil, texts(outcome.rejections),
+			outcomeMessage(outcome.rejections, "no importable files found"))
 	}
-	return w.finishImported(ctx, &dl, outcome.imported, outcome.rejections)
+	return w.finishImported(ctx, &dl, outcome.imported, texts(outcome.rejections))
 }
 
 // resolveProfile loads the QualityProfile the import re-checks finished
@@ -423,27 +414,6 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 		return true
 	}
 	return m.Attempt() >= uint64(spec.MaxDeliver) //nolint:gosec // MaxDeliver is a small positive constant
-}
-
-// finishBlocked patches status.import to Blocked: the import could not
-// complete, but the Download and any target it names still exist and a
-// future attempt (a manual retry, or the underlying cause being fixed)
-// could succeed.
-func (w *Worker) finishBlocked(
-	ctx context.Context, dl *downloadv1alpha1.Download, imported []*downloadac.ImportedFileApplyConfiguration,
-	rejections []string, message string,
-) error {
-	listed, _ := capImported(imported)
-	ac := downloadac.ImportState().
-		WithState(downloadv1alpha1.ImportPhaseBlocked).
-		WithMessage(truncateChars(message, maxImportMessage))
-	if len(listed) > 0 {
-		ac = ac.WithImported(listed...)
-	}
-	if len(rejections) > 0 {
-		ac = ac.WithRejections(capRejections(rejections)...)
-	}
-	return w.patchImport(ctx, dl, ac, nil)
 }
 
 // finishImported patches status.import to Imported and records the dedup

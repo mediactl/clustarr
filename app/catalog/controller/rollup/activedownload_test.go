@@ -30,10 +30,14 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 )
 
-// importBlocked is d with status.import blocked under message.
-func importBlocked(d *downloadv1alpha1.Download, message string) *downloadv1alpha1.Download {
+// importBlocked is d with status.import blocked as class, held when held.
+func importBlocked(d *downloadv1alpha1.Download, class downloadv1alpha1.ImportRejectionClass, held bool) *downloadv1alpha1.Download {
 	d.Status.Import = &downloadv1alpha1.ImportState{
-		State: downloadv1alpha1.ImportPhaseBlocked, Message: message, Rejections: []string{"movie.mkv: refused"},
+		State: downloadv1alpha1.ImportPhaseBlocked, Class: class, Rejections: []string{"movie.mkv: refused"},
+	}
+	if held {
+		now := metav1.Now()
+		d.Status.Import.HeldSince = &now
 	}
 	return d
 }
@@ -62,12 +66,16 @@ func TestDownloadNonTerminal(t *testing.T) {
 		{"removing", dl(downloadv1alpha1.DownloadPhaseRemoving), false},
 		{"labelled blocklisted before grabarr writes the phase", labelled(dl(downloadv1alpha1.DownloadPhaseDownloading)), false},
 		{
-			"refused over a transcoded file: waits for a person, not the item's download",
-			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportMessageExistingFileFinal), false,
+			"held for a person (a transcoded file is final): not the item's download",
+			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportClassItemState, true), false,
 		},
 		{
-			"blocked for another reason (a full disk) still holds the item",
-			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), "fileimport: fsops: insufficient free space"), true,
+			"held after transient failures: not the item's download either",
+			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportClassTransient, true), false,
+		},
+		{
+			"blocked without a hold (a release fault grabarr is about to blocklist) still holds the item",
+			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportClassReleaseFault, false), true,
 		},
 	}
 	for _, c := range cases {

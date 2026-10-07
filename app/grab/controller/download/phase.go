@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package download
 
 import (
+	"time"
+
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
@@ -92,13 +94,13 @@ type phaseResult struct {
 //
 // status.progressPercent does not appear below: Downloading covers the whole
 // 1-99% range as one phase, so it discriminates between no two answers.
-func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
+func derivePhase(dl *downloadv1alpha1.Download, now time.Time) phaseResult {
 	if dl.Status.Import != nil && dl.Status.Import.State == downloadv1alpha1.ImportPhaseImported {
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseImported}
 	}
 
 	labelled := isBlocklistLabelled(dl)
-	reason := failureOf(dl, labelled)
+	reason := failureOf(dl, labelled, now)
 	switch {
 	case labelled:
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: reason}
@@ -177,7 +179,7 @@ func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
 //   - manual, for a Download an operator labelled blocklisted by hand while
 //     nothing else had failed it -- the one user action there is for
 //     failing a Download (the UI has none).
-func failureOf(dl *downloadv1alpha1.Download, labelled bool) downloadv1alpha1.DownloadFailureReason {
+func failureOf(dl *downloadv1alpha1.Download, labelled bool, now time.Time) downloadv1alpha1.DownloadFailureReason {
 	switch {
 	case dl.Status.FailureReason.IsFailure():
 		return dl.Status.FailureReason
@@ -187,6 +189,8 @@ func failureOf(dl *downloadv1alpha1.Download, labelled bool) downloadv1alpha1.Do
 		return downloadv1alpha1.DownloadFailureEncrypted
 	case importRejected(dl):
 		return downloadv1alpha1.DownloadFailureImportRejected
+	case importExpired(dl, now):
+		return downloadv1alpha1.DownloadFailureImportExpired
 	case labelled:
 		return downloadv1alpha1.DownloadFailureManual
 	default:
@@ -194,18 +198,42 @@ func failureOf(dl *downloadv1alpha1.Download, labelled bool) downloadv1alpha1.Do
 	}
 }
 
-// importRejected reports whether importarr's last word on dl is that it
-// refused every file: status.import blocked, nothing imported, at least one
-// rejection, and downloadv1alpha1.ImportMessageEveryFileRejected -- see that
-// constant for why all four. importarr's file-import worker writes the same
-// constant, so a rewording changes both sides at once.
+// importRejected reports whether importarr's last word on dl is that the
+// release is at fault: status.import blocked with class releaseFault, which
+// importarr writes only once a second walk refused the files the same way
+// (fileimport's conclude), and nothing imported. An import written before
+// classes existed (2026-10-07) has none, and then the old reading stands:
+// blocked, nothing imported, at least one rejection, and
+// downloadv1alpha1.ImportMessageEveryFileRejected.
 func importRejected(dl *downloadv1alpha1.Download) bool {
 	imp := dl.Status.Import
-	return imp != nil &&
-		imp.State == downloadv1alpha1.ImportPhaseBlocked &&
-		len(imp.Imported) == 0 &&
-		len(imp.Rejections) > 0 &&
-		imp.Message == downloadv1alpha1.ImportMessageEveryFileRejected
+	if imp == nil || imp.State != downloadv1alpha1.ImportPhaseBlocked || len(imp.Imported) > 0 {
+		return false
+	}
+	if imp.Class != "" {
+		return imp.Class == downloadv1alpha1.ImportClassReleaseFault
+	}
+	return len(imp.Rejections) > 0 && imp.Message == downloadv1alpha1.ImportMessageEveryFileRejected
+}
+
+// importHeldUntil is when a held import of dl expires -- importarr held it
+// for a person (status.import.heldSince) and keeps its files for
+// downloadv1alpha1.ImportHoldRetention -- or the zero time when it is not
+// held.
+func importHeldUntil(dl *downloadv1alpha1.Download) time.Time {
+	imp := dl.Status.Import
+	if imp == nil || imp.State != downloadv1alpha1.ImportPhaseBlocked || imp.HeldSince == nil {
+		return time.Time{}
+	}
+	return imp.HeldSince.Add(downloadv1alpha1.ImportHoldRetention)
+}
+
+// importExpired reports whether dl's held import outlived its retention:
+// nobody imported the files, so the Download fails as importExpired -- not
+// blocklisted, and not searched again -- and its engine removes them.
+func importExpired(dl *downloadv1alpha1.Download, now time.Time) bool {
+	until := importHeldUntil(dl)
+	return !until.IsZero() && !now.Before(until)
 }
 
 // isBlocklistLabelled reports whether dl carries the blocklist label.

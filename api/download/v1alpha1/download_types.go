@@ -124,7 +124,7 @@ const (
 
 // DownloadFailureReason is the machine-readable cause of a failure.
 //
-// +kubebuilder:validation:Enum=none;missingArticles;diskFull;encrypted;stalled;writeError;timeout;importRejected;manual;payloadMismatch
+// +kubebuilder:validation:Enum=none;missingArticles;diskFull;encrypted;stalled;writeError;timeout;importRejected;importExpired;manual;payloadMismatch
 type DownloadFailureReason string
 
 // Download failure reasons.
@@ -145,6 +145,13 @@ const (
 	DownloadFailureTimeout DownloadFailureReason = "timeout"
 	// DownloadFailureImportRejected means catalogarr refused every file.
 	DownloadFailureImportRejected DownloadFailureReason = "importRejected"
+	// DownloadFailureImportExpired means importarr held the import for a
+	// person -- the item would not take the files, they could not be
+	// attributed, or the import kept failing transiently -- and nobody
+	// imported them within ImportHoldRetention. The files are removed; the
+	// release is not blocklisted and no redownload is searched, since
+	// nothing showed the release was at fault.
+	DownloadFailureImportExpired DownloadFailureReason = "importExpired"
 	// DownloadFailureManual means an operator failed the Download by hand.
 	DownloadFailureManual DownloadFailureReason = "manual"
 	// DownloadFailurePayloadMismatch means the resolved torrent's info hash
@@ -244,31 +251,25 @@ const (
 )
 
 // ImportMessageEveryFileRejected is the status.import.message importarr's
-// file-import worker writes when it walked the download and refused every
-// candidate file (state blocked, nothing imported, at least one rejection).
-// grabarr reads that outcome as DownloadFailureImportRejected, a release
-// fault it blocklists. It is the only blocked import that is the release's
-// fault: the others -- an invalid import annotation, a target that holds no
-// files, a missing item, an unreadable content root, a walk error on the
-// final attempt such as a full library disk -- are local or operator faults,
-// and the walk error can also carry rejections and no imported file, so the
-// message is what tells them apart. It lives in the API package both
-// services import, so the writer and the reader name one constant rather
-// than keeping two literals in step. A walk that refused a file because the
-// file it would replace is transcoded writes ImportMessageExistingFileFinal
-// instead, since that is the item's state rather than the release's fault.
+// file-import worker writes when it refused every candidate file as the
+// release's fault (status.import.class releaseFault, confirmed on a second
+// walk). grabarr reads that outcome as DownloadFailureImportRejected and
+// blocklists the release. Since 2026-10-07 the class decides; grabarr still
+// reads this message on an import written before classes existed (no
+// class), when it was the only blocked import that was the release's fault.
 const ImportMessageEveryFileRejected = "every candidate file was rejected"
 
 // ImportMessageExistingFileFinal is the status.import.message importarr's
 // file-import worker writes when it imported nothing and refused at least
 // one file because the file it would replace is transcoded: a transcoded
-// file is final against an automatic grab (CLAUDE.md, "Transcoding"). The
-// release is not at fault, so grabarr neither blocklists it nor fails the
-// Download: the Download stays complete with its files until a person
-// imports it by hand (spec.manual, or catalog.clustarr.io/import-override)
-// or deletes it, and the item does not count it as an active download.
-// Until 2026-10-07 such an import read ImportMessageEveryFileRejected, so a
-// good 21 GB release was blocklisted and its finished file deleted.
+// file is final against an automatic grab (CLAUDE.md, "Transcoding"). Its
+// class is ImportClassItemState: the release is not at fault, so the
+// Download is held with its files for a person to import by hand
+// (spec.manual, or catalog.clustarr.io/import-override) for
+// ImportHoldRetention, and the item does not count it as an active
+// download. Until 2026-10-07 such an import read
+// ImportMessageEveryFileRejected, so a good 21 GB release was blocklisted
+// and its finished file deleted.
 const ImportMessageExistingFileFinal = "the existing file is transcoded, and a transcoded file is final: " +
 	"import this download by hand to replace it"
 
@@ -546,7 +547,68 @@ type ImportState struct {
 	// ImportedAt is when the import finished.
 	// +optional
 	ImportedAt *metav1.Time `json:"importedAt,omitempty"`
+
+	// Class is why nothing was imported, for a pending or blocked import:
+	// what importarr does next follows from it (ImportRejectionClass).
+	// +optional
+	Class ImportRejectionClass `json:"class,omitempty"`
+
+	// Attempts is how many times importarr has walked the download for
+	// this import task.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Attempts int32 `json:"attempts,omitempty"`
+
+	// NextAttemptAt is when importarr walks the download again: a transient
+	// failure's retry, or a release fault's confirming re-check. Unset when
+	// no attempt is pending.
+	// +optional
+	NextAttemptAt *metav1.Time `json:"nextAttemptAt,omitempty"`
+
+	// HeldSince is when the import was held for a person: no further
+	// automatic attempt is made, the files stay, and grabarr removes them
+	// ImportHoldRetention later unless someone imports them first.
+	// +optional
+	HeldSince *metav1.Time `json:"heldSince,omitempty"`
 }
+
+// ImportRejectionClass is why an import that imported nothing did so, and
+// with it the remediation (2026-10-07: refusing every file used to blocklist
+// the release at once, which threw away a good 20 GB download that the item
+// merely would not take).
+//
+// +kubebuilder:validation:Enum=transient;itemState;needsPerson;releaseFault
+type ImportRejectionClass string
+
+// Import rejection classes, in the order importarr lets one outweigh the
+// next when the files of one download were refused for several reasons:
+// any doubt holds the download rather than condemning the release.
+const (
+	// ImportClassTransient means the walk could not judge the files: one
+	// could not be read or probed, or placing it failed (a full disk, a
+	// permission, the NAS). importarr retries on the import consumer's
+	// backoff and holds the download after the last attempt.
+	ImportClassTransient ImportRejectionClass = "transient"
+	// ImportClassItemState means the item does not take the files now: its
+	// file is transcoded and final, or already as good, or it holds several
+	// files. Not the release's fault: held for a person.
+	ImportClassItemState ImportRejectionClass = "itemState"
+	// ImportClassNeedsPerson means the files cannot be attributed without
+	// guessing (a name that does not parse, an ambiguous episode), or an
+	// annotation or the target is wrong. Held for a person.
+	ImportClassNeedsPerson ImportRejectionClass = "needsPerson"
+	// ImportClassReleaseFault means the release is not what it claimed:
+	// only samples or junk, another item, a quality the profile does not
+	// allow. importarr walks it once more to confirm, then blocks it, and
+	// grabarr blocklists the release and searches again.
+	ImportClassReleaseFault ImportRejectionClass = "releaseFault"
+)
+
+// ImportHoldRetention is how long a held import keeps its files for a
+// person before grabarr fails the Download as DownloadFailureImportExpired
+// and its engine removes them. Both importarr, which says when in
+// status.import.message, and grabarr, which acts on it, read this one value.
+const ImportHoldRetention = 24 * time.Hour
 
 // DownloadStatus defines the observed state of Download. Three writers share
 // it through server-side apply on disjoint field sets: the grabarr controller

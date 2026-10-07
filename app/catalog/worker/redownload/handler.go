@@ -216,13 +216,16 @@ func LocalFailure(reason downloadv1alpha1.DownloadFailureReason) bool {
 // Redownloads reports whether a download event with action and reason leads
 // to a redownload search. A blocklisted Download always does -- someone
 // blamed its release, which is Radarr's mark-as-failed -- and a failed one
-// does unless the fault was local.
+// does unless the fault was local, or the Download is an import importarr
+// held for a person that nobody took up (importExpired): its release was
+// never shown to be at fault, and the item would not take it or a person had
+// to place it, which a second release of the same item would meet again.
 func Redownloads(action string, reason downloadv1alpha1.DownloadFailureReason) bool {
 	switch action {
 	case events.ActionBlocklisted:
 		return true
 	case events.ActionFailed:
-		return !LocalFailure(reason)
+		return !LocalFailure(reason) && reason != downloadv1alpha1.DownloadFailureImportExpired
 	}
 	return false
 }

@@ -811,10 +811,17 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 2, Heartbeat: 30 * s,
 		},
 		{
+			// A file import is retried on this backoff when it could not
+			// judge the files (fileimport's conclude, class transient: a
+			// file unreadable, a probe or a placement failing), and walked
+			// once more on its first step to confirm a release fault before
+			// grabarr blocklists the release: the owner's three tries over
+			// about an hour (2026-10-07). After the last delivery a
+			// transient import is held for a person, never blocklisted.
 			Name: ConsumerImportFile, Stream: StreamWorkImportarr,
 			Filters: []string{FilterImportFile},
-			AckWait: 60 * s, MaxDeliver: 5,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h},
+			AckWait: 60 * s, MaxDeliver: 4,
+			BackOff:       []time.Duration{1 * m, 10 * m, 45 * m},
 			MaxAckPending: 4, Heartbeat: 30 * s,
 		},
 		{

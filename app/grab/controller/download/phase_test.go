@@ -50,7 +50,7 @@ func TestDerivePhaseNeverProducesPendingOrRemoving(t *testing.T) {
 		downloadv1alpha1.DownloadPhaseBlocklisted: true,
 	}
 	for _, tc := range derivePhaseCases(t) {
-		res := derivePhase(tc.dl)
+		res := derivePhase(tc.dl, time.Now())
 		assert.True(t, allowed[res.phase], "%s: derivePhase produced %q, which is not in the set this test pins", tc.name, res.phase)
 	}
 }
@@ -154,13 +154,44 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 	// Every file refused because the item's file is transcoded: the item's
 	// state, not the release's fault (2026-10-07: blocklisting it deleted a
 	// finished 20 GB file the rejection itself said a person could import).
+	// importarr holds it; grabarr leaves it Completed until the hold ends.
+	heldSince := metav1.NewTime(time.Now().Add(-time.Hour))
 	existingFinal := base()
 	existingFinal.Status.Stage = downloadv1alpha1.DownloadStageDone
 	existingFinal.Status.Import = &downloadv1alpha1.ImportState{
-		State:   downloadv1alpha1.ImportPhaseBlocked,
-		Message: downloadv1alpha1.ImportMessageExistingFileFinal,
+		State:     downloadv1alpha1.ImportPhaseBlocked,
+		Class:     downloadv1alpha1.ImportClassItemState,
+		HeldSince: &heldSince,
+		Message:   downloadv1alpha1.ImportMessageExistingFileFinal,
 		Rejections: []string{"movie.mkv: movie heat's existing file (MediaFile heat-1) is transcoded, " +
 			"and a transcoded file is final"},
+	}
+
+	// Nobody imported a held download within the retention: it fails as
+	// importExpired, so its engine removes the files -- not blocklisted.
+	expiredSince := metav1.NewTime(time.Now().Add(-downloadv1alpha1.ImportHoldRetention - time.Minute))
+	expired := base()
+	expired.Status.Stage = downloadv1alpha1.DownloadStageDone
+	expired.Status.Import = existingFinal.Status.Import.DeepCopy()
+	expired.Status.Import.HeldSince = &expiredSince
+
+	// importarr confirmed the release's fault on a second walk: blocklisted.
+	releaseFault := base()
+	releaseFault.Status.Stage = downloadv1alpha1.DownloadStageDone
+	releaseFault.Status.Import = &downloadv1alpha1.ImportState{
+		State:      downloadv1alpha1.ImportPhaseBlocked,
+		Class:      downloadv1alpha1.ImportClassReleaseFault,
+		Message:    downloadv1alpha1.ImportMessageEveryFileRejected,
+		Rejections: []string{"movie.mkv: quality CAM is not allowed by the quality profile"},
+	}
+
+	// A first refusal, or a transient failure, is still being retried.
+	retrying := base()
+	retrying.Status.Stage = downloadv1alpha1.DownloadStageDone
+	retrying.Status.Import = &downloadv1alpha1.ImportState{
+		State:      downloadv1alpha1.ImportPhasePending,
+		Class:      downloadv1alpha1.ImportClassReleaseFault,
+		Rejections: []string{"movie.mkv: quality CAM is not allowed by the quality profile"},
 	}
 
 	until := metav1.NewTime(time.Now().Add(time.Hour))
@@ -232,9 +263,18 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 		{"every file rejected blocklists", rejected, blocklistNow(downloadv1alpha1.DownloadFailureImportRejected)},
 		{"a blocked walk error is not importRejected", walkError, phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted}},
 		{
-			"refused over a transcoded file is not importRejected: no blocklist, the files stay", existingFinal,
+			"held over a transcoded file is not importRejected: no blocklist, the files stay", existingFinal,
 			phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted},
 		},
+		{
+			"a hold past its retention fails as importExpired, never blocklisted", expired,
+			failed(downloadv1alpha1.DownloadFailureImportExpired),
+		},
+		{
+			"a confirmed release fault blocklists", releaseFault,
+			blocklistNow(downloadv1alpha1.DownloadFailureImportRejected),
+		},
+		{"a refusal being re-checked is not yet a failure", retrying, phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted}},
 		{"a recorded blocklisting outlives the engine's report", stillBlocklisted, phaseResult{
 			phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: downloadv1alpha1.DownloadFailureStalled,
 		}},
@@ -265,7 +305,7 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 func TestDerivePhase(t *testing.T) {
 	for _, tc := range derivePhaseCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
-			got := derivePhase(tc.dl)
+			got := derivePhase(tc.dl, time.Now())
 			assert.Equal(t, tc.want, got)
 		})
 	}

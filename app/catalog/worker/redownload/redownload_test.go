@@ -43,6 +43,8 @@ func TestRedownloads(t *testing.T) {
 		{events.ActionFailed, downloadv1alpha1.DownloadFailureStalled, true},
 		{events.ActionFailed, downloadv1alpha1.DownloadFailureTimeout, true},
 		{events.ActionFailed, downloadv1alpha1.DownloadFailureImportRejected, true},
+		// A held import nobody took up was never the release's fault.
+		{events.ActionFailed, downloadv1alpha1.DownloadFailureImportExpired, false},
 		{events.ActionFailed, downloadv1alpha1.DownloadFailureManual, true},
 		{events.ActionFailed, downloadv1alpha1.DownloadFailureNone, true},
 		{events.ActionFailed, "", true},

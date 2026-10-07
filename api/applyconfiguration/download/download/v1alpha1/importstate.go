@@ -39,6 +39,20 @@ type ImportStateApplyConfiguration struct {
 	Rejections []string `json:"rejections,omitempty"`
 	// ImportedAt is when the import finished.
 	ImportedAt *v1.Time `json:"importedAt,omitempty"`
+	// Class is why nothing was imported, for a pending or blocked import:
+	// what importarr does next follows from it (ImportRejectionClass).
+	Class *downloadv1alpha1.ImportRejectionClass `json:"class,omitempty"`
+	// Attempts is how many times importarr has walked the download for
+	// this import task.
+	Attempts *int32 `json:"attempts,omitempty"`
+	// NextAttemptAt is when importarr walks the download again: a transient
+	// failure's retry, or a release fault's confirming re-check. Unset when
+	// no attempt is pending.
+	NextAttemptAt *v1.Time `json:"nextAttemptAt,omitempty"`
+	// HeldSince is when the import was held for a person: no further
+	// automatic attempt is made, the files stay, and grabarr removes them
+	// ImportHoldRetention later unless someone imports them first.
+	HeldSince *v1.Time `json:"heldSince,omitempty"`
 }
 
 // ImportStateApplyConfiguration constructs a declarative configuration of the ImportState type for use with
@@ -91,5 +105,37 @@ func (b *ImportStateApplyConfiguration) WithRejections(values ...string) *Import
 // If called multiple times, the ImportedAt field is set to the value of the last call.
 func (b *ImportStateApplyConfiguration) WithImportedAt(value v1.Time) *ImportStateApplyConfiguration {
 	b.ImportedAt = &value
+	return b
+}
+
+// WithClass sets the Class field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Class field is set to the value of the last call.
+func (b *ImportStateApplyConfiguration) WithClass(value downloadv1alpha1.ImportRejectionClass) *ImportStateApplyConfiguration {
+	b.Class = &value
+	return b
+}
+
+// WithAttempts sets the Attempts field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Attempts field is set to the value of the last call.
+func (b *ImportStateApplyConfiguration) WithAttempts(value int32) *ImportStateApplyConfiguration {
+	b.Attempts = &value
+	return b
+}
+
+// WithNextAttemptAt sets the NextAttemptAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NextAttemptAt field is set to the value of the last call.
+func (b *ImportStateApplyConfiguration) WithNextAttemptAt(value v1.Time) *ImportStateApplyConfiguration {
+	b.NextAttemptAt = &value
+	return b
+}
+
+// WithHeldSince sets the HeldSince field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HeldSince field is set to the value of the last call.
+func (b *ImportStateApplyConfiguration) WithHeldSince(value v1.Time) *ImportStateApplyConfiguration {
+	b.HeldSince = &value
 	return b
 }

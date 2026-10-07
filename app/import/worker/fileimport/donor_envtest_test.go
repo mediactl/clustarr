@@ -35,6 +35,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -135,8 +136,9 @@ func TestADonorIsPlacedBesideTheLibraryAndNamedInTheAudioGraft(t *testing.T) {
 }
 
 // TestADonorWithoutTheDubIsTheReleasesFault: its files lack the language
-// the title promised, so the import reads every file rejected -- grabarr
-// blocklists the release and the donor is searched for again.
+// the title promised, so the import is the release's fault: walked once
+// more to confirm, then every file rejected -- grabarr blocklists the
+// release and the donor is searched for again.
 func TestADonorWithoutTheDubIsTheReleasesFault(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, "fi-donor-lacks")
@@ -144,10 +146,24 @@ func TestADonorWithoutTheDubIsTheReleasesFault(t *testing.T) {
 	copyOf(t, donorClip(t, "jpn"))(filepath.Join(contentRoot, "The.Matrix.1999.DVDRip.x264.AAC.DL-BoB.mkv"))
 	dl := f.donorFor(t, "donor-lacks-dl", contentRoot)
 
-	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))
+	var retry *events.RetryError
+	require.ErrorAs(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")), &retry,
+		"a release fault is walked once more before grabarr blocklists it")
 	var got downloadv1alpha1.Download
 	require.NoError(t, f.api.Get(ctx, client.ObjectKeyFromObject(dl), &got))
 	require.NotNil(t, got.Status.Import)
+	assert.Equal(t, downloadv1alpha1.ImportPhasePending, got.Status.Import.State)
+	assert.Equal(t, downloadv1alpha1.ImportClassReleaseFault, got.Status.Import.Class)
+	require.NotNil(t, got.Status.Import.NextAttemptAt)
+
+	second := newImportTaskMessage(t, f.ns, dl.Name, "")
+	second.attempt = 2
+	require.NoError(t, f.worker.Handle(ctx, second))
+	require.NoError(t, f.api.Get(ctx, client.ObjectKeyFromObject(dl), &got))
+	require.NotNil(t, got.Status.Import)
+	assert.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.Status.Import.State)
+	assert.Equal(t, downloadv1alpha1.ImportClassReleaseFault, got.Status.Import.Class)
+	assert.Nil(t, got.Status.Import.HeldSince, "a release fault is not held: grabarr blocklists it")
 	assert.Equal(t, downloadv1alpha1.ImportMessageEveryFileRejected, got.Status.Import.Message)
 	require.NotEmpty(t, got.Status.Import.Rejections)
 	assert.True(t, strings.Contains(got.Status.Import.Rejections[0], "en"), got.Status.Import.Rejections[0])

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,8 +185,9 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedMovie(t *testing.T) {
 			}
 
 			require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
-			assert.Equal(t, downloadv1alpha1.ImportMessageExistingFileFinal, got.Message,
-				"the item's file is final, which is no fault of the release: grabarr must not blocklist it")
+			assert.True(t, strings.HasPrefix(got.Message, downloadv1alpha1.ImportMessageExistingFileFinal), got.Message)
+			assert.Equal(t, downloadv1alpha1.ImportClassItemState, got.Class, "the item's state, not the release's fault")
+			assert.NotNil(t, got.HeldSince, "held for a person, never blocklisted")
 			assert.Empty(t, got.Imported)
 			require.Len(t, got.Rejections, 1, "one reason for the one file, never a silent skip")
 			r := got.Rejections[0]
@@ -254,7 +256,9 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedEpisode(t *testing.T) {
 	mustWriteSparseFile(t, filepath.Join(single, "Breaking.Bad.S01E01.PROPER.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
 	got = s.importGrab(t, "single-dl", single, e01, nil, grabbedAs(downloadv1alpha1.GrabSourceSearch, false))
 	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
-	assert.Equal(t, downloadv1alpha1.ImportMessageExistingFileFinal, got.Message)
+	assert.True(t, strings.HasPrefix(got.Message, downloadv1alpha1.ImportMessageExistingFileFinal), got.Message)
+	assert.Equal(t, downloadv1alpha1.ImportClassItemState, got.Class, "the item's state, not the release's fault")
+	assert.NotNil(t, got.HeldSince, "held for a person, never blocklisted")
 	require.Len(t, got.Rejections, 1)
 
 	// A person picks the PROPER from an interactive search: their choice
@@ -317,7 +321,9 @@ func TestHandleGatesAMovieOnEveryMediaFileItHas(t *testing.T) {
 	mustWriteSparseFile(t, filepath.Join(proper, "The.Matrix.1999.PROPER.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
 	got = f.importGrab(t, "proper-dl", proper, movie, nil, grabbedAs(downloadv1alpha1.GrabSourceSearch, false))
 	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
-	assert.Equal(t, downloadv1alpha1.ImportMessageExistingFileFinal, got.Message)
+	assert.True(t, strings.HasPrefix(got.Message, downloadv1alpha1.ImportMessageExistingFileFinal), got.Message)
+	assert.Equal(t, downloadv1alpha1.ImportClassItemState, got.Class, "the item's state, not the release's fault")
+	assert.NotNil(t, got.HeldSince, "held for a person, never blocklisted")
 	require.Len(t, got.Rejections, 1)
 	assert.Contains(t, got.Rejections[0], "movie the-matrix's existing file (MediaFile "+secondName+") is transcoded")
 	for _, p := range []string{firstPath, secondPath} {

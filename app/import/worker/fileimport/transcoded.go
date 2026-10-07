@@ -18,8 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fileimport
 
 import (
-	"fmt"
-
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
@@ -51,16 +49,18 @@ func userChosen(dl *downloadv1alpha1.Download, manual bool) bool {
 // It is a per-file rejection on status.import, never a silent skip, so the
 // Download reads Blocked with the reason when it was the only file, and the
 // reason names what lifts it.
-func transcodedRejection(rel string, existing *catalogv1alpha1.MediaFile, dl *downloadv1alpha1.Download, manual bool) string {
+func transcodedRejection(rel string, existing *catalogv1alpha1.MediaFile, dl *downloadv1alpha1.Download, manual bool) rejection {
 	if !existing.Transcoded() || userChosen(dl, manual) {
-		return ""
+		return rejection{}
 	}
 	source := string(dl.Spec.GrabbedBy)
 	if source == "" {
 		source = "unrecorded"
 	}
-	return fmt.Sprintf("%s: %s %s's existing file (MediaFile %s) is transcoded, and a transcoded file is final: "+
+	r := itemStateRejection("%s: %s %s's existing file (MediaFile %s) is transcoded, and a transcoded file is final: "+
 		"an automatic grab (grabbedBy %s) never replaces it; only an interactive grab or a manual import "+
 		"(spec.manual, or %s=true) does",
 		rel, existing.Spec.MediaRef.Kind, existing.Spec.MediaRef.Name, existing.Name, source, AnnotationImportOverride)
+	r.transcoded = true
+	return r
 }

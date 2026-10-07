@@ -342,7 +342,8 @@ func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Down
 	defer span.End()
 	log := logging.FromContext(ctx).With("download", client.ObjectKeyFromObject(dl))
 
-	res := derivePhase(dl)
+	now := r.now()
+	res := derivePhase(dl, now)
 	wasComplete := k8s.IsConditionTrue(dl.Status.Conditions, downloadv1alpha1.DownloadConditionDownloaded)
 	nowComplete := isContentComplete(res.phase)
 
@@ -410,6 +411,11 @@ func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Down
 	if res.blocklist && r.Recorder != nil {
 		r.Recorder.Eventf(dl, nil, "Warning", ReasonBlocklisted, "Blocklist",
 			"release %q failed (%s) and is blocklisted", dl.Spec.Release.Title, res.failureReason)
+	}
+	// A held import expires with no event of its own to wake this
+	// reconcile, so come back for it when it does.
+	if until := importHeldUntil(dl); !until.IsZero() && !res.failureReason.IsFailure() {
+		return ctrl.Result{RequeueAfter: until.Sub(now)}, nil
 	}
 	return ctrl.Result{}, nil
 }

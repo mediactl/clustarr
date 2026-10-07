@@ -81,33 +81,28 @@ type processConfig struct {
 	existing             []catalogv1alpha1.MediaFile
 	baseContext          naming.Context
 	originalLanguageName string
-	// transcodedFinal records that processFile refused a file because the
-	// file it would replace is transcoded; run copies it into the outcome.
-	transcodedFinal bool
 }
 
 // importOutcome accumulates one Download's import result across every file
 // the walk visited.
 type importOutcome struct {
 	imported   []*downloadac.ImportedFileApplyConfiguration
-	rejections []string
-	// transcodedFinal is set when a file was refused because the file it
-	// would replace is transcoded (transcodedRejection): the item's state,
-	// not the release's fault, which blockedRejectionMessage reports.
-	transcodedFinal bool
+	rejections []rejection
 }
 
-// blockedRejectionMessage is status.import.message for a walk that imported
-// nothing and refused at least one file. Refusing every file reads as a bad
-// release, which grabarr blocklists (ImportMessageEveryFileRejected), unless
-// a file was refused only because the item's file is transcoded and final:
-// then the release was never judged, and the Download waits for a person
-// (ImportMessageExistingFileFinal).
-func blockedRejectionMessage(o importOutcome) string {
-	if o.transcodedFinal {
-		return downloadv1alpha1.ImportMessageExistingFileFinal
+// sampleIsIncidental downgrades a suspected sample's rejection once the walk
+// has found real media beside it: then it is the release's promo clip and
+// decides nothing; alone, a size cannot tell it from a short film, and a
+// person must say (needsPerson).
+func (o *importOutcome) sampleIsIncidental(candidates int) {
+	if candidates == 0 {
+		return
 	}
-	return downloadv1alpha1.ImportMessageEveryFileRejected
+	for i := range o.rejections {
+		if o.rejections[i].sample {
+			o.rejections[i].class = ""
+		}
+	}
 }
 
 // run walks the Download's content root and imports every media file it can
@@ -141,7 +136,7 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 			return err
 		}
 		if rejection, candidate := pc.worker.admit(root, srcPath, info, class, pc.manual, besideMedia); !candidate {
-			if rejection != "" {
+			if !rejection.none() {
 				out.rejections = append(out.rejections, rejection)
 			}
 			return nil
@@ -156,6 +151,7 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 	if err != nil {
 		return out, err
 	}
+	out.sampleIsIncidental(len(cands))
 
 	// A movie holds one file: the best candidate is imported and every
 	// other is rejected (order.go).
@@ -174,14 +170,13 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 		if err != nil {
 			return out, err
 		}
-		if rejection != "" {
+		if !rejection.none() {
 			out.rejections = append(out.rejections, rejection)
 			continue
 		}
 		out.imported = append(out.imported, imported)
 		filledBy = rel
 	}
-	out.transcodedFinal = pc.transcodedFinal
 	return out, nil
 }
 
@@ -193,7 +188,7 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 // error, which a redelivery retries.
 func (o *importOutcome) unreadable(root string) fsops.UnreadableFunc {
 	return func(path string, err error) error {
-		o.rejections = append(o.rejections, fmt.Sprintf("%s: could not be read, so nothing in it was imported: %v",
+		o.rejections = append(o.rejections, transientRejection("%s: could not be read, so nothing in it was imported: %v",
 			relPath(root, path), err))
 		return nil
 	}
@@ -223,22 +218,24 @@ func (o *importOutcome) unreadable(root string) fsops.UnreadableFunc {
 //     to act on.
 func (w *Worker) admit(
 	root, path string, info os.FileInfo, class fsops.FileClass, manual, besideMedia bool,
-) (rejection string, candidate bool) {
+) (r rejection, candidate bool) {
 	switch class {
 	case fsops.ClassMedia:
-		return "", true
+		return rejection{}, true
 	case fsops.ClassSuspectedSample:
 		switch {
 		case manual && !besideMedia:
-			return "", true
+			return rejection{}, true
 		case manual:
-			return fmt.Sprintf("%s: %s; left behind by this manual import because the download also holds real "+
+			return incidentalRejection("%s: %s; left behind by this manual import because the download also holds real "+
 				"media, and this is the promo clip beside it", relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes)), false
 		}
-		return fmt.Sprintf("%s: %s; only a manual import (spec.manual, or %s=true) imports it",
-			relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes), AnnotationImportOverride), false
+		r := needsPersonRejection("%s: %s; only a manual import (spec.manual, or %s=true) imports it",
+			relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes), AnnotationImportOverride)
+		r.sample = true
+		return r, false
 	default:
-		return "", false
+		return rejection{}, false
 	}
 }
 
@@ -268,13 +265,13 @@ func parseMediaFile(srcPath, releaseTitle string, kind commonv1.MediaKind) (*rel
 // A non-nil error means the whole walk must abort; see [processConfig.run].
 func (pc *processConfig) processFile(
 	ctx context.Context, srcPath string, info os.FileInfo, recycledOld *bool,
-) (imported *downloadac.ImportedFileApplyConfiguration, rejection string, fatal error) {
+) (imported *downloadac.ImportedFileApplyConfiguration, rejected rejection, fatal error) {
 	log := logging.FromContext(ctx)
 	rel := relPath(pc.download.Status.ContentRoot, srcPath)
 
 	parsed, perr := parseMediaFile(srcPath, pc.download.Spec.Release.Title, commonv1.MediaKindMovie)
 	if perr != nil {
-		return nil, fmt.Sprintf("%s: could not parse the filename: %v", rel, perr), nil
+		return nil, needsPersonRejection("%s: could not parse the filename: %v", rel, perr), nil
 	}
 	// A file whose name names no language takes the movie's original
 	// language, as Radarr's AggregateLanguages does ("Use movie language as
@@ -291,7 +288,7 @@ func (pc *processConfig) processFile(
 	// is admitted, compared and frozen as the 1080p it is.
 	mi, err := probeVideo(ctx, pc.message, srcPath, rel)
 	if err != nil {
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 
@@ -322,8 +319,7 @@ func (pc *processConfig) processFile(
 	// the upgrade comparison, so the rejection says why rather than
 	// reporting a quality verdict.
 	for i := range compared {
-		if r := transcodedRejection(rel, &compared[i], pc.download, pc.manual); r != "" {
-			pc.transcodedFinal = true
+		if r := transcodedRejection(rel, &compared[i], pc.download, pc.manual); !r.none() {
 			return nil, r, nil
 		}
 	}
@@ -345,10 +341,11 @@ func (pc *processConfig) processFile(
 			// spec §5.3): the search grabbed it for that.
 			if verdict := pc.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade &&
 				!replacesWrongLanguage(pc.profile, originalTag, mf, mi) {
+				text := fmt.Sprintf("%s: %s", rel, verdictMessage(verdict))
 				if len(compared) > 1 {
-					return nil, fmt.Sprintf("%s: %s (MediaFile %s)", rel, verdictMessage(verdict), mf.Name), nil
+					text = fmt.Sprintf("%s (MediaFile %s)", text, mf.Name)
 				}
-				return nil, fmt.Sprintf("%s: %s", rel, verdictMessage(verdict)), nil
+				return nil, verdictRejection(pc.profile, pc.download, parsed.Quality, text), nil
 			}
 		}
 	}
@@ -362,12 +359,12 @@ func (pc *processConfig) processFile(
 		// dot-only name), not the release's: blocked, as the non-video
 		// paths already are, never a rejection that grabarr would read as
 		// a bad release to blocklist and delete.
-		return nil, "", blocked("%s: could not render a destination path: %v", rel, derr)
+		return nil, rejection{}, blocked("%s: could not render a destination path: %v", rel, derr)
 	}
 
 	needed := info.Size() + pc.rootFolder.Spec.MinFreeBytes
 	if err := fsops.EnsureFreeSpace(pc.rootFolder.Spec.Path, needed); err != nil {
-		return nil, "", fmt.Errorf("fileimport: %w", err)
+		return nil, rejection{}, fmt.Errorf("fileimport: %w", err)
 	}
 
 	mode := fsops.ImportHardlink
@@ -376,14 +373,14 @@ func (pc *processConfig) processFile(
 	}
 	if err := placeFile(ctx, pc.rootFolder.Spec.Path, pc.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
 		if errors.Is(err, errWouldOverwrite) {
-			return nil, fmt.Sprintf("%s: %v", rel, err), nil
+			return nil, needsPersonRejection("%s: %v", rel, err), nil
 		}
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 
 	destInfo, serr := os.Stat(dest)
 	if serr != nil {
-		return nil, "", fmt.Errorf("fileimport: stat imported file %s: %w", dest, serr)
+		return nil, rejection{}, fmt.Errorf("fileimport: stat imported file %s: %w", dest, serr)
 	}
 
 	mfName := k8s.ChildName(pc.movie.Name, "mediafile", dest)
@@ -415,7 +412,7 @@ func (pc *processConfig) processFile(
 	}
 
 	if err := pc.worker.applyMediaFile(ctx, mfName, spec, pc.movie.Namespace); err != nil {
-		return nil, "", err
+		return nil, rejection{}, err
 	}
 
 	// Every file the movie had is replaced (a movie holds one file), as the
@@ -447,7 +444,7 @@ func (pc *processConfig) processFile(
 	return downloadac.ImportedFile().
 		WithSourcePath(rel).
 		WithDestPath(dest).
-		WithMediaFileRef(mfName), "", nil
+		WithMediaFileRef(mfName), rejection{}, nil
 }
 
 // probeVideo probes a video file an import is about to judge: its

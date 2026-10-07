@@ -708,6 +708,7 @@ spec:
                 - writeError
                 - timeout
                 - importRejected
+                - importExpired
                 - manual
                 - payloadMismatch
                 type: string
@@ -729,6 +730,7 @@ spec:
                 - writeError
                 - timeout
                 - importRejected
+                - importExpired
                 - manual
                 - payloadMismatch
                 type: string
@@ -808,6 +810,30 @@ spec:
                   and grabarr never touches it. grabarr reads it to decide when a
                   Download may be removed or blocklisted.
                 properties:
+                  attempts:
+                    description: |-
+                      Attempts is how many times importarr has walked the download for
+                      this import task.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  class:
+                    description: |-
+                      Class is why nothing was imported, for a pending or blocked import:
+                      what importarr does next follows from it (ImportRejectionClass).
+                    enum:
+                    - transient
+                    - itemState
+                    - needsPerson
+                    - releaseFault
+                    type: string
+                  heldSince:
+                    description: |-
+                      HeldSince is when the import was held for a person: no further
+                      automatic attempt is made, the files stay, and grabarr removes them
+                      ImportHoldRetention later unless someone imports them first.
+                    format: date-time
+                    type: string
                   imported:
                     description: Imported lists the files that were placed in the
                       library.
@@ -841,6 +867,13 @@ spec:
                     description: Message explains the current state in human-readable
                       terms.
                     maxLength: 2048
+                    type: string
+                  nextAttemptAt:
+                    description: |-
+                      NextAttemptAt is when importarr walks the download again: a transient
+                      failure's retry, or a release fault's confirming re-check. Unset when
+                      no attempt is pending.
+                    format: date-time
                     type: string
                   rejections:
                     description: Rejections lists why individual files were not imported.

@@ -19,7 +19,6 @@ package fileimport
 
 import (
 	"cmp"
-	"fmt"
 	"os"
 	"slices"
 
@@ -62,7 +61,7 @@ func (c *fileCandidate) ranked(profile quality.Profile, q commonv1.Quality, rev 
 // filled its item. A file the profile does not allow keeps that reason, as
 // a rejected decision keeps its own in Radarr: only a file that would have
 // been imported is told the item is filled.
-func (c fileCandidate) lateRejection(rel, item, by string) string {
+func (c fileCandidate) lateRejection(rel, item, by string) rejection {
 	if c.known && !c.rank.allowed {
 		return notAllowedRejection(rel, c.quality)
 	}
@@ -70,9 +69,10 @@ func (c fileCandidate) lateRejection(rel, item, by string) string {
 }
 
 // notAllowedRejection is the rejection for a file whose quality the profile
-// does not allow.
-func notAllowedRejection(rel string, q commonv1.Quality) string {
-	return fmt.Sprintf("%s: quality %s is not allowed by the quality profile", rel, q.Name)
+// does not allow: the grab approved the release's advertised quality, so a
+// file the profile refuses is the release's fault.
+func notAllowedRejection(rel string, q commonv1.Quality) rejection {
+	return releaseFaultRejection("%s: quality %s is not allowed by the quality profile", rel, q.Name)
 }
 
 // candidateRank orders candidates for one item, best first: a quality the
@@ -124,8 +124,8 @@ func sortCandidates(cs []fileCandidate) {
 }
 
 // filledRejection is the rejection for a candidate whose item a better file
-// of the same download already filled.
-func filledRejection(rel, item, by string) string {
-	return rel + ": " + item + " already has a file from this download, " + by +
-		", which ranks higher (quality, then revision, then size)"
+// of the same download already filled: incidental.
+func filledRejection(rel, item, by string) rejection {
+	return incidentalRejection("%s: %s already has a file from this download, %s, "+
+		"which ranks higher (quality, then revision, then size)", rel, item, by)
 }
