@@ -21,6 +21,8 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 	"text/template/parse"
@@ -202,23 +204,9 @@ const modifierFunc = "_cardigannModifier"
 // call to modifier is appended to the pipeline of every output action in
 // the parse tree.
 func renderModified(tmplText string, tc *TemplateContext, modifier func(string) string) (string, error) {
-	parseText := func(text string) (*template.Template, error) {
-		t := template.New("cardigann").Funcs(funcMap)
-		if modifier != nil {
-			t = t.Funcs(template.FuncMap{modifierFunc: modifier})
-		}
-		return t.Parse(text)
-	}
-	t, err := parseText(tmplText)
+	t, err := parseTemplate(tmplText, modifier)
 	if err != nil {
-		if fixed, ok := balanceActionParens(tmplText); ok {
-			if t2, err2 := parseText(fixed); err2 == nil {
-				t, err = t2, nil
-			}
-		}
-		if err != nil {
-			return "", fmt.Errorf("cardigann: template %q: %w", tmplText, err)
-		}
+		return "", err
 	}
 	if modifier != nil && t.Tree != nil {
 		modifyOutputs(t.Root)
@@ -228,6 +216,29 @@ func renderModified(tmplText string, tc *TemplateContext, modifier func(string) 
 		return "", fmt.Errorf("cardigann: template exec %q: %w", tmplText, err)
 	}
 	return buf.String(), nil
+}
+
+// parseTemplate parses tmplText as render does: adapted by goTemplateText,
+// then one retry against balanceActionParens.
+func parseTemplate(tmplText string, modifier func(string) string) (*template.Template, error) {
+	parseText := func(text string) (*template.Template, error) {
+		t := template.New("cardigann").Funcs(funcMap)
+		if modifier != nil {
+			t = t.Funcs(template.FuncMap{modifierFunc: modifier})
+		}
+		return t.Parse(text)
+	}
+	text := goTemplateText(tmplText)
+	t, err := parseText(text)
+	if err != nil {
+		if fixed, ok := balanceActionParens(text); ok {
+			if t2, err2 := parseText(fixed); err2 == nil {
+				return t2, nil
+			}
+		}
+		return nil, fmt.Errorf("cardigann: template %q: %w", tmplText, err)
+	}
+	return t, nil
 }
 
 // modifyOutputs appends a modifierFunc call to every output action under n:
@@ -286,6 +297,131 @@ func webURLEncode(s string) string {
 			b.WriteByte(hex[c&0x0f])
 		}
 	}
+	return b.String()
+}
+
+// nonIdentKey matches a .Config or .Result key the text/template lexer
+// cannot read as a field name, with the $ of a root-relative reference:
+// one containing a hyphen (nyaasi.yml's search inputs are
+// `{{ .Config.cat-id }}` and `{{ .Config.filter-id }}`) or starting with a
+// digit (the `{{ .Config.2facode }}` login input of several NexusPHP
+// definitions). replaceKeys keeps only the matches that are one of the two.
+var nonIdentKey = regexp.MustCompile(`(\$?)\.(Config|Result)\.([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)`)
+
+// goTemplateText adapts Prowlarr's template dialect to text/template, inside
+// each {{ ... }} action and nowhere else:
+//
+//   - .Config.<key> and .Result.<key> whose key is not a Go identifier become
+//     (index .Config "<key>"). Prowlarr and Jackett resolve the setting by its
+//     whole name; text/template lexes .Config.cat-id as .Config.cat and a
+//     stray "-" ("bad character U+002D") and .Config.2facode as a number.
+//   - a "..." literal Go cannot unquote becomes a `...` raw string. Prowlarr
+//     takes re_replace's pattern verbatim, so nyaasi's "\b0(\d{1})\b" is a
+//     regex; Go rejects \d as an escape ("invalid syntax"). A literal Go can
+//     unquote keeps Go's meaning, so no template that parsed before changes.
+//
+// Either way the template failed to parse, so every search of such a
+// definition failed before a request was sent.
+func goTemplateText(tmplText string) string {
+	if !strings.ContainsAny(tmplText, "-\\0123456789") {
+		return tmplText
+	}
+	var b strings.Builder
+	rest := tmplText
+	for {
+		start := strings.Index(rest, "{{")
+		if start < 0 {
+			b.WriteString(rest)
+			break
+		}
+		end := strings.Index(rest[start:], "}}")
+		if end < 0 {
+			b.WriteString(rest)
+			break
+		}
+		end += start + 2
+		b.WriteString(rest[:start])
+		b.WriteString(goTemplateAction(rest[start:end]))
+		rest = rest[end:]
+	}
+	return b.String()
+}
+
+// goTemplateAction applies goTemplateText's two rewrites to one action:
+// replaceKeys to the text outside its "...", `...` and '...' literals, and
+// rawLiteral to each "..." literal.
+func goTemplateAction(action string) string {
+	var b strings.Builder
+	run := 0
+	for i := 0; i < len(action); i++ {
+		quote := action[i]
+		if quote != '"' && quote != '`' && quote != '\'' {
+			continue
+		}
+		b.WriteString(replaceKeys(action[run:i]))
+		j := i + 1
+		for j < len(action) && action[j] != quote {
+			if action[j] == '\\' && quote != '`' {
+				j++
+			}
+			j++
+		}
+		j = min(j+1, len(action))
+		lit := action[i:j]
+		if quote == '"' {
+			lit = rawLiteral(lit)
+		}
+		b.WriteString(lit)
+		run = j
+		i = j - 1
+	}
+	b.WriteString(replaceKeys(action[run:]))
+	return b.String()
+}
+
+// rawLiteral returns lit, a "..." literal, as a `...` raw string when Go
+// cannot unquote it and its body holds no backquote; otherwise lit itself.
+func rawLiteral(lit string) string {
+	if len(lit) < 2 || lit[len(lit)-1] != '"' || !strings.Contains(lit, "\\") {
+		return lit
+	}
+	if _, err := strconv.Unquote(lit); err == nil {
+		return lit
+	}
+	body := lit[1 : len(lit)-1]
+	if strings.Contains(body, "`") {
+		return lit
+	}
+	return "`" + body + "`"
+}
+
+// replaceKeys rewrites each nonIdentKey match in s whose key is not a Go
+// identifier and which starts a field chain; one that continues another
+// chain (.Foo.Config.a-b, $x.Config.a-b) is not a reference to the
+// context's Config or Result and is left alone.
+func replaceKeys(s string) string {
+	matches := nonIdentKey.FindAllStringSubmatchIndex(s, -1)
+	if matches == nil {
+		return s
+	}
+	var b strings.Builder
+	last := 0
+	for _, m := range matches {
+		key := s[m[6]:m[7]]
+		if !strings.Contains(key, "-") && (key[0] < '0' || key[0] > '9') {
+			continue
+		}
+		if m[0] > 0 {
+			switch c := s[m[0]-1]; {
+			case c == '_', c == '.', c == ')', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+				continue
+			}
+		}
+		b.WriteString(s[last:m[0]])
+		fmt.Fprintf(&b, "(index %s.%s %q)", s[m[2]:m[3]], s[m[4]:m[5]], key)
+		last = m[1]
+	}
+	b.WriteString(s[last:])
 	return b.String()
 }
 

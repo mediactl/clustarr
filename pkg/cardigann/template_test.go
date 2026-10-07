@@ -23,7 +23,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package cardigann
 
 import (
+	"archive/zip"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,4 +180,115 @@ func TestBalanceActionParensLeavesWellFormedTemplateUnchanged(t *testing.T) {
 	out, ok := balanceActionParens(in)
 	assert.False(t, ok)
 	assert.Equal(t, in, out)
+}
+
+// nyaasi.yml's search inputs read settings named cat-id and filter-id, and
+// several NexusPHP logins one named 2facode.
+// Go's text/template rejects .Config.cat-id outright ("bad character
+// U+002D"), which failed every nyaasi search before a request was sent.
+func TestRenderResolvesHyphenatedConfigAndResultKeys(t *testing.T) {
+	tc := &TemplateContext{
+		Config:     map[string]any{"cat-id": "1_2", "filter-id": "0", "sort": "id", "2facode": "123456"},
+		Result:     map[string]string{"title-alt": "Alt Title"},
+		Categories: []string{"a", "b"},
+		True:       "true", False: "",
+	}
+
+	cases := []struct{ name, tmpl, want string }{
+		{"nyaasi category input", `{{ .Config.cat-id }}`, "1_2"},
+		{"nyaasi filter input", `{{ .Config.filter-id }}`, "0"},
+		{"in a condition", `{{ if eq .Config.filter-id "0" }}none{{ else }}{{ .Config.filter-id }}{{ end }}`, "none"},
+		{"root-relative inside range", `{{ range .Categories }}{{ . }}={{ $.Config.cat-id }};{{ end }}`, "a=1_2;b=1_2;"},
+		{"result key", `{{ .Result.title-alt }}`, "Alt Title"},
+		{"trim markers", `x {{- .Config.cat-id -}} y`, "x1_2y"},
+		{"plain key unchanged", `{{ .Config.sort }}`, "id"},
+		{"string literal untouched", `{{ if eq " .Config.cat-id" " .Config.cat-id" }}same{{ end }}`, "same"},
+		{"text outside an action untouched", `.Config.cat-id={{ .Config.cat-id }}`, ".Config.cat-id=1_2"},
+		{"key starting with a digit", `{{ .Config.2facode }}`, "123456"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := render(c.tmpl, tc)
+			require.NoError(t, err)
+			assert.Equal(t, c.want, got)
+		})
+	}
+
+	t.Run("modifier still applies to the substituted value", func(t *testing.T) {
+		tc.Config["cat-id"] = "a b"
+		got, err := renderModified(`/?c={{ .Config.cat-id }}`, tc, webURLEncode)
+		require.NoError(t, err)
+		assert.Equal(t, "/?c=a+b", got)
+	})
+}
+
+// Every template in the bundled Prowlarr corpus must parse the way
+// renderModified parses it. Ten definitions (nyaasi, sukebeinyaasi, idope,
+// ...) read hyphenated settings such as .Config.cat-id, which text/template
+// rejected, so each of their searches failed before sending a request and
+// escalated the indexer's backoff.
+func TestEveryBundledDefinitionTemplateParses(t *testing.T) {
+	zr, err := zip.OpenReader(filepath.Join("..", "..", "app", "indexer", "bundle", "embedded", "definitions.zip"))
+	require.NoError(t, err)
+	defer func() { _ = zr.Close() }()
+
+	templates := 0
+	for _, f := range zr.File {
+		if !strings.HasSuffix(f.Name, ".yml") {
+			continue
+		}
+		rc, err := f.Open()
+		require.NoError(t, err)
+		data, err := io.ReadAll(rc)
+		_ = rc.Close()
+		require.NoError(t, err)
+
+		var doc any
+		if err := unmarshalYAML(data, &doc); err != nil {
+			continue // the bundle's few unloadable files are LoadBundle's to report
+		}
+		walkStrings(doc, func(s string) {
+			if !strings.Contains(s, "{{") {
+				return
+			}
+			templates++
+			_, err := parseTemplate(s, nil)
+			assert.NoError(t, err, "%s", f.Name)
+		})
+	}
+	assert.Greater(t, templates, 1000, "the walk found the corpus' templates")
+}
+
+func walkStrings(v any, fn func(string)) {
+	switch v := v.(type) {
+	case string:
+		fn(v)
+	case []any:
+		for _, e := range v {
+			walkStrings(e, fn)
+		}
+	case map[string]any:
+		for _, e := range v {
+			walkStrings(e, fn)
+		}
+	}
+}
+
+// Prowlarr takes a template's string arguments verbatim, so a regex in
+// re_replace keeps its backslashes. nyaasi's keyword input is exactly this
+// template; Go rejected \d as an escape and the whole search failed.
+func TestRenderTakesARegexLiteralGoCannotUnquoteVerbatim(t *testing.T) {
+	tc := &TemplateContext{Keywords: "Frieren 05 1080p"}
+
+	got, err := render(`{{ if .Keywords }}{{ re_replace .Keywords "\b0(\d{1})\b" "$1" }}{{ else }}{{ end }}`, tc)
+	require.NoError(t, err)
+	assert.Equal(t, "Frieren 5 1080p", got, `\b is a word boundary, not a backspace`)
+
+	got, err = render(`{{ re_replace .Keywords "[\s]+" "+" }}`, tc)
+	require.NoError(t, err)
+	assert.Equal(t, "Frieren+05+1080p", got)
+
+	got, err = render(`{{ re_replace .Keywords "\\s" "_" }}`, &TemplateContext{Keywords: `a\sb c`})
+	require.NoError(t, err)
+	assert.Equal(t, `a\sb_c`, got, "a literal Go can unquote keeps Go's meaning")
 }
