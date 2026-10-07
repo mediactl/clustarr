@@ -8,12 +8,16 @@ Status: design, for the owner's approval (2026-10-07).
   Deployment or service of their own.
 - **The group:** `IPTVProvider` belongs to the `clustarr.io` group.
 - **The stream format:** the provider serves MPEG-TS, so HLS is deferred.
-- **No channel cap:** 480 is the cap of Plex's setup wizard, not of PMS.
-  cluster-plex registers through PMS's API, so a provider carries any
-  number of active channels (§3.1). This follows iptvtunerr's patterns.
+- **No channel cap for the owner:** a provider carries any number of
+  active channels (§3.1). This follows iptvtunerr's patterns.
   - **What it changes:** the mappings move out of `IPTVProvider` into a
     kind of their own, `IPTVChannel`, one object per mapped channel. One
     object could not hold thousands.
+  - **How Plex takes them (amended 2026-10-07, after the recording):**
+    PMS takes at most ~450 channels per device. So a provider is split
+    into blocks of consecutive channel numbers, each its own device and
+    DVR, numbered contiguously across them. Block boundaries are sticky
+    (§3.1).
 - **cluster-plex adds each provider to Plex:** it registers the device and
   creates the DVR through PMS's API (§6.1). No address is entered by hand.
 - **The NetworkPolicy ships on.** clustarr and cluster-plex are being
@@ -45,10 +49,11 @@ The sections below are written to these rulings.
 
 **Settled:**
 
-- **One provider, one device:** each provider is one emulated HDHomeRun
-  device and one Plex DVR.
-- **No channel cap:** the owner's ruling (2026-10-07). §3.1 says why it
-  holds and what remains to be measured.
+- **One block, one device:** each block of a provider's channels (§3.1) is
+  one emulated HDHomeRun device and one Plex DVR. A provider of up to 400
+  channels is one block.
+- **No channel cap for the owner:** the owner's ruling (2026-10-07). §3.1
+  says how the blocks carry it past PMS's per-device limit.
 - **Plex's job:** Plex records and transcodes. Clustarr only relays streams
   and serves the guide.
 - **Network:** Plex reaches the proxy inside the cluster. Plex and clustarr
@@ -156,11 +161,23 @@ type IPTVProviderSpec struct {
 	// ChannelNumberStart is where the UI's auto-numbering begins. Default 1000.
 	ChannelNumberStart *int32 `json:"channelNumberStart,omitempty"`
 
-	// Device names the emulated HDHomeRun.
+	// Device names the emulated HDHomeRuns, one per block (§3.1).
 	Device DeviceSpec `json:"device,omitempty"`
+
+	// DVR sizes the blocks the lineup is split into, one Plex DVR each (§3.1).
+	DVR DVRSpec `json:"dvr,omitempty"`
 
 	// Stream tunes the relay.
 	Stream StreamSpec `json:"stream,omitempty"`
+}
+
+type DVRSpec struct {
+	// MaxChannels is a block's most channels. Default 400; PMS takes at most
+	// ~450 per device (§3.1). A block is also held under 30,000 bytes of
+	// channel map, whichever comes first.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=450
+	MaxChannels *int32 `json:"maxChannels,omitempty"`
 }
 
 type PlaylistSource struct {
@@ -265,36 +282,65 @@ be reached.
   - `observedGeneration`.
 - **Its printer columns:** Provider, Number, Name, Active, Guide, Ready.
 
-### 3.1 No channel cap
+### 3.1 One DVR per block of channels
 
-**Why the cap goes:**
-- **The 480 is the setup wizard's.** Plex Web's DVR wizard shows at most
-  480 channels.
-- **PMS takes more through its API.** It accepts a larger channel map when
-  a DVR is registered through the API rather than the wizard. That is
-  iptvtunerr's documented production path (its README: "Plex's wizard caps
-  the visible lineup at 480 channels … use programmatic registration
-  instead", `run -register-plex=api`).
-- **So nothing in clustarr limits the active count.** cluster-plex
-  registers every DVR through the API (§6.1). Under PMS the owner finishes
-  the setup in the wizard, and cluster-plex then saves the full channel map
-  through the API, so there is no cap there either.
-- **What is gone:** the CEL rule, the UI's `/ 480` counter and refusal, and
-  the tuner's lineup cap. The UI shows the active count only.
+**What PMS takes (recorded 2026-10-07, PMS 1.43.4;
+cluster-plex `docs/livetv-pms-calls.md`):**
+- **One device's channel map is one request.** A save replaces the whole
+  map, so it cannot be batched.
+- **That request stops at 32 KiB of request line.** PMS answers 400 past
+  it. With Go's `url.Values` that is **454 channels** for 4-digit numbers.
+  PMS reads no body, so nothing gets past it.
+- **The wizard's "480" is the same wall.** No API path removes it.
 
-**What remains to measure, in the plan's PMS recording task (§6.1):**
-1. **The largest channel map PMS 1.43.4 accepts in one request.** The map
-   is a full replacement, so it cannot be split. iptvtunerr found that
-   batching truncates the map to its last batch. The request carries every
-   pair in its query string, so the URL length is the likely limit.
-2. **How PMS behaves with thousands of channels,** including its guide
-   grid. Clustarr does not limit this; the owner judges it.
+**So a provider's active channels are split into blocks, one Plex DVR
+each.** Channel numbers read as one contiguous lineup across the DVRs.
 
-**If PMS refuses a large map,** the fallback is iptvtunerr's "category DVR
-fleet": several devices from one provider, each with its own device ID and
-a non-overlapping range of guide numbers. It is designed here but not
-built. It would be a `spec.devices` list splitting the lineup by group,
-and each entry would get its own Service.
+**How blocks are made.** The IPTVProvider controller does it, in
+`pkg/iptv/blocks`, a pure function:
+- **Order:** active channels sorted by number, major then minor.
+- **A block's limits:**
+  - `spec.dvr.maxChannels` channels (default 400, at most 450);
+  - **30,000 bytes** of channel-map query, measured with the exact encoding
+    cluster-plex sends. For our guides PMS's three identifiers are each the
+    GuideNumber, so the size is known before Plex sees it. A long number
+    (`12345.123`) costs about 97 bytes, a 4-digit one 72.
+- **Contiguity:** a block holds a run of consecutive numbers, and every
+  number in block k+1 is above every number in block k.
+
+**Blocks are sticky, so a channel rarely changes DVR.** A channel that
+changes DVR loses the Plex recording rules made on it.
+- **Where boundaries live:** `status.blocks[].start`. A channel belongs to
+  the last block whose `start` is at or below its number.
+- **First packing:** each block is filled to 75% of either limit, leaving
+  room to grow.
+- **When a block outgrows a limit:** it splits at its median channel. The
+  new boundary is that channel's number. Only the upper half moves, to a
+  new block and DVR; every other block stays as it is.
+- **When a block has no channel left:** it is removed. Blocks are never
+  merged, because merging moves channels.
+- **When status is lost** (the CR recreated): the first packing runs again.
+  It is deterministic, so the same channels give the same blocks.
+- **Bound:** `MaxItems=32` blocks, 12,800 channels at 400 each. A provider
+  past that reads `Ready=False`, reason `TooManyChannels`.
+
+**What each block is in Plex:**
+- an HDHomeRun device of its own:
+  - DeviceID from a hash of namespace, name and the block's `start`;
+  - FriendlyName `<device.friendlyName> <start>+`, e.g. "Sling 1000+";
+- its own `lineup.json` and XMLTV guide, holding only its channels;
+- its own Service and address (§5.0);
+- its own DVR, whose lineup title is the FriendlyName.
+
+A title names only the block's start, which never changes, because Plex
+fixes a DVR's title at creation.
+
+**Tuners:** every block's device advertises `spec.tuners`. The relay
+enforces the provider-wide limit (§5.2). When every tuner is busy, a stream
+on another block's DVR gets 503, which Plex shows as "tuner busy".
+
+**What is gone:** the 480 CEL rule and the UI's `/ 480` refusal. The UI
+shows the active count and the number of blocks.
 
 **What is still validated:**
 - **CEL, for the cheap rules:** exactly one of `url` and `urlFrom`; exactly
@@ -329,18 +375,24 @@ The reconciler is the sole writer of status, under `k8s.ManagerLiveTV`.
   - `PlaylistFetched`;
   - `GuidesFetched`;
 - `observedGeneration`;
-- `deviceID`: eight hex digits from a hash of namespace/name, so a
-  recreated CR is the same device to Plex;
-- `address`: the provider's Service ClusterIP, which cluster-plex registers
-  with PMS (§6.1);
-- `guideURL`: XEPG only;
+- `blocks[]` (§3.1), `MaxItems=32`, ordered by `start`, one per Plex DVR:
+  - `start`: the block's boundary, the number its channels begin at;
+  - `channels`, `first` and `last`: its active channels and the numbers
+    they span;
+  - `mapBytes`: the size of its channel-map query;
+  - `deviceID`: eight hex digits from a hash of namespace, name and
+    `start`, so a recreated CR gives the same devices;
+  - `address`: the block's Service ClusterIP, which cluster-plex registers
+    with PMS (§6.1);
+  - `guideURL`: XEPG only;
+  - `lineupHash`: a hash of the block's `lineup.json`. A change tells
+    cluster-plex to save that DVR's channel map again;
+  - `guideHash`: a hash of the block's guide. A change tells cluster-plex
+    to reload that DVR's guide;
 - `playlist`: entries, groups, candidates, fetchedAt, hash, error;
 - `guides[]`: name, channels, programmes, fetchedAt, error; `MaxItems=16`;
-- `lineup`: active, unmapped (on dummy), missing (active keys absent from
-  the playlist), and `hash`, a hash of the rendered `lineup.json`. A change
-  in it tells cluster-plex to save the DVR's channel map again;
-- `guideHash`: a hash of the rendered XEPG guide. A change in it tells
-  cluster-plex to reload Plex's guide;
+- `lineup`: active, unmapped (on dummy), and missing (active keys absent
+  from the playlist), across all blocks;
 - `tuners`: total, inUse.
 
 **Printer columns:** Tuners, Active, Candidates, EPG, Ready, Address. So
@@ -416,6 +468,30 @@ counts, filters and previews the UI shows are the ones Plex gets.
 - **`ModelNumber`:** `HDTC-2US`, and `FirmwareName`: `hdhomeruntc_atsc`,
   the values Plex accepts from xTeVe.
 
+### 4.5 Blocks: `pkg/iptv/blocks`
+
+The split of §3.1, as one pure function:
+
+```go
+// Next renders a provider's blocks from the previous ones (status.blocks)
+// and its active channels, under limits.
+func Next(prev []Block, channels []Channel, limits Limits) ([]Block, error)
+
+type Limits struct {
+	MaxChannels int // spec.dvr.maxChannels, default 400
+	MaxBytes    int // 30,000
+	Fill        int // percent filled by a first packing, 75
+}
+```
+
+- **What a block's size is:** `MapBytes(numbers)`, the channel-map query's
+  length under the encoding cluster-plex sends. It is the same function
+  cluster-plex checks before its PUT, so the two cannot disagree.
+- **What it never does:** move a channel between existing blocks, other
+  than the upper half of a block that splits.
+- **Its error:** more than 32 blocks, which the controller reports as
+  `TooManyChannels`.
+
 ## 5. The tuner: a manager runnable, `app/livetv/tuner`
 
 There is no tuner pod and no new service. `cmd/manager` registers the
@@ -428,27 +504,30 @@ tuner beside the IPTVProvider controller as a leader-only runnable
 - **The manager's image:** pure Go and distroless. The tuner links no ffgo
   or purego, so the manager's own dynamic-loader guard still holds.
 
-### 5.0 One address per provider
+### 5.0 One address per block
 
 Plex adds a device by an address and reads `/discover.json` at its root.
-So each provider needs an address of its own:
+So each block (§3.1), which is one device, needs an address of its own:
 
-- **A Service per provider:** the controller (§6) gives each one its own
-  Service, `livetv-<hash of ns/name>`.
+- **A Service per block:** the controller (§6) gives each block its own
+  Service, `livetv-<hash of ns/name/start>`.
   - It lives in the manager's namespace: a selector reaches only its own
     namespace's pods.
   - It selects the manager pod, port 80 to `5004`.
-  - Its ClusterIP is `status.address`.
+  - Its ClusterIP is `status.blocks[].address`.
 - **Routing:**
   - **At the root:** Plex sends `Host: <the address it was given>`. The
     tuner routes `/discover.json`, `/lineup_status.json`, `/device.xml`,
-    `/lineup.json` and `/lineup.post` to the provider whose
-    `status.address` that host is. An unknown host at the root gets 404.
+    `/lineup.json` and `/lineup.post` to the block whose `address` that
+    host is. An unknown host at the root gets 404.
   - **Everything else:** each URL the tuner hands out is absolute under
-    `http://<address>/livetv/<ns>/<name>/`. That covers `BaseURL`,
+    `http://<address>/livetv/<ns>/<name>/<start>/`. That covers `BaseURL`,
     `LineupURL`, the stream URLs and the guide URL. So every later request
-    names its provider in the path, which also serves curl and the e2e
-    tests.
+    names its provider and block in the path, which also serves curl and
+    the e2e tests.
+- **A stream URL keeps working when its channel changes block.** The relay
+  is per provider, so `stream/<number>` answers under any of the
+  provider's blocks.
 
 ### 5.0.1 What sharing the manager's process costs
 
@@ -535,10 +614,11 @@ This is xTeVe's own buffer, minus the ffmpeg and VLC options:
 
 | Path | Serves |
 |---|---|
-| `/discover.json`, `/lineup_status.json`, `/device.xml`, `/lineup.json`, `/lineup.post` | §2, routed by `Host` (§5.0), from `pkg/iptv/hdhr` |
-| `/livetv/<ns>/<name>/{discover.json,lineup.json,…}` | the same, by path |
-| `/livetv/<ns>/<name>/xmltv.xml` | the XEPG guide (404 under PMS) |
-| `/livetv/<ns>/<name>/stream/<number>` | §5.2 |
+| `/discover.json`, `/lineup_status.json`, `/device.xml`, `/lineup.json`, `/lineup.post` | §2 for one block, routed by `Host` (§5.0), from `pkg/iptv/hdhr` |
+| `/livetv/<ns>/<name>/<start>/{discover.json,lineup.json,…}` | the same, by path |
+| `/livetv/<ns>/<name>/<start>/xmltv.xml` | the block's XEPG guide, only its channels (404 under PMS) |
+| `/livetv/<ns>/<name>/<start>/stream/<number>` | §5.2; any of the provider's numbers, under any of its blocks |
+| `/livetv/<ns>/<name>/xmltv.xml` | the whole provider's guide, for curl and the UI's preview |
 | `/livetv/<ns>/<name>/logo/<sha>` (phase 3) | cached channel logos, so Plex never hotlinks a provider host |
 
 Metrics ride the manager's own `/metrics`.
@@ -593,17 +673,25 @@ There is no channel label: a channel name is a title.
 
 `cmd/manager` registers the controller beside the tuner.
 
-**Each provider's Service (§5.0):**
-- **Created:** by the controller, labelled with the provider.
+**Each block's Service (§5.0):**
+- **Created:** by the controller, one per `status.blocks[]` entry,
+  labelled with the provider and the block's `start`.
+- **Deleted:** when its block is removed (§3.1). Plex then shows that
+  device offline, until cluster-plex removes its DVR (§6.1).
 - **Cleaned up:** an owner reference cannot cross namespaces, so finalizer
-  `clustarr.io/livetv-service` deletes the Service when the CR goes.
+  `clustarr.io/livetv-service` deletes every block's Service when the CR
+  goes.
 - **Kept:** it is never recreated on a spec edit, so the ClusterIP Plex was
   given stays.
 
 **Its other work:**
 - `Valid` (§3.2);
-- `deviceID`, `address` and `guideURL`;
-- status from the tuner's snapshot (§3.2).
+- the blocks (§3.1, `pkg/iptv/blocks`): it reads the previous
+  `status.blocks` and the active channels, and renders the next blocks,
+  each with its `deviceID`, `address` and `guideURL`. A split or a removal
+  happens here and nowhere else;
+- status from the tuner's snapshot (§3.2). The tuner renders each block's
+  `lineup.json` and guide from the blocks in status.
 
 It does no fetching. Fetching is the tuner's.
 
@@ -642,16 +730,18 @@ cluster-plex already has the pieces:
 - **The provisioner:** it gains DVRs, run by cluster-plex's leader. That
   makes it the one writer of Plex's Live TV state.
 
-**What it converges, for each IPTVProvider that is `Ready` and enabled.**
-The calls are the ones iptvtunerr makes in production
-(`internal/plex/dvr.go`), each with the server's `X-Plex-Token`:
+**What it converges, for each block of each IPTVProvider that is `Ready`
+and enabled.** The calls were recorded against the owner's PMS 1.43.4
+(cluster-plex `docs/livetv-pms-calls.md`, fixtures in
+`pkg/plex/api/testdata/livetv`). Each carries the server's `X-Plex-Token`.
 
 1. **The device.**
    - **Find it:** `GET /media/grabbers/devices`, looking for the identifier
-     `device://tv.plex.grabbers.hdhomerun/<status.deviceID>`.
-   - **When none exists:**
-     - probe with `POST /media/grabbers/devices/discover?uri=http://<status.address>`;
-     - then register with `POST /media/grabbers/devices?uri=http://<status.address>`.
+     `device://tv.plex.grabbers.hdhomerun/<block.deviceID>`.
+   - **When none exists:** register with
+     `POST /media/grabbers/devices?uri=http://<block.address>`. The
+     discover call iptvtunerr makes first answers `size: 0` and is not
+     needed.
    - **When one exists, it is never registered again.** Registering again
      is how duplicate and empty DVR rows arise (iptvtunerr's recovery
      notes).
@@ -660,13 +750,15 @@ The calls are the ones iptvtunerr makes in production
      recreated, so this means a person did something by hand.
 2. **The DVR.**
    - **Under XEPG:** when `GET /livetv/dvrs` has no DVR on the device, it
-     creates one with `POST /livetv/dvrs?language=<lang>&device=<device uuid>&lineup=lineup://tv.plex.providers.epg.xmltv/<url-encoded status.guideURL>#<friendlyName>`.
+     creates one with `POST /livetv/dvrs?language=<lang>&device=<device uuid>&lineup=<lineup>`.
+     The lineup is `lineup://tv.plex.providers.epg.xmltv/<block.guideURL>#<block FriendlyName>`,
+     escaped as one query value.
    - **Under PMS:** a Plex lineup depends on the owner's location, which
      the CR does not know. So it registers the device only and records
      `DVRNeedsLineup`. Once the owner has finished Plex's wizard, it adopts
      that DVR for steps 3 and 4.
-3. **The channel map,** when `status.lineup.hash` differs from the hash it
-   last saved:
+3. **The channel map,** when the block's `lineupHash` differs from the
+   hash it last saved:
    - `GET /livetv/epg/channelmap?device=<uuid>&lineup=<lineup id>` gives
      PMS's pairing of the device's channels with the lineup's;
    - then **one** `PUT /media/grabbers/devices/<key>/channelmap` enables
@@ -675,20 +767,56 @@ The calls are the ones iptvtunerr makes in production
      `channelMapping[<number>]=<lineup identifier>` for each channel.
    - The PUT replaces the whole map, so it is never batched. A batch would
      leave only the last batch's channels (iptvtunerr).
-   - This is the step that carries more than 480 channels, and it is how an
-     activation on the Live TV page reaches Plex without the wizard.
-4. **The guide:** when `status.guideHash` changes, it calls
+   - **Never empty or partial.** A save without the map cleared the
+     device's map in the recording. A query over the 30,000-byte budget is
+     refused before it is sent, with `DVRChannelMapTooLarge`; clustarr's
+     blocks keep it from happening (§3.1).
+   - This is how an activation on the Live TV page reaches Plex without the
+     wizard.
+4. **The guide:** when the block's `guideHash` changes, it calls
    `POST /livetv/dvrs/<key>/reloadGuide`.
 
+**Never while a guide loads.** Every save and reload rebuilds the DVR's
+guide database (activity `provider.epg.load` in `GET /activities`). In the
+recording, a DVR deleted during such a rebuild deadlocked PMS until the pod
+restarted. So cluster-plex deletes a DVR, and saves or reloads a guide
+again, only when `/activities` lists no `provider.epg.load`. Otherwise it
+waits for its next pass.
+
 **Which DVRs it manages:** cluster-plex manages exactly the devices whose
-identifier carries an IPTVProvider's `deviceID`. Every other tuner and DVR
-in Plex is left alone.
+identifier carries one of an IPTVProvider's block `deviceID`s. Every other
+tuner and DVR in Plex is left alone.
+
+**A block that is gone** (removed by clustarr, §3.1) leaves a managed
+device that no block names. cluster-plex deletes its DVR, then the device,
+under the same guide-load rule. The channels it held already live in
+another block's DVR.
+
+**The other PMS pods.** Each PMS process caches its DVRs from its start,
+and no call refreshes them (recorded). A DVR created or deleted on the
+lease holder is invisible to the other pods until they restart, and
+`plex-main` sends clients to any pod. So after a pass that created or
+deleted a DVR, cluster-plex restarts PMS on each other pod, one at a time,
+each answering again before the next.
+- **Rate:** at most one round per 10 minutes. Changes made during the wait
+  are picked up by the next round, so editing a hundred channels is one
+  restart per pod.
+- **Event:** `DVRPodsRestarted`.
+
+Channel-map saves and guide reloads restart nothing. Whether the other pods
+then show a changed map without a restart is still to be recorded.
 
 **Ghost cleanup (iptvtunerr's "ghost-hunter" pattern):** on a managed
 device, DVR rows beyond the first are deleted with
 `DELETE /livetv/dvrs/<key>`. So are DVRs left on a managed device that no
 longer exists. Being the one writer is what keeps such rows from coming
 back.
+- **Ghosts that reappear.** A DVR whose guide failed to load can drop out
+  of the lease holder's list while its rows stay. A failed creation can
+  leave such rows too. A PMS that starts later lists them again.
+- **So the sweep runs every pass,** not only after cluster-plex's own
+  changes. It deletes any DVR whose lineup is one of an IPTVProvider's
+  guide URLs but which is not on a managed device.
 
 **Deleting a provider** removes its DVR and its device, through the
 watcher's tombstone handling. That also removes the DVR's recording rules:
@@ -708,14 +836,21 @@ records Events on the IPTVProvider instead:
 
 `kubectl describe iptv` and the Settings panel (§7.1) show them.
 
-**Recording the calls.** The calls come from iptvtunerr's code, not from
-Plex's documentation. So the plan's first cluster-plex task records them
-once against the owner's PMS (1.43.4), by hand, and replays them as
-`fakepms` fixtures. This is how `ui/plex`'s extras route was pinned down.
-The same task settles three points:
-- the largest channel map one PUT carries (§3.1);
-- whether PMS re-reads a changed `lineup.json` on its own before step 3,
-  or needs a device rescan first;
+**The recording (done 2026-10-07)** settled these points:
+- **The largest channel map one PUT carries:** 454 channels, 32 KiB of
+  request line (§3.1).
+- **Rescans:** none needed. PMS re-reads a changed `lineup.json` and guide
+  on `reloadGuide`, and step 3's map lists the new channels.
+- **The shim:** XMLTV DVR creation needs plex-postgresql
+  `v1.3.17-clusterplex.25`. Before it, the guide database's migration
+  failed and PMS answered 500.
+- **The JSON shapes:**
+  - a DVR carries `lineupTitle` and `epgIdentifier`, and no `title`;
+  - a device's `parentID` is a number, and it has no `name` (`model` holds
+    the FriendlyName).
+
+**Still to record** (the plan's probe task):
+- whether the other pods show a changed channel map without a restart;
 - what step 2 needs under PMS.
 
 ## 7. The UI
@@ -849,6 +984,20 @@ under the same precondition.
   - **The guide:** goldens for timeshift and dummy blocks, and a
     deterministic output.
   - **The HDHomeRun renderers:** goldens.
+  - **Blocks** (`pkg/iptv/blocks`), on numbers built by the real parser:
+    - a first packing fills each block to 75%, and is deterministic;
+    - every block is contiguous, and every number in block k+1 is above
+      every number in block k;
+    - a channel added inside a block stays in it, and later blocks keep
+      their `start`;
+    - an overflowing block splits at its median, and no other block's
+      channels move;
+    - an emptied block is removed, and nothing is merged;
+    - long numbers (`12345.123`) close a block on the byte budget before
+      the channel limit;
+    - `MapBytes` equals the length of the query cluster-plex's
+      `SaveChannelMap` builds, for the same channels;
+    - more than 32 blocks is an error.
   - **Inputs from the real producer:** the parser runs on the fixture, never
     on a `[]Entry` built by hand. That is the "fixture shaped like the
     answer" gotcha.
@@ -890,11 +1039,16 @@ under the same precondition.
     `ui.Options.LiveTV`.
 - **cluster-plex, against its `fakepms`, with fixtures recorded from the
   owner's PMS:**
-  - a Ready provider gets one device and one DVR;
+  - a Ready provider gets one device and one DVR per block;
   - a second run changes nothing;
-  - a new `lineup.hash` saves the channel map once, in one PUT, with 2,000
-    channels;
-  - a new `guideHash` reloads the guide once;
+  - a block's new `lineupHash` saves that DVR's channel map once, in one
+    PUT, with 400 channels; a map over the byte budget is refused before
+    it is sent;
+  - a block's new `guideHash` reloads that DVR's guide once;
+  - a new block gets a device and a DVR, and a removed block's DVR and
+    device are deleted, never while `/activities` lists a guide load;
+  - a pass that created or deleted a DVR restarts PMS on the other pods
+    once, one at a time; a second pass within 10 minutes restarts nothing;
   - a provider under PMS gets a device and `DVRNeedsLineup`, and no DVR;
   - a deleted provider removes its DVR and device;
   - a DVR whose device no IPTVProvider names is never touched;
