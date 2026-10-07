@@ -184,7 +184,8 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedMovie(t *testing.T) {
 			}
 
 			require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
-			assert.Equal(t, downloadv1alpha1.ImportMessageEveryFileRejected, got.Message)
+			assert.Equal(t, downloadv1alpha1.ImportMessageExistingFileFinal, got.Message,
+				"the item's file is final, which is no fault of the release: grabarr must not blocklist it")
 			assert.Empty(t, got.Imported)
 			require.Len(t, got.Rejections, 1, "one reason for the one file, never a silent skip")
 			r := got.Rejections[0]
@@ -246,6 +247,16 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedEpisode(t *testing.T) {
 	_, err := os.Stat(existingPath)
 	require.NoError(t, err, "the transcoded file stays in the library")
 
+	// An automatic grab of that episode alone imports nothing, and says the
+	// item's file is final rather than that the release was bad: grabarr
+	// blocklists only the latter.
+	single := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(single, "Breaking.Bad.S01E01.PROPER.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
+	got = s.importGrab(t, "single-dl", single, e01, nil, grabbedAs(downloadv1alpha1.GrabSourceSearch, false))
+	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	assert.Equal(t, downloadv1alpha1.ImportMessageExistingFileFinal, got.Message)
+	require.Len(t, got.Rejections, 1)
+
 	// A person picks the PROPER from an interactive search: their choice
 	// replaces the transcoded file.
 	chosen := dataDir(t, "scratch")
@@ -306,6 +317,7 @@ func TestHandleGatesAMovieOnEveryMediaFileItHas(t *testing.T) {
 	mustWriteSparseFile(t, filepath.Join(proper, "The.Matrix.1999.PROPER.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
 	got = f.importGrab(t, "proper-dl", proper, movie, nil, grabbedAs(downloadv1alpha1.GrabSourceSearch, false))
 	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	assert.Equal(t, downloadv1alpha1.ImportMessageExistingFileFinal, got.Message)
 	require.Len(t, got.Rejections, 1)
 	assert.Contains(t, got.Rejections[0], "movie the-matrix's existing file (MediaFile "+secondName+") is transcoded")
 	for _, p := range []string{firstPath, secondPath} {

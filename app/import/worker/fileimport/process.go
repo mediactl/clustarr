@@ -81,6 +81,9 @@ type processConfig struct {
 	existing             []catalogv1alpha1.MediaFile
 	baseContext          naming.Context
 	originalLanguageName string
+	// transcodedFinal records that processFile refused a file because the
+	// file it would replace is transcoded; run copies it into the outcome.
+	transcodedFinal bool
 }
 
 // importOutcome accumulates one Download's import result across every file
@@ -88,6 +91,23 @@ type processConfig struct {
 type importOutcome struct {
 	imported   []*downloadac.ImportedFileApplyConfiguration
 	rejections []string
+	// transcodedFinal is set when a file was refused because the file it
+	// would replace is transcoded (transcodedRejection): the item's state,
+	// not the release's fault, which blockedRejectionMessage reports.
+	transcodedFinal bool
+}
+
+// blockedRejectionMessage is status.import.message for a walk that imported
+// nothing and refused at least one file. Refusing every file reads as a bad
+// release, which grabarr blocklists (ImportMessageEveryFileRejected), unless
+// a file was refused only because the item's file is transcoded and final:
+// then the release was never judged, and the Download waits for a person
+// (ImportMessageExistingFileFinal).
+func blockedRejectionMessage(o importOutcome) string {
+	if o.transcodedFinal {
+		return downloadv1alpha1.ImportMessageExistingFileFinal
+	}
+	return downloadv1alpha1.ImportMessageEveryFileRejected
 }
 
 // run walks the Download's content root and imports every media file it can
@@ -161,6 +181,7 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 		out.imported = append(out.imported, imported)
 		filledBy = rel
 	}
+	out.transcodedFinal = pc.transcodedFinal
 	return out, nil
 }
 
@@ -302,6 +323,7 @@ func (pc *processConfig) processFile(
 	// reporting a quality verdict.
 	for i := range compared {
 		if r := transcodedRejection(rel, &compared[i], pc.download, pc.manual); r != "" {
+			pc.transcodedFinal = true
 			return nil, r, nil
 		}
 	}

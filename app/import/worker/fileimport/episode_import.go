@@ -118,7 +118,7 @@ func (w *Worker) importEpisodes(
 	if len(outcome.imported) == 0 {
 		msg := "no episode files found"
 		if len(outcome.rejections) > 0 {
-			msg = downloadv1alpha1.ImportMessageEveryFileRejected
+			msg = blockedRejectionMessage(outcome)
 		}
 		return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, msg)
 	}
@@ -253,7 +253,8 @@ func (w *Worker) runEpisodes(
 		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
 			return out, err
 		}
-		imported, rejection, err := w.importEpisodeFile(ctx, m, dl, plan, manual, c.path, c.info, dests, replaced, filled)
+		imported, rejection, err := w.importEpisodeFile(ctx, m, dl, plan, manual, c.path, c.info, dests, replaced, filled,
+			&out.transcodedFinal)
 		if err != nil {
 			return out, err
 		}
@@ -274,6 +275,7 @@ func (w *Worker) runEpisodes(
 func (w *Worker) importEpisodeFile(
 	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, plan episodePlan, manual bool,
 	srcPath string, info os.FileInfo, dests map[string]string, replaced map[string]bool, filled map[string]string,
+	transcodedFinal *bool,
 ) (*downloadac.ImportedFileApplyConfiguration, string, error) {
 	log := logging.FromContext(ctx)
 	rel := relPath(dl.Status.ContentRoot, srcPath)
@@ -335,6 +337,7 @@ func (w *Worker) importEpisodeFile(
 	// (transcoded.go), whichever of the covered episodes it backs.
 	for i := range compared {
 		if r := transcodedRejection(rel, &compared[i], dl, manual); r != "" {
+			*transcodedFinal = true
 			return nil, r, nil
 		}
 	}

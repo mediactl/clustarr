@@ -254,8 +254,23 @@ const (
 // and the walk error can also carry rejections and no imported file, so the
 // message is what tells them apart. It lives in the API package both
 // services import, so the writer and the reader name one constant rather
-// than keeping two literals in step.
+// than keeping two literals in step. A walk that refused a file because the
+// file it would replace is transcoded writes ImportMessageExistingFileFinal
+// instead, since that is the item's state rather than the release's fault.
 const ImportMessageEveryFileRejected = "every candidate file was rejected"
+
+// ImportMessageExistingFileFinal is the status.import.message importarr's
+// file-import worker writes when it imported nothing and refused at least
+// one file because the file it would replace is transcoded: a transcoded
+// file is final against an automatic grab (CLAUDE.md, "Transcoding"). The
+// release is not at fault, so grabarr neither blocklists it nor fails the
+// Download: the Download stays complete with its files until a person
+// imports it by hand (spec.manual, or catalog.clustarr.io/import-override)
+// or deletes it, and the item does not count it as an active download.
+// Until 2026-10-07 such an import read ImportMessageEveryFileRejected, so a
+// good 21 GB release was blocklisted and its finished file deleted.
+const ImportMessageExistingFileFinal = "the existing file is transcoded, and a transcoded file is final: " +
+	"import this download by hand to replace it"
 
 // IndexerDownload points at a release on an indexer. grabarr resolves it
 // through indexarr at grab time to obtain the actual .torrent or .nzb bytes;

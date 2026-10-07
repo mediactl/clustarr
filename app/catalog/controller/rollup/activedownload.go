@@ -54,6 +54,14 @@ func DownloadNonTerminal(dl *downloadv1alpha1.Download) bool {
 	if dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue {
 		return false
 	}
+	// An import refused because the item's file is transcoded keeps the
+	// Download and its files for a person's decision, but nothing more comes
+	// of it on its own: it is not the item's active download, so a
+	// transcoded movie reads Transcoded, not Downloading, while it waits.
+	if imp := dl.Status.Import; imp != nil && imp.State == downloadv1alpha1.ImportPhaseBlocked &&
+		imp.Message == downloadv1alpha1.ImportMessageExistingFileFinal {
+		return false
+	}
 	switch dl.Status.Phase {
 	case downloadv1alpha1.DownloadPhaseImported,
 		downloadv1alpha1.DownloadPhaseFailed,

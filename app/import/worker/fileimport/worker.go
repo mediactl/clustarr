@@ -335,7 +335,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if len(outcome.imported) == 0 {
 		msg := "no importable files found"
 		if len(outcome.rejections) > 0 {
-			msg = downloadv1alpha1.ImportMessageEveryFileRejected
+			msg = blockedRejectionMessage(outcome)
 		}
 		return w.finishBlocked(ctx, &dl, outcome.imported, outcome.rejections, msg)
 	}

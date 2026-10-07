@@ -151,6 +151,18 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 		Rejections: []string{"sample.mkv: sample"},
 	}
 
+	// Every file refused because the item's file is transcoded: the item's
+	// state, not the release's fault (2026-10-07: blocklisting it deleted a
+	// finished 20 GB file the rejection itself said a person could import).
+	existingFinal := base()
+	existingFinal.Status.Stage = downloadv1alpha1.DownloadStageDone
+	existingFinal.Status.Import = &downloadv1alpha1.ImportState{
+		State:   downloadv1alpha1.ImportPhaseBlocked,
+		Message: downloadv1alpha1.ImportMessageExistingFileFinal,
+		Rejections: []string{"movie.mkv: movie heat's existing file (MediaFile heat-1) is transcoded, " +
+			"and a transcoded file is final"},
+	}
+
 	until := metav1.NewTime(time.Now().Add(time.Hour))
 
 	// grabarr blocklisted it earlier; the engine's report has since gone (a
@@ -219,6 +231,10 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 		{"an engine reason of none is not a failure", noneIsNotAFailure, phaseResult{phase: downloadv1alpha1.DownloadPhaseDownloading}},
 		{"every file rejected blocklists", rejected, blocklistNow(downloadv1alpha1.DownloadFailureImportRejected)},
 		{"a blocked walk error is not importRejected", walkError, phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted}},
+		{
+			"refused over a transcoded file is not importRejected: no blocklist, the files stay", existingFinal,
+			phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted},
+		},
 		{"a recorded blocklisting outlives the engine's report", stillBlocklisted, phaseResult{
 			phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: downloadv1alpha1.DownloadFailureStalled,
 		}},
