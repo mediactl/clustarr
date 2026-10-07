@@ -313,6 +313,11 @@ Naming follows the Prometheus conventions: `clustarr_` prefix, base units
 | `clustarr_record_incorporations_total` | counter | `remediation`, `state` | Worker answers the loop incorporated, by outcome (ADR-0016) |
 | `clustarr_record_timeouts_total` | counter | `remediation` | Requests nobody answered in time (ADR-0016) |
 | `clustarr_record_errors_total` | counter | `remediation`, `op` | Records-bucket operations that failed (ADR-0016) |
+| `clustarr_remediation_passes_total` | counter | `kind`, `outcome` | Whether the MediaFile loop is writing, conflicting, stale or paced (added with ADR-0016) |
+| `clustarr_remediation_planner_failures_total` | counter | `planner`, `reason` | A planner failing, transiently or for good |
+| `clustarr_remediation_planner_seconds` | histogram | `planner`, `phase` | Which planner's gather or plan is slow |
+| `clustarr_remediation_effects_total` | counter | `planner`, `effect`, `outcome` | Records and tasks the loop owes and whether they land |
+| `clustarr_remediation_io_calls_total` | counter | `op`, `outcome` | /data health from the manager: timeouts, a saturated pool, an open breaker |
 
 `docs/observability.md` documents this catalogue, the trace layout, and example
 queries. The brief asks for useful metrics to be discovered and documented, so

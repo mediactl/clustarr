@@ -24,12 +24,12 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-// mirrorLabels builds the catalog.clustarr.io/* label set MediaFile.status's
+// MirrorLabels builds the catalog.clustarr.io/* label set MediaFile.status's
 // doc comment promises ("controller-mirrored labels: kind, resolution,
 // source, modifier, video-codec, hdr, original"). q is spec.quality (frozen
 // at import, never this controller's to change); mi is the current probe,
 // nil before the first successful probe.
-func mirrorLabels(kind commonv1.MediaKind, q commonv1.Quality, mi *commonv1.MediaInfo, original bool) map[string]string {
+func MirrorLabels(kind commonv1.MediaKind, q commonv1.Quality, mi *commonv1.MediaInfo, original bool) map[string]string {
 	labels := map[string]string{
 		catalogv1alpha1.LabelKind:     string(kind),
 		catalogv1alpha1.LabelOriginal: strconv.FormatBool(original),
@@ -50,4 +50,13 @@ func mirrorLabels(kind commonv1.MediaKind, q commonv1.Quality, mi *commonv1.Medi
 		labels[catalogv1alpha1.LabelHdr] = string(mi.Hdr)
 	}
 	return labels
+}
+
+// LoopLabelKeys are the catalog.clustarr.io/* labels MirrorLabels writes:
+// the loop's own main-resource apply (loop spec §3.10). A change to any
+// other label is a user's (§3.3, S1).
+var LoopLabelKeys = []string{
+	catalogv1alpha1.LabelKind, catalogv1alpha1.LabelResolution, catalogv1alpha1.LabelSource,
+	catalogv1alpha1.LabelModifier, catalogv1alpha1.LabelVideoCodec, catalogv1alpha1.LabelHdr,
+	catalogv1alpha1.LabelOriginal,
 }

@@ -77,7 +77,7 @@ func (r *Reconciler) incorporate(ctx context.Context, mf *catalogv1alpha1.MediaF
 		known.GraftTag, known.GraftedAt = in.graft.Status.GraftTag, &in.now
 	}
 
-	// mirrorLabels is applied on every probe, not only alongside a
+	// MirrorLabels is applied on every probe, not only alongside a
 	// transcode swap: spec §8.4 says the MediaFile reconciler "probes,
 	// sets labels, probeHash, Probed" unconditionally, and
 	// metadata.labels is neither spec nor status -- disjoint from
@@ -101,7 +101,7 @@ func (r *Reconciler) incorporate(ctx context.Context, mf *catalogv1alpha1.MediaF
 	// only the reconcile that first incorporates a swap -- otherwise a
 	// later labels-only Apply (triggered by, say, a stale re-probe with
 	// no new TranscodeJob) would erase fields catalogarr already owns.
-	labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
+	labels := MirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
 	mainAC := catalogac.MediaFile(mf.Name, mf.Namespace).WithLabels(labels)
 	if original && known.GraftTag != "" {
 		// A grafted original: the size, mtime and path are catalogarr's
