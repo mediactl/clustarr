@@ -175,6 +175,43 @@ func TestEpisodeEmitsItsStillAndInheritedFields(t *testing.T) {
 	assert.Equal(t, "TV-14", md["contentRating"], "the series' rating")
 }
 
+// An episode answers its own TVDB id in Guid[], and its guest cast and
+// crew from its extended document (written by the metadata gateway's
+// series refresh, 2026-10-07) -- only for the episode asked for, never on
+// its season's children.
+func TestEpisodeEmitsItsTVDBGuidAndItsPeople(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	eps[0].Status.TvdbID = 295294
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	asked := map[commonv1.MediaKind]int{}
+	ext := func(_ context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error) {
+		asked[kind]++
+		if uid != eps[0].UID {
+			return extended.Doc{}, false, nil
+		}
+		return extended.Doc{
+			Role:     []extended.Person{{Name: "Noel Clarke", Character: "Mickey Smith"}},
+			Director: []extended.Person{{Name: "Keith Boak", Job: "Director"}},
+			Writer:   []extended.Person{{Name: "Russell T Davies", Job: "Writer"}},
+		}, true, nil
+	}
+	h := newFullHandler(t, ext, objs...)
+
+	md := metadataOf(t, h, "/plex/tv/library/metadata/"+string(eps[0].UID))
+	assert.Equal(t, []any{map[string]any{"id": "tvdb://295294"}}, md["Guid"])
+	assert.Equal(t, []any{map[string]any{"tag": "Noel Clarke", "role": "Mickey Smith"}}, md["Role"])
+	assert.Equal(t, []any{map[string]any{"tag": "Keith Boak", "role": "Director"}}, md["Director"])
+	assert.Equal(t, []any{map[string]any{"tag": "Russell T Davies", "role": "Writer"}}, md["Writer"])
+	assert.Equal(t, 1, asked[commonv1.MediaKindEpisode])
+
+	other := metadataOf(t, h, "/plex/tv/library/metadata/"+string(eps[1].UID))
+	assert.NotContains(t, other, "Guid", "an episode with no TVDB id has none")
+	assert.NotContains(t, other, "Role")
+}
+
 func TestNoExtendedDocMeansNoPeopleAndAnErrorIsNotAFailure(t *testing.T) {
 	m := fixtureMovie()
 	for name, ext := range map[string]func(context.Context, commonv1.MediaKind, types.UID) (extended.Doc, bool, error){

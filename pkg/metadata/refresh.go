@@ -109,7 +109,10 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	3: a Movie's collection learns its Plex id (collection.plexID) and its
 //	   summary and artwork (the extended document), for the Plex
 //	   provider's collections (2026-10-06).
-const SchemaVersion int32 = 3
+//	4: a Series refresh files its episodes' guest cast and crew in each
+//	   episode's extended document (2026-10-07), for the Plex provider's
+//	   episode Role, Director and Writer.
+const SchemaVersion int32 = 4
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

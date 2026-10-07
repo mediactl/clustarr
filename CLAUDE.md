@@ -279,8 +279,15 @@ from (`status.metadata.certificationCountry`), and a request naming no
 language is answered in `status.metadata.language`. Response customization (`includeFields`/`excludeFields`/
 `includeElements`/`excludeElements`, never dropping ratingKey, key, guid or
 type) and `episodeOrder` (no seasons for an order clustarr does not store)
-are honoured. Episode guest cast and crew are deferred: the gateway's pod
-has no Episode index to find a series' file-backed episodes.
+are honoured. An episode answers its own `tvdb://` Guid and, since
+2026-10-07, its guest cast and crew: after each Series refresh the gateway
+lists the series' Episodes from the apiserver by Episode's selectable field
+`spec.seriesRef` (no cache, no index -- what the first cut lacked), and for
+each with a file whose document is missing or over 30 days old asks
+TheTVDB's `/episodes/{id}/extended` (`pkgmetadata.EpisodePeopleProvider`),
+at most 300 a pass, heartbeating the delivery
+(`app/catalog/metadata/episodepeople.go`); `SchemaVersion` 4 refreshes
+every series once to backfill.
 PMS also asks every provider for an item's extras on each refresh
 (`GET {root}/library/metadata/{ratingKey}/extras`, not in Plex's provider
 docs) and reads a 404 or an empty list as "none", deleting the trailers it

@@ -339,6 +339,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return fmt.Errorf("metadata: patch status.metadata and status.artwork: %w", err)
 	}
 	h.writeExtended(ctx, task.MediaRef.Kind, target, result)
+	if series, ok := target.(*catalogv1alpha1.Series); ok {
+		h.refreshEpisodePeople(ctx, series, now(), m.InProgress)
+	}
 	return nil
 }
 

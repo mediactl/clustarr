@@ -483,6 +483,11 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 	if e.Status.RuntimeMinutes > 0 {
 		md.Duration = int64(e.Status.RuntimeMinutes) * 60000
 	}
+	// The episode's own TVDB id, as Plex's agents list it, so Plex can
+	// cross-match the episode (2026-10-07).
+	if e.Status.TvdbID != 0 {
+		md.Guids = []GuidRef{{ID: "tvdb://" + itoa64(e.Status.TvdbID)}}
+	}
 	md.ParentArt = seriesArt
 	md.GrandparentArt = seriesArt
 	if meta := s.Status.Metadata; meta != nil {
