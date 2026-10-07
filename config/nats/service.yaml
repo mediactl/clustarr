@@ -1,6 +1,6 @@
 # Client + monitoring endpoint: nats://nats.clustarr-system.svc:4222
 # (NATS_URL in config/manager) and http://nats.clustarr-system.svc:8222 for
-# KEDA / prometheus-nats-exporter.
+# prometheus-nats-exporter.
 apiVersion: v1
 kind: Service
 metadata:

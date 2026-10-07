@@ -18,7 +18,7 @@ here for the clustered upstream chart; see that chart's own README.
 | `nats/` | Single-node dev NATS with JetStream on a PVC. Included by `default`; swap for the `nats` chart dependency in production. |
 | `default/` | The deployable install: `namespace.yaml`, `pvc.yaml` (the two PVCs, §11) plus `crd`, `rbac`, `manager` and `nats`. |
 | `e2e/` | `hack/e2e.sh`'s overlay: `default` plus every fixture stub service, sample CRs and smaller resource requests. |
-| `keda/`, `prometheus/`, `postgres/` | Optional overlays/components, each documented below and in its own README where one exists. Never referenced by `default` -- add the ones your cluster's operators support. |
+| `prometheus/`, `postgres/` | Optional overlays/components, each documented below and in its own README where one exists. Never referenced by `default` -- add the ones your cluster's operators support. |
 | `samples/` | Empty by design; see its own README. |
 
 ## Optional overlays
@@ -26,8 +26,6 @@ here for the clustered upstream chart; see that chart's own README.
 None of these are included by `config/default`. Each names the CRDs or
 operator it needs and how to apply it.
 
-- **`keda/`** -- the subtitle-fetch `ScaledObject` (needs the KEDA CRDs).
-  Read `config/keda/README.md` first.
 - **`prometheus/`** -- `ServiceMonitor`s (needs the Prometheus Operator
   CRDs). Read `config/prometheus/README.md` first.
 - **`postgres/`** -- indexarr's release index on a CloudNativePG `Cluster`

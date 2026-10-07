@@ -1,5 +1,5 @@
 # Do NOT add *.tgz here: `helm dependency build` puts the nats /
-# cloudnative-pg / keda subchart archives in charts/, and ignoring them makes
+# cloudnative-pg subchart archives in charts/, and ignoring them makes
 # every lint and template fail with "missing in charts/ directory".
 .DS_Store
 .git/

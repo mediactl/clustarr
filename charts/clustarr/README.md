@@ -22,17 +22,16 @@ upstream `nats` chart (clustered R3, config reloader,
 | Helm | 3.x (this chart ships `values.schema.json`, validated by every Helm 3 release) |
 | Storage | One `ReadWriteMany`-capable `StorageClass` (CephFS preferred; NFS or Longhorn RWX acceptable) for `/data`, or a claim you already run. See [Storage](#storage). |
 
-The chart declares three conditional dependencies (`nats`, `cloudnative-pg`,
-`keda`); `helm dependency build charts/clustarr` must run before
-`lint`/`template`/`install`, even with all three left at their defaults,
-because Helm checks that every declared dependency is present under
-`charts/` regardless of whether its `condition` is true.
+The chart declares two conditional dependencies (`nats`, `cloudnative-pg`);
+`helm dependency build charts/clustarr` must run before
+`lint`/`template`/`install`, even with both left at their defaults, because
+Helm checks that every declared dependency is present under `charts/`
+regardless of whether its `condition` is true.
 
 ## Installing
 
 ```sh
 helm repo add nats https://nats-io.github.io/k8s/helm/charts/
-helm repo add kedacore https://kedacore.github.io/charts
 helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
 helm dependency build charts/clustarr
 
@@ -211,30 +210,11 @@ calculation needs to be made again in
 memory limit that `DownloadClient` actually carries; see the gap-fixes
 X12a report for the exact citation.
 
-## Autoscaling (KEDA)
+## Autoscaling
 
-`keda.enabled=false` is the default, supported mode: fixed replicas
-everywhere, transcodes gated by squasharr's own slot budget instead of a
-scaler. Setting `keda.enabled=true` installs the upstream KEDA operator (as
-a chart dependency) **and** the Clustarr `ScaledObject`s in
-`templates/scaledobject.yaml`; `keda.prometheusAddress` must then point at a
-Prometheus that scrapes `prometheus-nats-exporter`, because the native
-`nats-jetstream` scaler cannot yet add `num_pending` and `num_ack_pending`
-together (kedacore/keda#8166 is still open) -- the triggers use the
-`prometheus` scaler against that exporter instead.
-
-The bundled KEDA dependency is pinned to **2.20.2**, the latest stable
-release as of 2026-09-23
-([github.com/kedacore/keda releases](https://github.com/kedacore/keda/releases),
-published 2026-07-31). KEDA's own published Kubernetes compatibility matrix
-([keda.sh/docs/2.20/operate/cluster](https://keda.sh/docs/2.20/operate/cluster/),
-"N-2" testing policy) tests 2.20 against Kubernetes v1.33-v1.35. Kubernetes
-1.37 shipped 2026-08-26, after 2.20.2 -- so as of this writing **no released
-KEDA version has been tested against 1.37**, and 2.20.2 is simply the
-newest one that exists. client-go-based operators are generally
-forward-compatible within a few minor versions of API server skew, and
-there is no newer KEDA release to pick instead; revisit this pin once one
-lists 1.36 or 1.37 in its compatibility table.
+KEDA is no longer a dependency. Until the manager and agent topology lands,
+every Deployment runs the replica count its values block sets; the manager's
+own autoscaler (spec 2026-10-06 §9) then scales the queue-driven agents.
 
 ## Ratings providers
 
@@ -385,9 +365,6 @@ template.
 | `postgres.cluster.storage.size`/`.storageClass` | The `Cluster`'s own PVC. | `5Gi`, `""` |
 | `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. Setting it also stops the chart rendering its own `Cluster`. | `""` |
 | `cloudnative-pg.enabled` | Install the CloudNativePG operator as a chart dependency. Most clusters install it once, cluster-wide, instead -- leave this `false` and set only `postgres.enabled=true` in that case. | `false` |
-| `keda.enabled` | Install KEDA and the Clustarr `ScaledObject`s. See [Autoscaling](#autoscaling-keda). | `false` |
-| `keda.prometheusAddress` | Prometheus queried for JetStream consumer lag; **required** when `keda.enabled=true`. | `http://prometheus-operated.monitoring.svc:9090` |
-| `keda.captionarrWorker.minReplicas`/`.maxReplicas`/`.threshold` | Scaling bounds for the subtitle fetch consumer. | `1`, `8`, `20` |
 | `metrics.serviceMonitor.enabled` | Create `ServiceMonitor`s (needs the Prometheus Operator CRDs). | `false` |
 | `storage.data.existingClaim` | Bring your own `/data` claim instead of provisioning one. | `""` |
 | `storage.data.storageClass` | `StorageClass` for the chart-provisioned `/data` claim. **Read [Storage](#storage) before installing for real.** | `""` |

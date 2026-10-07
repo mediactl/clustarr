@@ -158,9 +158,6 @@ preferences, so they fail the render rather than warn.
 {{- if and (not .Values.storage.data.existingClaim) (ne .Values.storage.data.accessMode "ReadWriteMany") -}}
 {{- fail "storage.data.accessMode must be ReadWriteMany: /data is one volume shared by catalogarr, grabarr, squasharr and captionarr, and import is a hardlink or rename inside that single filesystem. Use CephFS, or NFS/Longhorn RWX. Never exFAT or SMB -- neither can represent the hardlinks and atomic renames the importer depends on." -}}
 {{- end -}}
-{{- if and .Values.keda.enabled (not .Values.keda.prometheusAddress) -}}
-{{- fail "keda.prometheusAddress must be set when keda.enabled=true: the JetStream lag triggers query prometheus-nats-exporter through the Prometheus scaler." -}}
-{{- end -}}
 {{- with .Values.indexarr.cardigann.definitions -}}
 {{- if and .configMap .existingClaim -}}
 {{- fail "indexarr.cardigann.definitions: set configMap or existingClaim, not both: indexarr loads one Cardigann definitions directory (--cardigann-definitions-dir), mounted from exactly one volume." -}}
@@ -234,11 +231,7 @@ metadata:
     {{- include "clustarr.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ .component }}
 spec:
-  {{- if and $root.Values.keda.enabled (eq .component "captionarr-worker") }}
-  # replicas omitted: the ScaledObject owns it.
-  {{- else }}
   replicas: {{ .values.replicas }}
-  {{- end }}
   {{- with .strategy }}
   strategy:
     type: {{ . }}

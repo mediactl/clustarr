@@ -107,8 +107,8 @@ pkg/
   events/            JetStream bus: topology, natsbus, membus, contract suite, typed payloads
   crdcheck/          envtest CRD install verification
   version/           build metadata
-config/              kustomize: crd, default, manager, rbac, nats, keda, prometheus, samples
-charts/clustarr/     Helm umbrella chart (NATS, optional NACK and KEDA)
+config/              kustomize: crd, default, manager, rbac, nats, prometheus, samples
+charts/clustarr/     Helm umbrella chart (NATS, optional CloudNativePG)
 images/              Dockerfile.controller, Dockerfile.media, Dockerfile.transcoder
 hack/                kind.sh, licence boilerplate
 docs/

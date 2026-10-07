@@ -1,4 +1,4 @@
-# `helm dependency build` materialises the nats / cloudnative-pg / keda
+# `helm dependency build` materialises the nats / cloudnative-pg
 # subcharts here from Chart.lock. They are build output, not source;
 # Chart.lock is what is committed and what pins the versions.
 charts/

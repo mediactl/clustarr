@@ -1,14 +1,11 @@
 # captionarr-worker -- the subtitle fetch consumers. Design spec §3, §6.5, §12.
 #
-# Two fixed replicas is the default operating mode; KEDA is opt-in
-# (config/keda, keda.enabled=false in the chart). Safe at any replica count:
-# every provider client shares a KV token bucket in
-# `clustarr-provider-throttle`, so N workers still respect the provider's
-# 5 req/s ceiling.
+# Two fixed replicas. Safe at any replica count: every provider client
+# shares a KV token bucket in `clustarr-provider-throttle`, so N workers
+# still respect the provider's 5 req/s ceiling.
 #
 # terminationGracePeriodSeconds is set to the JetStream AckWait so a worker
-# finishes (or cleanly redelivers) its in-flight fetch on SIGTERM -- §12 also
-# requires KEDA's cooldownPeriod >= AckWait.
+# finishes (or cleanly redelivers) its in-flight fetch on SIGTERM.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

@@ -77,7 +77,7 @@ nats:
       write_deadline: "10s"
       lame_duck_grace_period: "10s"
       lame_duck_duration: "30s"
-  # Feeds the optional KEDA triggers and the NATS dashboards.
+  # The NATS dashboards' exporter (prometheus-nats-exporter).
   promExporter:
     enabled: false
   container:
@@ -127,25 +127,6 @@ postgres:
 # "Postgres release index" section for the exact commands).
 cloudnative-pg:
   enabled: false
-
-# --------------------------------------------------------------------------
-# Autoscaling (opt-in, §12)
-# --------------------------------------------------------------------------
-# false = the default, supported mode: fixed replicas everywhere and
-# transcodes gated by squasharr's slot budget. true installs the KEDA operator
-# subchart AND the Clustarr ScaledObjects.
-keda:
-  enabled: false
-  # Prometheus to query for JetStream consumer lag. The native nats-jetstream
-  # scaler cannot add num_pending and num_ack_pending together until
-  # kedacore/keda#8166 ships, so the triggers scrape
-  # prometheus-nats-exporter through the prometheus scaler.
-  prometheusAddress: http://prometheus-operated.monitoring.svc:9090
-  captionarrWorker:
-    minReplicas: 1
-    maxReplicas: 8
-    # Queued fetches per replica.
-    threshold: 20
 
 # --------------------------------------------------------------------------
 # Monitoring

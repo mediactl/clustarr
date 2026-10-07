@@ -21,7 +21,7 @@ appVersion: "0.1.0"
 # both need 1.31+.
 kubeVersion: ">=1.31.0-0"
 
-# Umbrella chart. All three dependencies are conditional, so `helm dependency
+# Umbrella chart. Both dependencies are conditional, so `helm dependency
 # update` must run before install/lint/template even if you enable none of
 # them -- Helm checks that every declared dependency is present in charts/.
 dependencies:
@@ -46,20 +46,3 @@ dependencies:
   version: 0.29.1
   repository: https://cloudnative-pg.github.io/charts
   condition: cloudnative-pg.enabled
-# KEDA: optional (§12). The default operating mode is fixed replicas. This
-# installs the KEDA operator itself; `keda.enabled` also gates the Clustarr
-# ScaledObjects in templates/scaledobject.yaml.
-#
-# Pinned to 2.20.2 (chart version == app version for this repo), the latest
-# stable release as of 2026-09-23 (github.com/kedacore/keda releases,
-# published 2026-07-31). KEDA's published Kubernetes compatibility matrix
-# (keda.sh/docs/2.20/operate/cluster, "N-2" policy) tests 2.20 against
-# v1.33-v1.35; Kubernetes 1.37 shipped 2026-08-26, after 2.20.2, so no
-# released KEDA version is tested against it yet. 2.20.2 is the closest
-# available and the right choice regardless -- client-go-based operators are
-# generally forward-compatible within a few minor versions, and there is no
-# newer release to pick instead. Revisit when a KEDA release lists 1.36/1.37.
-- name: keda
-  version: 2.20.2
-  repository: https://kedacore.github.io/charts
-  condition: keda.enabled
