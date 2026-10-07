@@ -46,6 +46,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
+	"github.com/mediactl/clustarr/app/squash/graftstate"
 	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -121,7 +122,7 @@ func (f *fixture) graft(item string) *transcodev1alpha1.AudioGraft {
 		ObjectMeta: metav1.ObjectMeta{Name: item + "-audiograft", Namespace: f.ns},
 		Spec: transcodev1alpha1.AudioGraftSpec{
 			ItemRef:   commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: item},
-			DonorPath: "/data/media/tv/.clustarr/donors/uid/" + item + ".mkv",
+			DonorPath: "/data/media/tv/.clustarr/donors/uid/" + item + ".mka",
 			Languages: []string{"en"}, Anchor: "ja", Default: "en",
 			Release: "Monster.s01e02.Downfall.DVDRip.480p.x264.AAC.DL-BoB",
 		},
@@ -280,7 +281,7 @@ func TestAFailedGraftRejectsTheDonorAndStaysFailed(t *testing.T) {
 	assert.Empty(t, f.jobs())
 
 	// A new donor (a new generation) is tried.
-	g.Spec.DonorPath = "/data/media/tv/.clustarr/donors/uid/monster-s01e02-2.mkv"
+	g.Spec.DonorPath = "/data/media/tv/.clustarr/donors/uid/monster-s01e02-2.mka"
 	g.Spec.Release = "Monster.S01E02.DVD.Dual.Audio"
 	require.NoError(t, f.c.Update(f.ctx, g))
 	g = f.reconcile(g)
@@ -312,7 +313,7 @@ func TestAnOpenTranscodeHoldsTheGraft(t *testing.T) {
 	}))
 	g := f.reconcile(f.graft("monster-s01e02"))
 	assert.Equal(t, transcodev1alpha1.AudioGraftWaiting, g.Status.Phase)
-	assert.Equal(t, audiograft.ReasonTranscodeRunning, g.Status.Reason)
+	assert.Equal(t, audiograft.ReasonWaitingForTranscode, g.Status.Reason, "not dispatched yet: the dispatcher attaches the graft")
 	assert.Empty(t, f.jobs())
 }
 
@@ -342,7 +343,7 @@ func TestGraftingNamesTheFilesUnderAGraft(t *testing.T) {
 	f := newFixture(t, "graft-grafting")
 	mf := f.episode("monster-s01e02", "jpn")
 	f.reconcile(f.graft("monster-s01e02"))
-	set, err := audiograft.Grafting(f.ctx, f.c)
+	set, err := graftstate.Grafting(f.ctx, f.c)
 	require.NoError(t, err)
 	assert.True(t, set[types.NamespacedName{Namespace: f.ns, Name: mf.Name}])
 
@@ -464,4 +465,93 @@ func TestAPresentResultDoesNotPoll(t *testing.T) {
 	res, err := f.r.Reconcile(f.ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(g)})
 	require.NoError(t, err)
 	assert.Zero(t, res.RequeueAfter)
+}
+
+// TestANewDonorIsReducedAtOnce (phase 4 addendum): a donor not yet Matroska
+// audio gets a reduce Job at once, before its item even has a probed file,
+// and the reduced audio is what every graft reads.
+func TestANewDonorIsReducedAtOnce(t *testing.T) {
+	f := newFixture(t, "graft-reduce")
+	require.NoError(t, f.c.Create(f.ctx, &catalogv1alpha1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Name: "monster-s01e03", Namespace: f.ns},
+		Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "monster", SeasonNumber: 1, EpisodeNumber: 3},
+	}))
+	g := f.graft("monster-s01e03")
+	g.Spec.DonorPath = "/data/media/tv/.clustarr/donors/uid/monster-s01e03.mkv"
+	require.NoError(t, f.c.Update(f.ctx, g))
+	g = f.reconcile(g)
+	assert.Equal(t, graftstate.ReasonReducing, g.Status.Reason)
+	jobs := f.jobs()
+	require.Len(t, jobs, 1)
+	task := taskOf(t, jobs[0])
+	assert.Equal(t, grafttask.ModeReduce, task.Mode)
+	assert.Equal(t, g.Spec.DonorPath, task.Donor)
+
+	set, err := graftstate.Grafting(f.ctx, f.c)
+	require.NoError(t, err)
+	assert.Empty(t, set, "a reduce writes only the donor: no transcode is held back")
+
+	job := jobs[0]
+	f.finish(&job, grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonReduced,
+		DonorAudio: "/data/media/tv/.clustarr/donors/uid/monster-s01e03.mka"})
+	g = f.reconcile(g)
+	assert.Equal(t, "/data/media/tv/.clustarr/donors/uid/monster-s01e03.mka", g.Status.DonorAudioPath)
+	assert.Equal(t, transcodev1alpha1.AudioGraftWaiting, g.Status.Phase)
+}
+
+// TestAGraftWaitsForTheTranscodeItsFileIsDue: the file is one a profile will
+// transcode, so the graft waits to ride along with that transcode -- a
+// while -- rather than rewrite the file first.
+func TestAGraftWaitsForTheTranscodeItsFileIsDue(t *testing.T) {
+	f := newFixture(t, "graft-due")
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	f.r.Clock = func() time.Time { return now }
+	require.NoError(t, f.c.Create(f.ctx, &transcodev1alpha1.TranscodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "hevc-" + f.ns}, Spec: transcodev1alpha1.TranscodeProfileSpec{Default: true},
+	}))
+	f.episode("monster-s01e02", "jpn")
+	g := f.reconcile(f.graft("monster-s01e02"))
+	assert.Equal(t, audiograft.ReasonWaitingForTranscode, g.Status.Reason)
+	assert.Empty(t, f.jobs())
+	now = now.Add(7 * time.Hour)
+	g = f.reconcile(g)
+	assert.Equal(t, transcodev1alpha1.AudioGraftPending, g.Status.Phase, "the wait ran out: it grafts alone")
+	assert.Len(t, f.jobs(), 1)
+}
+
+// TestAGraftMirrorsTheTranscodeItJoined: the dispatcher attached the graft
+// to the transcode; the AudioGraft reads Running while it runs and takes
+// its result, a transcode and a graft in one pass.
+func TestAGraftMirrorsTheTranscodeItJoined(t *testing.T) {
+	f := newFixture(t, "graft-joined")
+	mf := f.episode("monster-s01e02", "jpn")
+	g := f.graft("monster-s01e02")
+	tj := &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "tj", Namespace: f.ns},
+		Spec: transcodev1alpha1.TranscodeJobSpec{MediaFileRef: mf.Name, ProfileRef: "default",
+			SourcePath: mf.Spec.Path, SourceProbeHash: mf.Status.ProbeHash},
+	}
+	require.NoError(t, f.c.Create(f.ctx, tj))
+	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerSquasharr, transcodeac.TranscodeJob("tj", f.ns).WithStatus(
+		transcodeac.TranscodeJobStatus().WithPhase(transcodev1alpha1.TranscodeJobPhaseRunning).
+			WithGraft(transcodeac.GraftResult().WithPhase(transcodev1alpha1.GraftJoined).WithAudioGraft(g.Name))))
+	require.NoError(t, err)
+	g = f.reconcile(g)
+	assert.Equal(t, transcodev1alpha1.AudioGraftRunning, g.Status.Phase)
+	assert.Equal(t, audiograft.ReasonJoinedTranscode, g.Status.Reason)
+	assert.Equal(t, graftstate.JoinedPrefix+"tj", g.Status.JobName)
+	assert.Empty(t, f.jobs(), "no graft Job of its own")
+	set, err := graftstate.Grafting(f.ctx, f.c)
+	require.NoError(t, err)
+	assert.Empty(t, set, "a joined graft is the transcode")
+
+	_, err = k8s.PatchStatus(f.ctx, f.c, k8s.ManagerSquasharr, transcodeac.TranscodeJob("tj", f.ns).WithStatus(
+		transcodeac.TranscodeJobStatus().WithPhase(transcodev1alpha1.TranscodeJobPhaseSucceeded).
+			WithGraft(transcodeac.GraftResult().WithPhase(transcodev1alpha1.GraftSucceeded).WithAudioGraft(g.Name).
+				WithReason(grafttask.ReasonGrafted).WithGraftTag("61d29fba5193").WithCoveragePercent(96))))
+	require.NoError(t, err)
+	g = f.reconcile(g)
+	assert.Equal(t, transcodev1alpha1.AudioGraftSucceeded, g.Status.Phase)
+	assert.Equal(t, "61d29fba5193", g.Status.GraftTag)
+	assert.EqualValues(t, 96, g.Status.CoveragePercent)
 }

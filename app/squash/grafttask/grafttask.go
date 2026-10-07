@@ -108,6 +108,8 @@ type Segment struct {
 
 // Result is what a graft run reports.
 type Result struct {
+	// Graft names the AudioGraft (<namespace>/<name>) the result is for.
+	Graft           string    `json:"graft,omitempty"`
 	Phase           string    `json:"phase"`
 	Reason          string    `json:"reason"`
 	Message         string    `json:"message,omitempty"`

@@ -1548,3 +1548,51 @@ func TestAProfileEditReplansAPlannedJobAtDispatch(t *testing.T) {
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, got.Status.Phase, "message: %s", got.Status.Message)
 	assert.Contains(t, got.Status.Plan.SkipReason, "policy.minDuration")
 }
+
+// TestADispatchCarriesTheItemsGraft (phase 4 addendum): a transcode of a
+// file whose item has a reduced donor for a dub the file lacks carries the
+// graft, and records it joined, so the file is rewritten once.
+func TestADispatchCarriesTheItemsGraft(t *testing.T) {
+	_, c := startEnv(t)
+	ctx := context.Background()
+	const ns = "tj-graft"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	japanese := h264Probe()
+	japanese.Audio[0].Language = "jpn"
+	newMediaFile(t, c, ns, "monster", "probe1", &japanese)
+	g := &transcodev1alpha1.AudioGraft{
+		ObjectMeta: metav1.ObjectMeta{Name: k8s.AudioGraftName("monster"), Namespace: ns},
+		Spec: transcodev1alpha1.AudioGraftSpec{
+			ItemRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "monster"}, DonorPath: "/data/media/movies/.clustarr/donors/u/monster.mkv",
+			Languages: []string{"en"}, Anchor: "ja", Default: "en", Release: "Monster.DVDRip.DL-BoB",
+		},
+	}
+	require.NoError(t, c.Create(ctx, g))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr, transcodeac.AudioGraft(g.Name, ns).WithStatus(
+		transcodeac.AudioGraftStatus().WithPhase(transcodev1alpha1.AudioGraftWaiting).WithReason("WaitingForTranscode").
+			WithDonorAudioPath("/data/media/movies/.clustarr/donors/u/monster.mka")))
+	require.NoError(t, err)
+	newTJ(t, c, ns, "monster-hevc", "monster", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	require.Eventually(t, func() bool {
+		var got transcodev1alpha1.AudioGraft
+		return r.Client.Get(ctx, client.ObjectKeyFromObject(g), &got) == nil && got.Status.DonorAudioPath != ""
+	}, 5*time.Second, 50*time.Millisecond)
+
+	reconcileTJ(t, r, ns, "monster-hevc")
+	got := getTJ(t, c, ns, "monster-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	require.NotNil(t, got.Status.Graft)
+	assert.Equal(t, transcodev1alpha1.GraftJoined, got.Status.Graft.Phase)
+	assert.Equal(t, g.Name, got.Status.Graft.AudioGraft)
+	tasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
+	require.Len(t, tasks, 1)
+	require.NotNil(t, tasks[0].Graft)
+	assert.Equal(t, "/data/media/movies/.clustarr/donors/u/monster.mka", tasks[0].Graft.Donor)
+	assert.Equal(t, "en", tasks[0].Graft.Language)
+	assert.Equal(t, "ja", tasks[0].Graft.Anchor)
+	assert.True(t, tasks[0].Graft.Default)
+	assert.Equal(t, "/data/media/movies/monster.mkv", tasks[0].Graft.Target)
+}

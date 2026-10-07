@@ -19,7 +19,9 @@ package transcodejob
 
 import (
 	"fmt"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"regexp"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -130,6 +132,9 @@ func applyDecision(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.Tra
 	if ev.StderrTail != "" {
 		st.StderrTail = tail(ev.StderrTail, maxStderrTail)
 	}
+	if ev.Graft != nil {
+		st.Graft = graftResult(st.Graft, *ev.Graft)
+	}
 	at := ev.At
 	if at.IsZero() {
 		at = now
@@ -203,4 +208,30 @@ func tail(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[len(r)-n:])
+}
+
+// graftResult is what a worker reported of a joined graft, as status.graft:
+// the AudioGraft and release it joined under, and the result.
+func graftResult(joined *transcodev1alpha1.GraftResult, res grafttask.Result) *transcodev1alpha1.GraftResult {
+	g := &transcodev1alpha1.GraftResult{
+		Phase: transcodev1alpha1.GraftFailed, Reason: res.Reason, Message: truncate(res.Message, maxMessage),
+		RateName: res.RateName, RateMicros: res.RateMicros, RateMarginMilli: res.RateMarginMilli,
+		CoveragePercent: res.CoveragePercent, ResidualMillis: res.ResidualMillis, Within80Percent: res.Within80Percent,
+		GraftTag: res.GraftTag,
+	}
+	if res.Phase == grafttask.PhaseSucceeded {
+		g.Phase = transcodev1alpha1.GraftSucceeded
+	}
+	if joined != nil {
+		g.AudioGraft, g.Release = joined.AudioGraft, joined.Release
+	} else if _, name, ok := strings.Cut(res.Graft, "/"); ok {
+		g.AudioGraft = name
+	}
+	for i, s := range res.Segments {
+		if i == 16 {
+			break
+		}
+		g.Segments = append(g.Segments, transcodev1alpha1.AudioGraftSegment(s))
+	}
+	return g
 }

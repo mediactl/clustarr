@@ -30,6 +30,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/app/squash/worker"
@@ -183,6 +184,12 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	if buildErr != nil {
 		return fmt.Errorf("transcodejob: build task: %w", buildErr)
 	}
+	// The item's audio graft rides along when it can (phase 4 addendum):
+	// one pass, one rewrite of the file.
+	joined, err := r.joinGraft(ctx, &tj, &mf, folders.Items, &t)
+	if err != nil {
+		return err
+	}
 
 	// The finalizer is added before publishing (spec §8): once a task exists
 	// on the queue, deletion must withdraw it, never just vanish the object
@@ -259,10 +266,15 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 				r.recordPlan(tj, st, *replanned, tp.Spec.Container) // the plan the task was built from
 			}
 			markQueued(tj, st, attempt, class, pool.Name(k))
+			recordJoined(st, joined)
 			return true
 		}
-		if replanned != nil && tj.UID == uid && dispatched(st.Phase) && st.Attempts == attempt && st.Hardware == class {
-			markPlanned(tj, st, *replanned, tp.Spec.Container) // adopted first: the re-plan, and nothing else
+		if tj.UID == uid && dispatched(st.Phase) && st.Attempts == attempt && st.Hardware == class &&
+			(replanned != nil || (joined != nil && st.Graft == nil)) {
+			if replanned != nil {
+				markPlanned(tj, st, *replanned, tp.Spec.Container) // adopted first: the re-plan, and the join
+			}
+			recordJoined(st, joined)
 			adoptedFirst = true
 			return true
 		}
@@ -431,4 +443,36 @@ func (r *Reconciler) encoderLimits(ctx context.Context, tj *transcodev1alpha1.Tr
 type device struct {
 	tier   transcode.Tier
 	limits map[transcode.Tier]transcode.Limits
+}
+
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
+
+// joinGraft attaches the item's AudioGraft to t when it can ride along
+// (audiograft.JoinTask), and returns the status.graft that records it; nil
+// when nothing joins -- a graft already reported on this job (failed, so a
+// retry carries none) included.
+func (r *Reconciler) joinGraft(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, mf *catalogv1alpha1.MediaFile,
+	folders []catalogv1alpha1.RootFolder, t *task.Task,
+) (*transcodev1alpha1.GraftResult, error) {
+	if g := tj.Status.Graft; g != nil && g.Phase != transcodev1alpha1.GraftJoined {
+		return nil, nil
+	}
+	var g transcodev1alpha1.AudioGraft
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: k8s.AudioGraftName(mf.Spec.MediaRef.Name)}, &g); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	gt, ok := audiograft.JoinTask(&g, mf, folders)
+	if !ok {
+		return nil, nil
+	}
+	t.Graft = &gt
+	return &transcodev1alpha1.GraftResult{Phase: transcodev1alpha1.GraftJoined, AudioGraft: g.Name, Release: g.Spec.Release}, nil
+}
+
+// recordJoined records a joined graft in st, never over one already
+// reported.
+func recordJoined(st *transcodev1alpha1.TranscodeJobStatus, joined *transcodev1alpha1.GraftResult) {
+	if joined != nil && (st.Graft == nil || st.Graft.Phase == transcodev1alpha1.GraftJoined) {
+		st.Graft = joined
+	}
 }

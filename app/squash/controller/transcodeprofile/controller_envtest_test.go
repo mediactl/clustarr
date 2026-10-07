@@ -729,7 +729,7 @@ func TestAFileUnderAGraftIsNotPlanned(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, g))
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr, transcodeac.AudioGraft(g.Name, ns).WithStatus(
-		transcodeac.AudioGraftStatus().WithPhase(transcodev1alpha1.AudioGraftRunning).WithMediaFileRef(mf.Name)))
+		transcodeac.AudioGraftStatus().WithPhase(transcodev1alpha1.AudioGraftRunning).WithMediaFileRef(mf.Name).WithJobName("arrival-graft-job")))
 	require.NoError(t, err)
 
 	r := transcodeprofile.NewReconciler(c, k8s.MustNewScheme(), events.NewFakeRecorder(10))

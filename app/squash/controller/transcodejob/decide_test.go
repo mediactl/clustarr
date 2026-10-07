@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"strings"
 	"testing"
 	"time"
@@ -171,4 +172,22 @@ func TestApplyDecisionRequeue(t *testing.T) {
 	require.NotNil(t, st.NextAttemptAt)
 	assert.Equal(t, now.Add(15*time.Minute), st.NextAttemptAt.Time)
 	assert.Empty(t, st.FallbackReason)
+}
+
+// TestAWorkersGraftResultLandsInStatusGraft: the joined graft keeps the
+// AudioGraft and release it joined under and takes the worker's result; a
+// result for a join the dispatch write missed names its AudioGraft itself.
+func TestAWorkersGraftResultLandsInStatusGraft(t *testing.T) {
+	joined := &transcodev1alpha1.GraftResult{Phase: transcodev1alpha1.GraftJoined, AudioGraft: "monster-audiograft", Release: "r"}
+	got := graftResult(joined, grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted, GraftTag: "abc",
+		Segments: []grafttask.Segment{{LengthMillis: 5}}})
+	assert.Equal(t, transcodev1alpha1.GraftSucceeded, got.Phase)
+	assert.Equal(t, "monster-audiograft", got.AudioGraft)
+	assert.Equal(t, "r", got.Release)
+	assert.Equal(t, "abc", got.GraftTag)
+	assert.Len(t, got.Segments, 1)
+
+	stray := graftResult(nil, grafttask.Result{Graft: "ns/monster-audiograft", Phase: grafttask.PhaseFailed, Reason: grafttask.ReasonAlignmentRejected})
+	assert.Equal(t, transcodev1alpha1.GraftFailed, stray.Phase)
+	assert.Equal(t, "monster-audiograft", stray.AudioGraft)
 }

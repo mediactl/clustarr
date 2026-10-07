@@ -56,7 +56,7 @@ import (
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
+	"github.com/mediactl/clustarr/app/squash/graftstate"
 	squasharrstatus "github.com/mediactl/clustarr/app/squash/status"
 	"github.com/mediactl/clustarr/app/squash/task"
 	busevents "github.com/mediactl/clustarr/pkg/events"
@@ -184,9 +184,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	})
 	open := countOpen(jobList.Items, tp.Name)
 	busy := openFiles(jobList.Items, tp.Name, mfList.Items)
-	// A file an audio graft is rewriting is not planned meanwhile (anime
-	// dual-audio spec §7.2); its re-probe after the graft wakes it again.
-	grafting, err := audiograft.Grafting(ctx, r.Client)
+	// A file a standalone audio graft is rewriting is not planned meanwhile
+	// (anime dual-audio spec §7.2); its re-probe after the graft wakes it
+	// again. A graft waiting to ride along with this transcode is not held
+	// against it.
+	grafting, err := graftstate.Grafting(ctx, r.Client)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

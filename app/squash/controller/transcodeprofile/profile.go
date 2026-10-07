@@ -18,11 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeprofile
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -327,4 +329,20 @@ func validateProfile(tp *transcodev1alpha1.TranscodeProfile, all []transcodev1al
 		}
 	}
 	return false, "", ""
+}
+
+// WouldTranscode reports whether a TranscodeProfile will transcode mf: a
+// probed file of a kind a profile transcodes, which a profile selects and
+// which is not yet transcoded. An audio graft waits for such a transcode to
+// ride along with it rather than rewrite the file first.
+func WouldTranscode(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (bool, error) {
+	if !eligibleKind(mf.Spec.MediaRef.Kind) || !probed(mf) || mf.Transcoded() {
+		return false, nil
+	}
+	var l transcodev1alpha1.TranscodeProfileList
+	if err := c.List(ctx, &l); err != nil {
+		return false, fmt.Errorf("transcodeprofile: list TranscodeProfiles: %w", err)
+	}
+	winner := winningProfile(mf, l.Items, defaultWinner(l.Items))
+	return winner != nil && !alreadyTranscoded(mf, winner.Name), nil
 }
