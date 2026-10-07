@@ -92,8 +92,8 @@ func buildCluster(ctx context.Context) (client.Reader, func(context.Context) boo
 // already treats a nil reader as "project nothing"
 // (ui/projection/projection.go), the same as ui.Options.Entries being unset
 // ever meant.
-func buildProjection(ctx context.Context, reader client.Reader, history int) *projection.Projection {
-	proj := projection.New(reader, projection.DefaultInterval, projection.WithPipelineHistory(history))
+func buildProjection(ctx context.Context, reader client.Reader, history int, opts ...projection.Option) *projection.Projection {
+	proj := projection.New(reader, projection.DefaultInterval, append([]projection.Option{projection.WithPipelineHistory(history)}, opts...)...)
 	go func() {
 		if err := proj.Run(ctx); err != nil && ctx.Err() == nil {
 			log.FromContext(ctx).WithName("ui").Error(err, "pipeline projection loop stopped")

@@ -60,6 +60,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 				var f catalogv1.MediaFile
 				if s.getObject(ctx, types.NamespacedName{Namespace: item.Ref.Namespace, Name: *ref}, &f) {
 					d.Files, d.Extras = fileRows(m.Status.Path, &f)
+					d.SubtitlesPhase, d.Subtitles = subtitleRows(&f)
 				}
 			}
 		}
@@ -242,6 +243,12 @@ func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.E
 		}
 	}
 	row.Markers = markersLabel(f.Status.Markers)
+	if t := f.Status.Transcode; t != nil {
+		row.Transcode = string(t.Phase)
+		if t.Reason != "" {
+			row.Transcode += " " + t.Reason
+		}
+	}
 	var extras []views.ExtraRow
 	for _, sc := range f.Status.Sidecars {
 		e := views.ExtraRow{Path: rel(sc.Path), Kind: "Subtitle", Language: sc.Language}
@@ -254,6 +261,27 @@ func fileRows(folder string, f *catalogv1.MediaFile) ([]views.FileRow, []views.E
 		extras = append(extras, e)
 	}
 	return []views.FileRow{row}, extras
+}
+
+// subtitleRows is the file's status.subtitles: its phase, and one row per
+// language (loop spec §6.9). A file with no block yet has neither.
+func subtitleRows(f *catalogv1.MediaFile) (string, []views.SubtitleRow) {
+	st := f.Status.Subtitles
+	if st == nil {
+		return "", nil
+	}
+	rows := make([]views.SubtitleRow, 0, len(st.Items))
+	for _, it := range st.Items {
+		r := views.SubtitleRow{LangKey: it.LangKey, State: string(it.State), Provider: it.Provider, LastError: it.LastError}
+		if it.ScoreOutOf > 0 {
+			r.Score = fmt.Sprintf("%d/%d", it.Score, it.ScoreOutOf)
+		}
+		if it.NextSearchAt != nil {
+			r.NextSearch = it.NextSearchAt.UTC().Format("2006-01-02 15:04")
+		}
+		rows = append(rows, r)
+	}
+	return string(st.Phase), rows
 }
 
 // audioLabel is Radarr's "DTS - 5.1": the codec and the channel layout.

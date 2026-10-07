@@ -36,9 +36,9 @@ func (s Stage) Settled() bool {
 
 // Trim returns every in-flight entry, in the order given, followed by the
 // keep newest settled entries by Since, newest first. Failed and Blocked
-// entries are results like any other: on the owner's library 1,429
-// SubtitleRequests were Blocked, and pinning those would have kept the
-// page as long as it was before any trim. keep 0 or less keeps in-flight
+// entries are results like any other: on the owner's library 1,429 files'
+// subtitle searches were blocked (before ADR-0016), and pinning those would
+// have kept the page as long as it was before any trim. keep 0 or less keeps in-flight
 // entries only.
 func Trim(entries []Entry, keep int) []Entry {
 	var inFlight, settled []Entry

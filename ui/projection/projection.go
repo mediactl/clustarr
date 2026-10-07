@@ -34,13 +34,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
 	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
@@ -66,6 +65,9 @@ type Projection struct {
 	// history is how many settled pipeline entries a round keeps
 	// (pipeline.Trim); WithPipelineHistory sets it.
 	history int
+	// progress reads a running transcode's percent; WithTranscodeProgress
+	// sets it, and nil renders none.
+	progress TranscodeProgressFunc
 
 	// projected is set once the first round has completed; see Projected.
 	projected atomic.Bool
@@ -130,6 +132,15 @@ type Option func(*Projection)
 // (pipeline.Trim); 0 keeps in-flight entries only.
 func WithPipelineHistory(n int) Option {
 	return func(p *Projection) { p.history = n }
+}
+
+// TranscodeProgressFunc reads a MediaFile's running transcode progress from
+// clustarr-progress (internal/cli/ui binds it over the ui's read-only bus).
+type TranscodeProgressFunc func(ctx context.Context, mediaFile types.UID) (percent int32, ok bool, err error)
+
+// WithTranscodeProgress gives running transcodes their percent.
+func WithTranscodeProgress(f TranscodeProgressFunc) Option {
+	return func(p *Projection) { p.progress = f }
 }
 
 // Run computes the projection immediately and then, every interval, again
@@ -473,7 +484,6 @@ func watchedKinds() []client.Object {
 		&catalogv1.Album{}, &catalogv1.Artist{}, &catalogv1.Author{},
 		&catalogv1.Book{}, &catalogv1.Audiobook{}, &catalogv1.Comic{}, &catalogv1.Issue{},
 		&catalogv1.MediaFile{}, &catalogv1.Search{},
-		&transcodev1.TranscodeJob{}, &subtitlev1.SubtitleRequest{},
 		&catalogv1.LibraryScan{}, &catalogv1.ImportList{},
 	}
 }
@@ -544,6 +554,7 @@ func (p *Projection) project(
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
+	idx.progress = p.progress
 
 	items, err := p.listItems(ctx)
 	if err != nil {
@@ -553,7 +564,7 @@ func (p *Projection) project(
 	grabs := buildEntryIndex(items)
 	entries := make([]pipeline.Entry, 0, len(items))
 	for _, item := range items {
-		related := idx.Related(item.GetUID())
+		related := idx.Related(ctx, item)
 		related.Entries = grabs.entriesFor(item)
 		entries = append(entries, pipeline.Project(item, related))
 	}

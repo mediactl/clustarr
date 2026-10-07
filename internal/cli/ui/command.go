@@ -111,14 +111,14 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
-		reader, waitForSync, acts := buildCluster(ctx)
-		proj := buildProjection(ctx, reader, pipelineHistory)
 		signingKey, err := artSigningKey()
 		if err != nil {
 			return err
 		}
+		reader, waitForSync, acts := buildCluster(ctx)
 		b := buildBus(ctx, natsURL)
 		defer b.close()
+		proj := buildProjection(ctx, reader, pipelineHistory, projection.WithTranscodeProgress(b.transcode))
 		tracing := *to
 		tracing.ServiceName = "ui"
 		// Every cluster-derived field; cmd/ui's wiring test executes the

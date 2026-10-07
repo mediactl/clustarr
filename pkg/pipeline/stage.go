@@ -32,8 +32,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
 
 // Stage is a coarse, ordered position in the end-to-end flow from wanting an
@@ -45,7 +43,9 @@ import (
 // clustarr-design-amendment-1.md, §A3.3, lines 312-330).
 type Stage string
 
-// The 18 pipeline stages.
+// The 17 pipeline stages. The amendment's SubtitleFetching is gone: a
+// file's status.subtitles distinguishes searching from on disk, not a
+// chosen candidate still downloading (ADR-0016).
 const (
 	StageMetadataSearching Stage = "MetadataSearching"
 	StageMetadataFound     Stage = "MetadataFound"
@@ -58,7 +58,6 @@ const (
 	StageImported          Stage = "Imported"
 	StageSubtitleSearching Stage = "SubtitleSearching"
 	StageSubtitleFound     Stage = "SubtitleFound"
-	StageSubtitleFetching  Stage = "SubtitleFetching"
 	StageSubtitleDone      Stage = "SubtitleDone"
 	StageTranscoding       Stage = "Transcoding"
 	StageTranscodeDone     Stage = "TranscodeDone"
@@ -112,18 +111,17 @@ type Related struct {
 	// its Series' or Comic's entries covering it.
 	Entries []catalogv1.DownloadEntry
 
-	// Jobs are the TranscodeJobs for this item's MediaFile.
-	Jobs []transcodev1.TranscodeJob
-
-	// Subtitles are the SubtitleRequests for this item's MediaFile.
-	Subtitles []subtitlev1.SubtitleRequest
-
 	// Search is the active or most recent interactive Search for this item,
 	// if any.
 	Search *catalogv1.Search
 
-	// MediaFile is the file backing this item once it has been imported. It
-	// is nil until catalog's importer creates it; the import and
-	// transcode stages both read it.
+	// MediaFile is the item's file: the one its status.fileRef names, else
+	// the newest file whose spec.mediaRef names the item. It is nil until
+	// the import creates it. Its status.transcode and status.subtitles
+	// drive the post-processing stages (ADR-0016).
 	MediaFile *catalogv1.MediaFile
+
+	// TranscodePercent is a running transcode's progress from
+	// clustarr-progress; nil when unknown.
+	TranscodePercent *int32
 }

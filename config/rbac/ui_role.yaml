@@ -97,7 +97,6 @@ rules:
   resources:
   - subtitleprofiles
   - subtitleproviders
-  - subtitlerequests
   verbs:
   - get
   - list
@@ -105,7 +104,6 @@ rules:
 - apiGroups:
   - transcode.clustarr.io
   resources:
-  - transcodejobs
   - transcodeprofiles
   verbs:
   - get

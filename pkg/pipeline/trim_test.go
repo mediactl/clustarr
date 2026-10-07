@@ -45,7 +45,6 @@ func TestStageSettled(t *testing.T) {
 		pipeline.StageImported:          true,
 		pipeline.StageSubtitleSearching: false,
 		pipeline.StageSubtitleFound:     false,
-		pipeline.StageSubtitleFetching:  false,
 		pipeline.StageSubtitleDone:      true,
 		pipeline.StageTranscoding:       false,
 		pipeline.StageTranscodeDone:     true,

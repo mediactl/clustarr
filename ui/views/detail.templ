@@ -62,6 +62,14 @@ type FileRow struct {
 	Score        int32
 	// Markers are the file's skip segments from TheIntroDB, as text.
 	Markers string
+	// Transcode is the file's status.transcode phase, and its reason when
+	// it has one.
+	Transcode string
+}
+
+// SubtitleRow is one language of a file's status.subtitles.
+type SubtitleRow struct {
+	LangKey, State, Score, Provider, NextSearch, LastError string
 }
 
 // ExtraRow is one extra file beside the media file: a sidecar subtitle.
@@ -89,6 +97,10 @@ type Detail struct {
 	ShowFiles bool
 	Files     []FileRow
 	Extras    []ExtraRow
+	// SubtitlesPhase and Subtitles are the file's status.subtitles: its
+	// phase, and one row per language.
+	SubtitlesPhase string
+	Subtitles      []SubtitleRow
 	// CanScan is whether "Refresh & Scan" can scan a folder of the item's
 	// own: the kinds with a path under a RootFolder.
 	CanScan bool
@@ -110,6 +122,7 @@ templ LibraryDetail(d Detail) {
 		if d.ShowFiles {
 			@filesSection(d)
 			@extrasSection(d)
+			@subtitlesSection(d)
 		}
 		@titlesSection(d)
 	}
@@ -417,6 +430,7 @@ templ filesSection(d Detail) {
 							@table.Head() { { "Release Group" } }
 							@table.Head() { { "Formats" } }
 							@table.Head() { { "Markers" } }
+							@table.Head() { { "Transcode" } }
 							@table.Head(table.HeadProps{Class: "text-right"}) { { "Score" } }
 						}
 					}
@@ -448,6 +462,7 @@ templ filesSection(d Detail) {
 									</span>
 								}
 								@table.Cell(table.CellProps{Class: "text-xs text-muted-foreground"}) { { f.Markers } }
+								@table.Cell() { { f.Transcode } }
 								@table.Cell(table.CellProps{Class: "text-right"}) { { fmt.Sprint(f.Score) } }
 							}
 						}
@@ -491,6 +506,49 @@ templ extrasSection(d Detail) {
 			</div>
 		}
 	</section>
+}
+
+// subtitlesSection is the file's status.subtitles: the phase, then one row
+// per language (loop spec §6.9). Forcing a search is
+// `kubectl annotate mediafile <name> subtitle.clustarr.io/search=$(date +%s)`;
+// the ui offers no action for it (§9 D18).
+templ subtitlesSection(d Detail) {
+	if d.SubtitlesPhase != "" {
+		<section data-section="subtitles" class="mb-8">
+			@sectionTitle("Subtitles")
+			<p class="mb-2 text-sm">
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { d.SubtitlesPhase } }
+			</p>
+			if len(d.Subtitles) > 0 {
+				<div class="rounded-md border border-border bg-card">
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { { "Language" } }
+								@table.Head() { { "State" } }
+								@table.Head() { { "Score" } }
+								@table.Head() { { "Provider" } }
+								@table.Head() { { "Next search" } }
+								@table.Head() { { "Last error" } }
+							}
+						}
+						@table.Body() {
+							for _, s := range d.Subtitles {
+								@table.Row(table.RowProps{Attributes: templ.Attributes{"data-subtitle": s.LangKey}}) {
+									@table.Cell() { { s.LangKey } }
+									@table.Cell() { { s.State } }
+									@table.Cell() { { s.Score } }
+									@table.Cell() { { s.Provider } }
+									@table.Cell() { { s.NextSearch } }
+									@table.Cell(table.CellProps{Class: "max-w-md break-words whitespace-normal text-xs text-muted-foreground"}) { { s.LastError } }
+								}
+							}
+						}
+					}
+				</div>
+			}
+		</section>
+	}
 }
 
 // titlesSection is Radarr's Titles table: the alternative titles the

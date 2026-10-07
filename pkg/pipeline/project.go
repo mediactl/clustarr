@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package pipeline
 
 import (
+	"cmp"
+	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,8 +28,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s/conditions"
 )
 
@@ -60,9 +60,9 @@ func Project(item client.Object, related Related) Entry {
 }
 
 // settledAt is when a settled item reached its result: the newest activity
-// among its grab entries (grabbed, completed, imported), TranscodeJobs
-// (finished), SubtitleRequests (a subtitle written), MediaFile and Search
-// (created), or the item's own creation when it has none. The pipeline
+// among its grab entries (grabbed, completed, imported), its file's
+// transcode (finished) and subtitles (a subtitle written), the MediaFile and
+// Search (created), or the item's own creation when it has none. The pipeline
 // page orders its results by it (Trim), so an item added long ago and
 // imported yesterday reads as yesterday's result.
 func settledAt(item client.Object, related Related) time.Time {
@@ -80,12 +80,12 @@ func settledAt(item client.Object, related Related) time.Time {
 			seen(e.Import.ImportedAt)
 		}
 	}
-	for i := range related.Jobs {
-		seen(related.Jobs[i].Status.FinishedAt)
+	if t := transcodeOf(related); t != nil {
+		seen(t.FinishedAt)
 	}
-	for i := range related.Subtitles {
-		for j := range related.Subtitles[i].Status.Items {
-			seen(related.Subtitles[i].Status.Items[j].DownloadedAt)
+	if st := subtitlesOf(related); st != nil {
+		for i := range st.Items {
+			seen(st.Items[i].DownloadedAt)
 		}
 	}
 	if related.MediaFile != nil {
@@ -118,33 +118,25 @@ func project(item client.Object, related Related) Entry {
 	// a mess of repeated slice scans.
 	postProcessed := requiresPostProcessing(desc.kind)
 	failedDL := failedDownload(related)
-	failedTJ := failedJob(related)
 	blockedDL := blockedDownload(related)
-	blockedSR := blockedSubtitle(related)
-	runningTJ := activeJob(related)
-	fetchingSR := fetchingSubtitle(related)
-	foundSR := foundSubtitle(related)
-	searchingSR := searchingSubtitle(related)
 	importedDL := importedDownload(related)
 	importingDL := importingDownload(related)
 	downloadedDL := downloadedDownload(related)
 	downloadingDL := downloadingDownload(related)
 	imported := related.MediaFile != nil || importedDL != nil
-	satisfied := subtitlesSatisfied(related)
+	subsDone := subtitlesIs(related, catalogv1.SubtitlesPhaseSatisfied, catalogv1.SubtitlesPhaseNotWanted)
 	// complete requires imported, plus -- for a kind that goes through
-	// transcode and caption -- at least one SubtitleRequest fully
-	// satisfied and at least one TranscodeJob with none of them still doing
-	// work. Both branches require their resource to actually exist:
-	// caption creates a SubtitleRequest and transcode a TranscodeJob for
-	// every imported video MediaFile (even a TranscodeJob that ends up
-	// Skipped), so their absence means those controllers have not caught up
-	// yet, not that the work does not apply. Treating "no resource yet" as
-	// "nothing to do" would show Complete before those controllers have even
-	// run. A non-video kind (Album, Artist, Author, Book, Audiobook, Comic,
-	// Issue) never gets a SubtitleRequest or a TranscodeJob at all, so for
-	// those Complete is reached as soon as the item is imported. Failure and
-	// blocked states are already ruled out above.
-	complete := imported && (!postProcessed || (satisfied && len(related.Jobs) > 0 && runningTJ == nil))
+	// transcode and subtitles -- the file's subtitles satisfied or not
+	// wanted and its transcode settled (Succeeded, Skipped, or a file
+	// already final). Complete no longer needs a job or a request object
+	// (ADR-0016): a Succeeded block stays on the file, so retention no
+	// longer drops an item back to SubtitleDone. A video file with no
+	// blocks yet (unprobed, or waiting beyond the transcode window) is not
+	// complete. A non-video kind (Album, Artist, Author, Book, Audiobook,
+	// Comic, Issue) has neither block, so for those Complete is reached as
+	// soon as the item is imported. Failure and blocked states are already
+	// ruled out above.
+	complete := imported && (!postProcessed || (subsDone && transcodeSettled(related)))
 
 	switch {
 	case failedDL != nil:
@@ -155,9 +147,10 @@ func project(item client.Object, related Related) Entry {
 		}
 		return entry
 
-	case postProcessed && failedTJ != nil:
+	case postProcessed && transcodeIs(related, catalogv1.TranscodePhaseFailed):
+		t := transcodeOf(related)
 		entry.Stage = StageFailed
-		entry.Failure = failedTJ.Status.Message
+		entry.Failure = cmp.Or(t.Message, t.Reason)
 		return entry
 
 	case blockedDL != nil:
@@ -172,9 +165,9 @@ func project(item client.Object, related Related) Entry {
 		}
 		return entry
 
-	case postProcessed && blockedSR != nil:
+	case postProcessed && subtitlesIs(related, catalogv1.SubtitlesPhaseBlocked):
 		entry.Stage = StageBlocked
-		entry.Failure = "subtitle search blocked"
+		entry.Failure = "subtitles: " + subtitlesOf(related).Reason
 		return entry
 
 	case complete:
@@ -182,38 +175,35 @@ func project(item client.Object, related Related) Entry {
 		entry.Percent = 100
 		return entry
 
-	case postProcessed && runningTJ != nil:
+	case postProcessed && transcodeIs(related, catalogv1.TranscodePhaseQueued, catalogv1.TranscodePhaseRunning):
+		t := transcodeOf(related)
 		entry.Stage = StageTranscoding
-		if runningTJ.Status.Progress != nil {
-			entry.Percent = runningTJ.Status.Progress.Percent
+		if related.TranscodePercent != nil {
+			entry.Percent = *related.TranscodePercent
 		}
-		if runningTJ.Status.Plan != nil {
-			entry.Detail = runningTJ.Status.Plan.Encoder
+		if t.Plan != nil {
+			entry.Detail = t.Plan.Encoder
 		}
-		if runningTJ.Status.StartedAt != nil {
-			entry.Since = runningTJ.Status.StartedAt.Time
+		if t.StartedAt != nil {
+			entry.Since = t.StartedAt.Time
 		}
 		return entry
 
-	case postProcessed && len(related.Jobs) > 0:
+	case postProcessed && transcodeDone(related):
 		entry.Stage = StageTranscodeDone
 		entry.Percent = 100
 		return entry
 
-	case postProcessed && satisfied:
+	case postProcessed && subsDone:
 		entry.Stage = StageSubtitleDone
 		entry.Percent = 100
 		return entry
 
-	case postProcessed && fetchingSR != nil:
-		entry.Stage = StageSubtitleFetching
-		return entry
-
-	case postProcessed && foundSR != nil:
+	case postProcessed && subtitleOnDisk(related):
 		entry.Stage = StageSubtitleFound
 		return entry
 
-	case postProcessed && searchingSR != nil:
+	case postProcessed && subtitlesIs(related, catalogv1.SubtitlesPhaseWanted, catalogv1.SubtitlesPhaseSearching):
 		entry.Stage = StageSubtitleSearching
 		return entry
 
@@ -299,15 +289,6 @@ func failedDownload(related Related) *catalogv1.DownloadEntry {
 	return nil
 }
 
-func failedJob(related Related) *transcodev1.TranscodeJob {
-	for i := range related.Jobs {
-		if related.Jobs[i].Status.Phase == transcodev1.TranscodeJobPhaseFailed {
-			return &related.Jobs[i]
-		}
-	}
-	return nil
-}
-
 // blockedDownload is a blocklisted grab, or one whose import waits for a
 // person (held) or was refused as the release's fault (blocked).
 func blockedDownload(related Related) *catalogv1.DownloadEntry {
@@ -323,105 +304,71 @@ func blockedDownload(related Related) *catalogv1.DownloadEntry {
 	return nil
 }
 
-func blockedSubtitle(related Related) *subtitlev1.SubtitleRequest {
-	for i := range related.Subtitles {
-		if related.Subtitles[i].Status.Phase == subtitlev1.SubtitleRequestPhaseBlocked {
-			return &related.Subtitles[i]
-		}
+// --- the file's transcode and subtitles (MediaFile status, ADR-0016) ------------
+
+func transcodeOf(r Related) *catalogv1.TranscodeState {
+	if r.MediaFile == nil {
+		return nil
 	}
-	return nil
+	return r.MediaFile.Status.Transcode
 }
 
-// --- transcode -----------------------------------------------------------------
-
-// activeJob returns the first TranscodeJob still doing work, if any.
-func activeJob(related Related) *transcodev1.TranscodeJob {
-	for i := range related.Jobs {
-		switch related.Jobs[i].Status.Phase {
-		case transcodev1.TranscodeJobPhasePending,
-			transcodev1.TranscodeJobPhasePlanned,
-			transcodev1.TranscodeJobPhaseQueued,
-			transcodev1.TranscodeJobPhaseRunning,
-			transcodev1.TranscodeJobPhaseVerifying:
-			return &related.Jobs[i]
-		}
+func subtitlesOf(r Related) *catalogv1.SubtitlesStatus {
+	if r.MediaFile == nil {
+		return nil
 	}
-	return nil
+	return r.MediaFile.Status.Subtitles
 }
 
-// --- subtitles -----------------------------------------------------------------
+func transcodeIs(r Related, phases ...catalogv1.TranscodePhase) bool {
+	t := transcodeOf(r)
+	return t != nil && slices.Contains(phases, t.Phase)
+}
 
-// subtitlesSatisfied reports whether every related SubtitleRequest has
-// reached SubtitleRequestPhaseSatisfied. An item with no SubtitleRequest at
-// all is not considered satisfied by this helper -- callers that want to
-// treat "no subtitles wanted" as done check len(related.Subtitles) too.
-func subtitlesSatisfied(related Related) bool {
-	if len(related.Subtitles) == 0 {
+// incorporated reports a phase-less block carrying a profileTag: the file
+// was transcoded before the loop wrote phases, which reads as Succeeded
+// (loop spec §2.5).
+func incorporated(r Related) bool {
+	t := transcodeOf(r)
+	return t != nil && t.Phase == "" && t.ProfileTag != ""
+}
+
+// transcodeDone: swapped, incorporated, or a file that is final.
+func transcodeDone(r Related) bool {
+	if transcodeIs(r, catalogv1.TranscodePhaseSwapping, catalogv1.TranscodePhaseSucceeded) || incorporated(r) {
+		return true
+	}
+	return r.MediaFile != nil && r.MediaFile.Transcoded()
+}
+
+// transcodeSettled: the file's transcode is over -- Succeeded (or an
+// incorporated phase-less block), Skipped, or the file is already final.
+// A video file with no block yet (no profile won it, or it waits in the
+// backlog beyond the window) is not settled.
+func transcodeSettled(r Related) bool {
+	if transcodeIs(r, catalogv1.TranscodePhaseSucceeded, catalogv1.TranscodePhaseSkipped) || incorporated(r) {
+		return true
+	}
+	return r.MediaFile != nil && r.MediaFile.Transcoded()
+}
+
+func subtitlesIs(r Related, phases ...catalogv1.SubtitlesPhase) bool {
+	s := subtitlesOf(r)
+	return s != nil && slices.Contains(phases, s.Phase)
+}
+
+// subtitleOnDisk: a language is on disk (downloaded, or downloaded but below
+// the cutoff) while the file's subtitles are not yet satisfied.
+func subtitleOnDisk(r Related) bool {
+	if !subtitlesIs(r, catalogv1.SubtitlesPhaseWanted, catalogv1.SubtitlesPhaseSearching) {
 		return false
 	}
-	for i := range related.Subtitles {
-		if related.Subtitles[i].Status.Phase != subtitlev1.SubtitleRequestPhaseSatisfied {
-			return false
+	for _, it := range subtitlesOf(r).Items {
+		if it.State == catalogv1.SubtitleStateDownloaded || it.State == catalogv1.SubtitleStateUpgradable {
+			return true
 		}
 	}
-	return true
-}
-
-// fetchingSubtitle returns a SubtitleRequest that is actively downloading a
-// chosen candidate.
-//
-// SubtitleRequestPhase has no distinct "fetching" value (only Wanted,
-// Searching, Satisfied and Blocked), so this is derived from the per-language
-// SubtitleItem: phase Searching plus an item that has already picked a
-// candidate (Provider or SubtitleID set) but has not written DownloadedAt
-// yet. That is the one moment the API can distinguish "still probing
-// providers" from "grabbing the file it already chose".
-func fetchingSubtitle(related Related) *subtitlev1.SubtitleRequest {
-	for i := range related.Subtitles {
-		s := &related.Subtitles[i]
-		if s.Status.Phase != subtitlev1.SubtitleRequestPhaseSearching {
-			continue
-		}
-		for _, it := range s.Status.Items {
-			if (it.Provider != "" || it.SubtitleID != "") && it.DownloadedAt == nil {
-				return s
-			}
-		}
-	}
-	return nil
-}
-
-// foundSubtitle returns a SubtitleRequest that already has a subtitle on
-// disk for at least one language (downloaded, or downloaded-but-below-cutoff)
-// while the request as a whole is not yet Satisfied. There is no explicit
-// "found" phase on SubtitleRequest either; this reuses the per-language item
-// state the same way fetchingSubtitle does.
-func foundSubtitle(related Related) *subtitlev1.SubtitleRequest {
-	for i := range related.Subtitles {
-		s := &related.Subtitles[i]
-		if s.Status.Phase == subtitlev1.SubtitleRequestPhaseSatisfied {
-			continue
-		}
-		for _, it := range s.Status.Items {
-			if it.State == subtitlev1.SubtitleItemDownloaded || it.State == subtitlev1.SubtitleItemUpgradable {
-				return s
-			}
-		}
-	}
-	return nil
-}
-
-// searchingSubtitle returns a SubtitleRequest that is wanted or actively
-// searching with nothing found yet -- the fallback subtitle state once
-// fetchingSubtitle and foundSubtitle have both ruled themselves out.
-func searchingSubtitle(related Related) *subtitlev1.SubtitleRequest {
-	for i := range related.Subtitles {
-		s := &related.Subtitles[i]
-		if s.Status.Phase == subtitlev1.SubtitleRequestPhaseWanted || s.Status.Phase == subtitlev1.SubtitleRequestPhaseSearching {
-			return s
-		}
-	}
-	return nil
+	return false
 }
 
 // --- download and import --------------------------------------------------------

@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // buildBus connects a bus under ui's own service name and returns the
@@ -132,6 +133,25 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		}
 		return p, true, nil
 	}
+	// A running transcode's percent (loop spec §7.7): the transcode
+	// worker's 1 Hz record, keyed "transcode.<mediafile-uid>" as
+	// app/transcode/worker.ProgressKey builds it.
+	transcode := func(ctx context.Context, uid types.UID) (int32, bool, error) {
+		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
+		defer cancel()
+		e, err := progressKV.Get(ctx, "transcode."+events.KVKeyToken(string(uid)))
+		if errors.Is(err, events.ErrKeyNotFound) {
+			return 0, false, nil
+		}
+		if err != nil {
+			return 0, false, err
+		}
+		var p schema.TranscodeProgress
+		if err := json.Unmarshal(e.Value, &p); err != nil {
+			return 0, false, err
+		}
+		return p.PercentMilli / 1000, true, nil
+	}
 	importsKV := bus.KV(events.BucketImports)
 	importDetail := func(ctx context.Context, entryUID, phase string) (schema.ImportRecord, bool, error) {
 		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
@@ -150,13 +170,14 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		return rec, true, nil
 	}
 	return uiBus{
-		artwork:  bus.ObjectStore(events.BucketArtwork),
-		search:   search,
-		extended: extendedRead,
-		extras:   extras,
-		progress: progress,
-		imports:  importDetail,
-		close:    nc.Close,
+		artwork:   bus.ObjectStore(events.BucketArtwork),
+		search:    search,
+		extended:  extendedRead,
+		extras:    extras,
+		progress:  progress,
+		transcode: transcode,
+		imports:   importDetail,
+		close:     nc.Close,
 	}
 }
 
@@ -170,7 +191,7 @@ const busReadTimeout = 2 * time.Second
 const plexExtrasTimeout = 30 * time.Second
 
 // uiBus is what buildBus binds over ui's own bus connection: the artwork
-// store and three closures, each a read or one request, so ui never holds
+// store and closures, each a read or one request, so ui never holds
 // a handle it could write through or ask anything else with.
 type uiBus struct {
 	artwork  events.ObjectStore
@@ -183,6 +204,9 @@ type uiBus struct {
 	// import records.
 	progress func(ctx context.Context, entryUID string) (schema.DownloadProgress, bool, error)
 	imports  func(ctx context.Context, entryUID, phase string) (schema.ImportRecord, bool, error)
+	// transcode reads a MediaFile's running transcode percent from
+	// clustarr-progress, for the pipeline projection.
+	transcode projection.TranscodeProgressFunc
 	// close drains the connection; never nil.
 	close func()
 }

@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,81 +34,68 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
 
 // relatedIndex buckets every resource pipeline.Project needs beyond the
-// catalog item itself, keyed by the owning object's UID rather than any
-// Name or Kind field. A Name match is a guess: names can be reused once an
-// object is deleted and recreated, and nothing stops a stale reference from
-// silently resolving to the wrong, newer object. A metav1.OwnerReference's
-// UID cannot: UID is unique for the life of the cluster, so a deleted
-// owner's UID never resolves to a different object -- it just stops
-// resolving, which is the correct outcome.
+// catalog item itself.
 //
 // Searches are owned directly by the catalog item they target
 // (app/catalog/controller/search calls k8s.OwnerReferenceAC against the
-// resolved item), and that owner reference is what this index reads. Grabs
-// are no objects of their own (ADR-0019 §6.2): each item's entries are read
-// off the items themselves (entryIndex).
-// TranscodeJobs and SubtitleRequests are owned by the MediaFile they act on
-// (per their doc comments and pkg/pipeline.Related's own field docs), not by
-// the catalog item directly, so resolving one to a pipeline row goes through
-// mediaFileOwner: a TranscodeJob's or SubtitleRequest's owner UID looks up
-// which MediaFile owns it, and mediaFileOwner in turn maps that MediaFile's
-// own owner UID to the catalog item.
+// resolved item), and that owner reference is what this index reads: a
+// metav1.OwnerReference's UID cannot resolve to a newer object that reused
+// a deleted one's name. Grabs are no objects of their own (ADR-0019 §6.2):
+// each item's entries are read off the items themselves (entryIndex).
 //
-// As of this task, import's MediaFile writer (app/import/worker/rescan)
-// sets no OwnerReference on the MediaFiles it creates -- it links back only
-// through the Name-based spec.mediaRef, which this index deliberately does
-// not consult, for the same reason Download's Target field is not consulted
-// either. Until a later phase sets that reference (and the TranscodeJob and
-// SubtitleRequest references transcode and caption do not exist yet to
-// set), every bucket past downloads and searches stays empty and every
-// pipeline row simply does not advance past the stages that do not need
-// them. The moment those controllers start setting the owner reference,
-// this index starts filling in with no changes here.
+// MediaFiles are bucketed by spec.mediaRef instead (loop spec §7.7): no
+// production MediaFile carries an owner reference -- the import links a
+// file to its item only through spec.mediaRef -- so an owner-keyed bucket
+// was always empty and no pipeline row ever advanced past Imported. A file
+// is the item's by name, in the item's namespace; Related prefers the file
+// the item's status.fileRef names, which the item's own reconciler wrote.
+// The file's status.transcode and status.subtitles carry what the per-file
+// objects ADR-0016 folded into it used to.
 type relatedIndex struct {
-	searches  map[types.UID][]catalogv1.Search
-	jobs      map[types.UID][]transcodev1.TranscodeJob
-	subtitles map[types.UID][]subtitlev1.SubtitleRequest
+	searches map[types.UID][]catalogv1.Search
 
-	mediaFiles map[types.UID]*catalogv1.MediaFile
+	// files buckets every MediaFile under each item its spec.mediaRef names,
+	// "<namespace>/<kind>/<name>" for mediaRef.name and every mediaRef.keys
+	// entry, so a multi-episode file belongs to each of its Episodes.
+	files  map[string][]*catalogv1.MediaFile
+	byName map[types.NamespacedName]*catalogv1.MediaFile
 
-	// mediaFileOwner maps a MediaFile's own UID to whichever catalog item's
-	// UID owns it, so jobs and subtitles -- owned by the MediaFile, not the
-	// catalog item -- can be re-bucketed under the item a pipeline row is
-	// rendered for.
-	mediaFileOwner map[types.UID]types.UID
+	// progress reads a running transcode's percent; nil renders none.
+	progress TranscodeProgressFunc
 }
 
-// buildRelatedIndex lists TranscodeJob, SubtitleRequest, Search and
-// MediaFile once each -- four List calls total, whatever the catalogue's
-// size or the number of open SSE connections -- and buckets every item by
-// its owning object's UID.
+// buildRelatedIndex lists Search and MediaFile once each -- two List calls
+// total, whatever the catalogue's size or the number of open SSE
+// connections -- and buckets searches by their owning item's UID and files
+// by the items their spec.mediaRef names.
 func buildRelatedIndex(ctx context.Context, r client.Reader, opts ...client.ListOption) (*relatedIndex, error) {
 	idx := &relatedIndex{
-		searches:       map[types.UID][]catalogv1.Search{},
-		jobs:           map[types.UID][]transcodev1.TranscodeJob{},
-		subtitles:      map[types.UID][]subtitlev1.SubtitleRequest{},
-		mediaFiles:     map[types.UID]*catalogv1.MediaFile{},
-		mediaFileOwner: map[types.UID]types.UID{},
+		searches: map[types.UID][]catalogv1.Search{},
+		files:    map[string][]*catalogv1.MediaFile{},
+		byName:   map[types.NamespacedName]*catalogv1.MediaFile{},
 	}
 
-	// MediaFile is listed first: jobs and subtitles below need
-	// mediaFileOwner populated before they can resolve through it.
 	var mediaFiles catalogv1.MediaFileList
 	if err := r.List(ctx, &mediaFiles, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list media files: %w", err)
 	}
 	for i := range mediaFiles.Items {
 		mf := &mediaFiles.Items[i]
-		if owner, ok := controllingOwnerUID(mf); ok {
-			idx.mediaFiles[owner] = mf
-			idx.mediaFileOwner[mf.UID] = owner
+		idx.byName[types.NamespacedName{Namespace: mf.Namespace, Name: mf.Name}] = mf
+		ref := mf.Spec.MediaRef
+		if ref.Name == "" {
+			continue
+		}
+		idx.files[itemKey(mf.Namespace, ref.Kind, ref.Name)] = append(idx.files[itemKey(mf.Namespace, ref.Kind, ref.Name)], mf)
+		for _, k := range ref.Keys {
+			if k != "" && k != ref.Name {
+				idx.files[itemKey(mf.Namespace, ref.Kind, k)] = append(idx.files[itemKey(mf.Namespace, ref.Kind, k)], mf)
+			}
 		}
 	}
 
@@ -118,30 +106,6 @@ func buildRelatedIndex(ctx context.Context, r client.Reader, opts ...client.List
 	for i := range searches.Items {
 		if owner, ok := controllingOwnerUID(&searches.Items[i]); ok {
 			idx.searches[owner] = append(idx.searches[owner], searches.Items[i])
-		}
-	}
-
-	var jobs transcodev1.TranscodeJobList
-	if err := r.List(ctx, &jobs, opts...); err != nil {
-		return nil, fmt.Errorf("projection: list transcode jobs: %w", err)
-	}
-	for i := range jobs.Items {
-		if mfOwner, ok := controllingOwnerUID(&jobs.Items[i]); ok {
-			if item, ok := idx.mediaFileOwner[mfOwner]; ok {
-				idx.jobs[item] = append(idx.jobs[item], jobs.Items[i])
-			}
-		}
-	}
-
-	var subs subtitlev1.SubtitleRequestList
-	if err := r.List(ctx, &subs, opts...); err != nil {
-		return nil, fmt.Errorf("projection: list subtitle requests: %w", err)
-	}
-	for i := range subs.Items {
-		if mfOwner, ok := controllingOwnerUID(&subs.Items[i]); ok {
-			if item, ok := idx.mediaFileOwner[mfOwner]; ok {
-				idx.subtitles[item] = append(idx.subtitles[item], subs.Items[i])
-			}
 		}
 	}
 
@@ -165,18 +129,65 @@ func controllingOwnerUID(obj metav1.Object) (types.UID, bool) {
 	return refs[0].UID, true
 }
 
+// progressTimeout bounds one transcode-progress read.
+const progressTimeout = 2 * time.Second
+
 // Related returns the Related bundle buildRelatedIndex has for the catalog
-// item with the given UID: everything pipeline.Project needs beyond the
-// item itself. A UID this index has no data for (nothing owned by it, or
-// the item itself has no related resources) returns the zero Related,
-// exactly as pipeline.Project already treats "nothing to report".
-func (idx *relatedIndex) Related(uid types.UID) pipeline.Related {
-	return pipeline.Related{
-		Jobs:      idx.jobs[uid],
-		Subtitles: idx.subtitles[uid],
-		Search:    latestSearch(idx.searches[uid]),
-		MediaFile: idx.mediaFiles[uid],
+// item: everything pipeline.Project needs beyond the item itself and its
+// grab entries. An item this index has no data for returns the zero
+// Related, exactly as pipeline.Project already treats "nothing to report".
+// A running transcode's percent is read from clustarr-progress under
+// progressTimeout; a failed read renders no percent.
+func (idx *relatedIndex) Related(ctx context.Context, item client.Object) pipeline.Related {
+	r := pipeline.Related{Search: latestSearch(idx.searches[item.GetUID()]), MediaFile: idx.fileOf(item)}
+	if mf := r.MediaFile; mf != nil && idx.progress != nil && mf.Status.Transcode != nil &&
+		mf.Status.Transcode.Phase == catalogv1.TranscodePhaseRunning {
+		pctx, cancel := context.WithTimeout(ctx, progressTimeout)
+		if pct, ok, err := idx.progress(pctx, mf.UID); err == nil && ok {
+			r.TranscodePercent = &pct
+		}
+		cancel()
 	}
+	return r
+}
+
+func itemKey(ns string, kind commonv1.MediaKind, name string) string {
+	return ns + "/" + string(kind) + "/" + name
+}
+
+// fileOf is the file status.fileRef names (Movie, Episode, Book, Issue),
+// else the newest file bucketed under the item.
+func (idx *relatedIndex) fileOf(item client.Object) *catalogv1.MediaFile {
+	var kind commonv1.MediaKind
+	var ref *string
+	switch o := item.(type) {
+	case *catalogv1.Movie:
+		kind, ref = commonv1.MediaKindMovie, o.Status.FileRef
+	case *catalogv1.Episode:
+		kind, ref = commonv1.MediaKindEpisode, o.Status.FileRef
+	case *catalogv1.Book:
+		kind, ref = commonv1.MediaKindBook, o.Status.FileRef
+	case *catalogv1.Issue:
+		kind, ref = commonv1.MediaKindIssue, o.Status.FileRef
+	case *catalogv1.Album:
+		kind = commonv1.MediaKindAlbum
+	case *catalogv1.Audiobook:
+		kind = commonv1.MediaKindAudiobook
+	default:
+		return nil
+	}
+	if ref != nil && *ref != "" {
+		if mf := idx.byName[types.NamespacedName{Namespace: item.GetNamespace(), Name: *ref}]; mf != nil {
+			return mf
+		}
+	}
+	var newest *catalogv1.MediaFile
+	for _, mf := range idx.files[itemKey(item.GetNamespace(), kind, item.GetName())] {
+		if newest == nil || mf.CreationTimestamp.After(newest.CreationTimestamp.Time) {
+			newest = mf
+		}
+	}
+	return newest
 }
 
 // latestSearch picks the Search Project should use when an item has more

@@ -31,8 +31,6 @@ import (
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
@@ -161,91 +159,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			want: pipeline.StageImported,
 		},
 
-		// --- subtitles --------------------------------------------------------
-		{
-			name:  "subtitle wanted, no search underway",
-			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
-			related: pipeline.Related{
-				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
-				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
-					Phase: subtitlev1.SubtitleRequestPhaseWanted,
-				}}},
-			},
-			want: pipeline.StageSubtitleSearching,
-		},
-		{
-			name:  "subtitle found on disk but request not yet satisfied",
-			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
-			related: pipeline.Related{
-				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
-				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
-					Phase: subtitlev1.SubtitleRequestPhaseSearching,
-					Items: []subtitlev1.SubtitleItem{{LangKey: "eng", State: subtitlev1.SubtitleItemUpgradable}},
-				}}},
-			},
-			want: pipeline.StageSubtitleFound,
-		},
-		{
-			name:  "subtitle candidate chosen and downloading",
-			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
-			related: pipeline.Related{
-				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
-				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
-					Phase: subtitlev1.SubtitleRequestPhaseSearching,
-					Items: []subtitlev1.SubtitleItem{{
-						LangKey:  "eng",
-						State:    subtitlev1.SubtitleItemSearching,
-						Provider: "opensubtitles",
-					}},
-				}}},
-			},
-			want: pipeline.StageSubtitleFetching,
-		},
-		{
-			name:  "subtitle satisfied, no transcode job",
-			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
-			related: pipeline.Related{
-				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
-				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
-					Phase: subtitlev1.SubtitleRequestPhaseSatisfied,
-				}}},
-			},
-			want: pipeline.StageSubtitleDone,
-		},
-
-		// --- transcode --------------------------------------------------------
-		{
-			name:  "transcode outranks a finished download",
-			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
-			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseCompleted}}},
-				Jobs:      []transcodev1.TranscodeJob{{Status: transcodev1.TranscodeJobStatus{Phase: transcodev1.TranscodeJobPhaseRunning}}},
-			},
-			want: pipeline.StageTranscoding,
-		},
-		{
-			name:  "transcode succeeded, no subtitle request",
-			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
-			related: pipeline.Related{
-				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
-				Jobs:      []transcodev1.TranscodeJob{{Status: transcodev1.TranscodeJobStatus{Phase: transcodev1.TranscodeJobPhaseSucceeded}}},
-			},
-			want: pipeline.StageTranscodeDone,
-		},
-
 		// --- complete, failed, blocked ------------------------------------------
-		{
-			name:  "imported, subtitled and transcoded",
-			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
-			related: pipeline.Related{
-				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
-				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
-					Phase: subtitlev1.SubtitleRequestPhaseSatisfied,
-				}}},
-				Jobs: []transcodev1.TranscodeJob{{Status: transcodev1.TranscodeJobStatus{Phase: transcodev1.TranscodeJobPhaseSucceeded}}},
-			},
-			want: pipeline.StageComplete,
-		},
 		{
 			name:  "failure wins over everything",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
@@ -276,7 +190,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 		pipeline.StageReleaseSearching, pipeline.StageReleaseSelected,
 		pipeline.StageDownloading, pipeline.StageDownloaded,
 		pipeline.StageImporting, pipeline.StageImported,
-		pipeline.StageSubtitleSearching, pipeline.StageSubtitleFound, pipeline.StageSubtitleFetching, pipeline.StageSubtitleDone,
+		pipeline.StageSubtitleSearching, pipeline.StageSubtitleFound, pipeline.StageSubtitleDone,
 		pipeline.StageTranscoding, pipeline.StageTranscodeDone,
 		pipeline.StageComplete, pipeline.StageFailed, pipeline.StageBlocked,
 	} {
@@ -338,23 +252,6 @@ func TestProjectNonVideoKindsCompleteOnImport(t *testing.T) {
 			require.EqualValues(t, 100, entry.Percent)
 		})
 	}
-}
-
-// TestProjectMovieWithNoTranscodeJobDoesNotReachComplete is the video-kind
-// counterpart of the fix above: a Movie (which does go through transcode)
-// must NOT report StageComplete just because it was imported and its
-// subtitles are satisfied -- it still needs a TranscodeJob to exist and be
-// terminal.
-func TestProjectMovieWithNoTranscodeJobDoesNotReachComplete(t *testing.T) {
-	movie := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
-	entry := pipeline.Project(movie, pipeline.Related{
-		MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
-		Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
-			Phase: subtitlev1.SubtitleRequestPhaseSatisfied,
-		}}},
-	})
-	require.NotEqual(t, pipeline.StageComplete, entry.Stage)
-	require.Equal(t, pipeline.StageSubtitleDone, entry.Stage)
 }
 
 func TestProjectFillsInTheCommonFields(t *testing.T) {
