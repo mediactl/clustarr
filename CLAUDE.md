@@ -550,8 +550,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   `make test` (or exporting the assets path) compiles the CEL rules against a real
   apiserver. A suite that finishes in milliseconds skipped.
 - **controller-gen v0.22.0's `applyconfiguration` generator ignores output rules**
-  — it writes next to the types regardless of `output:...:dir`. The Makefile
-  documents the workaround.
+  — it writes next to the types regardless of `output:...:dir`, at each group's
+  `+kubebuilder:ac:output:package` plus `<group>/<version>`, so it nests every
+  group under its own name. `make generate` runs `hack/flatten-applyconfiguration.sh`
+  afterwards, which moves each version up to `api/applyconfiguration/<group>/<version>`
+  and rewrites the imports. Do not point the groups at a shared output root: they
+  would share one `internal/internal.go`, the last group's schema would overwrite
+  the others', and `Extract*` would fail at runtime for every other group.
 - **Server-side apply replaces a field manager's ownership set on every apply —
   it does not merge.** Any field that manager previously sent and now omits is
   *released*, which reads as "reset to zero" on the object. This bit three

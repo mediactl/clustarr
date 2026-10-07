@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package download
 
 import (
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	internal "github.com/mediactl/clustarr/api/applyconfiguration/download/internal"
 	v1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

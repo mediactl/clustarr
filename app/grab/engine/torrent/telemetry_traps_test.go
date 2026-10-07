@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
+	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/status"
 	"github.com/mediactl/clustarr/pkg/download"

@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package catalog
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	internal "github.com/mediactl/clustarr/api/applyconfiguration/catalog/internal"
 	v1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

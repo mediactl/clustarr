@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
+	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
 	"github.com/mediactl/clustarr/pkg/download"

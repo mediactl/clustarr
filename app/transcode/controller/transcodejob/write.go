@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
+	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	transcodestatus "github.com/mediactl/clustarr/app/transcode/status"
 	"github.com/mediactl/clustarr/pkg/k8s"

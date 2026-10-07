@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package index
 
 import (
-	indexv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
+	indexv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	internal "github.com/mediactl/clustarr/api/applyconfiguration/index/internal"
 	v1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

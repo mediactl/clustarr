@@ -21,7 +21,7 @@ package transcode
 
 import (
 	internal "github.com/mediactl/clustarr/api/applyconfiguration/transcode/internal"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/transcode/v1alpha1"
 	v1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"

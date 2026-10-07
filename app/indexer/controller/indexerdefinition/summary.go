@@ -24,7 +24,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
+	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/cardigann"

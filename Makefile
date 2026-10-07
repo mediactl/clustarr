@@ -106,11 +106,16 @@ all: generate manifests build
 # output:applyconfiguration:dir flag is passed below (it is silently discarded).
 # Generation is opt-in per package via +kubebuilder:ac:generate=true and the
 # destination is set per group by +kubebuilder:ac:output:package, both in each
-# groupversion_info.go.
+# groupversion_info.go. The generator nests each group under its own name
+# (api/applyconfiguration/<group>/<group>/<version>); hack/flatten-applyconfiguration.sh
+# moves every version up to api/applyconfiguration/<group>/<version> and rewrites
+# the imports. A shared output root is no fix: the groups would share one
+# internal/internal.go and the last group's schema would overwrite the rest.
 .PHONY: generate
 generate: ## Generate DeepCopy and apply-configuration code.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="$(API_PATHS)"
 	$(CONTROLLER_GEN) applyconfiguration:headerFile="hack/boilerplate.go.txt" paths="$(API_PATHS)"
+	hack/flatten-applyconfiguration.sh
 
 # No templ binary is installed; `go run` against the version go.mod already
 # pins (v0.3.1020) generates the same *_templ.go it would, without adding a

@@ -31,7 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
+	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/blocklist"
 	"github.com/mediactl/clustarr/app/indexer/limits"

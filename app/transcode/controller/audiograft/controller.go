@@ -49,7 +49,7 @@ import (
 
 	controllerruntime "sigs.k8s.io/controller-runtime"
 
-	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
+	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"

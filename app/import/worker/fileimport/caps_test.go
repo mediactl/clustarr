@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
+	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 )
 
 // G2-4 found status.import written uncapped: 200 items and 1024 characters

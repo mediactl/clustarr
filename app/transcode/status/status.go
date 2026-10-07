@@ -105,7 +105,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
+	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )

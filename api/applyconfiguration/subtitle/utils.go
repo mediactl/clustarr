@@ -21,7 +21,7 @@ package subtitle
 
 import (
 	internal "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/internal"
-	subtitlev1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
+	subtitlev1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/v1alpha1"
 	v1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
