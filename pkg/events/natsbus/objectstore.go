@@ -26,6 +26,7 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -35,6 +36,24 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/internal/evqueue"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
+
+// defaultTopology is events.Default(), built once: the object store specs a
+// bus that never ensured a topology (an agent, markers) puts with.
+var defaultTopology = sync.OnceValue(events.Default)
+
+// objectStoreSpec is bucket's spec in the topology this bus ensured, else in
+// the default topology every agent awaits; the zero spec for a bucket in
+// neither.
+func (b *Bus) objectStoreSpec(bucket string) events.ObjectStoreSpec {
+	b.mu.Lock()
+	top := b.topology
+	b.mu.Unlock()
+	if spec, ok := top.ObjectStore(bucket); ok {
+		return spec
+	}
+	spec, _ := defaultTopology().ObjectStore(bucket)
+	return spec
+}
 
 // ObjectStore binds to bucket, created by Ensure. The binding is lazy and
 // cached, like KV's, so a bus created before Ensure still works.
@@ -175,20 +194,29 @@ func (o *objectHandle) Get(ctx context.Context, name string) (events.ObjectInfo,
 }
 
 // Put writes name unconditionally, reading r to completion. JetStream chunks
-// the object into stream messages under max_payload (128 KiB per chunk by
-// default), so an object far larger than the connection's max_payload still
-// round-trips whole. meta replaces the object's whole meta, headers and
-// metadata alike (research E3).
+// the object into stream messages under max_payload, so an object far larger
+// than the connection's max_payload still round-trips whole. The chunk size
+// is meta's override, else the store's ObjectStoreSpec.ChunkSize, else
+// nats.go's 128 KiB (ADR-0020 §5). meta replaces the object's whole meta,
+// headers and metadata alike (research E3).
 func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
 	meta events.ObjectMeta,
 ) (events.ObjectInfo, error) {
+	chunk, err := events.ObjectChunkSize(o.bus.objectStoreSpec(o.name), meta)
+	if err != nil {
+		return events.ObjectInfo{}, fmt.Errorf("natsbus: put %s/%s: %w", o.name, name, err)
+	}
 	store, err := o.resolve(ctx)
 	if err != nil {
 		return events.ObjectInfo{}, err
 	}
-	info, err := store.Put(ctx, jetstream.ObjectMeta{
+	jm := jetstream.ObjectMeta{
 		Name: name, Headers: mapToHeader(meta.Headers), Metadata: maps.Clone(meta.Metadata),
-	}, r)
+	}
+	if chunk > 0 {
+		jm.Opts = &jetstream.ObjectMetaOptions{ChunkSize: chunk}
+	}
+	info, err := store.Put(ctx, jm, r)
 	if err != nil {
 		return events.ObjectInfo{}, objectError("put", o.name, name, err)
 	}

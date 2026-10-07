@@ -40,6 +40,7 @@ import (
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/intake/advisory"
+	"github.com/mediactl/clustarr/app/maintenance"
 	"github.com/mediactl/clustarr/app/remediation"
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
 	"github.com/mediactl/clustarr/app/transcode/admission"
@@ -272,6 +273,12 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The object-store maintenance loop (ADR-0020 §5): leader-only, the
+	// orphan purge over every object store of the topology on the artwork
+	// reaper's cadence and grace.
+	if err := mgr.Add(objectStoreMaintenance(bus, o)); err != nil {
+		return nil, fmt.Errorf("manager: add the object-store maintenance loop: %w", err)
+	}
 	type step struct {
 		name string
 		add  func() error
@@ -364,6 +371,16 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 		names = append(names, s.name)
 	}
 	return names, nil
+}
+
+// objectStoreMaintenance is the manager's object-store maintenance loop
+// over o's topology; a bus that is not an ObjectStoreAdmin purges nothing.
+func objectStoreMaintenance(bus events.Bus, o Options) *maintenance.ObjectStores {
+	m := &maintenance.ObjectStores{Topology: o.BusTopology()}
+	if admin, ok := bus.(events.ObjectStoreAdmin); ok {
+		m.Admin = admin
+	}
+	return m
 }
 
 // transcodeOptions is the transcode manager's registration: its pools, the

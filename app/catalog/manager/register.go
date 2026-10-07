@@ -295,17 +295,16 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// 30-minute grace (artwork.DefaultReapGrace) covers the gateway's Puts
 	// from another process.
 	//
-	// It also purges the orphaned chunks two racing Puts leak, in the
-	// artwork and fingerprint buckets (Admin); a bus that is not an
-	// ObjectStoreAdmin purges nothing. Its status audit retired with
-	// ADR-0019 A5.2: the item keys render status.artwork and status.overlay
-	// from the bucket and repair what is missing on every pass.
+	// It purges no chunks itself (no Admin): the manager's maintenance loop
+	// (app/maintenance.ObjectStores) purges the orphaned chunks of every
+	// object store of the topology, this bucket included, on this
+	// reaper's cadence and grace (ADR-0020 §5). Its status audit retired
+	// with ADR-0019 A5.2: the item keys render status.artwork and
+	// status.overlay from the bucket and repair what is missing on every
+	// pass.
 	reaper := &artwork.Reaper{
 		Store:  bus.ObjectStore(events.BucketArtwork),
 		Client: mgr.GetAPIReader(),
-	}
-	if admin, ok := bus.(events.ObjectStoreAdmin); ok {
-		reaper.Admin = admin
 	}
 	if err := mgr.Add(reaper); err != nil {
 		return fmt.Errorf("catalog: add the artwork reaper: %w", err)

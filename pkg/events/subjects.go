@@ -182,6 +182,10 @@ const BucketSegments = "clustarr-segments"
 // "<probeHash>.start" and "<probeHash>.end".
 const ObjectStoreFingerprints = "clustarr-fingerprints"
 
+// ArtworkChunkSize is BucketArtwork's object chunk size: 1 MiB, so an image
+// of up to 3 MB is at most 3 chunks (ADR-0020 §5).
+const ArtworkChunkSize uint32 = 1 << 20
+
 // FingerprintsMaxBytes bounds ObjectStoreFingerprints: about 20 KB per
 // window, so room for some 25,000 files.
 const FingerprintsMaxBytes int64 = 1 * GiB

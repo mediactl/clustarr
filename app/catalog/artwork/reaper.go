@@ -95,13 +95,16 @@ type Reaper struct {
 	// Clock is the sweep's "now". Nil is the real clock.
 	Clock clockwork.Clock
 
-	// Admin purges orphaned chunks (PurgeOrphanChunks); nil purges none.
+	// Admin purges orphaned chunks through the shared events.PurgeOrphans;
+	// nil purges none. The manager passes none: its maintenance loop
+	// (app/maintenance.ObjectStores) purges every object store of the
+	// topology, this bucket included, on this reaper's cadence and grace
+	// (ADR-0020 §5).
 	Admin events.ObjectStoreAdmin
 	// Buckets are purged each sweep; nil is Store's own bucket (the
-	// artwork bucket, as Status names it) and events.ObjectStoreFingerprints.
-	// Only the registration packages name the artwork bucket
-	// (TestArtworkWritersAreTheTwoVariantOwners), so the default reads it
-	// off the store.
+	// artwork bucket, as Status names it). Only the registration packages
+	// name the artwork bucket (TestArtworkWritersAreTheTwoVariantOwners), so
+	// the default reads it off the store.
 	Buckets []string
 }
 
@@ -201,32 +204,28 @@ func (r *Reaper) Sweep(ctx context.Context) (deleted int, err error) {
 	return deleted, err
 }
 
-// purge runs PurgeOrphanChunks over Buckets with the reaper's grace, which
-// covers a Put in progress (its chunks precede its meta). own is Store's
-// bucket, "" when its status could not be read. A bucket this deployment
-// never created is skipped.
+// purge runs the shared orphan purge (events.PurgeOrphans) over Buckets
+// with the reaper's grace, which covers a Put in progress (its chunks
+// precede its meta). own is Store's bucket, "" when its status could not be
+// read. A bucket this deployment never created is skipped.
 func (r *Reaper) purge(ctx context.Context, own string, grace time.Duration) []error {
 	if r.Admin == nil {
 		return nil
 	}
 	buckets := r.Buckets
-	if len(buckets) == 0 {
-		buckets = []string{events.ObjectStoreFingerprints}
-		if own != "" {
-			buckets = append([]string{own}, buckets...)
+	if len(buckets) == 0 && own != "" {
+		buckets = []string{own}
+	}
+	purged, err := events.PurgeOrphans(ctx, r.Admin, buckets, grace)
+	for _, p := range purged {
+		if p.Subjects > 0 {
+			logging.FromContext(ctx).Info("artwork: purged orphaned chunks", "bucket", p.Bucket, "subjects", p.Subjects, "bytes", p.Bytes)
 		}
 	}
-	var errs []error
-	for _, b := range buckets {
-		n, freed, err := r.Admin.PurgeOrphanChunks(ctx, b, grace)
-		if err != nil && !errors.Is(err, events.ErrBucketNotFound) && !errors.Is(err, events.ErrStreamNotFound) {
-			errs = append(errs, fmt.Errorf("artwork: purge orphaned chunks of %s: %w", b, err))
-		}
-		if n > 0 {
-			logging.FromContext(ctx).Info("artwork: purged orphaned chunks", "bucket", b, "subjects", n, "bytes", freed)
-		}
+	if err != nil {
+		return []error{fmt.Errorf("artwork: %w", err)}
 	}
-	return errs
+	return nil
 }
 
 // parseKey reads "<kind>/<uid>/..." back out of an ArtworkKey, reporting

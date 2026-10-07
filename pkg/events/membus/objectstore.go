@@ -140,6 +140,14 @@ func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
 	if err != nil {
 		return events.ObjectInfo{}, err
 	}
+	// membus stores no chunks, but refuses the chunk size natsbus would
+	// (ADR-0020 §5).
+	b.mu.Lock()
+	spec := b.spec
+	b.mu.Unlock()
+	if _, err := events.ObjectChunkSize(spec, meta); err != nil {
+		return events.ObjectInfo{}, fmt.Errorf("membus: put %s/%s: %w", o.name, name, err)
+	}
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return events.ObjectInfo{}, fmt.Errorf("membus: put %s/%s: %w", o.name, name, err)

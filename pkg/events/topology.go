@@ -275,6 +275,30 @@ type ObjectStoreSpec struct {
 	// object metadata version its writers use (artwork design §B.2 as
 	// amended 2026-10-07) -- the scheme, not a claim the backfill finished.
 	Metadata map[string]string
+	// ChunkSize is the largest chunk a Put to the store writes, in bytes
+	// (jetstream.ObjectMetaOptions.ChunkSize on every Put); 0 is nats.go's
+	// default, 128 KiB. At most MaxObjectChunkSize, which Validate
+	// enforces. ObjectMeta.ChunkSize overrides it per object (ADR-0020 §5).
+	ChunkSize uint32
+}
+
+// MaxObjectChunkSize is the largest object-store chunk Validate admits: an
+// eighth of the servers' 8 MiB max_payload, so a chunk never approaches a
+// server limit (ADR-0020 §5).
+const MaxObjectChunkSize uint32 = 1 << 20
+
+// ObjectChunkSize is the chunk size a Put of meta to store writes: meta's
+// own override, else the store's, else 0 (nats.go's 128 KiB). An override
+// above MaxObjectChunkSize is refused, as Validate refuses a store's.
+func ObjectChunkSize(store ObjectStoreSpec, meta ObjectMeta) (uint32, error) {
+	if meta.ChunkSize > MaxObjectChunkSize {
+		return 0, fieldErr("ObjectMeta.ChunkSize",
+			fmt.Sprintf("%d is above MaxObjectChunkSize (%d)", meta.ChunkSize, MaxObjectChunkSize))
+	}
+	if meta.ChunkSize > 0 {
+		return meta.ChunkSize, nil
+	}
+	return min(store.ChunkSize, MaxObjectChunkSize), nil
 }
 
 // Topology is the full broker layout Clustarr expects: every stream, durable
@@ -345,6 +369,16 @@ func (t Topology) Stream(name string) (StreamSpec, bool) {
 		}
 	}
 	return StreamSpec{}, false
+}
+
+// ObjectStore returns the object store spec named name.
+func (t Topology) ObjectStore(name string) (ObjectStoreSpec, bool) {
+	for _, o := range t.ObjectStores {
+		if o.Name == name {
+			return o, true
+		}
+	}
+	return ObjectStoreSpec{}, false
 }
 
 // Consumer returns the named consumer spec.
@@ -647,6 +681,10 @@ func (t Topology) Validate() error {
 			errs = append(errs, fieldErr("ObjectStoreSpec.Name", "duplicate object store "+o.Name))
 		}
 		objectStores[o.Name] = true
+		if o.ChunkSize > MaxObjectChunkSize {
+			errs = append(errs, fieldErr(o.Name+".ChunkSize",
+				fmt.Sprintf("%d is above MaxObjectChunkSize (%d), an eighth of the 8 MiB max_payload", o.ChunkSize, MaxObjectChunkSize)))
+		}
 		for _, r := range o.Name {
 			if r == '.' {
 				errs = append(errs, fieldErr("ObjectStoreSpec.Name",
@@ -1166,6 +1204,9 @@ func defaultObjectStores() []ObjectStoreSpec {
 			Storage:     StorageFile,
 			MaxBytes:    ArtworkMaxBytes,
 			Replicas:    3,
+			// An image of up to 3 MB is at most 3 chunks (ADR-0020 §5);
+			// fingerprints, about 20 KB each, keep the default.
+			ChunkSize: ArtworkChunkSize,
 			Metadata: map[string]string{
 				BucketMetaKeyKeyScheme: ArtworkKeyScheme,
 				ArtworkMetaKeyVersion:  ArtworkMetaVersion,

@@ -571,6 +571,12 @@ type ObjectMeta struct {
 	// Metadata says whose bytes they are: the clustarr.io/* keys of the
 	// artwork design §B.2 as amended (ArtworkMetaKey* in subjects.go).
 	Metadata map[string]string
+
+	// ChunkSize, when non-zero, overrides the store's
+	// ObjectStoreSpec.ChunkSize for this Put (ADR-0020 §5); at most
+	// MaxObjectChunkSize. SetMeta ignores it: a chunk size is fixed when
+	// the bytes are written.
+	ChunkSize uint32
 }
 
 // ObjectEvent is one object-store watch delivery (artwork design §B.1 as
