@@ -32,90 +32,83 @@ import (
 // status.artwork: anything but the eight kinds spec §B.6 names.
 var ErrNoArtwork = errors.New("artwork: kind has no artwork")
 
-// item is what Sync and Drift read off any of the eight kinds.
-type item struct {
-	kind      commonv1.MediaKind
-	overrides []catalogv1alpha1.ArtworkOverride
-	images    []catalogv1alpha1.Image
-	entries   []catalogv1alpha1.ArtworkEntry
+// Item is what Drift, the gateway's Fetcher.Sync and its Pass read off any
+// of the eight kinds.
+type Item struct {
+	Kind      commonv1.MediaKind
+	Overrides []catalogv1alpha1.ArtworkOverride // spec.artwork
+	Images    []catalogv1alpha1.Image           // status.metadata.images, nil before the first metadata fetch
+	Entries   []catalogv1alpha1.ArtworkEntry    // status.artwork
 
-	// hasOverlay: status.overlay is set (Movie and Series only), so the
+	// HasOverlay: status.overlay is set (Movie and Series only), so the
 	// renderer has an overlay to clear if the poster goes.
-	hasOverlay bool
+	HasOverlay bool
 
-	// ratings are status.metadata.ratings (Movie and Series only): an input
+	// Ratings are status.metadata.ratings (Movie and Series only): an input
 	// of the overlay, so part of the render task's Msg-Id (RenderToken).
-	ratings []catalogv1alpha1.Rating
+	Ratings []catalogv1alpha1.Rating
 }
 
-// itemOf reads obj's artwork inputs: its kind, spec.artwork,
+// ItemOf reads obj's artwork inputs: its kind, spec.artwork,
 // status.metadata.images (nil before the first metadata fetch) and
 // status.artwork.
-func itemOf(obj client.Object) (item, error) {
+func ItemOf(obj client.Object) (Item, error) {
 	switch o := obj.(type) {
 	case *catalogv1alpha1.Movie:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindMovie, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images, it.Ratings = o.Status.Metadata.Images, o.Status.Metadata.Ratings
 		}
-		var ratings []catalogv1alpha1.Rating
-		if o.Status.Metadata != nil {
-			ratings = o.Status.Metadata.Ratings
-		}
-		return item{commonv1.MediaKindMovie, o.Spec.Artwork, imgs, o.Status.Artwork, o.Status.Overlay != nil, ratings}, nil
+		return it, nil
 	case *catalogv1alpha1.Series:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindSeries, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images, it.Ratings = o.Status.Metadata.Images, o.Status.Metadata.Ratings
 		}
-		var ratings []catalogv1alpha1.Rating
-		if o.Status.Metadata != nil {
-			ratings = o.Status.Metadata.Ratings
-		}
-		return item{commonv1.MediaKindSeries, o.Spec.Artwork, imgs, o.Status.Artwork, o.Status.Overlay != nil, ratings}, nil
+		return it, nil
 	case *catalogv1alpha1.Artist:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindArtist, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindArtist, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
+		return it, nil
 	case *catalogv1alpha1.Album:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindAlbum, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindAlbum, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
+		return it, nil
 	case *catalogv1alpha1.Author:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindAuthor, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindAuthor, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
+		return it, nil
 	case *catalogv1alpha1.Book:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindBook, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindBook, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
+		return it, nil
 	case *catalogv1alpha1.Audiobook:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindAudiobook, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindAudiobook, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
+		return it, nil
 	case *catalogv1alpha1.Comic:
-		var imgs []catalogv1alpha1.Image
+		it := Item{Kind: commonv1.MediaKindComic, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork}
 		if o.Status.Metadata != nil {
-			imgs = o.Status.Metadata.Images
+			it.Images = o.Status.Metadata.Images
 		}
-		return item{commonv1.MediaKindComic, o.Spec.Artwork, imgs, o.Status.Artwork, false, nil}, nil
+		return it, nil
 	default:
-		return item{}, fmt.Errorf("%w: %T", ErrNoArtwork, obj)
+		return Item{}, fmt.Errorf("%w: %T", ErrNoArtwork, obj)
 	}
 }
 
-// newObject returns an empty object of kind, ready for a Get.
-func newObject(kind commonv1.MediaKind) (client.Object, error) {
+// NewObject returns an empty object of kind, ready for a Get.
+func NewObject(kind commonv1.MediaKind) (client.Object, error) {
 	switch kind {
 	case commonv1.MediaKindMovie:
 		return &catalogv1alpha1.Movie{}, nil

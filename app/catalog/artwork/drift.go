@@ -64,9 +64,9 @@ func Drift(overrides []catalogv1alpha1.ArtworkOverride, images []catalogv1alpha1
 	entries []catalogv1alpha1.ArtworkEntry,
 ) (specHash string, drifted bool) {
 	sources := ResolveSources(overrides, images)
-	byType := index(entries)
+	byType := Index(entries)
 	h := sha256.New()
-	for _, t := range imageTypes {
+	for _, t := range ImageTypes {
 		src, ok := sources[t]
 		if !ok {
 			continue
@@ -100,14 +100,14 @@ func Drift(overrides []catalogv1alpha1.ArtworkOverride, images []catalogv1alpha1
 // kind must be obj's own kind; anything else, or an object with no artwork,
 // is an error rather than a guess.
 func PublishFetch(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind) error {
-	it, err := itemOf(obj)
+	it, err := ItemOf(obj)
 	if err != nil {
 		return err
 	}
-	if it.kind != kind {
+	if it.Kind != kind {
 		return fmt.Errorf("artwork: PublishFetch for kind %q given a %T", kind, obj)
 	}
-	specHash, drifted := Drift(it.overrides, it.images, it.entries)
+	specHash, drifted := Drift(it.Overrides, it.Images, it.Entries)
 	if !drifted {
 		return nil
 	}
@@ -159,11 +159,12 @@ func RenderToken(posterDigest string, ratings []catalogv1alpha1.Rating) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// publishRender publishes one RenderOverlay task (spec §B.4) under
+// PublishRender publishes one RenderOverlay task (spec §B.4) under
 // schema.MsgIDForRenderOverlay(uid, token) -- token being [RenderToken] of
-// the poster and ratings, or RenderNoPoster when the item has no poster
-// original. See Pass.publishRenders for when.
-func publishRender(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind, token string) error {
+// the poster and ratings, or app/catalog/metadata/artwork.RenderNoPoster
+// when the item has no poster original. The gateway's Pass publishes it
+// after every apply that landed.
+func PublishRender(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind, token string) error {
 	schemaName, data, err := schema.Encode(schema.RenderOverlayTask{
 		MediaRef: commonv1.MediaRef{Kind: kind, Name: obj.GetName()},
 		Reason:   "original",

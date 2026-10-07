@@ -30,7 +30,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -333,26 +333,4 @@ func TestPublishFetchRefusesAKindThatIsNotTheObjects(t *testing.T) {
 	require.Error(t, artwork.PublishFetch(ctx, bus, m, commonv1.MediaKindSeries))
 	require.Error(t, artwork.PublishFetch(ctx, bus, &catalogv1alpha1.Episode{}, commonv1.MediaKindEpisode),
 		"an Episode has no artwork of its own")
-}
-
-// Every manager's cache strips managedFields (pkg/k8s.ManagerOptions), so an
-// item read through one looks as if the gateway owned nothing: extracting
-// from it would apply artwork alone and release all of status.metadata.
-func TestExtractGatewayStatusRefusesAnObjectReadWithoutManagedFields(t *testing.T) {
-	stripped := &catalogv1alpha1.Movie{
-		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "films", UID: "u"},
-		Status:     catalogv1alpha1.MovieStatus{Metadata: &catalogv1alpha1.MovieMetadata{Title: "Heat"}},
-	}
-	_, err := artwork.ExtractGatewayStatus(stripped, nil)
-	require.ErrorIs(t, err, artwork.ErrNoManagedFields)
-}
-
-func TestPassWithoutAReaderPanicsWithAClearMessage(t *testing.T) {
-	assert.PanicsWithValue(t,
-		"artwork: Pass.Reader is required -- pass the uncached API reader (mgr.GetAPIReader()); "+
-			"the manager's cache lags this gateway's own writes and strips managedFields",
-		func() {
-			_ = artwork.Pass{}.Run(context.Background(), types.NamespacedName{Namespace: "n", Name: "x"},
-				commonv1.MediaKindMovie, nil, artwork.ExtractGatewayStatus)
-		})
 }

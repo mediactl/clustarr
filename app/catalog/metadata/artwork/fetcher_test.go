@@ -45,6 +45,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -219,21 +220,6 @@ func entryFor(entries []catalogv1alpha1.ArtworkEntry, t catalogv1alpha1.ImageTyp
 	return catalogv1alpha1.ArtworkEntry{}, false
 }
 
-func TestResolveSourcesCustomBeatsProvider(t *testing.T) {
-	got := artwork.ResolveSources(
-		[]catalogv1alpha1.ArtworkOverride{{Type: catalogv1alpha1.ImageTypePoster, URL: "https://example.org/mine.jpg"}},
-		[]catalogv1alpha1.Image{
-			{Type: catalogv1alpha1.ImageTypePoster, URL: "https://image.tmdb.org/first.jpg"},
-			{Type: catalogv1alpha1.ImageTypePoster, URL: "https://image.tmdb.org/second.jpg"},
-			{Type: catalogv1alpha1.ImageTypeFanart, URL: "https://image.tmdb.org/fanart-first.jpg"},
-			{Type: catalogv1alpha1.ImageTypeFanart, URL: "https://image.tmdb.org/fanart-second.jpg"},
-		})
-	assert.Equal(t, map[catalogv1alpha1.ImageType]artwork.Source{
-		catalogv1alpha1.ImageTypePoster: {URL: "https://example.org/mine.jpg", Kind: catalogv1alpha1.ArtworkSourceCustom},
-		catalogv1alpha1.ImageTypeFanart: {URL: "https://image.tmdb.org/fanart-first.jpg", Kind: catalogv1alpha1.ArtworkSourceProvider},
-	}, got, "the override wins its type; every other type takes the provider's first image of that type")
-}
-
 func TestSyncFetchesTheCustomURLNotTheProviderURL(t *testing.T) {
 	fx := newFixture(t)
 	provider := fx.srv.serve("/provider.png", "image/png", pngBytes(t, 4, 6, color.White))
@@ -344,7 +330,7 @@ func TestFetchOneReportsErrResponseTooLarge(t *testing.T) {
 	fx := newFixture(t)
 	bad := fx.srv.serve("/huge.png", "image/png", bytes.Repeat([]byte{0}, artwork.MaxImageBytes+1))
 	_, err := artwork.FetchOne(fx.f, fx.ctx, fx.key(catalogv1alpha1.ImageTypePoster), catalogv1alpha1.ImageTypePoster,
-		artwork.Source{URL: bad, Kind: catalogv1alpha1.ArtworkSourceProvider})
+		catalogartwork.Source{URL: bad, Kind: catalogv1alpha1.ArtworkSourceProvider})
 	require.ErrorIs(t, err, pkgmetadata.ErrResponseTooLarge)
 }
 

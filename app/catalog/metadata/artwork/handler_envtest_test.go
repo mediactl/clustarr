@@ -41,6 +41,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -192,7 +193,7 @@ func TestArtworkTaskReDeclaresOnlyWhatTheGatewayOwns(t *testing.T) {
 		assert.Equal(t, catalogv1alpha1.ArtworkSourceCustom, e.Source)
 		assert.Equal(t, customURL, e.SourceURL)
 		assert.Equal(t, digestOf(customBody), e.Digest)
-		_, drifted := artwork.Drift(got.Spec.Artwork, got.Status.Metadata.Images, got.Status.Artwork)
+		_, drifted := catalogartwork.Drift(got.Spec.Artwork, got.Status.Metadata.Images, got.Status.Artwork)
 		assert.False(t, drifted, "the pass clears the drift that triggered it")
 		assertMetadataIntactAndSplit(got)
 		assert.Empty(t, rec.Events)
@@ -257,40 +258,6 @@ func TestKeepAliveHeartbeatsUntilStopped(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 	assert.Equal(t, n, msg.inProgress.Load(), "no heartbeat after stop returns")
 	stop() // idempotent
-}
-
-// TestReaperAgainstARealAPIServer runs the reaper's metadata-only List
-// (PartialObjectMetadataList, uncached, paged) against a real apiserver,
-// which the fake client in reaper_test.go only imitates.
-func TestReaperAgainstARealAPIServer(t *testing.T) {
-	ctx := context.Background()
-	c := newEnvtestClient(t)
-	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "reap"}}))
-	live := &catalogv1alpha1.Movie{
-		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "reap"},
-		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "q", RootFolderRef: "r"},
-	}
-	require.NoError(t, c.Create(ctx, live))
-	book := &catalogv1alpha1.Book{
-		ObjectMeta: metav1.ObjectMeta{Name: "dune", Namespace: "reap"},
-		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL893415W"},
-	}
-	require.NoError(t, c.Create(ctx, book))
-
-	fx := newReapFixture(t)
-	keep := []string{
-		fx.put(t, commonv1.MediaKindMovie, live.UID, "poster", events.ArtworkVariantOriginal),
-		fx.put(t, commonv1.MediaKindMovie, live.UID, "poster", events.ArtworkVariantOverlay),
-		fx.put(t, commonv1.MediaKindBook, book.UID, "poster", events.ArtworkVariantOriginal),
-	}
-	fx.put(t, commonv1.MediaKindMovie, "deleted-long-ago", "fanart", events.ArtworkVariantOriginal)
-	fx.put(t, commonv1.MediaKindBook, live.UID, "poster", events.ArtworkVariantOriginal) // a Movie's UID under book/
-	fx.clock.Advance(grace + time.Minute)
-
-	deleted, err := fx.reaper(c).Sweep(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 2, deleted)
-	assert.ElementsMatch(t, keep, fx.names(t))
 }
 
 // renderCollector records every RenderOverlay task delivered on a bus.
@@ -411,7 +378,7 @@ func TestAPassWithAnUnchangedPosterStillPublishesItsRender(t *testing.T) {
 	assert.Zero(t, srv.totalHits(), "nothing was stale, nothing was fetched")
 	envs := renders.settled(t, 1)
 	require.Len(t, envs, 1)
-	assertRender(t, envs[0], m.UID, artwork.RenderToken(digestOf(body), nil))
+	assertRender(t, envs[0], m.UID, catalogartwork.RenderToken(digestOf(body), nil))
 }
 
 // The review's lost-render case: the apply lands, the render publish fails,
@@ -445,7 +412,7 @@ func TestARenderLostAfterTheApplyIsPublishedOnRedelivery(t *testing.T) {
 	assert.Equal(t, 1, srv.hitsFor("/custom.png"), "the redelivery found nothing stale")
 	envs := renders.settled(t, 1)
 	require.Len(t, envs, 1, "and published the render all the same")
-	assertRender(t, envs[0], m.UID, artwork.RenderToken(digestOf(customBody), nil))
+	assertRender(t, envs[0], m.UID, catalogartwork.RenderToken(digestOf(customBody), nil))
 }
 
 // Dropping the poster (a custom override removed, no provider poster to
@@ -532,5 +499,5 @@ func TestANonOverlaidKindPublishesNoRender(t *testing.T) {
 	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, m.Namespace, m.Name)))
 	envs := renders.settled(t, 1)
 	require.Len(t, envs, 1, "the movie's render, and nothing for the album")
-	assertRender(t, envs[0], m.UID, artwork.RenderToken(digestOf(body), nil))
+	assertRender(t, envs[0], m.UID, catalogartwork.RenderToken(digestOf(body), nil))
 }

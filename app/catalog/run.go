@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
@@ -58,7 +59,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/markers"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
-	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	artworkgateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
@@ -781,15 +782,15 @@ func buildQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (queueWorker
 // as elected -- so the gateway did start there. The exposure is a role that
 // elects and also serves metadata: one replica would serve, the rest idle.
 //
-// The one replica is also what makes artwork.Fetcher.Lock -- an in-process
+// The one replica is also what makes artworkgateway.Fetcher.Lock -- an in-process
 // lock -- enough to serialise the two artwork consumers per item. The
 // reaper, unlike both consumers, IS behind the lease (§B.5): one sweeper
 // per cluster, and under --role metadata the process counts as elected.
 func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
-	fetcher := &artwork.Fetcher{
+	fetcher := &artworkgateway.Fetcher{
 		Store:    bus.ObjectStore(events.BucketArtwork),
 		HTTP:     artworkHTTPClient,
-		Limiter:  artwork.NewHostLimiters(artworkHostRate, artworkHostBurst),
+		Limiter:  artworkgateway.NewHostLimiters(artworkHostRate, artworkHostBurst),
 		Recorder: mgr.GetEventRecorder("metadata-gateway"),
 	}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
@@ -832,7 +833,7 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 	if !ok {
 		return fmt.Errorf("catalogarr: consumer %q missing from the default topology", events.ConsumerCatalogArtworkFetch)
 	}
-	fetch := &artwork.Handler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
+	fetch := &artworkgateway.Handler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, spec.Subscription(), fetch.Handle)
 		if err != nil {
@@ -855,7 +856,7 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 }
 
 // artworkHTTPClient fetches artwork originals. It is not defaultHTTPClient:
-// an image of up to artwork.MaxImageBytes from a CDN is a longer transfer
+// an image of up to artworkgateway.MaxImageBytes from a CDN is a longer transfer
 // than a metadata API call, and a stuck one must not hold a gateway handler
 // (and the item's artwork lock) past this timeout.
 var artworkHTTPClient = &http.Client{Timeout: 60 * time.Second}

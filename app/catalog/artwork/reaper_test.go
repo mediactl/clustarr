@@ -35,13 +35,15 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 const grace = 30 * time.Minute
+
+var reapNow = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 
 type reapFixture struct {
 	ctx   context.Context
@@ -52,7 +54,7 @@ type reapFixture struct {
 func newReapFixture(t *testing.T) *reapFixture {
 	t.Helper()
 	ctx := context.Background()
-	clock := clockwork.NewFakeClockAt(fetchNow)
+	clock := clockwork.NewFakeClockAt(reapNow)
 	bus := membus.New(clock)
 	require.NoError(t, bus.Ensure(ctx, events.Default()))
 	return &reapFixture{ctx: ctx, clock: clock, store: bus.ObjectStore(events.BucketArtwork)}

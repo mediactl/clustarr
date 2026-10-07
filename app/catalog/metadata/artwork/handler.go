@@ -31,6 +31,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -165,19 +166,19 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 	if err != nil {
 		return err
 	}
-	it, err := itemOf(before)
+	it, err := catalogartwork.ItemOf(before)
 	if err != nil {
 		return err
 	}
 
 	// Sync's posterChanged is deliberately unused: the render task below is
 	// published level-style on every pass, not on this pass's edge.
-	entries := it.entries
+	entries := it.Entries
 	if p.Fetcher != nil {
 		if images == nil {
-			images = it.images
+			images = it.Images
 		}
-		entries, _ = p.Fetcher.Sync(ctx, before, kind, it.overrides, images, it.entries)
+		entries, _ = p.Fetcher.Sync(ctx, before, kind, it.Overrides, images, it.Entries)
 	}
 
 	// Image fetches are slow work: re-read before the apply (CLAUDE.md's
@@ -192,11 +193,11 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 		// own pass from its own reconcile and metadata fetch.
 		return fmt.Errorf("%w: %s %s was re-created during the pass", ErrItemGone, kind, key)
 	}
-	freshItem, err := itemOf(fresh)
+	freshItem, err := catalogartwork.ItemOf(fresh)
 	if err != nil {
 		return err
 	}
-	merged := Merge(it.entries, entries, freshItem.entries)
+	merged := Merge(it.Entries, entries, freshItem.Entries)
 
 	ac, err := build(fresh, catalogstatus.ArtworkEntries(merged))
 	if err != nil {
@@ -211,7 +212,7 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 	// the metadata path writes newly fetched ratings in the very apply, so
 	// fresh -- read before it -- still carries the previous refresh's.
 	if ratings, ok := appliedRatings(ac); ok {
-		freshItem.ratings = ratings
+		freshItem.Ratings = ratings
 	}
 	if err := p.publishRenders(ctx, fresh, kind, it, freshItem, merged); err != nil {
 		tracing.RecordError(span, err)
@@ -243,16 +244,16 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 // nothing to draw it onto; publishing for them handed the renderer a task
 // it could only refuse, and every refusal was dead-lettered.
 func (p Pass) publishRenders(ctx context.Context, fresh client.Object, kind commonv1.MediaKind,
-	before, freshItem item, merged []catalogv1alpha1.ArtworkEntry,
+	before, freshItem catalogartwork.Item, merged []catalogv1alpha1.ArtworkEntry,
 ) error {
 	if p.Bus == nil || !catalogstatus.HasOverlay(kind) {
 		return nil
 	}
-	if poster, ok := index(merged)[catalogv1alpha1.ImageTypePoster]; ok {
-		return publishRender(ctx, p.Bus, fresh, kind, RenderToken(poster.Digest, freshItem.ratings))
+	if poster, ok := catalogartwork.Index(merged)[catalogv1alpha1.ImageTypePoster]; ok {
+		return catalogartwork.PublishRender(ctx, p.Bus, fresh, kind, catalogartwork.RenderToken(poster.Digest, freshItem.Ratings))
 	}
-	if _, had := index(before.entries)[catalogv1alpha1.ImageTypePoster]; had || freshItem.hasOverlay {
-		return publishRender(ctx, p.Bus, fresh, kind, RenderNoPoster)
+	if _, had := catalogartwork.Index(before.Entries)[catalogv1alpha1.ImageTypePoster]; had || freshItem.HasOverlay {
+		return catalogartwork.PublishRender(ctx, p.Bus, fresh, kind, RenderNoPoster)
 	}
 	return nil
 }
@@ -291,7 +292,7 @@ func appliedRatings(ac k8s.ApplyConfiguration) ([]catalogv1alpha1.Rating, bool) 
 }
 
 func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.ObjectKey) (client.Object, error) {
-	obj, err := newObject(kind)
+	obj, err := catalogartwork.NewObject(kind)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +307,7 @@ func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.Obje
 
 // Handler is the catalogarr-artwork-fetch consumer (spec §B.7): the
 // ImportArtwork task a reconciler publishes when status.artwork drifts from
-// its sources ([Drift]: spec.artwork and status.metadata.images). It runs the same [Pass] the metadata handler runs after
+// its sources ([catalogartwork.Drift]: spec.artwork and status.metadata.images). It runs the same [Pass] the metadata handler runs after
 // a metadata fetch, without fetching metadata: the images it resolves
 // against are the item's own status.metadata.images, and the
 // status.metadata it must re-declare is [ExtractGatewayStatus]'s.
@@ -328,7 +329,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	if !ok || ns == "" {
 		return events.Discard("envelope key is not <namespace>/<name>", fmt.Errorf("key=%q", env.Key))
 	}
-	if _, err := newObject(task.MediaRef.Kind); err != nil {
+	if _, err := catalogartwork.NewObject(task.MediaRef.Kind); err != nil {
 		return events.Discard("kind has no artwork", err)
 	}
 
@@ -462,6 +463,6 @@ func ExtractGatewayStatus(fresh client.Object, artwork []*catalogac.ArtworkEntry
 		ac.Status.WithArtwork(artwork...)
 		return ac, nil
 	default:
-		return nil, fmt.Errorf("%w: %T", ErrNoArtwork, fresh)
+		return nil, fmt.Errorf("%w: %T", catalogartwork.ErrNoArtwork, fresh)
 	}
 }

@@ -43,6 +43,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -95,29 +96,6 @@ var acceptedContentTypes = map[string]bool{
 	"image/webp": true,
 }
 
-// imageTypes is the CRD's ImageType enum in its declared order: the order
-// Sync visits types in, and so the order status.artwork is rendered in.
-var imageTypes = []catalogv1alpha1.ImageType{
-	catalogv1alpha1.ImageTypePoster,
-	catalogv1alpha1.ImageTypeFanart,
-	catalogv1alpha1.ImageTypeBanner,
-	catalogv1alpha1.ImageTypeLogo,
-	catalogv1alpha1.ImageTypeClearart,
-	catalogv1alpha1.ImageTypeThumb,
-	catalogv1alpha1.ImageTypeScreenshot,
-	catalogv1alpha1.ImageTypeDisc,
-	catalogv1alpha1.ImageTypeHeadshot,
-}
-
-func knownType(t catalogv1alpha1.ImageType) bool {
-	for _, k := range imageTypes {
-		if k == t {
-			return true
-		}
-	}
-	return false
-}
-
 // DefaultSVGRenditionHosts are the hosts known to serve a PNG rendition of
 // each SVG: TMDB, whose logos are often SVG and whose
 // /t/p/original/<file>.png is the same logo rasterized 2000 px wide
@@ -126,38 +104,6 @@ var DefaultSVGRenditionHosts = []string{"image.tmdb.org"}
 
 // svgContentType is what an SVG is served as.
 const svgContentType = "image/svg+xml"
-
-// Source is where one image type's original comes from.
-type Source struct {
-	URL  string
-	Kind catalogv1alpha1.ArtworkSource
-}
-
-// ResolveSources picks one source per image type (spec §B.4): the
-// spec.artwork override for that type if there is one -- custom wins --
-// else the first provider image of that type with an absolute http(s) URL.
-// A type with neither is absent from the map.
-func ResolveSources(overrides []catalogv1alpha1.ArtworkOverride, images []catalogv1alpha1.Image) map[catalogv1alpha1.ImageType]Source {
-	out := make(map[catalogv1alpha1.ImageType]Source, len(imageTypes))
-	for _, img := range images {
-		if _, taken := out[img.Type]; taken || !knownType(img.Type) || !fetchable(img.URL) {
-			continue
-		}
-		out[img.Type] = Source{URL: img.URL, Kind: catalogv1alpha1.ArtworkSourceProvider}
-	}
-	for _, o := range overrides {
-		if o.URL == "" || !knownType(o.Type) {
-			continue
-		}
-		out[o.Type] = Source{URL: o.URL, Kind: catalogv1alpha1.ArtworkSourceCustom}
-	}
-	return out
-}
-
-func fetchable(raw string) bool {
-	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
-}
 
 // Fetcher fetches artwork originals into the object store. It is the
 // metadata gateway's only path to events.BucketArtwork's "original"
@@ -292,9 +238,9 @@ func (f *Fetcher) Sync(ctx context.Context, obj client.Object, kind commonv1.Med
 	ctx, span := tracing.Start(ctx, "artwork.Fetcher.Sync")
 	defer span.End()
 
-	sources := ResolveSources(overrides, images)
-	prev := index(current)
-	for _, t := range imageTypes {
+	sources := catalogartwork.ResolveSources(overrides, images)
+	prev := catalogartwork.Index(current)
+	for _, t := range catalogartwork.ImageTypes {
 		src, hasSrc := sources[t]
 		cur, hasCur := prev[t]
 		key := events.ArtworkKey(kind, obj.GetUID(), string(t), events.ArtworkVariantOriginal)
@@ -344,7 +290,7 @@ func (f *Fetcher) Sync(ctx context.Context, obj client.Object, kind commonv1.Med
 // the entry's (a crash between a Put and the apply that records it). A
 // store that cannot be asked is not taken as "missing": that would turn
 // every store blip into a refetch of every image.
-func (f *Fetcher) stale(ctx context.Context, key string, cur catalogv1alpha1.ArtworkEntry, src Source) bool {
+func (f *Fetcher) stale(ctx context.Context, key string, cur catalogv1alpha1.ArtworkEntry, src catalogartwork.Source) bool {
 	if cur.SourceURL != src.URL || cur.Source != src.Kind {
 		return true
 	}
@@ -361,7 +307,7 @@ func (f *Fetcher) stale(ctx context.Context, key string, cur catalogv1alpha1.Art
 
 // fetchOne fetches src, validates it (spec §B.4 steps 1-2) and stores it at
 // key (step 3), returning the entry that records it (step 4's value).
-func (f *Fetcher) fetchOne(ctx context.Context, key string, t catalogv1alpha1.ImageType, src Source) (catalogv1alpha1.ArtworkEntry, error) {
+func (f *Fetcher) fetchOne(ctx context.Context, key string, t catalogv1alpha1.ImageType, src catalogartwork.Source) (catalogv1alpha1.ArtworkEntry, error) {
 	ctx, span := tracing.Start(ctx, "artwork.Fetcher.fetch")
 	defer span.End()
 
@@ -372,9 +318,9 @@ func (f *Fetcher) fetchOne(ctx context.Context, key string, t catalogv1alpha1.Im
 	return entry, err
 }
 
-func (f *Fetcher) fetchAndPut(ctx context.Context, key string, t catalogv1alpha1.ImageType, src Source) (catalogv1alpha1.ArtworkEntry, error) {
+func (f *Fetcher) fetchAndPut(ctx context.Context, key string, t catalogv1alpha1.ImageType, src catalogartwork.Source) (catalogv1alpha1.ArtworkEntry, error) {
 	u, err := url.Parse(src.URL)
-	if err != nil || !fetchable(src.URL) {
+	if err != nil || !catalogartwork.Fetchable(src.URL) {
 		return catalogv1alpha1.ArtworkEntry{}, errors.New("not an absolute http(s) URL")
 	}
 	body, contentType, err := f.get(ctx, u)
@@ -490,7 +436,7 @@ func (f *Fetcher) pngRendition(u *url.URL) (*url.URL, bool) {
 }
 
 func (f *Fetcher) recordFailure(ctx context.Context, obj client.Object, kind commonv1.MediaKind,
-	t catalogv1alpha1.ImageType, src Source, err error,
+	t catalogv1alpha1.ImageType, src catalogartwork.Source, err error,
 ) {
 	where := redactURL(src.URL)
 	logging.FromContext(ctx).Warn("artwork: fetch failed",
@@ -520,14 +466,6 @@ func redactURL(raw string) string {
 	return u.String()
 }
 
-func index(entries []catalogv1alpha1.ArtworkEntry) map[catalogv1alpha1.ImageType]catalogv1alpha1.ArtworkEntry {
-	out := make(map[catalogv1alpha1.ImageType]catalogv1alpha1.ArtworkEntry, len(entries))
-	for _, e := range entries {
-		out[e.Type] = e
-	}
-	return out
-}
-
 func sameEntry(a, b catalogv1alpha1.ArtworkEntry) bool {
 	return a.Type == b.Type && a.Source == b.Source && a.SourceURL == b.SourceURL &&
 		a.Digest == b.Digest && a.SizeBytes == b.SizeBytes && a.UpdatedAt.Equal(&b.UpdatedAt)
@@ -542,8 +480,8 @@ func sameEntry(a, b catalogv1alpha1.ArtworkEntry) bool {
 // read before the fetch (CLAUDE.md's lost-update rule). The result is in
 // the ImageType enum's order.
 func Merge(before, after, fresh []catalogv1alpha1.ArtworkEntry) []catalogv1alpha1.ArtworkEntry {
-	b, a := index(before), index(after)
-	out := index(fresh)
+	b, a := catalogartwork.Index(before), catalogartwork.Index(after)
+	out := catalogartwork.Index(fresh)
 	for t, e := range a {
 		if prev, ok := b[t]; !ok || !sameEntry(prev, e) {
 			out[t] = e
@@ -555,7 +493,7 @@ func Merge(before, after, fresh []catalogv1alpha1.ArtworkEntry) []catalogv1alpha
 		}
 	}
 	merged := make([]catalogv1alpha1.ArtworkEntry, 0, len(out))
-	for _, t := range imageTypes {
+	for _, t := range catalogartwork.ImageTypes {
 		if e, ok := out[t]; ok {
 			merged = append(merged, e)
 		}

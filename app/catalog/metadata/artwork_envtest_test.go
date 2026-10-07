@@ -40,6 +40,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
@@ -379,7 +380,7 @@ func TestMetadataRefreshPublishesARenderWhenOnlyTheRatingsChanged(t *testing.T) 
 	mu.Lock()
 	last := renders[1]
 	mu.Unlock()
-	assert.Equal(t, schema.MsgIDForRenderOverlay(got.UID, artwork.RenderToken(poster.Digest, got.Status.Metadata.Ratings)), last.ID)
+	assert.Equal(t, schema.MsgIDForRenderOverlay(got.UID, catalogartwork.RenderToken(poster.Digest, got.Status.Metadata.Ratings)), last.ID)
 
 	provider.set(doc(pkgmetadata.Ratings{
 		"tmdb":       {Source: "tmdb", ValueCentis: 830, Votes: 250},
@@ -457,7 +458,7 @@ func TestMetadataRefreshPublishesOneRenderPerChangedPoster(t *testing.T) {
 			poster = e
 		}
 	}
-	assert.Equal(t, schema.MsgIDForRenderOverlay(got.UID, artwork.RenderToken(poster.Digest, got.Status.Metadata.Ratings)), last.ID)
+	assert.Equal(t, schema.MsgIDForRenderOverlay(got.UID, catalogartwork.RenderToken(poster.Digest, got.Status.Metadata.Ratings)), last.ID)
 	var task schema.RenderOverlayTask
 	require.NoError(t, schema.Decode(last.Schema, last.Data, &task))
 	assert.Equal(t, schema.RenderOverlayTask{
