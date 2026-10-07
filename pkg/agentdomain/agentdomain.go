@@ -90,12 +90,12 @@ func Domains() []Domain {
 			events.ConsumerCatalogMetadata, events.ConsumerCatalogArtworkFetch,
 			events.ConsumerCatalogMarkers, events.ConsumerCatalogSegmentsResult,
 		}},
-		// The R3 probe queue's two lanes (importarr-probe-high and
-		// importarr-probe-low, Wave 4a) join this list when that queue
-		// lands in the topology.
+		// The R3 probe queue's two lanes ride with the import consumers: a
+		// ProbeVersion raise's backlog scales the import domain out.
 		{Name: Import, Autoscaled: true, Consumers: []string{
 			events.ConsumerImportScan, events.ConsumerImportFile, events.ConsumerImportList,
 			events.ConsumerImportRecycle,
+			events.ConsumerImportProbeHigh, events.ConsumerImportProbeLow,
 		}},
 		// One replica: the release index, the RPC responders, the facade
 		// and the per-host limiter (OD15).
