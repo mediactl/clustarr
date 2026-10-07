@@ -29,8 +29,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/episode"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -160,7 +161,7 @@ func (p *Planner) season(ctx context.Context, task schema.SegmentsPlanTask) ([]*
 		}
 		var mfs catalogv1alpha1.MediaFileList
 		if err := p.Reader.List(ctx, &mfs, client.InNamespace(task.Namespace),
-			client.MatchingFields{episode.MediaFileByEpisodeIndex: ep.Name}); err != nil {
+			client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindEpisode, ep.Name)}); err != nil {
 			return nil, false, fmt.Errorf("segmenting: files of %s: %w", ep.Name, err)
 		}
 		for i := range mfs.Items {

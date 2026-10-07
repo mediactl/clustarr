@@ -72,6 +72,23 @@ const episodeBySeriesRefIndexKey = ".spec.seriesRef"
 // registered with the Series controller, for other readers of the cache.
 const EpisodeBySeriesRefIndex = episodeBySeriesRefIndexKey
 
+// RegisterIndexes registers EpisodeBySeriesRefIndex. The Series controller
+// registers it (SetupWithManager); every other reader in the manager -- the
+// Episode item path, the remediation loop's naming wakes, the segment
+// planner -- reads this one index (loop spec §3.16, "Consolidated"), and a
+// test that runs one of them without the Series controller calls this.
+func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	return idx.IndexField(ctx, &catalogv1alpha1.Episode{}, episodeBySeriesRefIndexKey, indexEpisodeBySeriesRef)
+}
+
+func indexEpisodeBySeriesRef(o client.Object) []string {
+	ep, ok := o.(*catalogv1alpha1.Episode)
+	if !ok {
+		return nil
+	}
+	return []string{ep.Spec.SeriesRef}
+}
+
 // episodeSyncRPCBackoff is the RequeueAfter used when the episode-listing
 // RPC fails, a concrete short backoff per §8.8 (RequeueAfter only, never a
 // bare error-triggered exponential backoff for a known-transient
@@ -152,14 +169,7 @@ type Reconciler struct {
 // Rollup, without this reconciler's own writes to the SAME owned Episodes
 // (title/overview/airDate, never HasFile) looping it.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Episode{}, episodeBySeriesRefIndexKey,
-		func(o client.Object) []string {
-			ep, ok := o.(*catalogv1alpha1.Episode)
-			if !ok {
-				return nil
-			}
-			return []string{ep.Spec.SeriesRef}
-		}); err != nil {
+	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
 

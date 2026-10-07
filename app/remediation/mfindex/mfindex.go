@@ -22,6 +22,7 @@ package mfindex
 
 import (
 	"context"
+	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -32,12 +33,21 @@ import (
 // ref with no name, and segmentplan.Sweeper.
 const UID = "remediation.mediafile.uid"
 
-// Register registers the loop's MediaFile indexes on idx. F4.1 adds Item.
+// Register registers the loop's MediaFile indexes on idx: UID and Item. A
+// second registration on one cache is an "indexer conflict", so only
+// remediation.RegisterIndexes calls it in a process, and tests that run a
+// reader without the loop.
 func Register(ctx context.Context, idx client.FieldIndexer) error {
-	return idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, UID, func(o client.Object) []string {
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, UID, func(o client.Object) []string {
 		if uid := o.GetUID(); uid != "" {
 			return []string{string(uid)}
 		}
 		return nil
-	})
+	}); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", UID, err)
+	}
+	if err := idx.IndexField(ctx, Index.Object, Index.Name, Index.Extract); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", Item, err)
+	}
+	return nil
 }

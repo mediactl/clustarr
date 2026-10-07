@@ -63,8 +63,8 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/controller/subtitlerequest"
-	"github.com/mediactl/clustarr/app/caption/itemindex"
 	captionarrstatus "github.com/mediactl/clustarr/app/caption/status"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -417,8 +417,8 @@ func (r *Reconciler) mapItemToProfiles(ctx context.Context, o client.Object) []r
 	default:
 		return nil
 	}
-	// Through the item index, never a namespace-wide List: see itemindex.
-	files, err := itemindex.MediaFilesOf(ctx, r, o.GetNamespace(), kind, o.GetName())
+	// Through the loop's item index (mfindex.Item), never a namespace-wide List.
+	files, err := mfindex.FilesOf(ctx, r, o.GetNamespace(), kind, o.GetName())
 	if err != nil {
 		logging.FromContext(ctx).Error("list MediaFiles for a catalog item change",
 			"item", client.ObjectKeyFromObject(o), "err", err)
@@ -448,9 +448,6 @@ func createdOrDeleted() predicate.Predicate {
 // SetupWithManager registers the SubtitleProfile controller; captionarr's
 // run.go setupControllers calls it for the controller role.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := itemindex.Register(context.Background(), mgr); err != nil {
-		return err
-	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("subtitleprofile").
 		For(&subtitlev1alpha1.SubtitleProfile{}, builder.WithPredicates(k8s.GenerationChanged())).

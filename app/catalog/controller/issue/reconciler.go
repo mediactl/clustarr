@@ -43,6 +43,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -51,11 +52,6 @@ import (
 )
 
 const (
-	// mediaFileByIssueIndexKey indexes MediaFile by the Issue it backs,
-	// filtered to spec.mediaRef.kind=issue -- the same shape as the episode
-	// package's mediaFileByEpisodeIndexKey.
-	mediaFileByIssueIndexKey = ".spec.mediaRef.issue"
-
 	// downloadByIssueIndexKey indexes Download by the Issue its spec.target names
 	// (kind issue only). It is how the reconciler finds the Downloads it
 	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
@@ -120,16 +116,6 @@ type Reconciler struct {
 // Comic's own spec change -- pointing spec.qualityProfileRef at another
 // profile -- wakes that Comic's Issues (mapComic).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByIssueIndexKey,
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindIssue {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}); err != nil {
-		return err
-	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByIssueIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
@@ -357,7 +343,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	}
 
 	var mfList catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &mfList, client.InNamespace(iss.Namespace), client.MatchingFields{mediaFileByIssueIndexKey: iss.Name}); err != nil {
+	if err := r.List(ctx, &mfList, client.InNamespace(iss.Namespace), client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindIssue, iss.Name)}); err != nil {
 		return ctrl.Result{}, err
 	}
 	mf := rollup.PickMediaFile(mfList.Items)

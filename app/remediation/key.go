@@ -34,7 +34,8 @@ type Key struct {
 	Name      string
 }
 
-// KeyKind is a key's object kind. F4.1 adds the six item kinds (§3.2).
+// KeyKind is a key's object kind: KindMediaFile, or one of the six item
+// kinds (itemkeys.go, §3.2).
 type KeyKind string
 
 // KindMediaFile is the file key's kind.

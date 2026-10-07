@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -185,7 +186,7 @@ func (r *Reconciler) target(ctx context.Context, obj client.Object) (Target, err
 	seen := map[string]bool{}
 	for key := range t.Keys {
 		var mfs catalogv1alpha1.MediaFileList
-		if err := r.List(ctx, &mfs, client.InNamespace(obj.GetNamespace()), client.MatchingFields{mediaFileByTarget: key}); err != nil {
+		if err := r.List(ctx, &mfs, client.InNamespace(obj.GetNamespace()), client.MatchingFields{mfindex.Item: key}); err != nil {
 			return t, fmt.Errorf("list media files of %s: %w", key, err)
 		}
 		for _, mf := range mfs.Items {

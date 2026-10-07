@@ -27,32 +27,16 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-// The field indexes this controller reads, under names of its own: the
-// Series and fileimport packages register similar ones, and a second
-// registration under one name is an "indexer conflict" at start.
+// The field index this controller registers, under a name of its own (a
+// second registration under one name is an "indexer conflict" at start). It
+// finds MediaFiles through the remediation loop's one item index,
+// mfindex.Item (loop spec §3.16), which the loop registers.
 const (
-	mediaFileByTarget = "librarydelete.spec.mediaRef.target"
-	childByParent     = "librarydelete.parent"
+	childByParent = "librarydelete.parent"
 )
 
 // RegisterIndexes registers every index Reconcile reads, once, on idx.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, mediaFileByTarget, func(o client.Object) []string {
-		mf, ok := o.(*catalogv1alpha1.MediaFile)
-		if !ok || mf.Spec.MediaRef.Name == "" {
-			return nil
-		}
-		ref := mf.Spec.MediaRef
-		out := []string{TargetKey(ref.Kind, ref.Name)}
-		for _, k := range ref.Keys {
-			if k != ref.Name {
-				out = append(out, TargetKey(ref.Kind, k))
-			}
-		}
-		return out
-	}); err != nil {
-		return err
-	}
 	parents := []struct {
 		obj    client.Object
 		parent func(client.Object) string

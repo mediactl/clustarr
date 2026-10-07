@@ -32,6 +32,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/subtitles"
 )
@@ -55,8 +56,10 @@ type Target struct {
 	Donors []string
 }
 
-// TargetKey is the "<kind>/<name>" a MediaRef names.
-func TargetKey(kind commonv1.MediaKind, name string) string { return string(kind) + "/" + name }
+// TargetKey is the "<kind>/<name>" a MediaRef names: the remediation loop's
+// item index value, so Target.Keys are the values its MediaFiles are indexed
+// under (loop spec §3.16).
+func TargetKey(kind commonv1.MediaKind, name string) string { return mfindex.ItemKey(kind, name) }
 
 // Owns reports whether a MediaFile with ref belongs to the item: it names
 // the item or a child, or -- a multi-episode file -- lists one in keys.

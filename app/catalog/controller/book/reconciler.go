@@ -44,6 +44,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -57,11 +58,6 @@ import (
 )
 
 const (
-	// mediaFileByBookIndexKey indexes MediaFile by the Book it backs,
-	// filtered to spec.mediaRef.kind=book, mirroring
-	// movie.mediaFileByMovieIndexKey.
-	mediaFileByBookIndexKey = ".spec.mediaRef.book"
-
 	// downloadByBookIndexKey indexes Download by the Book its spec.target names
 	// (kind book only). It is how the reconciler finds the Downloads it
 	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
@@ -138,16 +134,6 @@ type Reconciler struct {
 // or RootFolder a Book without an override inherits). A standalone Book has
 // no owning Author, so mapAuthor simply never enqueues one.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByBookIndexKey,
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindBook {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}); err != nil {
-		return err
-	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByBookIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
@@ -515,7 +501,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 	statusAC = statusAC.WithPath(pth)
 
 	var mfList catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &mfList, client.InNamespace(bk.Namespace), client.MatchingFields{mediaFileByBookIndexKey: bk.Name}); err != nil {
+	if err := r.List(ctx, &mfList, client.InNamespace(bk.Namespace), client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindBook, bk.Name)}); err != nil {
 		return ctrl.Result{}, err
 	}
 	mf := rollup.PickMediaFile(mfList.Items)

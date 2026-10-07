@@ -45,6 +45,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -72,13 +73,6 @@ const conditionQueueFull = "QueueFull"
 const conditionTracksSynced = "TracksSynced"
 
 const (
-	// mediaFileByAlbumIndexKey indexes MediaFile by the Album it backs,
-	// filtered to spec.mediaRef.kind=album -- the same shape as
-	// episode.mediaFileByEpisodeIndexKey. It returns whole-album and
-	// per-track (spec.mediaRef.track) files alike; filestate.go's
-	// FileState and FilesByRecording each take the view they need.
-	mediaFileByAlbumIndexKey = ".spec.mediaRef.album"
-
 	// downloadByAlbumIndexKey indexes Download by the Album its spec.target names
 	// (kind album only). It is how the reconciler finds the Downloads it
 	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
@@ -157,16 +151,6 @@ type Reconciler struct {
 // own documented gotcha), so both filter a namespaced List in Go -- a cold
 // path, since profiles and Artists are edited by hand.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByAlbumIndexKey,
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindAlbum {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}); err != nil {
-		return err
-	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByAlbumIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
@@ -536,7 +520,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	// most files and fill status.tracks[].fileRef; all of them feed the
 	// whole-album rollup below.
 	var mfList catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &mfList, client.InNamespace(alb.Namespace), client.MatchingFields{mediaFileByAlbumIndexKey: alb.Name}); err != nil {
+	if err := r.List(ctx, &mfList, client.InNamespace(alb.Namespace), client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindAlbum, alb.Name)}); err != nil {
 		return ctrl.Result{}, err
 	}
 	files := FilesByRecording(mfList.Items)

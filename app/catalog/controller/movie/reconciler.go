@@ -46,6 +46,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -60,12 +61,6 @@ import (
 )
 
 const (
-	// mediaFileByMovieIndexKey indexes MediaFile by the Movie it backs,
-	// filtered to spec.mediaRef.kind=movie so an Episode's own MediaFile
-	// (same name is not possible across kinds today, but this future-proofs
-	// the index against that) never matches a Movie's List.
-	mediaFileByMovieIndexKey = ".spec.mediaRef.movie"
-
 	// downloadByMovieIndexKey indexes Download by the Movie its
 	// spec.target names (kind movie only). It is how the reconciler finds
 	// the Downloads it derives status.activeDownloadRef from. spec.target is
@@ -131,21 +126,12 @@ type Reconciler struct {
 	OnReconcile func()
 }
 
-// RegisterIndexes registers every field index Reconcile's List calls and
-// the watches' map functions read, on idx. SetupWithManager calls it; a test
-// that drives Reconcile against a bare manager cache calls it too, so the
-// index names and extractors live in exactly one place.
+// RegisterIndexes registers the Download and QualityProfile indexes
+// Reconcile's Lists and the watches' map functions read. A Movie's
+// MediaFiles are found through the remediation loop's one item index
+// (mfindex.Item, loop spec §3.16), which the loop registers; a test
+// that drives Reconcile against a bare cache registers those beside this.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, mediaFileByMovieIndexKey,
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindMovie {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}); err != nil {
-		return err
-	}
 	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByMovieIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
@@ -521,7 +507,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	}
 
 	var mfList catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &mfList, client.InNamespace(m.Namespace), client.MatchingFields{mediaFileByMovieIndexKey: m.Name}); err != nil {
+	if err := r.List(ctx, &mfList, client.InNamespace(m.Namespace), client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindMovie, m.Name)}); err != nil {
 		return ctrl.Result{}, err
 	}
 	mf := rollup.PickMediaFile(mfList.Items)

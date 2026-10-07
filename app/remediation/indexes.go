@@ -28,9 +28,12 @@ import (
 
 // RegisterIndexes registers every index the loop's passes, sources and
 // actuators read, once, from app/remediation/manager.Register (§3.16): the
-// loop's own (mfindex) and the ones its domain functions read by their
-// unchanged names (mediafile.RegisterIndexes: the TranscodeJob, AudioGraft and
-// SubtitleRequest refs and the four naming indexes).
+// loop's own (mfindex: UID and Item, the one MediaFile index by item that
+// replaced nine) and the ones its domain functions read by their unchanged
+// names (mediafile.RegisterIndexes: the TranscodeJob, AudioGraft and
+// SubtitleRequest refs and the two RootFolder naming indexes). It registers
+// no ".spec.seriesRef": the Series controller does (series.RegisterIndexes),
+// and the loop only reads it.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	if err := mfindex.Register(ctx, idx); err != nil {
 		return err

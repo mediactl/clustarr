@@ -44,6 +44,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -57,13 +58,6 @@ import (
 )
 
 const (
-	// mediaFileByAudiobookIndexKey indexes MediaFile by the Audiobook it
-	// backs, filtered to spec.mediaRef.kind=audiobook so another kind's
-	// MediaFile (same name is not possible across kinds today, but this
-	// future-proofs the index against that) never matches an Audiobook's
-	// List. Mirrors movie's mediaFileByMovieIndexKey.
-	mediaFileByAudiobookIndexKey = ".spec.mediaRef.audiobook"
-
 	// downloadByAudiobookIndexKey indexes Download by the Audiobook its spec.target names
 	// (kind audiobook only). It is how the reconciler finds the Downloads it
 	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
@@ -129,16 +123,6 @@ type Reconciler struct {
 // download's phase change, a profile edit or a Book appearing after its
 // Audiobook all reach this reconciler without waiting for a poll.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByAudiobookIndexKey,
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindAudiobook {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}); err != nil {
-		return err
-	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByAudiobookIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
@@ -482,7 +466,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	}
 
 	var mfList catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &mfList, client.InNamespace(m.Namespace), client.MatchingFields{mediaFileByAudiobookIndexKey: m.Name}); err != nil {
+	if err := r.List(ctx, &mfList, client.InNamespace(m.Namespace), client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindAudiobook, m.Name)}); err != nil {
 		return ctrl.Result{}, err
 	}
 

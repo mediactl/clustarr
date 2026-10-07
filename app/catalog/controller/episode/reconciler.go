@@ -45,6 +45,8 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -55,15 +57,6 @@ import (
 )
 
 const (
-	// mediaFileByEpisodeIndexKey indexes MediaFile by every Episode it
-	// backs, filtered to spec.mediaRef.kind=episode: the episode it names
-	// and, for a multi-episode file, each one in spec.mediaRef.keys
-	// (coveredEpisodes).
-	mediaFileByEpisodeIndexKey = ".spec.mediaRef.episode"
-	// MediaFileByEpisodeIndex is the field index of MediaFiles by the
-	// episodes they cover, registered by RegisterIndexes.
-	MediaFileByEpisodeIndex = mediaFileByEpisodeIndexKey
-
 	// downloadByEpisodeIndexKey indexes Download by every Episode its
 	// spec.target covers: the episode itself for a single-episode grab
 	// (kind episode), and each of spec.target.keys for a season pack (kind
@@ -77,13 +70,6 @@ const (
 	// QualityProfileRef of its own, so the reverse hop from an edited
 	// profile runs profile -> Series -> Episodes.
 	seriesByQualityProfileIndexKey = ".spec.qualityProfileRef"
-
-	// episodeBySeriesIndexKey indexes Episode by its Series
-	// (spec.seriesRef), for the hops from a Series to its Episodes. It is
-	// this package's own index, under its own name: the Series controller
-	// registers ".spec.seriesRef" on Episode, and a second registration
-	// under that name is an "indexer conflict" at startup.
-	episodeBySeriesIndexKey = "episode.spec.seriesRef"
 )
 
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
@@ -134,21 +120,13 @@ type Reconciler struct {
 	OnReconcile func()
 }
 
-// RegisterIndexes registers every field index Reconcile's List calls and
-// the watches' map functions read, on idx. SetupWithManager calls it; a test
-// that drives Reconcile against a bare manager cache calls it too, so the
-// index names and extractors live in exactly one place.
+// RegisterIndexes registers the Download and QualityProfile indexes
+// Reconcile's Lists and the watches' map functions read. A Episode's
+// MediaFiles are found through the remediation loop's one item index
+// (mfindex.Item, loop spec §3.16), which the loop registers; a Series' Episodes through the Series controller's
+// seriesctl.EpisodeBySeriesRefIndex; a test
+// that drives Reconcile against a bare cache registers those beside this.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, mediaFileByEpisodeIndexKey,
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok {
-				return nil
-			}
-			return coveredEpisodes(mf.Spec.MediaRef)
-		}); err != nil {
-		return err
-	}
 	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByEpisodeIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
@@ -156,16 +134,6 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 				return nil
 			}
 			return coveredEpisodes(dl.Spec.Target)
-		}); err != nil {
-		return err
-	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Episode{}, episodeBySeriesIndexKey,
-		func(o client.Object) []string {
-			ep, ok := o.(*catalogv1alpha1.Episode)
-			if !ok || ep.Spec.SeriesRef == "" {
-				return nil
-			}
-			return []string{ep.Spec.SeriesRef}
 		}); err != nil {
 		return err
 	}
@@ -331,7 +299,7 @@ func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile
 //
 // QualityProfile is CLUSTER-scoped while Series is namespaced, so the Series
 // List deliberately carries no client.InNamespace. The second hop reads
-// episodeBySeriesIndexKey: a namespace List filtered in Go ran once per
+// seriesctl.EpisodeBySeriesRefIndex: a namespace List filtered in Go ran once per
 // Series for every QualityProfile the cache's initial sync delivered, the
 // O(watched x listed) map function CLAUDE.md warns about.
 func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []reconcile.Request {
@@ -350,7 +318,7 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 	return reqs
 }
 
-// mapSeries is every Episode of a Series, through episodeBySeriesIndexKey:
+// mapSeries is every Episode of a Series, through seriesctl.EpisodeBySeriesRefIndex:
 // turning the Series' monitoring on or off changes each one's phase.
 func (r *Reconciler) mapSeries(ctx context.Context, o client.Object) []reconcile.Request {
 	s, ok := o.(*catalogv1alpha1.Series)
@@ -358,7 +326,7 @@ func (r *Reconciler) mapSeries(ctx context.Context, o client.Object) []reconcile
 		return nil
 	}
 	var episodes catalogv1alpha1.EpisodeList
-	if err := r.List(ctx, &episodes, client.InNamespace(s.Namespace), client.MatchingFields{episodeBySeriesIndexKey: s.Name}); err != nil {
+	if err := r.List(ctx, &episodes, client.InNamespace(s.Namespace), client.MatchingFields{seriesctl.EpisodeBySeriesRefIndex: s.Name}); err != nil {
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(episodes.Items))
@@ -451,7 +419,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	k8s.MarkDeadLettered(ep, &conditions)
 
 	var mfList catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &mfList, client.InNamespace(ep.Namespace), client.MatchingFields{mediaFileByEpisodeIndexKey: ep.Name}); err != nil {
+	if err := r.List(ctx, &mfList, client.InNamespace(ep.Namespace), client.MatchingFields{mfindex.Item: mfindex.ItemKey(commonv1.MediaKindEpisode, ep.Name)}); err != nil {
 		return ctrl.Result{}, err
 	}
 	mf := rollup.PickMediaFile(mfList.Items)

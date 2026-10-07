@@ -31,6 +31,8 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -116,33 +118,25 @@ func TranscodeJobPhaseChanged() predicate.Predicate {
 
 // The naming watches' field indexes. Each is this package's own, under a
 // name no other controller registers: an informer refuses a second indexer
-// of the same name, and catalogarr runs every catalog controller in one
-// manager (the Movie and Episode controllers' own MediaFile indexes, and
-// the Series controller's ".spec.seriesRef" on Episode, are package-private
-// to them).
+// of the same name. A file is found by its item through the loop's one item
+// index (mfindex.Item) and a Series' Episodes through the Series
+// controller's seriesctl.EpisodeBySeriesRefIndex (loop spec §3.16,
+// "Consolidated").
 const (
-	// mediaFileByOwnerIndex indexes a MediaFile by "<kind>/<name>" of each
-	// movie or episode it backs -- every covered episode of a multi-episode
-	// file -- the shape fileimport.MediaFileByTargetIndexKey uses.
-	mediaFileByOwnerIndex = "mediafile.clustarr.io/owner"
-	// episodeBySeriesIndex indexes an Episode by spec.seriesRef.
-	episodeBySeriesIndex = "mediafile.clustarr.io/episode-series"
 	// movieByRootFolderIndex and seriesByRootFolderIndex index an item by
 	// spec.rootFolderRef.
 	movieByRootFolderIndex  = "mediafile.clustarr.io/movie-rootfolder"
 	seriesByRootFolderIndex = "mediafile.clustarr.io/series-rootfolder"
 )
 
-// registerNamingIndexes registers the four indexes the naming watches' map
-// functions read.
+// registerNamingIndexes registers the two indexes of its own the naming
+// watches' map functions read.
 func registerNamingIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	for _, ix := range []struct {
 		obj     client.Object
 		field   string
 		extract client.IndexerFunc
 	}{
-		{&catalogv1alpha1.MediaFile{}, mediaFileByOwnerIndex, indexMediaFileByOwner},
-		{&catalogv1alpha1.Episode{}, episodeBySeriesIndex, indexEpisodeBySeries},
 		{&catalogv1alpha1.Movie{}, movieByRootFolderIndex, indexMovieByRootFolder},
 		{&catalogv1alpha1.Series{}, seriesByRootFolderIndex, indexSeriesByRootFolder},
 	} {
@@ -151,33 +145,6 @@ func registerNamingIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		}
 	}
 	return nil
-}
-
-func indexMediaFileByOwner(o client.Object) []string {
-	mf, ok := o.(*catalogv1alpha1.MediaFile)
-	if !ok || mf.Spec.MediaRef.Name == "" {
-		return nil
-	}
-	switch ref := mf.Spec.MediaRef; ref.Kind {
-	case commonv1.MediaKindMovie:
-		return []string{ownerKey(ref.Kind, ref.Name)}
-	case commonv1.MediaKindEpisode:
-		names := coveredEpisodeNames(ref)
-		keys := make([]string, 0, len(names))
-		for _, n := range names {
-			keys = append(keys, ownerKey(ref.Kind, n))
-		}
-		return keys
-	}
-	return nil
-}
-
-func indexEpisodeBySeries(o client.Object) []string {
-	ep, ok := o.(*catalogv1alpha1.Episode)
-	if !ok || ep.Spec.SeriesRef == "" {
-		return nil
-	}
-	return []string{ep.Spec.SeriesRef}
 }
 
 func indexMovieByRootFolder(o client.Object) []string {
@@ -195,8 +162,6 @@ func indexSeriesByRootFolder(o client.Object) []string {
 	}
 	return []string{s.Spec.RootFolderRef}
 }
-
-func ownerKey(kind commonv1.MediaKind, name string) string { return string(kind) + "/" + name }
 
 // movieNaming, seriesNaming and episodeNaming are the status fields
 // renderNaming reads from each owner kind (catalogctx.Movie, Episode and
@@ -343,7 +308,7 @@ func FilesForRootFolder(ctx context.Context, c client.Reader, o client.Object) [
 func addSeriesMediaFiles(ctx context.Context, c client.Reader, set fileSet, ns, series string) {
 	var eps catalogv1alpha1.EpisodeList
 	if err := c.List(ctx, &eps, client.InNamespace(ns),
-		client.MatchingFields{episodeBySeriesIndex: series}, client.UnsafeDisableDeepCopy); err != nil {
+		client.MatchingFields{seriesctl.EpisodeBySeriesRefIndex: series}, client.UnsafeDisableDeepCopy); err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list a series' episodes to re-name their files", "series", series, "error", err)
 		return
 	}
@@ -358,7 +323,7 @@ func addSeriesMediaFiles(ctx context.Context, c client.Reader, set fileSet, ns, 
 func addMediaFilesOf(ctx context.Context, c client.Reader, set fileSet, ns string, kind commonv1.MediaKind, name string) {
 	var files catalogv1alpha1.MediaFileList
 	if err := c.List(ctx, &files, client.InNamespace(ns),
-		client.MatchingFields{mediaFileByOwnerIndex: ownerKey(kind, name)}, client.UnsafeDisableDeepCopy); err != nil {
+		client.MatchingFields{mfindex.Item: mfindex.ItemKey(kind, name)}, client.UnsafeDisableDeepCopy); err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list an item's files to re-name them", "kind", kind, "name", name, "error", err)
 		return
 	}
