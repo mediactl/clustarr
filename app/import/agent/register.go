@@ -17,7 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package agent is the agent's import domain (spec §3.5.3): importarr-scan,
 // importarr-fileimport, importarr-list and importarr-recycle (the
-// recycle-bin sweep) on CLUSTARR_WORK_IMPORTARR. Every replica consumes,
+// recycle-bin sweep) on CLUSTARR_WORK_IMPORTARR, and importarr-probe-high and
+// importarr-probe-low (the MediaFile probe queue, spec 2026-10-06 §6.6).
+// Every replica consumes,
 // and every replica needs a writable /data.
 package agent
 
@@ -50,8 +52,8 @@ type Options struct {
 	TraktBaseURL, PlexBaseURL string
 }
 
-// Register adds the four consumers, declares the two MediaFile indexes they
-// read, and returns the import.data check.
+// Register adds the four import consumers and the two probe lanes, declares
+// the two MediaFile indexes they read, and returns the import.data check.
 //
 // The consumers are the work.importarr.* queues (amendment §A1.6): scan,
 // fileimport, list and recycle. The list worker creates Movie and Series only today;
@@ -127,6 +129,11 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		})); err != nil {
 			return catalogagent.Registration{}, fmt.Errorf("import domain: add %s consumer: %w", cons.durable, err)
 		}
+	}
+	// The MediaFile probe queue's two lanes (spec 2026-10-06 §6.6): the probe
+	// worker answers catalogarr's probe tasks into clustarr-probes.
+	if err := registerProbeWorkers(mgr.Add, bus, topo, newProbeWorker(bus, o.DataDir)); err != nil {
+		return catalogagent.Registration{}, err
 	}
 	// A scan or import worker that cannot write the library must not accept
 	// work (amendment §A1.6).
