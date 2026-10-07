@@ -327,6 +327,14 @@ const (
 	ManagerAutoscale FieldManager = "clustarr-autoscale"
 )
 
+// DefaultFieldOwner is the field manager controller-runtime records for a
+// write that names none (spec 2026-10-06 §5.3.5, OD4). Without it the
+// binaries' names would appear ("manager", "agent"), leaving stale entries
+// and an unreadable audit across the split. It is untyped on purpose: it is
+// not a FieldManager, so Validate never accepts it for server-side apply,
+// and every PatchStatus, Apply and client.FieldOwner site keeps its own name.
+const DefaultFieldOwner = "clustarr"
+
 // FieldManagers lists every manager name §2 allows, in spec order.
 func FieldManagers() []FieldManager {
 	return []FieldManager{

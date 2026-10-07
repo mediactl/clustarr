@@ -234,6 +234,7 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		// Read them through GetAPIReader, never the cached client.
 		Cache: cache.Options{DefaultTransform: cache.TransformStripManagedFields()},
 	}
+	opts.Client.FieldOwner = DefaultFieldOwner
 
 	if len(o.WatchNamespaces) > 0 {
 		byNamespace := make(map[string]cache.Config, len(o.WatchNamespaces))
