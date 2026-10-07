@@ -56,6 +56,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
@@ -182,7 +183,7 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return err
 	}
 
-	mfr := mediafile.NewReconciler(c, scheme, mgr.GetEventRecorder("mediafile"))
+	mfr := mediafile.NewReconciler(c, scheme, mgr.GetEventRecorder("mediafile"), probestore.New(bus))
 	mfr.Bus = bus // the markers fetch (app/catalog/markers)
 	if err := mfr.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: mediafile: %w", err)

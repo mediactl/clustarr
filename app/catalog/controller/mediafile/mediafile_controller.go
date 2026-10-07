@@ -19,6 +19,7 @@ package mediafile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,9 +45,9 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	clustarrevents "github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/probestore"
@@ -146,43 +147,35 @@ type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
-	Probe    ProbeFunc
 	Clock    func() time.Time
 	// Bus, when set, carries the markers fetch (app/catalog/markers) for a
 	// probed movie or episode file whose skip segments are due.
 	Bus clustarrevents.Publisher
 
-	// Probes is the MediaFile probe record store (clustarr-probes). Set, the
-	// controller is woken for every answered probe (probeRecordsSource).
+	// Probes is the MediaFile probe record store: Reconcile reads a
+	// file's record, requests its probes and incorporates their answers through it,
+	// and the controller is woken for every answer (probeRecordsSource). Required.
 	Probes *probestore.Store
 
 	// watchProbeRecords replaces Probes.Watch in a test.
 	watchProbeRecords func(ctx context.Context) (<-chan clustarrevents.Entry, error)
 }
 
-// ProbeFunc matches ffprobeexec.Probe's signature so tests can substitute a
-// fake that never shells out to ffprobe.
-type ProbeFunc func(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error)
-
-// NewReconciler builds a Reconciler with production defaults: the real
-// ffprobe-backed Probe and the wall clock.
-func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder events.EventRecorder) *Reconciler {
-	return &Reconciler{
-		Client:   c,
-		Scheme:   scheme,
-		Recorder: recorder,
-		Probe:    ffprobeexec.Probe,
-		Clock:    time.Now,
-	}
+// NewReconciler builds a Reconciler with production defaults: probes through
+// probes (clustarr-probes and the probe queue) and the wall clock.
+func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder events.EventRecorder, probes *probestore.Store) *Reconciler {
+	return &Reconciler{Client: c, Scheme: scheme, Recorder: recorder, Probes: probes, Clock: time.Now}
 }
 
-// Reconcile probes the file at spec.path when it is new or stale (or when a
-// transcode swap has not yet been incorporated), mirrors the result onto
-// status and the catalog.clustarr.io/* labels, and folds in any
-// SubtitleRequest sidecars. It is the sole writer of MediaFileStatus (see
-// the package doc in "Resolving the field-manager split") and touches no
-// other resource -- the owning Movie/Episode rollup is theirs to compute
-// from their own MediaFile watch, per the Reconciler doc comment above.
+// Reconcile incorporates the file's probe when it is new or stale (or a
+// transcode swap is unincorporated), asking the import domain for it through
+// the probe record when no current one exists (spec 2026-10-06 §6.5.3),
+// mirrors the result onto status and the catalog.clustarr.io/* labels, and
+// folds in any SubtitleRequest sidecars. It is the sole writer of
+// MediaFileStatus (see the package doc in "Resolving the field-manager
+// split") and touches no other resource -- the owning Movie/Episode rollup
+// is theirs to compute from their own MediaFile watch, per the Reconciler
+// doc comment above.
 //
 // Every path that reports anything at all leaves through exactly ONE
 // k8s.PatchStatus, built by knownStatus.statusAC from a baseline seeded with
@@ -219,7 +212,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	ctx, span := tracing.Start(ctx, "mediafile.Reconcile")
 	defer span.End()
 	ctx = logging.With(ctx, "mediafile", req.Name, "namespace", req.Namespace)
-	log := logging.FromContext(ctx)
 
 	var mf catalogv1alpha1.MediaFile
 	if err := r.Get(ctx, req.NamespacedName, &mf); err != nil {
@@ -290,161 +282,68 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	ps := evaluateProbe(path, info.Size(), info.ModTime(), mf.Status.ProbeHash)
 
-	probed, changed, keptOutput := false, false, ""
-	if swap != nil || kept != nil || graft != nil || probeDue(mf.Status.ProbeHash, mf.Status.ProbeVersion, ps) {
-		mi, _, probeErr := r.Probe(ctx, path)
-		if probeErr != nil {
-			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "ProbeFailed", "%s", probeErr)
-			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "ProbeFailed", "probe failed: %s", probeErr)
-			// A swap this failed probe could not incorporate, or a running
-			// transcode, reads TranscodePending; a file whose bytes changed
-			// reads ProbePending rather than a name the old bytes earned
-			// (ruling R20), as does a file never probed. Otherwise the
-			// last good probe still describes the file. spec.path is
-			// unchanged: nothing was incorporated.
-			var retryNaming bool
-			known.Naming, retryNaming = r.renderNaming(ctx, &mf, known, namingInputs{
-				specPath:         mf.Spec.Path,
-				probeStale:       ps.Stale,
-				transcodePending: swap != nil || transcodeRunning,
-			})
-			if serr := r.applyStatus(ctx, &mf, conditions, known); serr != nil {
-				return ctrl.Result{}, serr
-			}
-			return withNamingRetry(ctrl.Result{RequeueAfter: 30 * time.Second}, retryNaming), nil
+	in := incorporation{path: path, ps: ps, swap: swap, kept: kept, graft: graft, transcoded: transcoded, now: now}
+	// An audio graft's swap is asked for like a transcode swap's: its bytes
+	// are new, so it is never path-only or version-only, it is probed on the
+	// high lane, and a record that already describes them is incorporated
+	// at once (graft.go).
+	swapOrKept := swap != nil || kept != nil || graft != nil
+	var inc incorporated
+	var res ctrl.Result
+	switch {
+	case pathOnly(&mf, ps, swapOrKept):
+		// The bytes status.mediaInfo describes, under a new name: record the
+		// new hash and the container the name says, and probe nothing.
+		known.ProbeHash = ps.Hash
+		known.MediaInfo = mediainfo.AtPath(mf.Status.MediaInfo, path)
+		known.ProbedAt = &now
+		if mf.Status.ProbeVersion < probeVersion {
+			// A status write wakes no reconcile: the version-only re-probe is
+			// the next one's to request, a second from now.
+			res = sooner(res, time.Second)
 		}
-
-		original := mf.Spec.Original == nil || *mf.Spec.Original
-		if swap != nil {
-			original = false
-		}
-
-		// mirrorLabels is applied on every probe, not only alongside a
-		// transcode swap: spec §8.4 says the MediaFile reconciler "probes,
-		// sets labels, probeHash, Probed" unconditionally, and
-		// metadata.labels is neither spec nor status -- disjoint from
-		// everything importarr's MediaFileSpec Apply owns, so there is no
-		// two-writer reason to withhold it pre-transcode (ruled on
-		// explicitly after the mandatory gate's original, overly broad
-		// "no main-resource claim" assertion was narrowed to "no spec.*
-		// claim"). original already reflects an incorporated swap by this
-		// point, so LabelOriginal flips to "false" in the same reconcile
-		// that flips spec.original.
-		//
-		// Labels and the spec fields both go in ONE k8s.Apply call, not
-		// two: server-side apply is not additive across separate Apply
-		// calls from the same field manager -- each call fully declares
-		// that manager's current field set, so a later, narrower Apply
-		// from catalogarr would silently release whatever an earlier one
-		// in the same reconcile had just claimed. !original (true from the
-		// first swap onward, since mf.Spec.Original was force-set false)
-		// means catalogarr re-asserts path/sizeBytes/modTime/original with the
-		// current probe's fresh values on every Apply from here on, not
-		// only the reconcile that first incorporates a swap -- otherwise a
-		// later labels-only Apply (triggered by, say, a stale re-probe with
-		// no new TranscodeJob) would erase fields catalogarr already owns.
-		if graft != nil {
-			known.GraftTag, known.GraftedAt = graft.Status.GraftTag, &now
-		}
-		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
-		mainAC := catalogac.MediaFile(mf.Name, mf.Namespace).WithLabels(labels)
-		if original && known.GraftTag != "" {
-			// A grafted original: the size, mtime and path are catalogarr's
-			// from its first graft on, re-sent on every apply as after a
-			// transcode -- and spec.original is never sent, so importarr
-			// keeps it (a graft is not a transcode).
-			mainAC = mainAC.WithSpec(catalogac.MediaFileSpec().
-				WithPath(path).
-				WithSizeBytes(ps.SizeBytes).
-				WithModTime(ps.ModTime))
-		}
-		if !original {
-			// spec.path is catalogarr's from the first swap on, beside the
-			// three fields it already took (gap-fix R-11): a container
-			// change, or an explicit spec.outputPath, puts the encode under
-			// a new name and retires the source, so the MediaFile must
-			// follow the file or it names a path that no longer exists. It
-			// is sent on every apply, including an in-place swap where it
-			// equals importarr's value (co-owned, harmless), because a
-			// manager that stops sending a field releases it.
-			mainAC = mainAC.WithSpec(catalogac.MediaFileSpec().
-				WithPath(path).
-				WithSizeBytes(ps.SizeBytes).
-				WithModTime(ps.ModTime).
-				WithOriginal(false))
-		}
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr, mainAC); err != nil {
+	case keptNeedsNoProbe(&mf, ps, kept != nil):
+		if inc, err = r.incorporate(ctx, &mf, &conditions, known, in, mf.Status.MediaInfo, mf.Status.ProbeVersion); err != nil {
 			return ctrl.Result{}, err
 		}
-		if swap != nil {
-			log.Info("incorporated transcode swap", "transcodeJob", swap.Name)
+	case swapOrKept || probeDue(mf.Status.ProbeHash, mf.Status.ProbeVersion, ps):
+		if r.Probes == nil {
+			return ctrl.Result{}, errors.New("mediafile: the reconciler has no probe store")
 		}
-
-		k8s.MarkTrue(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "Probed", "probed at %s", now.Time)
-		k8s.MarkTrue(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "Ready", "file present and probed")
-
-		known.ProbeHash = ps.Hash
-		known.ProbedAt = &now
-		known.ProbeVersion = mediainfo.ProbeVersion
-		known.MediaInfo = mi
-		probed = true
-
-		if graft != nil {
-			log.Info("incorporated audio graft", "audioGraft", graft.Name, "graftTag", graft.Status.GraftTag)
+		want := probestore.Want{
+			MediaFile:    schema.Ref{Namespace: mf.Namespace, Name: mf.Name, UID: string(mf.UID)},
+			Path:         path,
+			ProbeHash:    ps.Hash,
+			ProbeVersion: probeVersion,
+			Lane:         probeLane(&mf, ps, swapOrKept),
 		}
-		if swap == nil && kept == nil && graft == nil && transcoded && bytesChanged(&mf, ps) && mf.Status.ProbeHash != "" {
-			// A rename (naming.renameTranscoded) moves the same bytes:
-			// the probe is stale by path alone, and the verdict stands.
-			// The bytes of a file catalogarr already took over changed, and
-			// no newer Succeeded TranscodeJob explains it (a re-mux, a hand
-			// edit, a restore from backup). The size and mtime are
-			// re-recorded above, under this manager, which has owned them
-			// since the swap; the rescan never re-applies them, it only rings
-			// AnnotationObservedFingerprint. What the previous encode claimed
-			// about the file no longer describes these bytes, so the
-			// compliance verdict and the profile revision it was judged
-			// against are dropped. LastResult stays: it is the history of the
-			// last transcode, which did happen. squasharr re-judges the file
-			// from the fresh probe (its watch keys on probeHash) and decides
-			// whether it needs another encode -- this controller never
-			// guesses that.
-			known.Transcode = staleTranscodeState(known.Transcode)
-			changed = true
+		cur, err := r.Probes.Get(ctx, string(mf.UID))
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-		if swap != nil {
-			profileTag, terr := r.transcodeProfileTag(ctx, swap)
-			if terr != nil {
-				return ctrl.Result{}, terr
+		j := judgeProbe(cur.Record, cur.OK, want, mf.Status.ProbeHash, now.Time)
+		switch j.verdict {
+		case verdictIncorporate:
+			if inc, err = r.incorporate(ctx, &mf, &conditions, known, in, cur.Record.MediaInfo, cur.Record.ProbeVersion); err != nil {
+				return ctrl.Result{}, err
 			}
-			// A whole new TranscodeState, not an edit of the one already
-			// there: the previous state described the previous encode, and
-			// its jobRef names a TranscodeJob that is no longer the latest.
-			known.Transcode = &catalogv1alpha1.TranscodeState{
-				Compliant:  true,
-				ProfileTag: profileTag,
-				LastResult: catalogv1alpha1.TranscodeResultSucceeded,
+			res = requeueAt(res, j.requeueAt, now.Time)
+		case verdictWait:
+			res = requeueAt(res, j.requeueAt, now.Time)
+		case verdictFailed, verdictGiveUp:
+			return r.probeFailed(ctx, &mf, conditions, known, ps.Stale, swap != nil || transcodeRunning, j, now.Time)
+		case verdictRequest, verdictPending:
+			rec, conflict, err := r.ask(ctx, want, cur, j)
+			if err != nil {
+				return ctrl.Result{}, err
 			}
-			if path != mf.Spec.Path {
-				log.Info("followed a transcode to its new path", "from", mf.Spec.Path, "to", path)
+			if conflict {
+				return ctrl.Result{RequeueAfter: probeConflictRetry}, nil
 			}
-		}
-		if kept != nil {
-			profileTag, terr := r.transcodeProfileTag(ctx, kept)
-			if terr != nil {
-				return ctrl.Result{}, terr
+			res = requeueAt(res, j.requeueAt, now.Time)
+			if !versionOnly(&mf, ps, swapOrKept) {
+				return r.pending(ctx, &mf, conditions, known, ps.Stale || mf.Status.ProbeHash == "", swap != nil || transcodeRunning, rec, res)
 			}
-			// replaceSource=false: the encode was written beside the source
-			// and the source kept, so THIS MediaFile's file is untouched --
-			// not original=false, not compliant. The profile revision is
-			// recorded so squasharr's "already transcoded to this revision"
-			// check (transcodeprofile.alreadyTranscoded) does not plan the
-			// same derived copy again, and the result is history. The
-			// derived file itself is not this MediaFile's: see swapTarget.
-			known.Transcode = &catalogv1alpha1.TranscodeState{
-				ProfileTag: profileTag,
-				LastResult: catalogv1alpha1.TranscodeResultSucceeded,
-			}
-			keptOutput = kept.Status.Result.OutputPath
 		}
 	}
 
@@ -475,22 +374,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	if probed && r.Recorder != nil {
+	if inc.probed && r.Recorder != nil {
 		r.Recorder.Eventf(&mf, nil, "Normal", "Probed", "Reconcile", "probed %s", mf.Spec.Path)
 	}
-	if keptOutput != "" && r.Recorder != nil {
+	if inc.keptOutput != "" && r.Recorder != nil {
 		r.Recorder.Eventf(&mf, nil, "Normal", "TranscodeKept", "Reconcile",
-			"the transcode was written to %s beside the kept source; this MediaFile still names %s", keptOutput, path)
+			"the transcode was written to %s beside the kept source; this MediaFile still names %s", inc.keptOutput, path)
 	}
-	if changed && r.Recorder != nil {
+	if inc.changed && r.Recorder != nil {
 		r.Recorder.Eventf(&mf, nil, "Warning", "TranscodedFileChanged", "Reconcile",
 			"the transcoded file at %s changed on disk with no transcode to explain it; re-probed, compliance cleared", mf.Spec.Path)
 	}
 
-	res := withNamingRetry(ctrl.Result{}, retryNaming)
 	if transcoded || swap != nil {
-		res = withNamingRetry(ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, retryNaming)
+		res = sooner(res, TranscodedRecheckInterval)
 	}
+	res = withNamingRetry(res, retryNaming)
 	return r.followUpMarkers(ctx, &mf, known, now.Time, res)
 }
 
@@ -720,7 +619,7 @@ func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaF
 // integration calls it as:
 //
 //	return mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(),
-//	    mgr.GetEventRecorder("mediafile-controller")).SetupWithManager(mgr)
+//	    mgr.GetEventRecorder("mediafile"), probestore.New(bus)).SetupWithManager(mgr)
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
@@ -779,10 +678,8 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 }
 
 // MaxConcurrentReconciles is how many MediaFiles are reconciled at once. A
-// reconcile may run ffprobe over the library mount -- about ten seconds on
-// the owner's NFS share -- and a RootFolder naming change or a
-// ProbeVersion bump enqueues every file, so a single worker took hours to
-// re-render 11,945 TV names (2026-09-30). The Reconciler holds no mutable
+// RootFolder naming change enqueues every file, so a single worker took hours
+// to re-render 11,945 TV names (2026-09-30). The Reconciler holds no mutable
 // state, and controller-runtime never runs one key twice at once.
 const MaxConcurrentReconciles = 8
 
