@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/segments"
 )
 
@@ -150,6 +151,13 @@ type Reconciler struct {
 	// Bus, when set, carries the markers fetch (app/catalog/markers) for a
 	// probed movie or episode file whose skip segments are due.
 	Bus clustarrevents.Publisher
+
+	// Probes is the MediaFile probe record store (clustarr-probes). Set, the
+	// controller is woken for every answered probe (probeRecordsSource).
+	Probes *probestore.Store
+
+	// watchProbeRecords replaces Probes.Watch in a test.
+	watchProbeRecords func(ctx context.Context) (<-chan clustarrevents.Entry, error)
 }
 
 // ProbeFunc matches ffprobeexec.Probe's signature so tests can substitute a
@@ -717,7 +725,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("mediafile").
 		For(&catalogv1alpha1.MediaFile{}, builder.WithPredicates(k8s.Or(
 			k8s.GenerationChanged(),
@@ -740,13 +748,17 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForEpisode),
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(episodeNamingInputs)))).
 		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mediaFilesForRootFolder),
-			builder.WithPredicates(rootFolderNamingChanged())).
-		WithOptions(controller.Options{
-			RecoverPanic:            ptr.To(true),
-			ReconciliationTimeout:   5 * time.Minute,
-			MaxConcurrentReconciles: MaxConcurrentReconciles,
-		}).
-		Complete(r)
+			builder.WithPredicates(rootFolderNamingChanged()))
+	if r.Probes != nil {
+		// Leader-only like every controller source: a probe answered while no
+		// leader ran is replayed when one starts.
+		b = b.WatchesRawSource(r.probeRecordsSource())
+	}
+	return b.WithOptions(controller.Options{
+		RecoverPanic:            ptr.To(true),
+		ReconciliationTimeout:   5 * time.Minute,
+		MaxConcurrentReconciles: MaxConcurrentReconciles,
+	}).Complete(r)
 }
 
 // RegisterIndexes registers every field index Reconcile's Lists and the
