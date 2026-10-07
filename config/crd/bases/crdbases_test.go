@@ -51,5 +51,5 @@ func TestEveryEditableKindHasAnEmbeddedSchema(t *testing.T) {
 	}
 	_, err := crdbases.Load("catalog.clustarr.io", "Nothing")
 	require.Error(t, err, "an unknown kind is an error, not a nil")
-	require.Len(t, crdbases.All(), 27, "every generated CRD is embedded; regenerate with make manifests")
+	require.Len(t, crdbases.All(), 29, "every generated CRD is embedded (IPTVProvider and IPTVChannel among them); regenerate with make manifests")
 }
