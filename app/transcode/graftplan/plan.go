@@ -148,6 +148,9 @@ type Decision struct {
 	// Unpaced exempts the apply from the status-write limiter (§3.7): a
 	// dispatch, an incorporation.
 	Unpaced bool
+	// Again asks for the next pass in a second: a graft just became
+	// Swapping.
+	Again bool
 }
 
 func (d *Decision) due(t time.Time) {
@@ -233,11 +236,13 @@ func Plan(v View, in Input, out *catalogv1alpha1.MediaFileStatus) Decision {
 		return d // §3.5: every planner after the probe keeps its last block
 	}
 	plan(v, in, out, &d)
-	// A graft that swapped the file this pass ends here once the grafted
-	// bytes' probe is in the draft (the probe planner incorporated it this
-	// pass, or before): status.graftTag follows in the same apply.
-	if b := out.Graft; b != nil && b.Phase == catalogv1alpha1.GraftPhaseSwapping {
-		swapped(v, b, out, &d)
+	// A graft that swapped the file this pass is Swapping now; the next
+	// pass, the probe planner reads the grafted bytes' probe for a Swapping
+	// block (and hands the main apply the spec takeover), and the Swapping
+	// row ends it with status.graftTag in that same apply (§3.10).
+	if b := out.Graft; b != nil && b.Phase == catalogv1alpha1.GraftPhaseSwapping &&
+		(v.Prev.Graft == nil || v.Prev.Graft.Phase != catalogv1alpha1.GraftPhaseSwapping) {
+		d.Again = true
 	}
 	return d
 }
@@ -246,6 +251,7 @@ func plan(v View, in Input, out *catalogv1alpha1.MediaFileStatus, d *Decision) {
 	b := out.Graft
 	switch {
 	case b != nil && b.Phase == catalogv1alpha1.GraftPhaseSwapping:
+		swapped(v, b, out, d)
 		return
 	case b != nil && b.Phase == catalogv1alpha1.GraftPhaseRunning && b.Reason == ReasonJoinedTranscode:
 		joined(v, in, b, d)
@@ -582,6 +588,11 @@ func idle(v View, in Input, out *catalogv1alpha1.MediaFileStatus, d *Decision) {
 		switch {
 		case b.Phase == catalogv1alpha1.GraftPhaseFailed && b.DonorFault:
 			return // final for this donor and these bytes (§2.6)
+		case b.Phase == catalogv1alpha1.GraftPhaseSucceeded:
+			// The worker found the language present (or grafted it) where the
+			// probe sees none: the verdict stands for this donor and these
+			// bytes, never a graft Job per slot.
+			return
 		case b.Phase == catalogv1alpha1.GraftPhaseFailed, b.Phase == catalogv1alpha1.GraftPhaseWaiting && b.Reason == ReasonBackoff:
 			if b.CompletedAt != nil {
 				if retry := b.CompletedAt.Add(FailureBackoff); now.Before(retry) {

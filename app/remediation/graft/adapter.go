@@ -162,7 +162,7 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 	}
 	gv := graftplan.View{File: v.File, Prev: v.Prev, Draft: v.Draft, Now: v.Now, ProbeCurrent: v.ProbeCurrent(), Issue: v.Issue}
 	d := graftplan.Plan(gv, in.Plan, out)
-	res := remediation.Result{Due: d.Due, Unpaced: in.Plan.Granted || d.Unpaced}
+	res := remediation.Result{Due: d.Due, Again: d.Again, Unpaced: in.Plan.Granted || d.Unpaced}
 	key := events.RecordKey(string(v.File.UID))
 	for _, e := range d.Effects {
 		switch e.Kind {

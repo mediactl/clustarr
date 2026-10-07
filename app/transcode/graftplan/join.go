@@ -52,8 +52,9 @@ func Join(v View, in JoinInput) *Joinable {
 	}
 	it := in.Item
 	donor := it.Audio.Donor
-	if b != nil && b.Phase == catalogv1alpha1.GraftPhaseFailed && b.DonorFault && sameAttempt(b, donor, v.Draft.ProbeHash) {
-		return nil
+	if b != nil && sameAttempt(b, donor, v.Draft.ProbeHash) &&
+		(b.Phase == catalogv1alpha1.GraftPhaseFailed && b.DonorFault || b.Phase == catalogv1alpha1.GraftPhaseSucceeded) {
+		return nil // a verdict stands for this donor and these bytes
 	}
 	l := FirstMissing(it.Audio.Missing, v.Draft.MediaInfo)
 	if l == "" {

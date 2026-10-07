@@ -165,9 +165,10 @@ func (*Adapter) Copy(from, into *catalogv1alpha1.MediaFileStatus) {
 	remediation.CopyConditions(from, into, catalogv1alpha1.MediaFileConditionProbed, catalogv1alpha1.MediaFileConditionReady)
 }
 
-// graftState reads the stored graft block: Swapping with its grafted bytes
-// not yet probed (completed after the stored probe), and a graft in flight
-// or swapping at all.
+// graftState reads the stored graft block: Swapping (a graft swapped the
+// file: its probe is read again, as a transcode swap's is, so the pass the
+// graft planner ends it in carries the spec takeover), and a graft in
+// flight or swapping at all.
 func graftState(prev *catalogv1alpha1.MediaFileStatus) (swapping, inFlight bool) {
 	b := prev.Graft
 	if b == nil {
@@ -175,7 +176,7 @@ func graftState(prev *catalogv1alpha1.MediaFileStatus) (swapping, inFlight bool)
 	}
 	switch b.Phase {
 	case catalogv1alpha1.GraftPhaseSwapping:
-		return prev.ProbedAt == nil || b.CompletedAt == nil || b.CompletedAt.After(prev.ProbedAt.Time), true
+		return true, true
 	case catalogv1alpha1.GraftPhaseQueued, catalogv1alpha1.GraftPhaseRunning:
 		return false, true
 	}
