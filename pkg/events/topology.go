@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mediactl/clustarr/pkg/legacynames"
 )
 
 // Retention is a stream's message retention policy.
@@ -710,7 +712,7 @@ func fieldErr(field, msg string) error {
 // It and its filters live here rather than beside the other names in
 // subjects.go only because this file is the one the task that added it owned
 // (gap fixes Y3); they are ordinary exported names of the package.
-const ConsumerCatalogRedownload = "catalogarr-redownload"
+const ConsumerCatalogRedownload = legacynames.RedownloadDurable
 
 // The two download-event subjects ConsumerCatalogRedownload filters.
 //

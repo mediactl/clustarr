@@ -17,7 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package k8s
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/pkg/legacynames"
+)
 
 // FieldManager is a server-side-apply field-manager name. Section 2 of the
 // design spec enumerates every manager Clustarr is allowed to use; §5 pins the
@@ -164,7 +168,7 @@ const (
 	// accepts it (RetiredFieldManagers) because release N's one release
 	// apply of every MediaFile's catalogarr-markers entry runs under it
 	// (§7.3.8, F8.4). F9.4 removes it.
-	ManagerCatalogarrMarkers FieldManager = "catalogarr-markers"
+	ManagerCatalogarrMarkers FieldManager = legacynames.MarkersStatusManager
 
 	// ManagerCatalogarrClassify is the Series reconciler's one-time anime
 	// classification: it merge-patches spec.seriesType and
@@ -258,7 +262,7 @@ const (
 	// the telemetry fields of Download.status. Retired (ADR-0019 A3.6):
 	// engines write no Kubernetes object; RetiredFieldManagers keeps it
 	// valid until N+1.
-	ManagerGrabarrEngine FieldManager = "grabarr-engine"
+	ManagerGrabarrEngine FieldManager = legacynames.EngineTelemetryManager
 
 	// ManagerSquasharr is the squasharr controller manager.
 	ManagerSquasharr FieldManager = "squasharr"

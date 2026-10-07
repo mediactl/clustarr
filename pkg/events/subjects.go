@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/legacynames"
 )
 
 // Stream names.
@@ -130,7 +131,7 @@ const (
 	ConsumerCatalogRSSMatcher    = "catalogarr-rss-matcher"
 	ConsumerCatalogSearchHigh    = "catalogarr-search-high"
 	ConsumerCatalogSearchNorm    = "catalogarr-search-normal"
-	ConsumerCatalogGrab          = "catalogarr-grab"
+	ConsumerCatalogGrab          = legacynames.GrabDurable
 	ConsumerCatalogMetadata      = "catalogarr-metadata"
 	ConsumerCatalogHistory       = "catalogarr-history"
 	ConsumerImportScan           = "importarr-scan"
@@ -140,7 +141,7 @@ const (
 	ConsumerIndexRSS             = "indexarr-rss"
 	ConsumerCaptionFetchHigh     = "captionarr-fetch-high"
 	ConsumerCaptionFetchNormal   = "captionarr-fetch-normal"
-	ConsumerSquasharrResults     = "squasharr-transcode-results"
+	ConsumerSquasharrResults     = legacynames.TranscodeResultsDurable
 	ConsumerDLQProjector         = "clustarr-dlq-projector"
 	ConsumerCatalogArtworkFetch  = "catalogarr-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalogarr-artwork-render"
@@ -150,7 +151,7 @@ const (
 	// (loop spec §4.12): Topology.Retired names it until F9.4.
 	ConsumerCatalogSegmentsPlan   = "catalogarr-segments-plan"
 	ConsumerSegmentarrAnalyze     = "segmentarr-analyze"
-	ConsumerCatalogSegmentsResult = "catalogarr-segments-result"
+	ConsumerCatalogSegmentsResult = legacynames.SegmentsResultDurable
 )
 
 // Key/value bucket names. NATS bucket names may not contain dots.

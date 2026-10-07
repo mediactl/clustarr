@@ -32,14 +32,14 @@ import (
 	coordinationv1client "k8s.io/client-go/kubernetes/typed/coordination/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"github.com/mediactl/clustarr/pkg/legacynames"
 )
 
 // LegacyLeaseIDs are the per-service leases manager.clustarr.io replaces
-// (spec 2026-10-06 §5.8).
-var LegacyLeaseIDs = []string{
-	"catalogarr.clustarr.io", "importarr.clustarr.io", "indexarr.clustarr.io",
-	"grabarr.clustarr.io", "squasharr.clustarr.io", "captionarr.clustarr.io",
-}
+// (spec 2026-10-06 §5.8). An alias of legacynames.LeaseIDs until OD6
+// deletes the gate (Wave U ruling U-R6).
+var LegacyLeaseIDs = legacynames.LeaseIDs
 
 // GatedLeaseLock is the manager's LeaseLock with a gate in front of Create
 // and Update: while any legacy per-service lease is held (a non-empty

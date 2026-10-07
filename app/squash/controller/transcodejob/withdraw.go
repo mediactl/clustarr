@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/legacynames"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -45,7 +46,10 @@ import (
 // worker has taken yet. dispatch.go adds it before publishing a task;
 // afterWrite removes it once a write makes the job terminal, and
 // reconcileDelete removes it once withdrawal has succeeded or timed out.
-const FinalizerTaskWithdrawal = "squasharr.clustarr.io/task-withdrawal"
+//
+// Its spelling is chart 0.4.x's, kept (Wave U ruling R-U3): the kind goes
+// in N+1, and the Migrator removes it under the legacy name.
+const FinalizerTaskWithdrawal = legacynames.TaskWithdrawalFinalizer
 
 // withdrawalTimeout bounds how long deletion waits for withdrawal to
 // succeed before releasing the finalizer anyway -- the R-6 pattern: a NATS
