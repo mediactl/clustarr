@@ -488,33 +488,53 @@ func FitWidth(img image.Image, maxWidth int) image.Image {
 	return dst
 }
 
+// overlayCASAttempts bounds record's redo on a Conflict: another replica's
+// overlay, or the gateway's status apply, landed between the recheck and the
+// apply.
+const overlayCASAttempts = 5
+
 // record is every status.overlay write: after the slow work (store reads,
 // a decode, a render, a Put) it re-reads the item, its profiles and its
 // original, and applies entry only if they still want what was worked on
-// (CLAUDE.md's lost-update rule). A nil entry clears status.overlay.
+// (CLAUDE.md's lost-update rule). A nil entry clears status.overlay. The
+// apply is a compare-and-swap on the re-read's resourceVersion, and a
+// Conflict redoes the re-read and the recheck, at most overlayCASAttempts
+// times.
 func (h *Handler) record(ctx context.Context, before overlayplan.Item, want overlayplan.Want, entry *catalogv1alpha1.OverlayEntry) error {
 	key := client.ObjectKeyFromObject(before.Object)
-	fresh, err := h.read(ctx, before.Kind, key)
-	if err != nil {
-		return err
+	var err error
+	for range overlayCASAttempts {
+		var fresh overlayplan.Item
+		if fresh, err = h.read(ctx, before.Kind, key); err != nil {
+			return err
+		}
+		if fresh.Object.GetUID() != before.Object.GetUID() {
+			return fmt.Errorf("%w: %s %s was re-created during the render", errItemGone, before.Kind, key)
+		}
+		now, perr := h.plan(ctx, fresh)
+		if perr != nil {
+			return perr
+		}
+		if !now.Same(want) {
+			return fmt.Errorf("%w: %s %s", ErrInputsMoved, before.Kind, key)
+		}
+		if (entry == nil && fresh.Overlay == nil) || (entry != nil && recorded(fresh.Overlay, entry)) {
+			return nil
+		}
+		// A compare-and-swap on the rechecked object's resourceVersion: an
+		// overlay another replica recorded, or the gateway's status apply,
+		// landing between the recheck and this apply is a Conflict, and the
+		// redo's recheck decides again from the object as it now stands
+		// (spec 2026-10-06 §5.3.4).
+		err = catalogstatus.PatchOverlay(ctx, h.Client, catalogstatus.RendererManager, fresh.Object, entry)
+		if err == nil {
+			return nil
+		}
+		if !apierrors.IsConflict(err) {
+			return fmt.Errorf("artwork: apply %s %s status.overlay: %w", before.Kind, key, err)
+		}
 	}
-	if fresh.Object.GetUID() != before.Object.GetUID() {
-		return fmt.Errorf("%w: %s %s was re-created during the render", errItemGone, before.Kind, key)
-	}
-	now, err := h.plan(ctx, fresh)
-	if err != nil {
-		return err
-	}
-	if !now.Same(want) {
-		return fmt.Errorf("%w: %s %s", ErrInputsMoved, before.Kind, key)
-	}
-	if (entry == nil && fresh.Overlay == nil) || (entry != nil && recorded(fresh.Overlay, entry)) {
-		return nil
-	}
-	if err := catalogstatus.PatchOverlay(ctx, h.Client, catalogstatus.RendererManager, fresh.Object, entry); err != nil {
-		return fmt.Errorf("artwork: apply %s %s status.overlay: %w", before.Kind, key, err)
-	}
-	return nil
+	return fmt.Errorf("artwork: apply %s %s status.overlay: contended for %d attempts: %w", before.Kind, key, overlayCASAttempts, err)
 }
 
 // recorded reports whether status.overlay o already says what entry says.

@@ -148,6 +148,12 @@ func OverlayEntryAC(e catalogv1alpha1.OverlayEntry) *catalogac.OverlayEntryApply
 // reconcilers all write Movie.status, and a stray call from one of them
 // would silently co-own status.overlay (ForceOwnership) -- and any kind
 // but Movie and Series, before touching c.
+//
+// It is a compare-and-swap on obj's resourceVersion: an apply over an
+// object another writer changed since obj was read is a Conflict
+// (apierrors.IsConflict through the wrap), never a silent rollback (spec
+// 2026-10-06 §5.3.4). An obj carrying no resourceVersion applies
+// unconditionally.
 func PatchOverlay(ctx context.Context, c client.Client, mgr k8s.FieldManager, obj client.Object,
 	entry *catalogv1alpha1.OverlayEntry,
 ) error {
@@ -161,13 +167,21 @@ func PatchOverlay(ctx context.Context, c client.Client, mgr k8s.FieldManager, ob
 		if entry != nil {
 			st.WithOverlay(OverlayEntryAC(*entry))
 		}
-		ac = catalogac.Movie(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+		mac := catalogac.Movie(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+		if rv := obj.GetResourceVersion(); rv != "" {
+			mac.WithResourceVersion(rv)
+		}
+		ac = mac
 	case *catalogv1alpha1.Series:
 		st := catalogac.SeriesStatus()
 		if entry != nil {
 			st.WithOverlay(OverlayEntryAC(*entry))
 		}
-		ac = catalogac.Series(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+		sac := catalogac.Series(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+		if rv := obj.GetResourceVersion(); rv != "" {
+			sac.WithResourceVersion(rv)
+		}
+		ac = sac
 	default:
 		return fmt.Errorf("%w: %T", ErrNoOverlay, obj)
 	}
