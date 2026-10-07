@@ -16,14 +16,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package standard decides squasharr's fixed transcoding standard (spec
-// docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md §1) for the
-// in-process engine: HEVC Main 10 at the source's resolution and frame
-// rate; HDR10 and HLG kept; Dolby Vision stripped to its base layer, or
-// skipped when it has none; Apple TV's direct-play audio (AAC, AC-3,
-// E-AC-3) copied and everything else AAC at 64 kbps per channel, at most
-// 5.1; every subtitle, attachment, chapter and tag copied. Plan is pure:
-// the controller plans from the probe summary, the worker from a live
-// probe, and the two compare Hash.
+// docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md §1, its
+// layout since Version 2 docs/superpowers/specs/2026-10-06-mp4-standard-design.md)
+// for the in-process engine: one MP4 holding HEVC Main 10 at the source's
+// resolution and frame rate, tagged hvc1; HDR10 and HLG kept; Dolby Vision
+// stripped to its base layer, or skipped when it has none; per language a
+// Dolby surround track (E-AC-3 or AC-3 copied, else AC-3 5.1) plus an AAC
+// 2.0 companion, or AAC alone for mono or stereo; chapters and tags kept.
+// Plan is pure: the controller plans from the probe summary, the worker
+// from a live probe, and the two compare Hash.
 package standard
 
 import (
@@ -46,7 +47,8 @@ import (
 // writing different output for the same input -- a new encoder setting, a
 // colour rule -- so files not yet transcoded are planned under the new
 // standard. Files already transcoded are final and are never redone.
-const Version = 1
+// 2: the MP4 layout (2026-10-06 MP4 standard design).
+const Version = 2
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -56,7 +58,8 @@ type Profile struct {
 	// and every track when none matches); empty keeps all.
 	Languages               []string
 	NeverTranscodeModifiers []string
-	Container               transcode.Container
+	// Container is ignored since Version 2: the standard writes MP4.
+	Container transcode.Container
 	// MinDuration skips a source shorter than it (policy.minDuration):
 	// trailers, extras, samples. Zero considers every file.
 	MinDuration time.Duration
@@ -104,13 +107,16 @@ type VideoPlan struct {
 // AudioPlan is what happens to one kept audio track.
 type AudioPlan struct {
 	SourceIndex int32  // type-relative: the Nth audio stream
-	Action      string // "copy" | "aac"
-	Channels    int32  `json:",omitempty"` // aac
-	Layout      string `json:",omitempty"` // aac: the output layout, canonical for Channels (aacLayouts)
-	BitRate     int64  `json:",omitempty"` // aac
+	Action      string // AudioCopy | AudioAAC | AudioAC3
+	Channels    int32  `json:",omitempty"` // encoded
+	Layout      string `json:",omitempty"` // encoded: the output layout
+	BitRate     int64  `json:",omitempty"` // encoded
 	Language    string `json:",omitempty"`
 	Title       string `json:",omitempty"`
 	Comment     bool   `json:",omitempty"`
+	// Default makes the track the file's default audio track; no other
+	// output track carries the flag.
+	Default bool `json:",omitempty"`
 }
 
 // Expectation is what Verify checks the output against.
@@ -159,21 +165,30 @@ func (p Result) Hash() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// aacLayouts are the layouts FFmpeg's AAC encoder takes, by channel count
-// ("5.1" has back surrounds; "5.1(side)" is not among them).
-var aacLayouts = map[int32]string{1: "mono", 2: "stereo", 3: "3.0", 4: "4.0", 5: "5.0", 6: "5.1"}
+// Audio actions (AudioPlan.Action).
+const (
+	AudioCopy = "copy"
+	AudioAAC  = "aac"
+	AudioAC3  = "ac3"
+)
 
-// directPlay are the audio codecs Apple TV plays directly: copied as is.
-var directPlay = []string{"aac", "ac3", "eac3"}
+// AC3BitRate and AC3Layout are a surround track encoded to AC-3 (spec §3;
+// "5.1" has back surrounds, which FFmpeg's ac3 encoder takes);
+// AACBitRatePerChannel makes AAC stereo 160 kbps and mono 80 kbps.
+const (
+	AC3BitRate           = 640000
+	AC3Layout            = "5.1"
+	AACBitRatePerChannel = 80000
+)
+
+// aacLayouts are the layouts the standard encodes AAC in.
+var aacLayouts = map[int32]string{1: "mono", 2: "stereo"}
 
 // Plan decides the standard for info, under profile, on hw.
 func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	p := Result{
-		Container: profile.Container,
+		Container: transcode.ContainerMP4,
 		Tags:      map[string]string{"CLUSTARR_PROFILE": profile.Name + "@" + profile.Hash},
-	}
-	if p.Container == "" {
-		p.Container = transcode.ContainerMKV
 	}
 	// A transcoded file is final (spec §5), whichever profile or hash wrote
 	// it: an edit or a new Version re-transcodes nothing.
@@ -203,7 +218,7 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 			p.Subtitles = append(p.Subtitles, int32(i))
 		}
 	}
-	p.Attachments = p.Container == transcode.ContainerMKV
+	p.Attachments = false // MP4 carries none
 	p.Chapters = true
 	p.Expect = Expectation{
 		VideoStreams: 1, AudioStreams: int32(len(p.Audio)), SubtitleStreams: int32(len(p.Subtitles)),
@@ -391,33 +406,169 @@ func x265Options(v transcode.VideoStream, quality int32) map[string]string {
 	}
 }
 
+// planAudio is spec §3: after the languages filter, per language in the
+// order the source first has it, the primary track -- E-AC-3 or AC-3
+// copied, else AC-3 5.1, plus an AAC 2.0 companion when it is surround;
+// AAC alone when it is mono or stereo -- then each commentary track as AAC
+// of at most 2 channels. Every other track is dropped. The source's
+// default language keeps the default (ruling R4).
 func planAudio(as []transcode.AudioStream, languages []string) []AudioPlan {
-	keep := func(a transcode.AudioStream) bool {
-		return len(languages) == 0 || commentary(a) || slices.Contains(languages, a.Language)
+	type group struct {
+		main, comments []int
 	}
-	any := false
-	for _, a := range as {
-		if len(languages) > 0 && !commentary(a) && slices.Contains(languages, a.Language) {
-			any = true
+	var order []string
+	groups := map[string]*group{}
+	for _, i := range keptAudio(as, languages) {
+		lang := as[i].Language
+		g := groups[lang]
+		if g == nil {
+			g = &group{}
+			groups[lang] = g
+			order = append(order, lang)
+		}
+		if commentary(as[i]) {
+			g.comments = append(g.comments, i)
+		} else {
+			g.main = append(g.main, i)
 		}
 	}
 	var out []AudioPlan
+	for _, lang := range order {
+		g := groups[lang]
+		if p := primaryAudio(as, g.main); p >= 0 {
+			out = append(out, primaryPlans(as[p], int32(p))...)
+		}
+		for _, i := range g.comments {
+			out = append(out, commentaryPlan(as[i], int32(i)))
+		}
+	}
+	markDefault(out, as)
+	return out
+}
+
+// keptAudio is the languages filter: only tracks in languages (commentary
+// always), unless none matches, then every track.
+func keptAudio(as []transcode.AudioStream, languages []string) []int {
+	matched := false
+	for _, a := range as {
+		if len(languages) > 0 && !commentary(a) && slices.Contains(languages, a.Language) {
+			matched = true
+		}
+	}
+	var keep []int
 	for i, a := range as {
-		if any && !keep(a) {
+		if !matched || commentary(a) || slices.Contains(languages, a.Language) {
+			keep = append(keep, i)
+		}
+	}
+	return keep
+}
+
+// channels is a track's channel count, stereo when the probe has none.
+func channels(a transcode.AudioStream) int32 {
+	if a.Channels <= 0 {
+		return 2
+	}
+	return a.Channels
+}
+
+// primaryAudio is the language's primary track among idx: the first
+// surround E-AC-3, else the first surround AC-3, else the track with the
+// most channels (the first at a tie); -1 for none.
+func primaryAudio(as []transcode.AudioStream, idx []int) int {
+	rank := func(a transcode.AudioStream) (tier int, ch int32) {
+		if channels(a) > 2 {
+			switch a.Codec {
+			case "eac3":
+				return 3, 0
+			case "ac3":
+				return 2, 0
+			}
+			return 1, channels(a)
+		}
+		return 0, channels(a)
+	}
+	best := -1
+	for _, i := range idx {
+		if best < 0 {
+			best = i
 			continue
 		}
-		ap := AudioPlan{SourceIndex: int32(i), Action: "copy", Language: a.Language, Title: a.Title, Comment: commentary(a)}
-		if !slices.Contains(directPlay, a.Codec) {
-			ch := min(a.Channels, 6)
-			if ch <= 0 {
-				ch = 2
-			}
-			ap.Action, ap.Channels, ap.BitRate = "aac", ch, 64000*int64(ch)
-			ap.Layout = aacLayouts[ch]
+		t, c := rank(as[i])
+		bt, bc := rank(as[best])
+		if t > bt || (t == bt && c > bc) {
+			best = i
 		}
-		out = append(out, ap)
 	}
-	return out
+	return best
+}
+
+func aacPlan(i int32, lang string, ch int32, title string) AudioPlan {
+	return AudioPlan{
+		SourceIndex: i, Action: AudioAAC, Channels: ch, Layout: aacLayouts[ch],
+		BitRate: AACBitRatePerChannel * int64(ch), Language: lang, Title: title,
+	}
+}
+
+func aacTitle(ch int32) string {
+	if ch == 1 {
+		return "Mono"
+	}
+	return "Stereo"
+}
+
+// primaryPlans is a primary track's one or two outputs. A copied track
+// keeps its title; an encoded one is named for what it is (ruling R5).
+func primaryPlans(a transcode.AudioStream, i int32) []AudioPlan {
+	ch := channels(a)
+	if ch <= 2 {
+		if a.Codec == "aac" {
+			return []AudioPlan{{SourceIndex: i, Action: AudioCopy, Language: a.Language, Title: a.Title}}
+		}
+		return []AudioPlan{aacPlan(i, a.Language, ch, aacTitle(ch))}
+	}
+	surround := AudioPlan{SourceIndex: i, Action: AudioCopy, Language: a.Language, Title: a.Title}
+	if a.Codec != "eac3" && a.Codec != "ac3" {
+		surround = AudioPlan{
+			SourceIndex: i, Action: AudioAC3, Channels: 6, Layout: AC3Layout, BitRate: AC3BitRate,
+			Language: a.Language, Title: "Dolby Digital 5.1",
+		}
+	}
+	return []AudioPlan{surround, aacPlan(i, a.Language, 2, "Stereo")}
+}
+
+// commentaryPlan is a commentary track as AAC of at most 2 channels,
+// copied when it already is; its title stays.
+func commentaryPlan(a transcode.AudioStream, i int32) AudioPlan {
+	if a.Codec == "aac" && channels(a) <= 2 {
+		return AudioPlan{SourceIndex: i, Action: AudioCopy, Language: a.Language, Title: a.Title, Comment: true}
+	}
+	p := aacPlan(i, a.Language, min(channels(a), 2), a.Title)
+	p.Comment = true
+	return p
+}
+
+// markDefault flags the first non-commentary output of the language whose
+// source track carries the default flag, else of the first language
+// (ruling R4); with only commentary, the first output.
+func markDefault(out []AudioPlan, as []transcode.AudioStream) {
+	if len(out) == 0 {
+		return
+	}
+	lang, found := "", false
+	for _, p := range out {
+		if !p.Comment && as[p.SourceIndex].Disposition.Default {
+			lang, found = p.Language, true
+			break
+		}
+	}
+	for i := range out {
+		if !out[i].Comment && (!found || out[i].Language == lang) {
+			out[i].Default = true
+			return
+		}
+	}
+	out[0].Default = true
 }
 
 func commentary(a transcode.AudioStream) bool {

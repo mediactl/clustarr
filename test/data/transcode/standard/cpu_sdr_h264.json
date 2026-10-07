@@ -1,7 +1,7 @@
 {
   "Decision": "encode",
   "Reason": "encode to HEVC Main (8-bit: SDR at 1080p or less)",
-  "Container": "mkv",
+  "Container": "mp4",
   "Video": {
     "SourceIndex": 0,
     "Action": "encode",
@@ -21,22 +21,29 @@
     {
       "SourceIndex": 0,
       "Action": "copy",
-      "Language": "eng"
+      "Language": "eng",
+      "Default": true
+    },
+    {
+      "SourceIndex": 0,
+      "Action": "aac",
+      "Channels": 2,
+      "Layout": "stereo",
+      "BitRate": 160000,
+      "Language": "eng",
+      "Title": "Stereo"
     }
   ],
-  "Subtitles": [
-    0,
-    1
-  ],
-  "Attachments": true,
+  "Subtitles": [],
+  "Attachments": false,
   "Chapters": true,
   "Tags": {
     "CLUSTARR_PROFILE": "hevc-mkv@abc"
   },
   "Expect": {
     "VideoStreams": 1,
-    "AudioStreams": 1,
-    "SubtitleStreams": 2,
+    "AudioStreams": 2,
+    "SubtitleStreams": 0,
     "VideoCodec": "hevc",
     "PixelFormat": "yuv420p",
     "DurationMillis": 3600000

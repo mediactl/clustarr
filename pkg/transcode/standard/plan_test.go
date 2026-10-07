@@ -70,9 +70,12 @@ func TestSDRH264EncodesOnTheCPU(t *testing.T) {
 	assert.Equal(t, "main", p.Video.Options["profile"])
 	assert.Equal(t, "yuv420p", p.Expect.PixelFormat)
 	assert.Equal(t, "sdr", p.Video.HDR)
-	assert.Equal(t, []AudioPlan{{SourceIndex: 0, Action: "copy", Language: "eng"}}, p.Audio)
-	assert.Equal(t, []int32{0, 1}, p.Subtitles)
-	assert.True(t, p.Attachments)
+	assert.Equal(t, []AudioPlan{
+		{SourceIndex: 0, Action: "copy", Language: "eng", Default: true},
+		{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 160000, Language: "eng", Title: "Stereo"},
+	}, p.Audio, "E-AC-3 5.1 copied, with its AAC 2.0 companion")
+	assert.Equal(t, transcode.ContainerMP4, p.Container)
+	assert.False(t, p.Attachments, "MP4 carries no attachments")
 	assert.True(t, p.Chapters)
 	assert.Equal(t, "hevc-mkv@abc", p.Tags["CLUSTARR_PROFILE"])
 }
@@ -113,23 +116,40 @@ func TestQualityMapsPerEncoder(t *testing.T) {
 	assert.Equal(t, "29", Plan(info(h264, eac3), p30, nvenc).Video.Options["qp"])
 }
 
+// mp4Info is an MP4 source with no subtitles or attachments: what the
+// standard writes, when its audio is too.
+func mp4Info(v transcode.VideoStream, a ...transcode.AudioStream) transcode.MediaInfo {
+	in := info(v, a...)
+	in.Format.Name = "mov,mp4,m4a,3gp,3g2,mj2"
+	in.Subtitles, in.Attachments = nil, nil
+	return in
+}
+
 func TestCompliantVideoAndAudioIsSkipped(t *testing.T) {
-	p := Plan(info(hevc10, eac3, audio(1, "aac", 2, "stereo", "eng")), profile, cpu)
-	assert.Equal(t, DecisionSkip, p.Decision)
+	p := Plan(mp4Info(hevc10, audio(0, "aac", 2, "stereo", "eng")), profile, cpu)
+	assert.Equal(t, DecisionSkip, p.Decision, p.Reason)
+	// The same file in Matroska is remuxed into MP4; so is one whose
+	// surround track has no AAC companion yet.
+	assert.Equal(t, DecisionCopyVideo, Plan(info(hevc10, audio(0, "aac", 2, "stereo", "eng")), profile, cpu).Decision)
+	assert.Equal(t, DecisionCopyVideo, Plan(mp4Info(hevc10, eac3), profile, cpu).Decision)
 }
 
 func TestCompliantVideoWithTrueHDCopiesVideoAndEncodesAudio(t *testing.T) {
 	p := Plan(info(hevc10, audio(0, "truehd", 8, "7.1", "eng")), profile, cpu)
 	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
 	assert.Equal(t, "copy", p.Video.Action)
-	assert.Equal(t, []AudioPlan{{SourceIndex: 0, Action: "aac", Channels: 6, Layout: "5.1", BitRate: 384000, Language: "eng"}}, p.Audio)
+	assert.Equal(t, []AudioPlan{
+		{SourceIndex: 0, Action: "ac3", Channels: 6, Layout: "5.1", BitRate: 640000, Language: "eng", Title: "Dolby Digital 5.1", Default: true},
+		{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 160000, Language: "eng", Title: "Stereo"},
+	}, p.Audio)
 }
 
 func TestHEVC8BitIsCompliantOnlyAtTheEightBitTarget(t *testing.T) {
 	hevc8 := video("hevc", "yuv420p", 8, commonv1.HdrFormatNone)
-	assert.Equal(t, DecisionSkip, Plan(info(hevc8, eac3), profile, cpu).Decision, "1080p SDR HEVC Main is the standard")
+	stereo := audio(0, "aac", 2, "stereo", "eng")
+	assert.Equal(t, DecisionSkip, Plan(mp4Info(hevc8, stereo), profile, cpu).Decision, "1080p SDR HEVC Main is the standard")
 	hevc8.Width, hevc8.Height = 3840, 2160
-	p := Plan(info(hevc8, eac3), profile, cpu)
+	p := Plan(mp4Info(hevc8, stereo), profile, cpu)
 	require.Equal(t, DecisionEncode, p.Decision, "above 1080p the standard is Main 10")
 	assert.Equal(t, "main10", p.Video.Options["profile"])
 	assert.Equal(t, "format=yuv420p10le", p.Video.Filter)
@@ -155,16 +175,16 @@ func TestAudioRules(t *testing.T) {
 		transcode.AudioStream{Index: 4, Codec: "aac", Channels: 2, Language: "fre", Title: "Director's Commentary", Disposition: transcode.Disposition{Comment: true}},
 	), Profile{Name: "p", Hash: "h", Quality: 24, Container: transcode.ContainerMKV, Languages: []string{"eng"}}, cpu)
 	assert.Equal(t, []AudioPlan{
-		{SourceIndex: 0, Action: "copy", Language: "eng"},
-		{SourceIndex: 1, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 128000, Language: "eng"},
-		{SourceIndex: 2, Action: "aac", Channels: 6, Layout: "5.1", BitRate: 384000, Language: "eng"},
+		{SourceIndex: 0, Action: "copy", Language: "eng", Default: true},
+		{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 160000, Language: "eng", Title: "Stereo"},
 		{SourceIndex: 4, Action: "copy", Language: "fre", Title: "Director's Commentary", Comment: true},
-	}, p.Audio, "fre AC-3 dropped by languages; the commentary kept")
+	}, p.Audio, "eng: the E-AC-3 is primary, the FLAC and DTS mixes dropped; fre AC-3 dropped by languages; the commentary kept")
 }
 
 func TestLanguagesNeverLeaveAFileSilent(t *testing.T) {
 	p := Plan(info(h264, audio(0, "ac3", 6, "5.1", "jpn")), Profile{Name: "p", Hash: "h", Quality: 24, Languages: []string{"eng"}}, cpu)
-	require.Len(t, p.Audio, 1, "no track matches eng: keep them all rather than write a silent file")
+	require.NotEmpty(t, p.Audio, "no track matches eng: keep them all rather than write a silent file")
+	assert.Equal(t, "jpn", p.Audio[0].Language)
 }
 
 func TestHDR(t *testing.T) {
@@ -231,32 +251,29 @@ func TestHashIsStableAndSensitive(t *testing.T) {
 	assert.NotEqual(t, a.Hash(), Plan(info(h264, eac3), p30, cpu).Hash())
 }
 
-// FFmpeg's AAC encoder takes 5.1 with back surrounds ("5.1"), not
-// "5.1(side)": the plan's AAC layout is the canonical one for the channel
-// count, and the resampler maps the source's positions onto it.
-func TestAACLayoutIsCanonicalForItsChannelCount(t *testing.T) {
+// An encoded track's layout is canonical for what it becomes: AAC mono or
+// stereo, or AC-3 "5.1" (back surrounds) for any surround source; the
+// resampler maps the source's positions onto it.
+func TestEncodedLayoutsAreCanonical(t *testing.T) {
 	for _, c := range []struct {
-		ch     int32
-		layout string
-	}{{1, "mono"}, {2, "stereo"}, {3, "3.0"}, {4, "4.0"}, {5, "5.0"}, {6, "5.1"}, {8, "5.1"}} {
+		ch      int32
+		layouts []string
+	}{{1, []string{"mono"}}, {2, []string{"stereo"}}, {3, []string{"5.1", "stereo"}}, {6, []string{"5.1", "stereo"}}, {8, []string{"5.1", "stereo"}}} {
 		p := Plan(info(h264, audio(0, "flac", c.ch, "whatever(side)", "eng")), profile, cpu)
-		assert.Equal(t, c.layout, p.Audio[0].Layout, "%d channels", c.ch)
+		var got []string
+		for _, a := range p.Audio {
+			got = append(got, a.Layout)
+		}
+		assert.Equal(t, c.layouts, got, "%d channels", c.ch)
 	}
 }
 
-func TestMP4KeepsOnlyWhatItCanCarry(t *testing.T) {
+// The profile's container is ignored since Version 2: every plan is MP4.
+func TestTheProfilesContainerIsIgnored(t *testing.T) {
 	mp4 := profile
 	mp4.Container = transcode.ContainerMP4
 	in := info(h264, eac3)
-	in.Subtitles = append(in.Subtitles, transcode.SubtitleStream{Index: 2, Codec: "mov_text", Language: "eng"})
-	p := Plan(in, mp4, cpu)
-	assert.Equal(t, []int32{2}, p.Subtitles, "SRT and PGS cannot be copied into MP4; mov_text can")
-	assert.False(t, p.Attachments)
-	assert.Equal(t, int32(1), p.Expect.SubtitleStreams)
-
-	mkv := Plan(in, profile, cpu)
-	assert.Equal(t, []int32{0, 1, 2}, mkv.Subtitles)
-	assert.True(t, mkv.Attachments)
+	assert.Equal(t, Plan(in, profile, cpu).Hash(), Plan(in, mp4, cpu).Hash())
 }
 
 // A transcoded file is final (spec §5): one this profile wrote is skipped,
@@ -308,3 +325,122 @@ func TestNVENCCapsItsBitRateBelowTheSources(t *testing.T) {
 	assert.Equal(t, "23", unknown["qp"])
 	assert.NotContains(t, unknown, "maxrate")
 }
+
+func aud(codec string, ch int32, lang, title string) transcode.AudioStream {
+	return transcode.AudioStream{Codec: codec, Channels: ch, Language: lang, Title: title}
+}
+
+func TestPlanAudioLayout(t *testing.T) {
+	type out struct {
+		src     int32
+		action  string
+		ch      int32
+		def     bool
+		title   string
+		comment bool
+	}
+	for _, tc := range []struct {
+		name string
+		in   []transcode.AudioStream
+		want []out
+	}{
+		{
+			"E-AC-3 5.1 is copied and gains an AAC 2.0 companion",
+			[]transcode.AudioStream{aud("eac3", 6, "en", "English")},
+			[]out{{0, "copy", 0, true, "English", false}, {0, "aac", 2, false, "Stereo", false}},
+		},
+		{
+			"E-AC-3 7.1 Atmos is copied as is",
+			[]transcode.AudioStream{aud("eac3", 8, "en", "Atmos")},
+			[]out{{0, "copy", 0, true, "Atmos", false}, {0, "aac", 2, false, "Stereo", false}},
+		},
+		{
+			"DTS-HD 5.1 becomes AC-3 5.1 plus AAC 2.0",
+			[]transcode.AudioStream{aud("dts", 6, "en", "DTS-HD MA 5.1")},
+			[]out{{0, "ac3", 6, true, "Dolby Digital 5.1", false}, {0, "aac", 2, false, "Stereo", false}},
+		},
+		{
+			"TrueHD 7.1 beside an AC-3 5.1 core: the AC-3 is copied, the TrueHD dropped",
+			[]transcode.AudioStream{aud("truehd", 8, "en", "TrueHD Atmos"), aud("ac3", 6, "en", "AC-3")},
+			[]out{{1, "copy", 0, true, "AC-3", false}, {1, "aac", 2, false, "Stereo", false}},
+		},
+		{
+			"E-AC-3 wins over AC-3 in the same language",
+			[]transcode.AudioStream{aud("ac3", 6, "en", ""), aud("eac3", 6, "en", "")},
+			[]out{{1, "copy", 0, true, "", false}, {1, "aac", 2, false, "Stereo", false}},
+		},
+		{
+			"multichannel AAC becomes AC-3 plus AAC 2.0",
+			[]transcode.AudioStream{aud("aac", 6, "ja", "")},
+			[]out{{0, "ac3", 6, true, "Dolby Digital 5.1", false}, {0, "aac", 2, false, "Stereo", false}},
+		},
+		{
+			"stereo AAC is copied alone",
+			[]transcode.AudioStream{aud("aac", 2, "en", "Stereo")},
+			[]out{{0, "copy", 0, true, "Stereo", false}},
+		},
+		{
+			"stereo AC-3 becomes AAC alone",
+			[]transcode.AudioStream{aud("ac3", 2, "en", "")},
+			[]out{{0, "aac", 2, true, "Stereo", false}},
+		},
+		{
+			"mono FLAC becomes AAC mono",
+			[]transcode.AudioStream{aud("flac", 1, "en", "")},
+			[]out{{0, "aac", 1, true, "Mono", false}},
+		},
+		{
+			"a second English mix is dropped; commentary is kept as AAC 2.0",
+			[]transcode.AudioStream{aud("eac3", 6, "en", ""), aud("aac", 2, "en", "Stereo"), aud("ac3", 6, "en", "Director's Commentary")},
+			[]out{{0, "copy", 0, true, "", false}, {0, "aac", 2, false, "Stereo", false}, {2, "aac", 2, false, "Director's Commentary", true}},
+		},
+		{
+			"languages keep their order; each gets its own layout",
+			[]transcode.AudioStream{aud("flac", 2, "ja", ""), aud("eac3", 6, "en", "")},
+			[]out{{0, "aac", 2, true, "Stereo", false}, {1, "copy", 0, false, "", false}, {1, "aac", 2, false, "Stereo", false}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := planAudio(tc.in, nil)
+			require.Len(t, got, len(tc.want))
+			for i, w := range tc.want {
+				g := got[i]
+				assert.Equal(t, w.src, g.SourceIndex, "track %d source", i)
+				assert.Equal(t, w.action, g.Action, "track %d action", i)
+				if w.ch != 0 {
+					assert.Equal(t, w.ch, g.Channels, "track %d channels", i)
+				}
+				assert.Equal(t, w.def, g.Default, "track %d default", i)
+				assert.Equal(t, w.title, g.Title, "track %d title", i)
+				assert.Equal(t, w.comment, g.Comment, "track %d comment", i)
+			}
+		})
+	}
+}
+
+// Ruling R4: the source's default-flagged language keeps the default.
+func TestPlanAudioKeepsTheSourcesDefaultLanguage(t *testing.T) {
+	en, ja := aud("aac", 2, "en", ""), aud("aac", 2, "ja", "")
+	ja.Disposition.Default = true
+	got := planAudio([]transcode.AudioStream{en, ja}, nil)
+	require.Len(t, got, 2)
+	assert.False(t, got[0].Default)
+	assert.True(t, got[1].Default)
+}
+
+func TestTheBitRatesAndLayouts(t *testing.T) {
+	got := planAudio([]transcode.AudioStream{aud("dts", 8, "en", "")}, nil)
+	require.Len(t, got, 2)
+	assert.Equal(t, int64(640000), got[0].BitRate)
+	assert.Equal(t, "5.1", got[0].Layout)
+	assert.Equal(t, int64(160000), got[1].BitRate)
+	assert.Equal(t, "stereo", got[1].Layout)
+}
+
+func TestPlanAlwaysWritesMP4(t *testing.T) {
+	p := Plan(info(h264, eac3), Profile{Name: "p", Hash: "h", Container: transcode.ContainerMKV}, cpu)
+	assert.Equal(t, transcode.ContainerMP4, p.Container)
+	assert.False(t, p.Attachments)
+}
+
+func TestVersionIsTwo(t *testing.T) { assert.Equal(t, 2, Version) }

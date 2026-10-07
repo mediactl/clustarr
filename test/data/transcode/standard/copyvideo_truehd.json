@@ -1,7 +1,7 @@
 {
   "Decision": "copyVideo",
   "Reason": "HEVC Main 10 video copied; audio or container processed",
-  "Container": "mkv",
+  "Container": "mp4",
   "Video": {
     "SourceIndex": 0,
     "Action": "copy",
@@ -10,26 +10,34 @@
   "Audio": [
     {
       "SourceIndex": 0,
-      "Action": "aac",
+      "Action": "ac3",
       "Channels": 6,
       "Layout": "5.1",
-      "BitRate": 384000,
-      "Language": "eng"
+      "BitRate": 640000,
+      "Language": "eng",
+      "Title": "Dolby Digital 5.1",
+      "Default": true
+    },
+    {
+      "SourceIndex": 0,
+      "Action": "aac",
+      "Channels": 2,
+      "Layout": "stereo",
+      "BitRate": 160000,
+      "Language": "eng",
+      "Title": "Stereo"
     }
   ],
-  "Subtitles": [
-    0,
-    1
-  ],
-  "Attachments": true,
+  "Subtitles": [],
+  "Attachments": false,
   "Chapters": true,
   "Tags": {
     "CLUSTARR_PROFILE": "hevc-mkv@abc"
   },
   "Expect": {
     "VideoStreams": 1,
-    "AudioStreams": 1,
-    "SubtitleStreams": 2,
+    "AudioStreams": 2,
+    "SubtitleStreams": 0,
     "VideoCodec": "hevc",
     "PixelFormat": "yuv420p10le",
     "DurationMillis": 3600000

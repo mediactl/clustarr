@@ -132,8 +132,8 @@ func standardStatusPlan(s *standard.Result) *transcodev1alpha1.Plan {
 	out.VideoAction, out.Decode, out.HDRMode = s.Video.Action, s.Video.Decode, s.Video.HDR
 	for _, a := range s.Audio {
 		ap := transcodev1alpha1.AudioPlan{SourceIndex: a.SourceIndex, Action: transcodev1alpha1.AudioActionCopy}
-		if a.Action == "aac" {
-			ap.Action, ap.Codec, ap.BitrateKbps = transcodev1alpha1.AudioActionEncode, "aac", int32(a.BitRate/1000)
+		if a.Action != standard.AudioCopy {
+			ap.Action, ap.Codec, ap.BitrateKbps = transcodev1alpha1.AudioActionEncode, a.Action, int32(a.BitRate/1000)
 		}
 		out.AudioTracks = append(out.AudioTracks, ap)
 	}

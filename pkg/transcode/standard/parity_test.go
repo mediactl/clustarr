@@ -63,11 +63,11 @@ func TestTheSummaryAndTheProbePlanTheSameStandard(t *testing.T) {
 	}{
 		"compliant mkv": {func() string {
 			return clip(t, "c.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error")
-		}, DecisionSkip},
+		}, DecisionCopyVideo}, // remuxed into MP4
 		"h264 mkv": {func() string { return clip(t, "h.mkv", "-c:v", "libx264", "-preset", "ultrafast") }, DecisionEncode},
 		"compliant mp4": {func() string {
 			return clip(t, "c.mp4", "-pix_fmt", "yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error", "-tag:v", "hvc1")
-		}, DecisionCopyVideo},
+		}, DecisionSkip}, // already the MP4 layout
 	} {
 		t.Run(name, func(t *testing.T) {
 			src := c.src()

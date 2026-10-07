@@ -1,7 +1,7 @@
 {
   "Decision": "skip",
   "Reason": "Dolby Vision profile 5 has no HDR10 or HLG base layer: without the Dolby Vision layer it plays with wrong colours",
-  "Container": "mkv",
+  "Container": "mp4",
   "Video": {
     "SourceIndex": 0,
     "Action": "",
