@@ -505,6 +505,12 @@ type message struct {
 	durable string
 	ackWait func(attempt uint64) time.Duration
 
+	// lapsed, when set, reports that the subscription has given this
+	// delivery's slot back: InProgress and Nak, keyed by message as the
+	// broker keys them by stream sequence, would act on the live copy, so
+	// both are muted (natsbus's message.lapsed).
+	lapsed func() bool
+
 	mu      sync.Mutex
 	settled bool
 }
@@ -534,9 +540,12 @@ func (m *message) Ack(context.Context) error {
 	return nil
 }
 
-// Nak schedules a redelivery.
+// Nak schedules a redelivery. A lapsed delivery's is muted.
 func (m *message) Nak(_ context.Context, delay time.Duration) error {
 	if !m.markSettled() {
+		return nil
+	}
+	if m.lapsed != nil && m.lapsed() {
 		return nil
 	}
 	m.stream.nak(m.msg, m.durable, m.bus.clock.Now(), delay)
@@ -552,8 +561,12 @@ func (m *message) Term(context.Context, string) error {
 	return nil
 }
 
-// InProgress extends the acknowledgement deadline.
+// InProgress extends the acknowledgement deadline. A lapsed delivery's is
+// muted.
 func (m *message) InProgress(context.Context) error {
+	if m.lapsed != nil && m.lapsed() {
+		return nil
+	}
 	m.stream.inProgress(m.msg, m.durable, m.bus.clock.Now(), m.ackWait)
 	return nil
 }

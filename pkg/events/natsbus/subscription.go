@@ -99,7 +99,7 @@ type subscription struct {
 	bus   *Bus
 	sub   events.Subscription
 	slots int
-	run   func(ctx context.Context, m jetstream.Msg, onProgress func())
+	run   func(ctx context.Context, m jetstream.Msg, h deliveryHooks)
 
 	loopCtx        context.Context
 	stopLoop       context.CancelFunc
@@ -119,8 +119,17 @@ type subscription struct {
 	loops    sync.WaitGroup
 }
 
+// deliveryHooks is what a subscription tells the message it hands a handler:
+// onProgress moves the delivery's lapse deadline on every InProgress, and
+// lapsed reports that the delivery has given its slot back, after which its
+// InProgress and Nak are muted (message.lapsed). Pull passes the zero value.
+type deliveryHooks struct {
+	onProgress func()
+	lapsed     func() bool
+}
+
 func newSubscription(ctx context.Context, b *Bus, sub events.Subscription,
-	run func(context.Context, jetstream.Msg, func()),
+	run func(context.Context, jetstream.Msg, deliveryHooks),
 ) *subscription {
 	s := &subscription{
 		bus: b, sub: sub, slots: max(sub.MaxInFlight, 1), run: run,
@@ -250,7 +259,10 @@ func (s *subscription) startLocked(m jetstream.Msg, seq, attempt uint64) {
 	s.handlers.Add(1)
 	go func() {
 		defer s.handlers.Done()
-		s.run(s.handlerCtx, m, func() { s.progress(d) })
+		s.run(s.handlerCtx, m, deliveryHooks{
+			onProgress: func() { s.progress(d) },
+			lapsed:     func() bool { s.mu.Lock(); defer s.mu.Unlock(); return d.lapsed },
+		})
 		s.finish(d)
 	}()
 }

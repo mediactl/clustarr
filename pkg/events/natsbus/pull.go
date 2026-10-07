@@ -84,7 +84,7 @@ func (p *puller) Next(ctx context.Context) (context.Context, events.Message, err
 		if err != nil {
 			return ctx, nil, fmt.Errorf("natsbus: next %s/%s: %w", p.sub.Stream, p.sub.Durable, err)
 		}
-		mctx, m, err := p.bus.receive(ctx, jm, p.sub, nil)
+		mctx, m, err := p.bus.receive(ctx, jm, p.sub, deliveryHooks{})
 		if err != nil {
 			return ctx, nil, err
 		}

@@ -316,8 +316,8 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, events.ErrClosed
 	}
 
-	s := newSubscription(ctx, b, sub, func(hctx context.Context, m jetstream.Msg, onProgress func()) {
-		b.handle(hctx, sub, h, m, onProgress)
+	s := newSubscription(ctx, b, sub, func(hctx context.Context, m jetstream.Msg, dh deliveryHooks) {
+		b.handle(hctx, sub, h, m, dh)
 	})
 	b.mu.Lock()
 	if b.closed {
@@ -336,21 +336,23 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 // Subscribe's handle and Pull's Next share it, so a message looks identical
 // whether a handler or a caller settles it.
 //
-// onProgress, when set, is called on every InProgress the handler sends, so
-// the subscription's lapse deadline follows the server's; Pull passes nil.
+// h.onProgress, when set, is called on every InProgress the handler sends, so
+// the subscription's lapse deadline follows the server's, and h.lapsed mutes a
+// lapsed delivery's InProgress and Nak; Pull passes the zero deliveryHooks.
 func (b *Bus) receive(ctx context.Context, jm jetstream.Msg, sub events.Subscription,
-	onProgress func(),
+	h deliveryHooks,
 ) (context.Context, *message, error) {
-	msg := newMessage(jm, sub.Backoff)
-	msg.onProgress = onProgress
+	msg := newMessage(jm, sub.Backoff, sub.Durable)
+	msg.onProgress = h.onProgress
+	msg.lapsed = h.lapsed
 	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
 	return hctx, msg, nil
 }
 
 func (b *Bus) handle(ctx context.Context, sub events.Subscription,
-	h events.Handler, jm jetstream.Msg, onProgress func(),
+	h events.Handler, jm jetstream.Msg, dh deliveryHooks,
 ) {
-	hctx, msg, rerr := b.receive(ctx, jm, sub, onProgress)
+	hctx, msg, rerr := b.receive(ctx, jm, sub, dh)
 	if rerr != nil {
 		// receive cannot fail today (see its doc comment); if a future step
 		// inside it can, leave the delivery unsettled for redelivery rather

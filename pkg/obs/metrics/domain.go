@@ -271,6 +271,15 @@ var (
 		durationBucketsShort,
 		"consumer",
 	)
+
+	// BusMutedTotal counts InProgress and Nak calls the bus did not send
+	// because their delivery had lapsed and been redelivered, by durable
+	// and op (in_progress, nak).
+	BusMutedTotal = newCounterVec(
+		"clustarr_bus_muted_total",
+		"Settlements a lapsed delivery attempted and the bus muted, by durable and op.",
+		"durable", "op",
+	)
 )
 
 // Controller telemetry, shared by every reconciler alongside

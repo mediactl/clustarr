@@ -406,6 +406,14 @@ func (s *memSub) track(m *memMsg, attempt uint64) *memDelivery {
 	return d
 }
 
+// isLapsed reports whether d has given its slot back: its InProgress and Nak
+// are muted then, as natsbus mutes them (split §9.3 as amended 2026-10-07, S2).
+func (s *memSub) isLapsed(d *memDelivery) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return d.lapsed
+}
+
 func (s *memSub) finish(d *memDelivery) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -468,7 +476,7 @@ func (b *Bus) consume(ctx, hctx context.Context, sub events.Subscription, h even
 				go func() {
 					defer handlers.Done()
 					defer ms.finish(d)
-					b.deliver(hctx, st, sub, h, m, ackWait)
+					b.deliver(hctx, st, sub, h, m, ackWait, func() bool { return ms.isLapsed(d) })
 				}()
 				continue
 			}
@@ -534,11 +542,15 @@ func (b *Bus) wrapDelivery(ctx context.Context, st *stream, sub events.Subscript
 	return hctx, msg
 }
 
-// deliver runs one handler invocation and settles the message.
+// deliver runs one handler invocation and settles the message. lapsed reports
+// that the delivery has given its slot back, which mutes its InProgress and
+// Nak.
 func (b *Bus) deliver(ctx context.Context, st *stream, sub events.Subscription,
 	h events.Handler, m *memMsg, ackWait func(attempt uint64) time.Duration,
+	lapsed func() bool,
 ) {
 	hctx, msg := b.wrapDelivery(ctx, st, sub, m, ackWait)
+	msg.lapsed = lapsed
 	var err error
 	func() {
 		defer func() {

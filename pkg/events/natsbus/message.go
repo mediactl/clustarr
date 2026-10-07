@@ -25,6 +25,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // message adapts a JetStream message to events.Message.
@@ -41,13 +43,21 @@ type message struct {
 	// subscription moves the delivery's lapse deadline with the server's.
 	onProgress func()
 
+	// lapsed, when set, reports that the subscription has given this
+	// delivery's slot back: the broker has redelivered it, and InProgress and
+	// Nak, which the server keys by stream sequence, would act on the live
+	// copy another handler runs (research D3, E3). Both are muted then; Ack
+	// and Term still go -- the work is done, or the message is poison.
+	lapsed  func() bool
+	durable string // for the muted count's label
+
 	mu      sync.Mutex
 	settled bool
 }
 
 var _ events.Message = (*message)(nil)
 
-func newMessage(jm jetstream.Msg, backoff []time.Duration) *message {
+func newMessage(jm jetstream.Msg, backoff []time.Duration, durable string) *message {
 	h := make(map[string]string, len(jm.Headers()))
 	for k := range jm.Headers() {
 		h[k] = jm.Headers().Get(k)
@@ -57,6 +67,7 @@ func newMessage(jm jetstream.Msg, backoff []time.Duration) *message {
 		env:     events.EnvelopeFromHeaders(h, jm.Data()),
 		attempt: 1,
 		backoff: backoff,
+		durable: durable,
 	}
 	if md, err := jm.Metadata(); err == nil && md.NumDelivered > 0 {
 		m.attempt = md.NumDelivered
@@ -82,9 +93,14 @@ func (m *message) Ack(ctx context.Context) error {
 	return m.jm.DoubleAck(ctx)
 }
 
-// Nak schedules a redelivery after delay.
-func (m *message) Nak(_ context.Context, delay time.Duration) error {
+// Nak schedules a redelivery after delay. A lapsed delivery's Nak is muted:
+// it counts as this delivery's settlement, so the bus sends nothing after it,
+// but the live copy keeps the broker's schedule.
+func (m *message) Nak(ctx context.Context, delay time.Duration) error {
 	if !m.markSettled() {
+		return nil
+	}
+	if m.mutedLapsed(ctx, "nak") {
 		return nil
 	}
 	if delay <= 0 {
@@ -138,8 +154,11 @@ func (m *message) Term(_ context.Context, reason string) error {
 }
 
 // InProgress resets the server's redelivery timer for this delivery, and the
-// subscription's lapse deadline with it.
-func (m *message) InProgress(context.Context) error {
+// subscription's lapse deadline with it. A lapsed delivery's is muted.
+func (m *message) InProgress(ctx context.Context) error {
+	if m.mutedLapsed(ctx, "in_progress") {
+		return nil
+	}
 	if err := m.jm.InProgress(); err != nil {
 		return err
 	}
@@ -147,6 +166,18 @@ func (m *message) InProgress(context.Context) error {
 		m.onProgress()
 	}
 	return nil
+}
+
+// mutedLapsed reports, and counts, an op the bus does not send because this
+// delivery has lapsed (split §9.3 as amended 2026-10-07, S2).
+func (m *message) mutedLapsed(ctx context.Context, op string) bool {
+	if m.lapsed == nil || !m.lapsed() {
+		return false
+	}
+	metrics.BusMutedTotal.WithLabelValues(m.durable, op).Inc()
+	logging.FromContext(ctx).Debug("bus: a lapsed delivery's settlement was not sent",
+		"durable", m.durable, "op", op)
+	return true
 }
 
 func (m *message) markSettled() bool {
