@@ -9,19 +9,6 @@ cd "$(git rev-parse --show-toplevel)"
 re='(catalog|import|index|grab|caption|segment)arr|squas[h]'
 readme=charts/clustarr/README.md
 
-# Temporary: the per-service installer set W6.9-W6.15 delete or rewrite. W6.17 deletes this list.
-temp=(
-  ':(exclude)charts/clustarr'
-  ':(exclude)config/manager'
-  ':(exclude)config/rbac'
-  ':(exclude)config/prometheus'
-  ':(exclude)config/postgres'
-  ':(exclude)config/e2e'
-  ':(exclude)config/README.md'
-  ':(exclude)Makefile'
-  ':(exclude)hack/e2e.sh'
-)
-
 # The chart README's "Upgrading from 0.4.x" section names the retired values keys on purpose.
 lo=0 hi=0
 if [[ -f $readme ]]; then
@@ -35,7 +22,7 @@ fi
     ':(exclude)docs/research' \
     ':(glob,exclude)docs/adr/[0-9]*.md' \
     ':(exclude)docs/runbooks/unify-cold-cutover.md' \
-    ${temp[@]+"${temp[@]}"} || true; } |
+    || true; } |
 awk -v readme="$readme" -v lo="$lo" -v hi="$hi" -v re="$re" '
   {
     path = $0; sub(/:.*/, "", path)
