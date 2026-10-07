@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 )
 
 // Options is what the import domain's Register takes.
@@ -73,6 +74,12 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	}
 	topo := o.BusTopology()
 	c, api := mgr.GetClient(), mgr.GetAPIReader()
+	// The import domain's one prober (spec 2026-10-06 §6.6): the probe
+	// worker, the file-import worker and the rescan all read files through
+	// it. It answers through ffprobe until the native probe lands (spec
+	// §6.9 step 2), which replaces ffprobeexec.Prober{} here, and only
+	// here, with native.New().
+	prober := ffprobeexec.Prober{}
 	for _, cons := range []struct {
 		durable string
 		handle  events.Handler
@@ -81,13 +88,13 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		// incremental fingerprint check reads the spec.path field index
 		// (rescan.FieldIndexes), which the process registers before the
 		// manager starts.
-		{events.ConsumerImportScan, newScanWorker(c, api, bus, o).Handle},
+		{events.ConsumerImportScan, newScanWorker(c, api, bus, prober, o).Handle},
 		// The completed-download import worker (amendment §A1.2, §A1.6; plan
 		// tasks D2-7/D2-8), on ConsumerImportFile ("importarr-fileimport",
 		// R6). It reads the spec.mediaRef.target field index
 		// (fileimport.FieldIndexes), which the process registers before the
 		// manager starts.
-		{events.ConsumerImportFile, newImportWorker(c, api, bus, o).Handle},
+		{events.ConsumerImportFile, newImportWorker(c, api, bus, prober, o).Handle},
 		// The import-list sync worker (amendment §A1.3, §A1.6; plan task G1-3),
 		// on ConsumerImportList ("importarr-list"): fetch, dedupe, drop what an
 		// ImportExclusion blocks, then create or update catalog items under
@@ -132,7 +139,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	}
 	// The MediaFile probe queue's two lanes (spec 2026-10-06 §6.6): the probe
 	// worker answers catalogarr's probe tasks into clustarr-probes.
-	if err := registerProbeWorkers(mgr.Add, bus, topo, newProbeWorker(bus, o.DataDir)); err != nil {
+	if err := registerProbeWorkers(mgr.Add, bus, topo, newProbeWorker(bus, prober, o.DataDir)); err != nil {
 		return catalogagent.Registration{}, err
 	}
 	// A scan or import worker that cannot write the library must not accept

@@ -38,7 +38,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -287,7 +286,7 @@ func (pc *processConfig) processFile(
 	// The probe corrects the name's resolution (and a false remux) before
 	// the profile judges the quality, so a "2160p" name on a 1080p stream
 	// is admitted, compared and frozen as the 1080p it is.
-	mi, err := probeVideo(ctx, pc.message, srcPath, rel)
+	mi, err := pc.worker.probeVideo(ctx, pc.message, srcPath, rel)
 	if err != nil {
 		return nil, rejection{}, err
 	}
@@ -462,13 +461,19 @@ func (pc *processConfig) processFile(
 // probe's whole bound lies inside the delivery's ack deadline however long
 // the file loop has gone since its last beat; a failed heartbeat is the
 // error, which aborts the import as the loop's own heartbeat failure does.
-func probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (*commonv1.MediaInfo, error) {
+// It probes through w.Prober, the import domain's one prober (spec
+// 2026-10-06 §6.6); a worker with none probes nothing and returns nil, nil,
+// so the file imports under its name-derived quality.
+func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (*commonv1.MediaInfo, error) {
+	if w.Prober == nil {
+		return nil, nil
+	}
 	if err := heartbeat(ctx, m); err != nil {
 		return nil, err
 	}
 	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
 	defer cancel()
-	mi, _, err := ffprobeexec.Probe(pctx, srcPath)
+	mi, _, err := w.Prober.Probe(pctx, srcPath)
 	if err != nil {
 		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
 			"source", rel, "error", err)

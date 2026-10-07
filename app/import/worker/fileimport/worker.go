@@ -42,7 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -114,9 +114,16 @@ type Worker struct {
 	// Clock is the time source, injected so tests are deterministic.
 	Clock func() time.Time
 
+	// Prober is the import domain's one prober (spec 2026-10-06 §6.6):
+	// probeVideo calls it, and NewWorker defaults ProbeAudio to its
+	// ProbeAudio. Nil probes nothing: a video imports under its name-derived
+	// quality and a music file freezes by its extension.
+	Prober mediainfo.Prober
+
 	// ProbeAudio reads a music file's codec and bitrate, the only way to
 	// freeze a lossy track's quality (FrozenFileQuality). NewWorker sets
-	// ffprobeexec.ProbeAudio; nil freezes by extension alone, as before.
+	// Prober.ProbeAudio; nil freezes by extension alone, as before. An
+	// import calls it through audioProbe, which heartbeats first.
 	ProbeAudio AudioProber
 
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
@@ -138,16 +145,40 @@ type Worker struct {
 }
 
 // NewWorker builds a Worker with the production catalogue, clock and sample
-// threshold.
-func NewWorker(c client.Client, bus events.Bus) *Worker {
+// threshold, probing through prober, the import domain's one prober (spec
+// 2026-10-06 §6.6). A nil prober probes nothing.
+func NewWorker(c client.Client, bus events.Bus, prober mediainfo.Prober) *Worker {
 	w := &Worker{
 		Client: c, Bus: bus, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now,
-		ProbeAudio: ffprobeexec.ProbeAudio, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+		SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+	}
+	w.Prober = prober
+	if prober != nil {
+		w.ProbeAudio = prober.ProbeAudio
 	}
 	if bus != nil {
 		w.Probes = probestore.New(bus)
 	}
 	return w
+}
+
+// audioProbe is the AudioProber an import hands FrozenFileQuality:
+// ProbeAudio after a heartbeat on m (spec 2026-10-06 §6.6), so the probe's
+// AudioProbeTimeout lies inside the delivery's ack deadline however long the
+// walk has gone since its last beat. A failed heartbeat runs no probe and is
+// kept in *hbErr; the caller returns it, aborting the import as the walk's
+// own heartbeat failure does. Nil when the worker probes nothing.
+func (w *Worker) audioProbe(m events.Message, hbErr *error) AudioProber {
+	if w.ProbeAudio == nil {
+		return nil
+	}
+	return func(ctx context.Context, path string) (mediainfo.AudioProbe, error) {
+		if err := heartbeat(ctx, m); err != nil {
+			*hbErr = err
+			return mediainfo.AudioProbe{}, err
+		}
+		return w.ProbeAudio(ctx, path)
+	}
 }
 
 func (w *Worker) now() time.Time {
@@ -547,8 +578,8 @@ func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) er
 }
 
 // heartbeat extends the delivery's ack deadline now: beat's send, and the
-// one probeVideo makes immediately before a probe. The file loop's
-// interval clock is not moved by the latter, so its next beat can only
+// one probeVideo and audioProbe make immediately before a probe. The file
+// loop's interval clock is not moved by those, so its next beat can only
 // come sooner than it needs to.
 func heartbeat(ctx context.Context, m events.Message) error {
 	if err := m.InProgress(ctx); err != nil {

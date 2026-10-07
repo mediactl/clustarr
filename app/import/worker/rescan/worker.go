@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
@@ -39,7 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -111,8 +112,9 @@ type Worker struct {
 
 	// ProbeAudio reads a music file's codec and bitrate, so a lossy track
 	// freezes the tier its bitrate puts it on
-	// (fileimport.FrozenFileQuality). NewWorker sets ffprobeexec.ProbeAudio;
-	// nil freezes by extension alone.
+	// (fileimport.FrozenFileQuality, which bounds it by
+	// fileimport.AudioProbeTimeout). NewWorker sets the import domain's
+	// prober's ProbeAudio; nil freezes by extension alone.
 	ProbeAudio fileimport.AudioProber
 
 	// Catalogue is the TRaSH custom-format corpus a scanned movie file is
@@ -125,7 +127,8 @@ type Worker struct {
 	// CLUSTARR_PROFILE tag is the last test of whether a file named like a
 	// kept source's transcode output is one (keptOutput), and its stream
 	// corrects a new movie file's name-derived quality (attributeMediaFile).
-	// NewWorker sets the pkg/mediainfo probe; nil probes nothing, so only
+	// NewWorker sets a closure over the import domain's prober, bounded by
+	// videoProbeTimeout; nil probes nothing, so only
 	// the kept source's own record can confirm a kept output, and a scanned
 	// file freezes the quality its name says.
 	ProbeVideo VideoProber
@@ -168,12 +171,22 @@ type Worker struct {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 
 // NewWorker builds a Worker with the production clock, timeout and sample
-// threshold.
-func NewWorker(c client.Client, bus events.Bus) *Worker {
+// threshold, probing through prober, the import domain's one prober (spec
+// 2026-10-06 §6.6): ProbeAudio is its ProbeAudio and ProbeVideo its Probe
+// under videoProbeTimeout. A nil prober probes nothing.
+func NewWorker(c client.Client, bus events.Bus, prober mediainfo.Prober) *Worker {
 	w := &Worker{
 		Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout,
-		Catalogue: catalogue.LoadedCatalogue(), ProbeAudio: ffprobeexec.ProbeAudio,
-		ProbeVideo: probeVideo, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+		Catalogue: catalogue.LoadedCatalogue(), SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+	}
+	if prober != nil {
+		w.ProbeAudio = prober.ProbeAudio // bounded by fileimport.FrozenFileQuality
+		w.ProbeVideo = func(ctx context.Context, path string) (*commonv1.MediaInfo, error) {
+			pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
+			defer cancel()
+			mi, _, err := prober.Probe(pctx, path)
+			return mi, err
+		}
 	}
 	if bus != nil {
 		w.Probes = probestore.New(bus)

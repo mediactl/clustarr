@@ -288,7 +288,7 @@ func (w *Worker) importEpisodeFile(
 	parsed.Languages = parsed.LanguagesFor(plan.originalLanguageName)
 	// The probe corrects the name's quality before the profile judges it,
 	// as processConfig.processFile does for a movie.
-	mi, err := probeVideo(ctx, m, srcPath, rel)
+	mi, err := w.probeVideo(ctx, m, srcPath, rel)
 	if err != nil {
 		return nil, rejection{}, err
 	}

@@ -27,7 +27,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/worker/probe"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
 // probeConsumers are the import domain's two probe lanes (spec 2026-10-06 §6.5.1).
@@ -58,11 +58,11 @@ func registerProbeWorkers(add func(manager.Runnable) error, bus events.Subscribe
 	return nil
 }
 
-// newProbeWorker is the process's probe worker. It answers through ffprobe
-// until the native probe lands (spec §6.9 step 2), which replaces
-// ffprobeexec.Prober{} here with native.New().
-func newProbeWorker(bus events.Bus, dataRoot string) *probe.Worker {
-	return probe.NewWorker(bus, ffprobeexec.Prober{}, probe.Options{Pod: podName(), DataRoot: dataRoot})
+// newProbeWorker is the process's probe worker. It answers through prober,
+// the import domain's one prober, which Register builds and also hands the
+// file-import and rescan workers (spec 2026-10-06 §6.6).
+func newProbeWorker(bus events.Bus, prober mediainfo.Prober, dataRoot string) *probe.Worker {
+	return probe.NewWorker(bus, prober, probe.Options{Pod: podName(), DataRoot: dataRoot})
 }
 
 // podName is $POD_NAME, else the hostname (a pod's own name).

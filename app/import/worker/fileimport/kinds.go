@@ -159,7 +159,8 @@ func FrozenQuality(fileKind commonv1.MediaKind, path string, declared ...string)
 }
 
 // AudioProber reads the codec, stream bitrate and sample size of an audio
-// file: ffprobeexec.ProbeAudio in production, a stub in a test.
+// file: the import domain's mediainfo.Prober's ProbeAudio in production
+// (NewWorker), a stub in a test.
 type AudioProber func(ctx context.Context, path string) (mediainfo.AudioProbe, error)
 
 // AudioProbeTimeout bounds one audio probe (FrozenFileQuality). A probe reads

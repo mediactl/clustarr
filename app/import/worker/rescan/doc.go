@@ -192,7 +192,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	if !ok {
 //	        return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
 //	}
-//	worker := rescan.NewWorker(mgr.GetClient(), bus)
+//	worker := rescan.NewWorker(mgr.GetClient(), bus, prober) // the domain's one mediainfo.Prober
 //	worker.APIReader = mgr.GetAPIReader() // the rename pass's uncached reader
 //
 // k8s.EveryReplica, not manager.RunnableFunc: the latter has no

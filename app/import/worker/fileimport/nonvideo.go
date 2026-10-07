@@ -168,8 +168,14 @@ func (w *Worker) runNonVideo(
 		}
 		c := fileCandidate{path: srcPath, info: info}
 		if singleFileKind(plan.ref.Kind) {
-			q, known := FrozenFileQuality(ctx, w.ProbeAudio, plan.ref.Kind, srcPath, dl.Spec.Release.Title,
+			// The probe heartbeats first (audioProbe); a failed beat runs
+			// no probe and aborts the walk, as the walk's own beat does.
+			var hbErr error
+			q, known := FrozenFileQuality(ctx, w.audioProbe(m, &hbErr), plan.ref.Kind, srcPath, dl.Spec.Release.Title,
 				relPath(root, srcPath))
+			if hbErr != nil {
+				return hbErr
+			}
 			c.ranked(plan.profile, q, commonv1.Revision{}, known)
 		}
 		cands = append(cands, c)
@@ -197,7 +203,7 @@ func (w *Worker) runNonVideo(
 				string(plan.ref.Kind)+" "+plan.ref.Name, filledBy))
 			continue
 		}
-		imported, rejection, err := w.importNonVideoFile(ctx, dl, plan, manual, c.path, c.info, dests, &recycledOld)
+		imported, rejection, err := w.importNonVideoFile(ctx, m, dl, plan, manual, c.path, c.info, dests, &recycledOld)
 		if err != nil {
 			return out, err
 		}
@@ -265,15 +271,21 @@ func (w *Worker) supersede(ctx context.Context, plan nonVideoPlan, dests map[str
 
 // importNonVideoFile imports one file, or says why it was rejected. A
 // non-nil error aborts the walk, exactly as in processConfig.processFile.
+// A music file's probe heartbeats on m first (audioProbe); a failed beat is
+// such an error.
 func (w *Worker) importNonVideoFile(
-	ctx context.Context, dl *downloadv1alpha1.Download, plan nonVideoPlan, manual bool,
+	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, plan nonVideoPlan, manual bool,
 	srcPath string, info os.FileInfo, dests map[string]string, recycledOld *bool,
 ) (*downloadac.ImportedFileApplyConfiguration, rejection, error) {
 	log := logging.FromContext(ctx)
 	rel := relPath(dl.Status.ContentRoot, srcPath)
 	kind := plan.ref.Kind
 
-	q, known := FrozenFileQuality(ctx, w.ProbeAudio, kind, srcPath, dl.Spec.Release.Title, rel)
+	var hbErr error
+	q, known := FrozenFileQuality(ctx, w.audioProbe(m, &hbErr), kind, srcPath, dl.Spec.Release.Title, rel)
+	if hbErr != nil {
+		return nil, "", hbErr
+	}
 	switch {
 	case known && !plan.profile.Allowed(q):
 		return nil, notAllowedRejection(rel, q), nil

@@ -22,7 +22,6 @@ import (
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -30,7 +29,8 @@ import (
 // VideoProber reads a video file's technical description.
 type VideoProber func(ctx context.Context, path string) (*commonv1.MediaInfo, error)
 
-// videoProbeTimeout bounds one file's probe (probeVideo). A probe reads the
+// videoProbeTimeout bounds one file's probe (the [VideoProber] NewWorker
+// builds over the import domain's prober). A probe reads the
 // container header and one frame, which a healthy file answers in well
 // under a second, even over a network mount; one that hangs -- a stalled
 // mount, a pathological file -- must not hold the walk, so running out of
@@ -41,16 +41,6 @@ type VideoProber func(ctx context.Context, path string) (*commonv1.MediaInfo, er
 // holds this, heartbeatInterval and defaultMetadataTimeout to that
 // deadline together, so a topology change trips it.
 const videoProbeTimeout = 15 * time.Second
-
-// probeVideo is the production [VideoProber]: pkg/mediainfo's probe, the
-// same reading catalogarr's probe gives the file, bounded by
-// videoProbeTimeout.
-func probeVideo(ctx context.Context, path string) (*commonv1.MediaInfo, error) {
-	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
-	defer cancel()
-	mi, _, err := ffprobeexec.Probe(pctx, path)
-	return mi, err
-}
 
 // fileProbe is one walked file's probe, run at most once however many of
 // the walk's decisions read it -- the kept-output tag check (keptOutput)

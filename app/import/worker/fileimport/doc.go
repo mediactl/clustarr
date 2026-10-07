@@ -31,8 +31,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // MediaFileStatus, which catalogarr owns in full and populates by probing
 // (spec §8.5). The probes this worker makes serve fields it does own. A
 // music file's frozen quality is its codec and bitrate (FrozenFileQuality,
-// ffprobeexec.ProbeAudio). Every video import probes the file too
-// (probeVideo, ffprobeexec.Probe): the probe corrects the name-derived
+// through the import domain's one prober's ProbeAudio, heartbeating first).
+// Every video import probes the file too (probeVideo, through the same
+// prober's Probe; spec 2026-10-06 §6.6): the probe corrects the name-derived
 // quality's resolution and a false remux (quality.AugmentFromMediaInfo)
 // before the profile's Allowed check, so the profile judges, and
 // spec.quality freezes, the corrected quality; and the destination name is
@@ -162,7 +163,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	if !ok {
 //	        return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportFile)
 //	}
-//	worker := fileimport.NewWorker(mgr.GetClient(), bus)
+//	worker := fileimport.NewWorker(mgr.GetClient(), bus, prober) // the domain's one mediainfo.Prober
 //
 //	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 //	        stop, err := bus.Subscribe(ctx, spec.Subscription(), worker.Handle)

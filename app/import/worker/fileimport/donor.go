@@ -105,7 +105,15 @@ func (w *Worker) importDonor(ctx context.Context, m events.Message, dl *download
 	}
 	rel, _ := filepath.Rel(dl.Status.ContentRoot, src)
 
-	mi, err := probeVideo(ctx, m, src, rel)
+	// A donor is judged on its probe alone, and a nil summary below reads
+	// as "could not be probed" -- every file rejected, which grabarr
+	// blocklists. A worker with no prober cannot judge one at all, which is
+	// no fault of the release: the delivery is retried and then
+	// dead-lettered, never blocklisted.
+	if w.Prober == nil {
+		return fmt.Errorf("fileimport: download %s/%s is an audio donor and this worker has no prober to judge it", dl.Namespace, dl.Name)
+	}
+	mi, err := w.probeVideo(ctx, m, src, rel)
 	if err != nil {
 		return err
 	}
