@@ -459,7 +459,7 @@ func (r *Reconciler) completeSearch(ctx context.Context, s *catalogv1alpha1.Sear
 func indexerOutcomeCount(outcomes []catalogv1alpha1.IndexerOutcome) int {
 	n := 0
 	for _, o := range outcomes {
-		if o.Name == searchoutcome.WorkerOutcomeName || o.Name == searchoutcome.TruncatedOutcomeName {
+		if searchoutcome.IsWorkerOutcome(o.Name) || searchoutcome.IsTruncatedOutcome(o.Name) {
 			continue
 		}
 		n++
@@ -470,7 +470,7 @@ func indexerOutcomeCount(outcomes []catalogv1alpha1.IndexerOutcome) int {
 // truncated reports whether the worker marked the reply as cut short.
 func truncated(outcomes []catalogv1alpha1.IndexerOutcome) bool {
 	for _, o := range outcomes {
-		if o.Name == searchoutcome.TruncatedOutcomeName {
+		if searchoutcome.IsTruncatedOutcome(o.Name) {
 			return true
 		}
 	}
@@ -490,7 +490,7 @@ func workerFailure(s *catalogv1alpha1.Search) (string, bool) {
 		return "", false
 	}
 	for _, o := range s.Status.IndexerOutcomes {
-		if o.Name == searchoutcome.WorkerOutcomeName && o.State == catalogv1alpha1.IndexerOutcomeError {
+		if searchoutcome.IsWorkerOutcome(o.Name) && o.State == catalogv1alpha1.IndexerOutcomeError {
 			return o.Error, true
 		}
 	}
@@ -560,8 +560,8 @@ func (r *Reconciler) runQuery(ctx context.Context, s *catalogv1alpha1.Search) (c
 			// the runQuery branch, the same shape startSearch uses for
 			// ErrQueueFull.
 			u := newStatusUpdate(s)
-			k8s.MarkFalse(s, &u.conditions, k8s.ConditionReady, "IndexarrUnavailable",
-				"indexarr's release index is not reachable yet")
+			k8s.MarkFalse(s, &u.conditions, k8s.ConditionReady, "IndexUnavailable",
+				"the index agent's release index is not reachable yet")
 			if perr := r.apply(ctx, s, u); perr != nil {
 				return ctrl.Result{}, perr
 			}

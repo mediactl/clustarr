@@ -47,12 +47,12 @@ const (
 
 	// LabelTemplateHash is the immutable part's hash (see [Hash]): a
 	// changed value is immutable drift, never reconciled in place.
-	LabelTemplateHash = "squasharr.clustarr.io/template-hash"
+	LabelTemplateHash = "transcode.clustarr.io/template-hash"
 
 	// AnnotationAppliedTemplate holds the JSON of the [Spec] this manager
 	// last applied. Judging drift against it, not the stored Job's
 	// spec.template, ignores apiserver defaulting (spec §3; Review Focus 2).
-	AnnotationAppliedTemplate = "squasharr.clustarr.io/applied-template"
+	AnnotationAppliedTemplate = "transcode.clustarr.io/applied-template"
 
 	// BackoffLimit bounds worker-level pod failures only (NATS unreachable,
 	// bad environment): task failures never fail a pod, and the worker never
@@ -87,7 +87,7 @@ func ProfileLabelValue(profile string) string {
 // Name is a pool's Job name: readable where it fits, and always ending in a
 // hash of the profile's UID and the class, within 63 characters.
 func Name(k Key) string {
-	return k8s.LabelSafeName("squasharr-pool-"+k.Profile+"-"+string(k.Class), string(k.ProfileUID), string(k.Class))
+	return k8s.LabelSafeName("transcode-pool-"+k.Profile+"-"+string(k.Class), string(k.ProfileUID), string(k.Class))
 }
 
 // Mutable reports whether the apiserver will accept a template change: the

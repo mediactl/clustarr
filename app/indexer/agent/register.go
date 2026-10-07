@@ -55,15 +55,16 @@ const (
 	// ":9696" -- Prowlarr's port -- which nothing routed to.
 	DefaultFacadeBindAddress = ":8080"
 
-	// DefaultFacadeAPIKeySecret is the Secret, in indexarr's own namespace,
-	// whose data entries are the API keys the Torznab facade accepts. The
-	// facade FAILS CLOSED -- facade.New refuses to build without a key --
-	// so indexarr creates this Secret with one random key on first start
-	// when it does not exist, the way Prowlarr generates its own API key.
+	// DefaultFacadeAPIKeySecret is the Secret, in the index agent's own
+	// namespace, whose data entries are the API keys the Torznab facade
+	// accepts. The facade FAILS CLOSED -- facade.New refuses to build
+	// without a key -- so the index agent creates this Secret with one
+	// random key on first start when it does not exist, the way Prowlarr
+	// generates its own API key.
 	// config/ uses this name as-is; the chart's carries the release
 	// fullname and reaches --facade-api-key-secret through
 	// $CLUSTARR_FACADE_API_KEY_SECRET. See [ensureFacadeAPIKeys].
-	DefaultFacadeAPIKeySecret = "indexarr-facade"
+	DefaultFacadeAPIKeySecret = "index-facade"
 
 	// indexProbeTimeout bounds the readiness probe's Stats call so a wedged
 	// SQLite handle fails readiness rather than hanging the probe handler.

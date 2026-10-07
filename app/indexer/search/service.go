@@ -166,7 +166,7 @@ func (s *Service) now() time.Time {
 // indexarr's own and no indexer can be named. It must be non-empty or the
 // caller drops the entry silently (status.indexerOutcomes is listType=map
 // keyed by name).
-const ListOutcomeName = "indexarr"
+const ListOutcomeName = "index"
 
 // maxOutcomes bounds the reply at what the caller can actually persist.
 // catalogarr drops everything past its own MaxIndexerOutcomes, first-wins, so

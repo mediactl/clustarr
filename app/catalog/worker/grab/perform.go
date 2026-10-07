@@ -412,7 +412,7 @@ func guardExistingDownloads(
 // for this path's own.
 func appliedByGrabPath(dl *downloadv1alpha1.Download) bool {
 	for _, mf := range dl.ManagedFields {
-		if mf.Manager == k8s.ManagerCatalogGrab.String() && mf.Subresource == "" {
+		if k8s.OwnedBy(mf, k8s.ManagerCatalogGrab) && mf.Subresource == "" {
 			return true
 		}
 	}

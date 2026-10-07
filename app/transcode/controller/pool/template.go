@@ -31,12 +31,14 @@ import (
 	"github.com/mediactl/clustarr/pkg/binpath"
 )
 
-// Labels, annotations and env names squasharr-pool stamps on the Jobs and
+// Labels, annotations and env names transcode-pool stamps on the Jobs and
 // pods it creates.
 const (
-	// LabelManagedBy/ManagedByValue select every pool Job squasharr owns.
+	// LabelManagedBy/ManagedByValue select every pool Job the transcode
+	// controller owns (chart 0.4.x's value is legacynames.PoolManagedBy,
+	// read only by the Migrator).
 	LabelManagedBy = "app.kubernetes.io/managed-by"
-	ManagedByValue = "squasharr"
+	ManagedByValue = "transcode"
 
 	// LabelHardware is the hardware class a pool's pods run under.
 	LabelHardware = "transcode.clustarr.io/hardware"

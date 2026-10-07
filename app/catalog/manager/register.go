@@ -102,7 +102,7 @@ func NewDLQProjector(mgr ctrl.Manager, bus events.Bus) *historyworker.DLQProject
 // leader binds the same durables, so whatever the old one had not acked is
 // redelivered.
 func registerHistory(mgr ctrl.Manager, bus events.Bus, proj *historyworker.DLQProjector) error {
-	sink := historyworker.NewSink(historyworker.SinkDeps{Recorder: mgr.GetEventRecorder("catalogarr-history")})
+	sink := historyworker.NewSink(historyworker.SinkDeps{Recorder: mgr.GetEventRecorder("catalog-history")})
 	if err := sink.SetupLeaderOnly(mgr, bus); err != nil {
 		return fmt.Errorf("catalogarr: history sink: %w", err)
 	}

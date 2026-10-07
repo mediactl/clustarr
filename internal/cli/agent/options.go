@@ -45,7 +45,7 @@ const (
 	DefaultFacadeBindAddress = ":8080"
 	// DefaultFacadeAPIKeySecret is the Secret, in --namespace, holding the
 	// facade's API keys.
-	DefaultFacadeAPIKeySecret = "indexarr-facade"
+	DefaultFacadeAPIKeySecret = "index-facade"
 	// defaultTopologyWait is how long an agent waits for the manager's
 	// topology (§3.5.2 step 7): below the liveness budget (15 s initial
 	// delay plus 3 x 20 s), so a timeout exits before the kubelet kills.

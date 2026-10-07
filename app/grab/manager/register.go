@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
+	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
@@ -87,7 +88,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		dcReconciler.Admin = admin
 	}
 	dcReconciler.Engines = records.NewReader(bus.KV(events.BucketEngines), agentrecords.Engines())
-	dcReconciler.EngineRecorder = mgr.GetEventRecorder("grabarr-engine")
+	dcReconciler.EngineRecorder = mgr.GetEventRecorder(lifecycle.RecorderGrabEngine)
 	if err := dcReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("grabarr: downloadclient: %w", err)
 	}

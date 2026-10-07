@@ -196,7 +196,7 @@ func PatchOverlay(ctx context.Context, c client.Client, mgr k8s.FieldManager, ob
 func OwnedStatusPaths(managed []metav1.ManagedFieldsEntry, manager k8s.FieldManager) (sets.Set[string], error) {
 	out := sets.New[string]()
 	for _, e := range managed {
-		if e.Manager != string(manager) || e.Subresource != "status" || e.FieldsV1 == nil {
+		if !k8s.OwnedBy(e, manager) || e.Subresource != "status" || e.FieldsV1 == nil {
 			continue
 		}
 		var root map[string]any

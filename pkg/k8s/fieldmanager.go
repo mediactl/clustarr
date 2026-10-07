@@ -33,15 +33,15 @@ type FieldManager string
 // and engines use the suffixed name and may only apply the disjoint subset of
 // status fields the spec assigns them.
 const (
-	// ManagerCatalogarr is the catalogarr controller manager. It owns phase
+	// ManagerCatalog is the catalog controller manager. It owns phase
 	// and conditions on every catalog.clustarr.io kind. (This comment used to
 	// also claim Download.status.import, the project's one cross-group
-	// status write. Design spec §8.4 assigned it to catalogarr before
+	// status write. Design spec §8.4 assigned it to catalog before
 	// amendment-1 moved the importer into app/import/worker/fileimport; see
-	// ManagerImportarr, which now owns that write. Settled at task D2-7.)
-	ManagerCatalog FieldManager = "catalogarr"
+	// ManagerImport, which now owns that write. Settled at task D2-7.)
+	ManagerCatalog FieldManager = "catalog"
 
-	// ManagerCatalogarrSeries is the catalogarr Series reconciler when it
+	// ManagerCatalogSeries is the catalog Series reconciler when it
 	// writes to an Episode it owns. Its field set is exactly
 	// EpisodeStatus' Title, Overview, AirDate, TvdbID, RuntimeMinutes and
 	// AbsoluteNumber -- and nothing else. Not FinaleType, which this
@@ -51,7 +51,7 @@ const (
 	// under the client's own manager rather than this one.
 	//
 	// It is deliberately distinct from
-	// ManagerCatalogarr, which the Episode reconciler uses for that Episode's own
+	// ManagerCatalog, which the Episode reconciler uses for that Episode's own
 	// status: server-side apply replaces a manager's whole ownership set on every
 	// apply, so two writers sharing one manager name on one object silently
 	// release each other's fields. Distinct managers make the split native.
@@ -63,28 +63,28 @@ const (
 	// any field it claims. An over-claim is invisible in the object's values
 	// and shows up only in metadata.managedFields, which is where a test that
 	// means to catch one has to look.
-	ManagerCatalogSeries FieldManager = "catalogarr-series"
+	ManagerCatalogSeries FieldManager = "catalog-series"
 
-	// ManagerCatalogarrWorker is the catalogarr queue worker. It covers the
-	// consumers that write status fields NO other catalogarr writer touches:
+	// ManagerCatalogWorker is the catalog queue worker. It covers the
+	// consumers that write status fields NO other catalog writer touches:
 	// the search worker's Search.status.finishedAt/indexerOutcomes/results.
 	// (The import and importlist consumers this comment also named went to
-	// importarr with amendment §A1; neither ever had a subscriber here, and
-	// both are gone from pkg/events -- catalogarr-importlist in the gap-fix
-	// wave (X1), catalogarr-import in gap fixes Z2.)
+	// import with amendment §A1; neither ever had a subscriber here, and
+	// both are gone from pkg/events -- catalog-importlist in the gap-fix
+	// wave (X1), catalog-import in gap fixes Z2.)
 	//
 	// The two consumers that used to share it and could not -- the metadata
 	// gateway and the grab path -- have their own names below. See
-	// ManagerCatalogarrGrab for what went wrong.
-	ManagerCatalogWorker FieldManager = "catalogarr-worker"
+	// ManagerCatalogGrab for what went wrong.
+	ManagerCatalogWorker FieldManager = "catalog-worker"
 
-	// ManagerCatalogarrMetadata is the catalogarr metadata gateway. On Movie
+	// ManagerCatalogMetadata is the catalog metadata gateway. On Movie
 	// and Series it applies status.metadata and nothing else.
 	//
-	// It is deliberately distinct from ManagerCatalogarrGrab, which applies
+	// It is deliberately distinct from ManagerCatalogGrab, which applies
 	// status.pendingGrab/lastSearchedAt/searchAttempts on the same objects. Server-side apply replaces a manager's whole
 	// ownership set on every apply rather than merging it, so while both
-	// wrote as catalogarr-worker each one's apply RELEASED the other's
+	// wrote as catalog-worker each one's apply RELEASED the other's
 	// fields: a grab deleted the movie's cached metadata (dropping it to
 	// Phase=Pending and forcing a provider refetch), and a metadata refresh
 	// deleted status.activeDownloadRef and status.pendingGrab (dropping a
@@ -92,16 +92,16 @@ const (
 	// cron re-searched an item that already had a grab scheduled). Both
 	// directions were reproduced against a real apiserver; see
 	// app/catalog/worker/grab's field-manager tests.
-	ManagerCatalogMetadata FieldManager = "catalogarr-metadata"
+	ManagerCatalogMetadata FieldManager = "catalog-metadata"
 
-	// ManagerCatalogarrGrab is the catalogarr grab path -- the grab worker,
+	// ManagerCatalogGrab is the catalog grab path -- the grab worker,
 	// the RSS matcher and the search worker's grab sink, which all write
 	// through one code path. On a catalog item it applies exactly
 	// status.pendingGrab, status.lastSearchedAt and status.searchAttempts.
 	//
 	// It does NOT own status.activeDownloadRef (gap-fix ruling R-5). That
 	// field has one writer: the item's own reconciler, under
-	// ManagerCatalogarr, which derives it level-style from the item's owned
+	// ManagerCatalog, which derives it level-style from the item's owned
 	// non-terminal Download. The grab path's double-grab guard looks up the
 	// existing Downloads for the target instead of reading the ref. The grab
 	// path used to apply the ref as well, so the two managers co-owned it
@@ -112,23 +112,23 @@ const (
 	// an older object still credits to it.
 	//
 	// It never applies status.phase: the reconcilers own phase and
-	// conditions under ManagerCatalogarr, and recompute Phase=Delayed from
+	// conditions under ManagerCatalog, and recompute Phase=Delayed from
 	// the pendingGrab this manager writes.
 	//
-	// See ManagerCatalogarrMetadata for why this is not
-	// ManagerCatalogarrWorker.
-	ManagerCatalogGrab FieldManager = "catalogarr-grab"
+	// See ManagerCatalogMetadata for why this is not
+	// ManagerCatalogWorker.
+	ManagerCatalogGrab FieldManager = "catalog-grab"
 
-	// ManagerCatalogarrFanout is the Comic reconciler when it writes an
+	// ManagerCatalogFanout is the Comic reconciler when it writes an
 	// Issue's provider-sourced status fields (sourceID, title, date) onto the
-	// Issues it owns -- the role ManagerCatalogarrSeries plays for
+	// Issues it owns -- the role ManagerCatalogSeries plays for
 	// Series->Episode.
 	//
 	// Comic->Issue is the only non-video pair that uses it. It was declared
 	// (task G1-0) for Artist->Album and Author->Book as well, but G2-1
 	// (commit f665aa9) settled that neither of those parents writes onto its
 	// children at all: Album and Book are metadata targets of their own, so
-	// the gateway fills their status.metadata under ManagerCatalogarrMetadata
+	// the gateway fills their status.metadata under ManagerCatalogMetadata
 	// from the same provider call a fan-out write would copy, and a second
 	// writer of identical values is the co-ownership trap that hides an SSA
 	// release. The Artist and Author reconcilers create their children with
@@ -136,91 +136,91 @@ const (
 	// why). Issue, like Episode, has no status.metadata of its own, so its
 	// provider fields have nowhere else to come from.
 	//
-	// It is deliberately distinct from ManagerCatalogarr, which the Issue
+	// It is deliberately distinct from ManagerCatalog, which the Issue
 	// reconciler uses for that Issue's own status (state, conditions,
 	// hasFile, fileRef, fileQuality, cutoffMet, activeDownloadRef), exactly as
-	// Episode's reconciler uses ManagerCatalogarr for its own
-	// Phase/Conditions/HasFile rather than ManagerCatalogarrSeries.
+	// Episode's reconciler uses ManagerCatalog for its own
+	// Phase/Conditions/HasFile rather than ManagerCatalogSeries.
 	// Server-side apply replaces a manager's whole ownership set on every
 	// apply, so a parent and its child sharing one manager name on the child
 	// object would silently release each other's fields the next time
 	// either side reconciled -- proven once already for Series/Episode (see
-	// ManagerCatalogarrSeries).
-	ManagerCatalogFanout FieldManager = "catalogarr-fanout"
+	// ManagerCatalogSeries).
+	ManagerCatalogFanout FieldManager = "catalog-fanout"
 
-	// ManagerCatalogarrArtwork is the renderer role (catalogarr --role
+	// ManagerCatalogArtwork is the renderer role (catalog --role
 	// artwork, spec §C.6, §B.6). On Movie and Series it applies
 	// status.overlay and nothing else, and writes only "overlay" objects in
 	// the artwork bucket -- it never touches "original" objects or
-	// status.artwork, which belong to ManagerCatalogarrMetadata, the
+	// status.artwork, which belong to ManagerCatalogMetadata, the
 	// metadata gateway (spec §B.3): two writers split by variant, the same
 	// discipline as the MediaFile spec/status split. Distinct from every
-	// other catalogarr manager for the same reason ManagerCatalogarrMetadata
-	// and ManagerCatalogarrGrab are: server-side apply replaces a manager's
+	// other catalog manager for the same reason ManagerCatalogMetadata
+	// and ManagerCatalogGrab are: server-side apply replaces a manager's
 	// whole ownership set on every apply, so a shared name would let one
 	// role's apply silently release the other's fields.
-	ManagerCatalogArtwork FieldManager = "catalogarr-artwork"
+	ManagerCatalogArtwork FieldManager = "catalog-artwork"
 
-	// ManagerCatalogarrMarkers is RETIRED (loop spec 2026-10-06 §2.12,
+	// ManagerRetiredMarkers is RETIRED (loop spec 2026-10-06 §2.12,
 	// §3.14): it was the metadata gateway's marker worker, the writer of
 	// MediaFile status.markers until the remediation loop took every status
-	// leaf under ManagerCatalogarr. No writer may use it; Validate still
+	// leaf under ManagerCatalog. No writer may use it; Validate still
 	// accepts it (RetiredFieldManagers) because release N's one release
-	// apply of every MediaFile's catalogarr-markers entry runs under it
+	// apply of every MediaFile's legacy markers entry runs under it
 	// (§7.3.8, F8.4). F9.4 removes it.
 	ManagerRetiredMarkers FieldManager = legacynames.MarkersStatusManager
 
-	// ManagerCatalogarrClassify is the Series reconciler's one-time anime
+	// ManagerCatalogClassify is the Series reconciler's one-time anime
 	// classification: it merge-patches spec.seriesType and
 	// spec.qualityProfileRef once, never again for that Series. Distinct
-	// from every creator's manager (importarr, importarr-worker,
+	// from every creator's manager (import, import-worker,
 	// clustarr-ui), so the patch reads in managedFields as the classifier's.
-	ManagerCatalogClassify FieldManager = "catalogarr-classify"
+	ManagerCatalogClassify FieldManager = "catalog-classify"
 
-	// ManagerImportarr is the importarr controller manager. It owns ImportList,
+	// ManagerImport is the import controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
 	//
 	// It also owns Download.status.import -- the project's one cross-group
 	// status write, applied by app/import/worker/fileimport (task D2-7), not
-	// by any importarr controller. That write deliberately uses this bare
-	// manager name rather than ManagerImportarrWorker: nothing else ever
+	// by any import controller. That write deliberately uses this bare
+	// manager name rather than ManagerImportWorker: nothing else ever
 	// applies under either name to a Download object, so there is no
 	// collision to guard against the way there is on MediaFile (see
-	// ManagerImportarrWorker), and app/grab/status.Patch (which owns every
+	// ManagerImportWorker), and app/grab/status.Patch (which owns every
 	// other field manager on Download.status) refuses this name from its own
-	// declaration precisely so that importarr's write stays importarr's,
-	// made from importarr's own code, rather than being routed through
-	// grabarr's declaration and picking up grabarr's owned set too.
+	// declaration precisely so that import's write stays import's,
+	// made from import's own code, rather than being routed through
+	// grab's declaration and picking up grab's owned set too.
 	//
-	// Design spec §8.4 assigned this write to catalogarr, under the name
-	// ManagerCatalogarr. Amendment-1 moved the importer out of catalogarr
+	// Design spec §8.4 assigned this write to catalog, under the name
+	// ManagerCatalog. Amendment-1 moved the importer out of catalog
 	// into app/import/worker/fileimport ("Nothing named 'importer' remains in
-	// catalogarr"), and this field's ownership moved with it. Three comments
+	// catalog"), and this field's ownership moved with it. Three comments
 	// disagreed on the result until task D2-7 settled it: this one and
-	// app/grab/status already said importarr; ManagerCatalogarr's comment and
-	// DownloadStatus' own field doc still said catalogarr. All three are now
+	// app/grab/status already said import; ManagerCatalog's comment and
+	// DownloadStatus' own field doc still said catalog. All three are now
 	// consistent.
-	ManagerImport FieldManager = "importarr"
+	ManagerImport FieldManager = "import"
 
-	// ManagerImportarrWorker is an importarr scan, list or file-import worker.
+	// ManagerImportWorker is an import scan, list or file-import worker.
 	// On MediaFile it applies MediaFileSpec only -- what it observed on disk,
 	// plus the values frozen at import -- and never MediaFileStatus, which
-	// catalogarr owns in full. The library-rescan worker also applies
+	// catalog owns in full. The library-rescan worker also applies
 	// MovieSpec under this name when it creates the Movie a scanned file is
 	// attributed to. (This comment previously described a
 	// status.file/status.probe split; those fields do not exist. See
 	// CLAUDE.md's invariant.)
 	//
-	// It is deliberately distinct from ManagerImportarr even though the
-	// workers run inside the same manager process as importarr's
+	// It is deliberately distinct from ManagerImport even though the
+	// workers run inside the same manager process as import's
 	// controllers -- see rescan.FieldManager, which is the constant
 	// production writes with and where the reasoning lives. Until task C14
-	// the rescan worker actually wrote as ManagerImportarr while this
-	// comment, catalogarr's two-writer gate and the e2e suite each said
+	// the rescan worker actually wrote as ManagerImport while this
+	// comment, catalog's two-writer gate and the e2e suite each said
 	// something different.
-	ManagerImportWorker FieldManager = "importarr-worker"
+	ManagerImportWorker FieldManager = "import-worker"
 
-	// ManagerIndexarr is the indexarr controller manager. On Indexer it owns
+	// ManagerIndex is the index controller manager. On Indexer it owns
 	// the configuration half of status: conditions, protocol, privacy, caps,
 	// observedGeneration and sessionSecretRef -- plus queriesInWindow and
 	// grabsInWindow, its projection of the clustarr-indexer-limits rings
@@ -230,15 +230,15 @@ const (
 	// Since the manager/agent split (2026-10-06) it is written only by the
 	// manager: the three reconcilers, the bundle loader and the Indexer
 	// reconciler's session-Secret Saves.
-	ManagerIndex FieldManager = "indexarr"
+	ManagerIndex FieldManager = "index"
 
-	// ManagerIndexarrWorker is indexarr's RSS poll and search fan-out. On
+	// ManagerIndexWorker is index's RSS poll and search fan-out. On
 	// Indexer it owns the observed half of status: lastRssAt, lastRssNewCount,
 	// indexedReleases and the escalation fields (failureLevel,
 	// initialFailureAt, disabledUntil, lastFailureAt, lastFailureMsg), each
 	// applied as a compare-and-swap (app/indexer/status.PatchCAS).
 	//
-	// It is deliberately distinct from ManagerIndexarr because Indexer.status
+	// It is deliberately distinct from ManagerIndex because Indexer.status
 	// has three writer paths -- the reconciler, the RSS poll and the search
 	// fan-out -- which is one more than the design spec anticipated. Server-
 	// side apply replaces a manager's whole ownership set on every apply, so
@@ -252,33 +252,33 @@ const (
 	// client's relogin Save and the compare-and-swap Drop, through the same
 	// complete declaration as the manager's Save) and creates the facade's
 	// API-key Secret (§13 OD14).
-	ManagerIndexWorker FieldManager = "indexarr-worker"
+	ManagerIndexWorker FieldManager = "index-worker"
 
-	// ManagerGrabarr is the grabarr controller manager, the single writer for
+	// ManagerGrab is the grab controller manager, the single writer for
 	// download.clustarr.io phase and conditions.
-	ManagerGrab FieldManager = "grabarr"
+	ManagerGrab FieldManager = "grab"
 
-	// ManagerGrabarrEngine was a torrent or usenet engine pod's, which applied
+	// ManagerRetiredEngine was a torrent or usenet engine pod's, which applied
 	// the telemetry fields of Download.status. Retired (ADR-0019 A3.6):
 	// engines write no Kubernetes object; RetiredFieldManagers keeps it
 	// valid until N+1.
 	ManagerRetiredEngine FieldManager = legacynames.EngineTelemetryManager
 
-	// ManagerSquasharr is the squasharr controller manager.
-	ManagerTranscode FieldManager = "squasharr"
+	// ManagerTranscode is the transcode controller manager.
+	ManagerTranscode FieldManager = "transcode"
 
-	// ManagerSquasharrPool is squasharr's transcode pool Jobs: the sole
+	// ManagerTranscodePool is the transcode controller's pool Jobs: the sole
 	// writer of their spec, including spec.scheduling.schedulingPolicy.gang.minCount.
-	ManagerTranscodePool FieldManager = "squasharr-pool"
+	ManagerTranscodePool FieldManager = "transcode-pool"
 
-	// ManagerCaptionarr is the captionarr controller manager.
-	ManagerCaption FieldManager = "captionarr"
+	// ManagerCaption is the caption controller manager.
+	ManagerCaption FieldManager = "caption"
 
-	// ManagerCaptionarrWorker is a captionarr subtitle fetch worker. It
+	// ManagerCaptionWorker is a caption subtitle fetch worker. It
 	// applies SubtitleRequest.status.items entries only.
-	ManagerCaptionWorker FieldManager = "captionarr-worker"
+	ManagerCaptionWorker FieldManager = "caption-worker"
 
-	// ManagerDLQProjector is the DLQ projector wired into catalogarr's
+	// ManagerDLQProjector is the DLQ projector wired into catalog's
 	// RoleHistory branch (built by task G1-4, wired by G1-5), the one
 	// subscriber to events.ConsumerDLQProjector. Design spec §5 originally
 	// had it set a DeadLettered condition on the CR named by a dead-lettered
@@ -307,7 +307,7 @@ const (
 	// here than it does for any other manager in this file: every other
 	// manager here asserts a controller's or worker's own reconciled truth,
 	// but a ui/actions write is a human's one-off intent landing on a spec
-	// field some controller (ManagerCatalogarr, or ManagerCatalogarrFanout
+	// field some controller (ManagerCatalog, or ManagerCatalogFanout
 	// on a fanned-out child) also reconciles -- and PatchStatus/Apply force
 	// ownership unconditionally, so whichever side applies next simply
 	// takes the field with no conflict raised either way. The distinct name
@@ -376,8 +376,8 @@ func FieldManagers() []FieldManager {
 
 // RetiredFieldManagers are names no writer may use any more but Validate
 // still accepts: release N's one release apply of every MediaFile's
-// catalogarr-markers entry runs under it (loop spec §7.3.8, F8.4), and
-// grabarr-engine retired with the Download kind (ADR-0019 A3.6: engines
+// legacy markers entry runs under it (loop spec §7.3.8, F8.4), and the
+// engines' telemetry manager retired with the Download kind (ADR-0019 A3.6: engines
 // write no Kubernetes object). F9.4 and A9.1 empty the list.
 func RetiredFieldManagers() []FieldManager {
 	return []FieldManager{ManagerRetiredMarkers, ManagerRetiredEngine}

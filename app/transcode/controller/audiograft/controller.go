@@ -73,7 +73,7 @@ import (
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 
 // LabelGraft names the AudioGraft a graft Job (and its pod) runs for.
-const LabelGraft = "squasharr.clustarr.io/audiograft"
+const LabelGraft = "transcode.clustarr.io/audiograft"
 
 // DefaultConcurrency is --graft-concurrency's default: grafts running at
 // once in the namespace. Each is a CPU pod of the pool template's size.
@@ -683,14 +683,14 @@ func (r *Reconciler) job(g *transcodev1alpha1.AudioGraft, t grafttask.Task) (*ba
 	})
 	c.TerminationMessagePolicy = corev1.TerminationMessageReadFile
 	tmpl.Labels[LabelGraft] = g.Name
-	tmpl.Labels["app.kubernetes.io/component"] = "squasharr-graft"
+	tmpl.Labels["app.kubernetes.io/component"] = "transcode-graft"
 	name := k8s.ChildName(g.Name, t.Mode, t.TargetProbeHash, fmt.Sprint(g.Generation))
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: g.Namespace,
 			Labels: map[string]string{
 				pool.LabelManagedBy: pool.ManagedByValue, LabelGraft: g.Name,
-				"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "squasharr-graft",
+				"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "transcode-graft",
 			},
 		},
 		Spec: batchv1.JobSpec{

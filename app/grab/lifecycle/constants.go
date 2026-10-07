@@ -81,7 +81,7 @@ const (
 // Event reasons (§7.7) and their recorders.
 const (
 	RecorderDownloads  = "downloads"
-	RecorderGrabEngine = "grabarr-engine"
+	RecorderGrabEngine = "grab-engine"
 
 	ReasonDownloadAddFailed   = "DownloadAddFailed"
 	ReasonEngineGone          = "EngineGone"

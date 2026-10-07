@@ -46,7 +46,7 @@ import (
 const (
 	labelComponent  = "app.kubernetes.io/component"
 	labelClient     = "download.clustarr.io/client"
-	componentEngine = "grabarr-engine"
+	componentEngine = "grab-engine"
 
 	// dataVolumeName, scratchVolumeName and tmpVolumeName are the pod-local
 	// volume names; they say nothing about the PVC or emptyDir backing them.
@@ -119,11 +119,13 @@ type EngineRuntime struct {
 	Umask              string
 }
 
-// DefaultEngineServiceAccount is the ServiceAccount config/ creates for the
-// engine pods (config/manager/grabarr.yaml) and binds to the engine role.
-// The chart's is "<release fullname>-grabarr-engine", which grabarr's
+// DefaultEngineServiceAccount is the ServiceAccount the installers create
+// for the engine pods and bind to the engine role. The chart's is
+// "<release fullname>-grab-engine", which the manager's
 // --engine-service-account ($CLUSTARR_ENGINE_SERVICE_ACCOUNT) carries.
-const DefaultEngineServiceAccount = "grabarr-engine"
+// Chart 0.4.x named it legacynames.EngineServiceAccount; N's engines are
+// re-rendered under the new name (unbranded-names spec §4.4).
+const DefaultEngineServiceAccount = "grab-engine"
 
 // gomemlimitFraction is design §12's "GOMEMLIMIT = 80 % of limit" for the
 // torrent engines: the Downward API can only give the whole limit, so the

@@ -273,7 +273,7 @@ func classified(s *catalogv1alpha1.Series) bool {
 		return true
 	}
 	for _, mf := range s.ManagedFields {
-		if mf.Manager != string(k8s.ManagerCatalogClassify) || mf.FieldsV1 == nil {
+		if !k8s.OwnedBy(mf, k8s.ManagerCatalogClassify) || mf.FieldsV1 == nil {
 			continue
 		}
 		var fields map[string]map[string]any

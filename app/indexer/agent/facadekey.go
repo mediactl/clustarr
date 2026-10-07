@@ -53,9 +53,10 @@ import (
 const FacadeAPIKeyField = "apikey"
 
 // facadeComponent is the generated Secret's app.kubernetes.io/component
-// label: indexarr's ServiceName, which this package cannot import, since
-// indexarr imports it.
-const facadeComponent = "indexarr"
+// label: the index domain's name. Chart 0.4.x's Secret carries
+// legacynames.FacadeSecret's component; release N's manager copies its keys
+// into a new Secret (A6.4, unbranded-names spec §4.4).
+const facadeComponent = "index"
 
 // facadeAPIKeyBytes is a generated key's entropy: 32 random bytes, sent as
 // 64 hex characters, which is the shape every Torznab client's apikey field
