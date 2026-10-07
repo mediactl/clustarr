@@ -13,12 +13,14 @@ keywords:
 maintainers:
 - name: mediactl
   url: https://github.com/mediactl
-# Chart version; bumped on every chart change.
-version: 0.4.0
+# Chart version; bumped on every chart change. 0.5.0 breaks values (README,
+# "Upgrading from 0.4.x").
+version: 0.5.0
 # Version of Clustarr itself. Also the default image tag -- see values.yaml.
 appVersion: "0.1.0"
 # CEL validation rules in the CRDs and podFailurePolicy on the transcode Jobs
-# both need 1.31+.
+# both need 1.31+; the manager's scale-to-zero HPAs want 1.37 (HPAScaleToZero
+# on by default) and keep one replica below it.
 kubeVersion: ">=1.31.0-0"
 
 # Umbrella chart. Both dependencies are conditional, so `helm dependency
@@ -33,7 +35,7 @@ dependencies:
   repository: https://nats-io.github.io/k8s/helm/charts/
   condition: nats.enabled
 # CloudNativePG: the Postgres operator, needed only when postgres.enabled
-# selects a Postgres-backed release index for indexarr instead of its default
+# selects a Postgres-backed release index for the index agent instead of its default
 # local SQLite FTS5 database (design spec 2026-09-24 §A.3-A.4; ADR-0010).
 # Off by default and independent of postgres.enabled: most clusters install
 # an operator like this one once, cluster-wide, rather than per release --

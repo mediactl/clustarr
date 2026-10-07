@@ -1,10 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "clustarr",
-  "description": "Values for the clustarr umbrella chart. Checks shapes (types, enums, known number/string formats) so a bad values file fails at `helm install`/`helm template`/`helm lint` -- with a schema-path error pointing at the exact key -- rather than deep inside a template with a `nil pointer` or a silently wrong render. See charts/clustarr/README.md for the field-by-field reference and charts/clustarr/templates/_helpers.tpl's clustarr.validate for the cross-field invariants (e.g. catalogarrMetadata.replicas/indexarr.replicas below duplicate two of those checks on purpose, so they fail here, earlier and with a clearer message, before the template-level fail ever runs). nats/cloudnative-pg are validated only shallowly: those objects pass straight through to the bundled subcharts, which ship no values.schema.json of their own for this chart to defer to, and duplicating their whole value surface here would drift the moment either chart adds a value.",
+  "description": "Values for the clustarr umbrella chart (0.5.0: the manager, agent and ui topology of spec 2026-10-06). Checks shapes (types, enums, known number/string formats) so a bad values file fails at `helm install`/`helm template`/`helm lint` with a schema-path error naming the exact key. The top level is closed: a key chart 0.5.0 retired (the eleven 0.4.x per-service blocks and keda, and image.controller/media/transcoder/transcoderCuda) fails here with a message naming its replacement; see the README's \"Upgrading from 0.4.x\". Cross-field invariants are clustarr.validate's in templates/_helpers.tpl. nats and cloudnative-pg pass through to the subcharts, which ship no schema of their own, and are checked only shallowly.",
   "type": "object",
-  "required": ["image", "storage", "podSecurityContext", "securityContext"],
+  "additionalProperties": false,
+  "required": ["image", "storage", "podSecurityContext", "securityContext", "autoscaling", "manager", "agents", "markers"],
+  "patternProperties": {
+    "^catalog[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
+    "^catalog[a]rrMetadata$": { "const": "retired in chart 0.5.0: use agents.metadata, which always runs one replica (README, Upgrading from 0.4.x)" },
+    "^import[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
+    "^import[a]rrWorker$": { "const": "retired in chart 0.5.0: use agents.import (README, Upgrading from 0.4.x)" },
+    "^index[a]rr$": { "const": "retired in chart 0.5.0: use agents.index (facade, resources) and manager.cardigann; replicas is gone (README, Upgrading from 0.4.x)" },
+    "^grab[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
+    "^squas[h]arr$": { "const": "retired in chart 0.5.0: use manager.slots, manager.intelRenderGroups and manager.gpuNodeLabel*; workerEngine is gone (README, Upgrading from 0.4.x)" },
+    "^caption[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
+    "^caption[a]rrWorker$": { "const": "retired in chart 0.5.0: use agents.caption; ackWaitSeconds is gone, the grace comes from the code (README, Upgrading from 0.4.x)" },
+    "^segment[a]rrWorker$": { "const": "retired in chart 0.5.0: use markers; concurrency: N becomes consumerSlots: {markers-analyze: N} (README, Upgrading from 0.4.x)" }
+  },
   "properties": {
+    "global": { "type": "object", "description": "Injected by Helm into a chart with dependencies; clustarr reads nothing from it." },
+    "keda": { "const": "retired in chart 0.5.0: use autoscaling.enabled; the manager scales the agents itself (README, Autoscaling)" },
     "nameOverride": { "type": "string" },
     "fullnameOverride": { "type": "string" },
 
@@ -16,7 +31,11 @@
         "registry": { "type": "string" },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
         "clustarr": { "$ref": "#/$defs/imageRef", "description": "The static image: manager and ui." },
-        "native": { "$ref": "#/$defs/imageRef", "description": "The FROM-scratch image: agent, markers and transcode on FFmpeg 9 and ONNX Runtime; every agent, markers, the download engines and the transcode pools run it." }
+        "native": { "$ref": "#/$defs/imageRef", "description": "The FROM-scratch image: agent, markers and transcode on FFmpeg 9 and ONNX Runtime; every agent, markers, the download engines and the transcode pools run it." },
+        "controller": { "const": "retired in chart 0.5.0: use image.clustarr (README, Upgrading from 0.4.x)" },
+        "media": { "const": "retired in chart 0.5.0: everything that used it runs image.native (README, Upgrading from 0.4.x)" },
+        "transcoder": { "const": "retired in chart 0.5.0: use image.native (README, Upgrading from 0.4.x)" },
+        "transcoderCuda": { "const": "retired: there is no CUDA image (docs/adr/0015-no-cuda-image.md); nvidia pools run image.native" }
       }
     },
     "imagePullSecrets": {
@@ -118,45 +137,39 @@
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
 
-    "catalogarr": { "$ref": "#/$defs/serviceBlock" },
-    "catalogarrMetadata": {
-      "allOf": [{ "$ref": "#/$defs/serviceBlock" }],
-      "properties": {
-        "replicas": {
-          "const": 1,
-          "description": "Pinned: the metadata gateway holds its provider rate-limiter windows in process memory (see clustarr.validate's fail)."
-        }
-      }
-    },
-    "importarr": { "$ref": "#/$defs/serviceBlock" },
-    "importarrWorker": { "$ref": "#/$defs/serviceBlock" },
-    "indexarr": {
+    "autoscaling": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "facade", "cardigann", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["enabled"],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "replicas": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Pinned to 1 unless postgres.enabled: the default release index is a local SQLite database on a ReadWriteOnce PVC. This is a cross-field invariant (depends on postgres.enabled) so it is enforced only by clustarr.validate's fail, not by a const here."
+        "enabled": { "type": "boolean", "description": "The manager owns the queue-driven workloads' HPAs and serves the External Metrics API they read; false renders fixed replicas, no APIService and --autoscale=false (README, \"Autoscaling\")." }
+      }
+    },
+
+    "manager": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slots", "intelRenderGroups", "gpuNodeLabelNvidia", "gpuNodeLabelIntel", "cardigann", "graftConcurrency", "remediation", "resources", "nodeSelector", "tolerations", "affinity"],
+      "description": "Every controller in one process: one replica under the lease manager.clustarr.io, so there is no replicas key.",
+      "properties": {
+        "slots": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*=[0-9]+(,[a-z][a-z0-9]*=[0-9]+)*$",
+          "description": "manager --slots: comma-separated hardware=count pairs, e.g. cpu=2,nvidia=1,intel=1."
         },
-        "facade": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["service", "apiKeySecret"],
-          "properties": {
-            "service": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["type", "port"],
-              "properties": {
-                "type": { "$ref": "#/$defs/serviceType" },
-                "port": { "$ref": "#/$defs/port" }
-              }
-            },
-            "apiKeySecret": { "type": "string" }
-          }
+        "intelRenderGroups": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "uniqueItems": true,
+          "description": "manager --intel-render-groups: GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes, added to every Intel transcode pod as supplementalGroups. Host-specific, so no default."
+        },
+        "gpuNodeLabelNvidia": {
+          "type": "string",
+          "description": "manager --gpu-node-label-nvidia override: the node label (set to \"true\") that marks an NVIDIA GPU node. Empty uses the binary's default, nvidia.com/gpu.present."
+        },
+        "gpuNodeLabelIntel": {
+          "type": "string",
+          "description": "manager --gpu-node-label-intel override: the node label (set to \"true\") that marks an Intel GPU node. Empty uses the binary's default, intel.feature.node.kubernetes.io/gpu."
         },
         "cardigann": {
           "type": "object",
@@ -165,22 +178,16 @@
           "properties": {
             "bundled": {
               "type": "boolean",
-              "description": "indexarr --cardigann-bundled: load the Cardigann corpus compiled into the binary. false renders CLUSTARR_CARDIGANN_BUNDLED=false; true renders nothing (the binary's default). Moot when definitions mounts a directory, which replaces the corpus."
+              "description": "manager --cardigann-bundled: load the Cardigann corpus compiled into the binary. false renders CLUSTARR_CARDIGANN_BUNDLED=false; true renders nothing (the binary's default). Moot when definitions mounts a directory, which replaces the corpus."
             },
             "definitions": {
               "type": "object",
               "additionalProperties": false,
               "required": ["configMap", "existingClaim", "subPath"],
-              "description": "A directory of Cardigann definition files mounted read-only into indexarr as --cardigann-definitions-dir, replacing the embedded corpus. Off while configMap and existingClaim are both empty. At most one may be set; clustarr.validate enforces that at render time, where it can say why, rather than here.",
+              "description": "A directory of Cardigann definition files mounted read-only into the manager as --cardigann-definitions-dir, replacing the embedded corpus. Off while configMap and existingClaim are both empty. At most one may be set; clustarr.validate enforces that at render time, where it can say why.",
               "properties": {
-                "configMap": {
-                  "type": "string",
-                  "description": "An existing ConfigMap in the release namespace, one key per definition file. A ConfigMap holds at most 1 MiB."
-                },
-                "existingClaim": {
-                  "type": "string",
-                  "description": "An existing PersistentVolumeClaim holding the definition files."
-                },
+                "configMap": { "type": "string", "description": "An existing ConfigMap in the release namespace, one key per definition file. A ConfigMap holds at most 1 MiB." },
+                "existingClaim": { "type": "string", "description": "An existing PersistentVolumeClaim holding the definition files." },
                 "subPath": {
                   "type": "string",
                   "pattern": "^([^/].*)?$",
@@ -190,43 +197,20 @@
             }
           }
         },
-        "resources": { "$ref": "#/$defs/resources" },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
-      }
-    },
-    "grabarr": { "$ref": "#/$defs/serviceBlock" },
-    "squasharr": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "replicas", "slots", "resources", "nodeSelector", "tolerations", "affinity"],
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "replicas": { "type": "integer", "minimum": 0 },
-        "slots": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9]*=[0-9]+(,[a-z][a-z0-9]*=[0-9]+)*$",
-          "description": "squasharr --slots: comma-separated hardware=count pairs, e.g. cpu=2,nvidia=1,intel=1."
+        "graftConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Audio grafts running at once in the namespace (--graft-concurrency): the admission ledger's graft slots."
         },
-        "intelRenderGroups": {
-          "type": "array",
-          "items": { "type": "integer", "minimum": 0 },
-          "uniqueItems": true,
-          "description": "squasharr --intel-render-groups: GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes, added to every Intel transcode Job's pod as supplementalGroups. Host-specific, so no default."
-        },
-        "gpuNodeLabelNvidia": {
-          "type": "string",
-          "description": "squasharr --gpu-node-label-nvidia override: the node label (set to \"true\") that marks an NVIDIA GPU node. Empty uses the binary's own default, nvidia.com/gpu.present (the NVIDIA GPU Operator's GPU Feature Discovery)."
-        },
-        "gpuNodeLabelIntel": {
-          "type": "string",
-          "description": "squasharr --gpu-node-label-intel override: the node label (set to \"true\") that marks an Intel GPU node. Empty uses the binary's own default, intel.feature.node.kubernetes.io/gpu (Intel's Node Feature Discovery)."
-        },
-        "workerEngine": {
-          "type": "string",
-          "enum": ["", "ffmpeg", "ffgo"],
-          "description": "Ignored: squasharr transcodes in-process only since ffgo Phase 5 deleted the ffmpeg engine and --worker-engine. Accepted so values written before then still render; to be removed."
+        "remediation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["concurrency", "bulkWritesPerSecond", "ioWorkers"],
+          "properties": {
+            "concurrency": { "type": "integer", "minimum": 1, "maximum": 64, "description": "MediaFiles and items the remediation loop reconciles at once (--remediation-concurrency)." },
+            "bulkWritesPerSecond": { "type": "integer", "minimum": 0, "description": "MediaFile status applies per second that no grant, answer, intent or first probe caused (--remediation-bulk-writes-per-second); 0 disables the pacing." },
+            "ioWorkers": { "type": "integer", "minimum": 1, "maximum": 64, "description": "Goroutines for the loop's /data calls (--remediation-io-workers)." }
+          }
         },
         "resources": { "$ref": "#/$defs/resources" },
         "nodeSelector": { "type": "object" },
@@ -234,20 +218,87 @@
         "affinity": { "type": "object" }
       }
     },
-    "captionarr": { "$ref": "#/$defs/serviceBlock" },
-    "captionarrWorker": {
+
+    "agents": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "ackWaitSeconds", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["catalog", "events", "metadata", "import", "index", "caption"],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "replicas": { "type": "integer", "minimum": 0 },
-        "ackWaitSeconds": { "type": "integer", "minimum": 1 },
-        "resources": { "$ref": "#/$defs/resources" },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
-        "affinity": { "type": "object" }
+        "catalog": {
+          "allOf": [
+            { "$ref": "#/$defs/agentBlock" },
+            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["catalog-search-high", "catalog-search-normal", "catalog-artwork-render"] } } } }
+          ]
+        },
+        "events": {
+          "allOf": [
+            { "$ref": "#/$defs/agentBlock" },
+            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["catalog-rss-matcher"] } } } }
+          ]
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "resources", "nodeSelector", "tolerations", "affinity"],
+          "description": "Always one replica, Recreate: the metadata gateway's provider rate limiters live in process memory (ADR-0007).",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "resources": { "$ref": "#/$defs/resources" },
+            "nodeSelector": { "type": "object" },
+            "tolerations": { "type": "array" },
+            "affinity": { "type": "object" }
+          }
+        },
+        "import": {
+          "allOf": [
+            { "$ref": "#/$defs/agentBlock" },
+            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["import-scan", "import-fileimport", "import-list", "import-recycle", "import-probe-high", "import-probe-low"] } } } }
+          ]
+        },
+        "index": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "facade", "resources", "nodeSelector", "tolerations", "affinity"],
+          "description": "Always one replica, Recreate: the release index, the RPC responders, the Torznab facade and the per-host limiter are one process (spec 2026-10-06, R4 amendment).",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "facade": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["service", "apiKeySecret"],
+              "properties": {
+                "service": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "port"],
+                  "properties": {
+                    "type": { "$ref": "#/$defs/serviceType" },
+                    "port": { "$ref": "#/$defs/port" }
+                  }
+                },
+                "apiKeySecret": { "type": "string", "description": "The facade's API-key Secret (--facade-api-key-secret on the manager and the index agent); empty means <release fullname>-index-facade, created by the manager." }
+              }
+            },
+            "resources": { "$ref": "#/$defs/resources" },
+            "nodeSelector": { "type": "object" },
+            "tolerations": { "type": "array" },
+            "affinity": { "type": "object" }
+          }
+        },
+        "caption": {
+          "allOf": [
+            { "$ref": "#/$defs/agentBlock" },
+            { "properties": { "consumerSlots": { "propertyNames": { "enum": ["caption-fetch-high", "caption-fetch-normal"] } } } }
+          ]
+        }
       }
+    },
+
+    "markers": {
+      "allOf": [
+        { "$ref": "#/$defs/agentBlock" },
+        { "properties": { "consumerSlots": { "propertyNames": { "enum": ["markers-analyze"] } } } }
+      ]
     },
     "ui": {
       "type": "object",
@@ -362,13 +413,22 @@
       }
     },
 
-    "serviceBlock": {
+    "agentBlock": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["enabled", "replicas", "consumerSlots", "resources", "nodeSelector", "tolerations", "affinity"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "replicas": { "type": "integer", "minimum": 0 },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Used only with autoscaling.enabled=false: otherwise the manager's HPA owns the replica count and the Deployment carries none."
+        },
+        "consumerSlots": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 },
+          "description": "Per-pod handler slots by consumer (CLUSTARR_CONSUMER_SLOTS), also the HPA's per-pod target; only the workload's own domain's consumers."
+        },
         "resources": { "$ref": "#/$defs/resources" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },

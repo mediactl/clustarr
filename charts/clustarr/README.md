@@ -18,8 +18,8 @@ upstream `nats` chart (clustered R3, config reloader,
 
 | | |
 | --- | --- |
-| Kubernetes | >= 1.31 (CEL validation rules in the CRDs, `podFailurePolicy` on transcode Jobs) |
-| Helm | 3.x (this chart ships `values.schema.json`, validated by every Helm 3 release) |
+| Kubernetes | >= 1.31 (CEL validation rules in the CRDs, `podFailurePolicy` on transcode Jobs); 1.37 for scale-to-zero (see [Autoscaling](#autoscaling)) |
+| Helm | 3.x or 4.x (this chart ships `values.schema.json`, validated by every release) |
 | Storage | One `ReadWriteMany`-capable `StorageClass` (CephFS preferred; NFS or Longhorn RWX acceptable) for `/data`, or a claim you already run. See [Storage](#storage). |
 
 The chart declares two conditional dependencies (`nats`, `cloudnative-pg`);
@@ -42,7 +42,7 @@ helm install clustarr charts/clustarr --namespace clustarr-system --create-names
 ```
 
 Read the `NOTES.txt` Helm prints after install (or `helm get notes
-clustarr`): it lists every service and replica count for the values you
+clustarr`): it lists every workload and its replica count for the values you
 actually used, the Torznab facade API key command, and a storage warning
 when `storage.data.storageClass` is unset.
 
@@ -53,14 +53,45 @@ choice): re-apply `config/crd/bases/` before every `helm upgrade`, or a
 controller can start rejecting objects against a schema the cluster has not
 seen yet.
 
+## Upgrading from 0.4.x
+
+Chart 0.5.0 replaces the per-service Deployments with the manager, one agent
+per domain, markers and the ui (spec 2026-10-06), and its schema rejects every
+retired key with a message naming its replacement. There is no in-place
+upgrade: the move is a cold cutover, done once, by
+[`docs/runbooks/unify-cold-cutover.md`](../../docs/runbooks/unify-cold-cutover.md).
+Write the 0.5.0 values file from `helm get values <release> -o yaml` with the
+keys below renamed and the retired ones deleted, and pass it with `-f`, never
+`--reuse-values`.
+
+| 0.4.x key | 0.5.0 key |
+| --- | --- |
+| `image.controller` | `image.clustarr` |
+| `image.transcoder` | `image.native` |
+| `image.media` | gone: everything that used it runs `image.native` |
+| `image.transcoderCuda` | gone: there is no CUDA image ([ADR 0015](../../docs/adr/0015-no-cuda-image.md)) |
+| `catalogarr`, `importarr`, `grabarr`, `squasharr`, `captionarr` | `manager` (one block; size its `resources` for the merged controllers) |
+| `squasharr.slots`, `.intelRenderGroups`, `.gpuNodeLabelNvidia`, `.gpuNodeLabelIntel` | `manager.*` |
+| `squasharr.workerEngine` | gone (no template read it) |
+| `catalogarrMetadata` | `agents.metadata` (no `replicas`: always one) |
+| `importarrWorker` | `agents.import` |
+| `indexarr.replicas` | gone: the index agent always runs one |
+| `indexarr.facade`, `indexarr.resources`, scheduling | `agents.index.*` |
+| `indexarr.facade.apiKeySecret`'s default, `<release>-indexarr-facade` | `<release>-index-facade`, created by the manager |
+| `indexarr.cardigann` | `manager.cardigann` |
+| `captionarrWorker` (incl. `ackWaitSeconds`) | `agents.caption` (the grace comes from the code) |
+| `segmentarrWorker` (incl. `concurrency`) | `markers` (`concurrency: N` becomes `consumerSlots: {markers-analyze: N}`) |
+| `keda` | `autoscaling.enabled` |
+| the engine ServiceAccount `<release>-grabarr-engine` | `<release>-grab-engine` |
+
 ## Storage
 
 One `ReadWriteMany` PersistentVolumeClaim, `<release>-data`, is mounted at
-`/data` in every media-touching pod (catalogarr, importarr-worker, grabarr
-and its download engines, squasharr and its transcode Jobs, captionarr and
-captionarr-worker). Import is a hardlink or an atomic rename inside this one
-filesystem, which is why it must be exactly one volume shared by all of
-them, never one per service, and why `clustarr.validate` in
+`/data` in every media-touching pod (the manager, the import and caption
+agents, markers, the download engines and the transcode pools). Import is a
+hardlink or an atomic rename inside this one filesystem, which is why it must
+be exactly one volume shared by all of them, never one per workload, and
+why `clustarr.validate` in
 `templates/_helpers.tpl` fails the render outright if
 `storage.data.accessMode` is anything but `ReadWriteMany` while the chart is
 provisioning its own claim. CephFS is preferred; NFS or Longhorn RWX are
@@ -88,9 +119,9 @@ PVC simply sits `Pending` forever with no indication from Helm at all. A
 hard `fail` here was considered and rejected: `helm lint`/`helm template`
 with the chart's own shipped values (no `--set` at all) is exactly the case
 CI protects (`.github/workflows/release.yml`'s `chart-lint` job) and the
-case `cmd/clustarr`'s installer-parity tests render against
+case `test/guards`' installer-parity tests render against
 (`TestChartAndKustomizeAgreePerComponent`,
-`TestGrabarrEnginesMountAClaimTheInstallerCreates`, and friends) -- making
+`TestManagerStampsAClaimTheInstallerCreates`, and friends) -- making
 the *shipped default* fail would break exactly the safety net meant to
 catch a real regression, and would leave this chart refusing to install
 where `config/default` installs fine, an installer disagreement rather than
@@ -106,41 +137,34 @@ check the PVC actually reached `Bound`:
 kubectl -n clustarr-system get pvc clustarr-data
 ```
 
-indexarr's release index (`storage.index`, `5Gi` default, `ReadWriteOnce`)
-is a second, separate PVC: it is why `indexarr.replicas` is pinned to `1`
-unless `postgres.enabled` (`clustarr.validate` fails the render on any other
-value) -- a second replica could neither bind an RWO volume nor safely share
-the SQLite database. See [Postgres release index](#postgres-release-index)
-for the alternative that lifts that pin.
+The index agent's release index (`storage.index`, `5Gi` default,
+`ReadWriteOnce`) is a second, separate PVC, and one reason the index agent
+always runs one replica with strategy `Recreate`: a second replica could
+neither bind an RWO volume nor safely share the SQLite database. Like
+`/data`, it carries `helm.sh/resource-policy: keep`, so `helm uninstall`
+leaves it, and every release the RSS feeds collected, behind. See
+[Postgres release index](#postgres-release-index) for the alternative.
 
 ## Postgres release index
 
-`postgres.enabled=false` is the default: indexarr keeps its local SQLite FTS5
-database on the `storage.index` PVC above, one replica, `Recreate` (ADR-0003).
-Set `postgres.enabled=true` to run the release index on a
+`postgres.enabled=false` is the default: the index agent keeps its local SQLite
+FTS5 database on the `storage.index` PVC above (ADR-0003). Set
+`postgres.enabled=true` to run the release index on a
 [CloudNativePG](https://cloudnative-pg.io/) `Cluster` instead (ADR-0010):
-indexarr gets `CLUSTARR_INDEX_DSN` from a Secret rather than a volume, the
-`storage.index` PVC is not rendered at all, the Deployment drops `Recreate`
-for the default rolling strategy, and `indexarr.replicas` may be more than
-`1` -- indexarr's own leader election is keyed on that DSN being set, not on
-a flag, so every controller and the retention sweep stay a cluster singleton
-regardless of replica count.
-
-`indexarr.replicas > 1` currently paces each tracker per replica: the
-replicas share no rate-limiter state, and only the leader applies an
-Indexer's `spec.requestDelay` and a Cardigann definition's minimum delay, so
-N replicas can query a tracker up to N times as often as one. Keep one
-replica for a tracker with strict limits until that is fixed (a carried M7
-item in `docs/superpowers/plans/2026-09-18-remaining-work.md`).
+`agent-index` gets `CLUSTARR_INDEX_DSN` from a Secret rather than a volume and
+the `storage.index` PVC is not rendered. It still runs exactly one replica
+with strategy `Recreate`: its search RPC, RSS polls, Torznab facade and
+per-host rate limiter are one process (spec 2026-10-06, R4 amendment), so a
+second replica would pace every tracker twice.
 
 This chart renders the `Cluster` itself
 (`templates/postgres-cluster.yaml`, named `<release>-postgres`) as a normal
 resource whenever `postgres.enabled`, with `postgres.cluster.instances`
-Postgres replicas (CNPG's own streaming replication, unrelated to
-`indexarr.replicas`) and a `postgres.cluster.storage.size` volume. It
+Postgres replicas (CNPG's own streaming replication) and a
+`postgres.cluster.storage.size` volume. It
 bootstraps a `clustarr` database owned by a `clustarr` role and creates
 `<release>-postgres-app` holding that role's DSN under key `uri` -- what
-indexarr reads by default; `postgres.existingSecret` points it at a DSN
+the index agent reads by default; `postgres.existingSecret` points it at a DSN
 Secret you already have instead. Like `pvc.yaml`'s `/data` claim, it carries
 `helm.sh/resource-policy: keep`, so neither `helm uninstall` nor any upgrade
 ever deletes your database -- remove it yourself when you actually want it
@@ -187,28 +211,24 @@ apply. There are two supported paths:
 
 ## GOMEMLIMIT
 
-Every Clustarr service the chart renders gets `GOMEMLIMIT` set to 80% of its
-own `resources.limits.memory`, computed once at render time
-(`clustarr.gomemlimit` in `templates/_helpers.tpl`) as a literal byte count
-and baked into the container's env. This exists because the Kubernetes
-Downward API's `resourceFieldRef` can only ever report *100%* of a
-container's own limit -- there is no way to ask it for a fraction -- so the
-only place left to compute 80% of a value the chart already knows is the
-chart itself, at render time, from the identical `resources.limits.memory`
-quantity `values.yaml` sets. Change a service's memory limit and its
-`GOMEMLIMIT` moves with it on the next `helm template`/`helm upgrade`; the
-plain kustomize install (`config/manager/*.yaml`) mirrors the same 80%
-figures as hand-computed literals, since kustomize has no equivalent
-templating step.
+Every workload the chart renders gets `GOMEMLIMIT` set to a share of its own
+`resources.limits.memory`, computed at render time (`clustarr.gomemlimit` in
+`templates/_helpers.tpl`) as a literal byte count: 80%, except `agent-import`
+and `agent-caption` (60%) and `markers` (50%), whose FFmpeg, par2 and ONNX
+Runtime allocations live outside the Go heap. The Downward API's
+`resourceFieldRef` can only report 100% of a container's own limit, so the
+share is computed here, from the same quantity `values.yaml` sets. Change a
+memory limit and its `GOMEMLIMIT` moves with it on the next `helm upgrade`;
+`config/manager` carries the same figures as literals, and
+`TestGOMEMLIMITIsItsShareOfTheLimit` holds the two installers together.
 
 This does **not** cover the torrent/usenet engine StatefulSets and
-Deployments `grabarr`'s controller creates per `DownloadClient` at runtime --
-those get their resources from `DownloadClient.spec.resources`, a CRD field
-this chart never renders and has no visibility into. The identical 80%
-calculation needs to be made again in
-`app/grab/controller/downloadclient` (Go, not a template) from whatever
-memory limit that `DownloadClient` actually carries; see the gap-fixes
-X12a report for the exact citation.
+Deployments the manager's DownloadClient controller creates per
+`DownloadClient` at runtime -- those get their resources from
+`DownloadClient.spec.resources`, a CRD field this chart never renders. The
+same 80% calculation is made again in `app/grab/controller/downloadclient`
+(Go, not a template) from whatever memory limit that `DownloadClient`
+carries.
 
 ## Autoscaling
 
@@ -246,7 +266,7 @@ releases it.
 
 ## Ratings providers
 
-`catalogarr-metadata`'s `enrichRatings` fills `status.metadata.ratings` on a Movie or Series
+The metadata gateway's `enrichRatings` (in `agent-metadata`) fills `status.metadata.ratings` on a Movie or Series
 (and Series' `status.metadata.firstAired`) from every enabled `MetadataProvider` that declares
 ratings sources, in ascending `spec.priority` order: a higher-priority provider's value for a
 source is never overwritten by a lower-priority one, and a provider that fails or is disabled
@@ -264,8 +284,8 @@ every provider -- clustarr never defaults a limiter on inside a client library.
 
 ## Cardigann definitions
 
-indexarr applies Cardigann indexer definitions as `IndexerDefinition`s at
-startup, so an `Indexer`'s `spec.definition` can name any of them. By default
+The manager's bundle loader applies Cardigann indexer definitions as
+`IndexerDefinition`s at startup, so an `Indexer`'s `spec.definition` can name any of them. By default
 they come from the corpus compiled into the binary (Prowlarr's definitions,
 packed by `hack/pack-cardigann`); nothing needs mounting.
 
@@ -276,17 +296,17 @@ ConfigMap or PVC:
 ```sh
 kubectl -n clustarr-system create configmap cardigann-defs --from-file=defs/
 helm upgrade --install clustarr charts/clustarr -n clustarr-system \
-  --set indexarr.cardigann.definitions.configMap=cardigann-defs
+  --set manager.cardigann.definitions.configMap=cardigann-defs
 ```
 
-The chart mounts it read-only at `/etc/clustarr/cardigann` and sets
+The chart mounts it read-only into the manager at `/etc/clustarr/cardigann` and sets
 `CLUSTARR_CARDIGANN_DEFINITIONS_DIR`. The directory **replaces** the embedded
 corpus rather than adding to it, and only files directly in it (`*.yml`,
 `*.yaml`) are read. A ConfigMap holds at most 1 MiB, so for the whole corpus
 use `existingClaim`. To add or override a single definition on top of the
 corpus, create an `IndexerDefinition` instead of mounting anything.
-`indexarr.cardigann.bundled: false` loads no corpus at all when nothing is
-mounted. indexarr reads the directory once at startup, so restart it after
+`manager.cardigann.bundled: false` loads no corpus at all when nothing is
+mounted. The manager reads the directory once at startup, so restart it after
 changing the files.
 
 **Trackers with a login captcha.** Clustarr never solves a captcha (45 bundled
@@ -302,7 +322,7 @@ kubectl -n <namespace> patch secret <indexer-secret> --type merge \
   -p '{"stringData":{"cookie":"uid=...; pass=..."}}'
 ```
 
-indexarr then uses that cookie as the session whenever the captcha appears,
+The manager and the index agent then use that cookie as the session whenever the captcha appears,
 and checks it with the definition's `login.test` on every renewal. When the
 tracker expires it, the condition turns to `CredentialsRejected`; sign in
 again and replace the cookie.
@@ -377,44 +397,47 @@ template.
 | Key | Description | Default |
 | --- | --- | --- |
 | `nameOverride`, `fullnameOverride` | Override the chart/release-derived name. | `""` |
-| `image.registry` | Registry prefix for all three images. | `ghcr.io` |
+| `image.registry` | Registry prefix for both images. | `ghcr.io` |
 | `image.pullPolicy` | `Always` \| `IfNotPresent` \| `Never`. | `IfNotPresent` |
-| `image.controller.repository`/`.tag` | Distroless image (indexarr, ui). Empty tag falls back to `.Chart.AppVersion`. | `mediactl/clustarr`, `""` |
-| `image.media.repository`/`.tag` | debian-slim + ffmpeg/libx265/ffprobe/par2, no encoding runtime (everything touching files). | `mediactl/clustarr/media`, `""` |
-| `image.transcoder.repository`/`.tag` | The `squasharr-worker` binary plus ffmpeg/ffprobe and the Intel QSV/VAAPI runtime; the only image squasharr's pools stamp onto their pods, NVIDIA pools included: the NVIDIA container runtime injects the driver's libraries from the host. There is no CUDA image ([ADR 0015](../../docs/adr/0015-no-cuda-image.md)); `image.transcoderCuda` was removed on 2026-10-01, and a values file that still sets it fails the schema ("at '/image': additional properties 'transcoderCuda' not allowed"). Delete the key; a release that carries it (`--reuse-values` keeps it, and `--set image.transcoderCuda=null` does not remove it) is upgraded once from `helm get values <release> -o yaml` with the key deleted, passed with `-f` instead of `--reuse-values`. | `mediactl/clustarr/transcoder`, `""` |
+| `image.clustarr.repository`/`.tag` | The static image: `manager` and `ui`. An empty tag falls back to `.Chart.AppVersion`. | `mediactl/clustarr`, `""` |
+| `image.native.repository`/`.tag` | The FROM-scratch image: `agent`, `markers` and `transcode` on FFmpeg 9 and ONNX Runtime. Every agent, markers, the download engines and the transcode pools (NVIDIA pools included: the NVIDIA container runtime injects the driver, [ADR 0015](../../docs/adr/0015-no-cuda-image.md)) run it. | `mediactl/clustarr/native`, `""` |
 | `imagePullSecrets` | `[{name: ...}, ...]`. | `[]` |
 | `natsUrl` | External NATS URL; leave empty to use the bundled `nats` subchart. | `""` |
-| `natsSingleNode` | Force single-node (R1) JetStream topology; `null` derives it from the bundled subchart. | `null` |
+| `natsSingleNode` | Force single-node (R1) JetStream topology; `null` derives it from the bundled subchart. Only the manager ensures topology. | `null` |
 | `nats.enabled` | Install the bundled `nats` subchart. | `true` |
 | `nats.config.cluster.replicas` | NATS cluster size; R3 in production, drop to 1 on kind. | `3` |
 | `nats.config.jetstream.fileStore.pvc.size` | JetStream file store PVC size. | `20Gi` |
-| `postgres.enabled` | Run indexarr's release index on a CloudNativePG `Cluster` instead of local SQLite. See [Postgres release index](#postgres-release-index). | `false` |
-| `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas; unrelated to `indexarr.replicas`). | `1` |
+| `postgres.enabled` | Run the index agent's release index on a CloudNativePG `Cluster` instead of local SQLite. See [Postgres release index](#postgres-release-index). | `false` |
+| `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas). | `1` |
 | `postgres.cluster.storage.size`/`.storageClass` | The `Cluster`'s own PVC. | `5Gi`, `""` |
 | `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. Setting it also stops the chart rendering its own `Cluster`. | `""` |
 | `cloudnative-pg.enabled` | Install the CloudNativePG operator as a chart dependency. Most clusters install it once, cluster-wide, instead -- leave this `false` and set only `postgres.enabled=true` in that case. | `false` |
+| `autoscaling.enabled` | The manager scales the queue-driven workloads through its own External Metrics API. See [Autoscaling](#autoscaling). | `true` |
 | `metrics.serviceMonitor.enabled` | Create `ServiceMonitor`s (needs the Prometheus Operator CRDs). | `false` |
 | `storage.data.existingClaim` | Bring your own `/data` claim instead of provisioning one. | `""` |
 | `storage.data.storageClass` | `StorageClass` for the chart-provisioned `/data` claim. **Read [Storage](#storage) before installing for real.** | `""` |
 | `storage.data.accessMode` | Must be `ReadWriteMany` when `existingClaim` is unset (`clustarr.validate` fails otherwise). | `ReadWriteMany` |
 | `storage.data.size` | `/data` PVC size. | `100Gi` |
-| `storage.index.existingClaim`/`.storageClass`/`.size` | indexarr's `ReadWriteOnce` SQLite index PVC. Not rendered when `postgres.enabled`. | `""`, `""`, `5Gi` |
+| `storage.index.existingClaim`/`.storageClass`/`.size` | The index agent's `ReadWriteOnce` SQLite index PVC, kept on uninstall. Not rendered when `postgres.enabled`. | `""`, `""`, `5Gi` |
 | `podSecurityContext` | Pod-level `securityContext` for every PVC-mounting workload (`fsGroup` chowns a fresh PVC root to uid 1000). | see `values.yaml` |
 | `securityContext` | Container-level `securityContext` (non-root, read-only rootfs, all capabilities dropped). | see `values.yaml` |
-| `<service>.enabled` | Render this service's Deployment at all. | `true` |
-| `<service>.replicas` | Replica count. `catalogarrMetadata.replicas` is always pinned to `1` by both the schema and `clustarr.validate`; `indexarr.replicas` is pinned to `1` by `clustarr.validate` unless `postgres.enabled`. | see `values.yaml` |
-| `<service>.resources` | Standard `requests`/`limits`; also the input to [GOMEMLIMIT](#gomemlimit). | see `values.yaml` |
-| `<service>.nodeSelector`/`.tolerations`/`.affinity` | Standard Kubernetes scheduling knobs. | `{}`, `[]`, `{}` |
-| `indexarr.facade.service.type`/`.port` | The Torznab facade Service (`/{indexer}/api`, `/{indexer}/download`, `/search/api`). | `ClusterIP`, `8080` |
-| `indexarr.facade.apiKeySecret` | Secret holding the facade's API keys; empty means `<release>-indexarr-facade`, created by indexarr itself with one random key. | `""` |
-| `indexarr.cardigann.bundled` | Load the Cardigann corpus compiled into the binary (`--cardigann-bundled`). `false` renders `CLUSTARR_CARDIGANN_BUNDLED=false`; `true` renders nothing. Moot when `indexarr.cardigann.definitions` mounts a directory. See [Cardigann definitions](#cardigann-definitions). | `true` |
-| `indexarr.cardigann.definitions.configMap`/`.existingClaim` | An existing ConfigMap or PVC of definition files, mounted read-only and passed as `--cardigann-definitions-dir`, **replacing** the embedded corpus. Off while both are empty; `clustarr.validate` refuses both. | `""`, `""` |
-| `indexarr.cardigann.definitions.subPath` | Directory inside that ConfigMap or claim holding the files; empty is its root. | `""` |
-| `squasharr.slots` | `--slots` budget string, e.g. `cpu=2,nvidia=1,intel=1`. | `cpu=2,nvidia=1,intel=1` |
-| `squasharr.intelRenderGroups` | GIDs of the host group owning `/dev/dri/renderD*` on the Intel GPU nodes (`--intel-render-groups`), added to every Intel transcode Job's pod as `supplementalGroups`. Host-specific, so no default; leave empty with a runtime that has `device_ownership_from_security_context`. | `[]` |
-| `squasharr.gpuNodeLabelNvidia` | Override the node label (`--gpu-node-label-nvidia`) that, set to `"true"`, marks an NVIDIA GPU node. Empty uses the binary's own default, `nvidia.com/gpu.present` (the NVIDIA GPU Operator's GPU Feature Discovery). | `""` |
-| `squasharr.gpuNodeLabelIntel` | Override the node label (`--gpu-node-label-intel`) that, set to `"true"`, marks an Intel GPU node. Empty uses the binary's own default, `intel.feature.node.kubernetes.io/gpu` (Intel's Node Feature Discovery). | `""` |
-| `captionarrWorker.ackWaitSeconds` | Also `terminationGracePeriodSeconds`, so a worker can drain its in-flight fetch on `SIGTERM` instead of losing it to redelivery. | `120` |
+| `manager.slots` | Transcode admission per hardware class (`--slots`), e.g. `cpu=2,nvidia=1,intel=1`. | `cpu=2,nvidia=1,intel=1` |
+| `manager.intelRenderGroups` | GIDs of the host group owning `/dev/dri/renderD*` on the Intel GPU nodes (`--intel-render-groups`), added to every Intel transcode pod as `supplementalGroups`. Host-specific, so no default. | `[]` |
+| `manager.gpuNodeLabelNvidia`/`.gpuNodeLabelIntel` | Override the node labels that mark GPU nodes. Empty uses `nvidia.com/gpu.present` and `intel.feature.node.kubernetes.io/gpu`. | `""` |
+| `manager.cardigann.bundled` | Load the Cardigann corpus compiled into the binary (`--cardigann-bundled`). See [Cardigann definitions](#cardigann-definitions). | `true` |
+| `manager.cardigann.definitions.configMap`/`.existingClaim`/`.subPath` | A ConfigMap or PVC of definition files, mounted read-only into the manager as `--cardigann-definitions-dir`, **replacing** the corpus; one, not both. | `""` |
+| `manager.graftConcurrency` | Audio grafts running at once in the namespace (`--graft-concurrency`): the admission ledger's graft slots, each a CPU pod of a cpu pool's size. | `2` |
+| `manager.remediation.concurrency` | MediaFiles and items the remediation loop reconciles at once (`--remediation-concurrency`, 1-64). | `16` |
+| `manager.remediation.bulkWritesPerSecond` | MediaFile status applies per second that no grant, answer, intent or first probe caused (`--remediation-bulk-writes-per-second`); `0` disables the pacing. | `25` |
+| `manager.remediation.ioWorkers` | Goroutines for the loop's `/data` calls (`--remediation-io-workers`, 1-64). | `8` |
+| `manager.resources`/`.nodeSelector`/`.tolerations`/`.affinity` | The manager's resources (also the input to [GOMEMLIMIT](#gomemlimit)) and scheduling. It always runs one replica. | see `values.yaml` |
+| `agents.<domain>.enabled` | Render that agent (`catalog`, `events`, `metadata`, `import`, `index`, `caption`). | `true` |
+| `agents.<domain>.replicas` | Replicas with `autoscaling.enabled=false` (`catalog`, `events`, `import`, `caption`). `metadata` and `index` always run one. | `1` |
+| `agents.<domain>.consumerSlots` | Per-pod handler slots by consumer (`CLUSTARR_CONSUMER_SLOTS`), also the HPA's per-pod target; only that domain's consumers. | `{}` |
+| `agents.<domain>.resources`/`.nodeSelector`/`.tolerations`/`.affinity` | Standard resources and scheduling. | see `values.yaml` |
+| `agents.index.facade.service.type`/`.port` | The Torznab facade Service (`/{indexer}/api`, `/{indexer}/download`, `/search/api`). | `ClusterIP`, `8080` |
+| `agents.index.facade.apiKeySecret` | Secret holding the facade's API keys, named to the manager and the index agent alike; empty means `<release>-index-facade`, created by the manager with one random key. | `""` |
+| `markers.enabled`/`.replicas`/`.consumerSlots`/`.resources` | Skip-segment detection; `consumerSlots.markers-analyze` is its per-pod analyses. | `true`, `1`, `{}` |
 | `ui.auth.mode` | The web UI's authentication mode (`--auth-mode`), chosen explicitly: the binary refuses to serve without one. `anonymous`, the only mode, serves every request without a login -- put the Service behind ingress authentication and never expose it directly. | `anonymous` |
 | `ui.plex.enabled` | Mount the Plex Custom Metadata Provider routes (`--plex-provider`). See [Plex provider](#plex-provider). | `true` |
 | `ui.plex.externalURL` | Absolute base every `thumb`/`art`/`Image[]` URL is built on (`--external-url`). Empty means the provider roots answer `503` naming the flag. **Unauthenticated by protocol -- never a public ingress hostname.** | `""` |
