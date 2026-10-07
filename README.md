@@ -109,7 +109,7 @@ pkg/
   version/           build metadata
 config/              kustomize: crd, default, manager, rbac, nats, prometheus, samples
 charts/clustarr/     Helm umbrella chart (NATS, optional CloudNativePG)
-images/              Dockerfile.controller, Dockerfile.media, Dockerfile.transcoder
+images/              Dockerfile.clustarr (manager, ui), Dockerfile.native (agent, markers, transcode), Dockerfile.e2e-fixtures
 hack/                kind.sh, licence boilerplate
 docs/
   superpowers/specs/ the design spec

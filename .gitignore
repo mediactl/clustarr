@@ -4,13 +4,11 @@ dist/
 cover.out
 .env
 .data/
-/clustarr/clustarr
 .superpowers/
 
 # A bare `go build` of one of ./cmd/* drops its binary in the repo root.
 # CLAUDE.md says never to do that (use `make build` -> bin/); this keeps a
 # slip from ever reaching a commit.
-/clustarr
 /manager
 /agent
 /markers

@@ -16,6 +16,7 @@ IMG ?= ghcr.io/mediactl/clustarr:dev
 NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev
 NATIVE_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/native-debug:dev
 IMAGE_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+FIXTURES_IMG ?= ghcr.io/mediactl/clustarr/e2e-fixtures:dev
 # The ffgo fork, which go.mod replaces with a local directory until its tag is
 # published (spec §7.6, R12; Wave 0 of
 # docs/superpowers/plans/2026-10-06-manager-agent-split.md names the
@@ -209,6 +210,24 @@ docker-build-native: contexts ## Build the native image and its -debug twin.
 	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
 	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
 
+# The classes the native image is self-checked for: it serves every pool,
+# cpu, nvidia and intel (ADR 0015). NATIVE_CHECKS is the native image's list
+# for hack/image-checks.sh; the par2 integration (spec §11.1 step 12) adds
+# self-check:par2-child. The debug image's list adds ffmpeg-libraries
+# (upgrade guide U3).
+NATIVE_CLASSES ?= cpu cuda intel
+NATIVE_CHECKS ?= $(foreach c,$(NATIVE_CLASSES),self-check:transcode:$(c)) self-check:agent self-check:markers version:agent version:markers version:transcode no-shell
+
+.PHONY: docker-build-fixtures
+docker-build-fixtures: contexts ## Build the e2e fixture image.
+	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.e2e-fixtures -t $(FIXTURES_IMG) .
+
+.PHONY: docker-selfcheck
+docker-selfcheck: ## Check the built images as CI and the release do (hack/image-checks.sh).
+	hack/image-checks.sh $(IMG) version:manager version:ui no-shell
+	hack/image-checks.sh $(NATIVE_IMG) $(NATIVE_CHECKS)
+	hack/image-checks.sh $(NATIVE_DEBUG_IMG) notices no-media-executables ffmpeg-libraries
+
 ##@ Test
 
 .PHONY: test
@@ -279,6 +298,10 @@ deploy: manifests ## Deploy controllers into the current cluster.
 .PHONY: kind-up
 kind-up: ## Create a local kind cluster with NATS.
 	hack/kind.sh up
+
+.PHONY: kind-load
+kind-load: ## Load the clustarr and native images into kind, skipping any the node already holds.
+	IMG=$(IMG) NATIVE_IMG=$(NATIVE_IMG) hack/kind.sh load
 
 .PHONY: kind-down
 kind-down:

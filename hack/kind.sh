@@ -22,7 +22,7 @@
 #                                  `make deploy` will conflict with the Helm
 #                                  release.
 #   NATS_CHART_VERSION  nats Helm chart version            (default: 2.14.6)
-#   IMG / MEDIA_IMG / TRANSCODER_IMG   image tags for `load`  (defaults match the Makefile)
+#   IMG / NATIVE_IMG   image tags for `load`  (defaults match the Makefile)
 #
 # Idempotent: every step is skip-if-present or apply-if-changed.
 
@@ -36,8 +36,7 @@ KIND_NATS="${KIND_NATS:-kustomize}"
 NATS_CHART_VERSION="${NATS_CHART_VERSION:-2.14.6}"
 NATS_HELM_REPO="https://nats-io.github.io/k8s/helm/charts/"
 IMG="${IMG:-ghcr.io/mediactl/clustarr:dev}"
-MEDIA_IMG="${MEDIA_IMG:-ghcr.io/mediactl/clustarr/media:dev}"
-TRANSCODER_IMG="${TRANSCODER_IMG:-ghcr.io/mediactl/clustarr/transcoder:dev}"
+NATIVE_IMG="${NATIVE_IMG:-ghcr.io/mediactl/clustarr/native:dev}"
 CONTEXT="kind-${CLUSTER_NAME}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -202,8 +201,8 @@ kind cluster '${CLUSTER_NAME}' is ready (context ${CONTEXT}).
   NATS               -> nats://nats.${NAMESPACE}.svc:4222 (${KIND_NATS})
 
 Next:
-  make docker-build          # build ${IMG}, ${MEDIA_IMG} and ${TRANSCODER_IMG}
-  hack/kind.sh load          # load them into the cluster
+  make docker-build          # build ${IMG} and ${NATIVE_IMG}
+  make kind-load             # load them into the cluster
   make install               # apply CRDs   (kustomize build config/crd)
   make deploy                # apply config/default (namespace, PVCs, RBAC, managers, NATS)
   kubectl -n ${NAMESPACE} get pods -w
@@ -214,14 +213,22 @@ cmd_load() {
   need kind
   need docker
   cluster_exists || die "kind cluster '${CLUSTER_NAME}' does not exist; run 'hack/kind.sh up'"
-  local img
-  for img in "${IMG}" "${MEDIA_IMG}" "${TRANSCODER_IMG}"; do
-    if docker image inspect "${img}" >/dev/null 2>&1; then
-      log "loading ${img}"
-      kind load docker-image --name "${CLUSTER_NAME}" "${img}"
-    else
+  local img node_id
+  for img in "${IMG}" "${NATIVE_IMG}"; do
+    if ! docker image inspect "${img}" >/dev/null 2>&1; then
       log "image ${img} not found locally, skipping (run 'make docker-build')"
+      continue
     fi
+    # Loading unpacks gigabytes into the node's containerd store, which shares
+    # a disk with etcd (CLAUDE.md, "loading an image into the node stalls
+    # etcd"): load only an image whose content changed.
+    node_id=$(docker exec "${CLUSTER_NAME}-control-plane" crictl inspecti -o go-template --template '{{.status.id}}' "${img}" 2>/dev/null || true)
+    if [[ "${node_id}" == "$(docker image inspect -f '{{.Id}}' "${img}")" ]]; then
+      log "${img} unchanged on the node, skipping"
+      continue
+    fi
+    log "loading ${img}"
+    kind load docker-image --name "${CLUSTER_NAME}" "${img}"
   done
 }
 
