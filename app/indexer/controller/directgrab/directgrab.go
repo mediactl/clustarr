@@ -15,10 +15,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package download
+package directgrab
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,12 +35,15 @@ import (
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
+	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// DirectGrabReconciler counts the grabs rpc.indexarr.download never sees.
+// Reconciler counts the grabs rpc.indexarr.download never sees.
 //
 // A Download whose DownloadSource is torrentURL, magnetURL or nzbURL is
 // fetched by grabarr directly -- it needs no indexer credentials -- so it
@@ -62,7 +66,7 @@ import (
 // never refused -- the Download exists, so the grab happened; catalogarr's
 // grab path is where spec.limits.grabLimit refuses one, before the Download
 // is created.
-type DirectGrabReconciler struct {
+type Reconciler struct {
 	// Client reads Downloads and Indexers.
 	Client client.Client
 
@@ -85,7 +89,7 @@ func IsDirectGrab(src downloadv1alpha1.DownloadSource) bool {
 		ptr.Deref(src.NZBURL, "") != ""
 }
 
-func (r *DirectGrabReconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "indexarr.download.DirectGrab.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("download", req.NamespacedName)
@@ -113,8 +117,7 @@ func (r *DirectGrabReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 		return ctrl.Result{}, err
 	}
 
-	s := &Service{Client: r.Client, Bus: r.Bus, Now: r.Now}
-	if err := s.countGrabAt(ctx, &idx, guid, dl.CreationTimestamp.Time, s.now(),
+	if err := countGrabAt(ctx, r.Bus, &idx, guid, dl.CreationTimestamp.Time, r.now(),
 		log.With("indexer", idx.Name)); err != nil {
 		tracing.RecordError(span, err)
 		return ctrl.Result{}, err
@@ -142,7 +145,7 @@ func directGrabCreated() predicate.Predicate {
 // setupControllers calls it. The name is indexarr's own: grabarr's Download
 // controller is "download", and `clustarr all` runs both in one manager,
 // where controller names must be unique.
-func (r *DirectGrabReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("indexarr-directgrab").
 		For(&downloadv1alpha1.Download{}, builder.WithPredicates(directGrabCreated())).
@@ -151,4 +154,46 @@ func (r *DirectGrabReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			RecoverPanic:          ptr.To(true),
 		}).
 		Complete(r)
+}
+
+// countGrabAt counts the grab of guid made at `at` into idx's ring -- a
+// grab that already happened, so it is never refused -- and announces
+// indexer.limited when it filled the window. It writes no status:
+// status.grabsInWindow is the Indexer reconciler's projection of the ring,
+// refreshed when the ring changes. It returns an error only for a ring
+// failure, which the reconciler requeues on.
+func countGrabAt(
+	ctx context.Context, bus events.Bus, idx *indexv1alpha1.Indexer, guid string, at, now time.Time, log *slog.Logger,
+) error {
+	ctx, span := tracing.Start(ctx, "indexarr.download.count_grab")
+	defer span.End()
+	if bus == nil {
+		return nil
+	}
+	r, err := limits.CountGrabAt(ctx, bus.KV(events.BucketIndexerLimits), idx, guid, at, now)
+	if err != nil {
+		log.Warn("app/indexer/download: grab accounting failed", "err", err)
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, limits.ResultGrabFailed).Inc()
+		tracing.RecordError(span, err)
+		return err
+	}
+	if !r.Counted {
+		// A redelivery, or a grab older than the window.
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, limits.ResultGrabDuplicate).Inc()
+		return nil
+	}
+	metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, limits.ResultGrabCounted).Inc()
+	if r.Crossed(limits.GrabLimit(idx)) {
+		idxstatus.PublishTransitions(ctx, bus, idx, idxstatus.Transition{
+			Prev: idx.Status, Grabs: &r.Count, At: now,
+		})
+	}
+	return nil
+}
+
+func (r *Reconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }

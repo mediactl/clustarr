@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/app/indexer/bundle/embedded"
 	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+	"github.com/mediactl/clustarr/app/indexer/controller/directgrab"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerdefinition"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerproxy"
@@ -619,8 +620,8 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *clientcache.Cli
 
 	// Grabs whose source is a direct torrentURL/magnetURL/nzbURL never reach
 	// rpc.indexarr.download, so this counts them into the same grab ring
-	// from the Download's creation; see download.DirectGrabReconciler.
-	if err := (&download.DirectGrabReconciler{Client: c, Bus: bus}).SetupWithManager(mgr); err != nil {
+	// from the Download's creation; see directgrab.Reconciler.
+	if err := (&directgrab.Reconciler{Client: c, Bus: bus}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("indexarr: direct-grab accounting: %w", err)
 	}
 

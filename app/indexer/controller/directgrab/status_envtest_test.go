@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package download_test
+package directgrab_test
 
 import (
 	"context"
@@ -29,7 +29,7 @@ import (
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/download"
+	"github.com/mediactl/clustarr/app/indexer/controller/directgrab"
 	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -42,7 +42,7 @@ import (
 // k8s.ManagerIndexarrWorker.
 func steadyState(
 	t *testing.T, ctx context.Context, c client.Client, ns, name string,
-) (*indexv1alpha1.Indexer, *download.Service) {
+) (*indexv1alpha1.Indexer, events.Bus) {
 	t.Helper()
 	newNamespace(t, ctx, c, ns)
 
@@ -69,13 +69,13 @@ func steadyState(
 	t.Cleanup(func() { _ = bus.Close() })
 	require.NoError(t, bus.Ensure(ctx, events.Default()))
 
-	return idx, &download.Service{Client: c, Bus: bus}
+	return idx, bus
 }
 
 // grabsOnTheRing is the window count of idx's grab ring.
-func grabsOnTheRing(t *testing.T, ctx context.Context, s *download.Service, idx *indexv1alpha1.Indexer) int32 {
+func grabsOnTheRing(t *testing.T, ctx context.Context, bus events.Bus, idx *indexv1alpha1.Indexer) int32 {
 	t.Helper()
-	u, err := limits.Grabs(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, time.Now())
+	u, err := limits.Grabs(ctx, bus.KV(events.BucketIndexerLimits), idx, time.Now())
 	require.NoError(t, err)
 	return u.Count
 }
@@ -89,12 +89,12 @@ func grabsOnTheRing(t *testing.T, ctx context.Context, s *download.Service, idx 
 func TestAGrabWritesNoIndexerStatus(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
-	idx, s := steadyState(t, ctx, c, "dl-nostatus", "tr")
+	idx, bus := steadyState(t, ctx, c, "dl-nostatus", "tr")
 
-	s.CountGrabForTest(ctx, idx, "guid-a")
-	s.CountGrabForTest(ctx, idx, "guid-a") // the RPC was retried
-	s.CountGrabForTest(ctx, idx, "guid-b")
-	require.Equal(t, int32(2), grabsOnTheRing(t, ctx, s, idx), "one count per GUID")
+	directgrab.CountGrabForTest(ctx, bus, idx, "guid-a")
+	directgrab.CountGrabForTest(ctx, bus, idx, "guid-a") // the RPC was retried
+	directgrab.CountGrabForTest(ctx, bus, idx, "guid-b")
+	require.Equal(t, int32(2), grabsOnTheRing(t, ctx, bus, idx), "one count per GUID")
 
 	var after indexv1alpha1.Indexer
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))

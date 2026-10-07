@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -349,8 +350,8 @@ func TestEveryOutcomeIsInTheClosedVocabulary(t *testing.T) {
 		resultBadRequest: true, resultNotFound: true, resultDisabled: true,
 		resultUnauthorized: true, resultHTTPError: true, resultTransport: true,
 		resultTooLarge: true, resultInvalidPayload: true, resultNotConfigured: true,
-		resultGrabCounted: true, resultGrabDuplicate: true, resultGrabFailed: true,
-		resultGrabLimited: true,
+		limits.ResultGrabCounted: true, limits.ResultGrabDuplicate: true, limits.ResultGrabFailed: true,
+		limits.ResultGrabLimited: true,
 	}
 	require.Len(t, allowed, 17, "the vocabulary changed; update D11's list too")
 

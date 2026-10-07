@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package download_test
+package directgrab_test
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 			return m.Run()
 		}
 		env := &envtest.Environment{
-			CRDDirectoryPaths:     []string{"../../../config/crd/bases"},
+			CRDDirectoryPaths:     []string{"../../../../config/crd/bases"},
 			ErrorIfCRDPathMissing: true,
 		}
 		cfg, err := env.Start()

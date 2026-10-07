@@ -57,10 +57,6 @@ const (
 	resultTooLarge       = "too_large"
 	resultInvalidPayload = "invalid_payload"
 	resultNotConfigured  = "not_configured"
-	resultGrabCounted    = "grab_counted"
-	resultGrabDuplicate  = "grab_duplicate"
-	resultGrabFailed     = "grab_count_failed"
-	resultGrabLimited    = "grab_limited"
 )
 
 // unknownIndexerLabel keeps an unresolved request off the metric's label
@@ -214,7 +210,7 @@ func (s *Service) fetchAndCount(
 	held, allowed := s.reserveGrab(ctx, &idx, req.GUID, log)
 	if !allowed {
 		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), held.RetryAt)},
-			resultGrabLimited, label
+			limits.ResultGrabLimited, label
 	}
 	grabbed := false
 	defer func() { s.settleGrab(ctx, &idx, req.GUID, held, grabbed, log) }()
@@ -266,7 +262,7 @@ func (s *Service) reserveGrab(
 	r, err := limits.ReserveGrab(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now())
 	if err != nil {
 		log.Warn("app/indexer/download: grab accounting failed; fetching anyway", "err", err)
-		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabFailed).Inc()
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, limits.ResultGrabFailed).Inc()
 		return limits.Reservation{Allowed: true}, true
 	}
 	if !r.Allowed {
@@ -287,14 +283,14 @@ func (s *Service) settleGrab(
 	switch {
 	case !held.Counted:
 		if grabbed {
-			metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabDuplicate).Inc()
+			metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, limits.ResultGrabDuplicate).Inc()
 		}
 	case !grabbed:
 		if err := limits.ReleaseGrab(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now()); err != nil {
 			log.Warn("app/indexer/download: giving back the slot of a grab that did not happen failed", "err", err)
 		}
 	default:
-		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabCounted).Inc()
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, limits.ResultGrabCounted).Inc()
 		if held.Crossed(limits.GrabLimit(idx)) {
 			idxstatus.PublishTransitions(ctx, s.Bus, idx, idxstatus.Transition{
 				Prev: idx.Status, Grabs: &held.Count, At: s.now(),
@@ -379,48 +375,4 @@ func (s *Service) classify(
 		Bytes:       body,
 		ContentType: contentTypeFor(res.Header.Get("Content-Type"), kind),
 	}, resultOK
-}
-
-// countGrabAt counts the grab of guid made at `at` into idx's ring -- the
-// direct-grab counter's path, for a grab that already happened, so it is
-// never refused -- and announces indexer.limited when it filled the window.
-// It writes no status: status.grabsInWindow is the Indexer reconciler's
-// projection of the ring, refreshed when the ring changes. It returns an
-// error only for a ring failure, which the direct-grab reconciler requeues
-// on.
-func (s *Service) countGrabAt(
-	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, at, now time.Time, log *slog.Logger,
-) error {
-	ctx, span := tracing.Start(ctx, "indexarr.download.count_grab")
-	defer span.End()
-	if s.Bus == nil {
-		return nil
-	}
-	r, err := limits.CountGrabAt(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, at, now)
-	if err != nil {
-		log.Warn("app/indexer/download: grab accounting failed", "err", err)
-		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabFailed).Inc()
-		tracing.RecordError(span, err)
-		return err
-	}
-	if !r.Counted {
-		// A redelivery, or a grab older than the window.
-		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabDuplicate).Inc()
-		return nil
-	}
-	metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabCounted).Inc()
-	if r.Crossed(limits.GrabLimit(idx)) {
-		idxstatus.PublishTransitions(ctx, s.Bus, idx, idxstatus.Transition{
-			Prev: idx.Status, Grabs: &r.Count, At: now,
-		})
-	}
-	return nil
-}
-
-// CountGrabForTest drives the direct-grab accounting path directly, at now.
-// It exists so a test can exercise the ring and the limited event without a
-// fetcher, a bus subject or an HTTP server.
-func (s *Service) CountGrabForTest(ctx context.Context, idx *indexv1alpha1.Indexer, guid string) {
-	now := s.now()
-	_ = s.countGrabAt(ctx, idx, guid, now, now, logging.FromContext(ctx))
 }

@@ -73,6 +73,17 @@ const (
 	casAttempts = 3
 )
 
+// The clustarr_indexer_queries_total result labels a grab's accounting
+// records. The download verb's RPC grab path and the direct-grab counter
+// (app/indexer/controller/directgrab) both record them, so they are declared
+// once, here, beside the ring they describe.
+const (
+	ResultGrabCounted   = "grab_counted"
+	ResultGrabDuplicate = "grab_duplicate"
+	ResultGrabFailed    = "grab_count_failed"
+	ResultGrabLimited   = "grab_limited"
+)
+
 // QueryKey is the query ring's key. The UID must come from the LIVE Indexer,
 // never from a caller-supplied ref: a stale UID would open a second ring for
 // one indexer and halve its apparent traffic.

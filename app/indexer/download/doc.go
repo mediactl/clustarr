@@ -60,8 +60,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // A grab whose DownloadSource is torrentURL, magnetURL or nzbURL never calls
 // this verb at all (grabarr fetches it directly; see api/download/v1alpha1's
-// DownloadSource), so [DirectGrabReconciler] counts those from the
-// Download's creation instead, into the same ring, never refused -- it has
+// DownloadSource), so directgrab.Reconciler
+// (app/indexer/controller/directgrab) counts those from the Download's
+// creation instead, into the same ring, never refused -- it has
 // already happened. Again the GUID key means no grab is counted twice.
 //
 // # Redaction
@@ -119,10 +120,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // deduplicates it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
-//
-// [DirectGrabReconciler] watches Downloads (read only) to count the grabs
-// that bypass this verb.
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 //
 // secrets is get ONLY, not get;list;watch. indexarr.Options.ManagerOptions
 // disables the Secret cache (client.CacheOptions.DisableFor), so every Secret

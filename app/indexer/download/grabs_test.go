@@ -104,7 +104,7 @@ func TestTheVerbRefusesAGrabOverTheLimitWithoutAskingTheIndexer(t *testing.T) {
 
 	clock = t0.Add(time.Minute)
 	resp, result, label := s.handle(ctx, grabRequest("b"))
-	require.Equal(t, resultGrabLimited, result)
+	require.Equal(t, limits.ResultGrabLimited, result)
 	require.Equal(t, "tr", label)
 	retryAt, limited := limits.GrabLimited(resp.Error)
 	require.True(t, limited, "the refusal must be recognisable: %q", resp.Error)

@@ -60,6 +60,11 @@ var managerSide = map[string][]string{
 		"github.com/mediactl/clustarr/app/indexer/controller",
 		"github.com/mediactl/clustarr/app/indexer/clientcache",
 	),
+	"github.com/mediactl/clustarr/app/indexer/controller/directgrab": append(append([]string(nil), storage...), // X4
+		"github.com/mediactl/clustarr/app/indexer/download",
+		"github.com/mediactl/clustarr/app/indexer/clientcache",
+		"github.com/mediactl/clustarr/app/indexer/search",
+	),
 }
 
 func TestIndexerManagerSideLinksNoAgentCode(t *testing.T) {

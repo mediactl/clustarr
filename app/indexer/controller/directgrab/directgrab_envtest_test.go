@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package download_test
+package directgrab_test
 
 import (
 	"context"
@@ -33,7 +33,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/download"
+	"github.com/mediactl/clustarr/app/indexer/controller/directgrab"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -66,7 +66,7 @@ func newDownload(ns, name, indexer, guid string, src downloadv1alpha1.DownloadSo
 func TestDirectGrabsCountTowardTheGrabWindow(t *testing.T) {
 	ctx := t.Context()
 	c := newTestClient(t)
-	idx, svc := steadyState(t, ctx, c, "dl-direct", "tr")
+	idx, bus := steadyState(t, ctx, c, "dl-direct", "tr")
 
 	mgr, err := ctrl.NewManager(testCfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
@@ -74,13 +74,13 @@ func TestDirectGrabsCountTowardTheGrabWindow(t *testing.T) {
 		HealthProbeBindAddress: k8s.DisabledBindAddress,
 	})
 	require.NoError(t, err)
-	require.NoError(t, (&download.DirectGrabReconciler{Client: mgr.GetClient(), Bus: svc.Bus}).SetupWithManager(mgr))
+	require.NoError(t, (&directgrab.Reconciler{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr))
 	mctx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- mgr.Start(mctx) }()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 
-	grabs := func() int32 { return grabsOnTheRing(t, ctx, svc, idx) }
+	grabs := func() int32 { return grabsOnTheRing(t, ctx, bus, idx) }
 
 	torrentURL := "https://tracker.example.invalid/dl/1.torrent"
 	require.NoError(t, c.Create(ctx, newDownload(idx.Namespace, "direct-torrent", "tr", "g-1",
@@ -116,7 +116,7 @@ func TestDirectGrabsCountTowardTheGrabWindow(t *testing.T) {
 func TestFillingTheGrabWindowPublishesIndexerLimited(t *testing.T) {
 	ctx := t.Context()
 	c := newTestClient(t)
-	idx, svc := steadyState(t, ctx, c, "dl-limited", "tr")
+	idx, bus := steadyState(t, ctx, c, "dl-limited", "tr")
 	patch := client.MergeFrom(idx.DeepCopy())
 	idx.Spec.Limits = &indexv1alpha1.Limits{GrabLimit: ptr.To[int32](2)}
 	require.NoError(t, c.Patch(ctx, idx, patch))
@@ -127,7 +127,7 @@ func TestFillingTheGrabWindowPublishesIndexerLimited(t *testing.T) {
 		mu  sync.Mutex
 		got []schema.IndexerEvent
 	)
-	stop, err := svc.Bus.Subscribe(ctx, spec.Subscription(), func(_ context.Context, m events.Message) error {
+	stop, err := bus.Subscribe(ctx, spec.Subscription(), func(_ context.Context, m events.Message) error {
 		var p schema.IndexerEvent
 		if schema.Decode(m.Envelope().Schema, m.Envelope().Data, &p) == nil {
 			mu.Lock()
@@ -144,10 +144,9 @@ func TestFillingTheGrabWindowPublishesIndexerLimited(t *testing.T) {
 		return append([]schema.IndexerEvent(nil), got...)
 	}
 
-	svc.Now = time.Now
-	svc.CountGrabForTest(ctx, idx, "g-1")
-	svc.CountGrabForTest(ctx, idx, "g-2")
-	svc.CountGrabForTest(ctx, idx, "g-2") // redelivered
+	directgrab.CountGrabForTest(ctx, bus, idx, "g-1")
+	directgrab.CountGrabForTest(ctx, bus, idx, "g-2")
+	directgrab.CountGrabForTest(ctx, bus, idx, "g-2") // redelivered
 	require.Eventually(t, func() bool { return len(received()) == 1 }, 5*time.Second, 20*time.Millisecond)
 	require.Never(t, func() bool { return len(received()) > 1 }, time.Second, 20*time.Millisecond)
 	e := received()[0]
