@@ -313,6 +313,14 @@ type StreamAdmin interface {
 	// ConsumerState reads one durable's backlog. A missing stream is
 	// ErrStreamNotFound, a missing durable ErrConsumerNotFound.
 	ConsumerState(ctx context.Context, stream, durable string) (ConsumerState, error)
+	// EnsureConsumer creates or updates the durable c describes on
+	// c.Stream, and its dead-letter watcher (DeadLetterWatcherSpec),
+	// idempotently. It is for a durable Default() cannot declare because it
+	// comes and goes with an object -- an engine instance's
+	// (EngineConsumer) -- and only the manager calls it (ADR-0019 §8.5,
+	// ruling R15); DeleteSubscription removes both. A missing stream is
+	// ErrStreamNotFound.
+	EnsureConsumer(ctx context.Context, c ConsumerSpec) error
 	// Missing names every stream, consumer, KV bucket and object store of t
 	// that does not exist, as TopologyObject.String spells it, in
 	// Topology.Objects order. It is empty when everything exists. Agents wait

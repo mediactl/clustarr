@@ -122,6 +122,9 @@ func ConsumerConfig(c ConsumerSpec) jetstream.ConsumerConfig {
 		MaxDeliver:    c.MaxDeliver,
 		BackOff:       append([]time.Duration(nil), c.BackOff...),
 		MaxAckPending: c.MaxAckPending,
+		// ADR-0019 §8.2: the sampled ack metric feeds the manager's ack
+		// delay histogram; "" samples nothing.
+		SampleFrequency: c.SampleFrequency,
 	}
 	switch len(c.Filters) {
 	case 0:

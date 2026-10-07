@@ -63,13 +63,66 @@ const (
 	RecordsMinTTL = 7 * 24 * time.Hour
 )
 
-func recordBuckets() []BucketSpec {
-	r := func(name, desc string, maxBytes int64, maxValue int32) BucketSpec {
-		return BucketSpec{
-			Name: name, Description: desc, TTL: RecordsTTL, History: 1, Storage: StorageFile, Replicas: 3,
-			LimitMarkerTTL: 5 * time.Minute, Durable: true, Records: true, MaxBytes: maxBytes, MaxValueSize: maxValue,
-		}
+// The records buckets ADR-0019 adds (design §4.3): one writer per key, the
+// agent, through records.Writer; the manager reads them through
+// records.Reader and never writes there.
+const (
+	// BucketTransfers: one transfer record per grab entry UID, by the
+	// engine holding the transfer.
+	BucketTransfers = "clustarr-transfers"
+	// BucketEngines: one engine record per DownloadClient UID and ordinal.
+	BucketEngines = "clustarr-engines"
+	// BucketImports: one inspect and one execute record per entry UID.
+	BucketImports = "clustarr-imports"
+	// BucketSearches: one search record per task UID.
+	BucketSearches = "clustarr-searches"
+	// BucketItemMetadata: one metadata record per item UID.
+	BucketItemMetadata = "clustarr-item-metadata"
+	// BucketIndexerHealth: one health record per Indexer UID.
+	BucketIndexerHealth = "clustarr-indexer-health"
+)
+
+// Each agent-written records bucket's caps (design §4.3). The reservations
+// total 1,040 MiB, all on the file store (they are Durable).
+const (
+	TransfersMaxBytes         = 256 * MiB
+	TransfersMaxValueSize     = 512 * KiB
+	EnginesMaxBytes           = 8 * MiB
+	EnginesMaxValueSize       = 16 * KiB
+	ImportsMaxBytes           = 128 * MiB
+	ImportsMaxValueSize       = 512 * KiB
+	SearchesMaxBytes          = 128 * MiB
+	SearchesMaxValueSize      = 512 * KiB
+	ItemMetadataMaxBytes      = 512 * MiB
+	ItemMetadataMaxValueSize  = 512 * KiB
+	IndexerHealthMaxBytes     = 8 * MiB
+	IndexerHealthMaxValueSize = 8 * KiB
+)
+
+// recordBucket is one records bucket's spec: Durable, History 1, file
+// storage, limit markers, RecordsTTL, bounded (loop spec §4.3).
+func recordBucket(name, desc string, maxBytes int64, maxValue int32) BucketSpec {
+	return BucketSpec{
+		Name: name, Description: desc, TTL: RecordsTTL, History: 1, Storage: StorageFile, Replicas: 3,
+		LimitMarkerTTL: 5 * time.Minute, Durable: true, Records: true, MaxBytes: maxBytes, MaxValueSize: maxValue,
 	}
+}
+
+// agentRecordBuckets are ADR-0019's six agent-written records buckets.
+func agentRecordBuckets() []BucketSpec {
+	r := recordBucket
+	return []BucketSpec{
+		r(BucketTransfers, "One transfer record per grab entry, written by the engine holding it.", TransfersMaxBytes, TransfersMaxValueSize),
+		r(BucketEngines, "One engine record per DownloadClient instance, written by that engine pod.", EnginesMaxBytes, EnginesMaxValueSize),
+		r(BucketImports, "One inspect and one execute record per grab entry, written by the import agent.", ImportsMaxBytes, ImportsMaxValueSize),
+		r(BucketSearches, "One search record per search task, written by the search agent.", SearchesMaxBytes, SearchesMaxValueSize),
+		r(BucketItemMetadata, "One metadata record per catalog item, written by the metadata gateway.", ItemMetadataMaxBytes, ItemMetadataMaxValueSize),
+		r(BucketIndexerHealth, "One health record per Indexer, written by the index agent.", IndexerHealthMaxBytes, IndexerHealthMaxValueSize),
+	}
+}
+
+func recordBuckets() []BucketSpec {
+	r := recordBucket
 	return []BucketSpec{
 		r(BucketTranscodes, "One transcode record per MediaFile UID: the loop's request, the pool worker's claim and answer.", TranscodesMaxBytes, TranscodesMaxValueSize),
 		r(BucketGrafts, "One graft record per MediaFile UID: the loop's request, the graft Job's answer.", GraftsMaxBytes, GraftsMaxValueSize),

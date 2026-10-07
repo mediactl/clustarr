@@ -21,6 +21,8 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -123,6 +125,16 @@ type ConsumerSpec struct {
 	// AckWait would cancel them. Set it only from a bound that already
 	// exists, or from the consumer's clustarr_work_duration_seconds tail.
 	HandlerTimeout time.Duration
+
+	// SampleFrequency is JetStream's ack sampling: "", or "<n>%" with
+	// 0 < n <= 100 (ADR-0019 §8.2). It feeds metrics only; membus ignores
+	// it.
+	SampleFrequency string
+
+	// Dispatched marks a task the manager dispatches and tracks (ADR-0019
+	// §5.1): its nak and term advisories are CLUSTARR_TASK_EVENTS subjects
+	// (TaskEventSubjects).
+	Dispatched bool
 }
 
 // HandlerBudget is the explicit HandlerTimeout, else AckWait: what drain,
@@ -516,7 +528,7 @@ func (t Topology) Validate() error {
 		// a DiscardNew work queue (transcode, probe) cannot allow schedules,
 		// which the next rule enforces.
 		if s.Retention == RetentionWorkQueue && !s.AllowMsgSchedules &&
-			s.Name != StreamAdvisories && s.Discard != DiscardNew {
+			s.Name != StreamAdvisories && s.Name != StreamTaskEvents && s.Discard != DiscardNew {
 			errs = append(errs, fieldErr(s.Name+".AllowMsgSchedules",
 				"work streams must allow message schedules, so delay profiles "+
 					"can publish a grab into the future"))
@@ -568,6 +580,10 @@ func (t Topology) Validate() error {
 		}
 		if len(c.Filters) == 0 {
 			errs = append(errs, fieldErr(c.Name+".Filters", "is required"))
+		}
+		if !validSampleFrequency(c.SampleFrequency) {
+			errs = append(errs, fieldErr(c.Name+".SampleFrequency",
+				fmt.Sprintf("must be empty or \"<n>%%\" with 0 < n <= 100, got %q", c.SampleFrequency)))
 		}
 		for _, f := range c.Filters {
 			if !subjectCovered(s.Subjects, f) {
@@ -648,6 +664,19 @@ func (t Topology) Validate() error {
 	return errors.Join(errs...)
 }
 
+// validSampleFrequency accepts "" and "<n>%" with 0 < n <= 100.
+func validSampleFrequency(f string) bool {
+	if f == "" {
+		return true
+	}
+	n, ok := strings.CutSuffix(f, "%")
+	if !ok {
+		return false
+	}
+	v, err := strconv.Atoi(n)
+	return err == nil && v > 0 && v <= 100
+}
+
 // subjectCovered reports whether filter is inside one of the stream subjects.
 // A stream subject of "a.b.>" covers "a.b.c.>" and "a.b.c.d".
 func subjectCovered(subjects []string, filter string) bool {
@@ -706,8 +735,12 @@ const (
 // Ensure never deletes, except the durables Topology.Retired names, so a
 // broker that already holds the two consumers or the bucket keeps them, idle
 // and empty, until an operator removes them.
+//
+// ADR-0019's objects (agents.go) are added last: the intake and command
+// streams and durables, the six agent-written records buckets, and the
+// task-events stream over every Dispatched durable.
 func Default() Topology {
-	return Topology{
+	return withAgentTopology(Topology{
 		Streams:      append(defaultStreams(), probeStream()),
 		Consumers:    withDeadLetterWatchers(append(defaultConsumers(), probeConsumers()...)),
 		Buckets:      append(append(defaultBuckets(), probeBucket()), recordBuckets()...),
@@ -718,7 +751,7 @@ func Default() Topology {
 			// gone. Ensure deletes the durable and purges what it left.
 			{Stream: StreamWorkSegmentarr, Durable: ConsumerCatalogSegmentsResult, Purge: FilterCatalogSegmentsResult},
 		},
-	}
+	})
 }
 
 func defaultStreams() []StreamSpec {

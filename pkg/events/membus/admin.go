@@ -40,6 +40,31 @@ func (b *Bus) DeleteSubscription(_ context.Context, stream, durable string) erro
 	return nil
 }
 
+// EnsureConsumer implements events.StreamAdmin: it records c, and its
+// dead-letter watcher on StreamAdvisories, as existing with their filters and
+// caps, as natsbus creates both. SampleFrequency is ignored. A stream not yet
+// ensured is ErrStreamNotFound.
+func (b *Bus) EnsureConsumer(_ context.Context, c events.ConsumerSpec) error {
+	if c.Name == "" || c.Stream == "" || len(c.Filters) == 0 {
+		return fmt.Errorf("membus: ensure consumer %q on %q: a name, a stream and a filter are required", c.Name, c.Stream)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return events.ErrClosed
+	}
+	specs := []events.ConsumerSpec{c, events.DeadLetterWatcherSpec(c)}
+	for _, spec := range specs {
+		if b.streams[spec.Stream] == nil {
+			return fmt.Errorf("membus: ensure consumer %s on %s: %w", spec.Name, spec.Stream, events.ErrStreamNotFound)
+		}
+	}
+	for _, spec := range specs {
+		b.streams[spec.Stream].bindDurable(spec.Name, spec.Filters, spec.MaxAckPending, spec.Subscription().Timing())
+	}
+	return nil
+}
+
 // PurgeSubject implements events.StreamAdmin.
 func (b *Bus) PurgeSubject(_ context.Context, stream, subject string) error {
 	b.mu.Lock()
