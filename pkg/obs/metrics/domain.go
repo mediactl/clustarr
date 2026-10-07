@@ -477,3 +477,24 @@ var (
 		"consumer",
 	)
 )
+
+// Intake (ADR-0019 §4.3, §8.4): what the manager's leader-only intake
+// consumers decided of what agents proposed.
+var (
+	// IntakeCandidatesTotal counts grab candidates by how their owner's pass
+	// settled them: incorporated, pended, refused, or timedOut (no pass
+	// settled it within the handler budget; redelivered).
+	IntakeCandidatesTotal = newCounterVec(
+		"clustarr_intake_candidates_total",
+		"Grab candidates the manager's intake handled, by outcome.",
+		"outcome",
+	)
+	// IntakeScanTotal counts library-scan observations by kind (present,
+	// missing, unmatched, orphanPart) and outcome (applied, retried,
+	// discarded, unapplied).
+	IntakeScanTotal = newCounterVec(
+		"clustarr_intake_scan_total",
+		"Library-scan observations the manager's intake handled, by kind and outcome.",
+		"kind", "outcome",
+	)
+)

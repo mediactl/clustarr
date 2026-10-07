@@ -33,6 +33,7 @@ import (
 	grabmanager "github.com/mediactl/clustarr/app/grab/manager"
 	importmanager "github.com/mediactl/clustarr/app/import/manager"
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
+	"github.com/mediactl/clustarr/app/intake"
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
 	squashmanager "github.com/mediactl/clustarr/app/squash/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
@@ -159,6 +160,8 @@ type planes struct {
 	states *extmetrics.StateCache
 	// ledger admits every task the manager publishes to an agent.
 	ledger *dispatch.Ledger
+	// inbox holds grab candidates for their owners' passes (S30).
+	inbox *intake.Inbox
 }
 
 // newPlanes builds the shared planes and adds the leader-only runnables
@@ -179,6 +182,18 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	})
 	if err := mgr.Add(p.ledger); err != nil {
 		return planes{}, fmt.Errorf("manager: add the dispatch ledger: %w", err)
+	}
+	// The intake (§4.3, §8.4): the candidate inbox, acked after the owner's
+	// pass decides, and the scan intake, whose applier A6.1 wires; both
+	// leader-only, binding the durables EnsureTopology created.
+	top := o.BusTopology()
+	cand, _ := top.Consumer(events.ConsumerIntakeCandidate)
+	p.inbox = intake.NewInbox(cand.MaxAckPending)
+	if err := mgr.Add(&intake.CandidateConsumer{Bus: bus, Inbox: p.inbox, Topology: top}); err != nil {
+		return planes{}, fmt.Errorf("manager: add the candidate intake: %w", err)
+	}
+	if err := mgr.Add(&intake.ScanConsumer{Bus: bus, Topology: top}); err != nil {
+		return planes{}, fmt.Errorf("manager: add the scan intake: %w", err)
 	}
 	return p, nil
 }

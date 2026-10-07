@@ -127,6 +127,8 @@ func Fixed() map[string]string {
 	return map[string]string{
 		events.ConsumerCatalogSegmentsPlan: "manager: the segment planner reads the manager's Episode and MediaFile indexes (app/catalog/segmentplan, registered by app/catalog/manager)",
 		events.ConsumerSquasharrResults:    "manager: squasharr's ResultsConsumer shares TranscodeJob.status's one compare-and-swap path with its reconciler",
+		events.ConsumerIntakeCandidate:     "manager: the leader-only candidate inbox, acked after the owner's pass decides (app/intake, ADR-0019 §8.4)",
+		events.ConsumerIntakeScan:          "manager: the leader-only scan intake, acked after the scan applier writes (app/intake, ADR-0019 §8.4)",
 	}
 }
 
