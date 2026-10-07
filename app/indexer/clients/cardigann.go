@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexer
+package clients
 
 import (
 	"context"
@@ -51,7 +51,7 @@ import (
 // parallel search path that skips all three.
 //
 // It is method-for-method search.IndexerClient and rss.Searcher, so the
-// value [ClientCache.For] returns is assignable to both.
+// value ClientCache.For returns is assignable to both.
 type Client interface {
 	Search(ctx context.Context, q torznab.Query) ([]torznab.Release, error)
 }
@@ -69,8 +69,8 @@ const (
 // spec.definitionRef names nothing this process can load.
 var ErrDefinitionNotFound = errors.New("indexer: cardigann definition not found")
 
-// errDefinitionInvalid wraps a definition that exists but does not load.
-var errDefinitionInvalid = errors.New("indexer: cardigann definition is invalid")
+// ErrDefinitionInvalid wraps a definition that exists but does not load.
+var ErrDefinitionInvalid = errors.New("indexer: cardigann definition is invalid")
 
 // maxDefinitionErr bounds a definition load error before it reaches a
 // condition message. A schema error can run to 100 KB (the carried
@@ -80,7 +80,7 @@ var errDefinitionInvalid = errors.New("indexer: cardigann definition is invalid"
 // indexerdefinition truncates at the same 800 for the same reason.
 const maxDefinitionErr = 800
 
-// resolveDefinition loads the Cardigann definition an Indexer names.
+// ResolveDefinition loads the Cardigann definition an Indexer names.
 //
 // spec.definitionRef is an IndexerDefinition's name. spec.definition is a
 // definition id, and an id resolves only through an IndexerDefinition that
@@ -92,9 +92,9 @@ const maxDefinitionErr = 800
 // [definitionByID].
 //
 // A missing definition is ErrDefinitionNotFound and an unloadable one is
-// errDefinitionInvalid: both are the operator's to fix, neither is a
+// ErrDefinitionInvalid: both are the operator's to fix, neither is a
 // transient failure, and the caller reports them as conditions.
-func resolveDefinition(ctx context.Context, c client.Client, spec indexv1alpha1.IndexerSpec) (*cardigann.Definition, error) {
+func ResolveDefinition(ctx context.Context, c client.Client, spec indexv1alpha1.IndexerSpec) (*cardigann.Definition, error) {
 	var d indexv1alpha1.IndexerDefinition
 	switch {
 	case spec.DefinitionRef != nil:
@@ -115,7 +115,7 @@ func resolveDefinition(ctx context.Context, c client.Client, spec indexv1alpha1.
 	}
 	def, err := cardigann.Load([]byte(d.Spec.YAML))
 	if err != nil {
-		return nil, fmt.Errorf("%w: IndexerDefinition %q: %s", errDefinitionInvalid, d.Name,
+		return nil, fmt.Errorf("%w: IndexerDefinition %q: %s", ErrDefinitionInvalid, d.Name,
 			truncateBytes(err.Error(), maxDefinitionErr))
 	}
 	return def, nil
@@ -181,20 +181,20 @@ func truncateBytes(s string, n int) string {
 	return s[:n]
 }
 
-// definitionPrivacy maps the schema's tracker-privacy enum onto the CRD's
+// DefinitionPrivacy maps the schema's tracker-privacy enum onto the CRD's
 // spelling. They agree on two of three: pkg/cardigann.DefinitionType spells
 // the middle one "semi-private", the CRD (and IndexerDefinition.status.type,
 // whose enum makes the Cardigann spelling an apiserver rejection) says
 // "semiPrivate". status.privacy carries no enum marker, so a wrong spelling
 // here would be ACCEPTED -- and then disagree with the IndexerDefinition
 // describing the same tracker, silently.
-var definitionPrivacy = map[cardigann.DefinitionType]string{
+var DefinitionPrivacy = map[cardigann.DefinitionType]string{
 	"public":       PrivacyPublic,
 	"semi-private": PrivacySemiPrivate,
 	"private":      PrivacyPrivate,
 }
 
-// definitionCaps projects a definition's declared capabilities onto the
+// DefinitionCaps projects a definition's declared capabilities onto the
 // CRD's Caps. It is pure: a Cardigann indexer has no t=caps endpoint, its
 // capabilities ARE the definition, so there is nothing to probe.
 //
@@ -203,7 +203,7 @@ var definitionPrivacy = map[cardigann.DefinitionType]string{
 // those, and a Cardigann spelling would match nothing and silently search no
 // indexer. Categories are grouped under their Newznab parent, the tree
 // shape queryCategories expands.
-func definitionCaps(def *cardigann.Definition) indexv1alpha1.Caps {
+func DefinitionCaps(def *cardigann.Definition) indexv1alpha1.Caps {
 	caps := def.Capabilities()
 	out := indexv1alpha1.Caps{SupportsRawSearch: caps.AllowRawSearch}
 	for name, params := range caps.Modes {
@@ -245,25 +245,25 @@ func definitionCaps(def *cardigann.Definition) indexv1alpha1.Caps {
 		}
 	}
 	slices.Sort(order)
-	if len(order) > maxCapsItems {
-		order = order[:maxCapsItems]
+	if len(order) > MaxCapsItems {
+		order = order[:MaxCapsItems]
 	}
 	for _, p := range order {
 		cat := *byParent[p]
 		sort.SliceStable(cat.Sub, func(i, j int) bool { return cat.Sub[i].ID < cat.Sub[j].ID })
-		if len(cat.Sub) > maxCapsItems {
-			cat.Sub = cat.Sub[:maxCapsItems]
+		if len(cat.Sub) > MaxCapsItems {
+			cat.Sub = cat.Sub[:MaxCapsItems]
 		}
 		out.Categories = append(out.Categories, cat)
 	}
 	return out
 }
 
-// definitionProtocol is status.protocol for a definition-backed Indexer.
+// DefinitionProtocol is status.protocol for a definition-backed Indexer.
 // A Cardigann v11 definition describes a torrent tracker: the schema has no
 // protocol key and no usenet notion. indexerdefinition's summarise makes the
 // same call, and the two must agree.
-const definitionProtocol = commonv1alpha1.ProtocolTorrent
+const DefinitionProtocol = commonv1alpha1.ProtocolTorrent
 
 // cardigannSettings merges spec.settings with the Secret's keys (the Secret
 // wins), which is the raw map cardigann.ResolveSettings types against the
@@ -289,15 +289,15 @@ func siteBase(baseURL string) string {
 	return baseURL + "/"
 }
 
-// cardigannClient is one definition-backed Indexer's engine, definition and
+// CardigannClient is one definition-backed Indexer's engine, definition and
 // resolved configuration. It is the Cardigann counterpart of *torznab.Client
 // and is built by the same one function, [buildWireClient], for the same
 // reason: the proxy and the limiter are applied in exactly one place.
 //
-// It is cached ([ClientCache]) and shared by every concurrent search, poll
+// It is cached (ClientCache) and shared by every concurrent search, poll
 // and download against the Indexer, so the one thing it mutates -- the
 // session a re-login replaces -- is behind mu.
-type cardigannClient struct {
+type CardigannClient struct {
 	engine cardigann.Engine
 	def    *cardigann.Definition
 
@@ -315,11 +315,25 @@ type cardigannClient struct {
 	loginMu sync.Mutex
 }
 
-// config is the current configuration, session included.
-func (c *cardigannClient) config() cardigann.Config {
+// Config is the current configuration, session included.
+func (c *CardigannClient) Config() cardigann.Config {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.cfg
+}
+
+// Engine is the engine the client searches, downloads and logs in with: the
+// one its proxy and limiter were applied to.
+func (c *CardigannClient) Engine() cardigann.Engine { return c.engine }
+
+// Definition is the Cardigann definition the client runs.
+func (c *CardigannClient) Definition() *cardigann.Definition { return c.def }
+
+// SetRelogin installs fn as the client's re-login (see the relogin field).
+// It is for the code that builds the client, before the client is cached
+// and shared: it takes no lock.
+func (c *CardigannClient) SetRelogin(fn func(ctx context.Context) (*cardigann.Session, error)) {
+	c.relogin = fn
 }
 
 // Search runs the definition. A search.error match comes back as a
@@ -334,8 +348,8 @@ func (c *cardigannClient) config() cardigann.Config {
 // failed re-login -- which is the credentials or the tracker failing -- or a
 // second redirect straight after a fresh login reaches the caller as an
 // error, and those escalate like any other failure.
-func (c *cardigannClient) Search(ctx context.Context, q torznab.Query) ([]torznab.Release, error) {
-	cfg := c.config()
+func (c *CardigannClient) Search(ctx context.Context, q torznab.Query) ([]torznab.Release, error) {
+	cfg := c.Config()
 	query := cardigann.QueryFromTorznab(q)
 	rels, err := c.engine.Search(ctx, c.def, cfg, query)
 	if err == nil || c.relogin == nil || !errors.Is(err, cardigann.ErrSessionExpired) {
@@ -344,15 +358,15 @@ func (c *cardigannClient) Search(ctx context.Context, q torznab.Query) ([]torzna
 	if lerr := c.renewSession(ctx, cfg.Session); lerr != nil {
 		return nil, lerr
 	}
-	return c.engine.Search(ctx, c.def, c.config(), query)
+	return c.engine.Search(ctx, c.def, c.Config(), query)
 }
 
 // renewSession replaces stale with a fresh login, unless another caller
 // already did while this one waited for loginMu.
-func (c *cardigannClient) renewSession(ctx context.Context, stale *cardigann.Session) error {
+func (c *CardigannClient) renewSession(ctx context.Context, stale *cardigann.Session) error {
 	c.loginMu.Lock()
 	defer c.loginMu.Unlock()
-	if c.config().Session != stale {
+	if c.Config().Session != stale {
 		return nil // renewed by the caller ahead of us
 	}
 	sess, err := c.relogin(ctx)
@@ -368,13 +382,13 @@ func (c *cardigannClient) renewSession(ctx context.Context, stale *cardigann.Ses
 
 // Download resolves one release link through the definition's download
 // block. It is what rpc.indexarr.download dispatches to for this Indexer.
-func (c *cardigannClient) Download(ctx context.Context, link string) (io.ReadCloser, error) {
-	return c.engine.Download(ctx, c.def, c.config(), link)
+func (c *CardigannClient) Download(ctx context.Context, link string) (io.ReadCloser, error) {
+	return c.engine.Download(ctx, c.def, c.Config(), link)
 }
 
 // Secrets lists the values a diagnostic must never carry: every Secret value
 // and the session cookie, including any a re-login added.
-func (c *cardigannClient) Secrets() []string {
+func (c *CardigannClient) Secrets() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.secrets)
@@ -392,7 +406,7 @@ func appendSessionSecrets(secrets []string, sess *cardigann.Session) []string {
 }
 
 // newEngine builds the engine for one Indexer. The limiter is READ onto it,
-// never configured here (applyRateLimit is the only writer of a host's
+// never configured here (ApplyRateLimit is the only writer of a host's
 // Config), and keyed by [rateKey]: the host of def.SiteLink(spec.baseURL),
 // where the engine's requests actually go, and the spelling the reconciler
 // writes under, so every verb against this tracker draws on one bucket. A
@@ -415,15 +429,15 @@ func newEngine(
 	return eng
 }
 
-// buildCardigann assembles a definition-backed Indexer's client.
-func buildCardigann(
+// BuildCardigann assembles a definition-backed Indexer's client.
+func BuildCardigann(
 	spec indexv1alpha1.IndexerSpec,
 	def *cardigann.Definition,
 	secret map[string][]byte,
 	session *cardigann.Session,
 	lim *ratelimit.Limiter,
 	transport http.RoundTripper,
-) (*cardigannClient, error) {
+) (*CardigannClient, error) {
 	cfg, err := cardigann.NewConfig(def, siteBase(spec.BaseURL), cardigannSettings(spec, secret))
 	if err != nil {
 		return nil, fmt.Errorf("indexer: resolve cardigann settings: %w", err)
@@ -434,7 +448,7 @@ func buildCardigann(
 		secrets = append(secrets, string(v))
 	}
 	secrets = appendSessionSecrets(secrets, session)
-	return &cardigannClient{
+	return &CardigannClient{
 		engine:  newEngine(spec, def, lim, transport),
 		def:     def,
 		cfg:     cfg,
@@ -442,15 +456,15 @@ func buildCardigann(
 	}, nil
 }
 
-// classifyLogin maps a login failure onto conditions. A rejected credential
+// ClassifyLogin maps a login failure onto conditions. A rejected credential
 // and a captcha are the operator's to fix; anything else (a timeout, a 5xx)
 // is the tracker being unreachable. A captcha's message is the error's own
 // text, which names the captcha and the manual-cookie workaround (doc.go).
-func classifyLogin(err error) probeOutcome {
+func ClassifyLogin(err error) ProbeOutcome {
 	if err == nil {
-		return probeOutcome{}
+		return ProbeOutcome{}
 	}
-	out := probeOutcome{Reason: ReasonProbeFailed, Message: cardigann.RedactErr(err).Error()}
+	out := ProbeOutcome{Reason: ReasonProbeFailed, Message: cardigann.RedactErr(err).Error()}
 	var le *cardigann.LoginError
 	var ce *cardigann.CaptchaRequiredError
 	switch {
@@ -464,6 +478,6 @@ func classifyLogin(err error) probeOutcome {
 	return out
 }
 
-// sessionRenewMargin renews a session this long before it expires, so a
+// SessionRenewMargin renews a session this long before it expires, so a
 // search never races the expiry.
-const sessionRenewMargin = 24 * time.Hour
+const SessionRenewMargin = 24 * time.Hour

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexer
+package clients
 
 import (
 	"context"
@@ -110,7 +110,7 @@ func (s *SessionStore) Load(ctx context.Context, idx *indexv1alpha1.Indexer) (*c
 		return nil, nil
 	}
 	var sec corev1.Secret
-	key := types.NamespacedName{Namespace: idx.Namespace, Name: sessionSecretName(idx.Name)}
+	key := types.NamespacedName{Namespace: idx.Namespace, Name: SessionSecretName(idx.Name)}
 	if err := s.Client.Get(ctx, key, &sec); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
@@ -182,7 +182,7 @@ func (s *SessionStore) Save(ctx context.Context, idx *indexv1alpha1.Indexer, ses
 // k8s.ManagerIndexarr with the same complete declaration Save makes (owner,
 // type, both keys), so this needs no verb Save does not already have, and
 // Save's next apply fills it again. A search that re-logged in and still
-// failed calls this; see cardigannClient.Search.
+// failed calls this; see CardigannClient.Search.
 func (s *SessionStore) Drop(ctx context.Context, idx *indexv1alpha1.Indexer) error {
 	if s == nil {
 		return nil
@@ -217,7 +217,7 @@ func sessionSecretAC(idx *indexv1alpha1.Indexer, data map[string][]byte) *corev1
 		WithUID(idx.UID).
 		WithController(true).
 		WithBlockOwnerDeletion(true)
-	return corev1ac.Secret(sessionSecretName(idx.Name), idx.Namespace).
+	return corev1ac.Secret(SessionSecretName(idx.Name), idx.Namespace).
 		WithOwnerReferences(owner).
 		WithType(corev1.SecretTypeOpaque).
 		WithData(data)

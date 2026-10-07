@@ -47,6 +47,16 @@ var storage = []string{
 var managerSide = map[string][]string{
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer": storage, // X1
 	"github.com/mediactl/clustarr/app/indexer/rssschedule":        storage, // X1
+	// X2: the wire-client builders and session store the manager's caps probe
+	// and logins share with the index agent; nothing of the agent's.
+	"github.com/mediactl/clustarr/app/indexer/clients": append(append([]string(nil), storage...),
+		"github.com/mediactl/clustarr/app/indexer/download",
+		"github.com/mediactl/clustarr/app/indexer/search",
+		"github.com/mediactl/clustarr/app/indexer/query",
+		"github.com/mediactl/clustarr/app/indexer/facade",
+		"github.com/mediactl/clustarr/app/indexer/controller",
+		"github.com/mediactl/clustarr/app/indexer/clientcache",
+	),
 }
 
 func TestIndexerManagerSideLinksNoAgentCode(t *testing.T) {

@@ -122,13 +122,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the schema's "semi-private" mapped to the CRD's "semiPrivate"); no caps
 // probe runs. The login is the probe: a session-producing login (form, post,
 // cookie) runs when the session is missing or near expiry and is persisted
-// by [SessionStore] into the clustarr-indexer-sessions KV bucket (key
-// [SessionKey]) and the owned Secret named by status.sessionSecretRef; a
-// get/oneurl login runs on the caps-probe cadence to prove the credentials.
+// by [idxclients.SessionStore] into the clustarr-indexer-sessions KV bucket
+// (key [idxclients.SessionKey]) and the owned Secret named by
+// status.sessionSecretRef; a get/oneurl login runs on the caps-probe cadence
+// to prove the credentials.
 //
 // Searching is NOT done here. [ClientCache.For] builds the Cardigann engine
-// adapter behind the same [Client] interface a *torznab.Client satisfies, so
-// the search fan-out, the RSS poll and -- through
+// adapter behind the same [idxclients.Client] interface a *torznab.Client
+// satisfies, so the search fan-out, the RSS poll and -- through
 // [ClientCache.DefinitionFetcherFor] -- the download verb all drive it
 // through their existing seams (ruling R5), and a tracker's search.error
 // page is an error the fan-out escalates rather than zero results (R6).

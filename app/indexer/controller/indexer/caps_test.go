@@ -21,6 +21,8 @@ import (
 	"math"
 	"testing"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	"github.com/stretchr/testify/require"
 
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
@@ -82,8 +84,8 @@ func TestProjectCapsTruncatesToTheCRDsMaxItems(t *testing.T) {
 		cats = append(cats, newznab.Category{ID: newznab.CategoryID(i), Name: "c", Sub: sub})
 	}
 	got := projectCaps(torznab.Caps{Categories: cats})
-	require.Len(t, got.Categories, maxCapsItems)
-	require.Len(t, got.Categories[0].Sub, maxCapsItems)
+	require.Len(t, got.Categories, idxclients.MaxCapsItems)
+	require.Len(t, got.Categories[0].Sub, idxclients.MaxCapsItems)
 	require.Equal(t, int32(0), got.Categories[0].ID, "truncation is by sorted id, so it is deterministic")
 }
 

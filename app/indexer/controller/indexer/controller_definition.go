@@ -22,6 +22,8 @@ import (
 	"errors"
 	"time"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -65,15 +67,15 @@ func (r *Reconciler) reconcileDefinition(
 	defer span.End()
 	log := logging.FromContext(ctx).With("indexer", client.ObjectKeyFromObject(idx))
 
-	def, err := resolveDefinition(ctx, r.Client, idx.Spec)
+	def, err := idxclients.ResolveDefinition(ctx, r.Client, idx.Spec)
 	if err != nil {
 		tracing.RecordError(span, err)
 		reason := k8s.ReasonDependencyNotReady
 		switch {
-		case errors.Is(err, ErrDefinitionNotFound):
-			reason = ReasonDefinitionNotFound
-		case errors.Is(err, errDefinitionInvalid):
-			reason = ReasonDefinitionInvalid
+		case errors.Is(err, idxclients.ErrDefinitionNotFound):
+			reason = idxclients.ReasonDefinitionNotFound
+		case errors.Is(err, idxclients.ErrDefinitionInvalid):
+			reason = idxclients.ReasonDefinitionInvalid
 		}
 		// status.protocol, .privacy and .caps are left as they are:
 		// ControllerFields re-sends them, so a definition that briefly
@@ -82,12 +84,12 @@ func (r *Reconciler) reconcileDefinition(
 		return r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: definitionRetryInterval})
 	}
 
-	idx.Status.Protocol = definitionProtocol
-	idx.Status.Privacy = definitionPrivacy[def.Type]
-	caps := definitionCaps(def)
+	idx.Status.Protocol = idxclients.DefinitionProtocol
+	idx.Status.Privacy = idxclients.DefinitionPrivacy[def.Type]
+	caps := idxclients.DefinitionCaps(def)
 	idx.Status.Caps = &caps
 
-	secret, err := readSecret(ctx, r.Client, idx.Namespace, idx.Spec.SecretRef)
+	secret, err := idxclients.ReadSecret(ctx, r.Client, idx.Namespace, idx.Spec.SecretRef)
 	if err != nil {
 		tracing.RecordError(span, err)
 		k8s.MarkUnknown(idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, k8s.ReasonDependencyNotReady, "%s", err.Error())
@@ -95,9 +97,9 @@ func (r *Reconciler) reconcileDefinition(
 		return r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: reprobeInterval})
 	}
 
-	applyRateLimit(idx.Spec, def, r.Limiters, definitionDelay(def.RequestDelay))
+	idxclients.ApplyRateLimit(idx.Spec, def, r.Limiters, idxclients.DefinitionDelay(def.RequestDelay))
 
-	transport, err := resolveProxy(ctx, r.Client, idx)
+	transport, err := idxclients.ResolveProxy(ctx, r.Client, idx)
 	if err != nil {
 		return r.proxyUnavailable(ctx, idx, conditions, err)
 	}
@@ -110,7 +112,7 @@ func (r *Reconciler) reconcileDefinition(
 		return r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: reprobeInterval})
 	}
 
-	cg, err := buildCardigann(idx.Spec, def, secret, current, r.Limiters, transport)
+	cg, err := idxclients.BuildCardigann(idx.Spec, def, secret, current, r.Limiters, transport)
 	if err != nil {
 		// Settings that do not resolve against the definition are the
 		// spec's fault; no retry fixes them.
@@ -122,15 +124,15 @@ func (r *Reconciler) reconcileDefinition(
 		return ctrl.Result{}, reconcile.TerminalError(err)
 	}
 
-	outcome := probeOutcome{}
+	outcome := idxclients.ProbeOutcome{}
 	probed := false
 	if r.needsLogin(idx, def, current, now) {
 		probed = true
 		start := time.Now()
-		sess, lerr := cg.engine.Login(ctx, def, cg.cfg)
+		sess, lerr := cg.Engine().Login(ctx, def, cg.Config())
 		metrics.IndexerQueryDuration.WithLabelValues(idx.Name, "login").Observe(time.Since(start).Seconds())
-		outcome = classifyLogin(lerr)
-		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, outcomeLabel(outcome)).Inc()
+		outcome = idxclients.ClassifyLogin(lerr)
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, idxclients.OutcomeLabel(outcome)).Inc()
 		switch {
 		case lerr != nil:
 			tracing.RecordError(span, lerr)
@@ -140,7 +142,7 @@ func (r *Reconciler) reconcileDefinition(
 				// The login worked but nothing downstream can use it.
 				// Reported as a failed probe so the next tick retries.
 				tracing.RecordError(span, serr)
-				outcome = probeOutcome{Reason: ReasonProbeFailed, Message: serr.Error()}
+				outcome = idxclients.ProbeOutcome{Reason: idxclients.ReasonProbeFailed, Message: serr.Error()}
 				break
 			}
 			r.markProbed(idx.UID, idx.Generation, now)
@@ -165,7 +167,7 @@ func (r *Reconciler) reconcileDefinition(
 // needsLogin decides whether this pass logs in.
 //
 // A session-producing login (form, post, cookie) runs when there is no
-// session or it is within sessionRenewMargin of expiring -- the fan-out never
+// session or it is within SessionRenewMargin of expiring -- the fan-out never
 // logs in itself, so the session must already be there when a search lands.
 // A get/oneurl login produces nothing to keep and only proves the
 // credentials, so it runs on the caps-probe cadence (new generation, or
@@ -175,7 +177,7 @@ func (r *Reconciler) needsLogin(idx *indexv1alpha1.Indexer, def *cardigann.Defin
 		return false
 	}
 	if def.RequiresSession() {
-		return current.Expired(now.Add(sessionRenewMargin))
+		return current.Expired(now.Add(idxclients.SessionRenewMargin))
 	}
 	return r.shouldProbe(idx.UID, idx.Generation, true, now)
 }
@@ -183,11 +185,11 @@ func (r *Reconciler) needsLogin(idx *indexv1alpha1.Indexer, def *cardigann.Defin
 // sessions is the store this reconciler logs in to. NewReconciler builds it
 // from the bus; a Reconciler built by hand in a test falls back to the owned
 // Secret alone.
-func (r *Reconciler) sessions() *SessionStore {
+func (r *Reconciler) sessions() *idxclients.SessionStore {
 	if r.Sessions != nil {
 		return r.Sessions
 	}
-	return NewSessionStore(r.Client, nil)
+	return idxclients.NewSessionStore(r.Client, nil)
 }
 
 // proxyUnavailable reports a spec.proxyRef that cannot be routed through.
@@ -202,8 +204,8 @@ func (r *Reconciler) proxyUnavailable(
 ) (ctrl.Result, error) {
 	logging.FromContext(ctx).Warn("indexer proxy unavailable; not probing the indexer directly",
 		"indexer", client.ObjectKeyFromObject(idx), "error", err)
-	k8s.MarkUnknown(idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, ReasonProxyUnavailable, "%s", err.Error())
-	k8s.MarkReady(idx, &conditions, false, ReasonProxyUnavailable, "%s", err.Error())
+	k8s.MarkUnknown(idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, idxclients.ReasonProxyUnavailable, "%s", err.Error())
+	k8s.MarkReady(idx, &conditions, false, idxclients.ReasonProxyUnavailable, "%s", err.Error())
 	return r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: definitionRetryInterval})
 }
 

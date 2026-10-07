@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -148,7 +150,7 @@ func TestAnIndexerResolvesWhenItsDefinitionAppears(t *testing.T) {
 			return false
 		}
 		ready := k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerConditionReady)
-		return ready != nil && ready.Reason == indexer.ReasonDefinitionNotFound
+		return ready != nil && ready.Reason == idxclients.ReasonDefinitionNotFound
 	}, 20*time.Second, 100*time.Millisecond, "the missing definition was never reported")
 
 	createDefinition(t, c, "synthetic-watch-late", "1337x.yml")
@@ -158,7 +160,7 @@ func TestAnIndexerResolvesWhenItsDefinitionAppears(t *testing.T) {
 			return false
 		}
 		ready := k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerConditionReady)
-		return ready != nil && ready.Reason != indexer.ReasonDefinitionNotFound && got.Status.Caps != nil
+		return ready != nil && ready.Reason != idxclients.ReasonDefinitionNotFound && got.Status.Caps != nil
 	}, 20*time.Second, 100*time.Millisecond,
 		"the Indexer did not notice its definition appear; without the watch it waits out definitionRetryInterval")
 }
@@ -199,7 +201,7 @@ func TestAProxySelectorChangeReachesTheIndexerAtOnce(t *testing.T) {
 	require.Eventually(t, func() bool {
 		got := mustGet(t, c, name)
 		ready := k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerConditionReady)
-		return ready != nil && ready.Status == metav1.ConditionFalse && ready.Reason == indexer.ReasonProxyUnavailable
+		return ready != nil && ready.Status == metav1.ConditionFalse && ready.Reason == idxclients.ReasonProxyUnavailable
 	}, 20*time.Second, 100*time.Millisecond, "two routes selecting one Indexer must fail closed, and at once")
 
 	require.NoError(t, c.Delete(ctx, &indexv1alpha1.IndexerProxy{ObjectMeta: metav1.ObjectMeta{Name: "egress-b", Namespace: ns}}))

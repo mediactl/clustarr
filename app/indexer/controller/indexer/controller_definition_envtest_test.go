@@ -28,6 +28,8 @@ import (
 	"testing"
 	"time"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,7 +40,6 @@ import (
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -150,7 +151,7 @@ func TestADefinitionBackedIndexerLogsInAndPersistsItsSession(t *testing.T) {
 		conditionOf(t, got, indexv1alpha1.IndexerConditionReady).Message)
 	require.Equal(t, metav1.ConditionTrue, conditionOf(t, got, indexv1alpha1.IndexerConditionAuthenticated).Status)
 	require.Equal(t, "torrent", string(got.Status.Protocol))
-	require.Equal(t, indexer.PrivacyPrivate, got.Status.Privacy)
+	require.Equal(t, idxclients.PrivacyPrivate, got.Status.Privacy)
 	require.NotNil(t, got.Status.Caps)
 	require.Equal(t, map[string][]string{"search": {"q"}}, got.Status.Caps.Modes)
 	require.Equal(t, int32(2000), got.Status.Caps.Categories[0].ID)
@@ -163,8 +164,8 @@ func TestADefinitionBackedIndexerLogsInAndPersistsItsSession(t *testing.T) {
 	require.Len(t, sec.OwnerReferences, 1)
 	require.Equal(t, got.UID, sec.OwnerReferences[0].UID)
 	require.True(t, ptr.Deref(sec.OwnerReferences[0].Controller, false))
-	require.Equal(t, "uid=sess-7f3a", string(sec.Data[indexer.SessionSecretKeyCookie]))
-	sess, err := cardigann.UnmarshalSession(sec.Data[indexer.SessionSecretKeySession])
+	require.Equal(t, "uid=sess-7f3a", string(sec.Data[idxclients.SessionSecretKeyCookie]))
+	sess, err := cardigann.UnmarshalSession(sec.Data[idxclients.SessionSecretKeySession])
 	require.NoError(t, err)
 	require.Equal(t, "uid=sess-7f3a", sess.CookieHeader())
 	require.False(t, sess.Expired(time.Now()))
@@ -175,7 +176,7 @@ func TestADefinitionBackedIndexerLogsInAndPersistsItsSession(t *testing.T) {
 	require.True(t, managers[string(k8s.ManagerIndexarr)], "the session Secret is not under the indexarr manager: %v", managers)
 
 	// The KV mirror, under the UID key.
-	entry, err := r.Bus.KV(events.BucketIndexerSessions).Get(ctx, indexer.SessionKey(got.UID))
+	entry, err := r.Bus.KV(events.BucketIndexerSessions).Get(ctx, idxclients.SessionKey(got.UID))
 	require.NoError(t, err)
 	fromKV, err := cardigann.UnmarshalSession(entry.Value)
 	require.NoError(t, err)
@@ -202,7 +203,7 @@ func TestARejectedLoginIsCredentialsRejectedAndWritesNoSession(t *testing.T) {
 	got := mustGet(t, c, name)
 	auth := conditionOf(t, got, indexv1alpha1.IndexerConditionAuthenticated)
 	require.Equal(t, metav1.ConditionFalse, auth.Status)
-	require.Equal(t, indexer.ReasonCredentialsRejected, auth.Reason)
+	require.Equal(t, idxclients.ReasonCredentialsRejected, auth.Reason)
 	require.Contains(t, auth.Message, "Invalid username or password")
 	require.Equal(t, metav1.ConditionFalse, conditionOf(t, got, indexv1alpha1.IndexerConditionReady).Status)
 	require.NotEmpty(t, rec.Events)
@@ -241,7 +242,7 @@ func TestConditionsAfterALoginAreDerivedFromAFreshRead(t *testing.T) {
 	healthy := conditionOf(t, got, indexv1alpha1.IndexerConditionHealthy)
 	require.Equal(t, metav1.ConditionFalse, healthy.Status,
 		"Healthy was derived from the snapshot read before the login")
-	require.Equal(t, indexer.ReasonBackingOff, healthy.Reason)
+	require.Equal(t, idxclients.ReasonBackingOff, healthy.Reason)
 	require.NotNil(t, got.Status.DisabledUntil)
 	require.Greater(t, res.RequeueAfter, 50*time.Minute, "the requeue ignored the backoff that landed mid-login")
 }
@@ -273,7 +274,7 @@ func TestAVanishedDefinitionReleasesNothing(t *testing.T) {
 	before := mustGet(t, c, name)
 	// A public-login-free definition is Ready without any network at all.
 	require.Equal(t, metav1.ConditionTrue, conditionOf(t, before, indexv1alpha1.IndexerConditionReady).Status)
-	require.Equal(t, indexer.PrivacySemiPrivate, before.Status.Privacy, "semi-private was not mapped to the CRD spelling")
+	require.Equal(t, idxclients.PrivacySemiPrivate, before.Status.Privacy, "semi-private was not mapped to the CRD spelling")
 	require.Equal(t, "torrent", string(before.Status.Protocol))
 	require.NotNil(t, before.Status.Caps)
 	require.Len(t, before.Status.Caps.Modes, 3)
@@ -285,7 +286,7 @@ func TestAVanishedDefinitionReleasesNothing(t *testing.T) {
 	after := mustGet(t, c, name)
 	ready := conditionOf(t, after, indexv1alpha1.IndexerConditionReady)
 	require.Equal(t, metav1.ConditionFalse, ready.Status)
-	require.Equal(t, indexer.ReasonDefinitionNotFound, ready.Reason)
+	require.Equal(t, idxclients.ReasonDefinitionNotFound, ready.Reason)
 	require.Equal(t, before.Status.Protocol, after.Status.Protocol, "protocol was released")
 	require.Equal(t, before.Status.Privacy, after.Status.Privacy, "privacy was released")
 	require.Equal(t, before.Status.Caps.Modes, after.Status.Caps.Modes, "caps.modes was released")

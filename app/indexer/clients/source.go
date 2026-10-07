@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexer
+package clients
 
 import (
 	"context"
@@ -38,17 +38,17 @@ import (
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
-// sourceKind is which of spec.generic, spec.definition and spec.definitionRef
+// SourceKind is which of spec.generic, spec.definition and spec.definitionRef
 // an Indexer is driven by.
-type sourceKind int
+type SourceKind int
 
 const (
-	sourceGeneric sourceKind = iota
-	sourceDefinition
-	sourceDefinitionRef
+	SourceGeneric SourceKind = iota
+	SourceDefinition
+	SourceDefinitionRef
 )
 
-// resolveSource re-checks the spec's type-level CEL rule in Go. An invalid
+// ResolveSource re-checks the spec's type-level CEL rule in Go. An invalid
 // spec is a reconcile.TerminalError, not a requeue: no amount of retrying
 // fixes it and a hot loop on a typo is how a controller burns an apiserver.
 //
@@ -56,17 +56,17 @@ const (
 // reconciler that trusts a CEL rule it did not write is one apiserver
 // upgrade, or one object created before the rule existed, from a nil
 // dereference.
-func resolveSource(spec indexv1alpha1.IndexerSpec) (sourceKind, error) {
+func ResolveSource(spec indexv1alpha1.IndexerSpec) (SourceKind, error) {
 	var set int
-	kind := sourceGeneric
+	kind := SourceGeneric
 	if spec.Generic != nil {
-		set, kind = set+1, sourceGeneric
+		set, kind = set+1, SourceGeneric
 	}
 	if spec.Definition != nil {
-		set, kind = set+1, sourceDefinition
+		set, kind = set+1, SourceDefinition
 	}
 	if spec.DefinitionRef != nil {
-		set, kind = set+1, sourceDefinitionRef
+		set, kind = set+1, SourceDefinitionRef
 	}
 	if set != 1 {
 		return kind, fmt.Errorf("indexer: exactly one of spec.definition, spec.definitionRef or spec.generic must be set, found %d", set)
@@ -78,34 +78,34 @@ func resolveSource(spec indexv1alpha1.IndexerSpec) (sourceKind, error) {
 // (public|semiPrivate|private) so the two status fields read the same, even
 // though status.privacy itself carries no enum marker. Note that
 // pkg/cardigann.DefinitionType spells the middle one "semi-private";
-// definitionPrivacy maps between them.
+// DefinitionPrivacy maps between them.
 const (
 	PrivacyPublic      = "public"
 	PrivacySemiPrivate = "semiPrivate"
 	PrivacyPrivate     = "private"
 )
 
-// protocolFor resolves status.protocol for a spec.generic Indexer. It returns
+// ProtocolFor resolves status.protocol for a spec.generic Indexer. It returns
 // "" for a definition-backed one, whose protocol the reconciler takes from
-// the definition instead (definitionProtocol). The caller MUST omit
+// the definition instead (DefinitionProtocol). The caller MUST omit
 // status.protocol when it is "": the CRD schema is enum: [torrent, usenet]
 // and an explicit "" is rejected.
-func protocolFor(kind sourceKind, spec indexv1alpha1.IndexerSpec) commonv1alpha1.Protocol {
-	if kind == sourceGeneric && spec.Generic != nil {
+func ProtocolFor(kind SourceKind, spec indexv1alpha1.IndexerSpec) commonv1alpha1.Protocol {
+	if kind == SourceGeneric && spec.Generic != nil {
 		return spec.Generic.Protocol
 	}
 	return ""
 }
 
-// privacyFor resolves status.privacy. §6.2 resolves it "from the definition",
+// PrivacyFor resolves status.privacy. §6.2 resolves it "from the definition",
 // and a generic upstream has none -- so it is derived from whether the
 // upstream is credentialled. Prowlarr's own generic Newznab and Torznab
 // indexers are both IndexerPrivacy.Private, because a generic upstream is
 // nearly always an API-keyed private tracker or a Prowlarr/Jackett proxy in
 // front of one; an uncredentialled one is a public index.
-func privacyFor(kind sourceKind, secret map[string][]byte) string {
-	if kind != sourceGeneric {
-		return "" // definitionPrivacy reads it off the definition
+func PrivacyFor(kind SourceKind, secret map[string][]byte) string {
+	if kind != SourceGeneric {
+		return "" // DefinitionPrivacy reads it off the definition
 	}
 	if len(secret["apikey"]) > 0 || len(secret["passkey"]) > 0 || len(secret["cookie"]) > 0 {
 		return PrivacyPrivate
@@ -122,22 +122,22 @@ const sessionSecretSuffix = "-session"
 // maxObjectName is a DNS subdomain's limit (RFC 1123).
 const maxObjectName = 253
 
-// sessionSecretName is deterministic, and the reconciler therefore sends it
+// SessionSecretName is deterministic, and the reconciler therefore sends it
 // on EVERY apply whether or not the Secret exists. A reference that is
 // sometimes sent and sometimes omitted is the "a boolean stopped being sent
 // once it was true" release trap in another costume.
-func sessionSecretName(indexerName string) string {
+func SessionSecretName(indexerName string) string {
 	if len(indexerName)+len(sessionSecretSuffix) <= maxObjectName {
 		return indexerName + sessionSecretSuffix
 	}
 	return indexerName[:maxObjectName-len(sessionSecretSuffix)] + sessionSecretSuffix
 }
 
-// readSecret reads spec.secretRef. The recognised keys are apikey, username,
+// ReadSecret reads spec.secretRef. The recognised keys are apikey, username,
 // password, cookie, passkey and rss_key (indexer_types.go). A missing Secret
 // is a dependency error, not a terminal one: the operator may well be
 // creating it in the next kubectl apply.
-func readSecret(ctx context.Context, c client.Client, ns string, ref *corev1.LocalObjectReference) (map[string][]byte, error) {
+func ReadSecret(ctx context.Context, c client.Client, ns string, ref *corev1.LocalObjectReference) (map[string][]byte, error) {
 	if ref == nil {
 		return nil, nil
 	}
@@ -217,11 +217,11 @@ func rpsFor(delay metav1.Duration) float64 {
 	return 1 / delay.Seconds()
 }
 
-// applyRateLimit installs spec.requestDelay as this indexer HOST's bucket
+// ApplyRateLimit installs spec.requestDelay as this indexer HOST's bucket
 // config. It is called from Reconcile and from nowhere else.
 //
-// It is deliberately NOT part of [buildClient]. buildClient is shared with
-// [ClientCache], which the search fan-out and the RSS poll call on every
+// It is deliberately NOT part of [BuildClient]. BuildClient is shared with
+// ClientCache, which the search fan-out and the RSS poll call on every
 // query; folding the write in there would make both of them WRITERS of
 // limiter config, breaking "this reconciler is the only writer of a key's
 // Config" -- and worse, each would re-apply spec.requestDelay from its own,
@@ -244,7 +244,7 @@ func rpsFor(delay metav1.Duration) float64 {
 //
 // def is the Indexer's Cardigann definition, or nil for spec.generic: see
 // [rateKey] for why it moves the key.
-func applyRateLimit(
+func ApplyRateLimit(
 	spec indexv1alpha1.IndexerSpec, def *cardigann.Definition, lim *ratelimit.Limiter, floor time.Duration,
 ) {
 	if lim == nil {
@@ -258,7 +258,7 @@ func applyRateLimit(
 }
 
 // rateKey is the one spelling of an Indexer's limiter bucket, shared by the
-// writer ([applyRateLimit]) and every reader.
+// writer ([ApplyRateLimit]) and every reader.
 //
 // For spec.generic it is the host of spec.baseURL, which is where the Torznab
 // client sends every request. For a definition-backed Indexer it is the host
@@ -283,21 +283,21 @@ func requestDelayFor(spec indexv1alpha1.IndexerSpec) metav1.Duration {
 	return *spec.RequestDelay
 }
 
-// definitionDelay converts a definition's requestDelay (seconds, a float in
+// DefinitionDelay converts a definition's requestDelay (seconds, a float in
 // the schema) to a Duration, ignoring a negative or absurd value.
-func definitionDelay(seconds float64) time.Duration {
+func DefinitionDelay(seconds float64) time.Duration {
 	if seconds <= 0 || seconds > 3600 {
 		return 0
 	}
 	return time.Duration(seconds * float64(time.Second))
 }
 
-// buildClient assembles the Torznab client for one Indexer and returns the
+// BuildClient assembles the Torznab client for one Indexer and returns the
 // resolved API endpoint alongside it.
 //
 // It is the ONE place a Torznab client for an Indexer is constructed --
 // the caps probe here, and the search fan-out and RSS poll through
-// [ClientCache]. That is not tidiness: spec.proxyRef is applied here (the
+// ClientCache. That is not tidiness: spec.proxyRef is applied here (the
 // transport argument), so the caps probe and every search and poll gain it
 // together. Had the fan-out kept its own copy of this function, the
 // probe would honour the operator's proxy while every search bypassed it --
@@ -307,14 +307,14 @@ func definitionDelay(seconds float64) time.Duration {
 // The limiter is injected, never defaulted: pkg/torznab's package doc makes
 // the caller the owner of pacing, and a library-side default would sit in
 // series underneath this one and silently change the effective rate. This
-// function only READS it onto the client; [applyRateLimit] is the only writer
+// function only READS it onto the client; [ApplyRateLimit] is the only writer
 // of a key's Config.
 //
-// transport is the IndexerProxy route from [resolveProxy], or nil for a
+// transport is the IndexerProxy route from [ResolveProxy], or nil for a
 // direct connection. It is installed through WithHTTPClient BEFORE the
 // timeout option, because WithHTTPClient replaces the whole *http.Client and
 // would otherwise discard the timeout.
-func buildClient(
+func BuildClient(
 	spec indexv1alpha1.IndexerSpec,
 	secret map[string][]byte,
 	lim *ratelimit.Limiter,
@@ -361,8 +361,8 @@ func buildClient(
 	return c, endpoint, nil
 }
 
-// probeOutcome is what one caps probe told us.
-type probeOutcome struct {
+// ProbeOutcome is what one caps probe told us.
+type ProbeOutcome struct {
 	Reason     string // a condition reason; "" on success
 	Message    string
 	AuthFailed bool
@@ -382,13 +382,13 @@ const (
 	ReasonLimitReached             = "LimitReached"
 )
 
-// classify is the ONE place *torznab.Error is decoded, so the conditions and
+// Classify is the ONE place *torznab.Error is decoded, so the conditions and
 // the requeue delay cannot disagree about what a 429 means.
-func classify(err error) probeOutcome {
+func Classify(err error) ProbeOutcome {
 	if err == nil {
-		return probeOutcome{}
+		return ProbeOutcome{}
 	}
-	out := probeOutcome{Reason: ReasonProbeFailed, Message: err.Error()}
+	out := ProbeOutcome{Reason: ReasonProbeFailed, Message: err.Error()}
 	if errors.Is(err, torznab.ErrResponseTooLarge) {
 		out.Reason = ReasonResponseTooLarge
 		return out
@@ -419,11 +419,11 @@ func classify(err error) probeOutcome {
 	return out
 }
 
-// outcomeLabel maps a probe outcome onto the small closed set
+// OutcomeLabel maps a probe outcome onto the small closed set
 // metrics.IndexerQueriesTotal's `outcome` label may carry. It never returns
 // an indexer-supplied string: a label value taken from a remote server's
 // error text is unbounded cardinality, which is how a Prometheus falls over.
-func outcomeLabel(o probeOutcome) string {
+func OutcomeLabel(o ProbeOutcome) string {
 	switch {
 	case o.Reason == "":
 		return "ok"

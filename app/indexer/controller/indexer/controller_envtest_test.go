@@ -29,6 +29,8 @@ import (
 	"testing"
 	"time"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -183,7 +185,7 @@ func TestReconcileProbesCapsAndBecomesReady(t *testing.T) {
 	require.True(t, k8s.IsConditionTrue(got.Status.Conditions, indexv1alpha1.IndexerConditionAuthenticated))
 	require.True(t, k8s.IsConditionFalse(got.Status.Conditions, indexv1alpha1.IndexerConditionRateLimited))
 	require.Equal(t, commonv1alpha1.ProtocolUsenet, got.Status.Protocol)
-	require.Equal(t, indexer.PrivacyPublic, got.Status.Privacy)
+	require.Equal(t, idxclients.PrivacyPublic, got.Status.Privacy)
 	require.Equal(t, "nzbgeek-session", got.Status.SessionSecretRef)
 	require.Equal(t, got.Generation, got.Status.ObservedGeneration)
 
@@ -287,7 +289,7 @@ func TestTransientProbeFailureDoesNotReleaseCaps(t *testing.T) {
 	require.NotNil(t, after.Status.Caps, "caps were RELEASED by the failure path")
 	require.Equal(t, wantCaps, after.Status.Caps)
 	require.Equal(t, commonv1alpha1.ProtocolTorrent, after.Status.Protocol, "protocol was RELEASED by the failure path")
-	require.Equal(t, indexer.PrivacyPublic, after.Status.Privacy, "privacy was RELEASED by the failure path")
+	require.Equal(t, idxclients.PrivacyPublic, after.Status.Privacy, "privacy was RELEASED by the failure path")
 	require.Equal(t, "flaky-session", after.Status.SessionSecretRef, "sessionSecretRef was RELEASED by the failure path")
 	require.Equal(t, after.Generation, after.Status.ObservedGeneration)
 
@@ -346,7 +348,7 @@ func TestDisablingAnIndexerReleasesNothing(t *testing.T) {
 	require.NotNil(t, after.Status.Caps, "the disabled path RELEASED caps")
 	require.Equal(t, wantCaps, after.Status.Caps)
 	require.Equal(t, commonv1alpha1.ProtocolUsenet, after.Status.Protocol, "the disabled path RELEASED protocol")
-	require.Equal(t, indexer.PrivacyPublic, after.Status.Privacy, "the disabled path RELEASED privacy")
+	require.Equal(t, idxclients.PrivacyPublic, after.Status.Privacy, "the disabled path RELEASED privacy")
 	require.Equal(t, "off-session", after.Status.SessionSecretRef, "the disabled path RELEASED sessionSecretRef")
 	require.Equal(t, after.Generation, after.Status.ObservedGeneration)
 
@@ -391,13 +393,13 @@ func TestAMissingDefinitionIsReportedWithoutAProtocol(t *testing.T) {
 	got := mustGet(t, c, name)
 	ready := conditionOf(t, got, indexv1alpha1.IndexerConditionReady)
 	require.Equal(t, metav1.ConditionFalse, ready.Status)
-	require.Equal(t, indexer.ReasonDefinitionNotFound, ready.Reason)
+	require.Equal(t, idxclients.ReasonDefinitionNotFound, ready.Reason)
 	require.Empty(t, got.Status.Protocol)
 	require.Equal(t, "leetx-session", got.Status.SessionSecretRef)
 }
 
 // A spec with neither generic nor definition cannot be created through the
-// apiserver at all: the type-level CEL rule is the real guard. resolveSource
+// apiserver at all: the type-level CEL rule is the real guard. ResolveSource
 // re-checks it in Go for the case where it is bypassed, and that path is
 // asserted at the unit level in controller_test.go, where a fake client can
 // produce an object the apiserver would refuse.
@@ -492,7 +494,7 @@ func TestAnAPIKeyMakesTheIndexerPrivate(t *testing.T) {
 	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
-	require.Equal(t, indexer.PrivacyPrivate, mustGet(t, c, name).Status.Privacy)
+	require.Equal(t, idxclients.PrivacyPrivate, mustGet(t, c, name).Status.Privacy)
 }
 
 func TestRetryAfterDrivesTheRequeueAndCapsSurvive(t *testing.T) {
@@ -564,13 +566,13 @@ func TestNewznabErrorCodeRejectsTheCredentials(t *testing.T) {
 	got := mustGet(t, c, name)
 	auth := conditionOf(t, got, indexv1alpha1.IndexerConditionAuthenticated)
 	require.Equal(t, metav1.ConditionFalse, auth.Status)
-	require.Equal(t, indexer.ReasonCredentialsRejected, auth.Reason)
+	require.Equal(t, idxclients.ReasonCredentialsRejected, auth.Reason)
 	require.True(t, k8s.IsConditionFalse(got.Status.Conditions, indexv1alpha1.IndexerConditionReady))
 
 	select {
 	case ev := <-rec.Events:
 		require.Contains(t, ev, "Warning")
-		require.Contains(t, ev, indexer.ReasonCredentialsRejected)
+		require.Contains(t, ev, idxclients.ReasonCredentialsRejected)
 	default:
 		t.Fatal("no Warning Event was recorded for rejected credentials")
 	}
@@ -610,7 +612,7 @@ func TestAFutureDisabledUntilBacksOff(t *testing.T) {
 	got := mustGet(t, c, name)
 	healthy := conditionOf(t, got, indexv1alpha1.IndexerConditionHealthy)
 	require.Equal(t, metav1.ConditionFalse, healthy.Status)
-	require.Equal(t, indexer.ReasonBackingOff, healthy.Reason)
+	require.Equal(t, idxclients.ReasonBackingOff, healthy.Reason)
 	require.True(t, k8s.IsConditionFalse(got.Status.Conditions, indexv1alpha1.IndexerConditionReady))
 	require.EqualValues(t, 5, got.Status.EscalationLevel, "the reconciler released the worker's escalation level")
 }

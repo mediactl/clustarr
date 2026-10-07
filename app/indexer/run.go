@@ -40,6 +40,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/bundle"
 	"github.com/mediactl/clustarr/app/indexer/bundle/embedded"
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerdefinition"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerproxy"
@@ -423,7 +424,7 @@ func Run(ctx context.Context, o Options) error {
 	// which is correct but a live apiserver GET per client build. The
 	// reconciler writes both (indexer.NewReconciler builds its own store
 	// from the same bus), so reads and writes see the same two tiers.
-	clients.Sessions = indexer.NewSessionStore(mgr.GetClient(), bus)
+	clients.Sessions = idxclients.NewSessionStore(mgr.GetClient(), bus)
 
 	ready, err := readinessChecks(mgr, store, k8s.BusReadyChecker(nc, bus))
 	if err != nil {

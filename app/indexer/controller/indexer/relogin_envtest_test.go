@@ -28,6 +28,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
@@ -114,7 +116,7 @@ func TestAnExpiredSessionLogsInAgainInsteadOfFailingTheSearch(t *testing.T) {
 	idx := mustGet(t, c, name)
 
 	// Steady state: a session the tracker has since killed.
-	store := indexer.NewSessionStore(c, newMemBus(t))
+	store := idxclients.NewSessionStore(c, newMemBus(t))
 	require.NoError(t, store.Save(ctx, &idx, &cardigann.Session{Cookies: []*http.Cookie{{Name: "uid", Value: "killed"}}}))
 
 	cc := indexer.NewClientCache(c, nil)
@@ -164,7 +166,7 @@ func TestAFailedReLoginFailsTheSearchAndDropsTheSession(t *testing.T) {
 	name := loginIndexer(t, c, ns, "rotated", "synthetic-form-relogin-fail", tracker.srv.URL, "wrong-now")
 	idx := mustGet(t, c, name)
 
-	store := indexer.NewSessionStore(c, newMemBus(t))
+	store := idxclients.NewSessionStore(c, newMemBus(t))
 	require.NoError(t, store.Save(ctx, &idx, &cardigann.Session{Cookies: []*http.Cookie{{Name: "uid", Value: "killed"}}}))
 	cc := indexer.NewClientCache(c, nil)
 	cc.Sessions = store

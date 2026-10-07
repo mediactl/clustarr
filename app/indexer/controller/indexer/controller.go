@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,7 +109,7 @@ type Reconciler struct {
 	// Clients is the process-wide [ClientCache] the search fan-out and the
 	// RSS poll read through. This reconciler does not BUILD clients with it
 	// -- it has the fresh spec and the fresh Secret in hand and calls
-	// buildClient directly -- it only evicts, so a deleted Indexer does not
+	// BuildClient directly -- it only evicts, so a deleted Indexer does not
 	// leave its client (and that client's idle connections) behind.
 	//
 	// Optional: a nil Clients evicts nothing, which is correct for a unit
@@ -127,7 +129,7 @@ type Reconciler struct {
 	// Sessions persists Cardigann login sessions (clustarr-indexer-sessions
 	// KV plus the owned Secret). NewReconciler builds it from the bus; nil
 	// means the Secret alone.
-	Sessions *SessionStore
+	Sessions *idxclients.SessionStore
 
 	// Now is the clock; nil means time.Now. The window projection reads the
 	// rings at this instant, so a test can roll a full window past without
@@ -164,7 +166,7 @@ func NewReconciler(
 		Recorder: recorder,
 		Limiters: limiters,
 		Bus:      bus,
-		Sessions: NewSessionStore(c, bus),
+		Sessions: idxclients.NewSessionStore(c, bus),
 		capsSeen: map[types.UID]capsMemo{},
 	}
 }
@@ -240,13 +242,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// on a transient failure re-sends the caps, protocol and privacy that
 	// are already there instead of releasing them.
 	idx.Status.ObservedGeneration = idx.Generation
-	idx.Status.SessionSecretRef = sessionSecretName(idx.Name)
+	idx.Status.SessionSecretRef = idxclients.SessionSecretName(idx.Name)
 	// queriesInWindow and grabsInWindow too, on every path: they are this
 	// manager's, projected from the rings at this instant, early returns
 	// included.
 	windows := r.projectWindows(ctx, &idx, now)
 
-	kind, err := resolveSource(idx.Spec)
+	kind, err := idxclients.ResolveSource(idx.Spec)
 	if err != nil {
 		tracing.RecordError(span, err)
 		k8s.MarkReady(&idx, &conditions, false, k8s.ReasonInvalidSpec, "%s", err.Error())
@@ -265,33 +267,33 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return r.patch(ctx, &idx, conditions, ctrl.Result{})
 	}
 
-	if kind != sourceGeneric {
+	if kind != idxclients.SourceGeneric {
 		return r.reconcileDefinition(ctx, &idx, conditions, windows, now)
 	}
 
-	secret, err := readSecret(ctx, r.Client, idx.Namespace, idx.Spec.SecretRef)
+	secret, err := idxclients.ReadSecret(ctx, r.Client, idx.Namespace, idx.Spec.SecretRef)
 	if err != nil {
 		tracing.RecordError(span, err)
 		k8s.MarkUnknown(&idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, k8s.ReasonDependencyNotReady, "%s", err.Error())
 		k8s.MarkReady(&idx, &conditions, false, k8s.ReasonDependencyNotReady, "%s", err.Error())
 		return r.patch(ctx, &idx, conditions, ctrl.Result{RequeueAfter: reprobeInterval})
 	}
-	idx.Status.Protocol = protocolFor(kind, idx.Spec)
-	idx.Status.Privacy = privacyFor(kind, secret)
+	idx.Status.Protocol = idxclients.ProtocolFor(kind, idx.Spec)
+	idx.Status.Privacy = idxclients.PrivacyFor(kind, secret)
 
 	// The bucket config for this host, written here and nowhere else: this
 	// reconciler is the only reader of spec.requestDelay, and the search
 	// fan-out, the RSS poll and the download verb only Wait on the same
-	// *ratelimit.Limiter. It used to live inside buildClient, which
-	// ClientCache now shares -- see applyRateLimit.
-	applyRateLimit(idx.Spec, nil, r.Limiters, 0)
+	// *ratelimit.Limiter. It used to live inside BuildClient, which
+	// ClientCache now shares -- see ApplyRateLimit.
+	idxclients.ApplyRateLimit(idx.Spec, nil, r.Limiters, 0)
 
-	transport, err := resolveProxy(ctx, r.Client, &idx)
+	transport, err := idxclients.ResolveProxy(ctx, r.Client, &idx)
 	if err != nil {
 		return r.proxyUnavailable(ctx, &idx, conditions, err)
 	}
 
-	tc, endpoint, err := buildClient(idx.Spec, secret, r.Limiters, transport)
+	tc, endpoint, err := idxclients.BuildClient(idx.Spec, secret, r.Limiters, transport)
 	if err != nil {
 		tracing.RecordError(span, err)
 		k8s.MarkReady(&idx, &conditions, false, k8s.ReasonInvalidSpec, "%s", err.Error())
@@ -301,7 +303,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, reconcile.TerminalError(err)
 	}
 
-	outcome := probeOutcome{}
+	outcome := idxclients.ProbeOutcome{}
 	probed := false
 	if r.shouldProbe(idx.UID, idx.Generation, idx.Status.Caps != nil, now) {
 		probed = true
@@ -311,8 +313,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// a SearchMode -- hence the literal. `indexer` is the OBJECT NAME:
 		// never a title, a host or an indexer-supplied string.
 		metrics.IndexerQueryDuration.WithLabelValues(idx.Name, "caps").Observe(time.Since(start).Seconds())
-		outcome = classify(perr)
-		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, outcomeLabel(outcome)).Inc()
+		outcome = idxclients.Classify(perr)
+		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, idxclients.OutcomeLabel(outcome)).Inc()
 		if perr == nil {
 			// Folded in on success ONLY. A failed probe leaves the
 			// previously probed caps exactly where they are; this is the
@@ -345,7 +347,7 @@ func (r *Reconciler) finish(
 	conditions []metav1.Condition,
 	windows windowRetry,
 	probed bool,
-	outcome probeOutcome,
+	outcome idxclients.ProbeOutcome,
 	now time.Time,
 ) (ctrl.Result, error) {
 	switch {
@@ -369,7 +371,7 @@ func (r *Reconciler) finish(
 		limited, limitMsg = true, outcome.Message
 	}
 	if limited {
-		k8s.MarkTrue(idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, ReasonLimitReached, "%s", limitMsg)
+		k8s.MarkTrue(idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, idxclients.ReasonLimitReached, "%s", limitMsg)
 	} else {
 		k8s.MarkFalse(idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, k8s.ReasonReconciled, "under the configured limits")
 	}
@@ -377,7 +379,7 @@ func (r *Reconciler) finish(
 	healthy := idxstatus.Healthy(idx.Status, now) && outcome.Reason == ""
 	switch {
 	case !idxstatus.Healthy(idx.Status, now):
-		k8s.MarkFalse(idx, &conditions, indexv1alpha1.IndexerConditionHealthy, ReasonBackingOff,
+		k8s.MarkFalse(idx, &conditions, indexv1alpha1.IndexerConditionHealthy, idxclients.ReasonBackingOff,
 			"backing off until %s (escalation level %d)",
 			idx.Status.DisabledUntil.Time.UTC().Format(time.RFC3339), idx.Status.EscalationLevel)
 	case outcome.Reason != "":
@@ -395,10 +397,10 @@ func (r *Reconciler) finish(
 	case healthy && idx.Status.Caps != nil:
 		k8s.MarkReady(idx, &conditions, true, k8s.ReasonReconciled, "reachable, caps probed")
 	case idx.Status.Caps == nil:
-		k8s.MarkReady(idx, &conditions, false, ReasonProbeFailed, "caps have never been probed successfully")
+		k8s.MarkReady(idx, &conditions, false, idxclients.ReasonProbeFailed, "caps have never been probed successfully")
 	default:
 		k8s.MarkReady(idx, &conditions, false,
-			firstNonEmpty(outcome.Reason, ReasonBackingOff),
+			firstNonEmpty(outcome.Reason, idxclients.ReasonBackingOff),
 			"%s", firstNonEmpty(outcome.Message, "backing off"))
 	}
 
@@ -565,7 +567,7 @@ func (r *Reconciler) projectWindows(ctx context.Context, idx *indexv1alpha1.Inde
 // when that is sooner: that pass reads the lower count and clears
 // RateLimited with no traffic at all, which an indexer at its limit by
 // definition has none of.
-func (r *Reconciler) requeueAfter(st indexv1alpha1.IndexerStatus, outcome probeOutcome, windows windowRetry, now time.Time) time.Duration {
+func (r *Reconciler) requeueAfter(st indexv1alpha1.IndexerStatus, outcome idxclients.ProbeOutcome, windows windowRetry, now time.Time) time.Duration {
 	// A server's Retry-After is authoritative; pkg/ratelimit.Backoff
 	// documents the same rule for the same reason.
 	if outcome.RetryAfter > 0 {

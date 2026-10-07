@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexer
+package clients
 
 import (
 	"context"
@@ -45,18 +45,18 @@ func TestResolveSource(t *testing.T) {
 	cases := []struct {
 		name    string
 		spec    indexv1alpha1.IndexerSpec
-		want    sourceKind
+		want    SourceKind
 		wantErr bool
 	}{
-		{name: "generic", spec: indexv1alpha1.IndexerSpec{Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolTorrent}}, want: sourceGeneric},
-		{name: "bundled definition", spec: indexv1alpha1.IndexerSpec{Definition: &def}, want: sourceDefinition},
-		{name: "definitionRef", spec: indexv1alpha1.IndexerSpec{DefinitionRef: &def}, want: sourceDefinitionRef},
+		{name: "generic", spec: indexv1alpha1.IndexerSpec{Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolTorrent}}, want: SourceGeneric},
+		{name: "bundled definition", spec: indexv1alpha1.IndexerSpec{Definition: &def}, want: SourceDefinition},
+		{name: "definitionRef", spec: indexv1alpha1.IndexerSpec{DefinitionRef: &def}, want: SourceDefinitionRef},
 		{name: "none", spec: indexv1alpha1.IndexerSpec{}, wantErr: true},
 		{name: "two", spec: indexv1alpha1.IndexerSpec{Definition: &def, Generic: &indexv1alpha1.GenericNewznab{}}, wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveSource(tc.spec)
+			got, err := ResolveSource(tc.spec)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -70,29 +70,29 @@ func TestResolveSource(t *testing.T) {
 func TestProtocolForIsEmptyForADefinitionBackedIndexer(t *testing.T) {
 	def := "1337x"
 	require.Equal(t, commonv1alpha1.ProtocolUsenet,
-		protocolFor(sourceGeneric, indexv1alpha1.IndexerSpec{Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolUsenet}}))
+		ProtocolFor(SourceGeneric, indexv1alpha1.IndexerSpec{Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolUsenet}}))
 	require.Equal(t, commonv1alpha1.Protocol(""),
-		protocolFor(sourceDefinition, indexv1alpha1.IndexerSpec{Definition: &def}),
+		ProtocolFor(SourceDefinition, indexv1alpha1.IndexerSpec{Definition: &def}),
 		"status.protocol is enum:[torrent,usenet]; the caller must OMIT it, not send an empty string")
 }
 
 func TestPrivacyFor(t *testing.T) {
-	require.Equal(t, PrivacyPrivate, privacyFor(sourceGeneric, map[string][]byte{"apikey": []byte("k")}))
-	require.Equal(t, PrivacyPrivate, privacyFor(sourceGeneric, map[string][]byte{"passkey": []byte("k")}))
-	require.Equal(t, PrivacyPrivate, privacyFor(sourceGeneric, map[string][]byte{"cookie": []byte("k")}))
-	require.Equal(t, PrivacyPublic, privacyFor(sourceGeneric, nil))
-	require.Equal(t, PrivacyPublic, privacyFor(sourceGeneric, map[string][]byte{"apikey": nil}),
+	require.Equal(t, PrivacyPrivate, PrivacyFor(SourceGeneric, map[string][]byte{"apikey": []byte("k")}))
+	require.Equal(t, PrivacyPrivate, PrivacyFor(SourceGeneric, map[string][]byte{"passkey": []byte("k")}))
+	require.Equal(t, PrivacyPrivate, PrivacyFor(SourceGeneric, map[string][]byte{"cookie": []byte("k")}))
+	require.Equal(t, PrivacyPublic, PrivacyFor(SourceGeneric, nil))
+	require.Equal(t, PrivacyPublic, PrivacyFor(SourceGeneric, map[string][]byte{"apikey": nil}),
 		"an empty value is not a credential")
-	require.Equal(t, "", privacyFor(sourceDefinition, map[string][]byte{"apikey": []byte("k")}))
+	require.Equal(t, "", PrivacyFor(SourceDefinition, map[string][]byte{"apikey": []byte("k")}))
 }
 
 func TestSessionSecretNameIsDeterministicAndFitsADNSSubdomain(t *testing.T) {
-	require.Equal(t, "nzbgeek-session", sessionSecretName("nzbgeek"))
+	require.Equal(t, "nzbgeek-session", SessionSecretName("nzbgeek"))
 	long := strings.Repeat("a", 253)
-	got := sessionSecretName(long)
+	got := SessionSecretName(long)
 	require.LessOrEqual(t, len(got), maxObjectName)
 	require.True(t, strings.HasSuffix(got, sessionSecretSuffix))
-	require.Equal(t, got, sessionSecretName(long), "the name must not drift between reconciles")
+	require.Equal(t, got, SessionSecretName(long), "the name must not drift between reconciles")
 }
 
 func TestReadSecret(t *testing.T) {
@@ -103,15 +103,15 @@ func TestReadSecret(t *testing.T) {
 	}).Build()
 	ctx := context.Background()
 
-	got, err := readSecret(ctx, c, "media", &corev1.LocalObjectReference{Name: "creds"})
+	got, err := ReadSecret(ctx, c, "media", &corev1.LocalObjectReference{Name: "creds"})
 	require.NoError(t, err)
 	require.Equal(t, []byte("abc"), got["apikey"])
 
-	got, err = readSecret(ctx, c, "media", nil)
+	got, err = ReadSecret(ctx, c, "media", nil)
 	require.NoError(t, err, "no secretRef is not an error")
 	require.Nil(t, got)
 
-	_, err = readSecret(ctx, c, "media", &corev1.LocalObjectReference{Name: "missing"})
+	_, err = ReadSecret(ctx, c, "media", &corev1.LocalObjectReference{Name: "missing"})
 	require.ErrorContains(t, err, "media/missing")
 }
 
@@ -158,7 +158,7 @@ func TestTheLimiterKeyIsRatelimitHostKey(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
-	applyRateLimit(spec, nil, lim, 0)
+	ApplyRateLimit(spec, nil, lim, 0)
 
 	key := ratelimit.HostKey(spec.BaseURL)
 	require.True(t, lim.Allow(key))
@@ -190,7 +190,7 @@ func TestBuildClient(t *testing.T) {
 				RequestDelay: &metav1.Duration{Duration: 2 * time.Second},
 				Timeout:      metav1.Duration{Duration: 5 * time.Second},
 			}
-			c, endpoint, err := buildClient(spec, nil, lim, nil)
+			c, endpoint, err := BuildClient(spec, nil, lim, nil)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				return
@@ -211,7 +211,7 @@ func TestApplyRateLimitConfiguresOneBucketPerHost(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
-	applyRateLimit(spec, nil, lim, 0)
+	ApplyRateLimit(spec, nil, lim, 0)
 
 	// One token per hour with a burst of 1: the first Allow drains the
 	// bucket and the second is refused. That is what proves SetConfig was
@@ -224,11 +224,11 @@ func TestApplyRateLimitConfiguresOneBucketPerHost(t *testing.T) {
 // TestBuildClientWritesNoLimiterConfig is the other half of the split, and it
 // is the half that protects an operator's edit.
 //
-// buildClient is shared with ClientCache, which the search fan-out and the RSS
+// BuildClient is shared with ClientCache, which the search fan-out and the RSS
 // poll call on every query. If it still wrote SetConfig, both would become
 // writers of limiter config and would re-apply spec.requestDelay from their
 // own possibly-stale cached Indexer -- so lowering the delay would be silently
-// reverted by the next search. Only Reconcile writes, through applyRateLimit.
+// reverted by the next search. Only Reconcile writes, through ApplyRateLimit.
 func TestBuildClientWritesNoLimiterConfig(t *testing.T) {
 	lim := ratelimit.New(ratelimit.Config{})
 	spec := indexv1alpha1.IndexerSpec{
@@ -236,10 +236,10 @@ func TestBuildClientWritesNoLimiterConfig(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
-	_, _, err := buildClient(spec, nil, lim, nil)
+	_, _, err := BuildClient(spec, nil, lim, nil)
 	require.NoError(t, err)
 
-	// The Limiter's default here is unlimited, so if buildClient had written
+	// The Limiter's default here is unlimited, so if BuildClient had written
 	// the one-per-hour Config the second Allow would be refused.
 	require.True(t, lim.Allow("tracker.invalid"))
 	require.True(t, lim.Allow("tracker.invalid"),
@@ -274,7 +274,7 @@ func TestClassify(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := classify(tc.err)
+			got := Classify(tc.err)
 			require.Equal(t, tc.reason, got.Reason)
 			require.Equal(t, tc.auth, got.AuthFailed)
 			require.Equal(t, tc.limited, got.Limited)
@@ -291,11 +291,11 @@ func TestClassify(t *testing.T) {
 // The outcome label is a Prometheus label value: it must come from a small
 // closed set, never from an indexer-supplied string.
 func TestOutcomeLabelIsABoundedSet(t *testing.T) {
-	require.Equal(t, "ok", outcomeLabel(probeOutcome{}))
-	require.Equal(t, "unauthorized", outcomeLabel(probeOutcome{Reason: ReasonCredentialsRejected, AuthFailed: true}))
-	require.Equal(t, "rate_limited", outcomeLabel(probeOutcome{Reason: ReasonLimitReached, Limited: true}))
-	require.Equal(t, "banned", outcomeLabel(probeOutcome{Reason: ReasonIndexerDisabled}))
-	require.Equal(t, "error", outcomeLabel(probeOutcome{Reason: ReasonProbeFailed, Message: "\x00 whatever the indexer said"}))
+	require.Equal(t, "ok", OutcomeLabel(ProbeOutcome{}))
+	require.Equal(t, "unauthorized", OutcomeLabel(ProbeOutcome{Reason: ReasonCredentialsRejected, AuthFailed: true}))
+	require.Equal(t, "rate_limited", OutcomeLabel(ProbeOutcome{Reason: ReasonLimitReached, Limited: true}))
+	require.Equal(t, "banned", OutcomeLabel(ProbeOutcome{Reason: ReasonIndexerDisabled}))
+	require.Equal(t, "error", OutcomeLabel(ProbeOutcome{Reason: ReasonProbeFailed, Message: "\x00 whatever the indexer said"}))
 }
 
 // The two CRD defaults restated in source.go must equal what controller-gen
@@ -303,7 +303,7 @@ func TestOutcomeLabelIsABoundedSet(t *testing.T) {
 // apiserver-created Indexer gets. Read from the generated schema rather than
 // from the marker, because the schema is what is installed.
 func TestSpecDefaultsMatchTheGeneratedCRD(t *testing.T) {
-	raw, err := os.ReadFile("../../../../config/crd/bases/index.clustarr.io_indexers.yaml")
+	raw, err := os.ReadFile("../../../config/crd/bases/index.clustarr.io_indexers.yaml")
 	require.NoError(t, err)
 
 	var crd struct {
@@ -373,7 +373,7 @@ func TestBuildClientToleratesANilLimiter(t *testing.T) {
 		RequestDelay: &metav1.Duration{Duration: 2 * time.Second},
 	}
 	require.NotPanics(t, func() {
-		c, endpoint, err := buildClient(spec, nil, nil, nil)
+		c, endpoint, err := BuildClient(spec, nil, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, c)
 		require.Equal(t, "/api", endpoint.Path)

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexer
+package clients
 
 import (
 	"context"
@@ -39,7 +39,7 @@ import (
 // outcome worse than failing the search.
 var ErrProxyUnavailable = proxy.ErrUnavailable
 
-// resolveProxy builds the transport for the proxies that apply to idx --
+// ResolveProxy builds the transport for the proxies that apply to idx --
 // spec.proxyRef and every IndexerProxy whose spec.selector matches its labels
 // -- or returns nil for an Indexer none apply to. http, socks4 and socks5
 // routes and a FlareSolverr applied last are all supported; see
@@ -50,6 +50,6 @@ var ErrProxyUnavailable = proxy.ErrUnavailable
 // calls app/indexer/proxy.Resolve itself), so the proxy is applied to all four
 // or to none -- a probe that honoured the proxy while searches bypassed it
 // would report the proxy healthy while leaking the real IP.
-func resolveProxy(ctx context.Context, c client.Client, idx *indexv1alpha1.Indexer) (http.RoundTripper, error) {
+func ResolveProxy(ctx context.Context, c client.Client, idx *indexv1alpha1.Indexer) (http.RoundTripper, error) {
 	return proxy.Resolve(ctx, c, idx)
 }

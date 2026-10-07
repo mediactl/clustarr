@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -49,9 +51,10 @@ import (
 // minutes.
 const DefaultClientCacheTTL = 5 * time.Minute
 
-// ClientCache builds the wire [Client] for one Indexer -- a *torznab.Client
-// for spec.generic, the Cardigann engine adapter for spec.definition and
-// spec.definitionRef -- and is the [search.ClientFor] and rss SearcherFor the
+// ClientCache builds the wire [idxclients.Client] for one Indexer -- a
+// *torznab.Client for spec.generic, the Cardigann engine adapter for
+// spec.definition and spec.definitionRef -- and is the [search.ClientFor]
+// and rss SearcherFor the
 // wiring hands to the search fan-out and the RSS poll. That one factory
 // serving both source kinds IS ruling R5: a Cardigann indexer reaches the
 // fan-out through the same seam as a Torznab one, so the fan-out's dedupe,
@@ -66,7 +69,7 @@ const DefaultClientCacheTTL = 5 * time.Minute
 // while status reported the proxy Ready. Sharing one builder makes that
 // impossible rather than merely unlikely.
 //
-// It notably does NOT write limiter config. That is [applyRateLimit], called
+// It notably does NOT write limiter config. That is [idxclients.ApplyRateLimit], called
 // only from Reconcile: this reconciler is the only reader of
 // spec.requestDelay, and a fan-out re-applying it from a cached Indexer would
 // silently revert an operator's edit. The cache only ever READS the limiter
@@ -99,7 +102,7 @@ type ClientCache struct {
 	// (NewSessionStore(c, nil)), which is always correct because the
 	// reconciler writes the Secret on every login; wiring the bus here adds
 	// the clustarr-indexer-sessions KV read in front of it.
-	Sessions *SessionStore
+	Sessions *idxclients.SessionStore
 
 	// TTL bounds a cached entry's age. Zero means [DefaultClientCacheTTL];
 	// negative disables caching entirely, which is what a test that wants to
@@ -124,7 +127,7 @@ type ClientCache struct {
 type clientEntry struct {
 	resourceVersion string
 	proxies         string
-	client          Client
+	client          idxclients.Client
 	builtAt         time.Time
 }
 
@@ -159,7 +162,7 @@ func (cc *ClientCache) ttl() time.Duration {
 // a Secret and a KV entry, not on the Indexer -- so the reconciler calls
 // [ClientCache.Forget] after every successful login, and the next call
 // rebuilds with the fresh session.
-func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (Client, error) {
+func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (idxclients.Client, error) {
 	if idx == nil {
 		return nil, errors.New("indexer: no Indexer to build a client for")
 	}
@@ -179,7 +182,7 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (Cli
 	// URL, not a connection.
 	sessions := cc.Sessions
 	if sessions == nil {
-		sessions = NewSessionStore(cc.client, nil)
+		sessions = idxclients.NewSessionStore(cc.client, nil)
 	}
 	built, err := buildWireClientFor(ctx, cc.client, idx, sel, cc.limiters, sessions)
 	if err != nil {
@@ -200,7 +203,7 @@ func (cc *ClientCache) DefinitionFetcherFor(ctx context.Context, idx *indexv1alp
 	if err != nil {
 		return nil, err
 	}
-	cg, ok := cli.(*cardigannClient)
+	cg, ok := cli.(*idxclients.CardigannClient)
 	if !ok {
 		return nil, fmt.Errorf("indexer: %s/%s is not definition-backed", idx.Namespace, idx.Name)
 	}
@@ -209,7 +212,7 @@ func (cc *ClientCache) DefinitionFetcherFor(ctx context.Context, idx *indexv1alp
 
 // buildWireClient is the ONE construction of an Indexer's wire client,
 // shared by the cache (search, RSS, download). The Indexer reconciler builds
-// the same pieces -- buildClient, buildCardigann, resolveProxy -- from the
+// the same pieces -- BuildClient, BuildCardigann, ResolveProxy -- from the
 // spec and Secret it already holds, so the proxy and the limiter reach
 // every path through the same functions.
 func buildWireClient(
@@ -217,8 +220,8 @@ func buildWireClient(
 	c client.Client,
 	idx *indexv1alpha1.Indexer,
 	lim *ratelimit.Limiter,
-	sessions *SessionStore,
-) (Client, error) {
+	sessions *idxclients.SessionStore,
+) (idxclients.Client, error) {
 	sel, err := proxy.Selected(ctx, c, idx)
 	if err != nil {
 		return nil, err
@@ -234,13 +237,13 @@ func buildWireClientFor(
 	idx *indexv1alpha1.Indexer,
 	sel proxy.Selection,
 	lim *ratelimit.Limiter,
-	sessions *SessionStore,
-) (Client, error) {
-	kind, err := resolveSource(idx.Spec)
+	sessions *idxclients.SessionStore,
+) (idxclients.Client, error) {
+	kind, err := idxclients.ResolveSource(idx.Spec)
 	if err != nil {
 		return nil, err
 	}
-	secret, err := readSecret(ctx, c, idx.Namespace, idx.Spec.SecretRef)
+	secret, err := idxclients.ReadSecret(ctx, c, idx.Namespace, idx.Spec.SecretRef)
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +251,8 @@ func buildWireClientFor(
 	if err != nil {
 		return nil, err
 	}
-	if kind == sourceGeneric {
-		tc, _, err := buildClient(idx.Spec, secret, lim, transport)
+	if kind == idxclients.SourceGeneric {
+		tc, _, err := idxclients.BuildClient(idx.Spec, secret, lim, transport)
 		if err != nil {
 			// Not `return tc, err`: a nil *torznab.Client in a non-nil
 			// interface is a nil dereference one call later.
@@ -257,7 +260,7 @@ func buildWireClientFor(
 		}
 		return tc, nil
 	}
-	def, err := resolveDefinition(ctx, c, idx.Spec)
+	def, err := idxclients.ResolveDefinition(ctx, c, idx.Spec)
 	if err != nil {
 		return nil, err
 	}
@@ -265,12 +268,12 @@ func buildWireClientFor(
 	if err != nil {
 		return nil, err
 	}
-	cg, err := buildCardigann(idx.Spec, def, secret, sess, lim, transport)
+	cg, err := idxclients.BuildCardigann(idx.Spec, def, secret, sess, lim, transport)
 	if err != nil {
 		return nil, err
 	}
 	if def.Login != nil {
-		cg.relogin = reloginFunc(cg, idx.DeepCopy(), sessions)
+		cg.SetRelogin(reloginFunc(cg, idx.DeepCopy(), sessions))
 	}
 	return cg, nil
 }
@@ -286,12 +289,12 @@ func buildWireClientFor(
 // unexpired session left in place would be reused by every search until it
 // aged out. Dropped, the next reconcile logs in and reports a credential
 // problem as the Authenticated condition, where an operator looks.
-func reloginFunc(cg *cardigannClient, owner *indexv1alpha1.Indexer, sessions *SessionStore) func(context.Context) (*cardigann.Session, error) {
+func reloginFunc(cg *idxclients.CardigannClient, owner *indexv1alpha1.Indexer, sessions *idxclients.SessionStore) func(context.Context) (*cardigann.Session, error) {
 	return func(ctx context.Context) (*cardigann.Session, error) {
 		log := logging.FromContext(ctx).With("indexer", client.ObjectKeyFromObject(owner))
-		cfg := cg.config()
+		cfg := cg.Config()
 		cfg.Session = nil
-		sess, err := cg.engine.Login(ctx, cg.def, cfg)
+		sess, err := cg.Engine().Login(ctx, cg.Definition(), cfg)
 		if err != nil {
 			if derr := sessions.Drop(ctx, owner); derr != nil {
 				log.Warn("indexer: dropping the expired session failed", "error", derr)
@@ -299,7 +302,7 @@ func reloginFunc(cg *cardigannClient, owner *indexv1alpha1.Indexer, sessions *Se
 			return nil, fmt.Errorf("indexer: logging in again after the tracker expired the session: %w",
 				cardigann.RedactErr(err))
 		}
-		if sess != nil && cg.def.RequiresSession() {
+		if sess != nil && cg.Definition().RequiresSession() {
 			if serr := sessions.Save(ctx, owner, sess); serr != nil {
 				// The new session works in this client either way; the
 				// reconciler's next pass persists one of its own.
@@ -313,7 +316,7 @@ func reloginFunc(cg *cardigannClient, owner *indexv1alpha1.Indexer, sessions *Se
 
 // lookup returns the cached client for idx when it was built from the same
 // resourceVersion and the same proxy selection, and is still inside the TTL.
-func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer, proxies string) (Client, bool) {
+func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer, proxies string) (idxclients.Client, bool) {
 	if cc.ttl() < 0 {
 		return nil, false
 	}
@@ -329,7 +332,7 @@ func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer, proxies string) (Clien
 	return e.client, true
 }
 
-func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, proxies string, built Client) {
+func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, proxies string, built idxclients.Client) {
 	if cc.ttl() < 0 {
 		return
 	}

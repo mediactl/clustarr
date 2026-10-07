@@ -15,20 +15,22 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexer_test
+package clients_test
 
 import (
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
+	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
+	"github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
@@ -53,7 +55,7 @@ func TestSessionKeysAreAcceptedByARealServer(t *testing.T) {
 		".leading", "trailing.", "a..b",        // the three non-regex rules
 		"Amélie",
 	} {
-		key := indexer.SessionKey(uid)
+		key := clients.SessionKey(uid)
 		require.True(t, events.ValidKVKey(key), "SessionKey(%q) = %q", uid, key)
 		_, err := kv.Put(ctx, key, []byte("v"))
 		require.NoError(t, err, "a real server rejected SessionKey(%q) = %q", uid, key)
@@ -62,7 +64,7 @@ func TestSessionKeysAreAcceptedByARealServer(t *testing.T) {
 		require.Equal(t, []byte("v"), e.Value)
 		require.NoError(t, kv.Delete(ctx, key), "Delete rejected SessionKey(%q)", uid)
 	}
-	require.NotEqual(t, indexer.SessionKey("a:b"), indexer.SessionKey("a,b"), "two UIDs collapsed onto one key")
+	require.NotEqual(t, clients.SessionKey("a:b"), clients.SessionKey("a,b"), "two UIDs collapsed onto one key")
 }
 
 // The store round-trips a session through the real bucket. Client is nil, so
@@ -70,7 +72,7 @@ func TestSessionKeysAreAcceptedByARealServer(t *testing.T) {
 // Secret is unreachable.
 func TestTheSessionStoreRoundTripsThroughTheRealBucket(t *testing.T) {
 	bus := realBus(t)
-	store := &indexer.SessionStore{KV: bus.KV(events.BucketIndexerSessions)}
+	store := &clients.SessionStore{KV: bus.KV(events.BucketIndexerSessions)}
 	idx := &indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{
 		Name: "t", Namespace: "media", UID: "4b0c5a7e-2f1d-4c8e-9a3b-6d7e8f901234",
 	}}
@@ -89,7 +91,7 @@ func TestTheSessionStoreRoundTripsThroughTheRealBucket(t *testing.T) {
 
 func realBus(t *testing.T) events.Bus {
 	t.Helper()
-	srv := startNATS(t) // schedule_envtest_test.go's embedded JetStream server
+	srv := startNATS(t)
 
 	nc, err := nats.Connect(srv.ClientURL())
 	require.NoError(t, err)
@@ -99,4 +101,29 @@ func realBus(t *testing.T) events.Bus {
 	t.Cleanup(func() { _ = bus.Close() })
 	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
 	return bus
+}
+
+// startNATS boots an embedded JetStream server with its store under the
+// test's temporary directory. It is pkg/events/natsbus's helper, verbatim
+// (app/indexer/controller/indexer's schedule_envtest_test.go has the same).
+func startNATS(t *testing.T) *natsserver.Server {
+	t.Helper()
+	dir, err := os.MkdirTemp(t.TempDir(), "jetstream")
+	require.NoError(t, err)
+	srv, err := natsserver.NewServer(&natsserver.Options{
+		ServerName: "clustarr-indexer",
+		Host:       "127.0.0.1",
+		Port:       -1,
+		JetStream:  true,
+		StoreDir:   dir,
+		NoLog:      true,
+		NoSigs:     true,
+	})
+	require.NoError(t, err)
+	go srv.Start()
+	if !srv.ReadyForConnections(20 * time.Second) {
+		t.Fatal("embedded NATS server did not become ready")
+	}
+	t.Cleanup(srv.Shutdown)
+	return srv
 }

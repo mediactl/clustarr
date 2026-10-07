@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -67,7 +69,7 @@ func TestDeletionPrunesTheCapsMemoButNotTheSharedBucket(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(idx).Build()
 
 	lim := ratelimit.New(ratelimit.Config{})
-	// One token per hour, burst 1: the survivor's pacing, as buildClient
+	// One token per hour, burst 1: the survivor's pacing, as BuildClient
 	// would have configured it.
 	lim.SetConfig(host, ratelimit.Config{RPS: 1.0 / 3600, Burst: 1})
 
@@ -128,33 +130,33 @@ func TestRequeueAfter(t *testing.T) {
 	future := metav1.NewTime(now.Add(30 * time.Minute))
 	past := metav1.NewTime(now.Add(-time.Minute))
 
-	require.Equal(t, reprobeInterval, r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{}, now))
+	require.Equal(t, reprobeInterval, r.requeueAfter(indexv1alpha1.IndexerStatus{}, idxclients.ProbeOutcome{}, windowRetry{}, now))
 	require.Equal(t, 90*time.Second,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, probeOutcome{RetryAfter: 90 * time.Second}, windowRetry{}, now),
+		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, idxclients.ProbeOutcome{RetryAfter: 90 * time.Second}, windowRetry{}, now),
 		"the server's Retry-After outranks the local back-off")
 	require.Equal(t, 30*time.Minute+time.Second,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, probeOutcome{}, windowRetry{}, now))
+		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, idxclients.ProbeOutcome{}, windowRetry{}, now))
 	require.Equal(t, reprobeInterval,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &past}, probeOutcome{}, windowRetry{}, now))
+		r.requeueAfter(indexv1alpha1.IndexerStatus{DisabledUntil: &past}, idxclients.ProbeOutcome{}, windowRetry{}, now))
 
 	// A full window brings the reconciler back when it next has room, if
 	// that is sooner than anything else -- the earlier of the two windows.
 	full := windowRetry{query: now.Add(10 * time.Minute), grab: now.Add(5 * time.Minute)}
-	require.Equal(t, 5*time.Minute, r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, full, now))
+	require.Equal(t, 5*time.Minute, r.requeueAfter(indexv1alpha1.IndexerStatus{}, idxclients.ProbeOutcome{}, full, now))
 	require.Equal(t, 10*time.Minute,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{query: now.Add(10 * time.Minute)}, now))
+		r.requeueAfter(indexv1alpha1.IndexerStatus{}, idxclients.ProbeOutcome{}, windowRetry{query: now.Add(10 * time.Minute)}, now))
 	require.Equal(t, reprobeInterval,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{query: now.Add(time.Hour)}, now),
+		r.requeueAfter(indexv1alpha1.IndexerStatus{}, idxclients.ProbeOutcome{}, windowRetry{query: now.Add(time.Hour)}, now),
 		"a window that frees after the tick does not delay the tick")
 	require.Equal(t, reprobeInterval,
-		r.requeueAfter(indexv1alpha1.IndexerStatus{}, probeOutcome{}, windowRetry{query: now.Add(-time.Second)}, now))
+		r.requeueAfter(indexv1alpha1.IndexerStatus{}, idxclients.ProbeOutcome{}, windowRetry{query: now.Add(-time.Second)}, now))
 
 	// Never zero: a zero RequeueAfter means "do not requeue", and the
 	// RateLimited and Healthy conditions are derived from worker-owned
 	// fields the watch predicate filters out, so only the tick refreshes
 	// them.
 	for _, st := range []indexv1alpha1.IndexerStatus{{}, {DisabledUntil: &past}, {DisabledUntil: &future}} {
-		require.NotZero(t, r.requeueAfter(st, probeOutcome{}, windowRetry{}, now))
+		require.NotZero(t, r.requeueAfter(st, idxclients.ProbeOutcome{}, windowRetry{}, now))
 	}
 }
 

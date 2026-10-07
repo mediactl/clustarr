@@ -22,15 +22,11 @@ import (
 	"slices"
 	"sort"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
+
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
-
-// maxCapsItems mirrors the CRD's +kubebuilder:validation:MaxItems=200 on
-// status.caps.categories and on each Category.Sub. Exceeding it is an
-// apiserver rejection of the whole apply, so the projection truncates rather
-// than letting one chatty indexer make its own status unwritable.
-const maxCapsItems = 200
 
 // projectCaps maps the wire caps onto the CRD's Caps.
 //
@@ -62,14 +58,14 @@ func projectCaps(c torznab.Caps) indexv1alpha1.Caps {
 
 	cats := slices.Clone(c.Categories)
 	sort.SliceStable(cats, func(i, j int) bool { return cats[i].ID < cats[j].ID })
-	if len(cats) > maxCapsItems {
-		cats = cats[:maxCapsItems]
+	if len(cats) > idxclients.MaxCapsItems {
+		cats = cats[:idxclients.MaxCapsItems]
 	}
 	for _, cat := range cats {
 		sub := slices.Clone(cat.Sub)
 		sort.SliceStable(sub, func(i, j int) bool { return sub[i].ID < sub[j].ID })
-		if len(sub) > maxCapsItems {
-			sub = sub[:maxCapsItems]
+		if len(sub) > idxclients.MaxCapsItems {
+			sub = sub[:idxclients.MaxCapsItems]
 		}
 		projected := indexv1alpha1.Category{ID: int32(cat.ID), Name: cat.Name}
 		for _, s := range sub {
