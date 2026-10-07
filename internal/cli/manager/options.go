@@ -91,7 +91,6 @@ type Options struct {
 	ExternalMetricsBindAddress string
 	ExternalMetricsService     string
 	ExternalMetricsSecret      string
-	LegacyLeaseCheck           bool
 
 	// Test seams; production leaves them zero. RESTConfig nil reads the
 	// kubeconfig; SkipNameValidation lets one test binary start the manager
@@ -116,7 +115,6 @@ func DefaultOptions() Options {
 	o.RemediationIOWorkers = remediation.DefaultIOWorkers
 	o.Autoscale = true
 	o.ExternalMetricsBindAddress, o.ExternalMetricsService, o.ExternalMetricsSecret = ":6443", "external-metrics", "external-metrics-tls"
-	o.LegacyLeaseCheck = true
 	return o
 }
 

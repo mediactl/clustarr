@@ -143,9 +143,6 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		cli.EnvOr(cli.EnvExternalMetricsSecret, d.ExternalMetricsSecret),
 		"Secret holding the External Metrics API's self-generated CA and serving certificate. "+
 			"Defaults to $"+cli.EnvExternalMetricsSecret+".")
-	fs.BoolVar(&d.LegacyLeaseCheck, "legacy-lease-check", d.LegacyLeaseCheck,
-		"Hold the manager.clustarr.io election shut while any of the six legacy <service>.clustarr.io leases "+
-			"is held, so a cutover never runs two writers of one object. For the cutover release only.")
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		o := d

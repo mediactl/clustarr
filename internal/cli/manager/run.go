@@ -68,8 +68,7 @@ func Run(ctx context.Context, o Options) error {
 	// 3.
 	k8s.RegisterRESTClientMetrics()
 
-	// 4. The manager, on the one merged cache, behind the gated lease lock
-	// while the cutover release runs.
+	// 4. The manager, on the one merged cache.
 	cfg := o.RESTConfig
 	if cfg == nil {
 		if cfg, err = ctrl.GetConfig(); err != nil {
@@ -77,13 +76,6 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}
 	opts := managerOptions(o)
-	if o.LeaderElect && o.LegacyLeaseCheck {
-		lock, err := k8s.NewGatedLeaseLock(cfg, opts.LeaderElectionNamespace, LeaderElectionID)
-		if err != nil {
-			return fmt.Errorf("manager: legacy lease gate: %w", err)
-		}
-		opts.LeaderElectionResourceLockInterface = lock
-	}
 	mgr, err := ctrl.NewManager(cfg, k8s.WithBaseContext(opts, ctx))
 	if err != nil {
 		return fmt.Errorf("manager: %w", err)
