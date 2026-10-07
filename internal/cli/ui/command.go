@@ -75,6 +75,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var plexGUIDs bool
 	var externalURL string
 	var pipelineHistory int
+	var artCacheBytes int64
 
 	fs := root.Flags()
 	fs.StringVar(&bindAddress, "bind-address", ui.DefaultBindAddress,
@@ -104,6 +105,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.IntVar(&pipelineHistory, "pipeline-history", projection.DefaultPipelineHistory,
 		"How many results the pipeline page keeps beside its in-flight entries, newest first "+
 			"(two pages at the default page size); 0 shows in-flight entries only.")
+	fs.Int64Var(&artCacheBytes, "art-cache-bytes", ui.DefaultArtCacheBytes,
+		"Bytes of artwork the ui keeps in memory, by digest, to serve GET /art without a NATS read; "+
+			"0 disables the cache (artwork design §B.8 as amended 2026-10-07).")
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
@@ -129,6 +133,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			Actions:              acts,
 			Namespace:            namespace,
 			Artwork:              b.artwork,
+			ArtCacheBytes:        artCacheBytes,
 			MetadataSearch:       b.search,
 			PlexExtended:         b.extended,
 			PlexExtras:           b.extras,
