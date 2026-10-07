@@ -19,16 +19,22 @@ package ui
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -66,7 +72,7 @@ var validArtTypes = map[catalogv1.ImageType]bool{
 	catalogv1.ImageTypeHeadshot:   true,
 }
 
-// handleArt serves one artwork object straight from Options.Artwork:
+// handleArt serves one artwork object from Options.Artwork:
 // GET /art/{kind}/{uid}/{type}, the rating-badge overlay when the renderer
 // has written one, falling back to the metadata gateway's original
 // otherwise, both missing answering 404 rather than a broken image
@@ -75,6 +81,13 @@ var validArtTypes = map[catalogv1.ImageType]bool{
 // link to here instead of a provider's own URL, so the browser's request
 // always lands on this ui and a metadata provider never sees a Clustarr
 // user's address.
+//
+// As amended 2026-10-07 (artwork design §B.8): the variant comes from the
+// ui's read-only index of the bucket (chooseArt), the ETag and caching from
+// the chosen entry's digest before any byte is read -- so a matching
+// If-None-Match answers 304 with no store call -- and the bytes from a
+// digest-keyed cache, or a whole, verified read (artBytes). A 200 never
+// begins before the bytes are in hand.
 //
 // Options.Artwork == nil (no NATS endpoint reachable, or a test that builds
 // Options directly) answers 404 for every request, the same way a nil
@@ -96,71 +109,135 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	info, body, err := s.getArt(ctx, kind, uid, imgType)
+	name, e, err := s.chooseArt(ctx, kind, uid, imgType)
 	if err != nil {
-		if errors.Is(err, events.ErrObjectNotFound) {
-			http.NotFound(w, r)
-			return
-		}
-		logging.FromContext(ctx).Error("get artwork", "kind", string(kind), "type", string(imgType), "error", err)
-		http.Error(w, "failed to load artwork", http.StatusInternalServerError)
+		s.artError(w, r, kind, imgType, err)
 		return
 	}
-	defer func() { _ = body.Close() }()
 
 	// ETag and Cache-Control are set before the If-None-Match check (and so
 	// carried on a 304 too, as both are meant to be): a conditional request
 	// still needs to learn the digest it already matched and how long its
 	// own cached copy is now good for.
-	etag := `"` + info.Digest + `"`
-	w.Header().Set("ETag", etag)
-	if r.URL.Query().Get("v") == info.Digest {
-		// The digest the URL was built with is the digest actually served:
-		// this exact byte stream never changes at this URL again, so the
-		// browser and any CDN in front of it may keep it forever.
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else {
-		// No ?v, or one that names a digest this object no longer carries
-		// (a poster refreshed since the link was rendered): revalidate every
-		// time rather than risk serving a stale image as if it were
-		// permanent.
-		w.Header().Set("Cache-Control", "no-cache")
-	}
+	etag := `"` + e.Digest + `"`
 	if inm := r.Header.Get("If-None-Match"); inm != "" && inm == etag {
+		setArtCaching(w, r, e.Digest)
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
-	if ct := info.Headers[events.HeaderContentType]; ct != "" {
-		w.Header().Set("Content-Type", ct)
+	body, e, err := s.artBytes(ctx, kind, uid, imgType, name, e)
+	if err != nil {
+		s.artError(w, r, kind, imgType, err)
+		return
 	}
-	// Content-Length is known up front -- the object store's own ObjectInfo,
-	// not a guess -- so the client gets it without net/http falling back to
-	// chunked transfer encoding for what is always a fixed-size image.
-	w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
+	// The entry artBytes served, so the ETag names the bytes actually sent.
+	setArtCaching(w, r, e.Digest)
+	if e.ContentType != "" {
+		w.Header().Set("Content-Type", e.ContentType)
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
-	if _, err := io.Copy(w, body); err != nil {
+	if _, err := w.Write(body); err != nil {
 		logging.FromContext(ctx).Error("write artwork response", "error", err)
 	}
 }
 
-// getArt fetches kind/uid/t's overlay object, falling back to the original
-// when no overlay has been rendered yet (events.ArtworkVariantOverlay,
-// events.ArtworkVariantOriginal -- spec §B.2, §B.9); both missing is
-// events.ErrObjectNotFound, exactly what Options.Artwork.Get itself answers
-// for either variant alone.
-func (s *Server) getArt(
-	ctx context.Context, kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType,
-) (events.ObjectInfo, io.ReadCloser, error) {
-	overlayKey := events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOverlay)
-	info, body, err := s.opts.Artwork.Get(ctx, overlayKey)
-	if err == nil {
-		return info, body, nil
+// artError answers a failed choice or read: 404 for a missing object, 500
+// otherwise.
+func (s *Server) artError(w http.ResponseWriter, r *http.Request, kind commonv1.MediaKind, t catalogv1.ImageType, err error) {
+	if errors.Is(err, events.ErrObjectNotFound) {
+		http.NotFound(w, r)
+		return
 	}
-	if !errors.Is(err, events.ErrObjectNotFound) {
-		return events.ObjectInfo{}, nil, err
-	}
+	logging.FromContext(r.Context()).Error("get artwork", "kind", string(kind), "type", string(t), "error", err)
+	http.Error(w, "failed to load artwork", http.StatusInternalServerError)
+}
 
-	originalKey := events.ArtworkKey(kind, uid, string(t), events.ArtworkVariantOriginal)
-	return s.opts.Artwork.Get(ctx, originalKey)
+// setArtCaching sets the ETag and Cache-Control for digest: immutable when
+// the URL's ?v= names it -- this exact byte stream never changes at this URL
+// again, so the browser and any CDN may keep it forever -- and no-cache
+// otherwise (no ?v, or one naming a digest this image no longer serves: a
+// poster refreshed since the link was rendered), so a stale image is never
+// kept as if it were permanent.
+func setArtCaching(w http.ResponseWriter, r *http.Request, digest string) {
+	w.Header().Set("ETag", `"`+digest+`"`)
+	if r.URL.Query().Get("v") == digest {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+}
+
+// artReadTimeout bounds one whole-object read. An object overwritten while it
+// is read stalls the reader until its deadline, then fails with an i/o
+// timeout, never a digest error (research E14): the bound is what turns that
+// into a retry. A var so tests can shorten it.
+var artReadTimeout = 10 * time.Second
+
+// errArtMoved is a read that did not return the chosen object's bytes: it
+// was overwritten or deleted mid-read, or the index trailed the store.
+var errArtMoved = errors.New("ui: the artwork object changed while it was read")
+
+// artBytes returns the bytes of name, which chooseArt picked with entry e,
+// and the entry they are: from the cache by digest, else a whole read under
+// artReadTimeout, bounded by events.ArtworkMaxImageBytes and checked against
+// the digest. A read that stalls, finds another digest or a missing object
+// re-resolves once (chooseArt) and retries, accepting on the retry whatever
+// digest the store then reports, so long as the bytes are its; the bytes go
+// into the cache under the digest they verified against.
+func (s *Server) artBytes(ctx context.Context, kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType,
+	name string, e objindex.Entry,
+) ([]byte, objindex.Entry, error) {
+	want := e.Digest
+	for attempt := 0; ; attempt++ {
+		if b, ok := s.artCache.get(e.Digest); ok {
+			return b, e, nil
+		}
+		b, got, err := s.readArt(ctx, name, want)
+		if err == nil {
+			s.artCache.add(got.Digest, b)
+			return b, got, nil
+		}
+		if attempt > 0 || !(errors.Is(err, errArtMoved) || errors.Is(err, events.ErrObjectNotFound)) {
+			return nil, objindex.Entry{}, err
+		}
+		if name, e, err = s.chooseArt(ctx, kind, uid, t); err != nil {
+			return nil, objindex.Entry{}, err
+		}
+		want = ""
+	}
+}
+
+// readArt reads name whole. With want set, an object whose digest is not
+// want is errArtMoved; either way the bytes must hash to the digest the
+// store reported.
+func (s *Server) readArt(ctx context.Context, name, want string) ([]byte, objindex.Entry, error) {
+	rctx, cancel := context.WithTimeout(ctx, artReadTimeout)
+	defer cancel()
+	info, rc, err := s.opts.Artwork.Get(rctx, name)
+	if err != nil {
+		return nil, objindex.Entry{}, err
+	}
+	defer func() { _ = rc.Close() }()
+	if want != "" && info.Digest != want {
+		return nil, objindex.Entry{}, fmt.Errorf("%w: %s is %s, not %s", errArtMoved, name, info.Digest, want)
+	}
+	b, err := io.ReadAll(io.LimitReader(rc, events.ArtworkMaxImageBytes+1))
+	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			if ctx.Err() != nil {
+				return nil, objindex.Entry{}, ctx.Err() // the request's own end, not a stall
+			}
+			return nil, objindex.Entry{}, fmt.Errorf("%w: reading %s stalled: %w", errArtMoved, name, err)
+		}
+		return nil, objindex.Entry{}, fmt.Errorf("ui: read %s: %w", name, err)
+	}
+	if len(b) > events.ArtworkMaxImageBytes {
+		return nil, objindex.Entry{}, fmt.Errorf("ui: %s is over %d bytes", name, events.ArtworkMaxImageBytes)
+	}
+	if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != info.Digest {
+		return nil, objindex.Entry{}, fmt.Errorf("%w: %s's bytes do not hash to %s", errArtMoved, name, info.Digest)
+	}
+	return b, artEntryOf(info), nil
 }

@@ -38,6 +38,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -168,6 +169,11 @@ type Options struct {
 	// the process" pattern a nil Reader already has for the library-scan
 	// detail page.
 	Artwork events.ObjectStore
+
+	// ArtCacheBytes bounds the digest-keyed byte cache /art serves from
+	// (artwork design §B.8 as amended 2026-10-07); 0 disables it. cmd/ui's
+	// --art-cache-bytes sets it, DefaultArtCacheBytes by default.
+	ArtCacheBytes int64
 
 	// MetadataSearch asks catalogarr's metadata gateway to search one kind
 	// by title (Add New, 2026-09-29). cmd/clustarr binds it to
@@ -398,18 +404,32 @@ type Server struct {
 
 	// addSearchTimeout bounds one Add New metadata search.
 	addSearchTimeout time.Duration
+
+	// artIndex is the read-only index of Options.Artwork's bucket /art
+	// chooses from, kept by one watch (pkg/events/objindex); nil without
+	// Artwork.
+	artIndex *objindex.Index
+
+	// artCache holds whole artwork objects by digest, ArtCacheBytes of them.
+	artCache *artCache
 }
+
+// DefaultArtCacheBytes is --art-cache-bytes' default: 64 MiB of artwork kept
+// in memory by digest, inside the ui's 256 MiB limit (split spec §3.6 as
+// amended 2026-10-07).
+const DefaultArtCacheBytes = 64 << 20
 
 // NewServer builds a Server from opts and logs [authWarning] through the
 // logger ctx carries. Construction never fails and never touches the
 // network; call [Server.Handler] to get something an http.Server (or
 // httptest) can serve.
 //
-// ctx is taken for the warning alone and is not retained: CLAUDE.md's
-// logging invariant is that the logger travels in the context, never on a
-// struct, and the warning is the one line this service logs outside a
-// request. Everything else logs through
-// logging.FromContext(r.Context()).
+// ctx is not retained on the struct: CLAUDE.md's logging invariant is that
+// the logger travels in the context, never on a struct, and the warning is
+// the one line this service logs outside a request. Everything else logs
+// through logging.FromContext(r.Context()). With Options.Artwork set, ctx
+// also bounds the artwork index's watch, started here and stopped when ctx
+// ends ([Run] cancels it on shutdown).
 func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Entries == nil {
 		opts.Entries = func(context.Context) []pipeline.Entry { return nil }
@@ -459,7 +479,18 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Plex != nil && len(opts.ArtSigningKey) == 0 {
 		logging.FromContext(ctx).Warn(artSigningKeyWarning)
 	}
-	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(opts.ArtSigningKey), addSearchTimeout: defaultAddSearchTimeout}
+	s := &Server{
+		opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(opts.ArtSigningKey),
+		addSearchTimeout: defaultAddSearchTimeout, artCache: newArtCache(opts.ArtCacheBytes),
+	}
+	if opts.Artwork != nil {
+		// One read-only watch per process (artwork design §B.8 as amended
+		// 2026-10-07): /art chooses from it, and the SSE art event follows
+		// its changes.
+		s.artIndex = objindex.New(opts.Artwork)
+		go func() { _ = s.artIndex.Run(ctx) }()
+	}
+	return s
 }
 
 // Handler returns the composed HTTP handler for every route this service
