@@ -450,6 +450,52 @@ spec:
                           format: int64
                           minimum: 0
                           type: integer
+                        delivery:
+                          description: |-
+                            Delivery is what the manager knows about the task between publish
+                            and answer. Written on transitions only (ADR-0019 §8.3), never per
+                            nak.
+                          properties:
+                            attempts:
+                              description: Attempts is the deliveries count of the
+                                last nak the manager recorded.
+                              format: int32
+                              type: integer
+                            deadLetteredAt:
+                              format: date-time
+                              type: string
+                            lastNakAt:
+                              format: date-time
+                              type: string
+                            message:
+                              maxLength: 256
+                              type: string
+                            reason:
+                              description: |-
+                                Reason when waiting or retrying: Budget, Paced, NoAgent,
+                                NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+                              maxLength: 64
+                              type: string
+                            state:
+                              description: |-
+                                DeliveryPhase is where a dispatched task is between its publish and its
+                                answer (ADR-0019 §8.3).
+                              enum:
+                              - waiting
+                              - published
+                              - claimed
+                              - retrying
+                              - deadLettered
+                              type: string
+                          required:
+                          - state
+                          type: object
+                        destination:
+                          description: |-
+                            Destination is the durable, pool or engine instance the task went to
+                            (ADR-0019 §8.3).
+                          maxLength: 253
+                          type: string
                         dispatchedAt:
                           description: |-
                             DispatchedAt is when Seq was issued; the republish window and the
@@ -574,6 +620,52 @@ spec:
                               format: int64
                               minimum: 0
                               type: integer
+                            delivery:
+                              description: |-
+                                Delivery is what the manager knows about the task between publish
+                                and answer. Written on transitions only (ADR-0019 §8.3), never per
+                                nak.
+                              properties:
+                                attempts:
+                                  description: Attempts is the deliveries count of
+                                    the last nak the manager recorded.
+                                  format: int32
+                                  type: integer
+                                deadLetteredAt:
+                                  format: date-time
+                                  type: string
+                                lastNakAt:
+                                  format: date-time
+                                  type: string
+                                message:
+                                  maxLength: 256
+                                  type: string
+                                reason:
+                                  description: |-
+                                    Reason when waiting or retrying: Budget, Paced, NoAgent,
+                                    NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+                                  maxLength: 64
+                                  type: string
+                                state:
+                                  description: |-
+                                    DeliveryPhase is where a dispatched task is between its publish and its
+                                    answer (ADR-0019 §8.3).
+                                  enum:
+                                  - waiting
+                                  - published
+                                  - claimed
+                                  - retrying
+                                  - deadLettered
+                                  type: string
+                              required:
+                              - state
+                              type: object
+                            destination:
+                              description: |-
+                                Destination is the durable, pool or engine instance the task went to
+                                (ADR-0019 §8.3).
+                              maxLength: 253
+                              type: string
                             dispatchedAt:
                               description: |-
                                 DispatchedAt is when Seq was issued; the republish window and the

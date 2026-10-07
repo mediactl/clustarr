@@ -228,6 +228,9 @@ func ReassertFrozen(s *catalogv1alpha1.MediaFileSpec) Frozen {
 		if src.Manual {
 			ac = ac.WithManual(true)
 		}
+		if src.InfoHash != "" {
+			ac = ac.WithInfoHash(src.InfoHash)
+		}
 		f.ImportedFrom = ac
 	}
 	return f

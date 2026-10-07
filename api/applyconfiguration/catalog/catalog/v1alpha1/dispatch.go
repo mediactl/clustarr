@@ -47,6 +47,13 @@ type DispatchApplyConfiguration struct {
 	// records.FactWindow, and incorporates a fact at Seq whatever the phase
 	// (§4.10, §5.9). Incorporating it clears Withdrawn.
 	Withdrawn *bool `json:"withdrawn,omitempty"`
+	// Destination is the durable, pool or engine instance the task went to
+	// (ADR-0019 §8.3).
+	Destination *string `json:"destination,omitempty"`
+	// Delivery is what the manager knows about the task between publish
+	// and answer. Written on transitions only (ADR-0019 §8.3), never per
+	// nak.
+	Delivery *DeliveryStateApplyConfiguration `json:"delivery,omitempty"`
 }
 
 // DispatchApplyConfiguration constructs a declarative configuration of the Dispatch type for use with
@@ -84,5 +91,21 @@ func (b *DispatchApplyConfiguration) WithDispatchedAt(value v1.Time) *DispatchAp
 // If called multiple times, the Withdrawn field is set to the value of the last call.
 func (b *DispatchApplyConfiguration) WithWithdrawn(value bool) *DispatchApplyConfiguration {
 	b.Withdrawn = &value
+	return b
+}
+
+// WithDestination sets the Destination field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Destination field is set to the value of the last call.
+func (b *DispatchApplyConfiguration) WithDestination(value string) *DispatchApplyConfiguration {
+	b.Destination = &value
+	return b
+}
+
+// WithDelivery sets the Delivery field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Delivery field is set to the value of the last call.
+func (b *DispatchApplyConfiguration) WithDelivery(value *DeliveryStateApplyConfiguration) *DispatchApplyConfiguration {
+	b.Delivery = value
 	return b
 }

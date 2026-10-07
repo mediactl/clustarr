@@ -41,6 +41,10 @@ type ImportSourceApplyConfiguration struct {
 	ImportedAt *v1.Time `json:"importedAt,omitempty"`
 	// Manual is true when a user imported the file by hand.
 	Manual *bool `json:"manual,omitempty"`
+	// InfoHash is the release's info hash, frozen at import; the search's
+	// current-file check reads it instead of the Download downloadRef named
+	// (ADR-0019 §6.2). Release N backfills it from live Downloads (§10.2).
+	InfoHash *string `json:"infoHash,omitempty"`
 }
 
 // ImportSourceApplyConfiguration constructs a declarative configuration of the ImportSource type for use with
@@ -94,5 +98,13 @@ func (b *ImportSourceApplyConfiguration) WithImportedAt(value v1.Time) *ImportSo
 // If called multiple times, the Manual field is set to the value of the last call.
 func (b *ImportSourceApplyConfiguration) WithManual(value bool) *ImportSourceApplyConfiguration {
 	b.Manual = &value
+	return b
+}
+
+// WithInfoHash sets the InfoHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the InfoHash field is set to the value of the last call.
+func (b *ImportSourceApplyConfiguration) WithInfoHash(value string) *ImportSourceApplyConfiguration {
+	b.InfoHash = &value
 	return b
 }

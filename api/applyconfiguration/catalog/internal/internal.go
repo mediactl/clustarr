@@ -1562,6 +1562,29 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: pendingCount
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DeliveryPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DeliveryState
+  map:
+    fields:
+    - name: attempts
+      type:
+        scalar: numeric
+    - name: deadLetteredAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: lastNakAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: message
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: state
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DeliveryPhase
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DeviceAuth
   map:
     fields:
@@ -1589,6 +1612,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: answeredSeq
       type:
         scalar: numeric
+    - name: delivery
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DeliveryState
+    - name: destination
+      type:
+        scalar: string
     - name: dispatchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -2392,6 +2421,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: indexerName
+      type:
+        scalar: string
+    - name: infoHash
       type:
         scalar: string
     - name: manual

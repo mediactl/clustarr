@@ -123,6 +123,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.DelayProfileSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DelayProfileStatus"):
 		return &catalogv1alpha1.DelayProfileStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DeliveryState"):
+		return &catalogv1alpha1.DeliveryStateApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DeviceAuth"):
 		return &catalogv1alpha1.DeviceAuthApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Dispatch"):
