@@ -152,7 +152,7 @@ func (b *Bus) Ensure(_ context.Context, t events.Topology) error {
 	// stream is not in t.Streams, and the loop above created every stream,
 	// so the lookup is never nil.
 	for _, c := range t.Consumers {
-		b.streams[c.Stream].bindDurable(c.Name, c.Filters, c.MaxAckPending)
+		b.streams[c.Stream].bindDurable(c.Name, c.Filters, c.MaxAckPending, c.Subscription().Timing())
 	}
 	for _, spec := range t.Buckets {
 		if existing, ok := b.buckets[spec.Name]; ok {
@@ -276,7 +276,9 @@ func (b *Bus) ObjectStore(name string) events.ObjectStore {
 // gives its slot back while fewer than sub.MaxInFlight are past theirs
 // (memSub); and the stop function lets running handlers keep their context
 // for up to sub.Drain before cancelling it and waiting for them. Close
-// cancels it at once.
+// cancels it at once. Like natsbus's, it times lapses and settles on the
+// bound durable's AckWait, Backoff and MaxDeliver, not sub's, warning once
+// when they differ (S5).
 func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	h events.Handler,
 ) (func(), error) {
@@ -292,13 +294,12 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	// the subscription's, though it keeps its values.
 	hctx, cancelHandlers := context.WithCancel(context.WithoutCancel(ctx))
 	ms := &memSub{slots: max(sub.MaxInFlight, 1), running: map[*memDelivery]struct{}{}}
-	ackWait := func(attempt uint64) time.Duration { return events.AckDeadline(sub, attempt) }
 	var handlers sync.WaitGroup
 	drained := make(chan struct{})
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		closing := b.consume(loopCtx, hctx, sub, h, ms, &handlers, ackWait)
+		closing := b.consume(loopCtx, hctx, sub, h, ms, &handlers)
 		if !closing && sub.Drain > 0 {
 			b.awaitIdle(&handlers, sub.Drain)
 		}
@@ -443,10 +444,11 @@ func (s *memSub) reclaim(st *stream, durable string, now time.Time) {
 // consume claims into free slots, once sub's durable is bound, until ctx
 // ends (false) or the bus closes (true). Lapsed final deliveries are swept on
 // every pass, with or without a free slot: JetStream gives up on them
-// whatever the client is doing.
+// whatever the client is doing. Every pass reads the bound durable's timing.
 func (b *Bus) consume(ctx, hctx context.Context, sub events.Subscription, h events.Handler,
-	ms *memSub, handlers *sync.WaitGroup, ackWait func(uint64) time.Duration,
+	ms *memSub, handlers *sync.WaitGroup,
 ) bool {
+	warnedSkew := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -466,17 +468,28 @@ func (b *Bus) consume(ctx, hctx context.Context, sub events.Subscription, h even
 			}
 			continue
 		}
+		eff := sub
+		if bound, ok := st.boundTiming(sub.Durable); ok {
+			eff = sub.WithTiming(bound)
+			if declared := sub.Timing(); !warnedSkew && !declared.Equal(bound) {
+				warnedSkew = true
+				logging.FromContext(ctx).Warn("bus: the durable's timing differs from this process's; using the durable's (version skew?)",
+					"stream", sub.Stream, "durable", sub.Durable,
+					"declared", fmt.Sprintf("%+v", declared), "bound", fmt.Sprintf("%+v", bound))
+			}
+		}
+		ackWait := func(attempt uint64) time.Duration { return events.AckDeadline(eff, attempt) }
 		now := b.clock.Now()
-		b.deadLetterLapsed(ctx, st, sub, ackWait)
+		b.deadLetterLapsed(ctx, st, eff, ackWait)
 		ms.reclaim(st, sub.Durable, now)
 		if ms.acquire() {
-			if m := st.claim(sub.Durable, sub.Filters, now, ackWait, sub.MaxDeliver); m != nil {
+			if m := st.claim(sub.Durable, sub.Filters, now, ackWait, eff.MaxDeliver); m != nil {
 				d := ms.track(m, st.attemptOf(m, sub.Durable))
 				handlers.Add(1)
 				go func() {
 					defer handlers.Done()
 					defer ms.finish(d)
-					b.deliver(hctx, st, sub, h, m, ackWait, func() bool { return ms.isLapsed(d) })
+					b.deliver(hctx, st, eff, h, m, ackWait, func() bool { return ms.isLapsed(d) })
 				}()
 				continue
 			}

@@ -99,7 +99,7 @@ type subscription struct {
 	bus   *Bus
 	sub   events.Subscription
 	slots int
-	run   func(ctx context.Context, m jetstream.Msg, h deliveryHooks)
+	run   func(ctx context.Context, eff events.Subscription, m jetstream.Msg, h deliveryHooks)
 
 	loopCtx        context.Context
 	stopLoop       context.CancelFunc
@@ -111,6 +111,10 @@ type subscription struct {
 
 	mu       sync.Mutex
 	stopping bool
+	// timing is the bound durable's, as the broker stores it: deadlines,
+	// delayed naks and Settle read it, not the caller's sub (S5). It is the
+	// caller's until the first bind.
+	timing   events.Timing
 	running  map[*delivery]struct{}
 	live     int           // running deliveries not lapsed: they hold the slots
 	lapsed   int           // running deliveries past their deadline: at most slots
@@ -129,10 +133,10 @@ type deliveryHooks struct {
 }
 
 func newSubscription(ctx context.Context, b *Bus, sub events.Subscription,
-	run func(context.Context, jetstream.Msg, deliveryHooks),
+	run func(context.Context, events.Subscription, jetstream.Msg, deliveryHooks),
 ) *subscription {
 	s := &subscription{
-		bus: b, sub: sub, slots: max(sub.MaxInFlight, 1), run: run,
+		bus: b, sub: sub, slots: max(sub.MaxInFlight, 1), run: run, timing: sub.Timing(),
 		hard: make(chan struct{}), drained: make(chan struct{}),
 		running: map[*delivery]struct{}{}, wake: make(chan struct{}, 1),
 	}
@@ -176,11 +180,12 @@ func (s *subscription) pullLoop() {
 	var cons jetstream.Consumer
 	for ctx.Err() == nil {
 		if cons == nil {
-			c, err := s.bus.bindConsumer(ctx, s.sub.Stream, s.sub.Durable)
+			c, bound, err := s.bus.bindConsumer(ctx, s.sub.Stream, s.sub.Durable)
 			if err != nil {
 				return
 			}
 			cons = c
+			s.bindTiming(ctx, bound)
 		}
 		n := s.next()
 		if n == 0 {
@@ -208,6 +213,29 @@ func (s *subscription) pullLoop() {
 			}
 		}
 	}
+}
+
+// bindTiming stores the bound durable's timing and warns, once per bind, when
+// it differs from what this process was compiled with (split §9.2 as amended
+// 2026-10-07, S5; research D5).
+func (s *subscription) bindTiming(ctx context.Context, bound events.Timing) {
+	s.mu.Lock()
+	s.timing = bound
+	s.mu.Unlock()
+	if declared := s.sub.Timing(); !declared.Equal(bound) {
+		logging.FromContext(ctx).Warn("bus: the durable's timing differs from this process's; using the durable's (version skew?)",
+			"stream", s.sub.Stream, "durable", s.sub.Durable,
+			"declared_ack_wait", declared.AckWait, "declared_backoff", declared.Backoff,
+			"declared_max_deliver", declared.MaxDeliver,
+			"bound_ack_wait", bound.AckWait, "bound_backoff", bound.Backoff,
+			"bound_max_deliver", bound.MaxDeliver)
+	}
+}
+
+// effectiveLocked is the caller's subscription with the bound durable's
+// timing. The caller holds s.mu.
+func (s *subscription) effectiveLocked() events.Subscription {
+	return s.sub.WithTiming(s.timing)
 }
 
 // fetch asks for n messages and dispatches each as it arrives. Its request
@@ -253,13 +281,14 @@ func (s *subscription) dispatch(m jetstream.Msg) {
 }
 
 func (s *subscription) startLocked(m jetstream.Msg, seq, attempt uint64) {
-	d := &delivery{seq: seq, attempt: attempt, deadline: time.Now().Add(events.AckDeadline(s.sub, attempt))}
+	eff := s.effectiveLocked()
+	d := &delivery{seq: seq, attempt: attempt, deadline: time.Now().Add(events.AckDeadline(eff, attempt))}
 	s.running[d] = struct{}{}
 	s.live++
 	s.handlers.Add(1)
 	go func() {
 		defer s.handlers.Done()
-		s.run(s.handlerCtx, m, deliveryHooks{
+		s.run(s.handlerCtx, eff, m, deliveryHooks{
 			onProgress: func() { s.progress(d) },
 			lapsed:     func() bool { s.mu.Lock(); defer s.mu.Unlock(); return d.lapsed },
 		})
@@ -287,7 +316,7 @@ func (s *subscription) progress(d *delivery) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !d.lapsed {
-		d.deadline = time.Now().Add(events.AckDeadline(s.sub, d.attempt))
+		d.deadline = time.Now().Add(events.AckDeadline(s.effectiveLocked(), d.attempt))
 	}
 }
 

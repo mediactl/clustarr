@@ -285,11 +285,13 @@ func publishError(top events.Topology, subject string, err error) error {
 // it. It never creates or updates consumer config, for the durable or for its
 // dead-letter watcher: both are topology objects the manager's EnsureTopology
 // creates (spec §5.9), so an older process cannot revert a newer topology,
-// and sub's tuning other than MaxInFlight, Backoff and Drain is the
-// topology's, not the caller's. It returns at once; the subscription binds
-// the durable and its watcher when they exist, waiting while either is
-// missing, and binds them again if they disappear while it runs, as a NATS
-// restart wipes a memory-backed stream.
+// and sub's tuning other than MaxInFlight and Drain is the topology's, not the
+// caller's: lapses, delayed naks and Settle read the bound durable's AckWait,
+// Backoff and MaxDeliver, with a warning per bind when they differ from sub's
+// (S5). It returns at once; the subscription binds the durable and its
+// watcher when they exist, waiting while either is missing, and binds them
+// again if they disappear while it runs, as a NATS restart wipes a
+// memory-backed stream.
 //
 // Slots. Up to sub.MaxInFlight handlers run at once (one when it is unset),
 // as on membus, each on its own goroutine, and the subscription fetches only
@@ -316,8 +318,8 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, events.ErrClosed
 	}
 
-	s := newSubscription(ctx, b, sub, func(hctx context.Context, m jetstream.Msg, dh deliveryHooks) {
-		b.handle(hctx, sub, h, m, dh)
+	s := newSubscription(ctx, b, sub, func(hctx context.Context, eff events.Subscription, m jetstream.Msg, dh deliveryHooks) {
+		b.handle(hctx, eff, h, m, dh)
 	})
 	b.mu.Lock()
 	if b.closed {

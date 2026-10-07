@@ -116,11 +116,13 @@ type stream struct {
 }
 
 // durableState is what Ensure (or Pull) declared for one durable, as far as
-// membus enforces JetStream's consumer config: its filters and its cap on
-// unsettled deliveries across every subscription and puller.
+// membus enforces JetStream's consumer config: its filters, its cap on
+// unsettled deliveries across every subscription and puller, and its timing,
+// which a Subscribe times and settles on instead of its caller's (S5).
 type durableState struct {
 	filters       []string
 	maxAckPending int
+	timing        events.Timing
 }
 
 // publish appends a message, honouring deduplication and DiscardNew
@@ -371,10 +373,10 @@ func (s *stream) forgetDurable(durable string) {
 	}
 }
 
-// bindDurable records durable as existing on this stream with its filters
-// and its cap on unsettled deliveries, as JetStream creates a consumer from
-// Ensure's topology or on a Pull.
-func (s *stream) bindDurable(durable string, filters []string, maxAckPending int) {
+// bindDurable records durable as existing on this stream with its filters,
+// its cap on unsettled deliveries and its timing, as JetStream creates a
+// consumer from Ensure's topology or on a Pull.
+func (s *stream) bindDurable(durable string, filters []string, maxAckPending int, timing events.Timing) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.durables == nil {
@@ -383,7 +385,16 @@ func (s *stream) bindDurable(durable string, filters []string, maxAckPending int
 	s.durables[durable] = durableState{
 		filters:       append([]string(nil), filters...),
 		maxAckPending: max(maxAckPending, 1),
+		timing:        timing,
 	}
+}
+
+// boundTiming is durable's timing as bound, false when durable is not bound.
+func (s *stream) boundTiming(durable string) (events.Timing, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.durables[durable]
+	return d.timing, ok
 }
 
 // unsettledLocked counts durable's deliveries neither acknowledged nor

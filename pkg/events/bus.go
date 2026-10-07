@@ -183,6 +183,52 @@ func AckDeadline(s Subscription, attempt uint64) time.Duration {
 	return DefaultAckWait
 }
 
+// Timing is how the broker times a durable's deliveries: the three numbers a
+// subscriber's lapse reaper, its delayed naks and Settle read. A subscription
+// takes them from the durable it binds, not from its caller's compiled copy,
+// so an older agent on a newer topology times and settles on the broker's
+// numbers (split §9.2 and §9.3 as amended 2026-10-07, S5).
+type Timing struct {
+	AckWait    time.Duration
+	Backoff    []time.Duration
+	MaxDeliver int
+}
+
+// Timing returns s's AckWait, Backoff and MaxDeliver.
+func (s Subscription) Timing() Timing {
+	return Timing{
+		AckWait:    s.AckWait,
+		Backoff:    append([]time.Duration(nil), s.Backoff...),
+		MaxDeliver: s.MaxDeliver,
+	}
+}
+
+// WithTiming returns a copy of s with t's AckWait, Backoff and MaxDeliver.
+func (s Subscription) WithTiming(t Timing) Subscription {
+	s.AckWait = t.AckWait
+	s.Backoff = append([]time.Duration(nil), t.Backoff...)
+	s.MaxDeliver = t.MaxDeliver
+	return s
+}
+
+// Equal compares what AckDeadline derives for attempts 1..len(Backoff)+1, and
+// MaxDeliver, so an AckWait the broker replaced with Backoff[0] is no skew. A
+// MaxDeliver of zero or less is unlimited either way: the broker stores -1
+// for the 0 a spec leaves unset.
+func (t Timing) Equal(u Timing) bool {
+	if max(t.MaxDeliver, 0) != max(u.MaxDeliver, 0) {
+		return false
+	}
+	ts := Subscription{AckWait: t.AckWait, Backoff: t.Backoff}
+	us := Subscription{AckWait: u.AckWait, Backoff: u.Backoff}
+	for attempt := uint64(1); attempt <= uint64(max(len(t.Backoff), len(u.Backoff))+1); attempt++ {
+		if AckDeadline(ts, attempt) != AckDeadline(us, attempt) {
+			return false
+		}
+	}
+	return true
+}
+
 // Subscriber reads messages from a stream through a durable pull consumer.
 type Subscriber interface {
 	// Subscribe binds to the durable s names, which the topology declares and

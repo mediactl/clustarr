@@ -57,7 +57,7 @@ func (b *Bus) Pull(_ context.Context, s events.Subscription) (events.Puller, err
 	if st == nil {
 		return nil, fmt.Errorf("membus: stream %s not ensured: %w", s.Stream, events.ErrStreamNotFound)
 	}
-	st.bindDurable(s.Durable, s.Filters, cmp.Or(s.MaxAckPending, max(s.MaxInFlight, 1)))
+	st.bindDurable(s.Durable, s.Filters, cmp.Or(s.MaxAckPending, max(s.MaxInFlight, 1)), s.Timing())
 	return &puller{
 		bus:     b,
 		stream:  st,

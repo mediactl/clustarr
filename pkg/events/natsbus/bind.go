@@ -25,6 +25,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -37,16 +38,19 @@ const (
 )
 
 // bindConsumer looks durable up on stream and waits while it is missing. It
-// never creates or updates it. The error is ctx's.
-func (b *Bus) bindConsumer(ctx context.Context, stream, durable string) (jetstream.Consumer, error) {
+// never creates or updates it. Beside the consumer it returns the durable's
+// timing as the broker stores it, which a subscription times and settles on
+// (S5). The error is ctx's.
+func (b *Bus) bindConsumer(ctx context.Context, stream, durable string) (jetstream.Consumer, events.Timing, error) {
 	var warned time.Time
 	for {
 		c, err := b.js.Consumer(ctx, stream, durable)
 		if err == nil {
-			return c, nil
+			cfg := c.CachedInfo().Config
+			return c, events.Timing{AckWait: cfg.AckWait, Backoff: cfg.BackOff, MaxDeliver: cfg.MaxDeliver}, nil
 		}
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, events.Timing{}, ctx.Err()
 		}
 		if time.Since(warned) >= bindWarnEvery {
 			logging.FromContext(ctx).Warn("bus: waiting for a durable the manager creates",
@@ -55,7 +59,7 @@ func (b *Bus) bindConsumer(ctx context.Context, stream, durable string) (jetstre
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, events.Timing{}, ctx.Err()
 		case <-time.After(bindPoll):
 		}
 	}

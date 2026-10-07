@@ -92,7 +92,7 @@ func (b *Bus) runWatcher(ctx context.Context, sub events.Subscription) {
 	var cons jetstream.Consumer
 	for ctx.Err() == nil {
 		if cons == nil {
-			c, err := b.bindConsumer(ctx, events.StreamAdvisories, name)
+			c, _, err := b.bindConsumer(ctx, events.StreamAdvisories, name)
 			if err != nil {
 				return
 			}
