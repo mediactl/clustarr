@@ -20,8 +20,7 @@ package downloads
 // The downloads stage's grants (ADR-0019 A3.5 step 7): the eight item kinds
 // it plans, their status (the catalog apply) and finalizers
 // (download.clustarr.io/transfers); the DownloadClients and Indexers it
-// reads; the MediaFiles it materialises and deletes (A3.8) and the
-// AudioGrafts it applies until F7.1 (R26); and its Events.
+// reads; the MediaFiles it materialises and deletes (A3.8); and its Events.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;albums;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;episodes/status;albums/status;books/status;audiobooks/status;comics/status;issues/status,verbs=get;update;patch
@@ -29,5 +28,4 @@ package downloads
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch;create;patch;update
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch

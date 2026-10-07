@@ -314,8 +314,9 @@ func (d *decider) importStep(e *catalogv1alpha1.DownloadEntry) bool {
 
 // filesLanded reports whether every MediaFile an import placed names its
 // entry: want of them, counted have. An import that places no library file
-// (an audio donor, which names its AudioGraft instead) has none to wait for;
-// importplan says imported only once its AudioGraft names the donor.
+// (an audio donor, whose reduced audio the item's status.audio.donor
+// records instead) has none to wait for: importplan says imported once the
+// execute record names the reduced donor.
 func filesLanded(want int32, have int) bool {
 	return want <= 0 || have >= int(want)
 }

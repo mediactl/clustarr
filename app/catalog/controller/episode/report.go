@@ -22,14 +22,11 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -51,15 +48,6 @@ func downloadView(ctx context.Context, ep *catalogv1alpha1.Episode, s *catalogv1
 		}
 	}
 	return rollup.ActiveEntry(covering, nil), rollup.DonorEntryOpen(covering, nil)
-}
-
-// audioGraft is ep's AudioGraft, nil when it has none.
-func (r *Reconciler) audioGraft(ctx context.Context, ep *catalogv1alpha1.Episode) (*transcodev1alpha1.AudioGraft, error) {
-	var g transcodev1alpha1.AudioGraft
-	if err := r.Get(ctx, client.ObjectKey{Namespace: ep.Namespace, Name: k8s.AudioGraftName(ep.Name)}, &g); err != nil {
-		return nil, client.IgnoreNotFound(err)
-	}
-	return &g, nil
 }
 
 // publishFile publishes one MediaFileEvent for ep. It is best effort -- the

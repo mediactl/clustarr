@@ -39,7 +39,6 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -63,7 +62,6 @@ const (
 	movieByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/finalizers,verbs=update
@@ -134,15 +132,12 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 
 // Watches is the Movie's item path on the remediation loop (loop spec
 // §3.12; S2, S9, S10): every watch that wakes a Movie except its files',
-// which the loop's file signature (S1') wakes it for. The AudioGraft watch
-// stays until F7.3 retires the kind (S23).
+// which the loop's file signature (S1') wakes it for -- its file's graft
+// block included (loop spec §2.14: status.audio.graft reads the file's
+// status.graft, not an AudioGraft).
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Movie{}, Map: rollup.Self, Predicates: []predicate.Predicate{moviePredicate()}},
-		{
-			Object: &transcodev1alpha1.AudioGraft{}, Map: rollup.ItemOfAudioGraft(commonv1.MediaKindMovie),
-			Predicates: []predicate.Predicate{k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState))},
-		},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
 }
@@ -476,10 +471,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	}
 
 	dl, donorOpen := activeDownload(ctx, m)
-	ag, err := r.audioGraft(ctx, m)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	graft := rollup.ObserveGraft(m.Status.Audio, itempass.Donors(itempass.From(ctx)), mf, donorOpen)
 	// The overlay only decides the phase. Whether the ref is set is
 	// rollup.DownloadNonTerminal's call, made inside activeDownload, and the
 	// two differ on purpose for Completed and Seeding: see its doc comment.
@@ -495,7 +487,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		WithHasFile(hasFile).
 		WithFileFormatScore(fileFormatScore).
 		WithCutoffMet(cutoffMet)
-	if a := rollup.AudioStateFor(profile, originalTag, mf, rollup.GraftObservation{DonorDownloading: donorOpen, Graft: ag}); a != nil {
+	if a := rollup.AudioStateFor(profile, originalTag, mf, graft); a != nil {
 		statusAC = statusAC.WithAudio(rollup.AudioStateAC(a))
 	}
 	if fileRef != nil {

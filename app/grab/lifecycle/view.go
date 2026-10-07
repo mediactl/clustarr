@@ -272,24 +272,13 @@ type ApplyMediaFile struct {
 	From      catalogv1alpha1.ImportSource
 }
 
-// AudioGraftApply applies a donor's AudioGraft (R26, until F7.1): Item is
-// the Episode or Movie the donor is for, Languages the languages it
-// grafts, Release the donor release's title; OldDonorPath is the donor the
-// AudioGraft named before, whose files go.
-type AudioGraftApply struct {
-	Item                       schema.ItemRef
-	DonorPath, Anchor, Default string
-	Languages                  []string
-	Release                    string
-	OldDonorPath               string
-}
-
 // Materialise is one MediaFile apply, one replaced MediaFile's delete, or
-// one AudioGraft apply.
+// the files a superseded audio donor leaves (Remove: its placed payload and
+// its reduced audio), which the manager removes (fsops.SafeRemove).
 type Materialise struct {
-	Apply      *ApplyMediaFile
-	Delete     *schema.MediaFileBasis
-	AudioGraft *AudioGraftApply
+	Apply  *ApplyMediaFile
+	Delete *schema.MediaFileBasis
+	Remove []string
 }
 
 // ImportDecision is importplan's decision for one Completed entry.

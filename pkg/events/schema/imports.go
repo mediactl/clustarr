@@ -47,6 +47,10 @@ const (
 	ImportRefusedOverwrite = "overwrite"
 	// ImportRefusedOutsideRoot: a destination is outside the RootFolder.
 	ImportRefusedOutsideRoot = "outsideRoot"
+	// ImportRefusedDonorLacksLanguage: the placed donor, reduced to its
+	// audio, lacks the anchor or a missing language (the demuxer read its
+	// tags otherwise than the inspect's probe did): the release's fault.
+	ImportRefusedDonorLacksLanguage = "donorLacksLanguage"
 )
 
 // ImportInspectTask asks the import agent to read a completed transfer's
@@ -124,12 +128,17 @@ type ImportMove struct {
 	Frozen        FrozenFields `json:"frozen"`
 }
 
-// DonorPlan places an audio donor's payload for reduction: Source at Dest,
-// under Dir (the item's donor folder).
+// DonorPlan places an audio donor's payload at Dest, under Dir (the item's
+// donor folder), and reduces it there to the audio a graft needs (loop spec
+// §4.12): Anchor's track (the item's original language) and each of
+// Languages (the item's status.audio.missing), as <stem>.mka, which the
+// execution reports as DonorPath.
 type DonorPlan struct {
-	Source string `json:"source"`
-	Dir    string `json:"dir"`
-	Dest   string `json:"dest,omitempty"`
+	Source    string   `json:"source"`
+	Dir       string   `json:"dir"`
+	Dest      string   `json:"dest,omitempty"`
+	Anchor    string   `json:"anchor,omitempty"`
+	Languages []string `json:"languages,omitempty"`
 }
 
 // ProbeSummary is what an inspect reports of a file's probe: enough for the
@@ -217,8 +226,8 @@ type PlacedFile struct {
 }
 
 // ImportExecution is an execute task's answer: what it placed, or why it
-// refused (ImportRefused*), the files it recycled and a reduced donor's
-// path.
+// refused (ImportRefused*), the files it recycled and a donor's reduced
+// audio (<stem>.mka): the path the item's status.audio.donor records.
 type ImportExecution struct {
 	Placed    []PlacedFile `json:"placed,omitempty"`
 	Refused   string       `json:"refused,omitempty"`

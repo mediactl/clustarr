@@ -45,7 +45,6 @@ import (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles;delayprofiles;mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 
 // Options is what the grab stage reads.
 type Options struct {

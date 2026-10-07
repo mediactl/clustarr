@@ -18,43 +18,53 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rollup
 
 import (
-	"context"
 	"slices"
-	"strconv"
 	"strings"
-
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
-// AudioStateFor is status.audio (anime dual-audio spec §5.3): the profile's
-// wanted audio languages resolved to tags ("original" to originalTag, an
-// unknown one dropped), the file's probed ones, and what is missing -- only
-// when every probed track is known, since an untagged track may be the
-// wanted language. While the profile grafts, Graft follows the item's donor
-// and AudioGraft (graftState). Nil when there is no file or no audio policy.
+// ReasonMultiItemFile is status.audio.reason when the item's file backs
+// several items (spec.mediaRef.keys): such a file is never grafted (loop
+// spec §2.6, D10).
+const ReasonMultiItemFile = "MultiItemFile"
+
+// GraftObservation is what the item's key sees of a graft (loop spec §2.14):
+// an open donor entry, the donor it recorded, the releases it rejected, its
+// file's status.graft, and whether that file backs several items.
+type GraftObservation struct {
+	DonorDownloading bool
+	Donor            *catalogv1alpha1.AudioDonor
+	Rejected         []string
+	File             *catalogv1alpha1.GraftState
+	MultiItem        bool
+}
+
+// AudioStateFor is status.audio (anime dual-audio spec §5.3; loop spec
+// §2.6, §2.14): the profile's wanted audio languages resolved to tags
+// ("original" to originalTag, an unknown one dropped), the file's probed
+// ones, and what is missing -- only when every probed track is known, since
+// an untagged track may be the wanted language. While the profile grafts,
+// Graft follows the item's donor and its file's status.graft (graftState).
+// With no file or no audio policy it carries only the donor and the
+// rejected releases, and is nil when there are none either.
 func AudioStateFor(p *quality.Profile, originalTag string, mf *catalogv1alpha1.MediaFile, g GraftObservation) *catalogv1alpha1.AudioState {
-	if p == nil || len(p.AudioLanguages) == 0 || mf == nil {
-		return nil
-	}
-	st := &catalogv1alpha1.AudioState{}
-	for _, l := range p.AudioLanguages {
-		if l == "original" {
-			l = originalTag
+	policy := p != nil && len(p.AudioLanguages) > 0
+	if mf == nil || !policy {
+		if g.Donor == nil && len(g.Rejected) == 0 {
+			return nil
 		}
-		if t, ok := lang.Normalize(l); ok && !slices.Contains(st.Wanted, string(t)) {
-			st.Wanted = append(st.Wanted, string(t)) // an English original is wanted once
+		st := &catalogv1alpha1.AudioState{Donor: g.Donor.DeepCopy(), RejectedReleases: slices.Clone(g.Rejected)}
+		if policy {
+			st.Wanted = wantedTags(p, originalTag)
 		}
+		return st
 	}
+	st := &catalogv1alpha1.AudioState{Wanted: wantedTags(p, originalTag), Donor: g.Donor.DeepCopy(), RejectedReleases: slices.Clone(g.Rejected)}
 	st.Present = ProbedAudioLanguages(mf)
 	if st.Present != nil {
 		base := func(t string) string { b, _, _ := strings.Cut(t, "-"); return strings.ToLower(b) }
@@ -72,57 +82,68 @@ func AudioStateFor(p *quality.Profile, originalTag string, mf *catalogv1alpha1.M
 		}
 	}
 	if p.AudioGraft {
-		st.Graft, st.Reason = graftState(len(st.Missing) > 0, g)
+		st.Graft, st.Reason = graftState(len(st.Missing) > 0, g, mf.Status.GraftTag)
 	}
 	return st
 }
 
-// GraftObservation is what the item's reconciler sees of a graft: an open
-// donor Download of the item, and the item's AudioGraft (nil: none).
-type GraftObservation struct {
-	DonorDownloading bool
-	Graft            *transcodev1alpha1.AudioGraft
+// wantedTags is the profile's audio languages as tags: "original" is
+// originalTag, an unknown one is dropped, each once (an English original is
+// wanted once).
+func wantedTags(p *quality.Profile, originalTag string) []string {
+	var out []string
+	for _, l := range p.AudioLanguages {
+		if l == "original" {
+			l = originalTag
+		}
+		if t, ok := lang.Normalize(l); ok && !slices.Contains(out, string(t)) {
+			out = append(out, string(t))
+		}
+	}
+	return out
 }
 
-// graftState is status.audio.graft (anime dual-audio spec §6, §9) and, when
-// failed, why: searching while languages are missing and nothing is under
-// way (the wanted sweep's donor search); grabbed while a donor downloads;
-// pending while the graft waits or runs, aligned once it has aligned;
-// failed after a failure; done once a graft has left nothing missing.
-func graftState(missing bool, g GraftObservation) (string, string) {
-	a := g.Graft
+// graftState is status.audio.graft (anime dual-audio spec §6, §9; loop spec
+// §2.14) and, when failed, why: searching while languages are missing and
+// nothing is under way (the wanted sweep's donor search); grabbed while a
+// donor downloads; pending while the file's graft waits or runs, aligned
+// once it has aligned; failed after a failure, and for a file that backs
+// several items; done once a graft has left nothing missing.
+func graftState(missing bool, g GraftObservation, graftTag string) (string, string) {
+	b := g.File
 	if !missing {
-		if a != nil && a.Status.Phase == transcodev1alpha1.AudioGraftSucceeded && a.Status.GraftTag != "" {
-			return "done", ""
-		}
-		if a != nil && a.Status.Phase == transcodev1alpha1.AudioGraftSucceeded && a.Status.Reason == "Grafted" {
+		if graftTag != "" || b != nil && b.Phase == catalogv1alpha1.GraftPhaseSucceeded && b.Reason == grafted {
 			return "done", ""
 		}
 		return "none", ""
 	}
-	if g.DonorDownloading {
+	switch {
+	case g.MultiItem:
+		return "failed", ReasonMultiItemFile
+	case g.DonorDownloading:
 		return "grabbed", ""
-	}
-	if a == nil {
+	case b == nil && g.Donor == nil:
 		return "searching", ""
-	}
-	switch a.Status.Phase {
-	case transcodev1alpha1.AudioGraftFailed:
-		reason := a.Status.Reason
-		if a.Status.Message != "" {
-			reason += ": " + a.Status.Message
+	case b == nil:
+		return "pending", ""
+	case b.Phase == catalogv1alpha1.GraftPhaseFailed:
+		reason := b.Reason
+		if b.Message != "" {
+			reason += ": " + b.Message
 		}
-		if len(reason) > 1024 {
-			reason = reason[:1024]
+		if len(reason) > catalogv1alpha1.MaxAudioReasonLength {
+			reason = reason[:catalogv1alpha1.MaxAudioReasonLength]
 		}
 		return "failed", strings.ToValidUTF8(reason, "")
-	case transcodev1alpha1.AudioGraftRunning:
-		if len(a.Status.Segments) > 0 {
-			return "aligned", ""
-		}
+	case b.Phase == catalogv1alpha1.GraftPhaseRunning && len(b.Segments) > 0:
+		return "aligned", ""
 	}
 	return "pending", ""
 }
+
+// grafted is the reason of a graft that swapped the file (grafttask's
+// ReasonGrafted, which this package does not import).
+const grafted = "Grafted"
 
 // AudioStateAC renders status.audio, the one renderer the Movie and Episode
 // reconcilers (the loop's item keys after F4.2) share for their happy paths
@@ -165,25 +186,4 @@ func AudioStateAC(a *catalogv1alpha1.AudioState) *catalogac.AudioStateApplyConfi
 // audioText is s safe to apply and within maxBytes.
 func audioText(s string, maxBytes int) string {
 	return k8s.ClampText(k8s.SanitizeText(s), maxBytes)
-}
-
-// ItemOfAudioGraft maps an AudioGraft to its item of kind, for the Episode
-// and Movie watches that keep status.audio.graft current.
-func ItemOfAudioGraft(kind commonv1.MediaKind) func(context.Context, client.Object) []reconcile.Request {
-	return func(_ context.Context, o client.Object) []reconcile.Request {
-		g, ok := o.(*transcodev1alpha1.AudioGraft)
-		if !ok || g.Spec.ItemRef.Kind != kind || g.Spec.ItemRef.Name == "" {
-			return nil
-		}
-		return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: g.Namespace, Name: g.Spec.ItemRef.Name}}}
-	}
-}
-
-// AudioGraftState is what of an AudioGraft's status moves graftState.
-func AudioGraftState(o client.Object) string {
-	g, ok := o.(*transcodev1alpha1.AudioGraft)
-	if !ok {
-		return ""
-	}
-	return string(g.Status.Phase) + "|" + g.Status.Reason + "|" + g.Status.GraftTag + "|" + strconv.Itoa(len(g.Status.Segments))
 }

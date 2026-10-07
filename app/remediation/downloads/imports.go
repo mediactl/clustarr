@@ -20,8 +20,6 @@ package downloads
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -30,10 +28,9 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/import/importplan"
@@ -42,7 +39,6 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
@@ -277,19 +273,18 @@ func originalLanguageOf(o client.Object) string {
 }
 
 // donorItem reads the Episode or Movie a donor entry is for, its audio
-// state and its AudioGraft; nil when it is gone.
+// state and the donor it records (status.audio.donor, which a newer donor
+// replaces); nil when it is gone.
 func (s *Stage) donorItem(ctx context.Context, ow owner, targets []schema.ItemRef, p *quality.Profile) (*importplan.DonorItem, error) {
 	ns := ow.ref.Namespace
 	d := &importplan.DonorItem{Original: originalLanguageOf(ow.obj)}
 	if p != nil {
 		d.AudioDefault = p.AudioDefault
 	}
+	var audio *catalogv1alpha1.AudioState
 	switch t := ow.obj.(type) {
 	case *catalogv1alpha1.Movie:
-		d.Item = ow.ref
-		if t.Status.Audio != nil {
-			d.Missing = t.Status.Audio.Missing
-		}
+		d.Item, audio = ow.ref, t.Status.Audio
 	case *catalogv1alpha1.Series:
 		if len(targets) == 0 || targets[0].Kind != "Episode" {
 			return nil, nil
@@ -299,19 +294,43 @@ func (s *Stage) donorItem(ctx context.Context, ow owner, targets []schema.ItemRe
 			return nil, client.IgnoreNotFound(err)
 		}
 		d.Item = schema.ItemRef{Kind: "Episode", Ref: schema.Ref{Namespace: ns, Name: ep.Name, UID: string(ep.UID)}}
-		if ep.Status.Audio != nil {
-			d.Missing = ep.Status.Audio.Missing
-		}
+		audio = ep.Status.Audio
 	default:
 		return nil, nil
 	}
-	var g transcodev1alpha1.AudioGraft
-	if err := s.o.Reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: k8s.AudioGraftName(d.Item.Name)}, &g); err == nil {
-		d.GraftDonor = g.Spec.DonorPath
-	} else if client.IgnoreNotFound(err) != nil {
-		return nil, fmt.Errorf("downloads: AudioGraft of %s: %w", d.Item.Name, err)
+	if audio != nil {
+		d.Missing = audio.Missing
+		if audio.Donor != nil {
+			d.RecordedDonor = audio.Donor.Path
+		}
 	}
 	return d, nil
+}
+
+// importedDonors are the audio donors entries delivered (loop spec §2.6;
+// ADR-0019 F7.1): each audioDonor entry whose import finished and whose
+// execute record in clustarr-imports names the reduced audio, as the
+// item's status.audio.donor would record it. nil when there is none, so
+// the item keeps the donor it recorded.
+func (s *Stage) importedDonors(ctx context.Context, entries []catalogv1alpha1.DownloadEntry) ([]catalogv1alpha1.AudioDonor, error) {
+	var out []catalogv1alpha1.AudioDonor
+	for i := range entries {
+		e := &entries[i]
+		if !rollup.IsDonor(e) || e.Import == nil || e.Import.Phase != catalogv1alpha1.ImportPhaseImported || e.Import.ImportedAt == nil {
+			continue
+		}
+		rec, _, ok, err := s.imports.Get(ctx, agentrecords.ImportKey(e.UID, schema.ImportSubExecute))
+		if err != nil {
+			return nil, fmt.Errorf("downloads: execute record of %s: %w", e.ID, err)
+		}
+		if !ok || rec.Execute == nil || rec.Execute.DonorPath == "" {
+			continue // the record is gone: the item keeps the donor it recorded
+		}
+		out = append(out, catalogv1alpha1.AudioDonor{
+			Path: rec.Execute.DonorPath, Release: e.Release.Title, DownloadRef: e.ID, ImportedAt: *e.Import.ImportedAt.DeepCopy(),
+		})
+	}
+	return out, nil
 }
 
 // importEffects renders the plan's import dispatches as DispatchPublish
@@ -358,7 +377,8 @@ func (s *Stage) importEffects(ow owner, v lifecycle.View, plan lifecycle.Plan) [
 
 // materialise renders the plan's MediaFile applies (under import-worker,
 // through the item path's SpecWriter), the replaced MediaFiles' deletes
-// with UID preconditions (W22 had none), and a donor's AudioGraft (R26).
+// with UID preconditions (W22 had none), and the removal of a donor a newer
+// one superseded (loop spec §2.14).
 func (s *Stage) materialise(ow owner, plan lifecycle.Plan) []remediation.Effect {
 	ns := ow.ref.Namespace
 	var out []remediation.Effect
@@ -373,53 +393,10 @@ func (s *Stage) materialise(ow owner, plan lifecycle.Plan) []remediation.Effect 
 		case m.Delete != nil:
 			mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: m.Delete.Name}}
 			out = append(out, remediation.DeleteObject{Object: mf, UID: types.UID(m.Delete.UID)})
-		case m.AudioGraft != nil:
-			out = append(out, s.audioGraft(ns, *m.AudioGraft)...)
+		}
+		for _, f := range m.Remove {
+			out = append(out, remediation.SafeRemove{Path: f})
 		}
 	}
-	return out
-}
-
-// audioGraft names a placed donor in its item's AudioGraft, owned by the
-// item, under import-worker (donor.go's applyAudioGraft, moved; R26
-// until F7.1), and removes the donor it replaces and the .mka a graft
-// reduced that one to.
-func (s *Stage) audioGraft(ns string, g lifecycle.AudioGraftApply) []remediation.Effect {
-	var out []remediation.Effect
-	if g.OldDonorPath != "" {
-		for _, f := range []string{g.OldDonorPath, strings.TrimSuffix(g.OldDonorPath, filepath.Ext(g.OldDonorPath)) + ".mka"} {
-			if f != g.DonorPath {
-				out = append(out, remediation.SafeRemove{Path: f})
-			}
-		}
-	}
-	name := k8s.AudioGraftName(g.Item.Name)
-	kind := importplan.MediaKindOf(g.Item.Kind)
-	out = append(out, remediation.ApplyObject{Desc: "AudioGraft " + ns + "/" + name, Apply: func(ctx context.Context, c client.Client) error {
-		var owner client.Object = &catalogv1alpha1.Movie{}
-		if kind == commonv1.MediaKindEpisode {
-			owner = &catalogv1alpha1.Episode{}
-		}
-		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: g.Item.Name}, owner); err != nil {
-			return client.IgnoreNotFound(err)
-		}
-		if g.Item.UID != "" && string(owner.GetUID()) != g.Item.UID {
-			return nil // the item was recreated: the donor was for the one before
-		}
-		ref, err := k8s.OwnerReferenceAC(owner, c.Scheme())
-		if err != nil {
-			return err
-		}
-		spec := transcodeac.AudioGraftSpec().
-			WithItemRef(commonv1.MediaRef{Kind: kind, Name: g.Item.Name}).
-			WithDonorPath(g.DonorPath).WithLanguages(g.Languages...).WithAnchor(g.Anchor).
-			WithRelease(g.Release)
-		if g.Default != "" {
-			spec = spec.WithDefault(g.Default)
-		}
-		_, err = k8s.Apply(ctx, c, mediafilespec.FieldManager,
-			transcodeac.AudioGraft(name, ns).WithOwnerReferences(ref).WithSpec(spec))
-		return err
-	}})
 	return out
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/pkg/transcode/donoraudio"
 )
 
 // handleExecute carries out one ImportExecuteTask (ADR-0019 §6.9, step 3):
@@ -45,9 +46,10 @@ import (
 // through the APIReader, must still be the UID and resourceVersion the plan
 // was made against -- then the free space, places each file (containment,
 // a recycle link for an existing destination, never an overwrite), recycles
-// each replaced file, places an audio donor, and writes the record at
-// RecordSubKey(entry, "execute"). No MediaFile, Download or AudioGraft
-// write: the manager materialises what the record says was placed.
+// each replaced file, places an audio donor and reduces it to its audio
+// (loop spec §4.12), and writes the record at RecordSubKey(entry,
+// "execute"). No Kubernetes write: the manager materialises what the record
+// says was placed, and the item key records the reduced donor.
 //
 // It seeds no probe record: the MediaFile, and the UID a probe record is
 // keyed by, do not exist until the manager materialises it, so catalog
@@ -184,9 +186,30 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 			x.Refused = refused
 			return x, why, nil
 		}
-		x.DonorPath = d.Dest
+		// The donor is reduced at import, not at graft (loop spec §4.12): its
+		// video leaves the library now, however long the graft waits.
+		mka, err := w.reduceDonor(ctx, d.Dest, d.Anchor, d.Languages)
+		switch {
+		case errors.Is(err, donoraudio.ErrLacksLanguage):
+			logging.FromContext(ctx).Info("fileimport: the donor lacks a language at reduction", "donor", d.Dest, "error", err)
+			x.Refused = schema.ImportRefusedDonorLacksLanguage
+			return x, err.Error(), nil
+		case err != nil:
+			return nil, fmt.Sprintf("reduce the donor %s to its audio: %v", d.Dest, err), nil
+		}
+		x.DonorPath = mka
+		logging.FromContext(ctx).Info("fileimport: imported an audio donor", "donor", mka, "languages", d.Languages)
 	}
 	return x, "", nil
+}
+
+// reduceDonor is ReduceDonor, else donoraudio.Reduce with the plan's
+// languages required and nothing optional.
+func (w *Worker) reduceDonor(ctx context.Context, src, anchor string, languages []string) (string, error) {
+	if w.ReduceDonor != nil {
+		return w.ReduceDonor(ctx, src, anchor, languages)
+	}
+	return donoraudio.Reduce(ctx, src, anchor, languages, nil)
 }
 
 // place puts src at dest through placeFile: a destination outside the root

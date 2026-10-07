@@ -55,7 +55,8 @@ const HeartbeatInterval = 10 * time.Second
 // The import agent reads only (ADR-0019 W21, W22, W24): the items an
 // import names, their root folders and quality profiles, and the MediaFiles
 // an execute's plan replaces (the basis check). The manager materialises
-// MediaFiles and AudioGrafts.
+// the MediaFiles; a donor is the item's status.audio.donor, which the
+// manager's item key derives from the entry and the execute record.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
@@ -99,6 +100,12 @@ type Worker struct {
 
 	// Pod names the writer on every record; empty is the host name.
 	Pod string
+
+	// ReduceDonor cuts a placed audio donor down to the anchor's and the
+	// missing languages' audio at import (loop spec §4.12): src is the
+	// placed donor, the result its <stem>.mka. Nil is donoraudio.Reduce; a
+	// test may fake it.
+	ReduceDonor func(ctx context.Context, src, anchor string, languages []string) (string, error)
 
 	once sync.Once
 	recs *records.Writer[*schema.ImportRecord]

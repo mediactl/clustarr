@@ -207,6 +207,12 @@ func mergeContribution(into *itempass.Contribution, c itempass.Contribution, sta
 		}
 		into.Viewed, into.Covering, into.ActiveDownloadRef, into.DonorOpen = true, c.Covering, c.ActiveDownloadRef, c.DonorOpen
 	}
+	if c.Donors != nil {
+		if into.Donors != nil {
+			return dup("the imported audio donors")
+		}
+		into.Donors = c.Donors
+	}
 	return nil
 }
 

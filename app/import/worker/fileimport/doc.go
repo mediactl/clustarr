@@ -34,12 +34,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     through the APIReader and refuses a stale plan, checks free space,
 //     places each file (placeFile: strictly under the root folder, an
 //     existing destination recycle-linked first, never an overwrite),
-//     recycles the replaced files and places an audio donor. The answer is
-//     the record at RecordSubKey(entry, "execute").
+//     recycles the replaced files and places an audio donor, reduced at
+//     once to the anchor's and the missing languages' audio as <stem>.mka
+//     (loop spec §4.12; pkg/transcode/donoraudio). The answer is the record
+//     at RecordSubKey(entry, "execute").
 //
 // Neither writes a Kubernetes object: the manager materialises the
-// MediaFiles a placement names (spec under import-worker), deletes the
-// replaced ones with UID preconditions and applies a donor's AudioGraft.
+// MediaFiles a placement names (spec under import-worker) and deletes the
+// replaced ones with UID preconditions; the item key records a donor's
+// reduced audio in the item's status.audio.donor.
 // The scanner-never-guesses rule holds in its import shape: a file the
 // inspect cannot attribute is a rejection naming why, never a speculative
 // MediaFile. A task whose record already holds its seq or a later one is

@@ -145,7 +145,17 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 	}
 	plan := lifecycle.Decide(lv)
 	s.issued.set(plan.Issued)
-	return s.result(ctx, ow, lv, plan), nil
+	res := s.result(ctx, ow, lv, plan)
+	if ow.kind == commonv1.MediaKindMovie {
+		// A Movie's donors are its own entries' (an Episode's are read in its
+		// view, from its Series' entries).
+		donors, err := s.importedDonors(ctx, plan.Entries)
+		if err != nil {
+			return remediation.ItemResult{}, remediation.Transient(err)
+		}
+		res.Contribution.Donors = donors
+	}
+	return res, nil
 }
 
 // needsProviderCheck reports an unclaimed claim whose owner UID differs and
@@ -193,6 +203,13 @@ func (s *Stage) view(ctx context.Context, v *remediation.ItemView) (remediation.
 		return remediation.ItemResult{}, nil
 	}
 	c := itempass.Contribution{Viewed: true, Covering: covering, DonorOpen: rollup.DonorEntryOpen(covering, nil)}
+	if _, ok := v.Item.(*catalogv1alpha1.Episode); ok {
+		donors, err := s.importedDonors(ctx, covering)
+		if err != nil {
+			return remediation.ItemResult{}, remediation.Transient(err)
+		}
+		c.Donors = donors
+	}
 	var phase commonv1.DownloadPhase
 	if a := rollup.ActiveEntry(covering, nil); a != nil {
 		id := a.ID

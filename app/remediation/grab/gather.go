@@ -21,13 +21,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/catalog/grabplan"
@@ -38,7 +38,6 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
@@ -236,15 +235,21 @@ func (s *Stage) candidates(ctx context.Context, item client.Object, g *gathered)
 }
 
 // donorRejected fills the covered item's donors a graft already failed
-// with, from its AudioGraft (until F7.1 folds it into the item).
-func (s *Stage) donorRejected(ctx context.Context, it client.Object, v *grabplan.View) error {
-	var g transcodev1alpha1.AudioGraft
-	if err := s.o.Reader.Get(ctx, client.ObjectKey{Namespace: it.GetNamespace(), Name: k8s.AudioGraftName(it.GetName())}, &g); err != nil {
-		return client.IgnoreNotFound(err)
+// with, from its own status.audio.rejectedReleases (loop spec §2.14).
+func (s *Stage) donorRejected(_ context.Context, it client.Object, v *grabplan.View) error {
+	var audio *catalogv1alpha1.AudioState
+	switch t := it.(type) {
+	case *catalogv1alpha1.Movie:
+		audio = t.Status.Audio
+	case *catalogv1alpha1.Episode:
+		audio = t.Status.Audio
+	}
+	if audio == nil {
+		return nil
 	}
 	for i := range v.Covered {
 		if v.Covered[i].Ref.Name == it.GetName() {
-			v.Covered[i].DonorRejected = g.Status.RejectedReleases
+			v.Covered[i].DonorRejected = slices.Clone(audio.RejectedReleases)
 		}
 	}
 	return nil

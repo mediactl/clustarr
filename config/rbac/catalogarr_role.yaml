@@ -182,12 +182,10 @@ rules:
   - transcode.clustarr.io
   resources:
   - audiografts
+  - transcodeprofiles
   verbs:
-  - create
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - transcode.clustarr.io
@@ -197,12 +195,4 @@ rules:
   - get
   - list
   - patch
-  - watch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodeprofiles
-  verbs:
-  - get
-  - list
   - watch

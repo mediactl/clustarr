@@ -38,7 +38,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
@@ -60,7 +60,6 @@ const (
 	seriesByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/finalizers,verbs=update
@@ -127,15 +126,11 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // Watches is the Episode's item path on the remediation loop (loop spec
 // §3.12; S3, S4, S9, S10): every watch that wakes an Episode except its
 // files'. A Series' Episodes are found through
-// seriesctl.EpisodeBySeriesRefIndex. The AudioGraft watch stays until F7.3
-// (S23).
+// seriesctl.EpisodeBySeriesRefIndex. Its file's graft block wakes it
+// through the file signature (loop spec §2.14).
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Episode{}, Map: rollup.Self, Predicates: []predicate.Predicate{episodePredicate()}},
-		{
-			Object: &transcodev1alpha1.AudioGraft{}, Map: rollup.ItemOfAudioGraft(commonv1.MediaKindEpisode),
-			Predicates: []predicate.Predicate{k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState))},
-		},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 		{Object: &catalogv1alpha1.Series{}, Map: r.mapSeries, Predicates: []predicate.Predicate{seriesMonitoredChanged()}},
 	}
@@ -347,10 +342,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	}
 
 	dl, donorOpen := downloadView(ctx, ep, series)
-	ag, err := r.audioGraft(ctx, ep)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	graft := rollup.ObserveGraft(ep.Status.Audio, itempass.Donors(itempass.From(ctx)), mf, donorOpen)
 	// The overlay decides the phase only; whether the ref is set is
 	// rollup.DownloadNonTerminal's call, made inside activeDownload.
 	overlayPhase, _ := DownloadOverlay(dl)
@@ -418,7 +410,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
 	}
-	if a := rollup.AudioStateFor(profile, originalTag, mf, rollup.GraftObservation{DonorDownloading: donorOpen, Graft: ag}); a != nil {
+	if a := rollup.AudioStateFor(profile, originalTag, mf, graft); a != nil {
 		statusAC = statusAC.WithAudio(rollup.AudioStateAC(a))
 	}
 	if fileQuality != nil {

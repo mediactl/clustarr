@@ -45,6 +45,13 @@ type Contribution struct {
 	Covering          []catalogv1alpha1.DownloadEntry
 	ActiveDownloadRef *string
 	DonorOpen         bool
+
+	// Donors are the audio donors imported for a Movie or Episode, one per
+	// imported audioDonor entry covering it whose execute record names the
+	// reduced audio (loop spec §2.6; ADR-0019 F7.1): the kind keeps the
+	// newest in status.audio.donor (rollup.Donor), carrying its stored donor
+	// forward when none is newer.
+	Donors []catalogv1alpha1.AudioDonor
 }
 
 // Set is one other field manager's complete set on the item (R5): status
@@ -144,6 +151,16 @@ func Donor(p *Pass, fallback bool) bool {
 		return p.Contribution.DonorOpen
 	}
 	return fallback
+}
+
+// Donors are the imported audio donors the downloads stage found this
+// pass; nil outside a staged pass or when it found none, which keeps the
+// stored donor.
+func Donors(p *Pass) []catalogv1alpha1.AudioDonor {
+	if p == nil {
+		return nil
+	}
+	return p.Contribution.Donors
 }
 
 // HasContribution reports that a stage decided something for the catalog

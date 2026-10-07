@@ -24,15 +24,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -45,15 +42,6 @@ import (
 func activeDownload(ctx context.Context, m *catalogv1alpha1.Movie) (*catalogv1alpha1.DownloadEntry, bool) {
 	entries := itempass.Downloads(itempass.From(ctx), m.Status.Downloads)
 	return rollup.ActiveEntry(entries, nil), rollup.DonorEntryOpen(entries, nil)
-}
-
-// audioGraft is m's AudioGraft, nil when it has none.
-func (r *Reconciler) audioGraft(ctx context.Context, m *catalogv1alpha1.Movie) (*transcodev1alpha1.AudioGraft, error) {
-	var g transcodev1alpha1.AudioGraft
-	if err := r.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: k8s.AudioGraftName(m.Name)}, &g); err != nil {
-		return nil, client.IgnoreNotFound(err)
-	}
-	return &g, nil
 }
 
 // publishItem publishes one ItemEvent for m. It is best effort: the event is

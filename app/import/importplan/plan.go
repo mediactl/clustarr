@@ -19,6 +19,9 @@ package importplan
 
 import (
 	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,8 +59,9 @@ type DonorItem struct {
 	Original string
 	// AudioDefault is the profile's audio default.
 	AudioDefault string
-	// GraftDonor is the item's AudioGraft's spec.donorPath, "" for none.
-	GraftDonor string
+	// RecordedDonor is the item's status.audio.donor.path, the donor a newer
+	// one replaces (removed from disk once the newer is placed); "" for none.
+	RecordedDonor string
 }
 
 // Input is one Completed entry's import, as the downloads stage gathered
@@ -409,6 +413,9 @@ func (p *planner) executed(rec *schema.ImportRecord) {
 	case schema.ImportRefusedOverwrite, schema.ImportRefusedOutsideRoot:
 		p.conclude(commonv1.ImportClassNeedsPerson, rec.Failure)
 		return
+	case schema.ImportRefusedDonorLacksLanguage:
+		p.conclude(commonv1.ImportClassReleaseFault, MessageEveryFileRejected+": "+rec.Failure)
+		return
 	default:
 		p.conclude(commonv1.ImportClassTransient, "the import was refused: "+x.Refused)
 		return
@@ -465,33 +472,29 @@ func (p *planner) imported() {
 	}
 }
 
-// materialiseDonor names the placed donor in the item's AudioGraft (R26):
-// imported once the AudioGraft names it.
+// materialiseDonor settles a placed donor (loop spec §2.6, §2.14): there
+// is no library file to materialise -- the item key records the reduced
+// audio the execute reports in the item's status.audio.donor -- so the entry
+// is imported at once, and a donor it supersedes (the item's recorded one)
+// is removed from disk with the audio a graft reduced it to.
 func (p *planner) materialiseDonor(x *schema.ImportExecution) {
 	d := p.in.Donor
 	if d == nil || x.DonorPath == "" {
 		p.conclude(commonv1.ImportClassItemState, "the donor's item is gone")
 		return
 	}
-	anchor, _ := lang.Normalize(d.Original)
-	def := d.AudioDefault
-	if def == "original" {
-		def = ""
+	if old := d.RecordedDonor; old != "" && old != x.DonorPath {
+		var gone []string
+		for _, f := range []string{old, strings.TrimSuffix(old, filepath.Ext(old)) + ".mka"} {
+			if f != x.DonorPath && !slices.Contains(gone, f) {
+				gone = append(gone, f)
+			}
+		}
+		p.dec.Materialise = append(p.dec.Materialise, lifecycle.Materialise{Remove: gone})
 	}
-	old := ""
-	if d.GraftDonor != x.DonorPath {
-		old = d.GraftDonor
-	}
-	p.dec.Materialise = append(p.dec.Materialise, lifecycle.Materialise{AudioGraft: &lifecycle.AudioGraftApply{
-		Item: d.Item, DonorPath: x.DonorPath, Anchor: string(anchor), Default: def,
-		Languages: d.Missing, Release: p.in.Entry.Release.Title, OldDonorPath: old,
-	}})
 	p.sum.Files = 0
-	if d.GraftDonor == x.DonorPath {
-		p.dec.Verdict = lifecycle.ImportImported
-		return
-	}
-	p.at(p.now.Add(materialiseRecheck))
+	p.sum.Class = ""
+	p.dec.Verdict = lifecycle.ImportImported
 }
 
 // conclude settles an import that imports nothing, by its class (P67,
@@ -884,6 +887,11 @@ func (p *planner) planDonor(insp *schema.ImportInspection) planResult {
 	dir, dest := donorDest(insp.RootFolder, d.Item, f.Path)
 	return planResult{ok: true, plan: schema.ImportPlan{
 		Mode: p.mode(), RootFolder: insp.RootFolder, RecycleBin: insp.RecycleBin, MinFreeBytes: insp.MinFreeBytes,
-		Donor: &schema.DonorPlan{Source: f.Path, Dir: dir, Dest: dest},
+		Donor: &schema.DonorPlan{
+			Source: f.Path, Dir: dir, Dest: dest,
+			// The execute reduces the donor to these at once (loop spec
+			// §4.12): the anchor a graft aligns on and the missing languages.
+			Anchor: string(anchor), Languages: append([]string(nil), d.Missing...),
+		},
 	}}
 }

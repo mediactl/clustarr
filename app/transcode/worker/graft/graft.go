@@ -33,7 +33,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -42,10 +41,10 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/pkg/audioalign"
 	"github.com/mediactl/clustarr/pkg/fsops"
-	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/transcode/donoraudio"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 )
 
@@ -111,15 +110,7 @@ func Reduce(ctx context.Context, t grafttask.Task, o Options) grafttask.Result {
 	if _, res, ok := r.reduceDonor(ctx, donor); !ok {
 		return res
 	}
-	return grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonReduced, DonorAudio: reducedPath(t.Donor)}
-}
-
-// reducedPath is where a donor's audio lives once reduced.
-func reducedPath(donor string) string {
-	if strings.EqualFold(filepath.Ext(donor), ".mka") {
-		return donor
-	}
-	return strings.TrimSuffix(donor, filepath.Ext(donor)) + ".mka"
+	return grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonReduced, DonorAudio: donoraudio.ReducedPath(t.Donor)}
 }
 
 type run struct {
@@ -182,13 +173,13 @@ func (r *run) prepare(ctx context.Context, target string) (*Prepared, grafttask.
 	if err != nil {
 		return nil, grafttask.Failed(grafttask.ReasonError, "read the target's tracks: %v", err)
 	}
-	if pick(targetTracks, r.t.Language, false) >= 0 {
+	if donoraudio.Pick(targetTracks, r.t.Language, false) >= 0 {
 		return nil, grafttask.Result{
 			Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonPresent,
 			Message: "the target already carries " + r.t.Language,
 		}
 	}
-	tAnchor := pick(targetTracks, r.t.Anchor, true)
+	tAnchor := donoraudio.Pick(targetTracks, r.t.Anchor, true)
 	if tAnchor < 0 {
 		return nil, grafttask.Failed(grafttask.ReasonTargetLacksAnchor, "the target has no %s track (and not one untagged track)", r.t.Anchor)
 	}
@@ -200,10 +191,10 @@ func (r *run) prepare(ctx context.Context, target string) (*Prepared, grafttask.
 	if err != nil {
 		return nil, grafttask.Failed(grafttask.ReasonError, "read the donor's tracks: %v", err)
 	}
-	dAnchor, dLang := pick(donorTracks, r.t.Anchor, false), pick(donorTracks, r.t.Language, false)
+	dAnchor, dLang := donoraudio.Pick(donorTracks, r.t.Anchor, false), donoraudio.Pick(donorTracks, r.t.Language, false)
 	if dAnchor < 0 || dLang < 0 {
 		return nil, grafttask.Failed(grafttask.ReasonDonorLacksLanguage, "the donor needs tagged %s and %s tracks; it has %s",
-			r.t.Anchor, r.t.Language, describe(donorTracks))
+			r.t.Anchor, r.t.Language, donoraudio.Describe(donorTracks))
 	}
 
 	tPCM, err := engine.DecodePCM(ctx, target, tAnchor, audioalign.SampleRate)
@@ -235,7 +226,7 @@ func (r *run) prepare(ctx context.Context, target string) (*Prepared, grafttask.
 	if err != nil {
 		return nil, grafttask.Failed(grafttask.ReasonError, "hash the donor: %v", err)
 	}
-	out.GraftTag, out.DonorAudio = tag, reducedPath(r.t.Donor)
+	out.GraftTag, out.DonorAudio = tag, donoraudio.ReducedPath(r.t.Donor)
 	return &Prepared{
 		Result: out, al: al, target: len(tPCM), mka: mka, dub: dLang, lang: r.t.Language,
 		audio: engine.GraftAudio{
@@ -331,85 +322,20 @@ func (r *run) do(ctx context.Context) grafttask.Result {
 	return out
 }
 
-// reduceDonor is the donor's audio as <stem>.mka: the donor itself when it
-// is one, else its audio tracks extracted there and the donor removed.
+// reduceDonor is the donor's audio as <stem>.mka (donoraudio.Reduce): the
+// import agent reduces a donor at import, so a donor arrives whole only when
+// it was imported before that did. The anchor and the task's language are
+// required; every other language the item wants is kept, so a later graft
+// can take another from the same donor.
 func (r *run) reduceDonor(ctx context.Context, donor string) (string, grafttask.Result, bool) {
-	if strings.EqualFold(filepath.Ext(donor), ".mka") {
-		return donor, grafttask.Result{}, true
-	}
-	mka := strings.TrimSuffix(donor, filepath.Ext(donor)) + ".mka"
-	if exists(mka) && !exists(donor) {
-		return mka, grafttask.Result{}, true // reduced by an earlier run
-	}
-	tracks, err := engine.AudioTracks(donor)
-	if err != nil {
-		return "", grafttask.Failed(grafttask.ReasonError, "read the donor's tracks: %v", err), false
-	}
-	// The anchor and every language the AudioGraft wants, so a later
-	// graft can take another from the same donor; the language of this run
-	// is required.
-	var keep []int
-	for _, l := range append([]string{r.t.Anchor, r.t.Language}, r.t.Languages...) {
-		if i := pick(tracks, l, false); i >= 0 && !slices.Contains(keep, i) {
-			keep = append(keep, i)
-		}
-	}
-	if pick(tracks, r.t.Anchor, false) < 0 || pick(tracks, r.t.Language, false) < 0 {
-		return "", grafttask.Failed(grafttask.ReasonDonorLacksLanguage, "the donor needs tagged %s and %s tracks; it has %s",
-			r.t.Anchor, r.t.Language, describe(tracks)), false
-	}
-	part := strings.TrimSuffix(donor, filepath.Ext(donor)) + ".part.mka"
-	if err := engine.ExtractAudio(ctx, donor, part, keep); err != nil {
-		return "", grafttask.Failed(grafttask.ReasonError, "extract the donor's audio: %v", err), false
-	}
-	if err := fsops.MoveAtomic(part, mka); err != nil {
-		_ = os.Remove(part)
-		return "", grafttask.Failed(grafttask.ReasonError, "place the donor's audio: %v", err), false
-	}
-	if err := os.Remove(donor); err != nil && !errors.Is(err, os.ErrNotExist) {
-		r.log.Info("graft: the donor's source stays", "err", err)
+	mka, err := donoraudio.Reduce(ctx, donor, r.t.Anchor, []string{r.t.Language}, r.t.Languages)
+	switch {
+	case errors.Is(err, donoraudio.ErrLacksLanguage):
+		return "", grafttask.Failed(grafttask.ReasonDonorLacksLanguage, "%v", err), false
+	case err != nil:
+		return "", grafttask.Failed(grafttask.ReasonError, "%v", err), false
 	}
 	return mka, grafttask.Result{}, true
-}
-
-// pick is the first track in language l (BCP-47 base compared); with
-// untagged, a lone track with no language counts (an untagged track is the
-// original, as status.audio reads it).
-func pick(tracks []engine.Track, l string, untagged bool) int {
-	want, ok := lang.Normalize(l)
-	if !ok {
-		return -1
-	}
-	base := func(t lang.Tag) string { b, _, _ := strings.Cut(string(t), "-"); return strings.ToLower(b) }
-	for _, tr := range tracks {
-		if got, ok := lang.Normalize(tr.Language); ok && base(got) == base(want) {
-			return tr.Index
-		}
-	}
-	if untagged && len(tracks) == 1 {
-		if _, ok := lang.Normalize(tracks[0].Language); !ok {
-			return tracks[0].Index
-		}
-	}
-	return -1
-}
-
-func describe(tracks []engine.Track) string {
-	var s []string
-	for _, t := range tracks {
-		s = append(s, cmpOr(t.Language, "untagged"))
-	}
-	if len(s) == 0 {
-		return "no audio"
-	}
-	return strings.Join(s, ", ")
-}
-
-func cmpOr(a, b string) string {
-	if a == "" {
-		return b
-	}
-	return a
 }
 
 // iso639 is the three-letter code a Matroska or MP4 track is tagged with.
@@ -512,9 +438,4 @@ func abs(v int) int {
 		return -v
 	}
 	return v
-}
-
-func exists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }

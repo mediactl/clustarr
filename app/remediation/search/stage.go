@@ -29,7 +29,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
@@ -53,7 +52,6 @@ import (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 
 // Options is what the search stage reads.
 type Options struct {
@@ -346,13 +344,11 @@ func (s *Stage) donorWant(ctx context.Context, item client.Object, entries []cat
 	if audio == nil || len(audio.Missing) == 0 || anchor == "" {
 		return nil, nil
 	}
-	want := &schema.DonorWant{Languages: append([]string(nil), audio.Missing...), Anchor: anchor}
-	var g transcodev1alpha1.AudioGraft
-	switch err := s.o.Reader.Get(ctx, client.ObjectKey{Namespace: item.GetNamespace(), Name: k8s.AudioGraftName(item.GetName())}, &g); {
-	case err == nil:
-		want.Rejected = g.Status.RejectedReleases
-	case client.IgnoreNotFound(err) != nil:
-		return nil, fmt.Errorf("search: the AudioGraft of %s: %w", item.GetName(), err)
+	// The donors a graft of the item already failed with are the item's own
+	// (loop spec §2.14), not an AudioGraft's.
+	want := &schema.DonorWant{
+		Languages: append([]string(nil), audio.Missing...), Anchor: anchor,
+		Rejected: slices.Clone(audio.RejectedReleases),
 	}
 	for i := range entries {
 		if e := &entries[i]; rollup.IsDonor(e) && rollup.EntryNonTerminal(e) && itemread.Covers(e, item) {
