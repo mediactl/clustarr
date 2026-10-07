@@ -79,8 +79,8 @@ type IPTVChannelSpec struct {
 // guides and ChannelID an XMLTV channel id in it; or Dummy draws
 // DummyMinutes blocks titled by the channel's name.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.guide) && self.guide != '') != (has(self.dummy) && self.dummy)",message="set exactly one of guide and dummy"
-// +kubebuilder:validation:XValidation:rule="!has(self.guide) || self.guide == '' || (has(self.channelID) && self.channelID != '')",message="channelID is required with guide"
+// +kubebuilder:validation:XValidation:rule="(has(self.guide) && size(self.guide) > 0) != (has(self.dummy) && self.dummy)",message="set exactly one of guide and dummy"
+// +kubebuilder:validation:XValidation:rule="!has(self.guide) || size(self.guide) == 0 || (has(self.channelID) && size(self.channelID) > 0)",message="channelID is required with guide"
 type ChannelEPG struct {
 	// Guide names one of the provider's spec.guides.
 	// +optional

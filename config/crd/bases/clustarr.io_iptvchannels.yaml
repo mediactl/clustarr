@@ -101,11 +101,11 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: set exactly one of guide and dummy
-                  rule: (has(self.guide) && self.guide != '') != (has(self.dummy)
+                  rule: (has(self.guide) && size(self.guide) > 0) != (has(self.dummy)
                     && self.dummy)
                 - message: channelID is required with guide
-                  rule: '!has(self.guide) || self.guide == '''' || (has(self.channelID)
-                    && self.channelID != '''')'
+                  rule: '!has(self.guide) || size(self.guide) == 0 || (has(self.channelID)
+                    && size(self.channelID) > 0)'
               group:
                 description: Group overrides the playlist's group-title.
                 maxLength: 256
