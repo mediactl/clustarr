@@ -1,0 +1,33 @@
+# ADR-0020 §3: a NATS slow consumer is shed and alerted on. nats.go drops a
+# core subscription's messages once its client-side buffer is full (the
+# pending limits of ADR-0020 §2) and reports it only through the async error
+# handler, which counts clustarr_nats_async_errors_total{kind="slow_consumer"}.
+# Any increase is a dropped request, sample or advisory.
+# clustarr_nats_dropped_messages names the subscription.
+#
+# Kept in step with charts/clustarr/templates/prometheusrule.yaml
+# (metrics.prometheusRule.enabled).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: clustarr-nats
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+spec:
+  groups:
+  - name: clustarr-nats
+    rules:
+    - alert: ClustarrNATSSlowConsumer
+      expr: sum by (namespace, pod) (increase(clustarr_nats_async_errors_total{kind="slow_consumer"}[5m])) > 0
+      labels:
+        severity: warning
+      annotations:
+        summary: A clustarr process dropped NATS messages as a slow consumer.
+        description: >-
+          {{ $labels.pod }} dropped messages from a core NATS subscription
+          in the last 5 minutes: its buffer filled faster than its callback
+          drained it. clustarr_nats_dropped_messages names the subscription
+          (an RPC verb or a subscribed pattern). Persistent drops mean the
+          pending limits are too small or a callback does work it should hand
+          to a goroutine (ADR-0020).

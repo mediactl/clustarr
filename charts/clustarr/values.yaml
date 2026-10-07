@@ -149,6 +149,12 @@ metrics:
     enabled: false
     interval: 30s
     additionalLabels: {}
+  # A PrometheusRule alerting on any NATS slow-consumer drop
+  # (clustarr_nats_async_errors_total{kind="slow_consumer"}, ADR-0020 §3).
+  # Needs the Prometheus Operator CRDs, as the ServiceMonitors do.
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}
 
 # --------------------------------------------------------------------------
 # Storage (§11)

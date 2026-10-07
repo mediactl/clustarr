@@ -101,6 +101,15 @@
             "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
             "additionalLabels": { "type": "object" }
           }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "additionalLabels": { "type": "object" }
+          }
         }
       }
     },

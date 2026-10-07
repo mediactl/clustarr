@@ -25,6 +25,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 var _ events.CoreSubscriber = (*Bus)(nil)
@@ -32,16 +33,21 @@ var _ events.CoreSubscriber = (*Bus)(nil)
 // coreSub is one SubscribeCore call's subscription, which the bus tracks so
 // Drain drains it and Close ends it.
 type coreSub struct {
-	bus  *Bus
-	sub  *nats.Subscription
-	once sync.Once
+	bus *Bus
+	sub *nats.Subscription
+	// subject is the subscribed pattern: its clustarr_nats_dropped_messages
+	// label.
+	subject string
+	once    sync.Once
 }
 
-// stop unsubscribes once and forgets the subscription.
+// stop unsubscribes once and forgets the subscription and its
+// dropped-messages series.
 func (c *coreSub) stop() {
 	c.once.Do(func() {
 		_ = unsubscribe(c.sub)
 		c.bus.forgetCore(c)
+		metrics.NATSDroppedMessages.DeleteLabelValues(c.subject)
 	})
 }
 
@@ -77,7 +83,7 @@ func (b *Bus) SubscribeCore(ctx context.Context, subject string, limits events.C
 		_ = unsubscribe(sub)
 		return nil, fmt.Errorf("natsbus: subscribe %s: pending limits: %w", subject, err)
 	}
-	c := &coreSub{bus: b, sub: sub}
+	c := &coreSub{bus: b, sub: sub, subject: subject}
 	b.mu.Lock()
 	if b.closed || b.draining {
 		b.mu.Unlock()

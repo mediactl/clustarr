@@ -13,3 +13,4 @@ namespace: clustarr-system
 resources:
 - servicemonitors.yaml
 - metrics_reader_role.yaml
+- prometheusrule.yaml

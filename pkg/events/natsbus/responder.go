@@ -27,6 +27,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // responderDrainGrace is how long past the bus's request timeout a
@@ -59,6 +60,19 @@ type responder struct {
 	mu       sync.Mutex
 	sub      *nats.Subscription // nil while away from the queue group, or stopped
 	stopping bool
+
+	// Slow-consumer state (slowconsumer.go): the dropped count of the
+	// subscriptions it left, the last sample's count and when a drop was
+	// last seen, when the current dropping stretch began, whether its
+	// "no peer, staying" line was logged, the pending rejoin, and the drain
+	// of a subscription it left, closed once that drain ends.
+	droppedBase   int
+	lastDropped   int
+	lastDropAt    time.Time
+	droppingSince time.Time
+	stayLogged    bool
+	rejoin        *time.Timer
+	leaving       chan struct{}
 
 	stopOnce sync.Once
 	stopErr  error
@@ -95,14 +109,29 @@ func (r *responder) drain(ctx context.Context) error {
 	r.stopOnce.Do(func() {
 		r.mu.Lock()
 		r.stopping = true
-		sub := r.sub
+		sub, leaving := r.sub, r.leaving
 		r.sub = nil
+		if r.rejoin != nil {
+			r.rejoin.Stop()
+		}
 		r.mu.Unlock()
 
 		if sub != nil {
 			if err := drainSubscription(ctx, sub); err != nil {
 				r.cancel()
 				r.stopErr = err
+				return
+			}
+		}
+		// A subscription it left for being slow may still be delivering
+		// what it buffered: its callbacks start respond goroutines, so the
+		// wait below starts only once that drain has ended.
+		if leaving != nil {
+			select {
+			case <-leaving:
+			case <-ctx.Done():
+				r.cancel()
+				r.stopErr = ctx.Err()
 				return
 			}
 		}
@@ -125,6 +154,9 @@ func (r *responder) halt() error {
 	r.stopping = true
 	sub := r.sub
 	r.sub = nil
+	if r.rejoin != nil {
+		r.rejoin.Stop()
+	}
 	r.mu.Unlock()
 	r.cancel()
 	if sub == nil {
@@ -166,13 +198,15 @@ func (b *Bus) stopBudget() time.Duration {
 	return d + responderDrainGrace
 }
 
-// forgetResponder drops a stopped responder from the bus's list.
+// forgetResponder drops a stopped responder from the bus's list, and its
+// dropped-messages series with it.
 func (b *Bus) forgetResponder(r *responder) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for i, x := range b.responders {
 		if x == r {
 			b.responders = append(b.responders[:i], b.responders[i+1:]...)
+			metrics.NATSDroppedMessages.DeleteLabelValues(r.subject)
 			return
 		}
 	}

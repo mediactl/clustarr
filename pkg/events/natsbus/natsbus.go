@@ -68,6 +68,10 @@ type options struct {
 	hooks          events.Hooks
 	serveLimits    events.ServeLimits
 	log            *slog.Logger
+	// Slow-consumer shedding (slowconsumer.go): who else serves a verb,
+	// and how long a responder drops before it leaves and stays out.
+	peers                 PeerCounter
+	slowLeave, slowRejoin time.Duration
 }
 
 // Option configures the bus.
@@ -179,7 +183,7 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 		return nil, fmt.Errorf("natsbus: open jetstream: %w", err)
 	}
 	serveCtx, serveCancel := context.WithCancel(context.Background())
-	return &Bus{
+	b := &Bus{
 		serveCtx:     serveCtx,
 		serveCancel:  serveCancel,
 		nc:           nc,
@@ -188,7 +192,11 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 		buckets:      map[string]jetstream.KeyValue{},
 		objectStores: map[string]jetstream.ObjectStore{},
 		retired:      map[string]events.RetiredReport{},
-	}, nil
+	}
+	// Every core subscription's dropped count, sampled until Drain or
+	// Close (ADR-0020 §3).
+	go b.sampleDropped()
+	return b, nil
 }
 
 // JetStream exposes the underlying context for the few callers that need

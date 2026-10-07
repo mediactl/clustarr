@@ -1,7 +1,9 @@
 # config/prometheus -- optional monitoring overlay
 
-Eight ServiceMonitors -- the manager, the six agents and markers -- plus the
-ClusterRole a Prometheus needs to read auth-filtered metrics. Requires the Prometheus
+Eight ServiceMonitors -- the manager, the six agents and markers -- the
+ClusterRole a Prometheus needs to read auth-filtered metrics, and a
+PrometheusRule alerting on any NATS slow-consumer drop
+(`ClustarrNATSSlowConsumer`, ADR-0020 §3). Requires the Prometheus
 Operator CRDs; it is not part of `config/default`.
 
 ```sh

@@ -413,6 +413,18 @@ var (
 		"Asynchronous NATS connection errors, by kind.",
 		"kind",
 	)
+
+	// NATSDroppedMessages is how many messages nats.go has dropped from one
+	// core subscription's client-side buffer as a slow consumer, by the
+	// subscription's bounded name: a responder's RPC verb or a core
+	// subscription's subscribed pattern, never a message's subject
+	// (ADR-0020 §3). Non-zero in steady state means the pending limits are
+	// too small or a callback does work it should hand to a goroutine.
+	NATSDroppedMessages = newGaugeVec(
+		"clustarr_nats_dropped_messages",
+		"Messages dropped from a core subscription's buffer as a slow consumer, by subscription.",
+		"subscription",
+	)
 )
 
 // Controller telemetry, shared by every reconciler alongside

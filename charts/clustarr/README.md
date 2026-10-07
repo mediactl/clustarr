@@ -414,6 +414,7 @@ template.
 | `cloudnative-pg.enabled` | Install the CloudNativePG operator as a chart dependency. Most clusters install it once, cluster-wide, instead -- leave this `false` and set only `postgres.enabled=true` in that case. | `false` |
 | `autoscaling.enabled` | The manager scales the queue-driven workloads through its own External Metrics API. See [Autoscaling](#autoscaling). | `true` |
 | `metrics.serviceMonitor.enabled` | Create `ServiceMonitor`s (needs the Prometheus Operator CRDs). | `false` |
+| `metrics.prometheusRule.enabled` | Create a `PrometheusRule` alerting on any NATS slow-consumer drop (`ClustarrNATSSlowConsumer`, ADR-0020 §3; needs the Prometheus Operator CRDs). | `false` |
 | `storage.data.existingClaim` | Bring your own `/data` claim instead of provisioning one. | `""` |
 | `storage.data.storageClass` | `StorageClass` for the chart-provisioned `/data` claim. **Read [Storage](#storage) before installing for real.** | `""` |
 | `storage.data.accessMode` | Must be `ReadWriteMany` when `existingClaim` is unset (`clustarr.validate` fails otherwise). | `ReadWriteMany` |
