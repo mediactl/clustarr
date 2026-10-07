@@ -454,3 +454,14 @@ are the record of where this section's §6-§7.2 was built otherwise:
 - **status.audio.graft** reads `searching` (missing, nothing under way;
   phase 2's `none`), `grabbed`, `pending`, `aligned`, `failed` (with the
   AudioGraft's reason) and `done`.
+
+**Addendum (2026-10-06).** A donor is reduced at once by a reduce Job
+(`grafttask.Task.Mode: reduce`, `AudioGraft.status.donorAudioPath`). A graft
+rides along with a transcode of its file in one pass: the dispatcher attaches
+it (`TranscodeJob.status.graft` Joined), the worker aligns before encoding and
+muxes the dub with the transcode, a graft that will not align leaves the
+transcode alone, and a failed dub check fails the attempt as retriable, the
+retry carrying no graft. The AudioGraft mirrors the result and waits up to
+6 h for a transcode its file is due (`transcodeprofile.WouldTranscode`). The
+joined result is a transcode, tagged with both `CLUSTARR_PROFILE` and
+`CLUSTARR_GRAFT`.

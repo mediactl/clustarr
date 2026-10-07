@@ -370,7 +370,14 @@ stream (`engine.Options.Graft`), verifies the muxed track and swaps it in,
 tagged `CLUSTARR_GRAFT`. catalogarr re-probes it without making a
 transcode: `spec.original` stays, `status.graftTag` is recorded, and the
 size, mtime and path are catalogarr's from then on. A failed graft rejects
-that donor for the item (`AudioGraft.status.rejectedReleases`).
+that donor for the item (`AudioGraft.status.rejectedReleases`). A new donor is reduced to its `.mka` at once by a reduce Job
+(`status.donorAudioPath`), and a graft rides along with its file's
+transcode when one is due: the TranscodeJob dispatcher attaches the item's
+AudioGraft to the task (`task.Task.Graft`, `TranscodeJob.status.graft`), the
+pool worker aligns before it encodes and muxes the dub in the same pass
+(`worker.GraftEngine`), and the AudioGraft waits up to 6 h for such a
+transcode (`WaitingForTranscode`) before it grafts alone; only a standalone
+graft Job holds a transcode back (`app/squash/graftstate`).
 The movies provider has Plex's collection feature (2026-10-06; type 18,
 Feature `collection` at `/library/collections`, movie libraries only): a
 collection is a TMDB collection (`status.metadata.collection`), its items
