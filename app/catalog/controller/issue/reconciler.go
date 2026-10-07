@@ -30,11 +30,8 @@ import (
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -42,6 +39,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -74,7 +72,8 @@ const (
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles an Issue: state from monitored/hasFile/downloading,
-// the file/download rollup from a watched MediaFile and Download, and the
+// the file/download rollup from its MediaFiles (the remediation loop wakes it
+// when one's rollup inputs move, loop spec §3.12) and Downloads, and the
 // cutoff decision against the owning Comic's QualityProfile. It is the sole
 // writer of status.observedGeneration, status.conditions
 // (Ready/HasFile/Released/CutoffMet), status.state, status.hasFile,
@@ -96,47 +95,48 @@ type Reconciler struct {
 	// wires no bus loses only history.
 	Bus events.Publisher
 
-	// OnReconcile is a test-only hook, called at the top of every Reconcile.
+	// OnReconcile is a test-only hook, called at the top of every ReconcileItem.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
 }
 
-// SetupWithManager registers the Issue controller: a predicate reacting to a
-// spec change (GenerationChanged, e.g. a user editing spec.monitored) or to
-// the Comic reconciler's own write of status.date (StatusFieldChanged) --
-// server-side apply status writes by another manager (the Comic fan-out)
-// bump no generation, so without this arm a newly-discovered or corrected
-// cover date would sit unreflected in IssueConditionReleased/status.state
-// until some unrelated event woke this controller -- and the MediaFile/
-// Download watches, the same shape as episode/reconciler.go.
-//
-// Two watches keep status.cutoffMet current, since the profile it is
-// decided against lives two objects away: an edited QualityProfile wakes
-// every Issue of every Comic ranked against it (mapQualityProfile), and a
-// Comic's own spec change -- pointing spec.qualityProfileRef at another
-// profile -- wakes that Comic's Issues (mapComic).
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByIssueIndexKey,
+// RegisterIndexes registers the field indexes ReconcileItem's Lists and the
+// watches' map functions read. The remediation loop calls it once
+// (remediation.RegisterIndexes, loop spec §3.16); a test that drives
+// ReconcileItem against a bare cache calls it, and mfindex.Register for the
+// MediaFiles, which the loop registers.
+func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	return idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByIssueIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
 			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindIssue {
 				return nil
 			}
 			return []string{dl.Spec.Target.Name}
-		}); err != nil {
-		return err
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("issue").
-		For(&catalogv1alpha1.Issue{}, builder.WithPredicates(issuePredicate())).
-		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
-		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
-		Watches(&catalogv1alpha1.Comic{}, handler.EnqueueRequestsFromMapFunc(r.mapComic), builder.WithPredicates(k8s.GenerationChanged())).
-		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
-		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
+		})
 }
+
+// Watches is the Issue's item path on the remediation loop (loop spec §3.12;
+// S8, S9, S10): every watch that wakes an Issue except its files', which the
+// loop's file signature (S1') wakes it for -- the Transcoded verdict among
+// them, which rollup.FileState reads and the old GenerationChanged-only
+// MediaFile watch missed (§2.14).
+//
+// Two watches keep status.cutoffMet current, since the profile it is
+// decided against lives two objects away: an edited QualityProfile wakes
+// every Issue of every Comic ranked against it (mapQualityProfile), and a
+// Comic's own spec change -- pointing spec.qualityProfileRef at another
+// profile -- wakes that Comic's Issues (mapComic).
+func (r *Reconciler) Watches() []rollup.Watch {
+	return []rollup.Watch{
+		{Object: &catalogv1alpha1.Issue{}, Map: rollup.Self, Predicates: []predicate.Predicate{issuePredicate()}},
+		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
+		{Object: &catalogv1alpha1.Comic{}, Map: r.mapComic, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+	}
+}
+
+var _ rollup.Item = (*Reconciler)(nil)
 
 func issuePredicate() predicate.Predicate {
 	return k8s.Or(
@@ -161,34 +161,6 @@ func issuePredicate() predicate.Predicate {
 			return iss.Status.PendingGrab.GrabAt
 		}),
 	)
-}
-
-// downloadPredicate is the same shape as the episode package's: a
-// status-only phase transition never bumps generation, so GenerationChanged
-// alone would never fire on it.
-func downloadPredicate() predicate.Predicate {
-	return k8s.Or(
-		k8s.GenerationChanged(),
-		k8s.StatusFieldChanged(func(o client.Object) downloadv1alpha1.DownloadPhase {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok {
-				return ""
-			}
-			return dl.Status.Phase
-		}),
-		// A Download being torn down stops counting the moment it is
-		// marked (rollup.DownloadNonTerminal), not when its finalizers let
-		// it go.
-		k8s.StatusFieldChanged(k8s.IsDeleting),
-	)
-}
-
-func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
-	mf, ok := o.(*catalogv1alpha1.MediaFile)
-	if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindIssue {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
 }
 
 // mapDownload needs no List: a Download names its target in spec.target,
@@ -225,7 +197,8 @@ func (r *Reconciler) activeDownload(ctx context.Context, iss *catalogv1alpha1.Is
 // issueByComicRefIndexKey), and a second IndexField call for the same
 // (type, field) on one manager cache is a hard "indexer conflict" error at
 // startup -- the tradeoff episode.mapQualityProfile documents and makes for
-// the identical reason. Comic spec edits are a cold path.
+// the identical reason. Comic spec edits are a cold path, and the List reads
+// without copies, since the loop's start waits on every item map function.
 func (r *Reconciler) mapComic(ctx context.Context, o client.Object) []reconcile.Request {
 	c, ok := o.(*catalogv1alpha1.Comic)
 	if !ok {
@@ -246,7 +219,7 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 		return nil
 	}
 	var comics catalogv1alpha1.ComicList
-	if err := r.List(ctx, &comics); err != nil {
+	if err := r.List(ctx, &comics, client.UnsafeDisableDeepCopy); err != nil {
 		return nil
 	}
 	byNamespace := map[string]map[string]bool{}
@@ -269,7 +242,7 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 // issuesOf lists the Issues in ns whose spec.comicRef is one of comics.
 func (r *Reconciler) issuesOf(ctx context.Context, ns string, comics map[string]bool) []reconcile.Request {
 	var issues catalogv1alpha1.IssueList
-	if err := r.List(ctx, &issues, client.InNamespace(ns)); err != nil {
+	if err := r.List(ctx, &issues, client.InNamespace(ns), client.UnsafeDisableDeepCopy); err != nil {
 		return nil
 	}
 	var reqs []reconcile.Request
@@ -281,16 +254,17 @@ func (r *Reconciler) issuesOf(ctx context.Context, ns string, comics map[string]
 	return reqs
 }
 
-// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
+// ReconcileItem is the Issue's item path on the remediation loop (loop spec
+// §3.12); it keeps the §8.8 skeleton: get, split on deletion, ensure the
 // finalizer WITHOUT an early return, then reconcileNormal.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "issue.Reconcile")
 	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}
 	var iss catalogv1alpha1.Issue
-	if err := r.Get(ctx, req.NamespacedName, &iss); err != nil {
+	if err := r.Get(ctx, nn, &iss); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&iss) {
@@ -323,7 +297,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, iss *catalogv1alpha1.I
 	return ctrl.Result{}, nil
 }
 
-// reconcileNormal computes hasFile from a watched MediaFile, folds in a
+// reconcileNormal computes hasFile from its MediaFiles, folds in a
 // watched Download's overlay, computes State and the HasFile/Released
 // conditions, and patches status. It never sets
 // SourceID/Title/Date -- those belong to the Comic reconciler.
@@ -422,8 +396,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	// provider-sourced fields (SourceID/Title/Date) under the distinct
 	// k8s.ManagerCatalogarrFanout, so no pass-through of those fields is
 	// needed here -- see this package's doc.go.
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(statusAC)); err != nil {
-		return ctrl.Result{}, err
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, iss, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+		return itemstatus.Requeue(conflicted), err
 	}
 
 	if iss.Status.Date != nil && now.Before(iss.Status.Date.Time) {

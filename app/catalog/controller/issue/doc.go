@@ -17,7 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package issue implements the Issue controller: acquisition state as a pure
 // function, and a thin Reconciler around it plus the file/download rollup
-// from a watched MediaFile and Download -- mirroring
+// from its MediaFiles and Downloads, run as the remediation loop's Issue item
+// key (loop spec §3.12) -- mirroring
 // app/catalog/controller/episode exactly for the Comic -> Issue pair (task
 // G2-2).
 //

@@ -121,7 +121,7 @@ func lowestRanked(files []catalogv1alpha1.MediaFile, profile quality.Profile) []
 // rollup.PickMediaFile chooses between them, so the answer never depends on
 // list order.
 func FilesByRecording(mfs []catalogv1alpha1.MediaFile) map[string]string {
-	byRecording := map[string][]catalogv1alpha1.MediaFile{}
+	byRecording := make(map[string][]catalogv1alpha1.MediaFile)
 	for _, mf := range mfs {
 		if mf.Spec.MediaRef.Kind != commonv1.MediaKindAlbum || mf.Spec.MediaRef.Track == "" {
 			continue

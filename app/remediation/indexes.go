@@ -22,7 +22,11 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/mediactl/clustarr/app/catalog/controller/album"
+	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
+	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
+	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -47,6 +51,18 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		return err
 	}
 	if err := episode.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := album.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := book.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := audiobook.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := issue.RegisterIndexes(ctx, idx); err != nil {
 		return err
 	}
 	return mediafile.RegisterIndexes(ctx, idx)

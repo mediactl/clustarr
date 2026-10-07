@@ -32,14 +32,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/catalog/artwork"
-	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/app/catalog/controller/artist"
-	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
 	"github.com/mediactl/clustarr/app/catalog/controller/author"
-	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
-	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadatarefresh"
 	"github.com/mediactl/clustarr/app/catalog/controller/overlayprofile"
@@ -102,9 +98,9 @@ const metadataProbeTimeout = 30 * time.Second
 
 // registerControllers registers every catalog reconciler (§6.1, §16 M1 and M6),
 // plus the wantedcron sweep, which is a manager.Runnable rather than a
-// reconciler because it reconciles nothing -- only a clock. Movie and
-// Episode are the remediation loop's item keys (app/remediation/manager,
-// loop spec §3.12).
+// reconciler because it reconciles nothing -- only a clock. Movie, Episode,
+// Album, Book, Audiobook and Issue are the remediation loop's item keys
+// (app/remediation/manager, loop spec §3.12), not controllers here.
 //
 // The seven non-video reconcilers (plan tasks G2-2 and G2-3 built them, G2-5
 // wires them) sat in their own packages, tested and registered nowhere, until
@@ -288,20 +284,16 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	return nil
 }
 
-// registerNonVideoControllers registers the seven non-video reconcilers (§4.2,
-// §16 M6), each as its package's doc.go prescribes.
+// registerNonVideoControllers registers the three non-video parents
+// (Artist, Author, Comic), each as its package's doc.go prescribes. Album,
+// Book, Audiobook and Issue are the remediation loop's item keys
+// (app/remediation/manager, loop spec §3.12).
 //
-// Three parents fan out children through the metadata gateway's
+// Each parent fans out children through the metadata gateway's
 // rpc.catalogarr.metadata.lookup: Artist -> Album, Author -> Book and
-// Comic -> Issue. So each of those three needs the bus for its
-// Request as well as for publishing its own MetadataTask; with a nil Bus
-// every reconcile panics into RecoverPanic before it lists a single child.
-// Album, Book and Audiobook are metadata targets of their own and publish
-// their own MetadataTasks, so they need it too. Issue fetches no metadata
-// of its own -- Comic's fan-out writes its provider fields under
-// k8s.ManagerCatalogarrFanout (app/catalog/controller/issue's doc.go) -- but
-// it publishes its catalog item events like every other kind, and a nil Bus
-// publishes nothing, so it gets the bus as well.
+// Comic -> Issue. So each needs the bus for its Request as well as for
+// publishing its own MetadataTask; with a nil Bus every reconcile panics
+// into RecoverPanic before it lists a single child.
 //
 // Every recorder is named after its kind, the convention movie and series
 // set, so `kubectl get events` attributes each Event to the controller that
@@ -315,37 +307,15 @@ func registerNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: artist: %w", err)
 	}
-	if err := (&album.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("album"), Bus: bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: album: %w", err)
-	}
 	if err := (&author.Reconciler{
 		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("author"), Bus: bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: author: %w", err)
 	}
-	// Book covers both shapes book_types.go allows: fanned out from an
-	// Author, and standalone (no spec.authorRef).
-	if err := (&book.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("book"), Bus: bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: book: %w", err)
-	}
-	if err := (&audiobook.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("audiobook"), Bus: bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: audiobook: %w", err)
-	}
 	if err := (&comic.Reconciler{
 		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("comic"), Bus: bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: comic: %w", err)
-	}
-	if err := (&issue.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("issue"), Bus: bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: issue: %w", err)
 	}
 	return nil
 }

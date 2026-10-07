@@ -30,11 +30,8 @@ import (
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -43,6 +40,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -92,8 +90,9 @@ const (
 
 // Reconciler reconciles an Audiobook: metadata staleness (publishing a
 // MetadataTask when the cache is missing or past its RefreshTTL), path, the
-// spec.bookRef link check, and the file/download rollup from a watched
-// MediaFile and Download. It is the sole writer of status.phase,
+// spec.bookRef link check, and the file/download rollup from its MediaFiles
+// (the remediation loop wakes it when one's rollup inputs move, loop spec
+// §3.12) and Downloads. It is the sole writer of status.phase,
 // status.path, status.hasFile, status.fileRefs, status.quality,
 // status.cutoffMet and status.activeDownloadRef (§3's single-writer rule);
 // status.metadata belongs to the metadata gateway (field manager
@@ -112,18 +111,18 @@ type Reconciler struct {
 	Recorder k8sevents.EventRecorder
 	Bus      events.Publisher
 
-	// OnReconcile is a test-only hook, called at the top of every Reconcile.
+	// OnReconcile is a test-only hook, called at the top of every ReconcileItem.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
 }
 
-// SetupWithManager registers the Audiobook controller: the finalizer/
-// metadata-refresh predicate on Audiobook itself, and the MediaFile/
-// Download/QualityProfile/Book watches so an imported file, an active
-// download's phase change, a profile edit or a Book appearing after its
-// Audiobook all reach this reconciler without waiting for a poll.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByAudiobookIndexKey,
+// RegisterIndexes registers the field indexes ReconcileItem's Lists and the
+// watches' map functions read. The remediation loop calls it once
+// (remediation.RegisterIndexes, loop spec §3.16); a test that drives
+// ReconcileItem against a bare cache calls it, and mfindex.Register for the
+// MediaFiles, which the loop registers.
+func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByAudiobookIndexKey,
 		func(o client.Object) []string {
 			dl, ok := o.(*downloadv1alpha1.Download)
 			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAudiobook {
@@ -133,7 +132,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Audiobook{}, audiobookByQualityProfileIndexKey,
+	if err := idx.IndexField(ctx, &catalogv1alpha1.Audiobook{}, audiobookByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			a, ok := o.(*catalogv1alpha1.Audiobook)
 			if !ok || a.Spec.QualityProfileRef == "" {
@@ -143,27 +142,30 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Audiobook{}, audiobookByBookRefIndexKey,
+	return idx.IndexField(ctx, &catalogv1alpha1.Audiobook{}, audiobookByBookRefIndexKey,
 		func(o client.Object) []string {
 			a, ok := o.(*catalogv1alpha1.Audiobook)
 			if !ok || a.Spec.BookRef == nil || *a.Spec.BookRef == "" {
 				return nil
 			}
 			return []string{*a.Spec.BookRef}
-		}); err != nil {
-		return err
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("audiobook").
-		For(&catalogv1alpha1.Audiobook{}, builder.WithPredicates(audiobookPredicate())).
-		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
-		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
-		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
-		Watches(&catalogv1alpha1.Book{}, handler.EnqueueRequestsFromMapFunc(r.mapBookRef), builder.WithPredicates(k8s.GenerationChanged())).
-		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
+		})
 }
+
+// Watches is the Audiobook's item path on the remediation loop (loop spec
+// §3.12; S7, S9, S10): every watch that wakes an Audiobook except its files',
+// which the loop's file signature (S1') wakes it for -- an active download's
+// phase change, a profile edit, or a Book appearing after its Audiobook.
+func (r *Reconciler) Watches() []rollup.Watch {
+	return []rollup.Watch{
+		{Object: &catalogv1alpha1.Audiobook{}, Map: rollup.Self, Predicates: []predicate.Predicate{audiobookPredicate()}},
+		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
+		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+		{Object: &catalogv1alpha1.Book{}, Map: r.mapBookRef, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+	}
+}
+
+var _ rollup.Item = (*Reconciler)(nil)
 
 // audiobookPredicate wakes this controller on a spec change
 // (GenerationChanged), on the metadata gateway's own write
@@ -193,40 +195,6 @@ func audiobookPredicate() predicate.Predicate {
 			return a.Status.PendingGrab.GrabAt
 		}),
 	)
-}
-
-// downloadPredicate wakes the Download watch on a spec change (Create
-// always passes regardless) or on a status.phase transition. Duplicated
-// from movie.downloadPredicate rather than imported: it is unexported
-// there, and the logic is three lines, cheaper to repeat once per kind (as
-// episode's own copy already does) than to lift into a shared package for a
-// single call site each.
-func downloadPredicate() predicate.Predicate {
-	return k8s.Or(
-		k8s.GenerationChanged(),
-		k8s.StatusFieldChanged(func(o client.Object) downloadv1alpha1.DownloadPhase {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok {
-				return ""
-			}
-			return dl.Status.Phase
-		}),
-		// A Download being torn down stops counting the moment it is
-		// marked (rollup.DownloadNonTerminal), not when its finalizers let
-		// it go.
-		k8s.StatusFieldChanged(k8s.IsDeleting),
-	)
-}
-
-// mapMediaFile needs no List/index -- a MediaFile already carries its
-// target's identity directly in spec.mediaRef, so this is the cheap
-// direction.
-func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
-	mf, ok := o.(*catalogv1alpha1.MediaFile)
-	if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindAudiobook {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
 }
 
 // mapDownload needs no List: a Download names its target in spec.target,
@@ -269,7 +237,7 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 		return nil
 	}
 	var audiobooks catalogv1alpha1.AudiobookList
-	if err := r.List(ctx, &audiobooks, client.MatchingFields{audiobookByQualityProfileIndexKey: qp.Name}); err != nil {
+	if err := r.List(ctx, &audiobooks, client.MatchingFields{audiobookByQualityProfileIndexKey: qp.Name}, client.UnsafeDisableDeepCopy); err != nil {
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(audiobooks.Items))
@@ -279,17 +247,18 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 	return reqs
 }
 
-// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
-// finalizer WITHOUT an early return (the rest of this reconcile runs against
-// the same in-memory object in the same pass), then reconcileNormal.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// ReconcileItem is the Audiobook's item path on the remediation loop (loop
+// spec §3.12); it keeps the §8.8 skeleton: get, split on deletion, ensure
+// the finalizer WITHOUT an early return (the rest of this reconcile runs
+// against the same in-memory object in the same pass), then reconcileNormal.
+func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "audiobook.Reconcile")
 	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}
 	var a catalogv1alpha1.Audiobook
-	if err := r.Get(ctx, req.NamespacedName, &a); err != nil {
+	if err := r.Get(ctx, nn, &a); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&a) {
@@ -421,8 +390,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 				k8s.MarkTrue(m, &conditions, catalogv1alpha1.AudiobookConditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); err != nil {
-					return ctrl.Result{}, err
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -442,8 +411,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 				k8s.MarkFalse(m, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", m.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil {
-					return ctrl.Result{}, perr
+				if conflicted, perr := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+					return itemstatus.Requeue(conflicted), perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -543,8 +512,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	k8s.MarkReady(m, &conditions, metaReady, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); err != nil {
-		return ctrl.Result{}, err
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+		return itemstatus.Requeue(conflicted), err
 	}
 
 	return ctrl.Result{}, nil
