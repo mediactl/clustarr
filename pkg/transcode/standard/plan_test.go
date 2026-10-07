@@ -44,7 +44,8 @@ func info(v transcode.VideoStream, a ...transcode.AudioStream) transcode.MediaIn
 	return transcode.MediaInfo{
 		Path: "/data/m.mkv", Format: transcode.FormatInfo{Name: "matroska,webm", Duration: time.Hour},
 		Video: []transcode.VideoStream{v}, Audio: a,
-		Subtitles:   []transcode.SubtitleStream{{Index: 0, Codec: "subrip", Language: "eng"}, {Index: 1, Codec: "hdmv_pgs_subtitle", Bitmap: true}},
+		// An image subtitle holds the whole file (TestAnImageSubtitleHoldsTheFile).
+		Subtitles:   []transcode.SubtitleStream{{Index: 0, Codec: "subrip", Language: "eng"}, {Index: 1, Codec: "ass", Language: "eng"}},
 		Attachments: []transcode.AttachmentStream{{Index: 0, Filename: "f.ttf"}},
 		Chapters:    []transcode.Chapter{{Start: 0, End: time.Minute, Title: "One"}},
 	}
@@ -444,3 +445,74 @@ func TestPlanAlwaysWritesMP4(t *testing.T) {
 }
 
 func TestVersionIsTwo(t *testing.T) { assert.Equal(t, 2, Version) }
+
+func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
+	return transcode.SubtitleStream{
+		Codec: codec, Language: lang, Title: title,
+		Disposition: transcode.Disposition{Forced: forced, HearingImpaired: hi},
+	}
+}
+
+func TestPlanSubtitles(t *testing.T) {
+	sidecars, dropped := planSubtitles([]transcode.SubtitleStream{
+		sub("subrip", "eng", "", false, false),          // 0: en.srt (639-2/B to 639-1)
+		sub("subrip", "en", "SDH", false, true),         // 1: en.sdh.srt
+		sub("webvtt", "es", "", false, false),           // 2: es.srt
+		sub("mov_text", "fre", "", false, false),        // 3: fr.srt
+		sub("ass", "en", "Full Subs", false, false),     // 4: en.ass
+		sub("ass", "en", "Signs & Songs", false, false), // 5: en.forced.ass (title, R2)
+		sub("subrip", "ger", "Forced", true, false),     // 6: de.forced.srt (R2)
+		sub("ass", "en", "Honorifics", false, false),    // 7: dropped, en.ass taken (R3)
+		sub("ass", "", "", false, false),                // 8: ass (untagged)
+		sub("eia_608", "en", "", false, false),          // 9: dropped, unknown text codec
+		sub("subrip", "pt-BR", "", false, false),        // 10: pt.srt (the region dropped)
+		sub("subrip", "und", "", false, false),          // 11: srt (no language)
+	})
+	assert.Equal(t, []SidecarPlan{
+		{SourceIndex: 0, Format: SidecarSRT, Codec: "subrip", Suffix: "en.srt"},
+		{SourceIndex: 1, Format: SidecarSRT, Codec: "subrip", Suffix: "en.sdh.srt"},
+		{SourceIndex: 2, Format: SidecarSRT, Codec: "webvtt", Suffix: "es.srt"},
+		{SourceIndex: 3, Format: SidecarSRT, Codec: "mov_text", Suffix: "fr.srt"},
+		{SourceIndex: 4, Format: SidecarASS, Codec: "ass", Suffix: "en.ass"},
+		{SourceIndex: 5, Format: SidecarASS, Codec: "ass", Suffix: "en.forced.ass"},
+		{SourceIndex: 6, Format: SidecarSRT, Codec: "subrip", Suffix: "de.forced.srt"},
+		{SourceIndex: 8, Format: SidecarASS, Codec: "ass", Suffix: "ass"},
+		{SourceIndex: 10, Format: SidecarSRT, Codec: "subrip", Suffix: "pt.srt"},
+		{SourceIndex: 11, Format: SidecarSRT, Codec: "subrip", Suffix: "srt"},
+	}, sidecars)
+	require.Len(t, dropped, 2)
+	assert.Contains(t, dropped[0], "subtitle 7")
+	assert.Contains(t, dropped[1], "subtitle 9")
+}
+
+func TestAnSDHAssTrackIsNamedSDH(t *testing.T) {
+	sidecars, _ := planSubtitles([]transcode.SubtitleStream{sub("ass", "en", "", false, true)})
+	require.Len(t, sidecars, 1)
+	assert.Equal(t, "en.sdh.ass", sidecars[0].Suffix)
+}
+
+func TestAnImageSubtitleHoldsTheFile(t *testing.T) {
+	in := info(h264, eac3)
+	in.Subtitles = append(in.Subtitles, transcode.SubtitleStream{Index: 2, Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng"})
+	p := Plan(in, profile, cpu)
+	assert.Equal(t, DecisionSkip, p.Decision)
+	assert.Equal(t, HoldImageSubtitles, p.Reason)
+}
+
+// Every subtitle goes beside the file (spec §4.1): the MP4 carries none.
+func TestTheMP4CarriesNoSubtitleStream(t *testing.T) {
+	p := Plan(info(h264, eac3), profile, cpu) // subrip and ass
+	assert.Equal(t, int32(0), p.Expect.SubtitleStreams)
+	assert.Empty(t, p.Subtitles)
+	assert.Equal(t, []string{"en.srt", "en.ass"}, []string{p.Sidecars[0].Suffix, p.Sidecars[1].Suffix})
+}
+
+// An MP4 already in the layout with no subtitle stream is left alone; one
+// carrying mov_text is remuxed, the text moved beside it as SubRip.
+func TestTheSubtitleLayoutDecidesTheSkip(t *testing.T) {
+	stereo := audio(0, "aac", 2, "stereo", "eng")
+	in := mp4Info(hevc10, stereo)
+	assert.Equal(t, DecisionSkip, Plan(in, profile, cpu).Decision)
+	in.Subtitles = []transcode.SubtitleStream{sub("mov_text", "eng", "", false, false)}
+	assert.Equal(t, DecisionCopyVideo, Plan(in, profile, cpu).Decision)
+}

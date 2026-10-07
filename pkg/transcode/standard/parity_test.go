@@ -95,3 +95,47 @@ func TestContainerNamesFromTheSummaryAndTheDemuxer(t *testing.T) {
 		assert.Equal(t, want, containerOf(name), name)
 	}
 }
+
+// Sidecar names read a subtitle's language, forced and SDH flags and
+// title, so the stored summary must carry them as the live probe does:
+// both plan a "Signs" ASS track, a forced SRT, an SDH SRT and a plain one
+// alike (Review Focus 5 of the MP4 standard's phase 1 plan).
+func TestTheSummaryAndTheProbePlanSubtitlesAlike(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("no ffmpeg")
+	}
+	dir := t.TempDir()
+	ass := filepath.Join(dir, "s.ass")
+	require.NoError(t, os.WriteFile(ass, []byte("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n"+
+		"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"+
+		"Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n"+
+		"[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"+
+		"Dialogue: 0,0:00:00.50,0:00:01.50,Default,,0,0,0,,Sign\n"), 0o644))
+	srt := filepath.Join(dir, "s.srt")
+	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:00,500 --> 00:00:01,500\nHello\n"), 0o644))
+	out := filepath.Join(dir, "subs.mkv")
+	b, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+		"-i", ass, "-i", srt, "-i", srt, "-i", srt,
+		"-map", "0", "-map", "1", "-map", "2", "-map", "3", "-map", "4", "-map", "5",
+		"-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-c:s:0", "copy", "-c:s:1", "srt", "-c:s:2", "srt", "-c:s:3", "srt",
+		"-metadata:s:s:0", "language=eng", "-metadata:s:s:0", "title=Signs",
+		"-metadata:s:s:1", "language=ger", "-disposition:s:1", "forced",
+		"-metadata:s:s:2", "language=eng", "-disposition:s:2", "hearing_impaired",
+		"-metadata:s:s:3", "language=spa", out).CombinedOutput()
+	if err != nil {
+		t.Skipf("ffmpeg cannot make the clip: %v\n%s", err, b)
+	}
+	mi, raw, err := mediainfo.Probe(context.Background(), out)
+	require.NoError(t, err)
+	live, err := transcode.FromProbe(mi, raw)
+	require.NoError(t, err)
+	stored, err := transcode.FromSummary(out, mi)
+	require.NoError(t, err)
+	fromProbe, fromSummary := Plan(live, profile, cpu), Plan(stored, profile, cpu)
+	require.Len(t, fromSummary.Sidecars, 4, "%+v", fromSummary.Sidecars)
+	assert.Equal(t, fromProbe.Sidecars, fromSummary.Sidecars)
+	assert.Equal(t, fromProbe.Subtitles, fromSummary.Subtitles)
+	assert.Equal(t, fromProbe.Hash(), fromSummary.Hash())
+}

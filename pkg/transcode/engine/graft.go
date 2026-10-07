@@ -607,7 +607,7 @@ func CopyPlan(path string) (standard.Result, error) {
 			plan.Audio = append(plan.Audio, standard.AudioPlan{SourceIndex: na, Action: "copy", Language: s.Language, Title: s.Title})
 			na++
 		case ffgo.MediaTypeSubtitle:
-			plan.Subtitles = append(plan.Subtitles, ns)
+			plan.Subtitles = append(plan.Subtitles, standard.SubtitlePlan{SourceIndex: ns, Action: standard.SubtitleCopy, Codec: s.Codec})
 			ns++
 		}
 	}

@@ -719,12 +719,12 @@ func planSlots(plan standard.Result, streams []*ffgo.StreamInfo) ([]slot, error)
 		}
 		slots = append(slots, as)
 	}
-	for _, i := range plan.Subtitles {
-		s, err := pick(subs, i, "subtitle")
+	for _, sp := range plan.Subtitles {
+		s, err := pick(subs, sp.SourceIndex, "subtitle")
 		if err != nil {
 			return nil, err
 		}
-		slots = append(slots, slot{src: s, name: fmt.Sprintf("subtitle:%d", i), copy: true})
+		slots = append(slots, slot{src: s, name: fmt.Sprintf("subtitle:%d", sp.SourceIndex), copy: true})
 	}
 	return slots, nil
 }

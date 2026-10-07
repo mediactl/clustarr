@@ -39,6 +39,7 @@ import (
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
@@ -119,6 +120,41 @@ type AudioPlan struct {
 	Default bool `json:",omitempty"`
 }
 
+// Subtitle actions (SubtitlePlan.Action) and sidecar formats
+// (SidecarPlan.Format).
+const (
+	SubtitleCopy = "copy" // a graft's copy plan (CopyPlan) keeps every subtitle
+	SidecarASS   = "ass"  // the stream copied out to <stem>.<suffix>
+	SidecarSRT   = "srt"  // SubRip copied out; WebVTT, mov_text and text converted
+)
+
+// HoldImageSubtitles is the skip reason of a file with an image subtitle
+// (PGS, DVD): it waits for the OCR of the MP4 standard's phase 2, which
+// raises Version, so the file is planned again then (ruling R1).
+const HoldImageSubtitles = "image subtitles (PGS, DVD) wait for OCR: MP4 standard phase 2"
+
+// SubtitlePlan is one subtitle track embedded in the output: only a graft's
+// copy plan has any (spec §4.1: the standard writes every subtitle beside
+// the MP4).
+type SubtitlePlan struct {
+	SourceIndex     int32  // type-relative: the Nth subtitle stream
+	Action          string // SubtitleCopy
+	Codec           string // the source's codec, which the converter reads
+	Language        string `json:",omitempty"`
+	Title           string `json:",omitempty"`
+	HearingImpaired bool   `json:",omitempty"`
+}
+
+// SidecarPlan is one subtitle track written beside the MP4.
+type SidecarPlan struct {
+	SourceIndex int32  // type-relative subtitle stream
+	Format      string // SidecarASS | SidecarSRT
+	Codec       string // the source's codec
+	// Suffix is the file's name after the video's stem: "en.ass",
+	// "en.forced.srt" (pkg/subtitles.ParseSidecar's grammar).
+	Suffix string
+}
+
 // Expectation is what Verify checks the output against.
 type Expectation struct {
 	VideoStreams, AudioStreams, SubtitleStreams int32
@@ -140,14 +176,17 @@ type Expectation struct {
 // Result is the standard's decision for one file: what Plan returns and
 // the in-process engine runs.
 type Result struct {
-	Decision    Decision
-	Reason      string
-	Container   transcode.Container
-	Video       VideoPlan
-	Audio       []AudioPlan
-	Subtitles   []int32 // type-relative: every one MKV, the mov_text ones MP4
-	Attachments bool    // every attachment the source has; MP4 carries none
-	Chapters    bool    // every chapter the source has (always: a summary has none to count)
+	Decision  Decision
+	Reason    string
+	Container transcode.Container
+	Video     VideoPlan
+	Audio     []AudioPlan
+	Subtitles []SubtitlePlan // embedded in the output: none from Plan
+	Sidecars  []SidecarPlan  `json:",omitempty"` // written beside it
+	// Dropped names each source subtitle the output carries neither way.
+	Dropped     []string `json:",omitempty"`
+	Attachments bool     // every attachment the source has (a graft's copy plan); MP4 carries none
+	Chapters    bool     // every chapter the source has (always: a summary has none to count)
 	Tags        map[string]string
 	Expect      Expectation
 }
@@ -211,13 +250,14 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if !ok {
 		return skip(p, "Dolby Vision profile 5 has no HDR10 or HLG base layer: without the Dolby Vision layer it plays with wrong colours")
 	}
-	p.Audio = planAudio(info.Audio, profile.Languages)
-	p.Subtitles = []int32{}
-	for i, s := range info.Subtitles {
-		if p.Container != transcode.ContainerMP4 || s.Codec == "mov_text" {
-			p.Subtitles = append(p.Subtitles, int32(i))
+	for _, s := range info.Subtitles {
+		if s.Bitmap {
+			return skip(p, HoldImageSubtitles)
 		}
 	}
+	p.Audio = planAudio(info.Audio, profile.Languages)
+	p.Subtitles = []SubtitlePlan{}
+	p.Sidecars, p.Dropped = planSubtitles(info.Subtitles)
 	p.Attachments = false // MP4 carries none
 	p.Chapters = true
 	p.Expect = Expectation{
@@ -240,12 +280,13 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	compliant := v.Codec == "hevc" && (tenBit(v) || (eight && v.PixFmt == "yuv420p")) && !isDolbyVision(v.HDR.Format)
 	audioAsIs := len(p.Audio) == len(info.Audio)
 	for _, a := range p.Audio {
-		audioAsIs = audioAsIs && a.Action == "copy"
+		audioAsIs = audioAsIs && a.Action == AudioCopy
 	}
+	subsAsIs := len(info.Subtitles) == 0 && len(info.Attachments) == 0
 	sameContainer := containerOf(info.Format.Name) == p.Container
 	switch {
-	case compliant && audioAsIs && sameContainer:
-		return skip(p, "already HEVC Main 10 with Apple TV direct-play audio")
+	case compliant && audioAsIs && subsAsIs && sameContainer:
+		return skip(p, "already HEVC in the MP4 standard's layout")
 	case compliant:
 		p.Decision = DecisionCopyVideo
 		p.Reason = "HEVC Main 10 video copied; audio or container processed"
@@ -569,6 +610,76 @@ func markDefault(out []AudioPlan, as []transcode.AudioStream) {
 		}
 	}
 	out[0].Default = true
+}
+
+// textSubtitles become .srt sidecars and assSubtitles .ass ones.
+var (
+	textSubtitles = []string{"subrip", "srt", "text", "webvtt", "mov_text"}
+	assSubtitles  = []string{"ass", "ssa"}
+)
+
+// forcedSubtitle is the forced flag, or a "Signs & Songs" style title
+// (ruling R2).
+func forcedSubtitle(s transcode.SubtitleStream) bool {
+	t := strings.ToLower(s.Title)
+	return s.Disposition.Forced || strings.Contains(t, "sign") || strings.Contains(t, "song")
+}
+
+// sidecarLang is the language segment of a sidecar's name: lang.Normalize's
+// base, the ISO 639-1 code where one exists (Plex reads 639-1 or 639-2/B),
+// its region dropped; "" for an untagged or unknown language.
+func sidecarLang(code string) string {
+	tag, ok := lang.Normalize(code)
+	if !ok {
+		return ""
+	}
+	base, _, _ := strings.Cut(string(tag), "-")
+	return base
+}
+
+// sidecarSuffix is <lang>[.forced|.sdh].<ext>, or [forced.|sdh.]<ext>
+// with no language: Plex's local subtitle layout, and
+// pkg/subtitles.ParseSidecar's grammar.
+func sidecarSuffix(s transcode.SubtitleStream, ext string) string {
+	var parts []string
+	if l := sidecarLang(s.Language); l != "" {
+		parts = append(parts, l)
+	}
+	switch {
+	case forcedSubtitle(s):
+		parts = append(parts, "forced")
+	case s.Disposition.HearingImpaired:
+		parts = append(parts, "sdh")
+	}
+	return strings.Join(append(parts, ext), ".")
+}
+
+// planSubtitles is spec §4.1 with rulings R2 and R3: every text subtitle
+// becomes an .srt sidecar and every ASS one an .ass sidecar, one per name;
+// anything else is dropped and named. Plan holds a file with a bitmap
+// stream before it gets here.
+func planSubtitles(ss []transcode.SubtitleStream) (sidecars []SidecarPlan, dropped []string) {
+	taken := map[string]bool{}
+	for i, s := range ss {
+		format := ""
+		switch {
+		case slices.Contains(assSubtitles, s.Codec):
+			format = SidecarASS
+		case slices.Contains(textSubtitles, s.Codec):
+			format = SidecarSRT
+		default:
+			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s): a codec the MP4 standard does not carry", i, s.Codec))
+			continue
+		}
+		suffix := sidecarSuffix(s, format)
+		if taken[suffix] {
+			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q): a second %s sidecar", i, s.Codec, s.Title, suffix))
+			continue
+		}
+		taken[suffix] = true
+		sidecars = append(sidecars, SidecarPlan{SourceIndex: int32(i), Format: format, Codec: s.Codec, Suffix: suffix})
+	}
+	return sidecars, dropped
 }
 
 func commentary(a transcode.AudioStream) bool {

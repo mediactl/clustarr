@@ -138,7 +138,11 @@ func standardStatusPlan(s *standard.Result) *transcodev1alpha1.Plan {
 		out.AudioTracks = append(out.AudioTracks, ap)
 	}
 	out.AudioTracks = capList(out.AudioTracks)
-	out.SubtitleTracks = capList(s.Subtitles)
+	subs := make([]int32, 0, len(s.Subtitles))
+	for _, sp := range s.Subtitles {
+		subs = append(subs, sp.SourceIndex)
+	}
+	out.SubtitleTracks = capList(subs)
 	return out
 }
 

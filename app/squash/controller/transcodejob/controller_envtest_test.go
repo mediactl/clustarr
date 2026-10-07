@@ -136,6 +136,8 @@ func compliantProbe() commonv1.MediaInfo {
 	mi := h264Probe()
 	mi.VideoCodec, mi.VideoProfile, mi.PixelFormat, mi.VideoBitDepth = "hevc", "Main 10", "yuv420p10le", 10
 	mi.Audio = []commonv1.AudioStream{{Index: 1, Codec: "aac", Channels: 2, Language: "eng", Default: true}}
+	// The MP4 standard's layout: in Matroska it would be remuxed.
+	mi.Container = "mp4"
 	return mi
 }
 
@@ -428,7 +430,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, tj.Status.Phase)
 		require.NotNil(t, tj.Status.Plan)
 		assert.Equal(t, transcodev1alpha1.PlanModeSkip, tj.Status.Plan.Mode)
-		assert.Equal(t, "already HEVC Main 10 with Apple TV direct-play audio", tj.Status.Plan.SkipReason)
+		assert.Equal(t, "already HEVC in the MP4 standard's layout", tj.Status.Plan.SkipReason)
 		assert.Nil(t, tj.Status.JobRef)
 		assert.NotNil(t, tj.Status.FinishedAt)
 		cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)

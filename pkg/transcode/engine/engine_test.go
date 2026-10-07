@@ -48,7 +48,7 @@ func remuxPlan() standard.Result {
 			{SourceIndex: 0, Action: "copy", Language: "eng"},
 			{SourceIndex: 1, Action: "copy", Language: "fre", Title: "Commentary", Comment: true},
 		},
-		Subtitles: []int32{0}, Attachments: true, Chapters: true,
+		Subtitles: []standard.SubtitlePlan{{SourceIndex: 0, Action: standard.SubtitleCopy, Codec: "subrip"}}, Attachments: true, Chapters: true,
 		Tags: map[string]string{"CLUSTARR_PROFILE": "p@h"},
 	}
 }

@@ -29,6 +29,20 @@
     }
   ],
   "Subtitles": [],
+  "Sidecars": [
+    {
+      "SourceIndex": 0,
+      "Format": "srt",
+      "Codec": "subrip",
+      "Suffix": "en.srt"
+    },
+    {
+      "SourceIndex": 1,
+      "Format": "ass",
+      "Codec": "ass",
+      "Suffix": "en.ass"
+    }
+  ],
   "Attachments": false,
   "Chapters": true,
   "Tags": {
