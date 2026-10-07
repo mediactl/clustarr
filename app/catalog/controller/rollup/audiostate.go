@@ -31,6 +31,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -124,16 +125,46 @@ func graftState(missing bool, g GraftObservation) (string, string) {
 }
 
 // AudioStateAC renders status.audio, the one renderer the Movie and Episode
-// reconcilers share for their happy paths and early returns alike.
+// reconcilers (the loop's item keys after F4.2) share for their happy paths
+// and early returns alike. It sends every field a carries, the donor and
+// the rejected releases included (TestAudioStateACIsLossless): a field it
+// left out would be released by the item's next apply. It also bounds what
+// it sends (loop spec §2.6, §2.11.1): text has the runes a server-side apply
+// cannot carry replaced and is cut to its MaxLength, a donor whose path is
+// over-long or carries such a rune is left out rather than rewritten into a
+// path that does not exist, and only the newest MaxRejectedReleases
+// rejected releases are kept.
 func AudioStateAC(a *catalogv1alpha1.AudioState) *catalogac.AudioStateApplyConfiguration {
 	ac := catalogac.AudioState().WithWanted(a.Wanted...).WithPresent(a.Present...).WithMissing(a.Missing...)
 	if a.Graft != "" {
 		ac = ac.WithGraft(a.Graft)
 	}
 	if a.Reason != "" {
-		ac = ac.WithReason(a.Reason)
+		ac = ac.WithReason(audioText(a.Reason, catalogv1alpha1.MaxAudioReasonLength))
+	}
+	if d := a.Donor; d != nil && len(d.Path) <= catalogv1alpha1.MaxPathLength && !k8s.HasUnapplyable(d.Path) {
+		dac := catalogac.AudioDonor().
+			WithPath(d.Path).
+			WithRelease(audioText(d.Release, catalogv1alpha1.MaxReleaseTitleLength)).
+			WithImportedAt(d.ImportedAt)
+		if d.DownloadRef != "" {
+			dac = dac.WithDownloadRef(d.DownloadRef)
+		}
+		ac = ac.WithDonor(dac)
+	}
+	rejected := a.RejectedReleases
+	if n := len(rejected) - catalogv1alpha1.MaxRejectedReleases; n > 0 {
+		rejected = rejected[n:] // oldest first: drop from the front
+	}
+	for _, r := range rejected {
+		ac = ac.WithRejectedReleases(audioText(r, catalogv1alpha1.MaxReleaseTitleLength))
 	}
 	return ac
+}
+
+// audioText is s safe to apply and within maxBytes.
+func audioText(s string, maxBytes int) string {
+	return k8s.ClampText(k8s.SanitizeText(s), maxBytes)
 }
 
 // ItemOfAudioGraft maps an AudioGraft to its item of kind, for the Episode

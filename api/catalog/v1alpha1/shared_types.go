@@ -125,7 +125,52 @@ type AudioState struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=1024
 	Reason string `json:"reason,omitempty"`
+
+	// Donor is the newest audio donor imported for this item: from the
+	// item's Download with spec.purpose audioDonor whose import finished
+	// (status.import.imported[].destPath, spec.release.title,
+	// status.import.importedAt), carried forward from this status once
+	// seen, so deleting the Download loses nothing (loop spec §2.6). A
+	// MediaFile is named per file path, so an upgrade under a new filename
+	// would lose it if it lived on the file.
+	// +optional
+	Donor *AudioDonor `json:"donor,omitempty"`
+
+	// RejectedReleases are donor releases a graft of this item failed with
+	// (status.graft.donorFault on its file); the donor search never takes
+	// them again. Oldest dropped past MaxRejectedReleases.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=512
+	RejectedReleases []string `json:"rejectedReleases,omitempty"`
 }
+
+// AudioDonor is the reduced donor audio an item's graft takes its missing
+// languages from (loop spec §2.6).
+type AudioDonor struct {
+	// Path is the reduced donor audio (<stem>.mka), which fileimport writes
+	// at import.
+	// +kubebuilder:validation:MaxLength=4096
+	Path string `json:"path"`
+	// Release is the donor Download's release title.
+	// +kubebuilder:validation:MaxLength=512
+	Release string `json:"release"`
+	// DownloadRef names the donor Download.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	DownloadRef string `json:"downloadRef,omitempty"`
+	// ImportedAt is when the donor's import finished.
+	ImportedAt metav1.Time `json:"importedAt"`
+}
+
+// Bounds of AudioState that its renderer (rollup.AudioStateAC) holds to,
+// mirrored by pkg/crdcheck.TestAudioStateBoundsMatchTheCRD. The donor's path
+// and release take MaxPathLength and MaxReleaseTitleLength.
+const (
+	MaxRejectedReleases  = 16
+	MaxAudioReasonLength = 1024
+)
 
 // Image is one artwork URL published by a metadata provider.
 type Image struct {

@@ -69,6 +69,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.AudiobookSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudiobookStatus"):
 		return &catalogv1alpha1.AudiobookStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("AudioDonor"):
+		return &catalogv1alpha1.AudioDonorApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudioPolicy"):
 		return &catalogv1alpha1.AudioPolicyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudioState"):

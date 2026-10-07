@@ -133,6 +133,39 @@ spec:
                   Audio is what the file's audio carries against the profile's audio
                   policy; unset when the profile has none (anime dual-audio spec §5.3).
                 properties:
+                  donor:
+                    description: |-
+                      Donor is the newest audio donor imported for this item: from the
+                      item's Download with spec.purpose audioDonor whose import finished
+                      (status.import.imported[].destPath, spec.release.title,
+                      status.import.importedAt), carried forward from this status once
+                      seen, so deleting the Download loses nothing (loop spec §2.6). A
+                      MediaFile is named per file path, so an upgrade under a new filename
+                      would lose it if it lived on the file.
+                    properties:
+                      downloadRef:
+                        description: DownloadRef names the donor Download.
+                        maxLength: 253
+                        type: string
+                      importedAt:
+                        description: ImportedAt is when the donor's import finished.
+                        format: date-time
+                        type: string
+                      path:
+                        description: |-
+                          Path is the reduced donor audio (<stem>.mka), which fileimport writes
+                          at import.
+                        maxLength: 4096
+                        type: string
+                      release:
+                        description: Release is the donor Download's release title.
+                        maxLength: 512
+                        type: string
+                    required:
+                    - importedAt
+                    - path
+                    - release
+                    type: object
                   graft:
                     description: Graft is the graft's state.
                     enum:
@@ -163,6 +196,17 @@ spec:
                     description: Reason says why, when Graft is failed.
                     maxLength: 1024
                     type: string
+                  rejectedReleases:
+                    description: |-
+                      RejectedReleases are donor releases a graft of this item failed with
+                      (status.graft.donorFault on its file); the donor search never takes
+                      them again. Oldest dropped past MaxRejectedReleases.
+                    items:
+                      maxLength: 512
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
                   wanted:
                     description: Wanted are the profile's languages, resolved to tags.
                     items:

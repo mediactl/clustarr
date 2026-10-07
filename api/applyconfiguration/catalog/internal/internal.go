@@ -455,6 +455,21 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkSource
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioDonor
+  map:
+    fields:
+    - name: downloadRef
+      type:
+        scalar: string
+    - name: importedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: path
+      type:
+        scalar: string
+    - name: release
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioPolicy
   map:
     fields:
@@ -473,6 +488,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioState
   map:
     fields:
+    - name: donor
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioDonor
     - name: graft
       type:
         scalar: string
@@ -491,6 +509,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: reason
       type:
         scalar: string
+    - name: rejectedReleases
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: wanted
       type:
         list:

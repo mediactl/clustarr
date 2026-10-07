@@ -36,6 +36,18 @@ type AudioStateApplyConfiguration struct {
 	Graft *string `json:"graft,omitempty"`
 	// Reason says why, when Graft is failed.
 	Reason *string `json:"reason,omitempty"`
+	// Donor is the newest audio donor imported for this item: from the
+	// item's Download with spec.purpose audioDonor whose import finished
+	// (status.import.imported[].destPath, spec.release.title,
+	// status.import.importedAt), carried forward from this status once
+	// seen, so deleting the Download loses nothing (loop spec §2.6). A
+	// MediaFile is named per file path, so an upgrade under a new filename
+	// would lose it if it lived on the file.
+	Donor *AudioDonorApplyConfiguration `json:"donor,omitempty"`
+	// RejectedReleases are donor releases a graft of this item failed with
+	// (status.graft.donorFault on its file); the donor search never takes
+	// them again. Oldest dropped past MaxRejectedReleases.
+	RejectedReleases []string `json:"rejectedReleases,omitempty"`
 }
 
 // AudioStateApplyConfiguration constructs a declarative configuration of the AudioState type for use with
@@ -87,5 +99,23 @@ func (b *AudioStateApplyConfiguration) WithGraft(value string) *AudioStateApplyC
 // If called multiple times, the Reason field is set to the value of the last call.
 func (b *AudioStateApplyConfiguration) WithReason(value string) *AudioStateApplyConfiguration {
 	b.Reason = &value
+	return b
+}
+
+// WithDonor sets the Donor field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Donor field is set to the value of the last call.
+func (b *AudioStateApplyConfiguration) WithDonor(value *AudioDonorApplyConfiguration) *AudioStateApplyConfiguration {
+	b.Donor = value
+	return b
+}
+
+// WithRejectedReleases adds the given value to the RejectedReleases field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the RejectedReleases field.
+func (b *AudioStateApplyConfiguration) WithRejectedReleases(values ...string) *AudioStateApplyConfiguration {
+	for i := range values {
+		b.RejectedReleases = append(b.RejectedReleases, values[i])
+	}
 	return b
 }
