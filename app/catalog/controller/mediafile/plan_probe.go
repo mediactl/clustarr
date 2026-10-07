@@ -27,7 +27,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	clustarrevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -49,14 +48,21 @@ type ProbeInput struct {
 	// Swap is the file's Swapping transcode block whose output's probe is
 	// not incorporated yet (loop spec §5.9 "The swap"); SwapTag is the tag
 	// it was dispatched under, transcodeplan.Tag(Profile, ProfileHash).
-	Swap       *catalogv1alpha1.TranscodeState
-	SwapTag    string
-	Graft      *transcodev1alpha1.AudioGraft
-	Record     probestore.Current
-	Read       bool      // Record was read
-	PacedUntil time.Time // a low-lane request waits for this pacer slot
-	Version    int32     // the wanted probe version; 0 is mediainfo.ProbeVersion
-	Now        metav1.Time
+	Swap    *catalogv1alpha1.TranscodeState
+	SwapTag string
+	// GraftSwapping is a file whose graft swapped it and whose grafted bytes
+	// are not probed yet (status.graft Swapping): their probe is asked as a
+	// swap's is. GraftInFlight is a file a graft is rewriting or has
+	// rewritten (status.graft Queued, Running or Swapping): a probe
+	// incorporated then hands the main apply the takeover, which it applies
+	// once the graft planner sets status.graftTag (loop spec §3.10).
+	GraftSwapping bool
+	GraftInFlight bool
+	Record        probestore.Current
+	Read          bool      // Record was read
+	PacedUntil    time.Time // a low-lane request waits for this pacer slot
+	Version       int32     // the wanted probe version; 0 is mediainfo.ProbeVersion
+	Now           metav1.Time
 }
 
 // Takeover is the spec this pass's incorporation hands catalog.
@@ -97,7 +103,7 @@ func NeedsProbeRecord(in ProbeInput) (need, low bool) {
 		return false, false
 	}
 	ps := evaluateProbe(in.Path, in.Info.Size(), in.Info.ModTime(), in.Prev.ProbeHash)
-	swapOrKept := in.Swap != nil || in.Graft != nil
+	swapOrKept := in.Swap != nil || in.GraftSwapping
 	switch {
 	case pathOnly(in.File, ps, swapOrKept):
 		return false, false
@@ -133,7 +139,7 @@ func PlanProbe(in ProbeInput, out *catalogv1alpha1.MediaFileStatus) ProbeOutcome
 		k8s.MarkTrue(mf, &out.Conditions, catalogv1alpha1.MediaFileConditionReady, "Ready", "file present and probed")
 	}
 	ps := evaluateProbe(in.Path, in.Info.Size(), in.Info.ModTime(), in.Prev.ProbeHash)
-	swapOrKept := in.Swap != nil || in.Graft != nil
+	swapOrKept := in.Swap != nil || in.GraftSwapping
 	switch {
 	case pathOnly(mf, ps, swapOrKept):
 		// The bytes status.mediaInfo describes, under a new name: record the
@@ -204,20 +210,20 @@ func incorporateProbe(o *ProbeOutcome, in ProbeInput, ps probeState, out *catalo
 	mf, now := in.File, in.Now
 	swapped := in.Swap != nil && mi != nil && mi.TranscodeProfile == in.SwapTag
 	original := (mf.Spec.Original == nil || *mf.Spec.Original) && !swapped
-	if in.Graft != nil {
-		// An audio graft rewrote the file in place (anime dual-audio spec
-		// §7.2): not a transcode -- spec.original stays -- but its bytes are
-		// new, and this summary is of them.
-		out.GraftTag, out.GraftedAt = in.Graft.Status.GraftTag, &now
-	}
-	if !original || out.GraftTag != "" {
+	// An audio graft rewrites the file in place (anime dual-audio spec §7.2):
+	// not a transcode -- spec.original stays -- but its bytes are new, and
+	// this summary is of them. The graft planner, which owns
+	// status.graftTag, sets it in the pass the grafted bytes' probe lands;
+	// the takeover is handed over here, and the main apply takes it once the
+	// final draft carries the tag (§3.10).
+	if !original || out.GraftTag != "" || in.GraftInFlight {
 		o.Takeover = &Takeover{Path: in.Path, SizeBytes: ps.SizeBytes, ModTime: ps.ModTime, Swap: swapped}
 	}
 	k8s.MarkTrue(mf, &out.Conditions, catalogv1alpha1.MediaFileConditionProbed, "Probed", "probed at %s", now.UTC().Format(time.RFC3339))
 	k8s.MarkTrue(mf, &out.Conditions, catalogv1alpha1.MediaFileConditionReady, "Ready", "file present and probed")
 	out.ProbeHash, out.ProbedAt, out.ProbeVersion, out.MediaInfo = ps.Hash, &now, version, mi
 	o.Events = append(o.Events, ProbeEvent{Type: "Normal", Reason: "Probed", Note: "probed " + mf.Spec.Path})
-	if in.Swap == nil && in.Graft == nil && transcoded && bytesChanged(mf, ps) && in.Prev.ProbeHash != "" {
+	if in.Swap == nil && !in.GraftInFlight && transcoded && bytesChanged(mf, ps) && in.Prev.ProbeHash != "" {
 		// The bytes of a file catalog already took over changed with no
 		// transcode to explain them: the transcode planner drops the verdict
 		// the old bytes earned (transcodeplan.Plan's Succeeded row).

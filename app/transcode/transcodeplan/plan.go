@@ -25,6 +25,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	"github.com/mediactl/clustarr/app/transcode/task"
 )
 
@@ -72,6 +73,15 @@ type Inputs struct {
 	SpecPathMissing bool
 	OutputExists    bool
 	OutputSize      int64
+
+	// PrevGraft is the file's stored graft block (v.Prev.Graft): a dispatch
+	// is held while it has not recorded the joined graft of the block's
+	// last dispatch (graftplan.JoinPending, §5.13).
+	PrevGraft *catalogv1alpha1.GraftState
+	// Joinable is the graft a dispatch carries (graftplan.Join), gathered on
+	// a dispatch grant and for an owed republish of a block that carries a
+	// join; nil carries none.
+	Joinable *graftplan.Joinable
 }
 
 // profile is the TranscodeProfile named name: from Profiles, else the

@@ -98,7 +98,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	cfg := poolConfig(o)
 	adm := &admission.Reconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Ledger: o.Ledger, Bus: bus, Admin: admin,
-		Namespaces: namespacesOf(o.Options), Pool: cfg, AudioGraftIndex: audiograft.IndexMediaFileRef,
+		Namespaces: namespacesOf(o.Options), Pool: cfg,
 		Withdrawal: task.Withdrawal{
 			Records: task.Requests(bus.KV(events.BucketTranscodes)),
 			Leases:  bus.KV(events.BucketTranscodeLeases), Admin: admin,
@@ -123,13 +123,17 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	return nil
 }
 
-// poolConfig is what admission and the slim TranscodeProfile reconciler
-// render every pool Job with (and the AudioGraft controller its graft
-// Jobs), from this manager's own options and environment. It is a function
-// of o alone so a test can hold each option to the pool it reaches
-// (TestPoolConfigCarriesTheControllerOptions): several of them -- the render
-// groups, the claim -- have legal empty values that only fail on a real
-// node.
+// PoolConfig is what admission and the slim TranscodeProfile reconciler
+// render every pool Job with, and the remediation loop's graft planner its
+// standalone graft Jobs (remediationmanager.Options.GraftPool): the one
+// pool configuration, so a graft pod is a cpu pool pod's twin.
+func PoolConfig(o Options) pool.Config { return poolConfig(o) }
+
+// poolConfig is PoolConfig, from this manager's own options and
+// environment. It is a function of o alone so a test can hold each option
+// to the pool it reaches (TestPoolConfigCarriesTheControllerOptions):
+// several of them -- the render groups, the claim -- have legal empty
+// values that only fail on a real node.
 func poolConfig(o Options) pool.Config {
 	return pool.Config{
 		Namespace:         o.Namespace,

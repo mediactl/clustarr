@@ -24,6 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package graft
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -92,7 +93,7 @@ func newRun(ctx context.Context, t grafttask.Task, o Options) *run {
 	if o.Thresholds == (audioalign.Thresholds{}) {
 		o.Thresholds = audioalign.DefaultThresholds
 	}
-	return &run{t: t, o: o, log: logging.FromContext(ctx).With("graft", t.Graft)}
+	return &run{t: t, o: o, log: logging.FromContext(ctx).With("graft", cmp.Or(t.File.Name, t.Graft))}
 }
 
 // Reduce reduces t's donor to its audio, the anchor and every language the

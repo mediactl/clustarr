@@ -53,7 +53,10 @@ const (
 type Options struct {
 	Slots  map[string]int32 // --slots
 	Window int              // --job-window; 0 is unlimited (§5.11)
-	Clock  clockwork.Clock  // nil: the real clock
+	// GraftConcurrency is --graft-concurrency: standalone graft slots per
+	// namespace (§5.13); 0 is graftplan.DefaultConcurrency.
+	GraftConcurrency int
+	Clock            clockwork.Clock // nil: the real clock
 }
 
 // Snapshot is one file's admission state as the transcode planner reads it.
@@ -158,8 +161,13 @@ func (l *Ledger) storeLocked(v FileView, cur *entry, now time.Time) {
 	}
 	l.files[v.UID] = &entry{view: v, observedAt: now}
 	l.byKey[v.Key] = v.UID
-	if windowPhase(v.Phase) {
-		if g := l.grants[v.UID]; g != nil && !g.inUse {
+	if g := l.grants[v.UID]; g != nil && !g.inUse {
+		switch {
+		case g.kind == transcodeplan.GrantGraftSlot:
+			if graftHoldsSlot(v) {
+				delete(l.grants, v.UID) // the graft slot is held by the block now
+			}
+		case windowPhase(v.Phase):
 			delete(l.grants, v.UID) // the place is held by the block now
 		}
 	}
@@ -174,6 +182,11 @@ func (l *Ledger) storeLocked(v FileView, cur *entry, now time.Time) {
 		delete(l.publishFailed, v.UID)
 		delete(l.withdrawFailed, v.UID)
 	}
+}
+
+// graftHoldsSlot reports a view whose graft block holds a graft slot.
+func graftHoldsSlot(v FileView) bool {
+	return holdsGraftSlot(GraftFile{Phase: v.GraftPhase, Reason: v.GraftReason})
 }
 
 // Forget handles a NotFound pass: it drops the key's entry and its grant,

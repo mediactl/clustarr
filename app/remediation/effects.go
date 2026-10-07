@@ -166,6 +166,9 @@ func (r *Reconciler) runEffects(ctx context.Context, uid string, p Bound, effs [
 }
 
 func (r *Reconciler) runEffect(ctx context.Context, uid string, p Bound, eff Effect) error {
+	if ok, err := ExecGraftJobEffect(ctx, r.c, eff); ok {
+		return err
+	}
 	switch e := eff.(type) {
 	case RecordWrite:
 		kv := r.env.Bus.KV(e.Bucket)

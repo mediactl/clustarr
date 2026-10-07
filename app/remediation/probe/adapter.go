@@ -55,10 +55,10 @@ func (*Adapter) Name() remediation.PlannerName { return remediation.PlannerProbe
 // Applies implements remediation.Planner: every file is probed.
 func (*Adapter) Applies(*catalogv1alpha1.MediaFile) bool { return true }
 
-// Gather reads the file's AudioGrafts from the cache, takes a Swapping
-// transcode block's output as the file to probe (loop spec §5.9 "The
-// swap"), stats it through the I/O executor, and reads its probe record
-// when the probe is due or a swap waits.
+// Gather takes a Swapping transcode block's output as the file to probe
+// (loop spec §5.9 "The swap") and a graft block's state (a Swapping graft's
+// bytes are probed as a swap's), stats the file through the I/O executor,
+// and reads its probe record when the probe is due or a swap waits.
 func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (mediafile.ProbeInput, error) {
 	mf := v.File
 	in := mediafile.ProbeInput{File: mf, Prev: v.Prev, Version: a.o.Version, Now: v.Now}
@@ -67,10 +67,7 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 			in.Swap, in.SwapTag = swap, transcodeplan.Tag(swap.Profile, swap.ProfileHash)
 		}
 	}
-	var err error
-	if in.Graft, err = mediafile.UnincorporatedGraft(ctx, env.Reader, mf); err != nil {
-		return in, remediation.Transient(err)
-	}
+	in.GraftSwapping, in.GraftInFlight = graftState(v.Prev)
 	in.Path = mediafile.SwapTarget(mf, in.Swap)
 	info, err := env.IO.Stat(ctx, in.Path)
 	switch {
@@ -159,12 +156,28 @@ func publish(rec schema.ProbeRecord, now metav1.Time) (remediation.Publish, erro
 }
 
 // Copy is the probe's row of §3.5's table: probeHash, probedAt,
-// probeVersion, mediaInfo, graftTag and graftedAt (F7.2 moves these two to
-// the graft planner), and the Probed and Ready conditions. status.transcode
-// is the transcode planner's (F6.2).
+// probeVersion, mediaInfo, and the Probed and Ready conditions.
+// status.transcode is the transcode planner's (F6.2); status.graft,
+// graftTag and graftedAt the graft planner's (F7.2).
 func (*Adapter) Copy(from, into *catalogv1alpha1.MediaFileStatus) {
 	into.ProbeHash, into.ProbedAt, into.ProbeVersion = from.ProbeHash, from.ProbedAt.DeepCopy(), from.ProbeVersion
 	into.MediaInfo = from.MediaInfo.DeepCopy()
-	into.GraftTag, into.GraftedAt = from.GraftTag, from.GraftedAt.DeepCopy()
 	remediation.CopyConditions(from, into, catalogv1alpha1.MediaFileConditionProbed, catalogv1alpha1.MediaFileConditionReady)
+}
+
+// graftState reads the stored graft block: Swapping with its grafted bytes
+// not yet probed (completed after the stored probe), and a graft in flight
+// or swapping at all.
+func graftState(prev *catalogv1alpha1.MediaFileStatus) (swapping, inFlight bool) {
+	b := prev.Graft
+	if b == nil {
+		return false, false
+	}
+	switch b.Phase {
+	case catalogv1alpha1.GraftPhaseSwapping:
+		return prev.ProbedAt == nil || b.CompletedAt == nil || b.CompletedAt.After(prev.ProbedAt.Time), true
+	case catalogv1alpha1.GraftPhaseQueued, catalogv1alpha1.GraftPhaseRunning:
+		return false, true
+	}
+	return false, false
 }

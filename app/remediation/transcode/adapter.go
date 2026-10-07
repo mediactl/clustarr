@@ -26,6 +26,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -36,9 +37,6 @@ import (
 type Options struct {
 	// Bus carries the loop's sources.
 	Bus events.Bus
-	// AudioGraftIndex is the AudioGraft index by status.mediaFileRef
-	// graftstate.StandaloneFor reads (until F7.2); "" reads none.
-	AudioGraftIndex string
 	// Ledger is the admission ledger (*admission.Ledger), through
 	// transcodeplan.Admission; nil grants nothing.
 	Ledger transcodeplan.Admission
@@ -65,9 +63,12 @@ func New(o Options) *Adapter { return &Adapter{o: o} }
 
 // In is what Gather read.
 type In struct {
-	Profiles        []transcodev1alpha1.TranscodeProfile
-	ItemExists      bool
-	StandaloneGraft bool
+	Profiles   []transcodev1alpha1.TranscodeProfile
+	ItemExists bool
+	// Join is what graftplan.Join reads: gathered on a dispatch grant and
+	// for a Queued block that carries a join (its owed republish).
+	Join            graftplan.JoinInput
+	JoinRead        bool
 	Ledger          transcodeplan.Ledger
 	Took            bool // Gather took a grant (TakeGrant): Plan confirms or releases it
 	Read            bool // Gather ran
@@ -100,7 +101,7 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 	}
 	f := transcodeplan.File{
 		MF: v.File, Labels: v.Labels(), Status: v.Draft, ProbeCurrent: v.ProbeCurrent(),
-		ItemExists: in.ItemExists, StandaloneGraft: in.StandaloneGraft,
+		ItemExists: in.ItemExists, StandaloneGraft: graftplan.Standalone(v.Prev.Graft),
 	}
 	if p, ok := transcodeplan.ParsePriority(in.Intents.Priority); ok {
 		f.Priority = &p
@@ -121,6 +122,7 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 		Lease: in.Lease, TaskStored: in.TaskStored, Profiles: profiles,
 		Intents: in.Intents, Nonces: nonces, DeadLettered: in.DeadLettered,
 		SpecPathMissing: in.SpecPathMissing, OutputExists: in.OutputExists, OutputSize: in.OutputSize,
+		PrevGraft: v.Prev.Graft, Joinable: a.joinable(v, in),
 	})
 	out.Transcode = d.Block
 	if d.Nonces != nil {
@@ -137,6 +139,15 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 		res.Records = append(res.Records, remediation.RecordNote{State: st})
 	}
 	return res, nil
+}
+
+// joinable is the graft a dispatch of this pass carries (graftplan.Join
+// over the gathered item), nil when Gather read none.
+func (*Adapter) joinable(v *remediation.View, in In) *graftplan.Joinable {
+	if !in.JoinRead {
+		return nil
+	}
+	return graftplan.Join(graftplan.View{File: v.File, Prev: v.Prev, Draft: v.Draft, Now: v.Now, ProbeCurrent: v.ProbeCurrent()}, in.Join)
 }
 
 // Copy is transcode's row of §3.5's table: status.transcode and

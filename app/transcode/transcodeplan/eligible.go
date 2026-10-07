@@ -32,7 +32,7 @@ type File struct {
 	Status          *catalogv1alpha1.MediaFileStatus
 	ProbeCurrent    bool
 	ItemExists      bool
-	StandaloneGraft bool // graftstate.StandaloneFor until F7.2, then status.graft
+	StandaloneGraft bool // graftplan.Standalone(status.graft): a standalone graft holds the file
 	// Priority is the transcode.clustarr.io/priority intent when it is a
 	// valid int32 (ParseIntents), nil when it is absent or invalid.
 	Priority *int32

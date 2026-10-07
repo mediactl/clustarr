@@ -19,6 +19,7 @@ package mediafile
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -84,17 +85,40 @@ func indexSeriesByRootFolder(o client.Object) []string {
 
 // movieFileInput, seriesFileInput and episodeNaming are the status fields a
 // file's planners read from each owner kind: what renderNaming reads
-// (catalogctx.Movie, Episode and EpisodeFilePath's series folder) and, on a
-// Movie and a Series, the original language the subtitles planner counts
+// (catalogctx.Movie, Episode and EpisodeFilePath's series folder), on a
+// Movie and a Series the original language the subtitles planner counts
 // untagged audio as (loop spec §3.3 S2', S4'; no watch existed on it
-// before). A spec change reaches the watch through GenerationChanged.
-// Everything else in those statuses -- phase, file rollups, artwork -- is
-// churn the file watches must not wake for.
+// before), and on a Movie and an Episode the graft planner's inputs: the
+// item's status.audio.missing and its donor (S2', S3'; without them a donor
+// appearing on the item never wakes its file). A spec change reaches the
+// watch through GenerationChanged. Everything else in those statuses --
+// phase, file rollups, artwork -- is churn the file watches must not wake
+// for.
 type movieFileInput struct {
 	title            string
 	year             int32
 	imdb             string
 	originalLanguage string
+	graft            graftInput
+}
+
+// graftInput is what the graft planner reads of an item's status.audio.
+type graftInput struct {
+	missing         string
+	donorPath       string
+	donorRelease    string
+	donorImportedAt int64
+}
+
+func graftInputs(a *catalogv1alpha1.AudioState) graftInput {
+	if a == nil {
+		return graftInput{}
+	}
+	out := graftInput{missing: strings.Join(a.Missing, ",")}
+	if d := a.Donor; d != nil {
+		out.donorPath, out.donorRelease, out.donorImportedAt = d.Path, d.Release, d.ImportedAt.UTC().Unix()
+	}
+	return out
 }
 
 type seriesFileInput struct {
@@ -108,15 +132,19 @@ type episodeNaming struct {
 	title    string
 	absolute int32
 	airDate  int64
+	graft    graftInput
 }
 
 func movieFileInputs(o client.Object) movieFileInput {
 	m, ok := o.(*catalogv1alpha1.Movie)
-	if !ok || m.Status.Metadata == nil {
+	if !ok {
 		return movieFileInput{}
 	}
-	md := m.Status.Metadata
-	return movieFileInput{title: md.Title, year: md.Year, imdb: md.ExternalIDs["imdb"], originalLanguage: md.OriginalLanguage}
+	out := movieFileInput{graft: graftInputs(m.Status.Audio)}
+	if md := m.Status.Metadata; md != nil {
+		out.title, out.year, out.imdb, out.originalLanguage = md.Title, md.Year, md.ExternalIDs["imdb"], md.OriginalLanguage
+	}
+	return out
 }
 
 func seriesFileInputs(o client.Object) seriesFileInput {
@@ -136,7 +164,7 @@ func episodeNamingInputs(o client.Object) episodeNaming {
 	if !ok {
 		return episodeNaming{}
 	}
-	out := episodeNaming{title: ep.Status.Title}
+	out := episodeNaming{title: ep.Status.Title, graft: graftInputs(ep.Status.Audio)}
 	if ep.Status.AbsoluteNumber != nil {
 		out.absolute = *ep.Status.AbsoluteNumber
 	}

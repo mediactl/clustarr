@@ -48,11 +48,16 @@ type FileView struct {
 	Encodes       bool   // the plan's mode is transcode
 	Encoder       string // classFor's input
 	Fallback      bool
-	JoinedGraft   bool // transcode.joinedGraft names the in-flight dispatch (F7.2 reads it)
-	GraftPhase    catalogv1alpha1.GraftPhase
-	Eligible      bool
-	EligibleKnown bool // false when the transcode planner did not run this pass: keep the last answer
-	VerdictHolds  bool // a Skipped or Failed block for the current (tag, probe)
+	JoinedGraft   bool // transcode.joinedGraft names the in-flight dispatch: no standalone graft beside it
+	// The graft block (§5.13): its phase and reason, its standalone Job,
+	// and its donor's import time, the graft-slot order.
+	GraftPhase      catalogv1alpha1.GraftPhase
+	GraftReason     string
+	GraftJobName    string
+	DonorImportedAt time.Time
+	Eligible        bool
+	EligibleKnown   bool // false when the transcode planner did not run this pass: keep the last answer
+	VerdictHolds    bool // a Skipped or Failed block for the current (tag, probe)
 }
 
 // rank orders observations of one seq (§5.5): Queued < Running < the rest.
@@ -122,8 +127,11 @@ func FileViewOf(mf metav1.Object, st *catalogv1alpha1.MediaFileStatus, e *transc
 		v.VerdictHolds = e != nil && (b.Phase == catalogv1alpha1.TranscodePhaseSkipped || b.Phase == catalogv1alpha1.TranscodePhaseFailed) &&
 			b.ProfileHash == e.Hash && b.ProbeHash == st.ProbeHash
 	}
-	if st.Graft != nil {
-		v.GraftPhase = st.Graft.Phase
+	if g := st.Graft; g != nil {
+		v.GraftPhase, v.GraftReason, v.GraftJobName = g.Phase, g.Reason, g.JobName
+		if g.DonorImportedAt != nil {
+			v.DonorImportedAt = g.DonorImportedAt.Time
+		}
 	}
 	return v
 }

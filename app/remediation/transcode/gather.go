@@ -32,24 +32,30 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
-	"github.com/mediactl/clustarr/app/transcode/graftstate"
+	"github.com/mediactl/clustarr/app/remediation/graft"
+	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// Gather takes the file's admission grant when it holds one (an in-use
-// grant never expires, and the pass confirms or releases it), and reads the
-// profiles, whether the file's item exists and whether a standalone graft
-// holds the file, from the manager cache.
+// Gather takes the file's window or dispatch grant when it holds one (an
+// in-use grant never expires, and the pass confirms or releases it; a
+// graft-slot grant is the graft planner's), and reads the profiles and
+// whether the file's item exists from the manager cache; on a dispatch
+// grant, and for a Queued block whose dispatch carries a join, it also
+// reads what the file's graft needs to ride along (graft.GatherItem).
 func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (In, error) {
 	in := In{
 		Read: true, Ledger: v.Ledger, Intents: transcodeplan.ParseIntents(v.File.Annotations),
 		DeadLettered: v.File.Annotations[k8s.AnnotationDeadLettered],
 	}
-	if a.o.Ledger != nil && v.Ledger.Grant != transcodeplan.GrantNone {
+	switch g := v.Ledger.Grant; {
+	case a.o.Ledger != nil && (g == transcodeplan.GrantWindow || g == transcodeplan.GrantDispatch):
 		in.Ledger, in.Took = a.o.Ledger.TakeGrant(v.File.UID)
+	case g == transcodeplan.GrantGraftSlot:
+		in.Ledger.Grant = transcodeplan.GrantNone // not this planner's to act on
 	}
 	var profiles transcodev1alpha1.TranscodeProfileList
 	if err := env.Reader.List(ctx, &profiles, client.UnsafeDisableDeepCopy); err != nil {
@@ -61,10 +67,14 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 		return in, remediation.Transient(err)
 	}
 	in.ItemExists = exists
-	if a.o.AudioGraftIndex != "" {
-		if in.StandaloneGraft, err = graftstate.StandaloneFor(ctx, env.Reader, a.o.AudioGraftIndex, client.ObjectKeyFromObject(v.File)); err != nil {
+	b := v.Prev.Transcode
+	if in.Ledger.Grant == transcodeplan.GrantDispatch ||
+		b != nil && b.Phase == catalogv1alpha1.TranscodePhaseQueued && b.JoinedGraft != nil {
+		item, root, bin, err := graft.GatherItem(ctx, env.Reader, v.File)
+		if err != nil {
 			return in, remediation.Transient(err)
 		}
+		in.Join, in.JoinRead = graftplan.JoinInput{Item: item, Root: root, RecycleBin: bin}, true
 	}
 	if err := a.gatherDispatch(ctx, env, v, &in); err != nil {
 		return in, remediation.Transient(err)

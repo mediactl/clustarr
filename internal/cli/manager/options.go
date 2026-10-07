@@ -179,7 +179,7 @@ func (o Options) Validate() error {
 // Secret live), the pool Jobs selected by transcode's managed-by label, and
 // no MediaFile status.mediaInfo strip (the manager reads it).
 func managerOptions(o Options) ctrl.Options {
-	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect)
+	opts := o.ManagerOptions(LeaderElectionID, o.LeaderElect)
 	opts.Client.FieldOwner = string(k8s.DefaultFieldOwner)
 	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
 	opts.Cache.ByObject = map[client.Object]cache.ByObject{&batchv1.Job{}: pool.PoolJobCache(o.Namespace)}

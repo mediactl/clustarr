@@ -19,14 +19,11 @@ package mediafile
 
 import (
 	"context"
-	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -71,29 +68,3 @@ func extractAudioGraftDone(o client.Object) string {
 	}
 	return string(g.Status.Phase) + "|" + at
 }
-
-// UnincorporatedGraft is a graft that swapped mf's file after its last
-// probe, read through c (the manager's cache): Succeeded with a graft tag,
-// finished after probedAt. nil when none.
-func UnincorporatedGraft(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.AudioGraft, error) {
-	var l transcodev1alpha1.AudioGraftList
-	if err := c.List(ctx, &l, client.InNamespace(mf.Namespace), client.MatchingFields{AudioGraftMediaFileRefIndex: mf.Name}); err != nil {
-		return nil, fmt.Errorf("mediafile: list AudioGrafts: %w", err)
-	}
-	var best *transcodev1alpha1.AudioGraft
-	for i := range l.Items {
-		g := &l.Items[i]
-		if g.Status.Phase != transcodev1alpha1.AudioGraftSucceeded || g.Status.GraftTag == "" || g.Status.CompletedAt == nil {
-			continue
-		}
-		if !after(g.Status.CompletedAt, mf.Status.ProbedAt) || g.Status.GraftTag == mf.Status.GraftTag && !after(g.Status.CompletedAt, mf.Status.GraftedAt) {
-			continue
-		}
-		if best == nil || after(g.Status.CompletedAt, best.Status.CompletedAt) {
-			best = g
-		}
-	}
-	return best, nil
-}
-
-func after(a, b *metav1.Time) bool { return b == nil || a.After(b.Time) }

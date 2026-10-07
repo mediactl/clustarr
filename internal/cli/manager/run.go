@@ -275,7 +275,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	// observes into it and takes grants from it, transcode-admission
 	// rebuilds and passes it, and the slim TranscodeProfile reconciler
 	// sizes the pools from it.
-	ledger := admission.NewLedger(admission.Options{Slots: o.Slots, Window: o.JobWindow})
+	ledger := admission.NewLedger(admission.Options{Slots: o.Slots, Window: o.JobWindow, GraftConcurrency: o.GraftConcurrency})
 	steps := []step{
 		{"catalog", func() error {
 			return catalogmanager.Register(mgr, bus, catalogmanager.Options{
@@ -301,13 +301,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			})
 		}},
 		{"transcode", func() error {
-			return transcodemanager.Register(mgr, bus, transcodemanager.Options{
-				Options: o.Options, Slots: o.Slots,
-				DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
-				IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
-				JobWindow: o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
-				Logging: o.Logging, Tracing: o.Tracing,
-			})
+			return transcodemanager.Register(mgr, bus, transcodeOptions(o, ledger))
 		}},
 		{"caption", func() error {
 			return captionmanager.Register(mgr, bus, captionmanager.Options{Options: o.Options, ProfileWake: wake})
@@ -327,6 +321,9 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				WantedWakes: p.wanted, DonorBudget: p.budget, SearchLivePerMinute: o.SearchLivePerMinute,
 				SubtitleProfileWake: wake.Signal,
 				Ledger:              ledger,
+				// A standalone graft Job runs on the cpu pool's pod template
+				// (loop spec §4.12): the transcode manager's own.
+				GraftPool: transcodemanager.PoolConfig(transcodeOptions(o, ledger)),
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge
@@ -359,4 +356,17 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 		names = append(names, s.name)
 	}
 	return names, nil
+}
+
+// transcodeOptions is the transcode manager's registration: its pools, the
+// shared admission ledger and the graft slots it sizes. The remediation
+// loop renders its graft Jobs from the same options' pool configuration.
+func transcodeOptions(o Options, ledger *admission.Ledger) transcodemanager.Options {
+	return transcodemanager.Options{
+		Options: o.Options, Slots: o.Slots,
+		DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
+		IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
+		JobWindow: o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
+		Logging: o.Logging, Tracing: o.Tracing,
+	}
 }

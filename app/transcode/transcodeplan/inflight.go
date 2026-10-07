@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -154,6 +155,12 @@ func owe(in Inputs, b *catalogv1alpha1.TranscodeState, write bool) Decision {
 	}
 	if write {
 		d.Request, d.RequestRev = requested(in.File, b.Dispatch.Seq, t.Inputs, b.Dispatch.DispatchedAt.Time), in.RecordRev
+	}
+	if graftplan.SameJoin(in.Joinable, b.JoinedGraft) {
+		// The dispatch carried the file's graft: the task owed again
+		// carries it too, so a lost first publish loses no graft.
+		g := in.Joinable.Task
+		t.Graft = &g
 	}
 	d.Publish, d.Republish = t, !write
 	return d

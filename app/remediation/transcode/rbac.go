@@ -17,10 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package transcode
 
-// The transcode planner reads the profiles, the file's Movie or Episode, the
-// file's AudioGrafts (until F7.2) and the namespace's RootFolders through
-// the manager's cache. The blank line keeps the markers package-level.
+// The transcode planner reads the profiles, the file's Movie or Episode
+// (and, for a joined graft, the Series and the QualityProfile, through
+// graft.GatherItem) and the namespace's RootFolders through the manager's
+// cache. The blank line keeps the markers package-level.
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;rootfolders,verbs=get;list;watch

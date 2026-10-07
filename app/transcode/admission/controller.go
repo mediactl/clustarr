@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -39,7 +40,8 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
-	"github.com/mediactl/clustarr/app/transcode/graftstate"
+	"github.com/mediactl/clustarr/app/transcode/graftplan"
+	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -56,17 +58,16 @@ const ControllerName = "transcode-admission"
 // file, so there is nothing to key by.
 var Request = reconcile.Request{NamespacedName: types.NamespacedName{Name: "(admission)"}}
 
-// The admission controller reads nodes, the pool Jobs, MediaFiles (the
-// rebuild's quorum Lists and the backlog scan), the items, the profiles and
-// the AudioGrafts (a standalone graft holds a file, until F7.2). It writes
-// nothing. The blank line keeps the markers package-level.
+// The admission controller reads nodes, the pool and graft Jobs, MediaFiles
+// (the rebuild's quorum Lists and the backlog scan), the items and the
+// profiles. It writes nothing. The blank line keeps the markers
+// package-level.
 //
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 
 // Reconciler is the transcode-admission controller (loop spec §5.7): one
 // pass at a time over the ledger, from the cache and clustarr-progress. It
@@ -83,9 +84,6 @@ type Reconciler struct {
 	Withdrawal task.Withdrawal
 	Namespaces []string
 	Pool       pool.Config
-	// AudioGraftIndex is the AudioGraft index by status.mediaFileRef the
-	// backlog scan's eligibility reads (until F7.2); "" reads none.
-	AudioGraftIndex string
 	// RebuildGate holds the first pass's rebuild until it closes: tests only.
 	RebuildGate <-chan struct{}
 	// Now is the clock; nil is time.Now.
@@ -149,7 +147,7 @@ func (r *Reconciler) rebuildInputs() RebuildInputs {
 }
 
 // eligible is the backlog scan's test (§5.6 step 3): transcodeplan.Eligible
-// over the cached profiles, the item and the file's AudioGrafts, as the
+// over the cached profiles, the item and the file's graft block, as the
 // loop's transcode planner reads them.
 func (r *Reconciler) eligible(ctx context.Context, mf *catalogv1alpha1.MediaFile) *transcodeplan.Eligibility {
 	var profiles transcodev1alpha1.TranscodeProfileList
@@ -160,14 +158,12 @@ func (r *Reconciler) eligible(ctx context.Context, mf *catalogv1alpha1.MediaFile
 	if err != nil {
 		return nil
 	}
-	f := transcodeplan.File{MF: mf, Labels: mf.Labels, Status: &mf.Status, ProbeCurrent: mf.ProbeCurrent(), ItemExists: exists}
+	f := transcodeplan.File{
+		MF: mf, Labels: mf.Labels, Status: &mf.Status, ProbeCurrent: mf.ProbeCurrent(), ItemExists: exists,
+		StandaloneGraft: graftplan.Standalone(mf.Status.Graft),
+	}
 	if p, ok := transcodeplan.ParsePriority(mf.Annotations[catalogv1alpha1.AnnotationTranscodePriority]); ok {
 		f.Priority = &p
-	}
-	if r.AudioGraftIndex != "" {
-		if f.StandaloneGraft, err = graftstate.StandaloneFor(ctx, r.Client, r.AudioGraftIndex, client.ObjectKeyFromObject(mf)); err != nil {
-			return nil
-		}
 	}
 	e := transcodeplan.Eligible(f, profiles.Items)
 	return &e
@@ -228,7 +224,47 @@ func (r *Reconciler) passInputs(ctx context.Context) (PassInputs, error) {
 		return in, err
 	}
 	in.Held = r.Ledger.Holding(stored, tps, r.Pool)
+	if in.GraftJobs, err = r.graftJobs(ctx); err != nil {
+		return in, err
+	}
 	return in, nil
+}
+
+// graftJobs is every unfinished graft Job's name by namespace, from the
+// cache (pool.PoolJobCache holds them by their managed-by label): §5.13's
+// slots in use. Every pass reads them, the rebuild's first included (§5.6
+// step 2).
+func (r *Reconciler) graftJobs(ctx context.Context) (map[string][]string, error) {
+	var jobs batchv1.JobList
+	opts := []client.ListOption{client.MatchingLabels{pool.LabelManagedBy: pool.ManagedByValue}, client.HasLabels{grafttask.LabelGraftOf}}
+	if err := r.Client.List(ctx, &jobs, opts...); err != nil {
+		return nil, fmt.Errorf("admission: list graft Jobs: %w", err)
+	}
+	out := map[string][]string{}
+	for i := range jobs.Items {
+		j := &jobs.Items[i]
+		if done, _, _ := pool.JobFinished(j); !done && j.DeletionTimestamp == nil {
+			out[j.Namespace] = append(out[j.Namespace], j.Name)
+		}
+	}
+	return out, nil
+}
+
+// isGraftJob passes the Jobs a standalone graft runs as.
+func isGraftJob(o client.Object) bool {
+	_, ok := o.GetLabels()[grafttask.LabelGraftOf]
+	return ok && o.GetLabels()[pool.LabelManagedBy] == pool.ManagedByValue
+}
+
+// graftJobSignal is what of a graft Job frees or takes a slot: whether it
+// has finished.
+func graftJobSignal(o client.Object) string {
+	j, ok := o.(*batchv1.Job)
+	if !ok {
+		return ""
+	}
+	done, _, _ := pool.JobFinished(j)
+	return fmt.Sprintf("finished=%t", done)
 }
 
 // poolJobs is every pool Job by name, from the cache (pool.PoolJobCache).
@@ -349,7 +385,8 @@ func gpuNodeSignal(cfg pool.Config) func(client.Object) string {
 
 // SetupWithManager registers transcode-admission: its own wake channel (a
 // slot or window place freed, a pool state changed), Nodes, TranscodeProfile
-// generations and pool Job events, all into the one Request.
+// generations, pool Job events and a graft Job's start, end or deletion (a
+// graft slot freed), all into the one Request.
 // MaxConcurrentReconciles is 1: a pass counts then grants.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	one := handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
@@ -359,7 +396,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(source.Channel(r.Ledger.wake, one)).
 		Watches(&corev1.Node{}, one, builder.WithPredicates(k8s.StatusFieldChanged(gpuNodeSignal(r.Pool)))).
 		Watches(&transcodev1alpha1.TranscodeProfile{}, one, builder.WithPredicates(k8s.GenerationChanged())).
-		Watches(&batchv1.Job{}, one, builder.WithPredicates(pool.JobPredicate())).
+		Watches(&batchv1.Job{}, one, builder.WithPredicates(k8s.Or(pool.JobPredicate(),
+			k8s.And(predicate.NewPredicateFuncs(isGraftJob), k8s.StatusFieldChanged(graftJobSignal))))).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1, RecoverPanic: new(true)}).
 		Complete(r)
 }

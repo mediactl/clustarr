@@ -54,6 +54,9 @@ type PassInputs struct {
 	Devices   map[transcodev1alpha1.Hardware]transcodeplan.Device
 	Unhealthy map[transcodev1alpha1.Hardware]string
 	Held      map[pool.Key]string // Holding's answer this pass
+	// GraftJobs are the unfinished graft Jobs' names by namespace (§5.13):
+	// a slot in use while its Job runs, whatever its block says.
+	GraftJobs map[string][]string
 }
 
 // PassResult is when the next pass is due.
@@ -61,7 +64,8 @@ type PassResult struct{ RequeueAfter time.Duration }
 
 // Pass is one admission pass (§5.7 steps 2-10): reroute directives, then the
 // candidates and what runs, their classes, the slot scheduler, dispatch
-// grants and wait reasons, the window grants, and the metrics. It makes no
+// grants and wait reasons, the window grants, the graft slots (§5.13), and
+// the metrics. It makes no
 // apiserver request and writes nothing but memory: every grant and
 // directive is enqueued into the loop's queue, whose transcode planner acts
 // on it against its own view.
@@ -103,6 +107,7 @@ func (l *Ledger) Pass(in PassInputs) PassResult {
 	l.grantDispatchLocked(queued, admitted, now)
 	l.waitReasonsLocked(queued, admitted, holds)
 	l.fillWindowLocked(in.Profiles, now)
+	l.grantGraftSlotsLocked(in, now)
 	l.metricsLocked(in.Profiles, now)
 	return PassResult{RequeueAfter: l.nextWakeLocked(now)}
 }

@@ -44,6 +44,7 @@ import (
 	artworkstage "github.com/mediactl/clustarr/app/remediation/artwork"
 	"github.com/mediactl/clustarr/app/remediation/downloads"
 	grabstage "github.com/mediactl/clustarr/app/remediation/grab"
+	"github.com/mediactl/clustarr/app/remediation/graft"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	metadatastage "github.com/mediactl/clustarr/app/remediation/metadata"
 	"github.com/mediactl/clustarr/app/remediation/naming"
@@ -54,7 +55,9 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/subtitles"
 	"github.com/mediactl/clustarr/app/remediation/transcode"
 	"github.com/mediactl/clustarr/app/transcode/admission"
+	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/task"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -110,6 +113,11 @@ type Options struct {
 	// subtitles profile or phase changes. internal/cli/manager hands the
 	// caption manager the same Wake.
 	SubtitleProfileWake func()
+
+	// GraftPool is the cpu pool's pod template a standalone graft Job runs
+	// on (loop spec §4.12): the transcode manager's pool configuration
+	// (transcodemanager.PoolConfig), so a graft pod is the pool pod's twin.
+	GraftPool pool.Config
 }
 
 // Deps is what Planners, Actuators and Stages build from.
@@ -244,6 +252,9 @@ func Planners(d Deps) []remediation.Bound {
 		remediation.Bind[mediafile.ProbeInput](probe.New(probe.Options{Bus: d.Env.Bus, Probes: probes})),
 		// The transcode planner (loop spec §5.8-§5.11).
 		remediation.Bind[transcode.In](transcode.New(transcodeOptions(d))),
+		// The graft planner (loop spec §4.12, §5.13): after transcode, whose
+		// dispatch decides a join.
+		remediation.Bind[graft.In](graft.New(d.Env.Bus, graft.Options{Pool: d.Options.GraftPool, Ledger: graftLedger(d)})),
 		remediation.Bind[naming.Input](naming.New(naming.Options{})),
 		// The subtitles planner (loop spec §6.4); its adapter is also the
 		// Withdrawer of the withdrawals it emits.
@@ -264,12 +275,21 @@ func Actuators(mgr ctrl.Manager, d Deps) []remediation.Actuator {
 	return acts
 }
 
+// graftLedger is the ledger the graft planner takes its graft-slot grants
+// from; nil (no ledger) grants none.
+func graftLedger(d Deps) transcodeplan.Admission {
+	if d.Options.Ledger == nil {
+		return nil
+	}
+	return d.Options.Ledger
+}
+
 // transcodeOptions is the transcode planner's: the ledger it takes grants
 // from (through transcodeplan.Admission) and S22, admission's wake of the
 // loop's queue.
 func transcodeOptions(d Deps) transcode.Options {
 	o := transcode.Options{
-		Bus: d.Env.Bus, AudioGraftIndex: mediafile.AudioGraftMediaFileRefIndex,
+		Bus:     d.Env.Bus,
 		Records: task.Requests(d.Env.Bus.KV(events.BucketTranscodes)), Leases: d.Env.Bus.KV(events.BucketTranscodeLeases),
 	}
 	if admin, ok := d.Env.Bus.(events.StreamAdmin); ok {

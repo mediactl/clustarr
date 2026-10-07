@@ -18,13 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Command transcode is a transcode pool's pod: a pure consumer of the
 // transcode work queue (spec §9). It holds no Kubernetes credentials; tasks
 // arrive over NATS and results leave over NATS. With --graft-task it is an
-// audio graft Job's pod instead. Its exit codes are a contract with the pool
-// Job's podFailurePolicy (spec §3.8).
+// audio graft Job's pod instead, which answers its task in clustarr-grafts
+// (loop spec §4.12). Its exit codes are a contract with the pool Job's
+// podFailurePolicy (spec §3.8).
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -62,11 +64,11 @@ func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 // manifest_test.go parses every argv transcode stamps onto a pool or graft
 // pod through it.
 type flags struct {
-	fs                                                 *pflag.FlagSet
-	dataDir, selfCheck, scratchDir, graftTask, termLog *string
-	trial, version                                     *bool
-	lo                                                 *logging.Options
-	to                                                 *tracing.Options
+	fs                                        *pflag.FlagSet
+	dataDir, selfCheck, scratchDir, graftTask *string
+	trial, version                            *bool
+	lo                                        *logging.Options
+	to                                        *tracing.Options
 }
 
 func newFlags() flags {
@@ -76,8 +78,7 @@ func newFlags() flags {
 	f.selfCheck = fs.String("self-check", "", "Check this image can transcode for a class (cpu, cuda, intel), print the report as JSON and exit: 0 when it can.")
 	f.trial = fs.Bool("trial", false, "With --self-check, also encode for real on the class's GPU.")
 	f.scratchDir = fs.String("scratch-dir", os.TempDir(), "With --trial, where the trial writes its clip.")
-	f.graftTask = fs.String("graft-task", "", "Run this audio graft (grafttask.Task JSON) instead of serving a pool, write its result to --termination-log and exit: 0 when it succeeded.")
-	f.termLog = fs.String("termination-log", "/dev/termination-log", "With --graft-task, where the result is written (the pod's termination message).")
+	f.graftTask = fs.String("graft-task", "", "Run this audio graft (grafttask.Task v2 JSON) instead of serving a pool, answer it in clustarr-grafts and exit: 0 when it grafted, found the language present or was superseded.")
 	f.version = fs.Bool("version", false, "Print the version and exit.")
 	f.lo, f.to = obsflags.Bind(fs)
 	return f
@@ -87,7 +88,7 @@ func newFlags() flags {
 // environment checks (the image check, spec §10.1.4). It is not a pool run,
 // so its 0 is not the "run never returns 0" contract below.
 func printVersion(w io.Writer) int {
-	fmt.Fprintf(w, "transcode %s\n", version.String())
+	_, _ = fmt.Fprintf(w, "transcode %s\n", version.String())
 	return 0
 }
 
@@ -95,7 +96,7 @@ func printVersion(w io.Writer) int {
 func run(args []string, getenv func(string) string) int {
 	f := newFlags()
 	dataDir, selfCheck, trial, scratchDir := f.dataDir, f.selfCheck, f.trial, f.scratchDir
-	graftTask, termLog, lo, to := f.graftTask, f.termLog, f.lo, f.to
+	graftTask, lo, to := f.graftTask, f.lo, f.to
 	if err := f.fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "transcode:", err)
 		return jobspec.WorkerExitMisconfigured
@@ -111,7 +112,7 @@ func run(args []string, getenv func(string) string) int {
 		return jobspec.WorkerExitMisconfigured
 	}
 	if *graftTask != "" {
-		return runGraft(*graftTask, *termLog, *dataDir, logging.New(*lo))
+		return runGraft(*graftTask, *dataDir, getenv, logging.New(*lo))
 	}
 	need := map[string]string{}
 	for _, k := range []string{"NATS_URL", "CLUSTARR_POOL_PROFILE_UID", "CLUSTARR_POOL_CLASS", "POD_NAME"} {
@@ -218,24 +219,48 @@ func graftWithFFmpeg(ctx context.Context, t grafttask.Task, dataDir string, log 
 	return graft.Run(ctx, t, graft.Options{DataDir: dataDir})
 }
 
-// runGraft is one graft Job's pod (anime dual-audio spec §7.2): no NATS and
-// no pool environment, only /data; the controller reads the result from the
-// termination message, whatever the exit code.
-func runGraft(taskJSON, termLog, dataDir string, log *slog.Logger) int {
+// runGraft is one graft Job's pod (loop spec §4.12 "Pod"): NATS and /data,
+// no Kubernetes credentials. It reads its record, claims it, grafts behind
+// the runtime gate and answers in clustarr-grafts; the loop's graft planner
+// incorporates the answer. A task the loop did not issue (no v2 schema, no
+// file or seq) and a pod with no NATS are refused.
+func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Logger) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	ctx = logging.NewContext(ctx, log)
 	var t grafttask.Task
-	res := grafttask.Failed(grafttask.ReasonInvalidTask, "decode --graft-task")
-	if err := json.Unmarshal([]byte(taskJSON), &t); err == nil {
-		res = graftWithFFmpeg(ctx, t, dataDir, log)
-	} else {
-		res.Message = grafttask.Clamp("decode --graft-task: " + err.Error())
+	if err := json.Unmarshal([]byte(taskJSON), &t); err != nil || t.Schema != grafttask.TaskSchema || t.File.UID == "" || t.Seq <= 0 {
+		log.ErrorContext(ctx, "a --graft-task the loop did not issue", "error", err, "schema", t.Schema)
+		return 1
 	}
-	log.InfoContext(ctx, "graft finished", "graft", t.Graft, "phase", res.Phase, "reason", res.Reason, "message", res.Message)
-	if err := os.WriteFile(termLog, res.Encode(), 0o644); err != nil {
-		log.ErrorContext(ctx, "write the termination message", "error", err)
+	url, pod := getenv("NATS_URL"), getenv("POD_NAME")
+	if url == "" || pod == "" {
+		fmt.Fprintln(os.Stderr, "transcode: a graft pod needs $NATS_URL and $POD_NAME")
+		return jobspec.WorkerExitMisconfigured
 	}
+	nc, err := nats.Connect(url, nats.Name("transcode/graft/"+pod))
+	if err != nil {
+		log.ErrorContext(ctx, "nats connect", "error", err)
+		return 1
+	}
+	defer nc.Close()
+	bus, err := natsbus.New(nc)
+	if err != nil {
+		log.ErrorContext(ctx, "bus", "error", err)
+		return 1
+	}
+	res, err := grafttask.Serve(ctx, grafttask.NewAnswerer(bus, pod), t, func(ctx context.Context, t grafttask.Task) grafttask.Result {
+		return graftWithFFmpeg(ctx, t, dataDir, log)
+	})
+	switch {
+	case errors.Is(err, grafttask.ErrSuperseded):
+		log.InfoContext(ctx, "graft superseded", "file", t.File.Name, "seq", t.Seq)
+		return 0
+	case err != nil:
+		log.ErrorContext(ctx, "graft", "file", t.File.Name, "seq", t.Seq, "error", err)
+		return 1
+	}
+	log.InfoContext(ctx, "graft finished", "file", t.File.Name, "seq", t.Seq, "phase", res.Phase, "reason", res.Reason, "message", res.Message)
 	if res.Phase == grafttask.PhaseSucceeded {
 		return 0
 	}

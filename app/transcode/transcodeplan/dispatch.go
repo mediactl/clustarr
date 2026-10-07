@@ -25,6 +25,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
+	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -77,6 +78,13 @@ func planDispatch(in Inputs) Decision {
 		d.Grant = GrantRelease
 		return d
 	}
+	if s, pending := graftplan.JoinPending(prev, in.PrevGraft); pending {
+		// The graft that rode along with attempt s has not recorded its
+		// result: a new request would replace the record it reads (§5.13).
+		b := prev.DeepCopy()
+		b.Message = truncate(fmt.Sprintf("waiting for the joined graft of attempt %d to be recorded", s), maxMessage)
+		return Decision{Block: b, Grant: GrantRelease, Due: in.Now.Add(inflightRecheck)}
+	}
 	e := in.Eligibility
 	b := prev.DeepCopy()
 	if !e.Eligible || e.Profile == nil {
@@ -123,6 +131,13 @@ func planDispatch(in Inputs) Decision {
 	b.Class, b.Pool, b.Plan = catalogv1alpha1.TranscodeClass(class), pool.Name(k), plan
 	b.Profile, b.ProfileHash, b.ProfileTag, b.ProbeHash = e.Profile.Name, e.Hash, e.Tag, in.Draft.ProbeHash
 	b.WorkerPod, b.StartedAt, b.FinishedAt, b.NextAttemptAt, b.StderrTail, b.JoinedGraft, b.Result = "", nil, nil, nil, "", nil, nil
+	if j := in.Joinable; j != nil {
+		// The file's graft rides along: the worker grafts in the same pass,
+		// and the block records the join the graft planner derives its
+		// Running block from (§5.13, D42).
+		g := j.Task
+		t.Graft, b.JoinedGraft = &g, j.Join.DeepCopy()
+	}
 	return Decision{
 		Block: b, Grant: GrantConfirm, ConfirmSeq: seq,
 		Request: requested(in.File, seq, t.Inputs, in.Now.Time), RequestRev: in.RecordRev, Publish: &t,

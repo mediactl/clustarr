@@ -15,11 +15,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package grafttask is the contract between transcode's AudioGraft
-// controller and the graft run of transcode-worker (anime dual-audio spec
-// §7.2): the Task a graft Job's pod is given as --graft-task, and the
-// Result it leaves in its termination message. It links no FFmpeg, so the
-// controller (cmd/clustarr) and the worker share it.
+// Package grafttask is the contract between the remediation loop's graft
+// planner and a graft's run (anime dual-audio spec §7.2; loop spec §4.12):
+// the Task a graft Job's pod is given as --graft-task and answered in
+// clustarr-grafts (Record, Spec, Serve), and the Task a transcode carries
+// when the graft rides along with it (task.Task.Graft). It links no FFmpeg
+// and no Kubernetes client, so the manager and cmd/transcode share it.
 package grafttask
 
 import (
@@ -29,12 +30,43 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
+
+// TaskSchema marks a v2 task, which the loop issues (loop spec §4.12).
+const TaskSchema = "graft.Task.v2"
+
+// LabelGraftOf labels a standalone graft Job (and its pod) with the UID of
+// the MediaFile it grafts (loop spec §4.12; a UID, since a MediaFile's name
+// may exceed a label value's 63 characters).
+const LabelGraftOf = "transcode.clustarr.io/graft-of"
+
+// Inputs are what a graft's record and its task must agree on: the record
+// is incorporated only for these inputs (loop spec §4.10).
+type Inputs struct {
+	TargetProbeHash string `json:"targetProbeHash"`
+	DonorAudio      string `json:"donorAudio"`
+	DonorRelease    string `json:"donorRelease"`
+	Language        string `json:"language"`
+	Anchor          string `json:"anchor"`
+}
 
 // Task is one graft: every path a logical /data path.
 type Task struct {
-	// Graft names the AudioGraft (<namespace>/<name>), for logs.
-	Graft string `json:"graft"`
+	// Schema is TaskSchema for a task the loop issued.
+	Schema string `json:"schema,omitempty"`
+	// File is the target MediaFile, whose UID keys the record; Item is the
+	// Movie's or Episode's UID; Seq fences the record (loop spec §4.6). A
+	// joined task (task.Task.Graft) carries none of them: its transcode's
+	// dispatch fences it.
+	File   schema.Ref `json:"file,omitzero"`
+	Item   string     `json:"item,omitempty"`
+	Seq    int64      `json:"seq,omitempty"`
+	Inputs Inputs     `json:"inputs,omitzero"`
+	// Graft names the AudioGraft (<namespace>/<name>), for logs (until
+	// F7.3 retires the AudioGraft controller that sets it).
+	Graft string `json:"graft,omitempty"`
 	// Target is the library file the dub is muxed into, and
 	// TargetProbeHash its probe hash when the graft was planned: a file
 	// that changed since is not swapped.

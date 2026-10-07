@@ -20,8 +20,10 @@ package pool
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -90,4 +92,20 @@ func OwnerProfileUID(j *batchv1.Job) types.UID {
 		return ref.UID
 	}
 	return ""
+}
+
+// JobFinished reports whether j has a Complete or Failed condition, when
+// it was set, and the Failed condition's message: a graft Job's end, which
+// the remediation loop's graft planner reads (loop spec §4.12).
+func JobFinished(j *batchv1.Job) (bool, time.Time, string) {
+	for _, c := range j.Status.Conditions {
+		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
+			msg := ""
+			if c.Type == batchv1.JobFailed {
+				msg = c.Message
+			}
+			return true, c.LastTransitionTime.Time, msg
+		}
+	}
+	return false, time.Time{}, ""
 }

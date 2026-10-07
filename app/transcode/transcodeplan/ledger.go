@@ -36,6 +36,10 @@ const (
 	GrantWindow
 	// GrantDispatch: a slot of Ledger.Class: dispatch the Planned file.
 	GrantDispatch
+	// GrantGraftSlot: a graft slot (--graft-concurrency, loop spec §5.13):
+	// the graft planner dispatches the file's standalone graft. The
+	// transcode planner never takes one.
+	GrantGraftSlot
 )
 
 // Ledger is one file's admission state as the transcode planner reads it
