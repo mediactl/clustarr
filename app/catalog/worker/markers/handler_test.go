@@ -32,7 +32,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/markers"
+	catalogmarkers "github.com/mediactl/clustarr/app/catalog/markers"
+	"github.com/mediactl/clustarr/app/catalog/worker/markers"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -328,7 +329,7 @@ func TestALongLimitDefersTheTaskToItsReset(t *testing.T) {
 	assert.Equal(t, now.Add(23*time.Hour), rec.got[0].opts.ScheduleAt)
 	assert.Equal(t, "media/bb-file", rec.got[0].env.Key)
 	assert.Contains(t, rec.got[0].subject, "markers")
-	assert.NotEqual(t, markers.MsgID(episodeWorld("")[2].(*catalogv1alpha1.MediaFile)), rec.got[0].opts.MsgID,
+	assert.NotEqual(t, catalogmarkers.MsgID(episodeWorld("")[2].(*catalogv1alpha1.MediaFile)), rec.got[0].opts.MsgID,
 		"its own message id, or the dedup window absorbs it")
 }
 

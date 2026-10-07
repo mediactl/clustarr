@@ -17,7 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package markers keeps MediaFile status.markers: a file's skip segments
 // from TheIntroDB (spec 2026-09-30 plex-analyze-bypass §3). Due decides
-// when a file needs fetching; Handler fetches and records.
+// when a file needs fetching and Publish/PublishAt queue it;
+// app/catalog/worker/markers.Handler fetches and records.
 package markers
 
 import (

@@ -58,13 +58,13 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
-	"github.com/mediactl/clustarr/app/catalog/markers"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	artworkgateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
+	markerworker "github.com/mediactl/clustarr/app/catalog/worker/markers"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
@@ -803,7 +803,7 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 			HTTPClient: defaultHTTPClient,
 			Artwork:    fetcher,
 			Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
-				stopMarkers, err := markers.Setup(ctx, markers.Options{Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}, providers)
+				stopMarkers, err := markerworker.Setup(ctx, markerworker.Options{Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}, providers)
 				if err != nil {
 					return nil, err
 				}

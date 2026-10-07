@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/episodeorder"
+	catalogmarkers "github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -115,7 +116,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 		return err
 	}
-	if due, _ := Due(&mf, now); !due {
+	if due, _ := catalogmarkers.Due(&mf, now); !due {
 		return nil // a duplicate or redelivery for a file already recorded
 	}
 
@@ -134,7 +135,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	var rl *metadata.RateLimitedError
 	if errors.As(err, &rl) { // a limit is not a result
 		if rl.RetryAfter > deferAfter && h.Bus != nil {
-			if perr := PublishAt(ctx, h.Bus, &mf, now, now.Add(rl.RetryAfter)); perr != nil {
+			if perr := catalogmarkers.PublishAt(ctx, h.Bus, &mf, now, now.Add(rl.RetryAfter)); perr != nil {
 				return events.Retry(rl.RetryAfter, errors.Join(err, perr))
 			}
 			return nil // the slot goes to the next task; this one returns at the reset
