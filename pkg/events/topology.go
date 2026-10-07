@@ -611,9 +611,10 @@ const (
 	FilterDownloadBlocklisted = "clustarr.evt.download.download.blocklisted.>"
 )
 
-// Default returns the production topology from the Clustarr design: its
-// streams, every static durable consumer and, for each, the dead-letter
-// watcher Subscribe binds, its key/value buckets and its object stores.
+// Default returns the production topology from the Clustarr design, the
+// probe queue (probe.go) included: its streams, every static durable consumer
+// and, for each, the dead-letter watcher Subscribe binds, its key/value
+// buckets and its object stores.
 //
 // Three declarations the design once carried are gone because nothing ever
 // used them (gap fixes Z2): the catalogarr-import consumer and its
@@ -626,9 +627,9 @@ const (
 // the bucket keeps them, idle and empty, until an operator removes them.
 func Default() Topology {
 	return Topology{
-		Streams:      defaultStreams(),
-		Consumers:    withDeadLetterWatchers(defaultConsumers()),
-		Buckets:      defaultBuckets(),
+		Streams:      append(defaultStreams(), probeStream()),
+		Consumers:    withDeadLetterWatchers(append(defaultConsumers(), probeConsumers()...)),
+		Buckets:      append(defaultBuckets(), probeBucket()),
 		ObjectStores: defaultObjectStores(),
 	}
 }
