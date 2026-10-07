@@ -29,11 +29,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
+	"github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/history/replay"
 	"github.com/mediactl/clustarr/app/remediation"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	"github.com/mediactl/clustarr/app/remediation/naming"
 	"github.com/mediactl/clustarr/app/remediation/probe"
 	"github.com/mediactl/clustarr/app/remediation/rename"
+	replayactuator "github.com/mediactl/clustarr/app/remediation/replay"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -91,8 +94,14 @@ func Planners(d Deps) []remediation.Bound {
 	}
 }
 
-// Actuators is every actuator, the loop orders them (replay, then rename);
-// F3.5 adds replay.
-func Actuators(mgr ctrl.Manager, _ Deps) []remediation.Actuator {
-	return []remediation.Actuator{rename.New(rename.Options{Recorder: mgr.GetEventRecorder("rename")})}
+// Actuators is every actuator; the loop orders them, replay before rename
+// (§3.4 step 10). Replay needs a bus that reads dead letters back.
+func Actuators(mgr ctrl.Manager, d Deps) []remediation.Actuator {
+	acts := []remediation.Actuator{rename.New(rename.Options{Recorder: mgr.GetEventRecorder("rename")})}
+	if reader, ok := history.DLQReaderFor(d.Env.Bus); ok {
+		acts = append(acts, replayactuator.New(replay.NewReplayer(replay.ReplayDeps{
+			Client: mgr.GetClient(), Bus: d.Env.Bus, DLQ: reader, Recorder: mgr.GetEventRecorder("clustarr-replay"),
+		})))
+	}
+	return acts
 }

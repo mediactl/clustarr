@@ -43,8 +43,9 @@ import (
 //
 // The projector annotates only an object it can name exactly, from the dead
 // letter's payload schema (app/catalog/history/target.go's resolvers). That
-// is these sixteen kinds -- the same set its +kubebuilder:rbac patch markers
-// grant, and the only kinds whose controllers need to fold the condition:
+// is these seventeen kinds -- the same set its +kubebuilder:rbac patch
+// markers grant, and the only kinds whose controllers need to fold the
+// condition:
 //
 //	catalog.clustarr.io   Movie, Series, Episode, Artist, Album, Author,
 //	                      Book, Audiobook, Comic, Issue
@@ -53,6 +54,9 @@ import (
 //	                        MediaRef.kind)
 //	                      ImportList   (catalog.ImportListSynced, importarr.ListTask)
 //	                      LibraryScan  (importarr.ScanTask)
+//	                      MediaFile    (importarr.ProbeTask, catalog.MarkersTask,
+//	                        catalog.SegmentsPlanTask and catalog.AnalyzeTask,
+//	                        by their file; the remediation loop folds it)
 //	index.clustarr.io     Indexer      (index.Release, IndexerEvent, RssTask)
 //	download.clustarr.io  Download     (catalog.ImportTask, download.DownloadEvent)
 //	transcode.clustarr.io TranscodeJob (transcode.JobEvent, transcode.Task)
@@ -60,14 +64,14 @@ import (
 //
 // Every other kind never carries it: a dead letter whose schema has no
 // resolver, or that names no single object (catalog.WantedScan, a namespace
-// sweep), gets a namespace-level Warning Event instead. MediaFile, RootFolder, QualityProfile, DownloadClient,
-// TranscodeProfile, SubtitleProfile, SubtitleProvider and the rest are never
-// annotated.
+// sweep), gets a namespace-level Warning Event instead. RootFolder,
+// QualityProfile, DownloadClient, TranscodeProfile, SubtitleProfile,
+// SubtitleProvider and the rest are never annotated.
 //
 // # Folding it
 //
-// Each of the sixteen caps status.conditions at MaxItems=8 and declares at
-// most six condition types of its own, so one more always fits. The
+// Each caps status.conditions (MaxItems 8; MediaFile 12) and declares fewer
+// condition types of its own than its cap, so one more always fits. The
 // condition is present only while the annotation is: MarkDeadLettered removes
 // it when the annotation is gone, so it does not take a slot on every object.
 // An operator clears it by deleting the annotation (kubectl annotate <kind>

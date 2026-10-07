@@ -259,6 +259,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	draft.ObservedGeneration = mf.Generation
 	draft.LastSeq = v.seqFloor
 	r.markPlannerConditions(&mf, &draft.Conditions, fails, ks)
+	k8s.MarkDeadLettered(&mf, &draft.Conditions)                  // §2.8: the loop's own condition
 	renderedValue, drops := mediafilestatus.Render(v.Prev, draft) // F2.2: clamp, C1, a stored value never re-clamped
 	rendered := &renderedValue
 

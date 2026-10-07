@@ -33,11 +33,15 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
+	"github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// watchedAnnotations wake a file at watch priority (§3.3, S1). F3.5 adds
-// clustarr.io/dead-lettered and clustarr.io/replay.
-var watchedAnnotations = []string{mediafile.AnnotationObservedFingerprint}
+// watchedAnnotations wake a file at watch priority (§3.3, S1): importarr's
+// observed fingerprint, the DLQ projector's dead-lettered marker (folded into
+// DeadLettered, §2.8) and an operator's replay request (the replay actuator,
+// §3.9).
+var watchedAnnotations = []string{mediafile.AnnotationObservedFingerprint, k8s.AnnotationDeadLettered, history.AnnotationReplay}
 
 // intentAnnotations wake a file at PriorityUser (§2.9).
 var intentAnnotations = catalogv1alpha1.IntentAnnotations()
