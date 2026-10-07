@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package importarr
+package k8s
 
 import (
 	"fmt"
@@ -44,11 +44,12 @@ const (
 	dataProbeWait = 500 * time.Millisecond
 )
 
-// DataReadyChecker reports whether path is a writable directory. It is the
-// readiness gate for every importarr role: /data is a RWX volume mounted
-// from the cluster, and on a dev box or a misconfigured Deployment it may
-// simply not exist, which must fail readiness with a clear message rather
-// than panic the process.
+// DataReadyChecker reports whether path is a writable directory: the
+// readiness gate of every process that writes the library (importarr's roles
+// today; the import and caption agents' `import.data` and `caption.data`
+// after the split, spec §3.3). /data is an RWX volume mounted from the
+// cluster. On a dev box or a misconfigured Deployment it may not exist, which
+// must fail readiness with a clear message rather than panic the process.
 //
 // The write runs in the background (dataCheck): a check answers from the
 // last finished write, starts a new one once that is dataProbeInterval old
@@ -134,7 +135,7 @@ func writeProbe(path string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("data path %s is not a directory", path)
 	}
-	probe, err := os.CreateTemp(path, ".importarr-ready-*")
+	probe, err := os.CreateTemp(path, ".clustarr-ready-*")
 	if err != nil {
 		return fmt.Errorf("data path %s is not writable: %w", path, err)
 	}

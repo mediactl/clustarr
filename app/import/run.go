@@ -350,7 +350,7 @@ func Run(ctx context.Context, o Options) error {
 	// A scan or import worker that cannot write the library must not
 	// accept work (amendment §A1.6), and neither may the controllers, whose
 	// rename controller moves library files.
-	ready["data"] = DataReadyChecker(o.dataPath())
+	ready["data"] = k8s.DataReadyChecker(o.dataPath())
 	if err := k8s.AddProbes(mgr, ready); err != nil {
 		return err
 	}

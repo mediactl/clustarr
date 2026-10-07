@@ -71,16 +71,6 @@ func TestValidateRequiresTheBus(t *testing.T) {
 	require.Contains(t, err.Error(), "nats-url")
 }
 
-func TestDataReadyCheckerRejectsAMissingDirectory(t *testing.T) {
-	err := importarr.DataReadyChecker(t.TempDir() + "/does-not-exist")(nil)
-	require.Error(t, err)
-}
-
-func TestDataReadyCheckerAcceptsAWritableDirectory(t *testing.T) {
-	err := importarr.DataReadyChecker(t.TempDir())(nil)
-	require.NoError(t, err)
-}
-
 // mediaFileCacheConfig is the ByObject entry o's manager gives MediaFile.
 func mediaFileCacheConfig(o importarr.Options) (cache.ByObject, bool) {
 	for obj, cfg := range o.ManagerOptions().Cache.ByObject {
