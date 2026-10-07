@@ -59,15 +59,27 @@ a SubtitleRequest exists only for a probed file a subtitle may be wanted for
 tagged audio). **Every transcode is the fixed standard, run in-process**
 (2026-10-01, `docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md`
 and its "As built" section): `pkg/transcode/standard.Plan` decides (HEVC
-Main 10, or Main 8-bit for SDR at 1080p or less; Apple TV direct-play
-audio -- AAC, AC-3, E-AC-3 -- copied, anything else to AAC; every
-subtitle, attachment and chapter kept; Dolby Vision 7/8.1 as HDR10) and
+Main 10, or Main 8-bit for SDR at 1080p or less; Dolby Vision 7/8.1 as
+HDR10; since `standard.Version` 2 the MP4 layout,
+`docs/superpowers/specs/2026-10-06-mp4-standard-design.md`: one `.mp4`,
+HEVC tagged `hvc1`, whatever the profile's `container`
+(`worker.OutputContainer`); per language a Dolby surround track -- E-AC-3
+or AC-3 copied, anything else AC-3 5.1 640k -- plus an AAC 2.0 160k
+companion, or AAC alone for mono or stereo, commentary AAC, other mixes
+dropped; every subtitle beside the file in Plex's layout
+`<stem>.<lang>[.forced|.sdh].<srt|ass>` (spec §4.1: SubRip copied through
+the `srt` muxer, WebVTT/`mov_text`/text converted, ASS through the `ass`
+muxer), written in the transcode's own pass and placed before the swap,
+never over an existing file; attachments dropped, chapters kept; a file
+with an image subtitle is Skipped, `standard.HoldImageSubtitles`, until
+phase 2's OCR) and
 `pkg/transcode/engine` runs it on FFmpeg 9's libraries through the ffgo
 fork (`github.com/mediactl/ffgo`, tags `v0.0.0-clustarr.N`). There is no
 argv engine, no `--worker-engine`, and no `ffmpeg` or `ffprobe` in the
 transcoder image (`TestTheWorkerNeverExecsFFmpeg`,
 `TestTheTranscoderImageCarriesNoFFmpegExecutable`). A TranscodeProfile
-names no encoder setting: `quality`, `container`, `audio.languages`,
+names no encoder setting: `quality`, `container` (ignored since
+`standard.Version` 2), `audio.languages`,
 `policy.neverTranscodeModifiers`, `policy.minDuration` and
 `policy.maxOutputToSourcePercent` are the standard's inputs, and with
 `standard.Version` the only things `status.hash` covers. A job is planned

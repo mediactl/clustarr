@@ -233,8 +233,10 @@ Each phase gets its own plan, gate and deploy, as the anime phases did.
    - ASS sidecars, and dropping attachments;
    - `standard.Version` raised.
 
-   Files with image subtitles are held back, as Planned with a reason, until
-   phase 2.
+   Files with image subtitles are held back until phase 2: their job is
+   Skipped with `standard.HoldImageSubtitles`, not Planned, since a Planned
+   job counts toward the 32-job window (ruling R1). Phase 2 raises
+   `standard.Version`, so they are planned again.
 2. **OCR** of PGS and DVD subtitles (§5), releasing the held files.
 3. **The remux** of already-transcoded files (§8).
 
@@ -251,3 +253,45 @@ Each phase gets its own plan, gate and deploy, as the anime phases did.
 - **The I/O:** 6 TB of remux and 14 TB of transcodes rewrite the library
   over weeks, bounded by the job window.
 - **ffgo gaps** (§6) may need fork releases before phase 1 can finish.
+
+## As built (phase 1, 2026-10-07)
+
+Plan `docs/superpowers/plans/2026-10-06-mp4-standard-phase1.md`. Its
+rulings:
+
+- **R1.** A file with an image subtitle is Skipped, not Planned, with
+  `HoldImageSubtitles`.
+- **R2.** A forced track, or one titled "Signs" or "Songs", takes `.forced`
+  in its sidecar name.
+- **R3.** One sidecar per name: a second track that would take a name
+  already planned is dropped and recorded in `Result.Dropped`. An existing
+  file at a final name is kept.
+- **R4.** The source's default language keeps the default.
+- **R5.** Encoded tracks are titled "Dolby Digital 5.1", "Stereo" or
+  "Mono". On MP4 a track's title is written as its handler name, since
+  FFmpeg's MP4 muxer writes no track title.
+- **R6** (`mov_text` written by the engine) was withdrawn with Task 6, when
+  the owner moved every subtitle beside the file (§4.1).
+
+What was built:
+
+- **ffgo** `v0.0.0-clustarr.12`: packets from bytes, plus codec-parameter
+  setters (unused since §4.1).
+- **`standard.Plan`** (Version 2):
+  - always MP4;
+  - the audio rules (`planAudio`);
+  - every subtitle as a `SidecarPlan`, named by `pkg/lang.Normalize`'s base;
+  - the image-subtitle hold.
+- **The engine:**
+  - one audio decode feeds several encoders, and a stream can be copied and
+    encoded at once;
+  - every track's flags come from the plan, and `CopyPlan` carries them;
+  - sidecar sinks: the `ass` muxer, the `srt` muxer (ffgo's
+    `-map 0:s:N out.srt`) and a Go SubRip writer;
+  - a surround dub grafted as AC-3 5.1 plus AAC 2.0.
+- **The worker:**
+  - `OutputContainer`;
+  - sidecar parts verified, then placed before the swap and removed with a
+    failed attempt;
+  - the profile hash at Version 2 ignores the container.
+- **The CRD:** `container` defaults to `mp4` and is documented as ignored.
