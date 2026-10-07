@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcode
 
 import (
+	"context"
+
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -47,9 +50,11 @@ type Options struct {
 	// Leases is clustarr-transcode-leases: a Running dispatch's lease is
 	// read for the lost-worker row (§5.9).
 	Leases events.KV
-	// Admin answers whether a file's task is still stored (§5.9) and purges
-	// a withdrawn one (F6.5).
+	// Admin answers whether a file's task is still stored (§5.9).
 	Admin events.StreamAdmin
+	// Withdrawal takes a dispatch back (§5.10): the record, the lease's
+	// cancel marker, the purge.
+	Withdrawal task.Withdrawal
 }
 
 // Adapter is the transcode planner.
@@ -71,6 +76,11 @@ type In struct {
 	Folders         []catalogv1alpha1.RootFolder
 	Lease           transcodeplan.LeaseView
 	TaskStored      *bool
+	Intents         transcodeplan.Intents
+	DeadLettered    string
+	SpecPathMissing bool
+	OutputExists    bool
+	OutputSize      int64
 }
 
 // Name implements remediation.Planner.
@@ -92,6 +102,13 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 		MF: v.File, Labels: v.Labels(), Status: v.Draft, ProbeCurrent: v.ProbeCurrent(),
 		ItemExists: in.ItemExists, StandaloneGraft: in.StandaloneGraft,
 	}
+	if p, ok := transcodeplan.ParsePriority(in.Intents.Priority); ok {
+		f.Priority = &p
+	}
+	var nonces catalogv1alpha1.HandledNonces
+	if v.Prev.HandledNonces != nil {
+		nonces = *v.Prev.HandledNonces
+	}
 	e := transcodeplan.Eligible(f, in.Profiles)
 	profiles := make(map[string]*transcodev1alpha1.TranscodeProfile, len(in.Profiles))
 	for i := range in.Profiles {
@@ -102,13 +119,18 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 		Eligibility: e, Ledger: in.Ledger, Now: v.Now,
 		Record: in.Record, RecordRev: in.RecordRev, Folders: in.Folders, Issue: v.Issue,
 		Lease: in.Lease, TaskStored: in.TaskStored, Profiles: profiles,
+		Intents: in.Intents, Nonces: nonces, DeadLettered: in.DeadLettered,
+		SpecPathMissing: in.SpecPathMissing, OutputExists: in.OutputExists, OutputSize: in.OutputSize,
 	})
 	out.Transcode = d.Block
+	if d.Nonces != nil {
+		setNonces(out, d.Nonces.TranscodeRetry, d.Nonces.TranscodeCancel)
+	}
 	res := remediation.Result{
 		Due: d.Due, Again: d.Again, Events: kubeEvents(d.Events), Eligibility: &e,
-		// Acting on a held grant, a dispatch and an incorporation are exempt
-		// from the status-write limiter (§3.7).
-		Unpaced: in.Took || d.Unpaced,
+		// Acting on a held grant, a dispatch, an incorporation and a
+		// person's intent are exempt from the status-write limiter (§3.7).
+		Unpaced: in.Took || d.Unpaced || d.Nonces != nil,
 		Effects: a.effectsOf(v, in, d),
 	}
 	for _, st := range d.Records {
@@ -154,4 +176,19 @@ func kubeEvents(in []transcodeplan.Event) []remediation.Event {
 		out = append(out, remediation.Event{Type: e.Type, Reason: e.Reason, Message: e.Message, Action: "transcode"})
 	}
 	return out
+}
+
+// Withdraw runs a transcode withdrawal (§5.10) through task.Withdrawal --
+// the one implementation admission's sweep shares -- and holds its failure
+// in the ledger for the next pass's message; a failure is transient, so the
+// pass requeues on the per-key backoff.
+func (a *Adapter) Withdraw(ctx context.Context, _ *remediation.Env, w remediation.Withdraw) error {
+	err := a.o.Withdrawal.Withdraw(ctx, w.UID, w.Seq)
+	if a.o.Ledger != nil {
+		a.o.Ledger.WithdrawFailed(types.UID(w.UID), err)
+	}
+	if err != nil {
+		return remediation.Transient(err)
+	}
+	return nil
 }

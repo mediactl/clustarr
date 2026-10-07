@@ -45,6 +45,26 @@ func planInFlight(in Inputs) Decision {
 	seq, rec := b.Dispatch.Seq, in.Record
 	queued := b.Phase == catalogv1alpha1.TranscodePhaseQueued
 	switch {
+	case rec != nil && rec.Seq == seq && (rec.State == records.StateAnswered || rec.State == records.StateFailed):
+		// An answer at the seq is incorporated, even over a withdrawal
+		// (§5.10: withdrawn writes nothing over it).
+		return incorporate(in, b, rec)
+	case withdrawing(b) && withdrawnAt(rec, seq):
+		d := finishWithdrawal(in, b)
+		d.Dispatched = "withdrawn"
+		return d
+	case withdrawing(b):
+		return rewithdraw(in, b)
+	}
+	if cause, evs := withdrawCause(in, b); cause != "" {
+		d := startWithdrawal(b, cause)
+		d.Events = append(d.Events, evs...)
+		if cause == ReasonUnclaimed {
+			d.Dispatched = "unclaimed"
+		}
+		return d
+	}
+	switch {
 	case queued && rec != nil && task.RecordSpec.Fact(rec) && rec.Seq < seq && rec.Seq > b.Dispatch.AnsweredSeq:
 		// The request for seq missed its CAS over this fact, so nothing was
 		// published at seq: close it without a record write, then
@@ -73,7 +93,7 @@ func planInFlight(in Inputs) Decision {
 			}
 			return d
 		}
-		return Decision{Block: b, Due: in.Now.Add(inflightRecheck)} // F6.5 withdraws it, Unclaimed
+		return Decision{Block: b, Due: in.Now.Add(inflightRecheck)} // withdrawCause took it, Unclaimed
 	case records.StateClaimed:
 		var d Decision
 		if b.Phase != catalogv1alpha1.TranscodePhaseRunning {
@@ -106,7 +126,7 @@ func running(in Inputs, b *catalogv1alpha1.TranscodeState, d Decision) Decision 
 		b.Dispatch.AnsweredSeq = seq
 		d.History = append(d.History, HistoryEvent{Action: events.ActionFailed, Seq: seq, Reason: ReasonWorkerLost})
 		d.Events = append(d.Events, Event{Type: "Warning", Reason: ReasonWorkerLost, Message: a.Message})
-		d.Unpaced, d.Records = true, []string{"lost"}
+		d.Unpaced, d.Records, d.Dispatched = true, []string{"lost"}, "lost"
 	}
 	d.Block, d.Due = b, in.Now.Add(inflightRecheck)
 	return d

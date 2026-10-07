@@ -390,6 +390,15 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 	ctx = logging.With(ctx, "mediaFile", t.File.Key(), "seq", t.Seq)
 	log = logging.FromContext(ctx)
 	key := events.RecordKey(t.File.UID)
+	if out, ok := FactAlready(ctx, t, s.o.Options); ok {
+		// This dispatch's swap already happened: answer the fact, even over
+		// a withdrawal, before any other check (§4.12).
+		log.InfoContext(ctx, "transcode worker: the swap already happened; answering it")
+		started := s.clock.Now().UTC()
+		ans, _ := s.answerOf(ctx, t, out, nil, started)
+		s.settleFact(ctx, m, t, key, ans, nil)
+		return
+	}
 	if sup, err := s.answers.Superseded(ctx, key, t.Seq); err != nil || sup {
 		sctx, cancel := settle()
 		defer cancel()
@@ -490,6 +499,10 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		// it to the dead-letter subject (§4.8 "Last delivery").
 		rec.State, rec.Failure, rec.Transient = records.StateFailed, clamp(ans.Message, records.MaxFailure), true
 	}
+	if ans.Outcome == task.OutcomeSucceeded {
+		s.settleFact(ctx, m, t, key, ans, release)
+		return
+	}
 	if _, err := s.answers.Answer(sctx, key, rec); err != nil {
 		log.WarnContext(ctx, "transcode worker: the answer was not recorded; redelivery redoes it", "error", err)
 		release(sctx)
@@ -589,4 +602,56 @@ func tail(s string, n int) string {
 		i++
 	}
 	return s[i:]
+}
+
+// factAnswerTimeout is how long a fact's answer is retried before the task
+// is nak'd (§4.12): a withdrawal has usually purged the subject by then, so
+// a redelivery cannot be relied on to carry the fact.
+const factAnswerTimeout = 10 * time.Minute
+
+// settleFact answers a fact -- a succeeded dispatch, whose file already
+// changed on disk -- retrying a failed Answer with backoff (1 s doubling to
+// 30 s) for factAnswerTimeout, whatever the lease now says, then releases
+// the lease (release, when given) and acks; it naks only once the timeout
+// passes.
+func (s *server) settleFact(ctx context.Context, m events.Message, t task.Task, key string, ans task.Answer, release func(context.Context)) {
+	log := logging.FromContext(ctx)
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), factAnswerTimeout+10*time.Second)
+	defer cancel()
+	rec := &task.Record{
+		RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: t.File, Seq: t.Seq, State: records.StateAnswered, AnsweredAt: ans.FinishedAt},
+		Inputs:       t.Inputs, Answer: &ans,
+	}
+	deadline := s.clock.Now().Add(factAnswerTimeout)
+	backoff := time.Second
+	for {
+		v, err := s.answers.Answer(fctx, key, rec)
+		if err == nil {
+			if v == records.DroppedFact {
+				log.WarnContext(ctx, "transcode worker: a newer dispatch owns the record; the loop recovers this swap from disk",
+					"outputPath", t.Inputs.OutputPath)
+			}
+			if release != nil {
+				release(fctx)
+			}
+			_ = m.Ack(fctx)
+			return
+		}
+		if !s.clock.Now().Before(deadline) {
+			log.WarnContext(ctx, "transcode worker: the fact's answer was not recorded; nak'd", "error", err)
+			if release != nil {
+				release(fctx)
+			}
+			_ = m.Nak(fctx, 0)
+			return
+		}
+		log.WarnContext(ctx, "transcode worker: the fact's answer was not recorded; retrying", "error", err, "backoff", backoff)
+		select {
+		case <-fctx.Done():
+			_ = m.Nak(context.WithoutCancel(ctx), 0)
+			return
+		case <-s.clock.After(backoff):
+		}
+		backoff = min(backoff*2, 30*time.Second)
+	}
 }

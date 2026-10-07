@@ -58,6 +58,20 @@ type Inputs struct {
 	TaskStored *bool
 	// Profiles are the TranscodeProfiles by name.
 	Profiles map[string]*transcodev1alpha1.TranscodeProfile
+
+	// Intents are the file's transcode annotations (ParseIntents), Nonces
+	// the one-shot nonces already handled (status.handledNonces).
+	Intents Intents
+	Nonces  catalogv1alpha1.HandledNonces
+	// DeadLettered is the DLQ projector's annotation on the file
+	// (k8s.AnnotationDeadLettered): "<subject>@<RFC3339>".
+	DeadLettered string
+	// SpecPathMissing, OutputExists and OutputSize are the stats of
+	// spec.path and the last dispatch's output, read while a block has a
+	// dispatch (FileMissing, §5.9).
+	SpecPathMissing bool
+	OutputExists    bool
+	OutputSize      int64
 }
 
 // profile is the TranscodeProfile named name: from Profiles, else the
@@ -115,17 +129,39 @@ type Decision struct {
 	Unpaced bool
 	// Records are the record states this pass incorporated.
 	Records []string
+	// Withdraw is the dispatch seq a withdrawal is owed for (§5.10); 0 is
+	// none.
+	Withdraw int64
+	// Nonces are the one-shot nonces to record as handled; nil keeps them.
+	Nonces *catalogv1alpha1.HandledNonces
+	// Dispatched is clustarr_transcode_dispatches_total's outcome this pass
+	// owes ("unclaimed", "lost", "withdrawn"), "" for none.
+	Dispatched string
 }
 
 // Event is one Kubernetes Event Plan asks for on the MediaFile.
 type Event struct{ Type, Reason, Message string }
 
-// Plan is the transcode planner's decision for one pass (§5.8-§5.11).
+// Plan is the transcode planner's decision for one pass (§5.8-§5.11): the
+// intents first (§2.9), then the block's row, then the standing intents in
+// force on a window block.
 func Plan(in Inputs) Decision {
+	nonces, evs := applyIntents(&in)
+	d := plan(in)
+	d.Nonces, d.Events = nonces, append(evs, d.Events...)
+	applyStanding(in, &d)
+	return d
+}
+
+func plan(in Inputs) Decision {
 	prev := in.Prev
 	switch {
 	case prev != nil && prev.Phase == "":
 		return Decision{Block: legacy(prev)}
+	case factAfterWithdrawal(in):
+		return incorporate(in, prev.DeepCopy(), in.Record)
+	case fileMissingSwap(in):
+		return recoverSwap(in)
 	case prev != nil && prev.Phase == catalogv1alpha1.TranscodePhaseSwapping:
 		return planSwap(in)
 	case in.Ledger.Grant == GrantDispatch:
@@ -143,6 +179,9 @@ func Plan(in Inputs) Decision {
 		b := prev.DeepCopy()
 		b.Compliant, b.ProfileTag = false, ""
 		return Decision{Block: b}
+	case prev != nil && prev.Reason == ReasonProfileGone && prev.Dispatch != nil && prev.Dispatch.Withdrawn:
+		// Kept only while a late fact may land, then cleared (§5.9).
+		return Decision{Block: keepFact(in)}
 	}
 	return Decision{Block: prev.DeepCopy()} // verdicts and Succeeded stay untouched (§5.11)
 }
@@ -255,10 +294,6 @@ func planInWindow(in Inputs) Decision {
 	}
 	return Decision{Block: b}
 }
-
-// keepFact is what clearing a block leaves: nothing, unless a withdrawn
-// dispatch's fact can still land (F6.5 fills the condition; until then nil).
-func keepFact(Inputs) *catalogv1alpha1.TranscodeState { return nil }
 
 // carryDispatch keeps the last dispatch on a re-planned block, so a fact
 // for it is still matched and lastSeq stays the floor (§2.3).

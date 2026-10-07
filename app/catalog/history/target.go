@@ -159,6 +159,7 @@ var resolvers = map[string]resolver{
 	schema.JobEvent{}.Schema():          resolveJobEvent,
 	schema.JobEventV1{}.Schema():        resolveJobEventV1,
 	transcodeTaskRef{}.Schema():         resolveTranscodeTask,
+	transcodeTaskV2{}.Schema():          resolveTranscodeTaskV2,
 	schema.SubtitleEvent{}.Schema():     resolveSubtitleEvent,
 	schema.SubtitleEventV1Schema:        resolveSubtitleEventV1,
 	schema.FetchTask{}.Schema():         resolveFetchTask,
@@ -464,6 +465,17 @@ func resolveTranscodeTask(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return refTarget(p.Job, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
+}
+
+// resolveTranscodeTaskV2 names the MediaFile a dead-lettered v2 transcode
+// task was dispatched for, so the DLQ projector annotates the file and the
+// transcode planner fails the dispatch, DeadLettered (loop spec §5.9).
+func resolveTranscodeTaskV2(key string, data []byte) Target {
+	var p transcodeTaskV2
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.File.Name == "" {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaFileTarget(p.File.Namespace, p.File.Name)
 }
 
 // resolveSubtitleEvent resolves a v2 subtitle event to its MediaFile (loop

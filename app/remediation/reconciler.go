@@ -20,6 +20,7 @@ package remediation
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -595,10 +596,26 @@ func (r *Reconciler) observeTranscode(mf *catalogv1alpha1.MediaFile, st *catalog
 }
 
 // forgetTranscode handles a NotFound pass for the admission ledger: the
-// file's entry and grant go (§5.10's withdrawAll follows in F6.5).
-func (r *Reconciler) forgetTranscode(_ context.Context, nn types.NamespacedName) {
+// file's entry and grant go, and a dispatch it had out is withdrawn at
+// math.MaxInt64 through the transcode planner (§5.10's withdrawAll; no
+// MediaFile finalizer, D11). A failure is logged and left to admission's
+// sweep.
+func (r *Reconciler) forgetTranscode(ctx context.Context, nn types.NamespacedName) {
 	if r.Ledger == nil {
 		return
 	}
-	r.Ledger.Forget(nn)
+	uid, open := r.Ledger.Forget(nn)
+	if !open {
+		return
+	}
+	for _, p := range r.planners {
+		w, ok := p.unwrap().(Withdrawer)
+		if p.Name() != PlannerTranscode || !ok {
+			continue
+		}
+		if err := w.Withdraw(ctx, r.env, Withdraw{UID: string(uid), Seq: math.MaxInt64}); err != nil {
+			logging.FromContext(ctx).Warn("remediation: could not withdraw a deleted file's transcode; the sweep will",
+				"uid", string(uid), "error", err)
+		}
+	}
 }

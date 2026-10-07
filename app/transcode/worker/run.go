@@ -436,6 +436,67 @@ func (r *runner) run(ctx context.Context) error {
 	return r.finish(ctx, source, local, st.Size())
 }
 
+// FactAlready reports whether t's swap already happened -- a redelivery
+// after the worker swapped the output in and died before its answer
+// landed, or a withdrawal that came too late to stop the swap -- and the
+// success Outcome to answer then, without encoding (loop spec §4.12: the
+// worker's first step, before Superseded, since a fact is answered even
+// over withdrawn{S}). It runs the produced-earlier checks against the task
+// alone: an output elsewhere that carries this profile's tag, or a source
+// whose bytes changed and now carry it.
+func FactAlready(ctx context.Context, t task.Task, o Options) (Outcome, bool) {
+	o = o.withDefaults()
+	if o.Engine == nil || t.SourceProbeHash == "" {
+		return Outcome{}, false
+	}
+	r := &runner{o: o, t: t, started: o.Now()}
+	done, err := r.factAlready(ctx)
+	if err != nil || !done {
+		return Outcome{}, false
+	}
+	r.out.Code = ExitOK
+	return r.out, true
+}
+
+func (r *runner) factAlready(ctx context.Context) (bool, error) {
+	source := r.t.SourcePath
+	local, err := jobspec.LocalPath(r.o.DataDir, source)
+	if err != nil {
+		return false, err
+	}
+	bin, err := jobspec.LocalPath(r.o.DataDir, r.t.Root.RecycleBin)
+	if err != nil {
+		return false, err
+	}
+	sw := swap{
+		source: source, local: local, bin: bin, out: r.t.OutputPath,
+		replace: jobspec.ReplaceSource(r.t.Profile.Spec.Policy), recycle: jobspec.RecycleBin(r.t.Profile.Spec.Policy),
+	}
+	if sw.localOut, err = jobspec.LocalPath(r.o.DataDir, sw.out); err != nil {
+		return false, err
+	}
+	tag := r.t.Profile.Name + "@" + r.t.Profile.Hash
+	if !sw.inPlace() {
+		if _, err := os.Lstat(sw.localOut); err != nil {
+			return false, nil //nolint:nilerr // no output: nothing happened yet
+		}
+		_, raw, err := r.probe(ctx, sw.localOut)
+		if err != nil || raw == nil || raw.Format == nil || !sameProfile(formatTag(raw, "CLUSTARR_PROFILE"), tag) {
+			return false, nil //nolint:nilerr // not ours: the run decides
+		}
+		return true, r.finishElsewhere(ctx, sw, r.t.SourceProbeHash, r.t.SourceSizeBytes)
+	}
+	st, err := os.Stat(local)
+	if err != nil || mediainfo.ProbeHash(source, st.Size(), st.ModTime()) == r.t.SourceProbeHash {
+		return false, nil //nolint:nilerr // the planned bytes are still there: nothing was swapped
+	}
+	_, raw, err := r.probe(ctx, local)
+	if err != nil || raw == nil || raw.Format == nil || !sameProfile(formatTag(raw, "CLUSTARR_PROFILE"), tag) {
+		return false, nil //nolint:nilerr // changed, and not by us: the run reports SourceChanged
+	}
+	return true, r.finish(ctx, source, local, r.t.SourceSizeBytes)
+}
+
 // encodeJob is one engine's work for this attempt: the scratch file it
 // writes, how it encodes into it, and how the output is verified.
 type encodeJob struct {

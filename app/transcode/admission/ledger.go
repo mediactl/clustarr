@@ -98,6 +98,7 @@ type Ledger struct {
 	waits             map[types.UID]wait
 	leaseMissingSince map[types.UID]time.Time
 	publishFailed     map[types.UID]string
+	withdrawFailed    map[types.UID]string
 	profileUIDs       map[string]types.UID
 	dispatched        map[pool.Key]int32
 	rebuilt           bool
@@ -117,7 +118,8 @@ func NewLedger(o Options) *Ledger {
 		grants: map[types.UID]*grant{}, backoffs: map[types.UID]backoff{}, directives: map[types.UID]transcodeplan.Directive{},
 		pools: map[pool.Key]*PoolState{}, devices: map[transcodev1alpha1.Hardware]transcodeplan.Device{},
 		waits: map[types.UID]wait{}, leaseMissingSince: map[types.UID]time.Time{}, publishFailed: map[types.UID]string{},
-		profileUIDs: map[string]types.UID{}, dispatched: map[pool.Key]int32{},
+		withdrawFailed: map[types.UID]string{},
+		profileUIDs:    map[string]types.UID{}, dispatched: map[pool.Key]int32{},
 		wake: make(chan event.GenericEvent, 1), profileWake: make(chan event.GenericEvent, 64),
 	}
 }
@@ -170,6 +172,7 @@ func (l *Ledger) storeLocked(v FileView, cur *entry, now time.Time) {
 	if !slotPhase(v.Phase) {
 		delete(l.leaseMissingSince, v.UID)
 		delete(l.publishFailed, v.UID)
+		delete(l.withdrawFailed, v.UID)
 	}
 }
 
@@ -202,6 +205,7 @@ func (l *Ledger) retireLocked(uid types.UID) {
 	delete(l.waits, uid)
 	delete(l.leaseMissingSince, uid)
 	delete(l.publishFailed, uid)
+	delete(l.withdrawFailed, uid)
 }
 
 // Snapshot is the file's admission state for the planner: its grant (kind
@@ -223,9 +227,7 @@ func (l *Ledger) snapshotLocked(uid types.UID) Snapshot {
 	}
 	w := l.waits[uid]
 	s.WaitReason, s.WaitCause = w.reason, w.cause
-	if msg, ok := l.publishFailed[uid]; ok {
-		s.PublishFailed = msg
-	}
+	s.PublishFailed, s.WithdrawFailed = l.publishFailed[uid], l.withdrawFailed[uid]
 	return s
 }
 

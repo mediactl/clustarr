@@ -50,6 +50,9 @@ type Ledger struct {
 	// PublishFailed is the last task publish failure admission holds for
 	// the file's in-flight dispatch (§5.8 "Republish"), "" when none.
 	PublishFailed string
+	// WithdrawFailed is the last withdrawal failure of the file's dispatch
+	// (§5.10), "" when none.
+	WithdrawFailed string
 }
 
 // DirectiveKind is what admission directs the planner to do with a file
@@ -87,4 +90,7 @@ type Admission interface {
 	// PublishFailed holds (err non-nil) or clears a task publish failure
 	// of the file's dispatch seq, for the next pass's message (§5.8).
 	PublishFailed(uid types.UID, seq int64, err error)
+	// WithdrawFailed holds (err non-nil) or clears a withdrawal failure of
+	// the file's dispatch, for the next pass's message (§5.10).
+	WithdrawFailed(uid types.UID, err error)
 }

@@ -49,6 +49,9 @@ func (a *Adapter) effectsOf(v *remediation.View, in In, d transcodeplan.Decision
 			})
 		}
 	}
+	if d.Withdraw != 0 {
+		out = append(out, remediation.Withdraw{UID: uid, Seq: d.Withdraw})
+	}
 	if d.Publish != nil {
 		if pub, ok := a.publish(v, in, d); ok {
 			out = append(out, pub)
@@ -67,6 +70,12 @@ func (a *Adapter) effectsOf(v *remediation.View, in In, d transcodeplan.Decision
 	if t := d.Observe; t != nil {
 		obs := *t
 		out = append(out, remediation.Observation{Observe: func() { observe(obs) }})
+	}
+	if d.Dispatched != "" && d.Block != nil {
+		class, outcome := string(d.Block.Class), d.Dispatched
+		out = append(out, remediation.Observation{Observe: func() {
+			metrics.TranscodeDispatches.WithLabelValues(class, outcome).Inc()
+		}})
 	}
 	return out
 }

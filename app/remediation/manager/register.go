@@ -274,6 +274,7 @@ func transcodeOptions(d Deps) transcode.Options {
 	}
 	if admin, ok := d.Env.Bus.(events.StreamAdmin); ok {
 		o.Admin = admin
+		o.Withdrawal = task.Withdrawal{Records: o.Records, Leases: o.Leases, Admin: admin}
 	}
 	if l := d.Options.Ledger; l != nil {
 		o.Ledger = l

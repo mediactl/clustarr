@@ -74,11 +74,13 @@ var Request = reconcile.Request{NamespacedName: types.NamespacedName{Name: "(adm
 // transcode planner writes status.transcode, and the slim TranscodeProfile
 // reconciler the pools.
 type Reconciler struct {
-	Client     client.Client
-	APIReader  client.Reader
-	Ledger     *Ledger
-	Bus        events.Bus         // clustarr-progress: health, limits, tier (§5.7 step 1)
-	Admin      events.StreamAdmin // the task sweep (F6.5)
+	Client    client.Client
+	APIReader client.Reader
+	Ledger    *Ledger
+	Bus       events.Bus         // clustarr-progress: health, limits, tier (§5.7 step 1)
+	Admin     events.StreamAdmin // the task sweep (§5.6)
+	// Withdrawal withdraws a deleted file's task (the sweep's WithdrawAll).
+	Withdrawal task.Withdrawal
 	Namespaces []string
 	Pool       pool.Config
 	// AudioGraftIndex is the AudioGraft index by status.mediaFileRef the
@@ -117,11 +119,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconc
 			return reconcile.Result{}, err
 		}
 		r.nextResync = r.now().Add(ledgerResync)
+		r.logSweep(ctx)
 	} else if r.now().After(r.nextResync) {
 		if err := r.Ledger.Resync(ctx, r.rebuildInputs()); err != nil {
 			return reconcile.Result{}, err
 		}
 		r.nextResync = r.now().Add(ledgerResync)
+		r.logSweep(ctx)
 	}
 	in, err := r.passInputs(ctx)
 	if err != nil {
@@ -129,6 +133,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconc
 	}
 	res := r.Ledger.Pass(in)
 	return reconcile.Result{RequeueAfter: max(min(res.RequeueAfter, time.Until(r.nextResync)), time.Second)}, nil
+}
+
+// logSweep runs the task sweep; a failure is logged, and the next resync
+// sweeps again.
+func (r *Reconciler) logSweep(ctx context.Context) {
+	if err := r.sweep(ctx); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "admission: the task sweep failed; the next resync sweeps again", "error", err)
+	}
 }
 
 // rebuildInputs is what the rebuild reads.
@@ -149,6 +161,9 @@ func (r *Reconciler) eligible(ctx context.Context, mf *catalogv1alpha1.MediaFile
 		return nil
 	}
 	f := transcodeplan.File{MF: mf, Labels: mf.Labels, Status: &mf.Status, ProbeCurrent: mf.ProbeCurrent(), ItemExists: exists}
+	if p, ok := transcodeplan.ParsePriority(mf.Annotations[catalogv1alpha1.AnnotationTranscodePriority]); ok {
+		f.Priority = &p
+	}
 	if r.AudioGraftIndex != "" {
 		if f.StandaloneGraft, err = graftstate.StandaloneFor(ctx, r.Client, r.AudioGraftIndex, client.ObjectKeyFromObject(mf)); err != nil {
 			return nil

@@ -21,6 +21,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,8 +33,10 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/transcode/graftstate"
+	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // Gather takes the file's admission grant when it holds one (an in-use
@@ -40,7 +44,10 @@ import (
 // profiles, whether the file's item exists and whether a standalone graft
 // holds the file, from the manager cache.
 func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (In, error) {
-	in := In{Read: true, Ledger: v.Ledger}
+	in := In{
+		Read: true, Ledger: v.Ledger, Intents: transcodeplan.ParseIntents(v.File.Annotations),
+		DeadLettered: v.File.Annotations[k8s.AnnotationDeadLettered],
+	}
 	if a.o.Ledger != nil && v.Ledger.Grant != transcodeplan.GrantNone {
 		in.Ledger, in.Took = a.o.Ledger.TakeGrant(v.File.UID)
 	}
@@ -75,7 +82,14 @@ func (a *Adapter) gatherDispatch(ctx context.Context, env *remediation.Env, v *r
 	uid := v.File.UID
 	dispatching := in.Ledger.Grant == transcodeplan.GrantDispatch
 	inFlight := b != nil && b.Dispatch.InFlight()
-	if a.o.Records != nil && (dispatching || inFlight) {
+	if b != nil && b.Dispatch != nil {
+		if err := a.statFiles(ctx, env, v, in); err != nil {
+			return err
+		}
+	}
+	readRecord := dispatching || inFlight || in.SpecPathMissing ||
+		(b != nil && transcodeplan.InFactWindow(b, deadlineOf(in.Profiles, b), v.Now.Time))
+	if a.o.Records != nil && readRecord {
 		rec, rev, ok, err := a.o.Records.Get(ctx, events.RecordKey(string(uid)))
 		if err != nil {
 			return err
@@ -139,4 +153,55 @@ func itemExists(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaF
 		return false, fmt.Errorf("transcode: get %s %s: %w", mf.Spec.MediaRef.Kind, key, err)
 	}
 	return true, nil
+}
+
+// statFiles stats spec.path and, when it is gone, the last dispatch's
+// output named in its record, through the I/O executor (§3.17): the
+// FileMissing row (§5.9). A busy pool, a timeout or an open breaker is
+// transient.
+func (a *Adapter) statFiles(ctx context.Context, env *remediation.Env, v *remediation.View, in *In) error {
+	if env.IO == nil || env.DataDir == "" {
+		return nil
+	}
+	local, err := jobspec.LocalPath(env.DataDir, v.File.Spec.Path)
+	if err != nil {
+		return nil //nolint:nilerr // a path off /data is the probe planner's to report
+	}
+	switch _, err := env.IO.Stat(ctx, local); {
+	case errors.Is(err, fs.ErrNotExist):
+		in.SpecPathMissing = true
+	case err != nil:
+		return err
+	default:
+		return nil
+	}
+	if a.o.Records == nil {
+		return nil
+	}
+	rec, _, ok, err := a.o.Records.Get(ctx, events.RecordKey(string(v.File.UID)))
+	if err != nil || !ok || rec.Inputs.OutputPath == "" || rec.Inputs.OutputPath == v.File.Spec.Path {
+		return err
+	}
+	out, err := jobspec.LocalPath(env.DataDir, rec.Inputs.OutputPath)
+	if err != nil {
+		return nil //nolint:nilerr // as above
+	}
+	switch fi, err := env.IO.Stat(ctx, out); {
+	case err == nil:
+		in.OutputExists, in.OutputSize = true, fi.Size()
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+	return nil
+}
+
+// deadlineOf is the deadline b's dispatch ran under: its profile's, else
+// the default.
+func deadlineOf(profiles []transcodev1alpha1.TranscodeProfile, b *catalogv1alpha1.TranscodeState) time.Duration {
+	for i := range profiles {
+		if profiles[i].Name == b.Profile {
+			return jobspec.ActiveDeadline(profiles[i].Spec)
+		}
+	}
+	return jobspec.ActiveDeadline(transcodev1alpha1.TranscodeProfileSpec{})
 }

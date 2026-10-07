@@ -130,3 +130,15 @@ func (l *Ledger) PublishFailed(uid types.UID, _ int64, err error) {
 	}
 	l.publishFailed[uid] = err.Error()
 }
+
+// WithdrawFailed holds a withdrawal failure of uid's dispatch for the next
+// pass's message, or clears it (err nil).
+func (l *Ledger) WithdrawFailed(uid types.UID, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err == nil {
+		delete(l.withdrawFailed, uid)
+		return
+	}
+	l.withdrawFailed[uid] = err.Error()
+}
