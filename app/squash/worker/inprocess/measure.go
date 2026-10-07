@@ -27,6 +27,7 @@ import (
 
 	"github.com/obinnaokechukwu/ffgo"
 
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
@@ -162,9 +163,7 @@ func trial(ctx context.Context, dir, sample string, tier transcode.Tier, limits 
 // a dozen samples at start. Nothing else logs through ffgo then -- a pod
 // measures before it takes work.
 func makeSample(path, encoder, pixFmt string) error {
-	if err := ffgo.SetLogCallback(func(ffgo.LogLevel, string) {}); err == nil {
-		defer func() { _ = ffgo.SetLogCallback(nil) }()
-	}
+	defer ffruntime.Mute()()
 	// SVT-AV1 (the av1 sample's encoder) prints its configuration on stderr
 	// itself, not through FFmpeg's log; SVT_LOG=1 keeps its errors only.
 	if _, set := os.LookupEnv("SVT_LOG"); !set {

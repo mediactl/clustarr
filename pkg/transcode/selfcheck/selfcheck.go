@@ -16,9 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package selfcheck proves a transcoder image can do its class's work: it
-// loads FFmpeg 9 and the ffgo shim in-process, finds every encoder and
-// filter the class needs by name, and encodes with the CPU encoders. CI
-// runs it on every built image (`squasharr-worker --self-check=<class>`),
+// loads FFmpeg 9 and the ffgo shim in-process (pkg/ffruntime), finds every
+// encoder, muxer and filter the class needs by name, and encodes with the
+// CPU encoders. CI runs it on every built image (`transcode --self-check=<class>`),
 // so a missing library fails the build, not a job; Trial adds a real
 // encode on the class's GPU.
 package selfcheck
@@ -33,7 +33,9 @@ import (
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/obinnaokechukwu/ffgo/avcodec"
 	"github.com/obinnaokechukwu/ffgo/avfilter"
+	"github.com/obinnaokechukwu/ffgo/avformat"
 
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -49,14 +51,29 @@ const (
 // Need is what a class's image must have, by FFmpeg name.
 type Need struct {
 	Encoders []string
+	Muxers   []string
 	Filters  []string
 }
 
-// Needs is each class's encoders and filters.
+// Needs is each class's encoders, muxers and filters. Since standard
+// Version 2 every class encodes with ac3 a surround track that is not E-AC-3
+// or AC-3, and writes the MP4 and its SubRip and ASS sidecars through the
+// mp4, srt and ass muxers (spec 2026-10-06 §7.4).
 var Needs = map[Class]Need{
-	ClassCPU:   {Encoders: []string{"libx265", "aac"}},
-	ClassCUDA:  {Encoders: []string{"libx265", "aac", "hevc_nvenc"}, Filters: []string{"scale_cuda", "hwupload"}},
-	ClassIntel: {Encoders: []string{"libx265", "aac", "hevc_qsv", "hevc_vaapi"}, Filters: []string{"vpp_qsv", "scale_vaapi", "hwupload"}},
+	ClassCPU: {
+		Encoders: []string{"libx265", "aac", "ac3"},
+		Muxers:   []string{"mp4", "srt", "ass"},
+	},
+	ClassCUDA: {
+		Encoders: []string{"libx265", "aac", "ac3", "hevc_nvenc"},
+		Muxers:   []string{"mp4", "srt", "ass"},
+		Filters:  []string{"scale_cuda", "hwupload"},
+	},
+	ClassIntel: {
+		Encoders: []string{"libx265", "aac", "ac3", "hevc_qsv", "hevc_vaapi"},
+		Muxers:   []string{"mp4", "srt", "ass"},
+		Filters:  []string{"vpp_qsv", "scale_vaapi", "hwupload"},
+	},
 }
 
 // RuntimeLib is a library a class's image must be able to load at run
@@ -88,46 +105,41 @@ var RuntimeLibs = map[Class][]RuntimeLib{
 type Report struct {
 	FFmpegMajor int             `json:"ffmpegMajor"`
 	ShimMatched bool            `json:"shimMatched"`
+	ShimAPI     int             `json:"shimAPI"`
 	ShimPath    string          `json:"shimPath,omitempty"`
 	Encoders    map[string]bool `json:"encoders"`
+	Muxers      map[string]bool `json:"muxers"`
 	Filters     map[string]bool `json:"filters"`
 	// Trials holds each trial encode's error message, "" for success.
 	Trials map[string]string `json:"trials,omitempty"`
 }
 
-// ffmpegMajors maps libavcodec's major to the FFmpeg release.
-var ffmpegMajors = map[uint32]int{58: 4, 59: 5, 60: 6, 61: 7, 62: 8, 63: 9}
-
-// Check loads FFmpeg and the shim and checks class's encoders and filters,
-// encoding a few frames with libx265 and AAC. The error names the first
-// missing piece; the report says what was found up to there.
+// Check loads FFmpeg and the shim (ffruntime.Load) and checks class's
+// encoders, filters and muxers, encoding a few frames with libx265 and AAC.
+// The error names the first missing piece; the report says what was found up
+// to there.
 func Check(ctx context.Context, class Class) (Report, error) {
 	_, span := tracing.Start(ctx, "selfcheck.check")
 	defer span.End()
-	r := Report{Encoders: map[string]bool{}, Filters: map[string]bool{}}
+	r := Report{Encoders: map[string]bool{}, Muxers: map[string]bool{}, Filters: map[string]bool{}}
 	need, ok := Needs[class]
 	if !ok {
 		return r, fmt.Errorf("selfcheck: unknown class %q", class)
 	}
-	if err := ffgo.Init(); err != nil {
-		return r, fmt.Errorf("selfcheck: load FFmpeg: %w", err)
-	}
-	_, avc, _ := ffgo.Version()
-	r.FFmpegMajor = ffmpegMajors[avc>>16]
-	if r.FFmpegMajor != 9 {
-		return r, fmt.Errorf("selfcheck: libavcodec %d is not FFmpeg 9's", avc>>16)
-	}
-	d := ffgo.Diagnose()
-	// The shim loads only when it was built against the loaded release.
-	r.ShimMatched, r.ShimPath = d.ShimLoaded, d.ShimPath
-	if !r.ShimMatched {
-		return r, fmt.Errorf("selfcheck: no ffgo shim for FFmpeg 9 loaded: %s", d.ShimError)
+	rep, err := ffruntime.Load()
+	r.FFmpegMajor, r.ShimAPI, r.ShimPath = rep.FFmpegMajor, rep.ShimAPI, rep.ShimPath
+	r.ShimMatched = err == nil
+	if err != nil {
+		return r, fmt.Errorf("selfcheck: %w", err)
 	}
 	for _, name := range need.Encoders {
 		r.Encoders[name] = avcodec.FindEncoderByName(name) != nil
 	}
 	for _, name := range need.Filters {
 		r.Filters[name] = avfilter.GetByName(name) != nil
+	}
+	for _, name := range need.Muxers {
+		r.Muxers[name] = hasMuxer(name)
 	}
 	for _, name := range need.Encoders {
 		if !r.Encoders[name] {
@@ -137,6 +149,11 @@ func Check(ctx context.Context, class Class) (Report, error) {
 	for _, name := range need.Filters {
 		if !r.Filters[name] {
 			return r, fmt.Errorf("selfcheck: filter %s is not in this FFmpeg", name)
+		}
+	}
+	for _, name := range need.Muxers {
+		if !r.Muxers[name] {
+			return r, fmt.Errorf("selfcheck: muxer %s is not in this FFmpeg", name)
 		}
 	}
 	for _, lib := range RuntimeLibs[class] {
@@ -151,6 +168,17 @@ func Check(ctx context.Context, class Class) (Report, error) {
 		return r, fmt.Errorf("selfcheck: aac: %w", err)
 	}
 	return r, nil
+}
+
+// hasMuxer reports whether FFmpeg has the named muxer: an output context
+// allocated for it and freed at once, as ffruntime.Require finds one.
+func hasMuxer(name string) bool {
+	var oc avformat.FormatContext
+	if err := avformat.AllocOutputContext2(&oc, nil, name, ""); err != nil || oc == nil {
+		return false
+	}
+	avformat.FreeContext(oc)
+	return true
 }
 
 // encodeX265 encodes eight black 64x64 Main 10 frames.

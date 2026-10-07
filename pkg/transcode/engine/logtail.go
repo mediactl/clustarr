@@ -22,6 +22,8 @@ import (
 	"sync"
 
 	"github.com/obinnaokechukwu/ffgo"
+
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 )
 
 // logTail keeps the last bytes of FFmpeg's warnings and errors, for the
@@ -55,11 +57,6 @@ func (t *logTail) String() string {
 	return string(t.buf)
 }
 
-// install routes FFmpeg's log here for the run. FFmpeg's log callback is
-// process-wide; a worker runs one transcode at a time, so one run owns it.
-func (t *logTail) install() (restore func()) {
-	if err := ffgo.SetLogCallback(t.add); err != nil {
-		return func() {}
-	}
-	return func() { _ = ffgo.SetLogCallback(nil) }
-}
+// install routes FFmpeg's log here for the run, through the process's one
+// trampoline (pkg/ffruntime). A worker runs one transcode at a time.
+func (t *logTail) install() (restore func()) { return ffruntime.Capture(t.add) }

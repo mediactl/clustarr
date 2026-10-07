@@ -30,6 +30,7 @@ import (
 
 	"github.com/obinnaokechukwu/ffgo"
 
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
@@ -40,15 +41,32 @@ import (
 // Engine runs the standard's plans in-process; it probes through prober.
 type Engine struct{ prober *native.Prober }
 
-// New loads FFmpeg 9 and the shim (pkg/ffruntime, through native.New) and
-// builds the in-process prober. The error names what is missing; the worker
-// then runs no ffgo task.
-func New() (Engine, error) {
+// New loads FFmpeg 9 and the shim, requires class's encoders, muxers and
+// filters (the image's self-check list) and builds the in-process prober
+// (spec §7.4). The error names what is missing; the worker then runs no
+// ffgo task.
+func New(class transcode.Hardware) (Engine, error) {
+	if err := ffruntime.Require(needsFor(class)); err != nil {
+		return Engine{}, err
+	}
 	p, err := native.New()
 	if err != nil {
 		return Engine{}, err
 	}
 	return Engine{prober: p}, nil
+}
+
+// needsFor is a pool class's self-check needs, as ffruntime.Needs.
+func needsFor(class transcode.Hardware) ffruntime.Needs {
+	c := selfcheck.ClassCPU
+	switch class {
+	case transcode.HardwareNVIDIA:
+		c = selfcheck.ClassCUDA
+	case transcode.HardwareIntel:
+		c = selfcheck.ClassIntel
+	}
+	n := selfcheck.Needs[c]
+	return ffruntime.Needs{Encoders: n.Encoders, Muxers: n.Muxers, Filters: n.Filters}
 }
 
 // Encode runs plan from input to output on tier's device, calling progress

@@ -43,10 +43,12 @@ import (
 	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
 	"github.com/mediactl/clustarr/pkg/version"
 )
@@ -137,13 +139,15 @@ func run(args []string, getenv func(string) string) int {
 		}
 	}()
 
-	// The engine needs FFmpeg 9 and its ffgo shim, which the transcoder
-	// image carries; without them this pod can do nothing.
-	eng, err := inprocess.New()
+	// The engine needs FFmpeg 9, its ffgo shim and the pool class's
+	// encoders, muxers and filters, which the transcoder image carries;
+	// without them this pod can do nothing (spec 2026-10-06 §7.4).
+	eng, err := inprocess.New(transcode.Hardware(need["CLUSTARR_POOL_CLASS"]))
 	if err != nil {
 		log.ErrorContext(ctx, "the in-process engine is unavailable", "error", err)
 		return jobspec.WorkerExitRetriable
 	}
+	ffruntime.RouteLog(log)
 	nc, err := nats.Connect(need["NATS_URL"], nats.Name("transcode/"+need["POD_NAME"]))
 	if err != nil {
 		log.ErrorContext(ctx, "nats connect", "error", err)
@@ -199,6 +203,17 @@ func runSelfCheck(class selfcheck.Class, trial bool, dir string) int {
 	return 0
 }
 
+// graftWithFFmpeg runs one graft behind the runtime gate: an image that
+// cannot load FFmpeg 9 and the shim answers ReasonError naming why, never a
+// graft.Run that fails inside a C call (spec 2026-10-06 §7.4).
+func graftWithFFmpeg(ctx context.Context, t grafttask.Task, dataDir string, log *slog.Logger) grafttask.Result {
+	if _, err := ffruntime.Load(); err != nil {
+		return grafttask.Failed(grafttask.ReasonError, "FFmpeg is unavailable in this image: %v", err)
+	}
+	ffruntime.RouteLog(log)
+	return graft.Run(ctx, t, graft.Options{DataDir: dataDir})
+}
+
 // runGraft is one graft Job's pod (anime dual-audio spec §7.2): no NATS and
 // no pool environment, only /data; the controller reads the result from the
 // termination message, whatever the exit code.
@@ -209,7 +224,7 @@ func runGraft(taskJSON, termLog, dataDir string, log *slog.Logger) int {
 	var t grafttask.Task
 	res := grafttask.Failed(grafttask.ReasonInvalidTask, "decode --graft-task")
 	if err := json.Unmarshal([]byte(taskJSON), &t); err == nil {
-		res = graft.Run(ctx, t, graft.Options{DataDir: dataDir})
+		res = graftWithFFmpeg(ctx, t, dataDir, log)
 	} else {
 		res.Message = grafttask.Clamp("decode --graft-task: " + err.Error())
 	}
