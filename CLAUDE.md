@@ -64,9 +64,11 @@ domain and the ui as local processes; there is no `clustarr all`.
 | `app/dispatch/`, `app/intake/` | Task admission and routing; the intake of grab candidates, scan observations and task advisories (ADR-0019) |
 | `app/autoscale/`, `app/maintenance/` | The agents' HPAs and the External Metrics API (ADR-0018); the object-store maintenance loop (ADR-0020) |
 | `app/segments/` | markers' segment analysis |
+| `app/livetv/` | Live TV: the IPTVProvider and IPTVChannel controllers and the HDHomeRun tuner, in the manager |
 | `ui/` | Server-rendered web UI (templ + htmx + SSE); serves artwork at `/art` and the Plex Metadata Provider roots over a read-only bus; never writes status |
 
-API groups: `{catalog,index,download,transcode,subtitle}.clustarr.io/v1alpha1`.
+API groups: `{catalog,index,download,transcode,subtitle}.clustarr.io/v1alpha1`,
+and `clustarr.io/v1alpha1` for Live TV.
 Module `github.com/mediactl/clustarr`. Licence GPL-3.0 (lets us port *arr and
 Bazarr logic verbatim — keep the header on every file).
 
@@ -186,6 +188,53 @@ name in the folder it is already in (the remediation loop's rename actuator,
 `app/remediation/rename`, through `specwrite.RenameFile`'s keepFolder), so
 a season is never split between "Season 3" and "Season 03"; `renameFiles`
 renames every file its own way and wins when both are on.
+
+## Live TV
+
+IPTV for Plex, as xTeVe does it (2026-10-07,
+`docs/superpowers/specs/2026-10-07-iptv-live-tv-design.md`, phase 1). An
+`IPTVProvider` (`clustarr.io`) names a playlist (`url`, or `urlFrom` a
+Secret: Xtream URLs carry the account's credentials, and every URL that is
+logged, put in status or an error passes `iptv.Redact`), XMLTV `guides`,
+`filters`, `tuners` (the account's connections) and `epgSource` (`XEPG`,
+clustarr's guide, or `PMS`); an `IPTVChannel` is one channel turned on,
+`key` (immutable, `t:<tvg-id>` or a name key) and `number`. The provider
+controller (`clustarr-livetv`) and the channel controller
+(`clustarr-livetv-channel`) are their status's sole writers. `pkg/iptv/m3u`
+streams the playlist under a 1 GiB cap and skips Xtream `m3u_plus`'s movie
+and series entries (`/movie/`, `/series/`): the owner's provider lists 1.24
+million entries in 328 MiB, 28,527 of them live. PMS takes at most ~454
+channels per device (one channel-map PUT under 32 KiB of request line), so
+a provider's active channels are split into **blocks** (`pkg/iptv/blocks`):
+contiguous numbers, sticky boundaries, a first packing filled to 75%, an
+overflowing block split at its median, `dvr.maxChannels` (default 400, at
+most 450) and a 30,000-byte map budget each, at most 32. Each block is one
+HDHomeRun device and one Plex DVR: its own port from `--livetv-port-range`
+(default `47000-47999`; unique across providers, kept for life -- a split
+never moves a surviving block's port), its own device ID
+(`sha256(ns/name/start)[:4]`, or `spec.device.id`, checked unique), spans
+disjoint across providers, and its owner read from cluster-plex's Lease
+`livetv-<device id>` into `status.blocks[].owner`. The tuner
+(`app/livetv/tuner`, the manager's `--livetv-bind-address`, `:5004`) routes
+by the port in `Host` -- cluster-plex proxies each block's port from the
+link-local `169.254.47.1` in every Plex pod to the one `livetv` Service
+(chart `<release>-livetv`, `status.address`), so PMS's own `Host` reaches
+the tuner -- or by path (`/livetv/<ns>/<name>/<start>/...`), serves each
+block's lineup and XEPG guide, and relays streams per provider
+(`app/livetv/relay`): viewers of one channel share one upstream, and past
+`tuners` a stream answers 503. cluster-plex (its `livetv` branch) registers
+the devices and DVRs, saves each map in one PUT, never deletes, saves,
+reloads or creates while PMS loads a guide (a delete then deadlocked PMS),
+and restarts PMS on the other pods after a DVR change, since each PMS reads
+its DVRs once. The installers render the Service and a NetworkPolicy
+(`livetv.networkPolicy`) admitting the tuner port only from Plex's pods
+while every other manager port stays open (`clustarr.managerPorts`; held by
+`test/guards/livetv`, its own package while `test/guards` does not build);
+kustomize's policy is `config/livetv`, outside `config/manager`, whose
+`includeSelectors` labels would add clustarr's labels to the peer and admit
+no Plex pod. The manager's memory default carries 128Mi for the stream
+buffers. E2e scenario 19 (`test/e2e/livetv_test.go`, `iptv-stub`) is written
+and has never run.
 
 ## UI
 
@@ -1838,6 +1887,11 @@ has never run on kind — its thumb-fetch leg skips by name rather than
 asserting, since `config/e2e` has no egress and no in-cluster fixture serves
 image bytes yet. Every deferred item the build surfaced is under "M7 carried
 items" in `docs/superpowers/plans/2026-09-18-remaining-work.md`.
+
+Live TV phase 1 (done on branch `livetv`, 2026-10-07): the two CRDs,
+`pkg/iptv`, the controllers, the tuner and relay in the manager, blocks and
+ports, the installers and scenario 19 (written, not run); see **Live TV**
+above. Reconciles against envtest; not proven end to end.
 
 Manager/agent split (2026-10-06/07, as built;
 `docs/superpowers/specs/2026-10-06-manager-agent-split-design.md`, ADR-0018,
