@@ -1,6 +1,7 @@
 # One MP4 for every player: the transcode standard's new layout
 
-Status: design, for the owner's approval (2026-10-06).
+Status: approved (2026-10-06); E-AC-3 kept as preferred, by the owner's
+correction the same day.
 
 ## 1. Goal
 
@@ -8,8 +9,9 @@ Every transcoded file is a single `.mp4` that every Plex player, browsers
 included, plays natively, with no server-side transcode:
 
 - the video is HEVC tagged `hvc1`;
-- each language has one or two audio tracks: AC-3 5.1 plus an AAC 2.0
-  companion for a surround source, or AAC alone for mono or stereo;
+- each language has one or two audio tracks: a Dolby surround track
+  (E-AC-3 or AC-3) plus an AAC 2.0 companion for a surround source, or AAC
+  alone for mono or stereo;
 - every subtitle is text that Plex shows everywhere.
 
 The video pipeline stays the in-process ffgo engine (`pkg/transcode/engine`),
@@ -20,7 +22,7 @@ streaming packets into `ffgo.MuxerStream`s, one output file per run.
 | Question | Decision |
 |---|---|
 | Container | MP4 always, `hvc1`, faststart. |
-| Surround audio (more than 2 channels) | AC-3 5.1 at 640 kbps, **whatever the source codec**: E-AC-3 and Atmos included. A 7.1 source is downmixed to 5.1. AC-3 5.1 sources are copied. |
+| Surround audio (more than 2 channels) | **E-AC-3 is kept, and preferred when the language has it** (owner's correction, 2026-10-06: MP4 carries it as `ec-3`, Atmos included). AC-3 is copied next. Any other surround codec (TrueHD, DTS, FLAC, PCM, multichannel AAC) becomes AC-3 5.1 at 640 kbps, a 7.1 source downmixed to 5.1. This replaces the first answer, "everything to AC-3", which would have re-encoded the library's 7,273 E-AC-3 tracks. |
 | Companion | Every surround track gets an AAC 2.0 companion in the same language. |
 | Mono or stereo audio | AAC only: copied when already AAC, else encoded. |
 | Subtitles MP4 cannot hold | Sidecars. ASS/SSA are written as `.ass` beside the video, and their attached fonts are lost. |
@@ -43,13 +45,20 @@ The library on 2026-10-06 (11,958 probed files):
 These rules apply per language, after the profile's `audio.languages`
 filter (unchanged):
 
-1. **The primary track** is the language's track with the most channels,
-   the first such track at a tie, never a commentary track.
+1. **The primary track** is never a commentary track. Among the
+   language's surround tracks (more than 2 channels) it is the first
+   E-AC-3 one, else the first AC-3 one, else the one with the most
+   channels; with no surround track, the one with the most channels. The
+   first such track wins a tie. A copyable Dolby track is chosen over one
+   with more channels that would need encoding (TrueHD 7.1 beside an AC-3
+   5.1 core: the AC-3 is copied).
 2. **A primary with more than 2 channels** becomes two tracks:
-   - **AC-3 5.1 at 640 kbps:** copied when the source is AC-3 with at most
-     6 channels, otherwise decoded and encoded with FFmpeg's `ac3` encoder,
-     downmixed by channel position.
-   - **AAC 2.0 at 160 kbps**, downmixed from the same decoded audio.
+   - **The Dolby surround track:** E-AC-3 copied as is, at any channel
+     count (7.1 and Atmos included); AC-3 copied as is; anything else
+     decoded and encoded with FFmpeg's `ac3` encoder to AC-3 5.1 at
+     640 kbps, downmixed by channel position.
+   - **AAC 2.0 at 160 kbps**, downmixed from the decoded primary. Chrome
+     and Firefox decode neither AC-3 nor E-AC-3, so Plex Web needs it.
 3. **A primary with 1 or 2 channels** becomes one AAC track at its own
    channel count: copied when AAC, otherwise encoded.
 4. **Commentary tracks** become AAC 2.0, one each, flagged as comment.
@@ -61,9 +70,9 @@ filter (unchanged):
 One decoded source feeding two encoders is new to the engine: a stage that
 fans the decoded frames out to two resamplers and encoders (§6).
 
-A grafted dub follows the same rules. A surround donor dub becomes AC-3 5.1
-plus AAC 2.0; a stereo one becomes AAC 2.0. It has to be re-encoded anyway,
-since its rate and segments change.
+A grafted dub follows the same rules, except that it is always encoded:
+its rate and segments change, so nothing of it can be copied. A surround
+donor dub becomes AC-3 5.1 plus AAC 2.0; a stereo one becomes AAC 2.0.
 
 ## 4. Subtitles
 
@@ -193,8 +202,10 @@ Each phase gets its own plan, gate and deploy, as the anime phases did.
   Plex. This is the owner's accepted cost.
 - **OCR errors** in recognised subtitles: a wrong word, italic markers lost.
   A track that reads poorly is dropped rather than kept.
-- **AC-3 from E-AC-3** loses Atmos and E-AC-3's efficiency at 640 kbps, and
-  is a lossy-to-lossy re-encode. This is the owner's decision.
+- **AC-3 from TrueHD or DTS** loses their lossless audio and any Atmos or
+  DTS:X objects. E-AC-3 keeps its Atmos, since it is copied.
+- **AC-3 from multichannel AAC, or AAC 2.0 from a lossy source,** is a
+  lossy-to-lossy re-encode.
 - **The I/O:** 6 TB of remux and 14 TB of transcodes rewrite the library
   over weeks, bounded by the job window.
 - **ffgo gaps** (§6) may need fork releases before phase 1 can finish.
