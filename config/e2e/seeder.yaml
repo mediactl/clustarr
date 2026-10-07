@@ -8,7 +8,7 @@
 # ClusterIP is never what the seeder itself is reachable at on the
 # BitTorrent port -- see test/fixtures/seeder_cmd.go's --peer-host flag doc.
 # The Service below therefore exposes only the HTTP side (the tracker and
-# the .torrent file); grabarr's torrent engine dials the BitTorrent port
+# the .torrent file); the torrent engine dials the BitTorrent port
 # directly at the peer IP the tracker announces, exactly as any BitTorrent
 # client would against a real swarm.
 apiVersion: apps/v1
@@ -107,7 +107,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            # The same RWX hostPath claim importarr-worker mounts; it is the
+            # The same RWX hostPath claim agent-import mounts; it is the
             # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
             claimName: clustarr-data
 ---

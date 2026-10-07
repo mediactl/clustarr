@@ -8,7 +8,7 @@
 # A scenario never installs anything itself (test/e2e/main_test.go's TestMain
 # refuses to run otherwise) -- every step below is what makes that true.
 #
-# Requires: kind, kubectl, docker, go, kustomize. The machine needs Internet
+# Requires: kind, kubectl, docker, go, make, kustomize. The machine needs Internet
 # for the one-time image builds (apt, Go modules); nothing that runs INSIDE
 # the cluster ever reaches the network.
 #
@@ -37,7 +37,9 @@ KUSTOMIZE="$(go env GOPATH)/bin/kustomize"
 
 # Every workload readiness waits on, in the order it is most useful to see
 # fail: the stubs first (a broken fixture image is the cheapest failure), then
-# the services.
+# the Clustarr workloads (config/manager: the manager, six agents, markers and
+# the ui). The autoscaled ones keep a replica in e2e
+# (config/e2e/autoscale-e2e-patch.yaml), so each has a rollout to wait on.
 WORKLOADS=(
   deployment/tmdb-stub
   deployment/tvdb-stub
@@ -45,15 +47,14 @@ WORKLOADS=(
   deployment/seeder
   deployment/nntp-stub-a
   deployment/nntp-stub-b
-  deployment/catalogarr
-  deployment/catalogarr-metadata
-  deployment/importarr
-  deployment/importarr-worker
-  deployment/indexarr
-  deployment/grabarr
-  deployment/squasharr
-  deployment/captionarr
-  deployment/captionarr-worker
+  deployment/manager
+  deployment/agent-catalog
+  deployment/agent-events
+  deployment/agent-metadata
+  deployment/agent-import
+  deployment/agent-index
+  deployment/agent-caption
+  deployment/markers
   deployment/ui
   statefulset/nats
 )
@@ -73,13 +74,11 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   log "cluster up (hack/kind.sh)"
   make kind-up || die "hack/kind.sh up failed"
 
-  log "building the controller, media and fixture images"
-  make docker-build || die "make docker-build failed"
-  docker build -f images/Dockerfile.e2e-fixtures -t "${FIXTURES_IMG}" . \
-    || die "fixtures image build failed"
+  log "building the clustarr, native and fixture images"
+  make docker-build docker-build-fixtures FIXTURES_IMG="${FIXTURES_IMG}" || die "make docker-build failed"
 
   log "loading images into kind"
-  hack/kind.sh load || die "hack/kind.sh load failed"
+  make kind-load || die "make kind-load failed"
   kind load docker-image --name "${CLUSTER_NAME}" "${FIXTURES_IMG}" \
     || die "loading the fixtures image failed"
 
@@ -105,6 +104,10 @@ for workload in "${WORKLOADS[@]}"; do
   kubectl --context "${CONTEXT}" -n "${NAMESPACE}" rollout status "${workload}" --timeout=300s \
     || die "${workload} never became ready"
 done
+
+log "waiting for the manager's External Metrics API"
+kubectl --context "${CONTEXT}" wait --for=condition=Available apiservice/v1beta1.external.metrics.k8s.io --timeout=300s \
+  || die "apiservice/v1beta1.external.metrics.k8s.io never became Available"
 
 # `make e2e` is a plain `go test` with no -count=1, and Go will happily replay
 # a cached PASS for an unchanged test binary -- reporting green without ever
@@ -151,6 +154,11 @@ if [[ "${status}" -ne 0 ]]; then
   # State and Events.
   kubectl --context "${CONTEXT}" -n "${NAMESPACE}" describe pods \
     >"${ARTIFACTS_DIR}/pods-describe.txt" 2>&1
+  # The autoscaler's view: the HPAs the manager owns and whether the
+  # aggregator can reach its External Metrics API.
+  { kubectl --context "${CONTEXT}" -n "${NAMESPACE}" get hpa -o yaml
+    kubectl --context "${CONTEXT}" get apiservice v1beta1.external.metrics.k8s.io -o yaml
+  } >"${ARTIFACTS_DIR}/hpa-apiservice.yaml" 2>&1
 
   : >"${ARTIFACTS_DIR}/resources.yaml"
   for group in catalog.clustarr.io index.clustarr.io download.clustarr.io \
@@ -162,10 +170,10 @@ if [[ "${status}" -ne 0 ]]; then
     fi
   done
 
-  # The fixture indexer's request log is the only record of what indexarr
-  # actually ASKED it. Without it, "the Search returned nothing" cannot be
-  # told apart from "indexarr never issued a query", and by the time anyone
-  # looks the cluster is usually gone.
+  # The fixture indexer's request log is the only record of what the index
+  # agent actually ASKED it. Without it, "the Search returned nothing" cannot
+  # be told apart from "the index agent never issued a query", and by the time
+  # anyone looks the cluster is usually gone.
   if [[ -f "${CLUSTARR_DATA_DIR}/.e2e-fixtures/torznab/requests.jsonl" ]]; then
     cp "${CLUSTARR_DATA_DIR}/.e2e-fixtures/torznab/requests.jsonl" \
        "${ARTIFACTS_DIR}/torznab-requests.jsonl" 2>/dev/null || true

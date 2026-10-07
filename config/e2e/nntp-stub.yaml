@@ -11,7 +11,7 @@
 # DefaultSegmentBytes (16KiB): with --content-path's real ~55MiB clip
 # instead of a synthetic payload, 16KiB segments would mean roughly 3500
 # articles per grab -- still correct, but a lot of avoidable NNTP round
-# trips for an e2e run that has to fit a 30-minute Makefile timeout. 1MiB
+# trips for an e2e run that has to fit a 60-minute Makefile timeout. 1MiB
 # matches pkg/download/usenet/conn.go's own "real posts run 512KiB-768KiB"
 # comment closely enough while keeping article count (~55) small.
 #

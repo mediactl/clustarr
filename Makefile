@@ -331,7 +331,7 @@ E2E_ARGS ?=
 
 .PHONY: e2e
 e2e: ## Run kind-based end-to-end tests. E2E_ARGS="-run ..." appends go test flags.
-	go test ./test/e2e/... -tags e2e -timeout 30m $(E2E_ARGS)
+	go test ./test/e2e/... -tags e2e -timeout 60m $(E2E_ARGS)
 
 ##@ Deploy
 

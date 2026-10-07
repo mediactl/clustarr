@@ -1,0 +1,11 @@
+# Every autoscaled workload keeps at least one replica in the e2e cluster
+# (spec 2026-10-06 §13 OD41): the trace, log and metrics scenarios read pods
+# that must exist, and hack/e2e.sh waits on each one's rollout. The scenario
+# that proves the wake from zero (spec §11.2 gate 6) removes the annotation
+# from agent-caption, last, and restores it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autoscaled
+  annotations:
+    autoscale.clustarr.io/min-replicas: "1"

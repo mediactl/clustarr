@@ -41,7 +41,7 @@ spec:
         # 1000/1000, not the image's default 65532: this pod WRITES its
         # request log onto the shared hostPath volume, and it must do so as
         # the same identity every other Clustarr pod uses there
-        # (config/manager/importarr-worker.yaml, hack/kind.sh's
+        # (config/manager/agent-import.yaml, hack/kind.sh's
         # ensure_data_dir). The fsGroup pair mirrors that file exactly, for
         # the same volume; a hostPath mount ignores fsGroup, which is why
         # `clustarr-e2e-fixtures seed` creates the request-log directory
@@ -99,7 +99,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            # The same RWX hostPath claim importarr-worker mounts; it is the
+            # The same RWX hostPath claim agent-import mounts; it is the
             # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
             claimName: clustarr-data
 ---

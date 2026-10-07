@@ -98,7 +98,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            # The same RWX hostPath claim importarr-worker mounts; it is the
+            # The same RWX hostPath claim agent-import mounts; it is the
             # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
             claimName: clustarr-data
 ---
