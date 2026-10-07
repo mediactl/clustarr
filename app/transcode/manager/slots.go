@@ -69,24 +69,24 @@ func ParseSlots(s string) (map[string]int32, error) {
 		}
 		hardware, budget, ok := strings.Cut(pair, "=")
 		if !ok {
-			return nil, fmt.Errorf("squasharr: --slots entry %q is not <hardware>=<count>", pair)
+			return nil, fmt.Errorf("transcode: --slots entry %q is not <hardware>=<count>", pair)
 		}
 		hardware = strings.TrimSpace(hardware)
 		switch hardware {
 		case HardwareCPU, HardwareNVIDIA, HardwareIntel:
 		default:
-			return nil, fmt.Errorf("squasharr: --slots names unknown hardware %q, want one of %s, %s, %s",
+			return nil, fmt.Errorf("transcode: --slots names unknown hardware %q, want one of %s, %s, %s",
 				hardware, HardwareCPU, HardwareNVIDIA, HardwareIntel)
 		}
 		if _, dup := out[hardware]; dup {
-			return nil, fmt.Errorf("squasharr: --slots names %q twice", hardware)
+			return nil, fmt.Errorf("transcode: --slots names %q twice", hardware)
 		}
 		n, err := strconv.ParseInt(strings.TrimSpace(budget), 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("squasharr: --slots budget for %q: %w", hardware, err)
+			return nil, fmt.Errorf("transcode: --slots budget for %q: %w", hardware, err)
 		}
 		if n < 0 {
-			return nil, fmt.Errorf("squasharr: --slots budget for %q is negative", hardware)
+			return nil, fmt.Errorf("transcode: --slots budget for %q is negative", hardware)
 		}
 		out[hardware] = int32(n)
 	}

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package manager is catalogarr's manager-side registration (spec §4.2.1):
+// Package manager is catalog's manager-side registration (spec §4.2.1):
 // every catalog reconciler, the two seeding Bootstraps, the wanted sweep,
 // the segment planner, and R9's two cluster singletons -- the
 // clustarr.io/replay controllers and the artwork Reaper. Wave 5's
@@ -95,8 +95,8 @@ func NewDLQProjector(mgr ctrl.Manager, bus events.Bus) *historyworker.DLQProject
 	})
 }
 
-// registerHistory registers the history sink (catalogarr-history, recorder
-// catalogarr-history) and the DLQ projector (clustarr-dlq-projector)
+// registerHistory registers the history sink (catalog-history, recorder
+// catalog-history) and the DLQ projector (clustarr-dlq-projector)
 // leader-only (ADR-0019 §7.7, §8.1, §8.5): they moved out of the agent's
 // events domain, same durables, field manager and recorders (R7), and a new
 // leader binds the same durables, so whatever the old one had not acked is
@@ -104,13 +104,13 @@ func NewDLQProjector(mgr ctrl.Manager, bus events.Bus) *historyworker.DLQProject
 func registerHistory(mgr ctrl.Manager, bus events.Bus, proj *historyworker.DLQProjector) error {
 	sink := historyworker.NewSink(historyworker.SinkDeps{Recorder: mgr.GetEventRecorder("catalog-history")})
 	if err := sink.SetupLeaderOnly(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: history sink: %w", err)
+		return fmt.Errorf("catalog: history sink: %w", err)
 	}
 	if proj == nil {
 		proj = NewDLQProjector(mgr, bus)
 	}
 	if err := proj.SetupLeaderOnly(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: dlq projector: %w", err)
+		return fmt.Errorf("catalog: dlq projector: %w", err)
 	}
 	return nil
 }
@@ -127,7 +127,7 @@ func registerReplay(mgr ctrl.Manager, bus events.Bus) error {
 	if err := replay.NewReplayer(replay.ReplayDeps{
 		Client: mgr.GetClient(), Bus: bus, DLQ: reader, Recorder: mgr.GetEventRecorder("clustarr-replay"),
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: dlq replay: %w", err)
+		return fmt.Errorf("catalog: dlq replay: %w", err)
 	}
 	return nil
 }
@@ -155,9 +155,9 @@ const metadataProbeTimeout = 30 * time.Second
 // in the logs to say so.
 //
 // The importer, importlist and importexclusion controllers are NOT here:
-// amendment §A1.2/§A1.3 moved them to importarr, whose run.go registers them.
-// Building them here would break the MediaFile single-writer split (importarr
-// owns what it observed, catalogarr owns what it decided).
+// amendment §A1.2/§A1.3 moved them to import, whose run.go registers them.
+// Building them here would break the MediaFile single-writer split (import
+// owns what it observed, catalog owns what it decided).
 //
 // One recorder convention: every reconciler here takes a
 // k8s.io/client-go/tools/events.EventRecorder from mgr.GetEventRecorder, and
@@ -177,7 +177,7 @@ const metadataProbeTimeout = 30 * time.Second
 //
 // The tree arrived at one convention the hard way, and the lesson outlives
 // the split. Until Task C12a the wave 1 controllers (movie, series, episode,
-// mediafile, search, and importarr's rootfolderschedule) declared
+// mediafile, search, and import's rootfolderschedule) declared
 // events.k8s.io while still writing core/v1 through the deprecated recorder,
 // so the generated Role granted a group nobody wrote and omitted the one they
 // did: on a real cluster every one of their events would have been denied,
@@ -198,13 +198,13 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 
 	if err := rootfolder.NewReconciler(c, mgr.GetEventRecorder("rootfolder")).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: rootfolder: %w", err)
+		return fmt.Errorf("catalog: rootfolder: %w", err)
 	}
 
 	cat := catalogue.LoadedCatalogue()
 	if err := qualityprofile.NewReconciler(c, cat,
 		mgr.GetEventRecorder("qualityprofile")).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: qualityprofile: %w", err)
+		return fmt.Errorf("catalog: qualityprofile: %w", err)
 	}
 
 	// The 13 built-in TRaSH profiles. Without this the reconciler has nothing
@@ -214,36 +214,36 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// inert while looking healthy. Leader-elected by its own
 	// NeedLeaderElection -- seeding is a cluster singleton, not per replica.
 	if err := mgr.Add(&qualityprofile.Bootstrap{Client: c, Catalogue: cat}); err != nil {
-		return fmt.Errorf("catalogarr: qualityprofile bootstrap: %w", err)
+		return fmt.Errorf("catalog: qualityprofile bootstrap: %w", err)
 	}
 
 	if err := delayprofile.NewReconciler(c, mgr.GetEventRecorder("delayprofile")).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: delayprofile: %w", err)
+		return fmt.Errorf("catalog: delayprofile: %w", err)
 	}
 
 	if err := metadataprovider.NewReconciler(c, mgr.GetEventRecorder("metadataprovider"),
 		metadataProbeClient).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: metadataprovider: %w", err)
+		return fmt.Errorf("catalog: metadataprovider: %w", err)
 	}
 
 	// The providers that need no key (MusicBrainz, Open Library, Cover Art
 	// Archive and the rest), so music, book and anime metadata work on a
 	// fresh install. Create-only; leader-elected like the profile seed.
 	if err := mgr.Add(&metadataprovider.Bootstrap{Client: c, Namespace: o.Namespace}); err != nil {
-		return fmt.Errorf("catalogarr: metadataprovider bootstrap: %w", err)
+		return fmt.Errorf("catalog: metadataprovider bootstrap: %w", err)
 	}
 
 	if err := searchctl.NewReconciler(c, bus,
 		mgr.GetEventRecorder("search"),
 	).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: search: %w", err)
+		return fmt.Errorf("catalog: search: %w", err)
 	}
 
 	// Spec §C.4: which items each OverlayProfile badges, and the render
 	// tasks a selection change calls for. The renderer they reach is the
 	// catalog agent domain's (app/catalog/agent/catalog).
 	if err := (&overlayprofile.Reconciler{Client: c, Bus: bus}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: overlayprofile: %w", err)
+		return fmt.Errorf("catalog: overlayprofile: %w", err)
 	}
 
 	// The operator's forced metadata refresh (clustarr.io/refresh-metadata):
@@ -252,7 +252,7 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := metadatarefresh.NewRefresher(metadatarefresh.RefreshDeps{
 		Client: c, Bus: bus, Recorder: mgr.GetEventRecorder("metadata-refresh"),
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: metadata refresh: %w", err)
+		return fmt.Errorf("catalog: metadata refresh: %w", err)
 	}
 
 	// §6.1's twelve-hourly missing/cutoff-unmet sweep. It is leader-elected
@@ -264,7 +264,7 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Schedule:   wantedcron.TwelveHourly(),
 		Namespaces: o.WatchNamespaces,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: wantedcron: %w", err)
+		return fmt.Errorf("catalog: wantedcron: %w", err)
 	}
 
 	// R9 (spec §5.13): the orphan sweep is a cluster singleton behind this
@@ -293,7 +293,7 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		reaper.Admin = admin
 	}
 	if err := mgr.Add(reaper); err != nil {
-		return fmt.Errorf("catalogarr: add the artwork reaper: %w", err)
+		return fmt.Errorf("catalog: add the artwork reaper: %w", err)
 	}
 
 	// The segment analysis planner reads a season's episodes and files
@@ -301,13 +301,13 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := segmentplan.Setup(ctx, segmentplan.Options{Bus: bus, Reader: c})
 		if err != nil {
-			return fmt.Errorf("catalogarr: segment planner: %w", err)
+			return fmt.Errorf("catalog: segment planner: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()
 		return nil
 	})); err != nil {
-		return fmt.Errorf("catalogarr: add the segment planner: %w", err)
+		return fmt.Errorf("catalog: add the segment planner: %w", err)
 	}
 
 	// The clustarr-segments sweep (loop spec §4.11): the bucket's TTL is 0,
@@ -316,7 +316,7 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// same manager.
 	sweeper := &segmentplan.Sweeper{KV: bus.KV(events.BucketSegments), Reader: c}
 	if err := mgr.Add(k8s.LeaderOnly(sweeper.Run)); err != nil {
-		return fmt.Errorf("catalogarr: segments sweeper: %w", err)
+		return fmt.Errorf("catalog: segments sweeper: %w", err)
 	}
 
 	return nil
@@ -329,7 +329,7 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // (app/remediation/manager, loop spec §3.12).
 //
 // Each parent fans out children through the metadata gateway's
-// rpc.catalogarr.metadata.lookup: Artist -> Album, Author -> Book and
+// rpc.catalog.metadata.lookup: Artist -> Album, Author -> Book and
 // Comic -> Issue. So each needs the bus for its Request as well as for
 // publishing its own MetadataTask; with a nil Bus every reconcile panics
 // into RecoverPanic before it lists a single child.
@@ -344,12 +344,12 @@ func registerNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 	if err := (&artist.Reconciler{
 		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("artist"), Bus: bus,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: artist: %w", err)
+		return fmt.Errorf("catalog: artist: %w", err)
 	}
 	if err := (&author.Reconciler{
 		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("author"), Bus: bus,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: author: %w", err)
+		return fmt.Errorf("catalog: author: %w", err)
 	}
 	// The Comic is the remediation loop's item key now (ADR-0019 A3.2).
 	return nil

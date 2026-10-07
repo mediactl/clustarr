@@ -239,7 +239,7 @@ func (f *workerFixture) envelope(t *testing.T, task schema.SearchTask) *events.E
 	require.NoError(t, err)
 	return &events.Envelope{
 		ID: "test-" + task.MediaRef.Name, Type: "catalog.SearchTask", Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    f.ns + "/srch", Time: time.Now().UTC(), Data: data,
 	}
 }
@@ -312,7 +312,7 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 }
 
 // writeControllerStatus writes the controller-owned half of a Search's status
-// under k8s.ManagerCatalogarr, standing in for search.Reconciler in a
+// under k8s.ManagerCatalog, standing in for search.Reconciler in a
 // worker-only test.
 func writeControllerStatus(t *testing.T, ctx context.Context, c client.Client, ns, name string) {
 	t.Helper()
@@ -472,7 +472,7 @@ func TestWorkerSetupWithManagerSubscribesBothSearchConsumers(t *testing.T) {
 
 	// A second manager: newTestManager already registered the indexes on the
 	// first. Since Task C12a, SetupWithManager no longer registers them
-	// itself -- catalogarr's registerWorkerIndexes owns that, once, for every
+	// itself -- catalog's registerWorkerIndexes owns that, once, for every
 	// worker role -- so this test makes the same call the wiring does.
 	mgr := newManagerWithoutIndexes(t)
 	require.NoError(t, search.RegisterDownloadIndexes(ctx, mgr.GetFieldIndexer()))

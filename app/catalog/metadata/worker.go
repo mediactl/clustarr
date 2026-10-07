@@ -40,7 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// Handler is the clustarr.work.catalogarr.metadata.<tier>.<mediaKey>
+// Handler is the clustarr.work.catalog.metadata.<tier>.<mediaKey>
 // consumer: the only place that reads a MetadataTask, calls a provider
 // through the Registry, and patches status.metadata back -- together with
 // status.artwork, which the same manager owns (spec §B.6), in the same
@@ -318,10 +318,10 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 
-	// k8s.ManagerCatalogarrMetadata, not ManagerCatalogarrWorker: this apply
+	// k8s.ManagerCatalogMetadata, not ManagerCatalogWorker: this apply
 	// carries status.metadata and status.artwork and nothing else, and
 	// server-side apply releases every field its manager owns and this apply
-	// omits. While the gateway and the grab path shared catalogarr-worker,
+	// omits. While the gateway and the grab path shared catalog-worker,
 	// each refresh deleted the grab path's status.activeDownloadRef and
 	// status.pendingGrab -- taking a delayed item out of Phase=Delayed back
 	// to Wanted, where the wanted cron re-searched an item that already had a

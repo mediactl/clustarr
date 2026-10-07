@@ -38,7 +38,7 @@ const (
 	// DefaultAuditPace is Reaper.Pace when unset: the audit publishes only
 	// while the target consumer lags fewer tasks than this (artwork design
 	// §B.5 as amended 2026-10-07). After a bucket loss the audit is the whole
-	// library, and CLUSTARR_WORK_CATALOGARR is a few MiB of discard-oldest
+	// library, and CLUSTARR_WORK_CATALOG is a few MiB of discard-oldest
 	// memory on single-node NATS, where queueing by the thousand silently
 	// drops the neighbours' work (CLAUDE.md).
 	DefaultAuditPace = 256

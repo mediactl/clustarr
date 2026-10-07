@@ -27,8 +27,8 @@ import (
 
 // TestIsPoolDurable holds the sweep's notion of a pool durable to the one
 // builder of pool durable names, and keeps every durable of the shipped
-// topology -- squasharr-transcode-results above all, which shares the
-// prefix -- out of it (final-review M1).
+// topology -- transcode-results among them -- out of it (final-review
+// M1).
 func TestIsPoolDurable(t *testing.T) {
 	for _, class := range poolClasses {
 		for _, uid := range []string{"8b2c1d9e-0f4a-4c1b-9d2e-3f4a5b6c7d8e", "a.b c"} {
@@ -40,5 +40,5 @@ func TestIsPoolDurable(t *testing.T) {
 		assert.False(t, isPoolDurable(c.Name), "%s is the shipped topology's, never swept", c.Name)
 	}
 	assert.False(t, isPoolDurable(events.ConsumerTranscodeResults))
-	assert.False(t, isPoolDurable("importarr-scan"))
+	assert.False(t, isPoolDurable("import-scan"))
 }

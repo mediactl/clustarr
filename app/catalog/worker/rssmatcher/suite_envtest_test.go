@@ -248,7 +248,7 @@ func createQualityProfile(t *testing.T, ctx context.Context, c client.Client) {
 			// language is deliberately LEFT OUT so the apiserver defaults it
 			// to "original", which is what a user who never touched the field
 			// gets. It used to be pinned to "any" to dodge the vocabulary
-			// defect (catalogarr handed pkg/decision a BCP-47 tag while both
+			// defect (catalog handed pkg/decision a BCP-47 tag while both
 			// of its consumers spoke Radarr display names, so "original"
 			// rejected everything and language-not-original scored -10000 on
 			// top); pkg/decision/language.go converts at the boundary now, and

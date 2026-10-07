@@ -41,7 +41,7 @@ type rpcVerb struct {
 }
 
 // ServeRPC registers the gateway's three request/reply methods --
-// rpc.catalogarr.metadata.{lookup,search,resolve} -- in the catalogarr
+// rpc.catalog.metadata.{lookup,search,resolve} -- in the catalog
 // queue group. Unlike Handler, these never touch a Kubernetes object: the
 // caller (an import list, an interactive lookup) supplies ids and gets a
 // provider document back.
@@ -93,7 +93,7 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 	return nil
 }
 
-// lookup answers rpc.catalogarr.metadata.lookup. MediaKindEpisode and
+// lookup answers rpc.catalog.metadata.lookup. MediaKindEpisode and
 // MediaKindIssue are both verbs pkg/metadata.Registry.Lookup deliberately
 // does not support (its switch covers every kind whose provider call
 // returns one entity; Episode and Issue are each a list scoped by their

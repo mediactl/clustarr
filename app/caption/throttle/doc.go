@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package throttle is captionarr's shared, KV-backed provider throttle:
+// Package throttle is caption's shared, KV-backed provider throttle:
 // spec §6.5's "shared KV token bucket (clustarr-provider-throttle holds JWT +
 // remaining/reset) so N workers never exceed 5 req/s", plus the throttle
 // window (pkg/subtitles.ThrottleFor's duration table) and Bazarr's

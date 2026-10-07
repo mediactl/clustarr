@@ -42,7 +42,7 @@ import (
 const DefaultHTTPTimeout = 45 * time.Second
 
 var (
-	// ErrNoClient is returned for a SubtitleProviderType captionarr ships no
+	// ErrNoClient is returned for a SubtitleProviderType caption ships no
 	// client for. Only whisper remains: it generates subtitles rather than
 	// finding them, and the design of record defers it (gap-fix ruling R-1).
 	// subdl and subsource had none until gap-fix task X11b (ruling R5 of

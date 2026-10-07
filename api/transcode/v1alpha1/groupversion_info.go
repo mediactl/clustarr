@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package v1alpha1 contains the API Schema definitions for the
-// transcode.clustarr.io v1alpha1 API group (owner: squasharr).
+// transcode.clustarr.io v1alpha1 API group (owner: transcode).
 //
 // +kubebuilder:object:generate=true
 // +kubebuilder:ac:generate=true

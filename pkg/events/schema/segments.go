@@ -19,9 +19,9 @@ package schema
 
 import commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 
-// SegmentsPlanTask asks catalogarr's planner to build one analysis task:
+// SegmentsPlanTask asks catalog's planner to build one analysis task:
 // a season's (Series and Season) or a movie's file (Movie, the MediaFile's
-// name). Subject: clustarr.work.segmentarr.plan.normal.<key>.
+// name). Subject: clustarr.work.markers.plan.normal.<key>.
 type SegmentsPlanTask struct {
 	Namespace string `json:"namespace"`
 	Series    string `json:"series,omitempty"`
@@ -48,9 +48,9 @@ type AnalyzeFile struct {
 	Anime bool `json:"anime,omitempty"`
 }
 
-// AnalyzeTask is segmentarr-worker's task: a season's files in episode
+// AnalyzeTask is markers-worker's task: a season's files in episode
 // order (Kind episode) or one movie's (Kind movie). Subject:
-// clustarr.work.segmentarr.analyze.normal.<key>.
+// clustarr.work.markers.analyze.normal.<key>.
 type AnalyzeTask struct {
 	Namespace string        `json:"namespace"`
 	Key       string        `json:"key"`

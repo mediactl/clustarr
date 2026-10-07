@@ -68,8 +68,8 @@ func TestWorkStreamsAllowSchedules(t *testing.T) {
 }
 
 // TestEveryWorkStreamHasAConsumer is the assertion that would have caught
-// CLUSTARR_WORK_IMPORTARR's absence from the other side: a work stream with
-// no consumer is work nobody drains, and `importarr --role worker` installed
+// CLUSTARR_WORK_IMPORT's absence from the other side: a work stream with
+// no consumer is work nobody drains, and `import --role worker` installed
 // a topology it could consume nothing from. Topology.Validate cannot check
 // this -- it only walks consumers towards streams, never the reverse.
 //
@@ -94,7 +94,7 @@ func TestEveryWorkStreamHasAConsumer(t *testing.T) {
 	}
 }
 
-// TestImportarrWorkTopology pins amendment §A1.6 verbatim: the stream, its
+// TestImportWorkTopology pins amendment §A1.6 verbatim: the stream, its
 // work-queue retention, and the three subjects its workers consume.
 func TestImportWorkTopology(t *testing.T) {
 	top := events.Default()
@@ -146,7 +146,7 @@ func TestImportWorkTopology(t *testing.T) {
 			t.Errorf("consumer %s does not match %s (filters %v)", c.Name, tc.subject, c.Filters)
 		}
 		// A scheduled publish must stay inside the stream and miss every
-		// consumer filter; the importarr subjects carry no priority token,
+		// consumer filter; the import subjects carry no priority token,
 		// so this is worth pinning for them specifically.
 		sched, err := events.ScheduleSubject(tc.subject)
 		if err != nil {
@@ -469,7 +469,7 @@ func TestKVBucketNamesHaveNoDots(t *testing.T) {
 // a dead letter's subject. A work subject names its own service and task. An
 // event or a release does not -- it names its producer's domain, and several
 // durables consume one event -- so those are named by the consuming durable:
-// catalogarr-redownload and catalogarr-history dead-lettering the same
+// catalog-redownload and catalog-history dead-lettering the same
 // Download failed event land on two subjects, not one shared
 // clustarr.dlq.download.download.<id>.
 func TestDeadLetterSubjectNamesTheFailedTask(t *testing.T) {
@@ -552,10 +552,10 @@ func TestArtworkKeyPanicsOnBadPart(t *testing.T) {
 	}
 }
 
-// TestArtworkWorkSubjectsResolveToCatalogarr proves the fetch and render
-// work subjects (spec §B.7, §C.6) land in CLUSTARR_WORK_CATALOGARR and are
+// TestArtworkWorkSubjectsResolveToCatalog proves the fetch and render
+// work subjects (spec §B.7, §C.6) land in CLUSTARR_WORK_CATALOG and are
 // picked up by their own durable and no other durable's filter, the same
-// property TestImportarrWorkTopology holds for the importarr subjects.
+// property TestImportWorkTopology holds for the import subjects.
 func TestArtworkWorkSubjectsResolveToCatalog(t *testing.T) {
 	top := events.Default()
 	cases := []struct {

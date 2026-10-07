@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package v1alpha1 contains the API Schema definitions for the
-// subtitle.clustarr.io v1alpha1 API group (owner: captionarr).
+// subtitle.clustarr.io v1alpha1 API group (owner: caption).
 //
 // +kubebuilder:object:generate=true
 // +kubebuilder:ac:generate=true

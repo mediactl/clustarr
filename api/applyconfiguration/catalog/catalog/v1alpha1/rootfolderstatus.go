@@ -33,7 +33,7 @@ type RootFolderStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions represent the latest available observations of the root folder's state.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// Accessible is true when the path exists and catalogarr can write to it.
+	// Accessible is true when the path exists and catalog can write to it.
 	Accessible *bool `json:"accessible,omitempty"`
 	// FreeBytes is the free space on the filesystem backing the path.
 	FreeBytes *int64 `json:"freeBytes,omitempty"`

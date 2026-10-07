@@ -40,7 +40,7 @@ import (
 // restates the value it guards cannot catch drift; that is how ValidKVKey
 // shipped permissive in Phase C, pinned against a regex copied into the test
 // file instead of against the server that rejects the key.
-const indexManifest = "../../config/manager/indexarr.yaml"
+const indexManifest = "../../config/manager/index.yaml"
 
 func TestDefaultIndexPathMatchesTheManifest(t *testing.T) {
 	b, err := os.ReadFile(indexManifest)

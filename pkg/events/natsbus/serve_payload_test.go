@@ -36,7 +36,7 @@ import (
 )
 
 // TestServeReportsAReplyTheServerRefuses pins the failure found on the
-// owner's cluster on 2026-09-24: indexarr answered rpc.indexarr.download
+// owner's cluster on 2026-09-24: index answered rpc.index.download
 // with a 1.3 MB .nzb, the Helm chart's NATS ran the server's 1 MiB
 // max_payload default, nats.go refused the reply client-side with
 // ErrMaxPayload, Serve discarded that error, and the engine waited out its
@@ -107,7 +107,7 @@ func TestServeReportsAReplyTheServerRefuses(t *testing.T) {
 }
 
 // TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload sends the largest
-// rpc.indexarr.download reply indexarr will send -- schema.MaxDownloadWireBytes
+// rpc.index.download reply index will send -- schema.MaxDownloadWireBytes
 // of incompressible body, base64 in JSON, plus the reply's headers --
 // through a real server capped at the broker's 8Mi (config/nats), and
 // requires it to arrive whole. The budget was raised to use that room on

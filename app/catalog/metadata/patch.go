@@ -326,20 +326,20 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.Arti
 // AlbumStatus.metadata.
 //
 // Field-manager split for Album (and buildBookMetadataAC's Book, below) --
-// the question G1-0 (pkg/k8s/fieldmanager.go's ManagerCatalogarrFanout doc
+// the question G1-0 (pkg/k8s/fieldmanager.go's ManagerCatalogFanout doc
 // comment) left for this task to answer, because Album and Book are the two
 // non-video kinds that both (a) have a parent whose own fan-out (task G2-2,
-// ManagerCatalogarrFanout) discovers and creates them, the way Series
+// ManagerCatalogFanout) discovers and creates them, the way Series
 // discovers and creates Episode, and (b) carry their own independent
 // status.metadata + ConditionMetadataReady, the way Movie and Series do and
 // Episode/Issue do not (see target.go's errUnsupportedKind comment and
 // pkg/pipeline/project.go's describeItem). Episode and Issue have no nested
 // Metadata struct to split, so this question does not arise for them.
 //
-// The answer: **the metadata gateway (ManagerCatalogarrMetadata) is the
+// The answer: **the metadata gateway (ManagerCatalogMetadata) is the
 // sole writer of every leaf of AlbumStatus.metadata and BookStatus.metadata,
 // exactly as it is for Movie, Series, Artist, Author, Audiobook and Comic.
-// ManagerCatalogarrFanout must never apply to status.metadata on Album or
+// ManagerCatalogFanout must never apply to status.metadata on Album or
 // Book.** Its write set there is empty by construction, not merely
 // disjoint-by-convention. Concretely, Artist's fan-out (G2-2) creates an
 // Album the same way Series creates an Episode -- but where Series can
@@ -358,11 +358,11 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.Arti
 // for Book, spec.monitored once at creation -- mirroring
 // ArtistAddOptions/AuthorAddOptions), and leaves status.metadata untouched;
 // the newly created object then flows through the exact same
-// MetadataTask -> Handler -> ManagerCatalogarrMetadata pipeline as any
+// MetadataTask -> Handler -> ManagerCatalogMetadata pipeline as any
 // Movie or Series, which is what this file exists to build.
 //
 // One leaf is the exception, and it is not the fan-out's: since gap fix X5b
-// the Album reconciler (ManagerCatalogarr) writes
+// the Album reconciler (ManagerCatalog) writes
 // AlbumStatus.metadata.selectedReleaseID, because only it knows which of the
 // album's releases the files on disk belong to (Lidarr's
 // RefreshAlbumService.MonitorSingleRelease). SSA tracks ownership per leaf,

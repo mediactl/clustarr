@@ -16,10 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package recyclesweep queues the recycle-bin sweep: one RecycleSweepTask
-// per 6-hour UTC slot on importarr-recycle, published by the manager's
+// per 6-hour UTC slot on import-recycle, published by the manager's
 // leader (spec 2026-10-06 §3.5.3, OD36). The import agent's
 // fileimport.RecycleSweeper handles it. Before this the sweep was an hourly
-// timer on every importarr-worker replica, which never fires in a domain
+// timer on every import-worker replica, which never fires in a domain
 // the HPA has scaled to zero.
 package recyclesweep
 
@@ -106,9 +106,9 @@ func (s *Scheduler) PublishOnce(ctx context.Context, at time.Time) (events.Recei
 	}
 	env := &events.Envelope{
 		ID:     MsgID(at),
-		Type:   "importarr.RecycleSweepTask",
+		Type:   "import.RecycleSweepTask",
 		Schema: name,
-		Source: "importarr@" + version.String(),
+		Source: "import@" + version.String(),
 		Time:   at,
 		Data:   data,
 	}

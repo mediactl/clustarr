@@ -38,7 +38,7 @@ import (
 // An item event looks its files up through the index and never lists every
 // MediaFile in the namespace: the cache's initial sync delivers every Movie
 // and Episode as a create, and a namespace-wide list per event kept the
-// Episode source from syncing on a 13,754-file library (captionarr
+// Episode source from syncing on a 13,754-file library (caption
 // crash-looped on CacheSyncTimeout, 2026-09-29).
 func TestItemWatchNeverListsEveryMediaFile(t *testing.T) {
 	def := profileAt("default", time.Now(), subtitlev1alpha1.SubtitleProfileSpec{Default: true})

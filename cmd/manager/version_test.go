@@ -28,7 +28,7 @@ import (
 // here is a service nobody can start.
 func TestEveryServiceHasASubcommand(t *testing.T) {
 	root := NewRootCommand()
-	want := []string{"catalogarr", "importarr", "indexarr", "grabarr", "squasharr", "captionarr", "ui"}
+	want := []string{"catalog", "import", "index", "grab", "transcode", "caption", "ui"}
 	got := map[string]bool{}
 	for _, c := range root.Commands() {
 		got[c.Name()] = true

@@ -34,25 +34,25 @@ import (
 var probeConsumers = []string{events.ConsumerImportProbeHigh, events.ConsumerImportProbeLow}
 
 // registerProbeWorkers subscribes w to both probe lanes on every replica, as
-// the other importarr consumers are: a probe is answered by whichever import
+// the other import consumers are: a probe is answered by whichever import
 // pod takes it.
 func registerProbeWorkers(add func(manager.Runnable) error, bus events.Subscriber, top events.Topology, w *probe.Worker) error {
 	for _, name := range probeConsumers {
 		spec, ok := top.Consumer(name)
 		if !ok {
-			return fmt.Errorf("importarr: consumer %s missing from topology", name)
+			return fmt.Errorf("import: consumer %s missing from topology", name)
 		}
 		sub := spec.Subscription()
 		if err := add(k8s.EveryReplica(func(ctx context.Context) error {
 			stop, err := bus.Subscribe(ctx, sub, w.Handle)
 			if err != nil {
-				return fmt.Errorf("importarr: subscribe %s: %w", name, err)
+				return fmt.Errorf("import: subscribe %s: %w", name, err)
 			}
 			defer stop()
 			<-ctx.Done()
 			return nil
 		})); err != nil {
-			return fmt.Errorf("importarr: add %s consumer: %w", name, err)
+			return fmt.Errorf("import: add %s consumer: %w", name, err)
 		}
 	}
 	return nil

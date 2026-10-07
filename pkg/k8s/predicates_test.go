@@ -45,7 +45,7 @@ func mediaFile(hash string, labels map[string]string) *catalogv1alpha1.MediaFile
 }
 
 func TestStatusFieldChangedIsTheProbeHashWatch(t *testing.T) {
-	// §10: squasharr's transcodeprofile watches MediaFile and reacts to
+	// §10: transcode's transcodeprofile watches MediaFile and reacts to
 	// status.probeHash changing or the object being created -- nothing else.
 	p := StatusFieldChanged(probeHash)
 
@@ -106,7 +106,7 @@ func download(phase downloadv1alpha1.DownloadPhase) *downloadv1alpha1.Download {
 }
 
 func TestStatusFieldInIsTheImporterWatch(t *testing.T) {
-	// §10: catalogarr's importer watches Downloads in phase Completed,
+	// §10: catalog's importer watches Downloads in phase Completed,
 	// Seeding or Failed.
 	p := StatusFieldIn(downloadPhase,
 		downloadv1alpha1.DownloadPhase("Completed"),

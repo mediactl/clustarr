@@ -43,7 +43,7 @@ import (
 // infoHash, by protocol. Every usenet Download therefore failed EVERY write
 // after creation, including a status-only apply that never touches spec --
 // because a status-subresource write re-evaluates the spec's CEL rules against
-// the stored object. Status applies are grabarr's only means of reporting
+// the stored object. Status applies are grab's only means of reporting
 // progress, so the effect was that usenet downloads could be created and then
 // never updated again.
 //

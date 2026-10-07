@@ -33,7 +33,7 @@ import (
 // startup -- the corpus a cluster ships with rather than one an operator
 // applies as IndexerDefinition objects one at a time.
 //
-// LoadBundle takes an fs.FS, so one loader serves both bundles indexarr
+// LoadBundle takes an fs.FS, so one loader serves both bundles index
 // knows: the corpus compiled into the binary (app/indexer/bundle/embedded, a
 // deflated zip read through archive/zip's *zip.Reader -- Prowlarr's
 // definitions, added to the project by its owner on 2026-09-23, which
@@ -73,7 +73,7 @@ var objectNameInvalid = regexp.MustCompile(`[^a-z0-9.-]+`)
 // The corpus needs this once, for "Bittorrentfiles". The id itself is
 // untouched in spec.yaml, which is what an Indexer's spec.definition
 // resolves against. Both producers of bundle objects name them through
-// this -- hack/sync-cardigann's manifests and indexarr's bundle loader --
+// this -- hack/sync-cardigann's manifests and index's bundle loader --
 // so applying the one and mounting the other converge on the same objects
 // instead of creating each definition twice. "" means the id yields no
 // valid name.

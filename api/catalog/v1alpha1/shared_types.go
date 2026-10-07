@@ -23,7 +23,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-// Label keys the catalogarr controllers mirror onto catalog objects and the
+// Label keys the catalog controllers mirror onto catalog objects and the
 // MediaFile backing them, so that files can be selected by technical shape.
 const (
 	// LabelKind carries the common.MediaKind of the object a MediaFile backs.
@@ -56,7 +56,7 @@ type ImageType string
 // AnnotationRefreshMetadata is the operator's forced metadata refresh on a
 // kind with metadata of its own (Movie, Series, Artist, Album, Author, Book,
 // Audiobook, Comic): its value is a positive integer, by convention the
-// requester's Unix time. catalogarr's refresher publishes a MetadataTask
+// requester's Unix time. catalog's refresher publishes a MetadataTask
 // carrying it as the refresh epoch (spec §5) and consumes the annotation;
 // the UI's "Refresh metadata" writes it. Declared here because both the
 // writer (ui/actions) and the consumer (app/catalog/metadata) read it.
@@ -406,7 +406,7 @@ type ArtworkEntry struct {
 }
 
 // OverlayEntry records the rating-badge overlay rendered onto a Movie or
-// Series poster. Written by the renderer under k8s.ManagerCatalogarrArtwork.
+// Series poster. Written by the renderer under k8s.ManagerCatalogArtwork.
 type OverlayEntry struct {
 	// ProfileRef is the name of the OverlayProfile the overlay was rendered from.
 	// +required
@@ -493,7 +493,7 @@ type AltTitle struct {
 
 // The library delete request (docs/superpowers/specs/
 // 2026-09-30-library-delete-design.md). The ui, or kubectl, sets
-// AnnotationDelete on a library item; importarr's librarydelete controller
+// AnnotationDelete on a library item; import's librarydelete controller
 // carries it out and deletes the item, or writes AnnotationDeleteError.
 const (
 	// AnnotationDelete asks for the item to be deleted: DeleteRecords
@@ -503,7 +503,7 @@ const (
 	// AnnotationDeleteAddExclusion, "true", also creates an ImportExclusion
 	// for the item before it goes.
 	AnnotationDeleteAddExclusion = "catalog.clustarr.io/delete-add-exclusion"
-	// AnnotationDeleteError is why a delete was refused or failed; importarr
+	// AnnotationDeleteError is why a delete was refused or failed; import
 	// writes it, and a new request clears it.
 	AnnotationDeleteError = "catalog.clustarr.io/delete-error"
 

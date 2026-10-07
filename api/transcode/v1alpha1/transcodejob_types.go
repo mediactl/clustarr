@@ -81,7 +81,7 @@ const (
 	TranscodeJobConditionSucceeded = "Succeeded"
 	// TranscodeJobConditionFailed is True once the job failed permanently.
 	TranscodeJobConditionFailed = "Failed"
-	// ConditionBlocked is True for a terminal Failed job squasharr will not
+	// ConditionBlocked is True for a terminal Failed job transcode will not
 	// retry; delete the TranscodeJob to retry (spec §18.4).
 	ConditionBlocked = "Blocked"
 )
@@ -267,7 +267,7 @@ type Result struct {
 	MediaInfo *commonv1alpha1.MediaInfo `json:"mediaInfo,omitempty"`
 }
 
-// TranscodeJobStatus defines the observed state of TranscodeJob. squasharr
+// TranscodeJobStatus defines the observed state of TranscodeJob. transcode
 // writes every field, from its reconciler and from the worker's status events
 // (spec §18.2).
 type TranscodeJobStatus struct {

@@ -222,7 +222,7 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 }
 
 // register adds every manager-side component in §3.4.2's fixed order and
-// returns their names: catalog, import, index, grab, squash, caption,
+// returns their names: catalog, import, index, grab, transcode, caption,
 // remediation, then autoscale. The admission and intake planes come first:
 // the components that dispatch take them.
 func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
@@ -254,7 +254,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				EngineServiceAccount: o.EngineServiceAccount,
 			})
 		}},
-		{"squash", func() error {
+		{"transcode", func() error {
 			return transcodemanager.Register(mgr, bus, transcodemanager.Options{
 				Options: o.Options, Slots: o.Slots,
 				DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
@@ -267,7 +267,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			return captionmanager.Register(mgr, bus, captionmanager.Options{Options: o.Options, DataDir: o.DataDir})
 		}},
 		// The MediaFile remediation loop (ADR-0016, loop spec §3.1), after
-		// squash and caption: the only writer of MediaFile status.
+		// transcode and caption: the only writer of MediaFile status.
 		{"remediation", func() error {
 			return remediationmanager.Register(mgr, bus, remediationmanager.Options{
 				Options: o.Options, DataDir: o.DataDir,

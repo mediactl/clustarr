@@ -30,7 +30,7 @@ import (
 // controller polls that key and projects it into status -- the same split
 // app/import/scanprogress.Progress uses for LibraryScan, and for the same
 // reason: the controller is the single writer of ImportList.status (see
-// k8s.ManagerImportarr's doc comment), so the worker reports through a KV
+// k8s.ManagerImport's doc comment), so the worker reports through a KV
 // checkpoint instead of an apiserver write of its own.
 type Result struct {
 	// SyncedAt is when this sync attempt finished, successfully or not. The

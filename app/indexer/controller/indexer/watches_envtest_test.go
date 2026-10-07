@@ -99,7 +99,7 @@ func TestDeadLetteredAnnotationFoldsIntoIndexerStatus(t *testing.T) {
 	require.NoError(t, c.Get(ctx, name, &live))
 	patch := client.MergeFrom(live.DeepCopy())
 	live.Annotations = map[string]string{
-		k8s.AnnotationDeadLettered: "clustarr.work.indexarr.rss.normal.uid@2026-09-23T10:00:00Z",
+		k8s.AnnotationDeadLettered: "clustarr.work.index.rss.normal.uid@2026-09-23T10:00:00Z",
 	}
 	require.NoError(t, c.Patch(ctx, &live, patch))
 	require.Eventually(t, hasCondition(c, name, k8s.ConditionDeadLettered, metav1.ConditionTrue),

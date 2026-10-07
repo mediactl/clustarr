@@ -27,7 +27,7 @@ import (
 // NamingStatusApplyConfiguration represents a declarative configuration of the NamingStatus type for use
 // with apply.
 //
-// NamingStatus is catalogarr's proposal for a MediaFile's canonical path.
+// NamingStatus is catalog's proposal for a MediaFile's canonical path.
 type NamingStatusApplyConfiguration struct {
 	// ExpectedPath is the absolute path the preset renders; empty until
 	// the item's metadata and the probe are both present.
@@ -36,7 +36,7 @@ type NamingStatusApplyConfiguration struct {
 	Current *bool `json:"current,omitempty"`
 	// Reason says why expectedPath is empty or the file is not renameable.
 	Reason *catalogv1alpha1.NamingReason `json:"reason,omitempty"`
-	// Quality is the probe-corrected quality importarr re-applies into
+	// Quality is the probe-corrected quality import re-applies into
 	// spec.quality when it renames.
 	Quality *commonv1alpha1.Quality `json:"quality,omitempty"`
 }

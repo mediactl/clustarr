@@ -68,7 +68,7 @@ const (
 	EngineConsumerPrefix = "grab-engine-"
 
 	// RPCIndexBlocklist is the release index's blocklist verb (design
-	// §6.14), beside search, download and query, in queue group indexarr.
+	// §6.14), beside search, download and query, in queue group index.
 	RPCIndexBlocklist = "clustarr.rpc.index.blocklist"
 
 	// The JetStream advisory and metric subjects the manager consumes
@@ -135,7 +135,7 @@ func WorkEngineIDSubject(client string, ordinal int32, downloadID string) string
 }
 
 // EngineConsumerName is engine instance <client>-<ordinal>'s durable,
-// "grabarr-engine-<KVKeyToken(client)>-<ordinal>". It is injective: the
+// "grab-engine-<KVKeyToken(client)>-<ordinal>". It is injective: the
 // ordinal holds no '-', and no KVKeyToken ends in a lone '-'.
 func EngineConsumerName(client string, ordinal int32) string {
 	return EngineConsumerPrefix + KVKeyToken(client) + "-" + strconv.FormatInt(int64(ordinal), 10)
@@ -164,21 +164,21 @@ func EngineConsumer(client string, ordinal int32) ConsumerSpec {
 }
 
 // WorkImportInspectSubject builds
-// clustarr.work.importarr.fileimport.inspect.<KVKeyToken(entry uid)>, under
-// importarr-fileimport's filter.
+// clustarr.work.import.fileimport.inspect.<KVKeyToken(entry uid)>, under
+// import-fileimport's filter.
 func WorkImportInspectSubject(entryUID string) string {
 	return "clustarr.work.import.fileimport.inspect." + KVKeyToken(entryUID)
 }
 
 // WorkImportExecuteSubject builds
-// clustarr.work.importarr.fileimport.execute.<KVKeyToken(entry uid)>.
+// clustarr.work.import.fileimport.execute.<KVKeyToken(entry uid)>.
 func WorkImportExecuteSubject(entryUID string) string {
 	return "clustarr.work.import.fileimport.execute." + KVKeyToken(entryUID)
 }
 
 // SubjectImportRecycleFiles builds
-// clustarr.work.importarr.recycle.files.<KVKeyToken(id)>, under
-// importarr-recycle's filter.
+// clustarr.work.import.recycle.files.<KVKeyToken(id)>, under
+// import-recycle's filter.
 func SubjectImportRecycleFiles(id string) string {
 	return "clustarr.work.import.recycle.files." + KVKeyToken(id)
 }
@@ -286,7 +286,7 @@ func dynamicDispatchedStreams() []string {
 // TaskEventSubjects is CLUSTARR_TASK_EVENTS' subjects: the MSG_NAKED and
 // MSG_TERMINATED advisory subjects of every Dispatched consumer of t, and a
 // "<prefix>.<stream>.*" wildcard for each stream whose dispatched durables
-// are dynamic (CLUSTARR_WORK_SQUASHARR, CLUSTARR_WORK_ENGINE). Never ">":
+// are dynamic (CLUSTARR_WORK_TRANSCODE, CLUSTARR_WORK_ENGINE). Never ">":
 // the stream holds only what the manager tracks.
 func TaskEventSubjects(t Topology) []string {
 	var out []string

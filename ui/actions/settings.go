@@ -97,7 +97,7 @@ type rootFolderSchedulePatch struct {
 }
 
 // SetRootFolderScanSchedule sets a RootFolder's spec.scanSchedule -- the cron
-// expression importarr's RootFolder schedule reads to create periodic
+// expression import's RootFolder schedule reads to create periodic
 // LibraryScans (empty means no periodic rescan). It is the one Settings-page
 // field RootFolderSpec offers that is neither immutable (path and kind both
 // carry a "self == oldSelf" CEL rule) nor a nested struct with no single

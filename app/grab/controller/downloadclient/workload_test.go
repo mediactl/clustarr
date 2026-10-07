@@ -149,7 +149,7 @@ func TestBuildDeploymentShape(t *testing.T) {
 	c := dep.Spec.Template.Spec.Containers[0]
 	assert.Nil(t, c.Command, "usenet container should let the image entrypoint run")
 	assert.Equal(t, []string{
-		"grabarr", "--role", "usenet-engine",
+		"grab", "--role", "usenet-engine",
 		"--data-dir", "/data", "--scratch-dir", "/scratch",
 		"--engine", "nzb-0",
 	}, c.Args)
@@ -196,7 +196,7 @@ func TestScratchPathOnTheDataMountMountsNoScratchVolume(t *testing.T) {
 	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	c := dep.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, []string{
-		"grabarr", "--role", "usenet-engine",
+		"grab", "--role", "usenet-engine",
 		"--data-dir", "/data", "--scratch-dir", "/data/usenet/incomplete",
 		"--publish-dir", "/data/usenet/complete",
 		"--engine", "nzb-0",
@@ -328,7 +328,7 @@ func envOf(env []corev1ac.EnvVarApplyConfiguration) map[string]string {
 // pods, so only the rendered pod spec can show any of it.
 func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	rt := EngineRuntime{
-		ServiceAccountName: "media-clustarr-grabarr-engine",
+		ServiceAccountName: "media-clustarr-grab-engine",
 		NATSURL:            "nats://nats.clustarr-system.svc:4222",
 		BusSingleNode:      true,
 		Umask:              "002",

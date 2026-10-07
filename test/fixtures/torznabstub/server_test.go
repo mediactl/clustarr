@@ -46,7 +46,7 @@ func discardLogger() *slog.Logger {
 
 // TestEmbeddedDocumentsParse is the fixture's own guard rail: every
 // document this stub serves is parsed here by the SAME pkg/torznab
-// functions indexarr will use, so a typo in the XML fails in `make test`
+// functions index will use, so a typo in the XML fails in `make test`
 // instead of twenty minutes into `hack/e2e.sh` as an Indexer that never
 // goes Ready.
 func TestEmbeddedDocumentsParse(t *testing.T) {
@@ -243,7 +243,7 @@ func TestRequestLogSkipsProbesAndRecordsRealRequests(t *testing.T) {
 
 	real, err := http.NewRequest(http.MethodGet, srv.URL+PathHealthy+"?t=movie&tmdbid=900100&apikey="+APIKey, nil) //nolint:noctx // httptest
 	require.NoError(t, err)
-	real.Header.Set("User-Agent", "clustarr/indexarr")
+	real.Header.Set("User-Agent", "clustarr/index")
 	resp, err = http.DefaultClient.Do(real)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())

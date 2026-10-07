@@ -51,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Status
 //
 // Indexer.status is split by field manager, and this package writes only as
-// k8s.ManagerIndexarrWorker, through app/indexer/status.Patch. That package
+// k8s.ManagerIndexWorker, through app/indexer/status.Patch. That package
 // holds the single declaration of what the manager owns (WorkerFields);
 // this one never builds an apply configuration of its own, because two
 // callers hand-rolling one manager's apply is precisely how each releases

@@ -68,7 +68,7 @@ func indexSubtitleRequestByMediaFileRef(o client.Object) []string {
 	return []string{sr.Spec.MediaFileRef}
 }
 
-// extractTranscodeJobPhase is §10's predicate: catalogarr's mediafile
+// extractTranscodeJobPhase is §10's predicate: catalog's mediafile
 // controller only reacts to a TranscodeJob reaching Succeeded, via
 // k8s.StatusFieldIn. A wrong-typed object (never happens in practice --
 // Watches only calls this for TranscodeJobs -- but StatusFieldChanged's own

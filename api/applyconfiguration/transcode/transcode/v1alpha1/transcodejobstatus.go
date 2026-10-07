@@ -28,7 +28,7 @@ import (
 // TranscodeJobStatusApplyConfiguration represents a declarative configuration of the TranscodeJobStatus type for use
 // with apply.
 //
-// TranscodeJobStatus defines the observed state of TranscodeJob. squasharr
+// TranscodeJobStatus defines the observed state of TranscodeJob. transcode
 // writes every field, from its reconciler and from the worker's status events
 // (spec §18.2).
 type TranscodeJobStatusApplyConfiguration struct {

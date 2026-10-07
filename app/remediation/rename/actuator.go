@@ -73,7 +73,7 @@ func New(o Options) *Actuator { return &Actuator{o: o, refused: map[types.UID]st
 func (*Actuator) Name() string { return "rename" }
 
 // Act renames applied's file when it is renameable (mediafilespec.Renameable),
-// its RootFolder sets renameFiles (or renameTranscoded for a file squasharr
+// its RootFolder sets renameFiles (or renameTranscoded for a file transcode
 // transcoded, in its own folder), no LibraryScan walks its folder, and this
 // proposal was not refused before. A scan in progress or a changed file asks
 // for a pass in a minute.
@@ -158,7 +158,7 @@ func (a *Actuator) forget(mf *catalogv1alpha1.MediaFile) {
 // heldBecause says why RenameFile held a rename, for the Event.
 func heldBecause(mf *catalogv1alpha1.MediaFile) string {
 	if n := mf.Status.Naming; n != nil && n.Reason != "" {
-		return "catalogarr holds it (" + string(n.Reason) + ")"
+		return "catalog holds it (" + string(n.Reason) + ")"
 	}
 	return "the proposed path is in another folder, and only files are renamed"
 }
@@ -171,7 +171,7 @@ func (a *Actuator) event(mf *catalogv1alpha1.MediaFile, eventType, reason, note 
 
 // renameMode is how a file may be renamed: not at all, to its whole
 // canonical path (renameFiles), or to its canonical file name in its own
-// folder (renameTranscoded, for a file squasharr transcoded).
+// folder (renameTranscoded, for a file the transcode controller transcoded).
 type renameMode int
 
 const (
@@ -212,8 +212,8 @@ func (a *Actuator) renameMode(ctx context.Context, c client.Reader, mf *catalogv
 	return roots.Items, modeOf(roots.Items[i]), nil
 }
 
-// transcodedHere reports whether squasharr transcoded mf: spec.original is
-// false -- catalogarr sets it when it incorporates a swap and never resets
+// transcodedHere reports whether the transcode controller transcoded mf: spec.original is
+// false -- catalog sets it when it incorporates a swap and never resets
 // it -- or status.transcode records the swap's profile tag. spec.original
 // comes first because status.transcode can be cleared while the file stays
 // a transcode.
@@ -257,7 +257,7 @@ func (a *Actuator) openScanOver(
 // rootFolderRef is the RootFolder mf's item is stored under: a Movie's own,
 // or an Episode's Series', read through c (the manager's cache, which holds
 // them). It is "" for an item that does not exist and for any other kind --
-// catalogarr names only movies and episodes.
+// catalog names only movies and episodes.
 func (a *Actuator) rootFolderRef(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (string, error) {
 	key := func(name string) types.NamespacedName {
 		return types.NamespacedName{Namespace: mf.Namespace, Name: name}

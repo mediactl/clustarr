@@ -45,7 +45,7 @@ type SinkDeps struct {
 
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
-// Sink is the catalogarr-history consumer: it projects each domain event on
+// Sink is the catalog-history consumer: it projects each domain event on
 // clustarr.evt.> onto an events.k8s.io/v1 Event regarding the CR the event
 // concerns. It never writes spec, status or an annotation -- see
 // [DLQProjector] and [Replayer] for the writes this package makes (both
@@ -57,7 +57,7 @@ type Sink struct {
 // NewSink returns a Sink over d.
 func NewSink(d SinkDeps) *Sink { return &Sink{Deps: d} }
 
-// Subscription is the catalogarr-history durable consumer from §5's table,
+// Subscription is the catalog-history durable consumer from §5's table,
 // read from events.Default() rather than restated so the tuning lives in one
 // place (AckWait 30s, MaxDeliver 3, BackOff 5s/30s, 512 slots per pod and
 // MaxAckPending = Slots x AutoscaleReplicaCeiling across replicas --
@@ -83,7 +83,7 @@ func (s *Sink) SetupLeaderOnly(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, s.Subscription(), s.Handle)
 		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe history: %w", err)
+			return fmt.Errorf("catalog: subscribe history: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()

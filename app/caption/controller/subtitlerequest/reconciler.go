@@ -99,7 +99,7 @@ const (
 // Reconciler owns SubtitleRequest: it plans which languages a video still
 // wants, publishes a fetch task for each one that is due, and schedules the
 // next search. It writes only the controller half of status under
-// k8s.ManagerCaptionarr, through app/caption/status.PatchRequest, and never
+// k8s.ManagerCaption, through app/caption/status.PatchRequest, and never
 // touches MediaFile (ruling R1). See doc.go.
 type Reconciler struct {
 	Client client.Client
@@ -230,7 +230,7 @@ func (r *Reconciler) gather(ctx context.Context, sr *subtitlev1alpha1.SubtitleRe
 		return nil, blk, err
 	}
 
-	// The controller role mounts /data (config/manager/captionarr.yaml and
+	// The controller role mounts /data (config/manager/caption.yaml and
 	// the chart's "data" true), so the directory is read, never assumed. A
 	// directory that cannot be read is a block: treating it as "no sidecars"
 	// would re-download every subtitle a user placed there by hand.
@@ -569,7 +569,7 @@ func (r *Reconciler) plan(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequ
 
 	if pubErr != nil {
 		if errors.Is(pubErr, events.ErrQueueFull) {
-			log.Info("captionarr work queue is full; retrying", "err", pubErr)
+			log.Info("caption work queue is full; retrying", "err", pubErr)
 			return ctrl.Result{RequeueAfter: requeueQueueFull}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("subtitlerequest: publish fetch task: %w", pubErr)
@@ -617,7 +617,7 @@ func (r *Reconciler) block(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 	return ctrl.Result{RequeueAfter: b.requeue}, nil
 }
 
-// apply writes st and conds as the complete k8s.ManagerCaptionarr
+// apply writes st and conds as the complete k8s.ManagerCaption
 // declaration.
 //
 // It is also the one place this reconciler's status apply builds
@@ -678,7 +678,7 @@ func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleR
 		ID:     msgID,
 		Type:   FetchTaskType,
 		Schema: schemaName,
-		Source: "captionarr@" + version.String(),
+		Source: "caption@" + version.String(),
 		Key:    sr.Namespace + "/" + sr.Name,
 		Time:   now,
 		Data:   data,
@@ -697,7 +697,7 @@ func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleR
 // once the search has been dispatched").
 //
 // It is a JSON merge patch, not a server-side apply, on purpose: the profile
-// controller creates SubtitleRequests under the same k8s.ManagerCaptionarr
+// controller creates SubtitleRequests under the same k8s.ManagerCaption
 // name, and an apply of spec.forceSearch alone would share -- and so release
 // -- that manager's apply-owned spec fields. An Update-operation patch is
 // tracked in its own managedFields entry and cannot.
@@ -771,7 +771,7 @@ func stringKeys(ks []subtitles.LangKey) []string {
 //     predicate would never see a language get downloaded or come back
 //     unavailable, nor fold a dead letter; this controller's own writes
 //     change none of those, so they do not re-trigger it.
-//   - its MediaFile's status.probeHash (§10's row for captionarr). The
+//   - its MediaFile's status.probeHash (§10's row for caption). The
 //     request shares the MediaFile's name (SubtitleRequestSpec.MediaFileRef).
 //   - a SubtitleProfile's generation or Invalid condition, fanned out to the
 //     requests that name it or resolve by selector.
@@ -803,7 +803,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // createdOrDeleted passes creates and deletes only: [Reconciler.itemGone]
-// reads an item's existence and nothing else, and catalogarr updates Movie
+// reads an item's existence and nothing else, and catalog updates Movie
 // and Episode status far too often to replan on every update.
 func createdOrDeleted() predicate.Predicate {
 	return predicate.Funcs{UpdateFunc: func(event.UpdateEvent) bool { return false }}
@@ -859,7 +859,7 @@ func (r *Reconciler) mapProvider(ctx context.Context, o client.Object) []reconci
 	return out
 }
 
-// workerSignal projects every captionarr-worker leaf of every item into one
+// workerSignal projects every caption-worker leaf of every item into one
 // comparable string: langKey, state, score, scoreOutOf, provider,
 // subtitleID, path, lastError and downloadedAt. It deliberately excludes
 // attempts and nextSearchAt, which are this controller's own.

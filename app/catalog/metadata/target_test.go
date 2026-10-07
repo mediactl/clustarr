@@ -57,9 +57,9 @@ func TestNewTargetDispatchesEveryKindWithItsOwnMetadata(t *testing.T) {
 // status.metadata field or a MetadataReady condition of its own (see
 // api/catalog/v1alpha1's episode_types.go and issue_types.go), so this
 // worker -- the sole writer of status.metadata under
-// k8s.ManagerCatalogarrMetadata -- must never be asked to fetch either.
+// k8s.ManagerCatalogMetadata -- must never be asked to fetch either.
 // Their fields come from their parent's fan-out instead
-// (ManagerCatalogarrSeries for Episode; ManagerCatalogarrFanout for Issue,
+// (ManagerCatalogSeries for Episode; ManagerCatalogFanout for Issue,
 // task G2-2).
 func TestNewTargetRejectsEpisodeAndIssue(t *testing.T) {
 	_, err := newTarget(commonv1.MediaKindEpisode)

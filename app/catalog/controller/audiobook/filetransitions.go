@@ -39,7 +39,7 @@ type FileEdge struct {
 //
 // There is no replaced edge, unlike the one-file kinds' rollup.FileTransition.
 // Which part of a new release replaces which part of the old one is not
-// knowable (importarr's fileimport supersede says the same), and Readarr,
+// knowable (import's fileimport supersede says the same), and Readarr,
 // whose unit this is, records a multi-file book's history per file as
 // BookFileImported and BookFileDeleted, with no replace event at all
 // (EntityHistoryEventType, Readarr develop 0b79d300).

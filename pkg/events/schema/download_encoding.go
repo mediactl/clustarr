@@ -45,7 +45,7 @@ const downloadCompressAbove = 1 << 20
 // once decompressed.
 var ErrDownloadPayloadTooLarge = errors.New("schema: download payload too large")
 
-// ForWire is r as rpc.indexarr.download replies with it: a body over
+// ForWire is r as rpc.index.download replies with it: a body over
 // downloadCompressAbove gzipped, since an .nzb is XML that compresses about
 // four times and a large 1080p encode's is over the inline budget as it is
 // (The Godfather, 2026-09-30); and a body still over MaxDownloadWireBytes

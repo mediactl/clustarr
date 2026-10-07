@@ -51,7 +51,7 @@ func denyLinks(t *testing.T, pkg string, denied ...string) {
 
 const importWorkers = "github.com/mediactl/clustarr/app/import/worker"
 
-// TestImportControllersLinkNoWorkerCode holds the manager side of importarr
+// TestImportControllersLinkNoWorkerCode holds the manager side of import
 // to spec §4.3 Wave 2: the reconcilers, and the leaves they read, link no
 // app/import/worker package (R6). `test/guards` (W5.14) overlaps it.
 func TestImportControllersLinkNoWorkerCode(t *testing.T) {
@@ -59,7 +59,7 @@ func TestImportControllersLinkNoWorkerCode(t *testing.T) {
 		"github.com/mediactl/clustarr/app/import/controller/retrigger",
 		"the retrigger reconciler moved under app/import/controller (I5)")
 	for _, pkg := range []string{
-		"github.com/mediactl/clustarr/app/import/controller/...", // every importarr reconciler, retrigger included
+		"github.com/mediactl/clustarr/app/import/controller/...", // every import reconciler, retrigger included
 		"github.com/mediactl/clustarr/app/import/scanprogress",
 		"github.com/mediactl/clustarr/app/import/mediafilespec",
 		"github.com/mediactl/clustarr/app/import/importliststate",

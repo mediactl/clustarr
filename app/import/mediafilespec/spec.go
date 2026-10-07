@@ -33,28 +33,28 @@ import (
 // FieldManager is the server-side-apply field manager every write in this
 // package and in the rescan worker (app/import/worker/rescan) uses, on the
 // Movie the rescan attributes a file to and on the MediaFile itself. It is
-// k8s.ManagerImportarrWorker, NOT k8s.ManagerImportarr, and the difference
+// k8s.ManagerImportWorker, NOT k8s.ManagerImport, and the difference
 // is not cosmetic.
 //
-// This worker runs on the same replicas as importarr's controllers --
+// This worker runs on the same replicas as import's controllers --
 // run.go adds it with mgr.Add(k8s.EveryReplica(...)), inside the same
-// manager process -- and those controllers write under ManagerImportarr.
+// manager process -- and those controllers write under ManagerImport.
 // Server-side apply replaces a manager's whole ownership set on every apply
 // rather than merging it, so two writers sharing ONE manager name on one
 // object silently release each other's fields. Today they never meet on one
 // object, so the name was inert; M3's fileimport consumer writes
 // Download.status.import AND MediaFileSpec from these same replicas, which
-// is exactly the shape that forced catalogarr-worker to split into
-// catalogarr-metadata and catalogarr-grab after both directions of that
+// is exactly the shape that forced catalog-worker to split into
+// catalog-metadata and catalog-grab after both directions of that
 // release were reproduced against a real apiserver. Splitting before the
 // collision costs one word; splitting after it costs a debugging session.
 //
-// It is exported so the tests that assert the split -- catalogarr's
+// It is exported so the tests that assert the split -- catalog's
 // mandatory two-writer gate above all, which has to stand in for this
 // worker rather than run it -- name the manager production actually uses
 // instead of restating a constant that can drift away from it. It had
-// drifted: production wrote as ManagerImportarr while the gate, and
-// k8s.ManagerImportarrWorker's own doc comment, described ManagerImportarr-
+// drifted: production wrote as ManagerImport while the gate, and
+// k8s.ManagerImportWorker's own doc comment, described ManagerImport-
 // Worker.
 const FieldManager = k8s.ManagerImportWorker
 

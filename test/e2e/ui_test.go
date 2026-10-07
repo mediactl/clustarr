@@ -35,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //  2. GET /events/downloads emits an SSE frame reflecting a non-empty
 //     status.phase for that Download -- gated behind the phase actually
 //     leaving its zero value first, and SKIPPED with a named reason if it
-//     never does. grabarr's Download controller (D2-4) is what writes
+//     never does. grab's Download controller (D2-4) is what writes
 //     status.phase at all, and the reaper/engine work that carries a
 //     Download further than its very first phase is landing in this
 //     worktree, by another agent, WHILE this file is being written -- so
@@ -122,7 +122,7 @@ const (
 	// uiPhaseGateTimeout bounds the PRE-check that a Download's
 	// status.phase left its zero value at all -- the gate the D3-5 plan
 	// task text names explicitly, separate from the SSE assertion itself.
-	// Whether grabarr writes it at all depends on D2's Download controller
+	// Whether grab writes it at all depends on D2's Download controller
 	// reconciling the object; that reconcile is watch-driven, not a queued
 	// task, so there is no redelivery ladder to race here either, the same
 	// reasoning indexerReadyTimeout documents for Indexer. Three minutes is
@@ -257,7 +257,7 @@ func TestUIPipelineAndDownloadsPages(t *testing.T) {
 	t.Run("downloads sse progress", func(t *testing.T) {
 		phase, gated := waitForNonEmptyPhase(ctx, dl, uiPhaseGateTimeout)
 		if !gated {
-			t.Skip("grabarr's Download controller never advanced status.phase off its zero value within " +
+			t.Skip("grab's Download controller never advanced status.phase off its zero value within " +
 				uiPhaseGateTimeout.String() + ": D2 (app/grab/controller/download) is what writes it, and the " +
 				"reaper/engine wiring that carries a Download past its first reconcile is still landing in this " +
 				"worktree as of Task D3-5 -- skipping rather than asserting on a signal that may not exist yet " +
@@ -352,7 +352,7 @@ func newUIDownload(ctx context.Context, t *testing.T, prefix string, movie *cata
 // empty-string zero value or until timeout, and reports which.
 //
 // It deliberately does NOT use the suite's waitFor, which calls t.Fatal on a
-// timeout: whether grabarr's Download controller has landed the code that
+// timeout: whether grab's Download controller has landed the code that
 // writes phase at all is exactly the fact under test here (see the D3-5
 // plan task text and this file's package doc comment), and the correct
 // response to "not yet" is a named t.Skip from the caller, not a failure.

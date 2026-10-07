@@ -34,7 +34,7 @@ import (
 // A transcode Job's worker gets the controller's logging and tracing flags,
 // so its spans -- the ffmpeg run's among them -- reach the collector the
 // controller's do. Both are parsed back by the real pkg/obs/obsflags.Bind,
-// the same binder cmd/clustarr's subcommands and cmd/squasharr-worker use,
+// the same binder cmd/clustarr's subcommands and cmd/transcode-worker use,
 // rather than by re-implementing a parser or grepping a source file for
 // flag names.
 func TestWorkerObservabilityArgsParse(t *testing.T) {
@@ -51,8 +51,8 @@ func TestWorkerObservabilityArgsParse(t *testing.T) {
 	require.NoError(t, fs.Parse(args))
 	assert.Equal(t, lo, *gotLo, "the worker must parse back the controller's logging options")
 	// tracing.Options carries ServiceName too, which no flag renders (it is
-	// set programmatically, e.g. cmd/squasharr-worker/main.go's
-	// to.ServiceName = "squasharr-worker"), so only the four fields the args
+	// set programmatically, e.g. cmd/transcode-worker/main.go's
+	// to.ServiceName = "transcode-worker"), so only the four fields the args
 	// actually carry are compared here rather than the whole struct.
 	assert.Equal(t, to.Enabled, gotTo.Enabled, "--tracing-enabled did not round-trip")
 	assert.Equal(t, to.Endpoint, gotTo.Endpoint, "--tracing-endpoint did not round-trip")
@@ -64,7 +64,7 @@ func TestWorkerObservabilityArgsParse(t *testing.T) {
 	assert.Equal(t, []string{"--tracing-sample-ratio=1"}, quiet)
 }
 
-// TestPoolConfigCarriesTheControllerOptions holds the link from squasharr's
+// TestPoolConfigCarriesTheControllerOptions holds the link from transcode's
 // Options to what every transcode pool is rendered with. Each of these has a
 // legal empty value -- no render groups, the default claim -- that fails
 // only on a real node, so the only proof the option arrives is the value
@@ -83,7 +83,7 @@ func TestPoolConfigCarriesTheControllerOptions(t *testing.T) {
 	o.Tracing.Enabled, o.Tracing.Endpoint = true, "otel:4317"
 
 	cfg := poolConfig(o)
-	assert.Equal(t, "rel-ns", cfg.Namespace, "pool Jobs are created in squasharr's own namespace")
+	assert.Equal(t, "rel-ns", cfg.Namespace, "pool Jobs are created in transcode's own namespace")
 	assert.Equal(t, "nats://rel-nats:4222", cfg.NATSURL, "the pools pull from and report on the controller's bus")
 	assert.Equal(t, []int64{109, 44}, cfg.IntelRenderGroups, "--intel-render-groups did not reach the pool config")
 	assert.Equal(t, "media:1", cfg.Image)

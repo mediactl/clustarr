@@ -24,6 +24,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // None of the three types talk to each other; a caller composes them
 // (limiter for steady-state pacing, breaker for outright failures,
-// backoff for the delay between retries) the way indexarr's health/limit
+// backoff for the delay between retries) the way index's health/limit
 // bookkeeping does per docs/research/indexers.md §6.
 package ratelimit

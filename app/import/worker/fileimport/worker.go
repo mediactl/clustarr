@@ -64,7 +64,7 @@ const HeartbeatInterval = 10 * time.Second
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 
-// Worker handles the import tasks on importarr-fileimport: the inspect and
+// Worker handles the import tasks on import-fileimport: the inspect and
 // the execute of ADR-0019 §6.9.
 type Worker struct {
 	// Client is the cache-backed client the items, root folders and quality

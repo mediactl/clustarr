@@ -47,7 +47,7 @@ func TestToMediaInfoReadsTheTranscodeProfileTag(t *testing.T) {
 		{name: "an empty value is no tag", tags: ffprobe.Tags{"CLUSTARR_PROFILE": ""}, want: ""},
 		{name: "exactly the CRD's MaxLength is kept", tags: ffprobe.Tags{"CLUSTARR_PROFILE": strings.Repeat("a", MaxTranscodeProfileLength)}, want: strings.Repeat("a", MaxTranscodeProfileLength)},
 		// The apiserver would reject the whole status apply, so the file
-		// would never be probed; no squasharr wrote a value this long.
+		// would never be probed; no transcode wrote a value this long.
 		{name: "one past the CRD's MaxLength is dropped", tags: ffprobe.Tags{"CLUSTARR_PROFILE": strings.Repeat("a", MaxTranscodeProfileLength+1)}, want: ""},
 	}
 	for _, c := range cases {

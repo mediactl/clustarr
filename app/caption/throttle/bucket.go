@@ -37,7 +37,7 @@ const defaultRateMilli = 5000
 // minAcquireSleep is the floor on [Acquire]'s local wait between CAS
 // attempts once a bucket is empty. Without a floor, a rate at or above 1000
 // req/s could compute a near-zero sleep and spin the KV with retries; no
-// captionarr provider is configured anywhere near that fast (5 req/s is the
+// caption provider is configured anywhere near that fast (5 req/s is the
 // CRD default and every documented provider limit in research note §10 is
 // well under it), so this never binds in practice.
 const minAcquireSleep = 5 * time.Millisecond

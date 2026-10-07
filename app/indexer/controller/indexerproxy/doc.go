@@ -51,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # The owned field set
 //
-// IndexerProxy.status has exactly one writer, k8s.ManagerIndexarr, so the
+// IndexerProxy.status has exactly one writer, k8s.ManagerIndex, so the
 // two-manager split in app/indexer/status (which covers Indexer, not this kind)
 // does not apply. What does apply is the rule behind it: server-side apply
 // REPLACES a field manager's ownership set on every apply rather than merging
@@ -97,21 +97,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerproxies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerproxies/status,verbs=get;update;patch
 //
-// secrets is get ONLY, not get;list;watch. indexarr.Options.ManagerOptions
+// secrets is get ONLY, not get;list;watch. index.Options.ManagerOptions
 // disables the Secret cache (client.CacheOptions.DisableFor), so every Secret
-// read here is a live single-object Get and nothing in indexarr ever Lists or
+// read here is a live single-object Get and nothing in index ever Lists or
 // Watches one.
 //
 // Be precise about what this buys, because it is less than it looks: Clustarr
 // generates ONE clustarr-manager-role and binds it to every service's
-// ServiceAccount, and catalogarr's metadata gateway reads Secrets through a
+// ServiceAccount, and catalog's metadata gateway reads Secrets through a
 // CACHED client, so it genuinely needs list;watch and the union keeps them in
-// the generated Role. indexarr's pod is therefore still granted verbs it does
+// the generated Role. index's pod is therefore still granted verbs it does
 // not use. What this marker fixes is the declaration -- the package asks for
 // what it uses, so the day the role is split per service the narrowing is
 // already recorded. Splitting it is the real fix and is not this task's.

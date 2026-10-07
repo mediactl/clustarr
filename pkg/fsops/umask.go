@@ -28,8 +28,8 @@ import (
 // UmaskEnv is design §11's UMASK: every media-touching pod creates files
 // with UMASK 002, so the other services -- running as other users in the
 // shared fsGroup -- can rewrite what one wrote. config/manager and the chart
-// set it on every Deployment that mounts /data; squasharr passes it on to
-// its transcode Jobs and grabarr to its engine workloads, and
+// set it on every Deployment that mounts /data; transcode passes it on to
+// its transcode Jobs and grab to its engine workloads, and
 // cmd/transcode's pool pods read it the same way.
 const UmaskEnv = "UMASK"
 

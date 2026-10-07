@@ -109,7 +109,7 @@ func TestBuildSearchRequest(t *testing.T) {
 		},
 		{
 			// G1-6: a resolved title lets an indexer that supports NO id
-			// parameter still be searched, via indexarr's t=search&q=
+			// parameter still be searched, via index's t=search&q=
 			// fallback. Radarr's own convention for this query is
 			// "<title> <year>".
 			name:  "a movie with resolved metadata carries a title-and-year text fallback",
@@ -118,7 +118,7 @@ func TestBuildSearchRequest(t *testing.T) {
 			limit: 100,
 			assert: func(t *testing.T, got schema.SearchRequest) {
 				require.Equal(t, "The Matrix 1999", got.Text)
-				// Ids are still sent too -- indexarr's buildQuery is what
+				// Ids are still sent too -- index's buildQuery is what
 				// prefers them, not this function.
 				require.Equal(t, "603", got.IDs[commonv1.IDKeyTMDB])
 			},
@@ -227,7 +227,7 @@ func TestBuildSearchRequest(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := BuildSearchRequest("search-ns", tc.kind, tc.ids, tc.limit, tc.userInvoked, tc.indexerRefs, tc.categories)
-			// indexarr has no other source for the namespace on an automatic
+			// index has no other source for the namespace on an automatic
 			// search, where IndexerRefs is empty; without it, it must list
 			// Indexers cluster-wide.
 			require.Equal(t, "search-ns", got.Namespace, "the namespace was dropped from the request")

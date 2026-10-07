@@ -60,7 +60,7 @@ var AddableKinds = []commonv1.MediaKind{
 }
 
 // AddItem creates the catalog item req describes, with spec only and under
-// FieldManager, named as importarr names it (pkg/names), so an item the UI
+// FieldManager, named as import names it (pkg/names), so an item the UI
 // adds and one a list or the rescan finds are one object. An item that
 // already exists under that name is not an error: existed is true. The
 // apiserver validates every enum; a request with no namespace, id, root

@@ -52,7 +52,7 @@ func TestDownloadNonTerminal(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"no phase yet: just created, grabarr has not seen it", dl(""), true},
+		{"no phase yet: just created, grab has not seen it", dl(""), true},
 		{"pending", dl(downloadv1alpha1.DownloadPhasePending), true},
 		{"assigned", dl(downloadv1alpha1.DownloadPhaseAssigned), true},
 		{"queued", dl(downloadv1alpha1.DownloadPhaseQueued), true},
@@ -64,7 +64,7 @@ func TestDownloadNonTerminal(t *testing.T) {
 		{"failed", dl(downloadv1alpha1.DownloadPhaseFailed), false},
 		{"blocklisted", dl(downloadv1alpha1.DownloadPhaseBlocklisted), false},
 		{"removing", dl(downloadv1alpha1.DownloadPhaseRemoving), false},
-		{"labelled blocklisted before grabarr writes the phase", labelled(dl(downloadv1alpha1.DownloadPhaseDownloading)), false},
+		{"labelled blocklisted before grab writes the phase", labelled(dl(downloadv1alpha1.DownloadPhaseDownloading)), false},
 		{
 			"held for a person (a transcoded file is final): not the item's download",
 			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportClassItemState, true), false,
@@ -74,7 +74,7 @@ func TestDownloadNonTerminal(t *testing.T) {
 			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportClassTransient, true), false,
 		},
 		{
-			"blocked without a hold (a release fault grabarr is about to blocklist) still holds the item",
+			"blocked without a hold (a release fault grab is about to blocklist) still holds the item",
 			importBlocked(dl(downloadv1alpha1.DownloadPhaseCompleted), downloadv1alpha1.ImportClassReleaseFault, false), true,
 		},
 	}
@@ -156,7 +156,7 @@ func TestActiveDownload(t *testing.T) {
 	})
 }
 
-// labelled marks dl blocklisted the way grabarr does first, before it
+// labelled marks dl blocklisted the way grab does first, before it
 // publishes the blocklisted event and before its status apply writes the
 // phase: the redownload search that event starts read a Downloading
 // Download as queued and rejected every release that did not beat the

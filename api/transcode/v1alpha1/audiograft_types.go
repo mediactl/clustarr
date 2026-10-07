@@ -24,14 +24,14 @@ import (
 )
 
 // AudioGraftSpec is a donor's audio, kept beside the library, to be muxed
-// into an item's file (anime dual-audio spec §6.2). importarr writes it when
+// into an item's file (anime dual-audio spec §6.2). import writes it when
 // it imports a donor and rewrites it when a newer donor replaces it.
 type AudioGraftSpec struct {
 	// ItemRef is the Episode or Movie the donor is for.
 	// +required
 	ItemRef commonv1.MediaRef `json:"itemRef"`
 
-	// DonorPath is the donor file as importarr placed it, under
+	// DonorPath is the donor file as import placed it, under
 	// <RootFolder>/.clustarr/donors/<item-uid>/. The first graft reduces a
 	// non-Matroska-audio donor to <stem>.mka beside it and removes it.
 	// +required
@@ -89,7 +89,7 @@ type AudioGraftSegment struct {
 	LengthMillis      int64 `json:"lengthMillis"`
 }
 
-// AudioGraftStatus is squasharr's (ManagerSquasharr).
+// AudioGraftStatus is transcode's (ManagerTranscode).
 type AudioGraftStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -212,8 +212,8 @@ type GraftResult struct {
 }
 
 // AudioGraft is one item's donor audio and the graft of it into the item's
-// file (anime dual-audio spec §6.2, §7.2). Spec is importarr's, status
-// squasharr's.
+// file (anime dual-audio spec §6.2, §7.2). Spec is import's, status
+// transcode's.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

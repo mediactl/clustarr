@@ -215,7 +215,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	id := events.MsgIDForTranscodeTask(string(tj.UID), attempt)
 	now := r.now().Time
 	env := &events.Envelope{
-		ID: id, Type: "transcode.Task", Schema: sch, Source: "squasharr-controller@" + version.String(),
+		ID: id, Type: "transcode.Task", Schema: sch, Source: "transcode-controller@" + version.String(),
 		Key: tj.Namespace + "/" + tj.Name, Time: now, Data: data,
 	}
 	// The worker's spans continue the trace of the reconcile that
@@ -287,11 +287,11 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 			encoder = after.Status.Plan.Encoder
 		}
 		if adoptedFirst {
-			log.InfoContext(ctx, "squasharr: recorded the re-plan of a dispatch its worker's claim adopted first",
+			log.InfoContext(ctx, "transcode: recorded the re-plan of a dispatch its worker's claim adopted first",
 				"transcodeJob", key.String(), "attempt", attempt, "class", string(class), "pool", pool.Name(k),
 				"encoder", encoder)
 		} else {
-			log.InfoContext(ctx, "squasharr: dispatched a transcode task",
+			log.InfoContext(ctx, "transcode: dispatched a transcode task",
 				"transcodeJob", key.String(), "attempt", attempt, "class", string(class), "pool", pool.Name(k),
 				"encoder", encoder, "replanned", replanned != nil)
 		}

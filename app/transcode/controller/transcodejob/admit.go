@@ -32,7 +32,7 @@ type Slot struct {
 	// when priority and creation time are equal.
 	Key string
 
-	// Hardware is the slot class the transcode needs: squasharr.HardwareCPU,
+	// Hardware is the slot class the transcode needs: transcode.HardwareCPU,
 	// HardwareNVIDIA or HardwareIntel. A class the budget does not name has
 	// a budget of zero.
 	Hardware string
@@ -52,7 +52,7 @@ type Slot struct {
 // Budget is what [Admit] admits against.
 type Budget struct {
 	// Slots is the per-hardware concurrency budget, the parsed --slots flag
-	// (squasharr.ParseSlots). A missing or zero entry means "never admit
+	// (transcode.ParseSlots). A missing or zero entry means "never admit
 	// this class", which is how a cluster without that GPU is configured.
 	Slots map[string]int32
 

@@ -51,7 +51,7 @@ const (
 	EnvClass      = "CLUSTARR_POOL_CLASS"
 
 	// DefaultDataClaimName is the RWX claim every clustarr pod mounts at
-	// /data, the same "clustarr-data" grabarr's DefaultDataClaimName names.
+	// /data, the same "clustarr-data" grab's DefaultDataClaimName names.
 	DefaultDataClaimName = "clustarr-data"
 
 	// DefaultDataDir is where a pool pod mounts it and what --data-dir says.
@@ -79,7 +79,7 @@ const (
 	// podUID and podGID are the identity every pool pod runs as: the
 	// clustarr user the transcoder images create, and the runAsUser/runAsGroup/fsGroup every
 	// Deployment under config/manager sets. TestJobPodSecurityMatchesTheDeployments
-	// holds the pool pod to config/manager/squasharr.yaml.
+	// holds the pool pod to config/manager/transcode.yaml.
 	podUID = int64(1000)
 	podGID = int64(1000)
 )
@@ -126,7 +126,7 @@ func gpuRequests(res *corev1.ResourceRequirements) {
 // Config is everything about a pool that does not come from the
 // TranscodeProfile: deployment-level settings threaded in from flags.
 type Config struct {
-	// Namespace is where every pool Job is created: squasharr's own.
+	// Namespace is where every pool Job is created: transcode's own.
 	Namespace string
 
 	// Image runs every pool, nvidia's included (--worker-image). There is

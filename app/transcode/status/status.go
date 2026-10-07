@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package status is the single place squasharr declares what each field
+// Package status is the single place transcode declares what each field
 // manager owns on TranscodeJob.status and TranscodeProfile.status.
 //
 // It exists for the same reason app/grab/status and app/indexer/status do:
@@ -33,15 +33,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # TranscodeJob has one writer, on two paths
 //
-// squasharr (k8s.ManagerSquasharr) owns ALL of TranscodeJob.status (spec
+// transcode (k8s.ManagerTranscode) owns ALL of TranscodeJob.status (spec
 // §18.2, §18.6): phase, plan, jobRef, attempts, the two timestamps,
 // message, conditions, observedGeneration, workerPod, hardware,
 // fallbackReason, nextAttemptAt -- and, since the transcode pools report on
-// the squasharr-transcode-results stream instead of writing the object,
+// the transcode-results stream instead of writing the object,
 // progress, result and stderrTail too. No pool pod holds a Kubernetes
 // client; there is no worker manager any more.
 //
-// Two code paths inside squasharr write it: the TranscodeJob reconciler and
+// Two code paths inside transcode write it: the TranscodeJob reconciler and
 // the results consumer that turns worker status events into status. Both
 // write through [PatchCAS] -- the one complete declaration, [ControllerFields],
 // applied conditional on the resourceVersion the status was read at -- so
@@ -52,11 +52,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # TranscodeProfile has one writer
 //
-// TranscodeProfile.status has exactly one writer too: the squasharr
+// TranscodeProfile.status has exactly one writer too: the transcode
 // controller, computing hash, matchingFiles, pendingJobs and runningJobs on
 // every reconcile. [PatchProfile] refuses every manager but
-// k8s.ManagerSquasharr, for the same reason app/grab/status.Patch refuses
-// k8s.ManagerImportarr even though it legitimately writes Download.status.import:
+// k8s.ManagerTranscode, for the same reason app/grab/status.Patch refuses
+// k8s.ManagerImport even though it legitimately writes Download.status.import:
 // a write that belongs to a specific piece of code should be routed through
 // that code's own declaration, not through one that happens to compile.
 // [ProfileFields] is that one declaration.
@@ -110,7 +110,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// ControllerFields returns the complete set k8s.ManagerSquasharr owns on
+// ControllerFields returns the complete set k8s.ManagerTranscode owns on
 // TranscodeJob.status -- all of it but Conditions -- seeded from the live
 // status so that an apply which changes one field still declares the rest.
 //
@@ -223,14 +223,14 @@ func GraftResultAC(g *transcodev1alpha1.GraftResult) *transcodeac.GraftResultApp
 //
 // The caller mutates the seeded apply configuration rather than building one,
 // which is what makes the complete-declaration rule enforceable in one place.
-// mgr must be k8s.ManagerSquasharr, the only manager that owns any of
+// mgr must be k8s.ManagerTranscode, the only manager that owns any of
 // TranscodeJob.status; anything else is a programming error and is refused
 // rather than allowed to claim fields.
 //
 // job is both the seed and the target. It must be FRESHLY READ: the seed is
 // only as complete as the status it was taken from, so an object fetched
 // before slow work re-declares stale values and silently reverts whatever
-// landed in between. squasharr's own two write paths race each other, so
+// landed in between. transcode's own two write paths race each other, so
 // they use [PatchCAS], which turns that revert into a Conflict.
 //
 // Conditions is a seeded-nowhere, appending list and must not be re-sent
@@ -257,7 +257,7 @@ func Patch(
 	return err
 }
 
-// PatchCAS applies squasharr's complete status for job, conditional on
+// PatchCAS applies transcode's complete status for job, conditional on
 // job.ResourceVersion: a write that raced another returns a Conflict instead
 // of silently rolling that other write back (spec §18.2). It is
 // app/catalog/worker/grab's applyWorkerStatus pattern -- the apply carries the
@@ -280,7 +280,7 @@ func PatchCAS(ctx context.Context, c client.Client, job *transcodev1alpha1.Trans
 	return err
 }
 
-// ProfileFields returns the complete set k8s.ManagerSquasharr owns on
+// ProfileFields returns the complete set k8s.ManagerTranscode owns on
 // TranscodeProfile.status, seeded from the live status so that an apply which
 // changes one field still declares the other four.
 //
@@ -321,7 +321,7 @@ func ProfileFields(st transcodev1alpha1.TranscodeProfileStatus) *transcodeac.Tra
 // PatchProfile applies a complete TranscodeProfile status declaration under
 // mgr.
 //
-// mgr must be k8s.ManagerSquasharr; anything else is refused. TranscodeProfile
+// mgr must be k8s.ManagerTranscode; anything else is refused. TranscodeProfile
 // has exactly one status writer today, so there is no sibling manager to
 // release fields out from under -- but routing every write through this one
 // declaration, rather than letting other code hand-build a

@@ -88,7 +88,7 @@ const (
 // status.path, status.hasFile, status.fileRefs, status.quality,
 // status.cutoffMet and status.activeDownloadRef (§3's single-writer rule);
 // status.metadata belongs to the metadata gateway (field manager
-// k8s.ManagerCatalogarrMetadata) and this reconciler never builds an
+// k8s.ManagerCatalogMetadata) and this reconciler never builds an
 // AudiobookStatusApplyConfiguration that calls WithMetadata.
 //
 // status.activeDownloadRef is this reconciler's alone too (gap-fix ruling
@@ -353,7 +353,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 			ID:     events.MsgIDForObject(string(m.UID), m.Generation, "metadata"),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
-			Source: "catalogarr@" + version.String(),
+			Source: "catalog@" + version.String(),
 			Key:    envKey,
 			Time:   now,
 			Data:   data,
@@ -558,7 +558,7 @@ func reassertKnownStatus(statusAC *catalogac.AudiobookStatusApplyConfiguration, 
 }
 
 // withEntries folds the grab entries, the download phase, the intent nonces
-// and release N's legacy record into a catalogarr status apply: this pass's
+// and release N's legacy record into a catalog status apply: this pass's
 // decisions when the item stages made them, else the stored values, on
 // every apply site -- the complete declaration (ADR-0019 §7.0, Review
 // Focus 4). It is called once per apply: the list setters append.

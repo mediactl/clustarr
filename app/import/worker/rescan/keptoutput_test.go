@@ -39,9 +39,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// keptOutputName reads back exactly the names squasharr's OutputPath gives
-// a replaceSource=false output -- the convention is restated in importarr,
-// so it is held to squasharr's own function here -- and nothing a person
+// keptOutputName reads back exactly the names transcode's OutputPath gives
+// a replaceSource=false output -- the convention is restated in import,
+// so it is held to transcode's own function here -- and nothing a person
 // would call a version of their own.
 func TestKeptOutputNameReadsTheTranscodeName(t *testing.T) {
 	for _, tc := range []struct {
@@ -55,7 +55,7 @@ func TestKeptOutputNameReadsTheTranscodeName(t *testing.T) {
 		out, err := jobspec.OutputPath(transcodev1alpha1.TranscodeJobSpec{SourcePath: tc.source}, tc.profile, tc.container, false)
 		require.NoError(t, err)
 		stem, profile, ok := rescan.KeptOutputName(filepath.Base(out))
-		require.True(t, ok, "%s is squasharr's name", out)
+		require.True(t, ok, "%s is transcode's name", out)
 		assert.Equal(t, tc.profile, profile)
 		base := filepath.Base(tc.source)
 		assert.Equal(t, base[:len(base)-len(filepath.Ext(base))], stem, "the kept source's stem")
@@ -63,20 +63,20 @@ func TestKeptOutputNameReadsTheTranscodeName(t *testing.T) {
 	for _, base := range []string{
 		"Heat (1995) - Director's Cut.mkv", // not a profile name
 		"Heat (1995) - HEVC.mkv",           // profile names are lower-case
-		"Heat (1995) - hevc-1080p.avi",     // squasharr writes mkv or mp4
+		"Heat (1995) - hevc-1080p.avi",     // transcode writes mkv or mp4
 		"Heat (1995).mkv",                  // no label
 		" - hevc.mkv",                      // no stem
 	} {
 		_, _, ok := rescan.KeptOutputName(base)
-		assert.False(t, ok, "%q is not squasharr's name", base)
+		assert.False(t, ok, "%q is not transcode's name", base)
 	}
 }
 
 // A replaceSource=false output stays protected after its TranscodeJob is
-// gone: named beside the recorded kept source, and confirmed by squasharr's
+// gone: named beside the recorded kept source, and confirmed by transcode's
 // record -- the source's status.transcode.profileTag, with no probe -- or,
 // when that record has moved on, by the file's own CLUSTARR_PROFILE. A file
-// so named that is not squasharr's is scanned like any other; one whose
+// so named that is not transcode's is scanned like any other; one whose
 // tag cannot be read is reported, never guessed at.
 func TestHandleKeepsAKeptSourcesOutputOnceItsJobIsGone(t *testing.T) {
 	for i, tc := range []struct {

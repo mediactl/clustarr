@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // pkg/cardigann's Login runs after every login method since gap fix Z6 --
 // a login the tracker did not accept is redirected to /login and fails the
 // test -- and GET /torrent/{name} (a
-// session-gated download target, reached only through indexarr's Torznab
+// session-gated download target, reached only through index's Torznab
 // facade -- GET /{indexer}/download -- never by pkg/cardigann.Engine.Download
 // itself, since app/indexer/download's Fetcher is a separate, generic
 // session-cookie fetch that never consults the definition's download:
@@ -82,7 +82,7 @@ const (
 // href resolves to -- a path, not a magnet URI, on purpose: pkg/cardigann's
 // mapResultToRelease resolves a non-magnet download field against
 // cfg.BaseURL (cardigann/search.go), and a same-origin, session-gated path
-// is what lets scenario 10 prove indexarr's Torznab facade brokers an
+// is what lets scenario 10 prove index's Torznab facade brokers an
 // AUTHENTICATED fetch that an unauthenticated caller of the same URL
 // cannot perform itself -- a magnet URI would skip that proof entirely
 // (cardigann/download.go returns a magnet: link unread, no session
@@ -211,7 +211,7 @@ func handleBrowse(logger *slog.Logger) http.HandlerFunc {
 
 // handleTorrent is ResultDownloadPath: session-gated, exactly like a real
 // private tracker's download link. It is reached two ways in scenario 10 --
-// directly (expected 401, proving the gate is real) and through indexarr's
+// directly (expected 401, proving the gate is real) and through index's
 // Torznab facade (GET /{indexer}/download), whose Fetcher carries the
 // Indexer's stored session cookie (app/indexer/download/fetch.go's
 // NewFetcherFor) and so is expected to succeed.

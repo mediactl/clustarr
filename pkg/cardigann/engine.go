@@ -51,7 +51,7 @@ import (
 // owns rate limiting, holding one bucket per indexer host shared across
 // every verb, and a library-side default would sit in series underneath it
 // and silently change the effective rate. A nil Limiter is "unpaced", which
-// is what a test wants. RateKey is the bucket key to Wait on -- indexarr
+// is what a test wants. RateKey is the bucket key to Wait on -- index
 // passes ratelimit.HostKey(spec.baseURL), the same spelling its reconciler
 // writes the bucket's Config under -- and an empty RateKey falls back to
 // each request's own host, so a definition whose download links live on
@@ -97,7 +97,7 @@ func (e Engine) Caps(def *Definition) (Capabilities, error) {
 // CloudflareChallengeError signals a 403/503 response carrying a
 // Cloudflare/DDoS-Guard marker (cf-mitigated header, or Server:
 // cloudflare|ddos-guard). pkg/cardigann never solves the challenge itself
-// (that is IndexerProxy's FlareSolverr client, a later indexarr task); it
+// (that is IndexerProxy's FlareSolverr client, a later index task); it
 // only detects and reports so the caller can retry through a proxy.
 type CloudflareChallengeError struct{ StatusCode int }
 
@@ -315,7 +315,7 @@ var ErrResponseTooLarge = errors.New("cardigann: response body exceeds size limi
 // second, independent implementation elsewhere is how that secret
 // eventually leaks -- the two copies drift and nobody notices until a
 // passkey is on someone's screen. Other packages needing the same
-// redaction (app/caption/indexarr diagnostics, per Ruling R26) must call
+// redaction (app/caption/index diagnostics, per Ruling R26) must call
 // this one rather than writing their own.
 func RedactURL(u *url.URL) string {
 	if u == nil {
@@ -445,12 +445,12 @@ func resolveURL(baseURL, path string) (string, error) {
 
 // ErrOffSite is returned by Download for a link on another host than the
 // definition's site (Config.BaseURL; see SameHost). Such a link did not come
-// from this tracker -- the rpc.indexarr.download verb and the Torznab
+// from this tracker -- the rpc.index.download verb and the Torznab
 // facade's /{indexer}/download both take it from their caller -- so it is
 // never requested at all: neither with the tracker's session, which would
 // hand a private tracker's cookies to whoever named the URL, nor without
 // it, which would let a caller read an in-cluster or link-local address
-// through indexarr. app/indexer/download hands such a link back to its
+// through index. app/indexer/download hands such a link back to its
 // caller unfetched, exactly as it does a redirect that leaves the site.
 var ErrOffSite = errors.New("cardigann: link is not on the indexer's site")
 

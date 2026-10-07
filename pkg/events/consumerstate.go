@@ -25,7 +25,7 @@ import "time"
 // WithScheduleAt hold on a .sched. subject counts only once it fires; a
 // message past MaxDeliver waiting for its dead-letter copy counts in neither
 // Pending nor AckPending; and a stream's message count is never used -- on
-// 2026-10-07 CLUSTARR_WORK_SEGMENTARR held 18,897 messages against a lag of
+// 2026-10-07 CLUSTARR_WORK_MARKERS held 18,897 messages against a lag of
 // 16,563, the gap exactly its 2,334 scheduled TheIntroDB holds, and a limits
 // stream's count is its retention window, not work.
 type ConsumerState struct {

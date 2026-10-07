@@ -125,7 +125,7 @@ var actionsModuleImports = []string{
 	modulePrefix + "api/",
 	modulePrefix + "pkg/obs/",
 	// pkg/names imports only the standard library: Add New names an item
-	// exactly as importarr does (2026-09-29).
+	// exactly as import does (2026-09-29).
 	modulePrefix + "pkg/names",
 }
 
@@ -192,7 +192,7 @@ func TestUINeverWrites(t *testing.T) {
 			for _, c := range selectorCalls(f) {
 				if busSelectors[c.name] {
 					t.Errorf("%s:%d: calls .%s(...). The ui's only bus use is Options.MetadataSearch, which "+
-						"cmd/clustarr binds to rpc.catalogarr.metadata.search (Add New, 2026-09-29), plus the "+
+						"cmd/clustarr binds to rpc.catalog.metadata.search (Add New, 2026-09-29), plus the "+
 						"artwork object store's reads; it never holds a requester, so it can never pick a subject",
 						f.path, c.line, c.name)
 				}

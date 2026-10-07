@@ -64,7 +64,7 @@ type Profile struct {
 // Existing is one subtitle already present for the media file — an embedded
 // stream or a parsed sidecar — reduced to the (language, forced, hi)
 // identity the missing-subtitle computation compares (research note §2.2's
-// Language.__eq__). Building the list is the caller's job: captionarr's
+// Language.__eq__). Building the list is the caller's job: caption's
 // SubtitleRequest controller calls ParseSidecar over the media file's
 // directory for the sidecar half and derives the embedded half itself from
 // the probed MediaInfo (api/common/v1alpha1.MediaInfo.Subtitles), honouring

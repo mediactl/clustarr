@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package manager is grabarr's manager-side registration (spec §4.2.1): the
+// Package manager is grab's manager-side registration (spec §4.2.1): the
 // DownloadClient controller, which renders every engine workload, ensures
 // the per-engine durables, reads the engine records and resyncs and prunes
 // the engines (ADR-0019 §6.7). The Download controller and the blocklist
@@ -81,7 +81,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	dcReconciler.SecretReader = mgr.GetAPIReader()
 	// The engine records, the per-engine durables and the commands
 	// (ADR-0019 §5.1, §6.7). The ProxyUDPUnavailable and
-	// UnidentifiedTransferRemoved Events are recorded as grabarr-engine
+	// UnidentifiedTransferRemoved Events are recorded as grab-engine
 	// (§7.7), though the manager records them.
 	dcReconciler.Bus = bus
 	if admin, ok := bus.(events.StreamAdmin); ok {
@@ -90,7 +90,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	dcReconciler.Engines = records.NewReader(bus.KV(events.BucketEngines), agentrecords.Engines())
 	dcReconciler.EngineRecorder = mgr.GetEventRecorder(lifecycle.RecorderGrabEngine)
 	if err := dcReconciler.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("grabarr: downloadclient: %w", err)
+		return fmt.Errorf("grab: downloadclient: %w", err)
 	}
 	return nil
 }

@@ -112,7 +112,7 @@ func TestRetriesFollowTheImportConsumersBackoff(t *testing.T) {
 	}
 }
 
-// TestOutcomeMessageNamesTheClass: grabarr reads the class, but the message
+// TestOutcomeMessageNamesTheClass: grab reads the class, but the message
 // is what a person reads, and the two exact constants stay where they were.
 func TestOutcomeMessageNamesTheClass(t *testing.T) {
 	transcoded := itemStateRejection("a.mkv: existing file is transcoded")

@@ -280,7 +280,7 @@ type AlbumStatus struct {
 
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
-	// under catalogarr.
+	// under catalog.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=8
@@ -302,7 +302,7 @@ type AlbumStatus struct {
 	LegacyDownloads *LegacyDownloads `json:"legacyDownloads,omitempty"`
 
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
-	// under catalogarr-grab.
+	// under catalog-grab.
 	// +optional
 	SearchDispatch *Dispatch `json:"searchDispatch,omitempty"`
 

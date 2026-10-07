@@ -35,18 +35,18 @@ import (
 // The rename pass's envtests (scanrename_envtest_test.go) share these with
 // RenameFile's own, which moved to app/import/mediafilespec with it.
 
-// correctedQuality is the probe-corrected quality catalogarr proposes: the
+// correctedQuality is the probe-corrected quality catalog proposes: the
 // name said 1080p, the probe found 2160p.
 var correctedQuality = commonv1.Quality{Name: "Bluray-2160p", Source: commonv1.SourceBluray, Resolution: 2160}
 
-// staleFile is one steady MediaFile catalogarr has proposed a new name for.
+// staleFile is one steady MediaFile catalog has proposed a new name for.
 type staleFile struct {
 	name     string
 	path     string // spec.path, where the file is
 	expected string // status.naming.expectedPath
 }
 
-// seedNamingStatus applies catalogarr's status as its MediaFile reconciler
+// seedNamingStatus applies catalog's status as its MediaFile reconciler
 // would for a file it proposes to rename: Ready, Probed and a False
 // NamingCurrent, beside naming and the sidecars.
 func (f *fixture) seedNamingStatus(t *testing.T, ctx context.Context, name string,

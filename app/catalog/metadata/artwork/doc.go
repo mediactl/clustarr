@@ -26,15 +26,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Writers
 //
-// The gateway (catalogarr --role metadata) is the sole writer of "original"
-// objects and of status.artwork, under k8s.ManagerCatalogarrMetadata -- the
+// The gateway (catalog --role metadata) is the sole writer of "original"
+// objects and of status.artwork, under k8s.ManagerCatalogMetadata -- the
 // manager that already writes each kind's status.metadata, and in the SAME
 // apply (app/catalog/status.GatewayStatusFields): server-side apply replaces
 // a manager's whole ownership set on every apply, so an apply that carried
 // status.metadata without status.artwork would release every entry, and one
 // carrying status.artwork without status.metadata would release the
-// metadata. The renderer (catalogarr --role artwork, task C3) owns
-// "overlay" objects and status.overlay under k8s.ManagerCatalogarrArtwork.
+// metadata. The renderer (catalog --role artwork, task C3) owns
+// "overlay" objects and status.overlay under k8s.ManagerCatalogArtwork.
 // app/catalog/artwork.Reaper is the only code that deletes both variants.
 //
 // # One item at a time
@@ -48,7 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // own Sync changed onto that fresh read ([Merge]).
 //
 // RBAC: the gateway's Event recorder writes events.k8s.io Events (already
-// granted to catalogarr), and the passes read and apply the eight kinds'
+// granted to catalog), and the passes read and apply the eight kinds'
 // status; the reaper's list is app/catalog/artwork's own marker. The
 // markers below restate exactly that, so this package's needs are visible
 // where the calls are, and `make manifests` generates no new rule.

@@ -127,7 +127,7 @@ func (r *progressReporter) flush(ctx context.Context) {
 	r.mu.Unlock()
 
 	if err := r.apply(ctx, r.toStatus(p)); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: applying progress failed", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: applying progress failed", "error", err)
 		r.mu.Lock()
 		if !r.pending { // nothing newer arrived; retry this one next tick
 			r.pending = true

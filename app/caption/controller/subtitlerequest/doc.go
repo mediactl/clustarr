@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package subtitlerequest is captionarr's SubtitleRequest controller: the
+// Package subtitlerequest is caption's SubtitleRequest controller: the
 // planner's owner. Design spec §6.5, verbatim:
 //
 //	`subtitlerequest`: replan when `status.profileGeneration`/`status.probeHash`
@@ -29,20 +29,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What it writes
 //
 // Only the controller half of SubtitleRequest.status, under
-// k8s.ManagerCaptionarr, through app/caption/status.PatchRequest -- phase,
+// k8s.ManagerCaption, through app/caption/status.PatchRequest -- phase,
 // profileGeneration, probeHash, fileFingerprint, existing, conditions
 // (Planned, Satisfied, CutoffMet, and DeadLettered while the DLQ projector's
 // clustarr.io/dead-lettered annotation is on the object),
 // observedGeneration, and per item ONLY attempts and nextSearchAt (ruling
 // R4). Every apply is the complete declaration of that set, the Blocked
-// paths included. It writes nothing on MediaFile (ruling R1): catalogarr
+// paths included. It writes nothing on MediaFile (ruling R1): catalog
 // already projects items into MediaFile.status.sidecars. The one spec write
 // is the documented reset of the one-shot spec.forceSearch.
 //
 // # Items: the liveness protocol
 //
 // §6.5 says the controller moves an item to state `searching`. It cannot:
-// items[].state is a captionarr-worker leaf (R4). Instead both writers follow
+// items[].state is a caption-worker leaf (R4). Instead both writers follow
 // one protocol, which is what lets an item be created and removed at all
 // when two managers share it leaf by leaf:
 //
@@ -74,7 +74,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // status.existing is re-derived on EVERY reconcile, not only when
 // profileGeneration or probeHash is stale. The container probe itself is
-// never repeated -- that is catalogarr's, and its result is
+// never repeated -- that is catalog's, and its result is
 // MediaFile.status.mediaInfo -- but the directory is the only authoritative
 // record of which sidecars exist, and it changes without either hash moving:
 // the worker adds one each time it downloads, a user drops one in, a user
@@ -96,8 +96,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // extract off, or nothing to extract with, §6.5 holds. extractableStreams
 // in existing.go carries the full ruling. The sidecar
 // half is subtitles.ParseSidecar over the media file's directory, which the
-// controller role mounts at /data (config/manager/captionarr.yaml, and
-// "data" true for captionarr in the chart). spec.path is a logical /data
+// controller role mounts at /data (config/manager/caption.yaml, and
+// "data" true for caption in the chart). spec.path is a logical /data
 // path, mapped through --data-dir by app/caption/datapath -- the one mapping
 // the fetch worker uses too. A directory that cannot be read, or that does
 // not contain the video, is a Blocked request -- never "no sidecars", which

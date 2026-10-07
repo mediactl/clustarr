@@ -172,7 +172,7 @@ func TestADefinitionBackedIndexerLogsInAndPersistsItsSession(t *testing.T) {
 	for _, mf := range sec.ManagedFields {
 		managers[mf.Manager] = true
 	}
-	require.True(t, managers[string(k8s.ManagerIndex)], "the session Secret is not under the indexarr manager: %v", managers)
+	require.True(t, managers[string(k8s.ManagerIndex)], "the session Secret is not under the index manager: %v", managers)
 
 	// The KV mirror, under the UID key.
 	entry, err := r.Bus.KV(events.BucketIndexerSessions).Get(ctx, idxclients.SessionKey(got.UID))

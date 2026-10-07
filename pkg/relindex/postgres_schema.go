@@ -100,7 +100,7 @@ var pgDDLV2 = []string{
 // might call OpenPostgres against the same database at once. SQLite's
 // migrate (schema.go) never has to consider this: one file, one writer
 // process, per the deployment (doc.go). Postgres is the opposite case this
-// package exists to support -- indexarr may run several replicas against one
+// package exists to support -- index may run several replicas against one
 // DSN (spec §A.3) -- so two replicas opening at the same moment on a bare
 // database must not both try to CREATE TABLE releases.
 //

@@ -65,7 +65,7 @@ func TestReconcileDisabledListSkipsScheduling(t *testing.T) {
 	require.NotNil(t, ready)
 	require.Equal(t, metav1.ConditionFalse, ready.Status)
 	require.Equal(t, k8sReasonDisabled, ready.Reason)
-	require.Equal(t, "importarr", managerFor(got.ManagedFields))
+	require.Equal(t, "import", managerFor(got.ManagedFields))
 }
 
 func TestReconcileSchedulesASyncAndReportsUnknownUntilAChekpointArrives(t *testing.T) {
@@ -98,7 +98,7 @@ func TestReconcileSchedulesASyncAndReportsUnknownUntilAChekpointArrives(t *testi
 	synced := findCondition(got.Status.Conditions, catalogv1alpha1.ImportListConditionSynced)
 	require.NotNil(t, synced)
 	require.Equal(t, metav1.ConditionUnknown, synced.Status, "no worker checkpoint has arrived yet")
-	require.Equal(t, "importarr", managerFor(got.ManagedFields))
+	require.Equal(t, "import", managerFor(got.ManagedFields))
 }
 
 func TestReconcileTraktDeviceFlowSurfacesTheUserCodeThenAuthorizesAndSchedules(t *testing.T) {

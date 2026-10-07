@@ -29,17 +29,17 @@ import (
 // with apply.
 //
 // DownloadStatus defines the observed state of Download. Three writers share
-// it through server-side apply on disjoint field sets: the grabarr controller
-// owns the lifecycle fields, the grabarr-engine replica owns the telemetry
-// fields, and importarr's file-import worker owns status.import. (Design
-// spec §8.4 assigned this field to catalogarr; amendment-1 moved the
-// importer out of catalogarr into app/import/worker/fileimport, and this
+// it through server-side apply on disjoint field sets: the grab controller
+// owns the lifecycle fields, the grab-engine replica owns the telemetry
+// fields, and import's file-import worker owns status.import. (Design
+// spec §8.4 assigned this field to catalog; amendment-1 moved the
+// importer out of catalog into app/import/worker/fileimport, and this
 // field's ownership moved with it. Settled at task D2-7.)
 type DownloadStatusApplyConfiguration struct {
 	// ObservedGeneration is the spec generation this status was computed from.
-	// Written by the grabarr controller.
+	// Written by the grab controller.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
-	// Phase is the lifecycle phase. Written by the grabarr controller.
+	// Phase is the lifecycle phase. Written by the grab controller.
 	Phase *commonv1alpha1.DownloadPhase `json:"phase,omitempty"`
 	// Engine is the engine replica that owns the transfer, "<client>-<ordinal>".
 	// It is set once, when the Download is assigned, and the label
@@ -49,7 +49,7 @@ type DownloadStatusApplyConfiguration struct {
 	FailureReason *commonv1alpha1.DownloadFailureReason `json:"failureReason,omitempty"`
 	// BlocklistedUntil is when this release stops being blocklisted. It is
 	// meaningful only together with the download.clustarr.io/blocklisted label;
-	// grabarr deletes the Download once the deadline passes.
+	// grab deletes the Download once the deadline passes.
 	BlocklistedUntil *v1.Time `json:"blocklistedUntil,omitempty"`
 	// StartedAt is when the engine began transferring.
 	StartedAt *v1.Time `json:"startedAt,omitempty"`
@@ -57,7 +57,7 @@ type DownloadStatusApplyConfiguration struct {
 	CompletedAt *v1.Time `json:"completedAt,omitempty"`
 	// SeedGoalMetAt is when the torrent satisfied its seed criteria.
 	SeedGoalMetAt *v1.Time `json:"seedGoalMetAt,omitempty"`
-	// Stage is the fine-grained engine stage. Written by grabarr-engine.
+	// Stage is the fine-grained engine stage. Written by grab-engine.
 	Stage *commonv1alpha1.DownloadStage `json:"stage,omitempty"`
 	// DownloadID is the engine's own handle for the transfer, e.g. the info
 	// hash or NZB id.
@@ -113,30 +113,30 @@ type DownloadStatusApplyConfiguration struct {
 	// works from it.
 	LastProgressAt *v1.Time `json:"lastProgressAt,omitempty"`
 	// EngineFailureReason is the failure the engine observed on the transfer,
-	// written by grabarr-engine. It is the engine's report, not the
-	// Download's verdict: the grabarr controller reads it and records
+	// written by grab-engine. It is the engine's report, not the
+	// Download's verdict: the grab controller reads it and records
 	// status.failureReason and the phase (Failed, or Blocklisted for a
 	// release fault) in one apply under its own field manager. Absent while
 	// the transfer has not failed.
 	EngineFailureReason *commonv1alpha1.DownloadFailureReason `json:"engineFailureReason,omitempty"`
 	// SeedGoalReached is true once the torrent has satisfied its seed
 	// criteria, whether or not it has been imported yet. Written by
-	// grabarr-engine; the grabarr controller turns the first true into
+	// grab-engine; the grab controller turns the first true into
 	// status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
 	SeedGoalReached *bool `json:"seedGoalReached,omitempty"`
 	// HealthPaused is true while the usenet engine holds the transfer paused
 	// because its article health fell below the DownloadClient's
 	// abortHealthPercent under healthAction pause, NZBGet's HealthCheck=pause.
-	// It is the engine's report; the grabarr controller reads it as phase
+	// It is the engine's report; the grab controller reads it as phase
 	// Paused, the "by a health action" half of that phase. The job waits for
 	// an operator: setting spec.paused to true and back to false continues it
 	// without the health check, and deleting or blocklisting the Download
-	// gives up on it. Written by grabarr-engine. Usenet only.
+	// gives up on it. Written by grab-engine. Usenet only.
 	HealthPaused *bool `json:"healthPaused,omitempty"`
 	// Import is the import outcome. It is the one cross-service field on this
-	// object: importarr's file-import worker, not grabarr, writes it,
-	// through server-side apply with its own field manager (k8s.ManagerImportarr),
-	// and grabarr never touches it. grabarr reads it to decide when a
+	// object: import's file-import worker, not grab, writes it,
+	// through server-side apply with its own field manager (k8s.ManagerImport),
+	// and grab never touches it. grab reads it to decide when a
 	// Download may be removed or blocklisted.
 	Import *ImportStateApplyConfiguration `json:"import,omitempty"`
 	// Conditions holds Assigned, Downloaded, SeedGoalMet, Imported and Failed.

@@ -53,8 +53,8 @@ func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
 	require.NoError(t, f.worker.Handle(ctx, msg))
 
 	// The Download side: status.import reports Imported, one file, under
-	// k8s.ManagerImportarr -- the bare controller-manager name task D2-7
-	// settled on (see k8s.ManagerImportarr's doc comment), not the
+	// k8s.ManagerImport -- the bare controller-manager name task D2-7
+	// settled on (see k8s.ManagerImport's doc comment), not the
 	// FieldManager this same worker uses for MediaFile.
 	var gotDL downloadv1alpha1.Download
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: dl.Name}, &gotDL))
@@ -67,7 +67,7 @@ func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
 
 	require.Equal(t, string(k8s.ManagerImport),
 		managerFor(t, gotDL.ManagedFields, "status", "status.import"),
-		"status.import must be owned by k8s.ManagerImportarr, not any other manager")
+		"status.import must be owned by k8s.ManagerImport, not any other manager")
 
 	// The MediaFile side: spec only, under the worker's FieldManager, and no
 	// writer has ever touched status.
@@ -84,7 +84,7 @@ func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
 	require.Equal(t, dl.Name, gotMF.Spec.ImportedFrom.DownloadRef)
 
 	specManager := managerFor(t, gotMF.ManagedFields, "", "spec")
-	require.Equal(t, "importarr-worker", specManager, "MediaFileSpec must be owned by k8s.ManagerImportarrWorker")
+	require.Equal(t, "import-worker", specManager, "MediaFileSpec must be owned by k8s.ManagerImportWorker")
 	statusManager := managerFor(t, gotMF.ManagedFields, "status", "status.conditions")
 	require.Empty(t, statusManager, "nothing in this package may ever claim any part of MediaFileStatus")
 

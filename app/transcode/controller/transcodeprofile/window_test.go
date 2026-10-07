@@ -45,7 +45,7 @@ import (
 // files in name order, instead of one job per matching file: a re-roll on
 // the owner's library created and deleted 10-20k objects. A Succeeded job
 // is deleted once it is older than Retention AND its MediaFile was probed
-// after it finished -- catalogarr incorporates a swap by reading the
+// after it finished -- catalog incorporates a swap by reading the
 // Succeeded job, so it must outlive that.
 func TestAProfileKeepsAWindowOfJobsAndRetiresIncorporatedSuccesses(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
@@ -95,7 +95,7 @@ func TestAProfileKeepsAWindowOfJobsAndRetiresIncorporatedSuccesses(t *testing.T)
 	job("old-done", transcodev1alpha1.TranscodeJobPhaseSucceeded, 2*time.Hour)
 	file("fresh-done", 10*time.Minute, true)
 	job("fresh-done", transcodev1alpha1.TranscodeJobPhaseSucceeded, 30*time.Minute)
-	file("unincorporated", 3*time.Hour, false) // probed before the job finished: catalogarr has not read it yet
+	file("unincorporated", 3*time.Hour, false) // probed before the job finished: catalog has not read it yet
 	job("unincorporated", transcodev1alpha1.TranscodeJobPhaseSucceeded, 2*time.Hour)
 
 	c := b.Build()

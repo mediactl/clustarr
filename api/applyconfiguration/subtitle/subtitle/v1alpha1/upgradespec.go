@@ -33,7 +33,7 @@ type UpgradeSpecApplyConfiguration struct {
 	// explicit false; unset means true.
 	Enabled *bool `json:"enabled,omitempty"`
 	// Interval is the delay between upgrade searches for one language. A Go
-	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// client always sends a Duration, so caption floors a zero (or negative)
 	// one to this default rather than treat it as a request to search
 	// continuously.
 	Interval *v1.Duration `json:"interval,omitempty"`

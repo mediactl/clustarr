@@ -32,7 +32,7 @@ import (
 const (
 	// ReasonNotImplemented is Ready's (and, via k8s.MarkUnknown,
 	// Authenticated's and Throttled's) reason for a SubtitleProviderType
-	// captionarr has no client for (providerset.ErrNoClient): only whisper,
+	// caption has no client for (providerset.ErrNoClient): only whisper,
 	// which the design of record defers. "SubtitleProviderStatus mirrors KV
 	// throttle/quota into status" only makes sense for a type something
 	// actually authenticates and searches against.
@@ -53,7 +53,7 @@ const (
 	ReasonNotThrottled = "NotThrottled"
 )
 
-// authResult is [judge]'s verdict: whether captionarr has a client for the
+// authResult is [judge]'s verdict: whether caption has a client for the
 // provider's type, whether its credentials are complete, and the condition
 // reason and message to report either way.
 type authResult struct {
@@ -79,7 +79,7 @@ func judge(t subtitlev1alpha1.SubtitleProviderType, err error) authResult {
 	case errors.Is(err, providerset.ErrNoClient):
 		return authResult{
 			reason:  ReasonNotImplemented,
-			message: fmt.Sprintf("captionarr has no client for provider type %q yet", t),
+			message: fmt.Sprintf("caption has no client for provider type %q yet", t),
 		}
 	case err != nil:
 		return authResult{

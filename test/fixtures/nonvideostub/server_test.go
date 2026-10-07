@@ -43,7 +43,7 @@ func discardLogger() *slog.Logger {
 func noLimit() *rate.Limiter { return metadata.NewLimiter(rate.Inf, 1) }
 
 // TestMusicBrainzArtistAndAlbums drives the fixture with the real
-// pkg/metadata/clients/musicbrainz client -- the same code catalogarr's
+// pkg/metadata/clients/musicbrainz client -- the same code catalog's
 // metadata gateway runs -- for the artist lookup and both release-group
 // shapes (browse and single lookup) the "/release-group/" route answers.
 func TestMusicBrainzArtistAndAlbums(t *testing.T) {

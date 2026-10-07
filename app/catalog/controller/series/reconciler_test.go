@@ -473,7 +473,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		if before.Annotations == nil {
 			before.Annotations = map[string]string{}
 		}
-		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.metadata.normal.x@2026-09-23T12:00:00Z"
+		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalog.metadata.normal.x@2026-09-23T12:00:00Z"
 		require.NoError(t, c.Patch(ctx, &before, patch))
 
 		var got catalogv1alpha1.Series
@@ -602,8 +602,8 @@ func ptrBoolTrue(p *bool) bool { return p != nil && *p }
 // gate the coordinator's ruling calls for, modeled on
 // app/catalog/controller/mediafile's TestMediaFileFieldManagersStayDisjoint:
 // Series's real ensureEpisode applies the provider fields under
-// k8s.ManagerCatalogarrSeries, a simulated Episode-reconciler write applies
-// its own computed fields under k8s.ManagerCatalogarr, and managedFields is
+// k8s.ManagerCatalogSeries, a simulated Episode-reconciler write applies
+// its own computed fields under k8s.ManagerCatalog, and managedFields is
 // decoded directly (not inferred from the object's final values alone) to
 // prove each manager owns exactly its own field set and neither write lost
 // the other's data -- including after a second Series reconcile, proving
@@ -616,7 +616,7 @@ func ptrBoolTrue(p *bool) bool { return p != nil && *p }
 // SeriesRef/SeasonNumber/EpisodeNumber, immutable and set once at Create,
 // never through server-side apply, plus Monitored, which Series also only
 // ever sets once at Create). So this is a status-versus-status split
-// exactly like app/grab/grabarr-engine's on DownloadStatus (§5): distinct
+// exactly like app/grab/grab-engine's on DownloadStatus (§5): distinct
 // field manager NAMES on disjoint fields within one subresource, not a
 // subresource split. That is what makes it correct, and it is why the
 // assertions below check specific field-path names via statusFieldNames
@@ -665,17 +665,17 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 		return ep.Status.Title == "Pilot"
 	}, 5*time.Second, 10*time.Millisecond, "Series' real ensureEpisode never landed status.title")
 
-	// Series' write landed under catalogarr-series, claiming exactly the
+	// Series' write landed under catalog-series, claiming exactly the
 	// provider field it set (title) and nothing Episode-owned.
-	seriesFields := managedStatusFieldPaths(ep.ManagedFields, "catalogarr-series")
-	require.NotNil(t, seriesFields, "no catalogarr-series/status entry in managedFields: %+v", fieldManagerNames(ep.ManagedFields))
+	seriesFields := managedStatusFieldPaths(ep.ManagedFields, "catalog-series")
+	require.NotNil(t, seriesFields, "no catalog-series/status entry in managedFields: %+v", fieldManagerNames(ep.ManagedFields))
 	seriesStatusNames := statusFieldNames(seriesFields)
-	assert.True(t, seriesStatusNames["title"], "catalogarr-series should own status.title")
-	assert.False(t, seriesStatusNames["phase"], "catalogarr-series must not claim status.phase")
-	assert.False(t, seriesStatusNames["hasFile"], "catalogarr-series must not claim status.hasFile")
+	assert.True(t, seriesStatusNames["title"], "catalog-series should own status.title")
+	assert.False(t, seriesStatusNames["phase"], "catalog-series must not claim status.phase")
+	assert.False(t, seriesStatusNames["hasFile"], "catalog-series must not claim status.hasFile")
 
 	// Simulate the Episode reconciler's own write: its computed fields,
-	// under the distinct k8s.ManagerCatalogarr.
+	// under the distinct k8s.ManagerCatalog.
 	epAC := catalogac.Episode(ep.Name, ep.Namespace).WithStatus(
 		catalogac.EpisodeStatus().
 			WithPhase(catalogv1alpha1.EpisodePhaseImported).
@@ -699,24 +699,24 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.EpisodePhaseImported, ep.Status.Phase)
 	assert.True(t, ep.Status.HasFile)
 
-	for _, want := range []string{"catalogarr-series", "catalogarr"} {
+	for _, want := range []string{"catalog-series", "catalog"} {
 		if !managesField(ep.ManagedFields, want, "status") {
 			t.Errorf("no %q/status entry in managedFields: %+v", want, fieldManagerNames(ep.ManagedFields))
 		}
 	}
-	seriesFields = managedStatusFieldPaths(ep.ManagedFields, "catalogarr-series")
+	seriesFields = managedStatusFieldPaths(ep.ManagedFields, "catalog-series")
 	require.NotNil(t, seriesFields)
 	seriesStatusNames = statusFieldNames(seriesFields)
 	assert.True(t, seriesStatusNames["title"])
-	assert.False(t, seriesStatusNames["phase"], "catalogarr-series must still not claim status.phase after the Episode write")
-	assert.False(t, seriesStatusNames["hasFile"], "catalogarr-series must still not claim status.hasFile after the Episode write")
+	assert.False(t, seriesStatusNames["phase"], "catalog-series must still not claim status.phase after the Episode write")
+	assert.False(t, seriesStatusNames["hasFile"], "catalog-series must still not claim status.hasFile after the Episode write")
 
-	episodeFields := managedStatusFieldPaths(ep.ManagedFields, "catalogarr")
-	require.NotNil(t, episodeFields, "no catalogarr/status entry in managedFields: %+v", fieldManagerNames(ep.ManagedFields))
+	episodeFields := managedStatusFieldPaths(ep.ManagedFields, "catalog")
+	require.NotNil(t, episodeFields, "no catalog/status entry in managedFields: %+v", fieldManagerNames(ep.ManagedFields))
 	episodeStatusNames := statusFieldNames(episodeFields)
-	assert.True(t, episodeStatusNames["phase"], "catalogarr should own status.phase")
-	assert.True(t, episodeStatusNames["hasFile"], "catalogarr should own status.hasFile")
-	assert.False(t, episodeStatusNames["title"], "catalogarr must not claim status.title")
+	assert.True(t, episodeStatusNames["phase"], "catalog should own status.phase")
+	assert.True(t, episodeStatusNames["hasFile"], "catalog should own status.hasFile")
+	assert.False(t, episodeStatusNames["title"], "catalog must not claim status.title")
 
 	// A second Series reconcile (re-fanout with the same provider data)
 	// must not erase the Episode-owned fields the simulated write just

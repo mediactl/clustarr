@@ -45,7 +45,7 @@ type capturedJobEvent struct {
 	payload schema.JobEvent
 }
 
-// subscribeHistory starts the real catalogarr-history consumer from the
+// subscribeHistory starts the real catalog-history consumer from the
 // shipped topology -- the sink these events exist for -- on an in-memory
 // bus, and returns the bus and what the consumer has received.
 func subscribeHistory(t *testing.T) (events.Bus, func() []capturedJobEvent) {
@@ -278,7 +278,7 @@ func TestDeadLetteredFoldsIntoTranscodeJobStatus(t *testing.T) {
 	assert.Equal(t, metav1.ConditionTrue, dlq.Status)
 	assert.Equal(t, k8s.ReasonDeadLettered, dlq.Reason)
 	assert.Equal(t, withoutDLQ(steady.Status), withoutDLQ(marked.Status), "the fold must change nothing but the condition")
-	assertConditionsOwnedBy(t, marked, "squasharr")
+	assertConditionsOwnedBy(t, marked, "transcode")
 
 	annotate("arrival-hevc", nil)
 	reconcileTJ(t, r, ns, "arrival-hevc")
@@ -330,7 +330,7 @@ func assertConditionsOwnedBy(t *testing.T, obj client.Object, manager string) {
 func TestTheTaskCarriesTheReconcileTrace(t *testing.T) {
 	_, c := startEnv(t)
 	ctx := context.Background()
-	shutdown, err := tracing.Setup(ctx, tracing.Options{ServiceName: "squasharr-test", SampleRatio: 1})
+	shutdown, err := tracing.Setup(ctx, tracing.Options{ServiceName: "transcode-test", SampleRatio: 1})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(ctx) })
 

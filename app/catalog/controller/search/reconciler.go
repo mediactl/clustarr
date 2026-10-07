@@ -19,12 +19,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // trigger from spec §8.2. For a mediaRef-mode Search the reconciler
 // validates the request, publishes one catalog.SearchTask.v1 at high
 // priority, and waits for the search worker to land its results. For a
-// query-mode Search (spec.query, free text against indexarr's local release
+// query-mode Search (spec.query, free text against index's local release
 // index) there is no worker to wait for: the reconciler answers it directly
-// over clustarr.rpc.indexarr.query. Either way it then turns spec.grab into
+// over clustarr.rpc.index.query. Either way it then turns spec.grab into
 // Download objects and TTL-deletes the object once spec.ttl has elapsed.
 //
-// Nothing here registers itself. catalogarr's run.go calls
+// Nothing here registers itself. catalog's run.go calls
 // NewReconciler(...).SetupWithManager(mgr).
 package search
 
@@ -79,7 +79,7 @@ import (
 // below on the next watch event instead of waiting this out.
 const SearchRunningTimeout = 5 * time.Minute
 
-// queueFullRequeue is how long to wait before republishing when the catalogarr
+// queueFullRequeue is how long to wait before republishing when the catalog
 // work stream is applying back-pressure.
 const queueFullRequeue = time.Minute
 
@@ -95,7 +95,7 @@ const queueFullRequeue = time.Minute
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles Search. It is the sole writer of Search's
@@ -104,10 +104,10 @@ const queueFullRequeue = time.Minute
 //
 // status.results, status.indexerOutcomes and status.finishedAt split by
 // mode. For a mediaRef-mode Search the search worker owns them, under
-// k8s.ManagerCatalogarrWorker (§2's controller/worker manager split); this
+// k8s.ManagerCatalogWorker (§2's controller/worker manager split); this
 // reconciler never touches them for that object. For a query-mode Search
 // (spec.query) there is no worker, so THIS reconciler is their sole writer
-// instead, under its own k8s.ManagerCatalogarr -- see runQuery, and
+// instead, under its own k8s.ManagerCatalog -- see runQuery, and
 // newStatusUpdate/apply, which gate the three on s.Spec.Query != nil so
 // each mode's writer only ever declares what it owns.
 type Reconciler struct {
@@ -117,8 +117,8 @@ type Reconciler struct {
 	Scheme   *runtime.Scheme
 	Clock    clockwork.Clock
 
-	// Query answers a query-mode Search (spec.query) against indexarr's
-	// local release index, clustarr.rpc.indexarr.query. Nil is a valid,
+	// Query answers a query-mode Search (spec.query) against index's
+	// local release index, clustarr.rpc.index.query. Nil is a valid,
 	// tested state -- runQuery reports NotConfigured rather than
 	// dereferencing it -- because NewReconciler can only wire this
 	// opportunistically; see its doc comment.
@@ -165,7 +165,7 @@ func NewReconciler(c client.Client, bus events.Publisher, rec k8sevents.EventRec
 // reconcile.TerminalError is likewise absent: SearchSpec's only cross-field
 // invariant (exactly one of query/mediaRef) is a CEL rule enforced at
 // admission, so Reconcile never observes a spec it would have to terminally
-// reject. A query-mode Search that outruns its Query RPC (indexarr
+// reject. A query-mode Search that outruns its Query RPC (index
 // unreachable, the release index itself erroring) is likewise a status
 // outcome -- Failed with a reason, or a requeue -- never a reconcile error
 // that would panic-recover or spin the workqueue.
@@ -249,7 +249,7 @@ type statusUpdate struct {
 
 	// finishedAt, indexerOutcomes and results are set only for a query-mode
 	// Search (spec.query != nil). A mediaRef-mode Search never populates
-	// them here: those three stay k8s.ManagerCatalogarrWorker's alone, per
+	// them here: those three stay k8s.ManagerCatalogWorker's alone, per
 	// the Reconciler doc comment, and apply() only ever declares them when
 	// s.Spec.Query != nil -- see both doc comments before changing either.
 	finishedAt      *metav1.Time
@@ -332,7 +332,7 @@ func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *st
 		// manager declares these three itself, every apply, the same way
 		// it already declares grabbed unconditionally above. Guarded on
 		// s.Spec.Query so a mediaRef-mode object -- where these fields
-		// belong to k8s.ManagerCatalogarrWorker -- never has this manager
+		// belong to k8s.ManagerCatalogWorker -- never has this manager
 		// say anything about them at all.
 		outcomes, err := k8s.ApplyConfigurationsFrom[catalogac.IndexerOutcomeApplyConfiguration](u.indexerOutcomes)
 		if err != nil {
@@ -383,7 +383,7 @@ func (r *Reconciler) startSearch(ctx context.Context, s *catalogv1alpha1.Search)
 		ID:     events.MsgIDForObject(string(s.UID), s.Generation, "search"),
 		Type:   "catalog.SearchTask",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		// The envelope key is the OWNING object -- this Search -- per
 		// events.Envelope's contract; the worker resolves the namespace from
 		// it. The mediaKey identifies the item and belongs in the subject,
@@ -401,7 +401,7 @@ func (r *Reconciler) startSearch(ctx context.Context, s *catalogv1alpha1.Search)
 			// Back-pressure, not failure: leave the phase alone so the next
 			// reconcile still takes the startSearch branch, and say why on
 			// Ready. Every other owned field is re-sent by apply().
-			k8s.MarkFalse(s, &u.conditions, k8s.ConditionReady, "QueueFull", "the catalogarr search queue is full")
+			k8s.MarkFalse(s, &u.conditions, k8s.ConditionReady, "QueueFull", "the catalog search queue is full")
 			if perr := r.apply(ctx, s, u); perr != nil {
 				return ctrl.Result{}, perr
 			}
@@ -497,9 +497,9 @@ func workerFailure(s *catalogv1alpha1.Search) (string, bool) {
 	return "", false
 }
 
-// noQueryResponderRequeue is how long to wait before asking indexarr's
-// release index again when nothing answers clustarr.rpc.indexarr.query --
-// most often indexarr rolling, or not up yet. It mirrors
+// noQueryResponderRequeue is how long to wait before asking index's
+// release index again when nothing answers clustarr.rpc.index.query --
+// most often index rolling, or not up yet. It mirrors
 // app/catalog/worker/search's own noRespondersRetryAfter for the same subject
 // family, without reusing pkg/events.Retry: that helper drives a queue
 // consumer's nak/redelivery schedule, and this is a plain controller-runtime
@@ -508,7 +508,7 @@ const noQueryResponderRequeue = 15 * time.Second
 
 // QueryOutcomeName is the status.indexerOutcomes entry a query-mode Search
 // reports its one line under. There is no per-indexer fan-out to report --
-// query mode is a single read against indexarr's already-merged local
+// query mode is a single read against index's already-merged local
 // index, not a live search of any indexer -- but
 // status.indexerOutcomes[0].count is kubectl's own "Results" printer column
 // (api/catalog/v1alpha1/search_types.go's +kubebuilder:printcolumn), so
@@ -522,7 +522,7 @@ const noQueryResponderRequeue = 15 * time.Second
 const QueryOutcomeName = "_local-index"
 
 // runQuery answers a free-text Search (spec.query) directly against
-// indexarr's local release index over clustarr.rpc.indexarr.query, rather
+// index's local release index over clustarr.rpc.index.query, rather
 // than through the async SearchTask pipeline startSearch uses for a
 // mediaRef Search.
 //
@@ -534,7 +534,7 @@ const QueryOutcomeName = "_local-index"
 // newStatusUpdate and apply, which gate those three fields on
 // s.Spec.Query != nil for exactly this reason. SearchSpec's CEL rule
 // (exactly one of query/mediaRef) means the two field managers this
-// produces -- this one, and k8s.ManagerCatalogarrWorker on a mediaRef
+// produces -- this one, and k8s.ManagerCatalogWorker on a mediaRef
 // object -- never apply to the same object.
 //
 // The caller gates this on status.phase == "", the same gate startSearch
@@ -544,7 +544,7 @@ const QueryOutcomeName = "_local-index"
 func (r *Reconciler) runQuery(ctx context.Context, s *catalogv1alpha1.Search) (ctrl.Result, error) {
 	if r.Query == nil {
 		return r.fail(ctx, s, "NotConfigured",
-			"indexarr's release index (rpc.indexarr.query) is not wired into this reconciler")
+			"index's release index (rpc.index.query) is not wired into this reconciler")
 	}
 
 	req := schema.QueryRequest{Text: *s.Spec.Query, Limit: s.Spec.Limit}
@@ -555,7 +555,7 @@ func (r *Reconciler) runQuery(ctx context.Context, s *catalogv1alpha1.Search) (c
 	resp, err := r.Query.Query(ctx, req)
 	if err != nil {
 		if errors.Is(err, events.ErrNoResponders) {
-			// Transient -- indexarr is not up yet -- not a verdict on the
+			// Transient -- index is not up yet -- not a verdict on the
 			// query. Leave phase alone so the next reconcile still takes
 			// the runQuery branch, the same shape startSearch uses for
 			// ErrQueueFull.

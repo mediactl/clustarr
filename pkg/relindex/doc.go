@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package relindex is the local release index: every release indexarr sees,
+// Package relindex is the local release index: every release index sees,
 // from an RSS poll or a federated search, in a SQLite database with an FTS5
 // virtual table over the normalised title and the release group.
 //
@@ -28,13 +28,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // One content table, `releases`, keyed UNIQUE(indexer, guid); one external-
 // content FTS5 table, `releases_fts`, over `title_norm` and `grp`, kept in
 // sync by three triggers. The engine is SQLite through the pure-Go
-// modernc.org/sqlite driver: the indexarr image is distroless-static and a cgo
+// modernc.org/sqlite driver: the index image is distroless-static and a cgo
 // driver will not link (ADR-0003, Ruling R8).
 //
 // # Deployment
 //
 // The file lives on the RWO PVC `clustarr-index`, mounted at
-// /var/lib/clustarr/index, at /var/lib/clustarr/index/releases.db. indexarr is
+// /var/lib/clustarr/index, at /var/lib/clustarr/index/releases.db. index is
 // pinned to exactly one replica with a Recreate strategy precisely so there is
 // exactly one writer process; SQLite plus WAL is safe for one writer and many
 // readers, and is not safe for two pods. This package takes the path as an

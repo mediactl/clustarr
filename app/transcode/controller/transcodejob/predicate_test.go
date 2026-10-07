@@ -63,7 +63,7 @@ func TestTranscodeJobPredicateWakesOnADeadLetterAnnotation(t *testing.T) {
 func TestPoolJobPredicate(t *testing.T) {
 	p := poolJobPredicate()
 	running := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: "squasharr-pool-hevc-cpu", Labels: map[string]string{
+		ObjectMeta: metav1.ObjectMeta{Name: "transcode-pool-hevc-cpu", Labels: map[string]string{
 			pool.LabelManagedBy: pool.ManagedByValue, pool.LabelProfile: "hevc", pool.LabelTemplateHash: "h1",
 		}},
 		Spec:   batchv1.JobSpec{Suspend: new(false)},
@@ -95,5 +95,5 @@ func TestPoolJobPredicate(t *testing.T) {
 	assert.False(t, p.Delete(event.DeleteEvent{Object: other}))
 	managedOnly := other.DeepCopy()
 	managedOnly.Labels = map[string]string{pool.LabelManagedBy: pool.ManagedByValue}
-	assert.False(t, p.Create(event.CreateEvent{Object: managedOnly}), "managed by squasharr but not a pool")
+	assert.False(t, p.Create(event.CreateEvent{Object: managedOnly}), "managed by transcode but not a pool")
 }

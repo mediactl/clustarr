@@ -16,8 +16,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package catalog is the agent's catalog domain (spec §3.5.3): the
-// catalogarr-search-high, catalogarr-search-normal, catalogarr-grab and
-// catalogarr-artwork-render consumers on CLUSTARR_WORK_CATALOGARR.
+// catalog-search-high, catalog-search-normal, catalog-grab and
+// catalog-artwork-render consumers on CLUSTARR_WORK_CATALOG.
 package catalog
 
 import (
@@ -95,7 +95,7 @@ type workers struct {
 // the uncached API reader too -- the recheck before each status.overlay
 // apply must see the gateway's latest ratings and poster, and the profiles
 // as they are, which a cache may not have yet. MaxConcurrentRenders stays at
-// its default (renderer.DefaultMaxConcurrentRenders): the catalogarr pod
+// its default (renderer.DefaultMaxConcurrentRenders): the catalog pod
 // runs the controllers beside it under one GOMEMLIMIT.
 func buildWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (workers, error) {
 	c := mgr.GetClient()

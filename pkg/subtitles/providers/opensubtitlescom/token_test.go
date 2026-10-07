@@ -50,7 +50,7 @@ type storedToken struct {
 	expiresAt time.Time
 }
 
-// memCache is an in-memory TokenCache standing in for captionarr's KV
+// memCache is an in-memory TokenCache standing in for caption's KV
 // adapter. storeErr makes StoreToken fail and leave the cache as it was.
 type memCache struct {
 	mu        sync.Mutex

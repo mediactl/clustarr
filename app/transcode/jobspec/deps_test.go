@@ -26,8 +26,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestManagerSideSquashLinksNoWorker holds spec §4.3 S1 (and the AudioGraft
-// drift): the squash reconcilers, graft included, and jobspec itself link no
+// TestManagerSideTranscodeLinksNoWorker holds spec §4.3 S1 (and the AudioGraft
+// drift): the transcode reconcilers, graft included, and jobspec itself link no
 // part of the pool worker, ffgo, or an ffprobe exec. `test/guards` (W5.14)
 // overlaps it.
 func TestManagerSideTranscodeLinksNoWorker(t *testing.T) {

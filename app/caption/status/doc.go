@@ -15,18 +15,18 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package status is the single place captionarr declares what each field
+// Package status is the single place caption declares what each field
 // manager owns across all three subtitle.clustarr.io kinds:
 // SubtitleRequest, SubtitleProfile and SubtitleProvider.
 //
 // SubtitleProfile and SubtitleProvider have one writer each -- the profile
-// and provider reconcilers, both k8s.ManagerCaptionarr -- and are declared
+// and provider reconcilers, both k8s.ManagerCaption -- and are declared
 // here mainly so that "owned by nobody" and "owned by the wrong manager" stay
 // impossible rather than merely unlikely. Ruling R2 makes the SubtitleProvider
 // half load-bearing: workers observe throttles into the shared KV bucket, but
 // only the provider controller projects that KV state into
 // status.throttledUntil/throttleReason/quota/errorsLast120s and the
-// conditions, so k8s.ManagerCaptionarrWorker is refused here exactly like
+// conditions, so k8s.ManagerCaptionWorker is refused here exactly like
 // every other manager outside the split -- a worker writing SubtitleProvider
 // status directly would make every worker replica a writer of one object,
 // the same hazard §5's single-writer rule exists to rule out everywhere else.
@@ -43,14 +43,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // forms in Phase C and three more in D1; the remedy that worked every time was
 // distinct managers with disjoint, COMPLETELY declared sets.
 //
-// [RequestControllerFields], k8s.ManagerCaptionarr -- the request-level
+// [RequestControllerFields], k8s.ManagerCaption -- the request-level
 // fields (phase, profileGeneration, probeHash, fileFingerprint, existing,
 // conditions, observedGeneration) plus, per item, only nextSearchAt and
 // attempts. These are the only two leaves of a SubtitleItem the controller can
 // know: it derives the backoff schedule from the profile's search and upgrade
 // intervals, and nothing about a chosen candidate.
 //
-// [RequestWorkerFields], k8s.ManagerCaptionarrWorker -- every OTHER leaf of
+// [RequestWorkerFields], k8s.ManagerCaptionWorker -- every OTHER leaf of
 // every LIVE item ([IsLive]): langKey (shared with the controller, see below), state, score,
 // scoreOutOf, provider, subtitleID, path, lastError and downloadedAt. These
 // are observations of a provider search that only a worker that ran the

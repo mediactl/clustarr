@@ -43,7 +43,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.activeDownloadRef (§3's single-writer rule, and the ownership
 // decision recorded in .superpowers/sdd/2026-09-23-phases-efg/
 // g2-controllers-brief.md, settled by G2-1); status.metadata belongs to the
-// metadata gateway (field manager k8s.ManagerCatalogarrMetadata) and this
+// metadata gateway (field manager k8s.ManagerCatalogMetadata) and this
 // package never writes it. status.pendingGrab is read only, for phase and
 // wake purposes -- it is written by the grab path, not this controller,
 // mirroring Movie exactly (see reconciler.go's field-manager note).

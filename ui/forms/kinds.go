@@ -40,7 +40,7 @@ var (
 	whenUsenet  = &When{Path: "protocol", Values: []string{"usenet"}}
 	// importListProviders are ImportListSpec's provider sub-objects, exactly
 	// one of which the CRD requires; the form's Choice offers them in this
-	// order, and only these credentials are read: importarr's provider.go
+	// order, and only these credentials are read: import's provider.go
 	// takes clientID and clientSecret for Trakt (the device flow writes the
 	// tokens itself), token and an optional clientID for Plex, apiKey for
 	// MDBList; TMDB, StevenLu, IMDb CSV, custom and *arr lists need none.
@@ -108,7 +108,7 @@ var kinds = []Kind{
 	{
 		ConfigKind: configKind("metadataproviders"),
 		Title:      "Metadata providers", Singular: "metadata provider",
-		Help: "A source of titles, artwork and ratings. The type cannot change once created. The metadata gateway reads providers at start, so a new or changed provider is used after catalogarr-metadata restarts.",
+		Help: "A source of titles, artwork and ratings. The type cannot change once created. The metadata gateway reads providers at start, so a new or changed provider is used after the metadata agent restarts.",
 		Groups: []Group{
 			{Title: "Provider", Paths: []string{"type", "enabled", "priority", "baseURL", "language", "region", "contactUserAgent"}},
 			{Title: "Credentials", Paths: []string{"secretRef"}},
@@ -221,7 +221,7 @@ var kinds = []Kind{
 	{
 		ConfigKind: configKind("downloadclients"),
 		Title:      "Download clients", Singular: "download client",
-		Help: "An embedded torrent or usenet engine grabarr runs for you. The protocol cannot change once created.",
+		Help: "An embedded torrent or usenet engine the grab controller runs for you. The protocol cannot change once created.",
 		Groups: []Group{
 			{Title: "Client", Paths: []string{"protocol", "enabled", "priority", "categories"}},
 			{Title: "Torrent", When: whenTorrent, Paths: []string{
@@ -294,7 +294,7 @@ var kinds = []Kind{
 	{
 		ConfigKind: configKind("subtitleproviders"),
 		Title:      "Subtitle providers", Singular: "subtitle provider",
-		Help: "A subtitle source captionarr searches. The type cannot change once created.",
+		Help: "A subtitle source the caption service searches. The type cannot change once created.",
 		Groups: []Group{
 			{Title: "Provider", Paths: []string{"type", "enabled", "priority", "endpoint", "languages", "requestsPerSecondMilli"}},
 			{Title: "Credentials", Paths: []string{"secretRef"}},
@@ -325,7 +325,7 @@ var kinds = []Kind{
 	{
 		ConfigKind: configKind("transcodeprofiles"),
 		Title:      "Transcode profiles", Singular: "transcode profile",
-		Help: "Which files squasharr transcodes to its fixed HEVC standard, and where. Changing the quality, container, audio languages or never-transcode modifiers plans files not yet transcoded under the new settings; a transcoded file is never encoded again.",
+		Help: "Which files the transcode controller transcodes to its fixed HEVC standard, and where. Changing the quality, container, audio languages or never-transcode modifiers plans files not yet transcoded under the new settings; a transcoded file is never encoded again.",
 		Groups: []Group{
 			{Title: "Profile", Paths: []string{"default", "priority", "maxConcurrent", "hardware", "container", "quality", "selector.matchLabels"}},
 			{Title: "Audio", Paths: []string{"audio.languages"}},

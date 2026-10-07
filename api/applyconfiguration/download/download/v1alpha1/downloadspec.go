@@ -32,7 +32,7 @@ type DownloadSpecApplyConfiguration struct {
 	// DownloadClient that may take the work. Immutable.
 	Protocol *commonv1alpha1.Protocol `json:"protocol,omitempty"`
 	// ClientRef is the DownloadClient handling this Download, in the same
-	// namespace. Left empty it is resolved once by grabarr at admission from
+	// namespace. Left empty it is resolved once by grab at admission from
 	// the enabled clients of the matching protocol; once set it is immutable.
 	ClientRef *string `json:"clientRef,omitempty"`
 	// Source is where the payload comes from. Immutable.
@@ -47,7 +47,7 @@ type DownloadSpecApplyConfiguration struct {
 	// unequal, it raises "no such key: infoHash" and the apiserver REJECTS the
 	// write. Because a status-subresource apply re-evaluates every spec CEL
 	// rule against the stored object, that rejection hits status-only writes
-	// too, which is the only way grabarr reports progress at all.
+	// too, which is the only way grab reports progress at all.
 	//
 	// infoHash is what made this fatal rather than theoretical: usenet
 	// releases do not have one, by protocol. So the unguarded form made every

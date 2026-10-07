@@ -15,9 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package download serves clustarr.rpc.indexarr.download: it fetches a
+// Package download serves clustarr.rpc.index.download: it fetches a
 // release payload with the indexer's own session cookies and passkeys and
-// hands grabarr either the bytes, a magnet link or a link to fetch itself.
+// hands grab either the bytes, a magnet link or a link to fetch itself.
 //
 // # The payload types are frozen
 //
@@ -30,7 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // After a successful decode every failure is a populated
 // DownloadResponse.Error; a transport error means the request never reached a
-// handler. That asymmetry matters at both ends: too lenient and grabarr naks
+// handler. That asymmetry matters at both ends: too lenient and grab naks
 // a dead tracker link five times and dead-letters it, too strict and the
 // operator sees "download failed" with no reason. Handle therefore never
 // returns an error, and the RPC wrapper is the only place a transport error
@@ -52,14 +52,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // spec.limits.grabLimit: the reply is then an Error that limits.GrabLimited
 // recognises, naming when the window next has room, and the indexer is never
 // contacted. The ring is keyed by GUID, so a grab already in the window
-// passes without counting again -- catalogarr's grab path reserves the same
+// passes without counting again -- catalog's grab path reserves the same
 // GUID before it creates the Download whose engine calls this verb, which is
 // where a limit has to hold for an automatic grab. A grab that then does not
 // happen (the fetch failed, or the link named another host) gives back the
 // slot this call took.
 //
 // A grab whose DownloadSource is torrentURL, magnetURL or nzbURL never calls
-// this verb at all (grabarr fetches it directly; see api/download/v1alpha1's
+// this verb at all (grab fetches it directly; see api/download/v1alpha1's
 // DownloadSource), so directgrab.Reconciler
 // (app/indexer/controller/directgrab) counts those from the Download's
 // creation instead, into the same ring, never refused -- it has
@@ -70,7 +70,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Nothing that reaches a log line, an error string or
 // DownloadResponse.Error may carry a passkey. The stripping itself is
 // pkg/cardigann's -- RedactURL and RedactErr are exported precisely so
-// indexarr calls them (Ruling R26) rather than growing a second
+// index calls them (Ruling R26) rather than growing a second
 // implementation that drifts. On top of that this package adds two bounds of
 // its own: Fetcher.Scrub replaces the indexer's known secret VALUES, for the
 // case where a third party echoed one back at us, and every message is
@@ -90,7 +90,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // One consequence: an empty DownloadRequest.URL is a hard Error.
 // relindex.Query has no GUID field and ADR-0003 fixes the Store at four
-// methods, so indexarr cannot resolve a GUID to a URL. Carried item.
+// methods, so index cannot resolve a GUID to a URL. Carried item.
 //
 // # Wiring (Task D1-8, in app/indexer/run.go)
 //
@@ -121,16 +121,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 //
-// secrets is get ONLY, not get;list;watch. indexarr.Options.ManagerOptions
+// secrets is get ONLY, not get;list;watch. index.Options.ManagerOptions
 // disables the Secret cache (client.CacheOptions.DisableFor), so every Secret
-// read here is a live single-object Get and nothing in indexarr ever Lists or
+// read here is a live single-object Get and nothing in index ever Lists or
 // Watches one.
 //
 // Be precise about what this buys, because it is less than it looks: Clustarr
 // generates ONE clustarr-manager-role and binds it to every service's
-// ServiceAccount, and catalogarr's metadata gateway reads Secrets through a
+// ServiceAccount, and catalog's metadata gateway reads Secrets through a
 // CACHED client, so it genuinely needs list;watch and the union keeps them in
-// the generated Role. indexarr's pod is therefore still granted verbs it does
+// the generated Role. index's pod is therefore still granted verbs it does
 // not use. What this marker fixes is the declaration -- the package asks for
 // what it uses, so the day the role is split per service the narrowing is
 // already recorded. Splitting it is the real fix and is not this task's.

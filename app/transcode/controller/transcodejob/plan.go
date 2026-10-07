@@ -28,8 +28,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// profileTagKey is the container tag squasharr writes into every output,
-// "<name>@<hash>" (§4.5). catalogarr records it two ways: the probe reads it
+// profileTagKey is the container tag transcode writes into every output,
+// "<name>@<hash>" (§4.5). catalog records it two ways: the probe reads it
 // into MediaFile.status.mediaInfo.transcodeProfile, and a transcode it
 // incorporates sets status.transcode.profileTag.
 const profileTagKey = "CLUSTARR_PROFILE"
@@ -38,7 +38,7 @@ const profileTagKey = "CLUSTARR_PROFILE"
 const maxPlanList = 200
 
 // mediaInfoFromFile builds pkg/transcode's MediaInfo from the probe
-// catalogarr already stored on the MediaFile (ruling R3: the controller role
+// catalog already stored on the MediaFile (ruling R3: the controller role
 // does not mount /data, so it cannot probe; the worker re-probes the live
 // file and refuses on a ProbeHash mismatch), through transcode.FromSummary,
 // which takes nothing from a probe the summary lacks -- so the plan recorded
@@ -46,7 +46,7 @@ const maxPlanList = 200
 //
 // The summary carries no format tags. The one the standard reads, the
 // CLUSTARR_PROFILE that makes a file "already transcoded", is set from
-// catalogarr's records (recordedTag), so a transcoded file is skipped here
+// catalog's records (recordedTag), so a transcoded file is skipped here
 // as the worker's probe of it would be.
 func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile, tag string) (transcode.MediaInfo, error) {
 	info, err := transcode.FromSummary(path, mf.Status.MediaInfo)
@@ -61,9 +61,9 @@ func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile, tag string) (
 	return info, nil
 }
 
-// recordedTag is the CLUSTARR_PROFILE catalogarr recorded for mf: the
+// recordedTag is the CLUSTARR_PROFILE catalog recorded for mf: the
 // probe's read of the file's own tag (any profile, any hash), else a
-// transcode by tag's profile, under any hash, that catalogarr incorporated
+// transcode by tag's profile, under any hash, that catalog incorporated
 // (status.transcode.profileTag; a replaceSource=false job records it on the
 // untouched source beside its derived copy). "" when there is neither.
 func recordedTag(mf *catalogv1alpha1.MediaFile, tag string) string {

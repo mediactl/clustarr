@@ -152,7 +152,7 @@ func TestReconcileAddsNewDownloadAndReportsTelemetryUnderEngineManager(t *testin
 
 	statusManagers := managersOf(got.ManagedFields, "status")
 	assert.Equal(t, map[string]bool{k8s.ManagerGrabEngine.String(): true}, statusManagers,
-		"Download.status must be owned only by k8s.ManagerGrabarrEngine after an engine-only write")
+		"Download.status must be owned only by k8s.ManagerGrabEngine after an engine-only write")
 }
 
 func TestReconcileDoesNotReAddAnAlreadyKnownTransfer(t *testing.T) {
@@ -358,7 +358,7 @@ func TestReconcileDeletingRemovesTransferAndTouchesNoOtherManagedField(t *testin
 	var got downloadv1alpha1.Download
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-6"}, &got))
 	assert.Equal(t, downloadv1alpha1.DownloadPhaseDownloading, got.Status.Phase,
-		"the deleting path must not touch ManagerGrabarr's fields at all")
+		"the deleting path must not touch ManagerGrab's fields at all")
 	assert.Equal(t, "sabnzbd-0", got.Status.Engine)
 	assert.Equal(t, "live-1", got.Status.DownloadID,
 		"the deleting path makes no status write of its own -- it only calls the in-memory client")

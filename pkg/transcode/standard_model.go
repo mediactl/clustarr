@@ -36,7 +36,7 @@ const (
 
 // MaxStreamsPerKind is the audio, and the subtitle, stream count at which a
 // source is refused: pkg/mediainfo.MaxStreamsPerKind, the cap on the probe
-// summary catalogarr stores (MediaInfo.Audio and .Subtitles, MaxItems=64).
+// summary catalog stores (MediaInfo.Audio and .Subtitles, MaxItems=64).
 // The TranscodeJob controller plans from that summary and the worker from a
 // live probe of every stream, so past the cap the two would plan different
 // streams, and a summary at the cap cannot say whether any were cut. A

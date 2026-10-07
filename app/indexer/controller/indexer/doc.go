@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The health and backoff ladder -- RecordFailure, RecordSuccess, Healthy,
 // StartupGrace, EscalationTable -- is NOT here. It lives in app/indexer/status,
 // beside the declaration of the very fields it computes (ruling R35). It
-// moved because indexarr's RSS poll, search fan-out and download verb all
+// moved because index's RSS poll, search fan-out and download verb all
 // need it while this package imports app/indexer/status, so a ladder here could
 // never share a home with app/indexer/status.ApplyEscalation, the one mapping
 // from an Escalation onto an apply. This package only READS the result, to
@@ -44,10 +44,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // than merging it -- one shared name means each writer silently releases the
 // other's fields.
 //
-//	k8s.ManagerIndexarr ("indexarr", this package):
+//	k8s.ManagerIndex ("index", this package):
 //	    observedGeneration, conditions, protocol, privacy, caps,
 //	    sessionSecretRef, queriesInWindow, grabsInWindow
-//	k8s.ManagerIndexarrWorker ("indexarr-worker", indexarr's RSS poll and
+//	k8s.ManagerIndexWorker ("index-worker", index's RSS poll and
 //	search fan-out):
 //	    escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
 //	    lastFailure, lastRssAt, lastRssNewCount, indexedReleases
@@ -59,13 +59,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // full window next has room -- so RateLimited clears with no traffic, where
 // it used to latch until something counted again.
 //
-// This package never applies as ManagerIndexarrWorker. It reads the worker's
+// This package never applies as ManagerIndexWorker. It reads the worker's
 // fields to derive conditions and a requeue delay, nothing more.
 //
 // # One declaration of the owned set, and it is not here (ruling R31)
 //
 // The table above is documentation. The single machine-readable declaration
-// of what k8s.ManagerIndexarr owns lives in app/indexer/status.ControllerFields,
+// of what k8s.ManagerIndex owns lives in app/indexer/status.ControllerFields,
 // and every apply this package makes goes through app/indexer/status.Patch,
 // which seeds the apply configuration from the live status and then runs this
 // package's mutate. Two places declaring one manager's owned set is precisely
@@ -102,18 +102,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
 // lastFailure, lastRssAt, lastRssNewCount and indexedReleases belong to
-// indexarr-worker. This package READS them (to derive the Healthy condition
+// index-worker. This package READS them (to derive the Healthy condition
 // and to choose a requeue delay); the workers compute the next set with app/indexer/status's
 // RecordFailure/RecordSuccess and apply it themselves. A
 // caps-probe failure therefore moves conditions and the requeue delay and
 // does not move escalationLevel: writing the escalation set here under
-// indexarr-worker would release the counters this reconciler does not know.
+// index-worker would release the counters this reconciler does not know.
 //
 // # Cardigann-defined Indexers (Phase G, G1-1)
 //
 // spec.definitionRef names an IndexerDefinition; spec.definition names a
 // definition id, which resolves only through an IndexerDefinition that
-// provides it -- one indexarr's bundle loader created from the embedded
+// provides it -- one index's bundle loader created from the embedded
 // corpus or a mounted directory (app/indexer/bundle), or one an operator
 // applied (spec.replaces, then status.id, then status.replaces: the retired
 // ids the definition's Cardigann `replaces` key says it supersedes). The
@@ -186,22 +186,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerdefinitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerproxies,verbs=get;list;watch
 //
-// secrets is get ONLY, not get;list;watch. indexarr.Options.ManagerOptions
+// secrets is get ONLY, not get;list;watch. index.Options.ManagerOptions
 // disables the Secret cache (client.CacheOptions.DisableFor), so every Secret
-// read here is a live single-object Get and nothing in indexarr ever Lists or
+// read here is a live single-object Get and nothing in index ever Lists or
 // Watches one.
 //
 // Be precise about what this buys, because it is less than it looks: Clustarr
 // generates ONE clustarr-manager-role and binds it to every service's
-// ServiceAccount, and catalogarr's metadata gateway reads Secrets through a
+// ServiceAccount, and catalog's metadata gateway reads Secrets through a
 // CACHED client, so it genuinely needs list;watch and the union keeps them in
-// the generated Role. indexarr's pod is therefore still granted verbs it does
+// the generated Role. index's pod is therefore still granted verbs it does
 // not use. What this marker fixes is the declaration -- the package asks for
 // what it uses, so the day the role is split per service the narrowing is
 // already recorded. Splitting it is the real fix and is not this task's.

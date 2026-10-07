@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package graftstate is what squasharr's TranscodeProfile, TranscodeJob
+// Package graftstate is what transcode's TranscodeProfile, TranscodeJob
 // and AudioGraft controllers share about an audio graft's state, kept apart
 // so none of the three imports another for it.
 package graftstate

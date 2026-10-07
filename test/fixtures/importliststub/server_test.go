@@ -40,7 +40,7 @@ func discardLogger() *slog.Logger {
 }
 
 // TestTraktDeviceFlowPollsThenAuthorizes drives the fixture with the REAL
-// pkg/importlist/trakt.DeviceFlow -- the same code importarr's ImportList
+// pkg/importlist/trakt.DeviceFlow -- the same code import's ImportList
 // controller runs -- proving Start, a pending Poll and an authorized Poll
 // all parse exactly as that client expects.
 func TestTraktDeviceFlowPollsThenAuthorizes(t *testing.T) {

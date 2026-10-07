@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package torrent is grabarr's torrent engine (ADR-0019 §6.7): the
+// Package torrent is grab's torrent engine (ADR-0019 §6.7): the
 // engine.Transfers over its embedded client -- the anacrolix client and
 // its re-attach descriptors -- which the shared
 // command handler (app/grab/engine) drives with the manager's seq-fenced
@@ -64,10 +64,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (spec.torrent.downloadLimitBps/uploadLimitBps): pkg/download/torrent's
 // Config exposes no rate-limiter fields to plumb them through, and adding
 // them there is D2-1's package, out of this task's directory. It resolves
-// spec.source.indexerDownload through the clustarr.rpc.indexarr.download verb
+// spec.source.indexerDownload through the clustarr.rpc.index.download verb
 // (app/indexer/download, already served) via [IndexerResolver], but the HTTP
 // fetch for torrentURL/redirectURL carries no injected rate limiter --
-// low-volume, at most one fetch per new Download, unlike indexarr's own
+// low-volume, at most one fetch per new Download, unlike index's own
 // crawl paths that the project's rate-limiting convention was written for.
 //
 // # RBAC

@@ -16,12 +16,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package search is the shared search worker every search trigger lands on:
-// the consumer of catalog.SearchTask.v1 on catalogarr-search-high and
-// catalogarr-search-normal.
+// the consumer of catalog.SearchTask.v1 on catalog-search-high and
+// catalog-search-normal.
 //
 // Spec §8.2's first half runs here -- snapshot the item, its profile, its
-// current MediaFile and its live Downloads; ask indexarr over
-// clustarr.rpc.indexarr.search; run every candidate release through
+// current MediaFile and its live Downloads; ask index over
+// clustarr.rpc.index.search; run every candidate release through
 // pkg/decision; rank what survived. What happens to the ranked list depends on
 // why the search ran: an interactive search (SearchTask.SearchRef set) has its
 // results written onto the Search object here, because only this worker ever
@@ -139,7 +139,7 @@ type Worker struct {
 	Client    client.Client
 	RPC       SearchRPC
 	Catalogue *catalogue.Catalogue
-	// Index queries indexarr's local release index, for a SearchTask with
+	// Index queries index's local release index, for a SearchTask with
 	// IndexOnly set. Nil searches such a task live, as before.
 	Index IndexQuery
 	// Publisher fans a WantedScan out into one SearchTask per eligible item.
@@ -213,7 +213,7 @@ var (
 // Handle implements events.Handler for both payloads the search consumers
 // carry.
 //
-// catalogarr-search-normal filters three subjects, not one: search.normal.>,
+// catalog-search-normal filters three subjects, not one: search.normal.>,
 // search.low.> AND wantedscan.> (events.FilterCatalogWanted, pinned in
 // pkg/events/topology.go). So this handler receives catalog.WantedScan.v1 as
 // well as catalog.SearchTask.v1 and must dispatch on the schema header rather
@@ -376,7 +376,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	//
 	// Before the sink, because grab.RecordSearchAttempt and the grab sink
 	// write the SAME owned set under the same field manager
-	// (k8s.ManagerCatalogarrGrab: pendingGrab, lastSearchedAt,
+	// (k8s.ManagerCatalogGrab: pendingGrab, lastSearchedAt,
 	// searchAttempts) through a read-modify-declare cycle. The grab path
 	// declares that set against the resourceVersion it read and retries on
 	// a conflict, so neither write can roll the other back; recording first
@@ -458,7 +458,7 @@ func Searchable(kind commonv1.MediaKind) bool {
 }
 
 // allPaced reports whether outs is non-empty and every outcome is a paced
-// skip: indexarr sent no query at all. An index-only search (searchIndex)
+// skip: index sent no query at all. An index-only search (searchIndex)
 // reports no outcomes, so it is recorded as an attempt as before.
 func allPaced(outs []schema.SearchOutcome) bool {
 	if len(outs) == 0 {
@@ -479,9 +479,9 @@ func allPaced(outs []schema.SearchOutcome) bool {
 // every twelve-hourly sweep re-searches every still-wanted item.
 //
 // The write goes through app/catalog/worker/grab, which owns that field set
-// under k8s.ManagerCatalogarrGrab and re-declares all of it on every apply.
+// under k8s.ManagerCatalogGrab and re-declares all of it on every apply.
 // Reimplementing the cycle here would release the grab path's pendingGrab,
-// which is the failure that split catalogarr-worker into per-consumer
+// which is the failure that split catalog-worker into per-consumer
 // managers in the first place. (status.activeDownloadRef is not in that set:
 // ruling R-5 gave it to the item's reconciler alone.)
 //
@@ -528,7 +528,7 @@ func grabTarget(task schema.SearchTask) commonv1.MediaRef {
 // Search.spec.limit is documented as "caps how many results are kept"
 // (api/catalog/v1alpha1/search_types.go) and the CRD caps it at 200, while
 // spec §5 pins the federated search reply at schema.MaxSearchReleases (500).
-// Sending spec.limit to indexarr as the RPC limit would fetch only that many
+// Sending spec.limit to index as the RPC limit would fetch only that many
 // releases and then rank them, so `spec.limit: 10` would surface the INDEXER's
 // arbitrary top ten rather than the best ten by the decision engine's ranking
 // -- which is the entire point of ranking. The two limits are independent.
@@ -741,7 +741,7 @@ func recordDecisionMetrics(kind commonv1.MediaKind, ds []decision.Decision) {
 }
 
 // writeResults records a completed interactive search: every indexer's
-// outcome, named or not, plus the truncation marker when indexarr cut the
+// outcome, named or not, plus the truncation marker when index cut the
 // reply.
 func (w *Worker) writeResults(
 	ctx context.Context,
@@ -757,7 +757,7 @@ func (w *Worker) writeResults(
 }
 
 // warnUnreported logs the two things about a reply that an automatic search
-// has nowhere else to put: indexarr cut the reply at its cap, and indexers
+// has nowhere else to put: index cut the reply at its cap, and indexers
 // that reported no name. An interactive search also records both on the
 // Search (writeResults); an automatic one has no object, so without this they
 // would be invisible -- which is how a truncated reply used to be reported,
@@ -765,7 +765,7 @@ func (w *Worker) writeResults(
 func warnUnreported(ctx context.Context, resp schema.SearchResponse) {
 	log := logging.FromContext(ctx)
 	if resp.Truncated {
-		log.Warn("search: indexarr truncated the reply; releases beyond the cap were never decided",
+		log.Warn("search: index truncated the reply; releases beyond the cap were never decided",
 			"cap", schema.MaxSearchReleases, "releases", len(resp.Releases))
 	}
 	for i, o := range resp.Outcomes {
@@ -801,7 +801,7 @@ func (w *Worker) writeFailure(ctx context.Context, srch *catalogv1alpha1.Search,
 
 // applySearchStatus is the one place the search worker writes a Search.
 //
-// It writes under k8s.ManagerCatalogarrWorker and owns a set of fields
+// It writes under k8s.ManagerCatalogWorker and owns a set of fields
 // deliberately disjoint from the Search reconciler's (§2's controller/worker
 // manager split): finishedAt, indexerOutcomes and results here; phase,
 // conditions, observedGeneration, startedAt and grabbed there.
@@ -857,7 +857,7 @@ const maxOutcomeErrorBytes = 512
 // (searchoutcome.UnnamedOutcomeName) numbered in reply order. It used to be
 // dropped, because status.indexerOutcomes is listType=map keyed by name and an
 // entry with no key makes the apiserver reject the whole status apply -- but
-// dropping it meant an indexer that failed before indexarr could name it
+// dropping it meant an indexer that failed before index could name it
 // contributed nothing an operator could see, not even its error. The reserved
 // names contain a slash, so none can collide with a real Indexer's name.
 func mapOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutcome {
@@ -881,7 +881,7 @@ func mapOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutco
 }
 
 // outcomeName is the name an outcome is reported under: the Indexer object's
-// name, or failing that its display name. "" means indexarr named it neither.
+// name, or failing that its display name. "" means index named it neither.
 func outcomeName(o schema.SearchOutcome) string {
 	if o.IndexerRef.Name != "" {
 		return o.IndexerRef.Name
@@ -890,7 +890,7 @@ func outcomeName(o schema.SearchOutcome) string {
 }
 
 // withTruncation adds the searchoutcome.TruncatedOutcomeName marker to an already
-// capped outcome list: indexarr cut the reply at schema.MaxSearchReleases, so
+// capped outcome list: index cut the reply at schema.MaxSearchReleases, so
 // the results the user reads were decided from a partial set. The marker
 // takes the last slot when the list is already at MaxIndexerOutcomes, because
 // a truncation nobody can see is the failure this marker exists to prevent,
@@ -900,7 +900,7 @@ func withTruncation(outcomes []catalogv1alpha1.IndexerOutcome, releases int) []c
 		Name:  searchoutcome.TruncatedOutcomeName,
 		State: catalogv1alpha1.IndexerOutcomeSkipped,
 		Count: int32(releases),
-		Error: fmt.Sprintf("indexarr cut the federated reply at %d releases; any release beyond that was never decided",
+		Error: fmt.Sprintf("index cut the federated reply at %d releases; any release beyond that was never decided",
 			schema.MaxSearchReleases),
 	}
 	if len(outcomes) >= MaxIndexerOutcomes {
@@ -979,7 +979,7 @@ func (w *Worker) topology() events.Topology {
 }
 
 // SetupWithManager subscribes both search consumers. Nothing here registers
-// itself: catalogarr's run.go calls this once, from setupWorkers.
+// itself: catalog's run.go calls this once, from setupWorkers.
 //
 // Both consumers are k8s.EveryReplica runnables, so they run on every
 // replica rather than behind the leader lease: the work queue itself is what
@@ -1037,7 +1037,7 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 // reply's byte budget.
 const indexQueryLimit = 100
 
-// searchIndex answers a search from indexarr's local release index instead
+// searchIndex answers a search from index's local release index instead
 // of the indexers (SearchTask.IndexOnly): the same text a live text search
 // sends, narrowed to the request's categories and, when it names exactly
 // one, its protocol. The index stores each release exactly as its indexer

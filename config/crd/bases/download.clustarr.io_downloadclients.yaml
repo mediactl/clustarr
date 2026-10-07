@@ -49,7 +49,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          DownloadClient is a torrent or usenet download engine managed by grabarr.
+          DownloadClient is a torrent or usenet download engine managed by grab.
           The controller owns a StatefulSet of spec.replicas engine pods; Downloads
           are assigned to this client and pinned to one of its ordinals.
         properties:
@@ -97,7 +97,7 @@ spec:
               priority:
                 default: 1
                 description: |-
-                  Priority orders clients of the same protocol when grabarr picks one for a
+                  Priority orders clients of the same protocol when grab picks one for a
                   Download; lower wins.
                 format: int32
                 maximum: 50
@@ -647,7 +647,7 @@ spec:
                             SecretRef names a Secret in the same namespace holding the provider
                             credentials. Recognised keys: username, password. The engine reads it
                             at start, so a change to its data restarts the engine at the
-                            controller's next periodic reconcile, within five minutes. grabarr
+                            controller's next periodic reconcile, within five minutes. grab
                             reads the Secret by name and does not watch Secrets, which would take
                             list and watch on every Secret in its scope.
                           properties:

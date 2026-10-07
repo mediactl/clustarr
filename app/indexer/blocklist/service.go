@@ -33,7 +33,7 @@ const maxListRows = 500
 // maxErrorChars bounds the reply's Error.
 const maxErrorChars = 1024
 
-// Service answers clustarr.rpc.indexarr.blocklist.
+// Service answers clustarr.rpc.index.blocklist.
 type Service struct {
 	// Store is the release index. A nil Store answers with Error.
 	Store relindex.Store
@@ -52,11 +52,11 @@ func (s *Service) now() time.Time {
 // the reply's Error, so the manager's owed call reads "not confirmed" and
 // calls again.
 func (s *Service) Handle(ctx context.Context, req schema.BlocklistRequest) schema.BlocklistResponse {
-	ctx, span := tracing.Start(ctx, "indexarr.blocklist")
+	ctx, span := tracing.Start(ctx, "index.blocklist")
 	defer span.End()
 
 	if s.Store == nil {
-		return schema.BlocklistResponse{Error: "indexarr: release index is not configured"}
+		return schema.BlocklistResponse{Error: "index: release index is not configured"}
 	}
 	switch req.Op {
 	case schema.BlocklistOpBlock, schema.BlocklistOpUnblock:
@@ -91,7 +91,7 @@ func (s *Service) Handle(ctx context.Context, req schema.BlocklistRequest) schem
 		}
 		if err != nil {
 			tracing.RecordError(span, err)
-			logging.FromContext(ctx).Warn("indexarr: blocklist write failed", "op", req.Op, "err", err)
+			logging.FromContext(ctx).Warn("index: blocklist write failed", "op", req.Op, "err", err)
 			return schema.BlocklistResponse{Error: clamp(err.Error())}
 		}
 		return schema.BlocklistResponse{Applied: applied, Stale: !applied}
@@ -115,7 +115,7 @@ func (s *Service) Handle(ctx context.Context, req schema.BlocklistRequest) schem
 		}
 		return schema.BlocklistResponse{Rows: out}
 	default:
-		return schema.BlocklistResponse{Error: "indexarr: unknown blocklist op " + clamp(req.Op)}
+		return schema.BlocklistResponse{Error: "index: unknown blocklist op " + clamp(req.Op)}
 	}
 }
 

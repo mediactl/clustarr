@@ -186,7 +186,7 @@ func (s *Server) handleAddSearch(w http.ResponseWriter, r *http.Request) {
 	case utf8.RuneCountInString(q) < 2:
 		res.Prompt = true
 	case s.opts.MetadataSearch == nil:
-		res.Error = "Metadata search is not available: the ui has no connection to catalogarr."
+		res.Error = "Metadata search is not available: the ui has no connection to the catalog metadata service."
 	default:
 		ctx, cancel := context.WithTimeout(r.Context(), s.addSearchTimeout)
 		defer cancel()

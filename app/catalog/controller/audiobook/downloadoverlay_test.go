@@ -49,7 +49,7 @@ func TestDownloadOverlay(t *testing.T) {
 		wantActive bool
 	}{
 		{"nil download, no opinion", nil, "", false},
-		{"created by the grab, not yet seen by grabarr", dl(""), catalogv1alpha1.AudiobookPhaseDownloading, true},
+		{"created by the grab, not yet seen by grab", dl(""), catalogv1alpha1.AudiobookPhaseDownloading, true},
 		{"pending is queued, not delayed: Downloading", dl(downloadv1alpha1.DownloadPhasePending), catalogv1alpha1.AudiobookPhaseDownloading, true},
 		{"assigned maps to Downloading", dl(downloadv1alpha1.DownloadPhaseAssigned), catalogv1alpha1.AudiobookPhaseDownloading, true},
 		{"queued maps to Downloading", dl(downloadv1alpha1.DownloadPhaseQueued), catalogv1alpha1.AudiobookPhaseDownloading, true},

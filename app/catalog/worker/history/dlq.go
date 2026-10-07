@@ -189,7 +189,7 @@ func (p *DLQProjector) SetupLeaderOnly(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, p.Subscription(), p.Handle)
 		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe dlq-projector: %w", err)
+			return fmt.Errorf("catalog: subscribe dlq-projector: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()

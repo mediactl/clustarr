@@ -28,7 +28,7 @@ import (
 )
 
 // RunPullContract holds a bus's PullSubscriber and StreamAdmin to the
-// behaviour squasharr's worker pools depend on.
+// behaviour transcode's worker pools depend on.
 func RunPullContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("PullHandsOutOneMessagePerNext", func(t *testing.T) { testPullOnePerNext(t, newBus) })
 	t.Run("PullRedeliversANakedMessage", func(t *testing.T) { testPullRedelivers(t, newBus) })
@@ -257,7 +257,7 @@ func testDeleteSubscription(t *testing.T, newBus func() events.Bus) {
 	}
 }
 
-// testSubscriptions is what squasharr's pool sweep stands on (final-review
+// testSubscriptions is what transcode's pool sweep stands on (final-review
 // M1): Subscriptions lists every durable a Pull or a Subscribe created on a
 // stream -- after its puller or subscription stopped, since a durable
 // outlives both -- and a durable DeleteSubscription removed is gone from

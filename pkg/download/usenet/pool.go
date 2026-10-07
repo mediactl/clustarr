@@ -142,7 +142,7 @@ type ServerStats struct {
 
 // penaltyRefused is how long a provider sits out after a 400/502. SABnzbd's
 // _PENALTY_TOOMANY is 10 minutes, which is right for a human-tended client;
-// grabarr is level-driven and re-reconciles, so a shorter penalty recovers
+// grab is level-driven and re-reconciles, so a shorter penalty recovers
 // faster without hammering.
 const penaltyRefused = 2 * time.Minute
 

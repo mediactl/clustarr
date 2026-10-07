@@ -40,7 +40,7 @@ func TestRunRejectsAnUnknownRole(t *testing.T) {
 func TestManagerOptionsUseTheImportLeaderElectionID(t *testing.T) {
 	o := importapp.Options{Role: "controller", LeaderElect: true}
 	mo := o.ManagerOptions()
-	require.Equal(t, "importarr.clustarr.io", mo.LeaderElectionID)
+	require.Equal(t, "import.clustarr.io", mo.LeaderElectionID)
 	require.True(t, mo.LeaderElection)
 }
 
@@ -94,7 +94,7 @@ func TestTheControllerRoleCachesMediaFilesWithoutMediaInfo(t *testing.T) {
 	mf := &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:          "heat",
-			ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "catalogarr"}},
+			ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "catalog"}},
 		},
 		Spec: catalogv1alpha1.MediaFileSpec{Path: "/data/media/movies/Heat/heat.mkv"},
 		Status: catalogv1alpha1.MediaFileStatus{
@@ -119,7 +119,7 @@ func TestTheControllerRoleCachesMediaFilesWithoutMediaInfo(t *testing.T) {
 	}
 }
 
-// No importarr role caches Secrets or ConfigMaps: the role grants get alone
+// No import role caches Secrets or ConfigMaps: the role grants get alone
 // on both, and a cached read starts an informer, which needs list and watch
 // on every one in scope. The list worker's read of a Plex watchlist's token
 // Secret waited forever on that informer, so no ImportList ever synced

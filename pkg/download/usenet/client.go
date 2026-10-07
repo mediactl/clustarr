@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package usenet is the NNTP half of [download.Client]: it turns a .nzb body
 // into finished content under a data directory, and reports the transfer the
-// way grabarr's controllers expect.
+// way grab's controllers expect.
 //
 // # What it owns end to end
 //

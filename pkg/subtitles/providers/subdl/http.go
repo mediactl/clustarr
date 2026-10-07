@@ -54,7 +54,7 @@ var (
 	// ErrRejected is a 4xx that is about one request -- a title the API
 	// refuses to parse, a subtitle that no longer exists -- and says nothing
 	// about the provider's health (Bazarr's SubdlRequestRejected). It is
-	// deliberately not a subtitles.ProviderError: captionarr throttles the
+	// deliberately not a subtitles.ProviderError: caption throttles the
 	// whole provider on one of those, and one dead download link is not a
 	// reason to stop using SubDL.
 	ErrRejected = errors.New("subtitles: subdl: request rejected")
@@ -74,7 +74,7 @@ var apiKeyParam = regexp.MustCompile(`(api_key=)[^&\s"]+`)
 
 // redact strips the API key from s (Bazarr's _redact): SubDL takes the key
 // in the query string, so it is in every request URL, and Go's *url.Error
-// quotes the URL in its message -- which captionarr writes into a
+// quotes the URL in its message -- which caption writes into a
 // SubtitleRequest's status.
 func redact(s string) string { return apiKeyParam.ReplaceAllString(s, "${1}<redacted>") }
 
@@ -129,7 +129,7 @@ func (e errorPayload) text() string {
 
 // statusError is Bazarr's checked() status mapping, less its inline sleeps:
 // a library that sleeps inside Search holds the caller's fetch task hostage
-// (captionarr's AckWait is 90 s), so where Bazarr waits out a short delay
+// (caption's AckWait is 90 s), so where Bazarr waits out a short delay
 // and retries, this returns the error with RetryAfter set to that delay,
 // and subtitles.ThrottleFor benches the provider for exactly that long.
 //

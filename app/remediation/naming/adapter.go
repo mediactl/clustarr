@@ -58,7 +58,7 @@ type Input struct {
 // Name implements remediation.Planner.
 func (*Adapter) Name() remediation.PlannerName { return remediation.PlannerNaming }
 
-// Applies: catalogarr names movies and episodes (mediafile's namingOwner).
+// Applies: catalog names movies and episodes (mediafile's namingOwner).
 func (*Adapter) Applies(mf *catalogv1alpha1.MediaFile) bool {
 	k := mf.Spec.MediaRef.Kind
 	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode

@@ -49,11 +49,11 @@ func TestManagerOptionsLeaderElection(t *testing.T) {
 
 	// Controllers are leader-elected; §12 runs one active replica per
 	// service.
-	opts := o.ManagerOptions("catalogarr.clustarr.io", true)
+	opts := o.ManagerOptions("catalog.clustarr.io", true)
 	if !opts.LeaderElection {
 		t.Error("leader election was not enabled for a controller role")
 	}
-	if opts.LeaderElectionID != "catalogarr.clustarr.io" {
+	if opts.LeaderElectionID != "catalog.clustarr.io" {
 		t.Errorf("LeaderElectionID = %q", opts.LeaderElectionID)
 	}
 	if opts.LeaderElectionNamespace != "clustarr" {
@@ -65,7 +65,7 @@ func TestManagerOptionsLeaderElection(t *testing.T) {
 
 	// Workers run on every replica: a worker that waited for the lease would
 	// never start.
-	opts = o.ManagerOptions("catalogarr.clustarr.io", false)
+	opts = o.ManagerOptions("catalog.clustarr.io", false)
 	if opts.LeaderElection {
 		t.Error("leader election was enabled for a worker role")
 	}
@@ -77,7 +77,7 @@ func TestManagerOptionsLeaderElection(t *testing.T) {
 // every leader-elected service lost its lease and exited. controller-runtime
 // derives the lease request timeout as RenewDeadline/2.
 func TestManagerOptionsLeaseRidesOutAnEtcdStall(t *testing.T) {
-	opts := DefaultOptions().ManagerOptions("catalogarr.clustarr.io", true)
+	opts := DefaultOptions().ManagerOptions("catalog.clustarr.io", true)
 	if opts.LeaseDuration == nil || opts.RenewDeadline == nil || opts.RetryPeriod == nil {
 		t.Fatal("the lease timings are left at controller-runtime's defaults")
 	}
@@ -96,25 +96,25 @@ func TestManagerOptionsLeaderElectionNamespaceOverride(t *testing.T) {
 	o := DefaultOptions()
 	o.Namespace = "pod-namespace"
 	o.LeaderElectionNamespace = "explicit"
-	if got := o.ManagerOptions("indexarr.clustarr.io", true).LeaderElectionNamespace; got != "explicit" {
+	if got := o.ManagerOptions("index.clustarr.io", true).LeaderElectionNamespace; got != "explicit" {
 		t.Fatalf("LeaderElectionNamespace = %q, want the explicit flag to win", got)
 	}
 }
 
 func TestManagerOptionsMetrics(t *testing.T) {
 	o := DefaultOptions()
-	opts := o.ManagerOptions("indexarr.clustarr.io", false)
+	opts := o.ManagerOptions("index.clustarr.io", false)
 	if !opts.Metrics.SecureServing {
 		t.Error("SecureServing is off")
 	}
 
 	o.MetricsSecure = false
-	if o.ManagerOptions("indexarr.clustarr.io", false).Metrics.SecureServing {
+	if o.ManagerOptions("index.clustarr.io", false).Metrics.SecureServing {
 		t.Error("SecureServing survived --metrics-secure=false")
 	}
 
 	o.MetricsBindAddress = DisabledBindAddress
-	opts = o.ManagerOptions("indexarr.clustarr.io", false)
+	opts = o.ManagerOptions("index.clustarr.io", false)
 	if opts.Metrics.BindAddress != DisabledBindAddress {
 		t.Errorf("BindAddress = %q, want the disable sentinel", opts.Metrics.BindAddress)
 	}
@@ -126,12 +126,12 @@ func TestManagerOptionsMetrics(t *testing.T) {
 func TestManagerOptionsWatchNamespaces(t *testing.T) {
 	o := DefaultOptions()
 
-	if got := o.ManagerOptions("grabarr.clustarr.io", false).Cache.DefaultNamespaces; got != nil {
+	if got := o.ManagerOptions("grab.clustarr.io", false).Cache.DefaultNamespaces; got != nil {
 		t.Errorf("an unset --watch-namespace scoped the cache to %v", got)
 	}
 
 	o.WatchNamespaces = []string{"media", "media-staging"}
-	got := o.ManagerOptions("grabarr.clustarr.io", false).Cache.DefaultNamespaces
+	got := o.ManagerOptions("grab.clustarr.io", false).Cache.DefaultNamespaces
 	if len(got) != 2 {
 		t.Fatalf("cache namespaces = %v, want two entries", got)
 	}
@@ -144,20 +144,20 @@ func TestManagerOptionsWatchNamespaces(t *testing.T) {
 
 func TestManagerOptionsGracefulShutdown(t *testing.T) {
 	o := DefaultOptions()
-	opts := o.ManagerOptions("squasharr.clustarr.io", false)
+	opts := o.ManagerOptions("transcode.clustarr.io", false)
 	if opts.GracefulShutdownTimeout == nil || *opts.GracefulShutdownTimeout != DefaultGracefulShutdownTimeout {
 		t.Fatalf("GracefulShutdownTimeout = %v", opts.GracefulShutdownTimeout)
 	}
 
 	o.GracefulShutdownTimeout = 90 * time.Second
-	opts = o.ManagerOptions("squasharr.clustarr.io", false)
+	opts = o.ManagerOptions("transcode.clustarr.io", false)
 	if *opts.GracefulShutdownTimeout != 90*time.Second {
 		t.Fatalf("GracefulShutdownTimeout = %v, want the override", *opts.GracefulShutdownTimeout)
 	}
 }
 
 func TestManagerOptionsAlwaysHasAScheme(t *testing.T) {
-	opts := DefaultOptions().ManagerOptions("captionarr.clustarr.io", false)
+	opts := DefaultOptions().ManagerOptions("caption.clustarr.io", false)
 	if opts.Scheme == nil {
 		t.Fatal("ManagerOptions returned a nil scheme")
 	}
@@ -216,7 +216,7 @@ func TestRegisterRESTClientMetricsIsIdempotent(t *testing.T) {
 // TestManagerOptionsSurviveABigLibrary: on a library of 15,000 Episodes
 // the initial List is 57 MB and does not always finish inside
 // controller-runtime's two-minute cache-sync default, which crash-looped
-// captionarr (2026-09-24), so every manager waits CacheSyncTimeout and
+// caption (2026-09-24), so every manager waits CacheSyncTimeout and
 // every cache strips managedFields -- a third of those bytes that no
 // reconciler reads from a cached object (the two readers of managedFields
 // go through the API reader). The transform survives a namespace list.
@@ -226,7 +226,7 @@ func TestManagerOptionsSurviveABigLibrary(t *testing.T) {
 		"namespaced":   {WatchNamespaces: []string{"media"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			opts := o.ManagerOptions("catalogarr.clustarr.io", false)
+			opts := o.ManagerOptions("catalog.clustarr.io", false)
 			if opts.Controller.CacheSyncTimeout != CacheSyncTimeout {
 				t.Fatalf("cache sync timeout = %v, want %v", opts.Controller.CacheSyncTimeout, CacheSyncTimeout)
 			}
@@ -265,7 +265,7 @@ func TestManagerOptionsSurviveABigLibrary(t *testing.T) {
 func TestWithBaseContextCarriesTheServicesLoggerToRunnables(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx := logging.NewContext(context.Background(), logger)
-	opts := WithBaseContext(DefaultOptions().ManagerOptions("catalogarr.clustarr.io", false), ctx)
+	opts := WithBaseContext(DefaultOptions().ManagerOptions("catalog.clustarr.io", false), ctx)
 	if opts.BaseContext == nil {
 		t.Fatal("no BaseContext: runnables would get context.Background and its discard logger")
 	}

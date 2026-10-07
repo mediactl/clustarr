@@ -24,10 +24,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //  1. an Indexer pointed at the fixture reconciles to healthy, with
 //     status.caps from a LIVE capabilities fetch and status.protocol resolved;
-//  2. a Search CR returns RANKED results -- snapshot -> rpc.indexarr.search ->
+//  2. a Search CR returns RANKED results -- snapshot -> rpc.index.search ->
 //     pkg/decision -> RankAndCap -> status.results, the whole Phase C path
 //     that until Phase D1 called into silence;
-//  3. the release firehose reaches catalogarr's rss-matcher with a legal
+//  3. the release firehose reaches catalog's rss-matcher with a legal
 //     "<namespace>/<indexer>" envelope key, asserted by what the MATCHER DID;
 //  4. health and backoff are observable: a failing indexer escalates, is
 //     disabled, and is then neither queried by the fan-out nor polled again.
@@ -175,8 +175,8 @@ func TestIndexerHealthAndCaps(t *testing.T) {
 }
 
 // TestIndexerSearchReturnsRankedResults is scenario 17's centre of gravity:
-// the first time catalogarr's search path has had a server on the other end of
-// rpc.indexarr.search. Everything from the Search CR through the snapshot, the
+// the first time catalog's search path has had a server on the other end of
+// rpc.index.search. Everything from the Search CR through the snapshot, the
 // RPC, pkg/decision and RankAndCap to status.results runs for real, against
 // real XML off a real HTTP server.
 func TestIndexerSearchReturnsRankedResults(t *testing.T) {
@@ -211,7 +211,7 @@ func TestIndexerSearchReturnsRankedResults(t *testing.T) {
 	//
 	// Correction C1: the subject token, the envelope key's second segment and
 	// ReleaseInfo.IndexerRef must all be the object name, never a display
-	// name. If indexarr used a display name here, this outcome's Name would
+	// name. If index used a display name here, this outcome's Name would
 	// not match any Indexer and rssmatcher's indexer-priority lookup would
 	// silently fall back to the default -- a release that arrives, matches and
 	// ranks against a priority resolving to nothing.
@@ -266,14 +266,14 @@ func TestIndexerSearchReturnsRankedResults(t *testing.T) {
 
 	// Live, and id-based. Two separate claims, both from the request log:
 	//   - a t=movie request reached the fixture during THIS scenario, so the
-	//     results cannot have come from indexarr's local release index
-	//     (rpc.indexarr.query's store) or any future cache;
+	//     results cannot have come from index's local release index
+	//     (rpc.index.query's store) or any future cache;
 	//   - it carried the provider id, not free text, which is what ruling R11
 	//     says the ids-only caller produces. A regression to q= would show up
 	//     here as a query with no tmdbid/imdbid, and the fixture would have
 	//     answered the empty feed.
 	movieReqs := torznabRequestsMatching(t, t0, torznabstub.PathHealthy, "movie")
-	require.NotEmpty(t, movieReqs, "indexarr never issued a t=movie query to the fixture")
+	require.NotEmpty(t, movieReqs, "index never issued a t=movie query to the fixture")
 	var idBased bool
 	for _, r := range movieReqs {
 		v, err := url.ParseQuery(r.Query)
@@ -289,13 +289,13 @@ func TestIndexerSearchReturnsRankedResults(t *testing.T) {
 }
 
 // TestIndexerReleaseFirehose is scenario 17's third leg: a release published
-// by indexarr's RSS worker reaches catalogarr's rss-matcher with a legal
+// by index's RSS worker reaches catalog's rss-matcher with a legal
 // envelope key, and the matcher acts on it.
 //
-// It asserts what the MATCHER DID, not what indexarr published. The matcher
+// It asserts what the MATCHER DID, not what index published. The matcher
 // events.Discard()s -- straight to the DLQ, bypassing MaxDeliver -- on any
 // envelope key it cannot strings.Cut on "/", so a wrong key is silent and
-// invisible: indexarr's own status would still show lastRssNewCount > 0, the
+// invisible: index's own status would still show lastRssNewCount > 0, the
 // stream would still show the message, and nothing anywhere would report a
 // failure. Only a downstream effect distinguishes "published" from "arrived".
 //
@@ -347,7 +347,7 @@ func TestIndexerReleaseFirehose(t *testing.T) {
 	idx := newIndexer(ctx, t, "e2e-fh-idx", "", time.Minute, true /* enableRss */)
 	waitForIndexerReady(ctx, t, idx)
 
-	// indexarr's own side first, so a failure is attributed correctly: if the
+	// index's own side first, so a failure is attributed correctly: if the
 	// poll itself never happened, that is the RSS worker's bug, not the
 	// matcher's.
 	waitFor(t, ctx, firehoseTimeout, "Indexer "+idx.Name+" published an RSS poll",
@@ -360,8 +360,8 @@ func TestIndexerReleaseFirehose(t *testing.T) {
 			return live.Status.LastRssAt != nil && live.Status.IndexedReleases >= 1, nil
 		}, describeIndexer(client.ObjectKeyFromObject(idx)), describeTorznabRequests(t0))
 
-	// The arrival assertion. status.pendingGrab is written by catalogarr's
-	// grab path under ManagerCatalogarrGrab, and it can only exist if the
+	// The arrival assertion. status.pendingGrab is written by catalog's
+	// grab path under ManagerCatalogGrab, and it can only exist if the
 	// release was decoded, its envelope key split into THIS namespace, matched
 	// to this Movie by tmdbid, resolved, evaluated and delayed. The title is
 	// the fixture's string, which appears nowhere on disk, in any CR, or in
@@ -423,7 +423,7 @@ func TestIndexerFailureBackoff(t *testing.T) {
 	// The startup-grace allowance is resolved BEFORE the scenario context
 	// exists, so it is not charged against scenarioTimeout. It is an ALLOWANCE,
 	// not a sleep: nothing here waits for it, the escalation wait below is
-	// simply sized to survive it. See indexarrStartupGraceEndsAt.
+	// simply sized to survive it. See indexStartupGraceEndsAt.
 	graceEndsAt := indexStartupGraceEndsAt(t)
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout+remaining(graceEndsAt))
 	defer cancel()
@@ -431,7 +431,7 @@ func TestIndexerFailureBackoff(t *testing.T) {
 
 	// An indexer whose caps NEVER probe, asserted first and deliberately: it
 	// documents why the escalation leg below does NOT use this personality.
-	// indexarr computes escalation only where a failure is OBSERVED -- the RSS
+	// index computes escalation only where a failure is OBSERVED -- the RSS
 	// poll and the search fan-out (R6/R15) -- the reconciler seeds the RSS
 	// chain only for a healthy indexer, and the fan-out skips an indexer whose
 	// status.caps is nil. So an indexer that cannot answer t=caps is never
@@ -466,7 +466,7 @@ func TestIndexerFailureBackoff(t *testing.T) {
 	// status.caps, NOT Ready, is what this indexer is waited on for -- and the
 	// difference is a real race, not pedantry. Caps are folded in on a
 	// SUCCESSFUL probe only and are never cleared by a later failure, so
-	// "caps != nil" is monotonic; Ready/Healthy are not. Once indexarr is past
+	// "caps != nil" is monotonic; Ready/Healthy are not. Once index is past
 	// its startup grace the very first failing RSS poll disables this indexer
 	// within seconds of the caps probe that made it Ready, so a wait on Ready
 	// polling every 2s can miss the window entirely and hang -- which is
@@ -509,14 +509,14 @@ func TestIndexerFailureBackoff(t *testing.T) {
 	// The deadline carries the startup-grace allowance on top of
 	// escalationTimeout. It is added unconditionally rather than branched on
 	// whether CLUSTARR_INDEXER_STARTUP_GRACE is set, because whether the
-	// deployed indexarr HONOURS that variable is not observable from outside
+	// deployed index HONOURS that variable is not observable from outside
 	// the process -- and the only honest way to handle an unobservable fact is
 	// not to depend on it. When the variable works, the condition holds within
 	// a couple of minutes and the wait returns then; the allowance costs
 	// nothing it does not need.
 	escalationDeadline := escalationTimeout + remaining(graceEndsAt)
 	if rem := remaining(graceEndsAt); rem > 0 {
-		t.Logf("allowing an extra %s for indexarr's startup grace, which suppresses "+
+		t.Logf("allowing an extra %s for index's startup grace, which suppresses "+
 			"escalation entirely until then", rem.Round(time.Second))
 	}
 	var down indexv1alpha1.Indexer
@@ -542,7 +542,7 @@ func TestIndexerFailureBackoff(t *testing.T) {
 
 	// It really was contacted, and really at the failing path: the only
 	// assertion that spec.generic.apiPath is JOINED onto baseURL for a SEARCH.
-	// If indexarr ignored it, every request would land on "/api" instead, the
+	// If index ignored it, every request would land on "/api" instead, the
 	// indexer would be perfectly healthy, and this test would have failed on
 	// the escalation wait with a request log full of successful /api calls --
 	// a diagnosis, not a mystery.
@@ -638,28 +638,28 @@ func remaining(at time.Time) time.Duration {
 	return 0
 }
 
-// indexarrStartupGraceEndsAt returns the wall-clock instant from which
-// indexarr's backoff ladder is certain to be able to move.
+// indexStartupGraceEndsAt returns the wall-clock instant from which
+// index's backoff ladder is certain to be able to move.
 //
 // app/indexer/status.RecordFailure suppresses escalation for any failure inside
-// StartupGrace (15 minutes) of the indexarr PROCESS's start -- Prowlarr's
+// StartupGrace (15 minutes) of the index PROCESS's start -- Prowlarr's
 // MinimumTimeSinceStartup, so a restart does not disable every indexer at
 // once. `make e2e` has a 30-minute budget in total, so that window is half of
-// it, and how old indexarr's process is when this scenario runs depends
+// it, and how old index's process is when this scenario runs depends
 // entirely on how long the scenarios before it took.
 //
-// config/e2e/indexarr-e2e-patch.yaml therefore sets
-// CLUSTARR_INDEXER_STARTUP_GRACE=0s. THAT VARIABLE IS NOT READ BY INDEXARR
+// config/e2e/index-e2e-patch.yaml therefore sets
+// CLUSTARR_INDEXER_STARTUP_GRACE=0s. THAT VARIABLE IS NOT READ BY INDEX
 // YET: StartupGrace is a const in app/indexer/status/health.go and nothing in
 // app/indexer/run.go plumbs an override. The D1-9 brief listed the variable as an
 // interface task D1-8 would provide; D1-8 did not, and D1-9 may not edit
-// indexarr.
+// index.
 //
 // Whether the deployed image honours the variable is NOT observable from
 // outside the process, so this function does not branch on it. It checks that
 // config/e2e declares the variable correctly when it declares it at all --
 // that much is checkable -- and otherwise always returns the instant the real
-// grace elapses, measured from the newest indexarr Pod's startTime. The caller
+// grace elapses, measured from the newest index Pod's startTime. The caller
 // uses it as an ALLOWANCE on a wait's deadline, never as a sleep: when the
 // variable does work, the ladder moves in a couple of minutes and the wait
 // returns then, so the allowance costs nothing. Plumb the variable in
@@ -673,8 +673,8 @@ func indexStartupGraceEndsAt(t *testing.T) time.Time {
 	defer cancel()
 
 	var dep appsv1.Deployment
-	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: Namespace, Name: "indexarr"}, &dep),
-		"the indexarr Deployment must exist; TestMain's gate should already have refused otherwise")
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: Namespace, Name: "index"}, &dep),
+		"the index Deployment must exist; TestMain's gate should already have refused otherwise")
 
 	const graceEnv = "CLUSTARR_INDEXER_STARTUP_GRACE"
 	declared := false
@@ -690,12 +690,12 @@ func indexStartupGraceEndsAt(t *testing.T) time.Time {
 		}
 	}
 
-	// The real grace, measured from the newest indexarr Pod -- the newest,
+	// The real grace, measured from the newest index Pod -- the newest,
 	// because that is the process whose clock the ladder is compared against.
 	var pods corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &pods,
 		client.InNamespace(Namespace),
-		client.MatchingLabels{"app.kubernetes.io/component": "indexarr"}))
+		client.MatchingLabels{"app.kubernetes.io/component": "index"}))
 	var newest time.Time
 	for i := range pods.Items {
 		p := &pods.Items[i]
@@ -704,11 +704,11 @@ func indexStartupGraceEndsAt(t *testing.T) time.Time {
 		}
 	}
 	require.False(t, newest.IsZero(),
-		"no running indexarr Pod reported a startTime, so its startup grace cannot be bounded")
+		"no running index Pod reported a startTime, so its startup grace cannot be bounded")
 
 	const startMargin = 30 * time.Second
 	endsAt := newest.Add(idxstatus.StartupGrace).Add(startMargin)
-	t.Logf("indexarr Pod started %s; %s declared in the Deployment: %t. "+
+	t.Logf("index Pod started %s; %s declared in the Deployment: %t. "+
 		"Allowing until %s (%s + %s margin) for escalation to become possible; the wait "+
 		"returns as soon as the ladder actually moves, which is immediately if the variable "+
 		"is honoured. Plumb it in app/indexer/run.go to remove the worst case.",

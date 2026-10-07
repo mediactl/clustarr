@@ -86,7 +86,7 @@ func BuildRegistry(ctx context.Context, c client.Client, providers []catalogv1al
 				// The controller reports this one Ready=False InvalidSpec; it
 				// must not take the others down with the gateway (a hardcover
 				// provider against a Secret holding apiKey where hardcover
-				// reads bearer crash-looped catalogarr-metadata on kind,
+				// reads bearer crash-looped catalog-metadata on kind,
 				// 2026-09-24).
 				logging.FromContext(ctx).Error("metadata provider skipped: its credentials cannot be read",
 					"namespace", p.Namespace, "provider", p.Name, "type", p.Spec.Type, "error", err)

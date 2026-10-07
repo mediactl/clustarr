@@ -125,7 +125,7 @@ func Hash(s Spec) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// applied is the Spec squasharr last applied to j, from its annotation.
+// applied is the Spec transcode last applied to j, from its annotation.
 // Judging drift against it, not j.Spec.Template, ignores apiserver defaulting.
 func applied(j *batchv1.Job) (Spec, bool) {
 	var s Spec
@@ -177,7 +177,7 @@ func mutablePart(t corev1.PodTemplateSpec) mutable {
 	return m
 }
 
-// Render is the one complete declaration squasharr-pool makes for a pool.
+// Render is the one complete declaration transcode-pool makes for a pool.
 // An existing Job is always re-sent the constraint it was created with (it
 // is immutable even while suspended). While the Job is not Mutable, its
 // applied template is re-sent unchanged too: a template field this manager

@@ -62,7 +62,7 @@ func (f *engineFetcher) Scrub(s string) string { return f.scrub(s) }
 // selector that matched one, or an infohash block), the magnet URI itself as
 // the body -- which is reported as MagnetURL, never as a .torrent payload.
 func (f *engineFetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error) {
-	ctx, span := tracing.Start(ctx, "indexarr.download.engine")
+	ctx, span := tracing.Start(ctx, "index.download.engine")
 	defer span.End()
 
 	u, err := url.Parse(rawURL)

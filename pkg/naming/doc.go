@@ -26,7 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // not import any Kubernetes-generated package except
 // api/common/v1alpha1 (aliased commonv1), the shared vocabulary of
 // MediaKind, Quality, Source, Modifier, Revision, HdrFormat and MediaInfo.
-// Phase C's catalogarr controller is responsible for converting the
+// Phase C's catalog controller is responsible for converting the
 // generated catalogv1alpha1.NamingSpec into a naming.Config, and for
 // casting its enum values into this package's Dialect / ColonReplacement /
 // MultiEpisodeStyle types -- values chosen to match 1:1 so that cast is a

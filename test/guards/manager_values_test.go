@@ -28,9 +28,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// TestChartIndexarrCardigannReachesIndexarr pins what the chart renders for
-// indexarr.cardigann.* (X16 verified it with `helm template` by hand only):
-// each value's env var, volume and mount on the indexarr Deployment, then
+// TestChartIndexCardigannReachesIndex pins what the chart renders for
+// index.cardigann.* (X16 verified it with `helm template` by hand only):
+// each value's env var, volume and mount on the index Deployment, then
 // that container's env and args run through the real command tree, so a
 // renamed env var or flag on either side fails here rather than on a
 // cluster. The default render adds nothing -- the binary's own defaults
@@ -51,12 +51,12 @@ func TestChartIndexCardigannReachesIndex(t *testing.T) {
 	}{
 		"defaults": {env: map[string]string{}, wantBundled: true},
 		"bundled off": {
-			args:        []string{"--set", "indexarr.cardigann.bundled=false"},
+			args:        []string{"--set", "index.cardigann.bundled=false"},
 			env:         map[string]string{cardigannBundledEnv: "false"},
 			wantBundled: false,
 		},
 		"configMap": {
-			args:        []string{"--set", "indexarr.cardigann.definitions.configMap=cardigann-defs"},
+			args:        []string{"--set", "index.cardigann.definitions.configMap=cardigann-defs"},
 			env:         map[string]string{cardigannDefinitionsDirEnv: dir},
 			volume:      &corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "cardigann-defs"}}},
 			mount:       &corev1.VolumeMount{Name: "cardigann", MountPath: dir, ReadOnly: true},
@@ -65,8 +65,8 @@ func TestChartIndexCardigannReachesIndex(t *testing.T) {
 		},
 		"existingClaim with subPath": {
 			args: []string{
-				"--set", "indexarr.cardigann.definitions.existingClaim=cardigann-pvc",
-				"--set", "indexarr.cardigann.definitions.subPath=v11",
+				"--set", "index.cardigann.definitions.existingClaim=cardigann-pvc",
+				"--set", "index.cardigann.definitions.subPath=v11",
 			},
 			env:         map[string]string{cardigannDefinitionsDirEnv: dir},
 			volume:      &corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "cardigann-pvc", ReadOnly: true}},
@@ -86,7 +86,7 @@ func TestChartIndexCardigannReachesIndex(t *testing.T) {
 					got[e.Name] = e.Value
 				}
 			}
-			require.Equal(t, tc.env, got, "the cardigann env vars on the indexarr container")
+			require.Equal(t, tc.env, got, "the cardigann env vars on the index container")
 
 			var vol *corev1.Volume
 			for i := range dep.Spec.Template.Spec.Volumes {
@@ -130,7 +130,7 @@ func TestChartIndexCardigannReachesIndex(t *testing.T) {
 	}
 }
 
-// TestChartRefusesTwoCardigannDefinitionSources: indexarr loads one
+// TestChartRefusesTwoCardigannDefinitionSources: index loads one
 // definitions directory, so a configMap and an existingClaim together fail
 // the render (clustarr.validate) instead of mounting one and ignoring the
 // other.
@@ -140,22 +140,22 @@ func TestChartRefusesTwoCardigannDefinitionSources(t *testing.T) {
 	require.NoError(t, err)
 
 	cmd := exec.Command(helm, "template", "clustarr", "charts/clustarr",
-		"--set", "indexarr.cardigann.definitions.configMap=a",
-		"--set", "indexarr.cardigann.definitions.existingClaim=b")
+		"--set", "index.cardigann.definitions.configMap=a",
+		"--set", "index.cardigann.definitions.existingClaim=b")
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	require.Error(t, cmd.Run(), "a render with both definition sources must fail")
-	require.Contains(t, stderr.String(), "indexarr.cardigann.definitions: set configMap or existingClaim, not both")
+	require.Contains(t, stderr.String(), "index.cardigann.definitions: set configMap or existingClaim, not both")
 }
 
 func indexDeployment(t *testing.T, deps []appsv1.Deployment) *appsv1.Deployment {
 	t.Helper()
 	for i := range deps {
-		if deps[i].Spec.Template.Labels["app.kubernetes.io/component"] == "indexarr" {
+		if deps[i].Spec.Template.Labels["app.kubernetes.io/component"] == "index" {
 			return &deps[i]
 		}
 	}
-	t.Fatal("no indexarr Deployment rendered")
+	t.Fatal("no index Deployment rendered")
 	return nil
 }

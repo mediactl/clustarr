@@ -35,7 +35,7 @@ import (
 // TestATransientImportIsRetriedThenHeld plays every delivery of an import
 // whose content root cannot be read: the owner's three retries over about
 // an hour (2026-10-07), status.import pending and saying when, and after
-// the last a hold for a person -- never a failure grabarr would blocklist.
+// the last a hold for a person -- never a failure grab would blocklist.
 func TestATransientImportIsRetriedThenHeld(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, "fi-remediate-transient")
@@ -77,7 +77,7 @@ func TestATransientImportIsRetriedThenHeld(t *testing.T) {
 // TestARefusedReleaseIsRecheckedBeforeItIsBlamed: a movie download whose
 // one file the profile does not allow is the release's fault, built through
 // the real walk -- but walked once more first, and blocked as such only when
-// the second walk agrees. Its file stays: removing it is grabarr's and the
+// the second walk agrees. Its file stays: removing it is grab's and the
 // engine's, once the release is blocklisted.
 func TestARefusedReleaseIsRecheckedBeforeItIsBlamed(t *testing.T) {
 	ctx := context.Background()

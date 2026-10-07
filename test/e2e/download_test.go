@@ -18,12 +18,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Task D2-10 -- e2e scenarios 1 (through import), 3, 4 and 6
-// (docs/superpowers/plans/2026-09-22-phase-d2-grabarr.md). This file covers
-// grabarr's own new surface: the DownloadClient and Download controllers
+// (docs/superpowers/plans/2026-09-22-phase-d2-grab.md). This file covers
+// grab's own new surface: the DownloadClient and Download controllers
 // (D2-3, D2-4, D2-8a) and the torrent/usenet engines (D2-5, D2-6) against
 // real fixture services, driving real transfers over cluster networking.
 // Scenario 2 (RSS upgrade) is test/e2e/import_test.go's file, since its
-// D2-relevant half is importarr's upgrade/recycle logic, not grabarr's.
+// D2-relevant half is import's upgrade/recycle logic, not grab's.
 //
 // # Verified gaps this file was written against, not assumed
 //
@@ -49,7 +49,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     before D2-11's gate gives it (and this file) a green build. Every
 //     scenario below is written assuming the wiring is complete by
 //     execution time (the plan's own wave ordering requires it -- wave 4's
-//     D2-8 before wave 5's D2-10); if it is not, or regresses, grabarr's
+//     D2-8 before wave 5's D2-10); if it is not, or regresses, grab's
 //     DownloadClient will never report EngineReady and
 //     waitForEngineReady's own timeout will name exactly that condition
 //     rather than hang silently with no diagnosis.
@@ -90,11 +90,11 @@ import (
 	"github.com/mediactl/clustarr/test/fixtures/nntpstub"
 )
 
-// TestDownloadTorrentGrabToImportAttempt is scenario 1's grabarr+importarr
+// TestDownloadTorrentGrabToImportAttempt is scenario 1's grab+import
 // slice: a Movie with real TMDB metadata, a real torrent DownloadClient/
 // engine, a Download driven directly against test/fixtures/seeder (see
 // newTorrentDownloadE2E's doc comment for why direct creation stands in for
-// catalogarr's real grab decision here), through Completed/Seeding, then a
+// catalog's real grab decision here), through Completed/Seeding, then a
 // real import to Imported with a MediaFile.
 //
 // The transcode and subtitle legs of scenario 1 ("TranscodeJob Succeeded",
@@ -195,9 +195,9 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 // blocklisted, and a fresh grab of a different release for the same target
 // is unaffected.
 //
-// grabarr now writes download.clustarr.io/blocklisted itself, for a release
+// grab now writes download.clustarr.io/blocklisted itself, for a release
 // fault (gap fix Y2: DownloadFailureReason.IsReleaseFault), but this test
-// still sets the label by hand, which grabarr reads as failureReason
+// still sets the label by hand, which grab reads as failureReason
 // "manual" -- an operator blocklisting a release. Driving a real release
 // fault instead (a torrent with no seeder under a short
 // spec.torrent.stallTimeout, or the nntp stub denying every article) is
@@ -207,14 +207,14 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 // DownloadPhaseBlocklisted regardless of what a real engine concurrently
 // reports -- there is no field-manager race here, only a label (plain
 // metadata, owned by this test's merge patch) the controller reads on its
-// own next reconcile and never re-applies, since grabarr labels only a
+// own next reconcile and never re-applies, since grab labels only a
 // release fault it found itself.
 //
 // What else that reconcile now does, and this test does not assert: it
 // records blocklistedUntil, DefaultBlocklistTTL (90 days) out; it publishes
 // the failed and blocklisted events; the torrent engine removes the
-// transfer and, per spec.removeDataOnDelete, its data; and catalogarr's
-// catalogarr-redownload consumer (gap fix Y3) frees the Movie's grab lease
+// transfer and, per spec.removeDataOnDelete, its data; and catalog's
+// catalog-redownload consumer (gap fix Y3) frees the Movie's grab lease
 // (none here: a Download made by hand never took one) and publishes one
 // redownload search. That search may grab a Download of its own if an
 // Indexer is reachable from this namespace; nothing below counts
@@ -225,7 +225,7 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 // (app/grab/controller/downloadclient/blocklist.go, registered in
 // app/grab/run.go) is not exercised: blocklistedUntil is 90 days out, far
 // past any scenario timeout. blocklist_envtest_test.go proves the sweep.
-// This test proves grabarr's consumption of the label, not the sweep.
+// This test proves grab's consumption of the label, not the sweep.
 func TestDownloadBlocklistThenRedownload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
@@ -269,7 +269,7 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 // TestDownloadEnginePinSurvivesControllerRestart is D2-10's slice of
 // scenario 4 (remaining-work.md: "kubectl rollout restart of every
 // controller mid-flight, then a rerun of scenario 1's inputs: no duplicate
-// Download... no duplicate files"). It proves grabarr's OWN idempotency
+// Download... no duplicate files"). It proves grab's OWN idempotency
 // under a real restart -- the SSA-complete-declaration discipline CLAUDE.md
 // requires holding across a reconcile that starts from a cold cache -- the
 // same property app/grab/controller/download/controller_envtest_test.go's
@@ -300,7 +300,7 @@ func TestDownloadEnginePinSurvivesControllerRestart(t *testing.T) {
 	require.NotEmpty(t, before.Status.Engine)
 	beforeClientRef, beforeEngine := before.Spec.ClientRef, before.Status.Engine
 
-	kubectlRolloutRestart(ctx, t, "grabarr")
+	kubectlRolloutRestart(ctx, t, "grab")
 
 	after := waitForDownloadPhaseAtLeast(ctx, t, dl, engineReadyTimeout, downloadv1alpha1.DownloadPhaseAssigned)
 	require.Equal(t, beforeClientRef, after.Spec.ClientRef, "clientRef must not migrate across a controller restart")

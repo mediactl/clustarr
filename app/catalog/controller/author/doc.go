@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // AuthorSpec.MetadataProfile. It is the sole writer of status.path,
 // status.bookCount, status.bookFileCount and status.addOptionsApplied;
 // status.metadata belongs to the metadata gateway (task G2-1, field manager
-// k8s.ManagerCatalogarrMetadata) and this reconciler never builds an
+// k8s.ManagerCatalogMetadata) and this reconciler never builds an
 // AuthorStatusApplyConfiguration that calls WithMetadata.
 //
 // Unlike Series->Episode, this reconciler writes NOTHING onto the Book
@@ -38,7 +38,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     only created once its parent's own metadata sync has already run. Their
 //     provider-sourced fields (title, overview, ...) have nowhere else to
 //     come from, so the parent's fan-out writes them directly: Series under
-//     k8s.ManagerCatalogarrSeries, Comic under k8s.ManagerCatalogarrFanout.
+//     k8s.ManagerCatalogSeries, Comic under k8s.ManagerCatalogFanout.
 //   - Book, like Album, DOES carry its own status.metadata and its own
 //     MetadataReady condition (book_types.go), and independently refreshes
 //     it the same way Movie/Series/Author do: app/catalog/metadata/target.go's
@@ -52,7 +52,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     pushing it anyway would only create a second writer to keep disjoint
 //     from Book's own reconciler for no gain, repeating the exact clobbering
 //     hazard the Series/Episode split exists to avoid (see
-//     k8s.ManagerCatalogarrFanout's doc comment, and this package's own
+//     k8s.ManagerCatalogFanout's doc comment, and this package's own
 //     reconciler.go for where that manager is deliberately never referenced).
 //
 // A parallel data note belongs here too: AuthorSpec.MetadataProfile

@@ -35,8 +35,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.formatScore, status.cutoffMet, status.activeDownloadRef (derived
 // from the Album's own non-terminal Downloads, gap-fix ruling R-5) and
 // status.metadata.selectedReleaseID, under
-// k8s.ManagerCatalogarr. Every other leaf of status.metadata belongs to the
-// metadata gateway (k8s.ManagerCatalogarrMetadata) -- see
+// k8s.ManagerCatalog. Every other leaf of status.metadata belongs to the
+// metadata gateway (k8s.ManagerCatalogMetadata) -- see
 // buildAlbumMetadataAC's doc comment in app/catalog/metadata/patch.go for
 // why the Artist fan-out that creates this object never seeds it.
 // selectedReleaseID is the one exception because only this reconciler can
@@ -44,7 +44,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ownership per leaf, so sharing the struct releases nothing of the
 // gateway's. status.pendingGrab, status.lastSearchedAt and
 // status.searchAttempts belong to the grab path
-// (k8s.ManagerCatalogarrGrab); this reconciler only READS
+// (k8s.ManagerCatalogGrab); this reconciler only READS
 // status.pendingGrab (for Phase) and never writes it, mirroring
 // episode.Reconciler's identical read-only treatment.
 //
@@ -62,7 +62,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Track listing: status.tracks comes from the pkg/metadata.Album the
 // gateway also fetches for status.metadata -- fetched independently here,
-// via a direct RPC call through rpc.catalogarr.metadata.lookup, kind=album,
+// via a direct RPC call through rpc.catalog.metadata.lookup, kind=album,
 // keyed by KeyMBReleaseGroup, which browses the group's releases with their
 // media and recordings (pkg/metadata/clients/musicbrainz's Album). One
 // release is selected (SelectRelease, tracks.go: a pin, then Lidarr's

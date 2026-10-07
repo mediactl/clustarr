@@ -48,7 +48,7 @@ func WithTimeout(d time.Duration) ClientOption {
 }
 
 // WithRateLimit makes the client wait on lim before every outbound request.
-// The caller owns the limiter: indexarr holds one per indexer host and
+// The caller owns the limiter: index holds one per indexer host and
 // shares it across the caps probe, the search fan-out and the RSS poll, so
 // that all three respect one budget. lim is keyed internally by the
 // client's own baseURL host, so the same *ratelimit.Limiter can safely be
@@ -163,7 +163,7 @@ func (c *Client) do(ctx context.Context, values url.Values) (*http.Response, err
 	// ratelimit.Limiter.Wait has the same property, so the check is the
 	// limiter's when the caller supplied one. The key is this client's own
 	// host, so a *ratelimit.Limiter shared across several Clients (one per
-	// indexer host, as indexarr does) still isolates unrelated hosts from
+	// indexer host, as index does) still isolates unrelated hosts from
 	// each other while letting several Clients for the *same* host --
 	// caps probe, search fan-out, RSS poll -- draw on one bucket.
 	if host, _ := ctx.Value(turnKey{}).(string); c.limiter != nil && host != c.baseURL.Host {

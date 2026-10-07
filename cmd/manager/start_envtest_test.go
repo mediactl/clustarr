@@ -80,8 +80,8 @@ import (
 // controller name, a field index registered twice, a Runnable added after the
 // manager started. All of those are hard errors from Run, and none of them is
 // reachable from a unit test. Readiness is the second half: since C12a it
-// covers the informer caches as well as the JetStream ping for catalogarr,
-// and /data for importarr's worker roles, so a 200 from /readyz is a
+// covers the informer caches as well as the JetStream ping for catalog,
+// and /data for import's worker roles, so a 200 from /readyz is a
 // statement about the caches too.
 //
 // It needs the envtest control-plane binaries and skips without them, like
@@ -113,7 +113,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 
 	natsURL := startEmbeddedNATS(t)
 
-	// facadeAddr is where the indexarr case's facade listens; its prepare
+	// facadeAddr is where the index case's facade listens; its prepare
 	// picks it, its verify dials it.
 	var facadeAddr string
 
@@ -128,7 +128,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// verify reads it back once /readyz has answered.
 	var uiAddr atomic.Value
 
-	// captionData is captionarr's --data-dir in both of its cases: the one
+	// captionData is caption's --data-dir in both of its cases: the one
 	// media volume the controller role lists and the worker role reads, as
 	// the two Deployments share one claim. Every MediaFile path stays a
 	// logical /data path that maps into it.
@@ -141,10 +141,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// per-controller metrics in one process-wide registry. So a single test
 	// binary can register the catalog controllers exactly once. Production is
 	// unaffected -- each service has one manager -- and `clustarr all` works
-	// precisely because catalogarr's names (movie, series, episode, artist,
+	// precisely because catalog's names (movie, series, episode, artist,
 	// album, author, book, audiobook, comic, issue, mediafile, rootfolder,
 	// qualityprofile, delayprofile, metadataprovider, search) and
-	// importarr's (libraryscan, rootfolderschedule, importexclusion,
+	// import's (libraryscan, rootfolderschedule, importexclusion,
 	// importlist, fileimport-retrigger) are disjoint. Running app/catalog/all
 	// and app/import/all in this one binary is what proves that.
 	//
@@ -154,7 +154,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	cases := []struct {
 		name string
 		// prepare runs inside the subtest, before run. It exists for the
-		// indexarr case, which must redirect os.UserCacheDir somewhere
+		// index case, which must redirect os.UserCacheDir somewhere
 		// disposable without changing the code path being tested.
 		prepare func(t *testing.T)
 		run     func(ctx context.Context, o k8s.Options) error
@@ -206,9 +206,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			d.DataPath = t.TempDir()
 			return importapp.Run(ctx, d)
 		}},
-		// grabarr had NO presence in this table before plan task D2-8: its
+		// grab had NO presence in this table before plan task D2-8: its
 		// setupControllers/setupEngine were literal no-ops
-		// ("registers nothing yet") until this task, so `clustarr grabarr`
+		// ("registers nothing yet") until this task, so `clustarr grab`
 		// itself had never been started against a real apiserver in any
 		// test. These three cases are that proof for the role families
 		// D2-8 wired: the controller Deployment (downloadclient, its
@@ -233,7 +233,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				d := grabapp.DefaultOptions()
 				d.Options = o
 				d.DataDir = t.TempDir()
-				// There is no default: [grabarr.Options.Validate] requires it
+				// There is no default: [grab.Options.Validate] requires it
 				// for the controller role, since the DownloadClient reconciler
 				// stamps it onto every engine workload it creates.
 				d.EngineImage = "ghcr.io/mediactl/clustarr/media:dev"
@@ -245,7 +245,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				// Likewise the chart's engine ServiceAccount (X14): only a
 				// non-default value shows --engine-service-account reaching
 				// the pod spec.
-				d.EngineServiceAccount = "media-clustarr-grabarr-engine"
+				d.EngineServiceAccount = "media-clustarr-grab-engine"
 				return grabapp.Run(ctx, d)
 			},
 			verify: func(t *testing.T) {
@@ -284,9 +284,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				// X14: the engine pod runs as the account the installers
 				// bind, and gets the namespace and bus it needs to start.
 				pod := sts.Spec.Template.Spec
-				if pod.ServiceAccountName != "media-clustarr-grabarr-engine" {
+				if pod.ServiceAccountName != "media-clustarr-grab-engine" {
 					t.Errorf("the engine pod runs as ServiceAccount %q, want --engine-service-account's "+
-						"media-clustarr-grabarr-engine: app/grab/run.go did not pass Options.EngineServiceAccount",
+						"media-clustarr-grab-engine: app/grab/run.go did not pass Options.EngineServiceAccount",
 						pod.ServiceAccountName)
 				}
 				env := map[string]corev1.EnvVar{}
@@ -398,7 +398,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				return grabapp.Run(ctx, d)
 			},
 		},
-		// squasharr had no presence in this table before plan task E-4:
+		// transcode had no presence in this table before plan task E-4:
 		// its setupControllers was a literal no-op through E-0..E-3 while
 		// the TranscodeProfile and TranscodeJob reconcilers sat in their own
 		// packages, fully tested and reachable from nowhere. Readiness alone
@@ -407,9 +407,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// of work: the profile controller hashing a profile, and the job
 		// controller moving a TranscodeJob to Pending.
 		//
-		// There is no worker role: the pool pods run cmd/squasharr-worker,
+		// There is no worker role: the pool pods run cmd/transcode-worker,
 		// which starts no manager and serves no probes, and whose exit
-		// codes cmd/squasharr-worker's own tests hold to the process.
+		// codes cmd/transcode-worker's own tests hold to the process.
 		{
 			name: "app/transcode/controller",
 			run: func(ctx context.Context, o k8s.Options) error {
@@ -450,7 +450,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				})
 			},
 		},
-		// captionarr had no presence in this table before plan task F-6:
+		// caption had no presence in this table before plan task F-6:
 		// setupControllers and setupWorkers were literal no-ops while the
 		// SubtitleProfile, SubtitleProvider and SubtitleRequest reconcilers
 		// and the fetch worker sat in their own packages, fully tested and
@@ -483,10 +483,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			verify: func(t *testing.T) { verifyCaptionWorker(t, env.Config) },
 		},
 		// The three "all" cases come last and are each the superset of
-		// their service's roles: controllers, workers and (for catalogarr)
+		// their service's roles: controllers, workers and (for catalog)
 		// the metadata gateway, in one manager. Together they are `clustarr
 		// all` minus the services that still register nothing -- which since
-		// Task D1-8 no longer includes indexarr: it registers three
+		// Task D1-8 no longer includes index: it registers three
 		// controllers, the RSS consumer, three RPC verbs and the release
 		// index's retention sweep.
 		//
@@ -502,8 +502,8 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// rollout deadlocked. Every other case here sets LeaderElect false
 		// and passes vacuously, which is why that shipped.
 		//
-		// It is also the one case that can prove catalogarr's controllers
-		// WORK, for the same reason app/import/all is importarr's: controller
+		// It is also the one case that can prove catalog's controllers
+		// WORK, for the same reason app/import/all is import's: controller
 		// names are unique per process. Plan task G2-5 needs exactly that for
 		// the seven non-video reconcilers G2-2 and G2-3 built and nothing
 		// registered, and their first work runs through the metadata gateway
@@ -529,8 +529,8 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		//
 		// Once it is Ready as a non-leader, verify releases the lease and
 		// the case becomes the leader: that is the only way this binary can
-		// watch importarr's controllers WORK -- controller names are unique
-		// per process, so there cannot be a second importarr case with
+		// watch import's controllers WORK -- controller names are unique
+		// per process, so there cannot be a second import case with
 		// controllers -- and plan task G1-5 needs exactly that, for the
 		// ImportList controller and list worker G1-3 built and nothing
 		// registered, as does plan task G2-5 for fileimport's Retrigger.
@@ -548,14 +548,14 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				verifyRetrigger(t, env.Config)
 			},
 		},
-		// indexarr is driven through `clustarr all`'s OWN closure rather than
+		// index is driven through `clustarr all`'s OWN closure rather than
 		// a locally built Options, and that is the entire point of the case.
 		//
-		// Nothing in this tree called indexarr.Run before this: its role
+		// Nothing in this tree called index.Run before this: its role
 		// gates, relindex.Open and k8s.AddProbes had zero execution coverage,
 		// and Task D1-8 shipped a `clustarr all` that could not start. Open
 		// MkdirAlls under the PVC's mountPath (/var/lib/clustarr/index),
-		// which an unprivileged user cannot create, indexarr.Run returns that
+		// which an unprivileged user cannot create, index.Run returns that
 		// error, and runAll's cancel() then stops ALL SEVEN services.
 		//
 		// Building Options here instead would have proved nothing -- a test
@@ -592,9 +592,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				}
 				t.Setenv(cardigannDefinitionsDirEnv, bundleDir)
 			},
-			run: allServiceRun(t, "indexarr"),
+			run: allServiceRun(t, "index"),
 			// The Torznab facade (plan task G1-2) was built, tested with
-			// httptest and bound to nothing: indexarr.Options had carried a
+			// httptest and bound to nothing: index.Options had carried a
 			// FacadeBindAddress since M0 that no code read. So the proof is a
 			// dial of the real port, not a flag that parses.
 			verify: func(t *testing.T) {
@@ -703,7 +703,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 
 			// /readyz additionally pings JetStream (§13) and, since Task
 			// C12a, waits on the informer caches -- and on a writable /data
-			// for importarr's worker roles.
+			// for import's worker roles.
 			waitForProbe(t, "http://"+probeAddr+"/readyz")
 
 			if tc.verify != nil {
@@ -917,7 +917,7 @@ func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 		}
 		for _, e := range list.Items {
 			if e.Regarding.Kind == "ImportList" && e.Regarding.Name == "history-probe" &&
-				e.ReportingController == "catalogarr-history" {
+				e.ReportingController == "catalog-history" {
 				return true
 			}
 		}
@@ -942,14 +942,14 @@ func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	const origSubject = "clustarr.work.catalogarr.search.high.default_history-probe"
-	if _, err := bus.Publish(ctx, events.DLQSubject("catalogarr", "search", "history-probe"), &events.Envelope{
+	const origSubject = "clustarr.work.catalog.search.high.default_history-probe"
+	if _, err := bus.Publish(ctx, events.DLQSubject("catalog", "search", "history-probe"), &events.Envelope{
 		ID: "dlq:start-test:history-probe", Type: "catalog.search", Schema: schemaName,
 		Source: "start-test", Key: "default/history-probe", Time: time.Now(), Data: data,
 		Headers: map[string]string{
 			events.HeaderDLQSubject:  origSubject,
 			events.HeaderDLQReason:   "max deliveries exceeded (5): start test",
-			events.HeaderDLQConsumer: "catalogarr-search-high",
+			events.HeaderDLQConsumer: "catalog-search-high",
 			events.HeaderDLQAttempts: "5",
 		},
 	}); err != nil {
@@ -1009,12 +1009,12 @@ func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 }
 
 // verifyRedownload proves spec §8.3's failed-Download consumer (gap fix Y3,
-// app/catalog/worker/redownload) runs in `catalogarr --role worker`: a lease
-// held by a Download is freed once grabarr's failed event for that Download
+// app/catalog/worker/redownload) runs in `catalog --role worker`: a lease
+// held by a Download is freed once grab's failed event for that Download
 // reaches the bus. The Movie does not exist, so the consumer frees the lease
 // and publishes no search -- the lease is its first observable piece of
 // work, and it can only disappear if something subscribed
-// catalogarr-redownload.
+// catalog-redownload.
 func verifyRedownload(t *testing.T, natsURL string) {
 	t.Helper()
 	ctx := context.Background()
@@ -1111,7 +1111,7 @@ func verifyImportList(t *testing.T, cfg *rest.Config, natsURL string) {
 }
 
 // verifyFacade dials the Torznab facade `clustarr all` bound: the API key
-// indexarr generated into its Secret, a 401 without it, a 200 aggregate
+// index generated into its Secret, a 401 without it, a 200 aggregate
 // search with it, and a definition-backed grab that reaches the Cardigann
 // download path (plan task G1-5's other wiring) rather than being refused
 // as "not configured".
@@ -1124,7 +1124,7 @@ func verifyFacade(t *testing.T, cfg *rest.Config, addr string) {
 	}
 	var sec corev1.Secret
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: indexapp.DefaultFacadeAPIKeySecret}, &sec); err != nil {
-		t.Fatalf("indexarr did not generate the facade's API-key Secret: %v", err)
+		t.Fatalf("index did not generate the facade's API-key Secret: %v", err)
 	}
 	key := string(sec.Data[indexapp.FacadeAPIKeyField])
 	if len(key) != 64 {
@@ -1178,7 +1178,7 @@ func verifyFacade(t *testing.T, cfg *rest.Config, addr string) {
 	}
 }
 
-// verifyBundle waits for indexarr's Cardigann bundle loader (X14; the
+// verifyBundle waits for index's Cardigann bundle loader (X14; the
 // consumer X8a's cardigann.LoadBundle was built for) to turn the bundle the
 // case mounted into a labelled IndexerDefinition, and for the
 // IndexerDefinition controller to parse it -- status.id is what an Indexer's
@@ -1215,16 +1215,16 @@ func waitForLong(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// captionProbe names every object the captionarr cases create: the
+// captionProbe names every object the caption cases create: the
 // SubtitleProfile (cluster-scoped), and in "default" the SubtitleProvider,
 // the MediaFile, and the SubtitleRequest the profile controller ensures for
 // it, which shares the MediaFile's name.
 const (
-	captionProbe        = "captionarr-probe"
-	captionProbeLogical = "/data/movies/Captionarr Probe (2020)/Captionarr Probe (2020).mkv"
+	captionProbe        = "caption-probe"
+	captionProbeLogical = "/data/movies/Caption Probe (2020)/Caption Probe (2020).mkv"
 )
 
-// verifyCaptionarrController gives each of the controller role's three
+// verifyCaptionController gives each of the controller role's three
 // reconcilers its first piece of work and waits for it: the SubtitleProvider
 // controller projecting a status (through providerset.Validate), the
 // SubtitleProfile controller ensuring a SubtitleRequest for a probed video
@@ -1272,11 +1272,11 @@ func verifyCaptionController(t *testing.T, cfg *rest.Config, dataDir string) {
 	if err != nil {
 		t.Fatalf("stat the video: %v", err)
 	}
-	// The Movie the MediaFile backs. captionarr plans subtitles only for a
+	// The Movie the MediaFile backs. caption plans subtitles only for a
 	// file whose item still exists (X11b: a removeAndKeep import list keeps
 	// the MediaFile record and deletes only the Movie, and such a file is no
 	// longer managed), so without it the profile never ensures a request.
-	// verifyCaptionarrWorker deletes it with the rest.
+	// verifyCaptionWorker deletes it with the rest.
 	movie := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"},
 		Spec: catalogv1alpha1.MovieSpec{
@@ -1298,7 +1298,7 @@ func verifyCaptionController(t *testing.T, cfg *rest.Config, dataDir string) {
 	if err := c.Create(ctx, mf); err != nil {
 		t.Fatalf("create MediaFile: %v", err)
 	}
-	// catalogarr's probe, standing in: the hash the fetch worker will
+	// catalog's probe, standing in: the hash the fetch worker will
 	// recompute from the file on disk, and an English audio track with no
 	// embedded subtitle, so German is the one wanted language.
 	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(captionProbe, "default").
@@ -1347,12 +1347,12 @@ func verifyCaptionController(t *testing.T, cfg *rest.Config, dataDir string) {
 	}
 }
 
-// verifyCaptionarrWorker waits for the fetch worker to consume the task the
+// verifyCaptionWorker waits for the fetch worker to consume the task the
 // controller case published and record its first result on the item. No
 // enabled provider can search a movie here (gestdown is TV-only), so the
 // result is "unavailable", naming the provider it skipped -- which is the
 // proof the worker's providerset builder listed it. Then it removes every
-// object the two captionarr cases made.
+// object the two caption cases made.
 func verifyCaptionWorker(t *testing.T, cfg *rest.Config) {
 	t.Helper()
 	ctx := context.Background()

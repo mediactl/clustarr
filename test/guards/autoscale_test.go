@@ -45,7 +45,7 @@ type validatable interface{ Validate() error }
 
 // topology is §3's process-topology table, for the Deployments config/manager
 // declares. The engine StatefulSets and the transcode Jobs are absent on
-// purpose: grabarr and squasharr create those at runtime, owned by the CR that
+// purpose: grab and transcode create those at runtime, owned by the CR that
 // asked for them, so no manifest can declare them.
 var topology = map[string]struct {
 	replicas int32
@@ -59,21 +59,21 @@ var topology = map[string]struct {
 	// clustarr command tree does not parse it.
 	ownBinary bool
 }{
-	"catalogarr":          {replicas: 1, leaderElect: true},
-	"catalogarr-metadata": {replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType},
-	"indexarr":            {replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType},
-	"grabarr":             {replicas: 1, leaderElect: true},
-	"squasharr":           {replicas: 1, leaderElect: true},
-	"captionarr":          {replicas: 1, leaderElect: true},
-	"captionarr-worker":   {replicas: 2},
-	"importarr":           {replicas: 1, leaderElect: true},
-	"importarr-worker":    {replicas: 2},
+	"catalog":          {replicas: 1, leaderElect: true},
+	"catalog-metadata": {replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType},
+	"index":            {replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType},
+	"grab":             {replicas: 1, leaderElect: true},
+	"transcode":        {replicas: 1, leaderElect: true},
+	"caption":          {replicas: 1, leaderElect: true},
+	"caption-worker":   {replicas: 2},
+	"import":           {replicas: 1, leaderElect: true},
+	"import-worker":    {replicas: 2},
 	// ui has no --leader-elect and no --role: it runs no controller-runtime
 	// manager and reconciles nothing (amendment §A3).
 	"ui": {replicas: 1},
-	// segmentarr-worker is cmd/segmentarr-worker, not a clustarr service
+	// markers-worker is cmd/markers-worker, not a clustarr service
 	// (spec 2026-10-01 segment detection §4.1); its own tests hold its flags.
-	"segmentarr-worker": {replicas: 1, ownBinary: true},
+	"markers-worker": {replicas: 1, ownBinary: true},
 }
 
 // TestManagerManifestsMatchTheCLI reads every Deployment in config/manager and
@@ -236,10 +236,10 @@ func stubEveryService(t *testing.T) *validatable {
 	return &got
 }
 
-// TestCatalogarrRoleCombinations pins the semantics §3 needs: one Deployment
+// TestCatalogRoleCombinations pins the semantics §3 needs: one Deployment
 // runs the controllers, the queue workers and the history sink, and it must
 // NOT be `--role all`, which would start a second metadata gateway beside the
-// single-replica catalogarr-metadata Deployment.
+// single-replica catalog-metadata Deployment.
 func TestCatalogRoleCombinations(t *testing.T) {
 	valid := []struct {
 		role        catalogapp.Role
@@ -276,38 +276,38 @@ func TestCatalogRoleCombinations(t *testing.T) {
 		}
 	}
 
-	// The catalogarr Deployment runs the queue workers and the renderer but
+	// The catalog Deployment runs the queue workers and the renderer but
 	// not the metadata gateway, so its role must not name metadata.
-	// TestBothInstallersRunTheRendererOnTheCatalogarrDeployment reads the
+	// TestBothInstallersRunTheRendererOnTheCatalogDeployment reads the
 	// role both installers actually render.
 	const deployed catalogapp.Role = "controller,worker,history,artwork"
 	if deployed.Has(catalogapp.RoleMetadata) {
-		t.Error("the catalogarr Deployment's role would start a second metadata gateway")
+		t.Error("the catalog Deployment's role would start a second metadata gateway")
 	}
 	if !deployed.Has(catalogapp.RoleArtwork) {
-		t.Error("the catalogarr Deployment's role would start no overlay renderer")
+		t.Error("the catalog Deployment's role would start no overlay renderer")
 	}
 }
 
 // TestEnvironmentSuppliesDefaults proves the variables the Deployments set are
 // actually read. A flag default that ignored them would point every pod at
-// nats://clustarr-nats:4222 and indexarr at an /index directory that is not
+// nats://clustarr-nats:4222 and index at an /index directory that is not
 // mounted.
 func TestEnvironmentSuppliesDefaults(t *testing.T) {
 	t.Setenv(natsURLEnv, "nats://nats.clustarr-system.svc:4222")
 	t.Setenv(indexPathEnv, "/var/lib/clustarr/index/releases.db")
 
 	catalog := stub(t, &runCatalog)
-	if _, err := execute(t, "catalogarr", "--role", "controller"); err != nil {
-		t.Fatalf("clustarr catalogarr: %v", err)
+	if _, err := execute(t, "catalog", "--role", "controller"); err != nil {
+		t.Fatalf("clustarr catalog: %v", err)
 	}
 	if catalog.NATSURL != "nats://nats.clustarr-system.svc:4222" {
 		t.Errorf("NATSURL = %q, want the value of $%s", catalog.NATSURL, natsURLEnv)
 	}
 
 	index := stub(t, &runIndex)
-	if _, err := execute(t, "indexarr"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if index.IndexPath != "/var/lib/clustarr/index/releases.db" {
 		t.Errorf("IndexPath = %q, want the value of $%s", index.IndexPath, indexPathEnv)
@@ -315,8 +315,8 @@ func TestEnvironmentSuppliesDefaults(t *testing.T) {
 
 	// An explicit flag still wins over the environment.
 	index = stub(t, &runIndex)
-	if _, err := execute(t, "indexarr", "--index-path", "/elsewhere/releases.db"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--index-path", "/elsewhere/releases.db"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if index.IndexPath != "/elsewhere/releases.db" {
 		t.Errorf("--index-path did not override $%s: %q", indexPathEnv, index.IndexPath)
@@ -330,19 +330,19 @@ func TestEnvironmentSuppliesDefaults(t *testing.T) {
 // or release an in-flight message, and the task sits invisible until AckWait
 // expires.
 //
-// config/manager/captionarr-worker.yaml already documents the rule in a
+// config/manager/caption-worker.yaml already documents the rule in a
 // comment ("terminationGracePeriodSeconds is set to the JetStream AckWait");
-// this is the check. importarr-worker is the reason it exists -- its three
+// this is the check. import-worker is the reason it exists -- its three
 // consumers (amendment §A1.6) were added with the manifest already written.
 func TestWorkerGracePeriodsCoverAckWait(t *testing.T) {
 	// Deployment name -> the consumers that Deployment's role drains.
 	workers := map[string][]string{
-		"importarr-worker": {
+		"import-worker": {
 			events.ConsumerImportScan,
 			events.ConsumerImportList,
 			events.ConsumerImportFile,
 		},
-		"captionarr-worker": {
+		"caption-worker": {
 			events.ConsumerCaptionFetchHigh,
 			events.ConsumerCaptionFetchNormal,
 		},

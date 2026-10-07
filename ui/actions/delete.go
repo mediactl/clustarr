@@ -36,7 +36,7 @@ import (
 // annotations under [FieldManager] -- catalog.clustarr.io/delete ("files"
 // with files, else "records"), delete-add-exclusion "true" with exclude
 // (removed otherwise), and delete-error removed, so a Retry renews the
-// request. importarr carries it out. It uses the item's existing patch
+// request. import carries it out. It uses the item's existing patch
 // grant; the ui never deletes.
 func RequestDelete(
 	ctx context.Context, p Patcher, namespace string, kind commonv1.MediaKind, name string, files, exclude bool,
@@ -96,7 +96,7 @@ func (a *Actions) RequestDelete(
 
 // CancelDelete withdraws a pending or refused library delete: a merge patch
 // removing the three delete annotations under [FieldManager]. A delete
-// importarr has already carried out is not undone; one it is carrying out
+// import has already carried out is not undone; one it is carrying out
 // finishes.
 func CancelDelete(
 	ctx context.Context, p Patcher, namespace string, kind commonv1.MediaKind, name string,

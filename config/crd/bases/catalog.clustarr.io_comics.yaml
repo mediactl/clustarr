@@ -374,12 +374,12 @@ spec:
                 description: |-
                   Downloads is every grab of this item the system is responsible for, live
                   entries only (ADR-0019 §6.4); written by the remediation loop's item key
-                  under catalogarr.
+                  under catalog.
                 items:
                   description: |-
                     DownloadEntry is one grab of its owner, from the manager's decision to
                     grab through seeding and removal. Written only by the owner's item key
-                    in the remediation loop, under field manager catalogarr (ADR-0019 §6.2).
+                    in the remediation loop, under field manager catalog (ADR-0019 §6.2).
                   properties:
                     block:
                       description: |-
@@ -761,7 +761,7 @@ spec:
                       type: string
                     phase:
                       description: |-
-                        DownloadPhase is the lifecycle phase of a Download, owned by the grabarr
+                        DownloadPhase is the lifecycle phase of a Download, owned by the grab
                         controller.
                       enum:
                       - Pending
@@ -966,8 +966,8 @@ spec:
                         DownloadSource says where the transfer payload comes from. Exactly one of
                         the four members is set. There is intentionally no inline bytes field: a
                         .torrent or .nzb body is never embedded in the object. Either the payload is
-                        addressable by URL, or indexerDownload names the release and grabarr
-                        resolves it through indexarr.
+                        addressable by URL, or indexerDownload names the release and grab
+                        resolves it through index.
                       properties:
                         expectedInfoHash:
                           description: |-
@@ -978,7 +978,7 @@ spec:
                           type: string
                         indexerDownload:
                           description: |-
-                            IndexerDownload names a release to resolve through indexarr. This is the
+                            IndexerDownload names a release to resolve through index. This is the
                             normal path: the indexer applies auth, rate limits and proxying, and
                             returns the payload to the engine.
                           properties:
@@ -996,8 +996,8 @@ spec:
                               type: string
                             url:
                               description: |-
-                                URL is the indexer's download link for the release. grabarr fetches it
-                                through indexarr, which applies the indexer's auth and proxy settings.
+                                URL is the indexer's download link for the release. grab fetches it
+                                through index, which applies the indexer's auth and proxy settings.
                               maxLength: 2048
                               type: string
                           required:
@@ -1030,7 +1030,7 @@ spec:
                           ? 1 : 0) == 1'
                     stage:
                       description: DownloadStage is the fine-grained engine stage,
-                        reported by grabarr-engine.
+                        reported by grab-engine.
                       enum:
                       - fetchingMetadata
                       - transferring
@@ -1225,7 +1225,7 @@ spec:
                 description: |-
                   PendingGrabs are the chosen releases waiting out a DelayProfile delay,
                   each naming the issues it covers (ADR-0019 §6.2), written under
-                  catalogarr-grab.
+                  catalog-grab.
                 items:
                   description: |-
                     PendingGrab records a release that has been chosen but is waiting out a
@@ -1396,8 +1396,8 @@ spec:
                             DownloadSource says where the transfer payload comes from. Exactly one of
                             the four members is set. There is intentionally no inline bytes field: a
                             .torrent or .nzb body is never embedded in the object. Either the payload is
-                            addressable by URL, or indexerDownload names the release and grabarr
-                            resolves it through indexarr.
+                            addressable by URL, or indexerDownload names the release and grab
+                            resolves it through index.
                           properties:
                             expectedInfoHash:
                               description: |-
@@ -1408,7 +1408,7 @@ spec:
                               type: string
                             indexerDownload:
                               description: |-
-                                IndexerDownload names a release to resolve through indexarr. This is the
+                                IndexerDownload names a release to resolve through index. This is the
                                 normal path: the indexer applies auth, rate limits and proxying, and
                                 returns the payload to the engine.
                               properties:
@@ -1426,8 +1426,8 @@ spec:
                                   type: string
                                 url:
                                   description: |-
-                                    URL is the indexer's download link for the release. grabarr fetches it
-                                    through indexarr, which applies the indexer's auth and proxy settings.
+                                    URL is the indexer's download link for the release. grab fetches it
+                                    through index, which applies the indexer's auth and proxy settings.
                                   maxLength: 2048
                                   type: string
                               required:

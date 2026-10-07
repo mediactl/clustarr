@@ -146,7 +146,7 @@ func TestReconcileEnsuresSubtitleRequestsIdempotently(t *testing.T) {
 	assert.True(t, *sr.OwnerReferences[0].Controller)
 
 	// Ownership: this controller creates SubtitleRequest's MAIN resource
-	// under k8s.ManagerCaptionarr, not its status -- assert the managedFields
+	// under k8s.ManagerCaption, not its status -- assert the managedFields
 	// entry directly rather than trusting only the values, per CLAUDE.md's
 	// "an over-claim is silent" rule.
 	var sawSpecOwner bool
@@ -155,7 +155,7 @@ func TestReconcileEnsuresSubtitleRequestsIdempotently(t *testing.T) {
 			sawSpecOwner = true
 		}
 	}
-	assert.True(t, sawSpecOwner, "k8s.ManagerCaptionarr must own the SubtitleRequest main resource")
+	assert.True(t, sawSpecOwner, "k8s.ManagerCaption must own the SubtitleRequest main resource")
 
 	var gotProfile subtitlev1alpha1.SubtitleProfile
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: sp.Name}, &gotProfile))

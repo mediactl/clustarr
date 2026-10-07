@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Command pack-cardigann packs a directory of Cardigann definitions into the
-// zip archive indexarr embeds (app/indexer/bundle/embedded/definitions.zip).
+// zip archive index embeds (app/indexer/bundle/embedded/definitions.zip).
 //
 //	go run ./hack/pack-cardigann -src .data/Definitions \
 //	    -out app/indexer/bundle/embedded/definitions.zip

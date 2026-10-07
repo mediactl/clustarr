@@ -411,7 +411,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 			ID:     events.MsgIDForObject(string(alb.UID), alb.Generation, "metadata"),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
-			Source: "catalogarr@" + version.String(),
+			Source: "catalog@" + version.String(),
 			Key:    envKey,
 			Time:   now,
 			Data:   data,
@@ -641,11 +641,11 @@ func reassertKnownStatus(statusAC *catalogac.AlbumStatusApplyConfiguration, alb 
 // selectedReleaseAC is this reconciler's one leaf inside status.metadata:
 // selectedReleaseID, "the release the tracks were taken from". Everything
 // else in status.metadata is the metadata gateway's
-// (k8s.ManagerCatalogarrMetadata); server-side apply tracks ownership per
+// (k8s.ManagerCatalogMetadata); server-side apply tracks ownership per
 // leaf, so the two managers share the struct without either releasing the
 // other's fields. Only this reconciler can decide the value -- it is the
 // one that selects the release, from the files it watches -- so it is the
-// writer, under k8s.ManagerCatalogarr like the rest of its status.
+// writer, under k8s.ManagerCatalog like the rest of its status.
 //
 // It is sent only once the gateway has written status.metadata (a non-zero
 // refreshedAt): applying it to an Album without metadata would create a
@@ -671,7 +671,7 @@ type trackSync struct {
 }
 
 // syncTracks fetches alb's release group via the metadata gateway's
-// EXISTING single-entity lookup (rpc.catalogarr.metadata.lookup, kind=album,
+// EXISTING single-entity lookup (rpc.catalog.metadata.lookup, kind=album,
 // keyed by pkgmetadata.KeyMBReleaseGroup -- the same call
 // Registry.Lookup(kind=album) serves for the gateway's own status.metadata
 // fetch, which browses the group's releases with their media and
@@ -773,7 +773,7 @@ func (r *Reconciler) resolveProfile(ctx context.Context, alb *catalogv1alpha1.Al
 }
 
 // withEntries folds the grab entries, the download phase, the intent nonces
-// and release N's legacy record into a catalogarr status apply: this pass's
+// and release N's legacy record into a catalog status apply: this pass's
 // decisions when the item stages made them, else the stored values, on
 // every apply site -- the complete declaration (ADR-0019 §7.0, Review
 // Focus 4). It is called once per apply: the list setters append.

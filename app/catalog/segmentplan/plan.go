@@ -79,10 +79,10 @@ func envelope(typ, key, id string, now time.Time, p schema.Payload) (*events.Env
 	if err != nil {
 		return nil, err
 	}
-	return &events.Envelope{ID: id, Type: typ, Schema: name, Source: "catalogarr@" + version.String(), Key: key, Time: now, Data: data}, nil
+	return &events.Envelope{ID: id, Type: typ, Schema: name, Source: "catalog@" + version.String(), Key: key, Time: now, Data: data}, nil
 }
 
-// Planner is the catalogarr-segments-plan durable's handler: it turns a plan
+// Planner is the catalog-segments-plan durable's handler: it turns a plan
 // into one AnalyzeTask. It reads through the controller manager's cache,
 // whose field indexes find a season's episodes and their files.
 type Planner struct {

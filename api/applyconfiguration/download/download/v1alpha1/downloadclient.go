@@ -31,7 +31,7 @@ import (
 // DownloadClientApplyConfiguration represents a declarative configuration of the DownloadClient type for use
 // with apply.
 //
-// DownloadClient is a torrent or usenet download engine managed by grabarr.
+// DownloadClient is a torrent or usenet download engine managed by grab.
 // The controller owns a StatefulSet of spec.replicas engine pods; Downloads
 // are assigned to this client and pinned to one of its ordinals.
 type DownloadClientApplyConfiguration struct {

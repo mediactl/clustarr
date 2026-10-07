@@ -48,7 +48,7 @@ const (
 	// never by the subject.
 	HeaderSchema = "Clustarr-Schema"
 
-	// HeaderSource is "<service>@<version>", e.g. "catalogarr@0.3.1+abc1234".
+	// HeaderSource is "<service>@<version>", e.g. "catalog@0.3.1+abc1234".
 	HeaderSource = "Clustarr-Source"
 
 	// HeaderKey is the "<namespace>/<name>" of the custom resource the

@@ -29,7 +29,7 @@ import (
 // pkg/k8s's bus names are wrappers over pkg/busconn until Wave 5 deletes their
 // last callers (spec §4.3 step 1.3).
 func TestTheBusWrappersAreBusconn(t *testing.T) {
-	_, _, err := k8s.ConnectBus("", "catalogarr")
+	_, _, err := k8s.ConnectBus("", "catalog")
 	require.ErrorContains(t, err, "busconn: empty NATS url")
 	require.Equal(t, busconn.DefaultNATSURL, k8s.DefaultNATSURL)
 }

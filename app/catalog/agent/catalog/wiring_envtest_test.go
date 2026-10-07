@@ -57,13 +57,13 @@ func TestMain(m *testing.M) {
 	}
 	cfg, err := env.Start()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "catalogarr: start envtest: %v\n", err)
+		fmt.Fprintf(os.Stderr, "catalog: start envtest: %v\n", err)
 		os.Exit(1)
 	}
 	testCfg = cfg
 	code := m.Run()
 	if err := env.Stop(); err != nil {
-		fmt.Fprintf(os.Stderr, "catalogarr: stop envtest: %v\n", err)
+		fmt.Fprintf(os.Stderr, "catalog: stop envtest: %v\n", err)
 	}
 	os.Exit(code)
 }

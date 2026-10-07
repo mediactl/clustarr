@@ -48,22 +48,22 @@ import (
 // declaration is mediafilespec's, which renders this manager's MediaFileSpec.
 const FieldManager = mediafilespec.FieldManager
 
-// AnnotationObservedFingerprint is how a rescan tells catalogarr that a
+// AnnotationObservedFingerprint is how a rescan tells catalog that a
 // post-transcode file changed on disk. Its value is the file's size and
 // mtime as the walk found them, "<sizeBytes>@<RFC 3339 mtime, UTC, whole
 // seconds>".
 //
-// Once catalogarr incorporates a transcode swap (spec.original false) it
+// Once catalog incorporates a transcode swap (spec.original false) it
 // owns spec.sizeBytes, spec.modTime and spec.original, and k8s.Apply forces
 // ownership, so a rescan re-applying them would silently take them back.
 // A rescan therefore never writes them. When the bytes have changed -- a
 // re-transcode, a person replacing the file in place -- it applies this one
-// annotation instead, under k8s.ManagerImportarr, which owns nothing else
-// on any MediaFile, so the apply releases nothing. catalogarr's MediaFile
+// annotation instead, under k8s.ManagerImport, which owns nothing else
+// on any MediaFile, so the apply releases nothing. catalog's MediaFile
 // controller wakes on the annotation's change, re-stats and re-probes the
 // file and records the new size and mtime under its own manager. The
-// contract, agreed with the catalogarr side in gap-fix X7a/X5a, is
-// catalogarr's to act on; importarr only observes.
+// contract, agreed with the catalog side in gap-fix X7a/X5a, is
+// catalog's to act on; import only observes.
 const AnnotationObservedFingerprint = "catalog.clustarr.io/observed-fingerprint"
 
 // ObservedFingerprint renders [AnnotationObservedFingerprint]'s value for a
@@ -91,7 +91,7 @@ const (
 // overwritten -- forced ownership put the pre-transcode size back and flipped
 // spec.original to true again. With it, the apiserver refuses the apply, the
 // walk waits for its cache to deliver the newer copy and decides again (a
-// swapped file is then left to catalogarr). A file still conflicting after
+// swapped file is then left to catalog). A file still conflicting after
 // maxConflictRetries is left to the next scan, and counted in Deferred.
 func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo, probe *fileProbe) error {
 	for attempt := 0; ; attempt++ {
@@ -135,14 +135,14 @@ func (w *Worker) awaitNewerCopy(ctx context.Context, stale *mediafilespec.StaleR
 
 // attributeMediaFile attributes one walked media file and records it.
 //
-// The write it performs is deliberately narrow. importarr creates the
+// The write it performs is deliberately narrow. import creates the
 // MediaFile and owns MediaFileSpec -- what it observed on disk plus the
-// release identity frozen at import (spec §8.4) -- and catalogarr owns all of
+// release identity frozen at import (spec §8.4) -- and catalog owns all of
 // MediaFileStatus. Nothing here calls PatchStatus. A new movie file is
 // probed once (probe, shared with the kept-output check), and the probe
 // only corrects the quality its name says (quality.AugmentFromMediaInfo),
 // as the file-import worker's does; the probe result itself is
-// catalogarr's to record (spec §8.5), and there is nowhere on
+// catalog's to record (spec §8.5), and there is nowhere on
 // MediaFileSpec for it to go.
 //
 // A movie file whose name does not parse -- an obfuscated download name --
@@ -312,10 +312,10 @@ func (st *scanState) movie(name string) *MovieCandidate {
 // existingForRescan looks the path's MediaFile up and decides whether the
 // walk is done with the file. handled is true, and the outcome counted, for:
 //
-//   - a post-transcode file (spec.original false). catalogarr owns its
+//   - a post-transcode file (spec.original false). catalog owns its
 //     size, mtime and original flag, so nothing here writes them: an
 //     unchanged one is counted in Transcoded, and a changed one is handed
-//     to catalogarr through [AnnotationObservedFingerprint] (HandedOver).
+//     to catalog through [AnnotationObservedFingerprint] (HandedOver).
 //   - on an incremental scan, a file whose size and mtime are unchanged
 //     (Unchanged).
 func (w *Worker) existingForRescan(
@@ -347,8 +347,8 @@ func (w *Worker) existingForRescan(
 	return existing, false, nil
 }
 
-// handOver tells catalogarr that a post-transcode file changed on disk: one
-// [AnnotationObservedFingerprint] apply under k8s.ManagerImportarr, skipped
+// handOver tells catalog that a post-transcode file changed on disk: one
+// [AnnotationObservedFingerprint] apply under k8s.ManagerImport, skipped
 // when the annotation already records what the walk found (or on a dry
 // run). It is counted as matched: the file is attributed, and its change is
 // recorded -- by the writer that owns the fields it changes.
@@ -358,13 +358,13 @@ func (w *Worker) handOver(ctx context.Context, st *scanState, existing *catalogv
 		ac := catalogac.MediaFile(existing.Name, existing.Namespace).
 			WithAnnotations(map[string]string{AnnotationObservedFingerprint: fp})
 		if _, err := k8s.Apply(ctx, w.Client, k8s.ManagerImport, ac); err != nil {
-			return fmt.Errorf("rescan: hand media file %s over to catalogarr: %w", existing.Name, err)
+			return fmt.Errorf("rescan: hand media file %s over to catalog: %w", existing.Name, err)
 		}
 	}
 	st.progress.HandedOver++
 	st.progress.FilesMatched++
 	st.progress.ItemsUpdated++
-	logging.FromContext(ctx).Info("a transcoded file changed on disk; handed to catalogarr",
+	logging.FromContext(ctx).Info("a transcoded file changed on disk; handed to catalog",
 		"mediaFile", existing.Name, "observed", fp)
 	return nil
 }

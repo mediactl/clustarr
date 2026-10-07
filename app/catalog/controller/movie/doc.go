@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.activeDownloadRef (§3's single-writer rule; for the ref, gap-fix
 // ruling R-5, derived from the Movie's own non-terminal Downloads);
 // status.metadata belongs to the metadata gateway (Task C5, field manager
-// k8s.ManagerCatalogarrMetadata) and this package never writes it. It folds
+// k8s.ManagerCatalogMetadata) and this package never writes it. It folds
 // the DLQ projector's clustarr.io/dead-lettered annotation into a
 // DeadLettered condition, emits Kubernetes Events on phase and failure
 // edges, and publishes the catalog item and media-file domain events the

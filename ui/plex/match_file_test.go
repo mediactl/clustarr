@@ -32,7 +32,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/naming"
 )
 
-// plexEngine renders paths the way importarr names files under a Plex
+// plexEngine renders paths the way import names files under a Plex
 // RootFolder, so these fixtures are what a real library holds rather than
 // strings shaped like the answer.
 var plexEngine = naming.NewEngine(naming.Config{Dialect: naming.DialectPlex})

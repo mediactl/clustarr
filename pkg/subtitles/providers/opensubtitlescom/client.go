@@ -124,7 +124,7 @@ type Provider struct {
 // one that follows it): a library defaulting a limiter on means every
 // Provider gets its own private allowance, so N fetch workers sharing one
 // OpenSubtitles.com account would collectively exceed the account's real
-// rate by a factor of N. captionarr's fetch worker (F-5) is expected to pass
+// rate by a factor of N. caption's fetch worker (F-5) is expected to pass
 // [Config.Limiter] wired to the shared clustarr-provider-throttle KV token
 // bucket ([throttle.Acquire]) instead, or -- for a single-process caller
 // that genuinely wants a local-only limiter -- its own *rate.Limiter. A nil

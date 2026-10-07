@@ -212,7 +212,7 @@ func (r *Reconciler) unhealthyClasses(ctx context.Context) map[transcodev1alpha1
 	for _, class := range gpuClasses {
 		health, err := task.ReadEncoderHealth(ctx, kv, string(class), r.now().Time)
 		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "squasharr: cannot read the devices' health", "class", class, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "transcode: cannot read the devices' health", "class", class, "error", err)
 			continue
 		}
 		if msg, ok := unhealthyMessage(class, health); ok {
@@ -275,7 +275,7 @@ func (r *Reconciler) rerouteUnhealthy(ctx context.Context, profiles map[string]*
 		}
 		if done {
 			rerouted++
-			logging.FromContext(ctx).InfoContext(ctx, "squasharr: took a queued auto job back from a GPU class reported unusable",
+			logging.FromContext(ctx).InfoContext(ctx, "transcode: took a queued auto job back from a GPU class reported unusable",
 				"transcodeJob", tj.Namespace+"/"+tj.Name, "class", tj.Status.Hardware)
 		}
 	}

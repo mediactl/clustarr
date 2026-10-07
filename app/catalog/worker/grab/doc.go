@@ -26,11 +26,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // catalogv1alpha1.DelayProfileSpec hands the winning release to Decide, which
 // either grabs it immediately (no delay configured, or a bypass fires) or
 // CAS-keep-bests it into the clustarr-pending bucket, schedules a GrabTask on
-// clustarr.work.catalogarr.grab.normal.<mediaKey> for firstSeen+delay, and
+// clustarr.work.catalog.grab.normal.<mediaKey> for firstSeen+delay, and
 // records status.pendingGrab. Both the search worker (Task C8) and the RSS
 // matcher call it.
 //
-// Handler is the asynchronous one: the catalogarr-grab consumer. When the
+// Handler is the asynchronous one: the catalog-grab consumer. When the
 // scheduled GrabTask is finally delivered it re-reads the pending entry --
 // which may by then hold a better release than the one that created it -- and
 // performs the grab.
@@ -45,16 +45,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // and on the scheduled and RSS paths, which hold one candidate, the grab is
 // held exactly as a delayed grab is -- pending entry, scheduled GrabTask,
 // status.pendingGrab -- until the instant the full window next has room. The
-// ring is keyed by GUID, so indexarr's download verb and its direct-grab
+// ring is keyed by GUID, so index's download verb and its direct-grab
 // counter, meeting the same release later, count it once between them.
 //
 // # Field-manager split
 //
-// This package writes status under k8s.ManagerCatalogarrGrab and applies
+// This package writes status under k8s.ManagerCatalogGrab and applies
 // exactly three fields: status.pendingGrab, status.lastSearchedAt and
 // status.searchAttempts. It never writes status.phase. Recomputing
 // Phase=Delayed/Downloading from those fields belongs to the Movie and Episode
-// reconcilers under k8s.ManagerCatalogarr; this package's writes are what wake
+// reconcilers under k8s.ManagerCatalog; this package's writes are what wake
 // them, via the status.pendingGrab arm of their own-object predicates.
 //
 // It does not write status.activeDownloadRef either (gap-fix ruling R-5).
@@ -64,7 +64,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Downloads covering the item itself (package downloads holds the notion of
 // "covering" and "terminal" that both sides use).
 //
-// The manager name is its own rather than the shared catalogarr-worker
+// The manager name is its own rather than the shared catalog-worker
 // precisely because server-side apply replaces a manager's whole ownership
 // set on every apply. While this path and the metadata gateway shared one
 // name, each one's apply deleted the other's fields: a grab dropped the
@@ -89,7 +89,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	grabHandler := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus})
 //	grabHandler.Topology = &topo // o.BusTopology()
 //	if err := grabHandler.SetupWithManager(mgr, bus); err != nil {
-//		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
+//		return fmt.Errorf("catalog: subscribe grab: %w", err)
 //	}
 //
 // SetupWithManager adds a manager.Runnable that subscribes on manager start

@@ -81,7 +81,7 @@ func TestClientRateLimitsPerHost(t *testing.T) {
 
 // TestClientDoesNotRateLimitByDefault covers ruling F4: pacing is the
 // caller's job. A client built with no WithRateLimit option must not hold
-// requests back at all -- the indexarr controller owns one limiter per
+// requests back at all -- the index controller owns one limiter per
 // indexer host, and a library default would stack a second limiter in
 // series underneath it.
 func TestClientDoesNotRateLimitByDefault(t *testing.T) {
@@ -214,7 +214,7 @@ func TestClientRejectsAnOversizedResponseBody(t *testing.T) {
 	require.ErrorIs(t, err, torznab.ErrResponseTooLarge)
 }
 
-// The caller owns rate limiting: indexarr shares one limiter per host across
+// The caller owns rate limiting: index shares one limiter per host across
 // the caps probe, the search fan-out and the RSS poll, so all three draw on
 // a single budget. An option that constructs its own limiter internally
 // makes that impossible -- each client would get its own allowance and the
@@ -246,7 +246,7 @@ func TestWithRateLimitUsesTheCallersLimiter(t *testing.T) {
 
 // The test above uses ONE client, which is not quite the scenario this option
 // exists for: an implementation that accepted the caller's limiter and then
-// rebuilt a private bucket with the same settings would pass it. indexarr's
+// rebuilt a private bucket with the same settings would pass it. index's
 // actual shape is several clients against one host -- the caps probe, the
 // search fan-out and the RSS poll -- and the guarantee is that they share one
 // budget rather than getting one each.
@@ -260,7 +260,7 @@ func TestOneLimiterIsSharedAcrossSeveralClients(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Three separate clients, one shared limiter -- indexarr's real shape.
+	// Three separate clients, one shared limiter -- index's real shape.
 	var clients []*torznab.Client
 	for range 3 {
 		c, err := torznab.NewClient(srv.URL, "apikey", torznab.WithRateLimit(lim))

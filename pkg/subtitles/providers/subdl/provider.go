@@ -99,7 +99,7 @@ type Config struct {
 	HTTPClient *http.Client
 	// Limiter, if set, paces every outbound request on the caller's budget.
 	// It defaults to nil -- no client-side pacing -- because the caller
-	// owns rate limiting (CLAUDE.md, ruling R3): captionarr paces through
+	// owns rate limiting (CLAUDE.md, ruling R3): caption paces through
 	// the shared clustarr-provider-throttle token bucket.
 	Limiter *rate.Limiter
 }
@@ -656,7 +656,7 @@ func (p *Provider) resolveLink(link string) (string, error) {
 }
 
 // imdbTT formats an IMDb id as SubDL takes it, "tt" and at least seven
-// digits, from any of "tt0903747", "0903747" or "903747" (captionarr's
+// digits, from any of "tt0903747", "0903747" or "903747" (caption's
 // fetch worker strips both the prefix and the leading zeros).
 func imdbTT(id string) string {
 	n := numeric(id)

@@ -15,9 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package fetch is captionarr's subtitle fetch worker: the consumer of
-// clustarr.work.captionarr.fetch.<priority>.<request-uid>.<langKey> on
-// captionarr-fetch-high and captionarr-fetch-normal (spec §6.5, plan task
+// Package fetch is caption's subtitle fetch worker: the consumer of
+// clustarr.work.caption.fetch.<priority>.<request-uid>.<langKey> on
+// caption-fetch-high and caption-fetch-normal (spec §6.5, plan task
 // F-5).
 //
 // # One task
@@ -45,13 +45,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What it writes
 //
 // Only SubtitleRequest.status.items (ruling R1), under
-// k8s.ManagerCaptionarrWorker, through app/caption/status.PatchRequest --
+// k8s.ManagerCaptionWorker, through app/caption/status.PatchRequest --
 // every worker-owned leaf of every LIVE item, re-read immediately before the
 // apply (see [Worker.record] for why). The worker follows the item-liveness
 // protocol in app/caption/status.IsLive: it never creates an item, records
 // nothing for a language the controller has stopped scheduling, and its
 // apply releases -- and so deletes -- every entry the controller withdrew. items[].path is the sidecar's name
-// RELATIVE to the media file's directory; catalogarr joins it
+// RELATIVE to the media file's directory; catalog joins it
 // (app/catalog/controller/mediafile/sidecars.go) and projects the item into
 // MediaFile.status.sidecars. Provider failures go to the shared
 // clustarr-provider-throttle KV bucket (ruling R2) -- never to
@@ -92,7 +92,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	err := registerExtraction(ctx, providers, &live) // providers.Extract = embedded/native's Extract
 //	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
 //	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
-//	        return fmt.Errorf("captionarr: fetch worker: %w", err)
+//	        return fmt.Errorf("caption: fetch worker: %w", err)
 //	}
 //
 // SetupWithManager adds one k8s.EveryReplica runnable per consumer: fetch

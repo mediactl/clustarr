@@ -41,7 +41,7 @@ var imageRef = regexp.MustCompile(`ghcr\.io/mediactl/clustarr(?:/[a-z0-9._-]+)*`
 // `ghcr.io/mediactl/clustarr-media`. A chart install would have pulled an
 // image that does not exist, and no test in the tree noticed, because
 // TestChartAndKustomizeAgreePerComponent compares Deployments per component
-// and the media images are used by squasharr's transcode pool Jobs rather
+// and the media images are used by transcode's transcode pool Jobs rather
 // than by any Deployment.
 //
 // This test compares the SET of image paths rather than matching them up
@@ -109,8 +109,8 @@ func TestChartImagesMatchConfig(t *testing.T) {
 	}
 }
 
-// TestTranscoderImagesAreWhatSquasharrStampsOntoPools holds the chart's
-// image.transcoder repository, and config/manager/squasharr.yaml's
+// TestTranscoderImagesAreWhatTranscodeStampsOntoPools holds the chart's
+// image.transcoder repository, and config/manager/transcode.yaml's
 // CLUSTARR_WORKER_IMAGE, to the image images/Dockerfile.transcoder builds,
 // and keeps the CUDA image gone: nvidia pools run the same image, the NVIDIA
 // container runtime injecting the driver's libraries from the host
@@ -136,8 +136,8 @@ func TestTranscoderImagesAreWhatTheTranscodeControllerStampsOntoPools(t *testing
 		"charts/clustarr/values.yaml's image.transcoder.repository")
 	require.NotContains(t, values.Image, "transcoderCuda", "there is no CUDA image (ADR 0015)")
 
-	manifest, err := os.ReadFile(filepath.Join(root, "config", "manager", "squasharr.yaml"))
-	require.NoError(t, err, "read config/manager/squasharr.yaml")
+	manifest, err := os.ReadFile(filepath.Join(root, "config", "manager", "transcode.yaml"))
+	require.NoError(t, err, "read config/manager/transcode.yaml")
 	require.Contains(t, string(manifest), "ghcr.io/mediactl/clustarr/transcoder:dev")
 	require.NotContains(t, string(manifest), "CLUSTARR_WORKER_IMAGE_CUDA", "there is no CUDA image (ADR 0015)")
 	require.NotContains(t, string(manifest), "transcoder-cuda")

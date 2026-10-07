@@ -32,7 +32,7 @@ import (
 
 // TestNamingStatusRoundTripsAndScanRenameIsAnEnum compiles two of Task 1's
 // additions against a real apiserver: MediaFile's new status.naming field
-// (NamingStatus, catalogarr's proposal for the file's canonical path) round
+// (NamingStatus, catalog's proposal for the file's canonical path) round
 // trips a status write, and LibraryScan's new spec.rename field accepts only
 // off, dryRun and apply.
 func TestNamingStatusRoundTripsAndScanRenameIsAnEnum(t *testing.T) {

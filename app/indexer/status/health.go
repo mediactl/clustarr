@@ -79,7 +79,7 @@ func truncate(s string, n int) string {
 
 // Escalation is the complete escalation field set a caller must apply. Every
 // field is always populated: the caller applies all of them, plus
-// [Escalation.InitialFailure], under k8s.ManagerIndexarrWorker in ONE apply
+// [Escalation.InitialFailure], under k8s.ManagerIndexWorker in ONE apply
 // through [WorkerFields], because server-side apply releases the fields an
 // apply omits. [ApplyEscalation] is that mapping, and it lives in this
 // package for the same reason the ladder does -- the transition and the
@@ -126,8 +126,8 @@ func (e Escalation) InitialFailure(cur indexv1alpha1.IndexerStatus) *metav1.Time
 // It is pure: it reads cur and returns the next set, and never touches the
 // apiserver, so the caller decides which field manager applies it. The
 // Indexer reconciler never does -- the escalation set belongs to
-// k8s.ManagerIndexarrWorker, and the reconciler applies as
-// k8s.ManagerIndexarr.
+// k8s.ManagerIndexWorker, and the reconciler applies as
+// k8s.ManagerIndex.
 func RecordFailure(cur indexv1alpha1.IndexerStatus, now time.Time, reason string) Escalation {
 	level := cur.EscalationLevel
 	if level > maxEscalationLevel {
@@ -163,7 +163,7 @@ func RecordFailure(cur indexv1alpha1.IndexerStatus, now time.Time, reason string
 //
 // It is pure, like RecordFailure, and like RecordFailure the Indexer
 // reconciler never applies the result -- the escalation set belongs to
-// k8s.ManagerIndexarrWorker.
+// k8s.ManagerIndexWorker.
 func RecordSuccess(cur indexv1alpha1.IndexerStatus, now time.Time) Escalation {
 	_ = now // the ladder de-escalates by step, not by elapsed time
 	if cur.EscalationLevel <= 0 && cur.DisabledUntil == nil &&

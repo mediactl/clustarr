@@ -102,7 +102,7 @@ type ImportSource struct {
 	InfoHash string `json:"infoHash,omitempty"`
 }
 
-// Bounds of the MediaFile spec's paths and the release text importarr
+// Bounds of the MediaFile spec's paths and the release text import
 // freezes into it from a Download (loop spec §2.11.2), mirrored by
 // pkg/crdcheck.TestProbeAndImportBoundsMatchTheCRD. A Download's release
 // fields are unbounded, so fileimport clamps to these where it freezes them;
@@ -152,10 +152,10 @@ type Sidecar struct {
 // MediaFileSpec defines the desired state of MediaFile.
 //
 // MediaFile is the one exception to the single-writer rule, and the split is
-// spec versus status: importarr creates the resource and owns this spec --
+// spec versus status: import creates the resource and owns this spec --
 // the observed path, size and fingerprint, plus the quality, revision,
 // formatScore, matchedFormats and releaseType frozen at import -- while
-// catalogarr owns all of MediaFileStatus, plus metadata.labels, and takes
+// catalog owns all of MediaFileStatus, plus metadata.labels, and takes
 // over sizeBytes, modTime and original once it incorporates a transcode
 // swap -- and path as well when the transcode landed under a new name and
 // the source is gone (a container change or an explicit outputPath). Both
@@ -167,9 +167,9 @@ type MediaFileSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="mediaRef is immutable"
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
 
-	// Path is the file's absolute path. importarr sets it at import; it
-	// changes only when catalogarr swaps in a transcode written under a new
-	// name, and catalogarr then owns it.
+	// Path is the file's absolute path. import sets it at import; it
+	// changes only when catalog swaps in a transcode written under a new
+	// name, and catalog then owns it.
 	// +required
 	// +kubebuilder:validation:MaxLength=4096
 	Path string `json:"path"`
@@ -238,7 +238,7 @@ type MediaFileSpec struct {
 }
 
 // MediaFileStatus is written by one remediation loop in the manager, under
-// field manager catalogarr (ADR-0016). Until F3.1 the MediaFile reconciler
+// field manager catalog (ADR-0016). Until F3.1 the MediaFile reconciler
 // still writes it through knownStatus.
 type MediaFileStatus struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
@@ -275,7 +275,7 @@ type MediaFileStatus struct {
 	// ProbeVersion is the version of the probe that last described the
 	// file (pkg/mediainfo.ProbeVersion). A file probed by an older version
 	// is probed again, with probeHash unchanged: the hash is the file's
-	// identity to captionarr and squasharr, and its bytes did not change.
+	// identity to caption and transcode, and its bytes did not change.
 	// Zero is a file probed before versions existed.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -299,14 +299,14 @@ type MediaFileStatus struct {
 	Sidecars []Sidecar `json:"sidecars,omitempty"`
 
 	// Naming is the file's canonical path under its RootFolder's naming
-	// preset, rendered by catalogarr from the item's metadata, the
-	// release-time spec and the probe; importarr performs the rename.
+	// preset, rendered by catalog from the item's metadata, the
+	// release-time spec and the probe; import performs the rename.
 	// +optional
 	Naming *NamingStatus `json:"naming,omitempty"`
 
 	// Markers are the skip segments TheIntroDB publishes for this file,
-	// fetched by catalogarr's marker worker (field manager
-	// catalogarr-markers) with the probe's duration, and seeded into Plex
+	// fetched by catalog's marker worker (field manager
+	// catalog-markers) with the probe's duration, and seeded into Plex
 	// by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
 	// +optional
 	Markers *FileMarkers `json:"markers,omitempty"`
@@ -326,10 +326,10 @@ type MediaFileStatus struct {
 	// +optional
 	Graft *GraftState `json:"graft,omitempty"`
 
-	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalog
 	// incorporated into this file (anime dual-audio spec §7.2), and
 	// GraftedAt when. A graft is not a transcode: spec.original stays as it
-	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
+	// was, but from the first graft catalog owns spec.path, sizeBytes and
 	// modTime, as after a transcode swap.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
@@ -443,7 +443,7 @@ const (
 )
 
 // SegmentAnalysis records clustarr's own analysis of a file
-// (segmentarr-worker), beside TheIntroDB's fetch bookkeeping.
+// (markers-worker), beside TheIntroDB's fetch bookkeeping.
 type SegmentAnalysis struct {
 	// Result is Found, NotFound or Error.
 	Result MarkersResult `json:"result"`
@@ -463,7 +463,7 @@ type SegmentAnalysis struct {
 	Message string `json:"message,omitempty"`
 }
 
-// NamingStatus is catalogarr's proposal for a MediaFile's canonical path.
+// NamingStatus is catalog's proposal for a MediaFile's canonical path.
 type NamingStatus struct {
 	// ExpectedPath is the absolute path the preset renders; empty until
 	// the item's metadata and the probe are both present.
@@ -479,7 +479,7 @@ type NamingStatus struct {
 	// +kubebuilder:validation:Enum=MetadataPending;ProbePending;TranscodePending;Recycling;Unrenderable
 	Reason NamingReason `json:"reason,omitempty"`
 
-	// Quality is the probe-corrected quality importarr re-applies into
+	// Quality is the probe-corrected quality import re-applies into
 	// spec.quality when it renames.
 	// +optional
 	Quality *commonv1.Quality `json:"quality,omitempty"`

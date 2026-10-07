@@ -72,7 +72,7 @@ const (
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles an Episode: phase from monitored/airDate/hasFile/
@@ -96,7 +96,7 @@ const (
 // episode-list RPC is what keeps its provider fields current). Bus is used
 // only for the media-file domain events (imported/replaced/deleted) the
 // history sink records; a nil Bus publishes nothing, which is how a
-// catalogarr that has not wired one behaves.
+// catalog that has not wired one behaves.
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
@@ -368,7 +368,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	// HasFile and CutoffMet are the other two conditions spec §4.2 lists for
 	// Episode (alongside Aired). Until task C13 their only writer anywhere
 	// was the MediaFile controller's rollupToOwner, which applied them under
-	// this reconciler's own k8s.ManagerCatalogarr and therefore released
+	// this reconciler's own k8s.ManagerCatalog and therefore released
 	// observedGeneration and activeDownloadRef on every apply. That rollup
 	// is gone; the conditions move here, to the object's sole status writer.
 	// See the movie package's identical block for the full rationale.
@@ -436,15 +436,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 
 	// This reconciler owns exactly Phase/Conditions/HasFile/FileRef/
 	// FileQuality/FileFormatScore/CutoffMet/ActiveDownloadRef/
-	// ObservedGeneration under k8s.ManagerCatalogarr. The Series reconciler
+	// ObservedGeneration under k8s.ManagerCatalog. The Series reconciler
 	// writes this Episode's provider-sourced fields
 	// (Title/Overview/AirDate/TvdbID/RuntimeMinutes/AbsoluteNumber) under
-	// the distinct k8s.ManagerCatalogarrSeries, so no pass-through of those
+	// the distinct k8s.ManagerCatalogSeries, so no pass-through of those
 	// fields is needed here: server-side apply tracks
 	// ownership per (manager name, field), and two different manager names
 	// on the same object never collide or release each other's fields --
 	// only two writers sharing ONE manager name do that (see this
-	// package's doc comment and k8s.ManagerCatalogarrSeries's own comment
+	// package's doc comment and k8s.ManagerCatalogSeries's own comment
 	// for the empirical finding that drove this split).
 	//
 	// status.finaleType and status.sceneNumbering are NOT in that list.

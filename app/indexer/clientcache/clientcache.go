@@ -44,7 +44,7 @@ import (
 // The cache key is the Indexer's UID plus its resourceVersion, so any edit to
 // the object is picked up immediately. What it CANNOT see is the referenced
 // Secret changing: rotating an apikey or a passkey does not touch the Indexer,
-// and indexarr reads Secrets without an informer (see indexarr.Options'
+// and index reads Secrets without an informer (see index.Options'
 // ManagerOptions), so there is no watch to invalidate on. The TTL is that
 // bound. Five minutes is well inside the reprobe tick that would notice a
 // rejected credential anyway, and still collapses a fan-out across a hundred
@@ -88,7 +88,7 @@ const sessionRewatchDelay = 5 * time.Second
 //
 // A fan-out calls this once per candidate indexer per search, and the RSS
 // poll once per poll. Each call would otherwise be a live apiserver GET for
-// the Secret, because indexarr disables the Secret informer. A wanted-cron
+// the Secret, because index disables the Secret informer. A wanted-cron
 // sweep of 200 items across 20 indexers is 4,000 GETs against
 // controller-runtime's default 20 QPS client.
 //
@@ -107,8 +107,8 @@ type ClientCache struct {
 
 	// Sessions is where a definition-backed Indexer's login session is read
 	// from when its client is built, and where a relogin Saves or Drops it.
-	// nil means "the owned Secret only", written as indexarr-worker
-	// (NewSessionStore(c, nil, k8s.ManagerIndexarrWorker)), which is always
+	// nil means "the owned Secret only", written as index-worker
+	// (NewSessionStore(c, nil, k8s.ManagerIndexWorker)), which is always
 	// correct because the
 	// reconciler writes the Secret on every login; wiring the bus here adds
 	// the clustarr-indexer-sessions KV read in front of it.
@@ -237,7 +237,7 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (idx
 }
 
 // DefinitionFetcherFor is the download.FetcherFor for a definition-backed
-// Indexer: rpc.indexarr.download dispatches a Cardigann release to
+// Indexer: rpc.index.download dispatches a Cardigann release to
 // Engine.Download (its download block, before-request and selectors) rather
 // than to a plain GET that would skip all three. It reads through the same
 // cache as [ClientCache.For], so a download and a search on one indexer use

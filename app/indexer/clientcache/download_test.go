@@ -32,11 +32,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
 
-// rpc.indexarr.download, end to end for a definition-backed Indexer: the
+// rpc.index.download, end to end for a definition-backed Indexer: the
 // verb resolves the Indexer, dispatches to ClientCache.DefinitionFetcherFor,
 // and the REAL engine runs 1337x.yml's download block -- fetching the details
 // page and picking the magnet link off it with the definition's selector. A
-// plain GET of that URL would have handed grabarr an HTML page.
+// plain GET of that URL would have handed grab an HTML page.
 func TestTheDownloadVerbRunsTheDefinitionsDownloadBlock(t *testing.T) {
 	var pages int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

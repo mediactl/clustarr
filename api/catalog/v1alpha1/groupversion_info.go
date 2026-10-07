@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // backing it (MediaFile), the configuration that drives it (RootFolder,
 // QualityProfile, DelayProfile, MetadataProvider, ImportList,
 // ImportExclusion, OverlayProfile) and interactive Search (owned by
-// catalogarr).
+// catalog).
 //
 // +kubebuilder:object:generate=true
 // +kubebuilder:ac:generate=true

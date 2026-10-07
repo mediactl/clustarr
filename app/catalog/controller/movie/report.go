@@ -58,7 +58,7 @@ func (r *Reconciler) audioGraft(ctx context.Context, m *catalogv1alpha1.Movie) (
 
 // publishItem publishes one ItemEvent for m. It is best effort: the event is
 // history and the status is the record, so a failed publish is logged and
-// the reconcile carries on -- the same stance grabarr's DownloadEvent
+// the reconcile carries on -- the same stance grab's DownloadEvent
 // producer takes. A nil Bus publishes nothing.
 func (r *Reconciler) publishItem(ctx context.Context, m *catalogv1alpha1.Movie, action string, now time.Time) {
 	if r.Bus == nil {
@@ -103,7 +103,7 @@ func (r *Reconciler) publish(ctx context.Context, subject string, env *events.En
 }
 
 // normal and warn emit a Kubernetes Event on m through the recorder
-// catalogarr hands in (mgr.GetEventRecorder("movie")). Every call site emits
+// catalog hands in (mgr.GetEventRecorder("movie")). Every call site emits
 // on an edge, never on a steady state; see rollup.Transitioned.
 func (r *Reconciler) normal(m *catalogv1alpha1.Movie, reason, format string, args ...any) {
 	if r.Recorder != nil {

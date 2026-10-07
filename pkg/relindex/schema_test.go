@@ -64,7 +64,7 @@ func TestOpenRefusesADatabaseWrittenByANewerBuild(t *testing.T) {
 }
 
 func TestOpenOnAnExistingDatabaseIsIdempotent(t *testing.T) {
-	// Every restart of the single indexarr replica re-runs Open against a
+	// Every restart of the single index replica re-runs Open against a
 	// populated PVC. It must be a no-op, not a re-migration.
 	path := filepath.Join(t.TempDir(), "releases.db")
 	for range 3 {

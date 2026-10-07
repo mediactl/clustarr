@@ -666,7 +666,7 @@ func TestARerouteRacingAClaimDoesNotWedgeTheJob(t *testing.T) {
 	assert.Equal(t, cancel, leaseOf(t, r, a), "and the marker still stands for pool-pod-1 to find at its renewal")
 
 	// The cancelled worker reports; attempt 1 is over, so it changes nothing.
-	require.NoError(t, deliver(t, r, a, finished(1, task.OutcomeCancelled, "", "cancelled by squasharr")))
+	require.NoError(t, deliver(t, r, a, finished(1, task.OutcomeCancelled, "", "cancelled by transcode")))
 	got = getTJ(t, c, ns, "a-hevc")
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase)
 	assert.EqualValues(t, 2, got.Status.Attempts)

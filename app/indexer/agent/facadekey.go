@@ -36,7 +36,7 @@ import (
 )
 
 // The facade's API-key Secret: read, and created when it is absent. get and
-// create only -- indexarr never updates or patches it, because a key an
+// create only -- index never updates or patches it, because a key an
 // operator set must never be overwritten by one this process generated.
 // app/indexer/controller/indexer already grants secrets get;create;patch for the
 // Cardigann session Secret; this package asks for what it uses on its own,
@@ -69,7 +69,7 @@ const facadeAPIKeyBytes = 32
 //
 // The facade fails closed (facade.New refuses to build with no key), and the
 // alternative to generating is requiring an operator to create the Secret
-// before indexarr will start. That turns an optional feature into a hard
+// before index will start. That turns an optional feature into a hard
 // prerequisite of the whole indexer service -- search, RSS and grabs
 // included -- on every install path: config/, the chart and kind alike.
 // Prowlarr, Sonarr and Radarr all generate their API key on first start for
@@ -83,11 +83,11 @@ const facadeAPIKeyBytes = 32
 // non-blank entry is an error, not an invitation to add one: an operator
 // who emptied it meant something, and the facade must not come back up with
 // a key they never saw. It reads through reader -- the manager's API reader,
-// live, since indexarr never caches Secrets (see indexarr.Options.ManagerOptions) --
+// live, since index never caches Secrets (see index.Options.ManagerOptions) --
 // and never logs a key.
 //
-// It creates the Secret as indexarr-worker. The index agent runs it, and
-// since the manager/agent split indexarr is the manager's alone (§5.3.2,
+// It creates the Secret as index-worker. The index agent runs it, and
+// since the manager/agent split index is the manager's alone (§5.3.2,
 // OD14). It is create-only, so the rename touches no live field.
 func ensureFacadeAPIKeys(
 	ctx context.Context, reader client.Reader, writer client.Writer, namespace, name string,
@@ -116,25 +116,25 @@ func ensureFacadeAPIKeys(
 		cerr := writer.Create(ctx, &sec, client.FieldOwner(k8s.ManagerIndexWorker.String()))
 		switch {
 		case cerr == nil:
-			log.Info("indexarr: generated the Torznab facade's API key; read it from the Secret",
+			log.Info("index: generated the Torznab facade's API key; read it from the Secret",
 				"secret", key.String(), "field", FacadeAPIKeyField)
 		case apierrors.IsAlreadyExists(cerr):
 			// Someone created it between the Get and the Create -- an
 			// operator, or a previous pod of this Recreate Deployment that
 			// had not finished exiting. Theirs wins: read it back.
 			if err := reader.Get(ctx, key, &sec); err != nil {
-				return nil, fmt.Errorf("indexarr: re-read the facade API-key Secret %s: %w", key, err)
+				return nil, fmt.Errorf("index: re-read the facade API-key Secret %s: %w", key, err)
 			}
 		default:
-			return nil, fmt.Errorf("indexarr: create the facade API-key Secret %s: %w", key, cerr)
+			return nil, fmt.Errorf("index: create the facade API-key Secret %s: %w", key, cerr)
 		}
 	default:
-		return nil, fmt.Errorf("indexarr: read the facade API-key Secret %s: %w", key, err)
+		return nil, fmt.Errorf("index: read the facade API-key Secret %s: %w", key, err)
 	}
 
 	keys := facadeAPIKeys(&sec)
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("indexarr: the facade API-key Secret %s has no non-blank entry, and the Torznab "+
+		return nil, fmt.Errorf("index: the facade API-key Secret %s has no non-blank entry, and the Torznab "+
 			"facade will not serve without a key; add one, delete the Secret to have a key generated, or set "+
 			"--facade-bind-address=%s to disable the facade", key, k8s.DisabledBindAddress)
 	}
@@ -162,7 +162,7 @@ func facadeAPIKeys(sec *corev1.Secret) []string {
 func newFacadeAPIKey() (string, error) {
 	b := make([]byte, facadeAPIKeyBytes)
 	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("indexarr: generate the facade API key: %w", err)
+		return "", fmt.Errorf("index: generate the facade API key: %w", err)
 	}
 	return hex.EncodeToString(b), nil
 }

@@ -333,7 +333,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		assert.Equal(t, catalogv1alpha1.IssueStateWanted, got.Status.State, "no file and no active download: back to Wanted")
 
 		// A Download on its way out stops counting the moment it is marked
-		// for deletion, not when its finalizers (grabarr's teardown) let it
+		// for deletion, not when its finalizers (grab's teardown) let it
 		// go: the Download watch's deletion arm carries that edge.
 		newDownload("batman-003-regrab-dl", &got)
 		require.Eventually(t, func() bool {
@@ -464,7 +464,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			return !got.Status.CutoffMet && cond != nil && cond.Reason == "BelowCutoff"
 		}, 5*time.Second, 20*time.Millisecond, "the Comic's profile change never reached the Issue")
 
-		// status.cutoffMet is this reconciler's leaf under catalogarr, and
+		// status.cutoffMet is this reconciler's leaf under catalog, and
 		// no other manager claims it. It is false (and omitempty) right now,
 		// so flip it back to met before looking at managedFields.
 		qp = catalogv1alpha1.QualityProfile{}

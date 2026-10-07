@@ -132,10 +132,10 @@ func project(item client.Object, related Related) Entry {
 	imported := related.MediaFile != nil || importedDL != nil
 	satisfied := subtitlesSatisfied(related)
 	// complete requires imported, plus -- for a kind that goes through
-	// squasharr and captionarr -- at least one SubtitleRequest fully
+	// transcode and caption -- at least one SubtitleRequest fully
 	// satisfied and at least one TranscodeJob with none of them still doing
 	// work. Both branches require their resource to actually exist:
-	// captionarr creates a SubtitleRequest and squasharr a TranscodeJob for
+	// caption creates a SubtitleRequest and transcode a TranscodeJob for
 	// every imported video MediaFile (even a TranscodeJob that ends up
 	// Skipped), so their absence means those controllers have not caught up
 	// yet, not that the work does not apply. Treating "no resource yet" as
@@ -272,8 +272,8 @@ func releaseSearchActive(phase catalogv1.SearchPhase) bool {
 	return phase == catalogv1.SearchPhasePending || phase == catalogv1.SearchPhaseRunning
 }
 
-// requiresPostProcessing reports whether kind goes through squasharr
-// (transcode) and captionarr (subtitles) after import. Only video kinds do:
+// requiresPostProcessing reports whether kind goes through transcode
+// (transcode) and caption (subtitles) after import. Only video kinds do:
 // Movie, Series and Episode. Music, book and comic kinds (Artist, Album,
 // Author, Book, Audiobook, Comic, Issue) have no transcode or subtitle
 // pipeline at all, so the transcode and subtitle stages -- and StageComplete

@@ -181,7 +181,7 @@ type AnimeDefaults struct {
 	SeriesType SeriesType `json:"seriesType,omitempty"`
 }
 
-// NamingSpec controls how catalogarr lays files out under the root folder.
+// NamingSpec controls how catalog lays files out under the root folder.
 type NamingSpec struct {
 	// Dialect is the media-server layout convention to follow.
 	// +optional
@@ -206,15 +206,15 @@ type NamingSpec struct {
 	// +kubebuilder:validation:MaxProperties=16
 	Overrides map[string]string `json:"overrides,omitempty"`
 
-	// RenameFiles lets importarr rename a library file to its canonical
-	// name whenever catalogarr reports it is not (status.naming). Off by
+	// RenameFiles lets import rename a library file to its canonical
+	// name whenever catalog reports it is not (status.naming). Off by
 	// default: a library imported before codec tokens existed differs on
 	// every file. A LibraryScan with spec.rename runs a pass regardless.
 	// +optional
 	// +kubebuilder:default=false
 	RenameFiles *bool `json:"renameFiles,omitempty"`
 
-	// RenameTranscoded lets importarr rename a file squasharr transcoded
+	// RenameTranscoded lets import rename a file the transcode controller transcoded
 	// (status.transcode.profileTag) to its canonical file name, in the
 	// folder it is already in, so a name that described the source codec
 	// ("[EAC3 5.1][h264]") does not outlive it. A canonical folder that
@@ -303,7 +303,7 @@ type RootFolderSpec struct {
 	// +optional
 	Permissions Perms `json:"permissions,omitempty"`
 
-	// ScanSchedule is a cron expression; importarr creates a LibraryScan per tick.
+	// ScanSchedule is a cron expression; import creates a LibraryScan per tick.
 	// Empty means no periodic rescan.
 	// +optional
 	// +kubebuilder:validation:MaxLength=120
@@ -325,7 +325,7 @@ type RootFolderStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
-	// Accessible is true when the path exists and catalogarr can write to it.
+	// Accessible is true when the path exists and catalog can write to it.
 	// +optional
 	Accessible bool `json:"accessible,omitempty"`
 

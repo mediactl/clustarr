@@ -393,7 +393,7 @@ type ImportListStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// ImportList is a remote list of desired media that catalogarr keeps the
+// ImportList is a remote list of desired media that catalog keeps the
 // catalog in step with.
 type ImportList struct {
 	metav1.TypeMeta   `json:",inline"`

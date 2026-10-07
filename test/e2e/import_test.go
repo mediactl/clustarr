@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // D2's, and is already proven by test/e2e/indexer_test.go's scenario 17
 // (TestIndexerFederatedSearchAndReleaseFirehose's firehoseTimeout wait
 // asserts a matched Movie's status.pendingGrab from a real RSS poll through
-// catalogarr's rss-matcher). Re-driving an RSS poll here would duplicate
+// catalog's rss-matcher). Re-driving an RSS poll here would duplicate
 // that proof, not extend it.
 //
 // What IS D2's own, new surface for this scenario is

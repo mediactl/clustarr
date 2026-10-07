@@ -66,7 +66,7 @@ const (
 // draws from and stamps into every overlay's inputs digest.
 func Hash(spec catalogv1alpha1.OverlayProfileSpec) string { return overlayplan.ProfileHash(spec) }
 
-// Reconciler owns OverlayProfile.status under k8s.ManagerCatalogarr and
+// Reconciler owns OverlayProfile.status under k8s.ManagerCatalog and
 // publishes the RenderOverlay tasks its selection calls for. It writes
 // nothing else: status.overlay is the renderer's.
 type Reconciler struct {
@@ -251,7 +251,7 @@ func (r *Reconciler) mapNamespaceProfiles(ctx context.Context, o client.Object) 
 	return reqs
 }
 
-// SetupWithManager registers the controller; catalogarr's setupControllers
+// SetupWithManager registers the controller; catalog's setupControllers
 // calls it.
 //
 // Items are watched for creation, deletion and label changes only: those

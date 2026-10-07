@@ -15,11 +15,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package download is the seam between grabarr's controllers and the two
+// Package download is the seam between grab's controllers and the two
 // transfer engines: BitTorrent (anacrolix, D2-1) and usenet (NNTP + yEnc +
 // PAR2, D2-2). [Client] is the whole contract, and [ApplyStatus] is the one
 // mapping from an engine's observation onto the fields
-// k8s.ManagerGrabarrEngine owns on Download.status.
+// k8s.ManagerGrabEngine owns on Download.status.
 //
 // # The interface is deliberately total
 //
@@ -56,10 +56,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // It does not decide Download.status.phase. [Item.Status] is the engine's own
 // view of a transfer; the controller maps it onto DownloadPhase, because the
-// phase enum is a pinned contract shared with catalogarr's rollup overlay
+// phase enum is a pinned contract shared with catalog's rollup overlay
 // (plan ruling R1) and an engine must not be able to move an object through
 // it. [ApplyStatus] therefore never emits phase, conditions, or any other
-// field in k8s.ManagerGrabarr's owned set -- see app/grab/status for the
+// field in k8s.ManagerGrab's owned set -- see app/grab/status for the
 // declaration of that split.
 package download
 
@@ -92,7 +92,7 @@ var ErrPayloadMismatch = errors.New("download: payload does not match the expect
 // Status is the engine's own view of a transfer.
 //
 // It is deliberately NOT DownloadPhase. DownloadPhase is the object's
-// lifecycle, owned by the grabarr controller and shared with catalogarr's
+// lifecycle, owned by the grab controller and shared with catalog's
 // rollup overlay; this is the six-way state a download client reports, which
 // the controller combines with the object's own history (has it been
 // assigned? has the import finished? is it blocklisted?) to compute a phase.
@@ -156,7 +156,7 @@ type ByName interface {
 // a slow status apply without racing the engine.
 //
 // Every field here maps onto a Download.status field that
-// k8s.ManagerGrabarrEngine owns, with two exceptions. [Item.Status] is never
+// k8s.ManagerGrabEngine owns, with two exceptions. [Item.Status] is never
 // persisted: the controller derives status.phase from the persisted
 // telemetry instead, and an engine that wrote a phase would be a second
 // writer of the controller's owned set. [Item.AddedAt] is never persisted
@@ -397,8 +397,8 @@ type Info struct {
 // AddRequest is everything a client needs to start one transfer.
 //
 // The payload is bytes or a magnet URI and never a URL: §4.4 keeps .torrent
-// and .nzb bodies off the Download object entirely, and grabarr resolves
-// spec.source through indexarr -- which applies the indexer's auth, rate limit
+// and .nzb bodies off the Download object entirely, and grab resolves
+// spec.source through index -- which applies the indexer's auth, rate limit
 // and proxy -- before it ever reaches an engine. A client that fetched a URL
 // itself would be a second, uncredentialed indexer client.
 type AddRequest struct {
@@ -531,7 +531,7 @@ type SeedHistory struct {
 type FileSelector func(path string, sizeBytes int64) bool
 
 // Client is one download client -- an embedded torrent engine or an NNTP
-// engine -- as grabarr's controllers and engine runnables use it.
+// engine -- as grab's controllers and engine runnables use it.
 //
 // Implementations are safe for concurrent use: the engine runnable polls
 // [Client.List] on a timer while the Download informer calls [Client.Add] and

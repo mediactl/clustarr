@@ -156,7 +156,7 @@ func recycleMediaFiles(
 		for _, sc := range mf.Status.Sidecars {
 			paths = append(paths, sc.Path)
 		}
-		// squasharr's own sidecars, which no MediaFile records (MP4
+		// transcode's own sidecars, which no MediaFile records (MP4
 		// standard §4.1).
 		found, _ := subtitles.SidecarsOf(mf.Spec.Path)
 		for _, p := range found {

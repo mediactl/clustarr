@@ -143,7 +143,7 @@ type resolver func(key string, data []byte) Target
 // catalog.WantedScan names no single object -- it is a namespace sweep,
 // Namespace and no Name -- so resolveWantedScan resolves it to its namespace
 // alone rather than pretending it names one object.
-// importarr.RecycleSweepTask is the one cluster-global task: it names
+// import.RecycleSweepTask is the one cluster-global task: it names
 // neither, and resolveRecycleSweepTask says so by returning the zero Target.
 var resolvers = map[string]resolver{
 	schema.ItemEvent{}.Schema():         resolveItemEvent,
@@ -254,7 +254,7 @@ func resolveGrabTask(key string, data []byte) Target {
 }
 
 // resolveArtworkFetchTask and resolveRenderOverlayTask resolve M7's two
-// artwork work payloads (catalogarr-artwork-fetch, catalogarr-artwork-render)
+// artwork work payloads (catalog-artwork-fetch, catalog-artwork-render)
 // the way every other MediaRef task resolves: the item's own name and kind,
 // namespaced by the envelope key.
 func resolveArtworkFetchTask(key string, data []byte) Target {
@@ -394,7 +394,7 @@ func ResolveWith(ctx context.Context, env *events.Envelope, owners EntryOwners) 
 	return t
 }
 
-// resolveRelease is indexarr's parsed-release payload. It carries no Ref of
+// resolveRelease is index's parsed-release payload. It carries no Ref of
 // its own; the producer convention (see app/catalog/worker/rssmatcher.Handle)
 // is Clustarr-Key = "<namespace>/<indexerName>", so the key alone resolves
 // it. Info.IndexerRef is consulted only to prefer a name the payload itself
@@ -457,8 +457,8 @@ func resolveJobEvent(key string, data []byte) Target {
 
 // transcodeTaskRef is the one field of app/transcode/task.Task a dead letter
 // needs: the TranscodeJob the task was dispatched for. It is decoded here
-// rather than importing app/transcode/task, which would make catalogarr depend
-// on squasharr's worker types for one reference.
+// rather than importing app/transcode/task, which would make catalog depend
+// on transcode's worker types for one reference.
 type transcodeTaskRef struct {
 	Job schema.Ref `json:"job"`
 }
@@ -467,7 +467,7 @@ type transcodeTaskRef struct {
 func (transcodeTaskRef) Schema() string { return "transcode.Task.v1" }
 
 // resolveTranscodeTask names the TranscodeJob a dead-lettered transcode task
-// was dispatched for, so the DLQ projector annotates it and squasharr blocks
+// was dispatched for, so the DLQ projector annotates it and transcode blocks
 // the job (spec §18.3).
 func resolveTranscodeTask(key string, data []byte) Target {
 	var p transcodeTaskRef
@@ -501,7 +501,7 @@ func resolveScanTask(key string, data []byte) Target {
 	return refTarget(p.LibraryScanRef, catalogv1alpha1.GroupVersion.String(), "LibraryScan")
 }
 
-// resolveListTask is importarr's import-list sync task. Since the pruned
+// resolveListTask is import's import-list sync task. Since the pruned
 // catalog.ImportListTask went (X1 item 14), this is the only task that names
 // an ImportList, so without it a sync that dead-lettered reached nothing but
 // a namespace Event, and the ImportList never showed DeadLettered.
@@ -513,7 +513,7 @@ func resolveListTask(key string, data []byte) Target {
 	return refTarget(p.ListRef, catalogv1alpha1.GroupVersion.String(), "ImportList")
 }
 
-// resolveRecycleSweepTask is importarr's recycle-bin sweep (spec 2026-10-06
+// resolveRecycleSweepTask is import's recycle-bin sweep (spec 2026-10-06
 // §3.5.3). One task sweeps every bin, so it names no object and no
 // namespace, and the DLQ projector logs its dead letter instead of
 // annotating anything.

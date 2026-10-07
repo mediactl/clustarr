@@ -49,6 +49,6 @@ func (c *limitsCache) publishHealth(ctx context.Context, m transcode.Measurement
 		return
 	}
 	if err := task.PublishMeasurement(ctx, c.kv, c.class, c.reporter, m, unhealthy, time.Now()); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: could not publish the device's health", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: could not publish the device's health", "error", err)
 	}
 }

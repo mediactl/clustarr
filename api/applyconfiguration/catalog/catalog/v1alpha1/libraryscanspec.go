@@ -26,7 +26,7 @@ import (
 // LibraryScanSpecApplyConfiguration represents a declarative configuration of the LibraryScanSpec type for use
 // with apply.
 //
-// LibraryScanSpec asks importarr to walk a root folder and reconcile what it finds.
+// LibraryScanSpec asks import to walk a root folder and reconcile what it finds.
 type LibraryScanSpecApplyConfiguration struct {
 	// RootFolderRef names the RootFolder to scan.
 	//

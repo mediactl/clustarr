@@ -109,14 +109,14 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Client:   mgr.GetClient(),
 		Recorder: recorder,
 		// The import materialisation's MediaFile spec writer (A3.8): the
-		// manager-only specwrite, under importarr-worker.
+		// manager-only specwrite, under import-worker.
 		SpecWriter: specWriter,
 	}
 	return r.SetupWithManager(mgr)
 }
 
 // specWriter applies a placed file's MediaFile spec through
-// specwrite.ApplyFacts, the one render of importarr-worker's set.
+// specwrite.ApplyFacts, the one render of import-worker's set.
 func specWriter(ctx context.Context, c client.Client, e remediation.ApplyMediaFileSpec) error {
 	_, err := specwrite.ApplyFacts(ctx, c, e.Namespace, e.Name, e.RV, e.Ref, e.Path, e.SizeBytes, e.ModTime, e.Frozen)
 	return err

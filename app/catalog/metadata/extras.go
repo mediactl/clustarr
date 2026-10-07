@@ -39,7 +39,7 @@ import (
 // every item, so a week keeps plex.tv to one request per item per week.
 const extrasFreshness = 7 * 24 * time.Hour
 
-// extrasService answers rpc.catalogarr.metadata.extras: an item's extras
+// extrasService answers rpc.catalog.metadata.extras: an item's extras
 // from the clustarr-plex-extras bucket, fetched from Plex's metadata
 // service and stored when the bucket has none or only a stale entry.
 type extrasService struct {
@@ -48,7 +48,7 @@ type extrasService struct {
 	clock     clockwork.Clock
 }
 
-// ServeExtras registers rpc.catalogarr.metadata.extras in the catalogarr
+// ServeExtras registers rpc.catalog.metadata.extras in the catalog
 // queue group over the bucket kv and the registry's Plex providers. PMS
 // asks the ui's Plex provider for an item's extras on every refresh and
 // deletes the ones it holds when the answer is empty, so an error is

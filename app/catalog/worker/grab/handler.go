@@ -50,7 +50,7 @@ const grabRetry = 30 * time.Second
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 
-// Handler is the catalogarr-grab consumer: the scheduled half of §8.2. A
+// Handler is the catalog-grab consumer: the scheduled half of §8.2. A
 // GrabTask published by Decide with WithScheduleAt arrives here once the
 // delay has elapsed, and this is where the pending candidate -- which may have
 // been replaced several times since -- is finally turned into a Download.
@@ -59,7 +59,7 @@ type Handler struct {
 
 	// Topology is the bus topology this process installed --
 	// k8s.Options.BusTopology(), the value run.go hands k8s.EnsureTopology
-	// -- and Subscription looks the catalogarr-grab consumer up in it, as
+	// -- and Subscription looks the catalog-grab consumer up in it, as
 	// app/catalog/worker/search does for its two. Nil means
 	// events.Default(), which is only correct while BusTopology's
 	// single-node collapse leaves consumers untouched; a caller that has
@@ -71,7 +71,7 @@ type Handler struct {
 // NewHandler returns a Handler over d.
 func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
 
-// Subscription is the catalogarr-grab durable consumer from §5's table:
+// Subscription is the catalog-grab durable consumer from §5's table:
 // AckWait 60s, MaxDeliver 5, BackOff 10s/1m/5m, MaxAckPending 16. It is read
 // from the topology rather than restated so the tuning lives in exactly one
 // place.
@@ -82,7 +82,7 @@ func (h *Handler) Subscription() events.Subscription {
 	}
 	spec, ok := topo.Consumer(events.ConsumerCatalogGrab)
 	if !ok {
-		// A topology without the catalogarr-grab consumer. A zero
+		// A topology without the catalog-grab consumer. A zero
 		// Subscription fails Subscription.Validate loudly at Subscribe
 		// time rather than silently consuming nothing.
 		return events.Subscription{}
@@ -101,7 +101,7 @@ func (h *Handler) Subscription() events.Subscription {
 //	h := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus})
 //	h.Topology = &topo // o.BusTopology()
 //	if err := h.SetupWithManager(mgr, bus); err != nil {
-//		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
+//		return fmt.Errorf("catalog: subscribe grab: %w", err)
 //	}
 //
 // It does NOT need leader election: every replica runs the queue workers and
@@ -123,7 +123,7 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
 		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe grab: %w", err)
+			return fmt.Errorf("catalog: subscribe grab: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()

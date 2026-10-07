@@ -26,7 +26,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 )
 
-// renderMain is the one main-resource apply under catalogarr (§3.10): the
+// renderMain is the one main-resource apply under catalog (§3.10): the
 // seven catalog.clustarr.io labels from MirrorLabels over the draft's
 // mediaInfo, and the spec takeover after a swap (spec.original false, or one
 // this pass incorporates) or for a grafted original (the flat
@@ -34,7 +34,7 @@ import (
 // object already carries all of it, and before any probe (as before the
 // loop, labels wait for one).
 //
-// A takeover the cached object already carries is not re-sent: catalogarr
+// A takeover the cached object already carries is not re-sent: catalog
 // already owns those leaves, and the next apply that is sent re-sends them,
 // so nothing is released. A main apply that is sent carries every takeover
 // field.

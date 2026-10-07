@@ -156,7 +156,7 @@ func ParseSidecar(videoStem, name string) (LangKey, bool) {
 }
 
 // SidecarsOf is every file beside the video at videoPath that ParseSidecar
-// attributes to it: recorded or not -- squasharr writes the source's own
+// attributes to it: recorded or not -- transcode writes the source's own
 // subtitles beside a transcode (MP4 standard §4.1), and no MediaFile lists
 // them. A folder that cannot be read has none.
 func SidecarsOf(videoPath string) ([]string, error) {

@@ -88,7 +88,7 @@ func TestNoLimiterMeansNoClientSideWaiting(t *testing.T) {
 
 // TestOneLimiterIsSharedAcrossSeveralProviders is torznab's
 // TestOneLimiterIsSharedAcrossSeveralClients, adapted: several Provider
-// instances (indexarr's shape is several clients against one host; here it
+// instances (index's shape is several clients against one host; here it
 // is several fetch worker goroutines against one OpenSubtitles.com account)
 // sharing ONE *rate.Limiter must draw from ONE budget, not one each. Three
 // separate Providers so each makes exactly one request (EnsureLoggedIn

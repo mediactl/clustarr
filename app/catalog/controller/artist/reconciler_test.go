@@ -285,18 +285,18 @@ func TestArtistReconcilerNeverClaimsStatusMetadata(t *testing.T) {
 		return k8s.IsConditionTrue(got.Status.Conditions, catalogv1alpha1.ArtistConditionAlbumsSynced)
 	}, 5*time.Second, 10*time.Millisecond)
 
-	fields := managedStatusFieldPaths(got.ManagedFields, "catalogarr")
-	require.NotNil(t, fields, "no catalogarr/status entry in managedFields")
+	fields := managedStatusFieldPaths(got.ManagedFields, "catalog")
+	require.NotNil(t, fields, "no catalog/status entry in managedFields")
 	names := statusFieldNames(fields)
-	assert.True(t, names["path"], "catalogarr should own status.path")
-	assert.True(t, names["albumCount"], "catalogarr should own status.albumCount")
-	assert.False(t, names["metadata"], "catalogarr must never claim status.metadata -- that belongs to catalogarr-metadata")
+	assert.True(t, names["path"], "catalog should own status.path")
+	assert.True(t, names["albumCount"], "catalog should own status.albumCount")
+	assert.False(t, names["metadata"], "catalog must never claim status.metadata -- that belongs to catalog-metadata")
 
-	metaFields := managedStatusFieldPaths(got.ManagedFields, "catalogarr-metadata")
-	require.NotNil(t, metaFields, "no catalogarr-metadata/status entry in managedFields")
+	metaFields := managedStatusFieldPaths(got.ManagedFields, "catalog-metadata")
+	require.NotNil(t, metaFields, "no catalog-metadata/status entry in managedFields")
 	metaNames := statusFieldNames(metaFields)
 	assert.True(t, metaNames["metadata"])
-	assert.False(t, metaNames["path"], "catalogarr-metadata must never claim status.path")
+	assert.False(t, metaNames["path"], "catalog-metadata must never claim status.path")
 }
 
 // TestArtistReconcilerCreatesAlbumsFilteredByProfile proves DesiredAlbums'

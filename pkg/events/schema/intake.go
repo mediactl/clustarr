@@ -32,7 +32,7 @@ const (
 
 // Candidate is a release proposed for an owner's grab, on the
 // CLUSTARR_INTAKE stream at events.IntakeCandidateSubject, consumed by the
-// manager's catalogarr-intake-candidate (ADR-0019 §4.3, §6.6): the RSS
+// manager's catalog-intake-candidate (ADR-0019 §4.3, §6.6): the RSS
 // matcher's matches and a Search's picks. The manager's grab planner
 // decides; the publisher decides nothing.
 type Candidate struct {
@@ -98,7 +98,7 @@ const (
 // ScanObservation is one file a library scan saw that differs from the
 // MediaFile the agent read, or that has none, on the CLUSTARR_INTAKE stream
 // at events.IntakeScanSubject, consumed by the manager's
-// importarr-intake-scan (ADR-0019 §7.6). The manager's scan applier
+// import-intake-scan (ADR-0019 §7.6). The manager's scan applier
 // decides; the rescan writes nothing.
 type ScanObservation struct {
 	Scan       Ref `json:"scan"`
@@ -145,7 +145,7 @@ type ScanAttribution struct {
 }
 
 // ItemCreate is a Movie or Series the scan applier creates under
-// importarr-worker, named by names.Movie or names.Series.
+// import-worker, named by names.Movie or names.Series.
 type ItemCreate struct {
 	// Kind is "movie" or "series".
 	Kind              string `json:"kind"`
@@ -182,7 +182,7 @@ type MediaFileBasis struct {
 	UID             string `json:"uid"`
 	ResourceVersion string `json:"resourceVersion,omitempty"`
 	Path            string `json:"path,omitempty"`
-	// SpecHash hashes the MediaFile's importarr-worker spec.
+	// SpecHash hashes the MediaFile's import-worker spec.
 	SpecHash string `json:"specHash,omitempty"`
 }
 

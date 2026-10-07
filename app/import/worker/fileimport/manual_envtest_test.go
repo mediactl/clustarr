@@ -185,8 +185,8 @@ func TestHandleImportTargetRedirectsAMovieImport(t *testing.T) {
 }
 
 // A malformed annotation is a user instruction this worker cannot follow:
-// it is reported on status.import -- which importarr owns, on a Download
-// whose other status fields grabarr owns and keeps -- and nothing is
+// it is reported on status.import -- which import owns, on a Download
+// whose other status fields grab owns and keeps -- and nothing is
 // imported, not even to spec.target.
 func TestHandleReportsAMalformedImportAnnotationOnStatus(t *testing.T) {
 	ctx := context.Background()
@@ -212,7 +212,7 @@ func TestHandleReportsAMalformedImportAnnotationOnStatus(t *testing.T) {
 		got := f.importState(t, dl)
 		assert.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.Status.Import.State)
 		assert.Contains(t, got.Status.Import.Message, "invalid annotation")
-		assert.Equal(t, downloadv1alpha1.DownloadPhaseCompleted, got.Status.Phase, "grabarr's fields survive")
+		assert.Equal(t, downloadv1alpha1.DownloadPhaseCompleted, got.Status.Phase, "grab's fields survive")
 		assert.Equal(t, contentRoot, got.Status.ContentRoot)
 		assert.Equal(t, string(k8s.ManagerImport), managerFor(t, got.ManagedFields, "status", "status.import.message"))
 		assert.Equal(t, string(k8s.ManagerGrab), managerFor(t, got.ManagedFields, "status", "status.phase"))
@@ -297,7 +297,7 @@ func TestHandleNonVideoImportNeedsOverrideAndRetriggerRequeuesIt(t *testing.T) {
 	assert.Empty(t, mf.Spec.Quality.Name)
 	require.NotNil(t, mf.Spec.ImportedFrom)
 	assert.True(t, mf.Spec.ImportedFrom.Manual)
-	assert.Equal(t, "importarr-worker", managerFor(t, mf.ManagedFields, "", "spec.importedFrom.manual"))
+	assert.Equal(t, "import-worker", managerFor(t, mf.ManagedFields, "", "spec.importedFrom.manual"))
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "status", "status"), "never any MediaFile status")
 
 	// The Download is Imported now: a further annotation change is ignored.

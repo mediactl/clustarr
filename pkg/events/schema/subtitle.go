@@ -60,7 +60,7 @@ func (SubtitleEvent) Schema() string { return "subtitle.SubtitleEvent.v1" }
 
 // FetchTask asks a fetch worker to look for one language of one subtitle
 // request. Subject:
-// clustarr.work.captionarr.fetch.<priority>.<request-uid>.<langKey>.
+// clustarr.work.caption.fetch.<priority>.<request-uid>.<langKey>.
 type FetchTask struct {
 	// RequestRef is the SubtitleRequest to satisfy.
 	RequestRef Ref `json:"requestRef"`

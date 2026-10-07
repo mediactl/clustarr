@@ -71,7 +71,7 @@ func TestCleanTitleSeparatesRatherThanDeletes(t *testing.T) {
 
 // TestCleanTitleStaysASCII pins the one property that separates the two
 // functions: CleanTitle still drops what accent-stripping cannot fold into
-// ASCII. pkg/decision's identity check and indexarr's normalises-away guard
+// ASCII. pkg/decision's identity check and index's normalises-away guard
 // are both built on that, so changing it is a decision for those packages,
 // not a side effect of this one.
 func TestCleanTitleStaysASCII(t *testing.T) {

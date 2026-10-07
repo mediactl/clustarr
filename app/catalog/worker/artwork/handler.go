@@ -107,7 +107,7 @@ const (
 	OutcomeUnchanged Outcome = "unchanged"
 )
 
-// Handler is the catalogarr-artwork-render consumer (spec §C.6): for one
+// Handler is the catalog-artwork-render consumer (spec §C.6): for one
 // Movie or Series it makes poster/overlay and status.overlay agree with the
 // item's current inputs.
 type Handler struct {
@@ -137,7 +137,7 @@ type Handler struct {
 	// MaxAckPending (32) is how many tasks natsbus hands this process at
 	// once, and a draw holds the original's bytes, its decoded image, the
 	// NRGBA the badges are drawn on and the JPEG, some 35-40 MB for an
-	// ordinary 2000x3000 poster. The catalogarr pod runs every controller
+	// ordinary 2000x3000 poster. The catalog pod runs every controller
 	// beside the renderer under a GOMEMLIMIT of about 80% of its memory
 	// limit (819Mi of 1Gi as shipped), so the budget is renders x the
 	// largest poster expected, kept well inside that. A task waiting for a
@@ -233,7 +233,7 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
 		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe %s: %w", events.ConsumerCatalogArtworkRender, err)
+			return fmt.Errorf("catalog: subscribe %s: %w", events.ConsumerCatalogArtworkRender, err)
 		}
 		defer stop()
 		<-ctx.Done()

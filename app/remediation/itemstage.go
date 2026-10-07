@@ -84,7 +84,7 @@ type DownloadsOutcome struct {
 
 // ItemResult is what one stage decided.
 type ItemResult struct {
-	// Contribution is the stage's part of the catalogarr apply; each field
+	// Contribution is the stage's part of the catalog apply; each field
 	// comes from at most one stage.
 	Contribution itempass.Contribution
 	// Sets are the stage's parts of other managers' sets; two stages naming

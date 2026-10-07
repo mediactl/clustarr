@@ -503,7 +503,7 @@ type SeriesStatus struct {
 
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
-	// under catalogarr.
+	// under catalog.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=24
@@ -526,7 +526,7 @@ type SeriesStatus struct {
 
 	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
 	// each naming the episodes it covers (ADR-0019 §6.2), written under
-	// catalogarr-grab.
+	// catalog-grab.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=24
@@ -553,7 +553,7 @@ type SeriesStatus struct {
 	Artwork []ArtworkEntry `json:"artwork,omitempty"`
 
 	// Overlay is the rating-badge overlay rendered onto the poster. Written
-	// by the renderer under k8s.ManagerCatalogarrArtwork.
+	// by the renderer under k8s.ManagerCatalogArtwork.
 	// +optional
 	Overlay *OverlayEntry `json:"overlay,omitempty"`
 }

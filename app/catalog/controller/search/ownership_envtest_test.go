@@ -210,8 +210,8 @@ func TestSearchApplyConfigurationClaimsOnlyWhatItSets(t *testing.T) {
 // runQuery introduced: Reconciler.apply only declares
 // results/indexerOutcomes/finishedAt when s.Spec.Query != nil (see
 // newStatusUpdate and apply). A mediaRef-mode Search must never see
-// k8s.ManagerCatalogarr -- the reconciler's own manager -- claim any of the
-// three; they stay k8s.ManagerCatalogarrWorker's alone. Only
+// k8s.ManagerCatalog -- the reconciler's own manager -- claim any of the
+// three; they stay k8s.ManagerCatalogWorker's alone. Only
 // metadata.managedFields can show an over-claim; every value assertion
 // elsewhere in this package would still pass even if this one regressed
 // (CLAUDE.md's "an over-claim is silent").
@@ -232,7 +232,7 @@ func TestReconcilerDoesNotClaimWorkerFieldsOnAMediaRefSearch(t *testing.T) {
 }
 
 // TestReconcilerClaimsResultFieldsOnAQueryModeSearch is the other half: a
-// query-mode Search has no worker, so k8s.ManagerCatalogarr must own all
+// query-mode Search has no worker, so k8s.ManagerCatalog must own all
 // three once runQuery lands Completed.
 func TestReconcilerClaimsResultFieldsOnAQueryModeSearch(t *testing.T) {
 	f := newFixture(t, "search-own-query")

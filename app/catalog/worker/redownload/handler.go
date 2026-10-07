@@ -16,9 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package redownload is spec §8.3's last clause: when a Download fails,
-// catalogarr frees the item's grab lease and publishes a redownload search.
+// catalog frees the item's grab lease and publishes a redownload search.
 //
-// Until gap fix Y3 nothing did. grabarr published
+// Until gap fix Y3 nothing did. grab published
 // clustarr.evt.download.download.failed on the edge and the item's reconciler
 // stopped naming the Download in status.activeDownloadRef (a Failed Download
 // is terminal, ruling R-5), but schema.SearchReasonRedownload had no producer
@@ -33,7 +33,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     episode, and only keys still naming this Download);
 //  2. decides whether to search again at all (Redownloads) -- a local fault
 //     does not, after Radarr;
-//  3. waits briefly for grabarr to blocklist the failed release, so the
+//  3. waits briefly for grab to blocklist the failed release, so the
 //     search cannot pick it again;
 //  4. publishes one catalog.SearchTask, reason redownload, per targeted item
 //     that still exists and is monitored, on the normal lane (§8.2: "normal =
@@ -69,7 +69,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // redownload: another release would fail on the same full disk. Clustarr's
 // diskFull and writeError therefore free the lease and do not search; the
 // item reads Wanted again and the wanted sweep searches it on its next pass,
-// by when an operator has had the chance to make room. grabarr does not
+// by when an operator has had the chance to make room. grab does not
 // blocklist them either (the same ruling, from the other side).
 //
 // Sonarr's version searches a failed single episode, a failed whole season
@@ -127,7 +127,7 @@ import (
 // read Wanted since the failure). The lease is still freed.
 const MaxEventAge = 24 * time.Hour
 
-// blocklistSettle and blocklistSettleAttempts bound the wait for grabarr to
+// blocklistSettle and blocklistSettleAttempts bound the wait for grab to
 // blocklist a failed release before searching (awaitBlocklist): up to two
 // five-second redeliveries, then the search goes ahead regardless. The
 // consumer's MaxDeliver (6) leaves four deliveries for real failures after
@@ -137,11 +137,11 @@ const (
 	blocklistSettleAttempts = 3
 )
 
-// queueFullRetry is how long to wait when the catalogarr work stream refuses
+// queueFullRetry is how long to wait when the catalog work stream refuses
 // a search. Items already published are deduplicated on the redelivery.
 const queueFullRetry = time.Minute
 
-// Handler is the catalogarr-redownload consumer. See the package doc.
+// Handler is the catalog-redownload consumer. See the package doc.
 type Handler struct {
 	// Client reads the failed Download and the items it targeted: the
 	// manager's cached client.
@@ -194,7 +194,7 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
 		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe redownload: %w", err)
+			return fmt.Errorf("catalog: subscribe redownload: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()
@@ -216,8 +216,8 @@ func LocalFailure(reason downloadv1alpha1.DownloadFailureReason) bool {
 // Redownloads reports whether a download event with action and reason leads
 // to a redownload search. A blocklisted Download always does -- someone
 // blamed its release, which is Radarr's mark-as-failed -- and a failed one
-// does unless the fault was local, or the Download is an import importarr
-// held for a person that nobody took up (importExpired): its release was
+// does unless the fault was local, or the Download is an import held
+// for a person that nobody took up (importExpired): its release was
 // never shown to be at fault, and the item would not take it or a person had
 // to place it, which a second release of the same item would meet again.
 func Redownloads(action string, reason downloadv1alpha1.DownloadFailureReason) bool {
@@ -325,23 +325,23 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// awaitBlocklist holds a failed event's search until grabarr has blocklisted
+// awaitBlocklist holds a failed event's search until grab has blocklisted
 // the failed release, so the search does not pick that release again.
 //
-// The race is real: grabarr publishes failed on the Failed edge and applies
+// The race is real: grab publishes failed on the Failed edge and applies
 // the download.clustarr.io/blocklisted label after, while the search worker
 // reads the blocklist from the label. A search that wins it ranks the failed
 // release first again; the grab then refuses it (a terminal Download already
 // has its deterministic name) and the item is left with nothing until the
 // wanted sweep.
 //
-// So a failed event whose reason grabarr blocklists is retried, a few
+// So a failed event whose reason grab blocklists is retried, a few
 // seconds at a time, until the Download carries the label, is Blocklisted,
 // is being deleted, or is gone -- and after blocklistSettleAttempts
 // deliveries it searches anyway, because a blocklist that never comes (an
-// older grabarr) must not cost the redownload. A blocklisted event needs no
+// older grab) must not cost the redownload. A blocklisted event needs no
 // wait: its label is what produced it. An unknown reason is not blocklisted
-// by grabarr, so it does not wait either.
+// by grab, so it does not wait either.
 func (h *Handler) awaitBlocklist(ctx context.Context, m events.Message, ns string,
 	evt schema.DownloadEvent, reason downloadv1alpha1.DownloadFailureReason,
 ) error {
@@ -367,9 +367,9 @@ func (h *Handler) awaitBlocklist(ctx context.Context, m events.Message, ns strin
 	}
 	if m.Attempt() < blocklistSettleAttempts {
 		return events.Retry(blocklistSettle,
-			fmt.Errorf("redownload: waiting for grabarr to blocklist %s/%s before searching", ns, dl.Name))
+			fmt.Errorf("redownload: waiting for grab to blocklist %s/%s before searching", ns, dl.Name))
 	}
-	logging.FromContext(ctx).Warn("redownload: grabarr has not blocklisted the failed release; searching anyway, "+
+	logging.FromContext(ctx).Warn("redownload: grab has not blocklisted the failed release; searching anyway, "+
 		"and the search may pick the same release again", "attempt", m.Attempt())
 	return nil
 }
@@ -446,7 +446,7 @@ func (h *Handler) publishSearch(ctx context.Context, ns string, failed schema.Re
 		ID:     MsgID(failed, item),
 		Type:   "catalog.SearchTask",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    ns + "/" + item.Name,
 		Time:   h.now().UTC(),
 		Data:   data,

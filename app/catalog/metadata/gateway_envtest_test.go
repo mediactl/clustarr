@@ -65,8 +65,8 @@ func TestSetupRejectsMissingRequiredOptions(t *testing.T) {
 
 // TestTwoManagerSSASplitDoesNotClobberEitherSide mirrors
 // pkg/k8s/patch_envtest_test.go's TestPatchStatusTwoManagersDoNotClobber for
-// Movie: catalogarr (a different task's controller) owns status.phase and
-// status.conditions; this task's catalogarr-worker owns status.metadata.
+// Movie: catalog (a different task's controller) owns status.phase and
+// status.conditions; this task's catalog-worker owns status.metadata.
 // Applying one must never erase the other -- this is the specific envtest
 // proof the task brief calls for.
 func TestTwoManagerSSASplitDoesNotClobberEitherSide(t *testing.T) {

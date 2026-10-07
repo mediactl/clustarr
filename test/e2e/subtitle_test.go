@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Task F-7 -- mock subtitle-provider fixtures and Phase H scenario 13 (M5,
-// captionarr). Written and NEVER EXECUTED, per this task's explicit
+// caption). Written and NEVER EXECUTED, per this task's explicit
 // instruction: no `make e2e`, no `hack/e2e.sh`, no `go test -tags e2e
 // ./test/e2e/...` against a kind cluster. `go vet -tags e2e` and
 // golangci-lint were run against this file; nothing more.
@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Fixtures
 //
 // test/fixtures/opensubtitlesstub and test/fixtures/gestdownstub mock two of
-// the remote providers captionarr ships clients for. subdl and subsource
+// the remote providers caption ships clients for. subdl and subsource
 // have clients too since gap-fix task X11a/X11b, but no fixture here;
 // embedded is local and needs no upstream; whisper stays spec-deferred
 // (ruling R-1). Deployed from config/e2e/opensubtitles-stub.yaml and
@@ -80,10 +80,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // this scenario independent of the rescan's own matching. It is the same
 // technique newTorrentDownloadE2E/newUsenetDownloadE2E and
 // test/e2e/ui_test.go's newUIDownload use to stand in for a real decision:
-// everything AFTER the MediaFile exists -- catalogarr's real ffprobe, the
+// everything AFTER the MediaFile exists -- catalog's real ffprobe, the
 // real SubtitleProfile/SubtitleRequest controllers, the real fetch worker,
 // the real (mocked) providers -- runs for real, against a real Series and
-// Episode created through catalogarr's own real controllers
+// Episode created through catalog's own real controllers
 // (series_test.go's createSeries/waitForSeriesReady/requireEpisode).
 //
 // # Scenario 1's subtitle leg
@@ -149,7 +149,7 @@ const (
 	subtitleMovieFile   = opensubtitlesstub.FixtureReleaseInfo + ".mkv"
 
 	// subtitleProfileReadyTimeout mirrors newRankedQualityProfile's and
-	// squasharr's newTranscodeProfile's identical 2-minute budget for a
+	// transcode's newTranscodeProfile's identical 2-minute budget for a
 	// cluster-scoped profile object's own reconcile.
 	subtitleProfileReadyTimeout = 2 * time.Minute
 
@@ -299,7 +299,7 @@ func readGestdownRequestsSince(t *testing.T, t0 time.Time) []gestdownstub.Entry 
 // proof: a real, real-scanned video MediaFile gets exactly one
 // SubtitleRequest; two wanted languages are fetched from the mocked
 // OpenSubtitles.com provider; each sidecar lands next to the media file
-// under pkg/subtitles.SidecarName's own name; catalogarr surfaces both on
+// under pkg/subtitles.SidecarName's own name; catalog surfaces both on
 // MediaFile.status.sidecars; the UI's pipeline page shows the subtitle
 // stage by data-stage (D3 ruling R8); and removing one language from the
 // profile withdraws exactly its item (and its mirrored sidecar) while the
@@ -326,7 +326,7 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: movie.Name, Namespace: Namespace},
 		})
 	})
-	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution], "catalogarr's mirrored labels must carry the planted file's real resolution")
+	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution], "catalog's mirrored labels must carry the planted file's real resolution")
 	require.Equal(t, "webrip", mf.Labels[catalogv1alpha1.LabelSource])
 
 	provider := &subtitlev1alpha1.SubtitleProvider{
@@ -426,7 +426,7 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 	require.FileExists(t, hostPath(wantEnPath), "the en sidecar must exist under SidecarName's own path")
 	require.Equal(t, filepath.Base(wantEnPath), en.Path, "status.items[].path is relative to the media file's directory")
 
-	// catalogarr's own half: MediaFile.status.sidecars mirrors both
+	// catalog's own half: MediaFile.status.sidecars mirrors both
 	// downloaded items (sidecars.go, inside the same status apply that
 	// wrote status.mediaInfo).
 	waitFor(t, ctx, 2*time.Minute, "MediaFile "+mf.Name+" status.sidecars carries both en and es",
@@ -493,7 +493,7 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 		require.Equal(t, subtitlev1alpha1.SubtitleItemDownloaded, afterWithdraw.Status.Items[0].State,
 			"withdrawing es must not disturb en's own downloaded state")
 
-		// The withdraw propagates through catalogarr's own mirror too --
+		// The withdraw propagates through catalog's own mirror too --
 		// sidecarsFromSubtitleRequest only ever mirrors items the
 		// SubtitleRequest still carries.
 		waitFor(t, ctx, 2*time.Minute, "MediaFile "+mf.Name+" status.sidecars drops es",
@@ -510,7 +510,7 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 
 // itemDownloaded reports whether it is present, downloaded and carries a
 // sidecar path -- the shape hasSubtitle (app/caption/worker/fetch/worker.go)
-// itself checks before catalogarr's mirror will ever surface it.
+// itself checks before catalog's mirror will ever surface it.
 func itemDownloaded(it *subtitlev1alpha1.SubtitleItem) bool {
 	return it != nil && it.State == subtitlev1alpha1.SubtitleItemDownloaded && it.Path != ""
 }
@@ -692,7 +692,7 @@ func describeSubtitleProvider(key client.ObjectKey) func() string {
 // test/fixtures/seeder always named its downloaded content
 // "clustarr-fixture.bin", an extension outside pkg/fsops.MediaExtensions,
 // so app/import/worker/fileimport could never classify it as importable and
-// captionarr's SubtitleProfile controller (which watches MediaFile, not
+// caption's SubtitleProfile controller (which watches MediaFile, not
 // Download) had structurally nothing to attach a SubtitleRequest to. X12c
 // (docs/superpowers/plans/2026-09-23-gap-fixes.md) closed that fixture-shape
 // gap (seeder.ContentName's own doc comment), so this now drives the real
@@ -746,7 +746,7 @@ func TestDownloadScenario1SubtitleLeg(t *testing.T) {
 	mfKey := client.ObjectKey{Namespace: Namespace, Name: imp.Imported[0].MediaFileRef}
 	mf := waitForMediaFileProbed(ctx, t, mfKey)
 	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution],
-		"catalogarr's mirrored labels must carry the imported file's real, frozen-at-import resolution")
+		"catalog's mirrored labels must carry the imported file's real, frozen-at-import resolution")
 	require.Equal(t, "bluray", mf.Labels[catalogv1alpha1.LabelSource])
 
 	provider := &subtitlev1alpha1.SubtitleProvider{

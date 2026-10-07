@@ -34,7 +34,7 @@ import (
 
 // # Why this file exists at all
 //
-// Plan ruling R9 settled that grabarr writes its own NNTP pool, because the
+// Plan ruling R9 settled that grab writes its own NNTP pool, because the
 // maintained one (javi11/nntppool/v4) is cgo-only and cmd/clustarr is a single
 // CGO_ENABLED=0 binary. R9 expected github.com/Tensai75/nntp to supply the one
 // connection under that pool. It cannot, and the reason is worth writing down
@@ -60,7 +60,7 @@ import (
 // [statusError] wraps one inside every sentinel below and errors.As keeps
 // working for callers that already know it.
 //
-// Everything else here is the RFC 3977 subset grabarr needs: greeting,
+// Everything else here is the RFC 3977 subset grab needs: greeting,
 // AUTHINFO, pipelined BODY/STAT, and a raw multi-line reader that hands
 // rapidyenc exactly the bytes the wire carried.
 

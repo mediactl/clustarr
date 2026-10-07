@@ -315,7 +315,7 @@ func (s *Stage) donorItem(ctx context.Context, ow owner, targets []schema.ItemRe
 }
 
 // importEffects renders the plan's import dispatches as DispatchPublish
-// effects on importarr-fileimport (admitted by the ledger in importplan),
+// effects on import-fileimport (admitted by the ledger in importplan),
 // and tells the ledger of each dispatch an answer closed.
 func (s *Stage) importEffects(ow owner, v lifecycle.View, plan lifecycle.Plan) []remediation.Effect {
 	var out []remediation.Effect
@@ -356,7 +356,7 @@ func (s *Stage) importEffects(ow owner, v lifecycle.View, plan lifecycle.Plan) [
 	return out
 }
 
-// materialise renders the plan's MediaFile applies (under importarr-worker,
+// materialise renders the plan's MediaFile applies (under import-worker,
 // through the item path's SpecWriter), the replaced MediaFiles' deletes
 // with UID preconditions (W22 had none), and a donor's AudioGraft (R26).
 func (s *Stage) materialise(ow owner, plan lifecycle.Plan) []remediation.Effect {
@@ -381,7 +381,7 @@ func (s *Stage) materialise(ow owner, plan lifecycle.Plan) []remediation.Effect 
 }
 
 // audioGraft names a placed donor in its item's AudioGraft, owned by the
-// item, under importarr-worker (donor.go's applyAudioGraft, moved; R26
+// item, under import-worker (donor.go's applyAudioGraft, moved; R26
 // until F7.1), and removes the donor it replaces and the .mka a graft
 // reduced that one to.
 func (s *Stage) audioGraft(ns string, g lifecycle.AudioGraftApply) []remediation.Effect {

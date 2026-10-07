@@ -49,7 +49,7 @@ import (
 // into neither command, so those pages rendered no rows at all, and
 // Options.Actions was set nowhere, so every button answered 503.
 //
-// It creates one Movie (with a status catalogarr would have written), one
+// It creates one Movie (with a status catalog would have written), one
 // LibraryScan listing an unmatched file, and one ImportList, then:
 //
 //   - GETs /library/movies (the library's first tab, where a Movie lands),
@@ -61,7 +61,7 @@ import (
 //   - POSTs "unmonitor" and "search now" exactly as the Library page's own
 //     forms do, and asserts the apiserver saw them: spec.monitored flipped
 //     with clustarr-ui owning f:spec.f:monitored and nothing on status (ruling
-//     R2) while catalogarr still owns the status it wrote, and a Search
+//     R2) while catalog still owns the status it wrote, and a Search
 //     labelled clustarr.io/origin=ui for the Movie.
 //
 // suffix keeps the two ui cases' objects apart.
@@ -86,7 +86,7 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 		t.Fatalf("create Movie: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Delete(context.Background(), movie) })
-	// A status catalogarr owns, so the action lands on an object that
+	// A status catalog owns, so the action lands on an object that
 	// already has one: only then can an over-claim of status by clustarr-ui
 	// show up in managedFields (CLAUDE.md, "Gotchas found the hard way").
 	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie(name, ns).
@@ -215,9 +215,9 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 	}
 }
 
-// seedUnmatched writes a LibraryScan's status as importarr's rescan worker
+// seedUnmatched writes a LibraryScan's status as import's rescan worker
 // would: Completed, listing paths as unattributable. Each call is a complete
-// declaration of the status importarr owns.
+// declaration of the status import owns.
 func seedUnmatched(t *testing.T, c client.Client, name, ns string, paths ...string) {
 	t.Helper()
 	status := catalogac.LibraryScanStatus().WithPhase(catalogv1alpha1.ScanPhaseCompleted)

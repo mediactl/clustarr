@@ -582,7 +582,7 @@ func TestForceSearch(t *testing.T) {
 
 	// The reset is an Update-operation patch in its own managedFields
 	// entry, so it can never release the profile controller's apply-owned
-	// spec fields, which share the captionarr manager name.
+	// spec fields, which share the caption manager name.
 	for _, e := range got.ManagedFields {
 		if e.Manager == k8s.ManagerCaption.String() && e.Subresource == "" {
 			assert.Equal(t, metav1.ManagedFieldsOperationUpdate, e.Operation)

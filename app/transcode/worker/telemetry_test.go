@@ -62,7 +62,7 @@ func (k *countingKV) Put(ctx context.Context, key string, val []byte) (uint64, e
 func progressKV(t *testing.T) events.KV {
 	t.Helper()
 	srv, err := natsserver.NewServer(&natsserver.Options{
-		ServerName: "squasharr-telemetry", Host: "127.0.0.1", Port: -1,
+		ServerName: "transcode-telemetry", Host: "127.0.0.1", Port: -1,
 		JetStream: true, StoreDir: t.TempDir(), NoLog: true, NoSigs: true,
 	})
 	require.NoError(t, err)

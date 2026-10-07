@@ -245,8 +245,8 @@ func TestTheWindowCountsAreOwnedByTheControllerAlone(t *testing.T) {
 	worker := statusFieldsOf(t, c, key, k8s.ManagerIndexWorker)
 	controller := statusFieldsOf(t, c, key, k8s.ManagerIndex)
 	for _, f := range []string{"queriesInWindow", "grabsInWindow"} {
-		assert.NotContains(t, worker, f, "indexarr-worker still owns status.%s", f)
-		assert.Contains(t, controller, f, "indexarr does not own status.%s", f)
+		assert.NotContains(t, worker, f, "index-worker still owns status.%s", f)
+		assert.Contains(t, controller, f, "index does not own status.%s", f)
 	}
 	assert.Contains(t, worker, "indexedReleases")
 

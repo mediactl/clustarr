@@ -36,10 +36,10 @@ import (
 // and charts/clustarr (Helm). They are written by hand, independently, and
 // nothing until now compared them.
 //
-// That is how `--leader-elect` shipped on config/manager/importarr.yaml with
+// That is how `--leader-elect` shipped on config/manager/import.yaml with
 // no leader-election RoleBinding behind it: the chart drives every per-service
 // object from one $components list, so it was right; kustomize lists each
-// object by hand, so importarr's was simply forgotten. The pod stays Ready
+// object by hand, so import's was simply forgotten. The pod stays Ready
 // and loops on "leases.coordination.k8s.io is forbidden" -- a silent failure
 // no other test in this repo can see.
 //
@@ -77,11 +77,11 @@ type renderer struct {
 	prefix string
 
 	// roleIdentity maps a ClusterRole name to the identity whose role it
-	// is ("catalogarr", "grabarr-engine", "ui", ...) and reports whether it
+	// is ("catalog", "grab-engine", "ui", ...) and reports whether it
 	// is one of ours at all, so the NATS subchart's own RBAC is not counted.
 	// Since the X14 split each service has its own role, so a binding is
 	// compared by component AND the role it grants: both installers must
-	// bind catalogarr-metadata to catalogarr's role, not merely bind it.
+	// bind catalog-metadata to catalog's role, not merely bind it.
 	roleIdentity func(name string) (string, bool)
 
 	// leaderElectionRole is the roleRef name that marks a RoleBinding as one

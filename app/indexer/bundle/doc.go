@@ -27,7 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // was decided on. Otherwise it is an operator's directory, which
 // --cardigann-definitions-dir names and which replaces the embedded corpus
 // (mounted from a ConfigMap, a PVC or an init container, for example what
-// hack/sync-cardigann writes). Either way indexarr runs this loader at
+// hack/sync-cardigann writes). Either way index runs this loader at
 // startup, and every
 // definition cardigann.LoadBundle accepts becomes an IndexerDefinition named
 // cardigann.ObjectName(id), so an Indexer's spec.definition: <id> resolves
@@ -44,7 +44,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // creates a new one with spec.replaces instead, which the indexer
 // controller prefers (see IndexerDefinitionSpec.Replaces).
 //
-// Writes go under k8s.ManagerIndexarr, which owns IndexerDefinition outright
+// Writes go under k8s.ManagerIndex, which owns IndexerDefinition outright
 // (pkg/k8s's field-manager table); the main resource and the status
 // subresource are separate ownership sets, so the reconciler's status
 // applies and these spec applies never release each other's fields. Every

@@ -79,7 +79,7 @@ spec:
               clientRef:
                 description: |-
                   ClientRef is the DownloadClient handling this Download, in the same
-                  namespace. Left empty it is resolved once by grabarr at admission from
+                  namespace. Left empty it is resolved once by grab at admission from
                   the enabled clients of the matching protocol; once set it is immutable.
                 type: string
               grabbedBy:
@@ -152,7 +152,7 @@ spec:
                   unequal, it raises "no such key: infoHash" and the apiserver REJECTS the
                   write. Because a status-subresource apply re-evaluates every spec CEL
                   rule against the stored object, that rejection hits status-only writes
-                  too, which is the only way grabarr reports progress at all.
+                  too, which is the only way grab reports progress at all.
 
                   infoHash is what made this fatal rather than theoretical: usenet
                   releases do not have one, by protocol. So the unguarded form made every
@@ -458,7 +458,7 @@ spec:
                     type: string
                   indexerDownload:
                     description: |-
-                      IndexerDownload names a release to resolve through indexarr. This is the
+                      IndexerDownload names a release to resolve through index. This is the
                       normal path: the indexer applies auth, rate limits and proxying, and
                       returns the payload to the engine.
                     properties:
@@ -476,8 +476,8 @@ spec:
                         type: string
                       url:
                         description: |-
-                          URL is the indexer's download link for the release. grabarr fetches it
-                          through indexarr, which applies the indexer's auth and proxy settings.
+                          URL is the indexer's download link for the release. grab fetches it
+                          through index, which applies the indexer's auth and proxy settings.
                         maxLength: 2048
                         type: string
                     required:
@@ -578,18 +578,18 @@ spec:
           status:
             description: |-
               DownloadStatus defines the observed state of Download. Three writers share
-              it through server-side apply on disjoint field sets: the grabarr controller
-              owns the lifecycle fields, the grabarr-engine replica owns the telemetry
-              fields, and importarr's file-import worker owns status.import. (Design
-              spec §8.4 assigned this field to catalogarr; amendment-1 moved the
-              importer out of catalogarr into app/import/worker/fileimport, and this
+              it through server-side apply on disjoint field sets: the grab controller
+              owns the lifecycle fields, the grab-engine replica owns the telemetry
+              fields, and import's file-import worker owns status.import. (Design
+              spec §8.4 assigned this field to catalog; amendment-1 moved the
+              importer out of catalog into app/import/worker/fileimport, and this
               field's ownership moved with it. Settled at task D2-7.)
             properties:
               blocklistedUntil:
                 description: |-
                   BlocklistedUntil is when this release stops being blocklisted. It is
                   meaningful only together with the download.clustarr.io/blocklisted label;
-                  grabarr deletes the Download once the deadline passes.
+                  grab deletes the Download once the deadline passes.
                 format: date-time
                 type: string
               canBeRemoved:
@@ -697,8 +697,8 @@ spec:
               engineFailureReason:
                 description: |-
                   EngineFailureReason is the failure the engine observed on the transfer,
-                  written by grabarr-engine. It is the engine's report, not the
-                  Download's verdict: the grabarr controller reads it and records
+                  written by grab-engine. It is the engine's report, not the
+                  Download's verdict: the grab controller reads it and records
                   status.failureReason and the phase (Failed, or Blocklisted for a
                   release fault) in one apply under its own field manager. Absent while
                   the transfer has not failed.
@@ -801,23 +801,23 @@ spec:
                   HealthPaused is true while the usenet engine holds the transfer paused
                   because its article health fell below the DownloadClient's
                   abortHealthPercent under healthAction pause, NZBGet's HealthCheck=pause.
-                  It is the engine's report; the grabarr controller reads it as phase
+                  It is the engine's report; the grab controller reads it as phase
                   Paused, the "by a health action" half of that phase. The job waits for
                   an operator: setting spec.paused to true and back to false continues it
                   without the health check, and deleting or blocklisting the Download
-                  gives up on it. Written by grabarr-engine. Usenet only.
+                  gives up on it. Written by grab-engine. Usenet only.
                 type: boolean
               import:
                 description: |-
                   Import is the import outcome. It is the one cross-service field on this
-                  object: importarr's file-import worker, not grabarr, writes it,
-                  through server-side apply with its own field manager (k8s.ManagerImportarr),
-                  and grabarr never touches it. grabarr reads it to decide when a
+                  object: import's file-import worker, not grab, writes it,
+                  through server-side apply with its own field manager (k8s.ManagerImport),
+                  and grab never touches it. grab reads it to decide when a
                   Download may be removed or blocklisted.
                 properties:
                   attempts:
                     description: |-
-                      Attempts is how many times importarr has walked the download for
+                      Attempts is how many times import has walked the download for
                       this import task.
                     format: int32
                     minimum: 0
@@ -825,7 +825,7 @@ spec:
                   class:
                     description: |-
                       Class is why nothing was imported, for a pending or blocked import:
-                      what importarr does next follows from it (ImportRejectionClass).
+                      what import does next follows from it (ImportRejectionClass).
                     enum:
                     - transient
                     - itemState
@@ -835,7 +835,7 @@ spec:
                   heldSince:
                     description: |-
                       HeldSince is when the import was held for a person: no further
-                      automatic attempt is made, the files stay, and grabarr removes them
+                      automatic attempt is made, the files stay, and grab removes them
                       ImportHoldRetention later unless someone imports them first.
                     format: date-time
                     type: string
@@ -875,7 +875,7 @@ spec:
                     type: string
                   nextAttemptAt:
                     description: |-
-                      NextAttemptAt is when importarr walks the download again: a transient
+                      NextAttemptAt is when import walks the download again: a transient
                       failure's retry, or a release fault's confirming re-check. Unset when
                       no attempt is pending.
                     format: date-time
@@ -915,7 +915,7 @@ spec:
               observedGeneration:
                 description: |-
                   ObservedGeneration is the spec generation this status was computed from.
-                  Written by the grabarr controller.
+                  Written by the grab controller.
                 format: int64
                 type: integer
               outputPath:
@@ -927,8 +927,7 @@ spec:
                 format: int32
                 type: integer
               phase:
-                description: Phase is the lifecycle phase. Written by the grabarr
-                  controller.
+                description: Phase is the lifecycle phase. Written by the grab controller.
                 enum:
                 - Pending
                 - Assigned
@@ -972,7 +971,7 @@ spec:
                 description: |-
                   SeedGoalReached is true once the torrent has satisfied its seed
                   criteria, whether or not it has been imported yet. Written by
-                  grabarr-engine; the grabarr controller turns the first true into
+                  grab-engine; the grab controller turns the first true into
                   status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
                 type: boolean
               seedTimeSeconds:
@@ -985,7 +984,7 @@ spec:
                 format: int32
                 type: integer
               stage:
-                description: Stage is the fine-grained engine stage. Written by grabarr-engine.
+                description: Stage is the fine-grained engine stage. Written by grab-engine.
                 enum:
                 - fetchingMetadata
                 - transferring

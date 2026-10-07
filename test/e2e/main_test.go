@@ -226,9 +226,9 @@ func natsReady(ctx context.Context) (bool, error) {
 }
 
 // deploymentRoster is every Deployment config/e2e must produce: the ten
-// Clustarr services (config/manager/*.yaml -- catalogarr,
-// catalogarr-metadata, importarr, importarr-worker, indexarr, grabarr,
-// squasharr, captionarr, captionarr-worker, ui) plus every fixture stub
+// Clustarr services (config/manager/*.yaml -- catalog,
+// catalog-metadata, import, import-worker, index, grab,
+// transcode, caption, caption-worker, ui) plus every fixture stub
 // Deployment the overlay adds (config/e2e/*.yaml). It is checked BY NAME,
 // not just counted, for the reason deploymentsAvailable's own doc comment
 // below gives: Available=True on its own cannot tell "the roster is
@@ -237,8 +237,8 @@ func natsReady(ctx context.Context) (bool, error) {
 // WORKLOADS array (a shell array cannot import this constant, so the two
 // are kept in sync by hand; a name added to one belongs in the other).
 var deploymentRoster = []string{
-	"catalogarr", "catalogarr-metadata", "importarr", "importarr-worker",
-	"indexarr", "grabarr", "squasharr", "captionarr", "captionarr-worker", "ui",
+	"catalog", "catalog-metadata", "import", "import-worker",
+	"index", "grab", "transcode", "caption", "caption-worker", "ui",
 	"tmdb-stub", "tvdb-stub", "torznab-stub", "seeder", "nntp-stub-a", "nntp-stub-b",
 	"opensubtitles-stub", "gestdown-stub", "cardigann-stub", "importlist-stub",
 	"nonvideo-stub", "httpproxy-stub",

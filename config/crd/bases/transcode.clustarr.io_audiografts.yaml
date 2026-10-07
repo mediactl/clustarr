@@ -45,8 +45,8 @@ spec:
       openAPIV3Schema:
         description: |-
           AudioGraft is one item's donor audio and the graft of it into the item's
-          file (anime dual-audio spec §6.2, §7.2). Spec is importarr's, status
-          squasharr's.
+          file (anime dual-audio spec §6.2, §7.2). Spec is import's, status
+          transcode's.
         properties:
           apiVersion:
             description: |-
@@ -68,7 +68,7 @@ spec:
           spec:
             description: |-
               AudioGraftSpec is a donor's audio, kept beside the library, to be muxed
-              into an item's file (anime dual-audio spec §6.2). importarr writes it when
+              into an item's file (anime dual-audio spec §6.2). import writes it when
               it imports a donor and rewrites it when a newer donor replaces it.
             properties:
               anchor:
@@ -84,7 +84,7 @@ spec:
                 type: string
               donorPath:
                 description: |-
-                  DonorPath is the donor file as importarr placed it, under
+                  DonorPath is the donor file as import placed it, under
                   <RootFolder>/.clustarr/donors/<item-uid>/. The first graft reduces a
                   non-Matroska-audio donor to <stem>.mka beside it and removes it.
                 minLength: 1
@@ -156,7 +156,7 @@ spec:
             - release
             type: object
           status:
-            description: AudioGraftStatus is squasharr's (ManagerSquasharr).
+            description: AudioGraftStatus is transcode's (ManagerTranscode).
             properties:
               completedAt:
                 format: date-time

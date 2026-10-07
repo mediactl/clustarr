@@ -57,7 +57,7 @@ type AlbumStatusApplyConfiguration struct {
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
-	// under catalogarr.
+	// under catalog.
 	Downloads []DownloadEntryApplyConfiguration `json:"downloads,omitempty"`
 	// DownloadPhase is the active entry's phase, "" when none: a print column
 	// and a selectable field (ADR-0019 §6.2).
@@ -69,7 +69,7 @@ type AlbumStatusApplyConfiguration struct {
 	// adopted (ADR-0019 §10.2); release N+1 removes it.
 	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
-	// under catalogarr-grab.
+	// under catalog-grab.
 	SearchDispatch *DispatchApplyConfiguration `json:"searchDispatch,omitempty"`
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`

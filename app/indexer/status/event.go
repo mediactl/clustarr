@@ -35,7 +35,7 @@ import (
 
 // The IndexerEvent producer: design spec §5's
 // clustarr.evt.index.indexer.<disabled|recovered|limited>.<uid>, which the
-// catalogarr history sink turns into Kubernetes Events on the Indexer.
+// catalog history sink turns into Kubernetes Events on the Indexer.
 //
 // It lives here for the reason the ladder does. The transitions it reports
 // ARE the ladder's (RecordFailure opening a backoff window, RecordSuccess
@@ -131,7 +131,7 @@ func PublishIndexerEvent(ctx context.Context, bus events.Bus, idx *indexv1alpha1
 	if bus == nil || idx == nil || e.Action == "" || idx.UID == "" {
 		return
 	}
-	ctx, span := tracing.Start(ctx, "indexarr.status.publish_event")
+	ctx, span := tracing.Start(ctx, "index.status.publish_event")
 	defer span.End()
 	log := logging.FromContext(ctx)
 
@@ -145,7 +145,7 @@ func PublishIndexerEvent(ctx context.Context, bus events.Bus, idx *indexv1alpha1
 	})
 	if err != nil {
 		tracing.RecordError(span, err)
-		log.Warn("indexarr: could not encode the indexer event", "action", e.Action, "err", err)
+		log.Warn("index: could not encode the indexer event", "action", e.Action, "err", err)
 		return
 	}
 	env := &events.Envelope{
@@ -158,7 +158,7 @@ func PublishIndexerEvent(ctx context.Context, bus events.Bus, idx *indexv1alpha1
 		}, "/"),
 		Type:   "index.IndexerEvent",
 		Schema: name,
-		Source: "indexarr@" + version.String(),
+		Source: "index@" + version.String(),
 		Key:    idx.Namespace + "/" + idx.Name,
 		Time:   e.At.UTC(),
 		Data:   data,
@@ -166,7 +166,7 @@ func PublishIndexerEvent(ctx context.Context, bus events.Bus, idx *indexv1alpha1
 	tracing.Inject(ctx, env)
 	if _, err := bus.Publish(ctx, events.IndexerEventSubject(e.Action, string(idx.UID)), env); err != nil {
 		tracing.RecordError(span, err)
-		log.Warn("indexarr: could not publish the indexer event", "action", e.Action, "err", err)
+		log.Warn("index: could not publish the indexer event", "action", e.Action, "err", err)
 	}
 }
 

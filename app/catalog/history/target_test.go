@@ -200,8 +200,8 @@ func TestResolve_SelfContainedRefs(t *testing.T) {
 		}, got)
 	})
 
-	// A dead-lettered transcode task, built as squasharr dispatches it:
-	// catalogarr decodes only its job reference, so this holds the two
+	// A dead-lettered transcode task, built as transcode dispatches it:
+	// catalog decodes only its job reference, so this holds the two
 	// packages to one JSON shape.
 	t.Run("transcode Task", func(t *testing.T) {
 		env := envelopeFor(t, "default/job-1", task.Task{
@@ -320,14 +320,14 @@ func TestResolve_NamespaceOnlyAndUnresolvable(t *testing.T) {
 // NATS (no stream, no MaxDeliver) and 1 Hz progress telemetry written to the
 // clustarr-progress KV bucket. Each entry says which.
 var neverDeadLettered = map[string]string{
-	schema.MetadataRequest{}.Schema():   "RPC request, clustarr.rpc.catalogarr.metadata.*",
-	schema.MetadataResponse{}.Schema():  "RPC reply, clustarr.rpc.catalogarr.metadata.*",
-	schema.SearchRequest{}.Schema():     "RPC request, clustarr.rpc.indexarr.search",
-	schema.SearchResponse{}.Schema():    "RPC reply, clustarr.rpc.indexarr.search",
-	schema.DownloadRequest{}.Schema():   "RPC request, clustarr.rpc.indexarr.download",
-	schema.DownloadResponse{}.Schema():  "RPC reply, clustarr.rpc.indexarr.download",
-	schema.QueryRequest{}.Schema():      "RPC request, clustarr.rpc.indexarr.query",
-	schema.QueryResponse{}.Schema():     "RPC reply, clustarr.rpc.indexarr.query",
+	schema.MetadataRequest{}.Schema():   "RPC request, clustarr.rpc.catalog.metadata.*",
+	schema.MetadataResponse{}.Schema():  "RPC reply, clustarr.rpc.catalog.metadata.*",
+	schema.SearchRequest{}.Schema():     "RPC request, clustarr.rpc.index.search",
+	schema.SearchResponse{}.Schema():    "RPC reply, clustarr.rpc.index.search",
+	schema.DownloadRequest{}.Schema():   "RPC request, clustarr.rpc.index.download",
+	schema.DownloadResponse{}.Schema():  "RPC reply, clustarr.rpc.index.download",
+	schema.QueryRequest{}.Schema():      "RPC request, clustarr.rpc.index.query",
+	schema.QueryResponse{}.Schema():     "RPC reply, clustarr.rpc.index.query",
 	schema.DownloadProgress{}.Schema():  "KV telemetry, clustarr-progress download.<uid>",
 	schema.TranscodeProgress{}.Schema(): "KV telemetry, clustarr-progress transcode.<uid>",
 }

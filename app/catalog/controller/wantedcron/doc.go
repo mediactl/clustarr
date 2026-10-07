@@ -25,9 +25,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Why the sweep publishes per namespace, not per item
 //
-// §5's subject table pins clustarr.work.catalogarr.wantedscan.low.<namespace>
+// §5's subject table pins clustarr.work.catalog.wantedscan.low.<namespace>
 // to catalog.WantedScan.v1 and describes it as "cron -> search workers", and
-// the catalogarr-search-normal consumer -- the SEARCH worker's, not this
+// the catalog-search-normal consumer -- the SEARCH worker's, not this
 // package's -- already filters wantedscan.>. So the handoff is one message per
 // namespace, and the search worker expands it into per-item searches.
 //

@@ -27,7 +27,7 @@ import (
 // Fingerprint is a deterministic 16-hex-char sha256 prefix of
 // TitleNorm+Year+Seasons+Episodes+Quality.Name+Group, stable across two
 // indexers describing the same content. It is a content-level dedup key,
-// distinct from indexarr's own sha1(indexer:guid) Msg-Id (spec §8.7): that
+// distinct from index's own sha1(indexer:guid) Msg-Id (spec §8.7): that
 // one dedupes repeat sightings of the *same* indexer/guid pair; this one
 // dedupes the *same release* seen through two different indexers, which
 // neither guid nor infohash can do when only one of the two carries an

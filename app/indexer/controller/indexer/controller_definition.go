@@ -208,7 +208,7 @@ func (r *Reconciler) proxyUnavailable(
 // counts are not among them: they are this reconciler's own projection,
 // made at the top of the pass.
 //
-// This reconciler applies only k8s.ManagerIndexarr's fields and is their only
+// This reconciler applies only k8s.ManagerIndex's fields and is their only
 // writer, so its own apply cannot roll another writer back. What it CAN do is
 // derive Healthy, RateLimited, Ready and the requeue delay from a worker
 // snapshot a search or an RSS poll has moved on from in the seconds a login

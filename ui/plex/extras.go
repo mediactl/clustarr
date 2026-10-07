@@ -35,7 +35,7 @@ import (
 // the item's Plex id, as Plex's metadata service sends them: clips with
 // their extraType and Media URLs, which PMS plays from Internet Video
 // Archive. The metadata gateway holds them (Options.Extras, bound to
-// rpc.catalogarr.metadata.extras): it answers from the clustarr-plex-extras
+// rpc.catalog.metadata.extras): it answers from the clustarr-plex-extras
 // bucket and asks Plex on a miss. An item with no Plex id answers none;
 // when the gateway cannot answer, the route answers an error, never an
 // empty list.

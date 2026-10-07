@@ -365,8 +365,8 @@ func TestMovieReconcilerRealController(t *testing.T) {
 
 		// Exactly what app/catalog/worker/grab writes: pendingGrab, never
 		// Phase, under the grab path's own field manager. It carries no
-		// status.metadata, and does not have to: k8s.ManagerCatalogarrGrab
-		// and k8s.ManagerCatalogarrMetadata own disjoint field sets, so
+		// status.metadata, and does not have to: k8s.ManagerCatalogGrab
+		// and k8s.ManagerCatalogMetadata own disjoint field sets, so
 		// neither apply releases the other's.
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 			catalogac.Movie(m.Name, m.Namespace).WithStatus(
@@ -857,7 +857,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		transcoded(t, "dune")
 		stays(t, "dune")
 
-		// 2. A transcode swap: catalogarr takes spec.original over.
+		// 2. A transcode swap: catalog takes spec.original over.
 		steady(t, "dune-part-two", "dune-part-two-abc1234567")
 		var mf catalogv1alpha1.MediaFile
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "dune-part-two-abc1234567"}, &mf))
@@ -871,13 +871,13 @@ func TestMovieReconcilerRealController(t *testing.T) {
 	// Ruling R-5: this reconciler is the only writer of
 	// status.activeDownloadRef, deriving it from the Movie's own non-terminal
 	// Download. The Download is created the way the grab path creates one --
-	// a server-side apply under k8s.ManagerCatalogarrGrab carrying an
+	// a server-side apply under k8s.ManagerCatalogGrab carrying an
 	// ownerReference to the Movie -- and NOTHING writes the ref: the grab
 	// worker's old write is gone, so the ref can only come from the Download
 	// watch and the derivation. managedFields then proves the handover, not
 	// just the value: a stray co-owner would leave every value assertion
 	// passing (CLAUDE.md, "A double-claim is silent").
-	t.Run("an owned Download sets and clears activeDownloadRef with no grab-worker write, and only catalogarr owns it", func(t *testing.T) {
+	t.Run("an owned Download sets and clears activeDownloadRef with no grab-worker write, and only catalog owns it", func(t *testing.T) {
 		m := &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "avail-ns"},
 			Spec: catalogv1alpha1.MovieSpec{
@@ -1063,7 +1063,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		if before.Annotations == nil {
 			before.Annotations = map[string]string{}
 		}
-		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.search.high.x@2026-09-23T12:00:00Z"
+		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalog.search.high.x@2026-09-23T12:00:00Z"
 		require.NoError(t, c.Patch(ctx, &before, patch))
 
 		var got catalogv1alpha1.Movie
@@ -1291,7 +1291,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 }
 
 // grabPathDownload creates a Download for owner the way the grab path does:
-// one server-side apply under k8s.ManagerCatalogarrGrab, carrying an
+// one server-side apply under k8s.ManagerCatalogGrab, carrying an
 // ownerReference to the Movie and nothing on the Movie itself. It returns
 // the Download's name.
 func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner *catalogv1alpha1.Movie, name string) string {

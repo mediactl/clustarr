@@ -31,7 +31,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 )
 
-// Task A3 (design spec 2026-09-24 §A.3-A.4; ADR-0010) taught indexarr a
+// Task A3 (design spec 2026-09-24 §A.3-A.4; ADR-0010) taught index a
 // second release-index engine: a CloudNativePG Postgres Cluster instead of
 // the local SQLite volume. Both installers -- charts/clustarr and kustomize
 // -- gained a way to opt into it, and TestChartAndKustomizeAgreePerComponent
@@ -70,7 +70,7 @@ type namedRef struct {
 	Name string `json:"name"`
 }
 
-// indexarrDeploy is the slice of the indexarr Deployment this file asserts
+// indexDeploy is the slice of the index Deployment this file asserts
 // on: its update strategy, its volumes, and its one container's env and
 // volumeMounts.
 type indexDeploy struct {
@@ -133,7 +133,7 @@ func hasNamed(refs []namedRef, name string) bool {
 // splitDocs decodes a multi-document YAML stream into raw per-document
 // bytes, deferring the typed decode until the caller knows which struct a
 // document's kind calls for -- postgresProbe alone cannot hold an
-// indexarrDeploy's or a cnpgCluster's fields.
+// indexDeploy's or a cnpgCluster's fields.
 func splitDocs(t *testing.T, in []byte) [][]byte {
 	t.Helper()
 	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(in), 4096)
@@ -188,7 +188,7 @@ func hasPVC(docs [][]byte, name string) bool {
 // buildPostgresKustomizeOverlay writes a temporary Kustomization that
 // composes config/default with the config/postgres Component, mirroring
 // config/README.md's documented wiring: a Component is never built on its
-// own, only into an overlay that already has the indexarr Deployment it
+// own, only into an overlay that already has the index Deployment it
 // patches. kustomize refuses an absolute path as a resource/component root
 // ("new root ... cannot be absolute") regardless of --load-restrictor, so
 // the paths must be relative to the temp dir this test writes into.
@@ -212,7 +212,7 @@ func buildPostgresKustomizeOverlay(t *testing.T, root string) string {
 
 // TestChartAndKustomizePostgresAgree is TestChartAndKustomizeAgreePerComponent's
 // sibling for the postgres-enabled render (design spec 2026-09-24 §A.3-A.4;
-// ADR-0010): both installers must give indexarr the same CLUSTARR_INDEX_DSN
+// ADR-0010): both installers must give index the same CLUSTARR_INDEX_DSN
 // shape, no index PVC or volume, no Recreate strategy, and the same
 // CloudNativePG Cluster spec.
 func TestChartAndKustomizePostgresAgree(t *testing.T) {
@@ -230,8 +230,8 @@ func TestChartAndKustomizePostgresAgree(t *testing.T) {
 	kzDocs := splitDocs(t, run(t, root, kustomize, "build", overlay))
 
 	var chartDeploy, kzDeploy indexDeploy
-	findDoc(t, chartDocs, "Deployment", "clustarr-indexarr", &chartDeploy)
-	findDoc(t, kzDocs, "Deployment", "indexarr", &kzDeploy)
+	findDoc(t, chartDocs, "Deployment", "clustarr-index", &chartDeploy)
+	findDoc(t, kzDocs, "Deployment", "index", &kzDeploy)
 
 	var chartCluster, kzCluster cnpgCluster
 	findDoc(t, chartDocs, "Cluster", "clustarr-postgres", &chartCluster)
@@ -246,23 +246,23 @@ func TestChartAndKustomizePostgresAgree(t *testing.T) {
 	} {
 		t.Run(tc.installer, func(t *testing.T) {
 			require.NotEqual(t, "Recreate", tc.d.Spec.Strategy.Type,
-				"%s still pins indexarr to Recreate under postgres.enabled; "+
+				"%s still pins index to Recreate under postgres.enabled; "+
 					"only the SQLite shape needs it (§A.3-A.4)", tc.installer)
 
 			require.False(t, hasNamed(tc.d.Spec.Template.Spec.Volumes, "index"),
-				"%s still gives indexarr a volume named \"index\" under postgres.enabled; "+
+				"%s still gives index a volume named \"index\" under postgres.enabled; "+
 					"there is no PVC to mount once the index lives in Postgres", tc.installer)
 
 			require.Len(t, tc.d.Spec.Template.Spec.Containers, 1,
-				"%s: expected exactly one container on the indexarr Deployment", tc.installer)
+				"%s: expected exactly one container on the index Deployment", tc.installer)
 			container := tc.d.Spec.Template.Spec.Containers[0]
 
 			require.False(t, hasNamed(container.VolumeMounts, "index"),
-				"%s still mounts a volume named \"index\" in the indexarr container under "+
+				"%s still mounts a volume named \"index\" in the index container under "+
 					"postgres.enabled", tc.installer)
 
 			dsn := envByName(container.Env, "CLUSTARR_INDEX_DSN")
-			require.NotNil(t, dsn, "%s: indexarr has no CLUSTARR_INDEX_DSN env under postgres.enabled", tc.installer)
+			require.NotNil(t, dsn, "%s: index has no CLUSTARR_INDEX_DSN env under postgres.enabled", tc.installer)
 			require.NotNil(t, dsn.ValueFrom, "%s: CLUSTARR_INDEX_DSN is not valueFrom a Secret", tc.installer)
 			require.NotNil(t, dsn.ValueFrom.SecretKeyRef, "%s: CLUSTARR_INDEX_DSN has no secretKeyRef", tc.installer)
 			require.Equal(t, "uri", dsn.ValueFrom.SecretKeyRef.Key,

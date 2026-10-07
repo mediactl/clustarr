@@ -41,13 +41,13 @@ import (
 // own managedFields bookkeeping rather than from which fields happen to be
 // non-zero.
 //
-// The split is spec-versus-status, not status-versus-status: importarr
+// The split is spec-versus-status, not status-versus-status: import
 // creates the object and owns MediaFileSpec (what it observed on disk plus
-// the release identity frozen at import, spec §8.4); catalogarr owns all of
+// the release identity frozen at import, spec §8.4); catalog owns all of
 // MediaFileStatus, plus metadata.labels, and only takes spec.sizeBytes/
 // modTime/original over once it incorporates a transcode swap -- which
-// cannot happen in Phase C, so catalogarr must claim no spec field here at
-// all. The older "importarr on status.file/status.probe" wording in the
+// cannot happen in Phase C, so catalog must claim no spec field here at
+// all. The older "import on status.file/status.probe" wording in the
 // remaining-work plan describes fields that do not exist.
 //
 // The second half is the part a naive test misses. Server-side apply
@@ -82,8 +82,8 @@ func TestMediaFileTwoWriter(t *testing.T) {
 	// Force a genuine probe refresh. A second full scan on an untouched file
 	// re-applies the identical spec, which is a no-op the apiserver does not
 	// even bump the generation for; moving the mtime makes both legs real
-	// work again -- importarr re-applies spec.modTime, and
-	// mediainfo.ProbeHash changes, so catalogarr re-probes and re-applies
+	// work again -- import re-applies spec.modTime, and
+	// mediainfo.ProbeHash changes, so catalog re-probes and re-applies
 	// status.
 	refreshAt := time.Now().Add(-time.Minute)
 	require.NoError(t, os.Chtimes(hostPath(filePath), refreshAt, refreshAt))
@@ -116,10 +116,10 @@ func TestMediaFileTwoWriter(t *testing.T) {
 
 	// Neither manager lost what it owns across the other's apply. These are
 	// the fields the three observed Phase C release bugs would have zeroed.
-	require.Equal(t, filePath, second.Spec.Path, "importarr's spec.path survived catalogarr's applies")
+	require.Equal(t, filePath, second.Spec.Path, "import's spec.path survived catalog's applies")
 	require.NotZero(t, second.Spec.SizeBytes)
 	require.NotEmpty(t, second.Spec.Quality.Name)
-	require.NotNil(t, second.Status.MediaInfo, "catalogarr's status.mediaInfo survived importarr's applies")
+	require.NotNil(t, second.Status.MediaInfo, "catalog's status.mediaInfo survived import's applies")
 	require.NotEmpty(t, second.Status.ProbeHash)
 	require.NotEmpty(t, second.Status.Conditions)
 }
@@ -130,7 +130,7 @@ func TestMediaFileTwoWriter(t *testing.T) {
 func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey) catalogv1alpha1.MediaFile {
 	t.Helper()
 	var mf catalogv1alpha1.MediaFile
-	waitFor(t, ctx, 5*time.Minute, "MediaFile "+key.Name+" written by both importarr and catalogarr", func(ctx context.Context) (bool, error) {
+	waitFor(t, ctx, 5*time.Minute, "MediaFile "+key.Name+" written by both import and catalog", func(ctx context.Context) (bool, error) {
 		if err := k8sClient.Get(ctx, key, &mf); err != nil {
 			//nolint:nilerr // keep polling
 			return false, nil
@@ -162,14 +162,14 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 			require.NoError(t, err)
 			importSpec = importSpec || ok
 
-			// importarr never writes MediaFileStatus, and never the labels
-			// catalogarr mirrors onto the object.
+			// import never writes MediaFileStatus, and never the labels
+			// catalog mirrors onto the object.
 			claims, err := managedFieldsTouch(e, "status")
 			require.NoError(t, err)
-			require.False(t, claims, "importarr's %q managedFields entry must not claim any status field", e.Subresource)
+			require.False(t, claims, "import's %q managedFields entry must not claim any status field", e.Subresource)
 			claims, err = managedFieldsTouch(e, "metadata.labels")
 			require.NoError(t, err)
-			require.False(t, claims, "importarr must not claim metadata.labels, which catalogarr mirrors")
+			require.False(t, claims, "import must not claim metadata.labels, which catalog mirrors")
 
 		case k8s.ManagerCatalog.String():
 			if e.Subresource == "status" {
@@ -177,17 +177,17 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 				require.NoError(t, err)
 				catalogStat = catalogStat || ok
 			}
-			// Phase C has no transcode, so catalogarr has not taken
-			// spec.sizeBytes/modTime/original over from importarr and must
+			// Phase C has no transcode, so catalog has not taken
+			// spec.sizeBytes/modTime/original over from import and must
 			// claim no spec field at all.
 			claims, err := managedFieldsTouch(e, "spec")
 			require.NoError(t, err)
 			require.False(t, claims,
-				"catalogarr's %q managedFields entry claims a spec field; only an incorporated transcode swap may do that", e.Subresource)
+				"catalog's %q managedFields entry claims a spec field; only an incorporated transcode swap may do that", e.Subresource)
 		}
 	}
-	require.True(t, importSpec, "no importarr managedFields entry claims spec.path")
-	require.True(t, catalogStat, "no catalogarr managedFields entry on the status subresource claims the probe result")
+	require.True(t, importSpec, "no import managedFields entry claims spec.path")
+	require.True(t, catalogStat, "no catalog managedFields entry on the status subresource claims the probe result")
 	return mf
 }
 

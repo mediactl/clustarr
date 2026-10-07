@@ -39,7 +39,7 @@ func movieWith(annotations map[string]string) *catalogv1alpha1.Movie {
 func TestMarkDeadLetteredSetsTheConditionFromTheAnnotation(t *testing.T) {
 	at := time.Date(2026, 9, 23, 10, 30, 0, 0, time.UTC)
 	m := movieWith(map[string]string{
-		k8s.AnnotationDeadLettered: "clustarr.work.catalogarr.search.normal.media.movie.heat@" + at.Format(time.RFC3339),
+		k8s.AnnotationDeadLettered: "clustarr.work.catalog.search.normal.media.movie.heat@" + at.Format(time.RFC3339),
 	})
 	var conditions []metav1.Condition
 	require.True(t, k8s.MarkDeadLettered(m, &conditions))
@@ -50,7 +50,7 @@ func TestMarkDeadLetteredSetsTheConditionFromTheAnnotation(t *testing.T) {
 	assert.Equal(t, k8s.ReasonDeadLettered, c.Reason)
 	assert.Equal(t, int64(3), c.ObservedGeneration)
 	assert.True(t, c.LastTransitionTime.Time.Equal(at), "the condition dates from the dead letter, not the reconcile")
-	assert.Contains(t, c.Message, "clustarr.work.catalogarr.search.normal.media.movie.heat")
+	assert.Contains(t, c.Message, "clustarr.work.catalog.search.normal.media.movie.heat")
 	assert.Contains(t, c.Message, k8s.AnnotationDeadLettered)
 
 	// Folding the same annotation again is a no-op: no churn per reconcile.

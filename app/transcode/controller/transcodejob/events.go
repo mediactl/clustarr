@@ -115,13 +115,13 @@ func transitions(old, st *transcodev1alpha1.TranscodeJobStatus) []transition {
 
 // publishJobEvents publishes each transition that §5 names as one
 // clustarr.evt.transcode.job.<action>.<uid> -- the TranscodeJobSubject
-// producer §5 assigns to squasharr, which the history sink
+// producer §5 assigns to transcode, which the history sink
 // (app/catalog/history) turns into an Event and the DLQ projector resolves
 // back to this TranscodeJob. Until this, the subject had no producer.
 //
 // It runs from afterWrite, once the conditional status write that records
 // the edge has landed (see afterWrite for why after, not before), with an
-// Envelope id of "<uid>:<action>" -- the shape grabarr's DownloadEvent
+// Envelope id of "<uid>:<action>" -- the shape grab's DownloadEvent
 // producer uses, so a re-announced edge dedups in the EVENTS stream's
 // duplicate window -- or "<uid>:queued:<attempt>", since a job is queued
 // once per dispatch.
@@ -195,7 +195,7 @@ func (r *Reconciler) publishJobEvent(ctx context.Context, tj *transcodev1alpha1.
 		ID:     id,
 		Type:   "transcode.JobEvent",
 		Schema: schemaName,
-		Source: "squasharr-controller@" + version.String(),
+		Source: "transcode-controller@" + version.String(),
 		Key:    tj.Namespace + "/" + tj.Name,
 		Time:   evt.At,
 		Data:   data,

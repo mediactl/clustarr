@@ -94,13 +94,13 @@ type bus interface {
 // conditions, and the issue-listing RPC fan-out into owned Issue objects. It
 // is the sole writer of status.observedGeneration, status.conditions
 // (Ready/MetadataReady/IssuesSynced), status.path and status.issueFileCount;
-// status.metadata belongs to the metadata gateway (k8s.ManagerCatalogarrMetadata,
+// status.metadata belongs to the metadata gateway (k8s.ManagerCatalogMetadata,
 // task G2-1) and this reconciler never builds a ComicStatusApplyConfiguration
 // that calls WithMetadata.
 //
 // The per-Issue provider fields this reconciler writes
 // (sourceID/title/date) are applied under the distinct
-// k8s.ManagerCatalogarrFanout field manager, never k8s.ManagerCatalogarr
+// k8s.ManagerCatalogFanout field manager, never k8s.ManagerCatalog
 // (the Issue controller's own reconciler uses that one for
 // State/Conditions/HasFile/etc). See this package's doc.go for the full
 // reasoning.
@@ -316,7 +316,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 			ID:     events.MsgIDForObject(string(c.UID), c.Generation, "metadata"),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
-			Source: "catalogarr@" + version.String(),
+			Source: "catalog@" + version.String(),
 			Key:    envKey,
 			Time:   now,
 			Data:   data,
@@ -487,7 +487,7 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, i
 }
 
 // ensureIssue gets or creates the Issue named d.Name, then patches its
-// provider-sourced status fields under k8s.ManagerCatalogarrFanout.
+// provider-sourced status fields under k8s.ManagerCatalogFanout.
 // spec.monitored is only ever set on Create (d.Monitored != nil there per
 // DesiredIssues' contract); an already-existing Issue's spec.monitored is
 // never touched, since it belongs to the user after creation.
@@ -547,16 +547,16 @@ func (r *Reconciler) ensureIssue(ctx context.Context, c *catalogv1alpha1.Comic, 
 		statusAC = statusAC.WithDate(metav1.NewTime(*d.Date))
 	}
 
-	// k8s.ManagerCatalogarrFanout, not k8s.ManagerCatalogarr: this
+	// k8s.ManagerCatalogFanout, not k8s.ManagerCatalog: this
 	// reconciler writes an Issue it owns but does not itself compute the
 	// acquisition state for -- see this package's doc.go and
-	// k8s.ManagerCatalogarrFanout's own doc comment for the full reasoning.
+	// k8s.ManagerCatalogFanout's own doc comment for the full reasoning.
 	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogFanout, catalogac.Issue(d.Name, c.Namespace).WithStatus(statusAC))
 	return err
 }
 
 // withEntries folds the grab entries, the download phase, the intent nonces
-// and release N's legacy record into a catalogarr status apply: this pass's
+// and release N's legacy record into a catalog status apply: this pass's
 // decisions when the item stages made them, else the stored values, on
 // every apply site -- the complete declaration (ADR-0019 §7.0, Review
 // Focus 4). It is called once per apply: the list setters append.

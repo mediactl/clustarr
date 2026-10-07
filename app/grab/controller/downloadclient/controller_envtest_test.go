@@ -176,7 +176,7 @@ func TestAnExistingEngineWorkloadGainsThePodSecurity(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, dc))
 
-	labels := map[string]string{"app.kubernetes.io/component": "grabarr-engine", "download.clustarr.io/client": "legacy"}
+	labels := map[string]string{"app.kubernetes.io/component": "grab-engine", "download.clustarr.io/client": "legacy"}
 	old := appsv1ac.StatefulSet("legacy-engine", "default").
 		WithLabels(labels).
 		WithSpec(appsv1ac.StatefulSetSpec().
@@ -313,8 +313,8 @@ func TestReconcileAggregatesDownloadCounters(t *testing.T) {
 		require.NoError(t, c.Create(ctx, d))
 
 		// Two writers, two applies, exactly as production does: Phase is
-		// k8s.ManagerGrabarr's (app/grab/status.ControllerFields), the two
-		// rates are k8s.ManagerGrabarrEngine's (EngineFields). Using
+		// k8s.ManagerGrab's (app/grab/status.ControllerFields), the two
+		// rates are k8s.ManagerGrabEngine's (EngineFields). Using
 		// app/grab/status.Patch here rather than a direct
 		// client.Status().Update keeps this fixture honest about field-manager
 		// provenance and stays inside forbidigo's rule, which has no

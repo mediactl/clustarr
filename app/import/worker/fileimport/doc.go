@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package fileimport is the import agent's completed-download worker on
-// importarr-fileimport (ADR-0019 §6.9): the two halves of an import that
+// import-fileimport (ADR-0019 §6.9): the two halves of an import that
 // touch the payload and the library, while app/import/importplan decides
 // in the manager.
 //
@@ -38,7 +38,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     the record at RecordSubKey(entry, "execute").
 //
 // Neither writes a Kubernetes object: the manager materialises the
-// MediaFiles a placement names (spec under importarr-worker), deletes the
+// MediaFiles a placement names (spec under import-worker), deletes the
 // replaced ones with UID preconditions and applies a donor's AudioGraft.
 // The scanner-never-guesses rule holds in its import shape: a file the
 // inspect cannot attribute is a rejection naming why, never a speculative
@@ -46,6 +46,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // superseded and dropped, so a redelivery does nothing twice; a v1
 // ImportTask is discarded.
 //
-// The recycle-bin sweep (RecycleSweeper, importarr-recycle) lives here too,
+// The recycle-bin sweep (RecycleSweeper, import-recycle) lives here too,
 // beside the placement it cleans up after.
 package fileimport

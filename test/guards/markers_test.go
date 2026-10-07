@@ -48,7 +48,7 @@ func objects(t *testing.T, in []byte) []*unstructured.Unstructured {
 	}
 }
 
-// segmentarr-worker reads /data and talks NATS, nothing else: its pod
+// markers-worker reads /data and talks NATS, nothing else: its pod
 // mounts no ServiceAccount token and no binding names its account, in
 // either installer (spec 2026-10-01 segment detection §4.1).
 func TestMarkersWorkerHasNoCredentials(t *testing.T) {
@@ -63,11 +63,11 @@ func TestMarkersWorkerHasNoCredentials(t *testing.T) {
 			var dep *unstructured.Unstructured
 			var sa string
 			for _, o := range objects(t, docs) {
-				if o.GetKind() == "Deployment" && strings.HasSuffix(o.GetName(), "segmentarr-worker") {
+				if o.GetKind() == "Deployment" && strings.HasSuffix(o.GetName(), "markers-worker") {
 					dep = o
 				}
 			}
-			require.NotNil(t, dep, "no segmentarr-worker Deployment")
+			require.NotNil(t, dep, "no markers-worker Deployment")
 			spec, _, _ := unstructured.NestedMap(dep.Object, "spec", "template", "spec")
 			assert.Equal(t, false, spec["automountServiceAccountToken"], "no ServiceAccount token")
 			sa, _ = spec["serviceAccountName"].(string)
@@ -84,7 +84,7 @@ func TestMarkersWorkerHasNoCredentials(t *testing.T) {
 			containers, _, _ := unstructured.NestedSlice(spec, "containers")
 			require.Len(t, containers, 1)
 			c := containers[0].(map[string]any)
-			assert.Equal(t, []any{"/usr/local/bin/segmentarr-worker"}, c["command"])
+			assert.Equal(t, []any{"/usr/local/bin/markers-worker"}, c["command"])
 			env := map[string]bool{}
 			for _, e := range c["env"].([]any) {
 				env[e.(map[string]any)["name"].(string)] = true

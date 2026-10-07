@@ -26,9 +26,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // test/fixtures/importliststub serves Trakt's device-code flow and
 // watchlists, the Plex Discover watchlist and an mdblist export from one
-// Service. Trakt and Plex reach it through importarr's --trakt-base-url and
-// --plex-base-url (X14), which config/e2e/importarr-e2e-patch.yaml sets on
-// both importarr Deployments through $CLUSTARR_TRAKT_BASE_URL and
+// Service. Trakt and Plex reach it through import's --trakt-base-url and
+// --plex-base-url (X14), which config/e2e/import-e2e-patch.yaml sets on
+// both import Deployments through $CLUSTARR_TRAKT_BASE_URL and
 // $CLUSTARR_PLEX_BASE_URL: the controller drives the Trakt device flow and
 // the worker runs every sync, so both must name the fixture. Until X14 no
 // flag reached either provider, and these two legs created their CRs and

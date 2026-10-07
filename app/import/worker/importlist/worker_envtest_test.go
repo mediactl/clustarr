@@ -111,7 +111,7 @@ func newTaskMessage(t *testing.T, ns, name, uid string) *fakeMessage {
 	schemaName, data, err := schema.Encode(task)
 	require.NoError(t, err)
 	return &fakeMessage{
-		env:     &events.Envelope{Schema: schemaName, Data: data, Key: ns + "/" + name, Type: "importarr.ListTask"},
+		env:     &events.Envelope{Schema: schemaName, Data: data, Key: ns + "/" + name, Type: "import.ListTask"},
 		attempt: 1,
 	}
 }
@@ -155,7 +155,7 @@ func TestHandleCreatesAMovieFromAnImdbCSVList(t *testing.T) {
 	require.Equal(t, catalogv1alpha1.MovieAddMethodList, m.Spec.AddOptions.AddMethod)
 
 	specManager := managerFor(m.ManagedFields, "")
-	require.Equal(t, "importarr-worker", specManager, "MovieSpec must be owned by k8s.ManagerImportarrWorker")
+	require.Equal(t, "import-worker", specManager, "MovieSpec must be owned by k8s.ManagerImportWorker")
 
 	entry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
 	require.NoError(t, err, "the worker must checkpoint a result for the controller to poll")

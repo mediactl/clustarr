@@ -74,7 +74,7 @@ func TraktTokenSecretName(listName string) string {
 // controller (the device-code handshake, app/import/controller/importlist)
 // and the import-list worker (pkg/importlist/trakt.List.Fetch's own
 // refresh-on-401, which calls Save transparently). Both write under
-// [k8s.ManagerImportarr] and both go through [SecretTokenStore.applyAll],
+// [k8s.ManagerImport] and both go through [SecretTokenStore.applyAll],
 // which always sends the Secret's full six-key data map -- never a subset
 // -- so the two processes sharing one field manager on one object never
 // hits the "later apply released the earlier one's fields" hazard
@@ -124,7 +124,7 @@ func (s *SecretTokenStore) owner() *metav1ac.OwnerReferenceApplyConfiguration {
 }
 
 // applyAll reads the Secret, lets mutate change its data, and applies the
-// WHOLE resulting map under k8s.ManagerImportarr with the read's
+// WHOLE resulting map under k8s.ManagerImport with the read's
 // resourceVersion: a compare-and-swap (spec 2026-10-06 §5.5, OD13). The
 // ImportList controller (manager) and the list worker (agent import) both
 // write this Secret, so a write built from a read the other has overtaken is

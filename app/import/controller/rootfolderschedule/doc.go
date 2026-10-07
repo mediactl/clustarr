@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // LibraryScan objects, one per cron tick (amendment §A1.3, §A1.4; §16 M1).
 //
 // It is the second controller watching RootFolder, and the one-writer rule
-// still holds: catalogarr's RootFolder reconciler owns RootFolder.status and
+// still holds: catalog's RootFolder reconciler owns RootFolder.status and
 // this package never touches the status subresource. What it does write is
 // one annotation, [AnnotationLastTick], on the RootFolder's metadata, under
 // its own field manager.
@@ -56,7 +56,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task C12 wires it into importarr's
+// Nothing here registers itself. Task C12 wires it into import's
 // setupControllers with exactly:
 //
 //	if err := (&rootfolderschedule.Reconciler{
@@ -64,7 +64,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	        Recorder: mgr.GetEventRecorder("rootfolderschedule"),
 //	        Clock:    time.Now,
 //	}).SetupWithManager(mgr); err != nil {
-//	        return fmt.Errorf("importarr: rootfolderschedule: %w", err)
+//	        return fmt.Errorf("import: rootfolderschedule: %w", err)
 //	}
 //
 // Recorder is a k8s.io/client-go/tools/events.EventRecorder, which writes

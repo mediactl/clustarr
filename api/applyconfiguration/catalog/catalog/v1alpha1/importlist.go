@@ -31,7 +31,7 @@ import (
 // ImportListApplyConfiguration represents a declarative configuration of the ImportList type for use
 // with apply.
 //
-// ImportList is a remote list of desired media that catalogarr keeps the
+// ImportList is a remote list of desired media that catalog keeps the
 // catalog in step with.
 type ImportListApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:""`

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package manager is captionarr's manager-side registration (spec §4.2.1):
+// Package manager is caption's manager-side registration (spec §4.2.1):
 // the SubtitleProfile controller and its Bootstrap, the SubtitleProvider
 // controller (the only writer of provider status, ruling R2) and the
 // SubtitleRequest controller.
@@ -42,7 +42,7 @@ type Options struct {
 	DataDir string
 }
 
-// Register registers captionarr's three reconcilers (§6.5, §16 M5):
+// Register registers caption's three reconcilers (§6.5, §16 M5):
 //
 //   - subtitleprofile validates each SubtitleProfile and ensures one
 //     SubtitleRequest per video-kind MediaFile the profile wins, woken by
@@ -67,18 +67,18 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := subtitleprofile.NewReconciler(
 		c, mgr.GetScheme(), mgr.GetEventRecorder("subtitleprofile"),
 	).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("captionarr: subtitleprofile: %w", err)
+		return fmt.Errorf("caption: subtitleprofile: %w", err)
 	}
 	// An English default profile on a cluster that has none, so subtitles
 	// work without setup. Create-only; leader-elected.
 	if err := mgr.Add(&subtitleprofile.Bootstrap{Client: c, Namespace: o.Namespace}); err != nil {
-		return fmt.Errorf("captionarr: subtitleprofile bootstrap: %w", err)
+		return fmt.Errorf("caption: subtitleprofile bootstrap: %w", err)
 	}
 
 	provider := subtitleprovider.NewReconciler(c, bus.KV(events.BucketProviderThrottle), mgr.GetEventRecorder("subtitleprovider"))
 	provider.Secrets = mgr.GetAPIReader()
 	if err := provider.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("captionarr: subtitleprovider: %w", err)
+		return fmt.Errorf("caption: subtitleprovider: %w", err)
 	}
 
 	if err := (&subtitlerequest.Reconciler{
@@ -86,7 +86,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Bus:     bus,
 		DataDir: o.DataDir,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("captionarr: subtitlerequest: %w", err)
+		return fmt.Errorf("caption: subtitlerequest: %w", err)
 	}
 	return nil
 }

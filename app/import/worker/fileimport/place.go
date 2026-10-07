@@ -46,7 +46,7 @@ var errWouldOverwrite = errors.New("would overwrite")
 // It is refused as errBlocked, before anything is written or recycled, so
 // the walk stops and the Download reads Blocked naming the path at once,
 // rather than retrying, and rather than a per-file rejection that would
-// read as a bad release and have grabarr blocklist it and delete its data.
+// read as a bad release and have grab blocklist it and delete its data.
 //
 // fsops.Import renames a copy over an existing dest, so a file already at a
 // library path -- the previous import of the same item under the same

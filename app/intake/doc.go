@@ -17,8 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package intake is the manager's leader-only consumption of what agents
 // propose without being asked (ADR-0019 §4.3, §8.1, §8.4): grab candidates
-// on catalogarr-intake-candidate and library-scan observations on
-// importarr-intake-scan, both on CLUSTARR_INTAKE.
+// on catalog-intake-candidate and library-scan observations on
+// import-intake-scan, both on CLUSTARR_INTAKE.
 //
 // Intake is acked only after its decision lands. A candidate is parked in
 // the leader-local Inbox under its owner, the owner's key is woken at

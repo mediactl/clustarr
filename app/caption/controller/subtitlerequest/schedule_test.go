@@ -218,7 +218,7 @@ func TestSelectProfile(t *testing.T) {
 }
 
 // TestWorkerSignal pins the For() predicate's projection: it moves on every
-// captionarr-worker leaf and on none of this controller's own, so a worker's
+// caption-worker leaf and on none of this controller's own, so a worker's
 // report wakes the controller and the controller's own apply does not.
 func TestWorkerSignal(t *testing.T) {
 	base := &subtitlev1alpha1.SubtitleRequest{Status: subtitlev1alpha1.SubtitleRequestStatus{

@@ -21,7 +21,7 @@ import "time"
 
 // ScanTask asks a rescan worker to walk one RootFolder -- or the subpath of
 // it a LibraryScan names -- on behalf of that LibraryScan. Subject:
-// clustarr.work.importarr.scan.<rootfolder> (amendment §A1.4, §A1.6).
+// clustarr.work.import.scan.<rootfolder> (amendment §A1.4, §A1.6).
 //
 // The LibraryScan controller publishes exactly one of these per scan and then
 // polls the worker's clustarr-progress checkpoint; it is the sole writer of
@@ -54,20 +54,20 @@ type ScanTask struct {
 func (ScanTask) Schema() string { return "import.ScanTask.v1" }
 
 // ListTask asks the import-list worker to sync one ImportList. Subject:
-// clustarr.work.importarr.list.<importlist>, built by events.WorkListSubject
-// and consumed by ConsumerImportList ("importarr-list", amendment §A1.6).
+// clustarr.work.import.list.<importlist>, built by events.WorkListSubject
+// and consumed by ConsumerImportList ("import-list", amendment §A1.6).
 //
 // It replaced catalog.ImportListTask and its subject,
-// clustarr.work.catalogarr.importlist.normal.<uid>, which predated
-// amendment-1's move of ImportList's sole controller from catalogarr to
-// importarr (§A1.3). Nothing ever published that subject, and it was pruned
-// with its consumer (catalogarr-importlist) in the gap-fix wave (X1).
-// ListTask follows ScanTask's "importarr." schema prefix rather than
+// clustarr.work.catalog.importlist.normal.<uid>, which predated
+// amendment-1's move of ImportList's sole controller from catalog to
+// import (§A1.3). Nothing ever published that subject, and it was pruned
+// with its consumer (catalog-importlist) in the gap-fix wave (X1).
+// ListTask follows ScanTask's "import." schema prefix rather than
 // catalog.go's "catalog." one for the same reason: this payload belongs to
-// importarr, not catalogarr.
+// import, not catalog.
 //
 // The ImportList controller is the sole writer of ImportList.status (see
-// k8s.ManagerImportarr's doc comment); the worker never patches it
+// k8s.ManagerImport's doc comment); the worker never patches it
 // directly. Like LibraryScan/ScanTask, the worker instead checkpoints its
 // result to a clustarr-progress key (see the importlist worker package's
 // Result type) that the controller polls and projects into status -- so a
@@ -84,8 +84,8 @@ func (ListTask) Schema() string { return "import.ListTask.v1" }
 
 // RecycleSweepTask asks the import domain to sweep every recycle bin once
 // (fileimport.RecycleSweeper.SweepOnce). Subject:
-// clustarr.work.importarr.recycle.sweep, consumed by ConsumerImportRecycle
-// ("importarr-recycle"). The manager's recyclesweep.Scheduler publishes one
+// clustarr.work.import.recycle.sweep, consumed by ConsumerImportRecycle
+// ("import-recycle"). The manager's recyclesweep.Scheduler publishes one
 // per 6-hour UTC slot (spec 2026-10-06 §3.5.3, OD36).
 //
 // It names no object: a bin shared by several RootFolders is swept with the

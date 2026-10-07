@@ -177,7 +177,7 @@ type uiBus struct {
 	search   ui.MetadataSearch
 	extended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 	// extras asks the metadata gateway for a Plex id's extras
-	// (rpc.catalogarr.metadata.extras); an answer carrying an error is one.
+	// (rpc.catalog.metadata.extras); an answer carrying an error is one.
 	extras func(ctx context.Context, plexID string) ([]json.RawMessage, error)
 	// progress reads an entry's transfer telemetry; imports one of its
 	// import records.

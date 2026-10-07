@@ -102,7 +102,7 @@ func TestWorkerSkipsAnAutomaticSearchOfAnUnmonitoredEpisode(t *testing.T) {
 			require.NoError(t, err)
 			env := &events.Envelope{
 				ID: "test", Type: "catalog.SearchTask", Schema: schemaName,
-				Source: "catalogarr@" + version.String(), Key: "tv/show-s01e01", Time: time.Now().UTC(), Data: data,
+				Source: "catalog@" + version.String(), Key: "tv/show-s01e01", Time: time.Now().UTC(), Data: data,
 			}
 			_ = w.Handle(context.Background(), testMessage{env: env})
 			assert.Equal(t, tc.wantQueries, rpc.n.Load())

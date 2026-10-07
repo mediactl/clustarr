@@ -34,7 +34,7 @@ import (
 )
 
 // The non-video half of the matcher: an album, a book, an audiobook or a
-// comic issue, found by the names indexarr puts on the release
+// comic issue, found by the names index puts on the release
 // (schema.Release's Artist, Album, Author and Issue, with ParsedTitle as the
 // book title and the comic series). None of these items has an id a release
 // carries, so each is found by name, as its *arr finds it from RSS:

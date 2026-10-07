@@ -32,7 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/status"
 )
 
-// What squasharr owns on TranscodeJob.status -- all of it, since the pools
+// What transcode owns on TranscodeJob.status -- all of it, since the pools
 // report on the results stream instead of writing the object (spec §18.2) --
 // restated as data so that a field added to TranscodeJobStatus later cannot
 // quietly go unsent by [status.ControllerFields].
@@ -154,11 +154,11 @@ func TestEveryTranscodeJobStatusFieldIsAccountedFor(t *testing.T) {
 	for i := range typ.NumField() {
 		name := typ.Field(i).Name
 		assert.Equalf(t, 1, claimed[name],
-			"TranscodeJobStatus.%s is claimed %d times by squasharr; it must be exactly once", name, claimed[name])
+			"TranscodeJobStatus.%s is claimed %d times by transcode; it must be exactly once", name, claimed[name])
 	}
 	for name := range claimed {
 		_, ok := typ.FieldByName(name)
-		assert.Truef(t, ok, "%s is claimed by squasharr but is not a field of TranscodeJobStatus", name)
+		assert.Truef(t, ok, "%s is claimed by transcode but is not a field of TranscodeJobStatus", name)
 	}
 	require.Len(t, jobControllerOwned, 17)
 	assert.Equal(t, typ.NumField(), len(jobControllerOwned))

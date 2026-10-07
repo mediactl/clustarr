@@ -15,8 +15,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package status declares which catalogarr field manager owns which leaves
-// of a catalog item's status where more than one catalogarr writer shares an
+// Package status declares which catalog field manager owns which leaves
+// of a catalog item's status where more than one catalog writer shares an
 // object, restated as data so a managedFields test can hold each manager to
 // its set -- the pattern app/grab/status, app/transcode/status and
 // app/caption/status follow for their kinds.
@@ -26,9 +26,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //   - [GatewayManager] (the metadata gateway) owns status.metadata -- every
 //     leaf but Album's metadata.selectedReleaseID, which is the Album
-//     reconciler's under k8s.ManagerCatalogarr -- and all of
+//     reconciler's under k8s.ManagerCatalog -- and all of
 //     status.artwork, and declares both in ONE apply ([GatewayFields]);
-//   - [RendererManager] (the artwork render role, catalogarr --role
+//   - [RendererManager] (the artwork render role, catalog --role
 //     artwork) owns status.overlay on Movie and Series and nothing else
 //     ([RendererFields]); [PatchOverlay] is its one write, a complete
 //     declaration of all four leaves or of none.
@@ -95,7 +95,7 @@ func ArtworkEntries(entries []catalogv1alpha1.ArtworkEntry) []*catalogac.Artwork
 }
 
 // RendererManager is the artwork render role's field manager (spec §B.6:
-// "written by the renderer under a new manager k8s.ManagerCatalogarrArtwork").
+// "written by the renderer under a new manager k8s.ManagerCatalogArtwork").
 const RendererManager = k8s.ManagerCatalogArtwork
 
 // RendererFields are the top-level status fields RendererManager owns, on
@@ -110,7 +110,7 @@ var RendererFields = []string{"overlay"}
 var OverlayEntryLeaves = []string{"digest", "profileRef", "renderedFrom", "updatedAt"}
 
 // ErrNotTheRenderer is a [PatchOverlay] by any manager but [RendererManager].
-var ErrNotTheRenderer = errors.New("status: only the renderer (catalogarr-artwork) writes status.overlay")
+var ErrNotTheRenderer = errors.New("status: only the renderer (catalog-artwork) writes status.overlay")
 
 // ErrNoOverlay is a [PatchOverlay] of a kind with no status.overlay --
 // anything but Movie and Series.

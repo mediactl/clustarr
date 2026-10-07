@@ -122,8 +122,8 @@ func TestAddSearchErrors(t *testing.T) {
 		want   string
 	}{
 		"not responding": {slow, "Metadata search is not responding"},
-		"catalogarr down": {func(context.Context, schema.MetadataRequest) (schema.MetadataResponse, error) {
-			return schema.MetadataResponse{}, fmt.Errorf("natsbus: %q: %w", "rpc.catalogarr.metadata.search", events.ErrNoResponders)
+		"catalog down": {func(context.Context, schema.MetadataRequest) (schema.MetadataResponse, error) {
+			return schema.MetadataResponse{}, fmt.Errorf("natsbus: %q: %w", "rpc.catalog.metadata.search", events.ErrNoResponders)
 		}, "Metadata search is not responding"},
 		"no provider":      {answer(schema.MetadataResponse{Error: "metadata: no movie metadata provider is configured to search"}), `href="/settings"`},
 		"provider failure": {answer(schema.MetadataResponse{Error: "metadata: every movie search provider failed: tmdb: rate limited"}), "rate limited"},

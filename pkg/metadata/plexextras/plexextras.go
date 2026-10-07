@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // trailers and clips Plex's metadata service holds for a movie, show or
 // season -- in the clustarr-plex-extras KV bucket, keyed by Plex id. The
 // metadata gateway is its only writer: it answers
-// rpc.catalogarr.metadata.extras from the bucket and fetches from Plex on a
+// rpc.catalog.metadata.extras from the bucket and fetches from Plex on a
 // miss or a stale entry (app/catalog/metadata/extras.go).
 package plexextras
 

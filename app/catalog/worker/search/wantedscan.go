@@ -40,8 +40,8 @@ import (
 // catalog.SearchTask.v1 per eligible item in the namespace.
 //
 // The split is spec §5's: wantedcron publishes ONE message per namespace onto
-// clustarr.work.catalogarr.wantedscan.low.<namespace>, which the
-// catalogarr-search-normal consumer already filters, and the search worker
+// clustarr.work.catalog.wantedscan.low.<namespace>, which the
+// catalog-search-normal consumer already filters, and the search worker
 // fans it out. app/catalog/controller/wantedcron/doc.go states the same
 // contract from the other side; §6.1's per-item backoff therefore runs here,
 // against wantedcron's own exported Backoff/NextEligible/Eligible so the two
@@ -110,7 +110,7 @@ func (w *Worker) handleWantedScan(ctx context.Context, span trace.Span, m events
 }
 
 // wantedScanRetry is how long to wait before retrying a sweep the work queue
-// refused. It is generous because a full catalogarr work stream means the
+// refused. It is generous because a full catalog work stream means the
 // search workers are already saturated; the sweep is the lowest-value traffic
 // on it and should yield.
 const wantedScanRetry = 5 * time.Minute
@@ -231,7 +231,7 @@ func (w *Worker) publishItemSearch(ctx context.Context, ns string, item wantedIt
 		ID:     events.MsgIDForObject(item.UID, epoch, item.msgKind()),
 		Type:   "catalog.SearchTask",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		// The envelope key names the owning object, per events.Envelope; the
 		// mediaKey identifies the item and belongs in the subject, where the
 		// grab lease derives from the same token.

@@ -26,7 +26,7 @@ import (
 // NamingSpecApplyConfiguration represents a declarative configuration of the NamingSpec type for use
 // with apply.
 //
-// NamingSpec controls how catalogarr lays files out under the root folder.
+// NamingSpec controls how catalog lays files out under the root folder.
 type NamingSpecApplyConfiguration struct {
 	// Dialect is the media-server layout convention to follow.
 	Dialect *catalogv1alpha1.NamingDialect `json:"dialect,omitempty"`
@@ -39,12 +39,12 @@ type NamingSpecApplyConfiguration struct {
 	// animeFile, dailyFile, artistFolder, albumFolder, trackFile, authorFolder,
 	// bookFile, audiobookFolder, audiobookFile, comicFolder and issueFile.
 	Overrides map[string]string `json:"overrides,omitempty"`
-	// RenameFiles lets importarr rename a library file to its canonical
-	// name whenever catalogarr reports it is not (status.naming). Off by
+	// RenameFiles lets import rename a library file to its canonical
+	// name whenever catalog reports it is not (status.naming). Off by
 	// default: a library imported before codec tokens existed differs on
 	// every file. A LibraryScan with spec.rename runs a pass regardless.
 	RenameFiles *bool `json:"renameFiles,omitempty"`
-	// RenameTranscoded lets importarr rename a file squasharr transcoded
+	// RenameTranscoded lets import rename a file the transcode controller transcoded
 	// (status.transcode.profileTag) to its canonical file name, in the
 	// folder it is already in, so a name that described the source codec
 	// ("[EAC3 5.1][h264]") does not outlive it. A canonical folder that

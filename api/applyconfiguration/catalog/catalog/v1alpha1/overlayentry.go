@@ -27,7 +27,7 @@ import (
 // with apply.
 //
 // OverlayEntry records the rating-badge overlay rendered onto a Movie or
-// Series poster. Written by the renderer under k8s.ManagerCatalogarrArtwork.
+// Series poster. Written by the renderer under k8s.ManagerCatalogArtwork.
 type OverlayEntryApplyConfiguration struct {
 	// ProfileRef is the name of the OverlayProfile the overlay was rendered from.
 	ProfileRef *string `json:"profileRef,omitempty"`

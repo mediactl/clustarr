@@ -199,7 +199,7 @@ type ItemContext struct {
 	// sit either side of one conversion, and feeding a tag in here scores
 	// every release of the item at language-not-original's -10000. Every
 	// producer converts the tag exactly once: pkg/decision.Evaluate for a
-	// release (pkg/decision/language.go), importarr's file import and rescan
+	// release (pkg/decision/language.go), import's file import and rescan
 	// through LanguageName for a file.
 	//
 	// Empty means the item's original language is UNKNOWN, which is not the

@@ -39,7 +39,7 @@ const defaultMaxPayloadBytes = 32 << 20
 // ErrUnsupportedSource is returned when a Download's spec.source carries no
 // payload a usenet engine can fetch: a bare magnet or .torrent URL, or an
 // indexer response that resolved to one. A usenet Download must resolve to
-// .nzb bytes, directly or through indexarr.
+// .nzb bytes, directly or through index.
 var ErrUnsupportedSource = errors.New("usenetengine: download source has no usenet-fetchable payload")
 
 // ErrPayloadTooLarge is returned when a fetched body exceeds the resolver's
@@ -51,11 +51,11 @@ var ErrPayloadTooLarge = errors.New("usenetengine: fetched payload exceeds the c
 //
 // DownloadSource's own doc comment is explicit that a .torrent or .nzb body
 // is never embedded in the Download object: "Either the payload is
-// addressable by URL, or indexerDownload names the release and grabarr
-// resolves it through indexarr." NZBURL needs no indexer credentials and is
+// addressable by URL, or indexerDownload names the release and grab
+// resolves it through index." NZBURL needs no indexer credentials and is
 // fetched directly; IndexerDownload is resolved through
 // events.RPCIndexDownload, which applies the indexer's own auth, rate limit
-// and proxy on indexarr's side before any bytes reach this process.
+// and proxy on index's side before any bytes reach this process.
 type Resolver struct {
 	// RPC is the bus's request/reply half, used for events.RPCIndexDownload.
 	// A nil RPC makes every IndexerDownload source fail immediately rather
@@ -133,14 +133,14 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id downloadv1a
 	}
 	switch {
 	case resp.Error != "":
-		// indexarr answered and could not produce the payload: the release
+		// index answered and could not produce the payload: the release
 		// is gone from its indexer (ADR-0019 §6.7).
-		return nil, fmt.Errorf("%w: usenetengine: indexarr: %s", engine.ErrPayloadUnavailable, resp.Error)
+		return nil, fmt.Errorf("%w: usenetengine: index: %s", engine.ErrPayloadUnavailable, resp.Error)
 	case len(resp.Bytes) > 0:
 		// A large .nzb crosses the bus gzipped (DownloadResponse.ForWire).
 		b, err := resp.Payload(r.maxBytes())
 		if err != nil {
-			return nil, fmt.Errorf("usenetengine: indexarr payload for %s/%s: %w", id.IndexerRef, id.GUID, err)
+			return nil, fmt.Errorf("usenetengine: index payload for %s/%s: %w", id.IndexerRef, id.GUID, err)
 		}
 		return b, nil
 	case resp.RedirectURL != "":
@@ -148,7 +148,7 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id downloadv1a
 	case resp.MagnetURL != "":
 		return nil, fmt.Errorf("%w: indexer %s returned a magnet link for a usenet download", ErrUnsupportedSource, id.IndexerRef)
 	default:
-		return nil, fmt.Errorf("usenetengine: indexarr returned an empty response for %s/%s", id.IndexerRef, id.GUID)
+		return nil, fmt.Errorf("usenetengine: index returned an empty response for %s/%s", id.IndexerRef, id.GUID)
 	}
 }
 
@@ -159,7 +159,7 @@ const maxDrainBytes = 64 << 10
 
 // fetchURL performs a direct, unauthenticated GET -- the shape DownloadSource
 // promises for NZBURL and TorrentURL ("needs no indexer credentials") and for
-// an indexer's own RedirectURL, which is indexarr choosing not to proxy the
+// an indexer's own RedirectURL, which is index choosing not to proxy the
 // body itself. The body is read through a cap: a package-level max, an
 // io.LimitReader(body, max+1) and an ErrPayloadTooLarge sentinel, the same
 // shape every other capped HTTP read in this tree uses (pkg/torznab,

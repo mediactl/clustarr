@@ -28,8 +28,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// Contribution is what the item stages decided for the catalogarr apply,
-// which each kind's own renderer folds into its one catalogarr status
+// Contribution is what the item stages decided for the catalog apply,
+// which each kind's own renderer folds into its one catalog status
 // (ADR-0019 §7.0). nil fields are "this pass decided nothing: re-send the
 // stored value".
 type Contribution struct {
@@ -77,7 +77,7 @@ func From(ctx context.Context) *Pass {
 	return p
 }
 
-// Landed records that the catalogarr apply landed at rv. itemstatus.Apply
+// Landed records that the catalog apply landed at rv. itemstatus.Apply
 // calls it; a nil Pass ignores it.
 func (p *Pass) Landed(rv string) {
 	if p == nil {
@@ -88,7 +88,7 @@ func (p *Pass) Landed(rv string) {
 	p.landedRV, p.landed = rv, true
 }
 
-// LandedRV is the resourceVersion the catalogarr apply returned, and whether
+// LandedRV is the resourceVersion the catalog apply returned, and whether
 // it landed this pass.
 func (p *Pass) LandedRV() (string, bool) {
 	if p == nil {
@@ -99,7 +99,7 @@ func (p *Pass) LandedRV() (string, bool) {
 	return p.landedRV, p.landed
 }
 
-// Downloads is the entry list a catalogarr apply sends: the pass's decision
+// Downloads is the entry list a catalog apply sends: the pass's decision
 // when it made one, else the stored list.
 func Downloads(p *Pass, stored []catalogv1alpha1.DownloadEntry) []catalogv1alpha1.DownloadEntry {
 	if p != nil && p.Contribution.Downloads != nil {
@@ -108,7 +108,7 @@ func Downloads(p *Pass, stored []catalogv1alpha1.DownloadEntry) []catalogv1alpha
 	return stored
 }
 
-// Phase is the downloadPhase a catalogarr apply sends.
+// Phase is the downloadPhase a catalog apply sends.
 func Phase(p *Pass, stored commonv1.DownloadPhase) commonv1.DownloadPhase {
 	if p != nil && p.Contribution.DownloadPhase != nil {
 		return *p.Contribution.DownloadPhase
@@ -116,7 +116,7 @@ func Phase(p *Pass, stored commonv1.DownloadPhase) commonv1.DownloadPhase {
 	return stored
 }
 
-// Nonces is the downloadNonces a catalogarr apply sends.
+// Nonces is the downloadNonces a catalog apply sends.
 func Nonces(p *Pass, stored *catalogv1alpha1.DownloadNonces) *catalogv1alpha1.DownloadNonces {
 	if p != nil && p.Contribution.DownloadNonces != nil {
 		return p.Contribution.DownloadNonces
@@ -124,7 +124,7 @@ func Nonces(p *Pass, stored *catalogv1alpha1.DownloadNonces) *catalogv1alpha1.Do
 	return stored
 }
 
-// Legacy is the legacyDownloads a catalogarr apply sends (release N).
+// Legacy is the legacyDownloads a catalog apply sends (release N).
 func Legacy(p *Pass, stored *catalogv1alpha1.LegacyDownloads) *catalogv1alpha1.LegacyDownloads {
 	if p != nil && p.Contribution.LegacyDownloads != nil {
 		return p.Contribution.LegacyDownloads
@@ -150,7 +150,7 @@ func Donor(p *Pass, fallback bool) bool {
 	return fallback
 }
 
-// HasContribution reports that a stage decided something for the catalogarr
+// HasContribution reports that a stage decided something for the catalog
 // apply this pass; the deletion path applies status only then.
 func HasContribution(p *Pass) bool {
 	if p == nil {

@@ -56,7 +56,7 @@ func dedupeKey(r schema.Release) string {
 // mergeReleases collapses duplicates, orders the survivors and caps the set.
 //
 // The order decides WHICH releases survive the cap, not how they are ranked:
-// catalogarr re-scores everything through pkg/decision. It is fully
+// catalog re-scores everything through pkg/decision. It is fully
 // deterministic -- ties fall back to arrival sequence -- so the same inputs
 // always truncate the same way.
 //

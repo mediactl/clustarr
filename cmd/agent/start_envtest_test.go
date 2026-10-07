@@ -42,12 +42,12 @@ import (
 )
 
 // verifyRenderer proves spec §C.6's renderer runs in the case's process on
-// the real bus, under catalogarr's RBAC: a Movie in the gateway's steady
+// the real bus, under catalog's RBAC: a Movie in the gateway's steady
 // state (an original poster in clustarr-artwork, recorded in
 // status.artwork beside a rated status.metadata) and an OverlayProfile
 // selecting it end with poster/overlay stored and status.overlay recorded
 // -- the Get, the OverlayProfile list and the movies/status patch are all
-// the renderer's, made as the catalogarr ServiceAccount.
+// the renderer's, made as the catalog ServiceAccount.
 //
 // viaController leaves the render task to the OverlayProfile controller,
 // which must then be running too (app/catalog/all): the profile is created

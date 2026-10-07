@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package manager is squasharr's manager-side registration (spec §4.2.1):
+// Package manager is transcode's manager-side registration (spec §4.2.1):
 // the TranscodeProfile and TranscodeJob reconcilers, the leader-only results
 // consumer that shares the TranscodeJob status CAS path, and the AudioGraft
 // controller, which runs graft and donor-reduce Jobs on the cpu pool's pod
@@ -43,7 +43,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// Options is what the squash manager registration takes.
+// Options is what the transcode manager registration takes.
 type Options struct {
 	k8s.Options
 	Slots             map[string]int32 // the per-hardware admission budget (--slots)
@@ -65,7 +65,7 @@ type Options struct {
 // TranscodeJob per file a profile wins; the TranscodeJob controller, which
 // plans, admits against the --slots budget and dispatches each job's task to
 // its pool over bus, and whose results consumer turns the pool workers'
-// status events on squasharr-transcode-results into TranscodeJob status
+// status events on transcode-results into TranscodeJob status
 // (spec 2026-09-23 §18.2); and the AudioGraft controller.
 //
 // The TranscodeJob reconciler reads TranscodeJobs through
@@ -80,13 +80,13 @@ type Options struct {
 // it touches mgr.
 func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
-		return errors.New("squash manager: Register needs the bus")
+		return errors.New("transcode manager: Register needs the bus")
 	}
 	profiles := transcodeprofile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"))
 	profiles.Window, profiles.Retention = o.JobWindow, o.JobRetention
 	profiles.Progress = bus.KV(events.BucketProgress)
 	if err := profiles.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("squasharr: transcodeprofile: %w", err)
+		return fmt.Errorf("transcode: transcodeprofile: %w", err)
 	}
 	rec := &transcodejob.Reconciler{
 		Client:   mgr.GetClient(),
@@ -104,16 +104,16 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		rec.Admin = admin
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("squasharr: transcodejob: %w", err)
+		return fmt.Errorf("transcode: transcodejob: %w", err)
 	}
 	if err := mgr.Add(rec.ResultsConsumer()); err != nil {
-		return fmt.Errorf("squasharr: transcode results consumer: %w", err)
+		return fmt.Errorf("transcode: transcode results consumer: %w", err)
 	}
 	grafts := &audiograft.Reconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Pool: poolConfig(o), Concurrency: o.GraftConcurrency,
 	}
 	if err := grafts.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("squasharr: audiograft: %w", err)
+		return fmt.Errorf("transcode: audiograft: %w", err)
 	}
 	return nil
 }
@@ -153,7 +153,7 @@ func poolConfig(o Options) pool.Config {
 // --tracing-* flags (pkg/obs/obsflags.Bind, which both internal/cli's
 // NewRoot and cmd/transcode call) for a pool's
 // workers, so a pool pod logs in the controller's format and level and
-// exports its spans -- the squasharr.worker.process and transcode.run
+// exports its spans -- the transcode.worker.process and transcode.run
 // (ffmpeg) spans -- to the same collector. Only what differs from the flags'
 // defaults is rendered. TestWorkerObservabilityArgsParse holds the names to
 // the flags.

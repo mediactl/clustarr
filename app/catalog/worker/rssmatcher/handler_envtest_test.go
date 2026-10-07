@@ -418,7 +418,7 @@ func mediaFilesCached(ctx context.Context, c client.Client, ns string, n int) bo
 }
 
 // TestHandler_PackGrabNarrowsToTheEpisodesThatWantIt pins the X9 finding:
-// grabarr downloads only a pack's spec.target.keys, but the matcher put every
+// grab downloads only a pack's spec.target.keys, but the matcher put every
 // monitored episode of the season there -- including one already at its
 // cutoff -- so a pack for the episodes that were missing still downloaded the
 // whole season. Keys now name only the episodes the release is wanted for:
@@ -476,7 +476,7 @@ func TestHandler_PackGrabNarrowsToTheEpisodesThatWantIt(t *testing.T) {
 	target := downloads.Items[0].Spec.Target
 	assert.Equal(t, commonv1.MediaKindSeries, target.Kind)
 	assert.Equal(t, []string{e2, e3}, target.Keys,
-		"the episode at its cutoff is left out, so grabarr fetches only the files that are wanted")
+		"the episode at its cutoff is left out, so grab fetches only the files that are wanted")
 }
 
 // TestHandler_PackNobodyWantsIsNotGrabbed: every episode the pack covers
@@ -818,7 +818,7 @@ func TestHandler_MalformedMessagesAreDiscarded(t *testing.T) {
 }
 
 // TestHandler_SubscriptionMatchesTheSpecTable pins §5's
-// catalogarr-rss-matcher row so a change to the shared topology cannot
+// catalog-rss-matcher row so a change to the shared topology cannot
 // silently retune this consumer.
 func TestHandler_SubscriptionMatchesTheSpecTable(t *testing.T) {
 	sub := rssmatcher.NewHandler(rssmatcher.Deps{}).Subscription()

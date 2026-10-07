@@ -383,7 +383,7 @@ func TestAlreadyTranscodedAndProbed(t *testing.T) {
 	assert.True(t, probed(&mf))
 	assert.False(t, alreadyTranscoded(&mf, "hevc"), "an untouched original is not transcoded")
 
-	// catalogarr's record of a transcode by this profile counts under any
+	// catalog's record of a transcode by this profile counts under any
 	// hash: an edit or a new standard.Version redoes nothing. Another
 	// profile's record on this (untouched) source does not.
 	mf.Status.Transcode = &catalogv1alpha1.TranscodeState{ProfileTag: "hevc@deadbeef"}
@@ -396,7 +396,7 @@ func TestAlreadyTranscodedAndProbed(t *testing.T) {
 	mf.Status.MediaInfo.TranscodeProfile = "other@0123"
 	assert.True(t, alreadyTranscoded(&mf, "hevc"))
 
-	// So does a swap catalogarr incorporated (spec.original false).
+	// So does a swap catalog incorporated (spec.original false).
 	mf.Status.MediaInfo.TranscodeProfile = ""
 	mf.Spec.Original = new(false)
 	assert.True(t, alreadyTranscoded(&mf, "hevc"))
@@ -447,7 +447,7 @@ func TestAlreadyTranscodedCountsATranscodeFromElsewhere(t *testing.T) {
 	assert.False(t, alreadyTranscoded(&mf, "hevc"), "an H.264 release made with ffmpeg is not a transcode")
 }
 
-// A Succeeded job holds its file until catalogarr has incorporated the
+// A Succeeded job holds its file until catalog has incorporated the
 // swap (re-probed the file after the job finished): until then the file
 // reads untranscoded -- its probe is the original's -- and a job under a
 // newer hash would be planned against bytes the swap already replaced, and
@@ -485,7 +485,7 @@ func TestASucceededJobHoldsItsFileUntilTheSwapIsIncorporated(t *testing.T) {
 	}
 	busy := openFiles(jobs, "hevc", files)
 	key := func(n string) types.NamespacedName { return types.NamespacedName{Namespace: "media", Name: n} }
-	assert.True(t, busy[key("a")], "a swap catalogarr has not read yet holds the file")
+	assert.True(t, busy[key("a")], "a swap catalog has not read yet holds the file")
 	assert.False(t, busy[key("b")], "an incorporated swap does not: the file's own record decides")
 	assert.False(t, busy[key("c")], "a skip holds nothing")
 	assert.True(t, busy[key("d")], "an open job holds its file")

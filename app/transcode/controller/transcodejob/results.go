@@ -36,7 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// ResultsConsumer subscribes squasharr-transcode-results. It runs on the
+// ResultsConsumer subscribes transcode-results. It runs on the
 // leader only, beside the reconciler it shares the one status write path
 // with (spec §18.2).
 func (r *Reconciler) ResultsConsumer() manager.Runnable { return resultsConsumer{r} }
@@ -46,15 +46,15 @@ type resultsConsumer struct{ r *Reconciler }
 // Start subscribes the consumer and blocks until ctx ends.
 func (c resultsConsumer) Start(ctx context.Context) error {
 	if c.r.Bus == nil {
-		return errors.New("squasharr: the results consumer has no bus")
+		return errors.New("transcode: the results consumer has no bus")
 	}
 	spec, ok := events.Default().Consumer(events.ConsumerTranscodeResults)
 	if !ok {
-		return fmt.Errorf("squasharr: %s is missing from the topology", events.ConsumerTranscodeResults)
+		return fmt.Errorf("transcode: %s is missing from the topology", events.ConsumerTranscodeResults)
 	}
 	stop, err := c.r.Bus.Subscribe(ctx, spec.Subscription(), c.r.handleEvent)
 	if err != nil {
-		return fmt.Errorf("squasharr: subscribe %s: %w", spec.Name, err)
+		return fmt.Errorf("transcode: subscribe %s: %w", spec.Name, err)
 	}
 	<-ctx.Done()
 	stop()
@@ -190,7 +190,7 @@ func (r *Reconciler) handleEvent(ctx context.Context, m events.Message) error {
 		// and the consumer settles one event at a time (MaxAckPending 1):
 		// retrying would hold every other job's status back behind it
 		// until it dead-lettered anyway (R17).
-		log.WarnContext(ctx, "squasharr: a transcode status event makes an invalid status; dead-lettering it",
+		log.WarnContext(ctx, "transcode: a transcode status event makes an invalid status; dead-lettering it",
 			"error", err)
 		return events.Discard("the status this event makes is invalid", err)
 	}
@@ -199,15 +199,15 @@ func (r *Reconciler) handleEvent(ctx context.Context, m events.Message) error {
 		return err
 	}
 	if noClass {
-		log.WarnContext(ctx, "squasharr: an event for an attempt the job never recorded carries no class, so it cannot be adopted; dropping it",
+		log.WarnContext(ctx, "transcode: an event for an attempt the job never recorded carries no class, so it cannot be adopted; dropping it",
 			"recordedAttempts", before.Attempts)
 	}
 	if adopted && after != nil {
-		log.InfoContext(ctx, "squasharr: adopted an attempt whose dispatch write was lost, from its worker's event",
+		log.InfoContext(ctx, "transcode: adopted an attempt whose dispatch write was lost, from its worker's event",
 			"hardware", string(after.Status.Hardware))
 	}
 	if after == nil {
-		log.DebugContext(ctx, "squasharr: a transcode status event changed nothing", "pod", ev.Pod)
+		log.DebugContext(ctx, "transcode: a transcode status event changed nothing", "pod", ev.Pod)
 		return nil
 	}
 	r.afterWrite(ctx, after, &before)
@@ -226,14 +226,14 @@ func logApplied(ctx context.Context, ev task.StatusEvent, after *transcodev1alph
 	log := logging.FromContext(ctx)
 	switch ev.Kind {
 	case task.EventClaimed:
-		log.InfoContext(ctx, "squasharr: a worker claimed a transcode task", "pod", ev.Pod, "node", ev.Node,
+		log.InfoContext(ctx, "transcode: a worker claimed a transcode task", "pod", ev.Pod, "node", ev.Node,
 			"class", string(after.Status.Hardware), "phase", string(after.Status.Phase))
 	case task.EventFinished:
-		log.InfoContext(ctx, "squasharr: a worker finished a transcode task", "pod", ev.Pod,
+		log.InfoContext(ctx, "transcode: a worker finished a transcode task", "pod", ev.Pod,
 			"outcome", string(ev.Outcome), "reason", string(ev.Reason), "phase", string(after.Status.Phase),
 			"message", after.Status.Message)
 	default:
-		log.DebugContext(ctx, "squasharr: transcode progress", "pod", ev.Pod, "phase", string(after.Status.Phase))
+		log.DebugContext(ctx, "transcode: transcode progress", "pod", ev.Pod, "phase", string(after.Status.Phase))
 	}
 }
 

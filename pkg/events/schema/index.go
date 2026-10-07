@@ -24,7 +24,7 @@ import (
 )
 
 // MaxSearchReleases caps how many releases a single SearchResponse may carry.
-// indexarr truncates beyond this, reporting the truncation per indexer.
+// index truncates beyond this, reporting the truncation per indexer.
 const MaxSearchReleases = 500
 
 // Release is one parsed indexer release fanned out on
@@ -68,10 +68,10 @@ type Release struct {
 	// Kind is the media kind the classifier assigned to the title.
 	Kind commonv1.MediaKind `json:"kind,omitempty"`
 
-	// The non-video names a release is matched by (catalogarr's RSS matcher
+	// The non-video names a release is matched by (catalog's RSS matcher
 	// looks an album up by artist and album, a book or audiobook by author
 	// and ParsedTitle, a comic issue by ParsedTitle -- the series -- and
-	// issue number). indexarr fills each from the indexer's own Newznab
+	// issue number). index fills each from the indexer's own Newznab
 	// attr where it sent one (artist, album, author; docs/research/
 	// indexers.md §4.3) and from the parsed title otherwise. All four are
 	// optional and additive: the payload keeps its schema version (schema.go's
@@ -99,7 +99,7 @@ type Release struct {
 	// recognised, keyed by hint name.
 	Hints map[string][]string `json:"hints,omitempty"`
 
-	// FetchedAt is when indexarr read the release from the indexer.
+	// FetchedAt is when index read the release from the indexer.
 	FetchedAt time.Time `json:"fetchedAt"`
 
 	// Blocked is, in a search or query answer, the release index's block
@@ -141,7 +141,7 @@ func (IndexerEvent) Schema() string { return "index.IndexerEvent.v1" }
 
 // RssTask asks an RSS worker to poll one indexer. It is published with a
 // schedule matching the indexer's RSS interval.
-// Subject: clustarr.work.indexarr.rss.normal.<indexer-uid>.
+// Subject: clustarr.work.index.rss.normal.<indexer-uid>.
 type RssTask struct {
 	// IndexerRef is the Indexer to poll.
 	IndexerRef Ref `json:"indexerRef"`
@@ -228,17 +228,17 @@ type SearchOutcome struct {
 }
 
 // SearchRequest is the request half of the federated search RPC.
-// Subject: clustarr.rpc.indexarr.search.
+// Subject: clustarr.rpc.index.search.
 type SearchRequest struct {
 	// Namespace scopes the search to one namespace's Indexers.
 	//
-	// It is optional so an older producer can omit it, but indexarr has no
-	// other way to learn it: IndexerRefs carries a namespace and catalogarr
+	// It is optional so an older producer can omit it, but index has no
+	// other way to learn it: IndexerRefs carries a namespace and catalog
 	// populates that only for interactive searches, so an automatic search
-	// would otherwise arrive with no namespace at all and indexarr would
+	// would otherwise arrive with no namespace at all and index would
 	// have to list Indexers cluster-wide -- serving one namespace's media
 	// from another's indexer, with that indexer's credentials, counted
-	// against its grab limit. When empty, indexarr falls back to
+	// against its grab limit. When empty, index falls back to
 	// cluster-wide AND logs a warning naming the request, so the old
 	// behaviour is observable rather than silent.
 	// +optional
@@ -284,7 +284,7 @@ type SearchRequest struct {
 	// MaxSearchReleases.
 	Limit int32 `json:"limit,omitempty"`
 
-	// DeadlineMillis is how long the caller will wait. indexarr replies once
+	// DeadlineMillis is how long the caller will wait. index replies once
 	// at min(deadline, 45s).
 	DeadlineMillis int64 `json:"deadlineMillis,omitempty"`
 
@@ -316,8 +316,8 @@ type SearchResponse struct {
 // Schema implements Payload.
 func (SearchResponse) Schema() string { return "index.SearchResponse.v1" }
 
-// DownloadRequest asks indexarr to fetch a release payload using its own
-// session cookies and passkeys. Subject: clustarr.rpc.indexarr.download.
+// DownloadRequest asks index to fetch a release payload using its own
+// session cookies and passkeys. Subject: clustarr.rpc.index.download.
 type DownloadRequest struct {
 	// IndexerRef is the indexer holding the session to use.
 	IndexerRef Ref `json:"indexerRef"`
@@ -358,9 +358,9 @@ type DownloadResponse struct {
 // Schema implements Payload.
 func (DownloadResponse) Schema() string { return "index.DownloadResponse.v1" }
 
-// QueryRequest is a direct query against the indexarr release index, used by
+// QueryRequest is a direct query against the index release index, used by
 // Search custom resources in query mode and by the Torznab facade.
-// Subject: clustarr.rpc.indexarr.query.
+// Subject: clustarr.rpc.index.query.
 type QueryRequest struct {
 	// Text is the full-text query.
 	Text string `json:"text,omitempty"`

@@ -305,7 +305,7 @@ func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.Obje
 	return obj, nil
 }
 
-// Handler is the catalogarr-artwork-fetch consumer (spec §B.7): the
+// Handler is the catalog-artwork-fetch consumer (spec §B.7): the
 // ImportArtwork task a reconciler publishes when status.artwork drifts from
 // its sources ([catalogartwork.Drift]: spec.artwork and status.metadata.images). It runs the same [Pass] the metadata handler runs after
 // a metadata fetch, without fetching metadata: the images it resolves
@@ -357,7 +357,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 //
 // Extraction, not a copy of fresh.status.metadata: a copy would claim every
 // leaf present, including Album's metadata.selectedReleaseID, which the
-// Album reconciler owns under k8s.ManagerCatalogarr; the gateway would then
+// Album reconciler owns under k8s.ManagerCatalog; the gateway would then
 // co-own it silently (ForceOwnership), and the reconciler's "omit it to
 // clear it" would stop clearing it. Extraction sends what the gateway last
 // declared and nothing else, so the apply neither releases status.metadata

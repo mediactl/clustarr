@@ -56,7 +56,7 @@ type ProbeInput struct {
 	Now              metav1.Time
 }
 
-// Takeover is the spec this pass's incorporation hands catalogarr.
+// Takeover is the spec this pass's incorporation hands catalog.
 type Takeover struct {
 	Path      string
 	SizeBytes int64
@@ -212,7 +212,7 @@ func incorporateProbe(o *ProbeOutcome, in ProbeInput, ps probeState, out *catalo
 	out.ProbeHash, out.ProbedAt, out.ProbeVersion, out.MediaInfo = ps.Hash, &now, version, mi
 	o.Events = append(o.Events, ProbeEvent{Type: "Normal", Reason: "Probed", Note: "probed " + mf.Spec.Path})
 	if in.Swap == nil && in.Kept == nil && in.Graft == nil && transcoded && bytesChanged(mf, ps) && in.Prev.ProbeHash != "" {
-		// The bytes of a file catalogarr already took over changed with no
+		// The bytes of a file catalog already took over changed with no
 		// transcode to explain them: the verdict the old bytes earned goes.
 		out.Transcode = staleTranscodeState(out.Transcode)
 		o.Events = append(o.Events, ProbeEvent{Type: "Warning", Reason: "TranscodedFileChanged", Note: fmt.Sprintf(

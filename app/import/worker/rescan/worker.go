@@ -87,7 +87,7 @@ const (
 	maxUnmatched = 200
 )
 
-// Worker handles clustarr.work.importarr.scan.* messages: one message is one
+// Worker handles clustarr.work.import.scan.* messages: one message is one
 // LibraryScan's walk. See this package's doc comment for how Task C12
 // registers it.
 type Worker struct {
@@ -100,7 +100,7 @@ type Worker struct {
 	// before deciding (CLAUDE.md's lost-update rule). Nil falls back to
 	// Client: a stale cached read then fails the rename's
 	// resourceVersion-checked apply, and RenameFile moves the file back.
-	// NewWorker leaves it nil and importarr's run.go sets the manager's.
+	// NewWorker leaves it nil and import's run.go sets the manager's.
 	APIReader client.Reader
 
 	// Bus carries the progress checkpoints and the metadata-resolve RPC.
@@ -148,7 +148,7 @@ type Worker struct {
 	SampleMaxBytes int64
 
 	// Probes records the probe a scan ran on a file it attributed as that
-	// MediaFile's probe record, so catalogarr does not probe the same bytes
+	// MediaFile's probe record, so catalog does not probe the same bytes
 	// again (spec 2026-10-06 §6.6). NewWorker sets it; nil seeds nothing.
 	Probes *probestore.Store
 }
@@ -638,19 +638,19 @@ func (w *Worker) transcodeJobs(ctx context.Context, ns string) (outputs map[stri
 	return outputs, live, nil
 }
 
-// transcodeOutput decides a media file squasharr wrote. Once a MediaFile
-// records the path -- catalogarr moved spec.path to a container change's new
+// transcodeOutput decides a media file transcode wrote. Once a MediaFile
+// records the path -- catalog moved spec.path to a container change's new
 // file, or the job transcoded in place -- the file is the catalog's like any
 // other, and skip is false. Until then a file a Succeeded TranscodeJob names
 // is skipped and counted (Progress.TranscodeOutputs): a container change
 // writes <stem>.<container> and retires the source, and replaceSource=false
 // keeps the source and writes "<stem> - <profile>.<container>" beside it,
-// and in the window before catalogarr's spec.path takeover -- and for good,
+// and in the window before catalog's spec.path takeover -- and for good,
 // for a kept source's derived file -- the walk would otherwise adopt the
 // output as an unrecorded file: a second MediaFile for the item, or an
 // unmatched entry, or a new Movie. A kept source's derived file stays
 // protected once its job is gone too, recognised by its name beside the
-// recorded source and squasharr's tag (keptOutput).
+// recorded source and transcode's tag (keptOutput).
 func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string, probe *fileProbe) (skip bool, err error) {
 	job, byJob := st.transcodeOutputs[filepath.Clean(path)]
 	if !byJob {
@@ -668,7 +668,7 @@ func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string
 	st.progress.FilesSeen++
 	st.progress.TranscodeOutputs++
 	st.progress.FilesSkipped++
-	logging.FromContext(ctx).Debug("left a transcode output catalogarr has not recorded yet",
+	logging.FromContext(ctx).Debug("left a transcode output catalog has not recorded yet",
 		"path", relPath(st.root.Spec.Path, path), "transcodeJob", job)
 	return true, nil
 }

@@ -849,9 +849,9 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 // TestComicIssueFieldManagersStayDisjoint is the mandatory two-writer gate
 // the task brief calls for explicitly: Comic's real ensureIssue applies the
-// provider fields under k8s.ManagerCatalogarrFanout, a simulated Issue-
+// provider fields under k8s.ManagerCatalogFanout, a simulated Issue-
 // reconciler write applies its own computed fields under
-// k8s.ManagerCatalogarr, and managedFields is decoded directly (not
+// k8s.ManagerCatalog, and managedFields is decoded directly (not
 // inferred from the object's final values alone) to prove each manager owns
 // exactly its own field set and neither write lost the other's data -- run
 // against an Issue that ALREADY carries status from both managers before
@@ -901,18 +901,18 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 		return iss.Status.Title == "Origins"
 	}, 5*time.Second, 10*time.Millisecond, "Comic's real ensureIssue never landed status.title")
 
-	// Comic's write landed under catalogarr-fanout, claiming exactly the
+	// Comic's write landed under catalog-fanout, claiming exactly the
 	// provider fields it set (sourceID, title) and nothing Issue-owned.
 	fanoutFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogFanout))
 	require.NotNil(t, fanoutFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalogFanout, fieldManagerNames(iss.ManagedFields))
 	fanoutStatusNames := statusFieldNames(fanoutFields)
-	assert.True(t, fanoutStatusNames["title"], "catalogarr-fanout should own status.title")
-	assert.True(t, fanoutStatusNames["sourceID"], "catalogarr-fanout should own status.sourceID")
-	assert.False(t, fanoutStatusNames["state"], "catalogarr-fanout must not claim status.state")
-	assert.False(t, fanoutStatusNames["hasFile"], "catalogarr-fanout must not claim status.hasFile")
+	assert.True(t, fanoutStatusNames["title"], "catalog-fanout should own status.title")
+	assert.True(t, fanoutStatusNames["sourceID"], "catalog-fanout should own status.sourceID")
+	assert.False(t, fanoutStatusNames["state"], "catalog-fanout must not claim status.state")
+	assert.False(t, fanoutStatusNames["hasFile"], "catalog-fanout must not claim status.hasFile")
 
 	// Simulate the Issue reconciler's own write: its computed fields, under
-	// the distinct k8s.ManagerCatalogarr. This Issue now carries status from
+	// the distinct k8s.ManagerCatalog. This Issue now carries status from
 	// BOTH managers, per the brief's own requirement, before any assertion
 	// below runs.
 	issAC := catalogac.Issue(iss.Name, iss.Namespace).WithStatus(
@@ -943,16 +943,16 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	require.NotNil(t, fanoutFields)
 	fanoutStatusNames = statusFieldNames(fanoutFields)
 	assert.True(t, fanoutStatusNames["title"])
-	assert.False(t, fanoutStatusNames["state"], "catalogarr-fanout must still not claim status.state after the Issue write")
-	assert.False(t, fanoutStatusNames["hasFile"], "catalogarr-fanout must still not claim status.hasFile after the Issue write")
+	assert.False(t, fanoutStatusNames["state"], "catalog-fanout must still not claim status.state after the Issue write")
+	assert.False(t, fanoutStatusNames["hasFile"], "catalog-fanout must still not claim status.hasFile after the Issue write")
 
 	issueFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalog))
 	require.NotNil(t, issueFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalog, fieldManagerNames(iss.ManagedFields))
 	issueStatusNames := statusFieldNames(issueFields)
-	assert.True(t, issueStatusNames["state"], "catalogarr should own status.state")
-	assert.True(t, issueStatusNames["hasFile"], "catalogarr should own status.hasFile")
-	assert.False(t, issueStatusNames["title"], "catalogarr must not claim status.title")
-	assert.False(t, issueStatusNames["sourceID"], "catalogarr must not claim status.sourceID")
+	assert.True(t, issueStatusNames["state"], "catalog should own status.state")
+	assert.True(t, issueStatusNames["hasFile"], "catalog should own status.hasFile")
+	assert.False(t, issueStatusNames["title"], "catalog must not claim status.title")
+	assert.False(t, issueStatusNames["sourceID"], "catalog must not claim status.sourceID")
 
 	// A second Comic reconcile (re-fanout with the same provider data) must
 	// not erase the Issue-owned fields the simulated write just set --

@@ -109,7 +109,7 @@ func newLibrary(t *testing.T, ctx context.Context, c client.Client, ns, name str
 }
 
 // newMediaFile creates a MediaFile for ref at path and gives it the sidecars
-// catalogarr's MediaFile reconciler would have found, under its manager.
+// catalog's MediaFile reconciler would have found, under its manager.
 func newMediaFile(t *testing.T, ctx context.Context, c client.Client, ns, name string, ref commonv1.MediaRef, path string, sidecars ...string) {
 	t.Helper()
 	mf := &catalogv1alpha1.MediaFile{
@@ -159,7 +159,7 @@ func TestHandleStampsTheListWhenASyncFinishes(t *testing.T) {
 			stampOwner = e.Manager
 		}
 	}
-	require.Equal(t, "importarr-worker", stampOwner, "the stamp is the worker's field, never the controller's")
+	require.Equal(t, "import-worker", stampOwner, "the stamp is the worker's field, never the controller's")
 	require.Empty(t, got.Status.Conditions, "the worker never writes ImportList.status")
 }
 

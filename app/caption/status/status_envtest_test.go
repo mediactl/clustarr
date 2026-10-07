@@ -95,7 +95,7 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
 
-	const ns = "captionarr-status-split"
+	const ns = "caption-status-split"
 	newNamespace(t, ctx, c, ns)
 
 	req := newSubtitleRequest(t, ctx, c, ns, "split")
@@ -360,7 +360,7 @@ func TestPatchRequestAgainstARealAPIServerRefusesAManagerOutsideTheSplit(t *test
 	c := newTestClient(t)
 	ctx := context.Background()
 
-	const ns = "captionarr-status-refuse"
+	const ns = "caption-status-refuse"
 	newNamespace(t, ctx, c, ns)
 	req := newSubtitleRequest(t, ctx, c, ns, "refuse")
 
@@ -371,13 +371,13 @@ func TestPatchRequestAgainstARealAPIServerRefusesAManagerOutsideTheSplit(t *test
 // SubtitleProfile and SubtitleProvider each have exactly one legitimate
 // writer, but the same complete-declaration and managedFields-visibility
 // rules apply: a second call site that forgot a field would silently narrow
-// what is on the object, and only managedFields would show ManagerCaptionarr
+// what is on the object, and only managedFields would show ManagerCaption
 // owning less than it should.
 func TestSubtitleProfileAndProviderRoundTripThroughManagerCaption(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
 
-	const ns = "captionarr-status-profile-provider"
+	const ns = "caption-status-profile-provider"
 	newNamespace(t, ctx, c, ns)
 
 	profile := &subtitlev1alpha1.SubtitleProfile{
@@ -448,7 +448,7 @@ func TestAWithdrawnItemIsDeletedByTheWorkersNextApply(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
 
-	const ns = "captionarr-status-withdraw"
+	const ns = "caption-status-withdraw"
 	newNamespace(t, ctx, c, ns)
 	req := newSubtitleRequest(t, ctx, c, ns, "withdraw")
 	key := client.ObjectKeyFromObject(req)

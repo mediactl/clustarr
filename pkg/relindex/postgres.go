@@ -40,7 +40,7 @@ import (
 // Postgres' MVCC serialises concurrent writers to the same row natively --
 // two concurrent `INSERT ... ON CONFLICT DO UPDATE` statements on the same
 // key block on Postgres' own row lock rather than on anything this package
-// adds -- and indexarr may run several replicas against one DSN (spec §A.3),
+// adds -- and index may run several replicas against one DSN (spec §A.3),
 // so a Go-side mutex would not even cover every writer.
 type pgStore struct {
 	db *sql.DB

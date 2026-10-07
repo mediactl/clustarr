@@ -311,7 +311,7 @@ type StreamAdmin interface {
 	// Subscriptions lists the durable consumers that exist on stream,
 	// sorted: every durable Ensure declared or a Pull created, and no
 	// DeleteSubscription has removed since. It is how an owner finds the
-	// durables of things that are gone (squasharr's pool sweep). A
+	// durables of things that are gone (transcode's pool sweep). A
 	// dead-letter watcher lives on StreamAdvisories, not on stream, so it
 	// is not listed here. A missing stream is ErrStreamNotFound.
 	Subscriptions(ctx context.Context, stream string) ([]string, error)

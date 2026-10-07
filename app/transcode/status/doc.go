@@ -32,7 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // every <resource>/status it finds. A marker without a regeneration is a
 // tree-wide test failure, not a note for later.
 //
-// squasharr's OTHER rules -- the TranscodeProfile and TranscodeJob
+// transcode's OTHER rules -- the TranscodeProfile and TranscodeJob
 // reconcilers' own read/write access, batch/v1 Jobs, MediaFile reads -- are
 // not here, because the controllers and worker that need them do not exist
 // yet (tasks E-1 through E-3). This package's markers cover exactly what it

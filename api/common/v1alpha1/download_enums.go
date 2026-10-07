@@ -23,7 +23,7 @@ package v1alpha1
 // priorities and the payload source. api/download/v1alpha1 aliases every one
 // until the Download CRD is removed.
 
-// DownloadPhase is the lifecycle phase of a Download, owned by the grabarr
+// DownloadPhase is the lifecycle phase of a Download, owned by the grab
 // controller.
 //
 // +kubebuilder:validation:Enum=Pending;Assigned;Queued;Downloading;Paused;Completed;Seeding;Imported;Failed;Blocklisted;Removing
@@ -45,7 +45,7 @@ const (
 	DownloadPhaseCompleted DownloadPhase = "Completed"
 	// DownloadPhaseSeeding means the content is imported or importable and the torrent is seeding.
 	DownloadPhaseSeeding DownloadPhase = "Seeding"
-	// DownloadPhaseImported means catalogarr finished importing the content.
+	// DownloadPhaseImported means catalog finished importing the content.
 	DownloadPhaseImported DownloadPhase = "Imported"
 	// DownloadPhaseFailed means the Download cannot make progress; see status.failureReason.
 	DownloadPhaseFailed DownloadPhase = "Failed"
@@ -55,7 +55,7 @@ const (
 	DownloadPhaseRemoving DownloadPhase = "Removing"
 )
 
-// DownloadStage is the fine-grained engine stage, reported by grabarr-engine.
+// DownloadStage is the fine-grained engine stage, reported by grab-engine.
 //
 // +kubebuilder:validation:Enum=fetchingMetadata;transferring;verifying;repairing;extracting;publishing;seeding;done
 type DownloadStage string
@@ -101,9 +101,9 @@ const (
 	DownloadFailureWriteError DownloadFailureReason = "writeError"
 	// DownloadFailureTimeout means the Download exceeded its overall deadline.
 	DownloadFailureTimeout DownloadFailureReason = "timeout"
-	// DownloadFailureImportRejected means catalogarr refused every file.
+	// DownloadFailureImportRejected means catalog refused every file.
 	DownloadFailureImportRejected DownloadFailureReason = "importRejected"
-	// DownloadFailureImportExpired means importarr held the import for a
+	// DownloadFailureImportExpired means import held the import for a
 	// person -- the item would not take the files, they could not be
 	// attributed, or the import kept failing transiently -- and nobody
 	// imported them within ImportHoldRetention. The files are removed; the
@@ -124,7 +124,7 @@ const (
 )
 
 // IsReleaseFault reports whether a failure for reason r is the RELEASE's
-// fault, which is what decides whether grabarr blocklists it (design spec
+// fault, which is what decides whether grab blocklists it (design spec
 // §8.3, "Failed -> Blocklisted").
 //
 // The ruling (gap fix Y2): missingArticles, encrypted, stalled, timeout,
@@ -202,8 +202,8 @@ const (
 	GrabSourceRedownload GrabSource = "redownload"
 )
 
-// IndexerDownload points at a release on an indexer. grabarr resolves it
-// through indexarr at grab time to obtain the actual .torrent or .nzb bytes;
+// IndexerDownload points at a release on an indexer. grab resolves it
+// through index at grab time to obtain the actual .torrent or .nzb bytes;
 // those bytes are deliberately never stored on the Download object, which
 // keeps the object small and keeps indexer credentials out of the API.
 type IndexerDownload struct {
@@ -226,8 +226,8 @@ type IndexerDownload struct {
 	// omitting it would make a re-apply onto such a Download fail as "source
 	// is immutable". The optional marker keeps the schema's field optional.
 
-	// URL is the indexer's download link for the release. grabarr fetches it
-	// through indexarr, which applies the indexer's auth and proxy settings.
+	// URL is the indexer's download link for the release. grab fetches it
+	// through index, which applies the indexer's auth and proxy settings.
 	// +optional
 	// +kubebuilder:validation:MaxLength=2048
 	URL string `json:"url"`
@@ -236,8 +236,8 @@ type IndexerDownload struct {
 // DownloadSource says where the transfer payload comes from. Exactly one of
 // the four members is set. There is intentionally no inline bytes field: a
 // .torrent or .nzb body is never embedded in the object. Either the payload is
-// addressable by URL, or indexerDownload names the release and grabarr
-// resolves it through indexarr.
+// addressable by URL, or indexerDownload names the release and grab
+// resolves it through index.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.magnetURL) ? 1 : 0) + (has(self.torrentURL) ? 1 : 0) + (has(self.nzbURL) ? 1 : 0) + (has(self.indexerDownload) ? 1 : 0) == 1",message="exactly one of magnetURL, torrentURL, nzbURL or indexerDownload must be set"
 type DownloadSource struct {
@@ -258,7 +258,7 @@ type DownloadSource struct {
 	// +kubebuilder:validation:MaxLength=2048
 	NZBURL *string `json:"nzbURL,omitempty"`
 
-	// IndexerDownload names a release to resolve through indexarr. This is the
+	// IndexerDownload names a release to resolve through index. This is the
 	// normal path: the indexer applies auth, rate limits and proxying, and
 	// returns the payload to the engine.
 	// +optional
@@ -290,13 +290,13 @@ const DownloadPurposeAudioDonor DownloadPurpose = "audioDonor"
 // +kubebuilder:validation:Enum=transient;itemState;needsPerson;releaseFault
 type ImportRejectionClass string
 
-// Import rejection classes, in the order importarr lets one outweigh the
+// Import rejection classes, in the order import lets one outweigh the
 // next when the files of one download were refused for several reasons:
 // any doubt holds the download rather than condemning the release.
 const (
 	// ImportClassTransient means the walk could not judge the files: one
 	// could not be read or probed, or placing it failed (a full disk, a
-	// permission, the NAS). importarr retries on the import consumer's
+	// permission, the NAS). import retries on the import consumer's
 	// backoff and holds the download after the last attempt.
 	ImportClassTransient ImportRejectionClass = "transient"
 	// ImportClassItemState means the item does not take the files now: its
@@ -309,7 +309,7 @@ const (
 	ImportClassNeedsPerson ImportRejectionClass = "needsPerson"
 	// ImportClassReleaseFault means the release is not what it claimed:
 	// only samples or junk, another item, a quality the profile does not
-	// allow. importarr walks it once more to confirm, then blocks it, and
-	// grabarr blocklists the release and searches again.
+	// allow. import walks it once more to confirm, then blocks it, and
+	// grab blocklists the release and searches again.
 	ImportClassReleaseFault ImportRejectionClass = "releaseFault"
 )

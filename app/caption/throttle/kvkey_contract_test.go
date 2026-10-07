@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // concurrency guarantee (Acquire's token bucket), so it needs its own
 // contract test against a REAL embedded NATS server -- mirroring, not
 // importing, that file's helper, since pkg/events/natsbus cannot depend on
-// captionarr without an import cycle back through pkg/events.
+// caption without an import cycle back through pkg/events.
 package throttle_test
 
 import (

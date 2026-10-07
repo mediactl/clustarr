@@ -49,7 +49,7 @@ func searchServer(t *testing.T, fixture string) (*opensubtitlescom.Provider, *[]
 	return opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL}), &queries
 }
 
-// breakingBadS01E01 is what captionarr's fetch worker builds for an
+// breakingBadS01E01 is what caption's fetch worker builds for an
 // episode: the show's ids under parent_imdb/parent_tmdb (the IMDb one with
 // its leading zero, as TMDB reports it), and no ids of the episode's own.
 func breakingBadS01E01() subtitles.Query {

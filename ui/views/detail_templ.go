@@ -1420,7 +1420,7 @@ func sectionTitle(title string) templ.Component {
 	})
 }
 
-// filesSection is Radarr's Files table: the movie's file as importarr
+// filesSection is Radarr's Files table: the movie's file as import
 // froze it (path relative to the movie's folder, quality, languages,
 // release group, matched formats and score) and as it was probed (video
 // codec, first audio track).

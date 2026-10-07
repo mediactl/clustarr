@@ -59,10 +59,10 @@ const (
 
 // Reconciler schedules ImportList syncs and drives the Trakt device-code
 // authorization flow. It is the sole writer of ImportList.status, under
-// k8s.ManagerImportarr -- see that constant's own doc comment, which
+// k8s.ManagerImport -- see that constant's own doc comment, which
 // already names this task's resource -- and it never fetches a list
 // itself: that is app/import/worker/importlist's job, on the
-// clustarr.work.importarr.list.* queue this controller publishes to.
+// clustarr.work.import.list.* queue this controller publishes to.
 type Reconciler struct {
 	// Client reads the ImportList and applies its status.
 	Client client.Client
@@ -75,7 +75,7 @@ type Reconciler struct {
 	HTTPClient *http.Client
 
 	// TraktBaseURL overrides trakt.DefaultBaseURL for the device-code flow:
-	// importarr's --trakt-base-url (app/import/run.go), which gives the list
+	// import's --trakt-base-url (app/import/run.go), which gives the list
 	// worker the same host, and tests that point it at an httptest server.
 	TraktBaseURL string
 
@@ -127,7 +127,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	// Adopt whatever the worker has checkpointed since the last reconcile,
 	// before deciding whether a new sync is due. The worker never writes
-	// ImportList.status itself (see k8s.ManagerImportarr's doc comment);
+	// ImportList.status itself (see k8s.ManagerImport's doc comment);
 	// this is the read half of that split, the same one
 	// app/import/controller/libraryscan runs against
 	// app/import/scanprogress's Progress checkpoint. The worker's
@@ -295,7 +295,7 @@ func (r *Reconciler) pollResult(ctx context.Context, il *catalogv1alpha1.ImportL
 	return res, true, nil
 }
 
-// publishSyncTask enqueues one clustarr.work.importarr.list.<name> message.
+// publishSyncTask enqueues one clustarr.work.import.list.<name> message.
 func (r *Reconciler) publishSyncTask(ctx context.Context, il *catalogv1alpha1.ImportList, now time.Time) error {
 	task := schema.ListTask{ListRef: schema.Ref{Namespace: il.Namespace, Name: il.Name, UID: string(il.UID)}}
 	schemaName, data, err := schema.Encode(task)
@@ -310,9 +310,9 @@ func (r *Reconciler) publishSyncTask(ctx context.Context, il *catalogv1alpha1.Im
 		// ticks of an unedited spec) would make JetStream silently drop
 		// every second and third scheduled sync within the same hour.
 		ID:     events.MsgIDForObject(string(il.UID), 0, "list-"+now.Truncate(time.Minute).Format(time.RFC3339)),
-		Type:   "importarr.ListTask",
+		Type:   "import.ListTask",
 		Schema: schemaName,
-		Source: "importarr@" + version.String(),
+		Source: "import@" + version.String(),
 		Key:    il.Namespace + "/" + il.Name,
 		Time:   now,
 		Data:   data,
@@ -368,7 +368,7 @@ func (r *Reconciler) applyStatus(
 }
 
 // applyStatusFull is the one status write in this package, under
-// k8s.ManagerImportarr. Every field this manager owns is sent every time --
+// k8s.ManagerImport. Every field this manager owns is sent every time --
 // including the counters, which come from checkpoint when the worker has
 // reported one and from the object's own current status otherwise -- so
 // that a reconcile which does not touch a field never releases it.

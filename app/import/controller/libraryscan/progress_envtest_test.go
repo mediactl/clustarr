@@ -174,7 +174,7 @@ func TestReconcileFoldsDeadLettered(t *testing.T) {
 		}
 		require.NoError(t, c.Patch(ctx, &cur, patch))
 	}
-	value := "clustarr.work.importarr.scan.movies@2026-09-23T10:00:00Z"
+	value := "clustarr.work.import.scan.movies@2026-09-23T10:00:00Z"
 	annotate(&value)
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
@@ -199,7 +199,7 @@ func TestReconcileFoldsDeadLettered(t *testing.T) {
 // reports the same file again, which replaces it where it stands. An apply
 // re-asserted from the object -- the dead-letter fold once the checkpoint
 // is gone, through baseStatus -- keeps both rather than releasing them:
-// importarr is their only owner, so a release would clear them.
+// import is their only owner, so a release would clear them.
 func TestReconcileCarriesTheRenamePass(t *testing.T) {
 	ctx := context.Background()
 	c := requireEnvtest(t)
@@ -240,7 +240,7 @@ func TestReconcileCarriesTheRenamePass(t *testing.T) {
 	var cur catalogv1alpha1.LibraryScan
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(scan), &cur))
 	patch := client.MergeFrom(cur.DeepCopy())
-	cur.Annotations = map[string]string{k8s.AnnotationDeadLettered: "clustarr.work.importarr.scan.movies@2026-09-25T10:00:00Z"}
+	cur.Annotations = map[string]string{k8s.AnnotationDeadLettered: "clustarr.work.import.scan.movies@2026-09-25T10:00:00Z"}
 	require.NoError(t, c.Patch(ctx, &cur, patch))
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 

@@ -28,7 +28,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	/api/down       always HTTP 500, including t=caps.
 //
 // /api is the DEFAULT Indexer.spec.generic.apiPath, so the happy path
-// exercises the default; the other two are reachable only if indexarr
+// exercises the default; the other two are reachable only if index
 // actually joins apiPath onto baseURL, which is what makes the e2e suite's
 // assertion on the logged path meaningful.
 //
@@ -111,7 +111,7 @@ func NewHandler(logPath string, logger *slog.Logger) http.Handler {
 
 // api is the caps-answering personality. searchOK false makes every
 // function other than t=caps fail with HTTP 500, which is what drives
-// indexarr's RecordFailure path from a real HTTP failure rather than a
+// index's RecordFailure path from a real HTTP failure rather than a
 // simulated one.
 func api(lg *reqLog, logger *slog.Logger, searchOK bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -24,7 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Concrete providers live in subpackages (trakt, plex, mdblist, stevenlu,
 // imdbcsv, tmdb, custom, arr), each implementing ImportList against one
 // remote source. This package has no Kubernetes dependency: it is wired to
-// the ImportList CRD by the importarr ImportList controller (Phase G),
+// the ImportList CRD by the import ImportList controller (Phase G),
 // which reads SecretRef/ConfigMapRef, converts CRD types to the Config
 // structs here, and turns a fetched []Item into catalog objects.
 package importlist

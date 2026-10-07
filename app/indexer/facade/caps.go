@@ -26,7 +26,7 @@ import (
 // capsFromIndexer renders idx.status.caps as a torznab.Caps. A never-probed
 // Indexer (status.caps nil) answers with an empty-but-valid caps document
 // rather than an error: "not probed yet" is not the same as "does not
-// exist", and the indexer controller's own 12-hour reprobe (indexarr's
+// exist", and the indexer controller's own 12-hour reprobe (index's
 // caps refresh) is what fills this in, not a request against the facade.
 func capsFromIndexer(idx *indexv1alpha1.Indexer) torznab.Caps {
 	c := torznab.Caps{ServerTitle: idx.Name}

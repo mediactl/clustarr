@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // per-kind entity model, provider interfaces, a registry that composes them
 // with priority fallback, an in-process cache and rate-limit defaults. It
 // imports no Kubernetes types beyond api/common/v1alpha1's MediaKind and no
-// other Phase B package -- catalogarr and the metadata gateway (ADR-0007)
+// other Phase B package -- catalog and the metadata gateway (ADR-0007)
 // depend on it, never the reverse.
 package metadata
 

@@ -24,16 +24,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // monitorNewItems, spec.monitored), and the Series reconciler also writes
 // this Episode's provider-sourced status fields
 // (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes) -- but
-// under the distinct k8s.ManagerCatalogarrSeries field manager, never
-// k8s.ManagerCatalogarr, which this reconciler alone uses for
+// under the distinct k8s.ManagerCatalogSeries field manager, never
+// k8s.ManagerCatalog, which this reconciler alone uses for
 // Phase/Conditions/HasFile/FileRef/FileQuality/FileFormatScore/CutoffMet/
-// ActiveDownloadRef. §5's app/grab/grabarr-engine split on Download is the
+// ActiveDownloadRef. §5's app/grab/grab-engine split on Download is the
 // same pattern: two field manager NAMES on disjoint fields, not one name
 // shared by convention. Server-side apply replaces a manager's whole
 // ownership set on every apply, so two writers sharing one manager name
 // would silently release each other's fields the next time either side
 // reconciles -- found empirically during this task's development; see
-// k8s.ManagerCatalogarrSeries's own doc comment. This reconciler never
+// k8s.ManagerCatalogSeries's own doc comment. This reconciler never
 // builds an EpisodeStatusApplyConfiguration that calls
 // WithTitle/WithOverview/WithAirDate/WithTvdbID/WithAbsoluteNumber/
 // WithRuntimeMinutes -- those are the Series reconciler's alone, and being
@@ -44,7 +44,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // derived from the Downloads covering the Episode: its own single-episode
 // grabs and the season packs its Series owns (report.go). The reconciler
 // also folds the DLQ projector's annotation into a DeadLettered condition,
-// emits Events on phase and ProfileUnresolved edges, and, when catalogarr
+// emits Events on phase and ProfileUnresolved edges, and, when catalog
 // hands it a Bus, publishes the media-file domain events.
 //
 // Unlike MediaFile's spec-versus-status split, both reconcilers here write

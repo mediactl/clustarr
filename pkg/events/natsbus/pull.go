@@ -46,7 +46,7 @@ type puller struct {
 // Pull implements events.PullSubscriber. It is the one natsbus path that
 // writes consumer config: a transcode pool's durable is dynamic, created per
 // profile and class here rather than by the topology, and deleted with its
-// watcher by squasharr's withdrawal path (StreamAdmin.DeleteSubscription), so
+// watcher by transcode's withdrawal path (StreamAdmin.DeleteSubscription), so
 // Pull creates both, the durable with the topology's cap
 // (s.MaxAckPending, events.SubscriptionSpec), not its one slot.
 func (b *Bus) Pull(ctx context.Context, s events.Subscription) (events.Puller, error) {

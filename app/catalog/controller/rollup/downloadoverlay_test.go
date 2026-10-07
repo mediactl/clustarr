@@ -46,7 +46,7 @@ func TestDownloadOverlay(t *testing.T) {
 		wantActive bool
 	}{
 		{"nil download, nothing to say", nil, rollup.OverlayNone, false},
-		{"no phase yet: the grab made it, grabarr has not seen it", dl(""), rollup.OverlayDownloading, true},
+		{"no phase yet: the grab made it, grab has not seen it", dl(""), rollup.OverlayDownloading, true},
 		{"pending is grabbed and queued, not delayed", dl(downloadv1alpha1.DownloadPhasePending), rollup.OverlayDownloading, true},
 		{"assigned", dl(downloadv1alpha1.DownloadPhaseAssigned), rollup.OverlayDownloading, true},
 		{"queued", dl(downloadv1alpha1.DownloadPhaseQueued), rollup.OverlayDownloading, true},

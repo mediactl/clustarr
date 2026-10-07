@@ -52,7 +52,7 @@ const (
 // cutoff-unmet search rotation. The CutoffMet condition's ProfileUnresolved
 // reason carries the detail.
 //
-// Transcoded is Imported's twin for a file squasharr transcoded -- one that
+// Transcoded is Imported's twin for a file the transcode controller transcoded -- one that
 // carries the CLUSTARR_PROFILE tag, or that a transcode swap replaced
 // (app/catalog/controller/rollup.Transcoded). A transcoded file is the final
 // destination: it reads Transcoded where it would otherwise read Imported,
@@ -117,7 +117,7 @@ const (
 	MovieAddMethodManual     MovieAddMethod = "manual"
 	MovieAddMethodList       MovieAddMethod = "list"
 	MovieAddMethodCollection MovieAddMethod = "collection"
-	// MovieAddMethodScan marks a movie importarr discovered by scanning a root
+	// MovieAddMethodScan marks a movie import discovered by scanning a root
 	// folder. It is deliberately distinct from manual: nobody added it by hand.
 	MovieAddMethodScan MovieAddMethod = "scan"
 )
@@ -512,7 +512,7 @@ type MovieStatus struct {
 
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
-	// under catalogarr.
+	// under catalog.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=8
@@ -534,7 +534,7 @@ type MovieStatus struct {
 	LegacyDownloads *LegacyDownloads `json:"legacyDownloads,omitempty"`
 
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
-	// under catalogarr-grab.
+	// under catalog-grab.
 	// +optional
 	SearchDispatch *Dispatch `json:"searchDispatch,omitempty"`
 
@@ -565,7 +565,7 @@ type MovieStatus struct {
 	Artwork []ArtworkEntry `json:"artwork,omitempty"`
 
 	// Overlay is the rating-badge overlay rendered onto the poster. Written
-	// by the renderer under k8s.ManagerCatalogarrArtwork.
+	// by the renderer under k8s.ManagerCatalogArtwork.
 	// +optional
 	Overlay *OverlayEntry `json:"overlay,omitempty"`
 

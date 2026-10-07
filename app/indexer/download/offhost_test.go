@@ -78,7 +78,7 @@ func (h *hostRecorder) seen() (int, string) {
 // The initial download URL is held to the rule a redirect hop is: a URL on
 // another host than the indexer's is handed back unfetched, as OffHostURL,
 // and nothing is sent. Before, only the redirect policy judged the host, so
-// a caller-supplied `url=http://169.254.169.254/...` was fetched by indexarr
+// a caller-supplied `url=http://169.254.169.254/...` was fetched by index
 // and its body returned to the caller.
 func TestFetchHandsBackAnOffHostDownloadURLUnsent(t *testing.T) {
 	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -105,11 +105,11 @@ func TestFetchHandsBackAnOffHostDownloadURLUnsent(t *testing.T) {
 	_ = res.Body.Close()
 }
 
-// The rpc.indexarr.download verb -- and so the Torznab facade's
+// The rpc.index.download verb -- and so the Torznab facade's
 // /{indexer}/download, which is the same Service.Handle with the caller's
 // `url` -- never fetches an off-host URL with the indexer's credentials. It
 // answers with the URL itself as RedirectURL (the caller could always fetch
-// it; indexarr adds nothing to it), and counts no grab, since the indexer
+// it; index adds nothing to it), and counts no grab, since the indexer
 // was never asked.
 func TestHandleNeverFetchesAnOffHostURL(t *testing.T) {
 	ctx := context.Background()
@@ -152,7 +152,7 @@ func TestHandleNeverFetchesAnOffHostURL(t *testing.T) {
 	// No grab was counted: counting the same guid now is its FIRST count.
 	r, err := limits.ReserveGrab(ctx, bus.KV(events.BucketIndexerLimits), idx, "guid-x", time.Now())
 	require.NoError(t, err)
-	require.True(t, r.Counted, "a URL indexarr never fetched is not a grab against the indexer")
+	require.True(t, r.Counted, "a URL index never fetched is not a grab against the indexer")
 }
 
 // cardigannDownloader binds a real cardigann.Engine to one definition, as

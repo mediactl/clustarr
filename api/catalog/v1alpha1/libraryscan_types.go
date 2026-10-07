@@ -102,7 +102,7 @@ type UnmatchedFile struct {
 	SeenAt metav1.Time `json:"seenAt"`
 }
 
-// LibraryScanSpec asks importarr to walk a root folder and reconcile what it finds.
+// LibraryScanSpec asks import to walk a root folder and reconcile what it finds.
 type LibraryScanSpec struct {
 	// RootFolderRef names the RootFolder to scan.
 	//
@@ -212,7 +212,7 @@ type LibraryScanStatus struct {
 // +kubebuilder:printcolumn:name="Items Created",type=integer,JSONPath=`.status.itemsCreated`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// LibraryScan is a short-lived resource that asks importarr to walk a
+// LibraryScan is a short-lived resource that asks import to walk a
 // RootFolder and reconcile what it finds. Like Search, it is a request that
 // is observable with kubectl and whose progress survives a restart; it is
 // deleted once spec.ttlSecondsAfterFinished has elapsed after it settled.

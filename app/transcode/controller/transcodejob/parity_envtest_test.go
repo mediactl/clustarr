@@ -45,7 +45,7 @@ import (
 // TestStatusPlanIsTheArgvTheWorkerRenders closes the gap-fix item "the HDR
 // arguments [the controller] renders into status.plan may differ from the
 // worker's": for a real HDR10 source with mastering metadata, the
-// controller plans from the probe summary catalogarr stores, the worker's
+// controller plans from the probe summary catalog stores, the worker's
 // own path (the task jobspec.BuildTask renders, FromProbe of a live probe,
 // ProbeCapabilities, ThreadsFromEnv from the pool template's value) plans
 // from the file, and the two argv are the same -- status.plan.argsHash IS the hash of what the worker
@@ -109,7 +109,7 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 					}}
 				}
 			})
-			mf := newMediaFile(t, c, ns, mfName, "probe-"+name, mi) // catalogarr's stored summary
+			mf := newMediaFile(t, c, ns, mfName, "probe-"+name, mi) // catalog's stored summary
 			newTJ(t, c, ns, mfName, mf.Name, profile, "probe-"+name, func(tj *transcodev1alpha1.TranscodeJob) {
 				tj.Spec.SourcePath = src
 			})
@@ -120,7 +120,7 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			require.Equal(t, "libx265", tj.Status.Plan.Encoder)
 			class := transcodev1alpha1.HardwareCPU // the class a libx265 plan dispatches to
 
-			// The worker's own inputs, as squasharr dispatches them: the task
+			// The worker's own inputs, as transcode dispatches them: the task
 			// jobspec.BuildTask renders, and CLUSTARR_CPU_LIMIT as the class's
 			// pool template delivers it.
 			folders := []catalogv1alpha1.RootFolder{{Spec: catalogv1alpha1.RootFolderSpec{Path: dir}}}

@@ -71,7 +71,7 @@ func (s *sqliteStore) onDiskBytes() int64 {
 //
 // It is a pure function of its argument: it reads no clock, holds no timer and
 // starts no goroutine. Spec §6.2's "sweep every 10 min (72h)" is a SCHEDULE,
-// and the schedule belongs to indexarr's run loop, not to the store. A store
+// and the schedule belongs to index's run loop, not to the store. A store
 // that spawned its own sweeper would give every test and every e2e a
 // background writer it did not ask for, and would keep writing after the
 // caller had stopped using it.

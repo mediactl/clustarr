@@ -139,7 +139,7 @@ func hasMarkerLine(raw []byte) bool {
 }
 
 // TestEveryPackageWithRBACMarkersIsInARole closes the hole that hid the
-// importarr defect: importarr's controllers carried correct markers, and the
+// import defect: import's controllers carried correct markers, and the
 // Makefile simply did not point controller-gen at them, so not one of their
 // rules reached the generated Role.
 //
@@ -149,7 +149,7 @@ func hasMarkerLine(raw []byte) bool {
 // marker must be covered by some role's RBAC_PATHS. A new package is then
 // covered the moment it grows its first marker, and since the X14 split the
 // same check catches a package left out of every per-service role -- say a
-// new grabarr package that is neither the controller's nor the engines'.
+// new grab package that is neither the controller's nor the engines'.
 func TestEveryPackageWithRBACMarkersIsInARole(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestEveryPackageWithRBACMarkersIsInARole(t *testing.T) {
 		}
 		t.Errorf("%s/ carries +kubebuilder:rbac markers, but no RBAC_PATHS_<role> in the Makefile covers it, "+
 			"so controller-gen never sees them and every rule in it is silently absent from every "+
-			"generated role -- exactly the defect importarr shipped with. Add it to the role of the "+
+			"generated role -- exactly the defect import shipped with. Add it to the role of the "+
 			"identity whose process runs it.", rel)
 		return nil
 	})
@@ -268,7 +268,7 @@ func readRole(t *testing.T, root, file string) rbacv1.ClusterRole {
 // declaration's doc comment, controller-gen collects nothing, exits 0 and
 // writes a role that quietly omits every rule in the file.
 //
-// That is not hypothetical. catalogarr's rootfolder, qualityprofile,
+// That is not hypothetical. catalog's rootfolder, qualityprofile,
 // delayprofile and metadataprovider controllers all wrote their markers
 // directly above SetupWithManager, so none of their permissions -- including
 // every /status write they make -- had ever reached config/rbac/role.yaml.

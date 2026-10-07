@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package overlayprofile reconciles OverlayProfile (spec §C.4): which
 // Movies and Series each profile draws rating badges onto, and when the
-// renderer (catalogarr --role artwork, app/catalog/worker/artwork) has to
+// renderer (catalog --role artwork, app/catalog/worker/artwork) has to
 // be told.
 //
 // # Selection
@@ -55,7 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // back inside the duplicate window is not absorbed.
 //
 // It writes OverlayProfile.status, in one complete apply under
-// k8s.ManagerCatalogarr per reconcile, and nothing else.
+// k8s.ManagerCatalog per reconcile, and nothing else.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=overlayprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=overlayprofiles/status,verbs=get;update;patch

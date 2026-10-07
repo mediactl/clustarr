@@ -133,7 +133,7 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 	// maps to "" is text with none at all -- "!!!", "^", "\x00", "—".
 	// relindex.Search reads an empty Query.Text as "no text filter" and
 	// returns the whole corpus, so without this a punctuation-only query
-	// would answer with every release indexarr has ever seen.
+	// would answer with every release index has ever seen.
 	//
 	// An EMPTY req.Text is the opposite and must keep meaning "no text
 	// filter": that is a filters-only browse, and it asked for no text

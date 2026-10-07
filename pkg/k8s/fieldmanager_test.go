@@ -21,13 +21,13 @@ import "testing"
 
 func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	want := []string{
-		"catalogarr", "catalogarr-series", "catalogarr-worker",
-		"catalogarr-metadata", "catalogarr-grab", "catalogarr-fanout",
-		"catalogarr-artwork", "catalogarr-markers", "catalogarr-classify",
-		"importarr", "importarr-worker",
-		"indexarr",
-		"indexarr-worker", "grabarr", "grabarr-engine",
-		"squasharr", "squasharr-pool", "captionarr", "captionarr-worker",
+		"catalog", "catalog-series", "catalog-worker",
+		"catalog-metadata", "catalog-grab", "catalog-fanout",
+		"catalog-artwork", "catalog-markers", "catalog-classify",
+		"import", "import-worker",
+		"index",
+		"index-worker", "grab", "grab-engine",
+		"transcode", "transcode-pool", "caption", "caption-worker",
 		"clustarr-dlq-projector", "clustarr-ui",
 	}
 	got := FieldManagers()

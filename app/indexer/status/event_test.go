@@ -86,7 +86,7 @@ func TestLimitCrossed(t *testing.T) {
 	require.False(t, LimitCrossed(ptr.To[int32](0), -1, 0), "0 is no limit, as Prowlarr reads it")
 }
 
-// subscribeIndexerEvents starts the real catalogarr-history consumer from the
+// subscribeIndexerEvents starts the real catalog-history consumer from the
 // shipped topology -- the sink these events exist for -- and returns what it
 // has received.
 func subscribeIndexerEvents(t *testing.T, bus events.Bus) func() []schema.IndexerEvent {

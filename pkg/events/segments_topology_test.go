@@ -26,7 +26,7 @@ import (
 )
 
 // Segment detection (spec 2026-10-01): plans, analysis tasks and results
-// ride the catalogarr work stream; raw results and fingerprints are kept on
+// ride the catalog work stream; raw results and fingerprints are kept on
 // file storage, since only re-analysis rebuilds them.
 func TestSegmentsTopology(t *testing.T) {
 	top := Default()
@@ -81,8 +81,8 @@ func TestSegmentsTopology(t *testing.T) {
 }
 
 // Segment work and TheIntroDB's rescheduled tasks run to thousands of
-// messages: on single-node NATS they once filled catalogarr's 7 MiB memory
-// work stream, whose discard-oldest then dropped catalogarr's own searches
+// messages: on single-node NATS they once filled catalog's 7 MiB memory
+// work stream, whose discard-oldest then dropped catalog's own searches
 // and grabs (2026-10-01). Their stream stays on file, at full size, outside
 // the memory budget.
 func TestMarkersStreamStaysOnFileOnASingleNode(t *testing.T) {

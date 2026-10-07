@@ -55,7 +55,7 @@ func (s *countingStore) prunedCount() int {
 
 // TestIndexSweeperIsLeaderElected is ruling R1: "the sweep is leader-only
 // under both engines." A Postgres-backed release index (Options.IndexDSN)
-// may run several indexarr replicas, and racing Prune calls across them is
+// may run several index replicas, and racing Prune calls across them is
 // wasted work worth doing exactly once, so the runnable must declare
 // manager.LeaderElectionRunnable and answer true -- not be a k8s.EveryReplica
 // or a bare func, either of which controller-runtime would start on every
@@ -106,7 +106,7 @@ func TestIndexSweeperPrunesOnceOnStartBeforeTicking(t *testing.T) {
 // not disabled) requires one, and because k8s.Options.Validate rejects
 // --leader-elect with neither --namespace nor --leader-election-namespace
 // set -- a namespace the leader-election cases below need regardless of
-// indexarr's own DSN-gated check.
+// index's own DSN-gated check.
 func validOptions() Options {
 	o := DefaultOptions()
 	o.Namespace = "media"
@@ -115,7 +115,7 @@ func validOptions() Options {
 
 // TestLeaderElectionIsGatedOnIndexDSN is the coordinator's required
 // pre-review fix for A2: spec §A.3 says a Postgres-backed release index
-// (--index-dsn) may run several indexarr replicas, and ruling R1 only binds
+// (--index-dsn) may run several index replicas, and ruling R1 only binds
 // at runtime if the MANAGER actually elects -- indexSweeper declaring
 // NeedLeaderElection is inert against a manager that never enables
 // election, and so is every Indexer/IndexerDefinition/IndexerProxy

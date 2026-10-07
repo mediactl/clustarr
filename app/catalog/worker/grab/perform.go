@@ -337,7 +337,7 @@ func createDownload(
 // that it got there first.
 //
 // resume is true when the one Download that exists is this grab's own -- the
-// deterministic name, applied by k8s.ManagerCatalogarrGrab, still active --
+// deterministic name, applied by k8s.ManagerCatalogGrab, still active --
 // left by an earlier delivery that failed after creating it. The caller then
 // skips the apply and finishes the grab.
 //
@@ -406,8 +406,8 @@ func guardExistingDownloads(
 }
 
 // appliedByGrabPath reports whether this package created dl: the main
-// resource carries a field-manager entry for k8s.ManagerCatalogarrGrab. The
-// Search controller applies its Downloads as k8s.ManagerCatalogarr, so a
+// resource carries a field-manager entry for k8s.ManagerCatalogGrab. The
+// Search controller applies its Downloads as k8s.ManagerCatalog, so a
 // Download of the same release made by a user's spec.grab is never mistaken
 // for this path's own.
 func appliedByGrabPath(dl *downloadv1alpha1.Download) bool {
@@ -458,7 +458,7 @@ func (d Deps) leaseHolder(ns string) holderFunc {
 // rather than ack, because acking is precisely what strands the item. The
 // retry re-runs performGrab, hits the same guard and tries the clear again.
 // Every write goes through updateWorkerStatus, so it carries the whole
-// k8s.ManagerCatalogarrGrab-owned set, read fresh, and cannot release or roll
+// k8s.ManagerCatalogGrab-owned set, read fresh, and cannot release or roll
 // back anything either.
 func clearPendingGrab(ctx context.Context, d Deps, ns string, statusTargets []commonv1.MediaRef, dup error) error {
 	for _, st := range statusTargets {
@@ -491,7 +491,7 @@ func getIndexer(ctx context.Context, c client.Client, ns, name string) (*indexv1
 	return &idx, nil
 }
 
-// publishGrabbed emits evt.catalog.release.grabbed. indexarr consumes it to
+// publishGrabbed emits evt.catalog.release.grabbed. index consumes it to
 // record the grab against clustarr-indexer-limits (§8.3), so a failure here is
 // returned: the caller retries, and the deterministic Download name plus the
 // held lease make the retry a no-op up to this point.
@@ -527,7 +527,7 @@ func publishGrabbed(
 		ID:     downloadName + ":grabbed",
 		Type:   "catalog.ReleaseEvent",
 		Schema: schemaName,
-		Source: "catalogarr-worker@" + version.String(),
+		Source: "catalog-worker@" + version.String(),
 		Key:    ns + "/" + target.Name,
 		Time:   now,
 		Data:   data,

@@ -79,7 +79,7 @@ const (
 	// escalation ladder exists to react to.
 	sideEffectTimeout = 10 * time.Second
 
-	// maxOutcomeError bounds one failure message. catalogarr truncates at
+	// maxOutcomeError bounds one failure message. catalog truncates at
 	// the same 512 bytes; doing it here too keeps the reply small when fifty
 	// indexers fail with verbose XML errors.
 	maxOutcomeError = 512
@@ -98,7 +98,7 @@ const (
 // fanoutBudget is how long the whole fan-out may take.
 //
 // The shipped caller sends 45000 and, since gap fix X4b, also bounds its own
-// wait with context.WithTimeout(DeadlineMillis); indexarr still owns this
+// wait with context.WithTimeout(DeadlineMillis); index still owns this
 // budget and must keep it, because a request that sets no DeadlineMillis
 // still gets one.
 func fanoutBudget(req schema.SearchRequest) time.Duration {
@@ -142,7 +142,7 @@ func queryLimit(req schema.SearchRequest, idx *indexv1alpha1.Indexer) int {
 //
 // The caller DROPS a nameless outcome silently -- status.indexerOutcomes is
 // listType=map keyed by name, so a keyless entry would make the apiserver
-// reject the whole status apply, and catalogarr filters them out rather than
+// reject the whole status apply, and catalog filters them out rather than
 // risk that. An indexer that fails while its client is being built would
 // otherwise vanish from the operator's view entirely.
 //
@@ -301,7 +301,7 @@ func (s *Service) queryOne(
 	budget time.Duration,
 ) (schema.SearchOutcome, []schema.Release) {
 	out := newOutcome(idx)
-	ctx, span := tracing.Start(ctx, "indexarr.search.indexer",
+	ctx, span := tracing.Start(ctx, "index.search.indexer",
 		trace.WithAttributes(
 			attribute.String("indexer.name", idx.Name),
 			attribute.String("indexer.namespace", idx.Namespace),
@@ -470,7 +470,7 @@ func (s *Service) project(idx *indexv1alpha1.Indexer, raw []torznab.Release) []s
 
 // index upserts everything the indexer returned into the local release
 // index, so the SQLite store reflects what was seen and
-// rpc.indexarr.query can replay it.
+// rpc.index.query can replay it.
 //
 // A store failure is logged and swallowed: the indexer answered correctly,
 // and turning a full disk into a failed search would nak the caller's task
@@ -616,7 +616,7 @@ func (s *Service) reader() client.Reader {
 }
 
 // recordOutcome runs the escalation ladder and applies the result under
-// k8s.ManagerIndexarrWorker, as a compare-and-swap.
+// k8s.ManagerIndexWorker, as a compare-and-swap.
 //
 // A fan-out is an HTTP round trip per indexer -- seconds, not milliseconds --
 // and every replica runs one, beside the RSS poll under the same manager. An
@@ -648,7 +648,7 @@ func (s *Service) recordOutcome(
 	now := s.now()
 	var esc idxstatus.Escalation
 
-	// ONE apply, through app/indexer/status, so the indexarr-worker owned set
+	// ONE apply, through app/indexer/status, so the index-worker owned set
 	// is declared in exactly one place (ruling R14). PatchCAS seeds every
 	// field this manager owns from the fresh read; the mutate changes only
 	// what this query moved, computed from that same read. ApplyEscalation

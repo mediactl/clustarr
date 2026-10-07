@@ -146,7 +146,7 @@ func (f fakePublisher) Publish(_ context.Context, _ string, _ *events.Envelope, 
 }
 
 // fakeAlbumLookupRPC implements the SINGLE-release-group lookup half of the
-// reconciler's bus.Request (the existing rpc.catalogarr.metadata.lookup
+// reconciler's bus.Request (the existing rpc.catalog.metadata.lookup
 // path Registry.Lookup(kind=album) already serves -- no new RPC verb, see
 // this package's doc.go): Kind=MediaKindAlbum,
 // IDs={mb-release-group: <ReleaseGroupID>}, Result a single JSON
@@ -222,9 +222,9 @@ func createSteadyArtist(t *testing.T, ctx context.Context, c client.Client, ns, 
 		WithPath("/data/media/music/" + name))
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
-	// Artist.status.path is catalogarr's own field, not the metadata
+	// Artist.status.path is catalog's own field, not the metadata
 	// gateway's, but nothing in this test package runs the real
-	// artist.Reconciler -- seed it directly under k8s.ManagerCatalogarr so
+	// artist.Reconciler -- seed it directly under k8s.ManagerCatalog so
 	// this fixture matches what a real reconcile would have produced.
 	pathAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithPath("/data/media/music/" + name))
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, pathAC)
@@ -343,18 +343,18 @@ func TestAlbumReconcilerNeverClaimsStatusMetadata(t *testing.T) {
 		return k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady)
 	}, 5*time.Second, 10*time.Millisecond)
 
-	fields := managedStatusFieldPaths(got.ManagedFields, "catalogarr")
-	require.NotNil(t, fields, "no catalogarr/status entry in managedFields")
+	fields := managedStatusFieldPaths(got.ManagedFields, "catalog")
+	require.NotNil(t, fields, "no catalog/status entry in managedFields")
 	names := statusFieldNames(fields)
-	assert.True(t, names["path"], "catalogarr should own status.path")
-	assert.True(t, names["phase"], "catalogarr should own status.phase")
-	assert.False(t, names["metadata"], "catalogarr must never claim status.metadata -- that belongs to catalogarr-metadata")
+	assert.True(t, names["path"], "catalog should own status.path")
+	assert.True(t, names["phase"], "catalog should own status.phase")
+	assert.False(t, names["metadata"], "catalog must never claim status.metadata -- that belongs to catalog-metadata")
 
-	metaFields := managedStatusFieldPaths(got.ManagedFields, "catalogarr-metadata")
-	require.NotNil(t, metaFields, "no catalogarr-metadata/status entry in managedFields")
+	metaFields := managedStatusFieldPaths(got.ManagedFields, "catalog-metadata")
+	require.NotNil(t, metaFields, "no catalog-metadata/status entry in managedFields")
 	metaNames := statusFieldNames(metaFields)
 	assert.True(t, metaNames["metadata"])
-	assert.False(t, metaNames["path"], "catalogarr-metadata must never claim status.path")
+	assert.False(t, metaNames["path"], "catalog-metadata must never claim status.path")
 
 	assert.Equal(t, "/data/media/music/radiohead/OK Computer (1997)", got.Status.Path,
 		"the album segment joins onto the Artist's own resolved path, not a re-rendered artist segment")
@@ -691,11 +691,11 @@ func TestAlbumReconcilerSelectsAReleaseAndAttributesTracks(t *testing.T) {
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 	assert.Equal(t, string(album.SelectionBest), cond.Reason)
 
-	// Ownership, leaf by leaf: catalogarr owns selectedReleaseID and nothing
+	// Ownership, leaf by leaf: catalog owns selectedReleaseID and nothing
 	// else under status.metadata; the gateway owns the rest and not it.
-	mine := fieldsUnder(managedStatusFieldPaths(got.ManagedFields, "catalogarr"), "status", "metadata")
+	mine := fieldsUnder(managedStatusFieldPaths(got.ManagedFields, "catalog"), "status", "metadata")
 	assert.Equal(t, map[string]bool{"selectedReleaseID": true}, mine)
-	theirs := fieldsUnder(managedStatusFieldPaths(got.ManagedFields, "catalogarr-metadata"), "status", "metadata")
+	theirs := fieldsUnder(managedStatusFieldPaths(got.ManagedFields, "catalog-metadata"), "status", "metadata")
 	assert.True(t, theirs["title"])
 	assert.False(t, theirs["selectedReleaseID"], "the gateway must not co-own selectedReleaseID")
 

@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-// The MediaFile probe queue (spec 2026-10-06 §6.5.1). catalogarr's MediaFile
+// The MediaFile probe queue (spec 2026-10-06 §6.5.1). catalog's MediaFile
 // reconciler publishes a ProbeTask for each probe it needs; the import
 // domain's probe worker answers it into BucketProbes, which the reconciler
 // reads (pkg/probestore).
@@ -99,7 +99,7 @@ func probeStream() StreamSpec {
 }
 
 // probeConsumers are the import domain's two lanes. AckWait 60 s is the
-// import worker's terminationGracePeriodSeconds floor (the importarr block in
+// import worker's terminationGracePeriodSeconds floor (the import block in
 // defaultConsumers). BackOff[0] is the first delivery's deadline, which
 // probe.TaskTimeout (45 s) fits inside, so there is no Heartbeat. Four
 // slots per lane give one pod the eight concurrent probes

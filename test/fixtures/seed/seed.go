@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (by images/Dockerfile.e2e-fixtures's ffmpeg build stage) onto the shared
 // /data volume, so test/e2e can "plant" ffprobe-able media by a plain
 // filesystem copy -- no ffmpeg needed on the machine running `go test`, and
-// catalogarr's MediaFile controller probes real bytes with real ffprobe,
+// catalog's MediaFile controller probes real bytes with real ffprobe,
 // never a mock.
 //
 // # Why the clip is not tiny

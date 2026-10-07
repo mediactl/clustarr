@@ -32,7 +32,7 @@ import (
 // parsing (ParseSidecar) — spec §7's SidecarName(videoPath string, key
 // LangKey, hiExt string) string and ParseSidecar(videoStem, name string)
 // (LangKey, bool) — along with the missing-subtitle planner (Plan), are
-// deferred to Phase F (the captionarr controller), per this task's Scope
+// deferred to Phase F (the caption controller), per this task's Scope
 // note and the controller amendment. Until then, a caller resolves the
 // path itself and passes it straight to Write.
 type Writer struct{}

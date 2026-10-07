@@ -69,7 +69,7 @@ const unknownIndexerLabel = "_unknown"
 // URL first -- and it never reaches a metric label at all.
 const maxGUIDLogChars = 128
 
-// Service is the rpc.indexarr.download handler.
+// Service is the rpc.index.download handler.
 type Service struct {
 	// Client is the manager's cached client; it reads Indexer and Secret.
 	// The verb writes no status: status.grabsInWindow is the Indexer
@@ -93,7 +93,7 @@ type Service struct {
 	// definition-backed grab rather than falling back to Fetch: a plain GET
 	// skips the definition's download block (its before-request and link
 	// selectors), and for most trackers the link a search returned is a
-	// details page, so the fallback would hand grabarr an HTML page.
+	// details page, so the fallback would hand grab an HTML page.
 	Definitions FetcherFor
 
 	// Now is the clock. nil means time.Now.
@@ -108,7 +108,7 @@ func (s *Service) now() time.Time {
 }
 
 // fail builds the ONE shape a failure takes: a populated Error, scrubbed of
-// this indexer's secret values and truncated, because grabarr writes it onto
+// this indexer's secret values and truncated, because grab writes it onto
 // a Download's status condition where a human reads it.
 func fail(scrub func(string) string, format string, args ...any) schema.DownloadResponse {
 	msg := fmt.Sprintf(format, args...)
@@ -118,14 +118,14 @@ func fail(scrub func(string) string, format string, args ...any) schema.Download
 	return schema.DownloadResponse{Error: truncate(msg, maxErrorChars)}
 }
 
-// Handle is the rpc.indexarr.download body. It NEVER returns an error: after a
+// Handle is the rpc.index.download body. It NEVER returns an error: after a
 // successful decode every failure is a populated DownloadResponse.Error, so
 // the caller can distinguish "this release could not be fetched" (a reply)
-// from "the request never reached indexarr" (a transport error). The RPC
+// from "the request never reached index" (a transport error). The RPC
 // wrapper owns the decode and is the only place a transport error is produced
 // for this verb.
 func (s *Service) Handle(ctx context.Context, req schema.DownloadRequest) schema.DownloadResponse {
-	ctx, span := tracing.Start(ctx, "indexarr.download")
+	ctx, span := tracing.Start(ctx, "index.download")
 	defer span.End()
 	start := s.now()
 
@@ -158,18 +158,18 @@ func (s *Service) handle(
 		// be fetched with namespace B's passkey and counted against B's
 		// grab budget. This verb has zero callers today, so refusing costs
 		// nothing.
-		return fail(nil, "indexarr: indexerRef.namespace and indexerRef.name are required"),
+		return fail(nil, "index: indexerRef.namespace and indexerRef.name are required"),
 			resultBadRequest, unknownIndexerLabel
 	case req.GUID == "":
-		return fail(nil, "indexarr: guid is required"), resultBadRequest, unknownIndexerLabel
+		return fail(nil, "index: guid is required"), resultBadRequest, unknownIndexerLabel
 	case req.URL == "":
 		// relindex.Query has no GUID field and ADR-0003 fixes the Store at
-		// four methods, so indexarr cannot resolve a guid to a URL.
+		// four methods, so index cannot resolve a guid to a URL.
 		// Carried item.
-		return fail(nil, "indexarr: release has no download URL; "+
-			"indexarr cannot resolve a guid without one"), resultNoURL, unknownIndexerLabel
+		return fail(nil, "index: release has no download URL; "+
+			"index cannot resolve a guid without one"), resultNoURL, unknownIndexerLabel
 	case s.Client == nil || s.Fetch == nil:
-		return fail(nil, "indexarr: download verb is not configured"),
+		return fail(nil, "index: download verb is not configured"),
 			resultNotConfigured, unknownIndexerLabel
 	}
 	return s.fetchAndCount(ctx, req)
@@ -182,16 +182,16 @@ func (s *Service) fetchAndCount(
 	key := types.NamespacedName{Namespace: req.IndexerRef.Namespace, Name: req.IndexerRef.Name}
 	if err := s.Client.Get(ctx, key, &idx); err != nil {
 		if apierrors.IsNotFound(err) {
-			return fail(nil, "indexarr: indexer %s not found", key),
+			return fail(nil, "index: indexer %s not found", key),
 				resultNotFound, unknownIndexerLabel
 		}
-		return fail(nil, "indexarr: read indexer %s: %v", key, err),
+		return fail(nil, "index: read indexer %s: %v", key, err),
 			resultTransport, unknownIndexerLabel
 	}
 	// From here the label is a Kubernetes object name: bounded cardinality.
 	label := idx.Name
 	if idx.Spec.Enabled != nil && !*idx.Spec.Enabled {
-		return fail(nil, "indexarr: indexer %s is disabled", key), resultDisabled, label
+		return fail(nil, "index: indexer %s is disabled", key), resultDisabled, label
 	}
 	// status.disabledUntil is deliberately NOT checked: escalation is health,
 	// and this release was already selected by a search that succeeded.
@@ -203,7 +203,7 @@ func (s *Service) fetchAndCount(
 		"guid", truncate(redactRawURL(req.GUID), maxGUIDLogChars))
 
 	// spec.limits.grabLimit IS checked, and before the indexer is asked: the
-	// reservation is the grab. A GUID already in the window -- catalogarr
+	// reservation is the grab. A GUID already in the window -- catalog
 	// reserves its grab before it creates the Download that leads here --
 	// holds its slot and passes. A grab that then does not happen gives its
 	// slot back (settleGrab).
@@ -218,20 +218,20 @@ func (s *Service) fetchAndCount(
 	fetchFor := s.Fetch
 	if definitionBacked(&idx) {
 		if s.Definitions == nil {
-			return fail(nil, "indexarr: indexer %s is definition-backed and the Cardigann download path is not configured", key),
+			return fail(nil, "index: indexer %s is definition-backed and the Cardigann download path is not configured", key),
 				resultNotConfigured, label
 		}
 		fetchFor = s.Definitions
 	}
 	f, err := fetchFor(ctx, &idx)
 	if err != nil {
-		return fail(nil, "indexarr: build client for %s: %v", key, cardigann.RedactErr(err)),
+		return fail(nil, "index: build client for %s: %v", key, cardigann.RedactErr(err)),
 			resultTransport, label
 	}
 
 	res, err := f.Fetch(ctx, req.URL)
 	if err != nil {
-		return fail(f.Scrub, "indexarr: fetch from %s: %v", key, cardigann.RedactErr(err)),
+		return fail(f.Scrub, "index: fetch from %s: %v", key, cardigann.RedactErr(err)),
 			resultTransport, label
 	}
 	if res == nil {
@@ -239,7 +239,7 @@ func (s *Service) fetchAndCount(
 		// test supplies a stub. A nil result with a nil error is a broken
 		// implementation, and a nil dereference here would take down the
 		// RPC responder rather than failing one grab.
-		return fail(nil, "indexarr: fetcher for %s returned no result", key),
+		return fail(nil, "index: fetcher for %s returned no result", key),
 			resultTransport, label
 	}
 
@@ -321,7 +321,7 @@ func (s *Service) classify(
 	case res.OffHostURL != "":
 		// Cause 1 of RedirectURL: the chain left the indexer's origin, where
 		// our session cookie would not be sent anyway. Returned INTACT --
-		// grabarr needs it -- and logged redacted, because it may carry a
+		// grab needs it -- and logged redacted, because it may carry a
 		// passkey.
 		log.Debug("app/indexer/download: handing back an off-host link",
 			"url", redactRawURL(res.OffHostURL))
@@ -330,20 +330,20 @@ func (s *Service) classify(
 	case res.Body == nil:
 		// A Fetcher that reports neither a link nor a body is broken, not
 		// the indexer. Say so rather than dereferencing nil.
-		return fail(f.Scrub, "indexarr: indexer returned HTTP %d with no body", res.Status),
+		return fail(f.Scrub, "index: indexer returned HTTP %d with no body", res.Status),
 			resultInvalidPayload
 	}
 
 	defer func() { _ = res.Body.Close() }()
 
 	if res.Status == http.StatusUnauthorized || res.Status == http.StatusForbidden {
-		return fail(f.Scrub, "indexarr: indexer returned HTTP %d; "+
+		return fail(f.Scrub, "index: indexer returned HTTP %d; "+
 			"the session or passkey may have expired", res.Status), resultUnauthorized
 	}
 	if res.Status < 200 || res.Status >= 300 {
 		// The STATUS only. An error page's body is attacker-controlled text
 		// on its way to a status condition.
-		return fail(f.Scrub, "indexarr: indexer returned HTTP %d", res.Status), resultHTTPError
+		return fail(f.Scrub, "index: indexer returned HTTP %d", res.Status), resultHTTPError
 	}
 
 	// Cause 2 of RedirectURL: too big to send. Decided on Content-Length
@@ -361,14 +361,14 @@ func (s *Service) classify(
 			// No Content-Length, so this was only discovered mid-read. The
 			// link may already be spent, which is why this is an Error and
 			// not a RedirectURL.
-			return fail(f.Scrub, "indexarr: %v", err), resultTooLarge
+			return fail(f.Scrub, "index: %v", err), resultTooLarge
 		}
-		return fail(f.Scrub, "indexarr: read payload: %v", cardigann.RedactErr(err)), resultInvalidPayload
+		return fail(f.Scrub, "index: read payload: %v", cardigann.RedactErr(err)), resultInvalidPayload
 	}
 
 	kind := sniffKind(body)
 	if kind == kindHTML {
-		return fail(f.Scrub, "indexarr: indexer returned an HTML page, "+
+		return fail(f.Scrub, "index: indexer returned an HTML page, "+
 			"not a download payload (session expired?)"), resultInvalidPayload
 	}
 	return schema.DownloadResponse{

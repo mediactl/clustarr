@@ -222,10 +222,10 @@ func (r *Runnable) publish(ctx context.Context, ns string, epoch int64, at time.
 		ID:     msgID,
 		Type:   "catalog.WantedScan",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		// The scan is namespace-wide, so there is no owning object to name.
 		// The trailing slash keeps the key parseable by the <namespace>/<name>
-		// convention every catalogarr consumer splits on.
+		// convention every catalog consumer splits on.
 		Key:  ns + "/",
 		Time: at,
 		Data: data,

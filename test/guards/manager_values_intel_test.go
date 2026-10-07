@@ -26,9 +26,9 @@ import (
 )
 
 // TestChartIntelRenderGroupsReachTheController follows the chart's
-// squasharr.intelRenderGroups value (X14) through what the chart renders:
-// the squasharr Deployment's env, run through the real command tree, must
-// give squasharr the same GIDs -- and no value must give none, since the
+// transcode.intelRenderGroups value (X14) through what the chart renders:
+// the transcode Deployment's env, run through the real command tree, must
+// give transcode the same GIDs -- and no value must give none, since the
 // render GID is per host install.
 func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
 	helm := findTool(t, "helm")
@@ -39,7 +39,7 @@ func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
 		args []string
 		want []int64
 	}{
-		"set":   {args: []string{"--set", "squasharr.intelRenderGroups={44,109}"}, want: []int64{44, 109}},
+		"set":   {args: []string{"--set", "transcode.intelRenderGroups={44,109}"}, want: []int64{44, 109}},
 		"unset": {},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -47,11 +47,11 @@ func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
 			r := decodeRendered(t, out)
 			var dep *appsv1.Deployment
 			for i := range r.deployments {
-				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "squasharr" {
+				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "transcode" {
 					dep = &r.deployments[i]
 				}
 			}
-			require.NotNil(t, dep, "no squasharr Deployment rendered")
+			require.NotNil(t, dep, "no transcode Deployment rendered")
 			ctr := dep.Spec.Template.Spec.Containers[0]
 			t.Setenv(intelRenderGroupsEnv, "")
 			for _, e := range ctr.Env {
@@ -64,7 +64,7 @@ func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
 			_, err := execute(t, ctr.Args...)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got.IntelRenderGroups,
-				"the chart's squasharr.intelRenderGroups did not reach squasharr's --intel-render-groups")
+				"the chart's transcode.intelRenderGroups did not reach transcode's --intel-render-groups")
 		})
 	}
 }

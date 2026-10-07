@@ -78,7 +78,7 @@ func SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // deleteRequested passes a pending request: at start one not refused yet,
-// and on update a new or renewed request -- never importarr's own
+// and on update a new or renewed request -- never import's own
 // delete-error write, which would retry a refusal forever.
 func deleteRequested() predicate.Predicate {
 	ann := func(o client.Object, key string) string { return o.GetAnnotations()[key] }

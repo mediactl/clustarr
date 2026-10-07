@@ -49,7 +49,7 @@ func TestMain(m *testing.M) {
 	// tracing.Inject writes no traceparent -- so the assertion that the
 	// firehose carries a trace would pass or fail for the wrong reason.
 	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
-		Enabled: false, ServiceName: "indexarr-rss-test", SampleRatio: 1,
+		Enabled: false, ServiceName: "index-rss-test", SampleRatio: 1,
 	})
 	if err != nil {
 		panic("tracing setup: " + err.Error())

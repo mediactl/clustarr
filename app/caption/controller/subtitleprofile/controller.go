@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // profile (the "Invalid" shapes the SubtitleRequest controller and
 // pkg/subtitles.Plan can never act on -- a duplicate spec.default, or a
 // language key that does not match its own canonical derivation) and is the
-// mapper that gives captionarr's other controllers something to do -- for
+// mapper that gives caption's other controllers something to do -- for
 // every video-kind MediaFile a profile wins (its own spec.selector, or
 // spec.default when no selector-matching profile claims the file) whose
 // Movie or Episode still exists (itemSet.manages: an import list's
@@ -74,7 +74,7 @@ import (
 // namespaces verb needed); subtitlerequests needs create (and update,
 // alongside patch, for the same server-side-apply create-if-absent reason
 // app/transcode/controller/transcodeprofile/controller.go's own marker comment
-// documents) because this package is captionarr's only creator of them.
+// documents) because this package is caption's only creator of them.
 // mediafiles is read-only: this controller only ever reads a MediaFile's
 // labels, kind and status.probeHash to decide whether and for whom to
 // ensure a request. movies and episodes are read only to learn whether a
@@ -93,9 +93,9 @@ import (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
-// Reconciler owns SubtitleProfile.status (under k8s.ManagerCaptionarr, via
+// Reconciler owns SubtitleProfile.status (under k8s.ManagerCaption, via
 // app/caption/status.PatchProfile) and is the sole creator of SubtitleRequest
-// objects (also k8s.ManagerCaptionarr, on the main resource). It never
+// objects (also k8s.ManagerCaption, on the main resource). It never
 // writes MediaFile or SubtitleRequest.status.
 type Reconciler struct {
 	client.Client
@@ -277,7 +277,7 @@ func unneeded(sr *subtitlev1alpha1.SubtitleRequest) bool {
 // owner -- so that apply would change nothing and is skipped. About ten
 // thousand no-op applies per profile reconcile on the owner's library.
 //
-// Skipping is safe because that apply is the whole of k8s.ManagerCaptionarr's
+// Skipping is safe because that apply is the whole of k8s.ManagerCaption's
 // Apply-operation entry on SubtitleRequest's main resource: nothing else
 // applies it under that manager (the request controller's forceSearch
 // reset is a merge patch, an Update entry of its own, and status is a
@@ -308,11 +308,11 @@ func (r *Reconciler) requestCurrent(sr *subtitlev1alpha1.SubtitleRequest, sp *su
 
 // ensureSubtitleRequest creates (or, idempotently, re-applies) the
 // SubtitleRequest for mf, owned by mf and named after it. Unlike
-// squasharr's TranscodeJob (immutable spec, a new name per profile hash),
+// transcode's TranscodeJob (immutable spec, a new name per profile hash),
 // SubtitleRequestSpec.ProfileRef is not CEL-immutable and this controller's
 // apply only ever sets mediaFileRef and profileRef -- so a later reconcile
 // that resolves a DIFFERENT winning profile for the same file re-applies
-// under the same k8s.ManagerCaptionarr identity and simply updates
+// under the same k8s.ManagerCaption identity and simply updates
 // profileRef server-side, with no conflict and no second object. Every
 // other spec field (languages, minScoreOverride, forceSearch) is a
 // user/SubtitleRequest-controller-owned override this apply deliberately
@@ -346,7 +346,7 @@ func (r *Reconciler) ensureSubtitleRequest(
 // own extractProbeHash carries the identical doc comment) -- not imported,
 // because it is a closure over this package's concrete MediaFile type. This
 // is the watch that wakes a SubtitleProfile reconcile when a MediaFile is
-// probed: catalogarr's mediafile controller writes status.probeHash under
+// probed: catalog's mediafile controller writes status.probeHash under
 // its OWN field manager, which never bumps metadata.generation, so a
 // GenerationChanged-only watch would never fire for it -- k8s.StatusFieldChanged
 // is the whole reason this predicate function exists rather than
@@ -439,13 +439,13 @@ func (r *Reconciler) mapItemToProfiles(ctx context.Context, o client.Object) []r
 }
 
 // createdOrDeleted passes creates and deletes only: an item's existence is
-// all [itemSet.manages] reads, and catalogarr updates Movie and Episode
+// all [itemSet.manages] reads, and catalog updates Movie and Episode
 // status far too often for every update to replan every profile.
 func createdOrDeleted() predicate.Predicate {
 	return predicate.Funcs{UpdateFunc: func(event.UpdateEvent) bool { return false }}
 }
 
-// SetupWithManager registers the SubtitleProfile controller; captionarr's
+// SetupWithManager registers the SubtitleProfile controller; caption's
 // run.go setupControllers calls it for the controller role.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).

@@ -120,7 +120,7 @@ func (m *message) Nak(ctx context.Context, delay time.Duration) error {
 // (consumer.go:6169-6180, checkPending, dc = redeliveries so far), and AckWait
 // is BackOff[0] because BackOff overrides it (consumer.go:682). The actual
 // wait is want + BackOff[attempt-1] - BackOff[0], so every backoff step past
-// the first came out close to doubled: catalogarr-search-normal
+// the first came out close to doubled: catalog-search-normal
 // ([30s 2m 10m 1h]) waited nearly two hours, not one, after its fourth
 // attempt. Subtracting the server's addition asks for exactly want.
 //

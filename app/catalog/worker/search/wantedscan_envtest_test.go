@@ -48,7 +48,7 @@ func wantedScanEnvelope(t *testing.T, scan schema.WantedScan) *events.Envelope {
 		ID:     "wantedscan-" + scan.Namespace,
 		Type:   "catalog.WantedScan",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    scan.Namespace + "/",
 		Time:   time.Now().UTC(),
 		Data:   data,
@@ -68,8 +68,8 @@ func createMovie(t *testing.T, ctx context.Context, c client.Client, ns, name, p
 }
 
 // TestWorkerExpandsAWantedScanInsteadOfDiscardingIt is the regression test for
-// the consumer-filter mismatch: catalogarr-search-normal filters
-// clustarr.work.catalogarr.wantedscan.> as well as the search subjects, so the
+// the consumer-filter mismatch: catalog-search-normal filters
+// clustarr.work.catalog.wantedscan.> as well as the search subjects, so the
 // worker is handed catalog.WantedScan.v1 and decoding everything as a
 // SearchTask dead-lettered every twelve-hourly sweep on first delivery.
 func TestWorkerExpandsAWantedScanInsteadOfDiscardingIt(t *testing.T) {

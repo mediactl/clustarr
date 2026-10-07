@@ -92,7 +92,7 @@ func Drift(overrides []catalogv1alpha1.ArtworkOverride, images []catalogv1alpha1
 // obj's artwork sources (spec.artwork and status.metadata.images, see
 // [Drift]) have drifted from its status.artwork it publishes one
 // schema.ArtworkFetchTask on events.WorkArtworkFetchSubject, for the
-// gateway's catalogarr-artwork-fetch durable, under
+// gateway's catalog-artwork-fetch durable, under
 // schema.MsgIDForArtworkFetch(uid, specHash) -- so a reconcile loop that
 // keeps seeing the same drift publishes once per duplicate window. Without
 // drift it publishes nothing.
@@ -137,8 +137,8 @@ func PublishFetchFor(ctx context.Context, bus events.Publisher, obj client.Objec
 		ID:     schema.MsgIDForArtworkFetch(obj.GetUID(), token),
 		Type:   "catalog.ArtworkFetchTask",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
-		// The <namespace>/<name> routing key every catalogarr worker parses;
+		Source: "catalog@" + version.String(),
+		// The <namespace>/<name> routing key every catalog worker parses;
 		// the subject carries the tokenised media key instead.
 		Key:  obj.GetNamespace() + "/" + obj.GetName(),
 		Time: time.Now().UTC(),
@@ -189,7 +189,7 @@ func PublishRender(ctx context.Context, bus events.Publisher, obj client.Object,
 		ID:     schema.MsgIDForRenderOverlay(obj.GetUID(), token),
 		Type:   "catalog.RenderOverlayTask",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    obj.GetNamespace() + "/" + obj.GetName(),
 		Time:   time.Now().UTC(),
 		Data:   data,

@@ -73,8 +73,8 @@ type SessionStore struct {
 	KV     events.KV
 
 	// Manager is the field manager the owned Secret is applied under:
-	// k8s.ManagerIndexarr in the manager (the Indexer reconciler's logins) and
-	// k8s.ManagerIndexarrWorker in the index agent (a cached client's relogin
+	// k8s.ManagerIndex in the manager (the Indexer reconciler's logins) and
+	// k8s.ManagerIndexWorker in the index agent (a cached client's relogin
 	// Save and its Drop). Both apply sessionSecretAC's one complete
 	// declaration, so neither can release a field the other set: the only
 	// deliberate co-ownership of the manager/agent split (§5.3.2). Empty

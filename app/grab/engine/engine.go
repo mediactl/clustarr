@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package engine holds what grabarr's two transfer engines
+// Package engine holds what grab's two transfer engines
 // (app/grab/engine/torrent, app/grab/engine/usenet) share (ADR-0019 §6.7):
 // the journal each keeps per transfer, the command handler that applies the
 // manager's seq-fenced desired-state commands, the reporter that writes the
@@ -27,7 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // reads its DownloadClient and its proxy or provider Secrets through the
 // APIReader at start, and rolls when they change. Everything else arrives
 // as an [schema.EngineCommand] on its own durable,
-// grabarr-engine-<client>-<ordinal>, which the manager's DownloadClient
+// grab-engine-<client>-<ordinal>, which the manager's DownloadClient
 // controller creates: the transfer's whole desired state at a seq. The
 // engine applies a command only above the seq its journal holds for the
 // entry, acks only once the transfer record shows the new seq, and naks

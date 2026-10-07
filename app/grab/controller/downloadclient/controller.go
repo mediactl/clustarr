@@ -79,15 +79,15 @@ const (
 
 // Reconciler stands up a DownloadClient's engine workload -- a StatefulSet for
 // protocol=torrent, a Deployment for protocol=usenet -- and reports
-// DiskSpaceOK, EngineReady and the Ready roll-up. Field manager: k8s.ManagerGrabarr
-// only; see doc.go for why the engine's own field set (k8s.ManagerGrabarrEngine,
+// DiskSpaceOK, EngineReady and the Ready roll-up. Field manager: k8s.ManagerGrab
+// only; see doc.go for why the engine's own field set (k8s.ManagerGrabEngine,
 // on Download.status) is out of scope here.
 type Reconciler struct {
 	Client   client.Client
 	Recorder events.EventRecorder
 
-	// DataDir is the shared RWX volume every grabarr pod mounts at /data
-	// (config/manager/grabarr.yaml). DiskSpaceOK statfs's it directly on the
+	// DataDir is the shared RWX volume every grab pod mounts at /data
+	// (config/manager/grab.yaml). DiskSpaceOK statfs's it directly on the
 	// CONTROLLER pod, which is why the controller Deployment mounts the same
 	// claim the engines do rather than this reconciler needing to ask an
 	// engine pod for its own view.
@@ -104,7 +104,7 @@ type Reconciler struct {
 	// engine. D2-8 reads CLUSTARR_ENGINE_IMAGE and passes it here.
 	EngineImage string
 
-	// DataClaimName is the PersistentVolumeClaim every grabarr pod mounts at
+	// DataClaimName is the PersistentVolumeClaim every grab pod mounts at
 	// DataDir. The two installers do NOT agree on it: config/ names it
 	// "clustarr-data" (DefaultDataClaimName, which NewReconciler sets), while
 	// charts/clustarr names it "<release fullname>-data". app/grab/run.go
@@ -140,7 +140,7 @@ type Reconciler struct {
 
 	// EngineRecorder records the engines' Events the manager raises for
 	// them: ProxyUDPUnavailable and UnidentifiedTransferRemoved, as
-	// grabarr-engine (ADR-0019 §7.7). nil uses Recorder.
+	// grab-engine (ADR-0019 §7.7). nil uses Recorder.
 	EngineRecorder events.EventRecorder
 
 	// Now is the clock; nil is time.Now.
@@ -458,7 +458,7 @@ func setEngineReadyCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]
 //
 // Each Secret is read by name with a plain `get` through
 // [Reconciler.SecretReader], and nothing watches Secrets: a watch needs list
-// and watch, which RBAC cannot narrow by name or label, so grabarr could
+// and watch, which RBAC cannot narrow by name or label, so grab could
 // enumerate every Secret in its scope -- other services' credentials
 // included -- for the sake of restarting an engine sooner (the controller's
 // ruling on cdde136). A rotation is therefore picked up by the periodic

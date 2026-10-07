@@ -68,7 +68,7 @@ func (f *fixture) importedFile(t *testing.T, ctx context.Context) (name, path st
 	return name, path, info
 }
 
-// takeOver is catalogarr incorporating a transcode swap: it applies
+// takeOver is catalog incorporating a transcode swap: it applies
 // spec.sizeBytes, spec.modTime and spec.original=false under its own
 // manager, exactly as app/catalog/controller/mediafile does.
 func takeOver(ctx context.Context, c client.Client, ns, name string, size int64, mod time.Time) error {
@@ -86,10 +86,10 @@ func (f *fixture) waitOriginal(t *testing.T, ctx context.Context, name string, o
 	})
 }
 
-// The X7a/X5a contract, first half: once catalogarr has taken a transcoded
+// The X7a/X5a contract, first half: once catalog has taken a transcoded
 // file over, a rescan writes none of the fields it owns. A file whose bytes
-// changed on disk since is handed to catalogarr through ONE annotation,
-// under k8s.ManagerImportarr -- which owns nothing else on a MediaFile, so
+// changed on disk since is handed to catalog through ONE annotation,
+// under k8s.ManagerImport -- which owns nothing else on a MediaFile, so
 // the apply releases nothing -- and a later scan that finds the same bytes
 // does not write it again.
 func TestHandleHandsAChangedPostTranscodeFileToCatalog(t *testing.T) {
@@ -114,7 +114,7 @@ func TestHandleHandsAChangedPostTranscodeFileToCatalog(t *testing.T) {
 		return f.c.Get(ctx, types.NamespacedName{Namespace: f.ns, Name: name}, &after) == nil &&
 			after.Annotations[rescan.AnnotationObservedFingerprint] == want
 	})
-	assert.Equal(t, int64(999), after.Spec.SizeBytes, "catalogarr's size is not overwritten")
+	assert.Equal(t, int64(999), after.Spec.SizeBytes, "catalog's size is not overwritten")
 	assert.True(t, after.Spec.ModTime.Equal(&metav1.Time{Time: stale}), "nor its mtime")
 	require.NotNil(t, after.Spec.Original)
 	assert.False(t, *after.Spec.Original, "nor its original flag")
@@ -126,7 +126,7 @@ func TestHandleHandsAChangedPostTranscodeFileToCatalog(t *testing.T) {
 	}
 	for _, leaf := range []string{"spec.path", "spec.mediaRef", "spec.quality"} {
 		assert.Equal(t, string(rescan.FieldManager), managerFor(t, after.ManagedFields, "", leaf),
-			"%s: the annotation's apply released nothing importarr-worker owns", leaf)
+			"%s: the annotation's apply released nothing import-worker owns", leaf)
 	}
 
 	// The next scan finds the same bytes: nothing is written again.
@@ -139,7 +139,7 @@ func TestHandleHandsAChangedPostTranscodeFileToCatalog(t *testing.T) {
 }
 
 // The contract's other half: a post-transcode file whose bytes are what
-// catalogarr recorded is left alone and counted as a transcoded skip.
+// catalog recorded is left alone and counted as a transcoded skip.
 func TestHandleLeavesAnUnchangedPostTranscodeFileAlone(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-transcoded", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
@@ -161,7 +161,7 @@ func TestHandleLeavesAnUnchangedPostTranscodeFileAlone(t *testing.T) {
 }
 
 // takeoverOnApply is the cluster between a rescan's read of a MediaFile and
-// its apply: the first time the worker applies the MediaFile, catalogarr's
+// its apply: the first time the worker applies the MediaFile, catalog's
 // transcode takeover lands first.
 type takeoverOnApply struct {
 	client.Client
@@ -186,7 +186,7 @@ func (c *takeoverOnApply) Apply(ctx context.Context, obj runtime.ApplyConfigurat
 // resourceVersion precondition the forced apply put spec.original back to
 // true and the pre-transcode size back; with it the apiserver refuses the
 // stale apply, and the walk re-reads and leaves the swapped file to
-// catalogarr.
+// catalog.
 func TestHandleNeverRevertsATakeoverThatLandsMidScan(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-race", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)

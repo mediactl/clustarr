@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	errCancelled = errors.New("task withdrawn by squasharr")
+	errCancelled = errors.New("task withdrawn by transcode")
 	errFenced    = errors.New("lease could not be renewed; stopped before it could lapse")
 	errDeadline  = errors.New("task deadline exceeded")
 )
@@ -126,7 +126,7 @@ func (r *leaseRev) set(v uint64) {
 }
 
 // renew keeps the lease and the ack window alive until ctx ends. A revision
-// it did not write means squasharr cancelled the task, or the lease lapsed
+// it did not write means transcode cancelled the task, or the lease lapsed
 // and someone else took it: stop at once. Plain errors are tolerated until
 // FenceAfter since the last good renewal, then the work is stopped: FenceAfter
 // is 30s short of the lease TTL, so the work ends before anyone can claim it.
@@ -204,13 +204,13 @@ func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m even
 // the message adds nothing handle doesn't already know from cause
 // (context.Cause(work), set by the stop(...) call below before this
 // returns), so it stays terse.
-var errBeforeSwapAborted = errors.New("squasharr worker: lease could not be reasserted before the swap")
+var errBeforeSwapAborted = errors.New("transcode worker: lease could not be reasserted before the swap")
 
 // reassertBeforeSwap is Options.BeforeSwap: immediately before Process
 // renames the verified output over the source, it re-asserts this attempt's
 // lease with a revision-checked Update instead of trusting the last
 // periodic renewal, which can be up to Renew (20s) stale -- long enough for
-// squasharr to have withdrawn the attempt, or for another worker to have
+// transcode to have withdrawn the attempt, or for another worker to have
 // fenced it out, without renew's own tick having noticed yet (final review
 // I2c). A failure here is handled exactly like renew's own: a confirmed
 // cancel marker stops work with errCancelled; our own write landing but its

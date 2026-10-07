@@ -160,7 +160,7 @@ func storedPools(stored map[string]*batchv1.Job, profiles map[string]*transcodev
 //   - its name is taken by a Job whose controller owner is not this profile
 //     (R22). pool.Name hashes the profile's UID, so no other incarnation of
 //     the profile produces that name: only an edit of the Job's
-//     ownerReferences does, and squasharr neither adopts nor deletes a Job
+//     ownerReferences does, and transcode neither adopts nor deletes a Job
 //     it does not own. The message tells the operator to delete it.
 //
 // A drain lasts as long as the pool's slowest dispatched job.
@@ -179,7 +179,7 @@ func (r *Reconciler) holding(stored map[string]*batchv1.Job, profiles map[string
 				}
 			case ownerProfileUID(j) != tp.UID:
 				held[k] = fmt.Sprintf("%s%s: that Job's controller owner reference is not TranscodeProfile %s (uid %s), "+
-					"so squasharr will not touch it; delete the Job and the pool is recreated", heldPrefix, name, tp.Name, tp.UID)
+					"so transcode will not touch it; delete the Job and the pool is recreated", heldPrefix, name, tp.Name, tp.UID)
 			case pool.Failed(j):
 				held[k] = fmt.Sprintf("%s%s to recover: it failed at %s", heldPrefix, name, failedAt(j, r.now().Time).UTC().Format(time.RFC3339))
 			case pool.Mutable(j):
@@ -247,7 +247,7 @@ func (r *Reconciler) rerouteUnschedulable(ctx context.Context, stored map[string
 		if until, marked := r.unschedulable[k]; !marked || !now.Before(until) {
 			until = now.Add(unschedulableFor)
 			r.unschedulable[k] = until
-			log.WarnContext(ctx, "squasharr: a GPU pool cannot schedule its pods; its auto jobs go to cpu",
+			log.WarnContext(ctx, "transcode: a GPU pool cannot schedule its pods; its auto jobs go to cpu",
 				"pool", j.Name, "unschedulableSince", since, "until", until)
 			if r.Recorder != nil {
 				r.Recorder.Eventf(tp, nil, corev1.EventTypeWarning, ReasonPoolUnschedulable, "Reroute",
@@ -270,7 +270,7 @@ func (r *Reconciler) rerouteUnschedulable(ctx context.Context, stored map[string
 			}
 			if ok {
 				rerouted++
-				log.InfoContext(ctx, "squasharr: took a queued auto job back from an unschedulable GPU pool",
+				log.InfoContext(ctx, "transcode: took a queued auto job back from an unschedulable GPU pool",
 					"transcodeJob", client.ObjectKeyFromObject(tj).String(), "pool", j.Name, "attempt", tj.Status.Attempts)
 			}
 		}
@@ -408,7 +408,7 @@ func dispatchedPerPool(tjs []transcodev1alpha1.TranscodeJob, profiles map[string
 // create or resume with the work that arrived, raise parallelism, suspend at
 // zero, suspend to drain a drifted pool, reshape it once stopped, or delete
 // it for recreation -- a Failed pool after a backoff. Every apply is
-// [pool.Render]'s complete declaration under squasharr-pool.
+// [pool.Render]'s complete declaration under transcode-pool.
 func (r *Reconciler) pools(ctx context.Context, stored map[string]*batchv1.Job,
 	profiles map[string]*transcodev1alpha1.TranscodeProfile, dispatched map[pool.Key]int32,
 ) error {
@@ -434,7 +434,7 @@ func (r *Reconciler) pools(ctx context.Context, stored map[string]*batchv1.Job,
 		} else if uid := ownerProfileUID(cur); uid != k.ProfileUID {
 			// An operator's edit of its ownerReferences (see holding): not
 			// ours to apply to or delete. Its work is held, saying so.
-			log.WarnContext(ctx, "squasharr: the pool's Job is not owned by its TranscodeProfile; leaving it alone until it is deleted",
+			log.WarnContext(ctx, "transcode: the pool's Job is not owned by its TranscodeProfile; leaving it alone until it is deleted",
 				"pool", name, "profile", tp.Name, "ownerUID", uid)
 			continue
 		}
@@ -493,14 +493,14 @@ func (r *Reconciler) applyPool(ctx context.Context, k pool.Key, tp *transcodev1a
 			return r.deletePool(ctx, tp, cur, "created with a spec the apiserver will not change")
 		}
 		r.recreate[name] = true
-		log.InfoContext(ctx, "squasharr: the pool was created with a spec the apiserver will not change; draining it for recreation",
+		log.InfoContext(ctx, "transcode: the pool was created with a spec the apiserver will not change; draining it for recreation",
 			"pool", name, "parallelism", ptr.Deref(cur.Spec.Parallelism, 0), "dispatched", n, "error", err)
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("transcodejob: apply pool %s: %w", name, err)
 	}
-	log.InfoContext(ctx, "squasharr: applied pool", "pool", name, "action", poolApplyAction(cur, d, drift),
+	log.InfoContext(ctx, "transcode: applied pool", "pool", name, "action", poolApplyAction(cur, d, drift),
 		"parallelism", d.Parallelism, "suspend", d.Suspend, "dispatched", n)
 	return nil
 }
@@ -545,7 +545,7 @@ func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.Trans
 	}
 	delete(r.recreate, j.Name)
 	if !pool.Failed(j) {
-		log.InfoContext(ctx, "squasharr: deleted pool for recreation", "pool", j.Name,
+		log.InfoContext(ctx, "transcode: deleted pool for recreation", "pool", j.Name,
 			"parallelism", ptr.Deref(j.Spec.Parallelism, 0), "reason", why)
 		return nil
 	}
@@ -556,7 +556,7 @@ func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.Trans
 			why = fmt.Sprintf("%s: %s", c.Reason, c.Message)
 		}
 	}
-	log.WarnContext(ctx, "squasharr: pool failed; recreating it after a backoff", "pool", j.Name,
+	log.WarnContext(ctx, "transcode: pool failed; recreating it after a backoff", "pool", j.Name,
 		"parallelism", ptr.Deref(j.Spec.Parallelism, 0), "reason", why, "backoff", delay)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(tp, nil, corev1.EventTypeWarning, ReasonPoolFailed, "RecreatePool",
@@ -585,9 +585,9 @@ func (r *Reconciler) poolBackoffOver(name string) bool {
 	return !ok || !r.now().Time.Before(b.until)
 }
 
-// PoolJobCache is the one way squasharr's manager may cache batch/v1 Jobs
+// PoolJobCache is the one way transcode's manager may cache batch/v1 Jobs
 // (R21): the pool Jobs alone -- those in namespace, the pools' own, labelled
-// managed-by=squasharr -- rather than every Job in the cluster. The pool Job
+// managed-by=transcode -- rather than every Job in the cluster. The pool Job
 // watch (SetupWithManager) is what needs the informer; the pools are read
 // through Reader (poolJobs), never the cache.
 //
@@ -603,7 +603,7 @@ func PoolJobCache(namespace string) cache.ByObject {
 	return b
 }
 
-// isPoolJob passes the Jobs squasharr's pools are.
+// isPoolJob passes the Jobs transcode's pools are.
 func isPoolJob(o client.Object) bool {
 	l := o.GetLabels()
 	_, ok := l[pool.LabelProfile]

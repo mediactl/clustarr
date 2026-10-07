@@ -108,7 +108,7 @@ func TestLoadBundleFailsOnlyWhenTheDirectoryCannotBeRead(t *testing.T) {
 }
 
 // TestObjectName pins the IndexerDefinition name a bundled definition gets:
-// hack/sync-cardigann's manifests and indexarr's bundle loader both name
+// hack/sync-cardigann's manifests and index's bundle loader both name
 // objects through it, so they converge on one object per definition.
 func TestObjectName(t *testing.T) {
 	for in, want := range map[string]string{

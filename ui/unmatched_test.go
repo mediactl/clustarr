@@ -56,7 +56,7 @@ func TestUnmatchedPageRendersWithoutACluster(t *testing.T) {
 // data-reason and data-candidates attributes ruling R8 requires tests to
 // assert against instead of visible copy. This task's Unmatched page is
 // read-only (G3-4 adds the manual-assign action once G2-4 lands it in
-// importarr), so there is deliberately no action form to assert on here.
+// import), so there is deliberately no action form to assert on here.
 func TestUnmatchedPageRendersEntriesWithDataAttributes(t *testing.T) {
 	entry := projection.UnmatchedEntry{
 		ScanRef:    types.NamespacedName{Namespace: "default", Name: "movies-scan-abc12"},

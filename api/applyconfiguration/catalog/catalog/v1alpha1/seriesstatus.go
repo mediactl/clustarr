@@ -63,7 +63,7 @@ type SeriesStatusApplyConfiguration struct {
 	DownloadingEpisodeCount *int32 `json:"downloadingEpisodeCount,omitempty"`
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
-	// under catalogarr.
+	// under catalog.
 	Downloads []DownloadEntryApplyConfiguration `json:"downloads,omitempty"`
 	// DownloadPhase is the active entry's phase, "" when none: a print column
 	// and a selectable field (ADR-0019 §6.2).
@@ -76,7 +76,7 @@ type SeriesStatusApplyConfiguration struct {
 	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
 	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
 	// each naming the episodes it covers (ADR-0019 §6.2), written under
-	// catalogarr-grab.
+	// catalog-grab.
 	PendingGrabs []PendingGrabApplyConfiguration `json:"pendingGrabs,omitempty"`
 	// NextAiring is when the next episode airs.
 	NextAiring *metav1.Time `json:"nextAiring,omitempty"`
@@ -88,7 +88,7 @@ type SeriesStatusApplyConfiguration struct {
 	// Written by the metadata gateway.
 	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
 	// Overlay is the rating-badge overlay rendered onto the poster. Written
-	// by the renderer under k8s.ManagerCatalogarrArtwork.
+	// by the renderer under k8s.ManagerCatalogArtwork.
 	Overlay *OverlayEntryApplyConfiguration `json:"overlay,omitempty"`
 }
 

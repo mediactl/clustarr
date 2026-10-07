@@ -206,7 +206,7 @@ func (f *FlareSolverr) RoundTrip(req *http.Request) (*http.Response, error) {
 // solve asks FlareSolverr for a clearance for req's host, unless another
 // request solved it while this one waited.
 func (f *FlareSolverr) solve(req *http.Request, body []byte, key string, seen Clearance) error {
-	ctx, span := tracing.Start(req.Context(), "indexarr.proxy.flaresolverr")
+	ctx, span := tracing.Start(req.Context(), "index.proxy.flaresolverr")
 	defer span.End()
 
 	f.solveMu.Lock()

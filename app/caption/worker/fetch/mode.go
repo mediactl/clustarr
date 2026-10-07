@@ -32,7 +32,7 @@ import (
 
 // sidecarModeFor is the file mode a sidecar beside mf's video is written
 // with: spec.permissions.fileMode of the RootFolder the video lies under --
-// the mode importarr gave the video itself, so a media server that can read
+// the mode import gave the video itself, so a media server that can read
 // the one can read the other -- else [Worker.SidecarMode], else
 // [DefaultSidecarMode]. Until gap-fix X11b every sidecar was written 0664
 // whatever the root folder said.

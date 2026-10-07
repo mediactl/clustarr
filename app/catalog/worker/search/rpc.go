@@ -29,14 +29,14 @@ import (
 )
 
 // noRespondersRetryAfter is how long the worker waits before asking again
-// when nothing is serving clustarr.rpc.indexarr.search. It is short because
-// the usual cause is a rolling restart of indexarr, and long enough that a
-// full search backlog does not hammer the subject while indexarr is down or,
+// when nothing is serving clustarr.rpc.index.search. It is short because
+// the usual cause is a rolling restart of index, and long enough that a
+// full search backlog does not hammer the subject while index is down or,
 // before Phase D, not built at all.
 const noRespondersRetryAfter = 15 * time.Second
 
-// SearchRPC is the federated-search half of clustarr.rpc.indexarr.search that
-// this package depends on. indexarr (Phase D) MUST serve that subject with
+// SearchRPC is the federated-search half of clustarr.rpc.index.search that
+// this package depends on. index (Phase D) MUST serve that subject with
 // exactly schema.SearchRequest -> schema.SearchResponse, already pinned in
 // pkg/events/schema/index.go; this package adds no new payload type, only
 // this narrow client interface plus a fake for tests.
@@ -47,18 +47,18 @@ type SearchRPC interface {
 type busSearchRPC struct{ r events.Requester }
 
 // NewBusSearchRPC wraps a bus's request/reply half as a SearchRPC. Spec §5:
-// "micro, queue group indexarr, single reply at min(deadline, 45s)" --
+// "micro, queue group index, single reply at min(deadline, 45s)" --
 // events.Requester.Request already implements the single-reply semantics, so
 // this wrapper honours the request's own deadline and translates
-// events.ErrNoResponders (indexarr is down, or not built yet) into a
+// events.ErrNoResponders (index is down, or not built yet) into a
 // retryable error instead of a hard failure, per §8.8's worker error
 // handling. Everything else is returned verbatim so the subscription's own
 // backoff schedule applies.
 func NewBusSearchRPC(r events.Requester) SearchRPC { return &busSearchRPC{r: r} }
 
 // Search sends req and waits for the single reply for at most
-// req.DeadlineMillis. The deadline is advertised to indexarr as "how long the
-// caller will wait" (schema.SearchRequest), and indexarr budgets its fan-out
+// req.DeadlineMillis. The deadline is advertised to index as "how long the
+// caller will wait" (schema.SearchRequest), and index budgets its fan-out
 // to reply inside it; bounding the wait here is what makes the advertisement
 // true. Without it the only bound was whatever the transport defaulted to --
 // natsbus' DefaultRequestTimeout, or none at all on a transport without one
@@ -105,8 +105,8 @@ func (f *FakeSearchRPC) Search(_ context.Context, req schema.SearchRequest) (sch
 	return f.Response, nil
 }
 
-// IndexQuery is the release-index half of clustarr.rpc.indexarr.query: a
-// query of indexarr's local index of every release its indexers' RSS feeds
+// IndexQuery is the release-index half of clustarr.rpc.index.query: a
+// query of index's local index of every release its indexers' RSS feeds
 // delivered, costing no indexer query (app/catalog/controller/search's
 // QueryRPC is the same contract, for Search objects in query mode).
 type IndexQuery interface {

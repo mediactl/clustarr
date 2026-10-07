@@ -95,10 +95,10 @@ spec:
               MediaFileSpec defines the desired state of MediaFile.
 
               MediaFile is the one exception to the single-writer rule, and the split is
-              spec versus status: importarr creates the resource and owns this spec --
+              spec versus status: import creates the resource and owns this spec --
               the observed path, size and fingerprint, plus the quality, revision,
               formatScore, matchedFormats and releaseType frozen at import -- while
-              catalogarr owns all of MediaFileStatus, plus metadata.labels, and takes
+              catalog owns all of MediaFileStatus, plus metadata.labels, and takes
               over sizeBytes, modTime and original once it incorporates a transcode
               swap -- and path as well when the transcode landed under a new name and
               the source is gone (a container change or an explicit outputPath). Both
@@ -232,9 +232,9 @@ spec:
                 type: boolean
               path:
                 description: |-
-                  Path is the file's absolute path. importarr sets it at import; it
-                  changes only when catalogarr swaps in a transcode written under a new
-                  name, and catalogarr then owns it.
+                  Path is the file's absolute path. import sets it at import; it
+                  changes only when catalog swaps in a transcode written under a new
+                  name, and catalog then owns it.
                 maxLength: 4096
                 type: string
               profileHash:
@@ -342,7 +342,7 @@ spec:
           status:
             description: |-
               MediaFileStatus is written by one remediation loop in the manager, under
-              field manager catalogarr (ADR-0016). Until F3.1 the MediaFile reconciler
+              field manager catalog (ADR-0016). Until F3.1 the MediaFile reconciler
               still writes it through knownStatus.
             properties:
               conditions:
@@ -619,10 +619,10 @@ spec:
                 type: object
               graftTag:
                 description: |-
-                  GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+                  GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalog
                   incorporated into this file (anime dual-audio spec §7.2), and
                   GraftedAt when. A graft is not a transcode: spec.original stays as it
-                  was, but from the first graft catalogarr owns spec.path, sizeBytes and
+                  was, but from the first graft catalog owns spec.path, sizeBytes and
                   modTime, as after a transcode swap.
                 maxLength: 64
                 type: string
@@ -656,8 +656,8 @@ spec:
               markers:
                 description: |-
                   Markers are the skip segments TheIntroDB publishes for this file,
-                  fetched by catalogarr's marker worker (field manager
-                  catalogarr-markers) with the probe's duration, and seeded into Plex
+                  fetched by catalog's marker worker (field manager
+                  catalog-markers) with the probe's duration, and seeded into Plex
                   by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
                 properties:
                   analysis:
@@ -980,14 +980,14 @@ spec:
                   transcodeProfile:
                     description: |-
                       TranscodeProfile is the file's CLUSTARR_PROFILE container tag,
-                      "<profile>@<hash>", which squasharr stamps into every file it writes
+                      "<profile>@<hash>", which transcode stamps into every file it writes
                       (pkg/transcode.Args). Empty when the file carries no such tag. Read
                       case-insensitively, because a container may change a tag key's case.
                       A file that carries it was transcoded -- by this install or an earlier
                       one -- and a transcoded file is final: its item reads Transcoded and is
                       never upgraded automatically (app/catalog/controller/rollup.Transcoded).
                       The bound is a TranscodeProfile name (253) plus "@" and a SHA-256 hex
-                      hash (64); pkg/mediainfo drops a longer value, which no squasharr wrote.
+                      hash (64); pkg/mediainfo drops a longer value, which no transcode wrote.
                     maxLength: 320
                     type: string
                   videoBitDepth:
@@ -1027,8 +1027,8 @@ spec:
               naming:
                 description: |-
                   Naming is the file's canonical path under its RootFolder's naming
-                  preset, rendered by catalogarr from the item's metadata, the
-                  release-time spec and the probe; importarr performs the rename.
+                  preset, rendered by catalog from the item's metadata, the
+                  release-time spec and the probe; import performs the rename.
                 properties:
                   current:
                     description: Current is true when spec.path equals expectedPath.
@@ -1041,7 +1041,7 @@ spec:
                     type: string
                   quality:
                     description: |-
-                      Quality is the probe-corrected quality importarr re-applies into
+                      Quality is the probe-corrected quality import re-applies into
                       spec.quality when it renames.
                     properties:
                       modifier:
@@ -1118,7 +1118,7 @@ spec:
                   ProbeVersion is the version of the probe that last described the
                   file (pkg/mediainfo.ProbeVersion). A file probed by an older version
                   is probed again, with probeHash unchanged: the hash is the file's
-                  identity to captionarr and squasharr, and its bytes did not change.
+                  identity to caption and transcode, and its bytes did not change.
                   Zero is a file probed before versions existed.
                 format: int32
                 minimum: 0

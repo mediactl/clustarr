@@ -144,7 +144,7 @@ func newFakeClient(objs ...client.Object) client.Client {
 
 func TestFanoutBudget(t *testing.T) {
 	// The shipped caller always sends 45000 and sets NO context deadline, so
-	// the real outer bound is its consumer's AckWait: indexarr owns this.
+	// the real outer bound is its consumer's AckWait: index owns this.
 	require.Equal(t, 43*time.Second, fanoutBudget(schema.SearchRequest{DeadlineMillis: 45000}))
 	require.Equal(t, 43*time.Second, fanoutBudget(schema.SearchRequest{}))
 	require.Equal(t, 8*time.Second, fanoutBudget(schema.SearchRequest{DeadlineMillis: 10000}))
@@ -292,8 +292,8 @@ func TestCapOutcomes(t *testing.T) {
 }
 
 // The two constants describe the same limit from opposite ends of one RPC.
-// This is a TEST-ONLY import of the caller: production code in indexarr must
-// never import catalogarr.
+// This is a TEST-ONLY import of the caller: production code in the index
+// domain must never import the catalog domain.
 func TestOutcomeCapMatchesTheCaller(t *testing.T) {
 	require.Equal(t, searchworker.MaxIndexerOutcomes, maxOutcomes)
 }

@@ -174,7 +174,7 @@ type QualityProfileSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="builtIn is immutable"
 	BuiltIn bool `json:"builtIn"`
 
-	// SeedHash is a built-in's seed content hash, which only catalogarr's
+	// SeedHash is a built-in's seed content hash, which only catalog's
 	// seeder writes: a built-in changes only along with it, so the seeder
 	// updates a built-in in place when its seed moves on -- deleting and
 	// recreating it read every item on it as "profile unresolved" for a

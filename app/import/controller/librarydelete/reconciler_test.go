@@ -192,7 +192,7 @@ func TestTheExclusionIsCreatedOnce(t *testing.T) {
 	assert.Len(t, list.Items, 1)
 }
 
-// Only a new or renewed request passes -- never importarr's own
+// Only a new or renewed request passes -- never import's own
 // delete-error write, which would loop a refusal forever.
 func TestDeleteRequestedPredicate(t *testing.T) {
 	p := deleteRequested()
@@ -205,7 +205,7 @@ func TestDeleteRequestedPredicate(t *testing.T) {
 	assert.False(t, p.Create(event.CreateEvent{Object: with(refused)}), "refused before a restart")
 	assert.False(t, p.Create(event.CreateEvent{Object: with(nil)}))
 	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: with(nil), ObjectNew: with(req)}), "a new request")
-	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: with(req), ObjectNew: with(refused)}), "importarr's own write")
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: with(req), ObjectNew: with(refused)}), "import's own write")
 	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: with(refused), ObjectNew: with(req)}), "Retry clears the error")
 	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: with(req), ObjectNew: with(req)}))
 }

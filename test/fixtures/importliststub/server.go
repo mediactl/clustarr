@@ -23,12 +23,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // and their existing recorded fixtures under test/data/importlist/ -- see
 // each provider's doc comment for the exact source read.
 //
-// # How a deployed importarr reaches it
+// # How a deployed import reaches it
 //
-// Trakt and Plex are reached through importarr's --trakt-base-url and
+// Trakt and Plex are reached through import's --trakt-base-url and
 // --plex-base-url (cmd/clustarr; $CLUSTARR_TRAKT_BASE_URL and
-// $CLUSTARR_PLEX_BASE_URL), which config/e2e/importarr-e2e-patch.yaml
-// points at this Service on both importarr Deployments: the controller
+// $CLUSTARR_PLEX_BASE_URL), which config/e2e/import-e2e-patch.yaml
+// points at this Service on both import Deployments: the controller
 // drives the Trakt device-code flow (Reconciler.TraktBaseURL) and the worker
 // runs the syncs and the token refresh (BuildProvider's ProviderOptions), so
 // both name the same host. Until task X14 neither flag existed, and

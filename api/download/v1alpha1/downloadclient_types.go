@@ -296,7 +296,7 @@ type NNTPProvider struct {
 	// SecretRef names a Secret in the same namespace holding the provider
 	// credentials. Recognised keys: username, password. The engine reads it
 	// at start, so a change to its data restarts the engine at the
-	// controller's next periodic reconcile, within five minutes. grabarr
+	// controller's next periodic reconcile, within five minutes. grab
 	// reads the Secret by name and does not watch Secrets, which would take
 	// list and watch on every Secret in its scope.
 	// +required
@@ -501,7 +501,7 @@ type DownloadClientSpec struct {
 	// +kubebuilder:default=true
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// Priority orders clients of the same protocol when grabarr picks one for a
+	// Priority orders clients of the same protocol when grab picks one for a
 	// Download; lower wins.
 	// +optional
 	// +kubebuilder:default=1
@@ -617,7 +617,7 @@ type DownloadClientStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
-// DownloadClient is a torrent or usenet download engine managed by grabarr.
+// DownloadClient is a torrent or usenet download engine managed by grab.
 // The controller owns a StatefulSet of spec.replicas engine pods; Downloads
 // are assigned to this client and pinned to one of its ordinals.
 //

@@ -64,12 +64,12 @@ func startEnvtest(t *testing.T) *rest.Config {
 // manager.RunnableFunc. That type has no NeedLeaderElection method, so
 // controller-runtime's runnables.Add falls through its type switch to
 // `default: r.LeaderElection.Add(...)` and puts it behind the lease. Both
-// catalogarr and importarr run with --leader-elect, so on a non-leader replica
+// catalog and import run with --leader-elect, so on a non-leader replica
 // the runnable never started, `synced` never flipped and /readyz failed
 // FOREVER. With the chart's default RollingUpdate at replicas 1 (maxSurge 1,
 // maxUnavailable 0) the surge pod can never go Ready while the outgoing pod
 // holds the lease, and the outgoing pod is never terminated -- so every
-// catalogarr and importarr rollout deadlocks.
+// catalog and import rollout deadlocks.
 //
 // The existing coverage could not see it: cmd/clustarr's start-up envtest sets
 // LeaderElect = false, which puts every runnable in the same group and makes

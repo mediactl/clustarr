@@ -321,7 +321,7 @@ func hints(h release.Hints) map[string][]string {
 
 // knownFlags is the enum ReleaseInfo.IndexerFlags declares. A tag outside it
 // is dropped: the apiserver rejects the whole object otherwise, and it would
-// do so at grab time, in grabarr, not here.
+// do so at grab time, in grab, not here.
 var knownFlags = map[string]string{
 	"freeleech":    commonv1.IndexerFlagFreeleech,
 	"halfleech":    commonv1.IndexerFlagHalfleech,

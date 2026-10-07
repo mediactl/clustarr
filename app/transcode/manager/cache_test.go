@@ -28,8 +28,8 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 )
 
-// R21: squasharr's manager caches the pool Jobs -- in the namespace the pools
-// are created in, labelled managed-by=squasharr -- and no other Job in the
+// R21: transcode's manager caches the pool Jobs -- in the namespace the pools
+// are created in, labelled managed-by=transcode -- and no other Job in the
 // cluster.
 func TestTheManagerCachesOnlyThePoolJobs(t *testing.T) {
 	o := DefaultOptions()

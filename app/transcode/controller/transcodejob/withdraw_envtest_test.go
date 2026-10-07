@@ -283,7 +283,7 @@ func TestSweepPurgesTasksOfDeletedJobs(t *testing.T) {
 // garbage collection takes a deleted profile's pool Jobs, and nothing else
 // ever removed the durable. The sweep deletes every pool durable whose
 // profile UID no longer exists -- every class's -- and keeps an existing
-// profile's, and squasharr-transcode-results, which shares the prefix.
+// profile's, and the shipped transcode-results.
 func TestSweepDeletesTheDurablesOfDeletedProfiles(t *testing.T) {
 	_, c := startEnv(t)
 	gone := newProfile(t, c, "hevc", "hash1", nil)

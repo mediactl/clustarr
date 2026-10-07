@@ -68,7 +68,7 @@ const pollInterval = 2 * time.Second
 
 // scanCompletedTimeout is DERIVED, not chosen. Do not round it down.
 //
-// A LibraryScan completes when importarr's rescan worker acks the scan task,
+// A LibraryScan completes when import's rescan worker acks the scan task,
 // so the wait has to cover ConsumerImportScan's redelivery ladder
 // (pkg/events/topology.go: AckWait 60s, MaxDeliver 4, BackOff 30s/2m/10m),
 // not just the walk. A missed ack is ordinary on a single kind node running
@@ -146,7 +146,7 @@ var (
 // sampleClip returns the clip hack/e2e.sh seeds to
 // <dataDir>/.e2e-fixtures/tiny.mkv via `clustarr-e2e-fixtures seed`. Every
 // planted file that is meant to BECOME a MediaFile is a copy of these bytes,
-// so catalogarr's MediaFile controller probes real container and stream data
+// so catalog's MediaFile controller probes real container and stream data
 // with real ffprobe, never a mock.
 func sampleClip(t *testing.T) []byte {
 	t.Helper()
@@ -311,7 +311,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
 // LibraryScan controller refuses to dispatch a scan until it is), and
 // registers cleanup of both the object and the directory.
 //
-// defaults.qualityProfileRef is always set: importarr's rescan worker
+// defaults.qualityProfileRef is always set: import's rescan worker
 // reports CodeNoQualityProfile instead of creating a Movie when the root
 // folder names none, so a RootFolder without one can never discover
 // anything.
@@ -528,7 +528,7 @@ func portForwardService(ctx context.Context, t *testing.T, name string, remotePo
 // against a Service on the same node. It races no redelivery ladder at all --
 // the reconcile is a watch-driven controller-runtime reconcile, not a queue
 // task -- so the only things to cover are the fixture pod's own readiness
-// (probe period 5s, up to a few periods on a loaded node), indexarr's
+// (probe period 5s, up to a few periods on a loaded node), index's
 // per-request Timeout (Indexer.spec.timeout, default 30s) and a
 // controller-runtime rate-limited requeue after a first failure (the default
 // workqueue starts at 5ms and doubles, so two failures cost milliseconds, not
@@ -555,8 +555,8 @@ const indexerReadyTimeout = 2 * time.Minute
 // controller has already given a verdict on.
 const searchCompletedTimeout = 6 * time.Minute
 
-// firehoseTimeout covers a release travelling indexarr's RSS poll ->
-// CLUSTARR_RELEASES -> catalogarr's rss-matcher -> a status write. It races
+// firehoseTimeout covers a release travelling index's RSS poll ->
+// CLUSTARR_RELEASES -> catalog's rss-matcher -> a status write. It races
 // TWO ladders in series.
 //
 // ConsumerIndexRSS (AckWait 60s, Heartbeat 30s, MaxDeliver 4, BackOff
@@ -594,8 +594,8 @@ const firehoseTimeout = 7 * time.Minute
 // poll that is ~320s. Six minutes sits past it and short of that consumer's
 // third delivery at 480s.
 //
-// It does NOT include indexarr's startup grace; see
-// requireIndexarrEscalationObservable, which waits that out separately and
+// It does NOT include index's startup grace; see
+// requireIndexEscalationObservable, which waits that out separately and
 // says so.
 const escalationTimeout = 6 * time.Minute
 
@@ -616,7 +616,7 @@ func torznabRequestLogPath() string {
 }
 
 // readTorznabRequests returns every request the fixture indexer logged at or
-// after t0. It is the ONLY way this suite can observe what indexarr asked the
+// after t0. It is the ONLY way this suite can observe what index asked the
 // indexer: the test process cannot reach a ClusterIP Service, so the fixture
 // writes onto the shared /data volume instead.
 //
@@ -661,7 +661,7 @@ func readTorznabRequests(t0 time.Time) ([]torznabstub.Entry, error) {
 }
 
 // torznabRequestsSince is readTorznabRequests for an assertion: a log this
-// suite cannot read at all is a harness failure, not a verdict about indexarr.
+// suite cannot read at all is a harness failure, not a verdict about index.
 func torznabRequestsSince(t *testing.T, t0 time.Time) []torznabstub.Entry {
 	t.Helper()
 	es, err := readTorznabRequests(t0)
@@ -700,7 +700,7 @@ func describeTorznabRequests(t0 time.Time) func() string {
 		}
 		if len(es) == 0 {
 			return "the fixture indexer logged NO request since this scenario started " +
-				"-- indexarr never contacted it (check the indexarr logs and the Indexer's conditions)"
+				"-- index never contacted it (check the index logs and the Indexer's conditions)"
 		}
 		out := fmt.Sprintf("fixture indexer saw %d request(s) since this scenario started:", len(es))
 		for _, e := range es {
@@ -1018,7 +1018,7 @@ func runSearch(ctx context.Context, t *testing.T, m *catalogv1alpha1.Movie, inde
 }
 
 // ---------------------------------------------------------------------------
-// D2-10 (scenarios 1 through import, 2, 3, 4, 6): grabarr's DownloadClient/
+// D2-10 (scenarios 1 through import, 2, 3, 4, 6): grab's DownloadClient/
 // Download controllers and the torrent/usenet engines, against
 // test/fixtures/seeder and test/fixtures/nntpstub.
 // ---------------------------------------------------------------------------
@@ -1093,7 +1093,7 @@ const (
 	downloadCompleteTimeout = 6 * time.Minute
 
 	// importAttemptTimeout bounds waitForImportOutcome's poll for
-	// status.import to reach a terminal state. grabarr's own publish
+	// status.import to reach a terminal state. grab's own publish
 	// happens on the SAME reconcile that first observes completion, so by
 	// the time a caller reaches this wait -- after waitForDownloadPhase
 	// AtLeast(Completed) already returned -- the publish has very likely
@@ -1107,7 +1107,7 @@ const (
 // transfer calls this FIRST, before creating any DownloadClient or Download:
 // without it, a DownloadClient would sit at EngineReady=False (or a Download
 // would sit Assigned/Queued) for the scenario's entire timeout, and the
-// failure message would point at grabarr when the actual gap is a missing
+// failure message would point at grab when the actual gap is a missing
 // fixture Deployment nobody has wired into config/e2e yet -- see this
 // section's own doc comment above.
 func requireFixtureService(ctx context.Context, t *testing.T, svcName string) {
@@ -1119,7 +1119,7 @@ func requireFixtureService(ctx context.Context, t *testing.T, svcName string) {
 	}
 	if apierrors.IsNotFound(err) {
 		t.Skipf("fixture Service %s/%s does not exist: config/e2e does not yet deploy it "+
-			"(no task in docs/superpowers/plans/2026-09-22-phase-d2-grabarr.md adds this manifest; "+
+			"(no task in docs/superpowers/plans/2026-09-22-phase-d2-grab.md adds this manifest; "+
 			"see test/fixtures/seeder and test/fixtures/nntpstub for the binary it would front, and "+
 			"this file's own package-level doc comment for the exact flags it needs) -- skipping "+
 			"rather than waiting out a timeout no fixture can ever answer", Namespace, svcName)
@@ -1128,7 +1128,7 @@ func requireFixtureService(ctx context.Context, t *testing.T, svcName string) {
 }
 
 // newTorrentDownloadClientE2E creates a real, enabled torrent DownloadClient
-// and waits for grabarr's DownloadClient controller to report EngineReady --
+// and waits for grab's DownloadClient controller to report EngineReady --
 // which requires an actual engine StatefulSet Pod to start and finish
 // re-attach (R4), not merely the object existing.
 func newTorrentDownloadClientE2E(ctx context.Context, t *testing.T, prefix string) *downloadv1alpha1.DownloadClient {
@@ -1418,7 +1418,7 @@ func patchDownloadLabel(ctx context.Context, t *testing.T, dl *downloadv1alpha1.
 // bytes (test/fixtures/seed.BakedClipPath, copied verbatim -- see
 // seeder.ContentName's doc comment) under a real movie-release name, so
 // release.ParsePath succeeds, config/e2e/quality-profile.yaml's "e2e-any"
-// profile admits the parsed Bluray-1080p quality, and catalogarr's
+// profile admits the parsed Bluray-1080p quality, and catalog's
 // MediaFile controller can genuinely ffprobe the result afterwards.
 //
 // The quality/revision choice is deliberate, not incidental: SAME
@@ -1465,8 +1465,8 @@ func waitForImportOutcome(ctx context.Context, t *testing.T, dl *downloadv1alpha
 		}
 	})
 	require.NoErrorf(t, err, "Download %s/%s: status.import never reached a terminal state within %s -- either "+
-		"app/import/worker/fileimport.Worker is not wired into importarr-worker's RoleWorker setup, or "+
-		"grabarr's own completion publish is unreachable because its controllers/engines are not registered "+
+		"app/import/worker/fileimport.Worker is not wired into import-worker's RoleWorker setup, or "+
+		"grab's own completion publish is unreachable because its controllers/engines are not registered "+
 		"(both task D2-8), or something else entirely blocked the handoff.\n%s",
 		dl.Namespace, dl.Name, timeout, describeDownload(client.ObjectKeyFromObject(dl))())
 
@@ -1617,18 +1617,18 @@ func deploymentTraceIDsSince(ctx context.Context, t *testing.T, deployment strin
 // sharedTraceID returns one trace_id present in every one of deployments'
 // log sets since t0, or "" if none is. Scenario 1's Phase H text
 // (remaining-work.md) asks for "one trace_id appears in the logs of
-// catalogarr, indexarr, grabarr and importarr for the same grab" -- this
+// catalog, index, grab and import for the same grab" -- this
 // suite's download-path scenarios create their Download directly rather
 // than through a real Search-driven grab decision (newTorrentDownloadE2E's
 // own doc comment explains why: the fixture indexer's canned releases do
 // not point at test/fixtures/seeder, so there is no real grab to drive
-// instead), which means catalogarr's own search/grab worker and indexarr
+// instead), which means catalog's own search/grab worker and index
 // are never reached by that flow at all -- there is structurally no trace
 // to find in either service's logs for THIS grab. What the direct-create
 // flow DOES exercise for real is the bus hop pkg/events' hooks propagate
 // through (CLAUDE.md: "propagation rides the Clustarr-Trace header"):
-// grabarr's Download controller publishing an ImportTask on completion,
-// and importarr-worker's fileimport worker consuming it and creating the
+// grab's Download controller publishing an ImportTask on completion,
+// and import-worker's fileimport worker consuming it and creating the
 // MediaFile -- see TestDownloadScenario1TranscodeLeg's own call for
 // exactly which two Deployments it checks and why, honestly, not the four
 // the spec text names.

@@ -15,8 +15,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package rescan is importarr's library-rescan work consumer: the
-// clustarr.work.importarr.scan.* handler that walks a RootFolder, classifies
+// Package rescan is import's library-rescan work consumer: the
+// clustarr.work.import.scan.* handler that walks a RootFolder, classifies
 // what it finds, attributes each media file to a catalog item, and records it
 // as a MediaFile -- creating the Movie for a movie file that carries a
 // provider id (amendment §A1.3, §A1.5, §A1.6; §16 M1, M6).
@@ -146,23 +146,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # The status split
 //
-// This worker writes MediaFileSpec, under the manager importarr's file-import
-// worker also uses (importarr-worker): the observed path, size and mtime,
+// This worker writes MediaFileSpec, under the manager import's file-import
+// worker also uses (import-worker): the observed path, size and mtime,
 // plus the quality, revision, release type, release group, edition and
 // languages frozen at import (spec §8.4). It never writes
-// MediaFileStatus, which catalogarr owns in full and populates by probing
+// MediaFileStatus, which catalog owns in full and populates by probing
 // (spec §8.5), and it never re-applies a MediaFile whose spec.original is
-// already false -- catalogarr has taken spec.sizeBytes, spec.modTime and
+// already false -- catalog has taken spec.sizeBytes, spec.modTime and
 // spec.original over after a transcode swap, and k8s.Apply's force-ownership
 // would silently reclaim them. When such a file's bytes have changed on disk
-// it tells catalogarr instead, with one annotation
-// ([AnnotationObservedFingerprint]) under k8s.ManagerImportarr, which owns
+// it tells catalog instead, with one annotation
+// ([AnnotationObservedFingerprint]) under k8s.ManagerImport, which owns
 // nothing else on a MediaFile. And every apply to an existing MediaFile
 // carries the resourceVersion the walk read, so a takeover landing between
 // the read and the write is refused rather than reverted (handleMediaFile).
 // Every spec write is made under [FieldManager], which is
-// k8s.ManagerImportarrWorker -- see that constant's doc comment for why this
-// worker does not share importarr's controller manager name even though it
+// k8s.ManagerImportWorker -- see that constant's doc comment for why this
+// worker does not share import's controller manager name even though it
 // runs in the same process.
 //
 // A scanned movie file is scored against its movie's QualityProfile, as an
@@ -189,7 +189,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //	spec, ok := o.BusTopology().Consumer(events.ConsumerImportScan)
 //	if !ok {
-//	        return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
+//	        return fmt.Errorf("import: consumer %s missing from topology", events.ConsumerImportScan)
 //	}
 //	worker := rescan.NewWorker(mgr.GetClient(), bus, prober) // the domain's one mediainfo.Prober
 //	worker.APIReader = mgr.GetAPIReader() // the rename pass's uncached reader
@@ -201,7 +201,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 //	        stop, err := bus.Subscribe(ctx, spec.Subscription(), worker.Handle)
 //	        if err != nil {
-//	                return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportScan, err)
+//	                return fmt.Errorf("import: subscribe %s: %w", events.ConsumerImportScan, err)
 //	        }
 //	        <-ctx.Done()
 //	        stop()
@@ -216,7 +216,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Non-video attribution needs no new registration, but the walk now lists
 // Artists, Albums, Authors, Books, Audiobooks, Comics and Issues, and reads
-// QualityProfiles, through the manager's cache, so importarr's role needs
+// QualityProfiles, through the manager's cache, so import's role needs
 // get/list/watch on them: the package-level +kubebuilder:rbac marker in
 // worker.go says so, and takes effect at the next `make manifests` plus
 // chart sync.

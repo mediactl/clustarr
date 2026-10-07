@@ -36,7 +36,7 @@ type DownloadClientSpecApplyConfiguration struct {
 	// Enabled turns the client off without deleting it. A disabled client keeps
 	// its engine running for in-flight work but is not assigned new Downloads.
 	Enabled *bool `json:"enabled,omitempty"`
-	// Priority orders clients of the same protocol when grabarr picks one for a
+	// Priority orders clients of the same protocol when grab picks one for a
 	// Download; lower wins.
 	Priority *int32 `json:"priority,omitempty"`
 	// Replicas is the number of engine shards, backing a StatefulSet owned by

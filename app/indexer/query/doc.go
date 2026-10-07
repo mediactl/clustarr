@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package query serves clustarr.rpc.indexarr.query: a direct read of the
+// Package query serves clustarr.rpc.index.query: a direct read of the
 // local release index.
 //
 // # Local index only

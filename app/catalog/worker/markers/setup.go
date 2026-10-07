@@ -32,7 +32,7 @@ type Options struct {
 	Writer string // the pod's name, stamped on every answer (POD_NAME)
 }
 
-// Setup subscribes the catalogarr-markers durable to a Handler asking
+// Setup subscribes the catalog-markers durable to a Handler asking
 // providers, the metadata gateway's registry's Markers. The gateway calls
 // it once it has built the registry (catalogmetadata.Options.Markers).
 func Setup(ctx context.Context, o Options, providers []metadata.MarkersProvider) (stop func(), err error) {

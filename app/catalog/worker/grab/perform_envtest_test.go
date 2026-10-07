@@ -46,7 +46,7 @@ var testNow = time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 // deterministically named Download, owned by the target, whose spec.source is
 // exactly grabsource.ResolveSource's -- the mapping the Search controller's
 // interactive grabs use too. The grab writes no status.phase, which is the
-// Movie reconciler's under k8s.ManagerCatalogarr, and no
+// Movie reconciler's under k8s.ManagerCatalog, and no
 // status.activeDownloadRef, which ruling R-5 gives to that reconciler alone.
 func TestPerformGrab_CreatesDownloadAndPatchesStatus(t *testing.T) {
 	ctx := context.Background()
@@ -133,7 +133,7 @@ func TestPerformGrab_NeverWritesActiveDownloadRef(t *testing.T) {
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
 	assert.Nil(t, got.Status.PendingGrab, "the grab consumed the pending candidate")
 	assert.NotContains(t, managerStatusFields(&got, k8s.ManagerCatalogGrab), "activeDownloadRef",
-		"k8s.ManagerCatalogarrGrab still owns status.activeDownloadRef after a grab; R-5 gives it to the reconciler alone")
+		"k8s.ManagerCatalogGrab still owns status.activeDownloadRef after a grab; R-5 gives it to the reconciler alone")
 }
 
 // TestPerformGrab_DuplicateIsAckAndStop proves §8.2's "on exists -> ack and
@@ -249,7 +249,7 @@ func TestPerformGrab_FinishedDownloadAndItsLeaseDoNotBlockTheNextGrab(t *testing
 	err := grab.PerformGrabForTest(ctx, deps, ns, target, nil, second, downloadv1alpha1.GrabSourceSearch)
 	require.ErrorIs(t, err, grab.ErrDuplicateGrab)
 
-	// grabarr fails it. Its lease is still in the bucket.
+	// grab fails it. Its lease is still in the bucket.
 	setDownloadPhase(t, ctx, c, ns, firstName, downloadv1alpha1.DownloadPhaseFailed)
 	require.NoError(t, grab.PerformGrabForTest(ctx, deps, ns, target, nil, second, downloadv1alpha1.GrabSourceSearch),
 		"a failed Download's lease must not block the next grab of the item")
@@ -267,7 +267,7 @@ func TestPerformGrab_FinishedDownloadAndItsLeaseDoNotBlockTheNextGrab(t *testing
 // Download and then failed -- to clear pendingGrab, or to publish
 // release.grabbed -- is redelivered; the lease it took names its own
 // Download. That lease used to be refused like anyone else's, so the retry
-// was acknowledged as a duplicate of itself and release.grabbed (indexarr's
+// was acknowledged as a duplicate of itself and release.grabbed (index's
 // grab accounting, the history) was never published.
 func TestPerformGrab_RedeliveryAfterThePublishFailedFinishesTheGrab(t *testing.T) {
 	ctx := context.Background()
@@ -299,10 +299,10 @@ func TestPerformGrab_RedeliveryAfterThePublishFailedFinishesTheGrab(t *testing.T
 	assert.Nil(t, got.Status.PendingGrab, "the resumed grab clears the consumed pendingGrab")
 }
 
-// TestPerformGrab_AuthenticatedIndexerRoutesThroughIndexarr covers §8.2's
+// TestPerformGrab_AuthenticatedIndexerRoutesThroughIndex covers §8.2's
 // "source (indexerDownload when the indexer is authenticated)": with no magnet
 // and an Indexer carrying a SecretRef, the engine must be told to resolve the
-// link through indexarr rather than handed a URL that will 401.
+// link through index rather than handed a URL that will 401.
 func TestPerformGrab_AuthenticatedIndexerRoutesThroughIndex(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -325,7 +325,7 @@ func TestPerformGrab_AuthenticatedIndexerRoutesThroughIndex(t *testing.T) {
 	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
 	require.Len(t, downloads.Items, 1)
 	src := downloads.Items[0].Spec.Source
-	require.NotNil(t, src.IndexerDownload, "an authenticated indexer must route through indexarr")
+	require.NotNil(t, src.IndexerDownload, "an authenticated indexer must route through index")
 	assert.Equal(t, "private-tracker", src.IndexerDownload.IndexerRef)
 	assert.Equal(t, "guid-private", src.IndexerDownload.GUID)
 	assert.Nil(t, src.TorrentURL, "exactly one source variant may be set")
@@ -358,12 +358,12 @@ func TestPerformGrab_UpperCaseInfoHashStillGrabs(t *testing.T) {
 	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", *dl.Spec.Source.ExpectedInfoHash)
 }
 
-// TestPerformGrab_UnauthenticatedIndexerAlsoRoutesThroughIndexarr: whether
+// TestPerformGrab_UnauthenticatedIndexerAlsoRoutesThroughIndex: whether
 // an Indexer has a Secret is no longer an input to the source. It used to
 // pick a direct torrentURL here, while the Search controller picked
 // indexerDownload for the same release -- and since both name the Download
 // identically and spec.source is immutable, whichever grabbed second was
-// rejected. Routing every indexer release through indexarr also keeps the
+// rejected. Routing every indexer release through index also keeps the
 // Indexer's proxy and grab accounting in the path.
 func TestPerformGrab_UnauthenticatedIndexerAlsoRoutesThroughIndex(t *testing.T) {
 	ctx := context.Background()
@@ -456,7 +456,7 @@ func TestPerformGrab_SeasonPackLeasesAndPatchesEveryEpisode(t *testing.T) {
 // field-manager split's regression cover: a grab must not disturb
 // status.metadata.
 //
-// While the grab path and the metadata gateway shared k8s.ManagerCatalogarrWorker
+// While the grab path and the metadata gateway shared k8s.ManagerCatalogWorker
 // this failed -- server-side apply replaces a manager's whole ownership set,
 // so an apply carrying only the grab's fields RELEASED the metadata the
 // gateway had written under the same name. The Movie lost its cached
@@ -493,7 +493,7 @@ func TestPerformGrab_PreservesTheGatewaysMetadata(t *testing.T) {
 // damaging direction: a metadata refresh must not disturb the grab path's
 // fields.
 //
-// While both wrote as k8s.ManagerCatalogarrWorker, one gateway refresh after a
+// While both wrote as k8s.ManagerCatalogWorker, one gateway refresh after a
 // grab deleted status.activeDownloadRef (then still a grab-path field), and a
 // refresh inside a delay window
 // deleted status.pendingGrab -- taking the item out of Phase=Delayed back to

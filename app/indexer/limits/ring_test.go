@@ -360,7 +360,7 @@ func TestGrabLimitedRecognisesOnlyTheRefusal(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, at, got)
 
-	for _, e := range []string{"", "indexarr: fetch from media/tr: EOF", "indexarr: indexer media/tr is disabled"} {
+	for _, e := range []string{"", "index: fetch from media/tr: EOF", "index: indexer media/tr is disabled"} {
 		_, ok := GrabLimited(e)
 		require.False(t, ok, e)
 	}

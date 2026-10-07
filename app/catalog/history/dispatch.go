@@ -187,7 +187,7 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 		t = itemTarget(p.Owner)
 		return t, p.Seq, DispatchSubImport(p.Entry.UID), t.KindKnown()
 	}
-	// importarr.RecycleSweepTask names no object; RecycleFilesTask names a
+	// import.RecycleSweepTask names no object; RecycleFilesTask names a
 	// RootFolder, which holds no dispatch.
 	return Target{}, 0, "", false
 }

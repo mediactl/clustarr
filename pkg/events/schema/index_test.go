@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// G1-6 closed catalogarr's ids-only gap by POPULATING SearchRequest.Text and
+// G1-6 closed catalog's ids-only gap by POPULATING SearchRequest.Text and
 // SearchRequest.Year, both of which have carried "index.SearchRequest.v1"
 // since M0 (pkg/events/schema/index.go, first added in f452f45) -- no new
 // payload version, because schema.go's own contract only demands one for an

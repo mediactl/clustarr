@@ -47,7 +47,7 @@ const (
 	outcomeNotConfigured = "not_configured"
 )
 
-// Service is the rpc.indexarr.query handler. It has exactly one dependency
+// Service is the rpc.index.query handler. It has exactly one dependency
 // and it is the local store; TestHandleMakesNoOutboundCall pins that.
 type Service struct {
 	// Store is the local release index. A nil Store answers with a
@@ -65,12 +65,12 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
-// Handle is the rpc.indexarr.query body. It reads the LOCAL INDEX ONLY. It
+// Handle is the rpc.index.query body. It reads the LOCAL INDEX ONLY. It
 // never returns an error: after a successful decode every failure is a
 // populated QueryResponse.Error, and an empty result set is a success with no
 // releases.
 func (s *Service) Handle(ctx context.Context, req schema.QueryRequest) schema.QueryResponse {
-	ctx, span := tracing.Start(ctx, "indexarr.query")
+	ctx, span := tracing.Start(ctx, "index.query")
 	defer span.End()
 	start := s.now()
 	defer func() {
@@ -98,7 +98,7 @@ func (s *Service) handle(
 ) (schema.QueryResponse, string) {
 	if s.Store == nil {
 		return schema.QueryResponse{
-			Error: "indexarr: release index is not configured",
+			Error: "index: release index is not configured",
 		}, outcomeNotConfigured
 	}
 	q, err := buildQuery(req)
@@ -118,13 +118,13 @@ func (s *Service) handle(
 		}, outcomeInvalidFilter
 	}
 
-	ctx, span := tracing.Start(ctx, "indexarr.query.store")
+	ctx, span := tracing.Start(ctx, "index.query.store")
 	rows, err := s.Store.Search(ctx, q)
 	if err != nil {
 		tracing.RecordError(span, err)
 		span.End()
 		return schema.QueryResponse{
-			Error: truncate("indexarr: query the release index: "+err.Error(), maxErrorChars),
+			Error: truncate("index: query the release index: "+err.Error(), maxErrorChars),
 		}, outcomeStoreError
 	}
 	span.End()

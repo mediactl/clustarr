@@ -98,8 +98,8 @@ func newBus(t *testing.T, ctx context.Context) events.Bus {
 
 // managerFor returns the field manager that owns the top-level "spec" or
 // "status" field on obj, or "" when nobody owns it -- coarse enough for
-// these tests, which only need to tell "importarr-worker" apart from
-// "importarr" and "catalogarr".
+// these tests, which only need to tell "import-worker" apart from
+// "import" and "catalog".
 func managerFor(entries []metav1.ManagedFieldsEntry, subresource string) string {
 	for _, e := range entries {
 		if e.Subresource == subresource {

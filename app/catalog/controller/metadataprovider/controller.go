@@ -148,7 +148,7 @@ func isAuthError(err error) bool {
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // SetupWithManager registers the MetadataProvider controller.

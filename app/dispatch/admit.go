@@ -30,7 +30,7 @@ type Decision struct {
 	// Reason is a catalogv1alpha1.DeliveryReason* value when !Admitted.
 	Reason Reason
 	// Message is what the CR's delivery.message shows, e.g. "waiting for
-	// catalogarr-search-normal: 16 in flight".
+	// catalog-search-normal: 16 in flight".
 	Message string
 	// RetryAfter is when the planner should ask again.
 	RetryAfter time.Duration

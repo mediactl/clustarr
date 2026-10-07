@@ -46,7 +46,7 @@ import (
 
 // These tests run against a REAL JetStream server, not membus. What is being
 // asserted is a property of the broker: the reconciler's seed is idempotent
-// only because CLUSTARR_WORK_INDEXARR deduplicates by msg-id for an hour and
+// only because CLUSTARR_WORK_INDEX deduplicates by msg-id for an hour and
 // a scheduled publish rolls up per subject. membus has neither, so it would
 // report a pass for a seed that in production stormed the work queue.
 
@@ -244,7 +244,7 @@ func TestADisabledThenReEnabledIndexerIsScheduledAgain(t *testing.T) {
 // Two things have to hold. rssschedule.NextPollAt must return the slot the
 // worker's own reschedule already chose, lastRssAt + rssInterval, and
 // rssschedule.TaskMsgID must quantise it so the two publishes carry ONE id that
-// CLUSTARR_WORK_INDEXARR deduplicates. The stored sequence is what says
+// CLUSTARR_WORK_INDEX deduplicates. The stored sequence is what says
 // whether a publish stored anything at all: it does not move.
 //
 // Asserting on the stream's message COUNT instead would be a false pass. A

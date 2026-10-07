@@ -61,14 +61,14 @@ func TestDeadLetteredFoldsIntoAConditionOnEveryPath(t *testing.T) {
 	require.Nil(t, k8s.FindCondition(before.Status.Conditions, k8s.ConditionDeadLettered), "setup: no dead letter yet")
 
 	at := time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
-	f.annotate("movie", "clustarr.work.captionarr.fetch.normal.x.de@"+at.Format(time.RFC3339))
+	f.annotate("movie", "clustarr.work.caption.fetch.normal.x.de@"+at.Format(time.RFC3339))
 
 	f.reconcile("movie")
 	after := f.get("movie")
 	dl := cond(after, k8s.ConditionDeadLettered)
 	assert.Equal(t, metav1.ConditionTrue, dl.Status)
 	assert.Equal(t, k8s.ReasonDeadLettered, dl.Reason)
-	assert.Contains(t, dl.Message, "clustarr.work.captionarr.fetch.normal.x.de")
+	assert.Contains(t, dl.Message, "clustarr.work.caption.fetch.normal.x.de")
 	assert.True(t, dl.LastTransitionTime.Time.Equal(at), "dated from the dead letter, not the reconcile")
 	assert.Equal(t, before.Status.Phase, after.Status.Phase)
 	assert.Equal(t, before.Status.Existing, after.Status.Existing)

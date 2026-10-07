@@ -27,12 +27,12 @@ import (
 // with apply.
 //
 // AudioGraftSpec is a donor's audio, kept beside the library, to be muxed
-// into an item's file (anime dual-audio spec §6.2). importarr writes it when
+// into an item's file (anime dual-audio spec §6.2). import writes it when
 // it imports a donor and rewrites it when a newer donor replaces it.
 type AudioGraftSpecApplyConfiguration struct {
 	// ItemRef is the Episode or Movie the donor is for.
 	ItemRef *commonv1alpha1.MediaRef `json:"itemRef,omitempty"`
-	// DonorPath is the donor file as importarr placed it, under
+	// DonorPath is the donor file as import placed it, under
 	// <RootFolder>/.clustarr/donors/<item-uid>/. The first graft reduces a
 	// non-Matroska-audio donor to <stem>.mka beside it and removes it.
 	DonorPath *string `json:"donorPath,omitempty"`

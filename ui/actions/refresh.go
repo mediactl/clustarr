@@ -34,7 +34,7 @@ import (
 )
 
 // refreshable is every kind with a status.metadata of its own -- the kinds
-// catalogarr's refresher watches. Episode and Issue are refreshed through
+// catalog's refresher watches. Episode and Issue are refreshed through
 // their parent and are refused here.
 var refreshable = map[commonv1.MediaKind]bool{
 	commonv1.MediaKindMovie: true, commonv1.MediaKindSeries: true,
@@ -54,7 +54,7 @@ type refreshPatch struct {
 // RefreshMetadata is the "Refresh metadata" action (design
 // 2026-09-23-library-page-design, "Metadata refresh"): it writes
 // catalogv1alpha1.AnnotationRefreshMetadata with at's Unix time on the
-// item, as a merge patch under [FieldManager], and catalogarr's refresher
+// item, as a merge patch under [FieldManager], and catalog's refresher
 // does the rest. It uses the item's existing patch grant, so Grants() is
 // unchanged.
 func RefreshMetadata(

@@ -89,14 +89,14 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	// no cache at all.
 	var dc downloadv1alpha1.DownloadClient
 	if err := mgr.GetAPIReader().Get(ctx, types.NamespacedName{Namespace: o.Namespace, Name: o.Client}, &dc); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: get DownloadClient %s/%s: %w", o.Namespace, o.Client, err)
+		return catalogagent.Registration{}, fmt.Errorf("grab: get DownloadClient %s/%s: %w", o.Namespace, o.Client, err)
 	}
 	if dc.Spec.Protocol != commonv1alpha1.ProtocolTorrent || dc.Spec.Torrent == nil {
 		return catalogagent.Registration{}, fmt.Errorf(
-			"grabarr: DownloadClient %s/%s is not a torrent client", o.Namespace, o.Client)
+			"grab: DownloadClient %s/%s is not a torrent client", o.Namespace, o.Client)
 	}
 
-	// §6.3 / grabarr.DefaultDataDir's own doc comment: torrent content lives
+	// §6.3 / grab.DefaultDataDir's own doc comment: torrent content lives
 	// under <DataDir>/torrents/<category>/<download>, persisted re-attach
 	// state under <DataDir>/torrents/.state.
 	// spec.torrent.publishDir and scratch (2026-09-30) move where content
@@ -146,13 +146,13 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		Logger: logging.FromContext(ctx),
 	})
 	if err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: build torrent client: %w", err)
+		return catalogagent.Registration{}, fmt.Errorf("grab: build torrent client: %w", err)
 	}
 
 	e := &torrentengine.Engine{Client: rawClient, StateDir: stateDir}
 	if _, err := e.ReAttach(ctx); err != nil {
 		_ = rawClient.Close()
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: torrent engine re-attach: %w", err)
+		return catalogagent.Registration{}, fmt.Errorf("grab: torrent engine re-attach: %w", err)
 	}
 
 	pod, _ := PodName(os.Getenv, os.Hostname)

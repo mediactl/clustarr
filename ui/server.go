@@ -175,9 +175,9 @@ type Options struct {
 	// --art-cache-bytes sets it, DefaultArtCacheBytes by default.
 	ArtCacheBytes int64
 
-	// MetadataSearch asks catalogarr's metadata gateway to search one kind
+	// MetadataSearch asks catalog's metadata gateway to search one kind
 	// by title (Add New, 2026-09-29). cmd/clustarr binds it to
-	// rpc.catalogarr.metadata.search; the ui never holds a bus requester,
+	// rpc.catalog.metadata.search; the ui never holds a bus requester,
 	// so it can ask nothing else (ui/guard_test.go). nil renders the Add
 	// page's search as unavailable.
 	MetadataSearch MetadataSearch
@@ -189,10 +189,10 @@ type Options struct {
 	// through (ui/guard_test.go). nil serves no people.
 	PlexExtended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 
-	// PlexExtras asks catalogarr's metadata gateway for the extras Plex's
+	// PlexExtras asks catalog's metadata gateway for the extras Plex's
 	// metadata service holds for a Plex id, which the gateway answers from
 	// the clustarr-plex-extras bucket and fetches from Plex on a miss.
-	// cmd/clustarr binds it to rpc.catalogarr.metadata.extras, so the ui
+	// cmd/clustarr binds it to rpc.catalog.metadata.extras, so the ui
 	// holds neither a requester nor a Plex token (ui/guard_test.go). nil
 	// answers the Plex provider's extras route 503 for an item Plex knows.
 	PlexExtras func(ctx context.Context, plexID string) ([]json.RawMessage, error)

@@ -56,7 +56,7 @@ const maxRedirects = 5
 // marshals `"timeout":"0s"` and is never defaulted. Verified against a real
 // apiserver: an unstructured create yields 30s, a typed create yields 0s.
 // http.Client treats a zero Timeout as NO timeout, so an indexer that accepts
-// the connection and never answers would hold the RPC until grabarr's own
+// the connection and never answers would hold the RPC until grab's own
 // deadline. Unlike spec.requestDelay -- where ratelimit.Config documents
 // RPS <= 0 as a supported "do not pace me" -- a zero timeout has no reading
 // anyone wants, so it is floored. This mirrors app/indexer/controller/indexer's
@@ -105,7 +105,7 @@ type Fetcher interface {
 
 	// Scrub removes this indexer's secret VALUES from a diagnostic string.
 	// It is the last line of defence before a message reaches
-	// DownloadResponse.Error and, through grabarr, a Download's status
+	// DownloadResponse.Error and, through grab, a Download's status
 	// condition.
 	Scrub(s string) string
 }
@@ -173,16 +173,16 @@ func (f *fetcher) checkRedirect(req *http.Request, via []*http.Request) error {
 // OffHostURL with NotSent. The URL comes from the caller -- the Torznab
 // facade passes its own caller's `url` parameter straight through -- so
 // fetching it would let anyone holding a facade key read an in-cluster
-// service or a link-local metadata address through indexarr, and, on the
+// service or a link-local metadata address through index, and, on the
 // Cardigann path, with the tracker's session attached. Private and loopback
 // addresses are deliberately NOT refused as such: Jackett, Prowlarr and the
 // e2e fixtures are indexers that live in-cluster, and pinning the fetch to
 // the Indexer's own spec.baseURL host already leaves an attacker nothing
 // else to reach. Handing the URL back rather than failing keeps a feed whose
-// links live on another host working: grabarr fetches a RedirectURL itself,
+// links live on another host working: grab fetches a RedirectURL itself,
 // credential-less, as it already does for an off-host redirect.
 func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error) {
-	ctx, span := tracing.Start(ctx, "indexarr.download.fetch")
+	ctx, span := tracing.Start(ctx, "index.download.fetch")
 	defer span.End()
 
 	u, err := url.Parse(rawURL)

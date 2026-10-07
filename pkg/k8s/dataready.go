@@ -45,7 +45,7 @@ const (
 )
 
 // DataReadyChecker reports whether path is a writable directory: the
-// readiness gate of every process that writes the library (importarr's roles
+// readiness gate of every process that writes the library (import's roles
 // today; the import and caption agents' `import.data` and `caption.data`
 // after the split, spec §3.3). /data is an RWX volume mounted from the
 // cluster. On a dev box or a misconfigured Deployment it may not exist, which

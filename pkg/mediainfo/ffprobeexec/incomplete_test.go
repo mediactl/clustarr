@@ -51,7 +51,7 @@ func failFrameProbe(t *testing.T, fd mediainfo.FrameProbeData, err error) {
 }
 
 // An HDR10 file whose first frame cannot be read is a probe error the
-// caller retries -- catalogarr's ProbeFailed -- never a probe that reads it
+// caller retries -- catalog's ProbeFailed -- never a probe that reads it
 // as SDR: an SDR reading plans an 8-bit SDR encode at 1080p, and a
 // transcoded file is final.
 func TestProbeOfAnHDR10FileWhoseFirstFrameCannotBeReadIsAnError(t *testing.T) {

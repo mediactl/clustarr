@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package status is the single place indexarr declares what each field
+// Package status is the single place index declares what each field
 // manager owns on Indexer.status.
 //
 // It exists because Indexer.status has three writer paths where the design
@@ -26,8 +26,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // object. That hazard took eight distinct forms in Phase C, and the remedy
 // that worked twice was distinct managers with disjoint ownership.
 //
-// The reconciler writes as k8s.ManagerIndexarr. Both worker paths share
-// k8s.ManagerIndexarrWorker, so they cannot be separated by manager name --
+// The reconciler writes as k8s.ManagerIndex. Both worker paths share
+// k8s.ManagerIndexWorker, so they cannot be separated by manager name --
 // they are separated instead by having exactly one definition of what that
 // manager owns, WorkerFields, which both call. Two callers hand-building
 // their own apply configurations for one manager is precisely how each
@@ -86,7 +86,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// ControllerFields returns the complete set k8s.ManagerIndexarr owns, seeded
+// ControllerFields returns the complete set k8s.ManagerIndex owns, seeded
 // from the live status so that an apply which changes one field still
 // declares the other five.
 //
@@ -132,7 +132,7 @@ func ControllerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusAppl
 	return ac
 }
 
-// WorkerFields returns the complete set k8s.ManagerIndexarrWorker owns,
+// WorkerFields returns the complete set k8s.ManagerIndexWorker owns,
 // seeded from the live status.
 //
 // Every apply under that manager starts here, from BOTH the RSS poll and the
@@ -204,7 +204,7 @@ func ApplyEscalation(
 //
 // The caller mutates the seeded apply configuration rather than building one,
 // which is what makes the complete-declaration rule enforceable in one place.
-// mgr must be k8s.ManagerIndexarr or k8s.ManagerIndexarrWorker; anything else
+// mgr must be k8s.ManagerIndex or k8s.ManagerIndexWorker; anything else
 // is a programming error and is refused rather than allowed to claim fields
 // no part of the split accounts for.
 func Patch(

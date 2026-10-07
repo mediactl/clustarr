@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package transcodejob is squasharr's TranscodeJob controller, slot
+// Package transcodejob is transcode's TranscodeJob controller, slot
 // scheduler and dispatcher (§6.4, ADR-0005; spec 2026-09-23 §8, §18).
 //
 // # Lifecycle
@@ -28,7 +28,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	Planned/Queued/Running -> Failed + Blocked (spec §18.4)
 //
 // Planned: the controller role does not mount /data, so it plans from the
-// probe catalogarr stored on the MediaFile (ruling R3), through
+// probe catalog stored on the MediaFile (ruling R3), through
 // pkg/transcode.Plan. A skip decision is Skipped with status.plan.mode=skip;
 // a reject decision (Dolby Vision under a reject policy, DV passthrough
 // without VBV limits) is ALSO Skipped, with status.plan left unset and the
@@ -86,7 +86,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Pools: after dispatching, the same pass sizes each (profile, class) pool
 // Job -- a long-lived work-queue batch/v1 Job running cmd/transcode,
-// rendered by app/transcode/controller/pool and applied under squasharr-pool --
+// rendered by app/transcode/controller/pool and applied under transcode-pool --
 // to the jobs dispatched to it (pools.go; spec §7). It is created or resumed
 // with work, raised as work grows, and suspended when none is left:
 // parallelism is never 0, a pool's zero is suspend. A pool is counted by
@@ -106,7 +106,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // alone (PoolJobCache), runs the pass that acts on each change.
 //
 // Running / Succeeded / Failed come from the pool workers' status events on
-// squasharr-transcode-results (results.go): claimed and progress move a job
+// transcode-results (results.go): claimed and progress move a job
 // to Running; finished goes through [Decide], spec §18.3's next-step table --
 // succeed, skip, requeue with backoff, fall back to CPU, fail, or block. A
 // task the queue dead-lettered blocks the job (DeadLettered).
@@ -114,7 +114,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # One status writer, two paths
 //
 // The reconciler and the results consumer both write TranscodeJob.status
-// under k8s.ManagerSquasharr through one function, patchCAS (write.go):
+// under k8s.ManagerTranscode through one function, patchCAS (write.go):
 // read fresh through the uncached reader, change a copy, apply it
 // conditional on the read resourceVersion. A write that races the other
 // path conflicts and is redone from a fresh read; neither can roll the

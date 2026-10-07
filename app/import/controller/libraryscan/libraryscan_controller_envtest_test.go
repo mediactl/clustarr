@@ -67,7 +67,7 @@ func TestReconcileStartPublishesScanTaskAndSetsRunning(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.ScanPhaseRunning, after.Status.Phase)
 	require.NotNil(t, after.Status.StartedAt)
 	assert.Equal(t, string(k8s.ManagerImport), managerFor(t, after.ManagedFields, "status", "status.phase"),
-		"importarr is the single writer of LibraryScan.status")
+		"import is the single writer of LibraryScan.status")
 
 	task, _ := drainOneScanTask(t, ctx, bus)
 	assert.Equal(t, "movies", task.RootFolderRef.Name)
@@ -158,7 +158,7 @@ func TestReconcileWaitsForTheRootFolder(t *testing.T) {
 // transient missing RootFolder.
 //
 // Observing that release takes more than a populated object: it takes an
-// object whose counters `importarr` SOLELY owns. If a fixture's own
+// object whose counters `import` SOLELY owns. If a fixture's own
 // c.Status().Update() co-owns them, a released field keeps the other
 // manager's value and the test passes whether or not the bug is present.
 // So the steady state here is built by the controller itself -- a real start
@@ -177,11 +177,11 @@ func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
 
 	// 1. A real start apply: Running, startedAt, conditions -- all written
-	//    by importarr, nothing seeded.
+	//    by import, nothing seeded.
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
 	// 2. A real poll apply, so the counters and the unmatched list are
-	//    populated by importarr too.
+	//    populated by import too.
 	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{
 		FilesSeen: 12, FilesMatched: 9, ItemsCreated: 3, ItemsUpdated: 6, FilesSkipped: 2,
 		Unmatched: []scanprogress.UnmatchedFile{{
@@ -190,7 +190,7 @@ func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 	})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
-	// 3. The premise, asserted rather than assumed: importarr is the SOLE
+	// 3. The premise, asserted rather than assumed: import is the SOLE
 	//    owner of the fields whose release this test is looking for.
 	populated := getScan(t, ctx, c, ns, scan.Name)
 	require.Equal(t, int64(12), populated.Status.FilesSeen)
@@ -200,22 +200,22 @@ func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 	} {
 		require.Equal(t, []string{string(k8s.ManagerImport)},
 			managersFor(t, populated.ManagedFields, "status", path),
-			"%s must be owned by importarr alone, or a release cannot be observed", path)
+			"%s must be owned by import alone, or a release cannot be observed", path)
 	}
 
 	// 4. Now drive it into the early return: the RootFolder stops being
 	//    Ready, and the scan is rewound to Pending so Reconcile dispatches
 	//    to start. Rewinding touches status.phase and nothing else, so the
-	//    counters keep importarr as their only owner.
+	//    counters keep import as their only owner.
 	setRootFolderReady(t, ctx, c, rf, false)
 	setScanPhase(t, ctx, c, scan, catalogv1alpha1.ScanPhasePending)
 	require.Equal(t, []string{string(k8s.ManagerImport)},
 		managersFor(t, getScan(t, ctx, c, ns, scan.Name).ManagedFields, "status", "status.filesSeen"),
-		"rewinding the phase must not have taken the counters away from importarr")
+		"rewinding the phase must not have taken the counters away from import")
 
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
-	// 5. The early return ran. Everything importarr owned must still be here.
+	// 5. The early return ran. Everything import owned must still be here.
 	after := getScan(t, ctx, c, ns, scan.Name)
 	assert.Equal(t, catalogv1alpha1.ScanPhasePending, after.Status.Phase)
 	assert.Equal(t, int64(12), after.Status.FilesSeen)
@@ -419,7 +419,7 @@ func TestReconcileIgnoresADeletingScan(t *testing.T) {
 }
 
 // The whole chain, with the real controller and the real worker: a planted
-// file becomes a Movie and a MediaFile owned by importarr, and a planted file
+// file becomes a Movie and a MediaFile owned by import, and a planted file
 // nothing can attribute lands in status.unmatched with a reason.
 func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 	ctx := context.Background()
@@ -479,9 +479,9 @@ func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 	assert.Equal(t, good, mf.Spec.Path)
 	assert.Equal(t, movies.Items[0].Name, mf.Spec.MediaRef.Name)
 	assert.Equal(t, string(rescan.FieldManager), managerFor(t, mf.ManagedFields, "", "spec.path"),
-		"the rescan worker writes MediaFileSpec under its own manager, not importarr's controller one")
+		"the rescan worker writes MediaFileSpec under its own manager, not import's controller one")
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "status", "status"),
-		"catalogarr owns MediaFileStatus; importarr must not have written it")
+		"catalog owns MediaFileStatus; import must not have written it")
 }
 
 // errOf drops a Reconcile result, for the calls that only assert on the error.

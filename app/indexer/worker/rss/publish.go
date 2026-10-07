@@ -69,13 +69,13 @@ func PublishReleases(
 			ID:     events.MsgIDForRelease(indexerName, rel.Info.GUID),
 			Type:   releaseEnvelopeType,
 			Schema: schemaName,
-			Source: "indexarr@" + version.String(),
+			Source: "index@" + version.String(),
 			Key:    key,
 			Time:   rel.FetchedAt,
 			Data:   data,
 		}
 		// The matcher calls tracing.Extract before Start so its span
-		// continues indexarr's poll. Without this Inject the RSS leg of every
+		// continues index's poll. Without this Inject the RSS leg of every
 		// trace is orphaned.
 		tracing.Inject(ctx, env)
 

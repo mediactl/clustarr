@@ -58,7 +58,7 @@ func TestEngineSearch1337xHTML(t *testing.T) {
 	// not a simplification (see search.go's pathMatches doc comment). The
 	// fixture server answers every request with the same 3-row table, so a
 	// correct Engine.Search returns 4*3 = 12 raw rows; Engine never dedupes
-	// across paths or indexers (that is indexarr's search worker's job, per
+	// across paths or indexers (that is index's search worker's job, per
 	// note §5's DeDupeReleases/infohash-then-guid rule), so 12 is the right
 	// assertion here, not 3.
 	require.Len(t, rels, 12)

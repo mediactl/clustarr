@@ -93,7 +93,7 @@ func (d *decider) pending(e *catalogv1alpha1.DownloadEntry) bool {
 }
 
 // isDirect is directgrab.IsDirectGrab's rule: every source but
-// indexerDownload is fetched without rpc.indexarr.download, so its grab is
+// indexerDownload is fetched without rpc.index.download, so its grab is
 // counted at the Assigned edge (§6.11).
 func isDirect(src commonv1.DownloadSource) bool {
 	return src.IndexerDownload == nil && (src.MagnetURL != nil || src.TorrentURL != nil || src.NZBURL != nil)

@@ -51,7 +51,7 @@ const (
 
 // ImportInspectTask asks the import agent to read a completed transfer's
 // payload and report what each file is (ADR-0019 §6.9, step 1). Subject
-// events.WorkImportInspectSubject, consumer importarr-fileimport, Msg-Id
+// events.WorkImportInspectSubject, consumer import-fileimport, Msg-Id
 // events.MsgIDForImport(entry uid, "inspect", seq). Pure computation: the
 // answer goes to clustarr-imports at RecordSubKey(entry uid, "inspect").
 type ImportInspectTask struct {
@@ -83,7 +83,7 @@ func (ImportInspectTask) Schema() string { return "import.ImportInspectTask.v1" 
 
 // ImportExecuteTask carries the manager's approved plan to the import agent
 // (ADR-0019 §6.9, step 3). Subject events.WorkImportExecuteSubject, consumer
-// importarr-fileimport, Msg-Id events.MsgIDForImport(entry uid, "execute",
+// import-fileimport, Msg-Id events.MsgIDForImport(entry uid, "execute",
 // seq); the answer goes to RecordSubKey(entry uid, "execute").
 type ImportExecuteTask struct {
 	Seq   int64      `json:"seq"`

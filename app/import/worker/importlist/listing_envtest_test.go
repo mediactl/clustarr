@@ -104,7 +104,7 @@ func scanMessage(t *testing.T, scan *catalogv1alpha1.LibraryScan, rf *catalogv1a
 	}
 	name, data, err := schema.Encode(task)
 	require.NoError(t, err)
-	return &fakeMessage{env: &events.Envelope{Schema: name, Data: data, Type: "importarr.ScanTask"}, attempt: 1}
+	return &fakeMessage{env: &events.Envelope{Schema: name, Data: data, Type: "import.ScanTask"}, attempt: 1}
 }
 
 // TestRemoveAndKeepSurvivesALibraryRescan is the ruling on removeAndKeep:

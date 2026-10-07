@@ -90,7 +90,7 @@ type holderFunc func(ctx context.Context, entry events.Entry) (holderState, erro
 //     pendingGrab or to publish release.grabbed. The key is re-entered, not
 //     refused, which is what makes the redelivery the idempotent retry the
 //     handler relies on; refusing it acknowledged the task as a duplicate and
-//     lost the release.grabbed event (and with it indexarr's grab count).
+//     lost the release.grabbed event (and with it index's grab count).
 //   - Held by a Download that is terminal, being deleted, or missing past
 //     leaseOrphanGrace, it guards nothing and is taken over with a
 //     revision-checked Update, so two grabs reclaiming it at once cannot both

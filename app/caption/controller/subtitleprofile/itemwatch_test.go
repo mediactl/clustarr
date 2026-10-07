@@ -69,5 +69,5 @@ func TestItemWatchMapsOntoTheProfilesThatCouldWinItsFile(t *testing.T) {
 	assert.True(t, p.Create(event.CreateEvent{Object: movie}))
 	assert.True(t, p.Delete(event.DeleteEvent{Object: movie}))
 	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: movie, ObjectNew: movie}),
-		"catalogarr's frequent Movie status writes do not replan every profile")
+		"catalog's frequent Movie status writes do not replan every profile")
 }

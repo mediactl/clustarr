@@ -31,7 +31,7 @@ import "strconv"
 const WorkerOutcomeName = "catalog/search-worker"
 
 // TruncatedOutcomeName is the status.indexerOutcomes entry the search worker
-// adds when indexarr cut the federated reply at schema.MaxSearchReleases: the
+// adds when index cut the federated reply at schema.MaxSearchReleases: the
 // results were decided from a partial set, and that has to be visible on the
 // object rather than only in a log line. Reserved the same way as
 // WorkerOutcomeName.
@@ -43,7 +43,7 @@ const TruncatedOutcomeName = "catalog/truncated"
 const reservedOutcomePrefix = "catalog/"
 
 // UnnamedOutcomeName is the status.indexerOutcomes name the search worker
-// gives the n-th (1-based, in reply order) outcome indexarr reported with no
+// gives the n-th (1-based, in reply order) outcome index reported with no
 // indexer name at all -- an indexer that failed before it could be named.
 // Such an outcome used to be dropped, which hid exactly the failure an
 // operator most needs to see.

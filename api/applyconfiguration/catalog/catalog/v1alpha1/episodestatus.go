@@ -77,7 +77,7 @@ type EpisodeStatusApplyConfiguration struct {
 	// §6.2).
 	DownloadPhase *commonv1alpha1.DownloadPhase `json:"downloadPhase,omitempty"`
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
-	// under catalogarr-grab.
+	// under catalog-grab.
 	SearchDispatch *DispatchApplyConfiguration `json:"searchDispatch,omitempty"`
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`

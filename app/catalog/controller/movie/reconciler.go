@@ -77,7 +77,7 @@ const (
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles a Movie: metadata staleness (publishing a
@@ -88,15 +88,15 @@ const (
 // status.hasFile, status.fileRef, status.fileQuality,
 // status.fileFormatScore, status.cutoffMet and status.activeDownloadRef
 // (§3's single-writer rule); status.metadata belongs to the metadata
-// gateway (Task C5, field manager k8s.ManagerCatalogarrMetadata) and this
+// gateway (Task C5, field manager k8s.ManagerCatalogMetadata) and this
 // reconciler never builds a MovieStatusApplyConfiguration that calls
 // WithMetadata.
 //
 // status.activeDownloadRef has had exactly one writer since gap-fix ruling
-// R-5: this reconciler, under k8s.ManagerCatalogarr, deriving it level-style
+// R-5: this reconciler, under k8s.ManagerCatalog, deriving it level-style
 // from the Movie's own non-terminal Downloads (rollup.ActiveDownload) on
 // every reconcile. The grab worker used to write it too, under
-// k8s.ManagerCatalogarrGrab; PatchStatus forces ownership, so the field
+// k8s.ManagerCatalogGrab; PatchStatus forces ownership, so the field
 // migrated to whichever wrote last and the clear-by-omission below only
 // worked while this reconciler happened to hold it. The grab worker no
 // longer writes it, and the Download watch below is what makes a new
@@ -165,7 +165,7 @@ var _ rollup.Item = (*Reconciler)(nil)
 // annotation would not clear it either.
 //
 // The pendingGrab arm is what makes Phase=Delayed reachable at all. The grab
-// worker writes status.pendingGrab under k8s.ManagerCatalogarrGrab, which
+// worker writes status.pendingGrab under k8s.ManagerCatalogGrab, which
 // bumps no generation and touches no metadata, so without this arm the write
 // would not even schedule a reconcile: the movie would sit at Wanted for the
 // whole delay window and only move when a Download appeared. The extracted
@@ -293,7 +293,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, m *catalogv1alpha1.Mov
 }
 
 // withEntries folds the grab entries, the download phase, the intent nonces
-// and release N's legacy record into a catalogarr status apply: this pass's
+// and release N's legacy record into a catalog status apply: this pass's
 // decisions when the item stages made them, else the stored values, on
 // every apply site -- the complete declaration (ADR-0019 §7.0, Review
 // Focus 4). It is called once per apply: the list setters append.
@@ -377,7 +377,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 			ID:     events.MsgIDForObject(string(m.UID), m.Generation, metadata.RefreshPurpose(outdated)),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
-			Source: "catalogarr@" + version.String(),
+			Source: "catalog@" + version.String(),
 			Key:    envKey,
 			Time:   now,
 			Data:   data,
@@ -536,7 +536,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	// HasFile and CutoffMet are two of the six conditions spec §4.2 lists
 	// for Movie. Until task C13 their only writer anywhere was the MediaFile
 	// controller's rollupToOwner, which applied them (and the file fields
-	// above) under this reconciler's own k8s.ManagerCatalogarr and therefore
+	// above) under this reconciler's own k8s.ManagerCatalog and therefore
 	// released path/available/availableAt/addOptionsApplied/
 	// observedGeneration/activeDownloadRef on every apply. That rollup is
 	// gone; the conditions move here, to the object's sole status writer,

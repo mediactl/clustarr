@@ -260,14 +260,14 @@ type MediaInfo struct {
 	ChapterList []Chapter `json:"chapterList,omitempty"`
 
 	// TranscodeProfile is the file's CLUSTARR_PROFILE container tag,
-	// "<profile>@<hash>", which squasharr stamps into every file it writes
+	// "<profile>@<hash>", which transcode stamps into every file it writes
 	// (pkg/transcode.Args). Empty when the file carries no such tag. Read
 	// case-insensitively, because a container may change a tag key's case.
 	// A file that carries it was transcoded -- by this install or an earlier
 	// one -- and a transcoded file is final: its item reads Transcoded and is
 	// never upgraded automatically (app/catalog/controller/rollup.Transcoded).
 	// The bound is a TranscodeProfile name (253) plus "@" and a SHA-256 hex
-	// hash (64); pkg/mediainfo drops a longer value, which no squasharr wrote.
+	// hash (64); pkg/mediainfo drops a longer value, which no transcode wrote.
 	// +optional
 	// +kubebuilder:validation:MaxLength=320
 	TranscodeProfile string `json:"transcodeProfile,omitempty"`

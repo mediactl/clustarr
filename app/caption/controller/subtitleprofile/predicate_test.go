@@ -26,8 +26,8 @@ import (
 )
 
 // TestMediaFileWatchWakesOnProbeHashWithoutGenerationBump is the test the F-3
-// brief asks for by name: catalogarr's mediafile controller writes
-// status.probeHash under ITS OWN field manager (k8s.ManagerCatalogarr), which
+// brief asks for by name: catalog's mediafile controller writes
+// status.probeHash under ITS OWN field manager (k8s.ManagerCatalog), which
 // -- per CLAUDE.md's "status writes by other managers do not bump
 // metadata.generation" -- never changes generation. A watch built on
 // k8s.GenerationChanged() alone would therefore never fire when a file goes
@@ -43,7 +43,7 @@ func TestMediaFileWatchWakesOnProbeHashWithoutGenerationBump(t *testing.T) {
 	before.Status.ProbeHash = ""
 
 	after := movieFile("arrival-2016", nil)
-	after.Generation = 1 // unchanged -- a status-only write from catalogarr's own manager
+	after.Generation = 1 // unchanged -- a status-only write from catalog's own manager
 	after.Status.ProbeHash = "sha1-of-the-probe"
 
 	if !p.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}) {

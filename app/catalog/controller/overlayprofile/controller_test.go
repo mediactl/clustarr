@@ -359,7 +359,7 @@ func TestTheLowerNameWinsAndTheLoserIsOverlapped(t *testing.T) {
 	assert.EqualValues(t, 0, unset.Status.Selected, "a nil selector selects nothing")
 	assert.True(t, k8s.IsReady(unset.Status.Conditions))
 
-	// The status is the controller's one apply under catalogarr.
+	// The status is the controller's one apply under catalog.
 	for _, e := range alpha.ManagedFields {
 		if e.Subresource == "status" {
 			assert.Equal(t, string(k8s.ManagerCatalog), e.Manager)

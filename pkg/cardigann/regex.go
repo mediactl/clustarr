@@ -53,7 +53,7 @@ const definitionRegexOptions = regexp2.None
 const regexMatchTimeout = time.Second
 
 // regexCacheSize bounds the compile cache: the bundled corpus holds about
-// 2,700 distinct regex uses, but one indexarr replica runs the handful of
+// 2,700 distinct regex uses, but one index replica runs the handful of
 // definitions its Indexers name.
 const regexCacheSize = 512
 

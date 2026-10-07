@@ -21,7 +21,7 @@ import "github.com/mediactl/clustarr/pkg/names"
 
 // The naming functions live in pkg/names, which imports only the standard
 // library, so ui/actions (barred from pkg/k8s) can name a catalog item
-// exactly as importarr does (Add New, 2026-09-29). These wrappers keep
+// exactly as import does (Add New, 2026-09-29). These wrappers keep
 // every existing caller; each one's doc is its pkg/names original's.
 
 const (
@@ -53,6 +53,6 @@ func NormalizeName(s string) string { return names.NormalizeName(s) }
 func HashOrdinal(replicas int32, parts ...string) int32 { return names.HashOrdinal(replicas, parts...) }
 
 // AudioGraftName is the name of an item's AudioGraft (anime dual-audio spec
-// §6.2): one per Episode or Movie, which importarr creates and the item's
+// §6.2): one per Episode or Movie, which import creates and the item's
 // reconciler reads.
 func AudioGraftName(item string) string { return ChildName(item, "audiograft") }

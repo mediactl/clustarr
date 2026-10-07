@@ -24,17 +24,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Artist is the sole writer of status.path, status.albumCount,
 // status.albumFileCount and status.addOptionsApplied; status.metadata
-// belongs to the metadata gateway (k8s.ManagerCatalogarrMetadata) and this
+// belongs to the metadata gateway (k8s.ManagerCatalogMetadata) and this
 // reconciler never builds an ArtistStatusApplyConfiguration that calls
 // WithMetadata.
 //
 // Unlike Series->Episode, this reconciler writes NOTHING onto the Album
-// objects it creates -- no k8s.ManagerCatalogarrFanout apply, no per-item
+// objects it creates -- no k8s.ManagerCatalogFanout apply, no per-item
 // provider fields seeded at create time. That split is settled by G2-1
 // (commit f665aa9) and documented on buildAlbumMetadataAC
 // (app/catalog/metadata/patch.go): Artist's own release-group discovery call
 // (ArtistProvider.Albums(mbArtistID), reached here via the
-// rpc.catalogarr.metadata.lookup RPC's lookupAlbums handler) and the
+// rpc.catalog.metadata.lookup RPC's lookupAlbums handler) and the
 // gateway's later per-item fetch (ArtistProvider.Album(mbReleaseGroupID))
 // both bottom out in the same mapAlbum() function in
 // pkg/metadata/clients/musicbrainz -- so a fan-out write of, say,
@@ -47,12 +47,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Album by setting spec fields only (spec.artistRef, spec.releaseGroupID,
 // spec.monitored once at creation, mirroring ArtistAddOptions/
 // spec.monitorNewItems) and never touches status at all -- not even under
-// k8s.ManagerCatalogarrFanout, which this task deliberately leaves unused
+// k8s.ManagerCatalogFanout, which this task deliberately leaves unused
 // (that manager is reserved for Comic->Issue, the one non-video pair whose
 // child has no independent status.metadata of its own to race with a
-// fan-out write; see k8s.ManagerCatalogarrFanout's own doc comment). The
+// fan-out write; see k8s.ManagerCatalogFanout's own doc comment). The
 // newly created Album then flows through the exact same
-// MetadataTask -> Handler -> ManagerCatalogarrMetadata pipeline as any
+// MetadataTask -> Handler -> ManagerCatalogMetadata pipeline as any
 // Movie, Series or Artist, driven by the Album reconciler's own staleness
 // check (app/catalog/controller/album), not by this package.
 package artist

@@ -283,7 +283,7 @@ func newFixture(t *testing.T, ns string) *fixture {
 
 // createDownload creates a Download targeting the fixture's movie and
 // patches its status (Phase/ContentRoot/CanMoveFiles) under
-// k8s.ManagerGrabarr, standing in for grabarr's own engine/controller in a
+// k8s.ManagerGrab, standing in for grab's own engine/controller in a
 // worker-only test.
 func (f *fixture) createDownload(t *testing.T, name, contentRoot string, target commonv1.MediaRef) *downloadv1alpha1.Download {
 	t.Helper()

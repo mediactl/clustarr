@@ -179,8 +179,8 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		assert.Equal(t, metav1.ConditionFalse, cond.Status)
 
 		// Simulate the Series reconciler's own write: provider fields set
-		// under the distinct k8s.ManagerCatalogarrSeries (never
-		// k8s.ManagerCatalogarr, which this reconciler uses for its own
+		// under the distinct k8s.ManagerCatalogSeries (never
+		// k8s.ManagerCatalog, which this reconciler uses for its own
 		// computed fields -- see the package doc comment), including
 		// AirDate in the past.
 		yesterday := metav1.NewTime(time.Now().Add(-24 * time.Hour))
@@ -461,7 +461,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			if got.Annotations == nil {
 				got.Annotations = map[string]string{}
 			}
-			got.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.search.low.x@2026-09-23T12:00:00Z"
+			got.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalog.search.low.x@2026-09-23T12:00:00Z"
 			require.NoError(t, c.Patch(ctx, &got, patch))
 			require.Eventually(t, func() bool {
 				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
@@ -536,7 +536,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 	})
 
 	// Ruling R-5, single-episode grab: the Download is created the way the
-	// grab path creates it (an apply under k8s.ManagerCatalogarrGrab, owned
+	// grab path creates it (an apply under k8s.ManagerCatalogGrab, owned
 	// by the Episode) and nothing writes the ref, so the ref can only come
 	// from the Download watch and the derivation. managedFields proves the
 	// handover: exactly one owner, the Episode reconciler.
@@ -685,7 +685,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 
 	// A multi-episode file ("S02E01E02") is ONE MediaFile naming its first
 	// episode with every covered episode in spec.mediaRef.keys
-	// (importarr's fileimport.EpisodeFileRef). Both Episodes, already in
+	// (import's fileimport.EpisodeFileRef). Both Episodes, already in
 	// their steady state, must take it as their file -- not only the first.
 	t.Run("a multi-episode MediaFile backs every episode it covers", func(t *testing.T) {
 		names := []string{"multi-show-s02e01", "multi-show-s02e02"}
@@ -784,7 +784,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		if before.Annotations == nil {
 			before.Annotations = map[string]string{}
 		}
-		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.search.high.x@2026-09-23T12:00:00Z"
+		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalog.search.high.x@2026-09-23T12:00:00Z"
 		require.NoError(t, c.Patch(ctx, &before, patch))
 
 		var got catalogv1alpha1.Episode
@@ -985,7 +985,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 }
 
 // grabPathDownload creates a Download the way the grab path does: one
-// server-side apply under k8s.ManagerCatalogarrGrab with an ownerReference
+// server-side apply under k8s.ManagerCatalogGrab with an ownerReference
 // to owner (the Episode for a single-episode grab, the Series for a pack)
 // and nothing written to any Episode. It returns the Download's name.
 func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner client.Object, name string, target commonv1.MediaRef) string {

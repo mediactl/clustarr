@@ -76,7 +76,7 @@ type featureDetails struct {
 //
 // An episode is searched by its show's ids as well as its own: Query.IDs'
 // "parent_imdb" and "parent_tmdb" (the series' ids, which is what
-// captionarr's fetch worker fills for an episode) become parent_imdb_id and
+// caption's fetch worker fills for an episode) become parent_imdb_id and
 // parent_tmdb_id, alongside season_number and episode_number. Bazarr sends
 // parent_imdb_id the same way (opensubtitlescom.py query()); without it an
 // episode could be found by moviehash alone.

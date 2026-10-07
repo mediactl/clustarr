@@ -435,7 +435,7 @@ func isExcluded(ctx context.Context, kv events.KV, ids pkgimportlist.ExternalIDs
 // resolveRequiredID returns the external id kind's spec identifies items
 // by: TMDB for movie, TVDB for series. If ids already carries it, no RPC is
 // made. Otherwise it asks the metadata gateway's resolve verb to fill the
-// gap from whatever ids ARE present, the same rpc.catalogarr.metadata.resolve
+// gap from whatever ids ARE present, the same rpc.catalog.metadata.resolve
 // call app/import/worker/rescan.resolveIMDb makes.
 func resolveRequiredID(
 	ctx context.Context, deps syncDeps, kind commonv1.MediaKind, ids pkgimportlist.ExternalIDs,
@@ -507,7 +507,7 @@ func publishSynced(
 		ID:     events.MsgIDForObject(string(il.UID), il.Generation, "synced-"+string(kind)+"-"+deps.now().Format(time.RFC3339)),
 		Type:   "catalog.ImportListSynced",
 		Schema: schemaName,
-		Source: "importarr",
+		Source: "import",
 		Key:    il.Namespace + "/" + il.Name,
 		Time:   deps.now(),
 		Data:   data,

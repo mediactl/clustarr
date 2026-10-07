@@ -28,7 +28,7 @@ const (
 	MediaFileStatusBudgetBytes = 320 << 10
 	// MediaFileObjectBudgetBytes bounds the stored object, managedFields
 	// included. Release N's is 832 KiB, not §2.11.3's 768: N's sidecars list
-	// is a map keyed by that 4,096-byte path, so catalogarr's managedFields
+	// is a map keyed by that 4,096-byte path, so catalog's managedFields
 	// entry repeats every key (32 × about 4.2 KB), which the spec's estimate
 	// leaves out; the modelled worst case is about 781 KiB. F9.2 restores
 	// 768 << 10 with the atomic list. etcd's request limit is 1.5 MiB.

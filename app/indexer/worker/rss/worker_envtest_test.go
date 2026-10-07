@@ -104,7 +104,7 @@ func newEnvtestWorker(t *testing.T, c client.Client, at time.Time, for_ func(str
 // rather than merging into it, so a field the manager sent before and omits
 // now is released, and reads as zero on the object. A poll that finds nothing
 // new changes lastRssAt and lastRssNewCount and nothing else -- so every
-// other indexarr-worker field, and every indexarr field, must still be there
+// other index-worker field, and every index field, must still be there
 // afterwards.
 func TestStatusApplyDoesNotReleaseWhatItDidNotChange(t *testing.T) {
 	ctx, c, ns := setup(t)
@@ -300,7 +300,7 @@ func TestTheWorkerNeverWritesTheControllersFields(t *testing.T) {
 		"queriesInWindow", "grabsInWindow",
 	} {
 		require.NotContains(t, owned, `"f:`+forbidden+`"`,
-			"the worker claimed %q, which belongs to the indexarr manager", forbidden)
+			"the worker claimed %q, which belongs to the index manager", forbidden)
 	}
 	for _, required := range []string{"lastRssAt", "lastRssNewCount", "indexedReleases", "escalationLevel"} {
 		require.Contains(t, owned, `"f:`+required+`"`,

@@ -43,8 +43,8 @@ const MaxProbeFailure = MaxRecordFailure
 
 // ProbeTask asks the import domain to probe one MediaFile's file. Subject
 // clustarr.work.probe.file.<high|low>.<mediaKey> (events.WorkProbeSubject),
-// Msg-Id events.MsgIDForProbe, consumed by importarr-probe-high and
-// importarr-probe-low (spec 2026-10-06 §6.5.1). catalogarr's MediaFile
+// Msg-Id events.MsgIDForProbe, consumed by import-probe-high and
+// import-probe-low (spec 2026-10-06 §6.5.1). catalog's MediaFile
 // reconciler publishes it after writing the matching requested record
 // (pkg/probestore); the answer goes to that record, never to the apiserver.
 type ProbeTask struct {

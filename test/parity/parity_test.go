@@ -119,7 +119,7 @@ func TestParity(t *testing.T) {
 // TestTheInProcessProbeAgreesOnTheLibrary holds the worker's in-process
 // probe to ffprobe's on every real clip -- Dolby Vision 5, 7 and 8.1, HDR10+,
 // PGS, TrueHD, fonts -- which the generated fixtures of
-// app/transcode/worker/inprocess cannot make: catalogarr plans from ffprobe's
+// app/transcode/worker/inprocess cannot make: catalog plans from ffprobe's
 // summary and the worker from its own probe, so a field they disagree on is
 // a different decision. Codec profile names are ffprobe's alone.
 func TestTheInProcessProbeAgreesOnTheLibrary(t *testing.T) {

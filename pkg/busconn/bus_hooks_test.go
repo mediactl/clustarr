@@ -69,8 +69,8 @@ func startJetStream(t *testing.T) string {
 // never ran in production, so amendment §A4's "first end-to-end trace at M1"
 // could not have been true.
 //
-// This test builds the bus exactly as catalogarr, importarr, indexarr,
-// grabarr, squasharr and captionarr now build it -- obs.Bootstrap's
+// This test builds the bus exactly as catalog, import, index,
+// grab, transcode and caption now build it -- obs.Bootstrap's
 // TracerProvider installed first, then Connect with
 // busconn.WithHooks(obs.BusHooks()) -- publishes inside a span, and asserts the
 // trace survives the wire: the delivered envelope carries a traceparent for

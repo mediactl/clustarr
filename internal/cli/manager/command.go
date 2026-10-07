@@ -41,7 +41,7 @@ func NewCommand() *cobra.Command { return NewCommandWith(Run) }
 func NewCommandWith(run RunFunc) *cobra.Command {
 	root, lo, to := cli.NewRoot("manager",
 		"Every Clustarr reconciler in one leader-elected process",
-		"manager runs every Clustarr reconciler -- catalog, import, index, grab, squash and\n"+
+		"manager runs every Clustarr reconciler -- catalog, import, index, grab, transcode and\n"+
 			"caption -- plus the autoscaler, under one lease, manager.clustarr.io. It is the\n"+
 			"only process that creates the JetStream topology; the domain agents wait for it.\n\n"+
 			"It renders the download engines and the transcode pools, both from --native-image.")
@@ -77,7 +77,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&d.EngineServiceAccount, "engine-service-account",
 		cli.EnvOr(cli.EnvEngineServiceAccount, d.EngineServiceAccount),
 		"ServiceAccount the engine pods run as; it must hold the engine's RBAC "+
-			"(config/rbac/grabarr_engine_role.yaml). Defaults to $"+cli.EnvEngineServiceAccount+", then "+
+			"(config/rbac/grab_engine_role.yaml). Defaults to $"+cli.EnvEngineServiceAccount+", then "+
 			d.EngineServiceAccount+".")
 
 	fs.StringVar(&slots, "slots", transcodemanager.FormatSlots(d.Slots),

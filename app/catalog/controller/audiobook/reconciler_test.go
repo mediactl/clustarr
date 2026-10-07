@@ -690,7 +690,7 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 				*g.Status.ActiveDownloadRef == "guards-guards-dl" && g.Status.Phase == catalogv1alpha1.AudiobookPhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond, "an owned Download must set the ref and drive Phase=Downloading, overriding Imported")
 
-		// This reconciler is the field's only writer: one manager, catalogarr.
+		// This reconciler is the field's only writer: one manager, catalog.
 		require.NoError(t, c.Get(ctx, key, &got))
 		var refOwners []string
 		for _, e := range got.ManagedFields {

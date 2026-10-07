@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // records throttles, quota and cached auth into the shared
 // clustarr-provider-throttle KV bucket (app/caption/throttle) instead of
 // touching this object directly -- app/caption/status.PatchProvider refuses
-// every field manager except k8s.ManagerCaptionarr, which is R2 enforced in
+// every field manager except k8s.ManagerCaption, which is R2 enforced in
 // code, not just documented.
 //
 // This package reports; it never builds a real pkg/subtitles.Provider client
@@ -82,7 +82,7 @@ const kvPollInterval = 15 * time.Minute
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
-// Reconciler owns SubtitleProvider.status (under k8s.ManagerCaptionarr, via
+// Reconciler owns SubtitleProvider.status (under k8s.ManagerCaption, via
 // app/caption/status.PatchProvider) and writes nothing else. See ruling R2 and
 // the package doc comment.
 type Reconciler struct {
@@ -91,7 +91,7 @@ type Reconciler struct {
 	// KV is the clustarr-provider-throttle bucket (events.BucketProviderThrottle)
 	// every fetch worker writes and this reconciler alone reads, via
 	// app/caption/throttle.Get. A nil KV is a caller error, not a valid "no
-	// bus configured" state -- captionarr's own Options.Validate requires
+	// bus configured" state -- caption's own Options.Validate requires
 	// --nats-url precisely because this bucket is load-bearing.
 	KV events.KV
 
@@ -154,7 +154,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	var state throttle.State
 	if impl {
 		if r.KV == nil {
-			return ctrl.Result{}, fmt.Errorf("subtitleprovider: nil KV; captionarr must be started with --nats-url")
+			return ctrl.Result{}, fmt.Errorf("subtitleprovider: nil KV; caption must be started with --nats-url")
 		}
 		var err error
 		state, err = throttle.Get(ctx, r.KV, string(sp.UID))
@@ -292,7 +292,7 @@ func nextRequeue(now time.Time, state throttle.State) time.Duration {
 	return d
 }
 
-// SetupWithManager registers the SubtitleProvider controller; captionarr's
+// SetupWithManager registers the SubtitleProvider controller; caption's
 // run.go setupControllers calls it for the controller role.
 //
 // There is deliberately no Watches on corev1.Secret, matching

@@ -59,12 +59,12 @@ func TestDLQProjector_NamespaceEventLandsInItsNamespace(t *testing.T) {
 	proj := history.NewDLQProjector(history.DLQDeps{Client: c, Recorder: rec})
 	env := envelopeFor(t, "", schema.WantedScan{Namespace: ns})
 	env.Headers = map[string]string{
-		events.HeaderDLQSubject:  "clustarr.work.catalogarr.wantedscan.low." + ns,
+		events.HeaderDLQSubject:  "clustarr.work.catalog.wantedscan.low." + ns,
 		events.HeaderDLQReason:   "max deliveries exceeded",
-		events.HeaderDLQConsumer: "catalogarr-search-normal",
+		events.HeaderDLQConsumer: "catalog-search-normal",
 		events.HeaderDLQAttempts: "5",
 	}
-	require.NoError(t, proj.Handle(ctx, testMessage{env: env, subject: "clustarr.dlq.catalogarr.wantedscan." + ns}))
+	require.NoError(t, proj.Handle(ctx, testMessage{env: env, subject: "clustarr.dlq.catalog.wantedscan." + ns}))
 
 	find := func(inNamespace string) (*eventsv1.Event, error) {
 		var list eventsv1.EventList

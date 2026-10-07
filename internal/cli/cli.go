@@ -85,7 +85,7 @@ const (
 	// run as, the default for --engine-service-account. Only the chart sets
 	// it, for the reason EnvDataClaim gives: its ServiceAccounts carry the
 	// release fullname, while config/'s is the flag's own default,
-	// "grabarr-engine".
+	// "grab-engine".
 	EnvEngineServiceAccount = "CLUSTARR_ENGINE_SERVICE_ACCOUNT"
 
 	// EnvTraktBaseURL and EnvPlexBaseURL point the Trakt and Plex import-list

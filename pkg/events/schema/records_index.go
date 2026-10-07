@@ -65,7 +65,7 @@ const (
 )
 
 // BlocklistRequest is the request half of the release index's blocklist
-// RPC, events.RPCIndexBlocklist, queue group indexarr (ADR-0019 §6.14).
+// RPC, events.RPCIndexBlocklist, queue group index (ADR-0019 §6.14).
 // Only the manager calls it. A block or unblock is an idempotent upsert or
 // delete on the row key, fenced by Seq: a write below the row's Seq is a
 // no-op, so a late block cannot undo a later unblock.

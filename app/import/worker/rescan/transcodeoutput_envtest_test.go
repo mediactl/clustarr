@@ -38,7 +38,7 @@ import (
 )
 
 // finishedJob creates a TranscodeJob for mediaFile that ended in phase,
-// having written output, as squasharr records it.
+// having written output, as transcode records it.
 func finishedJob(t *testing.T, ctx context.Context, f *fixture, name, mediaFile, source, output string,
 	phase transcodev1alpha1.TranscodeJobPhase,
 ) {
@@ -59,12 +59,12 @@ func finishedJob(t *testing.T, ctx context.Context, f *fixture, name, mediaFile,
 // The rename-to-path-update race gap-fix X10 found. A container change
 // writes a NEW file, <stem>.<container>, and retires the source;
 // replaceSource=false writes "<stem> - <profile>.<container>" beside the
-// kept source. Until catalogarr moves the MediaFile's spec.path to the new
+// kept source. Until catalog moves the MediaFile's spec.path to the new
 // file -- and for good, for a kept source's derived file -- a scan used to
 // adopt the output as an unrecorded file: here, a second MediaFile for the
 // movie. A file a Succeeded TranscodeJob names is left alone until a
 // MediaFile records it; then it is the catalog's like any other. A job that
-// did not succeed protects nothing, and squasharr's half-written
+// did not succeed protects nothing, and transcode's half-written
 // <stem>.part.<ext> is a part.
 func TestHandleLeavesTranscodeOutputsToCatalog(t *testing.T) {
 	ctx := context.Background()
@@ -88,7 +88,7 @@ func TestHandleLeavesTranscodeOutputsToCatalog(t *testing.T) {
 	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
-	assert.Equal(t, int64(2), got.TranscodeOutputs, "both outputs are left to catalogarr")
+	assert.Equal(t, int64(2), got.TranscodeOutputs, "both outputs are left to catalog")
 	assert.Equal(t, int64(1), got.Unchanged, "the recorded source")
 	assert.Equal(t, int64(3), got.FilesSkipped)
 	assert.Equal(t, int64(1), got.Parts, "the half-written output is a part")
@@ -99,7 +99,7 @@ func TestHandleLeavesTranscodeOutputsToCatalog(t *testing.T) {
 	paths := []string{files[0].Spec.Path, files[1].Spec.Path}
 	assert.ElementsMatch(t, []string{source, failed}, paths, "no MediaFile for either transcode output")
 
-	// catalogarr incorporates the container change: spec.path moves to the
+	// catalog incorporates the container change: spec.path moves to the
 	// new file, and the source is retired. The next scan finds the output
 	// recorded, and handles it as the transcoded file it now is; the kept
 	// source's derived file is still left alone.

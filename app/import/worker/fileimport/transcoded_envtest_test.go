@@ -60,8 +60,8 @@ func (f *fixture) importGrab(
 	return f.importState(t, dl).Status.Import
 }
 
-// markTranscoded makes the MediaFile name transcoded the two ways catalogarr
-// does, each under catalogarr's own manager: by swap, it incorporates a
+// markTranscoded makes the MediaFile name transcoded the two ways catalog
+// does, each under catalog's own manager: by swap, it incorporates a
 // transcode swap and takes spec.original over as false; otherwise its probe
 // reads the file's CLUSTARR_PROFILE tag into status.mediaInfo. It waits for
 // the cache the worker reads existing files through to see the verdict.
@@ -250,7 +250,7 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedEpisode(t *testing.T) {
 	require.NoError(t, err, "the transcoded file stays in the library")
 
 	// An automatic grab of that episode alone imports nothing, and says the
-	// item's file is final rather than that the release was bad: grabarr
+	// item's file is final rather than that the release was bad: grab
 	// blocklists only the latter.
 	single := dataDir(t, "scratch")
 	mustWriteSparseFile(t, filepath.Join(single, "Breaking.Bad.S01E01.PROPER.1080p.BluRay.x264-GRP.mkv"), sampleFloor)

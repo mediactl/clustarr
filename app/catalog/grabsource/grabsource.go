@@ -76,7 +76,7 @@ var ErrNoSource = errors.New("downloads: release has no downloadable source")
 //  1. magnetURL, when the release carries a magnet link: an engine adds it
 //     with no fetch at all.
 //  2. indexerDownload, whenever the release names the Indexer and GUID it came
-//     from. indexarr resolves it (rpc.indexarr.download), which applies the
+//     from. index resolves it (rpc.index.download), which applies the
 //     indexer's credentials, rate limit and proxy and counts the grab in
 //     status.grabsInWindow. Spec §8.2 requires this "when the indexer is
 //     authenticated"; it is used for every indexer because whether an
@@ -124,7 +124,7 @@ func ResolveSource(rel commonv1.ReleaseInfo) (downloadv1alpha1.DownloadSource, e
 // isMagnet mirrors DownloadSource.MagnetURL's CRD pattern, ^magnet:\?.+$. A
 // "magnet" field holding anything else -- some aggregators put their own
 // redirect link there -- would be rejected by the apiserver, so it is not
-// treated as a magnet at all and the release falls through to indexarr.
+// treated as a magnet at all and the release falls through to index.
 func isMagnet(s string) bool {
 	return strings.HasPrefix(s, "magnet:?") && len(s) > len("magnet:?")
 }
@@ -183,7 +183,7 @@ func SourceApplyConfiguration(src downloadv1alpha1.DownloadSource) downloadv1alp
 // It is deliberately wider than the reconcilers' choice of which Download
 // status.activeDownloadRef names (rollup.ActiveDownload, which also requires
 // the owner). A Download the Search controller created while its item was
-// missing has no owner, but importarr still imports it into whatever
+// missing has no owner, but import still imports it into whatever
 // spec.target names, so for refusing a second grab it counts.
 //
 // uid may be empty when the caller has only a name; the ownerReference arm
@@ -233,13 +233,13 @@ func CoversEntry(e *catalogv1alpha1.DownloadEntry, kind commonv1.MediaKind, name
 // DownloadNonTerminal reports whether dl can still deliver content to the
 // catalog item it targets, which is what status.activeDownloadRef means
 // (gap-fix ruling R-5). A Download is terminal once it is Imported, Failed,
-// Blocklisted or Removing, or once it carries a deletion timestamp: grabarr
+// Blocklisted or Removing, or once it carries a deletion timestamp: grab
 // never sets Removing itself (its finalizer tears the transfer down without
 // a phase change), so a Download on its way out would otherwise read as
 // active for as long as its engine takes to let go of it.
 //
 // Completed and Seeding are deliberately NOT terminal. The content is on
-// disk and waiting for importarr, and derivePhase makes Imported sticky
+// disk and waiting for import, and derivePhase makes Imported sticky
 // over Seeding, so a Seeding Download has not been imported yet. Clearing
 // the ref there would tell every reader -- the grab path's double-grab
 // guard above all -- that nothing is working on an item whose file is one
@@ -249,7 +249,7 @@ func CoversEntry(e *catalogv1alpha1.DownloadEntry, kind commonv1.MediaKind, name
 // only the grab worker, which A4 retires, still reads a Download.
 //
 // A Download labelled blocklisted is terminal whatever its phase reads:
-// grabarr labels a release fault first, then publishes blocklisted, then
+// grab labels a release fault first, then publishes blocklisted, then
 // writes the phase, so the redownload search that event starts would
 // otherwise find the dead release still queued and reject every release
 // that does not beat it (2026-09-30).
@@ -260,7 +260,7 @@ func DownloadNonTerminal(dl *downloadv1alpha1.Download) bool {
 	if dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue {
 		return false
 	}
-	// An import importarr held for a person (status.import.heldSince) keeps
+	// An import held for a person (status.import.heldSince) keeps
 	// the Download and its files for their decision, but nothing more comes
 	// of it on its own: it is not the item's active download, so a
 	// transcoded movie reads Transcoded, not Downloading, while it waits.

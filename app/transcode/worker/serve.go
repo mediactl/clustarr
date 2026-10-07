@@ -157,7 +157,7 @@ func (r *pullRetry) wait(ctx context.Context, op string, cause error) (giveUp bo
 	if now.Sub(r.failSince) >= r.window {
 		return true, nil
 	}
-	logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: pull failed; retrying",
+	logging.FromContext(ctx).WarnContext(ctx, "transcode worker: pull failed; retrying",
 		"op", op, "error", cause, "backoff", r.backoff, "failingSince", r.failSince)
 	select {
 	case <-r.clock.After(r.backoff):
@@ -190,7 +190,7 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	s.clock = s.o.Clock
 	ps, ok := bus.(events.PullSubscriber)
 	if !ok {
-		return fmt.Errorf("squasharr worker: %T cannot pull one message at a time", bus)
+		return fmt.Errorf("transcode worker: %T cannot pull one message at a time", bus)
 	}
 	s.bus, s.sub = bus, events.TranscodeTaskConsumer(o.ProfileUID, o.Class).Subscription()
 
@@ -223,7 +223,7 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 		if giveUp, cerr := retry.wait(ctx, "next task", nerr); cerr != nil {
 			return cerr
 		} else if giveUp {
-			return fmt.Errorf("squasharr worker: next task: %w", nerr)
+			return fmt.Errorf("transcode worker: next task: %w", nerr)
 		}
 
 		// The failed Next may mean the pull subscription itself is dead
@@ -257,10 +257,10 @@ func (s *server) measureUntilHealthy(ctx context.Context) (transcode.Measurement
 		}
 		s.o.limits.publishHealth(ctx, m, err)
 		if err == nil {
-			log.InfoContext(ctx, "squasharr worker: measured the device", "class", class, "tier", m.Tier)
+			log.InfoContext(ctx, "transcode worker: measured the device", "class", class, "tier", m.Tier)
 			return m, nil
 		}
-		log.WarnContext(ctx, "squasharr worker: the device cannot be used; taking no work until it can",
+		log.WarnContext(ctx, "transcode worker: the device cannot be used; taking no work until it can",
 			"class", class, "error", err, "retryIn", s.o.RemeasureEvery)
 		select {
 		case <-ctx.Done():
@@ -302,7 +302,7 @@ func (s *server) pull(ctx context.Context, ps events.PullSubscriber, retry *pull
 		if giveUp, cerr := retry.wait(ctx, "pull "+s.sub.Durable, err); cerr != nil {
 			return nil, cerr
 		} else if giveUp {
-			return nil, fmt.Errorf("squasharr worker: pull %s: %w", s.sub.Durable, err)
+			return nil, fmt.Errorf("transcode worker: pull %s: %w", s.sub.Durable, err)
 		}
 	}
 }
@@ -356,7 +356,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		defer cancel()
 		subj, dl := events.DeadLetter(m, s.sub.Durable, "undecodable task: "+err.Error())
 		if _, perr := s.bus.Publish(sctx, subj, dl); perr != nil {
-			log.WarnContext(ctx, "squasharr worker: dead-letter publish failed", "error", perr)
+			log.WarnContext(ctx, "transcode worker: dead-letter publish failed", "error", perr)
 		}
 		_ = m.Term(sctx, "undecodable task")
 		return
@@ -378,7 +378,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 
 	rep := &reporter{s: s, t: t, delivery: m.Attempt()}
 	if err := rep.publish(ctx, task.StatusEvent{Kind: task.EventClaimed}); err != nil {
-		log.WarnContext(ctx, "squasharr worker: claimed event not published", "error", err)
+		log.WarnContext(ctx, "transcode worker: claimed event not published", "error", err)
 	}
 	opts := s.o.Options
 	opts.OnProgress = func(pctx context.Context, p transcodev1alpha1.Progress) error {
@@ -412,7 +412,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		// second worker's claim and clobber its status (fix round 1, item 4:
 		// this is the one outcome that beats a successful out.Code, since
 		// Process may have returned before noticing the fence).
-		log.WarnContext(ctx, "squasharr worker: lease could not be renewed; stopping before it lapses",
+		log.WarnContext(ctx, "transcode worker: lease could not be renewed; stopping before it lapses",
 			"job", t.Job.Key(), "attempt", t.Attempt)
 		sctx, cancel := settle()
 		defer cancel()
@@ -421,11 +421,11 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 	case out.Code == ExitOK:
 		// A success Process returned outranks a cancel or deadline cause
 		// that only fired after it was already done (fix round 1, item 4):
-		// squasharr is told what actually happened to the file, not that a
+		// transcode is told what actually happened to the file, not that a
 		// signal it can no longer act on arrived microseconds later.
 		fin.Outcome, fin.Result = task.OutcomeSucceeded, out.Result
 	case errors.Is(cause, errCancelled):
-		log.InfoContext(ctx, "squasharr worker: task cancelled by squasharr",
+		log.InfoContext(ctx, "transcode worker: task cancelled by transcode",
 			"job", t.Job.Key(), "attempt", t.Attempt)
 		fin.Outcome, fin.Reason = task.OutcomeCancelled, task.ReasonCancelled
 	case errors.Is(cause, errDeadline):
@@ -438,7 +438,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		// cancellation (fix round 1, item 1: the old ExitRetriable-only
 		// guard reported that as Failed and acked it, blocking the job for
 		// good instead of letting redelivery retry a healthy task).
-		log.InfoContext(ctx, "squasharr worker: drained; releasing the lease for the next pod",
+		log.InfoContext(ctx, "transcode worker: drained; releasing the lease for the next pod",
 			"job", t.Job.Key(), "attempt", t.Attempt)
 		sctx, cancel := settle()
 		defer cancel()
@@ -453,7 +453,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 	sctx, cancel := settle()
 	defer cancel()
 	if err := rep.publish(sctx, fin); err != nil {
-		log.WarnContext(ctx, "squasharr worker: finished event not published; redelivery will redo it", "error", err)
+		log.WarnContext(ctx, "transcode worker: finished event not published; redelivery will redo it", "error", err)
 		// Release the lease now rather than leave a redelivery waiting out
 		// the full lease TTL for it to lapse (fix round 1, item 8).
 		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev.get())

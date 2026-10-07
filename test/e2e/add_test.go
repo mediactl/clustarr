@@ -36,7 +36,7 @@ import (
 
 // TestAddNewSearchesAndAddsAMovie is scenario 19, Add New
 // (docs/superpowers/specs/2026-09-29-add-new-design.md): through the ui
-// Service, a movie search reaches catalogarr's metadata RPC and the
+// Service, a movie search reaches catalog's metadata RPC and the
 // in-cluster TMDB stub, which answers the recorded "inception" search;
 // adding its second hit, "Inception: The Cobol Job" (613092, owned by no
 // other scenario), creates the Movie beside its root folder, spec only,

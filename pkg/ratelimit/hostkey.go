@@ -26,7 +26,7 @@ import "net/url"
 // what makes two callers address ONE bucket. Two Indexers pointing at one
 // tracker -- a Prowlarr or Jackett instance in front of many trackers, or a
 // torrent and a usenet Indexer on one server -- must draw on one budget, and
-// so must two different VERBS against the same host: indexarr's reconciler
+// so must two different VERBS against the same host: index's reconciler
 // calls [Limiter.SetConfig] with this key and its search, RSS and download
 // paths only ever Wait on it.
 //

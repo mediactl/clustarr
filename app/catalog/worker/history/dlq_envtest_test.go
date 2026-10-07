@@ -46,7 +46,7 @@ import (
 // over-claim is otherwise completely silent (CLAUDE.md, "Server-side apply").
 //
 // The Movie is created with real status already set, under
-// k8s.ManagerCatalogarr, before DLQProjector.Handle ever runs: a blank
+// k8s.ManagerCatalog, before DLQProjector.Handle ever runs: a blank
 // object has no status to release, so a test against one cannot observe a
 // release even if the code had one (CLAUDE.md again, same section).
 func TestDLQProjector_AnnotatesExactlyOneLeaf_NeverStatus(t *testing.T) {
@@ -81,7 +81,7 @@ func TestDLQProjector_AnnotatesExactlyOneLeaf_NeverStatus(t *testing.T) {
 		Now:      func() time.Time { return fixedNow },
 	})
 
-	origSubject := "clustarr.work.catalogarr.search.high." + ns + "/the-matrix"
+	origSubject := "clustarr.work.catalog.search.high." + ns + "/the-matrix"
 	env := envelopeFor(t, ns+"/the-matrix", schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:   schema.SearchReasonMissing,
@@ -89,10 +89,10 @@ func TestDLQProjector_AnnotatesExactlyOneLeaf_NeverStatus(t *testing.T) {
 	env.Headers = map[string]string{
 		events.HeaderDLQSubject:  origSubject,
 		events.HeaderDLQReason:   "max deliveries exceeded (5): indexer timeout",
-		events.HeaderDLQConsumer: "catalogarr-search-high",
+		events.HeaderDLQConsumer: "catalog-search-high",
 		events.HeaderDLQAttempts: "5",
 	}
-	msg := testMessage{env: env, subject: "clustarr.dlq.catalogarr.search." + ns + "/the-matrix"}
+	msg := testMessage{env: env, subject: "clustarr.dlq.catalog.search." + ns + "/the-matrix"}
 
 	require.NoError(t, proj.Handle(ctx, msg))
 
@@ -187,12 +187,12 @@ func TestDLQProjector_UnresolvableKind_NoAnnotation_NamespaceEvent(t *testing.T)
 	// target.go's resolveWantedScan.
 	env := envelopeFor(t, "", schema.WantedScan{Namespace: ns})
 	env.Headers = map[string]string{
-		events.HeaderDLQSubject:  "clustarr.work.catalogarr.wantedscan.low." + ns,
+		events.HeaderDLQSubject:  "clustarr.work.catalog.wantedscan.low." + ns,
 		events.HeaderDLQReason:   "max deliveries exceeded",
-		events.HeaderDLQConsumer: "catalogarr-search-normal",
+		events.HeaderDLQConsumer: "catalog-search-normal",
 		events.HeaderDLQAttempts: "5",
 	}
-	msg := testMessage{env: env, subject: "clustarr.dlq.catalogarr.wantedscan." + ns}
+	msg := testMessage{env: env, subject: "clustarr.dlq.catalog.wantedscan." + ns}
 
 	require.NoError(t, proj.Handle(ctx, msg))
 

@@ -42,7 +42,7 @@ import (
 
 var os1 = subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom
 
-// workerItemLeaves is every SubtitleItem leaf captionarr-worker owns once it
+// workerItemLeaves is every SubtitleItem leaf caption-worker owns once it
 // has recorded a download: everything but nextSearchAt and attempts.
 var workerItemLeaves = []string{
 	"downloadedAt", "langKey", "lastError", "path", "provider", "score", "scoreOutOf", "state", "subtitleID",
@@ -85,7 +85,7 @@ func TestFetchWritesTheBestAcceptableSubtitleAndRecordsIt(t *testing.T) {
 	assert.Equal(t, int32(180), it.ScoreOutOf)
 	assert.Equal(t, "os-b", it.Provider, "the SubtitleProvider's name, not the client's")
 	assert.Equal(t, "b-other", it.SubtitleID)
-	assert.Equal(t, sidecarName, it.Path, "relative to the media file's directory; catalogarr joins it")
+	assert.Equal(t, sidecarName, it.Path, "relative to the media file's directory; catalog joins it")
 	require.NotNil(t, it.DownloadedAt)
 	assert.True(t, it.DownloadedAt.Time.Equal(now))
 	assert.Empty(t, it.LastError)
@@ -130,7 +130,7 @@ func TestFetchWritesTheBestAcceptableSubtitleAndRecordsIt(t *testing.T) {
 //     It shares this worker's field manager, and status.RequestWorkerFields
 //     re-declares every worker leaf of EVERY item, so an apply seeded from
 //     the pre-search read would re-send es as "pending" with no path --
-//     rolling back a written sidecar that catalogarr would then drop from
+//     rolling back a written sidecar that catalog would then drop from
 //     MediaFile.status.sidecars. Only the re-read before the apply prevents
 //     that. This is the distinguishing assertion: with the re-read removed,
 //     it fails (see the task report's falsification).
@@ -366,7 +366,7 @@ func TestFetchSettlement(t *testing.T) {
 	})
 	t.Run("the final delivery records the failure and acks", func(t *testing.T) {
 		m := f.message(t, "en", func(ft *schema.FetchTask) { ft.ProbeHash = "planned-against-another-file" })
-		m.attempt = 8 // captionarr-fetch-*'s MaxDeliver
+		m.attempt = 8 // caption-fetch-*'s MaxDeliver
 		require.NoError(t, f.worker.Handle(f.ctx, m))
 		it := f.item(t, "en")
 		assert.Equal(t, subtitlev1alpha1.SubtitleItemFailed, it.State)

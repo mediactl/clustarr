@@ -58,7 +58,7 @@ var (
 	}
 )
 
-// Download telemetry, used by grabarr.
+// Download telemetry, used by grab.
 var (
 	// DownloadBytesTotal counts bytes downloaded, by protocol and client.
 	DownloadBytesTotal = newCounterVec(
@@ -101,7 +101,7 @@ var (
 	)
 )
 
-// Import telemetry, used by importarr.
+// Import telemetry, used by import.
 var (
 	// ImportFilesTotal counts files that entered the library, by kind
 	// (movie, episode, track, ...), mode (hardlink, copy, move) and
@@ -122,7 +122,7 @@ var (
 	)
 )
 
-// Indexer telemetry, used by indexarr.
+// Indexer telemetry, used by index.
 var (
 	// IndexerQueryDuration is how long an indexer query takes, by indexer
 	// and function (search, caps, ...).
@@ -166,7 +166,7 @@ var (
 	)
 )
 
-// Search telemetry, used by catalogarr's release decision pipeline.
+// Search telemetry, used by catalog's release decision pipeline.
 var (
 	// SearchDecisionsTotal counts release accept/reject decisions, by kind,
 	// decision and reason. This is the metric behind the most common
@@ -186,7 +186,7 @@ var (
 	)
 )
 
-// Transcode telemetry, used by squasharr.
+// Transcode telemetry, used by transcode.
 var (
 	// TranscodeJobsActive is the number of transcode Jobs currently
 	// running, by tier (cpu, gpu).
@@ -223,7 +223,7 @@ var (
 	)
 )
 
-// Subtitle telemetry, used by captionarr.
+// Subtitle telemetry, used by caption.
 var (
 	// SubtitleFetchesTotal counts subtitle fetch attempts, by provider,
 	// language and outcome.
@@ -536,7 +536,7 @@ var (
 // Grabs (ADR-0019 §6.7, §6.14): what the manager's downloads stage owed the
 // engines and the release index's blocklist.
 var (
-	// BlocklistCallsTotal counts clustarr.rpc.indexarr.blocklist calls by op
+	// BlocklistCallsTotal counts clustarr.rpc.index.blocklist calls by op
 	// (block, unblock) and outcome (applied, stale, error).
 	BlocklistCallsTotal = newCounterVec(
 		"clustarr_blocklist_calls_total",

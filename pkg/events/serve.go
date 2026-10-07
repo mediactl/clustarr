@@ -32,7 +32,7 @@ import (
 // A responder runs up to ServeLimits.Concurrency handlers at once per Serve
 // call, each on its own goroutine. Before 2026-10-01 natsbus ran the handler
 // inside the nats.go subscription callback, which nats.go calls serially, so
-// every RPC verb was answered one request at a time per replica: indexarr's
+// every RPC verb was answered one request at a time per replica: index's
 // one replica searched one query at a time while sixteen search consumers
 // waited on it, and a request queued behind a slow one started after its
 // caller had given up, so the caller retried and the queue only grew.
@@ -42,8 +42,8 @@ import (
 // with ErrResponderBusy, a header-only reply on NATS, so the caller fails
 // fast instead of waiting out its deadline for nothing. A queue rather than
 // an immediate refusal, because callers' bursts are routinely a little
-// above the concurrency (several catalogarr replicas' search consumers
-// against one indexarr), and a short wait inside the caller's own deadline
+// above the concurrency (several catalog replicas' search consumers
+// against one index), and a short wait inside the caller's own deadline
 // is cheaper than a failed RPC and a JetStream backoff. Concurrency is not
 // a rate limit: callers own rate limiting per host (CLAUDE.md, "The caller
 // owns rate limiting"), so the bound here only caps goroutines and memory.
@@ -76,7 +76,7 @@ const (
 
 // DefaultServeConcurrency is how many handlers one Serve runs at once when
 // ServeLimits leaves Concurrency unset. Sixteen matches the most any one
-// caller runs at once (catalogarr's search consumers); handlers are I/O
+// caller runs at once (catalog's search consumers); handlers are I/O
 // bound -- provider HTTP calls, an index query -- so GOMAXPROCS is not the
 // measure.
 const DefaultServeConcurrency = 16

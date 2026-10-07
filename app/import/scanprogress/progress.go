@@ -55,7 +55,7 @@ type UnmatchedFile struct {
 // RenamedFile is what a LibraryScan's rename pass did with one rename
 // candidate. It mirrors catalogv1alpha1.RenamedFile, as [UnmatchedFile]
 // mirrors its CRD type: From is the file's spec.path, To the path
-// catalogarr proposes, and Reason is empty for a move, else a Rename*
+// catalog proposes, and Reason is empty for a move, else a Rename*
 // reason -- or "Failed: <error>" (rescan.RenameFailed) for a file the pass could
 // not rename, clamped to the CRD field's 256 characters.
 type RenamedFile struct {
@@ -135,7 +135,7 @@ type Progress struct {
 
 	// FilesMatched counts files attributed to a catalog item and recorded:
 	// a MediaFile created or refreshed, or a post-transcode file's change
-	// handed to catalogarr (HandedOver).
+	// handed to catalog (HandedOver).
 	FilesMatched int64 `json:"filesMatched"`
 
 	// ItemsCreated counts catalog items the walk created.
@@ -154,16 +154,16 @@ type Progress struct {
 	Unchanged int64 `json:"unchanged,omitempty"`
 
 	// Transcoded counts post-transcode files (spec.original false, so
-	// catalogarr owns their fingerprint) found unchanged on disk.
+	// catalog owns their fingerprint) found unchanged on disk.
 	Transcoded int64 `json:"transcoded,omitempty"`
 
 	// Deferred counts files whose MediaFile changed between the walk
 	// reading it and writing it, twice over; the next scan picks them up.
 	Deferred int64 `json:"deferred,omitempty"`
 
-	// TranscodeOutputs counts files squasharr wrote that no MediaFile
+	// TranscodeOutputs counts files transcode wrote that no MediaFile
 	// records: a container change's new file, named by its Succeeded
-	// TranscodeJob, before catalogarr moves spec.path to it; or a
+	// TranscodeJob, before catalog moves spec.path to it; or a
 	// replaceSource=false output kept beside its source, named by its job
 	// or, once the job is gone, recognised by its name and tag (keptOutput).
 	// They belong to the item whose file was transcoded; adopting one would
@@ -171,7 +171,7 @@ type Progress struct {
 	TranscodeOutputs int64 `json:"transcodeOutputs,omitempty"`
 
 	// HandedOver counts post-transcode files whose bytes changed on disk:
-	// the walk told catalogarr (AnnotationObservedFingerprint) instead of
+	// the walk told catalog (AnnotationObservedFingerprint) instead of
 	// writing the fields it owns. Also counted in FilesMatched.
 	HandedOver int64 `json:"handedOver,omitempty"`
 
@@ -226,8 +226,8 @@ func (p Progress) Summary() string {
 	if p.FilesSkipped > 0 {
 		fmt.Fprintf(&b, ", %d skipped (%s)", p.FilesSkipped, clauses(
 			clause{p.Unchanged, "unchanged"},
-			clause{p.Transcoded, "transcoded, left to catalogarr"},
-			clause{p.TranscodeOutputs, "transcode outputs, left to catalogarr"},
+			clause{p.Transcoded, "transcoded, left to catalog"},
+			clause{p.TranscodeOutputs, "transcode outputs, left to catalog"},
 			clause{p.Deferred, "changed during the scan, left to the next"},
 		))
 	}
@@ -236,7 +236,7 @@ func (p Progress) Summary() string {
 		fmt.Fprintf(&b, "; %d awaiting the episodes of their series, which a later scan attributes", p.AwaitingEpisodes)
 	}
 	if p.HandedOver > 0 {
-		fmt.Fprintf(&b, "; %d transcoded files changed on disk, handed to catalogarr", p.HandedOver)
+		fmt.Fprintf(&b, "; %d transcoded files changed on disk, handed to catalog", p.HandedOver)
 	}
 	if p.Unreadable > 0 {
 		fmt.Fprintf(&b, "; %d could not be read", p.Unreadable)

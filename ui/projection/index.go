@@ -60,12 +60,12 @@ import (
 // which MediaFile owns it, and mediaFileOwner in turn maps that MediaFile's
 // own owner UID to the catalog item.
 //
-// As of this task, importarr's MediaFile writer (app/import/worker/rescan)
+// As of this task, import's MediaFile writer (app/import/worker/rescan)
 // sets no OwnerReference on the MediaFiles it creates -- it links back only
 // through the Name-based spec.mediaRef, which this index deliberately does
 // not consult, for the same reason Download's Target field is not consulted
 // either. Until a later phase sets that reference (and the TranscodeJob and
-// SubtitleRequest references squasharr and captionarr do not exist yet to
+// SubtitleRequest references transcode and caption do not exist yet to
 // set), every bucket past downloads and searches stays empty and every
 // pipeline row simply does not advance past the stages that do not need
 // them. The moment those controllers start setting the owner reference,

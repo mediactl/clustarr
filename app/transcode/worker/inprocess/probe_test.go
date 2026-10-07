@@ -85,7 +85,7 @@ func probeFixtures(t *testing.T) map[string]string {
 
 // The worker's probe runs in-process (the transcoder image carries no
 // ffprobe); it must read every file as pkg/mediainfo's ffprobe probe does,
-// or the worker's plan and catalogarr's would differ.
+// or the worker's plan and catalog's would differ.
 func TestTheInProcessProbeAgreesWithFFprobe(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	for name, path := range probeFixtures(t) {

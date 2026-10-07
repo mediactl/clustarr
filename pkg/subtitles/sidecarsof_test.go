@@ -29,8 +29,8 @@ import (
 )
 
 // SidecarsOf finds every subtitle beside a video that ParseSidecar
-// attributes to it, recorded or not: squasharr's own (MP4 standard
-// §4.1) as well as captionarr's.
+// attributes to it, recorded or not: transcode's own (MP4 standard
+// §4.1) as well as caption's.
 func TestSidecarsOfListsEverySidecarOfTheVideo(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{

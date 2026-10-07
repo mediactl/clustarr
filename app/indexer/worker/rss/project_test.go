@@ -224,7 +224,7 @@ func TestProjectReleaseIndexerFlagsStayInsideTheEnum(t *testing.T) {
 // TestProjectReleaseIndexerFlagsAreAllEnumMembers holds the allow-list to the
 // CRD's closed enum from the other direction: every value the mapping can
 // emit must be one the apiserver accepts. Otherwise the rejection surfaces at
-// grab time, in grabarr, when Download.spec.release is persisted -- far from
+// grab time, in grab, when Download.spec.release is persisted -- far from
 // here and long after the release looked fine.
 func TestProjectReleaseIndexerFlagsAreAllEnumMembers(t *testing.T) {
 	allowed := map[string]bool{

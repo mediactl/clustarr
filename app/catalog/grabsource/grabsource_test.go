@@ -50,7 +50,7 @@ func TestResolveSource(t *testing.T) {
 			},
 		},
 		{
-			name: "an indexer release without a magnet goes through indexarr, whatever its auth",
+			name: "an indexer release without a magnet goes through index, whatever its auth",
 			rel: commonv1.ReleaseInfo{
 				Protocol: commonv1.ProtocolTorrent, GUID: "g", IndexerRef: "idx",
 				DownloadURL: "https://idx/dl?apikey=k", InfoHash: hexHash,
@@ -72,7 +72,7 @@ func TestResolveSource(t *testing.T) {
 			},
 		},
 		{
-			name: "a usenet indexer release goes through indexarr and never carries a hash",
+			name: "a usenet indexer release goes through index and never carries a hash",
 			rel: commonv1.ReleaseInfo{
 				Protocol: commonv1.ProtocolUsenet, GUID: "g", IndexerRef: "idx",
 				DownloadURL: "https://idx/nzb", InfoHash: hexHash,
@@ -92,7 +92,7 @@ func TestResolveSource(t *testing.T) {
 			want: downloadv1alpha1.DownloadSource{NZBURL: new("https://x/a.nzb")},
 		},
 		{
-			name: "a magnet field that is not a magnet falls through to indexarr",
+			name: "a magnet field that is not a magnet falls through to index",
 			rel: commonv1.ReleaseInfo{
 				Protocol: commonv1.ProtocolTorrent, GUID: "g", IndexerRef: "idx",
 				MagnetURL: "https://aggregator/redirect/123",

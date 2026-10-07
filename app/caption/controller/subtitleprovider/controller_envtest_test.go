@@ -124,7 +124,7 @@ func TestReconcileEmbeddedProviderIsReadyWithNoCredentials(t *testing.T) {
 	assert.False(t, k8s.IsConditionTrue(got.Status.Conditions, subtitlev1alpha1.SubtitleProviderConditionThrottled))
 	assert.True(t, got.Status.HIVerifiable)
 
-	// Ownership: PatchProvider applies under k8s.ManagerCaptionarr against the
+	// Ownership: PatchProvider applies under k8s.ManagerCaption against the
 	// status subresource -- assert managedFields directly, per CLAUDE.md's
 	// "an over-claim is silent" rule.
 	var sawStatusOwner bool
@@ -133,7 +133,7 @@ func TestReconcileEmbeddedProviderIsReadyWithNoCredentials(t *testing.T) {
 			sawStatusOwner = true
 		}
 	}
-	assert.True(t, sawStatusOwner, "k8s.ManagerCaptionarr must own SubtitleProvider.status")
+	assert.True(t, sawStatusOwner, "k8s.ManagerCaption must own SubtitleProvider.status")
 }
 
 // TestReconcileOpenSubtitlesComWithoutASecretIsNotAuthenticated proves a

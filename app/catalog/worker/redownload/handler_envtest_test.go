@@ -237,7 +237,7 @@ func (f *fixture) newMovie(t *testing.T, name, profile string, monitored bool, a
 }
 
 // failedDownload applies a Download the grab path made for target, then
-// drives its status to where grabarr leaves a failed one: phase, reason and,
+// drives its status to where grab leaves a failed one: phase, reason and,
 // when blocklisted, the label, Blocklisted and blocklistedUntil.
 func (f *fixture) failedDownload(t *testing.T, target commonv1.MediaRef, guid string,
 	reason downloadv1alpha1.DownloadFailureReason, blocklisted bool,
@@ -305,7 +305,7 @@ func (f *fixture) leaseHolder(t *testing.T, key string) string {
 	return string(e.Value)
 }
 
-// event is the envelope grabarr publishes for dl's action, built the way
+// event is the envelope grab publishes for dl's action, built the way
 // app/grab/controller/download's publishDownloadEvent builds it.
 func (f *fixture) event(t *testing.T, dl *downloadv1alpha1.Download, action string,
 	reason downloadv1alpha1.DownloadFailureReason, at time.Time,
@@ -325,7 +325,7 @@ func (f *fixture) event(t *testing.T, dl *downloadv1alpha1.Download, action stri
 	require.NoError(t, err)
 	return &events.Envelope{
 		ID: string(dl.UID) + ":" + action, Type: "download.DownloadEvent", Schema: name,
-		Source: "grabarr-controller@test", Key: dl.Namespace + "/" + dl.Name, Time: at, Data: data,
+		Source: "grab-controller@test", Key: dl.Namespace + "/" + dl.Name, Time: at, Data: data,
 	}
 }
 
@@ -340,7 +340,7 @@ func approveEverything(_ context.Context, _ decision.Target, _ quality.Profile, 
 }
 
 // TestAFailedDownloadIsRedownloadedAndTheGrabSaysSo is spec §8.3 end to end
-// on the catalogarr side, against objects in their steady state: grabarr's
+// on the catalog side, against objects in their steady state: grab's
 // failed event for a blocklisted Download frees the Movie's lease and
 // publishes one redownload search; the REAL search worker, handed that
 // message, ranks a new release and hands it to the REAL grab sink; and the
@@ -377,7 +377,7 @@ func TestAFailedDownloadIsRedownloadedAndTheGrabSaysSo(t *testing.T) {
 	f.newMovie(t, movie.Name, qp.Name, true, failed.Name)
 	lease := f.holdLease(t, movie, failed.Name)
 
-	// 1. grabarr's failed event.
+	// 1. grab's failed event.
 	env := f.event(t, failed, events.ActionFailed, downloadv1alpha1.DownloadFailureMissingArticles, time.Now())
 	require.NoError(t, f.handler.Handle(ctx, testMessage{env: env}))
 
@@ -483,8 +483,8 @@ func TestALocalFaultFreesTheLeaseButDoesNotSearch(t *testing.T) {
 	}
 }
 
-// TestAFailureWaitsForGrabarrsBlocklist: a failed event that arrives before
-// grabarr has labelled the Download is retried rather than searched, so the
+// TestAFailureWaitsForGrabsBlocklist: a failed event that arrives before
+// grab has labelled the Download is retried rather than searched, so the
 // search cannot rank the failed release again -- and after the settle
 // attempts it searches anyway.
 func TestAFailureWaitsForTheGrabBlocklist(t *testing.T) {

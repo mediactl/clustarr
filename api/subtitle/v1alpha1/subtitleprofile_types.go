@@ -193,7 +193,7 @@ type EmbeddedSpec struct {
 // SearchSpec paces provider searches for languages that are still wanted.
 type SearchSpec struct {
 	// Interval is the base delay between searches for a wanted language. A Go
-	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// client always sends a Duration, so caption floors a zero (or negative)
 	// one to this default rather than treat it as a request to search
 	// continuously.
 	// +optional
@@ -202,14 +202,14 @@ type SearchSpec struct {
 
 	// AdaptiveDelay is how long after a media file's release date searches keep
 	// running at the base interval before backing off. A Go client always sends
-	// a Duration, so captionarr floors a zero (or negative) one to this default
+	// a Duration, so caption floors a zero (or negative) one to this default
 	// rather than treat it as a request; "1s" backs off after the first search.
 	// +optional
 	// +kubebuilder:default="504h"
 	AdaptiveDelay metav1.Duration `json:"adaptiveDelay,omitempty"`
 
 	// AdaptiveDelta is the interval used once adaptiveDelay has elapsed. A Go
-	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// client always sends a Duration, so caption floors a zero (or negative)
 	// one to this default rather than treat it as a request.
 	// +optional
 	// +kubebuilder:default="168h"
@@ -226,7 +226,7 @@ type UpgradeSpec struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// Interval is the delay between upgrade searches for one language. A Go
-	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// client always sends a Duration, so caption floors a zero (or negative)
 	// one to this default rather than treat it as a request to search
 	// continuously.
 	// +optional

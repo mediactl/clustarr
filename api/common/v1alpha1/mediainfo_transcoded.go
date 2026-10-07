@@ -27,7 +27,7 @@ var transcodeEncoders = map[string]bool{
 }
 
 // TranscodedElsewhere reports whether the probe shows the video was
-// transcoded after release by a tool other than squasharr: its stream's
+// transcoded after release by a tool other than transcode: its stream's
 // ENCODER tag names a libavcodec HEVC or AV1 encoder ("Lavc61.3.100
 // hevc_qsv", "Lavc60 libx265", "Lavc61 av1_nvenc"). ffmpeg writes that tag
 // when it encodes a stream, and a release is encoded by x265 itself or

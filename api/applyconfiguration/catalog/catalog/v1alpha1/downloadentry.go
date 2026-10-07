@@ -29,7 +29,7 @@ import (
 //
 // DownloadEntry is one grab of its owner, from the manager's decision to
 // grab through seeding and removal. Written only by the owner's item key
-// in the remediation loop, under field manager catalogarr (ADR-0019 §6.2).
+// in the remediation loop, under field manager catalog (ADR-0019 §6.2).
 type DownloadEntryApplyConfiguration struct {
 	// ID is the grab's stable name: k8s.ChildName(target, guid), or
 	// k8s.ChildName(target, purpose, guid) for a donor, the name the

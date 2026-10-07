@@ -41,13 +41,13 @@ func resolveQualityProfile(ctx context.Context, c client.Client, name string, ca
 	var qp catalogv1alpha1.QualityProfile
 	if err := c.Get(ctx, client.ObjectKey{Name: name}, &qp); err != nil {
 		if apierrors.IsNotFound(err) {
-			return quality.Profile{}, fmt.Errorf("catalogarr: quality profile %q not found", name)
+			return quality.Profile{}, fmt.Errorf("catalog: quality profile %q not found", name)
 		}
 		return quality.Profile{}, err
 	}
 	profile, errs := quality.FromCRD(&qp, cat)
 	if len(errs) > 0 {
-		return quality.Profile{}, fmt.Errorf("catalogarr: resolve quality profile %q: %w", name, errs[0])
+		return quality.Profile{}, fmt.Errorf("catalog: resolve quality profile %q: %w", name, errs[0])
 	}
 	return profile, nil
 }
@@ -65,11 +65,11 @@ func resolveQualityProfile(ctx context.Context, c client.Client, name string, ca
 func resolveDelayProfile(ctx context.Context, c client.Client, ns string, ref *string, tags []string) (catalogv1alpha1.DelayProfileSpec, error) {
 	var list catalogv1alpha1.DelayProfileList
 	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
-		return catalogv1alpha1.DelayProfileSpec{}, fmt.Errorf("catalogarr: list delay profiles: %w", err)
+		return catalogv1alpha1.DelayProfileSpec{}, fmt.Errorf("catalog: list delay profiles: %w", err)
 	}
 	dp, err := delay.Resolve(ref, tags, list.Items)
 	if err != nil {
-		logging.FromContext(ctx).Debug("catalogarr: no delay profile applies; grabbing without a delay",
+		logging.FromContext(ctx).Debug("catalog: no delay profile applies; grabbing without a delay",
 			"namespace", ns, "reason", err)
 		return catalogv1alpha1.DelayProfileSpec{}, nil
 	}

@@ -29,14 +29,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // This reconciler is the sole writer of status.phase, status.path,
 // status.hasFile, status.fileRef, status.fileFormat, status.cutoffMet and
 // status.activeDownloadRef; status.metadata belongs to the metadata gateway
-// (field manager k8s.ManagerCatalogarrMetadata) and this reconciler never
+// (field manager k8s.ManagerCatalogMetadata) and this reconciler never
 // builds a BookStatusApplyConfiguration that calls WithMetadata. The
 // author package's fan-out never writes anything onto a Book beyond its
 // initial spec-only Create -- see author/doc.go for why -- so unlike
 // Episode/Issue, this reconciler never needs to leave a provider-sourced
 // field alone to avoid clobbering a sibling field manager; every field it
 // owns is genuinely this reconciler's alone, under the single
-// k8s.ManagerCatalogarr, the same shape Movie uses (not the Series/Episode
+// k8s.ManagerCatalog, the same shape Movie uses (not the Series/Episode
 // or Comic/Issue two-manager split).
 //
 // A book quality ladder DOES exist (corrected after an earlier draft of

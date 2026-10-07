@@ -309,7 +309,7 @@ func TestIndexerFormOffersDefinitionsClientsAndProxies(t *testing.T) {
 // The Import Lists page's own forms (2026-09-24): an ImportList is created
 // with the provider the choice names -- a stale input from a hidden
 // provider section does not survive -- its credentials go to a Secret
-// under the keys importarr reads, and the forms return to the page they
+// under the keys import reads, and the forms return to the page they
 // came from, not to /settings.
 func TestCreateAndEditAnImportListFromTheForm(t *testing.T) {
 	srv, c := settingsServer(t)

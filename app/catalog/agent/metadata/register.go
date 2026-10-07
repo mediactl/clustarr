@@ -16,9 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package metadata is the agent's metadata domain (spec §3.5.3): the
-// metadata gateway (rpc.catalogarr.metadata.* and catalogarr-metadata),
-// catalogarr-markers (answering into clustarr-markers) and
-// catalogarr-artwork-fetch.
+// metadata gateway (rpc.catalog.metadata.* and catalog-metadata),
+// catalog-markers (answering into clustarr-markers) and
+// catalog-artwork-fetch.
 // Fixed at one replica (ADR-0007): its in-process rate limiters are what keep
 // Clustarr inside every provider's quota, and artwork.Fetcher's in-process
 // lock serialises the two artwork consumers per item. The orphan reaper is
@@ -50,10 +50,10 @@ type Options struct {
 }
 
 // Register adds the metadata gateway: every outbound metadata client, their
-// rate limiters and the two cache tiers, serving rpc.catalogarr.metadata.*
-// and the work.catalogarr.metadata.<tier> consumer; and the artwork store's
+// rate limiters and the two cache tiers, serving rpc.catalog.metadata.*
+// and the work.catalog.metadata.<tier> consumer; and the artwork store's
 // gateway half (spec §B.3-§B.7) -- the Fetcher that both the metadata
-// consumer and the catalogarr-artwork-fetch consumer store originals
+// consumer and the catalog-artwork-fetch consumer store originals
 // through, and that consumer itself.
 //
 // Both are k8s.EveryReplica: the gateway lists MetadataProviders through the
@@ -105,32 +105,32 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("catalogarr: metadata gateway: %w", err)
+			return fmt.Errorf("catalog: metadata gateway: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()
 		return nil
 	})); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("catalogarr: add the metadata gateway: %w", err)
+		return catalogagent.Registration{}, fmt.Errorf("catalog: add the metadata gateway: %w", err)
 	}
 
 	// The ImportArtwork durable (spec §B.7): a reconciler saw status.artwork
 	// drift from its sources (artwork.Drift). Same Fetcher, so the same per-item lock.
 	spec, ok := o.BusTopology().Consumer(events.ConsumerCatalogArtworkFetch)
 	if !ok {
-		return catalogagent.Registration{}, fmt.Errorf("catalogarr: consumer %q missing from the bus topology", events.ConsumerCatalogArtworkFetch)
+		return catalogagent.Registration{}, fmt.Errorf("catalog: consumer %q missing from the bus topology", events.ConsumerCatalogArtworkFetch)
 	}
 	fetch := &artwork.Handler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, spec.Subscription(), fetch.Handle)
 		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe %s: %w", events.ConsumerCatalogArtworkFetch, err)
+			return fmt.Errorf("catalog: subscribe %s: %w", events.ConsumerCatalogArtworkFetch, err)
 		}
 		defer stop()
 		<-ctx.Done()
 		return nil
 	})); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("catalogarr: add the artwork fetch consumer: %w", err)
+		return catalogagent.Registration{}, fmt.Errorf("catalog: add the artwork fetch consumer: %w", err)
 	}
 	return catalogagent.Registration{}, nil
 }

@@ -74,7 +74,7 @@ func TestApplyTelemetryTwicePublishesFilesOnceNotTwice(t *testing.T) {
 
 // TestApplyTelemetryDoesNotClobberAConcurrentControllerWrite is the second
 // trap, empirically: it holds a Download object read BEFORE a concurrent
-// controller write (simulating ManagerGrabarr setting phase mid-reconcile),
+// controller write (simulating ManagerGrab setting phase mid-reconcile),
 // performs applyTelemetry from that same stale snapshot's key, and asserts
 // the controller's concurrently-written field survives. applyTelemetry is
 // immune to this by construction (its apply configuration comes entirely
@@ -98,7 +98,7 @@ func TestApplyTelemetryDoesNotClobberAConcurrentControllerWrite(t *testing.T) {
 	var stale downloadv1alpha1.Download
 	require.NoError(t, c.Get(ctx, key, &stale))
 
-	// The controller (ManagerGrabarr) writes phase concurrently, "while" this
+	// The controller (ManagerGrab) writes phase concurrently, "while" this
 	// engine's slow work (an HTTP resolve, in the real path) is in flight.
 	require.NoError(t, status.Patch(ctx, c, k8s.ManagerGrab, &stale,
 		func(ac *downloadac.DownloadStatusApplyConfiguration) {
@@ -124,7 +124,7 @@ func TestApplyTelemetryDoesNotClobberAConcurrentControllerWrite(t *testing.T) {
 	assert.EqualValues(t, 12_000_000, got.Status.DownloadRateBps, "the engine's own field must still land")
 }
 
-// TestApplyTelemetryManagedFieldsAreOnlyGrabarrEngine is the third trap:
+// TestApplyTelemetryManagedFieldsAreOnlyGrabEngine is the third trap:
 // assert on metadata.managedFields, not on values, because a double-claim
 // under ForceOwnership is invisible to a value assertion. This mirrors
 // app/grab/controller/downloadclient/managedfields_envtest_test.go's pattern,
@@ -161,7 +161,7 @@ func TestApplyTelemetryManagedFieldsAreOnlyGrabEngine(t *testing.T) {
 			continue
 		}
 		require.Equalf(t, k8s.ManagerGrabEngine.String(), entry.Manager,
-			"only k8s.ManagerGrabarrEngine may own status fields after this package's own apply, got %q", entry.Manager)
+			"only k8s.ManagerGrabEngine may own status fields after this package's own apply, got %q", entry.Manager)
 		found = true
 
 		var fields map[string]any

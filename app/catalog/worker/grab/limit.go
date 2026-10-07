@@ -58,7 +58,7 @@ func (e *GrabLimitError) Unwrap() error { return ErrGrabLimitReached }
 // *GrabLimitError when the window is at spec.limits.grabLimit.
 //
 // This is where a grab limit has to hold: the Download this grab creates is
-// the grab. A direct-source Download never reaches indexarr's download verb,
+// the grab. A direct-source Download never reaches index's download verb,
 // and one that does would be refused there only after the Download existed,
 // where the refusal reads as the release failing. The ring is keyed by GUID,
 // so the verb's own reservation of the same release later, and the

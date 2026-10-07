@@ -32,8 +32,8 @@ import (
 // with apply.
 //
 // AudioGraft is one item's donor audio and the graft of it into the item's
-// file (anime dual-audio spec §6.2, §7.2). Spec is importarr's, status
-// squasharr's.
+// file (anime dual-audio spec §6.2, §7.2). Spec is import's, status
+// transcode's.
 type AudioGraftApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

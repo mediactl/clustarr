@@ -99,7 +99,7 @@ func TestRolesAndValidate(t *testing.T) {
 		t.Error("the controller role should run controllers")
 	}
 	if Role("worker").Valid() {
-		t.Error("--role worker is gone: the pools run cmd/squasharr-worker")
+		t.Error("--role worker is gone: the pools run cmd/transcode-worker")
 	}
 	if Role("nonsense").Valid() {
 		t.Error("an unknown role reported valid")

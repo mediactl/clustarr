@@ -212,8 +212,8 @@ func searchNumbering(scene []decision.SceneMapping, e *catalogv1alpha1.Episode) 
 }
 
 // idQueryIndexers names the indexers whose query in this search was keyed by
-// one of the item's ids, from the per-indexer QueryMode indexarr reports.
-// Both sides of the join are the Indexer object's name: indexarr stamps it on
+// one of the item's ids, from the per-indexer QueryMode index reports.
+// Both sides of the join are the Indexer object's name: index stamps it on
 // every release as ReleaseInfo.IndexerRef (app/indexer/worker/rss.ProjectRelease)
 // and on the outcome as IndexerRef.Name (app/indexer/search.newOutcome).
 //

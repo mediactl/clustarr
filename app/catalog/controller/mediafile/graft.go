@@ -32,7 +32,7 @@ import (
 )
 
 // audioGraftMediaFileRefIndex indexes AudioGrafts by status.mediaFileRef,
-// the file squasharr judged (and grafted) them against.
+// the file transcode judged (and grafted) them against.
 const audioGraftMediaFileRefIndex = "status.mediaFileRef"
 
 func indexAudioGraftByMediaFileRef(o client.Object) []string {

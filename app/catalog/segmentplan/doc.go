@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package segmentplan plans clustarr's own segment analysis (spec
 // 2026-10-01 segment detection §4): [PlanMessage], which the remediation
 // loop's markers planner publishes when a file's analysis is due, and the
-// catalogarr-segments-plan [Planner] that asks segmentarr-worker for a
+// catalog-segments-plan [Planner] that asks markers-worker for a
 // season or a movie, reading the Episode and MediaFile field indexes of the
 // manager's cache; and [Sweeper], which deletes the clustarr-segments
 // records of files that are gone (loop spec §4.11). The analysis comes back

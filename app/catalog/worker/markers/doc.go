@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package markers is the catalogarr-markers durable's handler (spec
+// Package markers is the catalog-markers durable's handler (spec
 // 2026-09-30 plex-analyze-bypass §3; loop spec 2026-10-06 §4.12): [Handler]
 // asks the gateway's markers providers (TheIntroDB) for one MediaFile's skip
 // segments and answers into the file's clustarr-markers record by

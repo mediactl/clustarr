@@ -88,9 +88,9 @@ func TestJetStreamDLQReadsDeadLettersBack(t *testing.T) {
 		Reason:   schema.SearchReasonMissing,
 	})
 	original.ID = "search:heat:1"
-	workSubject := "clustarr.work.catalogarr.search.high.heat"
+	workSubject := "clustarr.work.catalog.search.high.heat"
 	msg := deadLetterMessage{testMessage: testMessage{env: original, subject: workSubject}, attempt: 5}
-	dlqSubject, dead := events.DeadLetter(msg, "catalogarr-search-high", "max deliveries exceeded (5): indexer timeout")
+	dlqSubject, dead := events.DeadLetter(msg, "catalog-search-high", "max deliveries exceeded (5): indexer timeout")
 	_, err = bus.Publish(ctx, dlqSubject, dead)
 	require.NoError(t, err)
 
@@ -106,10 +106,10 @@ func TestJetStreamDLQReadsDeadLettersBack(t *testing.T) {
 	assert.JSONEq(t, string(original.Data), string(got.Data))
 	assert.Equal(t, workSubject, got.Header(events.HeaderDLQSubject), "the original subject is what a replay publishes to")
 	assert.Equal(t, "search:heat:1", got.Header(events.HeaderDLQMsgID))
-	assert.Equal(t, "catalogarr-search-high", got.Header(events.HeaderDLQConsumer))
+	assert.Equal(t, "catalog-search-high", got.Header(events.HeaderDLQConsumer))
 
 	_, _, err = dlq.GetDeadLetter(ctx, seq+1000)
 	assert.ErrorIs(t, err, history.ErrDeadLetterNotFound)
-	_, err = dlq.LastDeadLetterSeq(ctx, "clustarr.dlq.catalogarr.search.nothing-here")
+	_, err = dlq.LastDeadLetterSeq(ctx, "clustarr.dlq.catalog.search.nothing-here")
 	assert.ErrorIs(t, err, history.ErrDeadLetterNotFound)
 }

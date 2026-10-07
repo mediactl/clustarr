@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package worker
 
-// Exit codes, as squasharr-worker's: a retriable failure, a pod that cannot
+// Exit codes, as transcode-worker's: a retriable failure, a pod that cannot
 // work as configured, and a drain on SIGTERM.
 const (
 	ExitRetriable     = 2

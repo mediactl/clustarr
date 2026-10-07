@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package jobspec is what the squasharr reconcilers and the transcode
+// Package jobspec is what the transcode reconcilers and the transcode
 // worker must agree on about a job without either linking the other:
 // the task a TranscodeJob dispatches (BuildTask), the output and data
 // paths, the profile's hash, hardware and policy accessors, the

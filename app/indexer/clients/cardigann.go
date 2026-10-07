@@ -386,7 +386,7 @@ func (c *CardigannClient) renewSession(ctx context.Context, stale *cardigann.Ses
 }
 
 // Download resolves one release link through the definition's download
-// block. It is what rpc.indexarr.download dispatches to for this Indexer.
+// block. It is what rpc.index.download dispatches to for this Indexer.
 func (c *CardigannClient) Download(ctx context.Context, link string) (io.ReadCloser, error) {
 	return c.engine.Download(ctx, c.def, c.Config(), link)
 }

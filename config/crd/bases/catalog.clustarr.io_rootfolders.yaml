@@ -225,14 +225,14 @@ spec:
                   renameFiles:
                     default: false
                     description: |-
-                      RenameFiles lets importarr rename a library file to its canonical
-                      name whenever catalogarr reports it is not (status.naming). Off by
+                      RenameFiles lets import rename a library file to its canonical
+                      name whenever catalog reports it is not (status.naming). Off by
                       default: a library imported before codec tokens existed differs on
                       every file. A LibraryScan with spec.rename runs a pass regardless.
                     type: boolean
                   renameTranscoded:
                     description: |-
-                      RenameTranscoded lets importarr rename a file squasharr transcoded
+                      RenameTranscoded lets import rename a file the transcode controller transcoded
                       (status.transcode.profileTag) to its canonical file name, in the
                       folder it is already in, so a name that described the source codec
                       ("[EAC3 5.1][h264]") does not outlive it. A canonical folder that
@@ -299,7 +299,7 @@ spec:
                 type: object
               scanSchedule:
                 description: |-
-                  ScanSchedule is a cron expression; importarr creates a LibraryScan per tick.
+                  ScanSchedule is a cron expression; import creates a LibraryScan per tick.
                   Empty means no periodic rescan.
                 maxLength: 120
                 type: string
@@ -311,8 +311,8 @@ spec:
             description: RootFolderStatus describes the observed state of RootFolder.
             properties:
               accessible:
-                description: Accessible is true when the path exists and catalogarr
-                  can write to it.
+                description: Accessible is true when the path exists and catalog can
+                  write to it.
                 type: boolean
               conditions:
                 description: Conditions represent the latest available observations

@@ -98,7 +98,7 @@ type bus interface {
 // the works-listing RPC fan-out into owned Book objects. It is the sole
 // writer of status.path, status.bookCount, status.bookFileCount and
 // status.addOptionsApplied; status.metadata belongs to the metadata gateway
-// (field manager k8s.ManagerCatalogarrMetadata) and this reconciler never
+// (field manager k8s.ManagerCatalogMetadata) and this reconciler never
 // builds an AuthorStatusApplyConfiguration that calls WithMetadata.
 //
 // Unlike Series, this reconciler writes NOTHING onto the Book objects it
@@ -268,7 +268,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 			ID:     events.MsgIDForObject(string(a.UID), a.Generation, "metadata"),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
-			Source: "catalogarr@" + version.String(),
+			Source: "catalog@" + version.String(),
 			Key:    envKey,
 			Time:   now,
 			Data:   data,

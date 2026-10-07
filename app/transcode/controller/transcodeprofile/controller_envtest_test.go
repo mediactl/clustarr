@@ -71,8 +71,8 @@ func newTestClient(t *testing.T) client.Client {
 // namespace/labels shape so TranscodeJob's owner reference and the
 // mediaFileRef/sourcePath/sourceProbeHash fields can be asserted precisely.
 //
-// The status write goes through k8s.PatchStatus under k8s.ManagerCatalogarr
-// (a hand-built fixture standing in for catalogarr's own mediafile
+// The status write goes through k8s.PatchStatus under k8s.ManagerCatalog
+// (a hand-built fixture standing in for catalog's own mediafile
 // controller) rather than a direct client.Status().Update -- forbidigo has
 // no test-file exemption in .golangci.yml, and every other envtest suite in
 // this tree that needs to seed a status uses the real apply path instead of
@@ -105,7 +105,7 @@ func probedMovie(t *testing.T, ctx context.Context, c client.Client, ns, name st
 }
 
 // tagMovieAsTranscoded patches mf.status.transcode.profileTag, standing in
-// for catalogarr's mediafile controller incorporating a successful swap
+// for catalog's mediafile controller incorporating a successful swap
 // (mediafile_controller.go:275-287).
 func tagMovieAsTranscoded(t *testing.T, ctx context.Context, c client.Client, mf *catalogv1alpha1.MediaFile, tag string) {
 	t.Helper()
@@ -175,7 +175,7 @@ func TestReconcileCreatesJobsIdempotently(t *testing.T) {
 	assert.True(t, *job.OwnerReferences[0].Controller)
 
 	// Ownership: this controller creates TranscodeJob's MAIN resource under
-	// k8s.ManagerSquasharr, not its status -- assert the managedFields entry
+	// k8s.ManagerTranscode, not its status -- assert the managedFields entry
 	// directly rather than trusting only the values, per CLAUDE.md's "an
 	// over-claim is silent" rule.
 	var sawSpecOwner bool
@@ -184,7 +184,7 @@ func TestReconcileCreatesJobsIdempotently(t *testing.T) {
 			sawSpecOwner = true
 		}
 	}
-	assert.True(t, sawSpecOwner, "k8s.ManagerSquasharr must own the TranscodeJob main resource")
+	assert.True(t, sawSpecOwner, "k8s.ManagerTranscode must own the TranscodeJob main resource")
 
 	var gotProfile transcodev1alpha1.TranscodeProfile
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tp.Name}, &gotProfile))
@@ -235,7 +235,7 @@ func TestAProfileEditLeavesAnOpenJobAlone(t *testing.T) {
 // TestANewHashRequeuesNothingTranscoded: the API cut gives every profile a
 // new status.hash, and a later standard.Version does again. A file this
 // profile transcoded under an earlier hash -- its probe reads the old
-// CLUSTARR_PROFILE, or catalogarr recorded the old tag -- and a file another
+// CLUSTARR_PROFILE, or catalog recorded the old tag -- and a file another
 // tool encoded to HEVC are transcoded and final: no job. Only the untouched
 // file is queued.
 func TestANewHashRequeuesNothingTranscoded(t *testing.T) {
@@ -392,7 +392,7 @@ func TestAProfileStoredUnderTheOldSchemaIsPrunedOnceTheCutIsInstalled(t *testing
 	assert.Equal(t, metav1.ConditionTrue, ready.Status)
 }
 
-// setMediaInfo seeds mf's probe summary, as catalogarr's probe writes it.
+// setMediaInfo seeds mf's probe summary, as catalog's probe writes it.
 func setMediaInfo(t *testing.T, ctx context.Context, c client.Client, mf *catalogv1alpha1.MediaFile, mi commonv1.MediaInfo) {
 	t.Helper()
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
@@ -404,7 +404,7 @@ func setMediaInfo(t *testing.T, ctx context.Context, c client.Client, mf *catalo
 
 // TestReconcileSkipsAFileAlreadyTaggedWithTheCurrentHash proves the tag
 // check that keeps this controller from re-transcoding a file forever: once
-// catalogarr's mediafile controller has incorporated a successful swap and
+// catalog's mediafile controller has incorporated a successful swap and
 // written status.transcode.profileTag, a MediaFile carrying THIS profile's
 // current tag creates no job at all.
 func TestReconcileSkipsAFileAlreadyTaggedWithTheCurrentHash(t *testing.T) {
@@ -616,7 +616,7 @@ func TestAMovieReturningWakesTheProfile(t *testing.T) {
 		"the Movie's return must wake the profile on its own")
 }
 
-// failJobWith stands in for squasharr's TranscodeJob controller recording a
+// failJobWith stands in for transcode's TranscodeJob controller recording a
 // Failed job, through the same compare-and-swap write it uses.
 func failJobWith(t *testing.T, ctx context.Context, c client.Client, tj *transcodev1alpha1.TranscodeJob, reason string, blocked bool) {
 	t.Helper()
@@ -633,7 +633,7 @@ func failJobWith(t *testing.T, ctx context.Context, c client.Client, tj *transco
 	}))
 }
 
-// reprobe stands in for catalogarr re-probing a MediaFile whose bytes
+// reprobe stands in for catalog re-probing a MediaFile whose bytes
 // changed.
 func reprobe(t *testing.T, ctx context.Context, c client.Client, mf *catalogv1alpha1.MediaFile, probeHash string) {
 	t.Helper()

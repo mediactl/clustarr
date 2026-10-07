@@ -65,7 +65,7 @@ func (s *Server) handleIndexerAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleIndexerSearch runs a LIVE federated search scoped to exactly one
-// Indexer via Config.Search -- clustarr.rpc.indexarr.search's own body,
+// Indexer via Config.Search -- clustarr.rpc.index.search's own body,
 // called in-process (see doc.go). SearchRequest.Text is set from q, the
 // same field app/catalog/worker/search's BuildSearchRequest fills from the
 // item's resolved title (G1-6); buildQuery still prefers ids wherever the
@@ -95,7 +95,7 @@ func buildSearchRequest(q url.Values, mode torznab.SearchMode, timeout time.Dura
 		DeadlineMillis: timeout.Milliseconds(),
 		// A facade call is, by construction, someone deliberately asking
 		// right now -- there is no automatic/cron caller behind this route
-		// -- so it is scored the same as catalogarr's own interactive
+		// -- so it is scored the same as catalog's own interactive
 		// Search: EnableInteractiveSearch gates candidate selection rather
 		// than EnableAutomaticSearch.
 		UserInvoked: true,

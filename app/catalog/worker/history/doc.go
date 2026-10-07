@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package history is the catalog's two history consumers -- the [Sink]
-// (catalogarr-history) and the [DLQProjector] (clustarr-dlq-projector),
+// (catalog-history) and the [DLQProjector] (clustarr-dlq-projector),
 // "clustarr.io" §13's history sink and dead-letter projector. Resolve,
 // Target, the DLQ reader and the annotation keys they share with the replay
 // controllers are app/catalog/history (design 2026-10-06 §4.3 C8).
@@ -76,7 +76,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // §7.7), with the projector cmd/manager built and shares with its advisory
 // intake:
 //
-//	sink := history.NewSink(history.SinkDeps{Recorder: mgr.GetEventRecorder("catalogarr-history")})
+//	sink := history.NewSink(history.SinkDeps{Recorder: mgr.GetEventRecorder("catalog-history")})
 //	if err := sink.SetupLeaderOnly(mgr, bus); err != nil { ... }
 //
 //	reader, _ := cataloghistory.DLQReaderFor(bus) // nil on the in-memory bus

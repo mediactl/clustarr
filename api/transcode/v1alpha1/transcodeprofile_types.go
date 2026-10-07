@@ -82,7 +82,7 @@ type EncoderLimit struct {
 	// NVDEC are the source formats, as codec:bitDepth ("h264:8",
 	// "hevc:10"), the node's decoder was measured to decode; the nvidia tier
 	// decodes those on the GPU. Absent is none measured or none decodable,
-	// and squasharr decides an unmeasured format from a static list.
+	// and transcode decides an unmeasured format from a static list.
 	// +optional
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=16

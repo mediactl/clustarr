@@ -57,12 +57,12 @@ func managersOf(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource s
 	return out
 }
 
-// TestDownloadClientStatusIsOwnedOnlyByManagerGrabarr guards D2-3's own claim:
-// DownloadClientStatus has exactly one legitimate writer (k8s.ManagerGrabarr;
+// TestDownloadClientStatusIsOwnedOnlyByManagerGrab guards D2-3's own claim:
+// DownloadClientStatus has exactly one legitimate writer (k8s.ManagerGrab;
 // see app/grab/status.go's doc comment, which covers Download.status, not
 // DownloadClient.status -- DownloadClient has no split at all). A future
 // change that routed some DownloadClientStatus field through a different
-// manager -- k8s.ManagerGrabarrEngine, say, by copy-pasting a pattern from
+// manager -- k8s.ManagerGrabEngine, say, by copy-pasting a pattern from
 // Download.status -- would not fail any value assertion, because
 // ForceOwnership always wins the value. It would only show up here.
 func TestDownloadClientStatusIsOwnedOnlyByManagerGrab(t *testing.T) {
@@ -90,14 +90,14 @@ func TestDownloadClientStatusIsOwnedOnlyByManagerGrab(t *testing.T) {
 
 	statusManagers := managersOf(t, got.ManagedFields, "status")
 	assert.Equal(t, map[string]bool{k8s.ManagerGrab.String(): true}, statusManagers,
-		"DownloadClient.status must be owned by k8s.ManagerGrabarr alone")
+		"DownloadClient.status must be owned by k8s.ManagerGrab alone")
 }
 
 // TestBlocklistSweeperClaimsNoDownloadStatusField guards the opposite
 // direction: the sweep must never become a status writer on Download at all.
 // It deletes the object outright (see blocklist.go's doc comment for why), so
-// this asserts there is no "status" managedFields entry for k8s.ManagerGrabarr
-// or k8s.ManagerGrabarrEngine produced by the sweeper's own reconcile -- the
+// this asserts there is no "status" managedFields entry for k8s.ManagerGrab
+// or k8s.ManagerGrabEngine produced by the sweeper's own reconcile -- the
 // Patch calls in this test's helpers are the fixture simulating a real
 // controller/engine writer, not the sweeper under test.
 func TestBlocklistSweeperClaimsNoDownloadStatusField(t *testing.T) {

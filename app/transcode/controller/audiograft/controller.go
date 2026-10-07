@@ -147,7 +147,7 @@ func (r *Reconciler) graftsOfFile(ctx context.Context, o ctrl.Object) []reconcil
 		return nil
 	}
 	// Through field indexes, never a namespace List per event: at start
-	// every MediaFile is an event (CLAUDE.md, captionarr 2026-09-29).
+	// every MediaFile is an event (CLAUDE.md, caption 2026-09-29).
 	seen := map[string]bool{}
 	var out []reconcile.Request
 	for _, sel := range []ctrl.MatchingFields{{IndexMediaFileRef: mf.Name}, {IndexItemRef: mf.Spec.MediaRef.Name}} {
@@ -186,13 +186,13 @@ func (r *Reconciler) graftsOfTranscode(ctx context.Context, o ctrl.Object) []rec
 }
 
 // The AudioGraft field indexes graftsOfFile reads. They carry the
-// squasharr.audiograft. prefix (spec §5.7) because the one manager also runs
+// transcode.audiograft. prefix (spec §5.7) because the one manager also runs
 // the MediaFile reconciler, which registers its own AudioGraft index named
 // "status.mediaFileRef": a second IndexField on the same (kind, name) in one
 // cache is an indexer conflict, and the manager would fail at start.
 const (
-	IndexMediaFileRef = "squasharr.audiograft.status.mediaFileRef"
-	IndexItemRef      = "squasharr.audiograft.spec.itemRef.name"
+	IndexMediaFileRef = "transcode.audiograft.status.mediaFileRef"
+	IndexItemRef      = "transcode.audiograft.spec.itemRef.name"
 )
 
 // RegisterIndexes registers them on idx.
@@ -265,7 +265,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, r.apply(ctx, &g, st)
 	}
 	// A graft that swapped this file waits for the file's re-probe, which
-	// catalogarr runs on the AudioGraft's success and whose MediaFile event
+	// catalog runs on the AudioGraft's success and whose MediaFile event
 	// wakes this one; a worker that found the language present against
 	// this probe is not asked again until the file changes.
 	if st.Phase == transcodev1alpha1.AudioGraftSucceeded && st.TargetProbeHash == mf.Status.ProbeHash {
@@ -664,7 +664,7 @@ func JoinTask(g *transcodev1alpha1.AudioGraft, mf *catalogv1alpha1.MediaFile, fo
 }
 
 // donorPath is the donor's audio as a graft reads it: the .mka the reduce
-// left, else the donor as importarr placed it.
+// left, else the donor as import placed it.
 func donorPath(g *transcodev1alpha1.AudioGraft) string {
 	return cmp.Or(g.Status.DonorAudioPath, g.Spec.DonorPath)
 }
@@ -839,7 +839,7 @@ func record(st *transcodev1alpha1.AudioGraftStatus, res grafttask.Result, releas
 	}
 }
 
-// apply declares the whole of squasharr's AudioGraft status.
+// apply declares the whole of transcode's AudioGraft status.
 func (r *Reconciler) apply(ctx context.Context, g *transcodev1alpha1.AudioGraft, st transcodev1alpha1.AudioGraftStatus) error {
 	ac := transcodeac.AudioGraftStatus().WithObservedGeneration(st.ObservedGeneration)
 	if st.Phase != "" {

@@ -221,7 +221,7 @@ func (r *Reconciler) start(ctx context.Context, scan *catalogv1alpha1.LibrarySca
 	}
 	if !k8s.IsConditionTrue(root.Status.Conditions, catalogv1alpha1.RootFolderConditionReady) {
 		// Walking a root folder that is not accessible would report every
-		// file as an error; wait for catalogarr's RootFolder reconciler.
+		// file as an error; wait for catalog's RootFolder reconciler.
 		k8s.MarkReady(scan, &conditions, false, ReasonRootFolderNotReady,
 			"rootFolder %q is not Ready", root.Name)
 		return r.pending(ctx, scan, conditions, dependencyRetry)
@@ -240,9 +240,9 @@ func (r *Reconciler) start(ctx context.Context, scan *catalogv1alpha1.LibrarySca
 	}
 	env := &events.Envelope{
 		ID:     events.MsgIDForObject(string(scan.UID), scan.Generation, "scan"),
-		Type:   "importarr.ScanTask",
+		Type:   "import.ScanTask",
 		Schema: schemaName,
-		Source: "importarr@" + version.String(),
+		Source: "import@" + version.String(),
 		Key:    scan.Namespace + "/" + scan.Name,
 		Time:   now,
 		Data:   data,
@@ -466,7 +466,7 @@ func (r *Reconciler) maybeExpire(ctx context.Context, scan *catalogv1alpha1.Libr
 	return ctrl.Result{}, nil
 }
 
-// apply is the one status write in this package, under k8s.ManagerImportarr.
+// apply is the one status write in this package, under k8s.ManagerImport.
 func (r *Reconciler) apply(
 	ctx context.Context,
 	scan *catalogv1alpha1.LibraryScan,

@@ -46,7 +46,7 @@ import (
 //
 // The extension fallback both apps apply to a FILE name
 // (MediaFileExtensions.GetQualityForExtension) is not ported: release titles
-// rarely carry one, and importarr freezes a file's quality from the file.
+// rarely carry one, and import freezes a file's quality from the file.
 
 // Lidarr's quality names (Qualities/Quality.cs).
 const (
@@ -204,7 +204,7 @@ func musicQuality(title string) commonv1.Quality {
 // Lidarr it matches the bitrate EXACTLY for MP3, AAC and Vorbis (a nominal
 // CBR rate such as 320), and bands it only for Opus; a VBR MP3's average
 // rate is not a Lidarr value, and ffprobe cannot say an MP3 is VBR, so such
-// a file is "Unknown" rather than a guessed tier. importarr freezes a music
+// a file is "Unknown" rather than a guessed tier. import freezes a music
 // MediaFile's quality through this so the file and the releases it is
 // compared with speak one vocabulary.
 func AudioFileQuality(codec string, bitrateKbps, sampleBits int) commonv1.Quality {

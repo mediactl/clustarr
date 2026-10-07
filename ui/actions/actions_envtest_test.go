@@ -43,7 +43,7 @@ import (
 )
 
 // creatorManager stands in for whichever controller or person created a
-// catalog item -- the Series fan-out's r.Create, importarr, kubectl. It is a
+// catalog item -- the Series fan-out's r.Create, import, kubectl. It is a
 // create, so an Update-operation entry, exactly like the fan-out's.
 const creatorManager = "test-creator"
 

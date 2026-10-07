@@ -38,7 +38,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The RBAC markers below are package-level, which is the only place
 // controller-gen collects them from. Reading IndexerProxies (cached) and
-// their credential Secrets (live Gets; indexarr disables the Secret cache)
+// their credential Secrets (live Gets; index disables the Secret cache)
 // is all this package does.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerproxies,verbs=get;list;watch

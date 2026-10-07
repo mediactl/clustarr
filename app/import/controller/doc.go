@@ -15,9 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package controller will hold importarr's reconcilers: ImportList,
+// Package controller will hold import's reconcilers: ImportList,
 // ImportExclusion, LibraryScan and the RootFolder schedule (amendment
-// §A1.6). They run leader-elected on the `importarr` Deployment, selected by
+// §A1.6). They run leader-elected on the `import` Deployment, selected by
 // [github.com/mediactl/clustarr/app/import.RoleController].
 //
 // Empty for M0/Phase A; the reconcilers land in M1.

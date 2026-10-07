@@ -136,13 +136,13 @@ func TestPatchStatusAppliesToTheStatusSubresource(t *testing.T) {
 		t.Error("the spec was cleared by a status apply")
 	}
 
-	if !managesField(got.ManagedFields, "grabarr", "status") {
-		t.Errorf("no grabarr-owned status entry in managedFields: %+v", fieldManagerNames(got.ManagedFields))
+	if !managesField(got.ManagedFields, "grab", "status") {
+		t.Errorf("no grab-owned status entry in managedFields: %+v", fieldManagerNames(got.ManagedFields))
 	}
 }
 
 // TestPatchStatusTwoManagersDoNotClobber is §3's single-writer rule as the
-// apiserver enforces it: grabarr owns phase and engine, grabarr-engine owns
+// apiserver enforces it: grab owns phase and engine, grab-engine owns
 // the telemetry, and each may re-apply its own fields with force-ownership
 // without erasing the other's.
 func TestPatchStatusTwoManagersDoNotClobber(t *testing.T) {
@@ -201,7 +201,7 @@ func TestPatchStatusTwoManagersDoNotClobber(t *testing.T) {
 		t.Errorf("downloadedBytes = %d, want 2048", got.Status.DownloadedBytes)
 	}
 
-	for _, want := range []string{"grabarr", "grabarr-engine"} {
+	for _, want := range []string{"grab", "grab-engine"} {
 		if !managesField(got.ManagedFields, want, "status") {
 			t.Errorf("no %q status entry in managedFields: %+v", want, fieldManagerNames(got.ManagedFields))
 		}

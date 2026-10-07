@@ -87,7 +87,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	}
 	cl, dc, err := usenetengine.BuildClient(ctx, direct, o.Namespace, o.Client, o.DataDir, o.ScratchDir, o.PublishDir)
 	if err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: build usenet client: %w", err)
+		return catalogagent.Registration{}, fmt.Errorf("grab: build usenet client: %w", err)
 	}
 
 	publish := o.PublishDir
@@ -121,7 +121,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 // directClient builds a client.Client that talks to the apiserver directly,
 // bypassing the manager's informer cache entirely, for the engine's one-off
 // pre-mgr.Start reads: mgr.GetClient() is cache-backed and, proven
-// empirically (grabarr's own envtest wiring case,
+// empirically (grab's own envtest wiring case,
 // cmd/clustarr/start_envtest_test.go), does NOT lazily start the one
 // informer such a Get would need -- it fails outright with "the cache is not
 // started, can not read objects". mgr.GetAPIReader() would work for a plain
@@ -131,7 +131,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 func directClient(mgr ctrl.Manager) (client.Client, error) {
 	c, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme(), Mapper: mgr.GetRESTMapper()})
 	if err != nil {
-		return nil, fmt.Errorf("grabarr: build direct apiserver client: %w", err)
+		return nil, fmt.Errorf("grab: build direct apiserver client: %w", err)
 	}
 	return c, nil
 }

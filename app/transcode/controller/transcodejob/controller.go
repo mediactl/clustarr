@@ -55,11 +55,11 @@ import (
 )
 
 // Field-index names. Prefixed with the package so they cannot collide with
-// catalogarr's own ".spec.mediaFileRef" index on TranscodeJob when
+// catalog's own ".spec.mediaFileRef" index on TranscodeJob when
 // `clustarr all` runs every service in one process.
 const (
-	indexMediaFileRef = "squasharr.transcodejob.spec.mediaFileRef"
-	indexProfileRef   = "squasharr.transcodejob.spec.profileRef"
+	indexMediaFileRef = "transcode.transcodejob.spec.mediaFileRef"
+	indexProfileRef   = "transcode.transcodejob.spec.profileRef"
 )
 
 // Requeue intervals. Both are safety nets, not the primary wake path: the
@@ -119,7 +119,7 @@ const (
 // Succeeded|Failed, or straight to Skipped, and runs the slot scheduler. It
 // plans, admits and dispatches; the worker status events its results
 // consumer (results.go) reads move a dispatched job on. Field manager:
-// k8s.ManagerSquasharr, all of TranscodeJob.status, through one
+// k8s.ManagerTranscode, all of TranscodeJob.status, through one
 // compare-and-swap write (write.go). See doc.go.
 type Reconciler struct {
 	// Client reads TranscodeProfiles and MediaFiles (cached under a
@@ -134,7 +134,7 @@ type Reconciler struct {
 	// to see a job dispatched a moment ago (ADR-0005). Nil means Client.
 	Reader client.Reader
 
-	// Slots is the per-hardware budget, squasharr.Options.Slots.
+	// Slots is the per-hardware budget, transcode.Options.Slots.
 	Slots map[string]int32
 
 	// Pool is the deployment-level half of every pool Job the admission
@@ -147,7 +147,7 @@ type Reconciler struct {
 
 	// Bus publishes each dispatched job's task and the
 	// clustarr.evt.transcode.job.<action> history (§5), and the results
-	// consumer subscribes squasharr-transcode-results on it.
+	// consumer subscribes transcode-results on it.
 	Bus events.Bus
 
 	// Leases is clustarr-transcode-leases, where withdrawal writes its
@@ -460,7 +460,7 @@ func (r *Reconciler) recoverOrphan(ctx context.Context, tj *transcodev1alpha1.Tr
 			Message: fmt.Sprintf("TranscodeProfile %s was deleted while attempt %d was dispatched to pool %s; "+
 				"recreate the profile and delete this TranscodeJob to retry", tj.Spec.ProfileRef, st.Attempts, ref),
 		}, now)
-		log.InfoContext(ctx, "squasharr: a dispatched job's TranscodeProfile is gone; withdrew its task, failing the job",
+		log.InfoContext(ctx, "transcode: a dispatched job's TranscodeProfile is gone; withdrew its task, failing the job",
 			"transcodeJob", client.ObjectKeyFromObject(tj).String(), "attempt", st.Attempts, "pool", ref)
 		return ctrl.Result{}, nil
 	}
@@ -468,7 +468,7 @@ func (r *Reconciler) recoverOrphan(ctx context.Context, tj *transcodev1alpha1.Tr
 	st.Message = truncate(fmt.Sprintf("attempt %d was dispatched to pool %s, which is not TranscodeProfile %s's (uid %s) %s pool; "+
 		"withdrawn and requeued as a new attempt", st.Attempts, ref, tp.Name, tp.UID, st.Hardware), maxMessage)
 	k8s.MarkFalse(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonOrphaned, "%s", st.Message)
-	log.InfoContext(ctx, "squasharr: a dispatched job's pool is not its profile's any more; withdrew its task, requeueing the job",
+	log.InfoContext(ctx, "transcode: a dispatched job's pool is not its profile's any more; withdrew its task, requeueing the job",
 		"transcodeJob", client.ObjectKeyFromObject(tj).String(), "attempt", st.Attempts, "pool", ref, "profileUID", string(tp.UID))
 	return ctrl.Result{}, nil
 }
@@ -528,7 +528,7 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 	if profile.Status.Hash == "" {
 		// The hash is the TranscodeProfile controller's to compute (task
 		// E-1); planning against a hash computed here could disagree with
-		// the one catalogarr tags the output with.
+		// the one catalog tags the output with.
 		r.wait(tj, st, "waiting for TranscodeProfile %s to be hashed", profile.Name)
 		return ctrl.Result{RequeueAfter: requeueWaiting}, nil
 	}
@@ -722,7 +722,7 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	if err != nil {
 		// No GPU node is the safe reading: auto work goes to CPU, which
 		// every cluster has, rather than wait on a class nothing confirmed.
-		log.WarnContext(ctx, "squasharr: cannot list Nodes; auto jobs go to cpu this pass", "error", err)
+		log.WarnContext(ctx, "transcode: cannot list Nodes; auto jobs go to cpu this pass", "error", err)
 		gpu = nil
 	}
 	// A GPU class whose pods all report its device unusable gets no work

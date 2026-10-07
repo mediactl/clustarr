@@ -322,7 +322,7 @@ func Publish(ctx context.Context, bus events.Publisher, it Item, token, reason s
 		ID:     schema.MsgIDForRenderOverlay(it.Object.GetUID(), token),
 		Type:   "catalog.RenderOverlayTask",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    it.Object.GetNamespace() + "/" + it.Object.GetName(),
 		Time:   time.Now().UTC(),
 		Data:   data,

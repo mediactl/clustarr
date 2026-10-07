@@ -297,7 +297,7 @@ func TestBuildRegistrySkipsAProviderWhoseSecretIsMissing(t *testing.T) {
 // one misconfigured provider must not take every other one down with the
 // gateway. On kind-cluster-plex (2026-09-24) a hardcover provider made from
 // the Settings page against a hand-made Secret holding apiKey, where
-// hardcover reads bearer, crash-looped catalogarr-metadata until the key
+// hardcover reads bearer, crash-looped catalog-metadata until the key
 // was added.
 func TestBuildRegistrySkipsAProviderWhoseCredentialsAreMissing(t *testing.T) {
 	good := &corev1.Secret{

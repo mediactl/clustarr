@@ -62,7 +62,7 @@ const (
 // gateway reaches through MetadataProvider objects whose spec.baseURL names
 // them. Faking at the HTTP edge rather than at the RPC is what keeps the
 // proof honest here: app/catalog/all runs the REAL gateway, which answers
-// rpc.catalogarr.metadata.lookup in the catalogarr queue group, so a fake
+// rpc.catalog.metadata.lookup in the catalog queue group, so a fake
 // RPC responder beside it would race it for every request. Nothing leaves
 // the machine.
 type fakeMetadataProviders struct {
@@ -188,7 +188,7 @@ func (f *fakeMetadataProviders) saw(typ catalogv1alpha1.MetadataProviderType, pa
 }
 
 // prepareNonVideoCatalog creates the four MetadataProviders the gateway
-// needs, pointed at fake. It must run BEFORE catalogarr starts:
+// needs, pointed at fake. It must run BEFORE catalog starts:
 // catalogmetadata.Setup builds its provider registry once, from the
 // MetadataProviders that exist when the gateway starts.
 func prepareNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataProviders) {
@@ -240,8 +240,8 @@ func prepareNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPr
 //   - Author fans out a Book from the works listing (lookupBooks);
 //   - Book (the fanned-out shape) publishes its task and writes its phase;
 //   - Comic fans out an Issue from the issue listing (lookupIssues) and
-//     writes the Issue's provider fields under catalogarr-fanout;
-//   - Issue writes its own state, under catalogarr;
+//     writes the Issue's provider fields under catalog-fanout;
+//   - Issue writes its own state, under catalog;
 //   - Audiobook publishes a MetadataTask the gateway turns into an Audnexus
 //     request for ITS region, and writes its phase.
 //
@@ -415,7 +415,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 		}
 		for _, e := range list.Items {
 			if e.Regarding.Kind == "Issue" && e.Regarding.Name == iss.Name &&
-				e.ReportingController == "catalogarr-history" {
+				e.ReportingController == "catalog-history" {
 				return true
 			}
 		}
@@ -451,7 +451,7 @@ func statusManagers(entries []metav1.ManagedFieldsEntry) map[string]bool {
 // its ImportTask, and the file-import worker in the same process re-runs the
 // import against the new target -- which does not exist, so it blocks again
 // with a message naming it. Nothing else in this case publishes an
-// ImportTask (grabarr is not running), so the new message is the proof.
+// ImportTask (grab is not running), so the new message is the proof.
 func verifyRetrigger(t *testing.T, cfg *rest.Config) {
 	t.Helper()
 	ctx := context.Background()

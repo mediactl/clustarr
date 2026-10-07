@@ -109,10 +109,10 @@ func TestEnginePodSecurity(t *testing.T) {
 }
 
 // "Matching the Deployments" is a claim about config/manager, so read it:
-// each engine pod's two security contexts must equal grabarr's own
+// each engine pod's two security contexts must equal grab's own
 // Deployment's, the controller that creates them.
 func TestEnginePodSecurityMatchesTheDeployment(t *testing.T) {
-	raw, err := os.ReadFile("../../../../config/manager/grabarr.yaml")
+	raw, err := os.ReadFile("../../../../config/manager/grab.yaml")
 	require.NoError(t, err)
 	var deploy *appsv1.Deployment
 	for _, doc := range strings.Split(string(raw), "\n---") {
@@ -121,7 +121,7 @@ func TestEnginePodSecurityMatchesTheDeployment(t *testing.T) {
 			deploy = &d
 		}
 	}
-	require.NotNil(t, deploy, "config/manager/grabarr.yaml has no Deployment")
+	require.NotNil(t, deploy, "config/manager/grab.yaml has no Deployment")
 	want := deploy.Spec.Template.Spec
 
 	for kind, pod := range enginePods(t) {

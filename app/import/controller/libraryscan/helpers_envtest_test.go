@@ -182,7 +182,7 @@ func newBus(t *testing.T, ctx context.Context) events.Bus {
 }
 
 // readyRootFolder creates a RootFolder and seeds the Ready condition
-// catalogarr's own reconciler would set, so the scan controller will start.
+// catalog's own reconciler would set, so the scan controller will start.
 func readyRootFolder(t *testing.T, ctx context.Context, c client.Client, ns, path string) *catalogv1alpha1.RootFolder {
 	t.Helper()
 	rf := &catalogv1alpha1.RootFolder{
@@ -198,7 +198,7 @@ func readyRootFolder(t *testing.T, ctx context.Context, c client.Client, ns, pat
 	return rf
 }
 
-// setRootFolderReady flips the Ready condition catalogarr's own RootFolder
+// setRootFolderReady flips the Ready condition catalog's own RootFolder
 // reconciler owns. It is a plain fixture write; that reconciler is not
 // running here.
 func setRootFolderReady(t *testing.T, ctx context.Context, c client.Client, rf *catalogv1alpha1.RootFolder, ready bool) {
@@ -216,7 +216,7 @@ func setRootFolderReady(t *testing.T, ctx context.Context, c client.Client, rf *
 		Reason:             reason,
 		LastTransitionTime: metav1.Now(),
 	}}
-	//nolint:forbidigo // test fixture standing in for catalogarr's RootFolder reconciler
+	//nolint:forbidigo // test fixture standing in for catalog's RootFolder reconciler
 	require.NoError(t, c.Status().Update(ctx, rf))
 }
 

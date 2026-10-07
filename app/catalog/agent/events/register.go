@@ -17,9 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package events is the agent's events domain (spec §3.5.3, §3.5.4, as
 // ADR-0019 §7.7 amends them): the consumers of the Limits streams that
-// cannot buffer through a scale to zero -- catalogarr-rss-matcher
-// (CLUSTARR_RELEASES) and, until A4.4 retires it, catalogarr-redownload
-// (CLUSTARR_EVENTS). The history sink (catalogarr-history) and the DLQ
+// cannot buffer through a scale to zero -- catalog-rss-matcher
+// (CLUSTARR_RELEASES) and, until A4.4 retires it, catalog-redownload
+// (CLUSTARR_EVENTS). The history sink (catalog-history) and the DLQ
 // projector (clustarr-dlq-projector) moved into the manager, leader-only
 // (app/catalog/manager's registerHistory).
 package events

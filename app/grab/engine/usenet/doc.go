@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package usenet is grabarr's usenet engine (ADR-0019 §6.7): the
+// Package usenet is grab's usenet engine (ADR-0019 §6.7): the
 // engine.Transfers over its embedded client -- the usenet pipeline and its scratch manifests -- which the shared
 // command handler (app/grab/engine) drives with the manager's seq-fenced
 // desired-state commands. It holds each transfer's journal (the claim,

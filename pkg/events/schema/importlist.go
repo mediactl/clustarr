@@ -59,7 +59,7 @@ type ListedItem struct {
 // RecycleFilesTask asks the import domain to move named files into a
 // RootFolder's recycle bin: what a list removal or an orphan part leaves
 // behind (ADR-0019 §7.6). Subject events.SubjectImportRecycleFiles,
-// consumer importarr-recycle.
+// consumer import-recycle.
 type RecycleFilesTask struct {
 	RootFolder Ref      `json:"rootFolder"`
 	Paths      []string `json:"paths"`

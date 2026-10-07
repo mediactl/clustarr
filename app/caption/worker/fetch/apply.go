@@ -277,7 +277,7 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 // worker-owned leaf of every live item -- so an apply seeded from any read
 // but the latest rolls back what a sibling recorded in between: a sidecar
 // written, recorded, then forgotten, and dropped from
-// MediaFile.status.sidecars by catalogarr. A re-read before the apply
+// MediaFile.status.sidecars by catalog. A re-read before the apply
 // narrowed that window; two languages fetched at once still hit it, and only
 // the precondition closes it. No release test can see it; the interleaved
 // and concurrent writers in worker_envtest_test.go and cas_envtest_test.go
@@ -383,7 +383,7 @@ func (w *Worker) publish(ctx context.Context, req *subtitlev1alpha1.SubtitleRequ
 		ID:     strings.Join([]string{string(req.UID), langKey, action, idSuffix}, "/"),
 		Type:   "subtitle.SubtitleEvent",
 		Schema: schemaName,
-		Source: "captionarr-worker@" + version.String(),
+		Source: "caption-worker@" + version.String(),
 		Key:    req.Namespace + "/" + req.Name,
 		Time:   now,
 		Data:   data,

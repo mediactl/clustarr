@@ -34,11 +34,11 @@ import (
 )
 
 // workerStatus is the COMPLETE set of status fields
-// k8s.ManagerCatalogarrGrab owns on a Movie or an Episode: pendingGrab,
+// k8s.ManagerCatalogGrab owns on a Movie or an Episode: pendingGrab,
 // lastSearchedAt and searchAttempts, and nothing else on those kinds. It never
 // carries status.phase, which is the Movie/Episode reconciler's under
-// k8s.ManagerCatalogarr, or status.metadata, which is the gateway's under
-// k8s.ManagerCatalogarrMetadata.
+// k8s.ManagerCatalog, or status.metadata, which is the gateway's under
+// k8s.ManagerCatalogMetadata.
 //
 // Nor does it carry status.activeDownloadRef. Spec §2's field-manager table
 // once gave that field to this manager too, while the reconcilers also wrote
@@ -60,7 +60,7 @@ import (
 // re-declare all of it, conditional on nothing having written the object in
 // between.
 //
-// Anything else writing these fields under k8s.ManagerCatalogarrGrab must go
+// Anything else writing these fields under k8s.ManagerCatalogGrab must go
 // through updateWorkerStatus. Sending a subset is a data-loss bug that no test
 // on a freshly created object can observe, because a blank object has nothing
 // to release; declaring the set from a stale read is a lost update that no
@@ -101,9 +101,9 @@ type kindOps interface {
 	workerStatus(obj client.Object) workerStatus
 
 	// applyWorkerStatus declares the whole worker-owned set under
-	// k8s.ManagerCatalogarrGrab, conditional on the object still being at
+	// k8s.ManagerCatalogGrab, conditional on the object still being at
 	// resourceVersion. It never sends status.phase: Phase is
-	// k8s.ManagerCatalogarr's, recomputed by the Movie/Episode reconciler
+	// k8s.ManagerCatalog's, recomputed by the Movie/Episode reconciler
 	// from the fields written here. Only updateWorkerStatus calls it.
 	applyWorkerStatus(ctx context.Context, c client.Client, ns, name, resourceVersion string, ws workerStatus) error
 }
@@ -297,7 +297,7 @@ func getTarget(ctx context.Context, c client.Client, ns string, ref commonv1.Med
 var workerStatusBackoff = retry.DefaultBackoff
 
 // updateWorkerStatus is the only way this package writes status: a
-// compare-and-swap over the whole k8s.ManagerCatalogarrGrab-owned set.
+// compare-and-swap over the whole k8s.ManagerCatalogGrab-owned set.
 //
 // It reads st, hands mutate the owned set as read, and -- when mutate reports
 // a change -- declares the whole set with the read's resourceVersion as a
@@ -337,7 +337,7 @@ func updateWorkerStatus(ctx context.Context, c client.Client, ns string, st comm
 }
 
 // RecordSearchAttempt stamps status.lastSearchedAt and advances
-// status.searchAttempts on one catalog item, under k8s.ManagerCatalogarrGrab.
+// status.searchAttempts on one catalog item, under k8s.ManagerCatalogGrab.
 //
 // It exists so the search worker does not have to reimplement the
 // read-modify-declare cycle workerStatus documents. Server-side apply replaces

@@ -32,7 +32,7 @@ import (
 // pod's nodeSelector and required node affinity; free of any NoSchedule or
 // NoExecute taint the pod does not tolerate; and allocating some of every
 // extended resource the pod requests. It is the HPA's maxReplicas before
-// the consumer clamp, and generalises squasharr's gpuNodes. Capacity
+// the consumer clamp, and generalises transcode's gpuNodes. Capacity
 // (cpu, memory, ephemeral-storage, hugepages) is not counted: a busy node
 // still counts, the scheduler decides.
 func MatchingNodes(nodes []corev1.Node, spec *corev1.PodSpec) (int, error) {

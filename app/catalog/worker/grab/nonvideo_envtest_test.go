@@ -54,8 +54,8 @@ type nonVideoStatus struct {
 
 // nonVideoKind builds one non-video item, its container, and a realistic
 // steady state: the reconciler's phase (or, for an Issue, state) under
-// k8s.ManagerCatalogarr, and a delayed grab's pendingGrab under
-// k8s.ManagerCatalogarrGrab. A blank object could not show a server-side-apply
+// k8s.ManagerCatalog, and a delayed grab's pendingGrab under
+// k8s.ManagerCatalogGrab. A blank object could not show a server-side-apply
 // release.
 type nonVideoKind struct {
 	name string

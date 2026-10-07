@@ -291,7 +291,7 @@ func TestTransientProbeFailureDoesNotReleaseCaps(t *testing.T) {
 	require.Equal(t, "flaky-session", after.Status.SessionSecretRef, "sessionSecretRef was RELEASED by the failure path")
 	require.Equal(t, after.Generation, after.Status.ObservedGeneration)
 
-	require.EqualValues(t, 3, after.Status.EscalationLevel, "the reconciler released indexarr-worker's fields")
+	require.EqualValues(t, 3, after.Status.EscalationLevel, "the reconciler released index-worker's fields")
 	require.EqualValues(t, 7, after.Status.QueriesInWindow, "the failure path did not project the query ring")
 	require.EqualValues(t, 2, after.Status.GrabsInWindow, "the failure path did not project the grab ring")
 	require.EqualValues(t, 11, after.Status.LastRssNewCount)

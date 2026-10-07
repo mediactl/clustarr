@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package downloads
 
 // The downloads stage's grants (ADR-0019 A3.5 step 7): the eight item kinds
-// it plans, their status (the catalogarr apply) and finalizers
+// it plans, their status (the catalog apply) and finalizers
 // (download.clustarr.io/transfers); the DownloadClients and Indexers it
 // reads; the MediaFiles it materialises and deletes (A3.8) and the
 // AudioGrafts it applies until F7.1 (R26); and its Events.

@@ -135,7 +135,7 @@ type Deps struct {
 	Clock func() time.Time
 }
 
-// Worker is the indexarr-rss consumer: one message polls one indexer.
+// Worker is the index-rss consumer: one message polls one indexer.
 type Worker struct {
 	Deps Deps
 }
@@ -165,7 +165,7 @@ func (w *Worker) now() time.Time {
 	return time.Now()
 }
 
-// Subscription is the indexarr-rss durable consumer. It reads the tuning from
+// Subscription is the index-rss durable consumer. It reads the tuning from
 // the topology rather than restating it, exactly as
 // rssmatcher.Handler.Subscription does, so AckWait and Heartbeat live in one
 // place.
@@ -191,7 +191,7 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, w.Subscription(), w.Handle)
 		if err != nil {
-			return fmt.Errorf("indexarr: subscribe rss: %w", err)
+			return fmt.Errorf("index: subscribe rss: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()
@@ -311,7 +311,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	}
 
 	// ONE apply, whatever happened, and it goes through app/indexer/status so
-	// the indexarr-worker owned set is declared in exactly one place. Never
+	// the index-worker owned set is declared in exactly one place. Never
 	// an early return with a partial status: the early return is usually the
 	// transient case, which is exactly when a healthy object would be gutted
 	// by a blip.

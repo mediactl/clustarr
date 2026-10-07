@@ -35,7 +35,7 @@ const shutdownGrace = 5 * time.Second
 
 // Run starts the ui HTTP server and blocks until ctx is cancelled or the
 // server fails to serve. It is the same shape as the other services'
-// Run(ctx, Options) entrypoints (see captionarr.Run, squasharr.Run, ...),
+// Run(ctx, Options) entrypoints (see caption.Run, transcode.Run, ...),
 // even though ui needs no controller-runtime manager: it has no CRD of its
 // own. Run itself never touches the cluster -- Options.Reader and
 // Options.WaitForSync are built by the caller (cmd/clustarr, via

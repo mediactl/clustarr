@@ -524,7 +524,7 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 // handleRequestDelete is the Delete dialog (docs/superpowers/specs/
 // 2026-09-30-library-delete-design.md): POST
 // /library/{namespace}/{kind}/{name}/delete with "files" and "exclude"
-// ("true" when ticked), calling Options.Actions.RequestDelete; importarr
+// ("true" when ticked), calling Options.Actions.RequestDelete; import
 // carries it out. The outcome is finishAction's.
 func (s *Server) handleRequestDelete(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
@@ -554,7 +554,7 @@ func (s *Server) handleCancelDelete(w http.ResponseWriter, r *http.Request) {
 // 2026-09-23-library-page-design, "Metadata refresh"): POST
 // /library/{namespace}/{kind}/{name}/refresh, calling
 // Options.Actions.RefreshMetadata, which writes the refresh annotation
-// catalogarr's refresher consumes; the outcome is finishAction's.
+// catalog's refresher consumes; the outcome is finishAction's.
 func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -745,7 +745,7 @@ func actionErrorCode(err error) (code string, status int) {
 // from the current unmatched-files projection returned by Options.Unmatched.
 // Read-only in this task: no action handler here reaches
 // Options.Actions -- the manual-assign action's mechanism is being defined
-// by G2-4 in importarr, and G3-4 adds it once that lands.
+// by G2-4 in import, and G3-4 adds it once that lands.
 func (s *Server) handleUnmatched(w http.ResponseWriter, r *http.Request) {
 	entries := s.opts.Unmatched(r.Context())
 	p := paging.Parse(r.URL.Query()).Page(len(entries))

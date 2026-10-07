@@ -22,6 +22,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // api/subtitle/v1alpha1 shapes (never imported — see the task's Scope note) except for Query.Release, which is the real
 // *release.ParsedRelease (pkg/release, wave 1). The missing-subtitle planner
 // and sidecar-path naming are out of scope here; they belong to the
-// captionarr controller and pkg/naming respectively, and are deferred to
+// caption controller and pkg/naming respectively, and are deferred to
 // Phase F.
 package subtitles

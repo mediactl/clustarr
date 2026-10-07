@@ -53,7 +53,7 @@ func torrentProxy(ctx context.Context, reader client.Reader, dc *downloadv1alpha
 			ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
 		}
 		if err != nil || len(ips) == 0 {
-			return nil, fmt.Errorf("grabarr: resolve proxy host %q: %w", host, err)
+			return nil, fmt.Errorf("grab: resolve proxy host %q: %w", host, err)
 		}
 		host = ips[0].String()
 	}
@@ -61,7 +61,7 @@ func torrentProxy(ctx context.Context, reader client.Reader, dc *downloadv1alpha
 	if spec.SecretRef != nil {
 		var s corev1.Secret
 		if err := reader.Get(ctx, types.NamespacedName{Namespace: dc.Namespace, Name: spec.SecretRef.Name}, &s); err != nil {
-			return nil, fmt.Errorf("grabarr: read proxy Secret %s/%s: %w", dc.Namespace, spec.SecretRef.Name, err)
+			return nil, fmt.Errorf("grab: read proxy Secret %s/%s: %w", dc.Namespace, spec.SecretRef.Name, err)
 		}
 		p.Username, p.Password = string(s.Data["username"]), string(s.Data["password"])
 	}

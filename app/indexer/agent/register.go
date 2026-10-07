@@ -16,8 +16,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package agent is the agent's index domain (spec §3.5.3, §5.12): the
-// release index, the clustarr.rpc.indexarr.search/download/query verbs,
-// indexarr-rss, the Torznab facade and its key, and the retention sweep.
+// release index, the clustarr.rpc.index.search/download/query verbs,
+// index-rss, the Torznab facade and its key, and the retention sweep.
 package agent
 
 import (
@@ -41,7 +41,7 @@ import (
 const (
 	// DefaultIndexPath is the SQLite release index on the RWO PVC §6.2
 	// mounts. It must equal the PVC's mountPath in
-	// config/manager/indexarr.yaml: the pod runs with
+	// config/manager/index.yaml: the pod runs with
 	// readOnlyRootFilesystem, so anything outside that mount is unwritable.
 	// This was "/index/releases.db", which no manifest ever used and which
 	// the read-only root would have refused on the first write.
@@ -50,7 +50,7 @@ const (
 	// DefaultFacadeBindAddress serves the Torznab facade §6.2 describes:
 	// /{indexer}/api, /{indexer}/download and the aggregate /search/api.
 	// It must equal the container port the Service routes to (8080, the
-	// port named "http" in config/manager/indexarr.yaml and the chart);
+	// port named "http" in config/manager/index.yaml and the chart);
 	// TestDefaultFacadeBindAddressMatchesTheServicePort pins it. It was once
 	// ":9696" -- Prowlarr's port -- which nothing routed to.
 	DefaultFacadeBindAddress = ":8080"
@@ -81,7 +81,7 @@ type Options struct {
 }
 
 // Register opens the release index, builds the domain's own ClientCache
-// (with its limiter, its indexarr-worker session store and the session
+// (with its limiter, its index-worker session store and the session
 // watch that keeps it current), registers the verbs, the RSS consumer, the
 // sweep and (unless disabled) the facade, and returns the
 // index.releaseindex check and the store's closer.
@@ -149,16 +149,16 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 // §A.3); empty keeps SQLite, the default.
 func openStore(ctx context.Context, o Options) (relindex.Store, io.Closer, error) {
 	if o.IndexDSN != "" {
-		logging.FromContext(ctx).Info("indexarr: release index on Postgres; --index-path ignored")
+		logging.FromContext(ctx).Info("index: release index on Postgres; --index-path ignored")
 		store, closer, err := relindex.OpenPostgres(ctx, o.IndexDSN)
 		if err != nil {
-			return nil, nil, fmt.Errorf("indexarr: open the release index at the configured --index-dsn: %w", err)
+			return nil, nil, fmt.Errorf("index: open the release index at the configured --index-dsn: %w", err)
 		}
 		return store, closer, nil
 	}
 	store, closer, err := relindex.Open(ctx, o.IndexPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("indexarr: open the release index at %s: %w", o.IndexPath, err)
+		return nil, nil, fmt.Errorf("index: open the release index at %s: %w", o.IndexPath, err)
 	}
 	return store, closer, nil
 }

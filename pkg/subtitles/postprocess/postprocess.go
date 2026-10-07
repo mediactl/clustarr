@@ -244,7 +244,7 @@ func applyMods(subs *astisub.Subtitles, mods []string) error {
 				// Recognised (not an error) so a profile listing them does
 				// not fail PostProcess; add a real implementation + test
 				// the same way as ModRemoveHI once one is needed by the
-				// captionarr worker.
+				// caption worker.
 			}
 		}
 		if fixUpper {

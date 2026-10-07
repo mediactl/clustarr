@@ -435,7 +435,7 @@ func testUpsertIsIdempotentAndCountsOnlyNewRows(t *testing.T, s relindex.Store) 
 	// search service upserts every hit of every search. Almost every row
 	// it writes already exists, and `inserted` is what becomes
 	// Indexer.status.lastRssNewCount and what the RSS worker publishes to
-	// the firehose. An inflated count fans stale releases at catalogarr
+	// the firehose. An inflated count fans stale releases at catalog
 	// forever.
 	ctx := t.Context()
 
@@ -870,10 +870,10 @@ func testTitleNormDoesNotDegradeANonLatinQueryToItsASCIIResidue(t *testing.T, s 
 // --- Concurrency -----------------------------------------------------------
 
 func testStoreIsSafeUnderConcurrentWritersAndReaders(t *testing.T, s relindex.Store) {
-	// Under SQLite indexarr is one replica with one writer PROCESS, but
+	// Under SQLite index is one replica with one writer PROCESS, but
 	// inside it the RSS worker and the search service both write,
 	// concurrently, on different goroutines. Under Postgres several
-	// indexarr replicas may hold this same Store concurrently, which is
+	// index replicas may hold this same Store concurrently, which is
 	// the harder case this same test also has to survive: Postgres'
 	// MVCC serialises the conflicting writers itself, with no store-side
 	// mutex, so this proves that path never corrupts the count or races

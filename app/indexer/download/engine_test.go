@@ -85,9 +85,9 @@ func definitionIndexer() *indexv1alpha1.Indexer {
 	return idx
 }
 
-// rpc.indexarr.download dispatches a definition-backed Indexer to the
+// rpc.index.download dispatches a definition-backed Indexer to the
 // Cardigann path, and never to the plain GET, which would skip the
-// definition's download block and hand grabarr a details page.
+// definition's download block and hand grab a details page.
 func TestADefinitionBackedGrabDispatchesToTheEngine(t *testing.T) {
 	ctx := context.Background()
 	idx := definitionIndexer()

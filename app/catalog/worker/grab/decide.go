@@ -57,9 +57,9 @@ import (
 //     candidate inside the same window NOT schedule a second delivery: the
 //     anchor is unchanged, so the broker's deduplication window absorbs it.
 //  3. Record status.pendingGrab on every status target, under
-//     k8s.ManagerCatalogarrGrab. It never writes status.phase -- the Movie
+//     k8s.ManagerCatalogGrab. It never writes status.phase -- the Movie
 //     and Episode reconcilers recompute Phase=Delayed from pendingGrab under
-//     k8s.ManagerCatalogarr, woken by the status.pendingGrab arm of their own
+//     k8s.ManagerCatalog, woken by the status.pendingGrab arm of their own
 //     predicates.
 //
 // A grab its Indexer's spec.limits.grabLimit refuses is held the same way,
@@ -183,7 +183,7 @@ func schedule(
 		ID:     msgID,
 		Type:   "catalog.GrabTask",
 		Schema: schemaName,
-		Source: "catalogarr-worker@" + version.String(),
+		Source: "catalog-worker@" + version.String(),
 		Key:    ns + "/" + kept.Target.Name,
 		Time:   now,
 		Data:   data,

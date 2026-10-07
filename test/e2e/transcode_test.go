@@ -17,26 +17,26 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Task E-5 -- transcode fixtures and Phase H scenario 12 (M4, squasharr).
+// Task E-5 -- transcode fixtures and Phase H scenario 12 (M4, transcode).
 //
-// Phase E's code is complete and wired (E-4, 35c298e/b001001): squasharr
+// Phase E's code is complete and wired (E-4, 35c298e/b001001): transcode
 // registers the TranscodeProfile and TranscodeJob controllers and the slot
-// scheduler; config/manager/squasharr.yaml (composed into config/e2e
-// through config/default) ships the squasharr ServiceAccount and a
+// scheduler; config/manager/transcode.yaml (composed into config/e2e
+// through config/default) ships the transcode ServiceAccount and a
 // --slots cpu=2,nvidia=1,intel=1 budget. --worker-image
 // (CLUSTARR_WORKER_IMAGE) points at the dedicated transcoder image (build:
 // Dockerfile.transcoder; every pool runs it, nvidia's included, ADR-0015),
 // not the media image, since the encoding runtime moved out of media; hack/e2e.sh's
 // `make docker-build` builds and kind-loads it and waits on
-// deployment/squasharr's rollout. Nothing in config/e2e needed adding for
+// deployment/transcode's rollout. Nothing in config/e2e needed adding for
 // this file's scenario to reach a real worker pod -- verified by reading
-// config/manager/squasharr.yaml, config/rbac/kustomization.yaml,
+// config/manager/transcode.yaml, config/rbac/kustomization.yaml,
 // config/default/kustomization.yaml and hack/e2e.sh's own WORKLOADS list,
 // not assumed.
 //
-// X14 retired the per-Job `squasharr-worker` ServiceAccount, ClusterRole
-// and binding (config/rbac/squasharr_worker_role*.yaml, and `clustarr
-// squasharr --role worker`) along with them: the transcode itself now runs
+// X14 retired the per-Job `transcode-worker` ServiceAccount, ClusterRole
+// and binding (config/rbac/transcode_worker_role*.yaml, and `clustarr
+// transcode --role worker`) along with them: the transcode itself now runs
 // on per-(profile, class) pool Jobs whose pods carry no ServiceAccount at
 // all and report over NATS, not the apiserver (design spec §18.1, §18.2).
 // A pool Job's pod is what this scenario now waits on reaching Running.
@@ -193,14 +193,14 @@ const (
 
 	// transcodeJobSucceededTimeout covers what plannedTimeout does not: a
 	// REAL batch Job -- pod scheduling and image pull (generous margin,
-	// mirroring engineReadyTimeout's own reasoning for grabarr's engine
+	// mirroring engineReadyTimeout's own reasoning for grab's engine
 	// StatefulSet, since the worker image may not already be warm on the
 	// node), admission against the slot budget (config/manager/
-	// squasharr.yaml ships --slots cpu=2,..., so this scenario's one job is
+	// transcode.yaml ships --slots cpu=2,..., so this scenario's one job is
 	// admitted on the very first admission pass, never queued behind
-	// another scenario -- squasharr is the only component that creates
+	// another scenario -- transcode is the only component that creates
 	// TranscodeJobs, and this file's two scenarios are the only ones that
-	// create TranscodeProfiles), then squasharr's worker actually running
+	// create TranscodeProfiles), then transcode's worker actually running
 	// the in-process engine (libx265 at the standard's CPU settings) against the
 	// suite's ten-second 640x480 probe clip, verifying the output and
 	// swapping it over the source (R5: hard-link the original into the
@@ -219,7 +219,7 @@ const (
 	// os.Stat catching up.
 	recycledOriginalTimeout = 2 * time.Minute
 
-	// transcodeSwapIncorporatedTimeout covers catalogarr's MediaFile
+	// transcodeSwapIncorporatedTimeout covers catalog's MediaFile
 	// controller noticing the newest Succeeded TranscodeJob
 	// (mediafile_controller.go's latestUnincorporatedTranscode, a
 	// watch-driven reconcile fired by the Succeeded phase transition) and
@@ -261,7 +261,7 @@ const (
 // applies no defaulting at all. The three profile fields whose Go zero
 // value never marshals as genuinely absent (ActiveDeadline, Resources,
 // Scratch -- metav1.Duration and resource.Quantity both always emit a
-// quoted value, never omit) are floored in Go by squasharr's own buildJob
+// quoted value, never omit) are floored in Go by transcode's own buildJob
 // (app/transcode/controller/transcodejob/job.go's activeDeadlineFor/
 // resourcesFor/scratchFor), not by CRD defaulting, so they need no value
 // here either.
@@ -496,7 +496,7 @@ func waitForTranscodeJobField[T any](ctx context.Context, t *testing.T, key clie
 	return got
 }
 
-// waitForMediaFileSwapIncorporated waits until catalogarr's MediaFile
+// waitForMediaFileSwapIncorporated waits until catalog's MediaFile
 // controller has incorporated a transcode swap: spec.original explicitly
 // false (mediafile_controller.go:255-258's WithOriginal(false), the one
 // field that only ever flips once a swap lands) AND status.probedAt has
@@ -564,15 +564,15 @@ func pipelineRowStage(body string, kind commonv1.MediaKind, ref types.Namespaced
 // (docs/superpowers/plans/2026-09-18-remaining-work.md): a MediaFile under a
 // matching TranscodeProfile is transcoded end to end. A LibraryScan
 // produces a real, probed MediaFile; a scoped TranscodeProfile
-// (newTranscodeProfile) picks it up; squasharr's TranscodeProfile mapper
-// creates a TranscodeJob; squasharr's TranscodeJob controller plans a real
+// (newTranscodeProfile) picks it up; transcode's TranscodeProfile mapper
+// creates a TranscodeJob; transcode's TranscodeJob controller plans a real
 // encode (h264 -> the profile's CRD-default hevc/yuv420p10le) and dispatches
 // it to its (profile, class) pool -- a shared, long-lived batch Job that
 // scales up from suspended zero to take the task and back down to suspended
 // once it is the pool's only work (§7; there is no per-task Job any more,
-// X14). squasharr's worker runs inside the pool's pod, transcodes, verifies,
+// X14). transcode's worker runs inside the pool's pod, transcodes, verifies,
 // and swaps (ruling R5: hard-link the original into the RootFolder's
-// recycle bin, then rename the output over the source path); catalogarr's
+// recycle bin, then rename the output over the source path); catalog's
 // MediaFile controller notices the Succeeded TranscodeJob and incorporates
 // the swap, taking over spec.sizeBytes/modTime/original (§8.5); and the
 // pipeline page reflects the transcode stage via ui/views/pipeline.templ's
@@ -627,7 +627,7 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 	require.NotEmpty(t, planned.Status.Plan.PlanHash)
 
 	// §7: the job's task went to its profile's pool, which scaled up from
-	// zero. status.jobRef names the pool Job -- squasharr dispatches to a
+	// zero. status.jobRef names the pool Job -- transcode dispatches to a
 	// long-lived, shared (profile, class) pool now, never a per-task Job
 	// (X14; app/transcode/controller/pool.Name).
 	poolName := *waitForTranscodeJobField(ctx, t, tjKey, transcodeJobPlannedTimeout, "jobRef",
@@ -681,7 +681,7 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 		return info.Size() == originalSizeBytes, nil
 	})
 
-	// catalogarr re-probes the swapped-in output at the SAME path and takes
+	// catalog re-probes the swapped-in output at the SAME path and takes
 	// over spec.sizeBytes/modTime/original.
 	swapped := waitForMediaFileSwapIncorporated(ctx, t, mfKey, firstProbedAt.Time)
 	require.NotEqual(t, originalSizeBytes, swapped.Spec.SizeBytes,
@@ -718,9 +718,9 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 	// The pipeline page reflects the transcode stage. pkg/pipeline.Project
 	// (project.go) reaches StageComplete, not StageTranscodeDone, once
 	// subtitles are ALSO satisfied -- but nothing in this scenario ever
-	// creates a satisfied SubtitleRequest (captionarr is Phase F's surface,
+	// creates a satisfied SubtitleRequest (caption is Phase F's surface,
 	// out of scope here), so Complete is not a false read: it can only be
-	// reached if some OTHER agent's captionarr work is live in the deployed
+	// reached if some OTHER agent's caption work is live in the deployed
 	// image and genuinely satisfied a request for this file, which is still
 	// "past the transcode stage" and an acceptable outcome for this
 	// assertion. Transcoding (caught mid-run) is the least likely of the
@@ -755,7 +755,7 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 // TranscodeProfile whose output container differs from the source's is
 // planned and run, not skipped. Under replaceSource=true (the profile's
 // default) the worker writes <stem>.<container> beside the source, retires
-// the source into the recycle bin and reports the new path; catalogarr's
+// the source into the recycle bin and reports the new path; catalog's
 // MediaFile controller then takes over spec.path (task X5a's swap under a
 // new name), so the library ends at the .mp4 and the catalog follows it.
 //
@@ -813,7 +813,7 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 		return outErr == nil && os.IsNotExist(srcErr), nil
 	})
 
-	// The catalog follows: catalogarr takes over spec.path in the same
+	// The catalog follows: catalog takes over spec.path in the same
 	// apply as the rest of the swap.
 	swapped := waitForMediaFileSwapIncorporated(ctx, t, mfKey, firstProbedAt.Time)
 	require.Equal(t, wantOutput, swapped.Spec.Path, "the MediaFile must follow the file to its new container")
@@ -881,20 +881,20 @@ func TestTranscodeDolbyVisionSkipped(t *testing.T) {
 // alphabetical-by-filename test ordering.
 //
 // This function also closes Phase H's scenario 1 trace check ("one
-// trace_id appears in the logs of catalogarr, indexarr, grabarr and
-// importarr for the same grab", remaining-work.md) -- HONESTLY scoped, not
+// trace_id appears in the logs of catalog, index, grab and
+// import for the same grab", remaining-work.md) -- HONESTLY scoped, not
 // as written: see sharedTraceID's own doc comment (helpers_test.go) for
 // why this suite's direct-create Download flow structurally never reaches
-// catalogarr's search/grab worker or indexarr at all, so a real, full
+// catalog's search/grab worker or index at all, so a real, full
 // four-service trace needs a different scenario (a real Search-driven
 // grab, matching indexer_test.go's scenario 17 shape) that no task has
-// built yet. What this DOES prove for real: the bus hop between grabarr
-// (publishing an ImportTask on Download completion) and importarr-worker
+// built yet. What this DOES prove for real: the bus hop between grab
+// (publishing an ImportTask on Download completion) and import-worker
 // (consuming it and creating the MediaFile) carries ONE shared
 // Clustarr-Trace-derived trace_id, which is the one hop in this flow where
 // propagation could silently break without a same-process call stack to
 // carry it -- see sharedTraceID's own reasoning for why the other legs of
-// this flow (grabarr's own watch-driven Download reconcile, catalogarr's
+// this flow (grab's own watch-driven Download reconcile, catalog's
 // watch-driven MediaFile/TranscodeJob reconciles) need no such proof:
 // there is no message-queue hop there for propagation to fail across.
 //
@@ -921,7 +921,7 @@ func TestDownloadScenario1TranscodeLeg(t *testing.T) {
 	mfKey := client.ObjectKey{Namespace: Namespace, Name: imp.Imported[0].MediaFileRef}
 	mf := waitForMediaFileProbed(ctx, t, mfKey)
 	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution],
-		"catalogarr's mirrored labels must carry the imported file's real, frozen-at-import resolution")
+		"catalog's mirrored labels must carry the imported file's real, frozen-at-import resolution")
 	require.Equal(t, "bluray", mf.Labels[catalogv1alpha1.LabelSource])
 
 	newTranscodeProfile(ctx, t, "e2e-dl1tj-profile", 1080, commonv1.SourceBluray, transcodev1alpha1.ContainerMKV)
@@ -942,12 +942,12 @@ func TestDownloadScenario1TranscodeLeg(t *testing.T) {
 
 	// The trace check: see this function's own doc comment for exactly
 	// what is and is not proven here.
-	grabIDs := deploymentTraceIDsSince(ctx, t, "grabarr", t0)
-	importIDs := deploymentTraceIDsSince(ctx, t, "importarr-worker", t0)
+	grabIDs := deploymentTraceIDsSince(ctx, t, "grab", t0)
+	importIDs := deploymentTraceIDsSince(ctx, t, "import-worker", t0)
 	shared := sharedTraceID(grabIDs, importIDs)
 	require.NotEmptyf(t, shared,
-		"no trace_id is common to grabarr's and importarr-worker's logs since %s -- "+
-			"grabarr saw %d distinct trace_id(s), importarr-worker saw %d; Clustarr-Trace propagation "+
+		"no trace_id is common to grab's and import-worker's logs since %s -- "+
+			"grab saw %d distinct trace_id(s), import-worker saw %d; Clustarr-Trace propagation "+
 			"across the ImportTask bus hop (pkg/events hooks) may be broken, or the two Deployments' "+
 			"logs for this specific grab were not both captured",
 		t0.Format(time.RFC3339), len(grabIDs), len(importIDs))

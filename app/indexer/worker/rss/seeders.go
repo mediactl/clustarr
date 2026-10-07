@@ -36,7 +36,7 @@ import (
 // The threshold is read through MinimumSeedersOrDefault, so an unset field is
 // the CRD's default of 1 and an explicit 0 admits a seederless torrent. It
 // lives here rather than in pkg/decision because the threshold is per
-// Indexer and only indexarr holds the Indexer; the one function serves the
+// Indexer and only index holds the Indexer; the one function serves the
 // RSS poll and the search fan-out alike (app/indexer/search imports this
 // package for ProjectRelease already), so the two paths cannot disagree.
 func BelowMinimumSeeders(idx *indexv1alpha1.Indexer, protocol string, seeders *int32) bool {

@@ -40,7 +40,7 @@ import (
 // comics) share the movies/series lines below rather than getting their own:
 // newTarget (target.go) and Handle's per-kind switch (worker.go) read and
 // PatchStatus all eight kinds identically, through the one
-// k8s.ManagerCatalogarrMetadata field manager, so their RBAC needs are the
+// k8s.ManagerCatalogMetadata field manager, so their RBAC needs are the
 // same get;list;watch / status get;update;patch shape movies and series
 // already had.
 //
@@ -75,7 +75,7 @@ type Options struct {
 // MetadataProvider, the two-tier cache, the work-queue Handler and the RPC
 // responders) and starts consuming. It is RoleMetadata's entire job;
 // app/catalog/run.go's setupWorkers is expected to call this once, guarded
-// by o.Role.Has(catalogarr.RoleMetadata) (a different Phase C task's path --
+// by o.Role.Has(catalog.RoleMetadata) (a different Phase C task's path --
 // see "Interfaces -- Produces").
 func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	if o.Client == nil || o.Bus == nil {

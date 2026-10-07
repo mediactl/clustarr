@@ -141,7 +141,7 @@ func stamp(a commonv1alpha1.Attempts, now time.Time) commonv1alpha1.Attempts {
 // candidate: guessing either would publish upgrade searches forever.
 //
 // It reads score, scoreOutOf, state and downloadedAt, which are
-// captionarr-worker's leaves. This controller never writes them.
+// caption-worker's leaves. This controller never writes them.
 func upgradeCandidate(now time.Time, it subtitlev1alpha1.SubtitleItem, c cadence) bool {
 	if !c.upgradeEnabled {
 		return false

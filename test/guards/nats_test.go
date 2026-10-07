@@ -26,7 +26,7 @@ import (
 // TestBothInstallersRaiseTheNATSMaxPayload holds the chart's NATS
 // configuration to the limit config/nats/configmap.yaml has always set
 // (design spec §12): max_payload 8Mi. The nats subchart's default is the
-// server's 1 MiB, under which indexarr's rpc.indexarr.download reply -- the
+// server's 1 MiB, under which index's rpc.index.download reply -- the
 // .nzb inline, base64 in JSON -- is refused for any 1080p movie's ~1.3 MB
 // .nzb, and the grab sits in Assigned forever (2026-09-24, the owner's
 // cluster, Helm release revision 36). The two installers render the value

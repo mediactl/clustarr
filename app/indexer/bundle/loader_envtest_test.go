@@ -73,9 +73,9 @@ func requireEnvtest(t *testing.T) client.Client {
 }
 
 // TestLoaderAppliesTheBundleAndLeavesTheOperatorsObjects is the loader's
-// contract (X14 wires it behind indexarr's --cardigann-definitions-dir):
+// contract (X14 wires it behind index's --cardigann-definitions-dir):
 // every definition cardigann.LoadBundle accepts becomes a labelled
-// IndexerDefinition under indexarr's field manager, a re-run is idempotent
+// IndexerDefinition under index's field manager, a re-run is idempotent
 // and carries a changed file through, a refused file is counted and
 // skipped, and an IndexerDefinition of the same name that is not the
 // bundle's -- the operator's -- is never overwritten.
@@ -107,7 +107,7 @@ func TestLoaderAppliesTheBundleAndLeavesTheOperatorsObjects(t *testing.T) {
 		}
 	}
 	require.Equal(t, []string{string(k8s.ManagerIndex)}, managers,
-		"the bundle's spec must be owned by indexarr's field manager alone")
+		"the bundle's spec must be owned by index's field manager alone")
 
 	// Steady state: idempotent, and a changed file carries through.
 	res, err = l.SyncOnce(ctx)

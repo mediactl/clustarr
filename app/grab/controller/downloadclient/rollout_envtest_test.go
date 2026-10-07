@@ -174,7 +174,7 @@ func TestAnExistingUsenetDeploymentMovesToRecreate(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, dc))
 
-	labels := map[string]string{"app.kubernetes.io/component": "grabarr-engine", "download.clustarr.io/client": "old-nzb"}
+	labels := map[string]string{"app.kubernetes.io/component": "grab-engine", "download.clustarr.io/client": "old-nzb"}
 	old := appsv1ac.Deployment("old-nzb-engine", "default").
 		WithLabels(labels).
 		WithSpec(appsv1ac.DeploymentSpec().

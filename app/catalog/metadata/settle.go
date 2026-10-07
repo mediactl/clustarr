@@ -34,7 +34,7 @@ const defaultRetryAfter = 30 * time.Second
 // vocabulary §8.8 defines: Retry for a transient, provider-told-us-when
 // condition; Discard for one no amount of retrying fixes; anything else
 // passes through so the subscription's own backoff schedule
-// (catalogarr-metadata: 30s,2m,10m,1h,6h) applies.
+// (catalog-metadata: 30s,2m,10m,1h,6h) applies.
 //
 // Registry.Lookup joins every provider's error when none succeeds, and
 // errors.Is answers true if any one of them matches -- so asking

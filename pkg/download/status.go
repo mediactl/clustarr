@@ -32,7 +32,7 @@ import (
 const MaxStatusFiles = 200
 
 // ApplyStatus renders item as the COMPLETE set of Download.status fields that
-// k8s.ManagerGrabarrEngine owns -- every one of them, zero values included --
+// k8s.ManagerGrabEngine owns -- every one of them, zero values included --
 // and nothing outside that set.
 //
 // # Why "complete" and not "what changed"
@@ -63,10 +63,10 @@ const MaxStatusFiles = 200
 //
 // # What it deliberately omits
 //
-// Nine fields belong to k8s.ManagerGrabarr -- observedGeneration, phase,
+// Nine fields belong to k8s.ManagerGrab -- observedGeneration, phase,
 // engine, failureReason, blocklistedUntil, startedAt, completedAt,
 // seedGoalMetAt and conditions -- and one, import, belongs to
-// k8s.ManagerImportarr. None of them is emitted here. [Item.FailureReason]
+// k8s.ManagerImport. None of them is emitted here. [Item.FailureReason]
 // and [Item.SeedGoalMet] are the raw material for two of them, and are
 // emitted as the engine's own reports (engineFailureReason,
 // seedGoalReached), which the controller reads and turns into its verdicts;

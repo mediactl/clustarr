@@ -54,7 +54,7 @@ func (m ImportMode) String() string {
 // free-space-checked wrapper the spec's lower-level primitives
 // (HardlinkOrCopy, MoveAtomic) intentionally lack, since those two keep
 // the spec §7 signature exactly (no context.Context parameter) and this
-// is where importarr's fileimport worker should call in.
+// is where import's fileimport worker should call in.
 func Import(ctx context.Context, src, dst string, mode ImportMode) error {
 	log := logging.FromContext(ctx)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o775); err != nil {

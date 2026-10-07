@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package v1alpha1 contains the API Schema definitions for the
 // index.clustarr.io v1alpha1 API group: Indexer, IndexerDefinition and
-// IndexerProxy (owned by indexarr).
+// IndexerProxy (owned by index).
 //
 // +kubebuilder:object:generate=true
 // +kubebuilder:ac:generate=true

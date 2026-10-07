@@ -164,12 +164,12 @@ func (t *telemetry) flush(ctx context.Context) {
 	switch {
 	case err != nil && !t.failing:
 		t.failing = true
-		log.WarnContext(ctx, "squasharr worker: writing transcode telemetry failed; the encode goes on", "key", t.key, "error", err)
+		log.WarnContext(ctx, "transcode worker: writing transcode telemetry failed; the encode goes on", "key", t.key, "error", err)
 	case err != nil:
-		log.DebugContext(ctx, "squasharr worker: writing transcode telemetry failed", "key", t.key, "error", err)
+		log.DebugContext(ctx, "transcode worker: writing transcode telemetry failed", "key", t.key, "error", err)
 	case t.failing:
 		t.failing = false
-		log.InfoContext(ctx, "squasharr worker: transcode telemetry is being written again", "key", t.key)
+		log.InfoContext(ctx, "transcode worker: transcode telemetry is being written again", "key", t.key)
 	}
 }
 

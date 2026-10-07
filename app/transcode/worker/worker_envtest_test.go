@@ -327,7 +327,7 @@ func (f *fixture) get(t *testing.T, c client.Client) *transcodev1alpha1.Transcod
 }
 
 // processWith runs Process on the task BuildTask renders from the fixture's
-// real, apiserver-defaulted objects: the same producer squasharr dispatches
+// real, apiserver-defaulted objects: the same producer transcode dispatches
 // with (transcodejob's dispatch), under the caller-supplied options -- for a
 // test that needs to override one (a wrapped ffmpeg, a failing verifier). A
 // BuildTask error is reported as ExitInvalidSource, before Process is ever
@@ -443,13 +443,13 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 
 	// Process makes no Kubernetes client of its own (spec §9): the
 	// TranscodeJob's controller-owned fields, and its managedFields, are
-	// exactly as createJob left them. squasharr alone writes status, from
+	// exactly as createJob left them. transcode alone writes status, from
 	// the events Serve publishes (app/transcode/controller/transcodejob).
 	tj := f.get(t, c)
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, tj.Status.Phase)
 	require.NotNil(t, tj.Status.Plan)
 	assert.Equal(t, "libx265", tj.Status.Plan.Encoder)
-	assert.Nil(t, tj.Status.Result, "Process writes no status; squasharr does, from Serve's events")
+	assert.Nil(t, tj.Status.Result, "Process writes no status; transcode does, from Serve's events")
 	assert.Nil(t, tj.Status.Progress)
 }
 
@@ -512,7 +512,7 @@ func TestProcessReportsSourceChangedWhenTheSourceIsEditedAfterPlanning(t *testin
 
 // The dangerous crash: the swap completed but the pod died before the
 // result was recorded. Process itself never touches Kubernetes any more --
-// squasharr does that, from Serve's events -- so what this
+// transcode does that, from Serve's events -- so what this
 // exercises is purely file-system-level: a retry of the same task finds a
 // source whose probe hash no longer matches -- which would be exit 3, a
 // permanently failed task for a transcode that in fact succeeded -- unless
@@ -554,7 +554,7 @@ func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testin
 //
 // Two cases from before Process existed are gone rather than ported: a
 // missing TranscodeJob and an unhashed TranscodeProfile are now caught by
-// squasharr BEFORE it can even build a task.Task -- dispatch reads the job
+// transcode BEFORE it can even build a task.Task -- dispatch reads the job
 // and refuses a profile with no status.hash
 // (app/transcode/controller/transcodejob).
 // Process, given a task, no longer has Kubernetes objects to fail a Get
@@ -696,7 +696,7 @@ func TestTheAPIAdmitsReplaceSourceFalse(t *testing.T) {
 // A container change (an .mkv source: the standard writes MP4) is
 // transcoded to <stem>.mp4 beside the source; once that is in place the
 // source is retired to the recycle bin, the seeding link is untouched, and
-// status.result names the new path for catalogarr to take spec.path from.
+// status.result names the new path for catalog to take spec.path from.
 func TestRunChangesTheContainerAndRetiresTheSource(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
@@ -1034,7 +1034,7 @@ func TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps(t *testing.T) {
 }
 
 // A pod without the in-process engine (an image with no FFmpeg 9 or no
-// ffgo shim: cmd/squasharr-worker leaves Options.Engine nil and logs why)
+// ffgo shim: cmd/transcode-worker leaves Options.Engine nil and logs why)
 // fails an ffgo task as retriable, naming the engine, and leaves the
 // source as it was.
 func TestAnFFgoTaskOnAWorkerWithoutTheEngineIsRetriable(t *testing.T) {
@@ -1257,7 +1257,7 @@ func TestRunPlacesTheSidecarsAndKeepsAnExistingOne(t *testing.T) {
 	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv", writeSource: withASSAndForcedSRT})
 	dir := filepath.Dir(f.local)
 	existing := filepath.Join(dir, "Film.2020.1080p.de.forced.srt")
-	require.NoError(t, os.WriteFile(existing, []byte("captionarr's"), 0o644))
+	require.NoError(t, os.WriteFile(existing, []byte("caption's"), 0o644))
 	out := f.processWith(t, c, f.withEngine(sidecarEngine{fakeEngine{report: &transcode.Report{OK: true}}}))
 	require.NoError(t, out.Err)
 	b, err := os.ReadFile(filepath.Join(dir, "Film.2020.1080p.en.ass"))
@@ -1265,7 +1265,7 @@ func TestRunPlacesTheSidecarsAndKeepsAnExistingOne(t *testing.T) {
 	assert.Equal(t, "sidecar", string(b))
 	b, err = os.ReadFile(existing)
 	require.NoError(t, err)
-	assert.Equal(t, "captionarr's", string(b), "an existing sidecar is never overwritten")
+	assert.Equal(t, "caption's", string(b), "an existing sidecar is never overwritten")
 	assert.Empty(t, f.partFiles(t), "no video or sidecar part is left")
 }
 

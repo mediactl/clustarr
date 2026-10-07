@@ -59,8 +59,8 @@ import (
 // source (S1, S1'), which replaced every item kind's MediaFile watch.
 //
 // Since ADR-0019 (A3.3, ruling R5) a pass also runs the item stages around
-// ReconcileItem: each stage plans beside the rollups, its catalogarr
-// contribution rides the context into the kind's one catalogarr apply
+// ReconcileItem: each stage plans beside the rollups, its catalog
+// contribution rides the context into the kind's one catalog apply
 // (itempass), and every other manager's set is applied here, chained on
 // the resourceVersion the apply before it returned (§7.0); then the stages'
 // effects run, then their Events.

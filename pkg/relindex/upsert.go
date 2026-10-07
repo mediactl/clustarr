@@ -117,7 +117,7 @@ func validate(r Release) error {
 //
 // `inserted` feeds Indexer.status.lastRssNewCount and decides which releases
 // the RSS worker publishes to CLUSTARR_RELEASES, so an inflated count fans
-// stale releases at catalogarr on every poll, forever.
+// stale releases at catalog on every poll, forever.
 //
 // Every release is validated before the transaction opens, so a bad batch
 // costs no writes at all. On any error the transaction rolls back and the

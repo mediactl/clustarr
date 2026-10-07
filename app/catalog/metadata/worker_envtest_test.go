@@ -340,7 +340,7 @@ func newArtist(t *testing.T, ctx context.Context, c client.Client, ns, name, mbi
 // TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata's Artist
 // counterpart, proving G2-1's new dispatch end to end: newTarget ->
 // externalIDs -> Registry.Lookup -> buildArtistMetadataAC ->
-// k8s.ManagerCatalogarrMetadata.
+// k8s.ManagerCatalogMetadata.
 func TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -395,9 +395,9 @@ func newAlbum(t *testing.T, ctx context.Context, c client.Client, ns, name, arti
 // lesson: a renderer that sends only some of a struct's leaves silently
 // releases the rest), applied to the specific question this task had to
 // answer for Album and Book: patch.go's buildAlbumMetadataAC doc comment
-// decides the metadata gateway (ManagerCatalogarrMetadata) is the sole
+// decides the metadata gateway (ManagerCatalogMetadata) is the sole
 // writer of every leaf of AlbumStatus.metadata, and G2-2's Artist fan-out
-// (ManagerCatalogarrFanout) must never apply to it. This proves both
+// (ManagerCatalogFanout) must never apply to it. This proves both
 // halves against a real apiserver:
 //  1. A full fetch sets every leaf this builder maps.
 //  2. A second fetch, from a provider response with almost every field now
@@ -406,8 +406,8 @@ func newAlbum(t *testing.T, ctx context.Context, c client.Client, ns, name, arti
 //     leaf is deliberately cleared, not accidentally retained, and the one
 //     leaf still present (Title) survives.
 //  3. Across both applies, status.metadata's managedFields entries show
-//     ONLY k8s.ManagerCatalogarrMetadata -- proving nothing else (in
-//     particular no future ManagerCatalogarrFanout write from G2-2) has
+//     ONLY k8s.ManagerCatalogMetadata -- proving nothing else (in
+//     particular no future ManagerCatalogFanout write from G2-2) has
 //     claimed a leaf there.
 func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *testing.T) {
 	ctx := context.Background()
@@ -471,7 +471,7 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 		}
 	}
 	require.Equal(t, map[string]bool{string(k8s.ManagerCatalogMetadata): true}, managers,
-		"only the metadata gateway may own a status field on Album -- ManagerCatalogarrFanout must never apply to status.metadata here (see buildAlbumMetadataAC's doc comment)")
+		"only the metadata gateway may own a status field on Album -- ManagerCatalogFanout must never apply to status.metadata here (see buildAlbumMetadataAC's doc comment)")
 }
 
 // TestHandlerWritesSecondaryYearThroughTheRealTMDBClient drives ruling R-7

@@ -50,7 +50,7 @@ func loginFormDefinition(t *testing.T) *cardigann.Definition {
 // TestRealEngineLogsInAndSearches is this fixture's own guard rail, the
 // same role torznabstub's TestEmbeddedDocumentsParse plays for XML: it
 // drives the stub with the REAL pkg/cardigann.Engine -- the same code
-// indexarr's Indexer controller runs -- so a shape mismatch between this
+// index's Indexer controller runs -- so a shape mismatch between this
 // server and login-form.yml fails `make test` today, not twenty minutes
 // into hack/e2e.sh as an Indexer that never authenticates.
 func TestRealEngineLogsInAndSearches(t *testing.T) {
@@ -106,7 +106,7 @@ func TestWrongCredentialsFail(t *testing.T) {
 }
 
 // TestTorrentIsSessionGated proves ResultDownloadPath is not a free URL:
-// fetched without the session cookie it 401s, and indexarr's Torznab
+// fetched without the session cookie it 401s, and index's Torznab
 // facade (GET /{indexer}/download) is what is expected to supply that
 // cookie on a real caller's behalf -- see app/indexer/download/fetch.go's
 // NewFetcherFor, which seeds a cookie jar from the Indexer's stored

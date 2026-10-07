@@ -80,7 +80,7 @@ type Reconciler struct {
 	// Recorder is optional; a nil Recorder disables events rather than
 	// panicking, which is what lets a unit test construct a Reconciler with
 	// nothing but a client. It is an events.k8s.io/v1 recorder, from
-	// mgr.GetEventRecorder, matching indexarr's other two controllers.
+	// mgr.GetEventRecorder, matching index's other two controllers.
 	Recorder k8sevents.EventRecorder
 
 	// Limiters paces this process's own requests to each indexer host: the
@@ -147,7 +147,7 @@ type capsMemo struct {
 // index agent paces its searches, polls and grabs on another, §5.12); bus is
 // the one the RSS worker consumes from, and is what lets this reconciler seed
 // the first poll and watch the sessions the index agent drops. Its session
-// store writes as indexarr.
+// store writes as index.
 func NewReconciler(
 	c client.Client,
 	recorder k8sevents.EventRecorder,
@@ -228,7 +228,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// What this pass resolves is written onto the LOCAL copy of the status
 	// first, and app/indexer/status.ControllerFields then seeds the apply from
 	// that copy. The apply is therefore a complete declaration of the
-	// indexarr-owned set by construction, on every return path, rather than
+	// index-owned set by construction, on every return path, rather than
 	// by a discipline remembered at seven call sites -- so an early return
 	// on a transient failure re-sends the caps, protocol and privacy that
 	// are already there instead of releasing them.
@@ -435,7 +435,7 @@ func (r *Reconciler) finish(
 // in-memory truth about a cluster-wide fact and would be wrong after every
 // restart. rssschedule.NextPollAt returns the slot the worker's own reschedule
 // already chose, rssschedule.TaskMsgID quantises it to the second, and
-// CLUSTARR_WORK_INDEXARR deduplicates for an hour (pkg/events/topology.go's
+// CLUSTARR_WORK_INDEX deduplicates for an hour (pkg/events/topology.go's
 // work() helper, Duplicates: time.Hour), so the duplicate seed stores
 // nothing. Where it does store something -- a slot past the dedup window, or
 // a genuinely new slot -- the scheduled publish carries Nats-Rollup: sub, so
@@ -587,7 +587,7 @@ func firstNonEmpty(vals ...string) string {
 // Reconcile goes through it; do not add a second one.
 //
 // It routes through app/indexer/status.Patch (ruling R31), which holds the one
-// declaration of what k8s.ManagerIndexarr owns on Indexer.status and seeds
+// declaration of what k8s.ManagerIndex owns on Indexer.status and seeds
 // the apply configuration from idx.Status. Conditions are supplied here and
 // ONLY here: ControllerFields deliberately does not seed them, and the
 // generated WithConditions appends rather than replaces, so setting them in
@@ -670,7 +670,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 // clustarr-indexer-limits.
 //
 // The rings change on every reservation, from any replica's search fan-out,
-// RSS poll or download verb, or catalogarr's grab path; none of them write
+// RSS poll or download verb, or catalog's grab path; none of them write
 // the counts on status any more, so without this the projection would wait
 // for the 15-minute tick -- and RateLimited with it, which a full window is
 // exactly when an operator looks. A refused reservation writes nothing and

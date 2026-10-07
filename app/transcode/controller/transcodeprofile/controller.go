@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package transcodeprofile reconciles TranscodeProfile: it hashes each
 // profile (jobspec.ProfileHash, over the standard's inputs) and validates it
 // (a second default is Invalid), and is the mapper that makes the rest of
-// squasharr do anything -- for every MediaFile a profile wins (its own
+// transcode do anything -- for every MediaFile a profile wins (its own
 // spec.selector, or spec.default when no selector-matching profile claims
 // the file) that is not already transcoded and has no open job of the
 // profile, it creates the TranscodeJob that names it, deterministic on
@@ -77,7 +77,7 @@ import (
 // server-side apply's create-if-absent path is not covered by patch alone)
 // because this package is the one thing in Phase E that creates them, and
 // delete because it replaces a job that failed on a changed source (spec
-// §18.3); every other transcode.clustarr.io marker elsewhere in squasharr
+// §18.3); every other transcode.clustarr.io marker elsewhere in transcode
 // only reads or writes status. mediafiles is read-only: this controller only
 // ever reads a MediaFile's spec.path and status to decide whether and what
 // to create.
@@ -89,9 +89,9 @@ import (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
-// Reconciler owns TranscodeProfile.status (under k8s.ManagerSquasharr, via
+// Reconciler owns TranscodeProfile.status (under k8s.ManagerTranscode, via
 // app/transcode/status.PatchProfile) and is the sole creator of TranscodeJob
-// objects (also k8s.ManagerSquasharr, on the main resource). It never writes
+// objects (also k8s.ManagerTranscode, on the main resource). It never writes
 // MediaFile or TranscodeJob.status.
 type Reconciler struct {
 	client.Client
@@ -370,7 +370,7 @@ func countOpen(jobs []transcodev1alpha1.TranscodeJob, profile string) int {
 }
 
 // openFiles is the MediaFiles a job of profile still holds, whatever hash
-// it was named by: an open job, or a Succeeded one whose swap catalogarr
+// it was named by: an open job, or a Succeeded one whose swap catalog
 // has not incorporated yet -- the file was not re-probed after the job
 // finished, so it still reads untranscoded, and a job under a newer hash
 // would be planned against bytes the swap replaced (and fail SourceChanged).
@@ -410,7 +410,7 @@ func isOpen(tj *transcodev1alpha1.TranscodeJob, profile string) bool {
 }
 
 // retireSucceeded deletes profile's Succeeded TranscodeJobs that finished
-// more than r.Retention ago and whose MediaFile was probed since. catalogarr
+// more than r.Retention ago and whose MediaFile was probed since. catalog
 // incorporates a transcode swap by reading the Succeeded job
 // (latestUnincorporatedTranscode, probedAt before finishedAt), so a job is
 // kept until that probe has happened; afterwards the output's
@@ -442,7 +442,7 @@ func (r *Reconciler) retireSucceeded(ctx context.Context, jobs []transcodev1alph
 		}
 		probed := probedAt[types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}]
 		if probed == nil || !probed.After(done.Time) {
-			continue // catalogarr has not read it yet
+			continue // catalog has not read it yet
 		}
 		if err := r.Delete(ctx, tj, client.Preconditions{UID: &tj.UID}); client.IgnoreNotFound(err) != nil {
 			errs = append(errs, fmt.Errorf("transcodeprofile: retire TranscodeJob %s: %w", client.ObjectKeyFromObject(tj), err))
@@ -567,7 +567,7 @@ func (r *Reconciler) ensureTranscodeJob(
 }
 
 // extractProbeHash is the §10-documented predicate function from
-// pkg/k8s/predicates.go's own StatusFieldChanged doc comment ("squasharr's
+// pkg/k8s/predicates.go's own StatusFieldChanged doc comment ("transcode's
 // transcodeprofile watch, from §10") -- restated here, not imported, because
 // it is a closure over this package's concrete MediaFile type.
 func extractProbeHash(o client.Object) string {
@@ -642,7 +642,7 @@ func mapTranscodeJobToProfile(_ context.Context, o client.Object) []reconcile.Re
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: tj.Spec.ProfileRef}}}
 }
 
-// SetupWithManager registers the TranscodeProfile controller; squasharr's
+// SetupWithManager registers the TranscodeProfile controller; transcode's
 // run.go setupControllers calls it.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).

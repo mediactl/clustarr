@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package manager is indexarr's manager-side registration (spec §4.2.1,
+// Package manager is index's manager-side registration (spec §4.2.1,
 // §5.12): the Indexer, IndexerDefinition, IndexerProxy and direct-grab
 // reconcilers, and the Cardigann bundle loader behind the lease (R9).
 package manager
@@ -48,7 +48,7 @@ type Options struct {
 	CardigannBundled        bool
 }
 
-// Register adds indexarr's reconcilers (§6.2, §16 M2 and M6) -- Indexer,
+// Register adds index's reconcilers (§6.2, §16 M2 and M6) -- Indexer,
 // IndexerDefinition and IndexerProxy, plus the direct-grab counter that
 // watches Downloads -- and the bundle loader. Each package's doc.go documents
 // the exact call; these are those calls.
@@ -57,7 +57,7 @@ type Options struct {
 // mgr.GetEventRecorder, which writes events.k8s.io/v1 Events, and their
 // +kubebuilder:rbac markers declare `groups=events.k8s.io` to match. The
 // deprecated mgr.GetEventRecorderFor is not used anywhere in this tree;
-// catalogarr's setupControllers carries the long note on why the marker and
+// catalog's setupControllers carries the long note on why the marker and
 // the recorder type have to move in the same commit.
 //
 // The Indexer reconciler paces on the manager's own limiter, which this
@@ -89,18 +89,18 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		// index agent paces searches, polls and grabs on its own limiter (§5.12).
 		ratelimit.New(idxclients.DefaultLimiterConfig()), bus)
 	if err := idxReconciler.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("indexarr: indexer: %w", err)
+		return fmt.Errorf("index: indexer: %w", err)
 	}
 
 	if err := indexerdefinition.NewReconciler(
 		c,
 		mgr.GetEventRecorder("indexerdefinition"),
 	).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("indexarr: indexerdefinition: %w", err)
+		return fmt.Errorf("index: indexerdefinition: %w", err)
 	}
 
 	// A grab whose source is a direct torrentURL/magnetURL/nzbURL never
-	// reaches rpc.indexarr.download; the downloads stage counts it into the
+	// reaches rpc.index.download; the downloads stage counts it into the
 	// same grab ring at the entry's Assigned edge (ADR-0019 §6.11), so the
 	// directgrab controller is gone.
 
@@ -114,7 +114,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		mgr.GetEventRecorder("indexerproxy"),
 		nil,
 	).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("indexarr: indexerproxy: %w", err)
+		return fmt.Errorf("index: indexerproxy: %w", err)
 	}
 
 	r, err := bundleRunnable(c, o)
@@ -123,7 +123,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	if r != nil {
 		if err := mgr.Add(r); err != nil {
-			return fmt.Errorf("indexarr: add the Cardigann bundle loader: %w", err)
+			return fmt.Errorf("index: add the Cardigann bundle loader: %w", err)
 		}
 	}
 	return nil
@@ -141,7 +141,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // asked for definitions that are not there.
 //
 // R9: a standby manager no longer re-applies all 752 definitions (about
-// 1,500 API calls) on every pod start; under indexarr's SQLite --role all,
+// 1,500 API calls) on every pod start; under index's SQLite --role all,
 // which never elects, it still runs at once.
 func bundleRunnable(c client.Client, o Options) (ctrlmanager.Runnable, error) {
 	loader := &bundle.Loader{Client: c, Dir: o.CardigannDefinitionsDir}
@@ -150,7 +150,7 @@ func bundleRunnable(c client.Client, o Options) (ctrlmanager.Runnable, error) {
 	case o.CardigannBundled:
 		fsys, err := embedded.FS()
 		if err != nil {
-			return nil, fmt.Errorf("indexarr: %w", err)
+			return nil, fmt.Errorf("index: %w", err)
 		}
 		loader.Dir, loader.FS = "(embedded)", fsys
 	default:

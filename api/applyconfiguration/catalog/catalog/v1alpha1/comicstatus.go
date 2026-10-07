@@ -46,7 +46,7 @@ type ComicStatusApplyConfiguration struct {
 	DownloadingIssueCount *int32 `json:"downloadingIssueCount,omitempty"`
 	// Downloads is every grab of this item the system is responsible for, live
 	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
-	// under catalogarr.
+	// under catalog.
 	Downloads []DownloadEntryApplyConfiguration `json:"downloads,omitempty"`
 	// DownloadPhase is the active entry's phase, "" when none: a print column
 	// and a selectable field (ADR-0019 §6.2).
@@ -59,7 +59,7 @@ type ComicStatusApplyConfiguration struct {
 	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
 	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
 	// each naming the issues it covers (ADR-0019 §6.2), written under
-	// catalogarr-grab.
+	// catalog-grab.
 	PendingGrabs []PendingGrabApplyConfiguration `json:"pendingGrabs,omitempty"`
 	// NextPullDate is when the next issue is expected on the pull list.
 	NextPullDate *metav1.Time `json:"nextPullDate,omitempty"`

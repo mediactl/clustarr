@@ -42,7 +42,7 @@ import (
 // task that removes what is older than the cleanup days, and does nothing
 // when they are 0.
 //
-// It is the importarr-recycle handler on the import agent (spec 2026-10-06
+// It is the import-recycle handler on the import agent (spec 2026-10-06
 // §3.5.3): the manager queues one task every 6 h, and whichever import pod
 // takes it sweeps. Two pods sweeping one RWX bin at once remove the same
 // folders, and whichever is second finds them gone.
@@ -77,7 +77,7 @@ func NewRecycleSweeper(c client.Reader) *RecycleSweeper {
 	return &RecycleSweeper{Client: c, Clock: time.Now}
 }
 
-// Handle runs one importarr-recycle task: one SweepOnce over every bin,
+// Handle runs one import-recycle task: one SweepOnce over every bin,
 // with in-progress acks while it runs, since removing a large day folder on
 // NFS can outlast the 5 min first-delivery deadline (BackOff[0]). A failed
 // sweep is retried on the consumer's backoff; a payload that is not a

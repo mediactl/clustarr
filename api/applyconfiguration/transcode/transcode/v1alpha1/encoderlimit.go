@@ -35,7 +35,7 @@ type EncoderLimitApplyConfiguration struct {
 	// NVDEC are the source formats, as codec:bitDepth ("h264:8",
 	// "hevc:10"), the node's decoder was measured to decode; the nvidia tier
 	// decodes those on the GPU. Absent is none measured or none decodable,
-	// and squasharr decides an unmeasured format from a static list.
+	// and transcode decides an unmeasured format from a static list.
 	NVDEC []string `json:"nvdec,omitempty"`
 	// Healthy is whether the node's pool pod could use its device when it
 	// last measured it (spec §4); false sends the class no work while every

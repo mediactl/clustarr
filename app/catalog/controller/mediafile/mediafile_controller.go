@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package mediafile is the MediaFile domain the remediation loop calls
 // (ADR-0016): the probe's decision (PlanProbe, judgeProbe), naming
-// (LoadNaming, RenderNaming), the labels catalogarr mirrors, and the indexes
+// (LoadNaming, RenderNaming), the labels catalog mirrors, and the indexes
 // and map functions the loop's sources read. It holds no controller.
 package mediafile
 
@@ -36,22 +36,23 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
 
-// AnnotationObservedFingerprint is how importarr's library rescan tells the
+// AnnotationObservedFingerprint is how import's library rescan tells the
 // remediation loop that a post-transcode file changed on disk: "<sizeBytes>@<RFC
-// 3339 mtime>" as the walk found it, applied under k8s.ManagerImportarr,
+// 3339 mtime>" as the walk found it, applied under k8s.ManagerImport,
 // which owns nothing else on a MediaFile. It is the same key as
 // app/import/worker/rescan.AnnotationObservedFingerprint (a test holds the
-// two equal; catalogarr does not import importarr to read one constant).
+// two equal; the catalog domain does not import the import domain to read
+// one constant).
 //
 // This is the gap-fix X5a/X7a contract for "a transcoded file's bytes
-// legitimately changed". Once catalogarr incorporates a transcode swap it
+// legitimately changed". Once catalog incorporates a transcode swap it
 // owns spec.sizeBytes, spec.modTime and spec.original, so the rescan never
 // re-applies them -- k8s.Apply forces ownership and would silently take
 // them back. The rescan only OBSERVES and hands over through this
 // annotation; the loop ACTS: the annotation's change wakes the file (a
 // metadata change bumps no generation, so S1 watches the annotation, loop
 // spec §3.3), and the pass re-stats the file, re-probes it when its
-// fingerprint moved, re-records size and mtime under catalogarr and drops
+// fingerprint moved, re-records size and mtime under catalog and drops
 // the transcode verdict the old bytes earned. The value is never
 // parsed: the stat is the authority, the annotation only the doorbell.
 const AnnotationObservedFingerprint = "catalog.clustarr.io/observed-fingerprint"
@@ -67,7 +68,7 @@ const TranscodedRecheckInterval = 24 * time.Hour
 // SwapTarget decides what an unincorporated Succeeded TranscodeJob means for
 // mf, from where the job put its output (status.result.outputPath; empty on
 // a job that predates the field, which always wrote in place) and whether
-// the source is still there -- the one fact squasharr's worker settles
+// the source is still there -- the one fact transcode's worker settles
 // before it records Succeeded (gap-fix R-11, x10-report.md):
 //
 //   - output at spec.path: the in-place swap of spec §8.5. path is
@@ -85,7 +86,7 @@ const TranscodedRecheckInterval = 24 * time.Hour
 // Succeeded TranscodeJob already records it (spec.mediaFileRef names this
 // MediaFile, status.result.outputPath the copy), and a second MediaFile for
 // it would back the same item twice -- PickMediaFile would choose between
-// them, and squasharr and captionarr would treat the copy as a new library
+// them, and transcode and caption would treat the copy as a new library
 // file to transcode and subtitle. It is Jellyfin's "<name> - <label>"
 // multiple-version convention (docs/research/naming.md §A3): the media
 // server shows it as a version of the same item, and the catalog does not
@@ -186,7 +187,7 @@ func LatestUnincorporatedTranscode(jobs []transcodev1alpha1.TranscodeJob, probed
 }
 
 // TranscodeInFlight reports whether any of jobs has not reached a terminal
-// phase (Succeeded, Failed or Skipped) -- including one squasharr has not
+// phase (Succeeded, Failed or Skipped) -- including one transcode has not
 // yet given a phase at all. Such a job holds the file: its worker re-probes
 // spec.sourcePath and swaps its output over it, so a rename underneath it
 // would fail the encode or strand the output under the old name (spec D6).

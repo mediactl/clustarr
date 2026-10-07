@@ -62,7 +62,7 @@ const (
 	maxWorkerPod      = 253
 )
 
-// Decision is squasharr's next step for a finished attempt (spec §18.3).
+// Decision is transcode's next step for a finished attempt (spec §18.3).
 type Decision struct {
 	Phase       transcodev1alpha1.TranscodeJobPhase
 	Reason      string

@@ -123,7 +123,7 @@ type Related struct {
 	Search *catalogv1.Search
 
 	// MediaFile is the file backing this item once it has been imported. It
-	// is nil until catalogarr's importer creates it; the import and
+	// is nil until catalog's importer creates it; the import and
 	// transcode stages both read it.
 	MediaFile *catalogv1.MediaFile
 }

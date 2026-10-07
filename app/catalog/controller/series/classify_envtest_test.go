@@ -38,7 +38,7 @@ import (
 )
 
 // TestSeriesClassifiesAnimeOnce is anime dual-audio spec §4: an anime series
-// takes its RootFolder's anime defaults once, under catalogarr-classify,
+// takes its RootFolder's anime defaults once, under catalog-classify,
 // records status.classification, keeps the owner's later change, keeps the
 // record through an early return, and a folder whose defaults arrive later
 // still classifies.
@@ -109,8 +109,8 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 			catalogOwnsRecord = true
 		}
 	}
-	require.True(t, classifyOwnsProfile, "catalogarr-classify must own spec.qualityProfileRef")
-	require.True(t, catalogOwnsRecord, "catalogarr must own status.classification")
+	require.True(t, classifyOwnsProfile, "catalog-classify must own spec.qualityProfileRef")
+	require.True(t, catalogOwnsRecord, "catalog must own status.classification")
 
 	// The owner's later change sticks.
 	require.NoError(t, c.Patch(ctx, &got, client.RawPatch(types.MergePatchType, []byte(`{"spec":{"qualityProfileRef":"web-1080p"}}`)), client.FieldOwner("clustarr-ui")))

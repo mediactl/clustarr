@@ -43,7 +43,7 @@ func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Disca
 // TestSearchAndDownloadRoundTripThroughTheRealClient is this stub's own
 // guard rail, mirroring torznabstub's TestEmbeddedDocumentsParse: every
 // shape this fixture serves is exercised through the SAME client package
-// captionarr's fetch worker uses.
+// caption's fetch worker uses.
 func TestSearchAndDownloadRoundTripThroughTheRealClient(t *testing.T) {
 	dir := t.TempDir()
 	srv := httptest.NewServer(NewHandler(filepath.Join(dir, "requests.jsonl"), discardLogger()))
@@ -109,7 +109,7 @@ func TestRequestLogSkipsProbesAndRecordsRealRequests(t *testing.T) {
 
 	real, err := http.NewRequest(http.MethodGet, srv.URL+"/shows/external/tvdb/121361", nil) //nolint:noctx // httptest
 	require.NoError(t, err)
-	real.Header.Set("User-Agent", "clustarr/captionarr-worker")
+	real.Header.Set("User-Agent", "clustarr/caption-worker")
 	resp, err = http.DefaultClient.Do(real)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())

@@ -97,28 +97,28 @@ func registerWorkers(
 		Blocklist: bl.Handle,
 	}
 
-	// search.Serve is indexarr's single registration point for the RPC queue
-	// group: it registers clustarr.rpc.indexarr.search, .download, .query and
+	// search.Serve is index's single registration point for the RPC queue
+	// group: it registers clustarr.rpc.index.search, .download, .query and
 	// .blocklist in one call. It has no unsubscribe, so its stop drains in-flight
 	// fan-outs rather than deregistering the responders.
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := search.Serve(ctx, bus, svc)
 		if err != nil {
-			return fmt.Errorf("indexarr: serve the index RPC verbs: %w", err)
+			return fmt.Errorf("index: serve the index RPC verbs: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()
 		return nil
 	})); err != nil {
-		return verbs{}, fmt.Errorf("indexarr: add the RPC responder: %w", err)
+		return verbs{}, fmt.Errorf("index: add the RPC responder: %w", err)
 	}
 
 	if err := rss.NewWorker(rssDeps(c, mgr.GetAPIReader(), bus, store, cc)).SetupWithManager(mgr, bus); err != nil {
-		return verbs{}, fmt.Errorf("indexarr: subscribe rss: %w", err)
+		return verbs{}, fmt.Errorf("index: subscribe rss: %w", err)
 	}
 
 	if err := mgr.Add(indexSweeper{store: store}); err != nil {
-		return verbs{}, fmt.Errorf("indexarr: add the release-index sweep: %w", err)
+		return verbs{}, fmt.Errorf("index: add the release-index sweep: %w", err)
 	}
 
 	return verbs{search: svc, query: q, download: dl}, nil
@@ -149,7 +149,7 @@ func rssDeps(c client.Client, r client.Reader, bus events.Bus, store relindex.St
 	}
 }
 
-// verbs are the bodies of clustarr.rpc.indexarr.search, .query and
+// verbs are the bodies of clustarr.rpc.index.search, .query and
 // .download, as registerWorkers built them.
 type verbs struct {
 	search   *search.Service
@@ -161,7 +161,7 @@ type verbs struct {
 // built it, G1-5 wires it) on o.FacadeBindAddress, in this process, over the
 // very verb bodies the RPC responder serves -- the facade calls them as plain
 // Go functions, so a Torznab search from Sonarr and an automatic search from
-// catalogarr take the same fan-out, dedupe, query-limit window and
+// catalog take the same fan-out, dedupe, query-limit window and
 // health/backoff.
 //
 // The facade fails closed: facade.New refuses to build without an API key.
@@ -169,15 +169,15 @@ type verbs struct {
 // [ensureFacadeAPIKeys] creates with one random key when it is absent, so a
 // fresh install serves an authenticated facade rather than none or an open
 // one. They are read ONCE, here, before the manager starts: rotating a key is
-// an edit to the Secret and a restart of indexarr's one replica.
+// an edit to the Secret and a restart of index's one replica.
 //
-// It is a k8s.EveryReplica: it needs no lease, and indexarr is pinned to one
+// It is a k8s.EveryReplica: it needs no lease, and index is pinned to one
 // replica anyway. A bind failure (the port already taken) returns from
 // Server.Run, which stops the manager and fails the pod loudly rather than
-// running an indexarr whose facade silently is not there.
+// running an index whose facade silently is not there.
 func registerFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) error {
 	if o.FacadeBindAddress == k8s.DisabledBindAddress {
-		logging.FromContext(ctx).Info("indexarr: the Torznab facade is disabled",
+		logging.FromContext(ctx).Info("index: the Torznab facade is disabled",
 			"facadeBindAddress", o.FacadeBindAddress)
 		return nil
 	}
@@ -187,9 +187,9 @@ func registerFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) e
 	}
 	srv, err := facade.New(o.FacadeBindAddress, facade.Config{
 		// The cached client: the facade Gets Indexers by name on every
-		// request, and indexarr's controllers already hold that informer.
+		// request, and index's controllers already hold that informer.
 		Client: mgr.GetClient(),
-		// facade/doc.go: indexarr's own namespace, where §3's one replica
+		// facade/doc.go: index's own namespace, where §3's one replica
 		// and every chart value and e2e fixture put Indexers. It makes a
 		// per-indexer route one Get rather than a cluster-wide List.
 		Namespace: o.Namespace,
@@ -199,7 +199,7 @@ func registerFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) e
 		APIKeys:   keys,
 	})
 	if err != nil {
-		return fmt.Errorf("indexarr: build the Torznab facade: %w", err)
+		return fmt.Errorf("index: build the Torznab facade: %w", err)
 	}
 	if srv == nil {
 		// facade.New's documented "disabled" answer, for DisabledBindAddress,
@@ -207,7 +207,7 @@ func registerFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) e
 		return nil
 	}
 	if err := mgr.Add(k8s.EveryReplica(srv.Run)); err != nil {
-		return fmt.Errorf("indexarr: add the Torznab facade: %w", err)
+		return fmt.Errorf("index: add the Torznab facade: %w", err)
 	}
 	return nil
 }

@@ -41,7 +41,7 @@ import (
 )
 
 // countingClient counts Secret GETs, which is the whole point of the cache:
-// indexarr disables the Secret informer, so every uncached build is a live
+// index disables the Secret informer, so every uncached build is a live
 // apiserver round trip inside a per-indexer search timeout.
 type countingClient struct {
 	client.Client
@@ -80,7 +80,7 @@ func cacheFixture(t *testing.T) (*countingClient, *indexv1alpha1.Indexer) {
 // performance half.
 //
 // ClientFor is called once per candidate indexer per search and once per RSS
-// poll, and every uncached call is a live apiserver GET, because indexarr
+// poll, and every uncached call is a live apiserver GET, because index
 // disables the Secret informer. The GET happens INSIDE the per-indexer search
 // timeout, and a ClientFor error becomes a named failure outcome, which runs
 // RecordFailure -- escalationLevel, then disabledUntil. So a throttled REST

@@ -132,7 +132,7 @@ func TestEverySubtitleRequestStatusFieldIsAccountedFor(t *testing.T) {
 	for i := range typ.NumField() {
 		name := typ.Field(i).Name
 		assert.Equalf(t, 1, claimed[name],
-			"SubtitleRequestStatus.%s is claimed %d times across {captionarr, Items}; it must be exactly one",
+			"SubtitleRequestStatus.%s is claimed %d times across {caption, Items}; it must be exactly one",
 			name, claimed[name])
 	}
 	require.Len(t, requestControllerOwned, 7)
@@ -374,7 +374,7 @@ func TestProviderFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 // ---------------------------------------------------------------------
 
 func TestPatchRequestRefusesAManagerOutsideTheSplit(t *testing.T) {
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.FieldManager("captionarr-bogus"), ""} {
+	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.FieldManager("caption-bogus"), ""} {
 		err := status.PatchRequest(t.Context(), nil, mgr,
 			&subtitlev1alpha1.SubtitleRequest{}, nil)
 		require.ErrorContains(t, err, "owns no part of SubtitleRequest.status")
@@ -390,7 +390,7 @@ func TestPatchProfileRefusesAManagerOutsideTheSplit(t *testing.T) {
 }
 
 func TestPatchProviderRefusesAManagerOutsideTheSplit(t *testing.T) {
-	// captionarr-worker is deliberately in this list: ruling R2 forbids a
+	// caption-worker is deliberately in this list: ruling R2 forbids a
 	// worker from writing SubtitleProvider.status directly, even though it is
 	// a legitimate manager elsewhere in the project.
 	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.ManagerCaptionWorker, ""} {

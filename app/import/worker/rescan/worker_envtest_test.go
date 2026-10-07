@@ -138,7 +138,7 @@ func TestHandleSkipsPartExtraAndSampleFiles(t *testing.T) {
 }
 
 // A confident match creates the Movie and the MediaFile, writes MediaFileSpec
-// only, and leaves every byte of MediaFileStatus to catalogarr.
+// only, and leaves every byte of MediaFileStatus to catalog.
 func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-create", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
@@ -191,12 +191,12 @@ func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 	assert.Empty(t, mf.Spec.ReleaseGroup,
 		"a group that is really a quality token must not be frozen into spec")
 
-	// The two-writer split: importarr owns MediaFileSpec, catalogarr owns
+	// The two-writer split: import owns MediaFileSpec, catalog owns
 	// all of MediaFileStatus. Nothing here may have touched status.
 	assert.Equal(t, string(rescan.FieldManager), managerFor(t, mf.ManagedFields, "", "spec.path"))
 	assert.Equal(t, string(rescan.FieldManager), managerFor(t, mf.ManagedFields, "", "spec.sizeBytes"))
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "status", "status"),
-		"importarr must never write any MediaFile status field")
+		"import must never write any MediaFile status field")
 	assert.Empty(t, mf.Status.ProbeHash)
 	assert.Nil(t, mf.Status.MediaInfo)
 

@@ -15,10 +15,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package agent is the agent's import domain (spec §3.5.3): importarr-scan,
-// importarr-fileimport, importarr-list and importarr-recycle (the
-// recycle-bin sweep) on CLUSTARR_WORK_IMPORTARR, and importarr-probe-high and
-// importarr-probe-low (the MediaFile probe queue, spec 2026-10-06 §6.6).
+// Package agent is the agent's import domain (spec §3.5.3): import-scan,
+// import-fileimport, import-list and import-recycle (the
+// recycle-bin sweep) on CLUSTARR_WORK_IMPORT, and import-probe-high and
+// import-probe-low (the MediaFile probe queue, spec 2026-10-06 §6.6).
 // Every replica consumes,
 // and every replica needs a writable /data.
 package agent
@@ -57,7 +57,7 @@ type Options struct {
 // read, and returns the import.data readiness check and the process-level
 // ffgo liveness check.
 //
-// The consumers are the work.importarr.* queues (amendment §A1.6): scan,
+// The consumers are the work.import.* queues (amendment §A1.6): scan,
 // fileimport, list and recycle. The list worker creates Movie and Series only today;
 // a spec.kinds entry naming a kind its provider cannot yield is refused at
 // admission (R-10), and one it can yield but no catalog writer exists for
@@ -89,26 +89,26 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		durable string
 		handle  events.Handler
 	}{
-		// The library rescan, on ConsumerImportScan ("importarr-scan"). Its
+		// The library rescan, on ConsumerImportScan ("import-scan"). Its
 		// incremental fingerprint check reads the spec.path field index
 		// (rescan.FieldIndexes), which the process registers before the
 		// manager starts.
 		{events.ConsumerImportScan, newScanWorker(c, api, bus, prober, o).Handle},
 		// The completed-download import worker (amendment §A1.2, §A1.6; plan
-		// tasks D2-7/D2-8), on ConsumerImportFile ("importarr-fileimport",
+		// tasks D2-7/D2-8), on ConsumerImportFile ("import-fileimport",
 		// R6). It reads the spec.mediaRef.target field index
 		// (fileimport.FieldIndexes), which the process registers before the
 		// manager starts.
 		{events.ConsumerImportFile, newImportWorker(c, api, bus, prober, o).Handle},
 		// The import-list sync worker (amendment §A1.3, §A1.6; plan task G1-3),
-		// on ConsumerImportList ("importarr-list"): fetch, dedupe, drop what an
+		// on ConsumerImportList ("import-list"): fetch, dedupe, drop what an
 		// ImportExclusion blocks, then create or update catalog items under
-		// k8s.ManagerImportarrWorker. It never writes ImportList.status -- it
+		// k8s.ManagerImportWorker. It never writes ImportList.status -- it
 		// checkpoints a Result to clustarr-progress for the ImportList
 		// controller (app/import/manager) to project.
 		{events.ConsumerImportList, newListWorker(c, api, bus, o).Handle},
 		// The recycle-bin sweep (spec 2026-10-06 §3.5.3): the manager queues
-		// one task every 6 h on importarr-recycle, so this domain has no
+		// one task every 6 h on import-recycle, so this domain has no
 		// timer and can scale to zero. fileimport.RecycleSweeper (task X7a
 		// built it) is the one consumer of RootFolder.spec.recycleBin.
 		// cleanupDays, emptying each bin of the dated folders past
@@ -122,12 +122,12 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		}
 		sub, handle := spec.Subscription(), cons.handle
 		// k8s.EveryReplica, not manager.RunnableFunc: amendment §A1.6 runs
-		// every work.importarr.* consumer on EVERY replica of importarr-worker,
+		// every work.import.* consumer on EVERY replica of import-worker,
 		// and a bare RunnableFunc has no NeedLeaderElection method, so
-		// controller-runtime puts it behind the leader lease. importarr-worker
+		// controller-runtime puts it behind the leader lease. import-worker
 		// does not run leader election, and with it disabled controller-runtime
 		// treats the process as elected and starts those runnables anyway --
-		// so the subscription did open there. The exposure is any importarr
+		// so the subscription did open there. The exposure is any import
 		// replica that DOES elect: exactly one of them would have opened the
 		// subscription.
 		if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
@@ -143,7 +143,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		}
 	}
 	// The MediaFile probe queue's two lanes (spec 2026-10-06 §6.6): the probe
-	// worker answers catalogarr's probe tasks into clustarr-probes.
+	// worker answers catalog's probe tasks into clustarr-probes.
 	if err := registerProbeWorkers(mgr.Add, bus, topo, newProbeWorker(bus, prober, o.DataDir)); err != nil {
 		return catalogagent.Registration{}, err
 	}

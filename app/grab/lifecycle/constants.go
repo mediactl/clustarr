@@ -40,7 +40,7 @@ const (
 	ResyncSettle = 2 * time.Minute
 	// BlocklistTTL is every blocklist row's lifetime (§6.14).
 	BlocklistTTL = 90 * 24 * time.Hour
-	// BlockCallTimeout bounds the owed clustarr.rpc.indexarr.blocklist call.
+	// BlockCallTimeout bounds the owed clustarr.rpc.index.blocklist call.
 	BlockCallTimeout = 5 * time.Second
 	// ImportHoldRetention is how long a held import keeps its files before
 	// it fails importExpired (CLAUDE.md, 2026-10-07).

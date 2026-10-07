@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package importlist is the ImportList controller: it schedules one
-// clustarr.work.importarr.list.<name> sync task per spec.refreshInterval
+// clustarr.work.import.list.<name> sync task per spec.refreshInterval
 // tick (clamped up to the provider's own floor -- schedule.go), drives
 // Trakt's device-code authorization handshake (auth.go), and is the sole
 // writer of ImportList.status (amendment §A1.3, §A1.6, design spec §8.7;
@@ -34,9 +34,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Task G1-3's brief asks which of the two pkg/events already declares for
 // import lists: grepping subjects.go and topology.go turns up
-// events.ConsumerImportList ("importarr-list"), events.FilterImportList
-// ("clustarr.work.importarr.list.>") and events.WorkListSubject, all wired
-// into StreamWorkImportarr's ConsumerSpec already -- amendment §A1.6 names
+// events.ConsumerImportList ("import-list"), events.FilterImportList
+// ("clustarr.work.import.list.>") and events.WorkListSubject, all wired
+// into StreamWorkImport's ConsumerSpec already -- amendment §A1.6 names
 // exactly this subject in its process-topology table. So the sync itself
 // runs on that queue, in app/import/worker/importlist; this controller's
 // role is the "plus a scheduled sync" half: deciding WHEN to enqueue one,
@@ -82,7 +82,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Field manager
 //
-// Every status write in this package is under k8s.ManagerImportarr, whose
+// Every status write in this package is under k8s.ManagerImport, whose
 // own doc comment already names ImportList, ImportExclusion and
 // LibraryScan as what it owns. The worker never writes ImportList.status
 // (see this package's poll-and-project split above), so there is exactly
@@ -100,6 +100,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	        Client: mgr.GetClient(),
 //	        Bus:    bus,
 //	}).SetupWithManager(mgr); err != nil {
-//	        return fmt.Errorf("importarr: importlist: %w", err)
+//	        return fmt.Errorf("import: importlist: %w", err)
 //	}
 package importlist

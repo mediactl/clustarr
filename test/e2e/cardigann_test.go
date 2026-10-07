@@ -42,10 +42,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // this scenario's fixture (cardigannstub) makes that distinction provable
 // instead of moot: its one search result's download link is a same-origin,
 // SESSION-GATED path, not a magnet URI. Fetched directly it 401s; fetched
-// through GET /{indexer}/download it succeeds, because indexarr attaches
+// through GET /{indexer}/download it succeeds, because index attaches
 // the login session an outside caller could never have. That is "grab
 // through the Torznab facade" proven as a real HTTP round trip, not
-// inferred from a Download object -- driving an actual grabarr Download
+// inferred from a Download object -- driving an actual grab Download
 // to Imported is out of reach here for the same permanent, already
 // documented reason nonvideo_test.go's package doc comment gives for
 // scenario 11 (test/fixtures/seeder's content is never a media extension).
@@ -87,18 +87,18 @@ const (
 // reasoning for the same shape of wait.
 const cardigannIndexerReadyTimeout = 2 * time.Minute
 
-// facadeAPIKeySecretName is indexarr.DefaultFacadeAPIKeySecret's value,
-// restated here because test/e2e does not import indexarr (its own file
+// facadeAPIKeySecretName is index.DefaultFacadeAPIKeySecret's value,
+// restated here because test/e2e does not import the index domain (its own file
 // scope is cmd/clustarr, config/, charts/, app/catalog/, app/import/, api/ --
-// none of which this task may touch, and importing indexarr's own package
+// none of which this task may touch, and importing index's own package
 // only to read one string constant is not worth crossing that line for).
 // app/indexer/run.go pins the same value permanently: it is also the literal
-// config/manager/indexarr.yaml uses for CLUSTARR_FACADE_API_KEY_SECRET's
+// config/manager/index.yaml uses for CLUSTARR_FACADE_API_KEY_SECRET's
 // default and for the readOnly kubectl example in that manifest's own
 // comment.
-const facadeAPIKeySecretName = "indexarr-facade"
+const facadeAPIKeySecretName = "index-facade"
 
-// readFacadeAPIKey polls for the indexarr-facade Secret (indexarr generates
+// readFacadeAPIKey polls for the index-facade Secret (index generates
 // it on first start when absent, app/indexer/facadekey.go's ensureFacadeAPIKeys)
 // and returns its apikey field.
 func readFacadeAPIKey(ctx context.Context, t *testing.T) string {
@@ -107,7 +107,7 @@ func readFacadeAPIKey(ctx context.Context, t *testing.T) string {
 	waitFor(t, ctx, cardigannIndexerReadyTimeout, "facade API-key Secret "+facadeAPIKeySecretName, func(ctx context.Context) (bool, error) {
 		var sec corev1.Secret
 		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: Namespace, Name: facadeAPIKeySecretName}, &sec); err != nil {
-			//nolint:nilerr // keep polling: indexarr generates this lazily on its first reconcile pass
+			//nolint:nilerr // keep polling: index generates this lazily on its first reconcile pass
 			return false, nil
 		}
 		v, ok := sec.Data["apikey"]
@@ -127,7 +127,7 @@ func TestCardigannIndexerLoginSearchFacadeAndProxy(t *testing.T) {
 	defer cancel()
 	requireFixtureService(ctx, t, fixtureCardigannStubService)
 	requireFixtureService(ctx, t, fixtureHTTPProxyStubService)
-	requireFixtureService(ctx, t, "indexarr")
+	requireFixtureService(ctx, t, "index")
 
 	// --- The IndexerDefinition: test/data/cardigann/login-form.yml's own
 	// text, verbatim -- the single source of truth
@@ -223,7 +223,7 @@ func TestCardigannIndexerLoginSearchFacadeAndProxy(t *testing.T) {
 
 	t.Run("results and grab through the Torznab facade", func(t *testing.T) {
 		apikey := readFacadeAPIKey(ctx, t)
-		facadeBase, _ := portForwardService(ctx, t, "indexarr", 8080)
+		facadeBase, _ := portForwardService(ctx, t, "index", 8080)
 		httpClient := &http.Client{Timeout: 30 * time.Second}
 
 		searchURL := facadeBase + "/" + idx.Name + "/api?" + url.Values{
@@ -255,14 +255,14 @@ func TestCardigannIndexerLoginSearchFacadeAndProxy(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, http.StatusUnauthorized, directStatus, "cardigannstub's download route must refuse an unauthenticated fetch")
 
-		// Through the facade's own download verb, indexarr attaches the
+		// Through the facade's own download verb, index attaches the
 		// Indexer's stored login session and the same URL succeeds.
 		downloadURL := facadeBase + "/" + idx.Name + "/download?" + url.Values{
 			"apikey": {apikey}, "guid": {rel.GUID}, "url": {rel.Link},
 		}.Encode()
 		body, status, err := httpGetString(ctx, httpClient, downloadURL)
 		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, status, "GET /%s/download must succeed once brokered through indexarr's own stored session: %s", idx.Name, body)
+		require.Equal(t, http.StatusOK, status, "GET /%s/download must succeed once brokered through index's own stored session: %s", idx.Name, body)
 		require.Equal(t, "d8:e2e-fixture-cardigann-torrent-contentse", body,
 			"the facade must return cardigannstub.TorrentBytes verbatim")
 	})

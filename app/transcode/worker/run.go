@@ -176,7 +176,7 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// failure carries an exit code with its cause, and -- when squasharr itself
+// failure carries an exit code with its cause, and -- when transcode itself
 // decided why -- the task.Reason a redispatching caller can act on without
 // reparsing the message (spec §18.1, §18.3). Every error [Process] returns
 // was classified at the point it happened, where the reason is known; an
@@ -202,7 +202,7 @@ func verifyFailed(format string, a ...any) error {
 	return &failure{code: ExitVerifyFailed, err: fmt.Errorf(format, a...)}
 }
 
-// sourceChanged: the live file is not the one that was planned. squasharr
+// sourceChanged: the live file is not the one that was planned. transcode
 // fails it unblocked, and the profile replaces the job for the new file.
 func sourceChanged(format string, a ...any) error {
 	return &failure{code: ExitInvalidSource, reason: task.ReasonSourceChanged, err: fmt.Errorf(format, a...)}
@@ -258,20 +258,20 @@ func (r *runner) run(ctx context.Context) error {
 	if r.o.Engine == nil {
 		// cmd/transcode logged why at start (no FFmpeg 9, no shim):
 		// the task waits for a pod that can run it rather than failing here.
-		return retriable("squasharr worker: this pod has no in-process engine (the transcoder image carries FFmpeg 9 and the ffgo shim)")
+		return retriable("transcode worker: this pod has no in-process engine (the transcoder image carries FFmpeg 9 and the ffgo shim)")
 	}
 
 	source := r.t.SourcePath
 	local, err := jobspec.LocalPath(r.o.DataDir, source)
 	if err != nil {
-		return invalidSource("squasharr worker: source: %w", err)
+		return invalidSource("transcode worker: source: %w", err)
 	}
 	if !jobspec.Within(r.t.Root.Path, source) {
-		return invalidSource("squasharr worker: source %s is outside root folder %s", source, r.t.Root.Path)
+		return invalidSource("transcode worker: source %s is outside root folder %s", source, r.t.Root.Path)
 	}
 	bin, err := jobspec.LocalPath(r.o.DataDir, r.t.Root.RecycleBin)
 	if err != nil {
-		return invalidSource("squasharr worker: recycle bin: %w", err)
+		return invalidSource("transcode worker: recycle bin: %w", err)
 	}
 
 	// Where the output lands (gap-fix ruling R-11; OutputPath, resolved by
@@ -284,14 +284,14 @@ func (r *runner) run(ctx context.Context) error {
 	}
 	sw.out = r.t.OutputPath
 	if sw.localOut, err = jobspec.LocalPath(r.o.DataDir, sw.out); err != nil {
-		return invalidSource("squasharr worker: output: %w", err)
+		return invalidSource("transcode worker: output: %w", err)
 	}
 	if !sw.inPlace() && (r.t.OutputRoot == "" || !jobspec.Within(r.t.OutputRoot, sw.out)) {
-		return invalidSource("squasharr worker: output %s is under no RootFolder; refusing to write it", sw.out)
+		return invalidSource("transcode worker: output %s is under no RootFolder; refusing to write it", sw.out)
 	}
 	tag := r.t.Profile.Name + "@" + r.t.Profile.Hash
 	if r.t.SourceProbeHash == "" {
-		return invalidSource("squasharr worker: spec.sourceProbeHash is empty; cannot prove the source is the planned file")
+		return invalidSource("transcode worker: spec.sourceProbeHash is empty; cannot prove the source is the planned file")
 	}
 
 	// 2. Is the work already done, and is this the file that was planned? (R3)
@@ -306,18 +306,18 @@ func (r *runner) run(ctx context.Context) error {
 	}
 	st, err := os.Stat(local)
 	if errors.Is(err, os.ErrNotExist) {
-		return invalidSource("squasharr worker: source %s does not exist", source)
+		return invalidSource("transcode worker: source %s does not exist", source)
 	}
 	if err != nil {
-		return retriable("squasharr worker: stat source: %w", err)
+		return retriable("transcode worker: stat source: %w", err)
 	}
 	if !st.Mode().IsRegular() {
-		return invalidSource("squasharr worker: source %s is not a regular file", source)
+		return invalidSource("transcode worker: source %s is not a regular file", source)
 	}
 	liveHash := mediainfo.ProbeHash(source, st.Size(), st.ModTime())
 	if liveHash != r.t.SourceProbeHash {
 		if !sw.inPlace() {
-			return sourceChanged("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
+			return sourceChanged("transcode worker: source %s changed since it was planned (probe hash mismatch)", source)
 		}
 		return r.alreadySwappedOrChanged(ctx, r.t.SourceSizeBytes, source, local, st, tag)
 	}
@@ -325,21 +325,21 @@ func (r *runner) run(ctx context.Context) error {
 	// 3. Probe, capabilities, plan, space.
 	mi, raw, err := r.probe(ctx, local)
 	if errors.Is(err, mediainfo.ErrIncompleteProbe) {
-		return retriable("squasharr worker: probe source: %w", err)
+		return retriable("transcode worker: probe source: %w", err)
 	}
 	if err != nil {
-		return invalidSource("squasharr worker: probe source: %w", err)
+		return invalidSource("transcode worker: probe source: %w", err)
 	}
 	// Without the first frame the source's HDR format is unknown, whatever
 	// its stream says (ffgo reads no stream colour tags), and this run would
 	// write a final file: refuse rather than encode it as SDR. The next
 	// attempt probes again.
 	if raw != nil && raw.FrameErr != nil {
-		return retriable("squasharr worker: the source's first video frame could not be read, so its HDR format is unknown: %w", raw.FrameErr)
+		return retriable("transcode worker: the source's first video frame could not be read, so its HDR format is unknown: %w", raw.FrameErr)
 	}
 	info, err := transcode.FromProbe(mi, raw)
 	if err != nil {
-		return invalidSource("squasharr worker: %w", err)
+		return invalidSource("transcode worker: %w", err)
 	}
 	info.Path = local
 	info.Modifier = r.t.SourceModifier
@@ -357,11 +357,11 @@ func (r *runner) run(ctx context.Context) error {
 	// exist yet. Budget for an output as large as the source.
 	if !sw.inPlace() {
 		if err := os.MkdirAll(filepath.Dir(sw.localOut), 0o775); err != nil {
-			return retriable("squasharr worker: create the output's folder: %w", err)
+			return retriable("transcode worker: create the output's folder: %w", err)
 		}
 	}
 	if err := fsops.EnsureFreeSpace(filepath.Dir(sw.localOut), st.Size()); err != nil {
-		return retriable("squasharr worker: scratch space: %w", err)
+		return retriable("transcode worker: scratch space: %w", err)
 	}
 
 	// 4. Encode.
@@ -375,15 +375,15 @@ func (r *runner) run(ctx context.Context) error {
 	if err != nil {
 		removePart(ctx, job.part)
 		// ffprobe could not run: that is the environment, not the output.
-		return retriable("squasharr worker: verify: %w", err)
+		return retriable("transcode worker: verify: %w", err)
 	}
 	if !report.OK {
 		removePart(ctx, job.part)
-		return verifyFailed("squasharr worker: output failed verification: %v", report.Problems)
+		return verifyFailed("transcode worker: output failed verification: %v", report.Problems)
 	}
 	if limit := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
 		removePart(ctx, job.part)
-		return verifyFailed("squasharr worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
+		return verifyFailed("transcode worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
 			sizePercent(report.SizeBytes, st.Size()), limit)
 	}
 
@@ -391,7 +391,7 @@ func (r *runner) run(ctx context.Context) error {
 	// output is a transcode of a file that no longer exists.
 	if st2, err := os.Stat(local); err != nil || mediainfo.ProbeHash(source, st2.Size(), st2.ModTime()) != liveHash {
 		removePart(ctx, job.part)
-		return sourceChanged("squasharr worker: source %s changed during the encode", source)
+		return sourceChanged("transcode worker: source %s changed during the encode", source)
 	}
 
 	// 6. The swap. See the package doc for why each order and what a crash
@@ -409,9 +409,9 @@ func (r *runner) run(ctx context.Context) error {
 		// is retired -- or, with replaceSource=false, kept.
 		if err := fsops.MoveAtomic(job.part, sw.localOut); err != nil {
 			removePart(ctx, job.part)
-			return retriable("squasharr worker: place output: %w", err)
+			return retriable("transcode worker: place output: %w", err)
 		}
-		log.InfoContext(ctx, "squasharr worker: output placed", "output", sw.out, "replaceSource", sw.replace)
+		log.InfoContext(ctx, "transcode worker: output placed", "output", sw.out, "replaceSource", sw.replace)
 		if err := sw.retireSource(ctx); err != nil {
 			return err
 		}
@@ -438,14 +438,14 @@ func (r *runner) run(ctx context.Context) error {
 		recycled, err = fsops.RecycleLink(bin, local)
 		if err != nil {
 			removePart(ctx, job.part)
-			return retriable("squasharr worker: recycle source: %w", err)
+			return retriable("transcode worker: recycle source: %w", err)
 		}
 	}
 	if err := fsops.MoveAtomic(job.part, local); err != nil {
 		removePart(ctx, job.part)
-		return retriable("squasharr worker: replace source: %w", err)
+		return retriable("transcode worker: replace source: %w", err)
 	}
-	log.InfoContext(ctx, "squasharr worker: swapped", "recycled", recycled)
+	log.InfoContext(ctx, "transcode worker: swapped", "recycled", recycled)
 
 	return r.finish(ctx, source, local, st.Size())
 }
@@ -522,13 +522,13 @@ func (s swap) retireSource(ctx context.Context) error {
 	if s.recycle {
 		recycled, err := fsops.Recycle(s.bin, s.local)
 		if err != nil {
-			return retriable("squasharr worker: recycle source: %w", err)
+			return retriable("transcode worker: recycle source: %w", err)
 		}
-		logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: source retired", "recycled", recycled)
+		logging.FromContext(ctx).InfoContext(ctx, "transcode worker: source retired", "recycled", recycled)
 		return nil
 	}
 	if err := os.Remove(s.local); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return retriable("squasharr worker: remove source: %w", err)
+		return retriable("transcode worker: remove source: %w", err)
 	}
 	return nil
 }
@@ -542,15 +542,15 @@ func (r *runner) producedEarlier(ctx context.Context, sw swap, tag string) (bool
 	if _, err := os.Lstat(sw.localOut); errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
-		return false, retriable("squasharr worker: stat output: %w", err)
+		return false, retriable("transcode worker: stat output: %w", err)
 	}
 	_, raw, err := r.probe(ctx, sw.localOut)
 	if err == nil && raw != nil && raw.Format != nil && sameProfile(formatTag(raw, "CLUSTARR_PROFILE"), tag) {
 		logging.FromContext(ctx).InfoContext(ctx,
-			"squasharr worker: the output already carries this profile's tag; an earlier attempt placed it", "output", sw.out)
+			"transcode worker: the output already carries this profile's tag; an earlier attempt placed it", "output", sw.out)
 		return true, nil
 	}
-	return false, invalidSource("squasharr worker: output path %s already holds a file that is not this transcode; refusing to overwrite it", sw.out)
+	return false, invalidSource("transcode worker: output path %s already holds a file that is not this transcode; refusing to overwrite it", sw.out)
 }
 
 // sameProfile reports whether got, a file's CLUSTARR_PROFILE, is tag's
@@ -570,14 +570,14 @@ func sameProfile(got, tag string) bool {
 func (r *runner) finishElsewhere(ctx context.Context, sw swap, plannedHash string, sourceSize int64) error {
 	if st, err := os.Stat(sw.local); err == nil {
 		if mediainfo.ProbeHash(sw.source, st.Size(), st.ModTime()) != plannedHash {
-			return invalidSource("squasharr worker: source %s changed since it was planned; leaving it and the output %s", sw.source, sw.out)
+			return invalidSource("transcode worker: source %s changed since it was planned; leaving it and the output %s", sw.source, sw.out)
 		}
 		sourceSize = st.Size()
 		if err := sw.retireSource(ctx); err != nil {
 			return err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return retriable("squasharr worker: stat source: %w", err)
+		return retriable("transcode worker: stat source: %w", err)
 	}
 	return r.finish(ctx, sw.out, sw.localOut, sourceSize)
 }
@@ -595,11 +595,11 @@ func (r *runner) alreadySwappedOrChanged(ctx context.Context, sourceSize int64,
 	if err == nil && raw != nil && raw.Format != nil {
 		if got := formatTag(raw, "CLUSTARR_PROFILE"); sameProfile(got, tag) {
 			logging.FromContext(ctx).InfoContext(ctx,
-				"squasharr worker: source already carries this profile's tag; an earlier attempt swapped it in", "tag", tag)
+				"transcode worker: source already carries this profile's tag; an earlier attempt swapped it in", "tag", tag)
 			return r.finish(ctx, source, local, sourceSize)
 		}
 	}
-	return sourceChanged("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
+	return sourceChanged("transcode worker: source %s changed since it was planned (probe hash mismatch)", source)
 }
 
 // finish records status.result for the output now at out (logical; local in
@@ -609,7 +609,7 @@ func (r *runner) alreadySwappedOrChanged(ctx context.Context, sourceSize int64,
 func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64) error {
 	st, err := os.Stat(local)
 	if err != nil {
-		return retriable("squasharr worker: stat output: %w", err)
+		return retriable("transcode worker: stat output: %w", err)
 	}
 	res := transcodev1alpha1.Result{
 		OutputPath:            out,
@@ -619,7 +619,7 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 	if mi, _, err := r.probe(ctx, local); err == nil {
 		res.MediaInfo = mi
 	} else {
-		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: probing the output for status.result failed", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: probing the output for status.result failed", "error", err)
 	}
 	r.out.Result = &res
 
@@ -631,7 +631,7 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 
 // probe reads path through the in-process engine (its image has no
 // ffprobe), with pkg/mediainfo's mapping, so the worker reads a file as
-// catalogarr does.
+// catalog does.
 func (r *runner) probe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
 	return r.o.Engine.Probe(ctx, path)
 }
@@ -676,11 +676,11 @@ func (r *runner) observeOutcome(code int) {
 // must never replace the error that explains why.
 func removePart(ctx context.Context, path string) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: removing output failed", "path", path, "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: removing output failed", "path", path, "error", err)
 	}
 	for _, s := range sidecarParts(path) {
 		if err := os.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: removing a sidecar part failed", "path", s, "error", err)
+			logging.FromContext(ctx).WarnContext(ctx, "transcode worker: removing a sidecar part failed", "path", s, "error", err)
 		}
 	}
 }
@@ -712,24 +712,24 @@ func sidecarParts(path string) []string {
 // out, before the video swap: a crash between the two leaves the sidecars
 // beside the old file, where the retry finds and keeps them. A file
 // already at a final name is kept and the part removed (MP4 standard
-// ruling R3): it is the retry's own earlier work, or a sidecar captionarr
+// ruling R3): it is the retry's own earlier work, or a sidecar caption
 // fetched.
 func placeSidecars(ctx context.Context, plan standard.Result, part, out string) error {
 	for _, s := range plan.Sidecars {
 		from, to := fsops.SidecarPath(part, s.Suffix), fsops.SidecarPath(out, s.Suffix)
 		if st, err := os.Stat(from); err == nil && st.Size() == 0 {
 			// A track with no cues: nothing to place (final review I3).
-			logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: a subtitle track had no cues; its sidecar is dropped", "sidecar", to)
+			logging.FromContext(ctx).InfoContext(ctx, "transcode worker: a subtitle track had no cues; its sidecar is dropped", "sidecar", to)
 			_ = os.Remove(from)
 			continue
 		}
 		if _, err := os.Lstat(to); err == nil {
-			logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: a sidecar already exists; keeping it", "sidecar", to)
+			logging.FromContext(ctx).InfoContext(ctx, "transcode worker: a sidecar already exists; keeping it", "sidecar", to)
 			_ = os.Remove(from)
 			continue
 		}
 		if err := fsops.MoveAtomic(from, to); err != nil {
-			return retriable("squasharr worker: place sidecar %s: %w", to, err)
+			return retriable("transcode worker: place sidecar %s: %w", to, err)
 		}
 	}
 	return nil

@@ -29,7 +29,7 @@ import (
 // with apply.
 //
 // MediaFileStatus is written by one remediation loop in the manager, under
-// field manager catalogarr (ADR-0016). Until F3.1 the MediaFile reconciler
+// field manager catalog (ADR-0016). Until F3.1 the MediaFile reconciler
 // still writes it through knownStatus.
 type MediaFileStatusApplyConfiguration struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
@@ -49,7 +49,7 @@ type MediaFileStatusApplyConfiguration struct {
 	// ProbeVersion is the version of the probe that last described the
 	// file (pkg/mediainfo.ProbeVersion). A file probed by an older version
 	// is probed again, with probeHash unchanged: the hash is the file's
-	// identity to captionarr and squasharr, and its bytes did not change.
+	// identity to caption and transcode, and its bytes did not change.
 	// Zero is a file probed before versions existed.
 	ProbeVersion *int32 `json:"probeVersion,omitempty"`
 	// MediaInfo is the technical description produced by the probe. Its
@@ -63,12 +63,12 @@ type MediaFileStatusApplyConfiguration struct {
 	// today's map list keyed by path (loop spec §2.16); N+1 makes it atomic.
 	Sidecars []SidecarApplyConfiguration `json:"sidecars,omitempty"`
 	// Naming is the file's canonical path under its RootFolder's naming
-	// preset, rendered by catalogarr from the item's metadata, the
-	// release-time spec and the probe; importarr performs the rename.
+	// preset, rendered by catalog from the item's metadata, the
+	// release-time spec and the probe; import performs the rename.
 	Naming *NamingStatusApplyConfiguration `json:"naming,omitempty"`
 	// Markers are the skip segments TheIntroDB publishes for this file,
-	// fetched by catalogarr's marker worker (field manager
-	// catalogarr-markers) with the probe's duration, and seeded into Plex
+	// fetched by catalog's marker worker (field manager
+	// catalog-markers) with the probe's duration, and seeded into Plex
 	// by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
 	Markers *FileMarkersApplyConfiguration `json:"markers,omitempty"`
 	// Subtitles is the remediation loop's subtitles block (loop spec §2.4);
@@ -80,10 +80,10 @@ type MediaFileStatusApplyConfiguration struct {
 	// Graft is the remediation loop's graft block (loop spec §2.6); it
 	// replaces AudioGraft's per-file half.
 	Graft *GraftStateApplyConfiguration `json:"graft,omitempty"`
-	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalog
 	// incorporated into this file (anime dual-audio spec §7.2), and
 	// GraftedAt when. A graft is not a transcode: spec.original stays as it
-	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
+	// was, but from the first graft catalog owns spec.path, sizeBytes and
 	// modTime, as after a transcode swap.
 	GraftTag  *string      `json:"graftTag,omitempty"`
 	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`

@@ -110,7 +110,7 @@ type ArrConfig struct {
 // (e.g. two trakt.List values, one per Kind), because Trakt, Plex, MDBList
 // and IMDb CSV each expose separate movie and show endpoints or filters.
 // Wiring a Config to a concrete provider constructor (reading
-// SecretRef/ConfigMapRef) is the importarr ImportList controller's job
+// SecretRef/ConfigMapRef) is the import ImportList controller's job
 // (Phase G/M6), not this package's — this package has no Kubernetes
 // dependency.
 type Config struct {

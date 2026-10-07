@@ -206,7 +206,7 @@ func TestClassify(t *testing.T) {
 			"off-host", &FetchResult{OffHostURL: "https://cdn.elsewhere.invalid/x?passkey=s3cret"},
 			resultRedirect, func(t *testing.T, r schema.DownloadResponse) {
 				require.Equal(t, "https://cdn.elsewhere.invalid/x?passkey=s3cret", r.RedirectURL,
-					"grabarr needs the URL intact; only the LOG is redacted")
+					"grab needs the URL intact; only the LOG is redacted")
 			},
 		},
 		{"login page", &FetchResult{
@@ -234,7 +234,7 @@ func TestClassify(t *testing.T) {
 			Status: 200, Header: hdr(""), Body: body("ignored"),
 			ContentLen: MaxPayloadBytes + 1, FinalURL: final,
 		}, resultRedirect, func(t *testing.T, r schema.DownloadResponse) {
-			require.Equal(t, final.String(), r.RedirectURL, "grabarr needs the link intact")
+			require.Equal(t, final.String(), r.RedirectURL, "grab needs the link intact")
 			require.Empty(t, r.Error)
 		}},
 		{"oversize with no Content-Length", &FetchResult{
@@ -297,7 +297,7 @@ func TestErrorsNeverCarryAPasskey(t *testing.T) {
 	require.Contains(t, got.Error, "***")
 
 	// And the belt: any message built by fail() with this scrubber is clean.
-	msg := fail(f.Scrub, "indexarr: get https://tr.example/dl?passkey=%s: refused", passkey)
+	msg := fail(f.Scrub, "index: get https://tr.example/dl?passkey=%s: refused", passkey)
 	require.NotContains(t, msg.Error, passkey)
 	require.Contains(t, msg.Error, "***")
 }

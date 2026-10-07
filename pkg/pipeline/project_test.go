@@ -291,7 +291,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 }
 
 // albumWith builds a minimal, metadata-synced Album -- a non-video kind that
-// never goes through squasharr or captionarr.
+// never goes through transcode or caption.
 func albumWith(t *testing.T) *catalogv1.Album {
 	t.Helper()
 	a := &catalogv1.Album{
@@ -315,7 +315,7 @@ func bookWith(t *testing.T) *catalogv1.Book {
 
 // TestProjectNonVideoKindsCompleteOnImport covers the bug the review found:
 // Album, Artist, Author, Book, Audiobook, Comic and Issue never get a
-// SubtitleRequest or a TranscodeJob (squasharr and captionarr only watch
+// SubtitleRequest or a TranscodeJob (transcode and caption only watch
 // video MediaFiles), so requiring either of those to exist and be terminal
 // before StageComplete -- correct for Movie/Series/Episode -- left every
 // other kind stuck at StageImported forever. For these kinds, being imported
@@ -340,7 +340,7 @@ func TestProjectNonVideoKindsCompleteOnImport(t *testing.T) {
 }
 
 // TestProjectMovieWithNoTranscodeJobDoesNotReachComplete is the video-kind
-// counterpart of the fix above: a Movie (which does go through squasharr)
+// counterpart of the fix above: a Movie (which does go through transcode)
 // must NOT report StageComplete just because it was imported and its
 // subtitles are satisfied -- it still needs a TranscodeJob to exist and be
 // terminal.
@@ -384,7 +384,7 @@ func TestProjectMapsEveryDownloadPhase(t *testing.T) {
 	// stage falls through to it.
 	fallback := pipeline.Project(item, pipeline.Related{}).Stage
 	want := map[downloadv1.DownloadPhase]pipeline.Stage{
-		// The grab created it and grabarr has not reconciled it yet: the
+		// The grab created it and grab has not reconciled it yet: the
 		// item is downloading, not still at ReleaseSelected.
 		"":                                  pipeline.StageDownloading,
 		downloadv1.DownloadPhasePending:     pipeline.StageDownloading,

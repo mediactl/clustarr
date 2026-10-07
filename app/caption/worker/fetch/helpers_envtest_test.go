@@ -298,7 +298,7 @@ func (f *fixture) localEntry(name string, p *fakeProvider) providerset.Entry {
 	return e
 }
 
-// probed stands in for catalogarr's probe write: the embedded provider is
+// probed stands in for catalog's probe write: the embedded provider is
 // eligible only for a MediaFile whose status.mediaInfo exists.
 func (f *fixture) probed(t *testing.T, mi commonv1.MediaInfo) {
 	t.Helper()

@@ -67,10 +67,10 @@ const (
 	// podUID and podGID are the identity every engine pod runs as: the
 	// clustarr user images/Dockerfile.media creates (USER 1000:1000), and the
 	// runAsUser/runAsGroup/fsGroup every Deployment under config/manager
-	// sets, grabarr's own included -- so an engine's files on /data belong
+	// sets, grab's own included -- so an engine's files on /data belong
 	// to the same group every other service reads and rewrites them as
 	// (§11). TestEnginePodSecurityMatchesTheDeployment holds the engine pods
-	// to config/manager/grabarr.yaml.
+	// to config/manager/grab.yaml.
 	podUID = int64(1000)
 	podGID = int64(1000)
 
@@ -99,12 +99,12 @@ const (
 //     ran as the namespace's "default" account, which nothing binds, and was
 //     denied every one of those calls. Both installers create this account
 //     and bind it to the engine's own generated ClusterRole
-//     (config/rbac/grabarr_engine_role.yaml, from app/grab/engine's markers).
+//     (config/rbac/grab_engine_role.yaml, from app/grab/engine's markers).
 //   - NATSURL: the engine publishes download events and progress on the bus,
 //     and its --nats-url default names a Service the installers do not
 //     create; the controller hands on its own $NATS_URL.
 //   - Umask: design §11's UMASK 002, for what a torrent engine writes under
-//     /data -- the same pass-through squasharr gives its transcode Jobs.
+//     /data -- the same pass-through transcode gives its transcode Jobs.
 //
 // POD_NAMESPACE and POD_NAME need no field: they are the downward API, set
 // on every engine container. POD_NAMESPACE is how an engine finds its
@@ -249,7 +249,7 @@ func tolerationsAC(ts []corev1.Toleration) []*corev1ac.TolerationApplyConfigurat
 }
 
 // podSecurityContextAC is the pod half of the security settings every
-// Deployment under config/manager carries, and squasharr's transcode Jobs
+// Deployment under config/manager carries, and transcode's transcode Jobs
 // with them: non-root as the image's clustarr user, the RuntimeDefault
 // seccomp profile, and fsGroup on the RWX /data volume (and the usenet
 // scratch claim) with OnRootMismatch, so a large library is not re-chowned
@@ -282,8 +282,8 @@ func containerSecurityContextAC() *corev1ac.SecurityContextApplyConfiguration {
 }
 
 // podSpecAC assembles the PodSpec every engine pod shares: the one container
-// callers pass in, the shared /data volume every grabarr pod mounts (§6.3;
-// config/manager/grabarr.yaml mounts the same "clustarr-data" claim on the
+// callers pass in, the shared /data volume every grab pod mounts (§6.3;
+// config/manager/grab.yaml mounts the same "clustarr-data" claim on the
 // controller Deployment), whatever extra volumes the caller needs (usenet's
 // scratch volume), the /tmp emptyDir the read-only root filesystem needs,
 // the pod security context, spec.nodeSelector and spec.tolerations.

@@ -52,7 +52,7 @@ func (p *reporter) publish(ctx context.Context, ev task.StatusEvent) error {
 	id := events.MsgIDForTranscodeEvent(p.t.Job.UID, p.t.Attempt, p.delivery, p.seq)
 	env := &events.Envelope{
 		ID: id, Type: "transcode.StatusEvent", Schema: sch,
-		Source: "squasharr-worker@" + version.Version, Key: p.t.Job.Namespace + "/" + p.t.Job.Name,
+		Source: "transcode-worker@" + version.Version, Key: p.t.Job.Namespace + "/" + p.t.Job.Name,
 		Time: ev.At, Data: data,
 	}
 	_, err = p.s.bus.Publish(ctx, events.WorkTranscodeResultSubject(p.t.Job.UID), env,

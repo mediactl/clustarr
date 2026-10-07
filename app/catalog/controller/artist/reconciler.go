@@ -91,7 +91,7 @@ type bus interface {
 // the release-group-listing RPC fan-out into owned Album objects. It is the
 // sole writer of status.path, status.albumCount, status.albumFileCount and
 // status.addOptionsApplied; status.metadata belongs to the metadata gateway
-// (k8s.ManagerCatalogarrMetadata) and this reconciler never builds an
+// (k8s.ManagerCatalogMetadata) and this reconciler never builds an
 // ArtistStatusApplyConfiguration that calls WithMetadata.
 //
 // Unlike series.Reconciler, this reconciler writes NOTHING onto the Album
@@ -258,7 +258,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 			ID:     events.MsgIDForObject(string(a.UID), a.Generation, "metadata"),
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
-			Source: "catalogarr@" + version.String(),
+			Source: "catalog@" + version.String(),
 			Key:    envKey,
 			Time:   now,
 			Data:   data,
@@ -357,7 +357,7 @@ func reassertKnownStatus(statusAC *catalogac.ArtistStatusApplyConfiguration, a *
 }
 
 // syncAlbums lists a's currently owned Albums, requests its release-group
-// list from the metadata gateway (rpc.catalogarr.metadata.lookup's
+// list from the metadata gateway (rpc.catalog.metadata.lookup's
 // lookupAlbums handler, keyed by pkgmetadata.KeyMBArtist), filters it
 // through AlbumAccepted, ensures each desired Album exists, and returns the
 // full (pre-fan-out) owned Album list for Rollup -- self-correcting in the

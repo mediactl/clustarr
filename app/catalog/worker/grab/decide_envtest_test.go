@@ -101,7 +101,7 @@ func TestDecide_BypassGrabsImmediately(t *testing.T) {
 
 // TestDecide_DelayedGrabSchedulesAndSetsPendingGrab is the delay path end to
 // end: no Download yet, status.pendingGrab recorded with GrabAt =
-// firstSeen+delay, and a GrabTask that the catalogarr-grab consumer only
+// firstSeen+delay, and a GrabTask that the catalog-grab consumer only
 // receives once the fake clock has passed the delay.
 func TestDecide_DelayedGrabSchedulesAndSetsPendingGrab(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

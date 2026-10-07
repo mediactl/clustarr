@@ -27,9 +27,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The transcode leg of "the KEDA opt-in renders" is gone: the 2026-09-23
 // transcode-worker-pools design retired the per-task KEDA ScaledJob example
 // (config/keda/transcode-scaledjob.yaml) in favour of the pool Jobs
-// squasharr's own controllers size and suspend, so there is nothing left
+// transcode's own controllers size and suspend, so there is nothing left
 // here for this file to render and assert against. config/keda now carries
-// only captionarr-worker's ScaledObject, which is scenario 13's concern
+// only caption-worker's ScaledObject, which is scenario 13's concern
 // (test/e2e/subtitle_test.go), not this file's.
 //
 // The Helm-chart and clustarr-all legs are named here as SKIPPED, not

@@ -101,7 +101,7 @@ type SafeRemove struct {
 }
 
 // ApplyMediaFileSpec applies a placed file's MediaFile spec under
-// importarr-worker (the import materialisation, A3.8): RV "" creates.
+// import-worker (the import materialisation, A3.8): RV "" creates.
 type ApplyMediaFileSpec struct {
 	Namespace, Name, RV string
 	Ref                 commonv1.MediaRef
@@ -136,7 +136,7 @@ type CountGrab struct {
 }
 
 // ApplyObject applies one object a pass owes through Apply, which renders
-// the manager's complete set (an AudioGraft under importarr-worker until
+// the manager's complete set (an AudioGraft under import-worker until
 // F7.1, R26). Desc names it in an error.
 type ApplyObject struct {
 	Desc  string

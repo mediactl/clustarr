@@ -29,7 +29,7 @@ import (
 // The predicates in this file implement §10's cross-service contract. The rule
 // there is narrow on purpose: a watcher in another service reacts to
 // metadata.generation or to one named status field, and to nothing else. A
-// metadata refresh that rewrites a Movie's overview must not wake squasharr,
+// metadata refresh that rewrites a Movie's overview must not wake transcode,
 // and §14 has an envtest for exactly that. Anything broader turns five
 // independent managers into one distributed hot loop.
 
@@ -53,7 +53,7 @@ func GenerationChanged() predicate.Predicate {
 // comparable projection of the single status field the watch cares about, and
 // the zero value for an object of an unexpected type.
 //
-//	// squasharr's transcodeprofile watch, from §10.
+//	// transcode's transcodeprofile watch, from §10.
 //	k8s.StatusFieldChanged(func(o client.Object) string {
 //	    mf, ok := o.(*catalogv1alpha1.MediaFile)
 //	    if !ok {
@@ -76,7 +76,7 @@ func StatusFieldChanged[T comparable](extract func(client.Object) T) predicate.P
 }
 
 // StatusFieldIn passes an object whose extracted status field is one of want.
-// It is the §10 row for catalogarr's importer, which reacts to a Download in
+// It is the §10 row for catalog's importer, which reacts to a Download in
 // phase Completed, Seeding or Failed and ignores every other transition.
 //
 // Unlike [StatusFieldChanged] this filters creates and deletes too: an object
@@ -113,7 +113,7 @@ func StatusFieldIn[T comparable](extract func(client.Object) T, want ...T) predi
 	}
 }
 
-// LabelSelector passes only objects matching sel. §10 gives grabarr's engine
+// LabelSelector passes only objects matching sel. §10 gives grab's engine
 // pods a label-selected informer (`download.clustarr.io/engine`) so a replica
 // never sees the Downloads that belong to its siblings.
 //

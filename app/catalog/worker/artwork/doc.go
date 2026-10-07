@@ -15,8 +15,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package artwork is the renderer (catalogarr --role artwork, spec §C.6):
-// the durable catalogarr-artwork-render consumer that draws a Movie's or
+// Package artwork is the renderer (catalog --role artwork, spec §C.6):
+// the durable catalog-artwork-render consumer that draws a Movie's or
 // Series' rating badges onto its stored original poster and records the
 // result.
 //
@@ -24,7 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The renderer is the sole writer of "overlay" objects in
 // events.BucketArtwork and of status.overlay, under
-// k8s.ManagerCatalogarrArtwork (app/catalog/status.PatchOverlay, which
+// k8s.ManagerCatalogArtwork (app/catalog/status.PatchOverlay, which
 // refuses any other manager). It reads, and never writes, the gateway's
 // "original" objects and status.artwork (spec §B.3); the gateway's reaper
 // is the only code that deletes both variants.
@@ -60,10 +60,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Draws are bounded per process by [Handler.MaxConcurrentRenders] (default
 // [DefaultMaxConcurrentRenders]), whatever the consumer's MaxAckPending: a
-// decoded poster is tens of megabytes, and the pod runs every catalogarr
+// decoded poster is tens of megabytes, and the pod runs every catalog
 // controller under the same GOMEMLIMIT.
 //
-// RBAC: the item reads and the status apply (catalogarr already holds both
+// RBAC: the item reads and the status apply (catalog already holds both
 // for its reconcilers) and the OverlayProfile list the plan needs, read
 // uncached like the item.
 //

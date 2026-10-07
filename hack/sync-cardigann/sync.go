@@ -288,7 +288,7 @@ func readEntry(r io.Reader, name string) ([]byte, error) {
 
 // objectName turns a definition id into an IndexerDefinition name: the one
 // rule both producers of bundle objects share, cardigann.ObjectName, so the
-// manifests this writes and the objects indexarr's bundle loader creates
+// manifests this writes and the objects index's bundle loader creates
 // from the same corpus have the same names.
 func objectName(id string) string { return cardigann.ObjectName(id) }
 

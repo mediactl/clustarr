@@ -42,7 +42,7 @@ var storage = []string{
 	"github.com/mediactl/clustarr/app/indexer/worker",
 }
 
-// managerSide is every indexarr package the manager links, with what each
+// managerSide is every index package the manager links, with what each
 // must not (spec §4.3 X1-X4, §5.12). `test/guards` (W5.14) overlaps it.
 var managerSide = map[string][]string{
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer": append(append([]string(nil), storage...), // X1, X3

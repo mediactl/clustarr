@@ -141,7 +141,7 @@ func TestAnExtractableEmbeddedTrackIsWrittenWithoutAskingARemoteProvider(t *test
 }
 
 // A sidecar is written with its RootFolder's spec.permissions.fileMode, the
-// mode importarr gave the video beside it -- not the fixed 0664 every
+// mode import gave the video beside it -- not the fixed 0664 every
 // sidecar got before gap-fix X11b. (With no RootFolder around the file the
 // default holds; TestFetchWritesTheBestAcceptableSubtitleAndRecordsIt
 // asserts it.)

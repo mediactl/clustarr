@@ -30,7 +30,7 @@ import (
 )
 
 // This file is the seam between the engine and a caller that speaks
-// Torznab: indexarr's search fan-out and RSS poll hand every indexer a
+// Torznab: index's search fan-out and RSS poll hand every indexer a
 // torznab.Query, and a Cardigann-backed indexer is one more client behind
 // that interface rather than a parallel search path (Phase G ruling R5).
 
@@ -149,7 +149,7 @@ const sessionWireVersion = 1
 // session this package wrote.
 var ErrSessionFormat = errors.New("cardigann: not a persisted session")
 
-// MarshalSession encodes s for storage (indexarr keeps it in the
+// MarshalSession encodes s for storage (index keeps it in the
 // clustarr-indexer-sessions KV bucket and mirrors it into an owned Secret).
 // The bytes carry credentials and must be stored as such.
 func MarshalSession(s *Session) ([]byte, error) {

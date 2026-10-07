@@ -150,7 +150,7 @@ func englishBluray() common.ReleaseInfo {
 // TestEvaluateAtCRDDefaultsApprovesAnEnglishRelease is THE regression test for
 // the language-vocabulary defect: a QualityProfile left entirely at its CRD
 // defaults (language "original", minFormatScore 0) approved NOTHING, because
-// catalogarr handed pkg/decision the BCP-47 tag from
+// catalog handed pkg/decision the BCP-47 tag from
 // Movie.status.metadata.originalLanguage ("en") while both consumers of that
 // value speak Radarr's English display names ("English"):
 //

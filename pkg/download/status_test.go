@@ -35,8 +35,8 @@ import (
 )
 
 // notEngineOwned lists the Download.status fields ApplyStatus must never
-// emit: nine belong to k8s.ManagerGrabarr and one, import, to
-// k8s.ManagerImportarr. app/grab/status holds the authoritative split; this
+// emit: nine belong to k8s.ManagerGrab and one, import, to
+// k8s.ManagerImport. app/grab/status holds the authoritative split; this
 // copy is what keeps pkg/download honest without importing a service package.
 var notEngineOwned = []string{
 	"ObservedGeneration", "Phase", "Engine", "FailureReason", "BlocklistedUntil",
@@ -118,7 +118,7 @@ func TestApplyStatusRoundTripsEveryEngineOwnedFieldExactly(t *testing.T) {
 }
 
 // ApplyStatus must emit nothing outside the engine's owned set. If it did,
-// every telemetry write would claim a field the grabarr controller owns, and
+// every telemetry write would claim a field the grab controller owns, and
 // because pkg/k8s.PatchStatus always applies with ForceOwnership the
 // apiserver would hand it over silently instead of reporting a conflict.
 func TestApplyStatusEmitsNothingTheEngineDoesNotOwn(t *testing.T) {
@@ -128,7 +128,7 @@ func TestApplyStatusEmitsNothingTheEngineDoesNotOwn(t *testing.T) {
 	for _, name := range notEngineOwned {
 		f := v.FieldByName(name)
 		require.True(t, f.IsValid(), "%s is not a field of DownloadStatusApplyConfiguration", name)
-		assert.True(t, f.IsZero(), "ApplyStatus emitted %s, which no grabarr engine owns", name)
+		assert.True(t, f.IsZero(), "ApplyStatus emitted %s, which no grab engine owns", name)
 	}
 }
 

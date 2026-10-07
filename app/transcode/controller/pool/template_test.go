@@ -74,9 +74,9 @@ func TestBuildJobPodSecurity(t *testing.T) {
 }
 
 // "Matching the Deployments" is a claim about config/manager, so read it: the
-// pool pod's two security contexts must equal squasharr's own.
+// pool pod's two security contexts must equal transcode's own.
 func TestJobPodSecurityMatchesTheDeployments(t *testing.T) {
-	raw, err := os.ReadFile("../../../../config/manager/squasharr.yaml")
+	raw, err := os.ReadFile("../../../../config/manager/transcode.yaml")
 	require.NoError(t, err)
 	var deploy *appsv1.Deployment
 	for _, doc := range strings.Split(string(raw), "\n---") {
@@ -85,7 +85,7 @@ func TestJobPodSecurityMatchesTheDeployments(t *testing.T) {
 			deploy = &d
 		}
 	}
-	require.NotNil(t, deploy, "config/manager/squasharr.yaml has no Deployment")
+	require.NotNil(t, deploy, "config/manager/transcode.yaml has no Deployment")
 
 	pod := Template(profile(), transcodev1alpha1.HardwareCPU, Config{}).Spec
 	assert.True(t, equality.Semantic.DeepEqual(deploy.Spec.Template.Spec.SecurityContext, pod.SecurityContext),

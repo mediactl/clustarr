@@ -366,9 +366,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 
 	// This reconciler owns exactly State/Conditions/HasFile/FileRef/
 	// FileQuality/CutoffMet/ActiveDownloadRef/ObservedGeneration under
-	// k8s.ManagerCatalogarr. The Comic reconciler writes this Issue's
+	// k8s.ManagerCatalog. The Comic reconciler writes this Issue's
 	// provider-sourced fields (SourceID/Title/Date) under the distinct
-	// k8s.ManagerCatalogarrFanout, so no pass-through of those fields is
+	// k8s.ManagerCatalogFanout, so no pass-through of those fields is
 	// needed here -- see this package's doc.go.
 	if conflicted, err := itemstatus.Apply(ctx, r.Client, iss, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(statusAC)); err != nil || conflicted {
 		return itemstatus.Requeue(conflicted), err

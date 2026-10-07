@@ -85,7 +85,7 @@ import (
 // table; spec §D.1).
 const plexMovieType = 1
 
-// plexArtworkWaitTimeout bounds the poll for catalogarr's artwork Fetcher
+// plexArtworkWaitTimeout bounds the poll for catalog's artwork Fetcher
 // to have downloaded the fixture Movie's poster before the thumb-fetch leg
 // either runs or names why it could not (see that step's own comment).
 const plexArtworkWaitTimeout = 3 * time.Minute
@@ -187,7 +187,7 @@ func TestPlexProvider(t *testing.T) {
 
 	// --- 4. The artwork leg: buildImages/thumbAndArt (ui/plex/images.go)
 	// omit thumb entirely -- never blank it (spec §D.5) -- until
-	// catalogarr's artwork Fetcher has actually recorded an ArtworkEntry
+	// catalog's artwork Fetcher has actually recorded an ArtworkEntry
 	// for the poster. That is a second, independent reconcile behind the
 	// metadata refresh this scenario already waited for
 	// (waitForMovieSettled only gates on status.metadata and
@@ -198,17 +198,17 @@ func TestPlexProvider(t *testing.T) {
 		thumb = waitForPlexThumb(ctx, client, base+"/plex/movies"+result.Key)
 	}
 	if thumb == "" {
-		// The e2e cluster has no egress (config/e2e/importarr-e2e-patch.yaml's
+		// The e2e cluster has no egress (config/e2e/import-e2e-patch.yaml's
 		// own doc comment says so plainly), and
 		// pkg/metadata/clients/tmdb.posterBaseURL is the real
 		// https://image.tmdb.org CDN -- test/fixtures/tmdbstub only ever
 		// re-serves the recorded /movie and /find JSON, never image bytes.
-		// Whether catalogarr's artwork Fetcher can reach a poster at all in
+		// Whether catalog's artwork Fetcher can reach a poster at all in
 		// this cluster is therefore a fact outside app/** and config/e2e's
 		// current fixtures, both out of this task's file scope, so this
 		// skips by name rather than failing on a gap it cannot fix.
 		t.Skipf("Movie %s never gained a poster thumb within %s: the e2e cluster has no egress to the real "+
-			"image.tmdb.org CDN catalogarr's artwork Fetcher would need, and no in-cluster fixture serves image "+
+			"image.tmdb.org CDN catalog's artwork Fetcher would need, and no in-cluster fixture serves image "+
 			"bytes for it today -- skipping the thumb-fetch assertion rather than asserting on a signal this "+
 			"environment cannot currently produce", movie.Name, plexArtworkWaitTimeout)
 	}

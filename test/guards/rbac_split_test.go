@@ -31,16 +31,16 @@ import (
 // ServiceAccount is bound to exactly one ClusterRole, and that role's grants
 // are exactly its own identity's generated role (config/rbac/<role>_role.yaml,
 // or ui's hand-written ui_role.yaml) -- never another service's, and never
-// the union every service shared until X14, under which importarr's
-// rootfolders update, grabarr's StatefulSet writes and indexarr's Secret
+// the union every service shared until X14, under which import's
+// rootfolders update, grab's StatefulSet writes and index's Secret
 // creates belonged to every process.
 //
 // A component runs under the role of the same name, or -- for a service's
-// second Deployment (catalogarr-metadata, importarr-worker,
-// captionarr-worker) -- under its service's: the name before its last
-// "-<suffix>". The engine pods (grabarr-engine) have a role of their own;
+// second Deployment (catalog-metadata, import-worker,
+// caption-worker) -- under its service's: the name before its last
+// "-<suffix>". The engine pods (grab-engine) have a role of their own;
 // the transcode Jobs the pool renderer creates carry no ServiceAccount at
-// all (X14: squasharr is the only writer of TranscodeJob.status, over NATS,
+// all (X14: transcode is the only writer of TranscodeJob.status, over NATS,
 // so the pool pods need no Kubernetes credentials). The chart is rendered
 // under two release names, since its names carry the fullname.
 func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
@@ -81,7 +81,7 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 			// the installer's runs -- the engine pods, which the
 			// DownloadClient controller creates at runtime.
 			accounts := map[string]string{
-				tc.prefix + "grabarr-engine": "grabarr-engine",
+				tc.prefix + "grab-engine": "grab-engine",
 			}
 			for _, d := range r.deployments {
 				component := d.Spec.Template.Labels["app.kubernetes.io/component"]
@@ -118,13 +118,13 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 	}
 }
 
-// TestNoInstallerShipsASquasharrWorkerIdentity is X14's guard: the
-// per-task transcode Job used to run as its own squasharr-worker
+// TestNoInstallerShipsATranscodeWorkerIdentity is X14's guard: the
+// per-task transcode Job used to run as its own transcode-worker
 // ServiceAccount, bound to a ClusterRole generated from
 // app/transcode/worker's RBAC markers, so it could patch TranscodeJob.status
-// directly. The pool Jobs cmd/squasharr-worker runs report over NATS
+// directly. The pool Jobs cmd/transcode-worker runs report over NATS
 // instead (spec §18.1, §18.2) and hold no Kubernetes credentials at all, so
-// neither installer should render a squasharr-worker ServiceAccount,
+// neither installer should render a transcode-worker ServiceAccount,
 // ClusterRole or ClusterRoleBinding any more -- read from what each
 // installer actually renders, using the same run/decodeRendered helpers
 // TestEachServiceAccountHoldsExactlyItsOwnRole uses.
@@ -143,15 +143,15 @@ func TestNoInstallerShipsATranscodeWorkerIdentity(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := decodeRendered(t, out)
 			for sa := range r.serviceAccounts {
-				require.NotContains(t, sa, "squasharr-worker",
+				require.NotContains(t, sa, "transcode-worker",
 					"%s still renders ServiceAccount %q: pool pods run with no ServiceAccount token", name, sa)
 			}
 			for roleName := range r.roles {
-				require.NotContains(t, roleName, "squasharr-worker",
+				require.NotContains(t, roleName, "transcode-worker",
 					"%s still renders ClusterRole %q: pool pods run with no ServiceAccount token", name, roleName)
 			}
 			for _, b := range r.bindings {
-				require.NotContains(t, b.Name, "squasharr-worker",
+				require.NotContains(t, b.Name, "transcode-worker",
 					"%s still renders ClusterRoleBinding %q: pool pods run with no ServiceAccount token", name, b.Name)
 			}
 		})

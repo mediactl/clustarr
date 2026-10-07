@@ -33,7 +33,7 @@ const (
 	DownloadConditionDownloaded = "Downloaded"
 	// DownloadConditionSeedGoalMet is True once the torrent satisfied its seed criteria.
 	DownloadConditionSeedGoalMet = "SeedGoalMet"
-	// DownloadConditionImported is True once catalogarr finished importing the content.
+	// DownloadConditionImported is True once catalog finished importing the content.
 	DownloadConditionImported = "Imported"
 	// DownloadConditionFailed is True when the Download cannot make progress.
 	DownloadConditionFailed = "Failed"
@@ -52,8 +52,8 @@ const (
 	// LabelBlocklisted is set to "true" on a Download that represents a
 	// blocklisted release. Blocklisting has no status list of its own: the
 	// blocklist IS the set of Downloads carrying this label whose
-	// status.blocklistedUntil is still in the future. grabarr sweeps expired
-	// entries, and the decision engine reads the live set through a catalogarr
+	// status.blocklistedUntil is still in the future. grab sweeps expired
+	// entries, and the decision engine reads the live set through a catalog
 	// informer indexed by infohash and normalized title.
 	LabelBlocklisted = "download.clustarr.io/blocklisted"
 
@@ -62,7 +62,7 @@ const (
 )
 
 // DefaultBlocklistTTL is how long a blocklisted Download is kept before
-// grabarr sweeps it, when the blocklisting party sets no explicit deadline.
+// grab sweeps it, when the blocklisting party sets no explicit deadline.
 const DefaultBlocklistTTL = 90 * 24 * time.Hour
 
 // Kept until release N+1 (ADR-0019 §6.2, §10.3): the types live in api/common/v1alpha1.
@@ -134,7 +134,7 @@ const (
 	ImportClassReleaseFault = commonv1alpha1.ImportClassReleaseFault
 )
 
-// ImportPhase is the state of the import handoff, written by catalogarr.
+// ImportPhase is the state of the import handoff, written by catalog.
 //
 // +kubebuilder:validation:Enum=pending;blocked;importing;imported;ignored
 type ImportPhase string
@@ -153,16 +153,16 @@ const (
 	ImportPhaseIgnored ImportPhase = "ignored"
 )
 
-// ImportMessageEveryFileRejected is the status.import.message importarr's
+// ImportMessageEveryFileRejected is the status.import.message import's
 // file-import worker writes when it refused every candidate file as the
 // release's fault (status.import.class releaseFault, confirmed on a second
-// walk). grabarr reads that outcome as DownloadFailureImportRejected and
-// blocklists the release. Since 2026-10-07 the class decides; grabarr still
+// walk). grab reads that outcome as DownloadFailureImportRejected and
+// blocklists the release. Since 2026-10-07 the class decides; grab still
 // reads this message on an import written before classes existed (no
 // class), when it was the only blocked import that was the release's fault.
 const ImportMessageEveryFileRejected = "every candidate file was rejected"
 
-// ImportMessageExistingFileFinal is the status.import.message importarr's
+// ImportMessageExistingFileFinal is the status.import.message import's
 // file-import worker writes when it imported nothing and refused at least
 // one file because the file it would replace is transcoded: a transcoded
 // file is final against an automatic grab (CLAUDE.md, "Transcoding"). Its
@@ -188,7 +188,7 @@ type DownloadSpec struct {
 	Protocol commonv1alpha1.Protocol `json:"protocol"`
 
 	// ClientRef is the DownloadClient handling this Download, in the same
-	// namespace. Left empty it is resolved once by grabarr at admission from
+	// namespace. Left empty it is resolved once by grab at admission from
 	// the enabled clients of the matching protocol; once set it is immutable.
 	// +optional
 	ClientRef string `json:"clientRef,omitempty"`
@@ -208,7 +208,7 @@ type DownloadSpec struct {
 	// unequal, it raises "no such key: infoHash" and the apiserver REJECTS the
 	// write. Because a status-subresource apply re-evaluates every spec CEL
 	// rule against the stored object, that rejection hits status-only writes
-	// too, which is the only way grabarr reports progress at all.
+	// too, which is the only way grab reports progress at all.
 	//
 	// infoHash is what made this fatal rather than theoretical: usenet
 	// releases do not have one, by protocol. So the unguarded form made every
@@ -379,49 +379,49 @@ type ImportState struct {
 	ImportedAt *metav1.Time `json:"importedAt,omitempty"`
 
 	// Class is why nothing was imported, for a pending or blocked import:
-	// what importarr does next follows from it (ImportRejectionClass).
+	// what import does next follows from it (ImportRejectionClass).
 	// +optional
 	Class commonv1alpha1.ImportRejectionClass `json:"class,omitempty"`
 
-	// Attempts is how many times importarr has walked the download for
+	// Attempts is how many times import has walked the download for
 	// this import task.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Attempts int32 `json:"attempts,omitempty"`
 
-	// NextAttemptAt is when importarr walks the download again: a transient
+	// NextAttemptAt is when import walks the download again: a transient
 	// failure's retry, or a release fault's confirming re-check. Unset when
 	// no attempt is pending.
 	// +optional
 	NextAttemptAt *metav1.Time `json:"nextAttemptAt,omitempty"`
 
 	// HeldSince is when the import was held for a person: no further
-	// automatic attempt is made, the files stay, and grabarr removes them
+	// automatic attempt is made, the files stay, and grab removes them
 	// ImportHoldRetention later unless someone imports them first.
 	// +optional
 	HeldSince *metav1.Time `json:"heldSince,omitempty"`
 }
 
 // ImportHoldRetention is how long a held import keeps its files for a
-// person before grabarr fails the Download as DownloadFailureImportExpired
-// and its engine removes them. Both importarr, which says when in
-// status.import.message, and grabarr, which acts on it, read this one value.
+// person before grab fails the Download as DownloadFailureImportExpired
+// and its engine removes them. Both import, which says when in
+// status.import.message, and grab, which acts on it, read this one value.
 const ImportHoldRetention = 24 * time.Hour
 
 // DownloadStatus defines the observed state of Download. Three writers share
-// it through server-side apply on disjoint field sets: the grabarr controller
-// owns the lifecycle fields, the grabarr-engine replica owns the telemetry
-// fields, and importarr's file-import worker owns status.import. (Design
-// spec §8.4 assigned this field to catalogarr; amendment-1 moved the
-// importer out of catalogarr into app/import/worker/fileimport, and this
+// it through server-side apply on disjoint field sets: the grab controller
+// owns the lifecycle fields, the grab-engine replica owns the telemetry
+// fields, and import's file-import worker owns status.import. (Design
+// spec §8.4 assigned this field to catalog; amendment-1 moved the
+// importer out of catalog into app/import/worker/fileimport, and this
 // field's ownership moved with it. Settled at task D2-7.)
 type DownloadStatus struct {
 	// ObservedGeneration is the spec generation this status was computed from.
-	// Written by the grabarr controller.
+	// Written by the grab controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Phase is the lifecycle phase. Written by the grabarr controller.
+	// Phase is the lifecycle phase. Written by the grab controller.
 	// +optional
 	Phase commonv1alpha1.DownloadPhase `json:"phase,omitempty"`
 
@@ -437,7 +437,7 @@ type DownloadStatus struct {
 
 	// BlocklistedUntil is when this release stops being blocklisted. It is
 	// meaningful only together with the download.clustarr.io/blocklisted label;
-	// grabarr deletes the Download once the deadline passes.
+	// grab deletes the Download once the deadline passes.
 	// +optional
 	BlocklistedUntil *metav1.Time `json:"blocklistedUntil,omitempty"`
 
@@ -453,7 +453,7 @@ type DownloadStatus struct {
 	// +optional
 	SeedGoalMetAt *metav1.Time `json:"seedGoalMetAt,omitempty"`
 
-	// Stage is the fine-grained engine stage. Written by grabarr-engine.
+	// Stage is the fine-grained engine stage. Written by grab-engine.
 	// +optional
 	Stage commonv1alpha1.DownloadStage `json:"stage,omitempty"`
 
@@ -566,8 +566,8 @@ type DownloadStatus struct {
 	LastProgressAt *metav1.Time `json:"lastProgressAt,omitempty"`
 
 	// EngineFailureReason is the failure the engine observed on the transfer,
-	// written by grabarr-engine. It is the engine's report, not the
-	// Download's verdict: the grabarr controller reads it and records
+	// written by grab-engine. It is the engine's report, not the
+	// Download's verdict: the grab controller reads it and records
 	// status.failureReason and the phase (Failed, or Blocklisted for a
 	// release fault) in one apply under its own field manager. Absent while
 	// the transfer has not failed.
@@ -576,7 +576,7 @@ type DownloadStatus struct {
 
 	// SeedGoalReached is true once the torrent has satisfied its seed
 	// criteria, whether or not it has been imported yet. Written by
-	// grabarr-engine; the grabarr controller turns the first true into
+	// grab-engine; the grab controller turns the first true into
 	// status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
 	// +optional
 	SeedGoalReached bool `json:"seedGoalReached,omitempty"`
@@ -584,18 +584,18 @@ type DownloadStatus struct {
 	// HealthPaused is true while the usenet engine holds the transfer paused
 	// because its article health fell below the DownloadClient's
 	// abortHealthPercent under healthAction pause, NZBGet's HealthCheck=pause.
-	// It is the engine's report; the grabarr controller reads it as phase
+	// It is the engine's report; the grab controller reads it as phase
 	// Paused, the "by a health action" half of that phase. The job waits for
 	// an operator: setting spec.paused to true and back to false continues it
 	// without the health check, and deleting or blocklisting the Download
-	// gives up on it. Written by grabarr-engine. Usenet only.
+	// gives up on it. Written by grab-engine. Usenet only.
 	// +optional
 	HealthPaused bool `json:"healthPaused,omitempty"`
 
 	// Import is the import outcome. It is the one cross-service field on this
-	// object: importarr's file-import worker, not grabarr, writes it,
-	// through server-side apply with its own field manager (k8s.ManagerImportarr),
-	// and grabarr never touches it. grabarr reads it to decide when a
+	// object: import's file-import worker, not grab, writes it,
+	// through server-side apply with its own field manager (k8s.ManagerImport),
+	// and grab never touches it. grab reads it to decide when a
 	// Download may be removed or blocklisted.
 	// +optional
 	Import *ImportState `json:"import,omitempty"`

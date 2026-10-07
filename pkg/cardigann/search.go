@@ -266,7 +266,7 @@ func (e Engine) searchOnePath(ctx context.Context, def *Definition, cfg Config, 
 	// well-formed document with no result rows in it, so without this the
 	// row extraction below returns zero releases and the caller reads a
 	// failing tracker as a tracker with nothing to offer -- which never
-	// trips indexarr's health escalation or backoff (Phase G ruling R6).
+	// trips index's health escalation or backoff (Phase G ruling R6).
 	if err := checkSearchErrors(ctx, doc, def.Search.Error, tc); err != nil {
 		return nil, err
 	}

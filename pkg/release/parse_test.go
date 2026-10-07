@@ -246,7 +246,7 @@ func TestParseBracedIDTokensDoNotHijackClassification(t *testing.T) {
 	})
 }
 
-// TestParsePathReleaseGroupOnLibraryLayouts is the corpus importarr's
+// TestParsePathReleaseGroupOnLibraryLayouts is the corpus import's
 // rescan guard (app/import/worker/rescan/releasegroup.go, deleted with this
 // fix) carried while pkg/release mis-read the group on *arr's own renamed
 // files. MediaFileSpec.ReleaseGroup is frozen at import, so these are the

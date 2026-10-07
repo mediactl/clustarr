@@ -47,7 +47,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # The owned field set
 //
-// IndexerDefinition.status has exactly one writer, k8s.ManagerIndexarr, so the
+// IndexerDefinition.status has exactly one writer, k8s.ManagerIndex, so the
 // two-manager split in app/indexer/status (which covers Indexer, not this kind)
 // does not apply. What does apply is the rule that made that package
 // necessary: server-side apply REPLACES a field manager's ownership set on
@@ -105,7 +105,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerdefinitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerdefinitions/status,verbs=get;update;patch

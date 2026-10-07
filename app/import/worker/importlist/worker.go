@@ -44,11 +44,11 @@ import (
 // app/import/worker/rescan's own default for the same call.
 const defaultMetadataTimeout = 10 * time.Second
 
-// Worker handles clustarr.work.importarr.list.* messages: one message is
+// Worker handles clustarr.work.import.list.* messages: one message is
 // one ImportList's sync, across every catalog kind its spec.kinds names.
 // See this package's doc comment for how app/import/run.go registers it.
 //
-// The worker is never the writer of ImportList.status: k8s.ManagerImportarr
+// The worker is never the writer of ImportList.status: k8s.ManagerImport
 // (the controller's field manager) owns it in full, per that constant's own
 // doc comment, and this worker instead checkpoints its result to a
 // clustarr-progress key (see importliststate.Result and ResultKey) that the
@@ -92,7 +92,7 @@ type Worker struct {
 // annotation on the ImportList itself
 // ([importliststate.AnnotationSyncedAt]) but never importlists/status (the
 // controller's alone), and never writes
-// MovieStatus/SeriesStatus, both of which catalogarr owns in full. Under
+// MovieStatus/SeriesStatus, both of which catalog owns in full. Under
 // syncLevel removeAndDelete it reads the item's Episodes and RootFolder and
 // deletes the MediaFiles whose files it recycled.
 //

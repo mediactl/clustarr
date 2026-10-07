@@ -200,7 +200,7 @@ func Resolve(ctx context.Context, c client.Client, idx *indexv1alpha1.Indexer) (
 }
 
 // Build renders a Selection as a transport, reading the route proxy's
-// credentials live (indexarr does not cache Secrets).
+// credentials live (index does not cache Secrets).
 func Build(ctx context.Context, c client.Client, sel Selection) (http.RoundTripper, error) {
 	if sel.Empty() {
 		return nil, nil

@@ -28,7 +28,7 @@ import (
 // AudioGraftStatusApplyConfiguration represents a declarative configuration of the AudioGraftStatus type for use
 // with apply.
 //
-// AudioGraftStatus is squasharr's (ManagerSquasharr).
+// AudioGraftStatus is transcode's (ManagerTranscode).
 type AudioGraftStatusApplyConfiguration struct {
 	ObservedGeneration *int64                             `json:"observedGeneration,omitempty"`
 	Phase              *transcodev1alpha1.AudioGraftPhase `json:"phase,omitempty"`

@@ -79,7 +79,7 @@ func TestAPendingDeleteReadsDeletingAndAFailedOneOffersRetry(t *testing.T) {
 }
 
 // A scanned movie's files can sit in another folder than its resolved
-// path; the dialog names that folder too, since importarr removes it.
+// path; the dialog names that folder too, since import removes it.
 func TestDeleteDialogNamesTheFilesFolderWhenItDiffers(t *testing.T) {
 	d := views.Detail{Path: "/data/media/movies/Heat (1995)", Files: []views.FileRow{
 		{Path: "/data/media/movies/Heat.1995.1080p/Heat.mkv"},

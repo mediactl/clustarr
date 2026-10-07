@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package inprocess is the squasharr worker's in-process engine:
+// Package inprocess is the transcode worker's in-process engine:
 // pkg/transcode/engine on ffgo, behind worker.Engine, probing through
 // pkg/mediainfo/native. Only cmd/transcode imports it. The worker package
 // never does: ffgo loads FFmpeg through purego, which makes the Go linker

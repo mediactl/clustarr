@@ -28,10 +28,10 @@ import (
 // file is final and so counts as meeting any cutoff.
 const ReasonTranscoded = "Transcoded"
 
-// Transcoded reports whether mf is a transcoded file: catalogarr's name for
+// Transcoded reports whether mf is a transcoded file: catalog's name for
 // catalogv1alpha1.(*MediaFile).Transcoded, where the rule itself lives, beside
-// the type, so importarr's completed-download import reads the same predicate
-// without importing catalogarr. The Movie and Episode phases, the cutoff, the
+// the type, so import's completed-download import reads the same predicate
+// without importing catalog. The Movie and Episode phases, the cutoff, the
 // search worker's and the RSS matcher's decision input all read it through
 // here; that method's doc comment is the rule (CLAUDE.md, "Transcoding"):
 // spec.original false, or the probe's status.mediaInfo.transcodeProfile, and

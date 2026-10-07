@@ -76,17 +76,17 @@ type ClientFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (IndexerCli
 // app/indexer/download and app/indexer/query. A nil one answers with a populated
 // Error field rather than a handler error, because those two payloads have an
 // Error field and a transport error means something else entirely to their
-// callers: "the request never reached indexarr".
+// callers: "the request never reached index".
 type DownloadFn func(ctx context.Context, req schema.DownloadRequest) schema.DownloadResponse
 
-// QueryFn is the rpc.indexarr.query body. See [DownloadFn].
+// QueryFn is the rpc.index.query body. See [DownloadFn].
 type QueryFn func(ctx context.Context, req schema.QueryRequest) schema.QueryResponse
 
-// BlocklistFn is the clustarr.rpc.indexarr.blocklist body, supplied by
+// BlocklistFn is the clustarr.rpc.index.blocklist body, supplied by
 // app/indexer/blocklist (ADR-0019 §6.14). See [DownloadFn].
 type BlocklistFn func(ctx context.Context, req schema.BlocklistRequest) schema.BlocklistResponse
 
-// Service answers indexarr's three RPC verbs.
+// Service answers index's three RPC verbs.
 type Service struct {
 	// Client reads Indexer objects and writes their status. It is the
 	// manager's cached client.
@@ -163,24 +163,24 @@ func (s *Service) now() time.Time {
 }
 
 // ListOutcomeName is the reserved outcome name used when the failure is
-// indexarr's own and no indexer can be named. It must be non-empty or the
+// index's own and no indexer can be named. It must be non-empty or the
 // caller drops the entry silently (status.indexerOutcomes is listType=map
 // keyed by name).
 const ListOutcomeName = "index"
 
 // maxOutcomes bounds the reply at what the caller can actually persist.
-// catalogarr drops everything past its own MaxIndexerOutcomes, first-wins, so
+// catalog drops everything past its own MaxIndexerOutcomes, first-wins, so
 // THIS side chooses which hundred matter.
 const maxOutcomes = 100
 
-// Search is the body of clustarr.rpc.indexarr.search.
+// Search is the body of clustarr.rpc.index.search.
 //
 // It NEVER returns an error, by design: the caller returns immediately on an
 // RPC error and therefore never writes status.indexerOutcomes, so an error
 // reply would throw away the only record of WHY nothing was found. Every
 // failure is a named outcome instead.
 func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.SearchResponse {
-	ctx, span := tracing.Start(ctx, "indexarr.search.fanout")
+	ctx, span := tracing.Start(ctx, "index.search.fanout")
 	defer span.End()
 
 	mode := modeFor(req.Kind)
@@ -258,7 +258,7 @@ func limitOf(req schema.SearchRequest) int {
 
 // requestNamespace scopes the Indexer list.
 //
-// schema.SearchRequest.Namespace is the authoritative answer and catalogarr
+// schema.SearchRequest.Namespace is the authoritative answer and catalog
 // always sets it. The IndexerRefs fallback covers a producer older than that
 // field: the refs agree on a namespace for an interactive search, which is
 // the only kind that populates them.
@@ -294,7 +294,7 @@ func requestNamespace(req schema.SearchRequest, log *slog.Logger) string {
 
 // capOutcomes bounds the reply at what the caller can persist.
 //
-// catalogarr drops everything past MaxIndexerOutcomes = 100, first-wins, so
+// catalog drops everything past MaxIndexerOutcomes = 100, first-wins, so
 // this side decides which hundred matter: the indexers that were actually
 // queried come first and skipped ones fill what is left. A hundred "you did
 // not ask for me" entries would otherwise push out every real result.
@@ -316,16 +316,16 @@ func capOutcomes(in []schema.SearchOutcome) []schema.SearchOutcome {
 	return out
 }
 
-// Serve registers all four RPC verbs under queue group "indexarr".
+// Serve registers all four RPC verbs under queue group "index".
 //
 // run.go calls this once, from a k8s.EveryReplica runnable, so there is a
-// window in which indexarr reports Ready while no responder is registered and
+// window in which index reports Ready while no responder is registered and
 // a caller gets events.ErrNoResponders.
 //
 // That window is deliberately NOT closed with a fourth readiness gate, and
 // the reason is not "§13 does not list one". A readiness gate CANNOT close it:
-// this RPC does not travel through the Kubernetes Service. catalogarr reaches
-// indexarr over NATS request/reply on the "indexarr" queue group, so whether
+// this RPC does not travel through the Kubernetes Service. catalog reaches
+// index over NATS request/reply on the "index" queue group, so whether
 // the pod is in the Service's endpoints has no bearing on whether a responder
 // exists. A gate would delay `kubectl rollout status` and prevent not one
 // ErrNoResponders -- and with §3's Recreate strategy at one replica there is
@@ -365,10 +365,10 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 		span    string
 		handler func(context.Context, []byte) ([]byte, error)
 	}{
-		{events.RPCIndexSearch, "indexarr.rpc.serve.search", s.handleSearch},
-		{events.RPCIndexDownload, "indexarr.rpc.serve.download", s.handleDownload},
-		{events.RPCIndexQuery, "indexarr.rpc.serve.query", s.handleQuery},
-		{events.RPCIndexBlocklist, "indexarr.rpc.serve.blocklist", s.handleBlocklist},
+		{events.RPCIndexSearch, "index.rpc.serve.search", s.handleSearch},
+		{events.RPCIndexDownload, "index.rpc.serve.download", s.handleDownload},
+		{events.RPCIndexQuery, "index.rpc.serve.query", s.handleQuery},
+		{events.RPCIndexBlocklist, "index.rpc.serve.blocklist", s.handleBlocklist},
 	}
 	for _, v := range verbs {
 		// The bus hands every inbound RPC a bare context, so without a span
@@ -423,7 +423,7 @@ func (s *Service) handleDownload(ctx context.Context, data []byte) ([]byte, erro
 	}
 	if s.Download == nil {
 		return json.Marshal(schema.DownloadResponse{
-			Error: "indexarr: download verb is not configured",
+			Error: "index: download verb is not configured",
 		})
 	}
 	// Compressed here, at the bus, and nowhere else: the Torznab facade
@@ -438,7 +438,7 @@ func (s *Service) handleQuery(ctx context.Context, data []byte) ([]byte, error) 
 	}
 	if s.Query == nil {
 		return json.Marshal(schema.QueryResponse{
-			Error: "indexarr: query verb is not configured",
+			Error: "index: query verb is not configured",
 		})
 	}
 	return json.Marshal(s.Query(ctx, req))
@@ -451,7 +451,7 @@ func (s *Service) handleBlocklist(ctx context.Context, data []byte) ([]byte, err
 	}
 	if s.Blocklist == nil {
 		return json.Marshal(schema.BlocklistResponse{
-			Error: "indexarr: blocklist verb is not configured",
+			Error: "index: blocklist verb is not configured",
 		})
 	}
 	return json.Marshal(s.Blocklist(ctx, req))

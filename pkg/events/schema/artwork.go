@@ -25,9 +25,9 @@ import (
 
 // ArtworkFetchTask asks the metadata gateway to (re)fetch one item's artwork
 // originals from their source URLs and store them in events.BucketArtwork.
-// Subject: clustarr.work.catalogarr.artwork.fetch.<mediaKey>, built by
+// Subject: clustarr.work.catalog.artwork.fetch.<mediaKey>, built by
 // events.WorkArtworkFetchSubject and consumed by the gateway's
-// events.ConsumerCatalogArtworkFetch durable ("catalogarr-artwork-fetch";
+// events.ConsumerCatalogArtworkFetch durable ("catalog-artwork-fetch";
 // spec §B.7).
 //
 // Version 2 (ADR-0019 §7.1) names what to fetch: the item key plans which
@@ -62,9 +62,9 @@ func (ArtworkFetchTask) LegacySchemas() []string { return []string{ArtworkFetchT
 
 // RenderOverlayTask asks the renderer role to recompute an item's overlay
 // poster from its stored original, its OverlayProfile and its current
-// ratings. Subject: clustarr.work.catalogarr.artwork.render.<mediaKey>,
+// ratings. Subject: clustarr.work.catalog.artwork.render.<mediaKey>,
 // built by events.WorkArtworkRenderSubject and consumed by
-// events.ConsumerCatalogArtworkRender ("catalogarr-artwork-render"; spec
+// events.ConsumerCatalogArtworkRender ("catalog-artwork-render"; spec
 // §C.6). Published by the metadata gateway after a poster original's digest
 // changes (§B.4) and by the OverlayProfile controller (§C.4).
 type RenderOverlayTask struct {

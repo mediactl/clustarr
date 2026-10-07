@@ -209,7 +209,7 @@ type MediaInfo struct {
 
 	// Modifier is the source's quality modifier ("remux", "brdisk", ...) as
 	// already classified by pkg/quality/pkg/release and stored on the
-	// MediaFile before squasharr ever sees it -- NOT something ffprobe can
+	// MediaFile before transcode ever sees it -- NOT something ffprobe can
 	// derive. The controller attaches it when it builds the MediaInfo it
 	// passes to Plan. Needed for PolicySpec.NeverTranscodeModifiers.
 	Modifier string
@@ -311,7 +311,7 @@ func FromSummary(path string, mi *commonv1.MediaInfo) (MediaInfo, error) {
 // (Packets, Modifier) stay zero -- the controller fills Modifier separately
 // from the quality classifier before calling Plan.
 //
-// It is the squasharr worker's input. The detail it adds over
+// It is the transcode worker's input. The detail it adds over
 // [FromSummary] -- the source's own colour tags, HDR side data, levels,
 // dispositions, chapters -- is kept for callers and diagnostics, but none of
 // it reaches the argv: Plan renders colour from the HDR classification and

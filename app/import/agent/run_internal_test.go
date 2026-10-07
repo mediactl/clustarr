@@ -33,7 +33,7 @@ import (
 // floor's wiring: Options.SampleMaxBytes reaches BOTH workers setupWorkers
 // subscribes -- the rescan (which lists a suspected sample as unmatched) and
 // the completed-download import (which rejects one). cmd/clustarr's
-// TestImportarrSampleMaxBytesReachesTheOptions holds the first, the flag to
+// TestImportSampleMaxBytesReachesTheOptions holds the first, the flag to
 // Options.
 //
 // The non-default values carry the proof. Each worker's NewWorker already
@@ -53,9 +53,9 @@ func TestWorkersGetTheSampleSizeFloor(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, newScanWorker(nil, nil, nil, tc.o).SampleMaxBytes,
-				"the rescan worker (work.importarr.scan) did not get Options.SampleMaxBytes")
+				"the rescan worker (work.import.scan) did not get Options.SampleMaxBytes")
 			require.Equal(t, tc.want, newImportWorker(nil, nil, nil, tc.o).SampleMaxBytes,
-				"the file-import worker (work.importarr.fileimport) did not get Options.SampleMaxBytes")
+				"the file-import worker (work.import.fileimport) did not get Options.SampleMaxBytes")
 		})
 	}
 }
@@ -85,7 +85,7 @@ func TestDefaultOptionsTurnTheSampleSizeFloorOn(t *testing.T) {
 // (watchlist syncs and token refresh) and the ImportList controller (the
 // device-code flow), and the Trakt host is the same one in both, so a
 // device authorization and the syncs it authorizes name one host.
-// cmd/clustarr's TestImportarrListBaseURLsReachTheOptions holds the first,
+// cmd/clustarr's TestImportListBaseURLsReachTheOptions holds the first,
 // the flag to Options. Unset is the providers' own public default.
 func TestImportListsGetTheirBaseURLs(t *testing.T) {
 	o := Options{TraktBaseURL: "http://trakt.fixture:8080", PlexBaseURL: "http://plex.fixture:8080"}
@@ -112,7 +112,7 @@ func TestWithoutMediaInfoChainsTheDefaultTransform(t *testing.T) {
 		return &catalogv1alpha1.MediaFile{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:          "heat",
-				ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "catalogarr"}},
+				ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "catalog"}},
 			},
 			Status: catalogv1alpha1.MediaFileStatus{
 				MediaInfo: &commonv1.MediaInfo{Width: 1920, Height: 1080},

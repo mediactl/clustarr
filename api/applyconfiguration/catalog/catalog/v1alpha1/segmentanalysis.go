@@ -28,7 +28,7 @@ import (
 // with apply.
 //
 // SegmentAnalysis records clustarr's own analysis of a file
-// (segmentarr-worker), beside TheIntroDB's fetch bookkeeping.
+// (markers-worker), beside TheIntroDB's fetch bookkeeping.
 type SegmentAnalysisApplyConfiguration struct {
 	// Result is Found, NotFound or Error.
 	Result *catalogv1alpha1.MarkersResult `json:"result,omitempty"`

@@ -78,7 +78,7 @@ type LibraryItem struct {
 
 	// DeleteMode is the item's catalog.clustarr.io/delete ("files" or
 	// "records"), "" when no delete is pending; DeleteExclude its
-	// delete-add-exclusion and DeleteError importarr's delete-error.
+	// delete-add-exclusion and DeleteError import's delete-error.
 	DeleteMode    string
 	DeleteExclude bool
 	DeleteError   string
@@ -170,7 +170,7 @@ func RootFolderKinds(tab Tab) []catalogv1.RootFolderKind {
 // from one LibraryScan's status.unmatched list (A1.5's never-guess output),
 // plus enough of the scan's own identity for the row to be useful without a
 // second lookup. This task's Unmatched page is read-only (G3-4 adds the
-// manual-assign action once G2-4 defines its mechanism in importarr), so
+// manual-assign action once G2-4 defines its mechanism in import), so
 // this type carries no action-oriented fields.
 type UnmatchedEntry struct {
 	// ScanRef identifies the LibraryScan this file was reported by.

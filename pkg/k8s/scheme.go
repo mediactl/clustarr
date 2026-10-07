@@ -43,8 +43,8 @@ import (
 // All five services share one scheme even though each only writes its own
 // group: §10 has every service watching at least one other group read-only,
 // and the built-in groups are what the managers create and consume --
-// batch/v1 Jobs for squasharr, apps/v1 StatefulSets and Deployments for
-// grabarr engines, core/v1 Secrets, ConfigMaps and PVCs everywhere,
+// batch/v1 Jobs for transcode, apps/v1 StatefulSets and Deployments for
+// grab engines, core/v1 Secrets, ConfigMaps and PVCs everywhere,
 // coordination/v1 Leases for leader election and events.k8s.io/v1 for the
 // history sink in §13.
 var AddToSchemeFuncs = []func(*runtime.Scheme) error{

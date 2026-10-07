@@ -25,10 +25,10 @@ import (
 
 // The reasons a [RenameOutcome] carries. A move that happened has none.
 const (
-	// RenameNotCurrent: nothing to do. catalogarr proposes no path, or the
+	// RenameNotCurrent: nothing to do. catalog proposes no path, or the
 	// file is already at it.
 	RenameNotCurrent = "NotCurrent"
-	// RenameHeld: catalogarr holds the proposal (status.naming.reason is
+	// RenameHeld: catalog holds the proposal (status.naming.reason is
 	// set), or it names another folder -- this pass renames files only,
 	// never folders (spec D5).
 	RenameHeld = "Held"
@@ -48,8 +48,8 @@ const (
 )
 
 // Renameable reports whether mf is a rename candidate (ruling R20):
-// catalogarr says its path is not the canonical one (NamingCurrent False),
-// and the file is present and probed (Ready and Probed True). catalogarr
+// catalog says its path is not the canonical one (NamingCurrent False),
+// and the file is present and probed (Ready and Probed True). catalog
 // holds a file it cannot name yet with NamingCurrent Unknown, so a held
 // file never passes; RenameFile refuses one too. The rename controller and
 // the LibraryScan rename pass both select with it.
@@ -61,7 +61,7 @@ func Renameable(mf *catalogv1alpha1.MediaFile) bool {
 }
 
 // RenameOutcome is what [RenameFile] did with one MediaFile: From is its
-// spec.path, To the path catalogarr proposes (empty when there is none),
+// spec.path, To the path catalog proposes (empty when there is none),
 // and either Moved or a Reason.
 type RenameOutcome struct {
 	From, To, Reason string

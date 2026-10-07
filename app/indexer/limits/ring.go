@@ -34,11 +34,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // allows. Every path that contacts an indexer reserves BEFORE the request:
 // the search fan-out and the RSS poll a query each (Prowlarr counts
 // IndexerQuery and IndexerRss together against QueryLimit, one per request),
-// and the download verb and catalogarr's grab path a grab. An Indexer with
+// and the download verb and catalog's grab path a grab. An Indexer with
 // no limit, or Prowlarr's "0 is none", is always allowed and still counted:
 // the count is observability whether or not a limit is set.
 //
-// It is a leaf -- the Indexer type, the bus and nothing of indexarr's -- so
+// It is a leaf -- the Indexer type, the bus and nothing of index's -- so
 // app/catalog/worker/grab can reserve a grab before it creates the Download,
 // which is where a grab limit has to hold: a direct-source Download never
 // reaches the download verb at all.
@@ -168,7 +168,7 @@ func ReserveQuery(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer,
 // ReserveGrab reserves the grab of guid against idx at now: refused when the
 // window already holds spec.limits.grabLimit, appended otherwise. A GUID
 // already in the window holds its slot and is allowed without counting
-// again, so every path that touches one grab -- catalogarr's grab before
+// again, so every path that touches one grab -- catalog's grab before
 // the Download, the download verb's fetch, the direct-grab counter -- counts
 // it once between them.
 func ReserveGrab(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, now time.Time) (Reservation, error) {
@@ -178,7 +178,7 @@ func ReserveGrab(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, 
 // CountGrabAt counts a grab that already happened, at `at`, and never
 // refuses: the direct-grab counter meets a Download after it exists. A grab
 // older than the window is not counted -- the counter meets every existing
-// Download again each time indexarr starts -- and a creation stamp ahead of
+// Download again each time index starts -- and a creation stamp ahead of
 // now is clock skew, counted at now.
 func CountGrabAt(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, at, now time.Time) (Reservation, error) {
 	if at.After(now) {
@@ -191,7 +191,7 @@ func CountGrabAt(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, 
 // that did not happen after all -- the fetch failed, or the link named
 // another host and the caller fetches it from there. Only the caller whose
 // reservation Counted may release it: a GUID that was already in the ring
-// belongs to an earlier grab of the release (catalogarr's, before its
+// belongs to an earlier grab of the release (catalog's, before its
 // Download), which did happen. Releasing a GUID that is not there is a
 // no-op.
 func ReleaseGrab(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, now time.Time) error {
@@ -227,9 +227,9 @@ func ReleaseGrab(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, 
 // DownloadResponse (pkg/events/schema) has no error code, so the refusal is
 // recognised by this prefix -- [GrabLimited] is the one reader -- and carries
 // its retry instant after it.
-const grabLimitPrefix = "indexarr: grab limit reached"
+const grabLimitPrefix = "index: grab limit reached"
 
-// GrabLimitMessage is the rpc.indexarr.download Error of a grab
+// GrabLimitMessage is the rpc.index.download Error of a grab
 // spec.limits.grabLimit refused: the indexer, and when its window next has
 // room.
 func GrabLimitMessage(indexer string, retryAt time.Time) string {

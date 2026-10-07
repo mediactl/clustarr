@@ -33,7 +33,7 @@ type QualityProfileSpecApplyConfiguration struct {
 	// BuiltIn marks a profile shipped by the chart; built-ins are immutable and
 	// are meant to be copied rather than edited.
 	BuiltIn *bool `json:"builtIn,omitempty"`
-	// SeedHash is a built-in's seed content hash, which only catalogarr's
+	// SeedHash is a built-in's seed content hash, which only catalog's
 	// seeder writes: a built-in changes only along with it, so the seeder
 	// updates a built-in in place when its seed moves on -- deleting and
 	// recreating it read every item on it as "profile unresolved" for a

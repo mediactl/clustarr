@@ -71,7 +71,7 @@ func (f *fixture) deliver(t *testing.T, dl *downloadv1alpha1.Download) *fakeMess
 // crashBeforeTheStatusWrite leaves dl as a delivery that died after its
 // MediaFiles were applied leaves it: the MediaFiles and the library files
 // stay, status.import was never written (it is released here under its one
-// owner, k8s.ManagerImportarr) and there is no dedup record. It waits until
+// owner, k8s.ManagerImport) and there is no dedup record. It waits until
 // the worker's cached read of the Download sees no status.import, so the
 // redelivery cannot take the "already imported" fast path.
 func (f *fixture) crashBeforeTheStatusWrite(t *testing.T, dl *downloadv1alpha1.Download, msg *fakeMessage) {
@@ -131,7 +131,7 @@ func requireSameImport(t *testing.T, first, again *downloadv1alpha1.ImportState)
 
 // A movie's redelivery after the crash window finishes the import: its own
 // MediaFile is neither compared against nor recycled. The second row is
-// that file once catalogarr has probed it as an ffmpeg HEVC encode -- a
+// that file once catalog has probed it as an ffmpeg HEVC encode -- a
 // release Tdarr or a re-encoder made -- which the transcoded gate reads as
 // final; it is still this import's own file, not one it would replace.
 func TestARedeliveryAfterTheMovieFileLandedFinishesTheImport(t *testing.T) {
@@ -355,7 +355,7 @@ func TestAReplacedBookWhoseFileIsGoneLosesItsMediaFile(t *testing.T) {
 
 // A placement outside the root folder is refused before anything is
 // written, and reported at once as Blocked naming the path -- not retried,
-// and not "every file rejected", which grabarr reads as a bad release to
+// and not "every file rejected", which grab reads as a bad release to
 // blocklist and delete. An album's resolved status.path is used as it is,
 // so one left pointing elsewhere (its root folder changed since) is
 // such a placement.
@@ -395,7 +395,7 @@ func TestAPlacementOutsideTheRootFolderBlocksTheImport(t *testing.T) {
 // destination (pkg/naming/catalogctx refuses it). That is the movie's
 // fault, not the release's: the import reads Blocked naming the cause, as
 // a non-video render failure does, never "every file rejected", which
-// grabarr reads as a bad release to blocklist and delete.
+// grab reads as a bad release to blocklist and delete.
 func TestAnUnrenderableMoviePathBlocksTheImport(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, "fi-unrenderable-movie")

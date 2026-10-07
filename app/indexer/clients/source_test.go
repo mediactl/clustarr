@@ -136,7 +136,7 @@ func TestRpsFor(t *testing.T) {
 //
 // This comment used to say "and D1-8 builds the Limiter as
 // ratelimit.New(ratelimit.Config{})", so a divergent key meant a COMPLETELY
-// unpaced download verb. It no longer does: indexarr.defaultLimiterConfig
+// unpaced download verb. It no longer does: index.defaultLimiterConfig
 // paces an unknown host at spec.requestDelay's CRD default, precisely so a
 // host nobody has reconciled yet is not hammered. The trade is deliberate and
 // worth naming -- a divergent key is now silently paced at 2s instead of

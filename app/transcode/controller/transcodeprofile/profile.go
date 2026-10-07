@@ -130,7 +130,7 @@ func profileTag(profileName, profileHash string) string {
 // catalogv1alpha1.MediaFile.Transcoded -- spec.original false, the probe's
 // CLUSTARR_PROFILE (any profile, any hash: an earlier install's output, or
 // this profile's before an edit or a new standard.Version), or another
-// tool's HEVC or AV1 encode -- or catalogarr's record of a transcode by this
+// tool's HEVC or AV1 encode -- or catalog's record of a transcode by this
 // profile under any hash: a replaceSource=false job records it on the
 // source, whose own bytes stay untouched, and whose derived copy exists.
 func alreadyTranscoded(mf *catalogv1alpha1.MediaFile, profile string) bool {
@@ -144,7 +144,7 @@ func alreadyTranscoded(mf *catalogv1alpha1.MediaFile, profile string) bool {
 // a non-empty ProbeHash to pin TranscodeJobSpec.SourceProbeHash to (R3: the
 // worker refuses to run if the live file no longer matches it) and a
 // MediaInfo for the TranscodeJob controller to plan from. A MediaFile that
-// has not been probed yet is not an error -- catalogarr's mediafile
+// has not been probed yet is not an error -- catalog's mediafile
 // controller will probe it and this controller's MediaFile watch (on
 // status.probeHash changing) fires again once it has.
 func probed(mf *catalogv1alpha1.MediaFile) bool {
@@ -251,7 +251,7 @@ var managedItemLists = map[commonv1.MediaKind]string{
 // managedFiles drops every file whose catalog item no longer exists.
 //
 // An import list under removeAndKeep deletes a Movie or Episode but keeps
-// its files AND their MediaFile records, on purpose (importarr's
+// its files AND their MediaFile records, on purpose (import's
 // applySyncDecision; x7b-report): the record is what stops a rescan
 // re-adding the item, and the user asked to keep the file while Clustarr
 // stops managing it. Transcoding such a file would be managing it anyway, so

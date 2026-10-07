@@ -66,7 +66,7 @@ type ApplyConfiguration interface {
 // The generic parameter exists so callers keep their concrete type:
 //
 //	movie := catalogac.Movie(name, ns).WithStatus(...)
-//	movie, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, movie)
+//	movie, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, movie)
 func PatchStatus[T ApplyConfiguration](
 	ctx context.Context,
 	c client.Client,
@@ -96,8 +96,8 @@ func PatchStatus[T ApplyConfiguration](
 }
 
 // Apply is PatchStatus' counterpart for the main resource. Controllers use it
-// to create or update the objects they own -- a squasharr TranscodeJob, a
-// grabarr StatefulSet -- without a read-modify-write race. It is not subject to
+// to create or update the objects they own -- a transcode TranscodeJob, a
+// grab StatefulSet -- without a read-modify-write race. It is not subject to
 // the single-writer rule, but it shares the field-manager vocabulary so
 // `kubectl get -o yaml --show-managed-fields` reads the same either way.
 func Apply[T ApplyConfiguration](

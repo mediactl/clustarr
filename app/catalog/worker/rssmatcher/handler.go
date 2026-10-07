@@ -126,7 +126,7 @@ func (d Deps) evaluate() EvaluateFunc {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 
-// Handler is the catalogarr-rss-matcher consumer.
+// Handler is the catalog-rss-matcher consumer.
 type Handler struct {
 	Deps Deps
 }
@@ -134,7 +134,7 @@ type Handler struct {
 // NewHandler returns a Handler over d.
 func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
 
-// Subscription is the catalogarr-rss-matcher durable consumer from §5's
+// Subscription is the catalog-rss-matcher durable consumer from §5's
 // table: the whole clustarr.rel.> firehose, AckWait 30s, MaxDeliver 6,
 // BackOff 1s/5s/30s/2m/10m, 256 slots per pod (MaxAckPending = Slots x
 // AutoscaleReplicaCeiling across replicas). It is read from the topology
@@ -169,7 +169,7 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
 		if err != nil {
-			return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
+			return fmt.Errorf("catalog: subscribe rss-matcher: %w", err)
 		}
 		defer stop()
 		<-ctx.Done()
@@ -184,7 +184,7 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 // acknowledges immediately without a single write.
 func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
-	// Extract before Start, so this span continues indexarr's RSS poll rather
+	// Extract before Start, so this span continues index's RSS poll rather
 	// than beginning a new trace per release.
 	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "rssmatcher.Handler.Handle")
@@ -194,8 +194,8 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	if err := schema.Decode(env.Schema, env.Data, &rel); err != nil {
 		return events.Discard("rssmatcher: malformed Release", err)
 	}
-	// Every catalogarr consumer splits the envelope key on "/" for its
-	// namespace, and indexarr must follow the same convention on
+	// Every catalog consumer splits the envelope key on "/" for its
+	// namespace, and index must follow the same convention on
 	// clustarr.rel.> -- "<namespace>/<indexerName>". Guessing a namespace
 	// instead would fan one indexer's releases across the whole cluster.
 	ns, _, ok := strings.Cut(env.Key, "/")
@@ -365,7 +365,7 @@ func (h *Handler) sceneMemo() sceneLookup {
 // the quality on disk is an upgrade of it.
 //
 // The matcher resolves a season pack to every monitored episode of the
-// season, including ones already at their cutoff, and grabarr downloads only
+// season, including ones already at their cutoff, and grab downloads only
 // the files of the Download's spec.target.keys. Handing the grab every
 // episode made a pack for one missing episode download the whole season.
 // Sonarr, with no file selection, refuses such a pack outright

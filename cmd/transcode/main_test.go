@@ -42,7 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 )
 
-const reexecEnv = "SQUASHARR_WORKER_TEST_REEXEC"
+const reexecEnv = "TRANSCODE_WORKER_TEST_REEXEC"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(reexecEnv) == "1" {
@@ -147,11 +147,11 @@ func TestBinaryImportsNoKubernetesClient(t *testing.T) {
 			"sigs.k8s.io/controller-runtime/pkg/manager", "github.com/mediactl/clustarr/pkg/k8s",
 		} {
 			if dep == bad || strings.HasPrefix(dep, bad+"/") {
-				t.Errorf("cmd/squasharr-worker depends on %s", dep)
+				t.Errorf("cmd/transcode-worker depends on %s", dep)
 			}
 		}
 		if dep == "github.com/mediactl/clustarr/pkg/obs" {
-			t.Error("cmd/squasharr-worker depends on pkg/obs (links controller-runtime)")
+			t.Error("cmd/transcode-worker depends on pkg/obs (links controller-runtime)")
 		}
 	}
 }

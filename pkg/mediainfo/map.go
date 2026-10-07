@@ -58,7 +58,7 @@ const (
 
 // FromRaw maps raw to the MediaFile status summary with the same rules
 // Probe applies to ffprobe's output: a probe that fills Raw another way
-// (the squasharr worker's in-process probe, which has no ffprobe) gets the
+// (the transcode worker's in-process probe, which has no ffprobe) gets the
 // same HDR, Dolby Vision, audio and subtitle classification.
 func FromRaw(raw *Raw) *commonv1.MediaInfo { return toMediaInfo(raw) }
 
@@ -109,7 +109,7 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 	return mi
 }
 
-// ProfileTagKey is the container format tag squasharr stamps into every file
+// ProfileTagKey is the container format tag transcode stamps into every file
 // it writes, "<profile>@<hash>" (pkg/transcode.Args renders it as
 // -metadata CLUSTARR_PROFILE=...). pkg/transcode cannot be imported from
 // here -- it imports this package -- so the key is restated once, beside
@@ -121,7 +121,7 @@ const ProfileTagKey = "CLUSTARR_PROFILE"
 // characters), "@", and a 64-character SHA-256 hex hash, with room to spare.
 // The apiserver rejects a status apply carrying a longer value WHOLE, so a
 // file with one would never be probed at all; [toMediaInfo] drops it
-// instead. No squasharr wrote it, so dropping it loses nothing.
+// instead. No transcode wrote it, so dropping it loses nothing.
 const MaxTranscodeProfileLength = 320
 
 // FormatTag returns the container-level tag key of raw, compared without

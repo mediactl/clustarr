@@ -168,7 +168,7 @@ func newMediaFile(t *testing.T, c client.Client, ns, name, probeHash string, mi 
 	return mf
 }
 
-// setProbe stands in for catalogarr's probe write.
+// setProbe stands in for catalog's probe write.
 func setProbe(t *testing.T, c client.Client, ns, name, probeHash string, mi commonv1.MediaInfo) {
 	t.Helper()
 	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalog,
@@ -195,7 +195,7 @@ func newTJ(t *testing.T, c client.Client, ns, name, mediaFile, profile, probeHas
 }
 
 // newBus is an in-memory bus carrying the shipped topology: the
-// CLUSTARR_WORK_SQUASHARR stream dispatch publishes to, and the history
+// CLUSTARR_WORK_TRANSCODE stream dispatch publishes to, and the history
 // stream the job events go to.
 func newBus(t *testing.T) events.Bus {
 	t.Helper()
@@ -456,7 +456,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	})
 
 	// A transcoded file is not transcoded again, under any hash (spec §5),
-	// however catalogarr recorded the tag: the probe reads the file's
+	// however catalog recorded the tag: the probe reads the file's
 	// CLUSTARR_PROFILE into status.mediaInfo.transcodeProfile (any profile's:
 	// the bytes are a transcode), and a transcode it incorporates sets
 	// status.transcode.profileTag (a replaceSource=false job does so on its
@@ -734,7 +734,7 @@ func TestAdmissionHonoursProfileMaxConcurrent(t *testing.T) {
 // TestStatusEventsDriveStatusAndOneManagerOwnsIt is spec §18.2: claimed and
 // progress events move a job to Running and set workerPod, startedAt and
 // progress; finished sets the outcome, result and stderr tail -- all of it
-// written by squasharr, the one manager on TranscodeJob.status.
+// written by transcode, the one manager on TranscodeJob.status.
 func TestStatusEventsDriveStatusAndOneManagerOwnsIt(t *testing.T) {
 	f := newDispatched(t, "tj-events-drive", map[string]int32{"cpu": 1})
 
@@ -787,13 +787,13 @@ func TestStatusEventsDriveStatusAndOneManagerOwnsIt(t *testing.T) {
 	assert.EqualValues(t, 10, got.Status.Result.OutputSizeBytes)
 	assert.Equal(t, "/data/media/movies/heat.mkv", got.Status.Result.OutputPath)
 	assert.Equal(t, "ok", got.Status.StderrTail)
-	assert.NotNil(t, got.Status.FinishedAt, "catalogarr's latestUnincorporatedTranscode requires finishedAt")
+	assert.NotNil(t, got.Status.FinishedAt, "catalog's latestUnincorporatedTranscode requires finishedAt")
 	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionSucceeded))
 	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionVerified))
 	assert.EqualValues(t, 100, got.Status.Progress.Percent)
 	assert.Equal(t, "pool-xyz", got.Status.WorkerPod, "the pod that ran it stays named, for kubectl logs")
 
-	assert.Equal(t, []string{string(k8s.ManagerTranscode)}, statusOwners(got), "squasharr is the one status writer")
+	assert.Equal(t, []string{string(k8s.ManagerTranscode)}, statusOwners(got), "transcode is the one status writer")
 	owned := statusFieldsOf(t, got, k8s.ManagerTranscode)
 	for _, fld := range []string{
 		"f:phase", "f:plan", "f:jobRef", "f:attempts", "f:startedAt", "f:finishedAt", "f:message",
@@ -1226,7 +1226,7 @@ func TestAnAutoGPUFailureFallsBackToCPU(t *testing.T) {
 // status events, to a populated steady state -- a requeued attempt with its
 // plan, hardware, stderr tail, nextAttemptAt and conditions -- then makes
 // the next dispatch fail half way. The error-path write must re-declare
-// every leaf (nothing released), and squasharr must stay the only owner.
+// every leaf (nothing released), and transcode must stay the only owner.
 func TestTransientFailureDoesNotReleaseStatus(t *testing.T) {
 	f := newDispatched(t, "tj-release", map[string]int32{"cpu": 2})
 	ctx := context.Background()

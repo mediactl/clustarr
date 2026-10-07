@@ -34,7 +34,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// TestProbeReadsTheTagSquasharrWrites builds its input through the real
+// TestProbeReadsTheTagTranscodeWrites builds its input through the real
 // producer: the in-process engine (pkg/transcode/engine) running a plan
 // that carries the CLUSTARR_PROFILE tag, read back by the real Probe. A
 // fixture shaped like the answer -- a hand-written ffprobe JSON with the key
@@ -80,7 +80,7 @@ func TestProbeReadsTheTagTranscodeWrites(t *testing.T) {
 
 			mi, _, err := ffprobeexec.Probe(context.Background(), out)
 			require.NoError(t, err)
-			assert.Equal(t, tag, mi.TranscodeProfile, "a file squasharr wrote must read back as transcoded")
+			assert.Equal(t, tag, mi.TranscodeProfile, "a file transcode wrote must read back as transcoded")
 		})
 	}
 

@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Command transcode is a transcode pool's pod: a pure consumer of the
-// squasharr work queue (spec §9). It holds no Kubernetes credentials; tasks
+// transcode work queue (spec §9). It holds no Kubernetes credentials; tasks
 // arrive over NATS and results leave over NATS. With --graft-task it is an
 // audio graft Job's pod instead. Its exit codes are a contract with the pool
 // Job's podFailurePolicy (spec §3.8).
@@ -59,7 +59,7 @@ var _ worker.GraftEngine = inprocess.Engine{}
 func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 
 // flags is transcode's flag set: newFlags builds it, run parses it, and
-// manifest_test.go parses every argv squasharr stamps onto a pool or graft
+// manifest_test.go parses every argv transcode stamps onto a pool or graft
 // pod through it.
 type flags struct {
 	fs                                                 *pflag.FlagSet

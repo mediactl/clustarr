@@ -50,7 +50,7 @@ func startServer(t *testing.T) *natsserver.Server {
 	dir, err := os.MkdirTemp(t.TempDir(), "jetstream")
 	require.NoError(t, err)
 	srv, err := natsserver.NewServer(&natsserver.Options{
-		ServerName: "clustarr-grabarr-engine",
+		ServerName: "clustarr-grab-engine",
 		Host:       "127.0.0.1",
 		Port:       -1,
 		JetStream:  true,

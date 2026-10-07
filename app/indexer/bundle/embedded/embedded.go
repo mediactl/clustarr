@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // [FS] opens it with archive/zip, whose *zip.Reader implements fs.FS and
 // inflates an entry only when it is read. That is exactly the shape
 // cardigann.LoadBundle consumes (the *.yml files at the root of an fs.FS),
-// so indexarr loads the embedded corpus through the same path as an
+// so index loads the embedded corpus through the same path as an
 // operator-mounted --cardigann-definitions-dir.
 //
 // Provenance: the definitions are Prowlarr's Cardigann definitions, added to

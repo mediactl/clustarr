@@ -39,7 +39,7 @@ import (
 // takes Raw as its second argument and folds both into the
 // transcode.MediaInfo that transcode.Plan reads (spec §7's
 // Planner.Plan(mi, raw, hw) is satisfied by that pair -- there is no
-// Planner type); catalogarr's MediaFile status only ever sees the mapped
+// Planner type); catalog's MediaFile status only ever sees the mapped
 // MediaInfo a probe (pkg/mediainfo/native's Prober.Probe) returns alongside it.
 type Raw struct {
 	Format   *ffprobe.Format

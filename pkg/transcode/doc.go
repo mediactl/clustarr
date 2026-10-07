@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package transcode is squasharr's media vocabulary: the input model a
+// Package transcode is transcode's media vocabulary: the input model a
 // plan is made from, and the types the standard (pkg/transcode/standard)
 // and the in-process engine (pkg/transcode/engine) share. Nothing here runs
 // ffmpeg; since the argv engine was deleted (ffgo spec, Phase 5) every

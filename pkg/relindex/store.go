@@ -144,7 +144,7 @@ type Release struct {
 	// a caller cannot smuggle the lie past it.
 	PublishedAt *time.Time
 
-	// FetchedAt is when indexarr read the release. Always set; it is what
+	// FetchedAt is when index read the release. Always set; it is what
 	// Prune and Query.Since work on.
 	FetchedAt time.Time
 
@@ -203,7 +203,7 @@ type Stats struct {
 
 // sqliteStore is the only Store implementation.
 //
-// Concurrency: indexarr is one process with two callers into this store -- the
+// Concurrency: index is one process with two callers into this store -- the
 // RSS worker and the search service -- so "single writer" has to be enforced
 // inside the process, not just by the deployment.
 //
@@ -304,7 +304,7 @@ func Open(ctx context.Context, path string) (Store, io.Closer, error) {
 
 // Close checkpoints the write-ahead log into the main database and closes the
 // handle. Checkpointing on the way out keeps the -wal file off the PVC across
-// the Recreate rollouts §3 pins indexarr to. Skipping it would still be safe --
+// the Recreate rollouts §3 pins index to. Skipping it would still be safe --
 // SQLite replays the WAL on the next open -- so the checkpoint error is joined
 // rather than swallowed or returned alone.
 func (s *sqliteStore) Close() error {

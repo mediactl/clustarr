@@ -102,7 +102,7 @@ func TestLibraryRescan(t *testing.T) {
 		"a scanned Movie takes the root folder's default profile")
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &movie) })
 
-	// catalogarr's half: the MediaFile controller probed the real bytes with
+	// catalog's half: the MediaFile controller probed the real bytes with
 	// real ffprobe, and the Movie reconciler rolled the file up.
 	waitForMediaFileProbed(ctx, t, client.ObjectKeyFromObject(&mf))
 	waitFor(t, ctx, 3*time.Minute, "Movie "+movie.Name+" status.hasFile", func(ctx context.Context) (bool, error) {
@@ -118,7 +118,7 @@ func TestLibraryRescan(t *testing.T) {
 	// depends on the TMDB stub at all.
 	//
 	// Everything above is reachable without the metadata gateway ever
-	// succeeding: spec.tmdbID is parsed out of the folder name by importarr,
+	// succeeding: spec.tmdbID is parsed out of the folder name by import,
 	// and status.hasFile is rolled up from the MediaFile. That blind spot is
 	// not hypothetical -- during Task C11's first real run every metadata
 	// refresh was failing permanently on an illegal NATS KV cache key, and
@@ -186,7 +186,7 @@ func TestLibraryRescanUnmatchedAndSchedule(t *testing.T) {
 	rf := newRootFolder(ctx, t, "e2e-scan2-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
 	root := rf.Spec.Path
 
-	// Two shapes of unattributable file, because importarr refuses them for
+	// Two shapes of unattributable file, because import refuses them for
 	// two different reasons and both must be reported rather than guessed:
 	// one pkg/release cannot parse at all, and one that parses cleanly but
 	// carries no provider id and matches no existing Movie.
@@ -271,7 +271,7 @@ func waitForMediaFileCount(ctx context.Context, t *testing.T, clusterPath string
 	return got
 }
 
-// waitForMediaFileProbed waits until catalogarr's MediaFile controller has
+// waitForMediaFileProbed waits until catalog's MediaFile controller has
 // probed the file with real ffprobe and mirrored the result onto status.
 func waitForMediaFileProbed(ctx context.Context, t *testing.T, key client.ObjectKey) catalogv1alpha1.MediaFile {
 	t.Helper()

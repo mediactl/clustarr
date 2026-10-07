@@ -187,7 +187,7 @@ func TestAFileNoLongerDueIsLeftAlone(t *testing.T) {
 	assert.Empty(t, applied)
 }
 
-// The handler applies as catalogarr-markers through k8s.PatchStatus, which
+// The handler applies as catalog-markers through k8s.PatchStatus, which
 // refuses a manager missing from k8s.FieldManagers: every apply failed
 // that way on the first deploy while the injected Apply hid it here.
 func TestTheMarkersManagerIsOnePatchStatusAccepts(t *testing.T) {

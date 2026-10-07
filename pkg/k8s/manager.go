@@ -174,7 +174,7 @@ func (o Options) UsesBus() bool { return strings.TrimSpace(o.NATSURL) != "" }
 // controller-runtime's default is two minutes; on a real library (15,000
 // Episodes, a 57 MB list that kubectl alone takes 40 s to fetch) that was
 // not always enough while every service listed at once after an upgrade,
-// and captionarr crash-looped on it (2026-09-24). Ten minutes covers a
+// and caption crash-looped on it (2026-09-24). Ten minutes covers a
 // cold start under that load; a genuinely unreachable apiserver still
 // fails the readiness probe long before this elapses.
 const CacheSyncTimeout = 10 * time.Minute
@@ -332,8 +332,8 @@ func RegisterRESTClientMetrics() {
 // Liveness is a ping: the process answering at all is the whole claim, and a
 // liveness probe that depends on an external system turns that system's outage
 // into a cluster-wide restart loop. Readiness is where the dependencies go --
-// §13 puts the JetStream ping on every service, the SQLite open on indexarr
-// and the engine re-attach on grabarr engines -- because an unready pod is
+// §13 puts the JetStream ping on every service, the SQLite open on index
+// and the engine re-attach on grab engines -- because an unready pod is
 // taken out of Services and left alone.
 //
 // ready and live are added after ping, each in its set's order. Either may
@@ -374,8 +374,8 @@ func AddProbes(mgr ctrl.Manager, ready, live *Checks) error {
 // no NeedLeaderElection method, so controller-runtime's runnables.Add falls
 // through its type switch to `default: r.LeaderElection.Add(fn, nil)`
 // (pkg/manager/runnable_group.go) and silently puts it behind the lease. On a
-// service that elects -- catalogarr's controller,worker,history Deployment and
-// importarr's controller Deployment -- a plain RunnableFunc therefore never
+// service that elects -- catalog's controller,worker,history Deployment and
+// import's controller Deployment -- a plain RunnableFunc therefore never
 // starts on a non-leader replica, and nothing says so: it simply never runs.
 // (A service that does NOT elect is unaffected: controller-runtime treats a
 // non-electing process as elected and starts those runnables anyway. That is

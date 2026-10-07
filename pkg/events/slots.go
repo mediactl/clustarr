@@ -24,7 +24,7 @@ import (
 )
 
 // SlotsEnv overrides consumers' per-pod slots for one Deployment, as
-// "segmentarr-analyze=3,catalogarr-grab=8" (spec §9.2, §10.2.2).
+// "markers-analyze=3,catalog-grab=8" (spec §9.2, §10.2.2).
 const SlotsEnv = "CLUSTARR_CONSUMER_SLOTS"
 
 // ParseSlotOverrides reads SlotsEnv's value. An empty value overrides

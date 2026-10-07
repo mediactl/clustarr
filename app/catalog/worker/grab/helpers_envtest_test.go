@@ -217,8 +217,8 @@ func fixedNow(t time.Time) func() time.Time { return func() time.Time { return t
 // release, because there is nothing on the object to release.
 //
 // pendingGrab is written under the grab path's own manager
-// (k8s.ManagerCatalogarrGrab), as Decide writes it. The reconciler's share is
-// written under k8s.ManagerCatalogarr, as it is in production before any
+// (k8s.ManagerCatalogGrab), as Decide writes it. The reconciler's share is
+// written under k8s.ManagerCatalog, as it is in production before any
 // search can happen: status.phase (Delayed while a grab is pending, Wanted
 // otherwise) and, when non-empty, activeDownloadRef -- since gap-fix ruling
 // R-5 the reconciler is that field's only writer. The phase is not decoration:
@@ -249,7 +249,7 @@ func seedWorkerStatus(t *testing.T, ctx context.Context, c client.Client, m *cat
 // interactiveDownload applies a Download for rel exactly the way the Search
 // controller's spec.grab does (app/catalog/controller/search handleGrabs):
 // the deterministic name, the target as owner, grabbedBy=interactive,
-// manual=true, under k8s.ManagerCatalogarr. src is passed in rather than
+// manual=true, under k8s.ManagerCatalog. src is passed in rather than
 // resolved so a test can reproduce a Download whose source another build
 // mapped differently.
 func interactiveDownload(t *testing.T, ctx context.Context, c client.Client, owner client.Object, target commonv1.MediaRef, rel commonv1.ReleaseInfo, src downloadv1alpha1.DownloadSource) *downloadv1alpha1.Download {
@@ -273,8 +273,8 @@ func interactiveDownload(t *testing.T, ctx context.Context, c client.Client, own
 	return &dl
 }
 
-// setDownloadPhase writes status.phase the way grabarr's controller does,
-// under k8s.ManagerGrabarr.
+// setDownloadPhase writes status.phase the way grab's controller does,
+// under k8s.ManagerGrab.
 func setDownloadPhase(t *testing.T, ctx context.Context, c client.Client, ns, name string, phase downloadv1alpha1.DownloadPhase) {
 	t.Helper()
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab,
@@ -297,7 +297,7 @@ func managerStatusFields(obj client.Object, fm k8s.FieldManager) string {
 
 // seedGatewayMetadata writes status.metadata exactly as app/catalog/metadata's
 // handler does: MovieStatus().WithMetadata(...) and nothing else, under
-// k8s.ManagerCatalogarrMetadata.
+// k8s.ManagerCatalogMetadata.
 func seedGatewayMetadata(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie) {
 	t.Helper()
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,

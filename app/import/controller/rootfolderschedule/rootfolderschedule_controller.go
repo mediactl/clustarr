@@ -89,9 +89,9 @@ const (
 
 // Reconciler creates one LibraryScan per RootFolder.spec.scanSchedule tick.
 //
-// It never writes RootFolder.status -- that belongs to catalogarr's RootFolder
+// It never writes RootFolder.status -- that belongs to catalog's RootFolder
 // reconciler -- and writes exactly one thing on the RootFolder itself, the
-// [AnnotationLastTick] annotation, under k8s.ManagerImportarr.
+// [AnnotationLastTick] annotation, under k8s.ManagerImport.
 type Reconciler struct {
 	// Client reads the RootFolder and its scans, and applies both the new
 	// LibraryScan and the tick annotation.
@@ -305,13 +305,13 @@ func requeueFor(d time.Duration) time.Duration {
 }
 
 // update and patch on rootfolders is granted DELIBERATELY, and it is the one
-// place importarr writes to a resource catalogarr owns.
+// place import writes to a resource catalog owns.
 //
 // What this controller actually writes is a single annotation,
 // catalog.clustarr.io/last-scan-tick, under its own field manager. Server-side
 // apply scopes ownership per annotation KEY, so the practical blast radius is
 // that one key: neither RootFolder.spec nor RootFolder.status is touched, and
-// catalogarr's RootFolder reconciler remains the sole writer of the status
+// catalog's RootFolder reconciler remains the sole writer of the status
 // subresource. RBAC has no sub-object granularity, though, so the grant it
 // needs is "patch any field of any RootFolder". That asymmetry is the reason
 // this comment exists rather than an unexplained extra verb in a generated
@@ -320,8 +320,8 @@ func requeueFor(d time.Duration) time.Duration {
 //
 // There is a second, wider asymmetry, and it is worth stating plainly:
 // controller-gen emits ONE clustarr-manager-role and both installers bind
-// every service's ServiceAccount to it, so this grant reaches catalogarr,
-// indexarr, grabarr, squasharr and captionarr as well -- none of which has any
+// every service's ServiceAccount to it, so this grant reaches catalog,
+// index, grab, transcode and caption as well -- none of which has any
 // business patching a RootFolder. Nothing here can narrow that: per-service
 // roles need per-service generator invocations and per-service bindings, which
 // is a manifest-layout change rather than a marker change, which gap-fix W2
@@ -333,7 +333,7 @@ func requeueFor(d time.Duration) time.Duration {
 // the group to grant and the core group is not. The marker and the recorder
 // type move together or not at all: a mismatch is denied only on a real
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
-// catalogarr's setupControllers records the occasion this repo learned it.
+// catalog's setupControllers records the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // SetupWithManager registers the schedule controller.
@@ -342,7 +342,7 @@ func requeueFor(d time.Duration) time.Duration {
 // self-timed through RequeueAfter, and a scan carries no owner reference back
 // to the RootFolder that triggered it. The predicate is GenerationChanged so
 // that this controller's own annotation write -- which does not bump the
-// generation -- cannot loop it, and neither can catalogarr's RootFolder
+// generation -- cannot loop it, and neither can catalog's RootFolder
 // status writes.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Client == nil {

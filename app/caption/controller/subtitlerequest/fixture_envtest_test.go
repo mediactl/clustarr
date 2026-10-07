@@ -230,7 +230,7 @@ func (f *fixture) movie(name string) *catalogv1alpha1.Movie {
 // mediaFile writes <name>.mkv plus any sidecars into the fixture's directory
 // and creates the MediaFile -- at the logical /data/<name>.mkv, which the
 // reconciler's DataDir maps onto that directory -- and its Movie, probed (as
-// catalogarr would) when mi is non-nil.
+// catalog would) when mi is non-nil.
 func (f *fixture) mediaFile(name string, mi *commonv1alpha1.MediaInfo, sidecars ...string) *catalogv1alpha1.MediaFile {
 	f.t.Helper()
 	for _, s := range append([]string{name + ".mkv"}, sidecars...) {
@@ -253,7 +253,7 @@ func (f *fixture) mediaFile(name string, mi *commonv1alpha1.MediaInfo, sidecars 
 	return mf
 }
 
-// probe stands in for catalogarr's probe write.
+// probe stands in for catalog's probe write.
 func (f *fixture) probe(name, hash string, mi commonv1alpha1.MediaInfo) {
 	f.t.Helper()
 	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalog,
@@ -321,7 +321,7 @@ func (f *fixture) workerApply(name string) {
 }
 
 // workerApplyFrom is the worker's real apply path from snapshot sr:
-// app/caption/status.PatchRequest under k8s.ManagerCaptionarrWorker, whose
+// app/caption/status.PatchRequest under k8s.ManagerCaptionWorker, whose
 // RequestWorkerFields re-sends leaves only for items live IN sr (rule 3 of
 // the liveness protocol). Nothing is filtered here, so the protocol under
 // test is the worker's own. A stale sr is how a test makes the worker race

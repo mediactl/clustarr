@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package standard decides squasharr's fixed transcoding standard (spec
+// Package standard decides transcode's fixed transcoding standard (spec
 // docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md §1, its
 // layout since Version 2 docs/superpowers/specs/2026-10-06-mp4-standard-design.md)
 // for the in-process engine: one MP4 holding HEVC Main 10 at the source's

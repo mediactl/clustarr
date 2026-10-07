@@ -63,7 +63,7 @@ func TestRenderIsACompletePoolDeclaration(t *testing.T) {
 
 	assert.Equal(t, "batch/v1", j.APIVersion)
 	assert.LessOrEqual(t, len(j.Name), 63)
-	assert.True(t, strings.HasPrefix(j.Name, "squasharr-pool-"))
+	assert.True(t, strings.HasPrefix(j.Name, "transcode-pool-"))
 	assert.Equal(t, "clustarr-system", j.Namespace)
 	require.Len(t, j.OwnerReferences, 1)
 	assert.Equal(t, "TranscodeProfile", j.OwnerReferences[0].Kind)

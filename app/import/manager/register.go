@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package manager is importarr's manager-side registration (spec §4.2.1):
+// Package manager is import's manager-side registration (spec §4.2.1):
 // the LibraryScan, RootFolder schedule, ImportExclusion, LibraryDelete and
 // ImportList controllers and the recycle sweep's publisher. Completed
 // downloads are imported by the downloads stage of the remediation loop
@@ -52,7 +52,7 @@ type Options struct {
 	TraktBaseURL string
 }
 
-// Register adds every importarr controller: importarr's leader-elected
+// Register adds every import controller: import's leader-elected
 // reconcilers (amendment §A1.2, §A1.3, §A1.6; §16 M1). Each call is the one
 // its package's doc.go prescribes.
 func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
@@ -65,27 +65,27 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Bus:    bus,
 		Clock:  time.Now,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: libraryscan: %w", err)
+		return fmt.Errorf("import: libraryscan: %w", err)
 	}
 
 	// mgr.GetEventRecorder, not the deprecated mgr.GetEventRecorderFor: the
 	// Recorder field is a k8s.io/client-go/tools/events.EventRecorder and
 	// writes events.k8s.io/v1, which is what the package's RBAC marker
-	// grants. See catalogarr's setupControllers for why the two must move
+	// grants. See catalog's setupControllers for why the two must move
 	// together.
 	if err := (&rootfolderschedule.Reconciler{
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorder("rootfolderschedule"),
 		Clock:    time.Now,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: rootfolderschedule: %w", err)
+		return fmt.Errorf("import: rootfolderschedule: %w", err)
 	}
 
 	if err := (&importexclusion.Reconciler{
 		Client: mgr.GetClient(),
 		Bus:    bus,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: importexclusion: %w", err)
+		return fmt.Errorf("import: importexclusion: %w", err)
 	}
 
 	// The library delete (docs/superpowers/specs/2026-09-30-library-delete-
@@ -93,21 +93,21 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// removing its folder on disk for "files", so it runs here, where the
 	// library is mounted, under the lease.
 	if err := librarydelete.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: librarydelete: %w", err)
+		return fmt.Errorf("import: librarydelete: %w", err)
 	}
 
 	// The ImportList controller (plan task G1-3): schedules one
-	// work.importarr.list.<name> task per spec.refreshInterval, drives
+	// work.import.list.<name> task per spec.refreshInterval, drives
 	// Trakt's device-code flow, and is the sole writer of ImportList.status,
 	// which it projects from the list worker's clustarr-progress checkpoint.
 	// HTTPClient and Clock are left nil on purpose: both default
 	// (http.DefaultClient, bounded by the reconcile context; time.Now).
 	if err := newImportListReconciler(mgr.GetClient(), bus, o).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: importlist: %w", err)
+		return fmt.Errorf("import: importlist: %w", err)
 	}
 
 	// The recycle-bin sweep's publisher (spec 2026-10-06 §3.5.3, OD36):
-	// leader-only, one task per 6-hour slot on importarr-recycle.
+	// leader-only, one task per 6-hour slot on import-recycle.
 	if err := mgr.Add(&recyclesweep.Scheduler{Bus: bus}); err != nil {
 		return fmt.Errorf("import manager: add the recycle sweep scheduler: %w", err)
 	}

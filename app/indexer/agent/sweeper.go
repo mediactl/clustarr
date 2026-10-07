@@ -42,7 +42,7 @@ const (
 // relindex.Open/OpenPostgres starts no goroutines and Prune reads no clock,
 // both deliberately, so the schedule is here.
 //
-// It sweeps once on startup before it starts ticking: indexarr is pinned to a
+// It sweeps once on startup before it starts ticking: index is pinned to a
 // Recreate rollout under SQLite, so a restart is the moment the index is most
 // likely to be holding a backlog older than the window, and a first sweep ten
 // minutes in leaves that backlog answering searches until then.
@@ -84,18 +84,18 @@ func (indexSweeper) NeedLeaderElection() bool { return false }
 
 // pruneOnce drops every release fetched more than [IndexRetention] ago.
 func pruneOnce(ctx context.Context, store relindex.Store) {
-	ctx, span := tracing.Start(ctx, "indexarr.relindex.prune")
+	ctx, span := tracing.Start(ctx, "index.relindex.prune")
 	defer span.End()
 
 	log := logging.FromContext(ctx)
 	deleted, err := store.Prune(ctx, time.Now().Add(-IndexRetention))
 	if err != nil {
 		tracing.RecordError(span, err)
-		log.Error("indexarr: pruning the release index", "error", err)
+		log.Error("index: pruning the release index", "error", err)
 		return
 	}
 	if deleted > 0 {
-		log.Info("indexarr: pruned the release index",
+		log.Info("index: pruned the release index",
 			"deleted", deleted, "retention", IndexRetention.String())
 	}
 
@@ -104,10 +104,10 @@ func pruneOnce(ctx context.Context, store relindex.Store) {
 	blocks, err := store.PruneBlocks(ctx, time.Now())
 	if err != nil {
 		tracing.RecordError(span, err)
-		log.Error("indexarr: pruning the blocklist", "error", err)
+		log.Error("index: pruning the blocklist", "error", err)
 		return
 	}
 	if blocks > 0 {
-		log.Info("indexarr: pruned expired blocklist rows", "deleted", blocks)
+		log.Info("index: pruned expired blocklist rows", "deleted", blocks)
 	}
 }

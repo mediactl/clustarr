@@ -103,7 +103,7 @@ func bursts(t *testing.T, seed uint64, seconds float64) string {
 // library lays out /data under a temp dir: the tv root folder, the target
 // episode (H.264 + Japanese AAC of bursts mne, plus tracks from extra), and
 // a donor -- video, Japanese and English, delayed by lead -- placed as
-// importarr places one.
+// import places one.
 type library struct {
 	dataDir string
 	task    grafttask.Task

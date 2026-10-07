@@ -74,10 +74,10 @@ func deadLetterFor(t *testing.T, ns, name string) (dlqSubject, workSubject strin
 		Reason:   schema.SearchReasonMissing,
 	})
 	orig.ID = "search:" + name
-	workSubject = "clustarr.work.catalogarr.search.high." + name
+	workSubject = "clustarr.work.catalog.search.high." + name
 	dlqSubject, env = events.DeadLetter(
 		deadLetterMessage{testMessage: testMessage{env: orig, subject: workSubject}, attempt: 5},
-		"catalogarr-search-high", "max deliveries exceeded (5): indexer timeout")
+		"catalog-search-high", "max deliveries exceeded (5): indexer timeout")
 	return dlqSubject, workSubject, env
 }
 
@@ -142,7 +142,7 @@ func TestReplayer(t *testing.T) {
 	_, _, otherDead := deadLetterFor(t, ns, "somebody-else")
 	dlq := &fakeDLQ{
 		bySeq:  map[uint64]*events.Envelope{7: heatDead, 8: otherDead},
-		subj:   map[uint64]string{7: heatDLQ, 8: "clustarr.dlq.catalogarr.search.somebody-else"},
+		subj:   map[uint64]string{7: heatDLQ, 8: "clustarr.dlq.catalog.search.somebody-else"},
 		lastOn: map[string]uint64{heatDLQ: 7},
 	}
 

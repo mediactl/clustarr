@@ -37,7 +37,7 @@ import (
 )
 
 // A transcoded file is renamed in its own folder (renameTranscoded):
-// catalogarr's canonical path may name another folder ("Season 03" where
+// catalog's canonical path may name another folder ("Season 03" where
 // the library has "Season 3"), and moving only the transcoded episodes
 // there would split a season. The whole-path rename still holds such a
 // file, as it always has.

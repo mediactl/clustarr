@@ -67,7 +67,7 @@ func Interval(idx *indexv1alpha1.Indexer) time.Duration {
 
 // TaskMsgID is the deduplication id for one scheduled poll slot.
 //
-// It carries the slot, not just the object, on purpose: CLUSTARR_WORK_INDEXARR
+// It carries the slot, not just the object, on purpose: CLUSTARR_WORK_INDEX
 // dedups for 1h, so a constant per-object id would make every schedule after
 // the first within that hour a no-op and the indexer would silently stop
 // polling. Two schedulers converging on the same slot -- the reconciler
@@ -141,7 +141,7 @@ func ScheduleNext(ctx context.Context, bus events.Bus, idx *indexv1alpha1.Indexe
 		ID:     id,
 		Type:   "index.RssTask",
 		Schema: name,
-		Source: "indexarr@" + version.String(),
+		Source: "index@" + version.String(),
 		// The work-task envelope key is the same <namespace>/<name> shape as
 		// the firehose's, for the same reason: whoever handles it cuts it to
 		// recover the namespace.

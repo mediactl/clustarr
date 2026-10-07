@@ -15,9 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package worker will hold importarr's queue consumers: work.importarr.scan,
-// work.importarr.list and work.importarr.fileimport (amendment §A1.6). They
-// run on every replica of the scalable `importarr-worker` Deployment,
+// Package worker will hold import's queue consumers: work.import.scan,
+// work.import.list and work.import.fileimport (amendment §A1.6). They
+// run on every replica of the scalable `import-worker` Deployment,
 // selected by [github.com/mediactl/clustarr/app/import.RoleWorker], and mount
 // the same RWX /data volume the controllers do.
 //

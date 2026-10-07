@@ -136,7 +136,7 @@ func thumbAndArt(externalURL string, af artworkFor) (thumb, art string) {
 // handleImages answers GET {metadata key}/{ratingKey}/images: the artwork
 // gallery (research §7). Unlike Metadata.Image[], which carries one of each
 // type, "highly recommended", this route "lists all available assets" --
-// but this provider fetches at most one of each type per item (catalogarr's
+// but this provider fetches at most one of each type per item (catalog's
 // metadata gateway keeps a single ArtworkEntry per type), so the gallery and
 // Metadata.Image[] are the same list here.
 func (h *handler) handleImages(root rootDef) http.HandlerFunc {

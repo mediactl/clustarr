@@ -204,7 +204,7 @@ func TestAFileMissingTheLanguageGetsAGraftJob(t *testing.T) {
 	assert.Equal(t, int32(0), *j.Spec.BackoffLimit)
 	require.Len(t, j.OwnerReferences, 1)
 	assert.Equal(t, g.UID, j.OwnerReferences[0].UID)
-	assert.Equal(t, pool.ManagedByValue, j.Labels[pool.LabelManagedBy], "the Job is in squasharr's Job cache")
+	assert.Equal(t, pool.ManagedByValue, j.Labels[pool.LabelManagedBy], "the Job is in transcode's Job cache")
 	assert.NotContains(t, j.Labels, pool.LabelProfile, "and is no pool")
 	pod := j.Spec.Template.Spec
 	assert.Equal(t, "transcoder:test", pod.Containers[0].Image)
@@ -347,7 +347,7 @@ func TestGraftingNamesTheFilesUnderAGraft(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, set[types.NamespacedName{Namespace: f.ns, Name: mf.Name}])
 
-	// Only squasharr writes AudioGraft status.
+	// Only transcode writes AudioGraft status.
 	var g transcodev1alpha1.AudioGraft
 	require.NoError(t, f.c.Get(f.ctx, types.NamespacedName{Namespace: f.ns, Name: "monster-s01e02-audiograft"}, &g))
 	for _, m := range g.ManagedFields {

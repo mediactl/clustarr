@@ -192,7 +192,7 @@ func TestResolveRejectsUnsupportedSource(t *testing.T) {
 	assert.ErrorIs(t, err, usenetengine.ErrUnsupportedSource)
 }
 
-// indexarr gzips a large .nzb for the bus (schema.DownloadResponse.ForWire);
+// index gzips a large .nzb for the bus (schema.DownloadResponse.ForWire);
 // the engine reads it back through Payload, whole.
 func TestResolveIndexerDownloadDecompressesAGzipReply(t *testing.T) {
 	want := bytes.Repeat([]byte("<segment>x@y</segment>\n"), 100_000)

@@ -15,8 +15,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package task holds what crosses NATS between squasharr and its transcode
-// pools (spec §6, §17.5, §18.1): the Task squasharr publishes, the
+// Package task holds what crosses NATS between transcode and its transcode
+// pools (spec §6, §17.5, §18.1): the Task transcode publishes, the
 // StatusEvents a worker publishes on clustarr.work.transcode.result.<uid>,
 // and the Lease a worker holds in clustarr-transcode-leases. It imports no
 // Kubernetes client.
@@ -40,7 +40,7 @@ type Profile struct {
 	Hardware *transcodev1alpha1.Hardware            `json:"hardware,omitempty"`
 }
 
-// RootFolder is the library root the source lives under, resolved by squasharr.
+// RootFolder is the library root the source lives under, resolved by transcode.
 type RootFolder struct {
 	Path       string `json:"path"`
 	RecycleBin string `json:"recycleBin"`
@@ -104,7 +104,7 @@ const (
 	ReasonGPUEncodeFailed  Reason = "GPUEncodeFailed"
 	ReasonCancelled        Reason = "Cancelled"
 
-	// Decided by squasharr, never reported by a worker.
+	// Decided by transcode, never reported by a worker.
 	ReasonRetriesExhausted Reason = "RetriesExhausted"
 	ReasonDeadLettered     Reason = "DeadLettered"
 )
@@ -123,7 +123,7 @@ const (
 // <uid>/<attempt>/<delivery>/<seq> makes a re-publish a duplicate.
 //
 // Class is the hardware class of the pool the task was taken from. With
-// Attempt it proves which dispatch the worker is running, so squasharr can
+// Attempt it proves which dispatch the worker is running, so transcode can
 // adopt an attempt whose Queued write was lost after the publish, and correct
 // the class when a re-dispatch's publish was absorbed as a duplicate of an
 // earlier one to another pool.

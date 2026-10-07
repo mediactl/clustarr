@@ -53,7 +53,7 @@ func TestParseGroupExtractsReleaseGroupEditionAndHashFallback(t *testing.T) {
 // end, where the old trailing "-GROUP" pattern read "1080p" (or
 // "1080p-RlsGrp") as the group. The expected values are what Radarr's
 // ReleaseGroupParser returns for each title; the corpus is the one
-// importarr's rescan guard carried while this was broken.
+// import's rescan guard carried while this was broken.
 func TestParseGroupArrFileLayouts(t *testing.T) {
 	tests := []struct {
 		name  string

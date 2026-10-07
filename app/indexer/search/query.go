@@ -70,7 +70,7 @@ func paramSupported(caps *indexv1alpha1.Caps, mode torznab.SearchMode, param str
 //
 // A requested id survives when the indexer serves it OR any of its children,
 // so a parent-only request ([2000], which is exactly what
-// catalogarr's BuildSearchRequest sends by default) stays [2000] instead of
+// catalog's BuildSearchRequest sends by default) stays [2000] instead of
 // fanning out to fifty leaves: the query string stays short and the indexer
 // expands the parent itself.
 //
@@ -121,7 +121,7 @@ func queryCategories(requested []int32, caps *indexv1alpha1.Caps) []newznab.Cate
 // mixing "q=" into an id-keyed request risks narrowing an exact match with a
 // noisy keyword filter on indexers that AND the two together.
 //
-// G1-6 closed the gap this comment used to describe (catalogarr never set
+// G1-6 closed the gap this comment used to describe (catalog never set
 // Text and the payload "had no field for" a resolved title): both were
 // wrong. schema.SearchRequest.Text has carried a free-text query since M0
 // (pkg/events/schema/index.go); the gap was app/catalog/worker/search never
@@ -132,7 +132,7 @@ func queryCategories(requested []int32, caps *indexv1alpha1.Caps) []newznab.Cate
 // field.
 //
 // Anime arrives as an absolute number in Episode with Season nil and no
-// flag: catalogarr's BuildSearchRequest drops the season for an anime series
+// flag: catalog's BuildSearchRequest drops the season for an anime series
 // and puts the absolute number in Episode. That shape is the only signal on
 // the wire, so it is the inference -- an episode request with Episode set
 // and Season nil also searches the indexer's spec.animeCategories, which

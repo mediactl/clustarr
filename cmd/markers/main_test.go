@@ -26,7 +26,7 @@ import (
 )
 
 func TestMissingNATSURLExitsMisconfigured(t *testing.T) {
-	env := map[string]string{"POD_NAME": "segmentarr-worker-0"}
+	env := map[string]string{"POD_NAME": "markers-worker-0"}
 	assert.Equal(t, worker.ExitMisconfigured, run(nil, func(k string) string { return env[k] }))
 }
 

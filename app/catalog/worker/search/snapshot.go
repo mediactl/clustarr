@@ -39,7 +39,7 @@ import (
 // resolve, and the decision engine's Target (current file, live queue, the
 // blocklist predicate and the item's decision.Identity included -- all but
 // Identity.IDQueryIndexers, which only the search's reply can supply; Handle
-// fills it in once indexarr has answered).
+// fills it in once index has answered).
 type itemSnapshot struct {
 	IDs               TargetIDs
 	QualityProfileRef string

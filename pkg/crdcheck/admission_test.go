@@ -260,7 +260,7 @@ func importListKindCases() []admissionCase {
 
 // rootFolderPathCases: a RootFolder's path is under /data/media/ and clean
 // (kind-cluster finding D3, ruling R28). The prefix check alone admitted
-// "/data/media/../x", which every consumer of the path -- importarr's
+// "/data/media/../x", which every consumer of the path -- import's
 // rescan, the transcode worker's RootFolder guard (spec §17.5) -- resolves
 // outside the library.
 func rootFolderPathCases() []admissionCase {

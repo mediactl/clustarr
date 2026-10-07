@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // A scan moves through three steps, dispatched on status.phase:
 //
 //   - start: resolve the RootFolder, publish exactly one schema.ScanTask on
-//     clustarr.work.importarr.scan.<rootfolder>, and record Running;
+//     clustarr.work.import.scan.<rootfolder>, and record Running;
 //   - poll: read the rescan worker's clustarr-progress checkpoint and
 //     aggregate it into status, capping unmatched at the CRD's 200 newest.
 //     The aggregate never lowers a counter (a redelivery whose checkpoint
@@ -48,7 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task C12 wires it into importarr's
+// Nothing here registers itself. Task C12 wires it into import's
 // setupControllers with exactly:
 //
 //	if err := (&libraryscan.Reconciler{
@@ -56,7 +56,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	        Bus:    bus,
 //	        Clock:  time.Now,
 //	}).SetupWithManager(mgr); err != nil {
-//	        return fmt.Errorf("importarr: libraryscan: %w", err)
+//	        return fmt.Errorf("import: libraryscan: %w", err)
 //	}
 //
 // The import manager registration therefore needs the bus; the manager's Run

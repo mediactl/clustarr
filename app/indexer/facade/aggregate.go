@@ -28,7 +28,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
-// handleAggregate is "GET /search/api": a read against indexarr's
+// handleAggregate is "GET /search/api": a read against index's
 // already-merged local release index via Config.Query, not a live fan-out
 // across every indexer on every request. See doc.go.
 func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {

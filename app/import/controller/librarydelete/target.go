@@ -71,7 +71,7 @@ func (t Target) Owns(ref commonv1.MediaRef) bool {
 }
 
 // paths is every file path and sidecar the target's MediaFiles record, and
-// every subtitle beside a file that its stem names -- squasharr's own,
+// every subtitle beside a file that its stem names -- transcode's own,
 // which no MediaFile records (MP4 standard §4.1).
 func (t Target) paths() []string {
 	var out []string

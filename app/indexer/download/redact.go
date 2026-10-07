@@ -41,7 +41,7 @@ const (
 // dropped, so an unparseable URL cannot leak its query either.
 //
 // The stripping itself is cardigann's, not this package's. RedactURL and
-// RedactErr are exported precisely so indexarr calls them (Ruling R26, named
+// RedactErr are exported precisely so index calls them (Ruling R26, named
 // in pkg/cardigann/engine.go:147-152; RedactURL is :153 and RedactErr :188): a
 // second, independent implementation of
 // "take the passkey out" is how the two drift and a secret eventually reaches

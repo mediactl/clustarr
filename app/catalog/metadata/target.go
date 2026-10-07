@@ -41,7 +41,7 @@ import (
 // pkg/pipeline/project.go's describeItem, which treats both as "always
 // metadata-synced" because each is only created once its parent's own
 // metadata sync has already run). Their fields come from their parent's fan
-// out (ManagerCatalogarrSeries for Episode; ManagerCatalogarrFanout for
+// out (ManagerCatalogSeries for Episode; ManagerCatalogFanout for
 // Issue, task G2-2) directly, never from this worker.
 var errUnsupportedKind = errors.New("metadata: unsupported media kind for the metadata worker")
 

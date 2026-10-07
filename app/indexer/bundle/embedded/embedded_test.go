@@ -49,7 +49,7 @@ func TestTheEmbeddedArchiveIsAFlatDirectoryOfDefinitions(t *testing.T) {
 }
 
 // TestEveryEmbeddedDefinitionLoads runs the whole corpus through the loader
-// indexarr uses, so a definition the engine refuses is visible here rather
+// index uses, so a definition the engine refuses is visible here rather
 // than as a startup warning on a cluster.
 func TestEveryEmbeddedDefinitionLoads(t *testing.T) {
 	fsys, err := embedded.FS()

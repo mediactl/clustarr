@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package facade serves indexarr's own indexers back out as Torznab, so
+// Package facade serves index's own indexers back out as Torznab, so
 // external tools (Sonarr/Radarr-alikes, Jackett-compatible scripts, a human
 // with curl) can search Clustarr's aggregated indexers the same way they
 // would search Prowlarr or Jackett. It is design §6.2's "Facade":
@@ -28,21 +28,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     status.caps, rendered as a t=caps document.
 //   - "GET /{indexer}/api?t=search|tvsearch|movie|music|audio|book&q=..."
 //     -> a LIVE federated search scoped to that one indexer, via Config.Search
-//     (clustarr.rpc.indexarr.search's own body, called in-process -- see
+//     (clustarr.rpc.index.search's own body, called in-process -- see
 //     below). q becomes SearchRequest.Text, the field
 //     app/catalog/worker/search's BuildSearchRequest also fills, from the
 //     item's resolved title (G1-6); app/indexer/search's buildQuery uses it
 //     only for an indexer that supports none of the request's id
 //     parameters.
 //   - "GET /{indexer}/download?guid=...&url=..."      -> Config.Download
-//     (clustarr.rpc.indexarr.download's own body), resolving the payload
+//     (clustarr.rpc.index.download's own body), resolving the payload
 //     with the indexer's own session.
 //   - "GET /search/api?t=...&q=...&cat=..."           -> an aggregate read
-//     against indexarr's already-merged local SQLite release index, via
-//     Config.Query (clustarr.rpc.indexarr.query's own body) -- not a live
+//     against index's already-merged local SQLite release index, via
+//     Config.Query (clustarr.rpc.index.query's own body) -- not a live
 //     fan-out across every indexer on every request. §6.2's design table
-//     names this pairing explicitly: "rpc.indexarr.query ... Torznab facade
-//     -> indexarr SQLite index." Only `q` and `cat` are honoured; the
+//     names this pairing explicitly: "rpc.index.query ... Torznab facade
+//     -> index SQLite index." Only `q` and `cat` are honoured; the
 //     Jackett filter grammar (tracker/protocol selection encoded into the
 //     query string) is the deferred half named in §6.2 and is not
 //     implemented here.
@@ -55,10 +55,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Same process, plain Go calls, no NATS round trip
 //
-// indexarr is pinned to exactly one replica (§3: Recreate, RWO PVC
+// index is pinned to exactly one replica (§3: Recreate, RWO PVC
 // clustarr-index) and the facade is one of ITS OWN features, in the same
 // process as the search, query and download RPC responders -- not a
-// separate service reaching them over the bus the way catalogarr does. So
+// separate service reaching them over the bus the way catalog does. So
 // Config.Search/Query/Download are plain Go function values with the same
 // signature as app/indexer/search.Service.Search, app/indexer/query.Service.Handle
 // and app/indexer/download.Service.Handle's methods (a *search.Service's
@@ -92,7 +92,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // New(addr, cfg) returns (nil, nil) when addr equals
 // pkg/k8s.DisabledBindAddress ("0"), the same sentinel
-// indexarr.Options.FacadeBindAddress's own doc comment already promises
+// index.Options.FacadeBindAddress's own doc comment already promises
 // ("'0' disables it") and the one controller-runtime's own metrics/health
 // servers use. The caller checks for a nil *Server rather than calling
 // Run on a server it never meant to start.

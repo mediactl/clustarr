@@ -47,7 +47,7 @@ type Outcome struct {
 // matrix in doc.go is unchanged because the swap order is.
 func Process(ctx context.Context, t task.Task, o Options) Outcome {
 	o = o.withDefaults()
-	ctx, span := tracing.Start(ctx, "squasharr.worker.process") // the span Run used
+	ctx, span := tracing.Start(ctx, "transcode.worker.process") // the span Run used
 	defer span.End()
 	// Every log line run() emits below -- and any a caller emits with this
 	// ctx afterward -- carries the task's job, the way Run's did for every

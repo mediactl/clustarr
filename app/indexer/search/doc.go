@@ -15,12 +15,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package search serves clustarr.rpc.indexarr.search: it fans one federated
+// Package search serves clustarr.rpc.index.search: it fans one federated
 // search out across every healthy Indexer that can answer it, merges what
 // comes back and replies once.
 //
-// It also registers the other two verbs -- clustarr.rpc.indexarr.download and
-// clustarr.rpc.indexarr.query -- because [Serve] is indexarr's single
+// It also registers the other two verbs -- clustarr.rpc.index.download and
+// clustarr.rpc.index.query -- because [Serve] is index's single
 // registration point for the RPC queue group; their bodies live in
 // app/indexer/download and app/indexer/query and arrive as [DownloadFn] and
 // [QueryFn].
@@ -34,7 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // field may be renamed, re-tagged or removed from this side, and an addition
 // must be optional -- as G1-6's SearchOutcome.QueryMode was -- so a peer built
 // against the older shape still decodes it. The request has carried a
-// free-text Text and a Year since M0; an id-only request is catalogarr's
+// free-text Text and a Year since M0; an id-only request is catalog's
 // choice when it has no resolved title, not a limit of the payload.
 //
 // # Search never returns an error
@@ -48,7 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Status ownership
 //
-// This package writes Indexer.status as k8s.ManagerIndexarrWorker, through
+// This package writes Indexer.status as k8s.ManagerIndexWorker, through
 // app/indexer/status.PatchCAS and nothing else. Server-side apply REPLACES a
 // field manager's ownership set on every apply rather than merging into it,
 // so an apply must declare all eight fields that manager owns even though a

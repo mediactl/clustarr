@@ -36,7 +36,7 @@ import (
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
-// gateway is the metadata gateway answering rpc.catalogarr.metadata.extras
+// gateway is the metadata gateway answering rpc.catalog.metadata.extras
 // with a response recorded from Plex's metadata service (Arrival,
 // 2026-10-06, two of its 44 extras), recording the Plex id it was asked for.
 type gateway struct {

@@ -25,17 +25,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.previousAiring (all rolled up from the post-fan-out Episodes, the
 // airings with Sonarr's monitored-only statistics semantics); status.metadata belongs
 // to the metadata gateway (Task C5, field manager
-// k8s.ManagerCatalogarrMetadata). The per-Episode provider fields
+// k8s.ManagerCatalogMetadata). The per-Episode provider fields
 // (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes) are written
-// by this reconciler too, under the distinct k8s.ManagerCatalogarrSeries
-// field manager -- not k8s.ManagerCatalogarr, which the Episode controller
+// by this reconciler too, under the distinct k8s.ManagerCatalogSeries
+// field manager -- not k8s.ManagerCatalog, which the Episode controller
 // uses for that Episode's own Phase/Conditions/HasFile/etc. Two writers on
 // one object cannot safely share one field manager name: server-side apply
 // replaces a manager's whole ownership set on every apply, so an apply that
 // omits a field the SAME manager previously sent releases it, silently
 // erasing the other writer's fields the next time either side reconciles.
 // This was found empirically during this task's development (see
-// k8s.ManagerCatalogarrSeries's own doc comment and CLAUDE.md) and is why
+// k8s.ManagerCatalogSeries's own doc comment and CLAUDE.md) and is why
 // the split is a distinct manager, not a same-manager convention.
 //
 // This is a status-versus-status split, not a spec-versus-status one like
@@ -46,7 +46,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // at Create, not through repeated server-side apply, so they carry none of
 // the same-manager clobbering risk the status fields do. Distinct field
 // manager NAMES on disjoint fields within one subresource is exactly the
-// §5 app/grab/grabarr-engine pattern on DownloadStatus.
+// §5 app/grab/grab-engine pattern on DownloadStatus.
 //
 // The reconciler also folds the DLQ projector's annotation into a
 // DeadLettered condition, emits Events on phase, fan-out and failure edges,

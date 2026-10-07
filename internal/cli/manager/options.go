@@ -54,15 +54,15 @@ type Options struct {
 	Logging logging.Options
 	Tracing tracing.Options
 
-	// DataDir is the RWX media volume: grabarr's, squasharr's and
-	// captionarr's --data-dir and importarr's --data-path, merged. It is
+	// DataDir is the RWX media volume: grab's, transcode's and
+	// caption's --data-dir and import's --data-path, merged. It is
 	// also the mount path stamped onto the engines and the pools.
 	DataDir string
 	// EngineScratchDir is the scratch mount the DownloadClient controller
-	// stamps onto the engines: grabarr's controller --scratch-dir, renamed.
+	// stamps onto the engines: grab's controller --scratch-dir, renamed.
 	EngineScratchDir string
 	// NativeImage is the image the engines and the transcode pools run:
-	// grabarr's --engine-image and squasharr's --worker-image, merged
+	// grab's --engine-image and transcode's --worker-image, merged
 	// (§13 OD3).
 	NativeImage string
 	// DataClaim is the RWX claim the engines and the pools mount at DataDir.
@@ -162,7 +162,7 @@ func (o Options) Validate() error {
 // managerOptions is §5.6's one merged cache: the lease manager.clustarr.io,
 // the pinned default field owner, Secret and ConfigMap never cached (every
 // read is a by-name Get; Wave 4e's Trakt token compare-and-swap reads the
-// Secret live), the pool Jobs selected by squasharr's managed-by label, and
+// Secret live), the pool Jobs selected by transcode's managed-by label, and
 // no MediaFile status.mediaInfo strip (the manager reads it).
 func managerOptions(o Options) ctrl.Options {
 	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect)

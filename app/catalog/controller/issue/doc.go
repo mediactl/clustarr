@@ -27,14 +27,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // spec.monitorNewIssues, spec.monitored), and the Comic reconciler also
 // writes this Issue's provider-sourced status fields
 // (sourceID/title/date) -- but under the distinct
-// k8s.ManagerCatalogarrFanout field manager, never k8s.ManagerCatalogarr,
+// k8s.ManagerCatalogFanout field manager, never k8s.ManagerCatalog,
 // which this reconciler alone uses for
 // State/Conditions/HasFile/FileRef/FileQuality/ActiveDownloadRef. Server-side
 // apply replaces a manager's whole ownership set on every apply, so two
 // writers sharing one manager name would silently release each other's
 // fields the next time either side reconciles -- the same empirical finding
-// documented on k8s.ManagerCatalogarrSeries and CLAUDE.md, reused here via
-// k8s.ManagerCatalogarrFanout rather than rediscovered. This reconciler
+// documented on k8s.ManagerCatalogSeries and CLAUDE.md, reused here via
+// k8s.ManagerCatalogFanout rather than rediscovered. This reconciler
 // never builds an IssueStatusApplyConfiguration that calls
 // WithSourceID/WithTitle/WithDate -- those are the Comic reconciler's alone.
 //

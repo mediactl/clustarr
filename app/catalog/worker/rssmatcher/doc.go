@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // index) and runs the same Evaluate for the single release; approved -> the
 // same delay/lease/grab path (pending CAS keep-best updates a delayed grab)".
 //
-// It consumes the CLUSTARR_RELEASES firehose that indexarr publishes on
+// It consumes the CLUSTARR_RELEASES firehose that index publishes on
 // clustarr.rel.>: one message per new indexer row. Most of them match nothing,
 // so the matching has to be cheap -- which is what the field indexes in
 // index.go are for.
@@ -55,7 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //		SceneMaps: sceneMaps,
 //	})
 //	if err := h.SetupWithManager(mgr, bus); err != nil {
-//		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
+//		return fmt.Errorf("catalog: subscribe rss-matcher: %w", err)
 //	}
 //
 // The Download indexes are NOT registered by the search worker. They used to
@@ -67,7 +67,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // one deterministic call and added a startup assertion (assertWorkerIndexes)
 // that fails the manager when any index it names is missing -- every one of
 // this package's too. The blocklist is now the firehose release's own block
-// state (ADR-0019 §6.14): indexarr puts every scope that blocks a release on
+// state (ADR-0019 §6.14): index puts every scope that blocks a release on
 // it, and the matcher keeps those naming the matched item or every item
 // (search.ScopedBlocklist); only the queue still reads a Download index.
 package rssmatcher

@@ -169,7 +169,7 @@ func TestReconcileQueryModeWithoutARPCFailsWithAnExplanation(t *testing.T) {
 	require.NotNil(t, cond)
 	require.Equal(t, metav1.ConditionTrue, cond.Status)
 	require.Equal(t, "NotConfigured", cond.Reason)
-	require.Contains(t, cond.Message, "rpc.indexarr.query")
+	require.Contains(t, cond.Message, "rpc.index.query")
 	require.NotNil(t, got.Status.StartedAt, "a failed Search still needs a TTL anchor")
 
 	subjects, _ := f.pub.snapshot()
@@ -177,8 +177,8 @@ func TestReconcileQueryModeWithoutARPCFailsWithAnExplanation(t *testing.T) {
 }
 
 // TestReconcileQueryModeCompletesFromTheLocalIndex is the main path: a
-// query-mode Search answers synchronously from a QueryRPC (indexarr's local
-// release index over clustarr.rpc.indexarr.query), never touches the work
+// query-mode Search answers synchronously from a QueryRPC (index's local
+// release index over clustarr.rpc.index.query), never touches the work
 // queue startSearch uses, and lands Completed with status.results and
 // status.indexerOutcomes populated -- the two fields the Reconciler doc
 // comment says belong to the worker for a mediaRef-mode Search, here written
@@ -247,9 +247,9 @@ func TestReconcileQueryModeFailsWhenTheIndexReportsAnError(t *testing.T) {
 	require.Contains(t, cond.Message, "boom")
 }
 
-// TestReconcileQueryModeRetriesWhenIndexarrIsUnreachable covers the
+// TestReconcileQueryModeRetriesWhenIndexIsUnreachable covers the
 // transport-level failure: nothing is currently serving
-// clustarr.rpc.indexarr.query. It must not fail the Search -- the same
+// clustarr.rpc.index.query. It must not fail the Search -- the same
 // "leave phase alone, requeue" shape startSearch uses for ErrQueueFull.
 func TestReconcileQueryModeRetriesWhenIndexIsUnreachable(t *testing.T) {
 	f := newFixture(t, "search-query-unreachable")
@@ -261,10 +261,10 @@ func TestReconcileQueryModeRetriesWhenIndexIsUnreachable(t *testing.T) {
 	require.Positive(t, res.RequeueAfter)
 
 	got := f.get(t, "srch")
-	require.Empty(t, string(got.Status.Phase), "an unreachable indexarr must leave the object retryable")
+	require.Empty(t, string(got.Status.Phase), "an unreachable index must leave the object retryable")
 	cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
 	require.NotNil(t, cond)
-	require.Equal(t, "IndexarrUnavailable", cond.Reason)
+	require.Equal(t, "IndexUnavailable", cond.Reason)
 }
 
 // TestHandleGrabsRejectsAQueryModeSearch guards the nil spec.mediaRef path:

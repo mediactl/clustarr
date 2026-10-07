@@ -42,7 +42,7 @@ const maxPayloadBytes = 8 << 20 // 8MiB
 var ErrResponseTooLarge = errors.New("torrent: response body exceeds size limit")
 
 // IndexerResolver is the narrow client this package needs against
-// clustarr.rpc.indexarr.download (app/indexer/download, already served -- see
+// clustarr.rpc.index.download (app/indexer/download, already served -- see
 // its own doc comment for the payload contract this mirrors). It exists,
 // rather than a bare events.Requester, so tests can inject
 // [FakeIndexerResolver] instead of standing up a bus.
@@ -96,11 +96,11 @@ type resolved struct {
 // httpClient is used for the two branches that need to fetch a URL directly
 // (torrentURL, and indexerDownload's RedirectURL branch) -- spec §4.4's own
 // words for IndexerDownload: "the payload is addressable by URL, or
-// indexerDownload names the release and grabarr resolves it through
-// indexarr". No indexer credentials are attached to either fetch: torrentURL
+// indexerDownload names the release and grab resolves it through
+// index". No indexer credentials are attached to either fetch: torrentURL
 // is documented as "needs no indexer credentials", and a RedirectURL from
-// indexarr's download RPC is, per that package's own doc comment, "where to
-// fetch the payload, when the indexer will not proxy it" -- indexarr already
+// index's download RPC is, per that package's own doc comment, "where to
+// fetch the payload, when the indexer will not proxy it" -- index already
 // held the session and chose not to use it for this link.
 func resolveSource(ctx context.Context, httpClient *http.Client, resolver IndexerResolver, namespace string, src downloadv1alpha1.DownloadSource) (resolved, error) {
 	var out resolved
@@ -134,7 +134,7 @@ func resolveSource(ctx context.Context, httpClient *http.Client, resolver Indexe
 			return resolved{}, fmt.Errorf("torrent: resolve indexerDownload: %w", err)
 		}
 		if resp.Error != "" {
-			// indexarr answered and could not produce the payload: the
+			// index answered and could not produce the payload: the
 			// release is gone from its indexer (ADR-0019 §6.7).
 			return resolved{}, fmt.Errorf("%w: torrent: indexer resolve failed: %s", engine.ErrPayloadUnavailable, resp.Error)
 		}

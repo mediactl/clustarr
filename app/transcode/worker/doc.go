@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // every output (progress, the result, stderr) comes back on the returned Outcome
 // for the caller to do something with. The caller is [Serve], the pool
 // worker loop cmd/transcode runs, which reports each Outcome to
-// squasharr as a finished status event (spec §18.1).
+// transcode as a finished status event (spec §18.1).
 //
 // # Sequence
 //
@@ -115,7 +115,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // else's: the job fails outright (exit 3) rather than overwrite it.
 //
 // status.result.outputPath names where the output ended up. For anything
-// but an in-place swap that is a new path, and catalogarr's MediaFile
+// but an in-place swap that is a new path, and catalog's MediaFile
 // reconciler, which takes over spec.path on a swap
 // (catalogv1alpha1.MediaFileSpec.Path's doc), must follow it.
 //
@@ -140,8 +140,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - a lease held in the clustarr-transcode-leases KV bucket, fencing a
 //     redelivered task against a still-live attempt (spec §7, §17);
 //   - claimed, progress and finished [task.StatusEvent]s published on
-//     clustarr.work.transcode.result.<jobUID>, which squasharr's
-//     squasharr-transcode-results consumer turns into TranscodeJob.status --
+//     clustarr.work.transcode.result.<jobUID>, which transcode's
+//     transcode-results consumer turns into TranscodeJob.status --
 //     the only writer of it, through one compare-and-swap apply path (design
 //     spec §18.1, §18.2);
 //   - 1 Hz telemetry written to the clustarr-progress KV bucket, best effort

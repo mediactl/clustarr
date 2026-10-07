@@ -37,7 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// renameSpecLeaves is every MediaFileSpec field importarr's complete render
+// renameSpecLeaves is every MediaFileSpec field import's complete render
 // sends for a steady, imported file. A rename re-applies all of them, so
 // every one must still be owned by mediafilespec.FieldManager afterwards.
 var renameSpecLeaves = []string{
@@ -46,11 +46,11 @@ var renameSpecLeaves = []string{
 	"spec.formatScore", "spec.matchedFormats", "spec.profileHash", "spec.original",
 }
 
-// correctedQuality is the probe-corrected quality catalogarr proposes: the
+// correctedQuality is the probe-corrected quality catalog proposes: the
 // name said 1080p, the probe found 2160p.
 var correctedQuality = commonv1.Quality{Name: "Bluray-2160p", Source: commonv1.SourceBluray, Resolution: 2160}
 
-// staleFile is one steady MediaFile catalogarr has proposed a new name for.
+// staleFile is one steady MediaFile catalog has proposed a new name for.
 type staleFile struct {
 	name     string
 	path     string // spec.path, where the file is
@@ -59,9 +59,9 @@ type staleFile struct {
 }
 
 // plantStaleFile plants a movie file and its .en.srt sidecar, records the
-// file under mediafilespec.FieldManager with every frozen field importarr ever
-// sets -- as fileimport would -- and seeds catalogarr's status under
-// k8s.ManagerCatalogarr: Ready and Probed True, NamingCurrent False, and a
+// file under mediafilespec.FieldManager with every frozen field import ever
+// sets -- as fileimport would -- and seeds catalog's status under
+// k8s.ManagerCatalog: Ready and Probed True, NamingCurrent False, and a
 // status.naming proposing expectedBase in the same folder with the
 // probe-corrected quality.
 func (f *fixture) plantStaleFile(t *testing.T, ctx context.Context, expectedBase string) staleFile {
@@ -113,7 +113,7 @@ func (f *fixture) plantStaleFile(t *testing.T, ctx context.Context, expectedBase
 	return staleFile{name: name, path: path, expected: expected, sidecar: sidecar}
 }
 
-// seedNamingStatus applies catalogarr's status as its MediaFile reconciler
+// seedNamingStatus applies catalog's status as its MediaFile reconciler
 // would for a file it proposes to rename: Ready, Probed and a False
 // NamingCurrent, beside naming and the sidecars.
 func (f *fixture) seedNamingStatus(t *testing.T, ctx context.Context, name string,
@@ -175,7 +175,7 @@ func requireAbsent(t *testing.T, path string) {
 
 const renamedBase = "Heat (1995) {tmdb-949} [Bluray-2160p][x264].mkv"
 
-// A rename moves the file and its sidecar, and re-applies importarr's
+// A rename moves the file and its sidecar, and re-applies import's
 // COMPLETE spec with the new path and the probe-corrected quality: every
 // frozen field survives, and mediafilespec.FieldManager still owns each one --
 // the rename is not a second, narrower apply that releases the rest.
@@ -205,13 +205,13 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 	}
 	for _, leaf := range renameSpecLeaves {
 		assert.NotContains(t, managersOf(t, after.ManagedFields, leaf), string(k8s.ManagerImport),
-			"%s: k8s.ManagerImportarr owns only the observed-fingerprint annotation on a MediaFile", leaf)
+			"%s: k8s.ManagerImport owns only the observed-fingerprint annotation on a MediaFile", leaf)
 	}
 }
 
-// A transcoded file's size, mtime and original flag are catalogarr's
+// A transcoded file's size, mtime and original flag are catalog's
 // (CLAUDE.md's invariant): the rename moves it and applies the new path,
-// but leaves those three to catalogarr alone.
+// but leaves those three to catalog alone.
 func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalog(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rn-transcoded", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
@@ -295,7 +295,7 @@ func TestRenameFileDryRunTouchesNothing(t *testing.T) {
 	assert.Equal(t, before.ResourceVersion, f.read(t, ctx, sf.name).ResourceVersion, "nothing was applied")
 }
 
-// The refusals that need no filesystem look: a proposal catalogarr holds, a
+// The refusals that need no filesystem look: a proposal catalog holds, a
 // proposal in another folder (files only, spec D5), and a file already at
 // its proposal or with none.
 func TestRenameFileHoldsWhatItMayNotMove(t *testing.T) {
@@ -311,7 +311,7 @@ func TestRenameFileHoldsWhatItMayNotMove(t *testing.T) {
 		to     string
 	}{
 		{
-			name: "catalogarr holds it",
+			name: "catalog holds it",
 			naming: catalogac.NamingStatus().WithExpectedPath(sf.expected).WithCurrent(false).
 				WithReason(catalogv1alpha1.NamingReasonTranscodePending),
 			want: mediafilespec.RenameHeld,
@@ -365,7 +365,7 @@ func TestRenameFileMovesBackWhenTheMediaFileChangedInFlight(t *testing.T) {
 	before := f.read(t, ctx, sf.name)
 
 	restore := mediafilespec.SetRenameBeforeMove(func() {
-		// catalogarr records that captionarr's sidecar is an SDH track.
+		// catalog records that caption's sidecar is an SDH track.
 		f.seedNamingStatus(t, ctx, sf.name, catalogac.NamingStatus().
 			WithExpectedPath(sf.expected).WithCurrent(false).WithQuality(correctedQuality),
 			catalogac.Sidecar().WithPath(sf.sidecar).WithLanguage("en").WithHI(true))

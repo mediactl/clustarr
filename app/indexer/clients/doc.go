@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package clients builds the wire clients indexarr talks to an indexer
+// Package clients builds the wire clients index talks to an indexer
 // through -- Torznab/Newznab or a Cardigann engine, behind the Indexer's
 // proxy and its host's rate limit -- and keeps Cardigann login sessions
 // (the clustarr-indexer-sessions KV bucket plus the owned Secret). The

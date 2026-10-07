@@ -52,7 +52,7 @@ func searchRequest(ns string) schema.SearchRequest {
 
 // steadyState creates an Indexer and drives its status to a REAL steady
 // state: a completed RSS poll (lastRssAt, lastRssNewCount), a release count
-// and a grab count, all applied under the SAME indexarr-worker manager the
+// and a grab count, all applied under the SAME index-worker manager the
 // search path uses, exactly as app/indexer/worker/rss and app/indexer/download
 // would leave it.
 //
@@ -152,7 +152,7 @@ func (e errClient) Search(context.Context, torznab.Query) ([]torznab.Release, er
 }
 
 // Server-side apply REPLACES a manager's ownership set on every apply. The
-// search fan-out and the RSS poll share k8s.ManagerIndexarrWorker, so an
+// search fan-out and the RSS poll share k8s.ManagerIndexWorker, so an
 // apply from here that declared less than the complete set would release
 // whatever the poll had written -- silently, and reading as zero on the
 // object.

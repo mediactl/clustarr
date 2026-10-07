@@ -57,8 +57,8 @@ func evaluateProbe(path string, statSize int64, statMod time.Time, currentHash s
 // bytes changed (ps.Stale), or an older probe version described it and
 // missed a field want (the probe version a pass asks for) records. The last
 // leaves ps.Hash as it was, so
-// nothing that keys on the hash -- captionarr's subtitle history,
-// squasharr's source identity -- sees a different file.
+// nothing that keys on the hash -- caption's subtitle history,
+// transcode's source identity -- sees a different file.
 func probeDue(currentHash string, version int32, ps probeState, want int32) bool {
 	return currentHash == "" || ps.Stale || version < want
 }

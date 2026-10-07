@@ -50,7 +50,7 @@ import (
 // write: the manager materialises what the record says was placed.
 //
 // It seeds no probe record: the MediaFile, and the UID a probe record is
-// keyed by, do not exist until the manager materialises it, so catalogarr
+// keyed by, do not exist until the manager materialises it, so catalog
 // probes a placed file once (ruling, A3.8).
 func (w *Worker) handleExecute(ctx context.Context, m events.Message, env *events.Envelope) error {
 	var task schema.ImportExecuteTask

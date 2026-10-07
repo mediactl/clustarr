@@ -30,8 +30,8 @@ import (
 	importapp "github.com/mediactl/clustarr/app/import"
 )
 
-// TestEveryImportarrDeploymentMountsTheDataClaim holds both installers to
-// what both importarr roles do on disk. The worker role scans and imports
+// TestEveryImportDeploymentMountsTheDataClaim holds both installers to
+// what both import roles do on disk. The worker role scans and imports
 // library files; the controller role runs the rename controller, which
 // moves them (probe-driven naming §5). The controller Deployment shipped
 // without /data -- "this Deployment owns only the controllers and does not
@@ -39,7 +39,7 @@ import (
 // rename test passed while every rename on a real cluster would have failed
 // its first stat.
 //
-// Each Deployment that runs `clustarr importarr` must mount a
+// Each Deployment that runs `clustarr import` must mount a
 // PersistentVolumeClaim at /data and set UMASK, whatever its --role; both
 // readiness gates include /data writability (app/import's Run).
 func TestEveryImportDeploymentMountsTheDataClaim(t *testing.T) {
@@ -50,7 +50,7 @@ func TestEveryImportDeploymentMountsTheDataClaim(t *testing.T) {
 	t.Run("chart", func(t *testing.T) { assertChartImportData(t, root) })
 }
 
-// importarrWorkload is the slice of a Deployment manifest this guard reads.
+// importWorkload is the slice of a Deployment manifest this guard reads.
 type importWorkload struct {
 	Kind     string `json:"kind"`
 	Metadata struct {
@@ -112,7 +112,7 @@ func assertKustomizeImportData(t *testing.T, root string) {
 				for _, m := range c.VolumeMounts {
 					mounted = mounted || (m.MountPath == importapp.DefaultDataPath && pvcs[m.Name])
 				}
-				require.True(t, mounted, "%s: Deployment %s runs `importarr --role %s` and mounts no "+
+				require.True(t, mounted, "%s: Deployment %s runs `import --role %s` and mounts no "+
 					"PersistentVolumeClaim at %s", entry.Name(), w.Metadata.Name, roleArg(c.Args), importapp.DefaultDataPath)
 				umask := false
 				for _, e := range c.Env {
@@ -124,7 +124,7 @@ func assertKustomizeImportData(t *testing.T, root string) {
 		}
 	}
 	require.True(t, roles[importapp.RoleController] && roles[importapp.RoleWorker],
-		"config/manager should run importarr as both a controller and a worker Deployment; found roles %v", roles)
+		"config/manager should run import as both a controller and a worker Deployment; found roles %v", roles)
 }
 
 func roleArg(args []string) importapp.Role {
@@ -137,11 +137,11 @@ func roleArg(args []string) importapp.Role {
 }
 
 var (
-	chartWorkloadArgs = regexp.MustCompile(`"args"\s+\(list\s+"importarr"\s+"--role"\s+"([a-z,]+)"\)`)
+	chartWorkloadArgs = regexp.MustCompile(`"args"\s+\(list\s+"import"\s+"--role"\s+"([a-z,]+)"\)`)
 	chartWorkloadData = regexp.MustCompile(`"data"\s+(true|false)`)
 )
 
-// assertChartImportarrData reads deployments.yaml's clustarr.workload calls
+// assertChartImportData reads deployments.yaml's clustarr.workload calls
 // rather than rendering the chart, for the reason
 // TestEveryPVCMountingWorkloadGetsFsGroup gives: a guard that shells out to
 // helm skips wherever helm is missing. clustarr.workload's "data" flag adds
@@ -161,9 +161,9 @@ func assertChartImportData(t *testing.T, root string) {
 		role := importapp.Role(args[1])
 		roles[role] = true
 		data := chartWorkloadData.FindStringSubmatch(call)
-		require.NotNil(t, data, "the chart's importarr --role %s workload passes no \"data\" flag", role)
-		require.Equal(t, "true", data[1], "the chart's importarr --role %s workload does not mount /data", role)
+		require.NotNil(t, data, "the chart's import --role %s workload passes no \"data\" flag", role)
+		require.Equal(t, "true", data[1], "the chart's import --role %s workload does not mount /data", role)
 	}
 	require.True(t, roles[importapp.RoleController] && roles[importapp.RoleWorker],
-		"the chart should run importarr as both a controller and a worker workload; found roles %v", roles)
+		"the chart should run import as both a controller and a worker workload; found roles %v", roles)
 }

@@ -17,9 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package itemstatus is the remediation loop's one item status write (loop
 // spec §3.12, applyItemStatus): a Movie's, Episode's, Album's, Book's,
-// Audiobook's or Issue's status under catalogarr, preconditioned on the
+// Audiobook's or Issue's status under catalog, preconditioned on the
 // object the reconcile planned from. It lives apart from rollup, which the
-// catalog agent links, so a catalogarr write is reachable from the manager
+// catalog agent links, so a catalog write is reachable from the manager
 // alone (split spec §5.15, TestEveryFieldManagerHasItsHome).
 package itemstatus
 
@@ -46,11 +46,11 @@ import (
 const ConflictRequeue = time.Second
 
 // Apply applies ac -- the item's complete status, from its one renderer --
-// under k8s.ManagerCatalogarr with item's resourceVersion as a precondition:
+// under k8s.ManagerCatalog with item's resourceVersion as a precondition:
 // k8s.PatchStatusCAS's single attempt over the planned view, without the
 // read, since the view is item itself. conflicted reports that the
-// apiserver holds a newer object (catalogarr-grab, catalogarr-metadata or
-// catalogarr-series wrote since the cache read), so the caller requeues in
+// apiserver holds a newer object (catalog-grab, catalog-metadata or
+// catalog-series wrote since the cache read), so the caller requeues in
 // ConflictRequeue and plans again from the newer cache instead of rolling
 // that write back with an apply seeded from a stale read. An item apply is
 // never skipped: the loop does not own the whole item status, and the cache

@@ -87,7 +87,7 @@ func LiveItemKeys(st subtitlev1alpha1.SubtitleRequestStatus) sets.Set[string] {
 	return out
 }
 
-// RequestControllerFields returns the complete set k8s.ManagerCaptionarr owns
+// RequestControllerFields returns the complete set k8s.ManagerCaption owns
 // on SubtitleRequest.status, seeded from the live status so that an apply
 // which changes one field still declares the others.
 //
@@ -150,7 +150,7 @@ func RequestControllerFields(st subtitlev1alpha1.SubtitleRequestStatus) *subtitl
 	return ac
 }
 
-// requestControllerItemAC renders the k8s.ManagerCaptionarr half of one
+// requestControllerItemAC renders the k8s.ManagerCaption half of one
 // SubtitleItem: the shared map key plus attempts and nextSearchAt, and
 // nothing else. Both are pointer-shaped (Attempts is rendered as a whole
 // value, the same atomic treatment pkg/download.ApplyStatus gives Health) and
@@ -168,7 +168,7 @@ func requestControllerItemAC(it subtitlev1alpha1.SubtitleItem) *subtitleac.Subti
 	return ac
 }
 
-// RequestWorkerFields returns the complete set k8s.ManagerCaptionarrWorker
+// RequestWorkerFields returns the complete set k8s.ManagerCaptionWorker
 // owns on SubtitleRequest.status: every leaf of every LIVE item except
 // nextSearchAt and attempts, which belong to the controller.
 //
@@ -196,7 +196,7 @@ func RequestWorkerFields(st subtitlev1alpha1.SubtitleRequestStatus) *subtitleac.
 	return ac
 }
 
-// requestWorkerItemAC renders the k8s.ManagerCaptionarrWorker half of one
+// requestWorkerItemAC renders the k8s.ManagerCaptionWorker half of one
 // SubtitleItem.
 //
 // State is an enum the CRD does not admit "" for, so it is sent only once a
@@ -250,7 +250,7 @@ func itemSlice(items []*subtitleac.SubtitleItemApplyConfiguration) []subtitleac.
 //
 // The caller mutates the seeded apply configuration rather than building one,
 // which is what makes the complete-declaration rule enforceable in one place.
-// mgr must be k8s.ManagerCaptionarr or k8s.ManagerCaptionarrWorker; anything
+// mgr must be k8s.ManagerCaption or k8s.ManagerCaptionWorker; anything
 // else is a programming error and is refused rather than allowed to claim
 // fields no part of the split accounts for.
 //
@@ -293,7 +293,7 @@ func PatchRequest(
 // SubtitleProfile
 // -----------------------------------------------------------------------
 
-// ProfileFields returns the complete set k8s.ManagerCaptionarr owns on
+// ProfileFields returns the complete set k8s.ManagerCaption owns on
 // SubtitleProfile.status -- all of it, since the profile reconciler is its
 // only writer.
 //
@@ -319,8 +319,8 @@ func ProfileFields(st subtitlev1alpha1.SubtitleProfileStatus) *subtitleac.Subtit
 // PatchProfile applies a complete SubtitleProfile.status declaration under
 // mgr.
 //
-// mgr must be k8s.ManagerCaptionarr; every other manager, including
-// k8s.ManagerCaptionarrWorker, is refused. SubtitleProfile has exactly one
+// mgr must be k8s.ManagerCaption; every other manager, including
+// k8s.ManagerCaptionWorker, is refused. SubtitleProfile has exactly one
 // legitimate writer.
 func PatchProfile(
 	ctx context.Context,
@@ -346,14 +346,14 @@ func PatchProfile(
 // SubtitleProvider
 // -----------------------------------------------------------------------
 
-// ProviderFields returns the complete set k8s.ManagerCaptionarr owns on
+// ProviderFields returns the complete set k8s.ManagerCaption owns on
 // SubtitleProvider.status -- all of it. Ruling R2 makes this the load-bearing
 // half of the package: workers observe throttles into the shared
 // clustarr-provider-throttle KV bucket, never onto this object directly, and
 // only the provider controller projects that KV state into
 // status.throttledUntil/throttleReason/quota/errorsLast120s and the
 // conditions. [PatchProvider] enforces that by refusing
-// k8s.ManagerCaptionarrWorker the same way it refuses every manager outside
+// k8s.ManagerCaptionWorker the same way it refuses every manager outside
 // the split.
 //
 // ThrottledUntil, TokenExpiresAt and LastSuccessAt are pointers and are
@@ -407,8 +407,8 @@ func providerQuotaAC(q *subtitlev1alpha1.ProviderQuota) *subtitleac.ProviderQuot
 // PatchProvider applies a complete SubtitleProvider.status declaration under
 // mgr.
 //
-// mgr must be k8s.ManagerCaptionarr; every other manager, including
-// k8s.ManagerCaptionarrWorker, is refused. See ruling R2 and [ProviderFields].
+// mgr must be k8s.ManagerCaption; every other manager, including
+// k8s.ManagerCaptionWorker, is refused. See ruling R2 and [ProviderFields].
 func PatchProvider(
 	ctx context.Context,
 	c client.Client,

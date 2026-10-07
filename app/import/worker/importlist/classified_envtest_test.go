@@ -48,7 +48,7 @@ func TestAListReApplyKeepsAClassifiedSeries(t *testing.T) {
 	require.NoError(t, err)
 	key := types.NamespacedName{Namespace: ns, Name: name}
 
-	// What the catalogarr classifier does.
+	// What the catalog classifier does.
 	var s catalogv1alpha1.Series
 	require.NoError(t, c.Get(ctx, key, &s))
 	require.NoError(t, c.Patch(ctx, &s, client.RawPatch(types.MergePatchType,

@@ -78,7 +78,7 @@ func pacedService(t *testing.T, spacing, perRequest time.Duration) (*Service, in
 	return s, idx
 }
 
-// searchConcurrently runs n single-indexer searches at once, as indexarr's
+// searchConcurrently runs n single-indexer searches at once, as index's
 // concurrent Serve does for a wanted sweep, and returns each one's outcome.
 func searchConcurrently(t *testing.T, s *Service, idx indexv1alpha1.Indexer, n int, budget time.Duration) []schema.SearchOutcome {
 	t.Helper()

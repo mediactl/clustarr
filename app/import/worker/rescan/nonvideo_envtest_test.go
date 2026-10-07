@@ -78,7 +78,7 @@ func unmatchedByPath(p scanprogress.Progress) map[string]scanprogress.UnmatchedF
 }
 
 // assertSpecOnly asserts the MediaFile split on managedFields: every listed
-// spec leaf is importarr-worker's, and nothing in this package ever wrote any
+// spec leaf is import-worker's, and nothing in this package ever wrote any
 // part of status.
 func assertSpecOnly(t *testing.T, mf catalogv1alpha1.MediaFile, leaves ...string) {
 	t.Helper()
@@ -87,13 +87,13 @@ func assertSpecOnly(t *testing.T, mf catalogv1alpha1.MediaFile, leaves ...string
 	}
 	for _, e := range mf.ManagedFields {
 		if e.Manager == string(rescan.FieldManager) {
-			assert.Empty(t, e.Subresource, "importarr must never write any MediaFile status field")
+			assert.Empty(t, e.Subresource, "import must never write any MediaFile status field")
 		}
 	}
 }
 
 // createArtistAlbum creates an Artist and one Album under root with cached
-// metadata, and gives the Album a status field of its own under catalogarr,
+// metadata, and gives the Album a status field of its own under catalog,
 // so the test can prove the scanner leaves the catalog item untouched.
 func createArtistAlbum(t *testing.T, ctx context.Context, f *fixture) *catalogv1alpha1.Album {
 	t.Helper()
@@ -316,10 +316,10 @@ func TestHandleAttributesABookFileToAnExistingBookOnly(t *testing.T) {
 }
 
 // A re-scan of a file that already has a MediaFile -- here one the importer
-// created, with a frozen score and provenance, and one catalogarr has since
+// created, with a frozen score and provenance, and one catalog has since
 // probed -- re-asserts every frozen field instead of releasing it. Server-
 // side apply replaces a manager's owned set on every apply, and fileimport
-// and rescan share importarr-worker, so an apply that omitted formatScore,
+// and rescan share import-worker, so an apply that omitted formatScore,
 // matchedFormats, profileHash, importedFrom and original used to wipe them.
 func TestHandleRescanReassertsFrozenImportFields(t *testing.T) {
 	ctx := context.Background()

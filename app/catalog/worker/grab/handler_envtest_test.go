@@ -197,7 +197,7 @@ func TestHandler_MalformedMessagesAreDiscarded(t *testing.T) {
 	})
 }
 
-// TestHandler_SubscriptionMatchesTheSpecTable pins §5's catalogarr-grab row so
+// TestHandler_SubscriptionMatchesTheSpecTable pins §5's catalog-grab row so
 // a change to the shared topology cannot silently retune this consumer.
 func TestHandler_SubscriptionMatchesTheSpecTable(t *testing.T) {
 	sub := grab.NewHandler(grab.Deps{}).Subscription()

@@ -46,7 +46,7 @@ type RootFolderSpecApplyConfiguration struct {
 	MinFreeBytes *int64 `json:"minFreeBytes,omitempty"`
 	// Permissions is the ownership and mode applied to imported files.
 	Permissions *PermsApplyConfiguration `json:"permissions,omitempty"`
-	// ScanSchedule is a cron expression; importarr creates a LibraryScan per tick.
+	// ScanSchedule is a cron expression; import creates a LibraryScan per tick.
 	// Empty means no periodic rescan.
 	ScanSchedule *string `json:"scanSchedule,omitempty"`
 }

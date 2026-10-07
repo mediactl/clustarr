@@ -42,12 +42,12 @@ func deadLetter(t *testing.T, ns string, ref commonv1.MediaRef) testMessage {
 	t.Helper()
 	env := envelopeFor(t, ns+"/"+ref.Name, schema.SearchTask{MediaRef: ref, Reason: schema.SearchReasonMissing})
 	env.Headers = map[string]string{
-		events.HeaderDLQSubject:  "clustarr.work.catalogarr.search.normal." + ref.Name,
+		events.HeaderDLQSubject:  "clustarr.work.catalog.search.normal." + ref.Name,
 		events.HeaderDLQReason:   "target no longer exists",
-		events.HeaderDLQConsumer: "catalogarr-search-normal",
+		events.HeaderDLQConsumer: "catalog-search-normal",
 		events.HeaderDLQAttempts: "2",
 	}
-	return testMessage{env: env, subject: "clustarr.dlq.catalogarr.search." + ref.Name}
+	return testMessage{env: env, subject: "clustarr.dlq.catalog.search." + ref.Name}
 }
 
 // A dead letter for an item deleted since its task was queued marks
@@ -82,7 +82,7 @@ func TestDLQProjectorMarksAnItemThatExists(t *testing.T) {
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(movie), &got))
-	assert.Equal(t, "clustarr.work.catalogarr.search.normal.heat@2026-09-29T12:00:00Z", got.Annotations[cataloghistory.AnnotationDeadLettered])
+	assert.Equal(t, "clustarr.work.catalog.search.normal.heat@2026-09-29T12:00:00Z", got.Annotations[cataloghistory.AnnotationDeadLettered])
 	assert.Equal(t, "me", got.Annotations["keep"])
 	assert.NotContains(t, got.Annotations, cataloghistory.AnnotationDeadLetterSeq)
 }

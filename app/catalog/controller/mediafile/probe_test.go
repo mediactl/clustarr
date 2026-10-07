@@ -50,7 +50,7 @@ func TestEvaluateProbe(t *testing.T) {
 // TestProbeDueForAnOlderProbeVersion: a file probed before the probe
 // learned a field (videoEncoder, 2026-09-29) is probed again even though
 // its bytes -- and so its probeHash -- are unchanged. The hash stays put:
-// captionarr and squasharr read a new hash as a different file.
+// caption and transcode read a new hash as a different file.
 func TestProbeDueForAnOlderProbeVersion(t *testing.T) {
 	path := "/data/media/movies/Inception (2010)/Inception (2010).mkv"
 	mt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -66,7 +66,7 @@ func TestProbeDueForAnOlderProbeVersion(t *testing.T) {
 
 // A transcoded file renamed in place (naming.renameTranscoded) moved, it did
 // not change: the probe hash names the path, so it is stale, but the size
-// and mtime catalogarr recorded are the file's still. Reading the rename as
+// and mtime catalog recorded are the file's still. Reading the rename as
 // a change cleared status.transcode, and the file no longer counted as
 // transcoded, so it was never renamed again (Bluey S03E20, 2026-09-30).
 func TestAMoveIsNotAChangeOfTheBytes(t *testing.T) {

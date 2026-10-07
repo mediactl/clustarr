@@ -36,7 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// watchedAnnotations wake a file at watch priority (§3.3, S1): importarr's
+// watchedAnnotations wake a file at watch priority (§3.3, S1): import's
 // observed fingerprint, the DLQ projector's dead-lettered marker (folded into
 // DeadLettered, §2.8) and an operator's replay request (the replay actuator,
 // §3.9).

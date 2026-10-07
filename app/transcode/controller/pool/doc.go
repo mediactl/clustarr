@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package pool is the pure renderer for squasharr's pool Jobs: one long-lived
+// Package pool is the pure renderer for transcode's pool Jobs: one long-lived
 // work-queue Job per (TranscodeProfile, hardware class), whose pods run
 // cmd/transcode and pull tasks from NATS (spec
 // docs/superpowers/specs/2026-09-23-transcode-worker-design.md, §3 and §7).

@@ -416,7 +416,7 @@ func TestServeReportsClaimedProgressFinishedAndAcks(t *testing.T) {
 }
 
 // The queue retries nothing: every outcome is reported and acked, and
-// squasharr decides what happens next (spec §18.3).
+// transcode decides what happens next (spec §18.3).
 func TestServeReportsEveryOutcomeAndAcks(t *testing.T) {
 	for _, tc := range []struct {
 		out    Outcome
@@ -484,7 +484,7 @@ func TestServeDropsATaskCancelledForItsOwnAttempt(t *testing.T) {
 
 // Fix round 1, item 6: a lease already held (or cancelled) for a later
 // attempt than the one just delivered means this delivery is stale --
-// squasharr moved on without waiting for it -- so it settles as done, not as
+// transcode moved on without waiting for it -- so it settles as done, not as
 // something to keep retrying.
 func TestServeAcksATaskSupersededByALaterAttempt(t *testing.T) {
 	h := newHarness(t)
@@ -704,7 +704,7 @@ func TestServeSettlesAsCancelledWhenBeforeSwapFindsAConfirmedCancelMarker(t *tes
 		h.calls.Add(1)
 		h.started <- struct{}{}
 		defer func() { h.ended <- struct{}{} }()
-		// squasharr withdrew this attempt between the last renewal and the
+		// transcode withdrew this attempt between the last renewal and the
 		// swap -- the window I2c closes.
 		h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseCancelled})
 		err := o.BeforeSwap(ctx)

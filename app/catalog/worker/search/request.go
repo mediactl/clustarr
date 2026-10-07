@@ -28,7 +28,7 @@ import (
 )
 
 // SearchDeadline is the RPC deadline every federated search carries. Spec §5's
-// clustarr.rpc.indexarr.search row: "single reply at min(deadline, 45s)".
+// clustarr.rpc.index.search row: "single reply at min(deadline, 45s)".
 const SearchDeadline = 45 * time.Second
 
 // TargetIDs is the identity BuildSearchRequest needs for one catalog item. It
@@ -81,9 +81,9 @@ type TargetIDs struct {
 // numbering, no season token). The generated payload type wins over the spec's
 // literal wording; the design doc's own §5 table already shows this shape.
 // ns scopes the search to one namespace's Indexers. It is always set here --
-// the worker already recovered it from the envelope key -- because indexarr
+// the worker already recovered it from the envelope key -- because index
 // has no other source for it on an automatic search, where IndexerRefs is
-// empty. Without it indexarr must list Indexers cluster-wide and can serve
+// empty. Without it index must list Indexers cluster-wide and can serve
 // one namespace's media from another's indexer.
 func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit int32, userInvoked bool, indexerRefs []schema.Ref, categories []int32) schema.SearchRequest {
 	req := schema.SearchRequest{
@@ -127,7 +127,7 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 }
 
 // resolvedText renders ids' resolved title into schema.SearchRequest.Text,
-// the free-text fallback indexarr's buildQuery uses ONLY when an indexer
+// the free-text fallback index's buildQuery uses ONLY when an indexer
 // advertises none of the request's id parameters (ids stay preferred
 // wherever they work; see that function). It mirrors what Radarr/Sonarr
 // send: "<title> <year>" for a movie, "<series> SxxEyy" for a standard
@@ -141,7 +141,7 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 //
 // ids.Title empty means no metadata has landed yet. This returns "" rather
 // than guess a title from a release name or an id: an empty Text leaves
-// indexarr's fallback unavailable for this item, exactly as it is today,
+// index's fallback unavailable for this item, exactly as it is today,
 // instead of searching on a placeholder that could match the wrong thing.
 func resolvedText(kind commonv1.MediaKind, ids TargetIDs) string {
 	if ids.Title == "" {
@@ -167,7 +167,7 @@ func resolvedText(kind commonv1.MediaKind, ids TargetIDs) string {
 	case commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook:
 		// "<artist> <album>" and "<author> <title>": the basic query Lidarr
 		// and Readarr send an indexer with no music or book search mode, and
-		// what indexarr's text fallback sends every non-video search (a
+		// what index's text fallback sends every non-video search (a
 		// non-video item has no id an indexer takes). The creator is left
 		// out rather than guessed when it is unknown; the identity check
 		// then fails such a release closed on its creator anyway.

@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Prometheus's client_golang only emits a MetricVec's HELP/TYPE lines
 // (and the metric family at all) once at least one label combination has
 // actually been observed, so `clustarr_transcode_speed_ratio` in
-// particular will never appear at squasharr's /metrics without a REAL
+// particular will never appear at transcode's /metrics without a REAL
 // TranscodeJob having Succeeded first (transcode_test.go's own
 // TestTranscodeMediaFileThroughTranscodeJob and
 // TestDownloadScenario1TranscodeLeg both do this already). Naming this
@@ -191,10 +191,10 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// completed torrent/usenet transfer in this suite's earlier scenarios
 	// (download_test.go, import_test.go, transcode_test.go, subtitle_test.go
 	// all complete at least one).
-	grabBody := fetchMetrics(ctx, t, "grabarr")
+	grabBody := fetchMetrics(ctx, t, "grab")
 	downloadBytes, downloadSeries := metricSum(grabBody, "clustarr_download_bytes_total")
 	require.Greaterf(t, downloadSeries, 0,
-		"clustarr_download_bytes_total has no series in grabarr's /metrics -- no completed transfer was "+
+		"clustarr_download_bytes_total has no series in grab's /metrics -- no completed transfer was "+
 			"observed by this point in the suite run (see this file's own package doc comment on ordering)")
 	require.Greaterf(t, downloadBytes, 0.0, "clustarr_download_bytes_total summed to 0 across %d series", downloadSeries)
 
@@ -205,10 +205,10 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// tier=gpu means the encode is slower than real time"), produced by
 	// app/transcode/worker's progress reporting (FPSMilli feeds the ratio, not
 	// a standalone counter) once a TranscodeJob Succeeds.
-	transcodeBody := fetchMetrics(ctx, t, "squasharr")
+	transcodeBody := fetchMetrics(ctx, t, "transcode")
 	_, speedSeries := metricSum(transcodeBody, "clustarr_transcode_speed_ratio")
 	require.Greaterf(t, speedSeries, 0,
-		"clustarr_transcode_speed_ratio has no series in squasharr's /metrics -- no TranscodeJob had "+
+		"clustarr_transcode_speed_ratio has no series in transcode's /metrics -- no TranscodeJob had "+
 			"Succeeded by this point (transcode_test.go's TestTranscodeMediaFileThroughTranscodeJob and "+
 			"TestDownloadScenario1TranscodeLeg both produce one)")
 
@@ -217,26 +217,26 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// series" is the meaningful, always-true-once-any-worker-has-run
 	// assertion here, not "> 0" (a fully drained queue at scrape time is
 	// the SYSTEM WORKING, not a fixture gap).
-	importWorkerBody := fetchMetrics(ctx, t, "importarr-worker")
+	importWorkerBody := fetchMetrics(ctx, t, "import-worker")
 	_, pendingSeries := metricSum(importWorkerBody, "clustarr_work_queue_pending")
 	require.Greaterf(t, pendingSeries, 0,
-		"clustarr_work_queue_pending has no series in importarr-worker's /metrics -- no consumer has "+
+		"clustarr_work_queue_pending has no series in import-worker's /metrics -- no consumer has "+
 			"polled at all, which points at the worker never having run rather than an empty queue")
 
 	// indexer duration: clustarr_indexer_query_duration_seconds, recorded
 	// by every caps probe (app/indexer/controller/indexer) as well as every
 	// real search -- indexer_test.go's scenario 17 test and the caps probe
 	// every Indexer gets on creation both produce this.
-	indexBody := fetchMetrics(ctx, t, "indexarr")
+	indexBody := fetchMetrics(ctx, t, "index")
 	_, durationSeries := metricSum(indexBody, "clustarr_indexer_query_duration_seconds_count")
 	require.Greaterf(t, durationSeries, 0,
-		"clustarr_indexer_query_duration_seconds has no series in indexarr's /metrics -- no indexer query "+
+		"clustarr_indexer_query_duration_seconds has no series in index's /metrics -- no indexer query "+
 			"(a caps probe or a real search) was observed by this point in the suite run")
 }
 
 // TestObservabilityReadinessFlipsWithNATS is scenario 15's readiness leg:
 // scaling NATS to zero must flip a bus-dependent service's /readyz away
-// from 200, and scaling it back must flip it back. catalogarr is the
+// from 200, and scaling it back must flip it back. catalog is the
 // service checked -- docs/observability.md's readiness table names it
 // "Wired" for NATS connectivity (pkg/k8s.BusReadyChecker), unlike the rows
 // still marked with a milestone.
@@ -244,7 +244,7 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 // This scales a real, shared Deployment's dependency (the nats
 // StatefulSet) that every OTHER scenario in this suite also depends on.
 // It restores it (t.Cleanup, unconditionally, not cleanupUnlessFailed) and
-// waits for catalogarr's own readiness to recover before returning, so a
+// waits for catalog's own readiness to recover before returning, so a
 // scenario file that happens to run after this one (alphabetically, only
 // itself: zzz_ sorts last) never observes a still-degraded cluster.
 func TestObservabilityReadinessFlipsWithNATS(t *testing.T) {
@@ -262,18 +262,18 @@ func TestObservabilityReadinessFlipsWithNATS(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		scale("1")
-		waitReadyz(context.Background(), t, "catalogarr", true, 3*time.Minute)
+		waitReadyz(context.Background(), t, "catalog", true, 3*time.Minute)
 	})
 
-	before := readyzStatus(ctx, t, "catalogarr")
-	require.Truef(t, before, "catalogarr's /readyz must be 200 before this test scales NATS down, "+
+	before := readyzStatus(ctx, t, "catalog")
+	require.Truef(t, before, "catalog's /readyz must be 200 before this test scales NATS down, "+
 		"or a flip back to ready afterwards proves nothing")
 
 	scale("0")
-	waitReadyz(ctx, t, "catalogarr", false, 3*time.Minute)
+	waitReadyz(ctx, t, "catalog", false, 3*time.Minute)
 
 	scale("1")
-	waitReadyz(ctx, t, "catalogarr", true, 3*time.Minute)
+	waitReadyz(ctx, t, "catalog", true, 3*time.Minute)
 }
 
 // readyzStatus reports whether svcName's /readyz currently answers 200.
@@ -296,7 +296,7 @@ func readyzStatus(ctx context.Context, t *testing.T, svcName string) bool {
 // false: anything else) via readyzStatus, which opens and tears down its
 // own fresh port-forward on every call. That costs one kubectl process per
 // poll interval rather than holding one tunnel open across the whole wait,
-// but a NATS-down catalogarr stays up and merely fails its OWN readiness
+// but a NATS-down catalog stays up and merely fails its OWN readiness
 // check -- nothing about a not-ready pod tears down an existing
 // port-forward from underneath this loop -- so the simpler, one-tunnel-
 // per-poll shape is fine at pollInterval's 2s cadence for a bounded wait.

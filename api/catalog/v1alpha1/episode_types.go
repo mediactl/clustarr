@@ -212,7 +212,7 @@ type EpisodeStatus struct {
 	DownloadPhase commonv1.DownloadPhase `json:"downloadPhase,omitempty"`
 
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
-	// under catalogarr-grab.
+	// under catalog-grab.
 	// +optional
 	SearchDispatch *Dispatch `json:"searchDispatch,omitempty"`
 

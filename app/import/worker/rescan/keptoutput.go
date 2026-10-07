@@ -31,10 +31,10 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// CodeUnconfirmedTranscodeOutput means a file is named as squasharr names a
+// CodeUnconfirmedTranscodeOutput means a file is named as transcode names a
 // replaceSource=false output, beside the recorded file it would have been
 // made from, and its own CLUSTARR_PROFILE could not be read to settle
-// whether squasharr wrote it. It is left out rather than recorded as a
+// whether transcode wrote it. It is left out rather than recorded as a
 // second file for the item.
 const CodeUnconfirmedTranscodeOutput = "unconfirmed_transcode_output"
 
@@ -43,13 +43,13 @@ const CodeUnconfirmedTranscodeOutput = "unconfirmed_transcode_output"
 // profile name (docs/research/naming.md §A3).
 const keptOutputSeparator = " - "
 
-// keptOutputContainers are the extensions squasharr writes an output with:
+// keptOutputContainers are the extensions transcode writes an output with:
 // TranscodeProfile's container enum, lower-cased, as OutputPath renders it.
 var keptOutputContainers = map[string]bool{".mkv": true, ".mp4": true}
 
 // probedTranscodeProfile reads a file's CLUSTARR_PROFILE container tag off
 // its probe -- the tag pkg/mediainfo records as MediaInfo.TranscodeProfile,
-// the same reading catalogarr's probe gives the file -- "" when it carries
+// the same reading catalog's probe gives the file -- "" when it carries
 // none. It takes the walk's one probe of the file (fileProbe) rather than
 // probing again.
 func probedTranscodeProfile(mi *commonv1.MediaInfo) string {
@@ -84,10 +84,10 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 }
 
 // keptOutput decides a media file that no Succeeded TranscodeJob names but
-// that may still be squasharr's replaceSource=false output: its job can be
+// that may still be transcode's replaceSource=false output: its job can be
 // gone (deleted by hand, or garbage-collected with its owner) while the
 // derived copy stays beside the kept source for good. Adopting it would
-// record a second file for the item, which catalogarr deliberately never
+// record a second file for the item, which catalog deliberately never
 // does (its swapTarget: the copy is a version a media server shows, not the
 // catalog's file).
 //
@@ -99,8 +99,8 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 //   - a MediaFile records a file beside it with the same stem, the kept
 //     source (recordedSourceBeside) -- without one there is no source to be
 //     a version of, and the file is the item's own, adopted as usual;
-//   - squasharr's record says it wrote that profile's output: the kept
-//     source's status.transcode.profileTag names the profile (catalogarr
+//   - transcode's record says it wrote that profile's output: the kept
+//     source's status.transcode.profileTag names the profile (catalog
 //     sets it when it incorporates a kept job), or, when that record has
 //     moved on (a later transcode of the source by another profile), the
 //     file's own CLUSTARR_PROFILE tag names it. The probe runs only then,
@@ -137,7 +137,7 @@ func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string, pro
 		if perr != nil {
 			st.progress.FilesSeen++
 			st.unmatched(rel, CodeUnconfirmedTranscodeOutput, fmt.Sprintf(
-				"named as squasharr names profile %s's output beside the kept source %s, but its CLUSTARR_PROFILE "+
+				"named as transcode names profile %s's output beside the kept source %s, but its CLUSTARR_PROFILE "+
 					"tag could not be read to confirm it (%v); left out rather than recorded as a second file for "+
 					"that source's item", profile, relPath(st.root.Spec.Path, source.Spec.Path), perr), nil, w.now())
 			return true, nil

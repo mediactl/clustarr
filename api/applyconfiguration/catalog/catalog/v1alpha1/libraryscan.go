@@ -31,7 +31,7 @@ import (
 // LibraryScanApplyConfiguration represents a declarative configuration of the LibraryScan type for use
 // with apply.
 //
-// LibraryScan is a short-lived resource that asks importarr to walk a
+// LibraryScan is a short-lived resource that asks import to walk a
 // RootFolder and reconcile what it finds. Like Search, it is a request that
 // is observable with kubectl and whose progress survives a restart; it is
 // deleted once spec.ttlSecondsAfterFinished has elapsed after it settled.

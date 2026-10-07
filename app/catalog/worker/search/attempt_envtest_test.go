@@ -75,19 +75,19 @@ func TestWorkerRecordsASearchAttempt(t *testing.T) {
 // TestWorkerRecordingAnAttemptLeavesTheGrabPathsFieldsIntact is the assertion
 // that belongs on this side of the boundary.
 //
-// grab.RecordSearchAttempt writes under k8s.ManagerCatalogarrGrab, which also
+// grab.RecordSearchAttempt writes under k8s.ManagerCatalogGrab, which also
 // owns status.pendingGrab. Server-side apply replaces a manager's whole
 // ownership set, so a helper that declared only the two timestamp fields
 // would delete a delayed item's pendingGrab and take it out of Phase=Delayed
 // back to Wanted -- where the wanted cron would re-search an item that
 // already had a grab scheduled. That is the exact failure that split
-// catalogarr-worker into per-consumer field managers, and it is why this
+// catalog-worker into per-consumer field managers, and it is why this
 // package calls into grab instead of reimplementing the cycle. C9 guarantees
 // it; this pins the guarantee from the caller's side, where a regression in
 // grab would otherwise surface as a mystery in search.
 //
 // Ruling R-5 moved status.activeDownloadRef to one writer, the item's
-// reconciler under k8s.ManagerCatalogarr, so the steady state below seeds it
+// reconciler under k8s.ManagerCatalog, so the steady state below seeds it
 // there: recording an attempt must leave the reconciler's ref alone AND must
 // not claim it for the grab manager, which only managedFields can show (an
 // over-claim under a forced apply keeps every value intact).

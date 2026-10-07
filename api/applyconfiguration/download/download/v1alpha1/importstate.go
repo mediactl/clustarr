@@ -41,17 +41,17 @@ type ImportStateApplyConfiguration struct {
 	// ImportedAt is when the import finished.
 	ImportedAt *v1.Time `json:"importedAt,omitempty"`
 	// Class is why nothing was imported, for a pending or blocked import:
-	// what importarr does next follows from it (ImportRejectionClass).
+	// what import does next follows from it (ImportRejectionClass).
 	Class *commonv1alpha1.ImportRejectionClass `json:"class,omitempty"`
-	// Attempts is how many times importarr has walked the download for
+	// Attempts is how many times import has walked the download for
 	// this import task.
 	Attempts *int32 `json:"attempts,omitempty"`
-	// NextAttemptAt is when importarr walks the download again: a transient
+	// NextAttemptAt is when import walks the download again: a transient
 	// failure's retry, or a release fault's confirming re-check. Unset when
 	// no attempt is pending.
 	NextAttemptAt *v1.Time `json:"nextAttemptAt,omitempty"`
 	// HeldSince is when the import was held for a person: no further
-	// automatic attempt is made, the files stay, and grabarr removes them
+	// automatic attempt is made, the files stay, and grab removes them
 	// ImportHoldRetention later unless someone imports them first.
 	HeldSince *v1.Time `json:"heldSince,omitempty"`
 }

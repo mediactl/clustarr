@@ -42,7 +42,7 @@ import (
 // Every item kind needs the bus. Movie, Album, Book and Audiobook are
 // metadata targets of their own and publish their own MetadataTasks; Album
 // also asks the metadata gateway for its track listing
-// (rpc.catalogarr.metadata.lookup), behind its ReleaseCache; Episode and
+// (rpc.catalog.metadata.lookup), behind its ReleaseCache; Episode and
 // Issue fetch no metadata of their own, but every kind publishes its catalog
 // item and file events, and a nil Bus publishes nothing.
 func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8sevents.EventRecorder, bus events.Bus) map[remediation.KeyKind]rollup.Item {

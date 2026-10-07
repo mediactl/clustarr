@@ -15,8 +15,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package grafttask is the contract between squasharr's AudioGraft
-// controller and the graft run of squasharr-worker (anime dual-audio spec
+// Package grafttask is the contract between transcode's AudioGraft
+// controller and the graft run of transcode-worker (anime dual-audio spec
 // §7.2): the Task a graft Job's pod is given as --graft-task, and the
 // Result it leaves in its termination message. It links no FFmpeg, so the
 // controller (cmd/clustarr) and the worker share it.
@@ -43,7 +43,7 @@ type Task struct {
 	// Root is the target's RootFolder path: the target and the donor must
 	// lie under it.
 	Root string `json:"root"`
-	// Donor is the donor as importarr placed it.
+	// Donor is the donor as import placed it.
 	Donor string `json:"donor"`
 	// Language is the track to graft, Anchor the language both files carry
 	// (BCP-47); Default makes the grafted track the default. Languages are

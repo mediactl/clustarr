@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package datapath maps the logical /data paths stored in CRDs to where the
 // media volume is mounted in this process (--data-dir).
 //
-// Both captionarr roles read the media file's directory: the SubtitleRequest
+// Both caption roles read the media file's directory: the SubtitleRequest
 // controller lists it for sidecars, the fetch worker stats the video and
 // writes the sidecar beside it. They share this one mapping so --data-dir
 // means the same thing to both. Until plan task F-6 only the worker mapped;

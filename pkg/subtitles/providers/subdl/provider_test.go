@@ -508,7 +508,7 @@ func TestARejectedSearchIsAbsorbed(t *testing.T) {
 }
 
 // SubDL takes the key in the query string, so it is in every request URL,
-// and Go's *url.Error quotes the URL -- into an error captionarr writes
+// and Go's *url.Error quotes the URL -- into an error caption writes
 // into a SubtitleRequest's status. It must be redacted, and the error must
 // stay a *url.Error so the caller still sees a transport failure.
 func TestTheAPIKeyNeverReachesAnError(t *testing.T) {

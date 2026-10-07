@@ -54,7 +54,7 @@ type ScanApplier interface {
 	Apply(ctx context.Context, obs schema.ScanObservation) error
 }
 
-// ScanConsumer is the leader-only importarr-intake-scan consumer.
+// ScanConsumer is the leader-only import-intake-scan consumer.
 type ScanConsumer struct {
 	Bus events.Bus
 	// Applier is nil until A6.1: every observation is naked with 30 s.

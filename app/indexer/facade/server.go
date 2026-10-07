@@ -45,7 +45,7 @@ const torznabContentType = "application/rss+xml; charset=utf-8"
 // local-index read this facade makes on behalf of an inbound HTTP request.
 // It is comfortably under the search fan-out's own "min(deadline, 45s)"
 // (§6.2), so this facade asking for DefaultSearchTimeout as its
-// SearchRequest.DeadlineMillis never contradicts indexarr's own cap.
+// SearchRequest.DeadlineMillis never contradicts index's own cap.
 const DefaultSearchTimeout = 30 * time.Second
 
 // shutdownGrace is how long Run waits for an in-flight request to finish
@@ -55,15 +55,15 @@ const DefaultSearchTimeout = 30 * time.Second
 // requests already past that point.
 const shutdownGrace = 5 * time.Second
 
-// SearchFunc is clustarr.rpc.indexarr.search's own body: app/indexer/search's
+// SearchFunc is clustarr.rpc.index.search's own body: app/indexer/search's
 // Service.Search method value satisfies it directly.
 type SearchFunc func(ctx context.Context, req schema.SearchRequest) schema.SearchResponse
 
-// QueryFunc is clustarr.rpc.indexarr.query's own body: app/indexer/query's
+// QueryFunc is clustarr.rpc.index.query's own body: app/indexer/query's
 // Service.Handle method value satisfies it directly.
 type QueryFunc func(ctx context.Context, req schema.QueryRequest) schema.QueryResponse
 
-// DownloadFunc is clustarr.rpc.indexarr.download's own body: app/indexer/download's
+// DownloadFunc is clustarr.rpc.index.download's own body: app/indexer/download's
 // Service.Handle method value satisfies it directly.
 type DownloadFunc func(ctx context.Context, req schema.DownloadRequest) schema.DownloadResponse
 
@@ -81,7 +81,7 @@ type Config struct {
 	// to a cluster-wide List filtered by name, which errors if more than
 	// one Indexer shares that name across namespaces; setting it makes a
 	// per-indexer route a single Get instead. In production this is
-	// indexarr's own k8s.Options.Namespace -- there is exactly one indexarr
+	// index's own k8s.Options.Namespace -- there is exactly one index
 	// replica per cluster (§3), and every chart value and e2e fixture puts
 	// Indexers in that same namespace.
 	Namespace string
@@ -181,7 +181,7 @@ func (s *Server) buildMux() *http.ServeMux {
 // Run starts the facade's HTTP server and blocks until ctx is cancelled or
 // the server fails to serve. Its shape is [pkg/k8s.EveryReplica]'s
 // underlying func type (func(context.Context) error), so a caller wires it
-// with mgr.Add(k8s.EveryReplica(srv.Run)) exactly like indexarr's other
+// with mgr.Add(k8s.EveryReplica(srv.Run)) exactly like index's other
 // every-replica runnables -- the facade has nothing that needs a leader.
 func (s *Server) Run(ctx context.Context) error {
 	httpSrv := &http.Server{

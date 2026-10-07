@@ -39,7 +39,7 @@ const (
 	StreamWorkIndex     = "CLUSTARR_WORK_INDEX"
 	StreamWorkCaption   = "CLUSTARR_WORK_CAPTION"
 	StreamWorkTranscode = "CLUSTARR_WORK_TRANSCODE"
-	// StreamWorkSegmentarr carries skip-segment work: TheIntroDB's marker
+	// StreamWorkMarkers carries skip-segment work: TheIntroDB's marker
 	// fetches and segment detection's plans, analysis tasks and results.
 	StreamWorkMarkers = "CLUSTARR_WORK_MARKERS"
 	StreamDLQ         = "CLUSTARR_DLQ"
@@ -145,8 +145,8 @@ const (
 	ConsumerCatalogArtworkFetch  = "catalog-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalog-artwork-render"
 	ConsumerCatalogMarkers       = "catalog-markers"
-	// ConsumerCatalogSegmentsPlan is catalogarr's; ConsumerSegmentarrAnalyze
-	// is segmentarr-worker's. ConsumerCatalogSegmentsResult is retired
+	// ConsumerCatalogSegmentsPlan is catalog's; ConsumerMarkersAnalyze
+	// is markers-worker's. ConsumerCatalogSegmentsResult is retired
 	// (loop spec §4.12): Topology.Retired names it until F9.4.
 	ConsumerCatalogSegmentsPlan   = "catalog-segments-plan"
 	ConsumerMarkersAnalyze        = "markers-analyze"
@@ -335,7 +335,7 @@ func CatalogImportListSyncedSubject(uid string) string {
 }
 
 // ReleaseSubject builds clustarr.rel.<protocol>.<indexerName>.<newznabTop>,
-// the RSS fan-out subject indexarr publishes parsed releases on.
+// the RSS fan-out subject index publishes parsed releases on.
 func ReleaseSubject(protocol, indexerName string, newznabTop int) string {
 	return fmt.Sprintf("clustarr.rel.%s.%s.%d", tok(protocol), tok(indexerName), newznabTop)
 }
@@ -363,37 +363,37 @@ func SubtitleEventSubject(action, requestUID string) string {
 }
 
 // WorkSearchSubject builds
-// clustarr.work.catalogarr.search.<priority>.<mediaKey>.
+// clustarr.work.catalog.search.<priority>.<mediaKey>.
 func WorkSearchSubject(p Priority, mediaKey string) string {
 	return fmt.Sprintf("clustarr.work.catalog.search.%s.%s", tok(string(p)), tok(mediaKey))
 }
 
-// WorkGrabSubject builds clustarr.work.catalogarr.grab.normal.<mediaKey>.
+// WorkGrabSubject builds clustarr.work.catalog.grab.normal.<mediaKey>.
 // Grab tasks are published with WithScheduleAt to honour delay profiles.
 func WorkGrabSubject(mediaKey string) string {
 	return "clustarr.work.catalog.grab.normal." + tok(mediaKey)
 }
 
 // WorkMetadataSubject builds
-// clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
+// clustarr.work.catalog.metadata.<high|normal>.<mediaKey>.
 func WorkMetadataSubject(p Priority, mediaKey string) string {
 	return fmt.Sprintf("clustarr.work.catalog.metadata.%s.%s", tok(string(p)), tok(mediaKey))
 }
 
 // WorkSegmentsPlanSubject builds
-// clustarr.work.segmentarr.plan.normal.<key>: plan one season's or
+// clustarr.work.markers.plan.normal.<key>: plan one season's or
 // movie's segment analysis (schema.SegmentsPlanTask).
 func WorkSegmentsPlanSubject(key string) string {
 	return "clustarr.work.markers.plan.normal." + tok(key)
 }
 
 // WorkSegmentsAnalyzeSubject builds
-// clustarr.work.segmentarr.analyze.normal.<key>.
+// clustarr.work.markers.analyze.normal.<key>.
 func WorkSegmentsAnalyzeSubject(key string) string {
 	return "clustarr.work.markers.analyze.normal." + tok(key)
 }
 
-// WorkMarkersSubject builds clustarr.work.segmentarr.markers.normal.<mediaKey>:
+// WorkMarkersSubject builds clustarr.work.markers.markers.normal.<mediaKey>:
 // fetch one MediaFile's skip segments (schema.MarkersTask).
 func WorkMarkersSubject(mediaKey string) string {
 	return "clustarr.work.markers.markers.normal." + tok(mediaKey)
@@ -413,20 +413,20 @@ func MsgIDForMarkersAt(fileUID string, seq int64, at time.Time) string {
 }
 
 // WorkWantedScanSubject builds
-// clustarr.work.catalogarr.wantedscan.low.<namespace>.
+// clustarr.work.catalog.wantedscan.low.<namespace>.
 func WorkWantedScanSubject(namespace string) string {
 	return "clustarr.work.catalog.wantedscan.low." + tok(namespace)
 }
 
-// The three importarr work subjects (amendment §A1.6). Unlike the catalogarr
-// and captionarr work subjects they carry no priority token: the amendment
-// spells them out as work.importarr.scan.<rootfolder>,
-// work.importarr.list.<importlist> and work.importarr.fileimport.<download>,
+// The three import work subjects (amendment §A1.6). Unlike the catalog
+// and caption work subjects they carry no priority token: the amendment
+// spells them out as work.import.scan.<rootfolder>,
+// work.import.list.<importlist> and work.import.fileimport.<download>,
 // and there are no high/normal/low lanes to choose between -- one consumer
 // drains each task type. They are still clustarr.work.<service>.<task>.<id>,
 // five tokens, so [ScheduleSubject] accepts them.
 
-// WorkScanSubject builds clustarr.work.importarr.scan.<rootfolder>. A scan of
+// WorkScanSubject builds clustarr.work.import.scan.<rootfolder>. A scan of
 // a large library is chunked by directory, so rootFolder here identifies the
 // scan's root and the chunk rides in the payload, not the subject: a subject
 // token per directory would make the work-queue stream's subject cardinality
@@ -435,13 +435,13 @@ func WorkScanSubject(rootFolder string) string {
 	return "clustarr.work.import.scan." + tok(rootFolder)
 }
 
-// WorkListSubject builds clustarr.work.importarr.list.<importlist>.
+// WorkListSubject builds clustarr.work.import.list.<importlist>.
 func WorkListSubject(importList string) string {
 	return "clustarr.work.import.list." + tok(importList)
 }
 
 // WorkFileImportSubject builds
-// clustarr.work.importarr.fileimport.<download>.
+// clustarr.work.import.fileimport.<download>.
 func WorkFileImportSubject(downloadUID string) string {
 	return "clustarr.work.import.fileimport." + tok(downloadUID)
 }
@@ -453,27 +453,27 @@ func WorkFileImportSubject(downloadUID string) string {
 // not know.
 const SubjectImportRecycleSweep = "clustarr.work.import.recycle.sweep"
 
-// WorkRSSSubject builds clustarr.work.indexarr.rss.normal.<indexer-uid>.
+// WorkRSSSubject builds clustarr.work.index.rss.normal.<indexer-uid>.
 func WorkRSSSubject(indexerUID string) string {
 	return "clustarr.work.index.rss.normal." + tok(indexerUID)
 }
 
 // WorkFetchSubject builds
-// clustarr.work.captionarr.fetch.<priority>.<request-uid>.<langKey>.
+// clustarr.work.caption.fetch.<priority>.<request-uid>.<langKey>.
 func WorkFetchSubject(p Priority, requestUID, langKey string) string {
 	return fmt.Sprintf("clustarr.work.caption.fetch.%s.%s.%s",
 		tok(string(p)), tok(requestUID), tok(langKey))
 }
 
 // WorkArtworkFetchSubject builds
-// clustarr.work.catalogarr.artwork.fetch.<mediaKey>, consumed by the
+// clustarr.work.catalog.artwork.fetch.<mediaKey>, consumed by the
 // metadata gateway's ConsumerCatalogArtworkFetch (spec §B.7).
 func WorkArtworkFetchSubject(mediaKey string) string {
 	return "clustarr.work.catalog.artwork.fetch." + tok(mediaKey)
 }
 
 // WorkArtworkRenderSubject builds
-// clustarr.work.catalogarr.artwork.render.<mediaKey>, consumed by the
+// clustarr.work.catalog.artwork.render.<mediaKey>, consumed by the
 // renderer role's ConsumerCatalogArtworkRender (spec §C.6).
 func WorkArtworkRenderSubject(mediaKey string) string {
 	return "clustarr.work.catalog.artwork.render." + tok(mediaKey)
@@ -509,8 +509,8 @@ func ArtworkKey(kind commonv1.MediaKind, uid types.UID, imageType, variant strin
 // the message would re-trigger itself.
 //
 // The holding subject inserts a "sched" token after the service, turning
-// clustarr.work.catalogarr.grab.normal.<key> into
-// clustarr.work.catalogarr.sched.grab.normal.<key>. It therefore stays inside
+// clustarr.work.catalog.grab.normal.<key> into
+// clustarr.work.catalog.sched.grab.normal.<key>. It therefore stays inside
 // the same work stream while matching no consumer's filters, which all name a
 // task directly. Only clustarr.work.* subjects can be scheduled, because they
 // are the only streams with AllowMsgSchedules.
@@ -625,7 +625,7 @@ func MsgIDForForcedSubtitle(requestUID, langKey, probeHash string, generation in
 // worker's clock, decides when a lease has lapsed.
 const TranscodeLeaseTTL = 90 * time.Second
 
-// WorkTranscodeTaskSubject is where squasharr publishes one admitted
+// WorkTranscodeTaskSubject is where transcode publishes one admitted
 // TranscodeJob's task for the pool of its profile and hardware class.
 // Profile and job are UIDs because a profile name may contain ".".
 func WorkTranscodeTaskSubject(profileUID, class, jobUID string) string {
@@ -654,12 +654,12 @@ func WorkTranscodeTaskSubjectAnyPool(jobUID string) string {
 }
 
 // WorkTranscodeResultSubject is where a worker publishes a job's status
-// events; squasharr-transcode-results consumes them.
+// events; transcode-results consumes them.
 func WorkTranscodeResultSubject(jobUID string) string {
 	return "clustarr.work.transcode.result." + tok(jobUID)
 }
 
-// FilterTranscodeTasks is one pool's share of CLUSTARR_WORK_SQUASHARR.
+// FilterTranscodeTasks is one pool's share of CLUSTARR_WORK_TRANSCODE.
 func FilterTranscodeTasks(profileUID, class string) string {
 	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.>", tok(profileUID), tok(class))
 }

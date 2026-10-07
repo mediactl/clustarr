@@ -94,17 +94,17 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	profile := jobspec.StandardProfile(r.t.Profile.Name, r.t.Profile.Hash, r.t.Profile.Spec)
 	plan := standard.Plan(info, profile, hw)
 	if plan.Decision == standard.DecisionSkip {
-		return encodeJob{}, invalidSource("squasharr worker: live plan is skip (%s), not the work the controller planned", plan.Reason)
+		return encodeJob{}, invalidSource("transcode worker: live plan is skip (%s), not the work the controller planned", plan.Reason)
 	}
 	if r.t.PlanHash != "" {
 		got := plan.Hash()
 		trace.SpanFromContext(ctx).SetAttributes(attribute.Bool("transcode.plan_matches_recorded", got == r.t.PlanHash))
 		if got != r.t.PlanHash {
 			if lost := plannedHDRLost(info, profile, hw, plan, r.t.PlanHash); lost != "" {
-				return encodeJob{}, retriable("squasharr worker: the source was planned as %s but its live probe reads SDR; "+
+				return encodeJob{}, retriable("transcode worker: the source was planned as %s but its live probe reads SDR; "+
 					"refusing to encode HDR as SDR (the next attempt probes again)", lost)
 			}
-			log.WarnContext(ctx, "squasharr worker: the plan differs from the one status.plan records",
+			log.WarnContext(ctx, "transcode worker: the plan differs from the one status.plan records",
 				"planHash", r.t.PlanHash, "localPlanHash", got)
 		}
 	}
@@ -113,14 +113,14 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	// (final review I4): refused as retriable, so the dispatcher plans the
 	// job again under the standard it runs.
 	if want := "." + string(plan.Container); !strings.EqualFold(filepath.Ext(sw.localOut), want) {
-		return encodeJob{}, retriable("squasharr worker: the task's output %s is not the %s the standard writes "+
+		return encodeJob{}, retriable("transcode worker: the task's output %s is not the %s the standard writes "+
 			"(a task rendered under another container); the next dispatch plans it again", sw.out, plan.Container)
 	}
 	plan = withX265Pools(plan, r.o.Threads)
 	r.tier = string(tier)
 	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.Job.UID, r.t.Attempt)
 	sweepEarlierAttempts(ctx, part)
-	log.InfoContext(ctx, "squasharr worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
+	log.InfoContext(ctx, "transcode worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
 		"encoder", plan.Video.Encoder, "decode", plan.Video.Decode, "reason", plan.Reason, "droppedSubtitles", plan.Dropped)
 	durationMillis := info.Format.Duration.Milliseconds()
 	graft, plan := r.prepareGraft(ctx, local, plan)
@@ -137,7 +137,7 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 			// original is still the library's file.
 			if err := syncPart(part); err != nil {
 				removePart(ctx, part)
-				return retriable("squasharr worker: the output could not be made durable: %w", err)
+				return retriable("transcode worker: the output could not be made durable: %w", err)
 			}
 			return nil
 		},
@@ -200,7 +200,7 @@ func (r *runner) prepareGraft(ctx context.Context, local string, plan standard.R
 	}
 	prepared, res := ge.PrepareGraft(ctx, local, *r.t.Graft, r.o.DataDir)
 	if prepared == nil {
-		logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: the joined graft is not grafted",
+		logging.FromContext(ctx).InfoContext(ctx, "transcode worker: the joined graft is not grafted",
 			"reason", res.Reason, "message", res.Message)
 		res.Graft = r.t.Graft.Graft
 		r.out.Graft = &res
@@ -265,7 +265,7 @@ func plannedHDRLost(info transcode.MediaInfo, profile standard.Profile, hw stand
 // (fsops.ParseTranscodePart) for the same output stem and job, with a lower
 // attempt number. A later attempt's, another job's (another profile's
 // transcode of the same file), another source's and anything that is not a
-// regular file -- a symlink is never followed -- stay; importarr's rescan
+// regular file -- a symlink is never followed -- stay; import's rescan
 // sweeps an abandoned job's (app/import/worker/rescan). Best effort: a file
 // that cannot be removed is logged, never a reason to fail the task.
 func sweepEarlierAttempts(ctx context.Context, part string) {
@@ -277,7 +277,7 @@ func sweepEarlierAttempts(ctx context.Context, part string) {
 	dir := filepath.Dir(part)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		log.WarnContext(ctx, "squasharr worker: listing the output's folder for earlier attempts' part files failed", "dir", dir, "error", err)
+		log.WarnContext(ctx, "transcode worker: listing the output's folder for earlier attempts' part files failed", "dir", dir, "error", err)
 		return
 	}
 	for _, e := range entries {
@@ -289,10 +289,10 @@ func sweepEarlierAttempts(ctx context.Context, part string) {
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.WarnContext(ctx, "squasharr worker: removing an earlier attempt's part file failed", "path", path, "error", err)
+			log.WarnContext(ctx, "transcode worker: removing an earlier attempt's part file failed", "path", path, "error", err)
 			continue
 		}
-		log.InfoContext(ctx, "squasharr worker: removed an earlier attempt's part file", "path", path, "attempt", p.Attempt)
+		log.InfoContext(ctx, "transcode worker: removed an earlier attempt's part file", "path", path, "attempt", p.Attempt)
 	}
 }
 
@@ -331,9 +331,9 @@ func (r *runner) measurement(ctx context.Context, class transcode.Hardware) (tra
 	case err == nil:
 		return m, nil
 	case class != transcode.HardwareCPU:
-		return m, gpuUnavailable("squasharr worker: %w", err)
+		return m, gpuUnavailable("transcode worker: %w", err)
 	default:
-		return m, retriable("squasharr worker: %w", err)
+		return m, retriable("transcode worker: %w", err)
 	}
 }
 
@@ -383,13 +383,13 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 		return nil
 	}
 	if errors.Is(runErr, transcode.ErrDeviceUnavailable) {
-		return gpuUnavailable("squasharr worker: %w", runErr)
+		return gpuUnavailable("transcode worker: %w", runErr)
 	}
 	if logTail != "" {
 		r.applyStderrTail(logTail)
 	}
 	if gpuTier(tier) {
-		return gpuEncodeFailed(fmt.Errorf("squasharr worker: engine: %w", runErr))
+		return gpuEncodeFailed(fmt.Errorf("transcode worker: engine: %w", runErr))
 	}
-	return retriable("squasharr worker: engine: %w", runErr)
+	return retriable("transcode worker: engine: %w", runErr)
 }

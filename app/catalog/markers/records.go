@@ -125,7 +125,7 @@ func taskMessage(t schema.MarkersTask, id string, now time.Time) (string, string
 		return "", "", nil, err
 	}
 	env := &events.Envelope{
-		ID: id, Type: "catalog.MarkersTask", Schema: name, Source: "catalogarr@" + version.String(),
+		ID: id, Type: "catalog.MarkersTask", Schema: name, Source: "catalog@" + version.String(),
 		Key: t.File.Namespace + "/" + t.File.Name, Time: now.UTC(), Data: data,
 	}
 	return events.WorkMarkersSubject(events.MediaKey("mediafile", t.File.Namespace, t.File.Name)), id, env, nil

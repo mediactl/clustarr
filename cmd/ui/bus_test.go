@@ -92,10 +92,10 @@ func TestEveryNATSDialingDeploymentCarriesNATSURL(t *testing.T) {
 
 		require.Contains(t, dialers, "ui",
 			"%s: the ui Deployment was not recognised as dialling NATS (serves /art from the object store)", installer)
-		require.Contains(t, dialers, "catalogarr", "%s: no catalogarr Deployment was checked", installer)
-		want := dialers["catalogarr"]
+		require.Contains(t, dialers, "catalog", "%s: no catalog Deployment was checked", installer)
+		want := dialers["catalog"]
 		for component, url := range dialers {
-			require.Equalf(t, want, url, "%s: Deployment %q dials a different NATS endpoint from catalogarr",
+			require.Equalf(t, want, url, "%s: Deployment %q dials a different NATS endpoint from catalog",
 				installer, component)
 		}
 	}

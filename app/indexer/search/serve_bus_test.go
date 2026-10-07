@@ -101,7 +101,7 @@ func fakeClientWith(objs ...client.Object) client.Client {
 // The whole anti-mismatch guarantee of this task, in one test: the SHIPPED
 // caller's own client and request builder, over a real bus, against this
 // server. Nothing here constructs a schema.SearchRequest literal -- if it
-// did, a divergence between catalogarr's request shape and this server's
+// did, a divergence between catalog's request shape and this server's
 // expectations would pass here and fail in production.
 func TestServeAnswersTheShippedCaller(t *testing.T) {
 	ctx := t.Context()
@@ -221,7 +221,7 @@ func TestAMalformedRequestIsATransportError(t *testing.T) {
 
 // The other two verbs answer with a populated Error rather than a transport
 // error when their bodies are not wired: "the fetch failed" and "the request
-// never reached indexarr" mean different things to grabarr.
+// never reached index" mean different things to grab.
 func TestUnconfiguredVerbsAnswerWithAnError(t *testing.T) {
 	ctx := t.Context()
 	bus := newBus(t)

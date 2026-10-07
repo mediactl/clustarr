@@ -92,7 +92,7 @@ func fetchTask(t *testing.T, kind commonv1.MediaKind, ns, name string) *testMess
 }
 
 // TestArtworkTaskReDeclaresOnlyWhatTheGatewayOwns drives the
-// catalogarr-artwork-fetch consumer against an Album that already has the
+// catalog-artwork-fetch consumer against an Album that already has the
 // gateway's status.metadata and status.artwork AND the Album reconciler's
 // status.metadata.selectedReleaseID. The task fetched no metadata, so its
 // apply must re-declare the gateway's metadata leaves (or release them) and
@@ -315,7 +315,7 @@ type flakyPublisher struct {
 }
 
 func (p *flakyPublisher) Publish(ctx context.Context, subject string, e *events.Envelope, opts ...events.PublishOption) (events.Receipt, error) {
-	if strings.HasPrefix(subject, "clustarr.work.catalogarr.artwork.render.") && p.failed.CompareAndSwap(false, true) {
+	if strings.HasPrefix(subject, "clustarr.work.catalog.artwork.render.") && p.failed.CompareAndSwap(false, true) {
 		return events.Receipt{}, errors.New("nats: timeout")
 	}
 	return p.Publisher.Publish(ctx, subject, e, opts...)

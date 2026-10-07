@@ -43,7 +43,7 @@ import (
 
 // plantCandidate plants a movie file at rel beneath the root folder,
 // records it under rescan.FieldManager as an import would, and seeds
-// catalogarr's status proposing expectedBase in the same folder: a rename
+// catalog's status proposing expectedBase in the same folder: a rename
 // candidate (mediafilespec.Renameable). It waits until the manager's cache -- the
 // one the rename pass lists MediaFiles from -- holds the seeded status.
 func (f *fixture) plantCandidate(t *testing.T, ctx context.Context, rel, expectedBase string) staleFile {
@@ -106,7 +106,7 @@ func (f *fixture) renameScan(
 	return scan, newFakeMessage(t, task)
 }
 
-// renameWorker is the worker as importarr's run.go builds it, with the
+// renameWorker is the worker as import's run.go builds it, with the
 // uncached reader the rename pass re-reads each MediaFile through.
 func (f *fixture) renameWorker(t *testing.T) *rescan.Worker {
 	t.Helper()

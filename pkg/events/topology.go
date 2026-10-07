@@ -193,7 +193,7 @@ func SubscriptionSpec(s Subscription) ConsumerSpec {
 
 // TranscodeTaskConsumer is one pool's durable. It is not in Default(): pools
 // come and go with profiles, so the worker's Pull creates it, and
-// squasharr's periodic sweep deletes it -- through StreamAdmin's
+// transcode's periodic sweep deletes it -- through StreamAdmin's
 // Subscriptions and DeleteSubscription, which removes its dead-letter
 // watcher too -- once no TranscodeProfile with its UID exists (the sweep in
 // app/transcode/controller/transcodejob/withdraw.go; spec §6.4). A profile
@@ -207,7 +207,7 @@ func SubscriptionSpec(s Subscription) ConsumerSpec {
 // redelivery timer for every delivery (Subscription.Backoff's doc comment,
 // JetStream semantics mirrored by membus), which would silently floor or
 // override those explicit Nak delays instead of honouring them. Retry policy
-// is squasharr's, not the queue's (spec §18.3); MaxDeliver is headroom for
+// is transcode's, not the queue's (spec §18.3); MaxDeliver is headroom for
 // the worker's own settlement paths (held, drain, fence can each redeliver
 // more than once) before the queue's own safety net -- dead-lettering a
 // hung handler -- ever needs to fire.
@@ -223,7 +223,7 @@ func TranscodeTaskConsumer(profileUID, class string) ConsumerSpec {
 		Slots:         1,
 		// A task the manager dispatches (ADR-0019 §5.1): its nak and term
 		// advisories reach CLUSTARR_TASK_EVENTS through the stream's
-		// "<prefix>.CLUSTARR_WORK_SQUASHARR.*" wildcard.
+		// "<prefix>.CLUSTARR_WORK_TRANSCODE.*" wildcard.
 		SampleFrequency: SampleFrequencyDispatched,
 		Dispatched:      true,
 	}
@@ -309,7 +309,7 @@ type TopologyObject struct {
 }
 
 // String names o as StreamAdmin.Missing reports it: "stream CLUSTARR_EVENTS",
-// "consumer CLUSTARR_WORK_CATALOGARR/catalogarr-grab", "kv <bucket>",
+// "consumer CLUSTARR_WORK_CATALOG/catalog-grab", "kv <bucket>",
 // "object store clustarr-artwork".
 func (o TopologyObject) String() string {
 	if o.Kind == TopologyConsumer {
@@ -704,7 +704,7 @@ func fieldErr(field, msg string) error {
 }
 
 // ConsumerCatalogRedownload is the durable consumer that turns a failed
-// Download into a redownload search (spec §8.3): catalogarr frees the item's
+// Download into a redownload search (spec §8.3): catalog frees the item's
 // grab lease and publishes a catalog.SearchTask with reason redownload.
 //
 // It and its filters live here rather than beside the other names in
@@ -715,7 +715,7 @@ const ConsumerCatalogRedownload = "catalog-redownload"
 // The two download-event subjects ConsumerCatalogRedownload filters.
 //
 // failed is the one spec §8.3 names. blocklisted is the other way a Download
-// can end blamed on its release: grabarr derives Blocklisted from the
+// can end blamed on its release: grab derives Blocklisted from the
 // download.clustarr.io/blocklisted label ahead of any telemetry, so a
 // Download labelled while it is still transferring goes straight to
 // Blocklisted and never publishes failed -- and Radarr's "remove from queue
@@ -733,11 +733,11 @@ const (
 // watcher Subscribe binds, its key/value buckets and its object stores.
 //
 // Three declarations the design once carried are gone because nothing ever
-// used them (gap fixes Z2): the catalogarr-import consumer and its
-// clustarr.work.catalogarr.import subject, which amendment §A1 replaced with
-// importarr-fileimport; the indexarr-definitions consumer and its
+// used them (gap fixes Z2): the catalog-import consumer and its
+// clustarr.work.catalog.import subject, which amendment §A1 replaced with
+// import-fileimport; the index-definitions consumer and its
 // definitions-sync subject, which no worker consumed and nothing published,
-// because Cardigann definitions arrive through indexarr's startup bundle
+// because Cardigann definitions arrive through index's startup bundle
 // loader; and the clustarr-search-cache bucket, which nothing read or wrote.
 // Ensure never deletes, except the durables Topology.Retired names, so a
 // broker that already holds the two consumers or the bucket keeps them, idle
@@ -818,8 +818,8 @@ func defaultStreams() []StreamSpec {
 			Replicas:    3,
 		},
 		work(StreamWorkCatalog, FilterWorkCatalog, 1*GiB),
-		// importarr (amendment §A1.6). Sized above indexarr's and
-		// captionarr's because a first scan of a large library enqueues one
+		// import (amendment §A1.6). Sized above index's and
+		// caption's because a first scan of a large library enqueues one
 		// message per directory chunk and every completed download enqueues
 		// a fileimport; the other two enqueue per indexer and per subtitle
 		// request.
@@ -829,8 +829,8 @@ func defaultStreams() []StreamSpec {
 		// Skip-segment work (spec 2026-10-01 segment detection): TheIntroDB's
 		// fetches, rescheduled by the thousand to its allowance's reset, and
 		// segment detection's plans, tasks and results. Durable: on a single
-		// node they filled catalogarr's memory work stream, whose
-		// discard-oldest then dropped catalogarr's own work.
+		// node they filled catalog's memory work stream, whose
+		// discard-oldest then dropped catalog's own work.
 		durableStream(work(StreamWorkMarkers, FilterWorkMarkers, 256*MiB)),
 		{
 			Name:        StreamWorkTranscode,
@@ -976,7 +976,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			// Segment detection (spec 2026-10-01 §4.2): catalogarr's planner
+			// Segment detection (spec 2026-10-01 §4.2): catalog's planner
 			// turns a season's (or a movie's) plan into one analysis task.
 			Name: ConsumerCatalogSegmentsPlan, Stream: StreamWorkMarkers,
 			Filters: []string{FilterCatalogSegmentsPlan},
@@ -988,7 +988,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			// segmentarr-worker: a season task decodes and analyzes up to
+			// markers-worker: a season task decodes and analyzes up to
 			// minutes of ffmpeg work, heartbeating with InProgress.
 			Name: ConsumerMarkersAnalyze, Stream: StreamWorkMarkers,
 			Filters: []string{FilterCatalogSegmentsAnalyze},
@@ -1011,12 +1011,12 @@ func defaultConsumers() []ConsumerSpec {
 			Slots:         512,
 		},
 		{
-			// Gap fixes Y3 (spec §8.3). On EVENTS beside catalogarr-history,
+			// Gap fixes Y3 (spec §8.3). On EVENTS beside catalog-history,
 			// which reads the same subjects as history; a second durable
 			// is what gives this one its own acks and redeliveries. The
 			// work is a lease delete and a publish per item, so 30s is
 			// ample; MaxDeliver 6 leaves room for the handler's short
-			// wait for grabarr's blocklist label (two 5s retries) on top
+			// wait for grab's blocklist label (two 5s retries) on top
 			// of the four backoff steps for real failures.
 			Name: ConsumerCatalogRedownload, Stream: StreamEvents,
 			Filters: []string{FilterDownloadFailed, FilterDownloadBlocklisted},
@@ -1025,9 +1025,9 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 16 * AutoscaleReplicaCeiling,
 			Slots:         16,
 		},
-		// importarr (amendment §A1.6). AckWait is 60s on all three, which is
+		// import (amendment §A1.6). AckWait is 60s on all three, which is
 		// the floor set by terminationGracePeriodSeconds: 60 in
-		// config/manager/importarr-worker.yaml, and the manifest and this
+		// config/manager/import-worker.yaml, and the manifest and this
 		// value must be changed together. A worker that is SIGTERMed must be
 		// able to finish or give up an in-flight message inside the grace
 		// period, or the pod is killed mid-task and the message is only
@@ -1069,7 +1069,7 @@ func defaultConsumers() []ConsumerSpec {
 			// judge the files (fileimport's conclude, class transient: a
 			// file unreadable, a probe or a placement failing), and walked
 			// once more on its first step to confirm a release fault before
-			// grabarr blocklists the release: the owner's three tries over
+			// grab blocklists the release: the owner's three tries over
 			// about an hour (2026-10-07). After the last delivery a
 			// transient import is held for a person, never blocklisted.
 			Name: ConsumerImportFile, Stream: StreamWorkImport,
@@ -1097,9 +1097,9 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			// AckWait is 60s, the floor set by indexarr's
-			// terminationGracePeriodSeconds: 60 (config/manager/indexarr.yaml).
-			// It was 120s, which broke the rule the importarr block above
+			// AckWait is 60s, the floor set by index's
+			// terminationGracePeriodSeconds: 60 (config/manager/index.yaml).
+			// It was 120s, which broke the rule the import block above
 			// states: a worker that is SIGTERMed must be able to finish or
 			// give up an in-flight message inside the grace period, or the
 			// pod is killed mid-task and the message is only redelivered

@@ -28,7 +28,7 @@ import (
 )
 
 // releaseToTorznab renders one schema.Release -- the already-parsed,
-// already-merged shape both rpc.indexarr.search and rpc.indexarr.query
+// already-merged shape both rpc.index.search and rpc.index.query
 // answer with -- as the torznab.Release WriteResults expects.
 //
 // It reads only commonv1.ReleaseInfo (rel.Info): the classifier fields

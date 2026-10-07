@@ -71,7 +71,7 @@ func matchWith(ctx context.Context, c client.Client, namespace string, rel schem
 		return matchSeries(ctx, c, namespace, rel, scenes)
 	default:
 		// An album, a book, an audiobook or a comic issue, by the names
-		// indexarr put on the release (nonvideo.go). An unclassified
+		// index put on the release (nonvideo.go). An unclassified
 		// release is not something to guess at: it matches nothing.
 		return matchNonVideo(ctx, c, namespace, rel)
 	}

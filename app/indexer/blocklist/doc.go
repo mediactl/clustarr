@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package blocklist is the body of clustarr.rpc.indexarr.blocklist
+// Package blocklist is the body of clustarr.rpc.index.blocklist
 // (ADR-0019 §6.14): the release index persists the blocks and unblocks the
 // manager decided, and lists them. The verb never decides: a block is the
 // owner key's Blocklisted transition or a person's "remove … blocklist", an
@@ -24,5 +24,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // cannot undo a later unblock.
 //
 // It runs in the index agent, beside app/indexer/query, registered in
-// app/indexer/search.Serve's verbs table under queue group indexarr.
+// app/indexer/search.Serve's verbs table under queue group index.
 package blocklist

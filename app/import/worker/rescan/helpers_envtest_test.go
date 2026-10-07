@@ -207,7 +207,7 @@ func newFakeMessage(t *testing.T, task schema.ScanTask) *fakeMessage {
 	name, data, err := schema.Encode(task)
 	require.NoError(t, err)
 	return &fakeMessage{
-		env:     &events.Envelope{Schema: name, Data: data, Type: "importarr.ScanTask"},
+		env:     &events.Envelope{Schema: name, Data: data, Type: "import.ScanTask"},
 		attempt: 1,
 	}
 }

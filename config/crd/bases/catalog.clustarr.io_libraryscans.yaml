@@ -35,7 +35,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          LibraryScan is a short-lived resource that asks importarr to walk a
+          LibraryScan is a short-lived resource that asks import to walk a
           RootFolder and reconcile what it finds. Like Search, it is a request that
           is observable with kubectl and whose progress survives a restart; it is
           deleted once spec.ttlSecondsAfterFinished has elapsed after it settled.
@@ -58,8 +58,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: LibraryScanSpec asks importarr to walk a root folder and
-              reconcile what it finds.
+            description: LibraryScanSpec asks import to walk a root folder and reconcile
+              what it finds.
             properties:
               dryRun:
                 description: DryRun reports what would change without creating or

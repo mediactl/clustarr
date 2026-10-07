@@ -39,7 +39,7 @@ func TestBusSearchRPCRoundTrips(t *testing.T) {
 	defer cancel()
 
 	var seen schema.SearchRequest
-	require.NoError(t, bus.Serve(events.RPCIndexSearch, "indexarr", func(_ context.Context, data []byte) ([]byte, error) {
+	require.NoError(t, bus.Serve(events.RPCIndexSearch, "index", func(_ context.Context, data []byte) ([]byte, error) {
 		if err := json.Unmarshal(data, &seen); err != nil {
 			return nil, err
 		}
@@ -64,13 +64,13 @@ func TestBusSearchRPCNoRespondersIsRetryable(t *testing.T) {
 
 	var re *events.RetryError
 	require.ErrorAs(t, err, &re,
-		"a missing indexarr must nak with a delay, not dead-letter the task")
+		"a missing index must nak with a delay, not dead-letter the task")
 	require.Equal(t, noRespondersRetryAfter, re.After)
 	require.ErrorIs(t, err, events.ErrNoResponders, "the cause must survive the wrapping")
 }
 
 // deadlineRequester records the deadline the request context carried and
-// then blocks until that context ends, as a hung indexarr would.
+// then blocks until that context ends, as a hung index would.
 type deadlineRequester struct {
 	deadline time.Time
 	has      bool
@@ -87,7 +87,7 @@ func (*deadlineRequester) Serve(string, string, func(context.Context, []byte) ([
 }
 
 // TestBusSearchRPCHonoursDeadlineMillis pins the carried D1 defect: the RPC
-// advertised DeadlineMillis to indexarr but never bounded its own wait, so a
+// advertised DeadlineMillis to index but never bounded its own wait, so a
 // hung reply was bounded only by whatever the transport or the consumer's
 // AckWait happened to allow.
 func TestBusSearchRPCHonoursDeadlineMillis(t *testing.T) {

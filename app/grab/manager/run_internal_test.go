@@ -28,7 +28,7 @@ import (
 )
 
 // TestEngineRuntimeCarriesTheControllerOptions holds the link from
-// grabarr's options and environment to what the DownloadClient controller
+// grab's options and environment to what the DownloadClient controller
 // stamps onto every engine pod (X14): the engine ServiceAccount, this
 // process's bus address and single-node setting, and $UMASK. Each has a
 // legal empty value that fails only on a real node, where envtest never
@@ -38,12 +38,12 @@ import (
 func TestEngineRuntimeCarriesTheControllerOptions(t *testing.T) {
 	t.Setenv("UMASK", "002")
 	o := DefaultOptions()
-	o.EngineServiceAccount = "media-clustarr-grabarr-engine"
+	o.EngineServiceAccount = "media-clustarr-grab-engine"
 	o.NATSURL = "nats://nats.media.svc:4222"
 	o.BusSingleNode = true
 
 	require.Equal(t, downloadclient.EngineRuntime{
-		ServiceAccountName: "media-clustarr-grabarr-engine",
+		ServiceAccountName: "media-clustarr-grab-engine",
 		NATSURL:            "nats://nats.media.svc:4222",
 		BusSingleNode:      true,
 		Umask:              "002",

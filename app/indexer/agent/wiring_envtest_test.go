@@ -92,12 +92,12 @@ func TestMain(m *testing.M) {
 // Step 1: a guard that DISCOVERS what must be registered.
 // ---------------------------------------------------------------------------
 
-// TestEveryIndexarrRunnableIsRegistered walks app/indexer/** and asserts that
+// TestEveryIndexRunnableIsRegistered walks app/indexer/** and asserts that
 // run.go names every component it finds.
 //
 // A hand-maintained list is the anti-pattern, and cmd/clustarr's equivalent
-// guard shipped as one: its `runnableServices` names catalogarr and importarr
-// only, so indexarr -- every controller, worker and RPC verb of it -- was
+// guard shipped as one: its `runnableServices` names catalog and import
+// only, so index -- every controller, worker and RPC verb of it -- was
 // invisible to it while all seven component tasks landed. This walks instead.
 //
 // Three shapes are discovered, each keyed on something structural rather than
@@ -123,7 +123,7 @@ func TestMain(m *testing.M) {
 //     its sweep are covered by TestTheReleaseIndexIsOpenedAndSwept.
 //  3. That a name in run.go is REACHED at run time. A registration behind a
 //     role that is never selected, or inside an `if false`, still satisfies
-//     this. TestIndexarrWiringRegistersEveryComponent starts a real manager
+//     this. TestIndexWiringRegistersEveryComponent starts a real manager
 //     for that reason.
 //  4. A field assignment that makes a component live. download.Service's
 //     Definitions (the Cardigann grab path, G1-1) and the ClientCache's
@@ -175,10 +175,10 @@ func TestEveryIndexRunnableIsRegistered(t *testing.T) {
 			s.name, s.file, s.pkg, sortedKeys(wiring.serveRoots))
 	}
 
-	// Not per shape: indexarr has no Runnable TYPE today -- every runnable it
+	// Not per shape: index has no Runnable TYPE today -- every runnable it
 	// adds is an inline k8s.EveryReplica closure, which has no type to look
 	// up. Asserting on the total keeps the guard honest about looking in the
-	// right place without demanding a shape indexarr does not need.
+	// right place without demanding a shape index does not need.
 	require.Positive(t, total,
 		"no components were discovered under app/indexer/; this guard is not looking where it "+
 			"thinks it is")
@@ -542,12 +542,12 @@ func TestAnExplicitZeroRequestDelayStaysUnpaced(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestReadinessPassesOnANonLeaderReplica turns leader election ON, even though
-// indexarr forbids it, and makes sure this manager can NEVER win the lease.
+// index forbids it, and makes sure this manager can NEVER win the lease.
 //
 // Phase C's equivalent test set LeaderElect = false, which puts every runnable
 // in one group and makes the assertion vacuous -- so a readiness check added
 // as a bare manager.RunnableFunc shipped, never started on a non-leader
-// replica, and deadlocked every rollout. indexarr is pinned to one replica
+// replica, and deadlocked every rollout. index is pinned to one replica
 // with no lease, which makes that latent here rather than fatal; it is a
 // deployment fact, not a property of this code, and this test is what keeps
 // the two from being confused.
@@ -556,7 +556,7 @@ func TestReadinessPassesOnANonLeaderReplica(t *testing.T) {
 
 	const (
 		leaseNamespace = "default"
-		leaseID        = "indexarr-wiring-test.clustarr.io"
+		leaseID        = "index-wiring-test.clustarr.io"
 	)
 
 	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
@@ -630,7 +630,7 @@ func TestTheIndexReadinessCheckFailsOnAClosedStore(t *testing.T) {
 	require.NoError(t, closer.Close())
 	require.Error(t, check(&http.Request{}),
 		"the readiness check passed against a closed SQLite handle, so it would never take an "+
-			"indexarr pod with a broken index out of service")
+			"index pod with a broken index out of service")
 }
 
 // ---------------------------------------------------------------------------
@@ -681,7 +681,7 @@ func TestRunPassesTheBusHooks(t *testing.T) {
 // Step 1 again, at run time: start a real manager and watch each component work.
 // ---------------------------------------------------------------------------
 
-// TestIndexarrWiringRegistersEveryComponent is the behavioural half of the
+// TestIndexWiringRegistersEveryComponent is the behavioural half of the
 // guard above, and the only test in this package that may call
 // setupControllers: controller-runtime enforces unique controller names per
 // PROCESS, not per manager, so a second call would fail with "controller with
@@ -698,7 +698,7 @@ func TestIndexWiringRegistersEveryComponent(t *testing.T) {
 
 	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	require.NoError(t, err)
-	ns := newNamespace(t, c, "indexarr-wiring")
+	ns := newNamespace(t, c, "index-wiring")
 
 	nc, bus := newJetStreamBus(t)
 	store := openTestIndex(t)
@@ -720,7 +720,7 @@ func TestIndexWiringRegistersEveryComponent(t *testing.T) {
 		// indexer.NewReconciler tolerates a nil Bus by logging a warning and
 		// skipping the seed. That nil path reproduces exactly the bug ruling
 		// R36 fixed: nothing else starts an RSS chain, so the release
-		// firehose never publishes in a real cluster and catalogarr's
+		// firehose never publishes in a real cluster and catalog's
 		// rssmatcher -- subscribed since Phase C -- keeps receiving nothing.
 		// A warning log is thin protection for that, so it is asserted here.
 		srv := capsServer(t)
@@ -832,7 +832,7 @@ func TestIndexWiringRegistersEveryComponent(t *testing.T) {
 			var resp schema.QueryResponse
 			return bus.Request(ctx, events.RPCIndexQuery, schema.QueryRequest{Limit: 1}, &resp) == nil
 		}, 30*time.Second, 200*time.Millisecond,
-			"nothing answered clustarr.rpc.indexarr.query: run.go never called search.Serve, "+
+			"nothing answered clustarr.rpc.index.query: run.go never called search.Serve, "+
 				"so every caller gets events.ErrNoResponders forever")
 
 		var q schema.QueryResponse
@@ -973,7 +973,7 @@ func newJetStreamBus(t *testing.T) (*nats.Conn, *natsbus.Bus) {
 	dir, err := os.MkdirTemp(t.TempDir(), "jetstream")
 	require.NoError(t, err)
 	srv, err := natsserver.NewServer(&natsserver.Options{
-		ServerName: "clustarr-indexarr-wiring",
+		ServerName: "clustarr-index-wiring",
 		Host:       "127.0.0.1",
 		Port:       -1,
 		JetStream:  true,

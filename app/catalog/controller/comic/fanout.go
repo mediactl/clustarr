@@ -40,7 +40,7 @@ func SourceKey(source catalogv1alpha1.ComicSourceProvider) string {
 
 // DesiredIssue is one Issue object the Comic reconciler should ensure
 // exists, with the provider-sourced fields to write to its status (under
-// k8s.ManagerCatalogarrFanout) and the monitored decision (if any) to write
+// k8s.ManagerCatalogFanout) and the monitored decision (if any) to write
 // to its spec, at Create only.
 type DesiredIssue struct {
 	Name                   string

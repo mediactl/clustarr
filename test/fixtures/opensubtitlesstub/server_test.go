@@ -45,7 +45,7 @@ func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Disca
 // TestModeOKServesACandidateTheRealClientAcceptsAndDownloads is this stub's
 // own guard rail, the same discipline torznabstub's
 // TestEmbeddedDocumentsParse follows: every shape this fixture serves is
-// exercised here through the SAME client package captionarr's fetch worker
+// exercised here through the SAME client package caption's fetch worker
 // uses, so a typo in a JSON field name fails `go test` instead of showing up
 // fifteen minutes into a kind run as "opensubtitlescom: search: decode:
 // ...".
@@ -176,7 +176,7 @@ func TestRequestLogSkipsProbesAndRecordsRealRequests(t *testing.T) {
 
 	real, err := http.NewRequest(http.MethodPost, srv.URL+"/login", strings.NewReader(`{"username":"u","password":"p"}`)) //nolint:noctx // httptest
 	require.NoError(t, err)
-	real.Header.Set("User-Agent", "clustarr/captionarr-worker")
+	real.Header.Set("User-Agent", "clustarr/caption-worker")
 	real.Header.Set("Api-Key", APIKey)
 	resp, err = http.DefaultClient.Do(real)
 	require.NoError(t, err)

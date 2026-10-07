@@ -511,7 +511,7 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 // author.Reconciler's works-listing fan-out (not a hand-built Book) to
 // create a Book, then runs the REAL book.Reconciler on it, and asserts
 // metadata.managedFields on the resulting object's "status" subresource
-// contains ONLY k8s.ManagerCatalogarr -- never k8s.ManagerCatalogarrFanout,
+// contains ONLY k8s.ManagerCatalog -- never k8s.ManagerCatalogFanout,
 // which pkg/k8s/fieldmanager.go's own doc comment (prospectively, ahead of
 // this task pinning the actual behaviour) reserves for "the Artist, Author
 // and Comic reconcilers when they write onto the Album, Book and Issue
@@ -578,13 +578,13 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	for _, want := range fieldManagerNames(bk.ManagedFields) {
-		assert.NotContains(t, want, string(k8s.ManagerCatalogFanout), "Book must never be written under ManagerCatalogarrFanout: %+v", fieldManagerNames(bk.ManagedFields))
+		assert.NotContains(t, want, string(k8s.ManagerCatalogFanout), "Book must never be written under ManagerCatalogFanout: %+v", fieldManagerNames(bk.ManagedFields))
 	}
 	statusFields := managedStatusFieldPaths(bk.ManagedFields, string(k8s.ManagerCatalog))
-	require.NotNil(t, statusFields, "no catalogarr/status entry in managedFields: %+v", fieldManagerNames(bk.ManagedFields))
+	require.NotNil(t, statusFields, "no catalog/status entry in managedFields: %+v", fieldManagerNames(bk.ManagedFields))
 	names := statusFieldNames(statusFields)
-	assert.True(t, names["phase"], "catalogarr should own status.phase")
-	assert.True(t, names["path"], "catalogarr should own status.path")
+	assert.True(t, names["phase"], "catalog should own status.phase")
+	assert.True(t, names["path"], "catalog should own status.path")
 
 	// A second author fan-out pass (re-listing the same work) must not
 	// create a second write on the Book either.

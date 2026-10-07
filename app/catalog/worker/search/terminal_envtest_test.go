@@ -175,7 +175,7 @@ func TestWorkerCapsAndDedupesIndexerOutcomes(t *testing.T) {
 }
 
 // TestWorkerReportsNamelessOutcomesAndTruncation pins two carried D1 defects:
-// an outcome indexarr reported with no indexer name was dropped, so an
+// an outcome index reported with no indexer name was dropped, so an
 // indexer that failed before it was named left no trace an operator could
 // see; and a truncated reply was only a boolean on an Info log line, so a
 // user reading status.results could not tell they were decided from a

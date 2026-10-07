@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package agent is the agent's caption domain (spec §3.5.3):
-// captionarr-fetch-high and captionarr-fetch-normal, bounded by the shared
+// caption-fetch-high and caption-fetch-normal, bounded by the shared
 // KV token bucket clustarr-provider-throttle rather than by replicas.
 package agent
 
@@ -43,7 +43,7 @@ type Options struct {
 }
 
 // Register registers the fetch worker (task F-5) on both fetch consumers,
-// captionarr-fetch-high and captionarr-fetch-normal. The worker's runnables
+// caption-fetch-high and caption-fetch-normal. The worker's runnables
 // are k8s.EveryReplica: fetch workers are never leader-elected (§6.5), so
 // every replica consumes, bounded by the shared KV token bucket rather than
 // by how many pods run.
@@ -76,7 +76,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	}
 	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
 	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("captionarr: fetch worker: %w", err)
+		return catalogagent.Registration{}, fmt.Errorf("caption: fetch worker: %w", err)
 	}
 	var ready k8s.Checks
 	if err := ready.Add("caption.data", k8s.DataReadyChecker(o.DataDir)); err != nil {

@@ -33,13 +33,13 @@ import (
 )
 
 // runnableServices returns every service the binary can run, derived from
-// cmd/clustarr's own entrypoint variables (services.go: `runCatalogarr =
-// catalogarr.Run`, ...) rather than hand-listed: a new service is guarded
+// cmd/clustarr's own entrypoint variables (services.go: `runCatalog =
+// catalog.Run`, ...) rather than hand-listed: a new service is guarded
 // the moment the binary can start it, with no list here to forget.
 //
 // The list was hand-maintained until task X14 -- the very anti-pattern the
-// RBAC guard beside it was rewritten to avoid -- and grabarr, squasharr,
-// indexarr and captionarr each joined it only after a task noticed. ui was
+// RBAC guard beside it was rewritten to avoid -- and grab, transcode,
+// index and caption each joined it only after a task noticed. ui was
 // never on it; its one registrable component, the projection loop, is
 // started by cmd/clustarr, which is why every service's wiring source
 // includes cmd/clustarr (see wiringFiles).
@@ -120,8 +120,8 @@ var pendingWiring = map[string]string{}
 // Runnable. Every such exported type under a service directory must be named
 // in that service's wiring source, and must ALSO declare
 // NeedLeaderElection: until X14 the guard keyed on both methods, so a
-// bare-Start runnable -- the exact shape that deadlocked every catalogarr and
-// importarr rollout (C12a critical C2), because controller-runtime puts it
+// bare-Start runnable -- the exact shape that deadlocked every catalog and
+// import rollout (C12a critical C2), because controller-runtime puts it
 // behind the lease -- was invisible to it.
 //
 // It is source-level because that is where the evidence is: the alternative is
@@ -148,14 +148,14 @@ func TestEveryManagerRunnableIsRegistered(t *testing.T) {
 				require.True(t, r.lease,
 					"%s (%s) has Start but no NeedLeaderElection method: controller-runtime puts such a "+
 						"bare-Start runnable behind the leader lease, so on a replica that elects and loses it "+
-						"never starts -- the shape that deadlocked every catalogarr and importarr rollout "+
+						"never starts -- the shape that deadlocked every catalog and import rollout "+
 						"(C12a critical C2). Declare NeedLeaderElection and decide.",
 					r.name, r.file)
 			}
 		})
 	}
 
-	// Not per service: importarr legitimately has none today -- every runnable
+	// Not per service: import legitimately has none today -- every runnable
 	// it adds is an inline k8s.EveryReplica closure, which has no type to
 	// look up. Asserting globally keeps the guard honest about looking in the
 	// right place without demanding a shape a service does not need.
@@ -196,7 +196,7 @@ func TestEveryManagerRunnableIsRegistered(t *testing.T) {
 // What it cannot see, stated rather than hoped: that the name is REACHED at
 // run time (a registration behind a role nothing selects), and a component
 // made live by a field assignment (download.Service.Definitions). The start
-// envtest is the backstop for the first; indexarr's wiring envtest drives
+// envtest is the backstop for the first; index's wiring envtest drives
 // the second.
 func TestEveryServiceComponentIsRegistered(t *testing.T) {
 	root, err := filepath.Abs("../..")
@@ -615,7 +615,7 @@ func productionFiles(t *testing.T) map[string]*ast.File {
 
 // TestNoBareRunnableFunc: manager.RunnableFunc is a bare func type with no
 // NeedLeaderElection method, so controller-runtime runs it only on the
-// leader -- the shape that deadlocked every catalogarr and importarr rollout
+// leader -- the shape that deadlocked every catalog and import rollout
 // (C12a critical C2: k8s.CacheSyncChecker's readiness runnable sat behind the
 // lease, so no surge pod ever went Ready). k8s.EveryReplica, or a type that
 // declares NeedLeaderElection, states the decision instead. Since X14 the

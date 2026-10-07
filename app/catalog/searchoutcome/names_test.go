@@ -41,7 +41,7 @@ func TestReservedOutcomeNamesCannotBeIndexerNames(t *testing.T) {
 
 // Live Search objects carry these strings in status.indexerOutcomes.
 func TestOutcomeNamesAreStable(t *testing.T) {
-	assert.Equal(t, "catalogarr/search-worker", searchoutcome.WorkerOutcomeName)
-	assert.Equal(t, "catalogarr/truncated", searchoutcome.TruncatedOutcomeName)
-	assert.Equal(t, "catalogarr/unnamed-indexer-3", searchoutcome.UnnamedOutcomeName(3))
+	assert.Equal(t, "catalog/search-worker", searchoutcome.WorkerOutcomeName)
+	assert.Equal(t, "catalog/truncated", searchoutcome.TruncatedOutcomeName)
+	assert.Equal(t, "catalog/unnamed-indexer-3", searchoutcome.UnnamedOutcomeName(3))
 }

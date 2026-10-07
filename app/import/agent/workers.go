@@ -27,7 +27,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
-// newScanWorker builds the work.importarr.scan handler with o's sample size
+// newScanWorker builds the work.import.scan handler with o's sample size
 // floor. rescan.NewWorker already defaults the floor, so the assignment
 // matters exactly when o carries a different one -- a non-default
 // --sample-max-bytes, or 0 to disable the rule. It also gets the manager's
@@ -40,7 +40,7 @@ func newScanWorker(c client.Client, api client.Reader, bus events.Bus, prober me
 	return w
 }
 
-// newListWorker builds the work.importarr.list handler with o's Trakt and
+// newListWorker builds the work.import.list handler with o's Trakt and
 // Plex base URLs (see Options.TraktBaseURL) and the manager's API reader,
 // which a Series is read through with its managedFields before a sync
 // applies it (importlist.Worker.APIReader).
@@ -52,7 +52,7 @@ func newListWorker(c client.Client, api client.Reader, bus events.Bus, o Options
 	return w
 }
 
-// newImportWorker builds the work.importarr.fileimport handler with o's
+// newImportWorker builds the work.import.fileimport handler with o's
 // sample size floor, for the reason [newScanWorker] gives, and the
 // manager's API reader, which a movie's existing files are read through
 // (fileimport.Worker.APIReader), and the import domain's one prober.

@@ -111,7 +111,7 @@ func TestFetchFollowsSameOriginAndStopsElsewhere(t *testing.T) {
 		res, err := f.Fetch(context.Background(), srv.URL+"/away")
 		require.NoError(t, err)
 		require.Equal(t, "https://cdn.elsewhere.invalid/x?passkey=s3cret", res.OffHostURL,
-			"grabarr needs the URL intact; only the LOG is redacted")
+			"grab needs the URL intact; only the LOG is redacted")
 		require.Nil(t, res.Body)
 	})
 	t.Run("a non-http scheme is refused by name", func(t *testing.T) {

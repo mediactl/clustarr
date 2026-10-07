@@ -16,8 +16,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package probe is the import domain's probe worker (spec 2026-10-06 §6.6):
-// it answers catalogarr's MediaFile probe tasks (importarr-probe-high and
-// importarr-probe-low) into the clustarr-probes record the MediaFile
+// it answers catalog's MediaFile probe tasks (import-probe-high and
+// import-probe-low) into the clustarr-probes record the MediaFile
 // reconciler reads, through the process's one mediainfo.Prober. It writes
 // only to NATS: no Kubernetes client, and no prober of its own.
 package probe

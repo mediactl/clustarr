@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package probestore is the MediaFile probe record protocol (spec 2026-10-06
 // §6.5.2): one record per MediaFile UID in the clustarr-probes bucket, every
 // write a compare-and-swap, nobody deleting one (the bucket's TTL does).
-// catalogarr's MediaFile reconciler requests and publishes; the import
+// catalog's MediaFile reconciler requests and publishes; the import
 // domain's probe worker answers; an importer seeds the probe it already ran.
 // Since the fold it is pkg/records' probe remediation (loop spec 2026-10-06
 // §4.12): the protocol is records', and this package keeps the probe's own
@@ -200,7 +200,7 @@ func TaskMessage(rec schema.ProbeRecord, now time.Time) (subject, msgID string, 
 	}
 	msgID = events.MsgIDForProbe(rec.MediaFile.UID, rec.ProbeHash, rec.RequestedVersion, rec.Seq)
 	env = &events.Envelope{
-		ID: msgID, Type: "importarr.ProbeTask", Schema: name, Source: "catalogarr@" + version.String(),
+		ID: msgID, Type: "import.ProbeTask", Schema: name, Source: "catalog@" + version.String(),
 		Key: rec.MediaFile.Key(), Time: now.UTC(), Data: data,
 	}
 	subject = events.WorkProbeSubject(events.Priority(rec.Lane),

@@ -32,7 +32,7 @@ import (
 
 // AssertIndexes adds a runnable that, once the caches have synced, issues
 // one cached List per declared index and fails the manager if any is not
-// registered (generalised from catalogarr's assertWorkerIndexes). The cache
+// registered (generalised from catalog's assertWorkerIndexes). The cache
 // answers a MatchingFields on an unregistered index with an error that the
 // readers swallow by design, so this is the one moment the difference
 // between "live" and "silently inert" is observable. It costs one empty,

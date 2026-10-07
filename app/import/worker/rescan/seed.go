@@ -41,10 +41,10 @@ func (w *Worker) seedProbe(ctx context.Context, namespace string, applied applie
 		ProbeHash:    mediainfo.ProbeHash(path, info.Size(), info.ModTime()),
 		ProbeVersion: mediainfo.ProbeVersion,
 		MediaInfo:    mediainfo.AtPath(mi, path),
-		Prober:       "importarr-scan",
+		Prober:       "import-scan",
 	})
 	if err != nil {
-		logging.FromContext(ctx).Warn("rescan: could not seed the probe record; catalogarr will queue a probe",
+		logging.FromContext(ctx).Warn("rescan: could not seed the probe record; catalog will queue a probe",
 			"mediaFile", applied.Name, "error", err)
 	}
 }

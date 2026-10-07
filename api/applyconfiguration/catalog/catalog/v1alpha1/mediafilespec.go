@@ -30,10 +30,10 @@ import (
 // MediaFileSpec defines the desired state of MediaFile.
 //
 // MediaFile is the one exception to the single-writer rule, and the split is
-// spec versus status: importarr creates the resource and owns this spec --
+// spec versus status: import creates the resource and owns this spec --
 // the observed path, size and fingerprint, plus the quality, revision,
 // formatScore, matchedFormats and releaseType frozen at import -- while
-// catalogarr owns all of MediaFileStatus, plus metadata.labels, and takes
+// catalog owns all of MediaFileStatus, plus metadata.labels, and takes
 // over sizeBytes, modTime and original once it incorporates a transcode
 // swap -- and path as well when the transcode landed under a new name and
 // the source is gone (a container change or an explicit outputPath). Both
@@ -42,9 +42,9 @@ import (
 type MediaFileSpecApplyConfiguration struct {
 	// MediaRef points at the catalog item this file backs.
 	MediaRef *commonv1alpha1.MediaRef `json:"mediaRef,omitempty"`
-	// Path is the file's absolute path. importarr sets it at import; it
-	// changes only when catalogarr swaps in a transcode written under a new
-	// name, and catalogarr then owns it.
+	// Path is the file's absolute path. import sets it at import; it
+	// changes only when catalog swaps in a transcode written under a new
+	// name, and catalog then owns it.
 	Path *string `json:"path,omitempty"`
 	// SizeBytes is the file size in bytes.
 	SizeBytes *int64 `json:"sizeBytes,omitempty"`

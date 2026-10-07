@@ -30,7 +30,7 @@ import (
 )
 
 // HandlerBudget is how long a candidate is held for its owner's decision
-// (§8.4), catalogarr-intake-candidate's HandlerTimeout; past it the
+// (§8.4), catalog-intake-candidate's HandlerTimeout; past it the
 // candidate is naked with RetryDelay.
 const HandlerBudget = 60 * time.Second
 
@@ -41,7 +41,7 @@ const RetryDelay = 10 * time.Second
 // errTimedOut is a candidate no owner pass settled within HandlerBudget.
 var errTimedOut = errors.New("intake: no decision on the candidate within the handler budget")
 
-// CandidateConsumer is the leader-only catalogarr-intake-candidate consumer.
+// CandidateConsumer is the leader-only catalog-intake-candidate consumer.
 type CandidateConsumer struct {
 	Bus      events.Bus
 	Inbox    *Inbox

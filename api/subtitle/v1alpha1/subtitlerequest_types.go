@@ -124,7 +124,7 @@ type ExistingSub struct {
 // SubtitleItem is the work unit for one wanted language of one media file: its
 // state, the chosen candidate and the search backoff.
 //
-// The controller owns nextSearchAt and attempts; captionarr-worker owns the
+// The controller owns nextSearchAt and attempts; caption-worker owns the
 // remaining fields and applies them server-side, so the two writers stay
 // disjoint within an item.
 //
@@ -140,7 +140,7 @@ type SubtitleItem struct {
 	// +kubebuilder:validation:MaxLength=64
 	LangKey string `json:"langKey"`
 
-	// State is the current per-language state, written by captionarr-worker.
+	// State is the current per-language state, written by caption-worker.
 	// Absent means planned, never searched: the controller has created the
 	// item and no worker has reported on it yet. It has no default on
 	// purpose -- a defaulted value would be owned by no field manager.

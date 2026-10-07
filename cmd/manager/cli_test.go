@@ -82,7 +82,7 @@ func TestRootListsEveryService(t *testing.T) {
 		t.Fatalf("clustarr --help: %v", err)
 	}
 	for _, want := range []string{
-		"catalogarr", "importarr", "indexarr", "grabarr", "squasharr", "captionarr", "ui", "all", "version",
+		"catalog", "import", "index", "grab", "transcode", "caption", "ui", "all", "version",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help does not mention %q:\n%s", want, out)
@@ -107,7 +107,7 @@ func stub[T any](t *testing.T, target *func(context.Context, T) error) *T {
 func TestCatalogManagerOptions(t *testing.T) {
 	got := stub(t, &runCatalog)
 
-	if _, err := execute(t, "catalogarr",
+	if _, err := execute(t, "catalog",
 		"--role", "worker",
 		"--namespace", "clustarr",
 		"--leader-elect",
@@ -115,7 +115,7 @@ func TestCatalogManagerOptions(t *testing.T) {
 		"--metrics-bind-address", ":9443",
 		"--watch-namespace", "media,media-staging",
 	); err != nil {
-		t.Fatalf("clustarr catalogarr: %v", err)
+		t.Fatalf("clustarr catalog: %v", err)
 	}
 
 	if got.Role != catalogapp.RoleWorker {
@@ -146,10 +146,10 @@ func TestCatalogManagerOptions(t *testing.T) {
 
 	// The controller role does take the lease.
 	got = stub(t, &runCatalog)
-	if _, err := execute(t, "catalogarr",
+	if _, err := execute(t, "catalog",
 		"--role", "controller", "--namespace", "clustarr", "--leader-elect",
 	); err != nil {
-		t.Fatalf("clustarr catalogarr --role controller: %v", err)
+		t.Fatalf("clustarr catalog --role controller: %v", err)
 	}
 	if !got.ManagerOptions().LeaderElection {
 		t.Error("the controller role did not take the leader lease")
@@ -159,11 +159,11 @@ func TestCatalogManagerOptions(t *testing.T) {
 func TestIndexManagerOptions(t *testing.T) {
 	got := stub(t, &runIndex)
 
-	if _, err := execute(t, "indexarr",
+	if _, err := execute(t, "index",
 		"--namespace", "clustarr",
 		"--index-path", "/index/releases.db",
 	); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if got.Role != indexapp.RoleAll {
 		t.Errorf("role = %q", got.Role)
@@ -171,26 +171,26 @@ func TestIndexManagerOptions(t *testing.T) {
 	if err := got.Validate(); err != nil {
 		t.Fatalf("the parsed options are invalid: %v", err)
 	}
-	// §3 pins indexarr to one replica with a Recreate strategy, so there is
+	// §3 pins index to one replica with a Recreate strategy, so there is
 	// nothing to elect and a lease would only delay its own restart.
 	if got.ManagerOptions().LeaderElection {
-		t.Error("indexarr took a leader lease")
+		t.Error("index took a leader lease")
 	}
 	if got.IndexPath != "/index/releases.db" {
 		t.Errorf("index path = %q", got.IndexPath)
 	}
 }
 
-// TestIndexarrFacadeSettings covers the Torznab facade's two flags. The
+// TestIndexFacadeSettings covers the Torznab facade's two flags. The
 // API-key Secret is named, never keyed: --facade-api-key-secret defaults to
-// indexarr.DefaultFacadeAPIKeySecret (config/'s name) and then to
+// index.DefaultFacadeAPIKeySecret (config/'s name) and then to
 // $CLUSTARR_FACADE_API_KEY_SECRET (the chart's, which carries the release
 // fullname). The facade fails closed, so an enabled facade with no namespace
 // to keep that Secret in is refused before anything starts.
 func TestIndexFacadeSettings(t *testing.T) {
 	got := stub(t, &runIndex)
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if got.FacadeAPIKeySecret != indexapp.DefaultFacadeAPIKeySecret || got.FacadeBindAddress != ":8080" {
 		t.Errorf("facade = %q / secret %q, want :8080 / %q",
@@ -200,13 +200,13 @@ func TestIndexFacadeSettings(t *testing.T) {
 		t.Error("the facade is disabled by default")
 	}
 
-	t.Setenv(facadeAPIKeySecretEnv, "media-clustarr-indexarr-facade")
+	t.Setenv(facadeAPIKeySecretEnv, "media-clustarr-index-facade")
 	t.Setenv(facadeBindAddressEnv, ":9797")
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
-	if got.FacadeAPIKeySecret != "media-clustarr-indexarr-facade" || got.FacadeBindAddress != ":9797" {
-		t.Errorf("facade = %q / secret %q, want the environment's :9797 / media-clustarr-indexarr-facade",
+	if got.FacadeAPIKeySecret != "media-clustarr-index-facade" || got.FacadeBindAddress != ":9797" {
+		t.Errorf("facade = %q / secret %q, want the environment's :9797 / media-clustarr-index-facade",
 			got.FacadeBindAddress, got.FacadeAPIKeySecret)
 	}
 	if err := got.Validate(); err != nil {
@@ -216,75 +216,75 @@ func TestIndexFacadeSettings(t *testing.T) {
 	// No namespace: nowhere to keep the key, so an enabled facade is refused
 	// and a disabled one is not.
 	t.Setenv(namespaceEnv, "")
-	if _, err := execute(t, "indexarr"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if err := got.Validate(); err == nil {
 		t.Error("an enabled facade with no namespace for its API-key Secret was accepted")
 	}
-	if _, err := execute(t, "indexarr", "--facade-bind-address", "0"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--facade-bind-address", "0"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if err := got.Validate(); err != nil {
 		t.Errorf("a disabled facade still demanded a namespace: %v", err)
 	}
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--facade-api-key-secret", ""); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr", "--facade-api-key-secret", ""); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if err := got.Validate(); err == nil {
 		t.Error("an enabled facade with no API-key Secret was accepted")
 	}
 }
 
-// TestIndexarrCardigannDefinitionsDir holds --cardigann-definitions-dir
-// (X14) to indexarr.Options, from the flag, from
+// TestIndexCardigannDefinitionsDir holds --cardigann-definitions-dir
+// (X14) to index.Options, from the flag, from
 // $CLUSTARR_CARDIGANN_DEFINITIONS_DIR and from `clustarr all`; the start
-// envtest's indexarr case holds the rest, the directory to IndexerDefinitions.
+// envtest's index case holds the rest, the directory to IndexerDefinitions.
 func TestIndexCardigannDefinitionsDir(t *testing.T) {
 	got := stub(t, &runIndex)
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--cardigann-definitions-dir", "/bundle"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr", "--cardigann-definitions-dir", "/bundle"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if got.CardigannDefinitionsDir != "/bundle" {
 		t.Errorf("CardigannDefinitionsDir = %q, want the flag's /bundle", got.CardigannDefinitionsDir)
 	}
 
 	t.Setenv(cardigannDefinitionsDirEnv, "/from-env")
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if got.CardigannDefinitionsDir != "/from-env" {
 		t.Errorf("CardigannDefinitionsDir = %q, want $%s's /from-env", got.CardigannDefinitionsDir, cardigannDefinitionsDirEnv)
 	}
 
 	all := stub(t, &runIndex)
-	if err := allServiceRun(t, "indexarr")(context.Background(), k8s.DefaultOptions()); err != nil {
+	if err := allServiceRun(t, "index")(context.Background(), k8s.DefaultOptions()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if all.CardigannDefinitionsDir != "/from-env" {
-		t.Errorf("`clustarr all` gives indexarr CardigannDefinitionsDir %q, want $%s's /from-env",
+		t.Errorf("`clustarr all` gives index CardigannDefinitionsDir %q, want $%s's /from-env",
 			all.CardigannDefinitionsDir, cardigannDefinitionsDirEnv)
 	}
 }
 
-// TestGrabarrDataClaimComesFromTheEnvironment: the DownloadClient controller
+// TestGrabDataClaimComesFromTheEnvironment: the DownloadClient controller
 // stamps --data-claim onto every engine workload, config/ relies on its
 // default and the chart sets $CLUSTARR_DATA_CLAIM, because the chart's claim
-// carries the release fullname. See TestGrabarrEnginesMountAClaimTheInstallerCreates
+// carries the release fullname. See TestGrabEnginesMountAClaimTheInstallerCreates
 // for the same fact read from what each installer renders.
 func TestGrabDataClaimComesFromTheEnvironment(t *testing.T) {
 	got := stub(t, &runGrab)
 	t.Setenv(engineImageEnv, "ghcr.io/mediactl/clustarr/media:dev")
-	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr grabarr: %v", err)
+	if _, err := execute(t, "grab", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grab: %v", err)
 	}
 	if got.DataClaimName != "clustarr-data" {
 		t.Errorf("DataClaimName = %q, want config/'s clustarr-data", got.DataClaimName)
 	}
 
 	t.Setenv(dataClaimEnv, "media-clustarr-data")
-	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr grabarr: %v", err)
+	if _, err := execute(t, "grab", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grab: %v", err)
 	}
 	if got.DataClaimName != "media-clustarr-data" {
 		t.Errorf("DataClaimName = %q, want $%s's media-clustarr-data", got.DataClaimName, dataClaimEnv)
@@ -293,36 +293,36 @@ func TestGrabDataClaimComesFromTheEnvironment(t *testing.T) {
 		t.Fatalf("the parsed options are invalid: %v", err)
 	}
 
-	if _, err := execute(t, "grabarr", "--namespace", "clustarr", "--data-claim", ""); err != nil {
-		t.Fatalf("clustarr grabarr: %v", err)
+	if _, err := execute(t, "grab", "--namespace", "clustarr", "--data-claim", ""); err != nil {
+		t.Fatalf("clustarr grab: %v", err)
 	}
 	if err := got.Validate(); err == nil {
-		t.Error("a grabarr controller with no data claim to stamp was accepted")
+		t.Error("a grab controller with no data claim to stamp was accepted")
 	}
 }
 
-// TestGrabarrEngineServiceAccountComesFromTheEnvironment is the
+// TestGrabEngineServiceAccountComesFromTheEnvironment is the
 // --engine-service-account twin of the data-claim test above (X14): config/
-// relies on the flag's default, grabarr-engine, and the chart sets
+// relies on the flag's default, grab-engine, and the chart sets
 // $CLUSTARR_ENGINE_SERVICE_ACCOUNT to its fullname-prefixed account. See
-// TestGrabarrEnginesRunAsAnAccountTheInstallerBinds for the same fact read
+// TestGrabEnginesRunAsAnAccountTheInstallerBinds for the same fact read
 // from what each installer renders.
 func TestGrabEngineServiceAccountComesFromTheEnvironment(t *testing.T) {
 	got := stub(t, &runGrab)
 	t.Setenv(engineImageEnv, "ghcr.io/mediactl/clustarr/media:dev")
-	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr grabarr: %v", err)
+	if _, err := execute(t, "grab", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grab: %v", err)
 	}
-	if got.EngineServiceAccount != "grabarr-engine" {
-		t.Errorf("EngineServiceAccount = %q, want config/'s grabarr-engine", got.EngineServiceAccount)
+	if got.EngineServiceAccount != "grab-engine" {
+		t.Errorf("EngineServiceAccount = %q, want config/'s grab-engine", got.EngineServiceAccount)
 	}
 
-	t.Setenv(engineServiceAccountEnv, "media-clustarr-grabarr-engine")
-	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr grabarr: %v", err)
+	t.Setenv(engineServiceAccountEnv, "media-clustarr-grab-engine")
+	if _, err := execute(t, "grab", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grab: %v", err)
 	}
-	if got.EngineServiceAccount != "media-clustarr-grabarr-engine" {
-		t.Errorf("EngineServiceAccount = %q, want $%s's media-clustarr-grabarr-engine",
+	if got.EngineServiceAccount != "media-clustarr-grab-engine" {
+		t.Errorf("EngineServiceAccount = %q, want $%s's media-clustarr-grab-engine",
 			got.EngineServiceAccount, engineServiceAccountEnv)
 	}
 	if err := got.Validate(); err != nil {
@@ -332,24 +332,24 @@ func TestGrabEngineServiceAccountComesFromTheEnvironment(t *testing.T) {
 
 func TestIndexRejectsLeaderElection(t *testing.T) {
 	got := stub(t, &runIndex)
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--leader-elect"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr", "--leader-elect"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if err := got.Validate(); err == nil {
-		t.Fatal("indexarr accepted --leader-elect")
+		t.Fatal("index accepted --leader-elect")
 	}
 }
 
 func TestGrabManagerOptions(t *testing.T) {
 	got := stub(t, &runGrab)
 
-	if _, err := execute(t, "grabarr",
+	if _, err := execute(t, "grab",
 		"--role", "torrent-engine",
 		"--engine", "qbit-0",
 		"--namespace", "clustarr",
 		"--leader-elect",
 	); err != nil {
-		t.Fatalf("clustarr grabarr: %v", err)
+		t.Fatalf("clustarr grab: %v", err)
 	}
 	if got.Role != grabapp.RoleTorrentEngine || got.Engine != "qbit-0" {
 		t.Errorf("role = %q, engine = %q", got.Role, got.Engine)
@@ -364,8 +364,8 @@ func TestGrabManagerOptions(t *testing.T) {
 
 func TestGrabEngineRoleNeedsAnIdentity(t *testing.T) {
 	got := stub(t, &runGrab)
-	if _, err := execute(t, "grabarr", "--role", "usenet-engine", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr grabarr: %v", err)
+	if _, err := execute(t, "grab", "--role", "usenet-engine", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grab: %v", err)
 	}
 	if err := got.Validate(); err == nil {
 		t.Fatal("an engine role without --engine was accepted")
@@ -375,7 +375,7 @@ func TestGrabEngineRoleNeedsAnIdentity(t *testing.T) {
 func TestTranscodeManagerOptionsAndSlots(t *testing.T) {
 	got := stub(t, &runTranscode)
 
-	if _, err := execute(t, "squasharr",
+	if _, err := execute(t, "transcode",
 		"--role", "controller",
 		"--slots", "cpu=4,nvidia=2,intel=0",
 		"--namespace", "clustarr",
@@ -384,7 +384,7 @@ func TestTranscodeManagerOptionsAndSlots(t *testing.T) {
 		"--gpu-node-label-nvidia", "example.com/nvidia-gpu",
 		"--gpu-node-label-intel", "example.com/intel-gpu",
 	); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if err := got.Validate(); err != nil {
 		t.Fatalf("the parsed options are invalid: %v", err)
@@ -396,7 +396,7 @@ func TestTranscodeManagerOptionsAndSlots(t *testing.T) {
 		}
 	}
 	if !got.ManagerOptions().LeaderElection {
-		t.Error("the squasharr controller did not take the leader lease")
+		t.Error("the transcode controller did not take the leader lease")
 	}
 	if got.WorkerImage != "ghcr.io/mediactl/clustarr/transcoder:dev" {
 		t.Errorf("worker image = %q, want the --worker-image value", got.WorkerImage)
@@ -413,23 +413,23 @@ func TestTranscodeManagerOptionsAndSlots(t *testing.T) {
 
 	// Unset, they are the labels the GPU operators set; a malformed one is
 	// refused at startup rather than on every GPU pool's apply.
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+	if _, err := execute(t, "transcode", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if got.NodeLabelNVIDIA != pool.DefaultNodeLabelNVIDIA || got.NodeLabelIntel != pool.DefaultNodeLabelIntel {
 		t.Errorf("default GPU node labels = %q / %q, want %q / %q", got.NodeLabelNVIDIA, got.NodeLabelIntel,
 			pool.DefaultNodeLabelNVIDIA, pool.DefaultNodeLabelIntel)
 	}
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1",
+	if _, err := execute(t, "transcode", "--namespace", "clustarr", "--worker-image", "m:1",
 		"--gpu-node-label-intel", "not a label"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if err := got.Validate(); err == nil || !strings.Contains(err.Error(), "--gpu-node-label-intel") {
 		t.Errorf("a malformed --gpu-node-label-intel was not refused by name: %v", err)
 	}
 }
 
-// The squasharr Deployment configures its Jobs by environment, not argv:
+// The transcode Deployment configures its Jobs by environment, not argv:
 // config/manager sets the image, and the chart also sets the data
 // claim, whose name carries the release fullname. Each variable must reach
 // its flag, or the chart's pool Jobs would mount a claim that does not
@@ -440,8 +440,8 @@ func TestTranscodeWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	t.Setenv(gpuNodeLabelNVIDIAEnv, "example.com/env-nvidia-gpu")
 	t.Setenv(gpuNodeLabelIntelEnv, "example.com/env-intel-gpu")
 	got := stub(t, &runTranscode)
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+	if _, err := execute(t, "transcode", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if err := got.Validate(); err != nil {
 		t.Fatalf("the environment-configured options are invalid: %v", err)
@@ -458,11 +458,11 @@ func TestTranscodeWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	}
 
 	// An explicit flag still wins over the environment, the same as every
-	// other squasharr setting envOr defaults.
+	// other transcode setting envOr defaults.
 	got = stub(t, &runTranscode)
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr",
+	if _, err := execute(t, "transcode", "--namespace", "clustarr",
 		"--gpu-node-label-nvidia", "flag.example/nvidia-gpu"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if got.NodeLabelNVIDIA != "flag.example/nvidia-gpu" {
 		t.Errorf("--gpu-node-label-nvidia did not override $%s: %q", gpuNodeLabelNVIDIAEnv, got.NodeLabelNVIDIA)
@@ -470,26 +470,26 @@ func TestTranscodeWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 
 	// And the controller refuses to start without an image to stamp.
 	t.Setenv(workerImageEnv, "")
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+	if _, err := execute(t, "transcode", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if err := got.Validate(); err == nil {
-		t.Error("a squasharr controller with no worker image was accepted")
+		t.Error("a transcode controller with no worker image was accepted")
 	}
 }
 
-// TestSquasharrIntelRenderGroups holds X14's --intel-render-groups (the
-// supplementary groups an Intel pool pod needs for /dev/dri) to squasharr.Options: from
+// TestTranscodeIntelRenderGroups holds X14's --intel-render-groups (the
+// supplementary groups an Intel pool pod needs for /dev/dri) to transcode.Options: from
 // the flag, from $CLUSTARR_INTEL_RENDER_GROUPS (which the chart sets), empty
 // by default because the host render GID varies per install, and a typo
 // refused at startup rather than at every Job's pod creation.
-// squasharr's TestPoolConfigCarriesTheControllerOptions holds the next link,
+// transcode's TestPoolConfigCarriesTheControllerOptions holds the next link,
 // Options to the pool.
 func TestTranscodeIntelRenderGroups(t *testing.T) {
 	got := stub(t, &runTranscode)
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1",
+	if _, err := execute(t, "transcode", "--namespace", "clustarr", "--worker-image", "m:1",
 		"--intel-render-groups", "44, 109"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if !reflect.DeepEqual(got.IntelRenderGroups, []int64{44, 109}) {
 		t.Errorf("--intel-render-groups 44,109 gave IntelRenderGroups %v", got.IntelRenderGroups)
@@ -500,8 +500,8 @@ func TestTranscodeIntelRenderGroups(t *testing.T) {
 
 	t.Setenv(intelRenderGroupsEnv, "109")
 	got = stub(t, &runTranscode)
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+	if _, err := execute(t, "transcode", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if !reflect.DeepEqual(got.IntelRenderGroups, []int64{109}) {
 		t.Errorf("$%s=109 gave IntelRenderGroups %v", intelRenderGroupsEnv, got.IntelRenderGroups)
@@ -509,15 +509,15 @@ func TestTranscodeIntelRenderGroups(t *testing.T) {
 
 	t.Setenv(intelRenderGroupsEnv, "")
 	got = stub(t, &runTranscode)
-	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
-		t.Fatalf("clustarr squasharr: %v", err)
+	if _, err := execute(t, "transcode", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
+		t.Fatalf("clustarr transcode: %v", err)
 	}
 	if len(got.IntelRenderGroups) != 0 {
 		t.Errorf("with nothing set, IntelRenderGroups = %v, want none", got.IntelRenderGroups)
 	}
 
 	for _, bad := range []string{"render", "44,", "-1", "44;109"} {
-		if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--intel-render-groups", bad); err == nil {
+		if _, err := execute(t, "transcode", "--namespace", "clustarr", "--intel-render-groups", bad); err == nil {
 			t.Errorf("--intel-render-groups %q was accepted", bad)
 		}
 	}
@@ -525,10 +525,10 @@ func TestTranscodeIntelRenderGroups(t *testing.T) {
 
 func TestTranscodeRejectsABadSlotFlag(t *testing.T) {
 	stub(t, &runTranscode)
-	if _, err := execute(t, "squasharr", "--slots", "gpu=1"); err == nil {
+	if _, err := execute(t, "transcode", "--slots", "gpu=1"); err == nil {
 		t.Fatal("an unknown hardware class was accepted")
 	}
-	if _, err := execute(t, "squasharr", "--slots", "cpu"); err == nil {
+	if _, err := execute(t, "transcode", "--slots", "cpu"); err == nil {
 		t.Fatal("a slot entry with no budget was accepted")
 	}
 }
@@ -536,13 +536,13 @@ func TestTranscodeRejectsABadSlotFlag(t *testing.T) {
 func TestCaptionManagerOptions(t *testing.T) {
 	got := stub(t, &runCaption)
 
-	if _, err := execute(t, "captionarr",
+	if _, err := execute(t, "caption",
 		"--role", "worker",
 		"--namespace", "clustarr",
 		"--leader-elect",
 		"--data-dir", "/data",
 	); err != nil {
-		t.Fatalf("clustarr captionarr: %v", err)
+		t.Fatalf("clustarr caption: %v", err)
 	}
 	if got.Role != captionapp.RoleWorker {
 		t.Errorf("role = %q", got.Role)
@@ -553,14 +553,14 @@ func TestCaptionManagerOptions(t *testing.T) {
 	// §12 runs two fetch workers so fetches proceed in parallel; the shared
 	// KV token bucket is what bounds them, not a lease.
 	if got.ManagerOptions().LeaderElection {
-		t.Error("a captionarr worker took a leader lease")
+		t.Error("a caption worker took a leader lease")
 	}
 }
 
 func TestUnknownRoleIsRejected(t *testing.T) {
 	got := stub(t, &runCatalog)
-	if _, err := execute(t, "catalogarr", "--role", "nonsense", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr catalogarr: %v", err)
+	if _, err := execute(t, "catalog", "--role", "nonsense", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr catalog: %v", err)
 	}
 	if err := got.Validate(); err == nil {
 		t.Fatal("an unknown --role was accepted")
@@ -572,44 +572,44 @@ func TestEverySubcommandBuildsManagerOptions(t *testing.T) {
 	// render manager options without a cluster, a kubeconfig or a NATS
 	// server. ui is absent: it builds no ctrl.Options, having no manager.
 	cases := map[string]func() ctrl.Options{
-		"catalogarr": func() ctrl.Options {
+		"catalog": func() ctrl.Options {
 			o := catalogapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
-		"importarr": func() ctrl.Options {
+		"import": func() ctrl.Options {
 			o := importapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
-		"indexarr": func() ctrl.Options {
+		"index": func() ctrl.Options {
 			o := indexapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
-		"grabarr": func() ctrl.Options {
+		"grab": func() ctrl.Options {
 			o := grabapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
-		"squasharr": func() ctrl.Options {
+		"transcode": func() ctrl.Options {
 			o := transcodeapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
-		"captionarr": func() ctrl.Options {
+		"caption": func() ctrl.Options {
 			o := captionapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
 	}
 	wantIDs := map[string]string{
-		"catalogarr": catalogapp.LeaderElectionID,
-		"importarr":  importapp.LeaderElectionID,
-		"indexarr":   indexapp.LeaderElectionID,
-		"grabarr":    grabapp.LeaderElectionID,
-		"squasharr":  transcodeapp.LeaderElectionID,
-		"captionarr": captionapp.LeaderElectionID,
+		"catalog":   catalogapp.LeaderElectionID,
+		"import":    importapp.LeaderElectionID,
+		"index":     indexapp.LeaderElectionID,
+		"grab":      grabapp.LeaderElectionID,
+		"transcode": transcodeapp.LeaderElectionID,
+		"caption":   captionapp.LeaderElectionID,
 	}
 	for name, build := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -690,7 +690,7 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 	// validate is recorded as a closure over the service's OWN Options type,
 	// not the embedded k8s.Options: the stub below replaces Run, and Run is
 	// the only thing that would otherwise have called Validate, so a service
-	// whose per-service defaults `all` failed to apply (importarr's DataPath)
+	// whose per-service defaults `all` failed to apply (import's DataPath)
 	// would sail through this test. See TestAllPassesEveryServiceValidation.
 	record := func(name string, o k8s.Options, lo logging.Options, to tracing.Options, validate func() error) {
 		mu.Lock()
@@ -706,11 +706,11 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 	origCatalog, origImport, origIndex := runCatalog, runImport, runIndex
 	origGrab, origTranscode, origCaption, origUI := runGrab, runTranscode, runCaption, runUI
 	runCatalog = func(_ context.Context, o catalogapp.Options) error {
-		record("catalogarr", o.Options, o.Logging, o.Tracing, o.Validate)
+		record("catalog", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runImport = func(_ context.Context, o importapp.Options) error {
-		record("importarr", o.Options, o.Logging, o.Tracing, o.Validate)
+		record("import", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	var indexOpts indexapp.Options
@@ -718,15 +718,15 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		mu.Lock()
 		indexOpts = o
 		mu.Unlock()
-		record("indexarr", o.Options, o.Logging, o.Tracing, o.Validate)
+		record("index", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runGrab = func(_ context.Context, o grabapp.Options) error {
-		record("grabarr", o.Options, o.Logging, o.Tracing, o.Validate)
+		record("grab", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runTranscode = func(_ context.Context, o transcodeapp.Options) error {
-		record("squasharr", o.Options, o.Logging, o.Tracing, o.Validate)
+		record("transcode", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	var captionRole captionapp.Role
@@ -734,7 +734,7 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		mu.Lock()
 		captionRole = o.Role
 		mu.Unlock()
-		record("captionarr", o.Options, o.Logging, o.Tracing, o.Validate)
+		record("caption", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	var uiOpts ui.Options
@@ -765,10 +765,10 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 	); err != nil {
 		t.Fatalf("clustarr all: %v", err)
 	}
-	// captionarr runs its fetch worker too (X14): with the controller role
+	// caption runs its fetch worker too (X14): with the controller role
 	// alone, `clustarr all` published fetch tasks nothing consumed.
 	if !captionRole.RunsControllers() || !captionRole.RunsWorkers() {
-		t.Errorf("captionarr: Role = %q, want one that runs the controllers and the fetch worker", captionRole)
+		t.Errorf("caption: Role = %q, want one that runs the controllers and the fetch worker", captionRole)
 	}
 	// ui binds --ui-bind-address (X14); before it, `clustarr all`'s ui
 	// always bound :8080, with no flag.
@@ -786,7 +786,7 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 	assertDistinct(t, "metrics", seenMetrics)
 	assertDistinct(t, "health probe", seenProbes)
 
-	// The regression this case exists for: `clustarr all` built importarr's
+	// The regression this case exists for: `clustarr all` built import's
 	// Options as a bare struct literal, leaving DataPath at "" -- which
 	// Validate rejects, and which runAll turns into "every other service is
 	// cancelled". Run is stubbed above, so nothing else in this test would
@@ -818,7 +818,7 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 				name, to.ServiceName)
 		}
 	}
-	// indexarr's Torznab facade and ui are the two HTTP servers `all` runs
+	// index's Torznab facade and ui are the two HTTP servers `all` runs
 	// that are not offset per service, and both default to :8080. Whichever
 	// bound second would fail, and runAll would cancel the whole stack.
 	uiAddr := uiOpts.BindAddress
@@ -826,10 +826,10 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		uiAddr = ui.DefaultBindAddress
 	}
 	if !indexOpts.FacadeEnabled() {
-		t.Errorf("indexarr: the Torznab facade is disabled under `clustarr all --namespace clustarr`")
+		t.Errorf("index: the Torznab facade is disabled under `clustarr all --namespace clustarr`")
 	}
 	if portOf(t, indexOpts.FacadeBindAddress) == portOf(t, uiAddr) {
-		t.Errorf("indexarr's facade (%q) and ui (%q) share a port in `clustarr all`",
+		t.Errorf("index's facade (%q) and ui (%q) share a port in `clustarr all`",
 			indexOpts.FacadeBindAddress, uiAddr)
 	}
 
@@ -872,29 +872,29 @@ func keysOf[V any](m map[string]V) []string {
 	return out
 }
 
-// TestIndexarrCardigannBundled holds --cardigann-bundled to
-// indexarr.Options: on by default, off from the flag or from
+// TestIndexCardigannBundled holds --cardigann-bundled to
+// index.Options: on by default, off from the flag or from
 // $CLUSTARR_CARDIGANN_BUNDLED, and on by default in `clustarr all` too, so a
 // fresh install and a dev stack both get the embedded corpus.
 func TestIndexCardigannBundled(t *testing.T) {
 	got := stub(t, &runIndex)
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if !got.CardigannBundled {
 		t.Errorf("CardigannBundled = false by default, want true")
 	}
 
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--cardigann-bundled=false"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr", "--cardigann-bundled=false"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if got.CardigannBundled {
 		t.Errorf("CardigannBundled = true with --cardigann-bundled=false")
 	}
 
 	t.Setenv(cardigannBundledEnv, "false")
-	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
-		t.Fatalf("clustarr indexarr: %v", err)
+	if _, err := execute(t, "index", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr index: %v", err)
 	}
 	if got.CardigannBundled {
 		t.Errorf("CardigannBundled = true with $%s=false", cardigannBundledEnv)
@@ -902,10 +902,10 @@ func TestIndexCardigannBundled(t *testing.T) {
 
 	t.Setenv(cardigannBundledEnv, "")
 	all := stub(t, &runIndex)
-	if err := allServiceRun(t, "indexarr")(context.Background(), k8s.DefaultOptions()); err != nil {
+	if err := allServiceRun(t, "index")(context.Background(), k8s.DefaultOptions()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if !all.CardigannBundled {
-		t.Errorf("`clustarr all` indexarr: CardigannBundled = false by default, want true")
+		t.Errorf("`clustarr all` index: CardigannBundled = false by default, want true")
 	}
 }

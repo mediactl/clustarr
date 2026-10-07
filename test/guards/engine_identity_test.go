@@ -25,9 +25,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
-// TestGrabarrEnginesMountAClaimTheInstallerCreates is
+// TestGrabEnginesMountAClaimTheInstallerCreates is
 // TestTranscodeJobServiceAccountHoldsTheWorkerRole's data-claim half, for
-// grabarr's engine workloads (plan task G1-5, found by E-4).
+// grab's engine workloads (plan task G1-5, found by E-4).
 //
 // The DownloadClient controller stamps a /data PersistentVolumeClaim onto
 // every engine StatefulSet and Deployment it creates. That name was the
@@ -36,7 +36,7 @@ import (
 // "clustarr" every engine pod mounted a claim that does not exist and sat in
 // ContainerCreating forever. Nothing could see it: envtest schedules no pods.
 //
-// For each installer this takes the grabarr controller Deployment, runs its
+// For each installer this takes the grab controller Deployment, runs its
 // argv through the real command tree with exactly its literal env, and reads
 // the --data-claim the controller would stamp. That claim must be one the
 // installer creates, and the very claim the controller Deployment itself
@@ -59,14 +59,14 @@ func TestGrabEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 			r := decodeRendered(t, out)
 			var dep *appsv1.Deployment
 			for i := range r.deployments {
-				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "grabarr" {
+				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "grab" {
 					dep = &r.deployments[i]
 				}
 			}
-			require.NotNil(t, dep, "no grabarr Deployment rendered")
+			require.NotNil(t, dep, "no grab Deployment rendered")
 			ctr := dep.Spec.Template.Spec.Containers[0]
 
-			// Exactly the Deployment's literal env; grabarr's own variables
+			// Exactly the Deployment's literal env; grab's own variables
 			// are cleared first so this process's environment cannot stand
 			// in for a missing one.
 			for _, e := range []string{engineImageEnv, dataClaimEnv} {
@@ -84,7 +84,7 @@ func TestGrabEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 			require.NoError(t, got.Validate())
 
 			require.True(t, r.claims[got.DataClaimName],
-				"grabarr's engine workloads would mount PVC %q, which %s does not create", got.DataClaimName, name)
+				"grab's engine workloads would mount PVC %q, which %s does not create", got.DataClaimName, name)
 
 			var mounted string
 			for _, v := range dep.Spec.Template.Spec.Volumes {
@@ -92,21 +92,21 @@ func TestGrabEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 					mounted = v.PersistentVolumeClaim.ClaimName
 				}
 			}
-			require.NotEmpty(t, mounted, "the grabarr Deployment mounts no data claim")
+			require.NotEmpty(t, mounted, "the grab Deployment mounts no data claim")
 			require.Equal(t, mounted, got.DataClaimName,
-				"the engines would mount a different /data than the grabarr controller that sizes it")
+				"the engines would mount a different /data than the grab controller that sizes it")
 		})
 	}
 }
 
-// TestGrabarrEnginesRunAsAnAccountTheInstallerBinds is the engine
+// TestGrabEnginesRunAsAnAccountTheInstallerBinds is the engine
 // ServiceAccount's half of the test above (X14, found by X9): the engine
 // pods the DownloadClient controller creates named no serviceAccountName, so
 // they ran as the namespace's "default" account, which nothing binds, and
 // were denied their own DownloadClient and every Download on a real cluster.
 // envtest schedules no pods and enforces no binding, so nothing could see it.
 //
-// For each installer this runs the grabarr controller Deployment's argv
+// For each installer this runs the grab controller Deployment's argv
 // through the real command tree with exactly its literal env and reads the
 // --engine-service-account the controller stamps onto every engine pod
 // (cmd/clustarr's start envtest proves the stamp itself). That account must
@@ -117,7 +117,7 @@ func TestGrabEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
 	kustomize := findTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
-	want := sortedGrants(grantsOf(readRole(t, root, "grabarr_engine_role.yaml").Rules))
+	want := sortedGrants(grantsOf(readRole(t, root, "grab_engine_role.yaml").Rules))
 
 	cases := map[string][]byte{
 		"helm template clustarr":   run(t, root, helm, "template", "clustarr", "charts/clustarr"),
@@ -129,11 +129,11 @@ func TestGrabEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
 			r := decodeRendered(t, out)
 			var dep *appsv1.Deployment
 			for i := range r.deployments {
-				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "grabarr" {
+				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "grab" {
 					dep = &r.deployments[i]
 				}
 			}
-			require.NotNil(t, dep, "no grabarr Deployment rendered")
+			require.NotNil(t, dep, "no grab Deployment rendered")
 			ctr := dep.Spec.Template.Spec.Containers[0]
 			for _, e := range []string{engineImageEnv, dataClaimEnv, engineServiceAccountEnv} {
 				t.Setenv(e, "")
@@ -151,7 +151,7 @@ func TestGrabEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
 
 			account := got.EngineServiceAccount
 			require.True(t, r.serviceAccounts[account],
-				"grabarr's engine pods would run as ServiceAccount %q, which %s does not create", account, name)
+				"grab's engine pods would run as ServiceAccount %q, which %s does not create", account, name)
 			var boundTo []string
 			for _, b := range r.bindings {
 				for _, s := range b.Subjects {

@@ -149,7 +149,7 @@ func TestNewClusterReaderSeesRealObjects(t *testing.T) {
 	require.NotNil(t, waitForSync)
 
 	// A plain client.Client, standing in for whatever writes a Movie in
-	// production (importarr, or a person with kubectl) -- never
+	// production (import, or a person with kubectl) -- never
 	// ui.NewClusterReader's own reader, which cannot write at all.
 	writer, err := client.New(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)

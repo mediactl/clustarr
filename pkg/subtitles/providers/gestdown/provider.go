@@ -65,7 +65,7 @@ type Config struct {
 	// ruling R3. A library defaulting one on would give every Provider
 	// instance a private allowance, so N fetch workers sharing this process
 	// would collectively out-pace whatever budget the caller intended.
-	// captionarr's fetch worker (F-5) is expected to wire this to the shared
+	// caption's fetch worker (F-5) is expected to wire this to the shared
 	// clustarr-provider-throttle KV token bucket the same way it wires
 	// opensubtitlescom.Config.Limiter.
 	Limiter *rate.Limiter
@@ -333,7 +333,7 @@ func releaseInfoFromVersion(version string) string {
 // buffer into memory, mirroring the 8 MiB cap pkg/torznab and
 // pkg/cardigann already apply to indexer responses. A real subtitle is a
 // few tens of kilobytes; without a bound, one misbehaving (or malicious)
-// provider response could exhaust the captionarr worker's memory.
+// provider response could exhaust the caption worker's memory.
 const maxSubtitleBytes = 8 << 20 // 8 MiB
 
 // maxJSONBytes bounds a JSON API response -- the show lookup and the

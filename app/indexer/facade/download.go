@@ -29,7 +29,7 @@ import (
 )
 
 // handleIndexerDownload is "GET /{indexer}/download": resolves a release
-// payload through Config.Download -- clustarr.rpc.indexarr.download's own
+// payload through Config.Download -- clustarr.rpc.index.download's own
 // body -- using the indexer's own session cookies/passkeys.
 //
 // The `url` parameter is the caller's, and is passed on as an UNTRUSTED

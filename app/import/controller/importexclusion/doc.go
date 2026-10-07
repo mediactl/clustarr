@@ -21,8 +21,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // with one Get instead of listing every ImportExclusion per candidate
 // (amendment §A1.3; §16 M1).
 //
-// ImportExclusion belongs to importarr, not catalogarr: amendment §A1.3's
-// ownership table, k8s.ManagerImportarr's own doc comment and catalogarr's
+// ImportExclusion belongs to import, not catalog: amendment §A1.3's
+// ownership table, k8s.ManagerImport's own doc comment and catalog's
 // setupControllers comment all agree. This controller is the single writer of
 // ImportExclusion.status.
 //
@@ -50,13 +50,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task C12 wires it into importarr's
+// Nothing here registers itself. Task C12 wires it into import's
 // setupControllers with exactly:
 //
 //	if err := (&importexclusion.Reconciler{
 //	        Client: mgr.GetClient(),
 //	        Bus:    bus,
 //	}).SetupWithManager(mgr); err != nil {
-//	        return fmt.Errorf("importarr: importexclusion: %w", err)
+//	        return fmt.Errorf("import: importexclusion: %w", err)
 //	}
 package importexclusion

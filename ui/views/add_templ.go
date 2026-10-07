@@ -200,7 +200,7 @@ func AddPage(d AddPageData) templ.Component {
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "The ui has no connection to catalogarr.")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "The ui has no connection to the catalog metadata service.")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}

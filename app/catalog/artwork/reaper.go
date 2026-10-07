@@ -62,7 +62,7 @@ const (
 // every object in events.BucketArtwork whose "<kind>/<uid>" prefix names no
 // live item of that kind, once the object is older than Grace. Both
 // variants go -- it is the only code that deletes an overlay as well as an
-// original -- following grabarr's reapers (app/grab/engine/torrent.Reaper):
+// original -- following grab's reapers (app/grab/engine/torrent.Reaper):
 // level-driven, list against list, so it recovers from a deletion nobody
 // observed.
 //

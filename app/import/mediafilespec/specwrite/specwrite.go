@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package specwrite is the MediaFile spec's Kubernetes writers, split from
 // app/import/mediafilespec (ADR-0019 A3.8) so the import agent links none:
-// Apply and ApplyFacts (the one render of importarr-worker's MediaFileSpec)
+// Apply and ApplyFacts (the one render of import-worker's MediaFileSpec)
 // and RenameFile. The manager's import materialisation and rename actuator
 // call them; the rescan until A6.1 moves its writes to the manager.
 package specwrite
@@ -50,13 +50,13 @@ import (
 	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
-// Apply applies importarr's complete MediaFileSpec for one MediaFile
+// Apply applies import's complete MediaFileSpec for one MediaFile
 // under [mediafilespec.FieldManager]: ref, path, the size and mtime info observed, and
 // every frozen field f carries. It is the one render of this manager's set
 // on a MediaFile -- the rescan and the rename both go through it, so neither
 // can become a second, narrower apply that releases what the other sends.
 //
-// A nil info sends no size or mtime: a transcoded file's are catalogarr's
+// A nil info sends no size or mtime: a transcoded file's are catalog's
 // (see [RenameFile]). A non-empty rv is the resourceVersion the caller read,
 // sent as a precondition, and a refusal for that reason comes back as a
 // *[mediafilespec.StaleReadError].
@@ -148,8 +148,8 @@ func applyFacts(
 	return ptr.Deref(applied.UID, ""), nil
 }
 
-// RenameFile moves one library file to the canonical path catalogarr
-// proposes in status.naming, and applies importarr's complete MediaFileSpec
+// RenameFile moves one library file to the canonical path catalog
+// proposes in status.naming, and applies import's complete MediaFileSpec
 // with the new path, the moved file's size and mtime, and the
 // probe-corrected quality status.naming carries (spec §5).
 //
@@ -179,13 +179,13 @@ func applyFacts(
 // path in another folder is [mediafilespec.RenameHeld], as it has always been.
 //
 // A transcoded file (spec.original false) has its size, mtime and original
-// flag left out of the apply: catalogarr owns those once it incorporates a
+// flag left out of the apply: catalog owns those once it incorporates a
 // swap.
 //
 // Once the file has moved, each sidecar in status.sidecars sharing its stem
 // is moved to the new stem, keeping its language and flag suffix. That is
 // best effort: a sidecar that cannot be moved is logged, never a failed
-// rename. catalogarr re-observes everything else on its own.
+// rename. catalog re-observes everything else on its own.
 func RenameFile(
 	ctx context.Context, c client.Client, api client.Reader, mf *catalogv1alpha1.MediaFile, dryRun, keepFolder bool,
 ) (mediafilespec.RenameOutcome, error) {
@@ -348,7 +348,7 @@ func moveSidecars(ctx context.Context, sidecars []catalogv1alpha1.Sidecar, from,
 	}
 	log := logging.FromContext(ctx)
 	// The recorded sidecars, and every subtitle beside the file its stem
-	// names -- squasharr's own, which no MediaFile records (MP4 standard
+	// names -- transcode's own, which no MediaFile records (MP4 standard
 	// §4.1).
 	paths := map[string]bool{}
 	for _, s := range sidecars {

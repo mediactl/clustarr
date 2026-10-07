@@ -52,9 +52,9 @@ import (
 //	                        (catalog.ItemEvent, ReleaseEvent, MediaFileEvent,
 //	                        SearchTask, GrabTask and MetadataTask, by
 //	                        MediaRef.kind)
-//	                      ImportList   (catalog.ImportListSynced, importarr.ListTask)
-//	                      LibraryScan  (importarr.ScanTask)
-//	                      MediaFile    (importarr.ProbeTask, catalog.MarkersTask,
+//	                      ImportList   (catalog.ImportListSynced, import.ListTask)
+//	                      LibraryScan  (import.ScanTask)
+//	                      MediaFile    (import.ProbeTask, catalog.MarkersTask,
 //	                        catalog.SegmentsPlanTask and catalog.AnalyzeTask,
 //	                        by their file; the remediation loop folds it)
 //	index.clustarr.io     Indexer      (index.Release, IndexerEvent, RssTask)

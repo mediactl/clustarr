@@ -66,7 +66,7 @@ import (
 //     actions.ErrInvalid, which Actions only reaches past its no-writer check.
 //
 // The kubeconfig names an apiserver nothing listens on
-// (squasharr_worker_test.go's unreachableKubeconfig): ctrl.GetConfig only
+// (transcode_worker_test.go's unreachableKubeconfig): ctrl.GetConfig only
 // parses it, and building ui's cache, projection and action writer dials
 // nothing, so each command reaches runUI exactly as it would against a real
 // cluster. With no kubeconfig at all, a nil Reader and a nil Actions are the

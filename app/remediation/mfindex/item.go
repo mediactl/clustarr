@@ -32,7 +32,7 @@ import (
 // Item is the one index of MediaFiles by the catalog item they back (loop
 // spec §3.16). It replaces nine: the six item controllers'
 // ".spec.mediaRef.<kind>", the MediaFile reconciler's
-// "mediafile.clustarr.io/owner", captionarr's "captionarr.spec.mediaRef" and
+// "mediafile.clustarr.io/owner", caption's "caption.spec.mediaRef" and
 // librarydelete's "librarydelete.spec.mediaRef.target". Readers: the item
 // keys, the loop's naming wakes, librarydelete, the segment planner, and
 // until F5.3 the two caption controllers.

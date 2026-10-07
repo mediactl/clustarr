@@ -96,7 +96,7 @@ func loggedIn(t *testing.T, def *cardigann.Definition, site string) cardigann.Co
 // it is the caller's URL, not the tracker's, and fetching it with the
 // tracker's session is how a private tracker's cookies reach an attacker --
 // and fetching it at all is how an in-cluster or metadata address answers
-// through indexarr. Download refuses it with ErrOffSite before any request.
+// through index. Download refuses it with ErrOffSite before any request.
 func TestEngineDownloadRefusesAnOffSiteLink(t *testing.T) {
 	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(fakeTorrent))

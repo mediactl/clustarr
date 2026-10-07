@@ -44,7 +44,7 @@ import (
 // wall clock: a reconcile that publishes and then fails its status apply
 // re-observes the same edge and republishes the same id, which the EVENTS
 // stream's duplicate window absorbs. That is why each caller publishes
-// BEFORE the apply that records the edge, the same order grabarr's
+// BEFORE the apply that records the edge, the same order grab's
 // DownloadEvent producer uses: publishing after it would lose the event on
 // exactly that crash.
 
@@ -85,7 +85,7 @@ func ItemEvent(item client.Object, kind commonv1.MediaKind, action string, f Ite
 		ID:     id,
 		Type:   "catalog.ItemEvent",
 		Schema: name,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    item.GetNamespace() + "/" + item.GetName(),
 		Time:   at,
 		Data:   data,
@@ -174,7 +174,7 @@ func MediaFileEvent(item client.Object, media commonv1.MediaRef, action, file st
 		ID:     string(item.GetUID()) + ":mediafile:" + action + ":" + file,
 		Type:   "catalog.MediaFileEvent",
 		Schema: name,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    item.GetNamespace() + "/" + item.GetName(),
 		Time:   at,
 		Data:   data,

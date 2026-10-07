@@ -84,7 +84,7 @@ func newTranscodeProfile(t *testing.T, ctx context.Context, c client.Client, nam
 
 // This is the test the TranscodeJob half of this package exists for.
 //
-// squasharr owns all of TranscodeJob.status, and server-side apply replaces
+// transcode owns all of TranscodeJob.status, and server-side apply replaces
 // a manager's ownership set on every apply, so [status.ControllerFields]
 // must re-declare every field on every write -- the reconciler's AND the
 // results consumer's -- or a write that changes one field releases the
@@ -100,7 +100,7 @@ func TestTheJobDeclarationIsComplete(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
 
-	const ns = "squasharr-status-split"
+	const ns = "transcode-status-split"
 	require.NoError(t, client.IgnoreAlreadyExists(
 		c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
 
@@ -108,7 +108,7 @@ func TestTheJobDeclarationIsComplete(t *testing.T) {
 	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
 	jobRef := "split-a1b2c3d4"
 
-	// Steady state: every field squasharr owns.
+	// Steady state: every field transcode owns.
 	require.NoError(t, status.Patch(ctx, c, k8s.ManagerTranscode, tj,
 		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).
@@ -158,7 +158,7 @@ func TestTheJobDeclarationIsComplete(t *testing.T) {
 
 	// Re-apply changing only observedGeneration and a condition's reason --
 	// the reconciler's kind of write -- through the CAS path both of
-	// squasharr's writers use.
+	// transcode's writers use.
 	require.NoError(t, status.PatchCAS(ctx, c, &seeded,
 		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
 			ac.WithObservedGeneration(2).WithConditions(k8s.ConditionAC(metav1.Condition{
@@ -253,7 +253,7 @@ func assertJobIntact(t *testing.T, st transcodev1alpha1.TranscodeJobStatus, who 
 }
 
 // assertJobManagedFields reads the apiserver's own record of who owns what
-// on TranscodeJob.status: squasharr, and only squasharr, owns exactly the
+// on TranscodeJob.status: transcode, and only transcode, owns exactly the
 // set it declares.
 func assertJobManagedFields(t *testing.T, tj *transcodev1alpha1.TranscodeJob) {
 	t.Helper()
@@ -270,22 +270,22 @@ func assertJobManagedFields(t *testing.T, tj *transcodev1alpha1.TranscodeJob) {
 			continue
 		}
 		require.Equalf(t, string(k8s.ManagerTranscode), entry.Manager,
-			"%q owns fields on TranscodeJob.status; only squasharr may", entry.Manager)
+			"%q owns fields on TranscodeJob.status; only transcode may", entry.Manager)
 		seen = true
 
 		var fields map[string]any
 		require.NoError(t, json.Unmarshal(entry.FieldsV1.GetRawBytes(), &fields))
 		st, ok := fields["f:status"].(map[string]any)
-		require.True(t, ok, "squasharr has a status managedFields entry with no f:status")
+		require.True(t, ok, "transcode has a status managedFields entry with no f:status")
 
 		var got []string
 		for key := range st {
 			got = append(got, strings.TrimPrefix(key, "f:"))
 		}
 		sort.Strings(got)
-		assert.Equal(t, want, got, "the apiserver records squasharr as owning a different set than it declares")
+		assert.Equal(t, want, got, "the apiserver records transcode as owning a different set than it declares")
 	}
-	assert.True(t, seen, "squasharr owns nothing on TranscodeJob.status; its apply never landed")
+	assert.True(t, seen, "transcode owns nothing on TranscodeJob.status; its apply never landed")
 }
 
 // PatchCAS is the lost-update guard of spec §18.2: a write seeded from a
@@ -294,7 +294,7 @@ func assertJobManagedFields(t *testing.T, tj *transcodev1alpha1.TranscodeJob) {
 func TestPatchCASRejectsAStaleResourceVersion(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
-	const ns = "squasharr-status-cas"
+	const ns = "transcode-status-cas"
 	require.NoError(t, client.IgnoreAlreadyExists(
 		c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
 	job := newTranscodeJob(t, ctx, c, ns, "cas")
@@ -399,7 +399,7 @@ func assertProfileManagedFields(t *testing.T, tp *transcodev1alpha1.TranscodePro
 		var fields map[string]any
 		require.NoError(t, json.Unmarshal(entry.FieldsV1.GetRawBytes(), &fields))
 		st, ok := fields["f:status"].(map[string]any)
-		require.True(t, ok, "squasharr has a status managedFields entry with no f:status")
+		require.True(t, ok, "transcode has a status managedFields entry with no f:status")
 
 		var got []string
 		for key := range st {
@@ -407,9 +407,9 @@ func assertProfileManagedFields(t *testing.T, tp *transcodev1alpha1.TranscodePro
 		}
 		sort.Strings(got)
 		assert.Equal(t, jsonNames(transcodev1alpha1.TranscodeProfileStatus{}, profileOwned), got,
-			"the apiserver records squasharr as owning a different set than it declares")
+			"the apiserver records transcode as owning a different set than it declares")
 	}
-	assert.True(t, found, "squasharr owns nothing on TranscodeProfile.status; its apply never landed")
+	assert.True(t, found, "transcode owns nothing on TranscodeProfile.status; its apply never landed")
 }
 
 func without(names []string, drop string) []string {
@@ -439,11 +439,11 @@ func jsonNames(typ any, goNames []string) []string {
 	return out
 }
 
-// A manager other than squasharr must be refused rather than allowed to
-// claim fields -- the retired squasharr-worker manager included.
+// A manager other than transcode must be refused rather than allowed to
+// claim fields -- the retired transcode-worker manager included.
 func TestPatchRefusesAManagerOutsideTheSplit(t *testing.T) {
 	for _, mgr := range []k8s.FieldManager{
-		k8s.ManagerCatalog, k8s.ManagerGrab, k8s.FieldManager("squasharr-worker"), k8s.FieldManager("nonsense"),
+		k8s.ManagerCatalog, k8s.ManagerGrab, k8s.FieldManager("transcode-worker"), k8s.FieldManager("nonsense"),
 	} {
 		err := status.Patch(context.Background(), nil, mgr,
 			&transcodev1alpha1.TranscodeJob{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "y"}}, nil)
@@ -451,7 +451,7 @@ func TestPatchRefusesAManagerOutsideTheSplit(t *testing.T) {
 	}
 }
 
-// PatchProfile must refuse every manager but k8s.ManagerSquasharr.
+// PatchProfile must refuse every manager but k8s.ManagerTranscode.
 func TestPatchProfileRefusesAManagerOutsideTheSplit(t *testing.T) {
 	for _, mgr := range []k8s.FieldManager{k8s.ManagerTranscodePool, k8s.ManagerCatalog, k8s.FieldManager("nonsense")} {
 		err := status.PatchProfile(context.Background(), nil, mgr,

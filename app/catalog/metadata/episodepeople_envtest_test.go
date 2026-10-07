@@ -64,7 +64,7 @@ func TestASeriesRefreshFilesItsEpisodesPeopleFromTheApiserver(t *testing.T) {
 			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: seriesRef, SeasonNumber: 1, EpisodeNumber: number},
 		}
 		require.NoError(t, c.Create(ctx, ep))
-		_, err := k8s.PatchStatus(ctx, c, k8s.FieldManager("catalogarr"), catalogac.Episode(epName, ns).
+		_, err := k8s.PatchStatus(ctx, c, k8s.FieldManager("catalog"), catalogac.Episode(epName, ns).
 			WithStatus(catalogac.EpisodeStatus().WithHasFile(hasFile).WithTvdbID(295294)))
 		require.NoError(t, err)
 		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(ep), ep))

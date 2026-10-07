@@ -130,7 +130,7 @@ func TestPoolLifecycleWithGangScheduling(t *testing.T) {
 			assert.NotContains(t, raw, other)
 		}
 	}
-	assert.NotZero(t, matched, "expected at least one managedFields entry for squasharr-pool")
+	assert.NotZero(t, matched, "expected at least one managedFields entry for transcode-pool")
 }
 
 // Review Focus 5.

@@ -33,7 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
-// Publish puts one MarkersTask for the file on the catalogarr-markers
+// Publish puts one MarkersTask for the file on the catalog-markers
 // durable's subject, keyed <namespace>/<name> as every worker parses it.
 func TestPublishReachesTheMarkersConsumer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -63,6 +63,6 @@ func TestPublishReachesTheMarkersConsumer(t *testing.T) {
 		require.NoError(t, schema.Decode(env.Schema, env.Data, &task))
 		require.Equal(t, "andor-s01e02", task.MediaFile)
 	case <-ctx.Done():
-		t.Fatal("no MarkersTask reached catalogarr-markers")
+		t.Fatal("no MarkersTask reached catalog-markers")
 	}
 }

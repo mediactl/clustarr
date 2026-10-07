@@ -128,7 +128,7 @@ func createNonVideoLibrary(t *testing.T, ctx context.Context, c client.Client, n
 	return lib
 }
 
-// nonVideoRSSRelease is a firehose release of kind with the names indexarr's
+// nonVideoRSSRelease is a firehose release of kind with the names index's
 // projection puts on it.
 func nonVideoRSSRelease(kind commonv1.MediaKind, title, parsedTitle string) schema.Release {
 	return schema.Release{

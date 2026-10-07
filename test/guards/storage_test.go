@@ -39,8 +39,8 @@ import (
 // forever, with a Deployment that looks perfectly well-formed.
 //
 // The chart shipped exactly that. clustarr.workload gated the full
-// podSecurityContext on `if .data` alone, and indexarr is the only component
-// invoked with "data" false and "index" true -- so a Helm-installed indexarr
+// podSecurityContext on `if .data` alone, and index is the only component
+// invoked with "data" false and "index" true -- so a Helm-installed index
 // got runAsUser: 1000 and no fsGroup, while the kustomize manifest set both.
 // It was invisible until Task D1-8 registered the release index, because
 // until then nothing opened a file on that volume.
@@ -136,7 +136,7 @@ func assertChartFsGroup(t *testing.T, root string) {
 				"that emits fsGroup/fsGroupChangePolicy is `%s`, which does not mention it. A "+
 				"component invoked with %q true gets a PVC and no fsGroup: the kubelet never "+
 				"chowns the volume, uid 1000 cannot write to a root:root 0755 PVC root, and the "+
-				"pod crash-loops forever. This is how Helm-installed indexarr shipped.",
+				"pod crash-loops forever. This is how Helm-installed index shipped.",
 			flag, fsGroupCond, flag)
 	}
 }

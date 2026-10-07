@@ -192,7 +192,7 @@ func (r *Refresher) Refresh(ctx context.Context, obj *metav1.PartialObjectMetada
 		ID:     events.MsgIDForObject(string(obj.UID), obj.Generation, "metadata:refresh:"+value),
 		Type:   "catalog.MetadataTask",
 		Schema: schemaName,
-		Source: "catalogarr@" + version.String(),
+		Source: "catalog@" + version.String(),
 		Key:    obj.Namespace + "/" + obj.Name,
 		Time:   time.Now(),
 		Data:   data,

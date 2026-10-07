@@ -35,8 +35,8 @@ import (
 )
 
 // FieldManager is the server-side-apply field manager every catalog-item
-// write in this package uses: k8s.ManagerImportarrWorker, not
-// k8s.ManagerImportarr. That constant's own doc comment names "an importarr
+// write in this package uses: k8s.ManagerImportWorker, not
+// k8s.ManagerImport. That constant's own doc comment names "an import
 // scan, list or file-import worker" as its three co-owners; this package is
 // the "list" one.
 //
@@ -198,12 +198,12 @@ func applyMovie(
 // cache strips; it applies with that read's resourceVersion when the Series
 // exists, and redoes the read and the apply on a Conflict.
 //
-// A Series the catalogarr classifier moved to its RootFolder's anime
+// A Series the catalog classifier moved to its RootFolder's anime
 // defaults keeps its current profile and type: this apply forces
 // ownership, so re-sending the list's defaults would undo the
 // classification on every sync (anime dual-audio spec §4). It is
 // classified once status.classification says anime, or once
-// catalogarr-classify owns spec.qualityProfileRef -- the classifier's spec
+// catalog-classify owns spec.qualityProfileRef -- the classifier's spec
 // patch lands before its status write, and a sync reading between the two
 // would otherwise see no classification and force its defaults back.
 func applySeries(
@@ -264,8 +264,8 @@ func seriesSpecFor(
 	return spec
 }
 
-// classified reports whether the catalogarr classifier has claimed s:
-// status.classification says anime, or catalogarr-classify owns
+// classified reports whether the catalog classifier has claimed s:
+// status.classification says anime, or catalog-classify owns
 // spec.qualityProfileRef in s's managedFields (read through the API reader;
 // the cache strips them).
 func classified(s *catalogv1alpha1.Series) bool {

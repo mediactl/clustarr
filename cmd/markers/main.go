@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Command markers detects skip segments: a pure consumer of the
-// segmentarr-analyze durable (spec 2026-10-01 segment detection). It holds
+// markers-analyze durable (spec 2026-10-01 segment detection). It holds
 // no Kubernetes credentials; tasks arrive over NATS and results leave over
 // NATS, and it reads /data read-only. Its exit codes are a contract with its
 // Deployment (spec §3.7).
@@ -71,12 +71,12 @@ type flags struct {
 }
 
 // newFlags builds the flag set. --concurrency is gone: per-pod in-flight is
-// segmentarr-analyze's ConsumerSpec.Slots, overridable through
+// markers-analyze's ConsumerSpec.Slots, overridable through
 // CLUSTARR_CONSUMER_SLOTS, the same number the autoscaler targets (§3.7).
 func newFlags() flags {
 	fs := pflag.NewFlagSet("markers", pflag.ContinueOnError)
 	f := flags{fs: fs}
-	f.threads = fs.Int("decode-threads", 0, "Threads per decoder; 0 is max(1, GOMAXPROCS / segmentarr-analyze's slots).")
+	f.threads = fs.Int("decode-threads", 0, "Threads per decoder; 0 is max(1, GOMAXPROCS / markers-analyze's slots).")
 	f.selfCheck = fs.Bool("self-check", false, "Check this image can decode and run the text detector, print the report as JSON and exit: 0 when it can.")
 	f.metricsAddr = fs.String("metrics-bind-address", ":8080",
 		"Where /metrics, /healthz and /readyz are served; empty serves none.")

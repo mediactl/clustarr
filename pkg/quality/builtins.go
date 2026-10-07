@@ -83,7 +83,7 @@ func DecodeProfileSeeds(doc []byte) ([]ProfileSeed, error) {
 // BuiltinProfiles decodes every embedded profile seed, resolves each against
 // cat with FromCRD, and returns them keyed by name -- the "13 built-in
 // profiles ... loaded at init" mechanism spec §7/§9 describes. A later
-// phase's catalogarr controller calls this at startup to create the
+// phase's catalog controller calls this at startup to create the
 // QualityProfile CRs; this task only builds and validates the map.
 func BuiltinProfiles(cat *catalogue.Catalogue) (map[string]Profile, []error) {
 	entries, err := catalogue.ProfileFS().ReadDir("data/profiles")

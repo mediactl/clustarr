@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Comic is the sole writer of status.observedGeneration, status.conditions
 // (Ready/MetadataReady/IssuesSynced), status.path and status.issueFileCount;
-// status.metadata belongs to the metadata gateway (k8s.ManagerCatalogarrMetadata,
+// status.metadata belongs to the metadata gateway (k8s.ManagerCatalogMetadata,
 // task G2-1) and this reconciler never builds a ComicStatusApplyConfiguration
 // that calls WithMetadata. status.nextPullDate is left unset by this task: no
 // registered ComicVine call surfaces a "next issue" release calendar (Volume
@@ -31,11 +31,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // to compute it from -- reported, not invented.
 //
 // The per-Issue provider fields this reconciler writes (sourceID/title/date)
-// are applied under the distinct k8s.ManagerCatalogarrFanout field manager,
-// never k8s.ManagerCatalogarr, which the Issue controller uses for that
+// are applied under the distinct k8s.ManagerCatalogFanout field manager,
+// never k8s.ManagerCatalog, which the Issue controller uses for that
 // Issue's own state/hasFile/fileRef/fileQuality/conditions. This is the same
 // status-versus-status split as Series -> Episode
-// (k8s.ManagerCatalogarrSeries): Issue has no status.metadata of its own to
+// (k8s.ManagerCatalogSeries): Issue has no status.metadata of its own to
 // race with a per-child fetch (see
 // app/catalog/metadata/patch.go's buildAlbumMetadataAC doc comment, which
 // answers this question for Album/Book and confirms Episode/Issue never had
@@ -46,7 +46,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // same-manager convention: server-side apply replaces a manager's whole
 // ownership set on every apply, so two writers sharing one manager name on
 // one object would silently release each other's fields the next time either
-// side reconciles (see k8s.ManagerCatalogarrFanout's own doc comment and
+// side reconciles (see k8s.ManagerCatalogFanout's own doc comment and
 // CLAUDE.md's "Gotchas found the hard way").
 //
 // spec.source is "comicvine" or "mangadex" (ComicSourceMangaDex), and both

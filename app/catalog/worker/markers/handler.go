@@ -44,7 +44,7 @@ var ErrNotAsked = errors.New("not asked")
 // for ErrorTTL.
 var errNoProvider = errors.New("no markers provider is configured")
 
-// Handler is the catalogarr-markers durable's handler: it asks TheIntroDB
+// Handler is the catalog-markers durable's handler: it asks TheIntroDB
 // for one file and writes the answer into clustarr-markers by CAS (loop spec
 // 2026-10-06 §4.12). It reads no Kubernetes object: the task carries the
 // query, which the remediation loop built from its cache.

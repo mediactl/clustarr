@@ -52,7 +52,7 @@ func TestExitCodeClassification(t *testing.T) {
 		"the codes are a contract with podFailurePolicy (R4); they do not move")
 }
 
-// The three constructors squasharr itself decides the reason for (spec
+// The three constructors transcode itself decides the reason for (spec
 // §18.1, §18.3) must still classify to the same exit code every other
 // failure of their kind does, and must carry the task.Reason a redispatching
 // caller reads without reparsing the message.
@@ -72,7 +72,7 @@ func TestExitCodeClassifiesTheNamedReasons(t *testing.T) {
 	assert.Equal(t, task.ReasonGPUEncodeFailed, f.reason)
 
 	// A plain retriable/invalidSource/verifyFailed carries no reason: only
-	// squasharr's own decisions do.
+	// transcode's own decisions do.
 	f = nil
 	require.ErrorAs(t, retriable("x"), &f)
 	assert.Empty(t, f.reason)

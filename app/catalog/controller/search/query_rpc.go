@@ -26,17 +26,17 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
-// QueryRPC is the release-index half of clustarr.rpc.indexarr.query this
-// package depends on. indexarr (Phase D1) serves that subject with exactly
+// QueryRPC is the release-index half of clustarr.rpc.index.query this
+// package depends on. index (Phase D1) serves that subject with exactly
 // schema.QueryRequest -> schema.QueryResponse, pinned in
 // pkg/events/schema/index.go; this package adds no new payload type, only
 // this narrow client interface plus a fake for tests -- the same shape
-// app/catalog/worker/search's SearchRPC uses for clustarr.rpc.indexarr.search.
+// app/catalog/worker/search's SearchRPC uses for clustarr.rpc.index.search.
 //
 // app/indexer/query.Service.Handle "never returns an error, by design: after a
 // successful decode every failure is a populated QueryResponse.Error", so the
 // only error THIS interface can produce is the RPC transport's own --
-// events.ErrNoResponders when indexarr is not up, or a context deadline.
+// events.ErrNoResponders when index is not up, or a context deadline.
 type QueryRPC interface {
 	Query(ctx context.Context, req schema.QueryRequest) (schema.QueryResponse, error)
 }

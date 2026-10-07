@@ -93,7 +93,7 @@ type ProviderSource interface {
 	Build(ctx context.Context, namespace string) ([]providerset.Entry, error)
 }
 
-// Worker handles clustarr.work.captionarr.fetch.<priority>.<uid>.<langKey>
+// Worker handles clustarr.work.caption.fetch.<priority>.<uid>.<langKey>
 // messages. See the package doc for the flow and the registration F-6 does.
 type Worker struct {
 	// Client is the manager's client: it reads SubtitleRequests,
@@ -153,7 +153,7 @@ func (w *Worker) reader() client.Reader {
 }
 
 // SetupWithManager subscribes the worker to both fetch consumers,
-// captionarr-fetch-high and captionarr-fetch-normal, as
+// caption-fetch-high and caption-fetch-normal, as
 // [k8s.EveryReplica] runnables: fetch workers are never leader-elected
 // (spec §6.5) -- every replica consumes, bounded by the shared KV token
 // bucket rather than by how many pods run.
@@ -384,7 +384,7 @@ func findItem(items []subtitlev1alpha1.SubtitleItem, langKey string) *subtitlev1
 }
 
 // hasSubtitle reports whether an item already has a subtitle on disk that
-// catalogarr projects into MediaFile.status.sidecars
+// catalog projects into MediaFile.status.sidecars
 // (app/catalog/controller/mediafile/sidecars.go: downloaded or upgradable,
 // with a path). Such an item is only ever REPLACED by a better one: a search
 // that finds nothing better leaves it exactly as it is.

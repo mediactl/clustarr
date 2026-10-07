@@ -36,7 +36,7 @@ import (
 
 // wantDSN is the Postgres DSN both cases in TestIndexDSNFlagReachesIndexerOptions
 // pass on the command line. It is never dialled: the stubbed entrypoint never
-// calls indexarr.Run.
+// calls index.Run.
 const wantDSN = "postgres://clustarr:secret@postgres.example:5432/clustarr?sslmode=disable"
 
 // TestIndexDSNFlagReachesIndexerOptions is A2's flag-wiring test, mirroring
@@ -44,9 +44,9 @@ const wantDSN = "postgres://clustarr:secret@postgres.example:5432/clustarr?sslmo
 // every service entrypoint stubbed, and assert on the indexer.Options the
 // stub actually received, rather than re-parsing argv by hand.
 //
-// It covers both places §A.3's --index-dsn is bound: `clustarr indexarr`
+// It covers both places §A.3's --index-dsn is bound: `clustarr index`
 // (services.go) and `clustarr all` (all.go, the dev entry point) -- A2's
-// checklist calls out both by name, because indexarr's other dev options
+// checklist calls out both by name, because index's other dev options
 // (facade address, Cardigann bundle) are wired into `all` only through
 // $CLUSTARR_* env defaults with no flag of their own, and --index-dsn is
 // deliberately NOT that: it is a first-class flag on both commands so a
@@ -62,7 +62,7 @@ func TestIndexDSNFlagReachesIndexerOptions(t *testing.T) {
 	t.Setenv(indexDSNEnv, "")
 
 	for _, argv := range [][]string{
-		{"indexarr", "--index-dsn", wantDSN},
+		{"index", "--index-dsn", wantDSN},
 		{"all", "--index-dsn", wantDSN, "--ui-auth-mode", "anonymous"},
 	} {
 		t.Run("clustarr "+argv[0], func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestIndexDSNEnvDefaultsBothCommands(t *testing.T) {
 	t.Setenv(indexDSNEnv, wantDSN)
 
 	for _, argv := range [][]string{
-		{"indexarr"},
+		{"index"},
 		{"all", "--ui-auth-mode", "anonymous"},
 	} {
 		t.Run("clustarr "+argv[0], func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestIndexDSNEnvDefaultsBothCommands(t *testing.T) {
 }
 
 // TestIndexDSNEmptyKeepsSQLite proves the zero value -- no flag, no env --
-// leaves IndexDSN empty on both commands, so indexarr.Run's open-path pivot
+// leaves IndexDSN empty on both commands, so index.Run's open-path pivot
 // takes the SQLite branch (spec §A.3: "empty keeps SQLite... the default").
 func TestIndexDSNEmptyKeepsSQLite(t *testing.T) {
 	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
@@ -104,7 +104,7 @@ func TestIndexDSNEmptyKeepsSQLite(t *testing.T) {
 	t.Setenv(indexDSNEnv, "")
 
 	for _, argv := range [][]string{
-		{"indexarr"},
+		{"index"},
 		{"all", "--ui-auth-mode", "anonymous"},
 	} {
 		t.Run("clustarr "+argv[0], func(t *testing.T) {
@@ -116,9 +116,9 @@ func TestIndexDSNEmptyKeepsSQLite(t *testing.T) {
 	}
 }
 
-// captureIndexarrOptions executes argv with every service entrypoint stubbed
-// (the `all` command starts all seven; `indexarr` alone only ever calls its
-// own) and returns the indexer.Options runIndexarr was called with.
+// captureIndexOptions executes argv with every service entrypoint stubbed
+// (the `all` command starts all seven; `index` alone only ever calls its
+// own) and returns the indexer.Options runIndex was called with.
 func captureIndexOptions(t *testing.T, argv ...string) indexapp.Options {
 	t.Helper()
 
@@ -144,6 +144,6 @@ func captureIndexOptions(t *testing.T, argv ...string) indexapp.Options {
 
 	_, err := execute(t, argv...)
 	require.NoError(t, err, "clustarr %v", argv)
-	require.True(t, called, "clustarr %v never called runIndexarr", argv)
+	require.True(t, called, "clustarr %v never called runIndex", argv)
 	return got
 }

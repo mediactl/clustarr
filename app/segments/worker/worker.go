@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package worker is segmentarr-worker's analysis: one AnalyzeTask -- a
+// Package worker is markers-worker's analysis: one AnalyzeTask -- a
 // season's files or a movie's -- in, one clustarr-segments record per due
 // file written by CAS (spec 2026-10-01 segment detection §4; loop spec
 // 2026-10-06 §4.12), which the remediation loop's markers planner merges
@@ -73,7 +73,7 @@ const (
 // most a third of the durable's first-delivery deadline,
 // events.AckDeadline(sub, 1), so two heartbeats can be lost before a lapse
 // (NATS research 2026-10-07, S9; held by
-// test/guards.TestHeartbeatsFitTheirDeadline). ConsumerSegmentarrAnalyze's
+// test/guards.TestHeartbeatsFitTheirDeadline). ConsumerMarkersAnalyze's
 // first delivery has BackOff[0], 1 minute; the 30 s this was left no margin
 // for a lost beat.
 const HeartbeatInterval = 20 * time.Second

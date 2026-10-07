@@ -206,7 +206,7 @@ func TestPoolFollowsDispatch(t *testing.T) {
 			managers[mf.Manager] = true
 		}
 	}
-	assert.Equal(t, map[string]bool{string(k8s.ManagerTranscodePool): true}, managers, "squasharr-pool is the pool's one applier")
+	assert.Equal(t, map[string]bool{string(k8s.ManagerTranscodePool): true}, managers, "transcode-pool is the pool's one applier")
 }
 
 // TestAQueuedTaskKeepsItsClassPoolAwake is the Task 10 carry (R16): the
@@ -487,7 +487,7 @@ func TestAGateEnabledLaterDrainsAndRecreatesThePool(t *testing.T) {
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 3})
 
-	// The pool as squasharr-pool made it before the gate: no .spec.scheduling.
+	// The pool as transcode-pool made it before the gate: no .spec.scheduling.
 	k := pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}
 	ac, err := pool.Render(k, tp, pool.Want(tp, "cpu", r.Pool), pool.Desired{Parallelism: 1}, nil, r.Pool)
 	require.NoError(t, err)
@@ -544,7 +544,7 @@ func TestAPoolWithAnOlderFailurePolicyIsRecreatedForItsWork(t *testing.T) {
 	tp := newProfile(t, c, "hevc", "hash1", nil)
 	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 
-	// The idle pool as squasharr-pool made it before I1: exit 137 not ignored.
+	// The idle pool as transcode-pool made it before I1: exit 137 not ignored.
 	k := pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}
 	ac, err := pool.Render(k, tp, pool.Want(tp, "cpu", r.Pool), pool.Desired{Parallelism: 1, Suspend: true}, nil, r.Pool)
 	require.NoError(t, err)
@@ -568,7 +568,7 @@ func TestAPoolWithAnOlderFailurePolicyIsRecreatedForItsWork(t *testing.T) {
 }
 
 // TestAPoolJobChangeWakesAdmission runs the real manager, its Job cache
-// restricted as squasharr's is: a pool Job deleted by hand while its task is
+// restricted as transcode's is: a pool Job deleted by hand while its task is
 // queued is recreated by the pass the Job watch wakes, not by the job's own
 // requeue a minute later.
 func TestAPoolJobChangeWakesAdmission(t *testing.T) {
@@ -580,7 +580,7 @@ func TestAPoolJobChangeWakesAdmission(t *testing.T) {
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
 		Controller:             config.Controller{SkipNameValidation: new(true)},
-		// As squasharr's manager caches Jobs (R21): the pool Jobs alone.
+		// As transcode's manager caches Jobs (R21): the pool Jobs alone.
 		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
 			&batchv1.Job{}: transcodejob.PoolJobCache("default"),
 		}},
@@ -672,5 +672,5 @@ func TestAPoolJobItDoesNotOwnHoldsItsWork(t *testing.T) {
 	assert.Contains(t, b.Status.Message, j.Name)
 	assert.Contains(t, b.Status.Message, "owner reference")
 	assert.Contains(t, b.Status.Message, "delete the Job")
-	assert.Equal(t, rv, getPool(t, f.c, f.tp, "cpu").ResourceVersion, "a Job squasharr does not own is left alone")
+	assert.Equal(t, rv, getPool(t, f.c, f.tp, "cpu").ResourceVersion, "a Job transcode does not own is left alone")
 }

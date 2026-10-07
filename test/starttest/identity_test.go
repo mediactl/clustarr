@@ -34,24 +34,24 @@ import (
 
 // identityDirs maps the app/<dir> a case name carries -- the restructure
 // that nested every service under app/ (commit 0d798b3) renamed case names
-// like "catalogarr/worker" to "app/catalog/worker" -- onto the RBAC
+// like "catalog/worker" to "app/catalog/worker" -- onto the RBAC
 // identity it actually runs as (the Makefile's RBAC_ROLES, which the
 // restructure left alone: package names and directories moved, service and
 // role identifiers did not).
 var identityDirs = map[string]string{
-	"catalog": "catalogarr",
-	"import":  "importarr",
-	"indexer": "indexarr",
-	"grab":    "grabarr",
-	"squash":  "squasharr",
-	"caption": "captionarr",
+	"catalog":   "catalog",
+	"import":    "import",
+	"indexer":   "index",
+	"grab":      "grab",
+	"transcode": "transcode",
+	"caption":   "caption",
 }
 
 // caseIdentity is the RBAC identity a start-envtest case runs as: the
 // service named by its case name (through identityDirs for an "app/<dir>/…"
 // name, or the name's own first segment otherwise, e.g. "ui"), except
-// grabarr's engine roles, which run as the engine pods do, under
-// grabarr-engine.
+// grab's engine roles, which run as the engine pods do, under
+// grab-engine.
 func caseIdentity(name string) string {
 	parts := strings.Split(strings.Fields(name)[0], "/")
 	service := parts[0]
@@ -59,8 +59,8 @@ func caseIdentity(name string) string {
 		service = identityDirs[parts[1]]
 	}
 	role := parts[len(parts)-1]
-	if service == "grabarr" && strings.HasSuffix(role, "-engine") {
-		return "grabarr-engine"
+	if service == "grab" && strings.HasSuffix(role, "-engine") {
+		return "grab-engine"
 	}
 	return service
 }

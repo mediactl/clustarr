@@ -186,7 +186,7 @@ type ImportListSynced struct {
 func (ImportListSynced) Schema() string { return "catalog.ImportListSynced.v1" }
 
 // SearchTask asks a search worker to look for releases for a catalog item.
-// Subject: clustarr.work.catalogarr.search.<priority>.<mediaKey>.
+// Subject: clustarr.work.catalog.search.<priority>.<mediaKey>.
 //
 // Version 2 (ADR-0019 §7.3, §7.4) adds what the manager's search planner
 // decides and the search agent needs to answer in clustarr-searches without
@@ -212,8 +212,8 @@ type SearchTask struct {
 	// limiting and is never coalesced away.
 	UserInvoked bool `json:"userInvoked,omitempty"`
 
-	// IndexOnly searches indexarr's local release index
-	// (clustarr.rpc.indexarr.query) instead of the indexers: no indexer is
+	// IndexOnly searches index's local release index
+	// (clustarr.rpc.index.query) instead of the indexers: no indexer is
 	// queried. The wanted sweep sets it for an item it has searched before
 	// (2026-10-06): every release an indexer's RSS feed delivered is already
 	// in the index, so a repeat sweep costs no indexer query.
@@ -270,7 +270,7 @@ func (SearchTask) LegacySchemas() []string { return []string{SearchTaskV1Schema}
 
 // GrabTask asks a grab worker to turn the best pending candidate for a media
 // key into a Download. It is published with a schedule so delay profiles can
-// hold it. Subject: clustarr.work.catalogarr.grab.normal.<mediaKey>.
+// hold it. Subject: clustarr.work.catalog.grab.normal.<mediaKey>.
 type GrabTask struct {
 	// MediaRef identifies the catalog item to grab for.
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
@@ -283,10 +283,10 @@ type GrabTask struct {
 func (GrabTask) Schema() string { return "catalog.GrabTask.v1" }
 
 // ImportTask asks an import worker to import a completed download.
-// Subject: clustarr.work.importarr.fileimport.<download-uid>, built by
+// Subject: clustarr.work.import.fileimport.<download-uid>, built by
 // events.WorkFileImportSubject and consumed by ConsumerImportFile
-// ("importarr-fileimport", topology.go). Amendment §A1 moved the importer out
-// of catalogarr into app/import/worker/fileimport (D2-7); the catalogarr
+// ("import-fileimport", topology.go). Amendment §A1 moved the importer out
+// of catalog into app/import/worker/fileimport (D2-7); the catalog
 // import subject and consumer this task once named were removed from the
 // topology in gap fixes Z2, never having had a subscriber. The schema name
 // keeps its catalog. prefix, which the history projector's target table
@@ -300,7 +300,7 @@ type ImportTask struct {
 func (ImportTask) Schema() string { return "catalog.ImportTask.v1" }
 
 // MetadataTask asks the metadata gateway to refresh a catalog item.
-// Subject: clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
+// Subject: clustarr.work.catalog.metadata.<high|normal>.<mediaKey>.
 //
 // Version 2 (ADR-0019 §7.1) carries the item and the inputs the gateway's
 // clustarr-item-metadata record answers for (Msg-Id metadata/<item
@@ -329,7 +329,7 @@ func (MetadataTask) LegacySchemas() []string { return []string{MetadataTaskV1Sch
 // TheIntroDB segments (loop spec 2026-10-06 §4.12). The remediation loop
 // builds Query from its cache, so the worker reads no Kubernetes object, and
 // the worker answers into the file's clustarr-markers record. Subject:
-// clustarr.work.segmentarr.markers.normal.<mediaKey>; Msg-Id
+// clustarr.work.markers.markers.normal.<mediaKey>; Msg-Id
 // events.MsgIDForMarkers(File.UID, Seq). A v1 task (published before the
 // switch, {"mediaFile": <name>}) is acked unanswered.
 type MarkersTask struct {
@@ -380,7 +380,7 @@ type MarkersRecord struct {
 
 // WantedScan asks the search workers to sweep a namespace for missing and
 // cutoff-unmet items. Subject:
-// clustarr.work.catalogarr.wantedscan.low.<namespace>.
+// clustarr.work.catalog.wantedscan.low.<namespace>.
 type WantedScan struct {
 	// Namespace is the namespace to sweep.
 	Namespace string `json:"namespace"`
@@ -400,7 +400,7 @@ type WantedScan struct {
 func (WantedScan) Schema() string { return "catalog.WantedScan.v1" }
 
 // MetadataRequest is the request half of the metadata gateway RPC.
-// Subject: clustarr.rpc.catalogarr.metadata.<lookup|search|resolve>.
+// Subject: clustarr.rpc.catalog.metadata.<lookup|search|resolve>.
 type MetadataRequest struct {
 	// Kind is the media kind being asked about.
 	Kind commonv1.MediaKind `json:"kind"`
@@ -458,7 +458,7 @@ func (MetadataResponse) Schema() string { return "catalog.MetadataResponse.v1" }
 
 // PlexExtrasRequest asks the metadata gateway for the extras Plex's
 // metadata service holds for one Plex id.
-// Subject: clustarr.rpc.catalogarr.metadata.extras.
+// Subject: clustarr.rpc.catalog.metadata.extras.
 type PlexExtrasRequest struct {
 	// PlexID is a movie's, show's or season's id in Plex's metadata
 	// service (24 hex digits).

@@ -75,7 +75,7 @@ var cardigannPrivacy = map[cardigann.DefinitionType]indexv1alpha1.DefinitionType
 	"private":      indexv1alpha1.DefinitionTypePrivate,
 }
 
-// summary is the complete set k8s.ManagerIndexarr owns on
+// summary is the complete set k8s.ManagerIndex owns on
 // IndexerDefinition.status, minus the conditions and observedGeneration that
 // every path computes fresh.
 //
@@ -198,7 +198,7 @@ func categoryIDs(cats []newznab.CategoryID) []int32 {
 }
 
 // statusFor builds the ONE apply configuration this package ever sends. Every
-// field k8s.ManagerIndexarr owns is declared here, on every path, because
+// field k8s.ManagerIndex owns is declared here, on every path, because
 // server-side apply replaces a manager's ownership set rather than merging
 // into it and a field omitted once is released.
 //

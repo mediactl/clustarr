@@ -26,9 +26,9 @@ import (
 // clustarr ships in a distroless static image with no dynamic loader, so
 // the binary must link statically: purego (ffgo's way of loading FFmpeg)
 // makes the Go linker emit a dynamically linked executable, and the image's
-// indexarr and ui failed to start with "exec /clustarr: no such file or
+// index and ui failed to start with "exec /clustarr: no such file or
 // directory" (2026-10-01). The in-process engine belongs to
-// cmd/squasharr-worker alone.
+// cmd/transcode-worker alone.
 func TestClustarrNeverLinksADynamicLoader(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").Output()
 	if err != nil {

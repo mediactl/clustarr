@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // import records; the transfers no entry claims; the DownloadClients and
 // their engine records; the MediaFiles naming each entry; the block book's
 // replies -- from the cache and the records buckets only, runs
-// lifecycle.Decide, and turns the plan into the pass's catalogarr
+// lifecycle.Decide, and turns the plan into the pass's catalog
 // contribution and its effects: the item finalizer, blocklist calls,
 // engine commands, import tasks, payload removals, MediaFile
 // materialisation, direct-grab counts and history. On an Episode or Issue

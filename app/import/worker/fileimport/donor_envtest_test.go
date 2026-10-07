@@ -137,7 +137,7 @@ func TestADonorIsPlacedBesideTheLibraryAndNamedInTheAudioGraft(t *testing.T) {
 
 // TestADonorWithoutTheDubIsTheReleasesFault: its files lack the language
 // the title promised, so the import is the release's fault: walked once
-// more to confirm, then every file rejected -- grabarr blocklists the
+// more to confirm, then every file rejected -- grab blocklists the
 // release and the donor is searched for again.
 func TestADonorWithoutTheDubIsTheReleasesFault(t *testing.T) {
 	ctx := context.Background()
@@ -148,7 +148,7 @@ func TestADonorWithoutTheDubIsTheReleasesFault(t *testing.T) {
 
 	var retry *events.RetryError
 	require.ErrorAs(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")), &retry,
-		"a release fault is walked once more before grabarr blocklists it")
+		"a release fault is walked once more before grab blocklists it")
 	var got downloadv1alpha1.Download
 	require.NoError(t, f.api.Get(ctx, client.ObjectKeyFromObject(dl), &got))
 	require.NotNil(t, got.Status.Import)
@@ -163,7 +163,7 @@ func TestADonorWithoutTheDubIsTheReleasesFault(t *testing.T) {
 	require.NotNil(t, got.Status.Import)
 	assert.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.Status.Import.State)
 	assert.Equal(t, downloadv1alpha1.ImportClassReleaseFault, got.Status.Import.Class)
-	assert.Nil(t, got.Status.Import.HeldSince, "a release fault is not held: grabarr blocklists it")
+	assert.Nil(t, got.Status.Import.HeldSince, "a release fault is not held: grab blocklists it")
 	assert.Equal(t, downloadv1alpha1.ImportMessageEveryFileRejected, got.Status.Import.Message)
 	require.NotEmpty(t, got.Status.Import.Rejections)
 	assert.True(t, strings.Contains(got.Status.Import.Rejections[0], "en"), got.Status.Import.Rejections[0])

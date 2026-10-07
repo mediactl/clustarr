@@ -139,7 +139,7 @@ func TestReconcileScansOnceOnAdoption(t *testing.T) {
 	require.NoError(t, c.Get(ctx, request(ns).NamespacedName, &after))
 	assert.NotEmpty(t, after.Annotations[rootfolderschedule.AnnotationLastTick])
 
-	// importarr must never write RootFolder.status: catalogarr's own
+	// import must never write RootFolder.status: catalog's own
 	// RootFolder reconciler is its single writer.
 	assert.Equal(t, catalogv1alpha1.RootFolderStatus{}, after.Status)
 }

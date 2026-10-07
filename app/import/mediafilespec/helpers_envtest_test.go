@@ -101,7 +101,7 @@ func (f *fixture) api(t *testing.T) client.Reader {
 	return f.c
 }
 
-// takeOver applies catalogarr's post-transcode take-over of size, mtime
+// takeOver applies catalog's post-transcode take-over of size, mtime
 // and original, as the MediaFile reconciler does after a swap.
 func takeOver(ctx context.Context, c client.Client, ns, name string, size int64, mod time.Time) error {
 	_, err := k8s.Apply(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(name, ns).WithSpec(
