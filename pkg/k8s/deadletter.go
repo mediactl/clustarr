@@ -28,8 +28,8 @@ import (
 )
 
 // AnnotationDeadLettered is the metadata annotation the DLQ projector
-// (app/catalog/history.DLQProjector, under ManagerDLQProjector) applies to the
-// object a dead-lettered message concerns. Its value is
+// (app/catalog/worker/history.DLQProjector, under ManagerDLQProjector)
+// applies to the object a dead-lettered message concerns. Its value is
 // "<original-subject>@<RFC3339>". app/catalog/history.AnnotationDeadLettered
 // is the same key.
 //

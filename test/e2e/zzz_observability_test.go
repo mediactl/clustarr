@@ -317,8 +317,8 @@ func waitReadyz(ctx context.Context, t *testing.T, svcName string, want bool, ti
 // budgeting for here"), and the SAME reasoning applies here more so --
 // this suite's context timeout is scenarioTimeout (15m), far short of
 // even one consumer's ladder. This proves the DLQ PROJECTOR's own
-// behaviour (app/catalog/history/dlq.go's Handle: annotate the CR a dead
-// letter concerns) in isolation from how a message actually arrives at
+// behaviour (app/catalog/worker/history/dlq.go's Handle: annotate the CR a
+// dead letter concerns) in isolation from how a message actually arrives at
 // CLUSTARR_DLQ, which pkg/events' own DeadLetter helper and its callers
 // are responsible for and are not this test's concern.
 //
@@ -390,7 +390,7 @@ func TestObservabilityDLQPoisonMessage(t *testing.T) {
 	var live catalogv1alpha1.Movie
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: Namespace, Name: movie.Name}, &live))
 	require.Contains(t, live.Annotations[k8s.AnnotationDeadLettered], "@",
-		"the annotation value must be \"<original-subject>@<RFC3339>\" (app/catalog/history/dlq.go's own doc comment)")
+		"the annotation value must be \"<original-subject>@<RFC3339>\" (app/catalog/worker/history/dlq.go's own doc comment)")
 
 	require.True(t, metav1.HasAnnotation(live.ObjectMeta, k8s.AnnotationDeadLettered))
 }

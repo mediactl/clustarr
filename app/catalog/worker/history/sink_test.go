@@ -25,7 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )

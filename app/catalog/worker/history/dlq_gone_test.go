@@ -32,7 +32,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/history"
+	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -82,7 +83,7 @@ func TestDLQProjectorMarksAnItemThatExists(t *testing.T) {
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(movie), &got))
-	assert.Equal(t, "clustarr.work.catalogarr.search.normal.heat@2026-09-29T12:00:00Z", got.Annotations[history.AnnotationDeadLettered])
+	assert.Equal(t, "clustarr.work.catalogarr.search.normal.heat@2026-09-29T12:00:00Z", got.Annotations[cataloghistory.AnnotationDeadLettered])
 	assert.Equal(t, "me", got.Annotations["keep"])
-	assert.NotContains(t, got.Annotations, history.AnnotationDeadLetterSeq)
+	assert.NotContains(t, got.Annotations, cataloghistory.AnnotationDeadLetterSeq)
 }

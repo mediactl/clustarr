@@ -355,3 +355,16 @@ func TestEveryPayloadHasAResolver(t *testing.T) {
 		require.Truef(t, listed[name], "exemption %s names no payload in schematest.Payloads", name)
 	}
 }
+
+// TestTargetObjectCarriesOnlyIdentity: the DLQ projector merge-patches onto
+// Object() and the sink regards it in an Event, both from another package
+// now, so the body must name the object and claim nothing else.
+func TestTargetObjectCarriesOnlyIdentity(t *testing.T) {
+	tg := history.Target{Namespace: "films", Name: "heat", Kind: "Movie", APIVersion: "catalog.clustarr.io/v1alpha1"}
+	u := tg.Object()
+	require.Equal(t, map[string]any{
+		"apiVersion": "catalog.clustarr.io/v1alpha1",
+		"kind":       "Movie",
+		"metadata":   map[string]any{"namespace": "films", "name": "heat"},
+	}, u.Object)
+}

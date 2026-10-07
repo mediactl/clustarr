@@ -32,7 +32,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/history"
+	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -101,7 +102,7 @@ func TestDLQProjector_AnnotatesExactlyOneLeaf_NeverStatus(t *testing.T) {
 
 	// The value: "<original subject>@<RFC3339>".
 	require.Equal(t, origSubject+"@2026-09-23T12:00:00Z",
-		after.Annotations[history.AnnotationDeadLettered])
+		after.Annotations[cataloghistory.AnnotationDeadLettered])
 
 	// Status is byte-for-byte unchanged: the projector's apply body never
 	// mentioned it, so there was nothing to release even in principle, but
@@ -208,7 +209,7 @@ func TestDLQProjector_UnresolvableKind_NoAnnotation_NamespaceEvent(t *testing.T)
 	// happens to skip the one object a narrower test might have set up.
 	var after catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &after))
-	require.NotContains(t, after.Annotations, history.AnnotationDeadLettered)
+	require.NotContains(t, after.Annotations, cataloghistory.AnnotationDeadLettered)
 	for _, e := range after.ManagedFields {
 		require.NotEqual(t, k8s.ManagerDLQProjector.String(), e.Manager)
 	}

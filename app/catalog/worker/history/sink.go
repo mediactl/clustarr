@@ -26,6 +26,7 @@ import (
 	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -114,22 +115,22 @@ func (s *Sink) Handle(ctx context.Context, m events.Message) error {
 		return nil
 	}
 
-	target := Resolve(env)
+	target := cataloghistory.Resolve(env)
 	if !target.KindKnown() {
 		log.Warn("history: could not resolve the CR a domain event concerns; skipping",
 			"schema", env.Schema, "key", env.Key)
 		return nil
 	}
 
-	s.Deps.Recorder.Eventf(target.object(), nil, eventType(action), reasonFor(action), env.Type, note)
+	s.Deps.Recorder.Eventf(target.Object(), nil, eventType(action), reasonFor(action), env.Type, note)
 	return nil
 }
 
 // describeEvent decodes env into whichever of the eight known evt payload
 // types it names and returns the domain action plus a short, human-readable
 // note. ok is false for any schema not in this switch, which mirrors the
-// resolvers map in target.go exactly -- both lists are "every evt.* payload
-// this package has read the struct for".
+// resolvers map in app/catalog/history's target.go exactly -- both lists
+// are "every evt.* payload this package has read the struct for".
 //
 // The note may freely carry title, path or release-name text: CLAUDE.md's
 // "never label or name Events by title, path or release name" is about

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package history
+package replay
 
 import (
 	"context"
@@ -45,6 +45,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -52,8 +53,8 @@ import (
 
 // The replay handler watches every kind the DLQ projector can annotate
 // (metadata only), and patches exactly the annotations it consumes. The
-// patch verb is already granted to the projector above; the watch needs get,
-// list and watch.
+// projector (app/catalog/worker/history) holds the patch verb too; this
+// package states its own, and the watch needs get, list and watch.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;artists;albums;authors;books;audiobooks;comics;issues;importlists;libraryscans,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch;patch
@@ -61,15 +62,8 @@ import (
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch;patch
 
-// AnnotationReplay is the operator's replay request, from design spec §5:
-// `kubectl annotate <kind> <name> clustarr.io/replay=<dlq-seq>` republishes
-// the dead letter stored at that CLUSTARR_DLQ sequence to its original
-// subject, with a fresh Nats-Msg-Id. The DLQ projector records the
-// sequence to use in [AnnotationDeadLetterSeq] when it can resolve one.
-const AnnotationReplay = "clustarr.io/replay"
-
 // ReplayKinds is every kind a dead letter can be replayed from: exactly the
-// kinds the DLQ projector annotates (target.go's resolvers, and
+// kinds the DLQ projector annotates (app/catalog/history's resolvers, and
 // pkg/k8s.AnnotationDeadLettered's list), because a replay is only accepted
 // from the object its dead letter resolves to.
 var ReplayKinds = []schema.GroupVersionKind{
@@ -102,7 +96,7 @@ type ReplayDeps struct {
 	Bus events.Publisher
 
 	// DLQ reads the dead letter back by sequence; see DLQReaderFor.
-	DLQ DLQReader
+	DLQ history.DLQReader
 
 	// Recorder writes events.k8s.io/v1 Events on the object.
 	Recorder k8sevents.EventRecorder
@@ -112,8 +106,8 @@ type ReplayDeps struct {
 // controller per kind in [ReplayKinds], woken by the annotation, and it:
 //
 //  1. reads the dead letter at the annotated sequence off CLUSTARR_DLQ;
-//  2. refuses it unless it resolves (target.go's Resolve) to this very
-//     object -- a typo must not replay someone else's message;
+//  2. refuses it unless it resolves (app/catalog/history's Resolve) to this
+//     very object -- a typo must not replay someone else's message;
 //  3. republishes it to its original subject (Clustarr-DLQ-Subject) with
 //     the Clustarr-DLQ-* headers stripped and a fresh envelope id,
 //     "replay:<seq>:<uid>", so JetStream's duplicate window does not drop
@@ -160,7 +154,7 @@ func replayRequested() predicate.Predicate {
 		if o == nil {
 			return "", false
 		}
-		v, ok := o.GetAnnotations()[AnnotationReplay]
+		v, ok := o.GetAnnotations()[history.AnnotationReplay]
 		return v, ok
 	}
 	return predicate.Funcs{
@@ -198,7 +192,7 @@ func (k *replayKind) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 func (p *Replayer) Replay(ctx context.Context, obj *metav1.PartialObjectMetadata) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "history.Replayer.Replay")
 	defer span.End()
-	value, ok := obj.GetAnnotations()[AnnotationReplay]
+	value, ok := obj.GetAnnotations()[history.AnnotationReplay]
 	if !ok {
 		return ctrl.Result{}, nil
 	}
@@ -206,10 +200,10 @@ func (p *Replayer) Replay(ctx context.Context, obj *metav1.PartialObjectMetadata
 
 	seq, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
 	if err != nil || seq == 0 {
-		return p.refuse(ctx, obj, value, "%s=%q is not a CLUSTARR_DLQ sequence number", AnnotationReplay, value)
+		return p.refuse(ctx, obj, value, "%s=%q is not a CLUSTARR_DLQ sequence number", history.AnnotationReplay, value)
 	}
 	dlqSubject, env, err := p.Deps.DLQ.GetDeadLetter(ctx, seq)
-	if errors.Is(err, ErrDeadLetterNotFound) {
+	if errors.Is(err, history.ErrDeadLetterNotFound) {
 		return p.refuse(ctx, obj, value, "CLUSTARR_DLQ holds no message at sequence %d (it keeps 30 days)", seq)
 	}
 	if err != nil {
@@ -217,7 +211,7 @@ func (p *Replayer) Replay(ctx context.Context, obj *metav1.PartialObjectMetadata
 	}
 
 	gv := obj.GroupVersionKind().GroupVersion().String()
-	target := Resolve(env)
+	target := history.Resolve(env)
 	if !target.KindKnown() || target.Kind != obj.Kind || target.APIVersion != gv ||
 		target.Namespace != obj.Namespace || target.Name != obj.Name {
 		return p.refuse(ctx, obj, value, "dead letter %d (%s) concerns %s %s/%s, not this object",
@@ -240,7 +234,7 @@ func (p *Replayer) Replay(ctx context.Context, obj *metav1.PartialObjectMetadata
 	log.Info("replayed a dead letter", "seq", seq, "subject", original, "id", out.ID)
 	p.event(obj, corev1.EventTypeNormal, "Replayed", "replayed dead letter %d to %s as %s", seq, original, out.ID)
 
-	clearMarker := obj.GetAnnotations()[AnnotationDeadLetterSeq] == strconv.FormatUint(seq, 10)
+	clearMarker := obj.GetAnnotations()[history.AnnotationDeadLetterSeq] == strconv.FormatUint(seq, 10)
 	return ctrl.Result{}, p.consume(ctx, obj, value, clearMarker)
 }
 
@@ -283,11 +277,11 @@ type jsonPatchOp struct {
 // its envelope id, so that retry replays nothing twice.
 func (p *Replayer) consume(ctx context.Context, obj *metav1.PartialObjectMetadata, value string, clearMarker bool) error {
 	ops := []jsonPatchOp{
-		{Op: "test", Path: annotationPath(AnnotationReplay), Value: value},
-		{Op: "remove", Path: annotationPath(AnnotationReplay)},
+		{Op: "test", Path: annotationPath(history.AnnotationReplay), Value: value},
+		{Op: "remove", Path: annotationPath(history.AnnotationReplay)},
 	}
 	if clearMarker {
-		for _, key := range []string{AnnotationDeadLetterSeq, AnnotationDeadLettered} {
+		for _, key := range []string{history.AnnotationDeadLetterSeq, history.AnnotationDeadLettered} {
 			if v, ok := obj.GetAnnotations()[key]; ok {
 				ops = append(ops,
 					jsonPatchOp{Op: "test", Path: annotationPath(key), Value: v},
@@ -301,7 +295,7 @@ func (p *Replayer) consume(ctx context.Context, obj *metav1.PartialObjectMetadat
 	}
 	if err := p.Deps.Client.Patch(ctx, obj, client.RawPatch(types.JSONPatchType, data)); err != nil {
 		return client.IgnoreNotFound(fmt.Errorf("history: consume %s on %s %s/%s: %w",
-			AnnotationReplay, obj.Kind, obj.Namespace, obj.Name, err))
+			history.AnnotationReplay, obj.Kind, obj.Namespace, obj.Name, err))
 	}
 	return nil
 }

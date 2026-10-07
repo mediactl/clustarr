@@ -52,14 +52,14 @@ func (t Target) KindKnown() bool { return t.Kind != "" && t.Name != "" }
 // what the DLQ projector's namespace-level Event fallback needs.
 func (t Target) HasNamespace() bool { return t.Namespace != "" }
 
-// object builds the (possibly partial) unstructured representation of t,
+// Object builds the (possibly partial) unstructured representation of t,
 // suitable both as the body of a server-side-apply PATCH (when KindKnown, it
 // carries nothing but identity until a caller adds the one field it means to
 // own) and as the "regarding" argument to an EventRecorder: reference.
 // GetReference reads the GVK directly off TypeMeta without touching the
 // manager's Scheme, so this works for a CRD the same way it works for a
 // built-in type.
-func (t Target) object() *unstructured.Unstructured {
+func (t Target) Object() *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetAPIVersion(t.APIVersion)
 	u.SetKind(t.Kind)

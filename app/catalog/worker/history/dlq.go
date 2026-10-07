@@ -34,26 +34,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
-
-// AnnotationDeadLettered is the metadata annotation [DLQProjector] applies,
-// per ruling R1, instead of the DeadLettered status condition design spec §5
-// originally asked for. Its value is "<original-subject>@<RFC3339>". It IS
-// k8s.AnnotationDeadLettered -- the key every owning controller folds into
-// its DeadLettered condition -- restated by reference so the two can never
-// drift.
-const AnnotationDeadLettered = k8s.AnnotationDeadLettered
-
-// AnnotationDeadLetterSeq is the CLUSTARR_DLQ stream sequence of the dead
-// letter [AnnotationDeadLettered] describes: the value an operator gives
-// [AnnotationReplay] to replay it. [DLQProjector] applies it beside
-// AnnotationDeadLettered, in the same apply, when its DLQ reader can name
-// the sequence; without one (the in-memory bus) it is omitted.
-const AnnotationDeadLetterSeq = "clustarr.io/dead-letter-seq"
 
 // dlqRetry is how long Handle waits before retrying a failed annotation
 // apply. It is short: the apiserver call it retries is a single PATCH, and a
@@ -72,7 +58,7 @@ type DLQDeps struct {
 	// DLQ, when set, names the stream sequence of each dead letter, so the
 	// annotation and the Event can say what to replay. Optional: nil (the
 	// in-memory bus has no stream to read) just leaves the sequence out.
-	DLQ DLQReader
+	DLQ cataloghistory.DLQReader
 
 	// Now is a seam for tests; nil means time.Now.
 	Now func() time.Time
@@ -103,16 +89,18 @@ func (d DLQDeps) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 
 // DLQProjector is the clustarr-dlq-projector consumer. Per ruling R1 it
-// applies one metadata annotation -- [AnnotationDeadLettered] -- to the CR a
-// dead letter concerns, plus [AnnotationDeadLetterSeq] when its DLQ reader
-// can name the message's stream sequence, under k8s.ManagerDLQProjector,
-// and emits a Warning Event saying how to replay it. It never patches a
-// status subresource: every RBAC grant on a CR above is the main resource
-// only, with the "patch" verb and nothing else -- no get, no list, no watch,
-// because a merge PATCH needs none of them (the
-// get/list/watch the replay handler needs are its own, in replay.go).
-// dlq_envtest_test.go and replay_envtest_test.go assert both halves of that
-// against a real apiserver's managedFields, not just this comment.
+// applies one metadata annotation --
+// [cataloghistory.AnnotationDeadLettered] -- to the CR a dead letter
+// concerns, plus [cataloghistory.AnnotationDeadLetterSeq] when its DLQ
+// reader can name the message's stream sequence, under
+// k8s.ManagerDLQProjector, and emits a Warning Event saying how to replay
+// it. It never patches a status subresource: every RBAC grant on a CR above
+// is the main resource only, with the "patch" verb and nothing else -- no
+// get, no list, no watch, because a merge PATCH needs none of them (the
+// get/list/watch the replay handler needs are its own, in
+// app/catalog/history/replay). dlq_envtest_test.go and
+// app/catalog/history/replay's replay_envtest_test.go assert both halves of
+// that against a real apiserver's managedFields, not just this comment.
 type DLQProjector struct {
 	Deps DLQDeps
 }
@@ -149,9 +137,10 @@ func (p *DLQProjector) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error 
 
 // Handle annotates the CR a dead letter concerns, or -- when the kind cannot
 // be resolved unambiguously -- emits a namespace-level Event and does
-// nothing else, rather than guess. See target.go's resolvers and this
-// package's doc comment for what "cannot be resolved" covers: an unlisted
-// schema, or a namespace-wide task with no single object (WantedScan).
+// nothing else, rather than guess. See app/catalog/history's resolvers
+// (target.go) and this package's doc comment for what "cannot be resolved"
+// covers: an unlisted schema, or a namespace-wide task with no single
+// object (WantedScan).
 func (p *DLQProjector) Handle(ctx context.Context, m events.Message) error {
 	return p.handle(ctx, m)
 }
@@ -188,7 +177,7 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 	attempts := env.Header(events.HeaderDLQAttempts)
 	log = log.With("schema", env.Schema, "originalSubject", origSubject, "originalConsumer", consumer)
 
-	target := Resolve(env)
+	target := cataloghistory.Resolve(env)
 	value := origSubject
 	if value == "" {
 		// Every real dead letter carries Clustarr-DLQ-Subject (see
@@ -219,7 +208,7 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 		}
 		if seq != 0 {
 			note += fmt.Sprintf("; replay it with: kubectl annotate %s %s -n %s %s=%d",
-				strings.ToLower(target.Kind), target.Name, target.Namespace, AnnotationReplay, seq)
+				strings.ToLower(target.Kind), target.Name, target.Namespace, cataloghistory.AnnotationReplay, seq)
 		}
 		p.Deps.Recorder.Eventf(applied, nil, corev1.EventTypeWarning, "DeadLettered", origSubject, note)
 
@@ -250,8 +239,8 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// applyAnnotation sets metadata.annotations[AnnotationDeadLettered] and,
-// when seq is known, metadata.annotations[AnnotationDeadLetterSeq] -- or
+// applyAnnotation sets metadata.annotations[cataloghistory.AnnotationDeadLettered] and,
+// when seq is known, metadata.annotations[cataloghistory.AnnotationDeadLetterSeq] -- or
 // removes an older sequence when it is not, so a stale one never describes
 // the wrong message -- under k8s.ManagerDLQProjector, and nothing else: the
 // body names those two annotations only, so no other annotation, label,
@@ -264,14 +253,14 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 // kind-cluster-plex, 2026-09-29). A merge patch of a missing object is
 // NotFound, which the caller reads as "nothing to mark". It needs only
 // the patch verb the apply did.
-func (p *DLQProjector) applyAnnotation(ctx context.Context, t Target, value string, seq uint64) (*unstructured.Unstructured, error) {
+func (p *DLQProjector) applyAnnotation(ctx context.Context, t cataloghistory.Target, value string, seq uint64) (*unstructured.Unstructured, error) {
 	if err := k8s.ManagerDLQProjector.Validate(); err != nil {
 		return nil, err
 	}
-	u := t.object()
-	annotations := map[string]any{AnnotationDeadLettered: value, AnnotationDeadLetterSeq: nil}
+	u := t.Object()
+	annotations := map[string]any{cataloghistory.AnnotationDeadLettered: value, cataloghistory.AnnotationDeadLetterSeq: nil}
 	if seq != 0 {
-		annotations[AnnotationDeadLetterSeq] = strconv.FormatUint(seq, 10)
+		annotations[cataloghistory.AnnotationDeadLetterSeq] = strconv.FormatUint(seq, 10)
 	}
 	data, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": annotations}})
 	if err != nil {
@@ -281,7 +270,7 @@ func (p *DLQProjector) applyAnnotation(ctx context.Context, t Target, value stri
 		client.FieldOwner(k8s.ManagerDLQProjector.String()),
 	); err != nil {
 		return nil, fmt.Errorf("dlqprojector: annotate %s on %s %s/%s: %w",
-			AnnotationDeadLettered, t.Kind, t.Namespace, t.Name, err)
+			cataloghistory.AnnotationDeadLettered, t.Kind, t.Namespace, t.Name, err)
 	}
 	return u, nil
 }

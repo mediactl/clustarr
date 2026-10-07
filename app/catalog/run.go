@@ -58,12 +58,14 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/history/replay"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	artworkgateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
+	workerhistory "github.com/mediactl/clustarr/app/catalog/worker/history"
 	markerworker "github.com/mediactl/clustarr/app/catalog/worker/markers"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
@@ -616,13 +618,13 @@ func setupArtworkWorker(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // is registered. k8s.ConnectBus returns a JetStream-backed bus, so in
 // production both are always wired.
 func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
-	if err := history.NewSink(history.SinkDeps{
+	if err := workerhistory.NewSink(workerhistory.SinkDeps{
 		Recorder: mgr.GetEventRecorder("catalogarr-history"),
 	}).SetupWithManager(mgr, bus); err != nil {
 		return fmt.Errorf("catalogarr: history sink: %w", err)
 	}
 	reader, replayable := history.DLQReaderFor(bus)
-	if err := history.NewDLQProjector(history.DLQDeps{
+	if err := workerhistory.NewDLQProjector(workerhistory.DLQDeps{
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"),
 		DLQ:      reader,
@@ -632,7 +634,7 @@ func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
 	if !replayable {
 		return nil
 	}
-	if err := history.NewReplayer(history.ReplayDeps{
+	if err := replay.NewReplayer(replay.ReplayDeps{
 		Client:   mgr.GetClient(),
 		Bus:      bus,
 		DLQ:      reader,

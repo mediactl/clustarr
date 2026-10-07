@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 	env := &envtest.Environment{
-		CRDDirectoryPaths:     []string{"../../../config/crd/bases"},
+		CRDDirectoryPaths:     []string{"../../../../config/crd/bases"},
 		ErrorIfCRDPathMissing: true,
 	}
 	cfg, err := env.Start()
