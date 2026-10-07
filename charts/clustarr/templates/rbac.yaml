@@ -292,6 +292,7 @@ rules:
   - albums
   - books
   - episodes
+  - importlists
   - issues
   - qualityprofiles
   verbs:
@@ -338,15 +339,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - importlists
-  verbs:
-  - get
-  - list
-  - patch
-  - watch
 - apiGroups:
   - catalog.clustarr.io
   resources:

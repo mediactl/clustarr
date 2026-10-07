@@ -58,11 +58,10 @@ type Options struct {
 // ffgo liveness check.
 //
 // The consumers are the work.import.* queues (amendment §A1.6): scan,
-// fileimport, list and recycle. The list worker creates Movie and Series only today;
-// a spec.kinds entry naming a kind its provider cannot yield is refused at
-// admission (R-10), and one it can yield but no catalog writer exists for
-// fails on status (app/import/worker/importlist's syncKind), rather than
-// being skipped.
+// fileimport, list and recycle. The list worker reports snapshots; the
+// ImportList controller turns them into Movie and Series items only today,
+// and fails a kind it can yield but has no catalog writer for on status,
+// rather than skipping it.
 //
 // Both file-reading workers get o.SampleMaxBytes through [newScanWorker] and
 // [newImportWorker]; see Options.SampleMaxBytes.
@@ -102,11 +101,10 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		// manager starts.
 		{events.ConsumerImportFile, newImportWorker(c, api, bus, prober, o).Handle},
 		// The import-list sync worker (amendment §A1.3, §A1.6; plan task G1-3),
-		// on ConsumerImportList ("import-list"): fetch, dedupe, drop what an
-		// ImportExclusion blocks, then create or update catalog items under
-		// k8s.ManagerImportWorker. It never writes ImportList.status -- it
-		// checkpoints a Result to clustarr-progress for the ImportList
-		// controller (app/import/manager) to project.
+		// on ConsumerImportList ("import-list"): fetch, resolve ids, and
+		// report the listed set as a snapshot in clustarr-importlist, which
+		// the ImportList controller (app/import/manager) diffs and applies
+		// (ADR-0019 §7.6). It writes no Kubernetes object.
 		{events.ConsumerImportList, newListWorker(c, api, bus, o).Handle},
 		// The recycle-bin sweep (spec 2026-10-06 §3.5.3): the manager queues
 		// one task every 6 h on import-recycle, so this domain has no
@@ -114,8 +112,10 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		// built it) is the one consumer of RootFolder.spec.recycleBin.
 		// cleanupDays, emptying each bin of the dated folders past
 		// retention. It reads and deletes under /data, so it runs here in
-		// the import domain, whose pods mount it.
-		{events.ConsumerImportRecycle, fileimport.NewRecycleSweeper(c).Handle},
+		// the import domain, whose pods mount it. The same consumer moves the
+		// files a recycle.files.* task names into their bin
+		// (fileimport.RecycleFiles, ADR-0019 §7.6).
+		{events.ConsumerImportRecycle, fileimport.RecycleHandler(fileimport.NewRecycleSweeper(c), fileimport.NewRecycleFiles(c))},
 	} {
 		spec, ok := topo.Consumer(cons.durable)
 		if !ok {

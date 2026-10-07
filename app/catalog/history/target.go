@@ -168,6 +168,7 @@ var resolvers = map[string]resolver{
 	schema.ScanTask{}.Schema():          resolveScanTask,
 	schema.ListTask{}.Schema():          resolveListTask,
 	schema.RecycleSweepTask{}.Schema():  resolveRecycleSweepTask,
+	schema.RecycleFilesTask{}.Schema():  resolveRecycleFilesTask,
 	schema.ArtworkFetchTask{}.Schema():  resolveArtworkFetchTask,
 	schema.ArtworkFetchTaskV1Schema:     resolveArtworkFetchTask,
 	schema.RenderOverlayTask{}.Schema(): resolveRenderOverlayTask,
@@ -518,3 +519,13 @@ func resolveListTask(key string, data []byte) Target {
 // namespace, and the DLQ projector logs its dead letter instead of
 // annotating anything.
 func resolveRecycleSweepTask(string, []byte) Target { return Target{} }
+
+// resolveRecycleFilesTask is import's recycle of named files (ADR-0019
+// §7.6): the files lie under one RootFolder, which it names.
+func resolveRecycleFilesTask(key string, data []byte) Target {
+	var p schema.RecycleFilesTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return refTarget(p.RootFolder, catalogv1alpha1.GroupVersion.String(), "RootFolder")
+}

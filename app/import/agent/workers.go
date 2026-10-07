@@ -41,8 +41,8 @@ func newScanWorker(c client.Client, bus events.Bus, prober mediainfo.Prober, o O
 
 // newListWorker builds the work.import.list handler with o's Trakt and
 // Plex base URLs (see Options.TraktBaseURL) and the manager's API reader,
-// which a Series is read through with its managedFields before a sync
-// applies it (importlist.Worker.APIReader).
+// which the provider credentials and the Trakt token Secret are read
+// through (importlist.Worker.APIReader).
 func newListWorker(c client.Client, api client.Reader, bus events.Bus, o Options) *importlist.Worker {
 	w := importlist.NewWorker(c, bus)
 	w.APIReader = api

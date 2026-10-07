@@ -26,12 +26,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
@@ -55,20 +55,47 @@ const (
 	// a kind its provider cannot yield (gap-fix ruling R-10): a list
 	// admission should have rejected. Nothing is scheduled for it.
 	ReasonUnsupportedKind = "UnsupportedKind"
+
+	// ReasonTokenRefused is Synced=False on a Trakt list whose last sync
+	// reported Trakt refusing its token (schema.ListSnapshot.NeedsToken).
+	// While Synced reads it, the controller refreshes the token and
+	// re-issues the sync (ADR-0019 §7.6, W30).
+	ReasonTokenRefused = "TokenRefused"
+
+	// ReasonTokenRefreshed is Synced=Unknown once the controller has
+	// refreshed a refused token and re-issued the sync. A re-issued sync
+	// refused again finds it, and clears the token for a device flow
+	// rather than refreshing on every sync.
+	ReasonTokenRefreshed = "TokenRefreshed"
 )
 
-// Reconciler schedules ImportList syncs and drives the Trakt device-code
-// authorization flow. It is the sole writer of ImportList.status, under
-// k8s.ManagerImport -- see that constant's own doc comment, which
-// already names this task's resource -- and it never fetches a list
-// itself: that is app/import/worker/importlist's job, on the
-// clustarr.work.import.list.* queue this controller publishes to.
+// Reconciler is the ImportList state machine (ADR-0019 §7.6): it
+// schedules syncs, diffs each snapshot the import agent reports and applies
+// the result to the catalog, refreshes Trakt tokens and drives the
+// device-code flow. It is the sole writer of ImportList.status and of the
+// Trakt token Secret, under k8s.ManagerImport, and of the items a list
+// adds, unmonitors or deletes, under k8s.ManagerImportWorker. It never
+// fetches a list itself: that is the import agent's job
+// (app/import/worker/importlist), on the clustarr.work.import.list.* queue
+// this controller publishes to.
 type Reconciler struct {
-	// Client reads the ImportList and applies its status.
+	// Client reads the ImportList and the catalog, applies status, items
+	// and the token Secret, and deletes items and MediaFiles.
 	Client client.Client
 
-	// Bus publishes the sync task and holds the worker's result checkpoint.
+	// APIReader reads a Series with its managedFields before a list
+	// re-applies it (the cache strips them). Nil means the manager's API
+	// reader at SetupWithManager, or Client in a test that sets neither.
+	APIReader client.Reader
+
+	// Bus publishes the sync and recycle tasks and the history event, and
+	// holds the exclusions bucket.
 	Bus events.Bus
+
+	// Snapshots is the clustarr-importlist bucket: the agent's snapshots
+	// and this controller's remembered items. Nil means
+	// Bus.KV(events.BucketImportList).
+	Snapshots events.KV
 
 	// HTTPClient is used for the Trakt device-code flow's own small
 	// requests (never the list fetch, which the worker makes).
@@ -90,6 +117,20 @@ func (r *Reconciler) now() time.Time {
 	return time.Now().UTC()
 }
 
+func (r *Reconciler) apiReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
+}
+
+func (r *Reconciler) snapshots() events.KV {
+	if r.Snapshots != nil {
+		return r.Snapshots
+	}
+	return r.Bus.KV(events.BucketImportList)
+}
+
 func (r *Reconciler) httpClient() *http.Client {
 	if r.HTTPClient != nil {
 		return r.HTTPClient
@@ -107,10 +148,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&il) {
-		// No finalizer: the worker's KV bookkeeping (clustarr-importlist,
-		// clustarr-progress) is TTL'd, and the owned Trakt token Secret
-		// carries a controller owner reference, so it is garbage-collected
-		// with the ImportList. Nothing here needs cleaning up by hand.
+		// No finalizer: the list's keys in clustarr-importlist (its
+		// snapshot and remembered items) are TTL'd, and the owned Trakt
+		// token Secret carries a controller owner reference, so it is
+		// garbage-collected with the ImportList. Nothing here needs
+		// cleaning up by hand.
 		return ctrl.Result{}, nil
 	}
 
@@ -125,53 +167,58 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{RequeueAfter: idleRecheck}, nil
 	}
 
-	// Adopt whatever the worker has checkpointed since the last reconcile,
-	// before deciding whether a new sync is due. The worker never writes
-	// ImportList.status itself (see k8s.ManagerImport's doc comment);
-	// this is the read half of that split, the same one
-	// app/import/controller/libraryscan runs against
-	// app/import/scanprogress's Progress checkpoint. The worker's
-	// AnnotationSyncedAt stamp is what brings a finished sync here.
-	checkpoint, hasCheckpoint, err := r.pollResult(ctx, &il)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	// Gap-fix ruling R-10: a kind the provider cannot yield is an
 	// admission failure (ImportListSpec's CEL rules; see this package's
 	// doc comment). For any list admitted before the CRD carried them,
 	// this is the same verdict, reported: Ready=False naming the
-	// kinds, and no sync scheduled, auth included -- a rejected object
-	// would do nothing at all. Every other status field is re-asserted.
+	// kinds, and no sync scheduled or diffed, auth included -- a rejected
+	// object would do nothing at all. Every other status field is
+	// re-asserted.
 	if bad := importliststate.UnyieldableKinds(il.Spec); len(bad) > 0 {
-		markSynced(&il, &conditions, checkpoint, hasCheckpoint)
+		markSynced(&il, &conditions, nil)
 		k8s.MarkReady(&il, &conditions, false, ReasonUnsupportedKind,
 			"a %s list yields only %v; spec.kinds also names %s, which it cannot yield, so nothing is synced until spec.kinds is corrected",
 			importliststate.ProviderName(il.Spec), importliststate.YieldableKinds(il.Spec), strings.Join(bad, ", "))
-		if err := r.applyStatus(ctx, &il, conditions, checkpointOrNil(checkpoint, hasCheckpoint), il.Status.Auth); err != nil {
+		if err := r.applyStatus(ctx, &il, conditions, nil, il.Status.Auth); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
 
+	// Incorporate the import agent's newest report (ADR-0019 §7.6): a
+	// complete snapshot newer than status.lastSyncAt is diffed and applied
+	// once, and its SyncedAt becomes lastSyncAt. A partial one waits for its
+	// remaining chunks, whose writes wake the list again.
+	prevSynced := syncedReason(il.Status.Conditions)
+	outcome, err := r.incorporate(ctx, &il)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	markSynced(&il, &conditions, outcome)
+
 	authenticated := true
+	reissue := false
 	var authRequeue time.Duration
 	authState := il.Status.Auth
 	if il.Spec.Trakt != nil {
-		outcome, err := r.reconcileAuth(ctx, &il, now)
+		in := authInput{
+			NeedsToken:          syncedReason(conditions) == ReasonTokenRefused,
+			RefusedAfterRefresh: outcome != nil && outcome.NeedsToken && prevSynced == ReasonTokenRefreshed,
+		}
+		auth, err := r.reconcileAuth(ctx, &il, now, in)
 		if err != nil {
 			k8s.MarkFalse(&il, &conditions, catalogv1alpha1.ImportListConditionAuthenticated,
 				k8s.ReasonReconcileError, "%s", err.Error())
 			k8s.MarkReady(&il, &conditions, false, k8s.ReasonReconcileError, "%s", err.Error())
-			if applyErr := r.applyStatus(ctx, &il, conditions, checkpointOrNil(checkpoint, hasCheckpoint), il.Status.Auth); applyErr != nil {
+			if applyErr := r.applyStatus(ctx, &il, conditions, outcome, il.Status.Auth); applyErr != nil {
 				return ctrl.Result{}, applyErr
 			}
 			return ctrl.Result{RequeueAfter: requeueFor(time.Minute)}, nil
 		}
-		authenticated = outcome.Authenticated
-		authRequeue = outcome.RequeueAfter
-		if outcome.Auth != nil {
-			authState = outcome.Auth
+		authenticated = auth.Authenticated
+		authRequeue = auth.RequeueAfter
+		if auth.Auth != nil {
+			authState = auth.Auth
 		}
 		if authenticated {
 			k8s.MarkTrue(&il, &conditions, catalogv1alpha1.ImportListConditionAuthenticated,
@@ -180,11 +227,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			k8s.MarkFalse(&il, &conditions, catalogv1alpha1.ImportListConditionAuthenticated,
 				ReasonNotAuthenticated, "waiting for the user to approve the device code")
 		}
+		if auth.Refreshed {
+			reissue = true
+			k8s.MarkUnknown(&il, &conditions, catalogv1alpha1.ImportListConditionSynced,
+				ReasonTokenRefreshed, "trakt refused the list's token; it was refreshed and the sync re-issued")
+		}
 	}
 
 	if !authenticated {
 		k8s.MarkReady(&il, &conditions, false, ReasonNotAuthenticated, "not yet authenticated")
-		if err := r.applyStatus(ctx, &il, conditions, checkpointOrNil(checkpoint, hasCheckpoint), authState); err != nil {
+		if err := r.applyStatus(ctx, &il, conditions, outcome, authState); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: requeueFor(authRequeue)}, nil
@@ -192,25 +244,35 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	interval := effectiveRefreshInterval(specForClamp(il.Spec))
 	due, nextSyncAt := isDue(il.Status.NextSyncAt, now)
-	if due {
-		if err := r.publishSyncTask(ctx, &il, now); err != nil {
+	if due || reissue {
+		// A re-issued sync (a refreshed token) gets a Msg-Id of its own, so
+		// the work stream's dedup window never swallows it beside the
+		// scheduled one of the same minute.
+		tag := "list-" + now.Truncate(time.Minute).Format(time.RFC3339)
+		if !due {
+			tag = "list-token-" + now.Truncate(time.Second).Format(time.RFC3339)
+		}
+		if err := r.publishSyncTask(ctx, &il, now, tag); err != nil {
 			if errors.Is(err, events.ErrQueueFull) {
 				k8s.MarkReady(&il, &conditions, false, ReasonQueueFull, "the import-list work queue is full")
-				if applyErr := r.applyStatus(ctx, &il, conditions, checkpointOrNil(checkpoint, hasCheckpoint), authState); applyErr != nil {
+				if applyErr := r.applyStatus(ctx, &il, conditions, outcome, authState); applyErr != nil {
 					return ctrl.Result{}, applyErr
 				}
 				return ctrl.Result{RequeueAfter: requeueFor(time.Minute)}, nil
 			}
 			return ctrl.Result{}, err
 		}
-		nextSyncAt = now.Add(interval)
-		logging.FromContext(ctx).Info("importlist: sync scheduled", "nextSyncAt", nextSyncAt)
+		if due {
+			nextSyncAt = now.Add(interval)
+			logging.FromContext(ctx).Info("importlist: sync scheduled", "nextSyncAt", nextSyncAt)
+		} else {
+			logging.FromContext(ctx).Info("importlist: sync re-issued after a token refresh")
+		}
 	}
 
-	markSynced(&il, &conditions, checkpoint, hasCheckpoint)
 	k8s.MarkReady(&il, &conditions, true, k8s.ReasonReconciled, "scheduled")
 	nextSyncAtMeta := metav1.NewTime(nextSyncAt)
-	if err := r.applyStatusFull(ctx, &il, conditions, checkpointOrNil(checkpoint, hasCheckpoint), authState, &nextSyncAtMeta); err != nil {
+	if err := r.applyStatusFull(ctx, &il, conditions, outcome, authState, &nextSyncAtMeta); err != nil {
 		return ctrl.Result{}, err
 	}
 	requeue := authRequeue
@@ -220,43 +282,70 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	return ctrl.Result{RequeueAfter: requeueFor(requeue)}, nil
 }
 
-// markSynced sets Synced from the worker's own report, not merely from a
-// task having been published: a task can sit queued or fail long after a
-// reconcile returns, and Ready is about the ImportList's configuration being
-// valid and schedulable, which is a different claim from "the last sync
-// actually succeeded".
+// incorporate reads il's snapshot and, when it is complete and newer than
+// status.lastSyncAt, diffs and applies it: the outcome status reports. nil
+// means no new snapshot. status.lastSyncAt round-trips in seconds, the
+// precision the agent writes SyncedAt in, so a snapshot already applied
+// compares equal, never newer.
+func (r *Reconciler) incorporate(ctx context.Context, il *catalogv1alpha1.ImportList) (*syncOutcome, error) {
+	snap, ok, err := r.readSnapshot(ctx, il)
+	if err != nil || !ok {
+		return nil, err
+	}
+	at := snap.SyncedAt.UTC().Truncate(time.Second)
+	if il.Status.LastSyncAt != nil && !at.After(il.Status.LastSyncAt.UTC()) {
+		return nil, nil
+	}
+	outcome := r.diff(ctx, il, snap)
+	return &outcome, nil
+}
+
+// syncedReason is the Synced condition's reason among conditions, or "".
+func syncedReason(conditions []metav1.Condition) string {
+	if c := meta.FindStatusCondition(conditions, catalogv1alpha1.ImportListConditionSynced); c != nil {
+		return c.Reason
+	}
+	return ""
+}
+
+// markSynced sets Synced from the agent's report as this controller
+// applied it, not merely from a task having been published: a task can sit
+// queued or fail long after a reconcile returns, and Ready is about the
+// ImportList's configuration being valid and schedulable, which is a
+// different claim from "the last sync actually succeeded".
 //
-// The checkpoint lives in clustarr-progress, whose TTL is ten minutes, so
-// it is normally gone by the next scheduled reconcile. A missing checkpoint
-// therefore means "never synced" only while status.lastSyncAt is unset;
-// after that, the Synced condition already on the object (seeded into
-// conditions) is the last sync's verdict and is kept as it is.
-func markSynced(il *catalogv1alpha1.ImportList, conditions *[]metav1.Condition, checkpoint importliststate.Result, ok bool) {
+// outcome is nil on a pass that applied no new snapshot: Synced then keeps
+// the last applied sync's verdict, seeded into conditions, and reads
+// "never synced" only while status.lastSyncAt is unset.
+func markSynced(il *catalogv1alpha1.ImportList, conditions *[]metav1.Condition, outcome *syncOutcome) {
 	switch {
-	case !ok && il.Status.LastSyncAt != nil:
+	case outcome == nil && il.Status.LastSyncAt != nil:
 		return
-	case !ok:
+	case outcome == nil:
 		k8s.MarkUnknown(il, conditions, catalogv1alpha1.ImportListConditionSynced,
 			k8s.ReasonPending, "no sync has completed yet")
-	case checkpoint.Error == "":
+	case outcome.NeedsToken:
+		k8s.MarkFalse(il, conditions, catalogv1alpha1.ImportListConditionSynced,
+			ReasonTokenRefused, "trakt refused the list's token; the controller refreshes it and re-issues the sync: %s", outcome.Error)
+	case outcome.Error == "":
 		note := ""
 		if il.Spec.AutomaticAdd != nil && !*il.Spec.AutomaticAdd {
 			note = " (automaticAdd is false: entries are listed, not added)"
 		}
 		k8s.MarkTrue(il, conditions, catalogv1alpha1.ImportListConditionSynced,
 			k8s.ReasonSucceeded, "last sync at %s: %d fetched, %d added, %d excluded, %d removed%s",
-			checkpoint.SyncedAt.UTC().Format(time.RFC3339), checkpoint.Fetched, checkpoint.Added,
-			checkpoint.Excluded, checkpoint.Removed, note)
+			outcome.SyncedAt.UTC().Format(time.RFC3339), outcome.Fetched, outcome.Added,
+			outcome.Excluded, outcome.Removed, note)
 	default:
 		k8s.MarkFalse(il, conditions, catalogv1alpha1.ImportListConditionSynced,
-			k8s.ReasonFailed, "%s", checkpoint.Error)
+			k8s.ReasonFailed, "%s", outcome.Error)
 	}
 }
 
 // reconcileAuth builds the Trakt credentials and device flow and drives one
 // step of it.
 func (r *Reconciler) reconcileAuth(
-	ctx context.Context, il *catalogv1alpha1.ImportList, now time.Time,
+	ctx context.Context, il *catalogv1alpha1.ImportList, now time.Time, in authInput,
 ) (authOutcome, error) {
 	if il.Spec.SecretRef == nil {
 		return authOutcome{}, fmt.Errorf("trakt requires spec.secretRef with clientID and clientSecret keys")
@@ -275,28 +364,13 @@ func (r *Reconciler) reconcileAuth(
 		opts = append(opts, trakt.WithBaseURL(r.TraktBaseURL))
 	}
 	flow := trakt.NewDeviceFlow(creds, opts...)
-	store := importliststate.NewSecretTokenStore(r.Client, il)
-	return reconcileTraktAuth(ctx, flow, store, il.Status.Auth, now)
+	store := NewSecretTokenStore(r.Client, il, r.Clock)
+	return reconcileTraktAuth(ctx, flow, store, il.Status.Auth, now, in)
 }
 
-// pollResult reads the worker's result checkpoint, when one exists.
-func (r *Reconciler) pollResult(ctx context.Context, il *catalogv1alpha1.ImportList) (importliststate.Result, bool, error) {
-	entry, err := r.Bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
-	if err != nil {
-		if errors.Is(err, events.ErrKeyNotFound) {
-			return importliststate.Result{}, false, nil
-		}
-		return importliststate.Result{}, false, err
-	}
-	res, err := importliststate.DecodeResult(entry.Value)
-	if err != nil {
-		return importliststate.Result{}, false, err
-	}
-	return res, true, nil
-}
-
-// publishSyncTask enqueues one clustarr.work.import.list.<name> message.
-func (r *Reconciler) publishSyncTask(ctx context.Context, il *catalogv1alpha1.ImportList, now time.Time) error {
+// publishSyncTask enqueues one clustarr.work.import.list.<name> message;
+// tag makes its Msg-Id.
+func (r *Reconciler) publishSyncTask(ctx context.Context, il *catalogv1alpha1.ImportList, now time.Time, tag string) error {
 	task := schema.ListTask{ListRef: schema.Ref{Namespace: il.Namespace, Name: il.Name, UID: string(il.UID)}}
 	schemaName, data, err := schema.Encode(task)
 	if err != nil {
@@ -309,7 +383,7 @@ func (r *Reconciler) publishSyncTask(ctx context.Context, il *catalogv1alpha1.Im
 		// floor, so a generation-keyed ID (which does not change between
 		// ticks of an unedited spec) would make JetStream silently drop
 		// every second and third scheduled sync within the same hour.
-		ID:     events.MsgIDForObject(string(il.UID), 0, "list-"+now.Truncate(time.Minute).Format(time.RFC3339)),
+		ID:     events.MsgIDForObject(string(il.UID), 0, tag),
 		Type:   "import.ListTask",
 		Schema: schemaName,
 		Source: "import@" + version.String(),
@@ -346,35 +420,29 @@ func specForClamp(spec catalogv1alpha1.ImportListSpec) catalogImportListSpec {
 	}
 }
 
-func checkpointOrNil(res importliststate.Result, ok bool) *importliststate.Result {
-	if !ok {
-		return nil
-	}
-	return &res
-}
-
 // applyStatus re-asserts every status field this manager owns except
-// nextSyncAt (see applyStatusFull), layering conditions, an optional worker
-// checkpoint and the auth state on top of what is already on the object.
+// nextSyncAt (see applyStatusFull), layering conditions, an optional
+// snapshot outcome and the auth state on top of what is already on the
+// object.
 // Used by every early-return path so a transient failure (a queue-full
 // publish, an auth error) cannot zero out counters a previous successful
 // sync already reported -- the "early return built a partial status"
 // hazard CLAUDE.md documents.
 func (r *Reconciler) applyStatus(
 	ctx context.Context, il *catalogv1alpha1.ImportList, conditions []metav1.Condition,
-	checkpoint *importliststate.Result, auth *catalogv1alpha1.DeviceAuth,
+	outcome *syncOutcome, auth *catalogv1alpha1.DeviceAuth,
 ) error {
-	return r.applyStatusFull(ctx, il, conditions, checkpoint, auth, il.Status.NextSyncAt.DeepCopy())
+	return r.applyStatusFull(ctx, il, conditions, outcome, auth, il.Status.NextSyncAt.DeepCopy())
 }
 
 // applyStatusFull is the one status write in this package, under
 // k8s.ManagerImport. Every field this manager owns is sent every time --
-// including the counters, which come from checkpoint when the worker has
-// reported one and from the object's own current status otherwise -- so
-// that a reconcile which does not touch a field never releases it.
+// including the counters, which come from outcome when this pass applied a
+// snapshot and from the object's own current status otherwise -- so that a
+// reconcile which does not touch a field never releases it.
 func (r *Reconciler) applyStatusFull(
 	ctx context.Context, il *catalogv1alpha1.ImportList, conditions []metav1.Condition,
-	checkpoint *importliststate.Result, auth *catalogv1alpha1.DeviceAuth, nextSyncAt *metav1.Time,
+	outcome *syncOutcome, auth *catalogv1alpha1.DeviceAuth, nextSyncAt *metav1.Time,
 ) error {
 	// DeadLettered is folded here, the one place every path's conditions
 	// are rendered, so no early return can leave it out of the declaration.
@@ -396,14 +464,14 @@ func (r *Reconciler) applyStatusFull(
 	if nextSyncAt != nil {
 		status = status.WithNextSyncAt(*nextSyncAt)
 	}
-	if checkpoint != nil {
+	if outcome != nil {
 		status = status.
-			WithItemCount(checkpoint.Fetched).
-			WithAddedCount(checkpoint.Added).
-			WithExcludedCount(checkpoint.Excluded).
-			WithRemovedCount(checkpoint.Removed).
-			WithLastSyncAt(metav1.NewTime(checkpoint.SyncedAt)).
-			WithLastError(checkpoint.Error)
+			WithItemCount(outcome.Fetched).
+			WithAddedCount(outcome.Added).
+			WithExcludedCount(outcome.Excluded).
+			WithRemovedCount(outcome.Removed).
+			WithLastSyncAt(metav1.NewTime(outcome.SyncedAt)).
+			WithLastError(outcome.Error)
 	}
 	if auth != nil {
 		ac := catalogac.DeviceAuth().WithState(auth.State)
@@ -428,32 +496,39 @@ func (r *Reconciler) applyStatusFull(
 }
 
 // The ImportList controller's RBAC. It is the sole writer of
-// importlists/status; it also patches Secrets (the owned Trakt token/device
-// code) and reads them (the user-supplied app credentials).
+// importlists/status and of the owned Trakt token Secret (which it also
+// reads, with the user-supplied app credentials); it creates, updates,
+// unmonitors and deletes the Movie and Series items a list adds; and under
+// syncLevel removeAndDelete it reads the item's Episodes, MediaFiles and
+// RootFolder and deletes the MediaFiles whose files it has the import agent
+// recycle (ADR-0019 §7.6).
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch
 
 // SetupWithManager registers the ImportList controller. Its For()
-// predicate passes three changes and nothing else:
+// predicate passes two changes and nothing else:
 //
 //   - the generation, i.e. any spec edit, spec.enabled included. This
 //     controller's own status writes never bump it, so it cannot loop
 //     itself.
-//   - the worker's [importliststate.AnnotationSyncedAt] stamp, so a finished sync's
-//     Result is projected into status as soon as it lands. Without it the
-//     only other wake-up is the RequeueAfter at nextSyncAt, and status lags
-//     a whole refresh interval (up to 24h for stevenLu) behind the worker.
 //   - the DLQ projector's k8s.AnnotationDeadLettered, which applyStatusFull
 //     folds into the DeadLettered condition.
 //
-// The schedule and the Trakt poll cadence are driven by RequeueAfter
-// instead of a watch, the same way rootfolderschedule's cron and
-// libraryscan's checkpoint poll are.
+// A finished sync wakes the list through SnapshotSource, a watch of the
+// agent's snapshot writes in clustarr-importlist. The schedule, the Trakt
+// poll cadence and the token's refresh are driven by RequeueAfter instead,
+// the same way rootfolderschedule's cron is.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Client == nil {
 		r.Client = mgr.GetClient()
+	}
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
 	}
 	if r.Bus == nil {
 		return fmt.Errorf("importlist: a bus is required")
@@ -462,19 +537,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("importlist").
 		For(&catalogv1alpha1.ImportList{}, builder.WithPredicates(k8s.Or(
 			k8s.GenerationChanged(),
-			SyncCompleted(),
 			k8s.DeadLetteredAnnotationChanged(),
 		))).
+		WatchesRawSource(SnapshotSource(r.Bus)).
 		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
-}
-
-// SyncCompleted passes an update whose [importliststate.AnnotationSyncedAt] value
-// changed: the worker finished a sync. Creates and deletes pass too.
-func SyncCompleted() predicate.Predicate {
-	return k8s.StatusFieldChanged(func(o client.Object) string {
-		return o.GetAnnotations()[importliststate.AnnotationSyncedAt]
-	})
 }
 
 var _ reconcile.Reconciler = (*Reconciler)(nil)

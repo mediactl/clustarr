@@ -96,10 +96,11 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("import: librarydelete: %w", err)
 	}
 
-	// The ImportList controller (plan task G1-3): schedules one
-	// work.import.list.<name> task per spec.refreshInterval, drives
-	// Trakt's device-code flow, and is the sole writer of ImportList.status,
-	// which it projects from the list worker's clustarr-progress checkpoint.
+	// The ImportList controller (plan task G1-3; ADR-0019 §7.6): schedules
+	// one work.import.list.<name> task per spec.refreshInterval, diffs each
+	// snapshot the import agent reports and applies it to the catalog,
+	// refreshes Trakt tokens and drives the device-code flow, and is the
+	// sole writer of ImportList.status and the token Secret.
 	// HTTPClient and Clock are left nil on purpose: both default
 	// (http.DefaultClient, bounded by the reconcile context; time.Now).
 	if err := newImportListReconciler(mgr.GetClient(), bus, o).SetupWithManager(mgr); err != nil {

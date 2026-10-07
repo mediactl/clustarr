@@ -15,97 +15,40 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package importlist is import's ImportList sync worker: the
-// clustarr.work.import.list.<importlist> handler that wires an
-// ImportList's spec to a concrete pkg/importlist provider (BuildProvider,
-// the job pkg/importlist/config.go:112-115 names this task's owner for),
-// fetches it, dedupes, drops entries an ImportExclusion blocks, resolves
-// the id each catalog kind requires through the metadata gateway, and
-// creates or updates the resulting Movie and Series items (amendment
-// §A1.3, §A1.6, design spec §8.7; task G1-3).
+// Package importlist is the import agent's ImportList sync worker: the
+// clustarr.work.import.list.<importlist> handler that wires an ImportList's
+// spec to a concrete pkg/importlist provider (BuildProvider), fetches each
+// kind the list names, resolves the id each movie and series is keyed on
+// through the metadata gateway, and reports the whole listed set as a
+// snapshot (schema.ListSnapshot) in clustarr-importlist, at
+// importliststate.SnapshotKey, chunked past 512 KiB (ADR-0019 §7.6, ruling
+// R17).
 //
-// A spec.kinds entry the provider cannot yield (kinds.go's CanYield; a
-// Trakt list asked for albums) fails that kind with ErrKindNotYieldable, and
-// a non-video kind the provider can yield fails with ErrNoCatalogWriter once
-// the provider answers -- both on status, never skipped with a log line
-// alone (gap-fix ruling R-10). See syncKind's doc comment.
+// # What it does not do
 //
-// # Sync levels
+// It writes no Kubernetes object (ADR-0019): no item apply, unmonitor or
+// delete, no MediaFile delete, no annotation on the ImportList, no status,
+// and no Trakt token Secret. It makes no choice that changes desired state:
+// the dedupe, the ImportExclusion check, automaticAdd, the "writes only the
+// items it added itself" rule, the anime classification kept on re-apply,
+// spec.syncLevel and the recycling of a removed item's files are all the
+// ImportList controller's (app/import/controller/importlist), which diffs
+// each snapshot against the items the list remembers and applies the
+// result. A kind whose fetch failed is left out of the snapshot (its error
+// is on it), so a failed fetch never reads as an emptied list.
 //
-// spec.syncLevel acts only on an item absent from every enabled list in the
-// namespace (design spec §8.7): one another list still remembers is left
-// alone (listedElsewhere). removeAndDelete recycles the item's files into
-// its RootFolder's recycle bin before deleting it (delete.go).
+// # Trakt tokens
 //
-// # The status split
-//
-// This worker is never the writer of ImportList.status: k8s.ManagerImport
-// (the ImportList controller's field manager, app/import/controller/importlist)
-// owns it in full, per that constant's own doc comment. Instead this worker
-// checkpoints its outcome -- Result, at ResultKey(uid) in the
-// clustarr-progress bucket -- for the controller to poll and project into
-// status, the same split app/import/worker/rescan uses against
-// app/import/controller/libraryscan for LibraryScan.status.
-//
-// Catalog writes are spec-only, under [FieldManager]
-// (k8s.ManagerImportWorker): this worker creates or updates a Movie or
-// Series' spec fields and unmonitors or deletes one spec.syncLevel decides
-// has fallen off the list, but it never touches MovieStatus or
-// SeriesStatus, both of which catalog owns in full. See FieldManager's
-// doc comment for why app/import/worker/rescan shares this same manager name
-// rather than getting its own, and why that is deliberate rather than the
-// hazard CLAUDE.md otherwise warns two writers sharing one manager name
-// into.
-//
-// # Respecting ImportExclusion
-//
-// Every fetched, deduped entry is checked against the
-// clustarr-import-exclusions bucket (isExcluded, in sync.go) before it is
-// ever turned into a catalog write -- the same KV lookup contract
-// events.ExclusionEntry documents, and the reason the ImportExclusion
-// controller (app/import/controller/importexclusion) indexes that bucket in
-// the first place rather than this worker listing every ImportExclusion
-// per candidate.
-//
-// # Trakt's device-code flow
-//
-// The device-code handshake itself (minting and polling a user code) is
-// the ImportList controller's job, not this worker's -- see
-// app/import/controller/importlist's doc comment. This package's role is
-// narrower: [SecretTokenStore] persists the resulting access/refresh token
-// pair (and, in the controller, the in-flight device code) in an owned
-// Secret, so a token survives a pod restart the way
-// pkg/importlist.MemoryTokenStore does not, and
-// pkg/importlist/trakt.List.Fetch's own refresh-on-401 logic calls it
-// transparently mid-sync when a token is near enough to expiry.
+// The worker reads the list's Trakt token Secret (importliststate's
+// TokenReader) and never refreshes or stores a token: ReadOnlyTokens
+// withholds the refresh token, so a token Trakt refuses comes back as a
+// 401, which the snapshot reports as NeedsToken. The ImportList controller
+// is the token's one refresher and the Secret's one writer (W30): Trakt
+// rotates refresh tokens, so two refreshers could each lose the other's
+// pair.
 //
 // # Registration
 //
-// Nothing here registers itself. app/import/run.go's setupWorkers does (task
-// G1-5), alongside the rescan and fileimport consumers, with exactly the
-// shape those two use:
-//
-//	spec, ok := o.BusTopology().Consumer(events.ConsumerImportList)
-//	if !ok {
-//	        return fmt.Errorf("import: consumer %s missing from topology", events.ConsumerImportList)
-//	}
-//	worker := importlist.NewWorker(mgr.GetClient(), bus)
-//
-//	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-//	        stop, err := bus.Subscribe(ctx, spec.Subscription(), worker.Handle)
-//	        if err != nil {
-//	                return fmt.Errorf("import: subscribe %s: %w", events.ConsumerImportList, err)
-//	        }
-//	        <-ctx.Done()
-//	        stop()
-//	        return nil
-//	})); err != nil {
-//	        return err
-//	}
-//
-// k8s.EveryReplica, not manager.RunnableFunc, for the same reason rescan
-// and fileimport use it: manager.RunnableFunc has no NeedLeaderElection
-// method, so controller-runtime would put this behind the leader lease on
-// any service that elects, and every import-worker replica must be able
-// to pick up a sync task.
+// app/import/agent registers Handle on ConsumerImportList ("import-list")
+// on every import agent replica (k8s.EveryReplica).
 package importlist

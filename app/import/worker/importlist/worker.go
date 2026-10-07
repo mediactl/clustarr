@@ -29,10 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/importliststate"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -44,29 +41,25 @@ import (
 // app/import/worker/rescan's own default for the same call.
 const defaultMetadataTimeout = 10 * time.Second
 
-// Worker handles clustarr.work.import.list.* messages: one message is
-// one ImportList's sync, across every catalog kind its spec.kinds names.
-// See this package's doc comment for how app/import/run.go registers it.
-//
-// The worker is never the writer of ImportList.status: k8s.ManagerImport
-// (the controller's field manager) owns it in full, per that constant's own
-// doc comment, and this worker instead checkpoints its result to a
-// clustarr-progress key (see importliststate.Result and ResultKey) that the
-// controller reads -- the same split app/import/worker/rescan uses for
-// LibraryScan -- and then stamps [importliststate.AnnotationSyncedAt] so the
-// controller reads it now.
+// Worker handles clustarr.work.import.list.* messages: one message is one
+// ImportList's sync, across every catalog kind its spec.kinds names. It
+// fetches each kind's list, resolves the id each item's kind is keyed on
+// through the metadata gateway, and reports the whole listed set as a
+// snapshot (schema.ListSnapshot) in clustarr-importlist (ADR-0019 §7.6,
+// ruling R17). It decides nothing and writes no Kubernetes object: the
+// ImportList controller diffs the snapshot, applies, unmonitors or deletes
+// items, recycles files and writes the list's status.
 type Worker struct {
-	// Client reads the ImportList, its Secret/ConfigMap, and creates or
-	// updates the Movie and Series items a sync produces.
-	Client client.Client
+	// Client reads the ImportList.
+	Client client.Reader
 
-	// APIReader reads straight from the apiserver: applySeries needs a
-	// Series' managedFields, which the cache strips (CLAUDE.md). Nil means
-	// Client (a test's direct client).
+	// APIReader reads the provider credentials' Secret and ConfigMap and
+	// the Trakt token Secret straight from the apiserver (Secrets are never
+	// cached, spec 2026-10-06 §5.6). Nil means Client (a test's direct
+	// client).
 	APIReader client.Reader
 
-	// Bus carries the result checkpoint, the exclusion and remembered-item
-	// KV buckets, the id-resolve RPC and the history event.
+	// Bus carries the snapshot (clustarr-importlist) and the id-resolve RPC.
 	Bus events.Bus
 
 	// HTTPClient is used by every provider that makes its own HTTP calls.
@@ -86,28 +79,16 @@ type Worker struct {
 	Clock func() time.Time
 }
 
-// The import-list worker's RBAC. It creates and updates Movie and Series
-// spec, reads Secrets and ConfigMaps for provider credentials and CSV
-// content, and writes the owned Trakt token Secret. It patches one
-// annotation on the ImportList itself
-// ([importliststate.AnnotationSyncedAt]) but never importlists/status (the
-// controller's alone), and never writes
-// MovieStatus/SeriesStatus, both of which catalog owns in full. Under
-// syncLevel removeAndDelete it reads the item's Episodes and RootFolder and
-// deletes the MediaFiles whose files it recycled.
+// The import-list worker's RBAC: reads only (ADR-0019 §9.1). It reads the
+// ImportList, the Secret and ConfigMap holding a provider's credentials or
+// CSV content, and the owned Trakt token Secret; it writes nothing.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get
 
 // NewWorker builds a Worker with the production clock, timeout and HTTP
 // client.
-func NewWorker(c client.Client, bus events.Bus) *Worker {
+func NewWorker(c client.Reader, bus events.Bus) *Worker {
 	return &Worker{
 		Client: c, Bus: bus, HTTPClient: http.DefaultClient,
 		MetadataTimeout: defaultMetadataTimeout, Clock: time.Now,
@@ -121,14 +102,13 @@ func (w *Worker) now() time.Time {
 	return time.Now()
 }
 
-func (w *Worker) deps() syncDeps {
-	return syncDeps{
-		Client: w.Client, APIReader: w.APIReader, Bus: w.Bus,
-		Providers: ProviderOptions{
-			HTTPClient: w.HTTPClient, TraktBaseURL: w.TraktBaseURL, PlexBaseURL: w.PlexBaseURL,
-		},
-		MetadataTimeout: w.MetadataTimeout, Clock: w.Clock,
+// reader is what Secrets and ConfigMaps are read through: APIReader, or
+// Client when there is none.
+func (w *Worker) reader() client.Reader {
+	if w.APIReader != nil {
+		return w.APIReader
 	}
+	return w.Client
 }
 
 // Handle implements events.Handler.
@@ -180,69 +160,20 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return nil
 	}
 
-	result := w.syncAllKinds(ctx, &il)
-
-	kv := w.Bus.KV(events.BucketProgress)
-	data, err := result.Encode()
-	if err != nil {
-		return fmt.Errorf("importlist: encode result: %w", err)
-	}
-	if _, err := kv.Put(ctx, importliststate.ResultKey(string(il.UID)), data); err != nil {
-		return fmt.Errorf("importlist: checkpoint result: %w", err)
-	}
-	if err := StampSynced(ctx, w.Client, &il, result.SyncedAt); err != nil {
-		// The checkpoint is durable; only the nudge failed. The controller
-		// still projects it at its next scheduled reconcile, so this is
-		// not worth redoing the whole sync over.
-		log.Warn("importlist: could not stamp the list; status catches up at the next scheduled sync",
-			"error", err)
+	snap := w.snapshot(ctx, &il)
+	if err := writeSnapshot(ctx, w.Bus.KV(events.BucketImportList), snap); err != nil {
+		return fmt.Errorf("importlist: write snapshot: %w", err)
 	}
 
-	if result.Error != "" {
-		log.Warn("importlist: sync finished with errors", "error", result.Error,
-			"fetched", result.Fetched, "added", result.Added,
-			"excluded", result.Excluded, "removed", result.Removed)
+	listed := 0
+	for _, k := range snap.Kinds {
+		listed += len(k.Items)
+	}
+	if snap.Error != "" {
+		log.Warn("importlist: sync reported with errors", "error", snap.Error,
+			"kinds", len(snap.Kinds), "listed", listed, "needsToken", snap.NeedsToken)
 	} else {
-		log.Info("importlist: sync finished", "fetched", result.Fetched, "added", result.Added,
-			"excluded", result.Excluded, "removed", result.Removed)
+		log.Info("importlist: sync reported", "kinds", len(snap.Kinds), "listed", listed)
 	}
 	return nil
-}
-
-// StampSynced applies [importliststate.AnnotationSyncedAt] to il under
-// [FieldManager], the one field that manager owns on an ImportList, so every
-// apply is its complete declaration there. It never touches spec or status.
-func StampSynced(ctx context.Context, c client.Client, il *catalogv1alpha1.ImportList, at time.Time) error {
-	ac := catalogac.ImportList(il.Name, il.Namespace).
-		WithAnnotations(map[string]string{importliststate.AnnotationSyncedAt: at.UTC().Format(time.RFC3339Nano)})
-	_, err := k8s.Apply(ctx, c, FieldManager, ac)
-	return err
-}
-
-// syncAllKinds runs syncKind for every kind il.Spec.Kinds names and
-// aggregates the outcome into one Result.
-func (w *Worker) syncAllKinds(ctx context.Context, il *catalogv1alpha1.ImportList) importliststate.Result {
-	deps := w.deps()
-	var (
-		fetched, added, excluded, removed int32
-		errs                              []error
-	)
-	for _, k := range il.Spec.Kinds {
-		kr := syncKind(ctx, deps, il, commonv1.MediaKind(k))
-		fetched += kr.fetched
-		added += kr.added
-		excluded += kr.excluded
-		removed += kr.removed
-		if kr.err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", k, kr.err))
-		}
-	}
-
-	r := importliststate.Result{
-		SyncedAt: w.now(), Fetched: fetched, Added: added, Excluded: excluded, Removed: removed,
-	}
-	if len(errs) > 0 {
-		r.Error = errors.Join(errs...).Error()
-	}
-	return r
 }

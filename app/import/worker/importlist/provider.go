@@ -48,7 +48,7 @@ import (
 // app/indexer/controller/indexer's own copy: the pattern is small enough that
 // this package duplicates it rather than adding a shared helper package for
 // three call sites across three services.
-func readSecret(ctx context.Context, c client.Client, ns string, ref *corev1.LocalObjectReference) (map[string][]byte, error) {
+func readSecret(ctx context.Context, c client.Reader, ns string, ref *corev1.LocalObjectReference) (map[string][]byte, error) {
 	if ref == nil {
 		return nil, nil
 	}
@@ -63,7 +63,7 @@ func readSecret(ctx context.Context, c client.Client, ns string, ref *corev1.Loc
 }
 
 // readConfigMap returns ref's data in namespace ns.
-func readConfigMap(ctx context.Context, c client.Client, ns string, ref corev1.LocalObjectReference) (map[string]string, error) {
+func readConfigMap(ctx context.Context, c client.Reader, ns string, ref corev1.LocalObjectReference) (map[string]string, error) {
 	var cm corev1.ConfigMap
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &cm); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -76,9 +76,9 @@ func readConfigMap(ctx context.Context, c client.Client, ns string, ref corev1.L
 
 // ErrUnsupportedProviderKind is returned by BuildProvider when the CRD's
 // selected provider has no data for the requested kind (for example
-// spec.stevenLu with kind=series). syncKind checks importliststate.CanYield
+// spec.stevenLu with kind=series). Handle checks importliststate.CanYield
 // first, so reaching it means that table and a provider constructor
-// disagree; the kind fails with it rather than being skipped.
+// disagree; the kind's fetch fails with it, on the snapshot's error.
 var ErrUnsupportedProviderKind = fmt.Errorf("importlist: provider does not support this kind")
 
 // ProviderOptions carries what BuildProvider threads into the providers
@@ -88,10 +88,10 @@ type ProviderOptions struct {
 	// Nil means http.DefaultClient.
 	HTTPClient *http.Client
 
-	// TraktBaseURL overrides trakt.DefaultBaseURL for the list fetch and
-	// its token refresh. Empty means the production API. It exists so an
+	// TraktBaseURL overrides trakt.DefaultBaseURL for the list fetch.
+	// Empty means the production API. It exists so an
 	// end-to-end run can point Trakt at an in-cluster fixture; the
-	// device-code flow's own override is the ImportList controller's
+	// device-code flow's and the token refresh's override is the ImportList controller's
 	// Reconciler.TraktBaseURL, and both should name the same host.
 	TraktBaseURL string
 
@@ -108,16 +108,17 @@ type ProviderOptions struct {
 // returns the concrete pkg/importlist.ImportList for kind.
 //
 // tokenStore is used only by the trakt branch; every other provider ignores
-// it. opts.HTTPClient is threaded through the branches that make their own
+// it. The agent passes a [ReadOnlyTokens], so a token Trakt refuses fails the
+// fetch with a 401 rather than being refreshed here (ADR-0019 §7.6, W30). opts.HTTPClient is threaded through the branches that make their own
 // HTTP calls (every provider except imdbCSV, which is parsed locally -- see
 // the doc comment on configMapCSVList) and defaults to http.DefaultClient
 // when nil; opts' base URLs override Trakt's and Plex Discover's hosts.
 func BuildProvider(
 	ctx context.Context,
-	c client.Client,
+	c client.Reader,
 	il *catalogv1alpha1.ImportList,
 	kind commonv1.MediaKind,
-	tokenStore *importliststate.SecretTokenStore,
+	tokenStore pkgimportlist.TokenStore,
 	opts ProviderOptions,
 ) (pkgimportlist.ImportList, error) {
 	httpClient := opts.HTTPClient
@@ -149,8 +150,6 @@ func BuildProvider(
 		if opts.TraktBaseURL != "" {
 			traktOpts = append(traktOpts, trakt.WithBaseURL(opts.TraktBaseURL))
 		}
-		// A nil flow makes trakt.New build its refresh flow from these same
-		// options, so a token refresh mid-fetch goes to the same host.
 		list, err := trakt.New(name, kind, cfg, creds, tokenStore, nil, traktOpts...)
 		if err != nil {
 			return nil, wrapUnsupportedKind(err, trakt.ErrUnsupportedKind)
@@ -230,6 +229,40 @@ func BuildProvider(
 		// forbid this; reaching it means one of them regressed.
 		return nil, fmt.Errorf("importlist: %s/%s sets no provider", il.Namespace, il.Name)
 	}
+}
+
+// ErrTokenReadOnly is what [ReadOnlyTokens.Save] answers: the import agent
+// never writes the Trakt token Secret (ADR-0019 §7.6, W30).
+var ErrTokenReadOnly = errors.New("importlist: the import agent does not store trakt tokens")
+
+// ReadOnlyTokens is the pkg/importlist.TokenStore the agent hands a Trakt
+// list: it loads the access token from the list's token Secret and never
+// stores one. It withholds the refresh token, so trakt.List.Fetch, which
+// refreshes on a 401 only when it holds one, answers the 401 instead of
+// rotating the pair: the ImportList controller is the one refresher, and a
+// rotation the agent could not store would lose the pair for good.
+type ReadOnlyTokens struct {
+	Reader *importliststate.TokenReader
+}
+
+// Load implements pkg/importlist.TokenStore, without the refresh token.
+func (t ReadOnlyTokens) Load(ctx context.Context) (pkgimportlist.Token, bool, error) {
+	tok, ok, err := t.Reader.Load(ctx)
+	tok.RefreshToken = ""
+	return tok, ok, err
+}
+
+// Save implements pkg/importlist.TokenStore by refusing.
+func (ReadOnlyTokens) Save(context.Context, pkgimportlist.Token) error { return ErrTokenReadOnly }
+
+var _ pkgimportlist.TokenStore = ReadOnlyTokens{}
+
+// tokenRefused reports whether err is Trakt refusing the list's token: a
+// 401 the controller answers by refreshing it (schema.ListSnapshot's
+// NeedsToken).
+func tokenRefused(err error) bool {
+	var apiErr *trakt.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized
 }
 
 // wrapUnsupportedKind normalises every provider's own "kind must be movie or

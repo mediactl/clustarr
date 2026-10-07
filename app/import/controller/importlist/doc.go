@@ -15,42 +15,42 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package importlist is the ImportList controller: it schedules one
-// clustarr.work.import.list.<name> sync task per spec.refreshInterval
-// tick (clamped up to the provider's own floor -- schedule.go), drives
-// Trakt's device-code authorization handshake (auth.go), and is the sole
-// writer of ImportList.status (amendment §A1.3, §A1.6, design spec §8.7;
-// task G1-3).
+// Package importlist is the ImportList controller, the manager's import-list
+// state machine (ADR-0019 §7.6): it schedules one
+// clustarr.work.import.list.<name> sync task per spec.refreshInterval tick
+// (clamped up to the provider's own floor -- schedule.go), diffs each
+// snapshot the import agent reports and applies the result to the catalog
+// (diff.go, apply.go), refreshes Trakt tokens and drives the device-code
+// handshake (auth.go, tokens.go), and is the sole writer of
+// ImportList.status (amendment §A1.3, §A1.6, design spec §8.7; task G1-3).
 //
-// It never fetches a list itself. app/import/worker/importlist does that,
-// on the schedule this controller publishes -- see that package's doc
-// comment for why: this controller polls that worker's checkpoint
-// (importlist.ResultKey/Result, in the clustarr-progress bucket) and
-// projects it into status, the same split
-// app/import/controller/libraryscan runs against
-// app/import/scanprogress's Progress checkpoint for LibraryScan.
+// # The agent fetches; this controller decides
 //
-// # Why a worker on a queue, not a controller-driven requeue alone
+// It never fetches a list itself. The import agent's list worker
+// (app/import/worker/importlist) fetches each kind, resolves ids through the
+// metadata gateway and writes the listed set as a snapshot into
+// clustarr-importlist (importliststate.SnapshotKey, chunked past 512 KiB,
+// ruling R17). SnapshotSource watches those writes and wakes the list;
+// readSnapshot refuses a partial chunk set; a complete snapshot newer than
+// status.lastSyncAt is diffed once (incorporate), and its SyncedAt becomes
+// status.lastSyncAt, with the counts this controller computed.
 //
-// Task G1-3's brief asks which of the two pkg/events already declares for
-// import lists: grepping subjects.go and topology.go turns up
-// events.ConsumerImportList ("import-list"), events.FilterImportList
-// ("clustarr.work.import.list.>") and events.WorkListSubject, all wired
-// into StreamWorkImport's ConsumerSpec already -- amendment §A1.6 names
-// exactly this subject in its process-topology table. So the sync itself
-// runs on that queue, in app/import/worker/importlist; this controller's
-// role is the "plus a scheduled sync" half: deciding WHEN to enqueue one,
-// via RequeueAfter, the same self-timed mechanism
-// app/import/controller/rootfolderschedule uses for LibraryScan ticks.
-//
-// # Projecting a finished sync
-//
-// The worker's checkpoint lives in NATS KV, which no informer watches, so
-// the worker also stamps importliststate.AnnotationSyncedAt on the
-// ImportList when a sync finishes. SyncCompleted, ORed into the For() predicate, turns that
-// stamp into a reconcile, which reads the checkpoint and projects it. The
-// status therefore follows the worker within one reconcile, not one
-// refresh interval later.
+// The diff applies today's rules in the manager (P72-P81): a kind the list
+// cannot yield is refused; entries are deduped and checked against
+// ImportExclusion (failing open); with spec.automaticAdd off they are
+// recorded as listed only; a list writes only the items it added itself,
+// finding every item by the provider id its kind is keyed on
+// (libraryByID); an id the agent could not resolve keeps a remembered item
+// known; items are created or updated from the list's defaults under
+// k8s.ManagerImportWorker, keeping a classified series' profile and type
+// (seriesSpecFor, classified); and what fell off the list is logged,
+// unmonitored, removed or removed with its files per spec.syncLevel, unless
+// another enabled list still has it. Deletes carry a UID precondition
+// (W28); removeAndDelete publishes a schema.RecycleFilesTask for the item's
+// recorded files, which the import agent moves into the RootFolder's
+// recycle bin, then deletes their MediaFiles and the item, each with a UID
+// precondition (W29). The remembered items (importliststate.ItemsKey) are
+// this controller's alone.
 //
 // # Kinds a provider cannot yield (gap-fix ruling R-10)
 //
@@ -64,42 +64,38 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // This controller reaches the same verdict for any list admitted before
 // them: Ready=False, ReasonUnsupportedKind, naming the kinds, and nothing
-// scheduled.
+// scheduled or diffed.
 //
-// # Trakt device-code flow
+// # Trakt tokens
 //
 // spec.trakt requires spec.secretRef to hold the Trakt application's
 // clientID and clientSecret (the app credentials registered with Trakt,
 // not a user token). This controller drives
 // pkg/importlist/trakt.DeviceFlow -- Start to mint a user code, Poll on a
-// RequeueAfter cadence matching Trakt's own requested interval, Refresh
-// transparently inside the worker's Fetch call -- and surfaces
-// status.auth.{userCode,verificationURL,expiresAt} so the UI (task G3-4)
-// can show the user what to enter and where. The resulting token pair (and
-// the in-flight device code between Start and Poll) is persisted in an
-// owned Secret via importlist.SecretTokenStore, which survives a pod
-// restart the way pkg/importlist.MemoryTokenStore does not.
+// RequeueAfter cadence matching Trakt's own requested interval -- and
+// surfaces status.auth.{userCode,verificationURL,expiresAt} so the UI can
+// show the user what to enter and where. The resulting token pair (and the
+// in-flight device code between Start and Poll) is persisted in an owned
+// Secret by SecretTokenStore.
 //
-// # Field manager
+// It is the Secret's only writer and the token's only refresher (W30):
+// within TokenRefreshWindow of tokenExpiresAt, and at once when a sync
+// reports Trakt refusing the token (NeedsToken; Synced reads
+// ReasonTokenRefused), after which it re-issues the sync. Trakt rotates
+// refresh tokens, so one refresher removes the race two writers had. A
+// re-issued sync refused again clears the pair and starts a device flow.
+// The agent reads the Secret and never writes it.
 //
-// Every status write in this package is under k8s.ManagerImport, whose
-// own doc comment already names ImportList, ImportExclusion and
-// LibraryScan as what it owns. The worker never writes ImportList.status
-// (see this package's poll-and-project split above), so there is exactly
-// one writer of the subresource, from exactly one process.
+// # Field managers
+//
+// Status and the token Secret are written under k8s.ManagerImport; the
+// items a list adds, unmonitors or deletes under k8s.ManagerImportWorker
+// (FieldManager), the names kept (R7) though the writes moved here from the
+// agent.
 //
 // # Registration
 //
-// Nothing here registers itself. app/import/run.go's setupControllers does
-// (task G1-5), alongside libraryscan, rootfolderschedule and
-// importexclusion, with exactly the shape those three use (plus, when set,
-// TraktBaseURL for the device-code flow, which should name the same host as
-// the worker's own TraktBaseURL):
-//
-//	if err := (&importlist.Reconciler{
-//	        Client: mgr.GetClient(),
-//	        Bus:    bus,
-//	}).SetupWithManager(mgr); err != nil {
-//	        return fmt.Errorf("import: importlist: %w", err)
-//	}
+// app/import/manager registers it with the manager's client, API reader and
+// bus, and TraktBaseURL when set, which should name the same host as the
+// agent's own --trakt-base-url.
 package importlist

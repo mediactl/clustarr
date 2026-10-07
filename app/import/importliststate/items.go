@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package importlist
+package importliststate
 
 import (
 	"context"
@@ -34,6 +34,11 @@ import (
 // listing every Movie/Series in the namespace and reverse-engineering which
 // ones came from this list.
 //
+// The ImportList controller (app/import/controller/importlist) is the one
+// reader and writer of these keys (ADR-0019 §7.6, ruling R17): it diffs each
+// snapshot the import agent reports against them. The agent never reads or
+// writes them.
+//
 // It carries the object reference the sync created, not only the Item:
 // ApplySyncLevel only needs Item.Key() to diff, but acting on a decision
 // (unmonitor, remove) needs to know which catalog object that key became.
@@ -47,22 +52,20 @@ type StoredItem struct {
 	// became.
 	ObjectName string `json:"objectName"`
 
-	// ResolvedID is the tmdbID or tvdbID (per ObjectKind) applyMovie or
-	// applySeries used to create ObjectName -- Item.ExternalIDs alone is
-	// not always enough to recompute it, when the provider's own fetch
-	// carried no id of that kind and it came from resolveRequiredID's
-	// metadata-gateway fallback instead. Remembering it here means acting
-	// on this item later (a sync-level unmonitor, which must re-declare
-	// every field FieldManager owns -- see catalogitem.go's doc comment on
-	// why a partial apply from the same manager is unsafe) never needs a
-	// second resolve RPC.
+	// ResolvedID is the tmdbID or tvdbID (per ObjectKind) the controller
+	// created ObjectName with -- Item.ExternalIDs alone is not always enough
+	// to recompute it, when the provider's own fetch carried no id of that
+	// kind and the import agent resolved it through the metadata gateway
+	// (schema.ListedItem.ResolvedID). Remembering it here means acting on
+	// this item later (a sync-level unmonitor, which must re-declare every
+	// field the list's field manager owns -- a partial apply from the same
+	// manager releases the rest) needs no snapshot that still lists it.
 	ResolvedID int64 `json:"resolvedID"`
 
 	// ListedOnly marks an entry the list carried while spec.automaticAdd
 	// was false: remembered, so another list's syncLevel sees the item is
 	// still wanted, but never added by this list and so never acted on by
-	// this list's syncLevel. False (and absent, in every snapshot written
-	// before the field existed) means this list added ObjectName.
+	// this list's syncLevel. False means this list added ObjectName.
 	ListedOnly bool `json:"listedOnly,omitempty"`
 }
 
@@ -112,24 +115,20 @@ func LoadItems(ctx context.Context, kv events.KV, namespace, name, kind string) 
 }
 
 // ErrItemsChangedConcurrently is returned by SaveItems when the key's
-// revision moved between LoadItems and SaveItems: some other delivery of a
-// sync for the same (namespace, name, kind) wrote in between. The caller's
-// own sync results (the catalog items it created or updated) are already
-// durable in the apiserver at that point; only this bookkeeping snapshot is
-// stale, and the next sync corrects it, so the caller logs and moves on
-// rather than treating this as a hard failure.
+// revision moved between LoadItems and SaveItems: another diff of the same
+// (namespace, name, kind) -- a previous leader's, finishing late -- wrote in
+// between. The caller's own catalog writes are already durable in the
+// apiserver at that point; only this bookkeeping is stale, and the next
+// snapshot's diff corrects it, so the caller logs and moves on rather than
+// treating this as a hard failure.
 var ErrItemsChangedConcurrently = errors.New("importlist: remembered items changed concurrently")
 
 // SaveItems replaces (namespace, name, kind)'s remembered items with
 // current, compare-and-swapping on rev (the revision LoadItems returned).
-// The whole point of a slow, networked fetch sitting between LoadItems and
-// SaveItems is why this is a CAS rather than a blind Put: a lost-update
-// window opens the moment the fetch starts, and re-reading the current
-// revision immediately before this write -- which the CAS does for free,
-// by construction, since kv.Update rejects a stale rev outright -- is what
-// closes it. See CLAUDE.md's "a lost update is not an SSA release" note;
-// this is the same rule applied to a KV compare-and-swap instead of a
-// status apply.
+// A diff's catalog writes sit between LoadItems and SaveItems, so this is a
+// CAS rather than a blind Put: a write another diff landed meanwhile is
+// refused rather than overwritten (CLAUDE.md's "a lost update is not an SSA
+// release" note, applied to a KV compare-and-swap).
 //
 // A zero rev calls kv.Create instead of kv.Update, for the first sync of a
 // (namespace, name, kind) that has never had a snapshot before; ErrKeyExists
