@@ -18,13 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package clients builds the wire clients index talks to an indexer
 // through -- Torznab/Newznab or a Cardigann engine, behind the Indexer's
 // proxy and its host's rate limit -- and keeps Cardigann login sessions
-// (the clustarr-indexer-sessions KV bucket plus the owned Secret). The
-// manager's Indexer reconciler probes and logs in with it, and the index
-// agent's client cache serves searches with it; it links neither side's
-// runtime (spec §4.3 X2, §5.12).
+// (the clustarr-indexer-sessions KV bucket, with the owned Secret read as
+// the fallback). The manager's Indexer reconciler probes and logs in with
+// it, and the index agent's client cache serves searches with it; it links
+// neither side's runtime (spec §4.3 X2, §5.12). It writes no Kubernetes
+// object: the session Secret's one writer is the Indexer controller's
+// mirror (ADR-0019 §7.5), so the agent, which links this package, links no
+// Secret writer.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerdefinitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerproxies,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 package clients

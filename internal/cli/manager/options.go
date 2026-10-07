@@ -48,6 +48,11 @@ import (
 // the six <svc>.clustarr.io leases became this one.
 const LeaderElectionID = "manager.clustarr.io"
 
+// DefaultFacadeAPIKeySecret is the Torznab facade's API-key Secret the
+// manager creates when absent: the index agent's default name, so an
+// unflagged pair agrees.
+const DefaultFacadeAPIKeySecret = "index-facade"
+
 // Options is everything cmd/manager's flags set (spec §3.4.1).
 type Options struct {
 	k8s.Options
@@ -81,6 +86,10 @@ type Options struct {
 	CardigannDefinitionsDir string
 	CardigannBundled        bool
 	TraktBaseURL            string
+	// FacadeAPIKeySecret is the Torznab facade's API-key Secret, in
+	// --namespace, which the manager creates when absent and the index
+	// agent reads (ADR-0019 §7.5).
+	FacadeAPIKeySecret string
 
 	// The remediation loop's tuning (loop spec §3.1, §3.7, §3.17).
 	RemediationConcurrency         int
@@ -110,6 +119,7 @@ func DefaultOptions() Options {
 	o.JobWindow, o.JobRetention = transcodemanager.DefaultJobWindow, transcodemanager.DefaultJobRetention
 	o.GraftConcurrency = audiograft.DefaultConcurrency
 	o.CardigannBundled = true
+	o.FacadeAPIKeySecret = DefaultFacadeAPIKeySecret
 	o.RemediationConcurrency = remediation.DefaultConcurrency
 	o.RemediationBulkWritesPerSecond = remediation.DefaultBulkWritesPerSecond
 	o.RemediationIOWorkers = remediation.DefaultIOWorkers

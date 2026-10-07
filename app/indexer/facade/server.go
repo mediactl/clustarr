@@ -99,10 +99,16 @@ type Config struct {
 	Download DownloadFunc
 
 	// APIKeys is the set of keys accepted on Torznab's own `apikey` query
-	// parameter or an `X-Api-Key` header. Required and must contain at
-	// least one non-blank key -- see doc.go's Auth section for why New
-	// refuses to build a Server otherwise.
+	// parameter or an `X-Api-Key` header. Without Keys it is required and
+	// must contain at least one non-blank key -- see doc.go's Auth section
+	// for why New refuses to build a Server otherwise.
 	APIKeys []string
+
+	// Keys, when set, replaces APIKeys with a live key set, asked on every
+	// request: the index agent's, re-read from the Secret the manager
+	// creates (ADR-0019 §7.5). While it returns no non-blank key the facade
+	// answers 503 to every request -- it still never serves without a key.
+	Keys func() []string
 
 	// SearchTimeout bounds every outbound Search/Query/Download call this
 	// facade makes on behalf of one HTTP request. Zero means
@@ -128,15 +134,8 @@ func New(addr string, cfg Config) (*Server, error) {
 		return nil, nil //nolint:nilnil // the documented "disabled" contract; see doc.go and New's own doc comment.
 	}
 
-	var keys []string
-	for _, k := range cfg.APIKeys {
-		k = strings.TrimSpace(k)
-		if k == "" {
-			continue
-		}
-		keys = append(keys, k)
-	}
-	if len(keys) == 0 {
+	keys := nonBlank(cfg.APIKeys)
+	if len(keys) == 0 && cfg.Keys == nil {
 		return nil, errors.New("facade: at least one non-blank API key is required; " +
 			"a Torznab facade with none would serve private-tracker results, passkeys included, " +
 			"to anything that can reach the port")
@@ -217,16 +216,44 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+// nonBlank returns keys trimmed, without the blank ones.
+func nonBlank(keys []string) []string {
+	var out []string
+	for _, k := range keys {
+		if k = strings.TrimSpace(k); k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// currentKeys is the key set a request is checked against: Config.Keys'
+// live set when configured, else the keys New was given.
+func (s *Server) currentKeys() []string {
+	if s.cfg.Keys != nil {
+		return nonBlank(s.cfg.Keys())
+	}
+	return s.keys
+}
+
 // withAuth gates next on a valid API key. It is the first thing every route
 // runs: doc.go's Auth section is the whole reason this package exists as a
-// gated server rather than a bare mux.
+// gated server rather than a bare mux. With no key yet (a live key set the
+// manager has not created), every request is a 503: the facade fails
+// closed.
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		keys := s.currentKeys()
+		if len(keys) == 0 {
+			s.writeTorznabError(w, http.StatusServiceUnavailable, torznab.ErrAPIDisabled,
+				"the facade has no API key yet")
+			return
+		}
 		key := r.URL.Query().Get("apikey")
 		if key == "" {
 			key = r.Header.Get("X-Api-Key")
 		}
-		if !s.validKey(key) {
+		if !validKey(keys, key) {
 			// r.URL.Path only -- never the query string or r.URL.String():
 			// the query string is where a WRONG apikey (or, on a valid
 			// request, the right one) lives, and neither belongs in a log
@@ -240,18 +267,18 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// validKey reports whether key matches one of s.keys, in time independent of
+// validKey reports whether key matches one of keys, in time independent of
 // which key it is or how much of it matches -- constant-time comparison is
 // cheap here (a handful of short strings per request) and this endpoint is
 // reachable by anything that can route to the Service, so there is no reason
 // to skip it.
-func (s *Server) validKey(key string) bool {
+func validKey(keys []string, key string) bool {
 	if key == "" {
 		return false
 	}
 	kb := []byte(key)
 	ok := false
-	for _, want := range s.keys {
+	for _, want := range keys {
 		// Every comparison runs, win or lose already found, so the loop's
 		// own length does not leak which key (if any) matched.
 		if subtle.ConstantTimeCompare(kb, []byte(want)) == 1 {

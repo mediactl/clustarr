@@ -125,9 +125,10 @@ type Reconciler struct {
 	// silence.
 	Bus events.Bus
 
-	// Sessions persists Cardigann login sessions (clustarr-indexer-sessions
-	// KV plus the owned Secret). NewReconciler builds it from the bus; nil
-	// means the Secret alone.
+	// Sessions keeps Cardigann login sessions in clustarr-indexer-sessions
+	// and reads the owned Secret as the fallback. NewReconciler builds it
+	// from the bus; nil means the Secret alone. The Secret's one writer is
+	// this reconciler (sessionsecret.go), never the store.
 	Sessions *idxclients.SessionStore
 
 	// Now is the clock; nil means time.Now. The window projection reads the
@@ -142,6 +143,9 @@ type Reconciler struct {
 	health     *records.Reader[*schema.IndexerHealthRecord]
 	healthSeen map[types.UID]healthSeen
 	rssSlots   map[types.UID]rssSlot
+	// mirrors is what each Indexer's session Secret is owed
+	// (sessionsecret.go), marked by sessionsSource.
+	mirrors map[types.UID]mirrorState
 }
 
 // capsMemo records when this process last probed an Indexer's caps, and at
@@ -172,11 +176,12 @@ func NewReconciler(
 		Recorder: recorder,
 		Limiters: limiters,
 		Bus:      bus,
-		Sessions: idxclients.NewSessionStore(c, bus, k8s.ManagerIndex),
+		Sessions: idxclients.NewSessionStore(c, bus),
 		capsSeen: map[types.UID]capsMemo{},
-		// The two memos of health.go.
+		// The two memos of health.go and the session mirror's.
 		healthSeen: map[types.UID]healthSeen{},
 		rssSlots:   map[types.UID]rssSlot{},
+		mirrors:    map[types.UID]mirrorState{},
 	}
 }
 
@@ -206,6 +211,7 @@ func (r *Reconciler) forget(uid types.UID) {
 	delete(r.capsSeen, uid)
 	delete(r.healthSeen, uid)
 	delete(r.rssSlots, uid)
+	delete(r.mirrors, uid)
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (res ctrl.Result, err error) {
@@ -252,6 +258,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (res 
 		defer func() {
 			if err == nil {
 				res, err = ctrl.Result{}, herr
+			}
+		}()
+	}
+
+	// The session Secret follows the KV (ADR-0019 §7.5, W32, W33): before
+	// the login path reads the store, so a session the index agent dropped is
+	// not read back from the Secret and reused. Like the incorporation, a
+	// failure is returned after this pass's own apply.
+	if serr := r.syncSessionSecret(ctx, &idx); serr != nil {
+		tracing.RecordError(span, serr)
+		log.Warn("mirroring the session Secret failed", "error", serr)
+		defer func() {
+			if err == nil {
+				res, err = ctrl.Result{}, serr
 			}
 		}()
 	}
@@ -680,13 +700,15 @@ func (r *Reconciler) limitsSource() source.Source {
 	})
 }
 
-// sessionsSource enqueues the Indexer whose session the index agent dropped:
-// a Delete or Purge of its key in clustarr-indexer-sessions, which a cached
-// client's failed relogin writes (clients.SessionStore.Drop). The next login
-// is then this reconcile's rather than the next reprobe's (§5.12). A Put (a
-// Save from this reconciler or an agent's successful relogin) needs no
-// login and wakes nothing. Like limitsSource, a watch that ends leaves the
-// 15-minute reprobe in charge, and it says so.
+// sessionsSource mirrors clustarr-indexer-sessions into the owned Secrets
+// (ADR-0019 §7.5, W32, W33): a Put (an agent's successful relogin, or this
+// reconciler's own Save) owes the Indexer's Secret a copy of the session, a
+// Delete or Purge (a cached client's failed relogin,
+// clients.SessionStore.Drop) owes it emptying, and either enqueues the
+// Indexer, whose reconcile settles it (syncSessionSecret) -- after a drop
+// with a login of its own rather than the next reprobe's (§5.12). Like
+// limitsSource, a watch that ends leaves the 15-minute reprobe in charge,
+// and it says so.
 func (r *Reconciler) sessionsSource() source.Source {
 	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 		ch, err := r.Bus.KV(events.BucketIndexerSessions).Watch(ctx, ">")
@@ -695,11 +717,13 @@ func (r *Reconciler) sessionsSource() source.Source {
 		}
 		go func() {
 			for e := range ch {
-				if e.Operation != events.KVDelete && e.Operation != events.KVPurge {
-					continue
+				owed := mirrorPut
+				if e.Operation == events.KVDelete || e.Operation == events.KVPurge {
+					owed = mirrorDrop
 				}
-				for _, req := range r.indexersForSession(ctx, e.Key) {
-					q.Add(req)
+				if idx := r.indexerForSession(ctx, e.Key); idx != nil {
+					r.owe(idx.UID, owed)
+					q.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(idx)})
 				}
 			}
 			if ctx.Err() == nil {
@@ -710,9 +734,10 @@ func (r *Reconciler) sessionsSource() source.Source {
 	})
 }
 
-// indexersForSession maps a clustarr-indexer-sessions key, clients.SessionKey
-// of an Indexer's UID, onto that Indexer, from the manager's cache.
-func (r *Reconciler) indexersForSession(ctx context.Context, key string) []reconcile.Request {
+// indexerForSession maps a clustarr-indexer-sessions key, clients.SessionKey
+// of an Indexer's UID, onto that Indexer, from the manager's cache; nil when
+// none has it.
+func (r *Reconciler) indexerForSession(ctx context.Context, key string) *indexv1alpha1.Indexer {
 	var list indexv1alpha1.IndexerList
 	if err := r.Client.List(ctx, &list); err != nil {
 		logging.FromContext(ctx).Warn("indexer: listing Indexers for a session change failed", "error", err)
@@ -720,7 +745,7 @@ func (r *Reconciler) indexersForSession(ctx context.Context, key string) []recon
 	}
 	for i := range list.Items {
 		if idxclients.SessionKey(list.Items[i].UID) == key {
-			return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])}}
+			return &list.Items[i]
 		}
 	}
 	return nil

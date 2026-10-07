@@ -185,12 +185,12 @@ type verbs struct {
 // catalog take the same fan-out, dedupe, query-limit window and
 // health/backoff.
 //
-// The facade fails closed: facade.New refuses to build without an API key.
-// The keys come from the Secret o.FacadeAPIKeySecret names, which
-// [ensureFacadeAPIKeys] creates with one random key when it is absent, so a
-// fresh install serves an authenticated facade rather than none or an open
-// one. They are read ONCE, here, before the manager starts: rotating a key is
-// an edit to the Secret and a restart of index's one replica.
+// The facade fails closed. Its keys are the Secret o.FacadeAPIKeySecret
+// names, which the manager creates with one random key when it is absent
+// (ADR-0019 §7.5, W31); this agent only reads it, by name, every
+// [FacadeKeyRereadInterval] ([FacadeKeys]), and the facade answers 503 until
+// a key is there -- so a fresh install serves an authenticated facade
+// rather than none or an open one, and a rotation needs no restart.
 //
 // It is a k8s.EveryReplica: it needs no lease, and index is pinned to one
 // replica anyway. A bind failure (the port already taken) returns from
@@ -202,9 +202,11 @@ func registerFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) e
 			"facadeBindAddress", o.FacadeBindAddress)
 		return nil
 	}
-	keys, err := ensureFacadeAPIKeys(ctx, mgr.GetAPIReader(), mgr.GetClient(), o.Namespace, o.FacadeAPIKeySecret)
-	if err != nil {
-		return err
+	keys := &FacadeKeys{}
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		return keys.Run(ctx, mgr.GetAPIReader(), o.Namespace, o.FacadeAPIKeySecret, FacadeKeyRereadInterval)
+	})); err != nil {
+		return fmt.Errorf("index: add the facade key reader: %w", err)
 	}
 	srv, err := facade.New(o.FacadeBindAddress, facade.Config{
 		// The cached client: the facade Gets Indexers by name on every
@@ -217,7 +219,7 @@ func registerFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) e
 		Search:    v.search.Search,
 		Query:     v.query.Handle,
 		Download:  v.download.Handle,
-		APIKeys:   keys,
+		Keys:      keys.Get,
 	})
 	if err != nil {
 		return fmt.Errorf("index: build the Torznab facade: %w", err)

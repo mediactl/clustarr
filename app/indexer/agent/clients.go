@@ -40,10 +40,12 @@ import (
 // exist without the watch that replaced the reconciler's in-process Forget.
 // The limiter's fallback is the CRD default. Each host's own requestDelay
 // arrives from ClientCache.ApplyRateLimit, gated on generation.
-// Session writes go under index-worker (§5.3.2).
+// The session store writes clustarr-indexer-sessions only and reads the
+// owned Secret; the Indexer controller mirrors the KV into the Secret, its
+// one writer (ADR-0019 §7.5, W32, W33).
 func newClientCache(c client.Client, bus events.Bus, add func(manager.Runnable) error) (*clientcache.ClientCache, error) {
 	cc := clientcache.NewClientCache(c, ratelimit.New(idxclients.DefaultLimiterConfig()))
-	cc.Sessions = idxclients.NewSessionStore(c, bus, k8s.ManagerIndexWorker)
+	cc.Sessions = idxclients.NewSessionStore(c, bus)
 	kv := bus.KV(events.BucketIndexerSessions)
 	if err := add(k8s.EveryReplica(func(ctx context.Context) error { return cc.WatchSessions(ctx, kv) })); err != nil {
 		return nil, fmt.Errorf("index: add the session watch: %w", err)

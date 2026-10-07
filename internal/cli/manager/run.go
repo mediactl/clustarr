@@ -251,6 +251,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			return indexermanager.Register(mgr, bus, indexermanager.Options{
 				Options:                 o.Options,
 				CardigannDefinitionsDir: o.CardigannDefinitionsDir, CardigannBundled: o.CardigannBundled,
+				FacadeAPIKeySecret: o.FacadeAPIKeySecret,
 			})
 		}},
 		{"grab", func() error {

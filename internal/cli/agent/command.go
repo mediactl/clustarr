@@ -99,7 +99,8 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&d.FacadeAPIKeySecret, "facade-api-key-secret",
 		cli.EnvOr(cli.EnvFacadeAPIKeySecret, d.FacadeAPIKeySecret),
 		"Secret in --namespace whose every non-blank entry is an API key the Torznab facade accepts; "+
-			"created with one random key when absent. The facade never serves without a key. "+
+			"the manager creates it with one random key when absent, and the facade answers 503 until it "+
+			"exists, re-reading it every 30s. The facade never serves without a key. "+
 			"Defaults to $"+cli.EnvFacadeAPIKeySecret+". Domain index.")
 	fs.StringVar(&d.DownloadClient, "download-client", d.DownloadClient,
 		"The DownloadClient this torrent engine replica serves; its \"<client>-<ordinal>\" identity comes "+

@@ -137,7 +137,16 @@ func (r *Reconciler) reconcileDefinition(
 			tracing.RecordError(span, lerr)
 			log.Warn("cardigann login failed", "reason", outcome.Reason, "error", cardigann.RedactErr(lerr))
 		case sess != nil && def.RequiresSession():
-			if serr := sessions.Save(ctx, idx, sess); serr != nil {
+			// Both copies, the Secret first: it is the durable one, so a KV
+			// write that fails after it leaves the next Load reading the
+			// Secret, which is correct. This login path is the one place the
+			// session Secret is written at once rather than mirrored from a
+			// KV put (ADR-0019 §7.5).
+			serr := mirrorSession(ctx, r.Client, idx, sess)
+			if serr == nil {
+				serr = sessions.Save(ctx, idx, sess)
+			}
+			if serr != nil {
 				// The login worked but nothing downstream can use it.
 				// Reported as a failed probe so the next tick retries.
 				tracing.RecordError(span, serr)
@@ -177,13 +186,13 @@ func (r *Reconciler) needsLogin(idx *indexv1alpha1.Indexer, def *cardigann.Defin
 }
 
 // sessions is the store this reconciler logs in to. NewReconciler builds it
-// from the bus; a Reconciler built by hand in a test falls back to the owned
-// Secret alone.
+// from the bus; a Reconciler built by hand in a test falls back to reading
+// the owned Secret alone.
 func (r *Reconciler) sessions() *idxclients.SessionStore {
 	if r.Sessions != nil {
 		return r.Sessions
 	}
-	return idxclients.NewSessionStore(r.Client, nil, k8s.ManagerIndex)
+	return idxclients.NewSessionStore(r.Client, nil)
 }
 
 // proxyUnavailable reports a spec.proxyRef that cannot be routed through.

@@ -33,7 +33,6 @@ import (
 	"github.com/mediactl/clustarr/app/indexer/proxy"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
@@ -106,12 +105,11 @@ type ClientCache struct {
 	limiters *ratelimit.Limiter
 
 	// Sessions is where a definition-backed Indexer's login session is read
-	// from when its client is built, and where a relogin Saves or Drops it.
-	// nil means "the owned Secret only", written as index-worker
-	// (NewSessionStore(c, nil, k8s.ManagerIndexWorker)), which is always
-	// correct because the
-	// reconciler writes the Secret on every login; wiring the bus here adds
-	// the clustarr-indexer-sessions KV read in front of it.
+	// from when its client is built, and where a relogin Saves or Drops it --
+	// in clustarr-indexer-sessions only (ADR-0019 §7.5): the Indexer
+	// controller mirrors the KV into the owned Secret, its one writer. nil
+	// means "read the owned Secret only" (NewSessionStore(c, nil)), which
+	// writes nothing; wiring the bus adds the KV in front of it.
 	Sessions *idxclients.SessionStore
 
 	// TTL bounds a cached entry's age. Zero means [DefaultClientCacheTTL];
@@ -225,7 +223,7 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (idx
 	// URL, not a connection.
 	sessions := cc.Sessions
 	if sessions == nil {
-		sessions = idxclients.NewSessionStore(cc.client, nil, k8s.ManagerIndexWorker)
+		sessions = idxclients.NewSessionStore(cc.client, nil)
 	}
 	built, err := buildWireClientFor(ctx, cc.client, idx, sel, cc.limiters, sessions,
 		func(def *cardigann.Definition, floor time.Duration) { cc.ApplyRateLimit(idx, def, floor) })
@@ -338,17 +336,18 @@ func buildWireClientFor(
 
 // reloginFunc is how a cached Cardigann client recovers from a session the
 // tracker killed: log in again with the same engine (so the same proxy and
-// limiter) and persist the new session through the store the reconciler
-// writes, so every other path -- the reconciler, the generic fetcher reading
-// the Secret's cookie key -- sees it too.
+// limiter) and put the new session in clustarr-indexer-sessions, where the
+// Indexer controller sees it and mirrors it into the owned Secret, so every
+// other path -- the reconciler, the generic fetcher reading the Secret's
+// cookie key -- sees it too (ADR-0019 §7.5, W32).
 //
 // A failed login drops the session it failed with, and only that one: a
 // session the manager saved meanwhile stays (SessionStore.Drop's
-// compare-and-swap). The reconciler only logs in when the session is missing
-// or near expiry, so a killed but unexpired session left in place would be
-// reused by every search until it aged out. Dropped, the next reconcile logs
-// in and reports a credential problem as the Authenticated condition, where
-// an operator looks.
+// DeleteRevision, W33). The reconciler only logs in when the session is
+// missing or near expiry, so a killed but unexpired session left in place
+// would be reused by every search until it aged out. Dropped, the Indexer
+// controller empties the Secret and logs in, and reports a credential
+// problem as the Authenticated condition, where an operator looks.
 func reloginFunc(cg *idxclients.CardigannClient, owner *indexv1alpha1.Indexer, sessions *idxclients.SessionStore) idxclients.ReloginFunc {
 	return func(ctx context.Context, stale *cardigann.Session) (*cardigann.Session, error) {
 		log := logging.FromContext(ctx).With("indexer", client.ObjectKeyFromObject(owner))

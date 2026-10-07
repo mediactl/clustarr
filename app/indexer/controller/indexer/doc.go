@@ -125,10 +125,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the schema's "semi-private" mapped to the CRD's "semiPrivate"); no caps
 // probe runs. The login is the probe: a session-producing login (form, post,
 // cookie) runs when the session is missing or near expiry and is persisted
-// by [idxclients.SessionStore] into the clustarr-indexer-sessions KV bucket
-// (key [idxclients.SessionKey]) and the owned Secret named by
-// status.sessionSecretRef; a get/oneurl login runs on the caps-probe cadence
-// to prove the credentials.
+// into the owned Secret named by status.sessionSecretRef and, by
+// [idxclients.SessionStore], the clustarr-indexer-sessions KV bucket (key
+// [idxclients.SessionKey]); a get/oneurl login runs on the caps-probe cadence
+// to prove the credentials. The index agent's relogins write the KV alone,
+// and this package mirrors every KV put or delete into the Secret, its one
+// writer (sessionsecret.go, ADR-0019 §7.5).
 //
 // Searching is NOT done here. clientcache.ClientCache.For
 // (app/indexer/clientcache) builds the Cardigann engine adapter behind the
@@ -207,8 +209,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // what it uses, so the day the role is split per service the narrowing is
 // already recorded. Splitting it is the real fix and is not this task's.
 //
-// create and patch are for the owned session Secret alone: SessionStore.Save
-// server-side applies it, and an apply that creates needs both verbs.
+// create and patch are for the owned session Secret alone: this package is
+// its one writer (sessionsecret.go's mirror, ADR-0019 §7.5), a server-side
+// apply, and an apply that creates needs both verbs.
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package indexer

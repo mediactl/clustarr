@@ -114,6 +114,11 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.BoolVar(&d.CardigannBundled, "cardigann-bundled", cli.EnvBoolOr(cli.EnvCardigannBundled, d.CardigannBundled),
 		"Load the Cardigann definitions compiled into the binary as IndexerDefinitions when "+
 			"--cardigann-definitions-dir is empty. Defaults to $"+cli.EnvCardigannBundled+", else true.")
+	fs.StringVar(&d.FacadeAPIKeySecret, "facade-api-key-secret",
+		cli.EnvOr(cli.EnvFacadeAPIKeySecret, d.FacadeAPIKeySecret),
+		"Secret in --namespace the manager creates with one random API key for the index agent's Torznab "+
+			"facade when it is absent; it never changes an existing one. Must name the Secret the agent's "+
+			"--facade-api-key-secret reads. Empty creates none. Defaults to $"+cli.EnvFacadeAPIKeySecret+".")
 	fs.StringVar(&d.TraktBaseURL, "trakt-base-url", cli.EnvOr(cli.EnvTraktBaseURL, d.TraktBaseURL),
 		"Trakt API the ImportList controller's device-code flow reaches; the import agent's syncs must name "+
 			"the same host. Empty is https://api.trakt.tv. Defaults to $"+cli.EnvTraktBaseURL+".")

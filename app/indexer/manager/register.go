@@ -16,8 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package manager is index's manager-side registration (spec §4.2.1,
-// §5.12): the Indexer, IndexerDefinition, IndexerProxy and direct-grab
-// reconcilers, and the Cardigann bundle loader behind the lease (R9).
+// §5.12): the Indexer, IndexerDefinition and IndexerProxy reconcilers, the
+// Cardigann bundle loader behind the lease (R9), and the Torznab facade's
+// API-key Secret, which the manager creates and the index agent only reads
+// (ADR-0019 §7.5).
 package manager
 
 import (
@@ -46,6 +48,10 @@ type Options struct {
 	// applies (--cardigann-definitions-dir, --cardigann-bundled).
 	CardigannDefinitionsDir string
 	CardigannBundled        bool
+	// FacadeAPIKeySecret is the Secret, in Namespace, the manager creates
+	// with one random key when it is absent (--facade-api-key-secret, the
+	// name the index agent's facade reads). Empty creates none.
+	FacadeAPIKeySecret string
 }
 
 // Register adds index's reconcilers (§6.2, §16 M2 and M6) -- Indexer,
@@ -125,6 +131,16 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		if err := mgr.Add(r); err != nil {
 			return fmt.Errorf("index: add the Cardigann bundle loader: %w", err)
 		}
+	}
+
+	// The facade key (W31): create-only, leader-only. The index agent's
+	// facade answers 503 until it exists. Without a name or a namespace
+	// (a local run with no --namespace) there is nothing to create.
+	if o.FacadeAPIKeySecret == "" || o.Namespace == "" {
+		return nil
+	}
+	if err := mgr.Add(facadeKeyRunnable(c, o.Namespace, o.FacadeAPIKeySecret)); err != nil {
+		return fmt.Errorf("index: add the facade key: %w", err)
 	}
 	return nil
 }

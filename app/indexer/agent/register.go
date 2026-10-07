@@ -57,13 +57,12 @@ const (
 
 	// DefaultFacadeAPIKeySecret is the Secret, in the index agent's own
 	// namespace, whose data entries are the API keys the Torznab facade
-	// accepts. The facade FAILS CLOSED -- facade.New refuses to build
-	// without a key -- so the index agent creates this Secret with one
-	// random key on first start when it does not exist, the way Prowlarr
-	// generates its own API key.
-	// config/ uses this name as-is; the chart's carries the release
-	// fullname and reaches --facade-api-key-secret through
-	// $CLUSTARR_FACADE_API_KEY_SECRET. See [ensureFacadeAPIKeys].
+	// accepts. The facade FAILS CLOSED -- it answers 503 until a key is
+	// there -- and the manager creates this Secret with one random key when
+	// it does not exist, the way Prowlarr generates its own API key
+	// (ADR-0019 §7.5). config/ uses this name as-is; the chart's carries the
+	// release fullname and reaches --facade-api-key-secret through
+	// $CLUSTARR_FACADE_API_KEY_SECRET. See [FacadeKeys].
 	DefaultFacadeAPIKeySecret = "index-facade"
 
 	// indexProbeTimeout bounds the readiness probe's Stats call so a wedged

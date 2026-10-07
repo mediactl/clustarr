@@ -75,18 +75,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Auth
 //
 // The design spec and its amendment are silent on facade authentication.
-// Given that, this package refuses to start unauthenticated: New returns an
-// error unless Config.APIKeys has at least one non-blank key, and every
-// route checks it (the `apikey` query parameter, Torznab's own convention,
-// or an `X-Api-Key` header) before doing anything else. A facade with no
-// key would serve a private tracker's search results and download links --
-// passkeys included, since DownloadResponse.Bytes/RedirectURL carry
-// whatever the indexer's own session produces -- to anything that can reach
-// the Service's port. The caller sources the key(s) from a Kubernetes
-// Secret -- app/indexer/run.go's setupFacade reads every non-blank entry of
-// --facade-api-key-secret, generating it with one random key when absent
-// (app/indexer/facadekey.go); this package takes plain strings so it does not
-// need a client.Client just to read one.
+// Given that, this package refuses to serve unauthenticated: New returns an
+// error unless Config.APIKeys has at least one non-blank key or Config.Keys
+// supplies a live set, every route checks the key (the `apikey` query
+// parameter, Torznab's own convention, or an `X-Api-Key` header) before
+// doing anything else, and while a live set is empty every request is a
+// 503. A facade with no key would serve a private tracker's search results
+// and download links -- passkeys included, since
+// DownloadResponse.Bytes/RedirectURL carry whatever the indexer's own
+// session produces -- to anything that can reach the Service's port. The
+// keys come from a Kubernetes Secret: the manager creates
+// --facade-api-key-secret with one random key when it is absent
+// (app/indexer/manager, ADR-0019 §7.5), and the index agent re-reads every
+// non-blank entry of it ([KeysOf]) every 30 s (app/indexer/agent's
+// facadekey.go); this package takes plain strings so it does not need a
+// client.Client just to read one.
 //
 // # Disabling
 //
