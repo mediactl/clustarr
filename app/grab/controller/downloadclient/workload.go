@@ -35,6 +35,7 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/binpath"
 )
 
 // Labels the engine workload and its pods carry. labelClient deliberately
@@ -76,13 +77,6 @@ const (
 	// engineContainerName is the one container every engine pod runs.
 	engineContainerName = "engine"
 
-	// clustarrBinary is images/Dockerfile.media's ENTRYPOINT
-	// (`ENTRYPOINT ["/usr/local/bin/clustarr"]`), needed only by the torrent
-	// container's shell wrapper -- every other container in the tree omits
-	// `command` entirely and lets the image's own entrypoint run, matching
-	// config/manager/grabarr.yaml's `args: ["grabarr", "--role", ...]`.
-	clustarrBinary = "/usr/local/bin/clustarr"
-
 	// defaultScratchSize backs an emptyDir when UsenetSpec.Scratch is unset;
 	// ScratchSpec.SizeLimit's own kubebuilder default is "50Gi", restated here
 	// because that default fills only an ABSENT field: a DownloadClient
@@ -109,18 +103,19 @@ const (
 //   - NATSURL: the engine publishes download events and progress on the bus,
 //     and its --nats-url default names a Service the installers do not
 //     create; the controller hands on its own $NATS_URL.
-//   - BusSingleNode: the engine ensures the same JetStream topology every
-//     other service does, and on single-node NATS it must collapse replicas
-//     as they do (--nats-single-node).
 //   - Umask: design §11's UMASK 002, for what a torrent engine writes under
 //     /data -- the same pass-through squasharr gives its transcode Jobs.
 //
-// POD_NAMESPACE needs no field: it is the downward API, set on every engine
-// container, and it is how an engine finds its DownloadClient at all.
+// POD_NAMESPACE and POD_NAME need no field: they are the downward API, set
+// on every engine container. POD_NAMESPACE is how an engine finds its
+// DownloadClient at all, and POD_NAME is how a torrent replica learns its
+// ordinal (torrent.EngineIdentity, spec §3.5.5).
+//
+// There is no single-node switch: an engine never ensures the topology. It
+// waits for the manager to create it (busconn.AwaitTopology, spec §3.5.5).
 type EngineRuntime struct {
 	ServiceAccountName string
 	NATSURL            string
-	BusSingleNode      bool
 	Umask              string
 }
 
@@ -136,8 +131,8 @@ const DefaultEngineServiceAccount = "grabarr-engine"
 // clustarr.gomemlimit helper does for the Deployments it renders.
 const gomemlimitFraction = 0.8
 
-// engineEnv is every engine container's environment: POD_NAMESPACE always,
-// then whatever of rt the controller has, then GOMEMLIMIT when the
+// engineEnv is every engine container's environment: POD_NAMESPACE and
+// POD_NAME always, then whatever of rt the controller has, then GOMEMLIMIT when the
 // DownloadClient sets a memory limit. GOMEMLIMIT is rendered exactly as the
 // chart's helper renders it -- 80% of the limit in bytes, "%.0f" -- so a
 // Deployment's and an engine's soft limit read as one convention.
@@ -145,6 +140,8 @@ func engineEnv(dc *downloadv1alpha1.DownloadClient, rt EngineRuntime) []*corev1a
 	env := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().WithName("POD_NAMESPACE").WithValueFrom(corev1ac.EnvVarSource().
 			WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("metadata.namespace"))),
+		corev1ac.EnvVar().WithName("POD_NAME").WithValueFrom(corev1ac.EnvVarSource().
+			WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("metadata.name"))),
 	}
 	if rt.NATSURL != "" {
 		env = append(env, corev1ac.EnvVar().WithName("NATS_URL").WithValue(rt.NATSURL))
@@ -394,28 +391,37 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]s
 	}
 }
 
-// torrentContainer builds the torrent engine's container.
-//
-// The ordinal a StatefulSet pod gets is only knowable at the pod's own
-// runtime, from its own hostname ("<workload>-<ordinal>", set by the
-// StatefulSet controller, not by this reconciler): engineWorkloadName already
-// bakes "-engine" into the workload name, so the pod name is
-// "<client>-engine-<ordinal>" and grabarr.Options.Engine wants
-// "<client>-<ordinal>" (see app/grab/run.go's doc comment on Engine). Getting
-// from one to the other needs a shell, because Kubernetes has no field
-// selector or downward-API projection that strips a hostname's ordinal
-// suffix -- "${HOSTNAME##*-}" is POSIX parameter expansion for "everything
-// after the last '-'", which is exactly the ordinal regardless of how many
-// hyphens the client's own name contains. Every other container in this tree
-// omits `command` and lets the image's entrypoint run; this is the one
-// exception, and it exists for this reason alone.
-//
-// This is this task's invention, not a verified contract: D2-5, which writes
-// the torrent engine's actual entrypoint handling, may find a cleaner
-// mechanism (a downward-API env var the engine parses itself, for instance)
-// and should feel free to change this rather than treat it as load-bearing.
-// What IS load-bearing is the shape grabarr.Options.Engine documents:
-// "<client>-<ordinal>".
+// EngineCommand is the argv an engine container runs (spec §3.5.5): the agent
+// binary with one --domain, no shell. A torrent pod names its DownloadClient
+// and derives its "<client>-<ordinal>" from $POD_NAME in Go
+// (torrent.EngineIdentity), because a StatefulSet pod's ordinal is knowable
+// only at the pod's own runtime; a usenet engine is always ordinal 0 (CEL).
+// Neither image has an ENTRYPOINT, so the container names its binary.
+// cmd/agent's engine_argv_test parses exactly this output.
+func EngineCommand(dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir string) (command, args []string) {
+	command = []string{binpath.Agent}
+	if dc.Spec.Torrent != nil {
+		args = []string{"--domain=torrent-engine", "--download-client=" + dc.Name, "--data-dir=" + dataDir}
+		if sc := scratchSpec(dc); sc != nil {
+			dir := scratchDir
+			if sc.Path != "" {
+				dir = sc.Path
+			}
+			args = append(args, "--scratch-dir="+dir)
+		}
+		return command, args
+	}
+	scratch, publish := engineDirs(dc, scratchDir)
+	args = []string{"--domain=usenet-engine", "--engine=" + dc.Name + "-0", "--data-dir=" + dataDir, "--scratch-dir=" + scratch}
+	if publish != "" {
+		args = append(args, "--publish-dir="+publish)
+	}
+	return command, args
+}
+
+// torrentContainer builds the torrent engine's container. Its argv is
+// [EngineCommand]'s: the pod derives its ordinal from $POD_NAME in Go, so no
+// shell is involved.
 func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratchDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
 	// DownloadClientSpec's CEL rule guarantees spec.torrent is set whenever
 	// protocol==torrent for any object that reached the apiserver, but this
@@ -425,9 +431,6 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 	if dc.Spec.Torrent != nil && dc.Spec.Torrent.ListenPort != 0 {
 		listenPort = dc.Spec.Torrent.ListenPort
 	}
-	script := fmt.Sprintf(
-		`ordinal=${HOSTNAME##*-}; exec %s grabarr --role torrent-engine --data-dir %s --engine %s-${ordinal}`,
-		clustarrBinary, dataDir, dc.Name)
 	mounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
 		corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir),
@@ -435,24 +438,16 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 	// spec.torrent.scratch: the working area a torrent downloads in before
 	// the engine moves it to publishDir. A path is a directory on the data
 	// mount; every other placement is the scratch volume at scratchDir.
-	if sc := scratchSpec(dc); sc != nil {
-		dir := scratchDir
-		if sc.Path != "" {
-			dir = sc.Path
-		} else {
-			mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir))
-		}
-		script += " --scratch-dir " + dir
+	if sc := scratchSpec(dc); sc != nil && sc.Path == "" {
+		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir))
 	}
-	if rt.BusSingleNode {
-		script += " --nats-single-node"
-	}
+	cmd, args := EngineCommand(dc, dataDir, scratchDir)
 
 	return corev1ac.Container().
 		WithName(engineContainerName).
 		WithImage(image).
-		WithCommand("/bin/sh", "-c").
-		WithArgs(script).
+		WithCommand(cmd...).
+		WithArgs(args...).
 		WithPorts(corev1ac.ContainerPort().
 			WithName("peer").
 			WithContainerPort(listenPort).
@@ -465,24 +460,10 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 
 // usenetContainer builds the usenet engine's container. Usenet clients are
 // capped at spec.replicas==1 by DownloadClientSpec's own CEL rule, so the
-// engine identity is always ordinal 0 -- no shell, no hostname parsing, just
-// the same "grabarr --role ..." argv config/manager/grabarr.yaml already uses
-// for the controller.
+// engine identity is always ordinal 0; the argv is [EngineCommand]'s.
 func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratchDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
-	scratch, publish := engineDirs(dc, scratchDir)
-	args := []string{
-		"grabarr",
-		"--role", "usenet-engine",
-		"--data-dir", dataDir,
-		"--scratch-dir", scratch,
-	}
-	if publish != "" {
-		args = append(args, "--publish-dir", publish)
-	}
-	args = append(args, "--engine", dc.Name+"-0")
-	if rt.BusSingleNode {
-		args = append(args, "--nats-single-node")
-	}
+	scratch, _ := engineDirs(dc, scratchDir)
+	cmd, args := EngineCommand(dc, dataDir, scratchDir)
 	mounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
 	}
@@ -493,6 +474,7 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 	return corev1ac.Container().
 		WithName(engineContainerName).
 		WithImage(image).
+		WithCommand(cmd...).
 		WithArgs(args...).
 		WithEnv(engineEnv(dc, rt)...).
 		WithResources(resourceRequirementsAC(dc.Spec.Resources)).

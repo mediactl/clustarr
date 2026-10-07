@@ -96,14 +96,14 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 
 // engineRuntime is what the DownloadClient controller stamps onto every
 // engine pod from this process (downloadclient.EngineRuntime): the engine
-// ServiceAccount, this controller's own bus address and single-node
-// setting -- the engine joins the same JetStream the controller does -- and
-// its $UMASK (design §11), the same pass-through squasharr gives its Jobs.
+// ServiceAccount, this controller's own bus address -- the engine joins the
+// same JetStream the manager does, and waits for the topology the manager
+// ensures (spec §3.5.5) -- and its $UMASK (design §11), the same
+// pass-through the transcode pools get.
 func engineRuntime(o Options) downloadclient.EngineRuntime {
 	return downloadclient.EngineRuntime{
 		ServiceAccountName: o.EngineServiceAccount,
 		NATSURL:            o.NATSURL,
-		BusSingleNode:      o.BusSingleNode,
 		Umask:              os.Getenv("UMASK"),
 	}
 }
