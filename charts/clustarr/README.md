@@ -212,9 +212,37 @@ X12a report for the exact citation.
 
 ## Autoscaling
 
-KEDA is no longer a dependency. Until the manager and agent topology lands,
-every Deployment runs the replica count its values block sets; the manager's
-own autoscaler (spec 2026-10-06 §9) then scales the queue-driven agents.
+`autoscaling.enabled=true` (the default) lets the manager scale the
+queue-driven workloads itself (spec 2026-10-06 §9). It owns one
+HorizontalPodAutoscaler per Deployment labelled `autoscale.clustarr.io/domain`
+(`agent-catalog`, `agent-events`, `agent-import`, `agent-caption`, `markers`)
+and scales each on JetStream consumer lag: to zero while its queues are empty
+(`agent-events` to one, its stream cannot buffer through zero) and up to the
+number of nodes its pods can schedule on. The lag comes from an External
+Metrics API the manager serves itself: `templates/autoscaling.yaml` renders the
+`v1beta1.external.metrics.k8s.io` APIService, its `<release>-external-metrics`
+Service and a `kube-system` RoleBinding that lets the manager read the
+front-proxy client CA. The manager creates its own CA and serving certificate
+in `<release>-external-metrics-tls` and injects the APIService's `caBundle`.
+
+The chart never renders an HPA, and the autoscaled Deployments carry no
+`replicas`: the manager's reconciler owns both, and Helm's server-side apply
+would fight it. On a cluster without the `HPAScaleToZero` feature (on by
+default from Kubernetes 1.37) the manager keeps one replica of each and records
+a `ScaleToZeroUnavailable` Event.
+
+Only one APIService may hold `v1beta1.external.metrics.k8s.io`. Where KEDA or
+prometheus-adapter already does, set `autoscaling.enabled=false`: the chart
+then renders `agents.<domain>.replicas` and `markers.replicas`, no APIService,
+and passes `--autoscale=false` to the manager. Helm refuses to adopt an
+APIService it does not own, so the conflict is a loud install error.
+
+`agents.<domain>.consumerSlots` and `markers.consumerSlots` set a consumer's
+per-pod handler count (`CLUSTARR_CONSUMER_SLOTS`), which is also the HPA's
+per-pod target, for example `--set markers.consumerSlots.markers-analyze=3`.
+If the manager is down, `kubectl delete ns` of its namespace can hang on the
+unavailable APIService; `kubectl delete apiservice v1beta1.external.metrics.k8s.io`
+releases it.
 
 ## Ratings providers
 

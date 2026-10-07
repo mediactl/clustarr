@@ -1,0 +1,71 @@
+{{- if .Values.autoscaling.enabled }}
+{{/*
+The External Metrics API the manager serves itself (spec 2026-10-06 §9.4),
+which its autoscale reconciler's HPAs read to scale the queue-driven
+workloads on JetStream consumer lag. The manager creates its CA and serving
+certificate in <fullname>-external-metrics-tls and writes only
+spec.caBundle (field manager clustarr-autoscale); nothing here sends
+caBundle, so Helm and the manager never fight over it. Only one APIService
+may hold v1beta1.external.metrics.k8s.io: where KEDA or prometheus-adapter
+already does, set autoscaling.enabled=false (Helm refuses to adopt it,
+loudly).
+*/}}
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.external.metrics.k8s.io
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: external-metrics
+spec:
+  group: external.metrics.k8s.io
+  version: v1beta1
+  service:
+    namespace: {{ .Release.Namespace }}
+    name: {{ include "clustarr.fullname" . }}-external-metrics
+    port: 443
+  groupPriorityMinimum: 100
+  versionPriority: 100
+  insecureSkipTLSVerify: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "clustarr.fullname" . }}-external-metrics
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: external-metrics
+spec:
+  type: ClusterIP
+  # The aggregator must reach a manager whose caches are still syncing: the
+  # server answers before they do, and nothing gates on its readiness (§9.4).
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "clustarr.selectorLabels" (dict "root" $ "component" "manager") | nindent 4 }}
+  ports:
+  - name: https
+    port: 443
+    targetPort: extmetrics
+    protocol: TCP
+---
+{{/* The manager reads the front-proxy client CA from
+     kube-system/extension-apiserver-authentication. No
+     system:auth-delegator binding: the kube-apiserver authenticates and
+     authorizes before it proxies, and the server reviews no tokens. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "clustarr.fullname" . }}-manager-auth-reader
+  namespace: kube-system
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- kind: ServiceAccount
+  name: {{ include "clustarr.fullname" . }}-manager
+  namespace: {{ .Release.Namespace }}
+{{- end }}

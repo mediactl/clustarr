@@ -2,13 +2,18 @@
 #
 #   kustomize build config/default | kubectl apply --server-side -f -
 #
-# Composes the 29 CRDs, RBAC, the ten service Deployments and the dev NATS
-# StatefulSet into the clustarr-system namespace, and declares the two PVCs
-# from §11.
+# Composes the 27 CRDs, RBAC, the nine Deployments of config/manager (the
+# manager, six agents, markers and the ui), the External Metrics APIService
+# (config/autoscaling), the dev NATS StatefulSet and the two PVCs (§11) into
+# the clustarr-system namespace.
 #
-# Optional overlays are NOT included here; add them yourself when the cluster
-# has the operators for them:
+# The namespace comes from a NamespaceTransformer with unsetOnly, not the
+# plain `namespace:` field, which would also move config/autoscaling's
+# kube-system RoleBinding.
+#
+# Optional, not included here; add them when the cluster has the operators:
 #   ../prometheus  ServiceMonitors (needs the Prometheus Operator CRDs)
+#   ../postgres    the release index on CloudNativePG (a Component)
 #
 # Production installs should prefer charts/clustarr, which swaps this plain
 # NATS StatefulSet for the upstream nats chart (clustered R3, reloader,
@@ -16,12 +21,20 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: clustarr-system
-
 resources:
 - namespace.yaml
 - pvc.yaml
 - ../crd
 - ../rbac
 - ../manager
+- ../autoscaling
 - ../nats
+
+transformers:
+- |-
+  apiVersion: builtin
+  kind: NamespaceTransformer
+  metadata:
+    name: clustarr-namespace
+    namespace: clustarr-system
+  unsetOnly: true

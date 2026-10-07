@@ -1,0 +1,19 @@
+# The manager reads the front-proxy client CA from
+# kube-system/extension-apiserver-authentication. config/default's
+# NamespaceTransformer sets only unset namespaces, so this one stays in
+# kube-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clustarr-manager-auth-reader
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- kind: ServiceAccount
+  name: manager
+  namespace: clustarr-system

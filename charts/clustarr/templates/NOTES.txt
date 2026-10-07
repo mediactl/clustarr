@@ -31,6 +31,18 @@ Workloads in this release:
 Watch them come up:
 
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+{{- if .Values.autoscaling.enabled }}
+
+Autoscaling: the manager owns one HPA per queue-driven workload and serves
+the External Metrics API they read:
+
+  kubectl -n {{ .Release.Namespace }} get hpa
+  kubectl get apiservice v1beta1.external.metrics.k8s.io
+
+If that APIService stays Available=False, either the manager is not up yet or
+another provider (KEDA, prometheus-adapter) holds the group: set
+autoscaling.enabled=false.
+{{- end }}
 {{- if .Values.agents.index.enabled }}
 
 Torznab facade (for Sonarr, Radarr or anything else that speaks Torznab):

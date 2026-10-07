@@ -1,0 +1,22 @@
+# The External Metrics API the manager serves itself (spec 2026-10-06 §9.4,
+# §10.2.6): the APIService, the Service it names and the kube-system
+# RoleBinding that lets the manager read the front-proxy client CA. The
+# manager writes only the APIService's spec.caBundle (field manager
+# clustarr-autoscale); nothing here sends it. config/default includes this
+# directory. Only one APIService may hold v1beta1.external.metrics.k8s.io: on
+# a cluster where KEDA or prometheus-adapter already does, leave it out and
+# pass --autoscale=false to the manager.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- includeSelectors: false
+  pairs:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/managed-by: kustomize
+
+resources:
+- apiservice.yaml
+- service.yaml
+- auth_reader_binding.yaml

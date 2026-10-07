@@ -1,0 +1,18 @@
+# Cluster-scoped, so no namespace transformer touches spec.service.namespace:
+# it is written literally. Change it with config/default's namespace.
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.external.metrics.k8s.io
+  labels:
+    app.kubernetes.io/component: external-metrics
+spec:
+  group: external.metrics.k8s.io
+  version: v1beta1
+  service:
+    namespace: clustarr-system
+    name: external-metrics
+    port: 443
+  groupPriorityMinimum: 100
+  versionPriority: 100
+  insecureSkipTLSVerify: false

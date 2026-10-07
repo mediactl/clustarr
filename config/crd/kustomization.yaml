@@ -30,6 +30,7 @@ resources:
 - bases/catalog.clustarr.io_mediafiles.yaml
 - bases/catalog.clustarr.io_metadataproviders.yaml
 - bases/catalog.clustarr.io_movies.yaml
+- bases/catalog.clustarr.io_overlayprofiles.yaml
 - bases/catalog.clustarr.io_qualityprofiles.yaml
 - bases/catalog.clustarr.io_rootfolders.yaml
 - bases/catalog.clustarr.io_searches.yaml
