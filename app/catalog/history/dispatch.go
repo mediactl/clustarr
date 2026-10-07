@@ -137,6 +137,12 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 			return Target{}, 0, "", false
 		}
 		return mediaFileTarget(p.File.Namespace, p.File.Name), p.Seq, DispatchSubMarkers, true
+	case transcodeTaskV2{}.Schema():
+		var p transcodeTaskV2
+		if err := schema.Decode(env.Schema, env.Data, &p); err != nil || p.File.Name == "" {
+			return Target{}, 0, "", false
+		}
+		return mediaFileTarget(p.File.Namespace, p.File.Name), p.Seq, DispatchSubTranscode, true
 	case transcodeTaskRef{}.Schema():
 		var p transcodeTaskAttempt
 		if err := schema.Decode(env.Schema, env.Data, &p); err != nil || p.Job.Name == "" {
@@ -195,8 +201,18 @@ type transcodeTaskAttempt struct {
 	Attempt int32      `json:"attempt"`
 }
 
-// Schema implements schema.Payload; it is app/transcode/task.Task's.
+// Schema implements schema.Payload; it is app/transcode/task.TaskV1's.
 func (transcodeTaskAttempt) Schema() string { return transcodeTaskRef{}.Schema() }
+
+// transcodeTaskV2 is app/transcode/task.Task's MediaFile and dispatch seq
+// (loop spec §4.12), decoded without importing it.
+type transcodeTaskV2 struct {
+	File schema.Ref `json:"file"`
+	Seq  int64      `json:"seq"`
+}
+
+// Schema implements schema.Payload; it is app/transcode/task.Task's.
+func (transcodeTaskV2) Schema() string { return "transcode.Task.v2" }
 
 // DispatchID is what a task's Msg-Id says of its dispatch when the message
 // itself is gone (a term on a WorkQueue stream, ruling R10): the UID of the
@@ -204,7 +220,8 @@ func (transcodeTaskAttempt) Schema() string { return transcodeTaskRef{}.Schema()
 // UID names when the shape says.
 type DispatchID struct {
 	// UID is the task's key: an item's or a Search's (search), an entry's
-	// (engine, import), a MediaFile's (probe, markers) or a TranscodeJob's.
+	// (engine, import), a MediaFile's (probe, markers, transcode) or a
+	// TranscodeJob's (the doomed controller's v1 Msg-Id).
 	UID string
 	Seq int64
 	Sub string
@@ -248,6 +265,10 @@ func ParseDispatchID(id string) (DispatchID, bool) {
 	case (len(parts) == 3 || len(parts) == 4) && parts[0] == "markers":
 		if n, ok := num(parts[2]); ok && parts[1] != "" {
 			return DispatchID{UID: parts[1], Seq: n, Sub: DispatchSubMarkers, Kind: "MediaFile"}, true
+		}
+	case len(parts) == 3 && parts[0] == "transcode":
+		if n, ok := num(parts[2]); ok && parts[1] != "" {
+			return DispatchID{UID: parts[1], Seq: n, Sub: DispatchSubTranscode, Kind: "MediaFile"}, true
 		}
 	case len(parts) == 2:
 		if n, ok := num(parts[1]); ok && parts[0] != "" {

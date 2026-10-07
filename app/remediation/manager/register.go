@@ -54,6 +54,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/subtitles"
 	"github.com/mediactl/clustarr/app/remediation/transcode"
 	"github.com/mediactl/clustarr/app/transcode/admission"
+	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -94,6 +95,10 @@ type Options struct {
 	WantedWakes         <-chan schema.ItemRef
 	DonorBudget         *searchplan.DonorBudget
 	SearchLivePerMinute int
+
+	// Clock is the loop's pass clock; nil is time.Now (§5.17's fake-clock
+	// envtests drive View.Now through it).
+	Clock func() time.Time
 
 	// Ledger is the transcode admission ledger the loop shares with
 	// transcode-admission (loop spec §5.5): internal/cli/manager builds it
@@ -162,6 +167,9 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	r.SubtitleProfileWake = o.SubtitleProfileWake
 	r.Ledger = o.Ledger
+	if o.Clock != nil {
+		r.Clock = o.Clock
+	}
 	// mgr.GetEventRecorder returns controller-runtime's recorder.EventRecorder,
 	// which embeds the events.k8s.io EventRecorder the item reconcilers hold.
 	recorder := func(name string) k8sevents.EventRecorder { return mgr.GetEventRecorder(name) }
@@ -260,7 +268,13 @@ func Actuators(mgr ctrl.Manager, d Deps) []remediation.Actuator {
 // from (through transcodeplan.Admission) and S22, admission's wake of the
 // loop's queue.
 func transcodeOptions(d Deps) transcode.Options {
-	o := transcode.Options{Bus: d.Env.Bus, AudioGraftIndex: mediafile.AudioGraftMediaFileRefIndex}
+	o := transcode.Options{
+		Bus: d.Env.Bus, AudioGraftIndex: mediafile.AudioGraftMediaFileRefIndex,
+		Records: task.Requests(d.Env.Bus.KV(events.BucketTranscodes)), Leases: d.Env.Bus.KV(events.BucketTranscodeLeases),
+	}
+	if admin, ok := d.Env.Bus.(events.StreamAdmin); ok {
+		o.Admin = admin
+	}
 	if l := d.Options.Ledger; l != nil {
 		o.Ledger = l
 		o.LoopSource = admission.LoopSource(l, func(nn types.NamespacedName) remediation.Key {

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jonboulle/clockwork"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
@@ -44,6 +46,11 @@ type ServeOptions struct {
 
 	// Leases is the clustarr-transcode-leases bucket.
 	Leases events.KV
+
+	// Records is the clustarr-transcodes bucket: the worker claims each
+	// dispatch's record and answers in it by compare-and-swap (loop spec
+	// §4.12); it publishes no status event and writes no Kubernetes object.
+	Records events.KV
 
 	// Renew, FenceAfter and HeldRetry default to 20s, 60s and 30s.
 	Renew, FenceAfter, HeldRetry time.Duration
@@ -193,6 +200,10 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 		return fmt.Errorf("transcode worker: %T cannot pull one message at a time", bus)
 	}
 	s.bus, s.sub = bus, events.TranscodeTaskConsumer(o.ProfileUID, o.Class).Subscription()
+	if o.Records == nil {
+		return errors.New("transcode worker: no clustarr-transcodes bucket to answer in")
+	}
+	s.answers = task.Answers(o.Records, o.PodName)
 
 	if s.o.Engine != nil && s.o.Measurement == nil {
 		m, err := s.measureUntilHealthy(ctx)
@@ -308,10 +319,11 @@ func (s *server) pull(ctx context.Context, ps events.PullSubscriber, retry *pull
 }
 
 type server struct {
-	o     ServeOptions
-	clock clockwork.Clock
-	bus   events.Bus
-	sub   events.Subscription
+	o       ServeOptions
+	clock   clockwork.Clock
+	bus     events.Bus
+	sub     events.Subscription
+	answers *records.Answerer[*task.Record]
 }
 
 func (o ServeOptions) withDefaults() ServeOptions {
@@ -345,11 +357,25 @@ func (o ServeOptions) withDefaults() ServeOptions {
 	return o
 }
 
+// handle runs one delivery of one dispatch (loop spec §4.12): a v1 task is
+// acked (the loop requests the file again as v2); a superseded one -- a
+// record at a higher Seq, or answered or withdrawn at its own -- is acked
+// unrun; then the lease, then the record's claim (an absent or older record
+// naks and waits for the loop's owed write, §4.8), the work, the answer by
+// compare-and-swap, the lease's release and the ack. It publishes no status
+// event and writes no Kubernetes object.
 func (s *server) handle(ctx context.Context, m events.Message) {
 	settle := func() (context.Context, context.CancelFunc) { // survives a drain
 		return context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	}
 	log := logging.FromContext(ctx)
+	if m.Envelope().Schema == (task.TaskV1{}).Schema() {
+		log.InfoContext(ctx, "transcode worker: a v1 task; the loop requests this file again as v2")
+		sctx, cancel := settle()
+		defer cancel()
+		_ = m.Ack(sctx)
+		return
+	}
 	var t task.Task
 	if err := schema.Decode(m.Envelope().Schema, m.Envelope().Data, &t); err != nil {
 		sctx, cancel := settle()
@@ -361,6 +387,20 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		_ = m.Term(sctx, "undecodable task")
 		return
 	}
+	ctx = logging.With(ctx, "mediaFile", t.File.Key(), "seq", t.Seq)
+	log = logging.FromContext(ctx)
+	key := events.RecordKey(t.File.UID)
+	if sup, err := s.answers.Superseded(ctx, key, t.Seq); err != nil || sup {
+		sctx, cancel := settle()
+		defer cancel()
+		if err != nil {
+			log.WarnContext(ctx, "transcode worker: cannot read the record; retrying", "error", err)
+			_ = m.Nak(sctx, s.o.HeldRetry)
+			return
+		}
+		_ = m.Ack(sctx)
+		return
+	}
 	cur, rev0, ok, err := s.claim(ctx, t)
 	switch {
 	case err != nil || (!ok && cur.State == task.LeaseHeld):
@@ -368,23 +408,46 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		defer cancel()
 		_ = m.Nak(sctx, s.o.HeldRetry)
 		return
-	case !ok: // cancelled for this attempt or a later one
+	case !ok: // cancelled for this dispatch or a later one
 		sctx, cancel := settle()
 		defer cancel()
 		_ = m.Ack(sctx)
 		return
 	}
 	rev := &leaseRev{v: rev0}
-
-	rep := &reporter{s: s, t: t, delivery: m.Attempt()}
-	if err := rep.publish(ctx, task.StatusEvent{Kind: task.EventClaimed}); err != nil {
-		log.WarnContext(ctx, "transcode worker: claimed event not published", "error", err)
+	release := func(sctx context.Context) {
+		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.File.UID), rev.get())
 	}
+	started := s.clock.Now().UTC()
+	// A redelivery may reclaim a record claimed at its Seq: s.claim just
+	// took the lease, so no worker holds it live.
+	verdict, err := s.answers.Claim(ctx, key, t.Seq, m.Attempt() > 1)
+	switch {
+	case err != nil:
+		sctx, cancel := settle()
+		defer cancel()
+		release(sctx)
+		_ = m.Nak(sctx, s.o.HeldRetry)
+		return
+	case verdict == records.NotYet: // absent or below: wait for the loop's owed write (§4.8)
+		sctx, cancel := settle()
+		defer cancel()
+		release(sctx)
+		if m.Attempt() >= uint64(max(s.sub.MaxDeliver, 1)) { //nolint:gosec // MaxDeliver is small and positive
+			_ = m.Ack(sctx) // the last delivery acks; the loop republishes
+			return
+		}
+		_ = m.Nak(sctx, records.NotYetDelay)
+		return
+	case verdict != records.Wrote: // withdrawn, answered or superseded at this seq
+		sctx, cancel := settle()
+		defer cancel()
+		release(sctx)
+		_ = m.Ack(sctx)
+		return
+	}
+
 	opts := s.o.Options
-	opts.OnProgress = func(pctx context.Context, p transcodev1alpha1.Progress) error {
-		return rep.publish(pctx, task.StatusEvent{Kind: task.EventProgress, Progress: &p})
-	}
-
 	work, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
 	if d := t.Deadline.Duration; d > 0 {
@@ -400,66 +463,130 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 	stop(nil)
 	<-renewed
 
-	fin := task.StatusEvent{Kind: task.EventFinished, StderrTail: out.StderrTail}
-	if out.Err != nil {
-		fin.Message = out.Err.Error()
-	}
-	fin.Graft = out.Graft
-	switch {
-	case errors.Is(cause, errFenced):
-		// A fenced worker must not report at all: it no longer knows whether
-		// it still holds the lease, so even a Failed report could race a
-		// second worker's claim and clobber its status (fix round 1, item 4:
-		// this is the one outcome that beats a successful out.Code, since
-		// Process may have returned before noticing the fence).
-		log.WarnContext(ctx, "transcode worker: lease could not be renewed; stopping before it lapses",
-			"job", t.Job.Key(), "attempt", t.Attempt)
-		sctx, cancel := settle()
-		defer cancel()
-		_ = m.Nak(sctx, 0) // the lease is left to lapse; nothing else is safe
-		return
-	case out.Code == ExitOK:
-		// A success Process returned outranks a cancel or deadline cause
-		// that only fired after it was already done (fix round 1, item 4):
-		// transcode is told what actually happened to the file, not that a
-		// signal it can no longer act on arrived microseconds later.
-		fin.Outcome, fin.Result = task.OutcomeSucceeded, out.Result
-	case errors.Is(cause, errCancelled):
-		log.InfoContext(ctx, "transcode worker: task cancelled by transcode",
-			"job", t.Job.Key(), "attempt", t.Attempt)
-		fin.Outcome, fin.Reason = task.OutcomeCancelled, task.ReasonCancelled
-	case errors.Is(cause, errDeadline):
-		fin.Outcome, fin.Reason = task.OutcomeFailed, task.ReasonDeadlineExceeded
-	case ctx.Err() != nil && out.Code != ExitOK:
-		// Drained: the top-level ctx (not just work) was cancelled while
-		// Process was still short of success, whatever it returned --
-		// ExitRetriable mid-encode, but just as much a classified failure
-		// from a probe or stat call that was interrupted by the same
-		// cancellation (fix round 1, item 1: the old ExitRetriable-only
-		// guard reported that as Failed and acked it, blocking the job for
-		// good instead of letting redelivery retry a healthy task).
-		log.InfoContext(ctx, "transcode worker: drained; releasing the lease for the next pod",
-			"job", t.Job.Key(), "attempt", t.Attempt)
-		sctx, cancel := settle()
-		defer cancel()
-		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev.get())
-		_ = m.Nak(sctx, 0)
-		return
-	default:
-		fin.Outcome, fin.Reason = task.OutcomeFailed, reasonFor(out)
-	}
-
-	// finished is stored before the task can disappear.
 	sctx, cancel := settle()
 	defer cancel()
-	if err := rep.publish(sctx, fin); err != nil {
-		log.WarnContext(ctx, "transcode worker: finished event not published; redelivery will redo it", "error", err)
-		// Release the lease now rather than leave a redelivery waiting out
-		// the full lease TTL for it to lapse (fix round 1, item 8).
-		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev.get())
+	ans, answer := s.answerOf(ctx, t, out, cause, started)
+	if !answer { // fenced, cancelled or drained: no answer
+		switch {
+		case errors.Is(cause, errFenced):
+			// A fenced worker must not answer at all: it no longer knows
+			// whether it still holds the lease. The lease is left to lapse.
+			_ = m.Nak(sctx, 0)
+		case errors.Is(cause, errCancelled):
+			release(sctx)
+			_ = m.Ack(sctx) // withdrawn: the loop already closed the dispatch
+		default: // drained: the next pod takes it
+			release(sctx)
+			_ = m.Nak(sctx, 0)
+		}
+		return
+	}
+	rec := &task.Record{
+		RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: t.File, Seq: t.Seq, State: records.StateAnswered, AnsweredAt: ans.FinishedAt},
+		Inputs:       t.Inputs, Answer: &ans,
+	}
+	if ans.Reason == task.ReasonRetriable && m.Attempt() >= uint64(max(s.sub.MaxDeliver, 1)) { //nolint:gosec // as above
+		// The last delivery writes failed with the cause rather than leave
+		// it to the dead-letter subject (§4.8 "Last delivery").
+		rec.State, rec.Failure, rec.Transient = records.StateFailed, clamp(ans.Message, records.MaxFailure), true
+	}
+	if _, err := s.answers.Answer(sctx, key, rec); err != nil {
+		log.WarnContext(ctx, "transcode worker: the answer was not recorded; redelivery redoes it", "error", err)
+		release(sctx)
 		_ = m.Nak(sctx, 0)
 		return
 	}
-	_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev.get())
+	release(sctx)
 	_ = m.Ack(sctx)
+}
+
+// answerOf is the answer to t from Process's outcome, or false for a run
+// that answers nothing: fenced (it may no longer hold the lease), cancelled
+// by a withdrawal, or drained short of success. A success Process returned
+// outranks a cancel or deadline cause that fired only after it was done.
+func (s *server) answerOf(ctx context.Context, t task.Task, out Outcome, cause error, started time.Time) (task.Answer, bool) {
+	log := logging.FromContext(ctx)
+	finished := s.clock.Now().UTC()
+	a := task.Answer{
+		Class: string(taskClass(t)), Pod: s.o.PodName, Node: s.o.Node, StartedAt: &started, FinishedAt: &finished,
+		StderrTail: tail(out.StderrTail, task.MaxAnswerStderr), Graft: out.Graft,
+	}
+	if out.Err != nil {
+		a.Message = clamp(out.Err.Error(), task.MaxAnswerMessage)
+	}
+	switch {
+	case errors.Is(cause, errFenced):
+		log.WarnContext(ctx, "transcode worker: lease could not be renewed; stopping before it lapses")
+		return a, false
+	case out.Code == ExitOK:
+		a.Outcome = task.OutcomeSucceeded
+		if out.Result != nil {
+			res := *out.Result
+			res.MediaInfo = nil // the loop's probe of the output is the record of it
+			a.Result = &res
+		}
+	case errors.Is(cause, errCancelled):
+		log.InfoContext(ctx, "transcode worker: dispatch withdrawn by the loop")
+		return a, false
+	case errors.Is(cause, errDeadline):
+		a.Outcome, a.Reason = task.OutcomeFailed, task.ReasonDeadlineExceeded
+	case ctx.Err() != nil:
+		log.InfoContext(ctx, "transcode worker: drained; releasing the lease for the next pod")
+		return a, false
+	default:
+		a.Outcome, a.Reason = task.OutcomeFailed, reasonFor(out)
+	}
+	return a, true
+}
+
+// taskClass is the class t was dispatched to: BuildTask sets both Class and
+// Profile.Hardware to it.
+func taskClass(t task.Task) transcodev1alpha1.Hardware {
+	if t.Class != "" {
+		return transcodev1alpha1.Hardware(t.Class)
+	}
+	if t.Profile.Hardware != nil {
+		return *t.Profile.Hardware
+	}
+	return ""
+}
+
+// reasonFor names a Process outcome: Process's own reason when it has one
+// (SourceChanged, GPUUnavailable, GPUEncodeFailed), else the code's.
+func reasonFor(out Outcome) task.Reason {
+	if out.Reason != "" {
+		return out.Reason
+	}
+	switch out.Code {
+	case ExitInvalidSource:
+		return task.ReasonInvalidSource
+	case ExitVerifyFailed:
+		return task.ReasonVerifyFailed
+	default:
+		return task.ReasonRetriable
+	}
+}
+
+// clamp cuts s to at most n bytes on a rune boundary.
+func clamp(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// tail keeps the last n bytes of s, on a rune boundary: the end of an
+// encoder's stderr is where its error is.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	i := len(s) - n
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return s[i:]
 }

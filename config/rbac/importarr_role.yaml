@@ -104,11 +104,3 @@ rules:
   verbs:
   - create
   - patch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodejobs
-  verbs:
-  - get
-  - list
-  - watch

@@ -25,9 +25,9 @@ import (
 
 // SidecarPath is the sidecar named suffix -- everything after the stem:
 // "en.ass", "en.forced.srt", "ass" -- of the video at video. Beside a
-// library file it is <stem>.<suffix>. Beside a transcode attempt's part,
-// <stem>.part-<uid8>-<n>.<ext>, it is that attempt's part of the sidecar,
-// <stem>.<suffix less its ext>.part-<uid8>-<n>.<suffix ext>, which
+// library file it is <stem>.<suffix>. Beside a transcode dispatch's part,
+// <stem>.part-<fileUID8>-<seq>.<ext>, it is that dispatch's part of the
+// sidecar, <stem>.<suffix less its ext>.part-<fileUID8>-<seq>.<suffix ext>, which
 // ParseTranscodePart and IsPart read as a part (both sweeps and the
 // rescan's orphan sweep remove it with its attempt) and
 // subtitles.ParseSidecar reads as no sidecar of anything.
@@ -42,7 +42,7 @@ func SidecarPath(video, suffix string) string {
 		if name != "" {
 			stem += "." + name
 		}
-		return fmt.Sprintf("%s.part-%s-%d%s", stem, p.JobUID8, p.Attempt, ext)
+		return fmt.Sprintf("%s.part-%s-%d%s", stem, p.FileUID8, p.Seq, ext)
 	}
 	return strings.TrimSuffix(video, filepath.Ext(video)) + "." + suffix
 }

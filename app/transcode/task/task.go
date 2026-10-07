@@ -15,11 +15,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package task holds what crosses NATS between transcode and its transcode
-// pools (spec §6, §17.5, §18.1): the Task transcode publishes, the
-// StatusEvents a worker publishes on clustarr.work.transcode.result.<uid>,
-// and the Lease a worker holds in clustarr-transcode-leases. It imports no
-// Kubernetes client.
+// Package task holds what crosses NATS between the manager and the transcode
+// pools (spec §6, §17.5, §18.1; loop spec §4.12): the Task the remediation
+// loop publishes for one MediaFile's dispatch, the Lease a worker holds in
+// clustarr-transcode-leases, and the Record a worker answers through in
+// clustarr-transcodes. It imports no Kubernetes client. TaskV1, LeaseV1 and
+// StatusEvent are the TranscodeJob controller's, until F6.6 deletes it.
 package task
 
 import (
@@ -46,8 +47,61 @@ type RootFolder struct {
 	RecycleBin string `json:"recycleBin"`
 }
 
-// Task is one dispatch of one TranscodeJob.
+// Inputs are what a transcode record is matched by (loop spec §4.10): the
+// record answers this dispatch only when they are the block's.
+type Inputs struct {
+	ProfileHash string `json:"profileHash"`
+	PlanHash    string `json:"planHash"`
+	Class       string `json:"class"`
+	SourcePath  string `json:"sourcePath"`
+	ProbeHash   string `json:"probeHash"`
+	OutputPath  string `json:"outputPath"`
+}
+
+// Task is one dispatch of one MediaFile's transcode (loop spec §4.12): File
+// replaces v1's Job, Seq its Attempt, and Inputs are what the record is
+// matched by.
 type Task struct {
+	File            schema.Ref      `json:"file"`
+	Seq             int64           `json:"seq"`
+	Class           string          `json:"class"`
+	Profile         Profile         `json:"profile"`
+	SourcePath      string          `json:"sourcePath"`
+	SourceProbeHash string          `json:"sourceProbeHash"`
+	SourceSizeBytes int64           `json:"sourceSizeBytes"`
+	SourceModifier  string          `json:"sourceModifier,omitempty"`
+	OutputPath      string          `json:"outputPath"`
+	Root            RootFolder      `json:"root"`
+	OutputRoot      string          `json:"outputRoot,omitempty"`
+	Engine          string          `json:"engine,omitempty"`
+	PlanHash        string          `json:"planHash,omitempty"`
+	Deadline        metav1.Duration `json:"deadline"`
+	// Graft is an audio graft riding along with this transcode (anime
+	// dual-audio, phase 4 addendum; joined again by F7.2).
+	Graft  *grafttask.Task `json:"graft,omitempty"`
+	Inputs Inputs          `json:"inputs"`
+}
+
+// Schema implements schema.Payload.
+func (Task) Schema() string { return "transcode.Task.v2" }
+
+// Lease is one MediaFile's transcode claim in clustarr-transcode-leases at
+// events.TranscodeLeaseKey(file UID); a cancelled lease applies to its Seq
+// and earlier ones.
+type Lease struct {
+	File  schema.Ref `json:"file"`
+	Seq   int64      `json:"seq"`
+	State LeaseState `json:"state"`
+	Pod   string     `json:"pod,omitempty"`
+	Node  string     `json:"node,omitempty"`
+	Since time.Time  `json:"since"`
+}
+
+// Schema implements schema.Payload.
+func (Lease) Schema() string { return "transcode.Lease.v2" }
+
+// TaskV1 is one dispatch of one TranscodeJob (the doomed controller's).
+type TaskV1 struct {
 	Job             schema.Ref `json:"job"`
 	Attempt         int32      `json:"attempt"`
 	Class           string     `json:"class"`
@@ -79,7 +133,7 @@ type Task struct {
 const EngineFFgo = "ffgo"
 
 // Schema implements schema.Payload.
-func (Task) Schema() string { return "transcode.Task.v1" }
+func (TaskV1) Schema() string { return "transcode.Task.v1" }
 
 // Outcome is how an attempt ended.
 type Outcome string
@@ -158,9 +212,9 @@ const (
 	LeaseCancelled LeaseState = "cancelled"
 )
 
-// Lease is one TranscodeJob's claim. A cancelled lease applies to its own
-// Attempt and earlier ones only (spec §6).
-type Lease struct {
+// LeaseV1 is one TranscodeJob's claim (the doomed controller's). A cancelled
+// lease applies to its own Attempt and earlier ones only (spec §6).
+type LeaseV1 struct {
 	Job     schema.Ref `json:"job"`
 	Attempt int32      `json:"attempt"`
 	State   LeaseState `json:"state"`
@@ -170,4 +224,4 @@ type Lease struct {
 }
 
 // Schema implements schema.Payload.
-func (Lease) Schema() string { return "transcode.Lease.v1" }
+func (LeaseV1) Schema() string { return "transcode.Lease.v1" }

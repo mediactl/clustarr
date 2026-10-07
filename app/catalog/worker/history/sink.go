@@ -184,6 +184,14 @@ func describeEvent(env *events.Envelope) (action, note string, ok bool) {
 		if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
 			return "", "", false
 		}
+		return p.Action, fmt.Sprintf("transcode %s (seq=%d mode=%q encoder=%q reason=%q)",
+			p.Action, p.Seq, p.Mode, p.Encoder, p.Reason), true
+
+	case schema.JobEventV1{}.Schema():
+		var p schema.JobEventV1
+		if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
+			return "", "", false
+		}
 		return p.Action, fmt.Sprintf("transcode job %s (mode=%q encoder=%q reason=%q)",
 			p.Action, p.Mode, p.Encoder, p.Reason), true
 

@@ -43,16 +43,15 @@ type Outcome struct {
 
 // Process transcodes one task: re-probe against SourceProbeHash, plan, check
 // free space, encode, verify, swap. It reads and writes files only; what the
-// result means for the TranscodeJob is the caller's to report. The crash
+// result means for the MediaFile is the caller's to answer. The crash
 // matrix in doc.go is unchanged because the swap order is.
 func Process(ctx context.Context, t task.Task, o Options) Outcome {
 	o = o.withDefaults()
 	ctx, span := tracing.Start(ctx, "transcode.worker.process") // the span Run used
 	defer span.End()
 	// Every log line run() emits below -- and any a caller emits with this
-	// ctx afterward -- carries the task's job, the way Run's did for every
-	// worker log line before this package stopped reading it off Options.
-	ctx = logging.With(ctx, "transcodeJob", t.Job.Namespace+"/"+t.Job.Name)
+	// ctx afterward -- carries the task's MediaFile and dispatch.
+	ctx = logging.With(ctx, "mediaFile", t.File.Namespace+"/"+t.File.Name, "seq", t.Seq)
 	r := &runner{o: o, t: t, started: o.Now()}
 	err := r.run(ctx)
 	r.out.Code, r.out.Err = ExitCode(err), err

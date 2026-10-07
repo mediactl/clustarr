@@ -37,13 +37,12 @@ var ErrNoRootFolder = errors.New("not under any RootFolder")
 // ErrInvalidOutput is an output path OutputPath refuses.
 var ErrInvalidOutput = errors.New("invalid output path")
 
-// BuildTask renders one dispatch of tj for the class it goes to: everything
-// the worker used to read from the apiserver, resolved by the one function
-// the controller and the worker's tests share (spec §6, §17.5).
-func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
+// BuildJobTask renders one dispatch of tj for the class it goes to (the
+// doomed TranscodeJob controller's; F6.6 deletes both).
+func BuildJobTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile,
 	mf *catalogv1alpha1.MediaFile, folders []catalogv1alpha1.RootFolder,
 	attempt int32, class transcodev1alpha1.Hardware,
-) (task.Task, error) {
+) (task.TaskV1, error) {
 	source := tj.Spec.SourcePath
 	if source == "" {
 		source = mf.Spec.Path
@@ -51,20 +50,20 @@ func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transco
 	source = filepath.Clean(source)
 	rf := RootFolderFor(folders, source)
 	if rf == nil {
-		return task.Task{}, fmt.Errorf("source %s: %w", source, ErrNoRootFolder)
+		return task.TaskV1{}, fmt.Errorf("source %s: %w", source, ErrNoRootFolder)
 	}
 	// OutputPath needs the SourcePath to be set, so make a copy with it populated
 	spec := tj.Spec
 	spec.SourcePath = source
 	out, err := JobOutputPath(spec, tp.Name, OutputContainer, ReplaceSource(tp.Spec.Policy))
 	if err != nil {
-		return task.Task{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
+		return task.TaskV1{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
 	}
 	bin := rf.Spec.RecycleBin.Path
 	if bin == "" {
 		bin = defaultRecycleBin
 	}
-	t := task.Task{
+	t := task.TaskV1{
 		Job:     schema.Ref{Namespace: tj.Namespace, Name: tj.Name, UID: string(tj.UID)},
 		Attempt: attempt,
 		Class:   string(class),
@@ -86,9 +85,52 @@ func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transco
 	if filepath.Clean(out) != source {
 		orf := RootFolderFor(folders, out)
 		if orf == nil {
+			return task.TaskV1{}, fmt.Errorf("output %s: %w", out, ErrNoRootFolder)
+		}
+		t.OutputRoot = orf.Spec.Path
+	}
+	return t, nil
+}
+
+// BuildTask renders dispatch seq of mf's transcode under tp (hash is
+// ProfileHash, the block's profileHash) for class, carrying the planned
+// plan's hash: everything the worker reads, resolved by the one function the
+// transcode planner and the worker's tests share (loop spec §4.12, §5.8).
+// mf is the view's file with Status set to the draft, so its ProbeHash is
+// the one planned.
+func BuildTask(mf *catalogv1alpha1.MediaFile, tp *transcodev1alpha1.TranscodeProfile, hash string,
+	folders []catalogv1alpha1.RootFolder, seq int64, class transcodev1alpha1.Hardware, plan *catalogv1alpha1.TranscodePlan,
+) (task.Task, error) {
+	source := filepath.Clean(mf.Spec.Path)
+	rf := RootFolderFor(folders, source)
+	if rf == nil {
+		return task.Task{}, fmt.Errorf("source %s: %w", source, ErrNoRootFolder)
+	}
+	out, err := OutputPath(source, tp.Name, OutputContainer, ReplaceSource(tp.Spec.Policy))
+	if err != nil {
+		return task.Task{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
+	}
+	t := task.Task{
+		File: schema.Ref{Namespace: mf.Namespace, Name: mf.Name, UID: string(mf.UID)}, Seq: seq, Class: string(class),
+		Profile:    task.Profile{Name: tp.Name, Hash: hash, Spec: *tp.Spec.DeepCopy(), Hardware: new(class)},
+		SourcePath: source, SourceProbeHash: mf.Status.ProbeHash, SourceSizeBytes: mf.Spec.SizeBytes,
+		SourceModifier: string(mf.Spec.Quality.Modifier), OutputPath: out,
+		Root:     task.RootFolder{Path: rf.Spec.Path, RecycleBin: RecycleBinOf(rf)},
+		Deadline: metav1.Duration{Duration: ActiveDeadline(tp.Spec)}, Engine: task.EngineFFgo,
+	}
+	if plan != nil {
+		t.PlanHash = plan.PlanHash
+	}
+	if filepath.Clean(out) != source {
+		orf := RootFolderFor(folders, out)
+		if orf == nil {
 			return task.Task{}, fmt.Errorf("output %s: %w", out, ErrNoRootFolder)
 		}
 		t.OutputRoot = orf.Spec.Path
+	}
+	t.Inputs = task.Inputs{
+		ProfileHash: hash, PlanHash: t.PlanHash, Class: string(class), SourcePath: source,
+		ProbeHash: mf.Status.ProbeHash, OutputPath: out,
 	}
 	return t, nil
 }

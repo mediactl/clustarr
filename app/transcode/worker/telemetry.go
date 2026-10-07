@@ -39,19 +39,19 @@ const DefaultTelemetryInterval = time.Second
 // never waits on it.
 const telemetryPutTimeout = 2 * time.Second
 
-// ProgressKey is a TranscodeJob's key in the clustarr-progress bucket,
-// "transcode.<uid>" (spec §5's reserved shape), the UID through
-// events.KVKeyToken like every other KV key.
-func ProgressKey(jobUID string) string { return "transcode." + events.KVKeyToken(jobUID) }
+// ProgressKey is a MediaFile's transcode key in the clustarr-progress
+// bucket, "transcode.<mfUID>" (spec §5's reserved shape; loop spec §4.12),
+// the UID through events.KVKeyToken like every other KV key.
+func ProgressKey(mfUID string) string { return "transcode." + events.KVKeyToken(mfUID) }
 
-// telemetry mirrors ffmpeg's progress into the clustarr-progress bucket as
-// schema.TranscodeProgress at most once per interval -- the 1 Hz telemetry
-// spec §5 describes, for UIs that want more than status.progress's 10 s.
-// status.progress stays the record; this is best effort, and nothing here
-// can fail or slow an encode.
+// telemetry mirrors the encode's progress into the clustarr-progress bucket
+// as schema.TranscodeProgress at most once per interval -- the 1 Hz
+// telemetry spec §5 describes, the only progress there is: nothing writes
+// progress to etcd (ADR-0016). It is best effort, and nothing here can fail
+// or slow an encode.
 //
 // Its writes are bounded every way that matters to the bucket: one key per
-// TranscodeJob, overwritten (the bucket keeps History 1 and expires a key
+// MediaFile, overwritten (the bucket keeps History 1 and expires a key
 // 10 minutes after its last write), at most one small value per interval
 // and only when a new sample arrived, and one Put in flight at a time under
 // [telemetryPutTimeout].
@@ -60,7 +60,8 @@ func ProgressKey(jobUID string) string { return "transcode." + events.KVKeyToken
 type telemetry struct {
 	kv             events.KV
 	key            string
-	job            schema.Ref
+	file           schema.Ref
+	seq            int64
 	worker         *schema.Ref
 	durationMillis int64
 	interval       time.Duration
@@ -76,7 +77,7 @@ type telemetry struct {
 }
 
 // newTelemetry returns nil when kv is nil.
-func newTelemetry(kv events.KV, interval time.Duration, job schema.Ref, worker *schema.Ref,
+func newTelemetry(kv events.KV, interval time.Duration, file schema.Ref, seq int64, worker *schema.Ref,
 	durationMillis int64, now func() time.Time,
 ) *telemetry {
 	if kv == nil {
@@ -86,7 +87,7 @@ func newTelemetry(kv events.KV, interval time.Duration, job schema.Ref, worker *
 		interval = DefaultTelemetryInterval
 	}
 	return &telemetry{
-		kv: kv, key: ProgressKey(job.UID), job: job, worker: worker,
+		kv: kv, key: ProgressKey(file.UID), file: file, seq: seq, worker: worker,
 		durationMillis: durationMillis, interval: interval, now: now,
 		done: make(chan struct{}),
 	}
@@ -175,11 +176,11 @@ func (t *telemetry) flush(ctx context.Context) {
 
 // sample renders p as the schema.TranscodeProgress value. The percentage
 // is out_time against the source duration in thousandths of a percent,
-// held under 100% until ffmpeg's progress=end says it is done, as
-// status.progress's is (percentOf).
+// held under 100% until the encode's end says it is done.
 func (t *telemetry) sample(p transcode.Progress) schema.TranscodeProgress {
 	return schema.TranscodeProgress{
-		JobRef:        t.job,
+		File:          t.file,
+		Seq:           t.seq,
 		PercentMilli:  percentMilliOf(p, t.durationMillis),
 		Frame:         max(p.Frame, 0),
 		FPSCentis:     nonNegative32(p.FPSMilli) / 10,
@@ -192,7 +193,7 @@ func (t *telemetry) sample(p transcode.Progress) schema.TranscodeProgress {
 	}
 }
 
-// percentMilliOf is percentOf in thousandths of a percent, 0..100000.
+// percentMilliOf is completion in thousandths of a percent, 0..100000.
 func percentMilliOf(p transcode.Progress, durationMillis int64) int32 {
 	if p.Percent >= 100 {
 		return 100_000
@@ -203,3 +204,7 @@ func percentMilliOf(p transcode.Progress, durationMillis int64) int32 {
 	pm := p.OutTimeMillis * 100_000 / durationMillis
 	return int32(min(max(pm, 0), 99_999)) //nolint:gosec // clamped to 0..99999
 }
+
+// nonNegative32 clamps a sample the encoder reported as N/A (zero after
+// parsing, or negative) to zero.
+func nonNegative32(v int32) int32 { return max(v, 0) }

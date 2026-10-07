@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeplan
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/types"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -78,4 +80,11 @@ type Admission interface {
 	Confirm(uid types.UID, seq int64)
 	Release(uid types.UID)
 	Device(class transcodev1alpha1.Hardware) Device
+	// NoteLeaseMissing records whether the file's lease was found missing
+	// at now and returns since when it has been (the zero time when it is
+	// not), so the lost-worker grace survives across passes (§5.5).
+	NoteLeaseMissing(uid types.UID, missing bool, now time.Time) time.Time
+	// PublishFailed holds (err non-nil) or clears a task publish failure
+	// of the file's dispatch seq, for the next pass's message (§5.8).
+	PublishFailed(uid types.UID, seq int64, err error)
 }

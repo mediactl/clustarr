@@ -19,6 +19,7 @@ package transcode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/transcode/graftstate"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
+	"github.com/mediactl/clustarr/pkg/events"
 )
 
 // Gather takes the file's admission grant when it holds one (an in-use
@@ -57,7 +59,64 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 			return in, remediation.Transient(err)
 		}
 	}
+	if err := a.gatherDispatch(ctx, env, v, &in); err != nil {
+		return in, remediation.Transient(err)
+	}
 	return in, nil
+}
+
+// gatherDispatch reads what a dispatch's rows need (§4.10, §5.9): the
+// record while the block is in flight or a dispatch grant is held; the
+// RootFolders when a task may be built; the lease of a Running dispatch,
+// noting since when it is missing; and, once it has been missing for the
+// lost-worker grace, whether the stream still holds the file's task.
+func (a *Adapter) gatherDispatch(ctx context.Context, env *remediation.Env, v *remediation.View, in *In) error {
+	b := v.Prev.Transcode
+	uid := v.File.UID
+	dispatching := in.Ledger.Grant == transcodeplan.GrantDispatch
+	inFlight := b != nil && b.Dispatch.InFlight()
+	if a.o.Records != nil && (dispatching || inFlight) {
+		rec, rev, ok, err := a.o.Records.Get(ctx, events.RecordKey(string(uid)))
+		if err != nil {
+			return err
+		}
+		in.RecordRev = rev
+		if ok {
+			in.Record = rec
+		}
+	}
+	if dispatching || (b != nil && b.Phase == catalogv1alpha1.TranscodePhaseQueued) {
+		var roots catalogv1alpha1.RootFolderList
+		if err := env.Reader.List(ctx, &roots, client.InNamespace(v.File.Namespace), client.UnsafeDisableDeepCopy); err != nil {
+			return fmt.Errorf("transcode: list RootFolders: %w", err)
+		}
+		in.Folders = roots.Items
+	}
+	if b == nil || b.Phase != catalogv1alpha1.TranscodePhaseRunning || a.o.Leases == nil {
+		if a.o.Ledger != nil {
+			a.o.Ledger.NoteLeaseMissing(uid, false, v.Now.Time)
+		}
+		return nil
+	}
+	_, err := a.o.Leases.Get(ctx, events.TranscodeLeaseKey(string(uid)))
+	switch {
+	case errors.Is(err, events.ErrKeyNotFound):
+		in.Lease.Missing = true
+	case err != nil:
+		return fmt.Errorf("transcode: read the lease: %w", err)
+	}
+	if a.o.Ledger != nil {
+		in.Lease.MissingSince = a.o.Ledger.NoteLeaseMissing(uid, in.Lease.Missing, v.Now.Time)
+	}
+	if in.Lease.Missing && !in.Lease.MissingSince.IsZero() && v.Now.Sub(in.Lease.MissingSince) > transcodeplan.LeaseLostGrace &&
+		a.o.Admin != nil {
+		subjects, err := a.o.Admin.Subjects(ctx, events.StreamWorkTranscode, events.WorkTranscodeTaskSubjectAnyPool(string(uid)))
+		if err != nil {
+			return fmt.Errorf("transcode: read the stored tasks: %w", err)
+		}
+		in.TaskStored = new(len(subjects) > 0)
+	}
+	return nil
 }
 
 // itemExists Gets the file's Movie or Episode from the cache: NotFound is

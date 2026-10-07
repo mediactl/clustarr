@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -48,10 +47,10 @@ const OrphanPartAge = 72 * time.Hour
 
 // orphanPart decides a transcode attempt's part file the scan reported
 // (P47): it is recycled through a recycle-files task on import-recycle when
-// it is of exactly the per-attempt form, unwritten for OrphanPartAge, no
-// non-terminal TranscodeJob's UID starts with its job's eight characters,
-// and the MediaFile it was made from (TranscodeOutputOf) has no transcode
-// in flight (status.transcode Queued, Running or Swapping). The import
+// it is of exactly the per-dispatch form, unwritten for OrphanPartAge, no
+// MediaFile whose UID starts with its eight characters has a transcode in
+// flight, and the MediaFile it was made from (TranscodeOutputOf) has none
+// either (status.transcode Queued, Running or Swapping). The import
 // domain moves it into the root folder's recycle bin.
 func (a *Applier) orphanPart(ctx context.Context, obs schema.ScanObservation, _ *tally) error {
 	p, ok := fsops.ParseTranscodePart(obs.Path)
@@ -59,7 +58,7 @@ func (a *Applier) orphanPart(ctx context.Context, obs schema.ScanObservation, _ 
 		return nil
 	}
 	ns := obs.Scan.Namespace
-	live, err := a.liveJob(ctx, ns, p.JobUID8)
+	live, err := a.liveTranscode(ctx, ns, p.FileUID8)
 	if err != nil || live {
 		return err
 	}
@@ -100,21 +99,16 @@ func (a *Applier) orphanPart(ctx context.Context, obs schema.ScanObservation, _ 
 	return nil
 }
 
-// liveJob reports whether a non-terminal TranscodeJob in ns has a UID
-// starting with uid8: its next attempt sweeps its own parts.
-func (a *Applier) liveJob(ctx context.Context, ns, uid8 string) (bool, error) {
-	var jobs transcodev1alpha1.TranscodeJobList
-	if err := a.reader().List(ctx, &jobs, client.InNamespace(ns)); err != nil {
-		return false, fmt.Errorf("scanapply: list transcode jobs in %s: %w", ns, err)
+// liveTranscode reports whether a MediaFile in ns whose UID starts with
+// uid8 has a transcode in flight: its dispatch's worker sweeps its own
+// parts.
+func (a *Applier) liveTranscode(ctx context.Context, ns, uid8 string) (bool, error) {
+	var files catalogv1alpha1.MediaFileList
+	if err := a.reader().List(ctx, &files, client.InNamespace(ns), client.UnsafeDisableDeepCopy); err != nil {
+		return false, fmt.Errorf("scanapply: list media files in %s: %w", ns, err)
 	}
-	for i := range jobs.Items {
-		j := &jobs.Items[i]
-		switch j.Status.Phase {
-		case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed,
-			transcodev1alpha1.TranscodeJobPhaseSkipped:
-			continue
-		}
-		if strings.HasPrefix(string(j.UID), uid8) {
+	for i := range files.Items {
+		if mf := &files.Items[i]; strings.HasPrefix(string(mf.UID), uid8) && transcodeInFlight(mf) {
 			return true, nil
 		}
 	}

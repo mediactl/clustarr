@@ -149,7 +149,7 @@ func (r *Reconciler) publishJobEvent(ctx context.Context, tj *transcodev1alpha1.
 	st *transcodev1alpha1.TranscodeJobStatus, result *transcodev1alpha1.Result, e transition,
 ) {
 	log := logging.FromContext(ctx)
-	evt := schema.JobEvent{
+	evt := schema.JobEventV1{
 		JobRef:    schema.Ref{Namespace: tj.Namespace, Name: tj.Name, UID: string(tj.UID)},
 		Action:    e.action,
 		InputPath: tj.Spec.SourcePath,

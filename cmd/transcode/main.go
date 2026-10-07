@@ -172,7 +172,11 @@ func run(args []string, getenv func(string) string) int {
 	err = worker.Serve(ctx, bus, worker.ServeOptions{
 		Options:    opts,
 		ProfileUID: need["CLUSTARR_POOL_PROFILE_UID"], Class: need["CLUSTARR_POOL_CLASS"], Node: getenv("NODE_NAME"),
-		Leases: bus.KV(events.BucketTranscodeLeases), // status events go to the stream through bus
+		Leases: bus.KV(events.BucketTranscodeLeases),
+		// The worker claims and answers each dispatch here (loop spec
+		// §4.12); it publishes no status event and writes no Kubernetes
+		// object.
+		Records: bus.KV(events.BucketTranscodes),
 	})
 	if ctx.Err() != nil {
 		return jobspec.WorkerExitDrained

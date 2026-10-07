@@ -162,7 +162,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	}
 
 	attempt := tj.Status.Attempts + 1
-	t, buildErr := jobspec.BuildTask(&tj, tp, &mf, folders.Items, attempt, class)
+	t, buildErr := jobspec.BuildJobTask(&tj, tp, &mf, folders.Items, attempt, class)
 	if errors.Is(buildErr, jobspec.ErrNoRootFolder) || errors.Is(buildErr, jobspec.ErrInvalidOutput) {
 		before, after, err := r.writeStatus(ctx, key, func(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) bool {
 			if st.Phase != transcodev1alpha1.TranscodeJobPhasePlanned {
@@ -212,7 +212,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	if err != nil {
 		return err
 	}
-	id := events.MsgIDForTranscodeTask(string(tj.UID), attempt)
+	id := events.MsgIDForTranscodeJobTask(string(tj.UID), attempt)
 	now := r.now().Time
 	env := &events.Envelope{
 		ID: id, Type: "transcode.Task", Schema: sch, Source: "transcode-controller@" + version.String(),
@@ -451,7 +451,7 @@ type device struct {
 // when nothing joins -- a graft already reported on this job (failed, so a
 // retry carries none) included.
 func (r *Reconciler) joinGraft(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, mf *catalogv1alpha1.MediaFile,
-	folders []catalogv1alpha1.RootFolder, t *task.Task,
+	folders []catalogv1alpha1.RootFolder, t *task.TaskV1,
 ) (*transcodev1alpha1.GraftResult, error) {
 	if g := tj.Status.Graft; g != nil && g.Phase != transcodev1alpha1.GraftJoined {
 		return nil, nil

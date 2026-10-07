@@ -23,16 +23,17 @@ import (
 	"strings"
 )
 
-// TranscodePart is a transcode attempt's in-progress output,
-// <Stem>.part-<JobUID8>-<Attempt><Ext>, as app/transcode/worker's
-// uniquePartPath names it beside the output path <Stem><Ext>.
+// TranscodePart is a transcode dispatch's in-progress output,
+// <Stem>.part-<FileUID8>-<Seq><Ext>, as app/transcode/worker's
+// uniquePartPath names it beside the output path <Stem><Ext> (loop spec
+// §4.12: keyed by the MediaFile and the dispatch's sequence).
 type TranscodePart struct {
 	// Stem is the output path without its extension, directory included.
 	Stem string
-	// JobUID8 is the first eight characters of the TranscodeJob's UID.
-	JobUID8 string
-	// Attempt is the dispatch attempt that wrote it.
-	Attempt int
+	// FileUID8 is the first eight characters of the MediaFile's UID.
+	FileUID8 string
+	// Seq is the dispatch sequence that wrote it.
+	Seq int64
 	// Ext is the output container's extension, ".mkv" or ".mp4".
 	Ext string
 }
@@ -54,11 +55,11 @@ func ParseTranscodePart(path string) (TranscodePart, bool) {
 	if !partAttemptRE.MatchString(infix) {
 		return TranscodePart{}, false
 	}
-	// ".part-<uid8>-<attempt>": the regexp fixed both fields' shapes.
+	// ".part-<uid8>-<seq>": the regexp fixed both fields' shapes.
 	uid8 := infix[len(".part-") : len(".part-")+8]
-	attempt, err := strconv.Atoi(infix[len(".part-")+9:])
+	seq, err := strconv.ParseInt(infix[len(".part-")+9:], 10, 64)
 	if err != nil {
 		return TranscodePart{}, false
 	}
-	return TranscodePart{Stem: strings.TrimSuffix(withPart, infix), JobUID8: uid8, Attempt: attempt, Ext: ext}, true
+	return TranscodePart{Stem: strings.TrimSuffix(withPart, infix), FileUID8: uid8, Seq: seq, Ext: ext}, true
 }

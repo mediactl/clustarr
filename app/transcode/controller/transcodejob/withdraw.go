@@ -129,7 +129,7 @@ func (r *Reconciler) withdrawAll(ctx context.Context, tj *transcodev1alpha1.Tran
 // purge still finds it cancelled when it claims.
 func (r *Reconciler) cancelAndPurge(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, attempt int32, subject string) error {
 	uid := string(tj.UID)
-	b, err := json.Marshal(task.Lease{
+	b, err := json.Marshal(task.LeaseV1{
 		Job:     schema.Ref{Namespace: tj.Namespace, Name: tj.Name, UID: uid},
 		Attempt: attempt,
 		State:   task.LeaseCancelled,

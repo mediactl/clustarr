@@ -25,6 +25,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/transcode/task"
 )
 
 // maxMessage is status.transcode.message's MaxLength.
@@ -40,6 +41,35 @@ type Inputs struct {
 	Eligibility  Eligibility
 	Ledger       Ledger
 	Now          metav1.Time
+
+	// Record is the file's clustarr-transcodes record, read while the block
+	// is in flight, a dispatch grant is held, or a withdrawn dispatch's fact
+	// can still land (§4.10); RecordRev its revision (0: absent).
+	Record    *task.Record
+	RecordRev uint64
+	// Folders are the namespace's RootFolders, read when a task is built.
+	Folders []catalogv1alpha1.RootFolder
+	// Issue is the pass's sequence issuer (remediation.View.Issue).
+	Issue func(recordSeq int64) int64
+	// Lease is what Gather read of the file's lease while it is Running.
+	Lease LeaseView
+	// TaskStored is whether the stream still holds the file's task, read
+	// only once a lease has been missing for leaseLostGrace; nil: unread.
+	TaskStored *bool
+	// Profiles are the TranscodeProfiles by name.
+	Profiles map[string]*transcodev1alpha1.TranscodeProfile
+}
+
+// profile is the TranscodeProfile named name: from Profiles, else the
+// winning profile when it is that one.
+func (in Inputs) profile(name string) *transcodev1alpha1.TranscodeProfile {
+	if tp, ok := in.Profiles[name]; ok {
+		return tp
+	}
+	if p := in.Eligibility.Profile; p != nil && p.Name == name && in.Profiles == nil {
+		return p
+	}
+	return nil
 }
 
 // GrantOutcome is what Plan did with a held grant.
@@ -56,13 +86,35 @@ const (
 )
 
 // Decision is Plan's answer: the block to render (nil: none), what to do
-// with a held grant, and when to come back.
+// with a held grant, and when to come back -- and what the apply owes after
+// it lands, in §3.8's order: the record request, the task publish, the
+// ledger confirmation, the history and the R9 observation.
 type Decision struct {
 	Block  *catalogv1alpha1.TranscodeState
 	Grant  GrantOutcome
 	Due    time.Time
 	Again  bool
 	Events []Event
+
+	// ConfirmSeq is the dispatch a confirmed dispatch grant became.
+	ConfirmSeq int64
+	// Request is the record to write at RequestRev (0: create).
+	Request    *task.Record
+	RequestRev uint64
+	// Publish is the task to publish under its Msg-Id; Republish when the
+	// record already says requested at its Seq.
+	Publish   *task.Task
+	Republish bool
+	// History are the events the transition owes.
+	History []HistoryEvent
+	// Observe is the R9 observation of a dispatch that just became
+	// terminal after running.
+	Observe *Terminal
+	// Unpaced exempts the apply from the status-write limiter (§3.7): a
+	// dispatch, an incorporation.
+	Unpaced bool
+	// Records are the record states this pass incorporated.
+	Records []string
 }
 
 // Event is one Kubernetes Event Plan asks for on the MediaFile.
@@ -76,6 +128,10 @@ func Plan(in Inputs) Decision {
 		return Decision{Block: legacy(prev)}
 	case prev != nil && prev.Phase == catalogv1alpha1.TranscodePhaseSwapping:
 		return planSwap(in)
+	case in.Ledger.Grant == GrantDispatch:
+		return planDispatch(in)
+	case prev != nil && (prev.Phase == catalogv1alpha1.TranscodePhaseQueued || prev.Phase == catalogv1alpha1.TranscodePhaseRunning):
+		return planInFlight(in)
 	case in.Ledger.Grant == GrantWindow:
 		return planWindow(in)
 	case prev != nil && (prev.Phase == catalogv1alpha1.TranscodePhasePending || prev.Phase == catalogv1alpha1.TranscodePhasePlanned):

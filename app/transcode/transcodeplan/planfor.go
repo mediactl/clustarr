@@ -195,6 +195,16 @@ func truncate(s string, n int) string {
 	return string(r[:n])
 }
 
+// tail keeps the last n characters of s: the end of an encoder's stderr is
+// where its error is.
+func tail(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return string(r[len(r)-n:])
+}
+
 // firstNonEmpty is a, else b.
 func firstNonEmpty(a, b string) string {
 	if a != "" {

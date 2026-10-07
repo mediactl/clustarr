@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -118,7 +119,7 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	}
 	plan = withX265Pools(plan, r.o.Threads)
 	r.tier = string(tier)
-	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.Job.UID, r.t.Attempt)
+	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.File.UID, r.t.Seq)
 	sweepEarlierAttempts(ctx, part)
 	log.InfoContext(ctx, "transcode worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
 		"encoder", plan.Video.Encoder, "decode", plan.Video.Decode, "reason", plan.Reason, "droppedSubtitles", plan.Dropped)
@@ -285,14 +286,14 @@ func sweepEarlierAttempts(ctx context.Context, part string) {
 		p, ok := fsops.ParseTranscodePart(path)
 		// The attempt's part, or one of its sidecar parts (fsops.SidecarPath).
 		stemOK := p.Stem == cur.Stem || (strings.HasPrefix(p.Stem, cur.Stem+".") && fsops.SubtitleExt(p.Ext))
-		if !ok || !e.Type().IsRegular() || !stemOK || p.JobUID8 != cur.JobUID8 || p.Attempt >= cur.Attempt {
+		if !ok || !e.Type().IsRegular() || !stemOK || p.FileUID8 != cur.FileUID8 || p.Seq >= cur.Seq {
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.WarnContext(ctx, "transcode worker: removing an earlier attempt's part file failed", "path", path, "error", err)
 			continue
 		}
-		log.InfoContext(ctx, "transcode worker: removed an earlier attempt's part file", "path", path, "attempt", p.Attempt)
+		log.InfoContext(ctx, "transcode worker: removed an earlier dispatch's part file", "path", path, "seq", p.Seq)
 	}
 }
 
@@ -355,17 +356,16 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	defer metrics.TranscodeJobsActive.WithLabelValues(r.tier).Dec()
 	r.started = r.o.Now()
 
-	rep := newProgressReporter(r.o.ProgressInterval, durationMillis, r.o.Now, r.applyProgress)
 	var pod *schema.Ref
 	if r.o.PodName != "" {
-		pod = &schema.Ref{Namespace: r.t.Job.Namespace, Name: r.o.PodName}
+		pod = &schema.Ref{Namespace: r.t.File.Namespace, Name: r.o.PodName}
 	}
-	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval, r.t.Job, pod, durationMillis, r.o.Now)
-	rep.start(ctx)
+	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval, r.t.File, r.t.Seq, pod, durationMillis, r.o.Now)
 	tel.start(ctx)
+	var speed atomic.Int32
 	progress := func(p transcode.Progress) {
-		rep.observe(p)
 		tel.observe(p)
+		speed.Store(p.SpeedMilli)
 	}
 	var logTail string
 	var runErr error
@@ -374,11 +374,8 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	} else {
 		logTail, runErr = r.o.Engine.Encode(ctx, plan, tier, local, part, progress)
 	}
-	rep.stop(ctx)
 	tel.stop(ctx)
-	if p, ok := rep.last(); ok {
-		r.speedMilli = p.SpeedMilli
-	}
+	r.speedMilli = speed.Load()
 	if runErr == nil {
 		return nil
 	}

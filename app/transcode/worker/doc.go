@@ -20,8 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // onto the task by [jobspec.BuildTask] before Process is ever called, and
 // every output (progress, the result, stderr) comes back on the returned Outcome
 // for the caller to do something with. The caller is [Serve], the pool
-// worker loop cmd/transcode runs, which reports each Outcome to
-// transcode as a finished status event (spec §18.1).
+// worker loop cmd/transcode runs, which answers each Outcome in the
+// dispatch's record in clustarr-transcodes (loop spec §4.12).
 //
 // # Sequence
 //
@@ -36,9 +36,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     is compared against the controller's recorded ArgsHash -- a mismatch
 //     is logged), EnsureFreeSpace beside the output, where the .part is
 //     written.
-//  4. Runner.Run, with progress reported through [Options.OnProgress] at
-//     most every [Options.ProgressInterval], and -- given a bus -- written
-//     as schema.TranscodeProgress to the clustarr-progress bucket at most
+//  4. The encode, with progress written -- given a bus -- as
+//     schema.TranscodeProgress to the clustarr-progress bucket at most
 //     every [Options.TelemetryInterval] (1 Hz, spec §5), under [ProgressKey].
 //  5. Verifier.Verify (ruling R2: duration tolerance plus stream layout),
 //     plus the profile's maxOutputToSourcePercent.
@@ -57,8 +56,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Where the output goes (gap-fix ruling R-11)
 //
-// [jobspec.OutputPath] decides, and the TranscodeJob controller plans with
-// the same function: spec.outputPath when set; otherwise <stem>.<container> beside
+// [jobspec.OutputPath] decides, and the transcode planner plans with the
+// same function: <stem>.<container> beside
 // the source when policy.replaceSource is true (the source path itself for a
 // same-container profile -- the in-place swap below -- or a new name for a
 // container change); otherwise "<stem> - <profile>.<container>" beside the
@@ -88,14 +87,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     its probe hash no longer matches spec.sourceProbeHash. Before
 //     refusing, the worker reads the file's CLUSTARR_PROFILE tag: if it is
 //     this profile at this hash, the swap already happened, and the worker
-//     only writes status.result and exits 0. Without that check a crash in
-//     the last few milliseconds of an hours-long encode would turn a
-//     finished transcode into a permanently Failed Job.
+//     only answers the result. Without that check a crash in the last few
+//     milliseconds of an hours-long encode would turn a finished transcode
+//     into a permanently Failed one.
 //
 // # The swap to a new name, and what a retry finds
 //
-// When the output has its own name (a container change, a kept source, an
-// explicit spec.outputPath), the verified output is renamed to that name
+// When the output has its own name (a container change, a kept source), the
+// verified output is renamed to that name
 // first, and only then is the source retired -- moved into the recycle bin
 // (fsops.Recycle), or unlinked under policy.recycleBin=false -- or, under
 // replaceSource=false, left alone. The library holds a complete file at
@@ -105,19 +104,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - after the rename, before the retirement: both files exist, and the
 //     output carries this profile's tag. The retry finds that tag on the
 //     output before it does anything else, retires the source if it is
-//     still the planned file, writes status.result and exits 0 -- without
-//     encoding again.
+//     still the planned file, and answers the result -- without encoding
+//     again.
 //   - after the retirement: the source is gone and the tagged output is in
 //     place; the retry finds the tag, has nothing to retire, and records
 //     the result.
 //
 // A file already at the output's name WITHOUT this profile's tag is someone
-// else's: the job fails outright (exit 3) rather than overwrite it.
+// else's: the dispatch fails outright (InvalidSource) rather than overwrite
+// it.
 //
-// status.result.outputPath names where the output ended up. For anything
-// but an in-place swap that is a new path, and catalog's MediaFile
-// reconciler, which takes over spec.path on a swap
-// (catalogv1alpha1.MediaFileSpec.Path's doc), must follow it.
+// The answer's result.outputPath names where the output ended up. For
+// anything but an in-place swap that is a new path, and the remediation
+// loop, which takes over spec.path on a swap once it has probed the output
+// (catalogv1alpha1.MediaFileSpec.Path's doc), follows it.
 //
 // Only library paths are ever replaced or retired. A seeding copy under
 // /data/torrents is a separate hard link to the original inode; renaming
@@ -129,21 +129,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Reporting
 //
-// This package writes none: [Process] reads and writes files only, and
-// reports progress, the result and stderr on the returned Outcome (and, for
-// progress, through [Options.OnProgress] as it happens). It never talks to
-// Kubernetes, and holds no Kubernetes credentials at all -- the pool Job
-// pods it runs in carry no ServiceAccount (design spec §18.1).
+// This package writes no Kubernetes object: [Process] reads and writes files
+// only, and reports the result and stderr on the returned Outcome. It holds
+// no Kubernetes credentials at all -- the pool Job pods it runs in mount no
+// ServiceAccount token (design spec §18.1).
 //
-// [Serve] is what turns an Outcome into the three things the caller reports:
+// [Serve] is what turns an Outcome into the three things the worker writes,
+// all on NATS:
 //
 //   - a lease held in the clustarr-transcode-leases KV bucket, fencing a
-//     redelivered task against a still-live attempt (spec §7, §17);
-//   - claimed, progress and finished [task.StatusEvent]s published on
-//     clustarr.work.transcode.result.<jobUID>, which transcode's
-//     transcode-results consumer turns into TranscodeJob.status --
-//     the only writer of it, through one compare-and-swap apply path (design
-//     spec §18.1, §18.2);
+//     redelivered task against a still-live dispatch (spec §7, §17);
+//   - the dispatch's record in clustarr-transcodes, claimed and answered by
+//     compare-and-swap (loop spec §4.8, §4.12), which the remediation loop
+//     incorporates into MediaFile status.transcode -- its only writer;
 //   - 1 Hz telemetry written to the clustarr-progress KV bucket, best effort
-//     for UIs and needing no RBAC either.
+//     for the ui.
 package worker

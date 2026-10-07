@@ -21,7 +21,7 @@ package scanapply
 // spec (import-worker) and the observed-fingerprint annotation (import),
 // deletes the MediaFile of a file gone from disk, creates the Movie or
 // Series a scan's attribution proposes, reads every item kind a file may
-// belong to and the TranscodeJobs a part file may still belong to, and
+// belong to (a part file's MediaFile among them), and
 // creates the LibraryScan that re-observes a folder whose basis moved.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
@@ -29,4 +29,3 @@ package scanapply
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch

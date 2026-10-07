@@ -157,6 +157,7 @@ var resolvers = map[string]resolver{
 	schema.RssTask{}.Schema():           resolveRssTask,
 	schema.DownloadEvent{}.Schema():     resolveDownloadEvent,
 	schema.JobEvent{}.Schema():          resolveJobEvent,
+	schema.JobEventV1{}.Schema():        resolveJobEventV1,
 	transcodeTaskRef{}.Schema():         resolveTranscodeTask,
 	schema.SubtitleEvent{}.Schema():     resolveSubtitleEvent,
 	schema.SubtitleEventV1Schema:        resolveSubtitleEventV1,
@@ -423,8 +424,20 @@ func resolveDownloadEvent(key string, data []byte) Target {
 	return Target{Namespace: ns}
 }
 
+// resolveJobEvent resolves a v2 transcode event to its MediaFile (loop
+// spec §5.16).
 func resolveJobEvent(key string, data []byte) Target {
 	var p schema.JobEvent
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.File.Name == "" {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaFileTarget(p.File.Namespace, p.File.Name)
+}
+
+// resolveJobEventV1 resolves a v1 transcode event to its TranscodeJob (the
+// doomed controller's; F8.6 retires it).
+func resolveJobEventV1(key string, data []byte) Target {
+	var p schema.JobEventV1
 	if err := schema.Decode(p.Schema(), data, &p); err != nil {
 		return Target{Namespace: namespaceOf(key)}
 	}

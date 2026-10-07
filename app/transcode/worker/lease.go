@@ -35,10 +35,10 @@ var (
 
 // claim takes t's lease. It reports the lease it found when it could not:
 // ok=false with err=nil covers three outcomes handle tells apart by cur.State
-// and t.Attempt --
-//   - cur.State==Held and cur.Attempt<=t.Attempt: someone else actively
-//     holds an equal-or-older attempt; handle naks with HeldRetry.
-//   - cur.Attempt>t.Attempt, in any state: a later attempt already has (or
+// and t.Seq --
+//   - cur.State==Held and cur.Seq<=t.Seq: someone else actively
+//     holds an equal-or-older dispatch; handle naks with HeldRetry.
+//   - cur.Seq>t.Seq, in any state: a later attempt already has (or
 //     had) this job's lease, so this delivery was superseded before it ever
 //     ran; handle acks it (fix round 1, item 6).
 //   - a cancel marker names this attempt or a later one: withdrawn; handle
@@ -52,7 +52,7 @@ var (
 // item 2). Re-read and decide again instead, bounded so a genuinely stuck
 // bus still returns.
 func (s *server) claim(ctx context.Context, t task.Task) (cur task.Lease, rev uint64, ok bool, err error) {
-	key := events.TranscodeLeaseKey(t.Job.UID)
+	key := events.TranscodeLeaseKey(t.File.UID)
 	val, _ := json.Marshal(s.held(t))
 	for try := 0; try < 3; try++ {
 		rev, err = s.o.Leases.Create(ctx, key, val)
@@ -74,9 +74,9 @@ func (s *server) claim(ctx context.Context, t task.Task) (cur task.Lease, rev ui
 			return task.Lease{}, 0, false, uerr
 		}
 		switch {
-		case cur.Attempt > t.Attempt:
+		case cur.Seq > t.Seq:
 			return task.Lease{}, 0, false, nil
-		case cur.State != task.LeaseCancelled || cur.Attempt >= t.Attempt:
+		case cur.State != task.LeaseCancelled || cur.Seq >= t.Seq:
 			return cur, 0, false, nil
 		}
 		var next uint64
@@ -96,7 +96,7 @@ func (s *server) claim(ctx context.Context, t task.Task) (cur task.Lease, rev ui
 
 func (s *server) held(t task.Task) task.Lease {
 	return task.Lease{
-		Job: t.Job, Attempt: t.Attempt, State: task.LeaseHeld,
+		File: t.File, Seq: t.Seq, State: task.LeaseHeld,
 		Pod: s.o.PodName, Node: s.o.Node, Since: s.clock.Now().UTC(),
 	}
 }
@@ -132,7 +132,7 @@ func (r *leaseRev) set(v uint64) {
 // is 30s short of the lease TTL, so the work ends before anyone can claim it.
 func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m events.Message, t task.Task, rev *leaseRev) <-chan struct{} {
 	done := make(chan struct{})
-	key := events.TranscodeLeaseKey(t.Job.UID)
+	key := events.TranscodeLeaseKey(t.File.UID)
 	val, _ := json.Marshal(s.held(t))
 	// The ticker, and the FenceAfter baseline lastOK, are both captured here
 	// in the caller's goroutine, rather than inside the one below: handle
@@ -173,10 +173,10 @@ func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m even
 					return
 				}
 				switch {
-				case cur.State == task.LeaseCancelled && cur.Attempt >= t.Attempt:
+				case cur.State == task.LeaseCancelled && cur.Seq >= t.Seq:
 					stop(errCancelled)
 					return
-				case cur.State == task.LeaseHeld && cur.Pod == s.o.PodName && cur.Attempt == t.Attempt:
+				case cur.State == task.LeaseHeld && cur.Pod == s.o.PodName && cur.Seq == t.Seq:
 					// A lost Update reply (fix round 1, item 5): our own
 					// write landed on the server and this is it -- we just
 					// never saw the new revision come back. Adopt it and
@@ -224,7 +224,7 @@ var errBeforeSwapAborted = errors.New("transcode worker: lease could not be reas
 // switch settles the task the same way it would have if renew's own tick
 // had caught it first.
 func (s *server) reassertBeforeSwap(ctx context.Context, stop context.CancelCauseFunc, t task.Task, rev *leaseRev) error {
-	key := events.TranscodeLeaseKey(t.Job.UID)
+	key := events.TranscodeLeaseKey(t.File.UID)
 	val, _ := json.Marshal(s.held(t))
 	next, err := s.o.Leases.Update(ctx, key, val, rev.get())
 	if err == nil {
@@ -242,9 +242,9 @@ func (s *server) reassertBeforeSwap(ctx context.Context, stop context.CancelCaus
 		return errBeforeSwapAborted
 	}
 	switch {
-	case cur.State == task.LeaseCancelled && cur.Attempt >= t.Attempt:
+	case cur.State == task.LeaseCancelled && cur.Seq >= t.Seq:
 		stop(errCancelled)
-	case cur.State == task.LeaseHeld && cur.Pod == s.o.PodName && cur.Attempt == t.Attempt:
+	case cur.State == task.LeaseHeld && cur.Pod == s.o.PodName && cur.Seq == t.Seq:
 		rev.set(e.Revision) // our own write landed; only the reply was lost
 		return nil
 	default:

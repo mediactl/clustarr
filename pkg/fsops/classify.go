@@ -80,10 +80,10 @@ var MediaExtensions = map[Kind]map[string]bool{
 	KindComic:     {".cbz": true, ".cbr": true, ".cb7": true, ".cbt": true, ".pdf": true},
 }
 
-// partAttemptRE matches exactly the infix pkg/transcode's uniquePartPath
-// generates -- ".part-" followed by the first 8 characters of the job's
-// (lower-case hex) Kubernetes UID and the decimal attempt number, nothing
-// looser. Final review R29 fix 3: a HasPrefix(ext, ".part-") check matched
+// partAttemptRE matches exactly the infix app/transcode/worker's
+// uniquePartPath generates -- ".part-" followed by the first 8 characters of
+// the MediaFile's (lower-case hex) Kubernetes UID and the decimal dispatch
+// sequence, nothing looser. Final review R29 fix 3: a HasPrefix(ext, ".part-") check matched
 // any "<stem>.part-<anything>.<ext>", so a real release name shaped like
 // "Movie.part-two.mkv" or "Film.part-1.mkv" was silently skipped by rescan
 // as though it were an in-progress transcode.

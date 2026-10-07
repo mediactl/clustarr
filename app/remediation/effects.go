@@ -63,11 +63,14 @@ type RecordWrite struct {
 }
 
 // Publish puts one task on the bus under its Msg-Id, which carries the
-// remediation's sequence; At, when set, schedules it.
+// remediation's sequence; At, when set, schedules it. Result, when set, is
+// told how the publish went (nil on success): the transcode planner holds a
+// failure in the admission ledger for its next pass to show (§5.8).
 type Publish struct {
 	Subject, MsgID, ExpectStream string
 	Envelope                     *events.Envelope
 	At                           time.Time
+	Result                       func(error)
 }
 
 // Withdraw closes one remediation's dispatch at Seq through the emitting
@@ -193,7 +196,11 @@ func (r *Reconciler) runEffect(ctx context.Context, uid string, p Bound, eff Eff
 		if !e.At.IsZero() {
 			opts = append(opts, events.WithScheduleAt(e.At))
 		}
-		if _, err := r.env.Bus.Publish(ctx, e.Subject, e.Envelope, opts...); err != nil {
+		_, err := r.env.Bus.Publish(ctx, e.Subject, e.Envelope, opts...)
+		if e.Result != nil {
+			e.Result(err)
+		}
+		if err != nil {
 			return Transient(fmt.Errorf("publish %s: %w", e.Subject, err))
 		}
 		return nil

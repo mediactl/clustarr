@@ -33,7 +33,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
@@ -141,8 +140,9 @@ type Worker struct {
 }
 
 // The rescan worker's RBAC: reads only (ADR-0019 §7.6). It reads the
-// catalog items a file may belong to, the MediaFiles that record paths, the
-// TranscodeJobs whose outputs and parts it must not adopt, the RootFolder
+// catalog items a file may belong to, the MediaFiles that record paths (and,
+// in their transcode blocks, the outputs and parts it must not adopt), the
+// RootFolder
 // and LibraryScan it walks for, and the QualityProfiles it scores a file
 // against. Every write -- an item created, a MediaFile recorded or deleted,
 // a post-transcode change handed to catalog -- is the manager's scan
@@ -153,7 +153,6 @@ type Worker struct {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
@@ -223,17 +222,19 @@ type scanState struct {
 	// every file up to and including it, whose outcome is already counted.
 	resumeAfter string
 
-	// transcodeOutputs maps each status.result.outputPath of a Succeeded
-	// TranscodeJob in the scan's namespace (cleaned) to that job's name:
-	// files the walk must not adopt unless a MediaFile already records
-	// them. Listed once per scan (transcodeJobs).
+	// transcodeOutputs maps each status.transcode.result.outputPath of a
+	// MediaFile in the scan's namespace (cleaned) to that file's name -- a
+	// Swapping block's, whose swap the loop has not incorporated yet, or a
+	// Succeeded kept copy's (replaceSource=false): files the walk must not
+	// adopt unless a MediaFile already records them. Listed once per scan
+	// (transcodeBlocks).
 	transcodeOutputs map[string]string
 
-	// liveTranscodeJobs holds the first eight characters of the UID of
-	// every non-terminal TranscodeJob in the scan's namespace: the jobs
-	// whose part files the walk never removes (sweepOrphanPart). Listed
-	// with transcodeOutputs (transcodeJobs).
-	liveTranscodeJobs map[string]bool
+	// liveTranscodes holds the first eight characters of the UID of every
+	// MediaFile in the scan's namespace whose transcode is Queued, Running
+	// or Swapping: the files whose dispatches' part files the walk never
+	// reports (reportOrphanPart). Listed with transcodeOutputs.
+	liveTranscodes map[string]bool
 
 	// creates holds the items this walk proposed to create, by name: every
 	// later file of the same item carries the same proposal, so the
@@ -389,11 +390,11 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		st.manualHasMedia = hasMedia
 	}
 
-	outputs, live, err := w.transcodeJobs(ctx, scan.Namespace)
+	outputs, live, err := w.transcodeBlocks(ctx, scan.Namespace)
 	if err != nil {
 		return w.abort(ctx, m, st, err)
 	}
-	st.transcodeOutputs, st.liveTranscodeJobs = outputs, live
+	st.transcodeOutputs, st.liveTranscodes = outputs, live
 
 	switch {
 	case st.manual != nil:
@@ -592,41 +593,45 @@ func (w *Worker) visit(
 	return w.handleMediaFile(ctx, st, path, info, probe)
 }
 
-// transcodeJobs lists the scan namespace's TranscodeJobs once and returns
-// the output path of every Succeeded one that has a result, mapped to the
-// job's name, and the first eight characters of the UID of every one not
-// yet terminal (Succeeded, Failed or Skipped): the jobs a part file may
-// still belong to. One List per scan, from the cache, not one per file.
-func (w *Worker) transcodeJobs(ctx context.Context, ns string) (outputs map[string]string, live map[string]bool, err error) {
-	var jobs transcodev1alpha1.TranscodeJobList
-	if err := w.Client.List(ctx, &jobs, client.InNamespace(ns)); err != nil {
-		return nil, nil, fmt.Errorf("rescan: list transcode jobs in %s: %w", ns, err)
+// transcodeBlocks lists the scan namespace's MediaFiles once and returns
+// the output path of every transcode block that names one the library must
+// not adopt -- a Swapping block's, and a Succeeded kept copy's -- mapped to
+// the file's name, and the first eight characters of the UID of every file
+// whose transcode is in flight (Queued, Running, Swapping): the files a part
+// may still belong to. One List per scan, from the cache, not one per file.
+func (w *Worker) transcodeBlocks(ctx context.Context, ns string) (outputs map[string]string, live map[string]bool, err error) {
+	var files catalogv1alpha1.MediaFileList
+	if err := w.Client.List(ctx, &files, client.InNamespace(ns), client.UnsafeDisableDeepCopy); err != nil {
+		return nil, nil, fmt.Errorf("rescan: list media files in %s: %w", ns, err)
 	}
 	outputs, live = map[string]string{}, map[string]bool{}
-	for i := range jobs.Items {
-		j := &jobs.Items[i]
-		switch j.Status.Phase {
-		case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed,
-			transcodev1alpha1.TranscodeJobPhaseSkipped:
-		default:
-			if uid := string(j.UID); len(uid) >= 8 {
+	for i := range files.Items {
+		mf := &files.Items[i]
+		t := mf.Status.Transcode
+		if t == nil {
+			continue
+		}
+		switch t.Phase {
+		case catalogv1alpha1.TranscodePhaseQueued, catalogv1alpha1.TranscodePhaseRunning, catalogv1alpha1.TranscodePhaseSwapping:
+			if uid := string(mf.UID); len(uid) >= 8 {
 				live[uid[:8]] = true
 			}
 		}
-		if j.Status.Phase != transcodev1alpha1.TranscodeJobPhaseSucceeded || j.Status.Result == nil ||
-			j.Status.Result.OutputPath == "" {
+		if t.Result == nil || t.Result.OutputPath == "" ||
+			(t.Phase != catalogv1alpha1.TranscodePhaseSwapping && t.Phase != catalogv1alpha1.TranscodePhaseSucceeded) {
 			continue
 		}
-		outputs[filepath.Clean(j.Status.Result.OutputPath)] = j.Name
+		outputs[filepath.Clean(t.Result.OutputPath)] = mf.Name
 	}
 	return outputs, live, nil
 }
 
 // transcodeOutput reports a media file transcode wrote. Once a MediaFile
 // records the path -- catalog moved spec.path to a container change's new
-// file, or the job transcoded in place -- the file is the catalog's like any
-// other, and skip is false. Until then a file a Succeeded TranscodeJob names
-// is reported with that relation (schema.ScanObservation.TranscodeOutputOf)
+// file, or the transcode replaced the file in place -- the file is the
+// catalog's like any other, and skip is false. Until then a file a
+// MediaFile's transcode block names is reported with that relation
+// (schema.ScanObservation.TranscodeOutputOf)
 // and no attribution, and the manager's scan applier leaves it alone,
 // counting it (Progress.TranscodeOutputs, P44): a container change writes
 // <stem>.<container> and retires the source, and replaceSource=false keeps
@@ -639,8 +644,8 @@ func (w *Worker) transcodeJobs(ctx context.Context, ns string) (outputs map[stri
 func (w *Worker) transcodeOutput(
 	ctx context.Context, st *scanState, path string, info os.FileInfo, probe *fileProbe,
 ) (skip bool, err error) {
-	job, byJob := st.transcodeOutputs[filepath.Clean(path)]
-	if !byJob {
+	of, byBlock := st.transcodeOutputs[filepath.Clean(path)]
+	if !byBlock {
 		if _, _, named := keptOutputName(filepath.Base(path)); !named {
 			return false, nil
 		}
@@ -649,20 +654,20 @@ func (w *Worker) transcodeOutput(
 	if err != nil || existing != nil {
 		return false, err
 	}
-	if !byJob {
+	if !byBlock {
 		return w.keptOutput(ctx, st, path, info, probe)
 	}
 	st.progress.FilesSeen++
-	if err := w.reportTranscodeOutput(ctx, st, path, info, job, ""); err != nil {
+	if err := w.reportTranscodeOutput(ctx, st, path, info, of, ""); err != nil {
 		return false, err
 	}
 	logging.FromContext(ctx).Debug("reported a transcode output catalog has not recorded yet",
-		"path", relPath(st.root.Spec.Path, path), "transcodeJob", job)
+		"path", relPath(st.root.Spec.Path, path), "mediaFile", of)
 	return true, nil
 }
 
 // reportTranscodeOutput reports a file transcode wrote for of (the
-// TranscodeJob, or the kept source's MediaFile) with no attribution: the
+// MediaFile the transcode was of) with no attribution: the
 // applier never adopts it. A dry run counts it as the applier would.
 func (w *Worker) reportTranscodeOutput(
 	ctx context.Context, st *scanState, path string, info os.FileInfo, of, profileTag string,

@@ -100,3 +100,33 @@ func (l *Ledger) grantLocked(uid types.UID, key types.NamespacedName, kind trans
 	l.grants[uid] = &grant{kind: kind, class: class, profile: profile, expires: now.Add(grantTTL)}
 	l.enqueueLocked(key, GrantPriority)
 }
+
+// NoteLeaseMissing records whether uid's lease was found missing at now,
+// and returns since when it has been (zero when it is not): the lost-worker
+// grace counts from the first pass that missed it (§5.5).
+func (l *Ledger) NoteLeaseMissing(uid types.UID, missing bool, now time.Time) time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !missing {
+		delete(l.leaseMissingSince, uid)
+		return time.Time{}
+	}
+	since, ok := l.leaseMissingSince[uid]
+	if !ok {
+		since = now
+		l.leaseMissingSince[uid] = since
+	}
+	return since
+}
+
+// PublishFailed holds a task publish failure of uid's dispatch seq for the
+// next pass's message, or clears it (err nil).
+func (l *Ledger) PublishFailed(uid types.UID, _ int64, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err == nil {
+		delete(l.publishFailed, uid)
+		return
+	}
+	l.publishFailed[uid] = err.Error()
+}

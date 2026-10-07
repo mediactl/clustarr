@@ -19,9 +19,62 @@ package schema
 
 import "time"
 
-// JobEvent reports a transition of a TranscodeJob. Subject:
-// clustarr.evt.transcode.job.<queued|started|succeeded|failed|skipped>.<uid>.
+// JobEvent reports a transition of a MediaFile's transcode (loop spec
+// §5.16). Subject:
+// clustarr.evt.transcode.job.<queued|started|succeeded|failed|skipped|withdrawn>.<mfUID>,
+// Msg-Id <mfUID>/transcode/<seq>/<action>.
 type JobEvent struct {
+	// File is the MediaFile the transcode is of.
+	File Ref `json:"file"`
+
+	// Seq is the dispatch the transition is of (status.transcode.dispatch.seq).
+	Seq int64 `json:"seq"`
+
+	// Action is one of queued, started, succeeded, failed, skipped or
+	// withdrawn.
+	Action string `json:"action"`
+
+	// ProfileRef is the TranscodeProfile the file is transcoded under.
+	ProfileRef *Ref `json:"profileRef,omitempty"`
+
+	// InputPath is the source file.
+	InputPath string `json:"inputPath,omitempty"`
+
+	// OutputPath is the encoded file, once one exists.
+	OutputPath string `json:"outputPath,omitempty"`
+
+	// Mode is the plan mode chosen, e.g. "transcode" or "remuxOnly".
+	Mode string `json:"mode,omitempty"`
+
+	// Encoder is the encoder the plan selected.
+	Encoder string `json:"encoder,omitempty"`
+
+	// Reason explains a skip, a failure or a withdrawal.
+	Reason string `json:"reason,omitempty"`
+
+	// InputBytes is the source size.
+	InputBytes int64 `json:"inputBytes,omitempty"`
+
+	// OutputBytes is the encoded size.
+	OutputBytes int64 `json:"outputBytes,omitempty"`
+
+	// SavedPercent is the size reduction as a whole percentage, 0..100.
+	SavedPercent int32 `json:"savedPercent,omitempty"`
+
+	// DurationSeconds is how long the encode ran.
+	DurationSeconds int64 `json:"durationSeconds,omitempty"`
+
+	// At is when the transition happened.
+	At time.Time `json:"at"`
+}
+
+// Schema implements Payload.
+func (JobEvent) Schema() string { return "transcode.JobEvent.v2" }
+
+// JobEventV1 reports a transition of a TranscodeJob (the doomed controller's;
+// kept for history until F8.6). Subject:
+// clustarr.evt.transcode.job.<queued|started|succeeded|failed|skipped>.<uid>.
+type JobEventV1 struct {
 	// JobRef is the TranscodeJob the event is about.
 	JobRef Ref `json:"jobRef"`
 
@@ -63,14 +116,18 @@ type JobEvent struct {
 }
 
 // Schema implements Payload.
-func (JobEvent) Schema() string { return "transcode.JobEvent.v1" }
+func (JobEventV1) Schema() string { return "transcode.JobEvent.v1" }
 
-// TranscodeProgress is 1 Hz telemetry published on core NATS at
-// clustarr.progress.transcode.<uid> and mirrored into the clustarr-progress
-// key/value bucket. It is never persisted to a stream.
+// TranscodeProgress is 1 Hz telemetry a pool worker writes into the
+// clustarr-progress key/value bucket at transcode.<mfUID> (loop spec
+// §4.12). It is never persisted to a stream nor written to etcd; the ui
+// reads it.
 type TranscodeProgress struct {
-	// JobRef is the TranscodeJob this telemetry is for.
-	JobRef Ref `json:"jobRef"`
+	// File is the MediaFile being transcoded.
+	File Ref `json:"file"`
+
+	// Seq is the dispatch being run.
+	Seq int64 `json:"seq"`
 
 	// PercentMilli is completion in thousandths of a percent, 0..100000.
 	PercentMilli int32 `json:"percentMilli"`
@@ -103,4 +160,4 @@ type TranscodeProgress struct {
 }
 
 // Schema implements Payload.
-func (TranscodeProgress) Schema() string { return "transcode.Progress.v1" }
+func (TranscodeProgress) Schema() string { return "transcode.Progress.v2" }

@@ -97,20 +97,9 @@ type Options struct {
 	// pkg/transcode leave pools= unset.
 	Threads int32
 
-	// ProgressInterval bounds how often OnProgress is called. Zero means
-	// [DefaultProgressInterval].
-	ProgressInterval time.Duration
-
-	// OnProgress reports one status-shaped progress sample at most every
-	// ProgressInterval. Process makes no Kubernetes client of its own, so
-	// applying a sample anywhere -- status.progress or otherwise -- is
-	// entirely the caller's business; nil drops status-shaped progress.
-	OnProgress func(context.Context, transcodev1alpha1.Progress) error
-
 	// Telemetry is the clustarr-progress bucket the encode's 1 Hz
-	// schema.TranscodeProgress goes to, under [ProgressKey] (spec §5). Nil
-	// writes none: the bus is optional for a worker, and OnProgress (when
-	// set) is the record either way.
+	// schema.TranscodeProgress goes to, under [ProgressKey] (spec §5): the
+	// only progress there is (loop spec §4.12). Nil writes none.
 	Telemetry events.KV
 
 	// TelemetryInterval is how often Telemetry is written at most. Zero
@@ -166,9 +155,6 @@ func ThreadsFromEnv() int32 {
 func (o Options) withDefaults() Options {
 	if o.DataDir == "" {
 		o.DataDir = jobspec.LogicalDataRoot
-	}
-	if o.ProgressInterval <= 0 {
-		o.ProgressInterval = DefaultProgressInterval
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -477,21 +463,18 @@ func (r *runner) beforeSwap(ctx context.Context, partPath string) error {
 	return nil
 }
 
-// uniquePartPath rewrites generic -- the "<stem>.part.<ext>" pkg/transcode.
-// Plan rendered from a controller-reproducible OutputPath -- into the
-// physical scratch file this attempt actually writes to:
-// "<stem>.part-<uid8>-<attempt>.<ext>" (final review I2a). Called only
-// after compareWithRecordedPlan has already compared the generic form's
-// argsHash against status.plan.argsHash, so the substitution changes
-// nothing the controller needs to reproduce.
-func uniquePartPath(generic, jobUID string, attempt int32) string {
+// uniquePartPath rewrites generic -- the "<stem>.part.<ext>" beside the
+// output -- into the physical scratch file this dispatch actually writes
+// to: "<stem>.part-<fileUID8>-<seq>.<ext>" (final review I2a; loop spec
+// §4.12: keyed by the MediaFile and its dispatch sequence).
+func uniquePartPath(generic, fileUID string, seq int64) string {
 	ext := filepath.Ext(generic)
 	stem := strings.TrimSuffix(strings.TrimSuffix(generic, ext), ".part")
-	uid8 := jobUID
+	uid8 := fileUID
 	if len(uid8) > 8 {
 		uid8 = uid8[:8]
 	}
-	return fmt.Sprintf("%s.part-%s-%d%s", stem, uid8, attempt, ext)
+	return fmt.Sprintf("%s.part-%s-%d%s", stem, uid8, seq, ext)
 }
 
 // swap is where one run's output goes and what happens to its source.
@@ -636,15 +619,6 @@ func (r *runner) probe(ctx context.Context, path string) (*commonv1.MediaInfo, *
 	return r.o.Engine.Probe(ctx, path)
 }
 
-// applyProgress reports one progress sample through o.OnProgress, when the
-// caller gave one; nil drops it on the floor.
-func (r *runner) applyProgress(ctx context.Context, p transcodev1alpha1.Progress) error {
-	if r.o.OnProgress == nil {
-		return nil
-	}
-	return r.o.OnProgress(ctx, p)
-}
-
 // applyStderrTail records tail into the Outcome. It cannot fail: unlike the
 // Kubernetes-era apply, there is no round trip to lose.
 func (r *runner) applyStderrTail(tail string) {
@@ -685,8 +659,8 @@ func removePart(ctx context.Context, path string) {
 	}
 }
 
-// sidecarParts are the sidecar parts of the attempt whose part is path
-// (fsops.SidecarPath): <stem>[.<lang...>].part-<uid8>-<n>.<ass|srt>.
+// sidecarParts are the sidecar parts of the dispatch whose part is path
+// (fsops.SidecarPath): <stem>[.<lang...>].part-<fileUID8>-<seq>.<ass|srt>.
 func sidecarParts(path string) []string {
 	cur, ok := fsops.ParseTranscodePart(path)
 	if !ok {
@@ -700,7 +674,7 @@ func sidecarParts(path string) []string {
 	for _, e := range entries {
 		p := filepath.Join(filepath.Dir(path), e.Name())
 		tp, ok := fsops.ParseTranscodePart(p)
-		if ok && e.Type().IsRegular() && fsops.SubtitleExt(tp.Ext) && tp.JobUID8 == cur.JobUID8 && tp.Attempt == cur.Attempt &&
+		if ok && e.Type().IsRegular() && fsops.SubtitleExt(tp.Ext) && tp.FileUID8 == cur.FileUID8 && tp.Seq == cur.Seq &&
 			(tp.Stem == cur.Stem || strings.HasPrefix(tp.Stem, cur.Stem+".")) {
 			out = append(out, p)
 		}

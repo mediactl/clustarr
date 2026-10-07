@@ -32,15 +32,17 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/records/recordsource"
 )
 
 // Sources: S12 (a TranscodeProfile's create, delete or generation: every
 // movie and episode file, at low priority, loop spec §3.3, §3.11; only files
 // whose block changes are written, through the status-write limiter) and
 // S22 (admission's grants, directives and changed wait reasons, at
-// admission.GrantPriority).
+// admission.GrantPriority) and S17 (clustarr-transcodes' answers).
 func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	c := mgr.GetClient()
 	low := func(ctx context.Context, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
@@ -49,6 +51,12 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	var srcs []remediation.Source
 	if a.o.LoopSource != nil {
 		srcs = append(srcs, remediation.Source{Name: "S22/admission", Raw: a.o.LoopSource})
+	}
+	if a.o.Bus != nil {
+		// S17: a worker's claim or answer in clustarr-transcodes (§4.9).
+		srcs = append(srcs, remediation.Source{
+			Name: "S17/clustarr-transcodes", Raw: recordsource.New(a.o.Bus, events.BucketTranscodes, remediation.FileKey),
+		})
 	}
 	return append(srcs, []remediation.Source{
 		{

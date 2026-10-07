@@ -45,24 +45,25 @@ const OrphanPartAge = 72 * time.Hour
 // not followed -- of exactly the per-attempt form
 // (fsops.ParseTranscodePart; a torrent's .part, the generic
 // <stem>.part.<ext> and a release named like a part are not), unwritten for
-// OrphanPartAge, whose job (by the first eight characters of its UID) is
-// not among live, the scan namespace's non-terminal TranscodeJobs.
+// OrphanPartAge, whose MediaFile (by the first eight characters of its UID)
+// is not among live, the scan namespace's files with a transcode in flight.
 func orphanPart(path string, info os.FileInfo, now time.Time, live map[string]bool) bool {
 	p, ok := fsops.ParseTranscodePart(path)
-	return ok && info.Mode().IsRegular() && now.Sub(info.ModTime()) > OrphanPartAge && !live[p.JobUID8]
+	return ok && info.Mode().IsRegular() && now.Sub(info.ModTime()) > OrphanPartAge && !live[p.FileUID8]
 }
 
 // reportOrphanPart reports the walked part file at path when it looks like
 // an abandoned transcode attempt's (orphanPart: the per-attempt form, a
-// regular file, unwritten for OrphanPartAge, its job not live), with the
+// regular file, unwritten for OrphanPartAge, its file's transcode not in
+// flight), with the
 // MediaFile of the source it was made from when one is recorded beside it
 // (TranscodeOutputOf). The removal is the manager's (P47): the scan applier
-// keeps a part whose source's status.transcode is in flight, or whose job
-// is live, and otherwise asks the import domain to recycle it through a
+// keeps a part whose source's status.transcode is in flight, and otherwise
+// asks the import domain to recycle it through a
 // recycle-files task. A dry run reports nothing.
 func (w *Worker) reportOrphanPart(ctx context.Context, st *scanState, path string, info os.FileInfo) error {
 	now := w.now()
-	if st.task.DryRun || !orphanPart(path, info, now, st.liveTranscodeJobs) {
+	if st.task.DryRun || !orphanPart(path, info, now, st.liveTranscodes) {
 		return nil
 	}
 	p, _ := fsops.ParseTranscodePart(path)

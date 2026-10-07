@@ -592,11 +592,13 @@ func MsgIDForSubtitleFetch(fileUID, langKey string, seq int64) string {
 // worker's clock, decides when a lease has lapsed.
 const TranscodeLeaseTTL = 90 * time.Second
 
-// WorkTranscodeTaskSubject is where transcode publishes one admitted
-// TranscodeJob's task for the pool of its profile and hardware class.
-// Profile and job are UIDs because a profile name may contain ".".
-func WorkTranscodeTaskSubject(profileUID, class, jobUID string) string {
-	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.%s", tok(profileUID), tok(class), tok(jobUID))
+// WorkTranscodeTaskSubject is where the remediation loop publishes one
+// MediaFile's transcode dispatch for the pool of its profile and hardware
+// class (loop spec §4.12): the profile's UID, the class, and the MediaFile's
+// UID (the TranscodeJob's, from the doomed controller, until F6.6). Profile
+// and file are UIDs because a profile name may contain ".".
+func WorkTranscodeTaskSubject(profileUID, class, fileUID string) string {
+	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.%s", tok(profileUID), tok(class), tok(fileUID))
 }
 
 // WorkTranscodeTaskSubjectAnyProfile is jobUID's task subject with a
@@ -610,14 +612,14 @@ func WorkTranscodeTaskSubjectAnyProfile(class, jobUID string) string {
 	return fmt.Sprintf("clustarr.work.transcode.task.*.%s.%s", tok(class), tok(jobUID))
 }
 
-// WorkTranscodeTaskSubjectAnyPool is jobUID's task subject with wildcards in
-// place of both the profile and the class token: every task of the job, on
-// every pool it could have been dispatched to. Deleting a TranscodeJob
-// purges with it (final-review M6), since a dispatch whose Queued write was
-// lost published a task under a class status.hardware never recorded. Like
-// [WorkTranscodeTaskSubjectAnyProfile], it is for PurgeSubject.
-func WorkTranscodeTaskSubjectAnyPool(jobUID string) string {
-	return "clustarr.work.transcode.task.*.*." + tok(jobUID)
+// WorkTranscodeTaskSubjectAnyPool is a MediaFile's task subject with
+// wildcards in place of both the profile and the class token: every task of
+// the file, on every pool it could have been dispatched to (a file has at
+// most one live seq). Withdrawal purges with it (loop spec §5.10), and the
+// lost-worker check asks whether a task is still stored with it (§5.9). It
+// is for PurgeSubject and Subjects.
+func WorkTranscodeTaskSubjectAnyPool(fileUID string) string {
+	return "clustarr.work.transcode.task.*.*." + tok(fileUID)
 }
 
 // WorkTranscodeResultSubject is where a worker publishes a job's status
@@ -640,12 +642,21 @@ func TranscodeTaskConsumerName(profileUID, class string) string {
 	return TranscodePoolDurablePrefix + KVKeyToken(profileUID) + "-" + KVKeyToken(class)
 }
 
-// TranscodeLeaseKey is a TranscodeJob's lease in clustarr-transcode-leases.
-func TranscodeLeaseKey(jobUID string) string { return "lease." + KVKeyToken(jobUID) }
+// TranscodeLeaseKey is a MediaFile's transcode lease in
+// clustarr-transcode-leases (a TranscodeJob's, from the doomed controller,
+// until F6.6).
+func TranscodeLeaseKey(fileUID string) string { return "lease." + KVKeyToken(fileUID) }
 
-// MsgIDForTranscodeTask carries the dispatch count, so a job dispatched again
-// inside the duplicate window is not absorbed as a duplicate.
-func MsgIDForTranscodeTask(jobUID string, attempt int32) string {
+// MsgIDForTranscodeTask is a transcode dispatch's Msg-Id,
+// "transcode/<mfUID>/<seq>" (loop spec §5.3): a republish of one seq inside
+// the stream's Duplicates window is absorbed, and the next seq never is.
+func MsgIDForTranscodeTask(mfUID string, seq int64) string {
+	return "transcode/" + mfUID + "/" + strconv.FormatInt(seq, 10)
+}
+
+// MsgIDForTranscodeJobTask carries a TranscodeJob's dispatch count (the
+// doomed controller's, until F6.6).
+func MsgIDForTranscodeJobTask(jobUID string, attempt int32) string {
 	return jobUID + "/" + strconv.Itoa(int(attempt))
 }
 

@@ -23,8 +23,10 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/records"
 )
 
 // Options configures the transcode planner.
@@ -40,6 +42,14 @@ type Options struct {
 	// LoopSource is S22, admission's wake of the loop's queue
 	// (admission.LoopSource); nil adds none.
 	LoopSource source.TypedSource[remediation.Key]
+	// Records is clustarr-transcodes, the loop's half (task.Requests).
+	Records *records.Requester[*task.Record]
+	// Leases is clustarr-transcode-leases: a Running dispatch's lease is
+	// read for the lost-worker row (§5.9).
+	Leases events.KV
+	// Admin answers whether a file's task is still stored (§5.9) and purges
+	// a withdrawn one (F6.5).
+	Admin events.StreamAdmin
 }
 
 // Adapter is the transcode planner.
@@ -56,6 +66,11 @@ type In struct {
 	Ledger          transcodeplan.Ledger
 	Took            bool // Gather took a grant (TakeGrant): Plan confirms or releases it
 	Read            bool // Gather ran
+	Record          *task.Record
+	RecordRev       uint64
+	Folders         []catalogv1alpha1.RootFolder
+	Lease           transcodeplan.LeaseView
+	TaskStored      *bool
 }
 
 // Name implements remediation.Planner.
@@ -78,22 +93,26 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 		ItemExists: in.ItemExists, StandaloneGraft: in.StandaloneGraft,
 	}
 	e := transcodeplan.Eligible(f, in.Profiles)
+	profiles := make(map[string]*transcodev1alpha1.TranscodeProfile, len(in.Profiles))
+	for i := range in.Profiles {
+		profiles[in.Profiles[i].Name] = &in.Profiles[i]
+	}
 	d := transcodeplan.Plan(transcodeplan.Inputs{
 		File: v.File, Prev: v.Prev.Transcode, Draft: v.Draft, ProbeCurrent: f.ProbeCurrent,
 		Eligibility: e, Ledger: in.Ledger, Now: v.Now,
+		Record: in.Record, RecordRev: in.RecordRev, Folders: in.Folders, Issue: v.Issue,
+		Lease: in.Lease, TaskStored: in.TaskStored, Profiles: profiles,
 	})
 	out.Transcode = d.Block
-	res := remediation.Result{Due: d.Due, Again: d.Again, Events: kubeEvents(d.Events), Eligibility: &e}
-	if in.Took {
-		// Acting on a held grant is exempt from the status-write limiter
-		// (§3.7): the grant would expire behind it.
-		res.Unpaced = true
-		switch d.Grant {
-		case transcodeplan.GrantConfirm:
-			res.Effects = append(res.Effects, remediation.LedgerConfirm{UID: v.File.UID})
-		default:
-			res.Effects = append(res.Effects, remediation.LedgerRelease{UID: v.File.UID})
-		}
+	res := remediation.Result{
+		Due: d.Due, Again: d.Again, Events: kubeEvents(d.Events), Eligibility: &e,
+		// Acting on a held grant, a dispatch and an incorporation are exempt
+		// from the status-write limiter (§3.7).
+		Unpaced: in.Took || d.Unpaced,
+		Effects: a.effectsOf(v, in, d),
+	}
+	for _, st := range d.Records {
+		res.Records = append(res.Records, remediation.RecordNote{State: st})
 	}
 	return res, nil
 }
