@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/providers/embedded"
 )
 
 const ns = "media"
@@ -303,4 +304,40 @@ func TestOpenSubtitlesReplicasShareOneLoginThroughTheThrottleKV(t *testing.T) {
 	other, err := throttle.Get(t.Context(), kv, "uid-another-account")
 	require.NoError(t, err)
 	assert.Empty(t, other.JWT, "a token is keyed by its provider's UID, never shared across accounts")
+}
+
+// TestBuilderHandsItsExtractorToTheEmbeddedProvider holds the wiring that
+// replaced Builder.FFmpeg (spec §4.3 step 1.8). The embedded provider the
+// Builder makes extracts through Builder.Extract, with the file's path and
+// the candidate's stream. Without an extractor it refuses rather than run a
+// program.
+func TestBuilderHandsItsExtractorToTheEmbeddedProvider(t *testing.T) {
+	c := newClient(t, provider("local", subtitlev1alpha1.SubtitleProviderEmbedded, 1, ""))
+	type call struct {
+		path   string
+		stream int
+	}
+	var got []call
+	b := providerset.NewBuilder(c, c)
+	b.Extract = func(_ context.Context, path string, stream int) ([]byte, error) {
+		got = append(got, call{path, stream})
+		return []byte("1\n00:00:00,000 --> 00:00:01,000\nHello.\n"), nil
+	}
+	entries, err := b.Build(context.Background(), ns)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	raw, name, err := entries[0].Provider(providerset.FileSource{Path: "/data/film.mkv"}).
+		Download(context.Background(), subtitles.Candidate{FetchID: "3"})
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "Hello.")
+	assert.Equal(t, "stream-3.srt", name)
+	assert.Equal(t, []call{{"/data/film.mkv", 3}}, got)
+
+	bare := providerset.NewBuilder(c, c)
+	entries, err = bare.Build(context.Background(), ns)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	_, _, err = entries[0].Provider(providerset.FileSource{Path: "/data/film.mkv"}).
+		Download(context.Background(), subtitles.Candidate{FetchID: "3"})
+	require.ErrorIs(t, err, embedded.ErrNoExtractor)
 }

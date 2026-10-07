@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/subtitles/providers/embedded/execextract"
 )
 
 // Service identity, from §2 and §6.5.
@@ -285,6 +286,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	providers := providerset.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
 	providers.KV = bus.KV(events.BucketProviderThrottle)
+	providers.Extract = execextract.New("")
 	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
 	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
 		return fmt.Errorf("captionarr: fetch worker: %w", err)

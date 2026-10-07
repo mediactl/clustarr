@@ -19,9 +19,7 @@ package embedded_test
 
 import (
 	"context"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,50 +99,61 @@ func TestSearchHonoursIgnoreASSFlag(t *testing.T) {
 	assert.Equal(t, "2", cands[0].FetchID)
 }
 
-func TestDownloadExtractsTheStreamViaFFmpeg(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not on PATH")
-	}
-	dir := t.TempDir()
-	mediaPath := filepath.Join(dir, "sample.mkv")
-
-	// Build a tiny real MKV with one burned-in SubRip stream via ffmpeg's
-	// lavfi source generator.
-	srtPath := filepath.Join(dir, "in.srt")
-	require.NoError(t, os.WriteFile(srtPath, []byte("1\n00:00:00,000 --> 00:00:01,000\nHello.\n"), 0o644))
-	cmd := exec.Command("ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=1",
-		"-i", srtPath, "-c:v", "libx264", "-c:s", "srt", "-shortest", mediaPath)
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "fixture generation must succeed for this test to mean anything: %s", out)
-
-	info := common.MediaInfo{Subtitles: []common.SubtitleStream{{Index: 1, Codec: "subrip", Language: "eng"}}}
-	p := embedded.New(embedded.Config{Path: mediaPath, Info: info})
-
-	raw, name, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "1"})
-	require.NoError(t, err)
-	assert.Contains(t, string(raw), "Hello.")
-	assert.NotEmpty(t, name)
-}
-
 func TestDownloadRejectsANonIntegerFetchID(t *testing.T) {
-	p := embedded.New(embedded.Config{Path: "/data/movie.mkv"})
+	p := embedded.New(embedded.Config{
+		Path: "/data/movie.mkv",
+		Extract: func(context.Context, string, int) ([]byte, error) {
+			t.Fatal("extractor called for an invalid stream index")
+			return nil, nil
+		},
+	})
 	_, _, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "not-a-number"})
 	assert.Error(t, err)
 }
 
-func TestDownloadReturnsAnErrorWithoutPanickingWhenTheMediaFileDoesNotExist(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not on PATH")
-	}
-	p := embedded.New(embedded.Config{Path: filepath.Join(t.TempDir(), "no-such-file.mkv")})
-
-	var raw []byte
-	var name string
-	var err error
-	require.NotPanics(t, func() {
-		raw, name, err = p.Download(context.Background(), subtitles.Candidate{FetchID: "0"})
+func TestDownloadUsesTheExtractor(t *testing.T) {
+	var gotPath string
+	var gotStream int
+	p := embedded.New(embedded.Config{
+		Path: "/data/movie.mkv",
+		Extract: func(_ context.Context, path string, stream int) ([]byte, error) {
+			gotPath, gotStream = path, stream
+			return []byte("1\n00:00:00,000 --> 00:00:01,000\nHello.\n"), nil
+		},
 	})
-	assert.Error(t, err)
+	raw, name, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "1"})
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "Hello.")
+	assert.Equal(t, "stream-1.srt", name)
+	assert.Equal(t, "/data/movie.mkv", gotPath)
+	assert.Equal(t, 1, gotStream)
+}
+
+func TestDownloadWrapsTheExtractorsFailure(t *testing.T) {
+	boom := errors.New("boom")
+	p := embedded.New(embedded.Config{
+		Path:    "/data/movie.mkv",
+		Extract: func(context.Context, string, int) ([]byte, error) { return nil, boom },
+	})
+	raw, name, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "0"})
+	require.ErrorIs(t, err, boom)
 	assert.Nil(t, raw)
 	assert.Empty(t, name)
+}
+
+// The manager links this package for Search and never sets an extractor
+// (spec §7.3.1). A Download there must refuse, not run a program.
+func TestDownloadWithoutAnExtractorIsErrNoExtractor(t *testing.T) {
+	p := embedded.New(embedded.Config{Path: "/data/movie.mkv"})
+	_, _, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "1"})
+	require.ErrorIs(t, err, embedded.ErrNoExtractor)
+}
+
+func TestIsTextCodec(t *testing.T) {
+	for codec, want := range map[string]bool{
+		"subrip": true, "ass": true, "ssa": true, "webvtt": true, "mov_text": true,
+		"hdmv_pgs_subtitle": false, "dvd_subtitle": false, "": false,
+	} {
+		assert.Equal(t, want, embedded.IsTextCodec(codec), codec)
+	}
 }

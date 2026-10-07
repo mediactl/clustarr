@@ -214,9 +214,11 @@ type Builder struct {
 	// "clustarr/<version>".
 	UserAgent string
 
-	// FFmpeg is the ffmpeg binary the embedded provider runs. Empty means
-	// "ffmpeg" from PATH.
-	FFmpeg string
+	// Extract pulls one embedded text subtitle stream out of a file for the
+	// embedded provider. Nil leaves embedded Downloads failing with
+	// embedded.ErrNoExtractor. Only the fetch worker's process sets it: today
+	// app/caption/run.go's setupWorkers, and app/caption/agent after Wave 3.
+	Extract embedded.ExtractFunc
 
 	// KV is the clustarr-provider-throttle bucket
 	// (events.BucketProviderThrottle). When set, every OpenSubtitles.com
@@ -402,11 +404,12 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 		return Entry{}, err
 	}
 	if sp.Spec.Type == subtitlev1alpha1.SubtitleProviderEmbedded {
-		ffmpeg := b.FFmpeg
+		extract := b.Extract
 		e.ForFile = func(f FileSource) subtitles.Provider {
 			return embedded.New(embedded.Config{
-				FFmpeg: ffmpeg, Path: f.Path, Info: f.Info,
+				Path: f.Path, Info: f.Info,
 				IgnoreASS: f.IgnoreASS, SkipCommentary: f.SkipCommentary,
+				Extract: extract,
 			})
 		}
 		return e, nil
