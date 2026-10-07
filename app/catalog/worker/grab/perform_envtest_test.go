@@ -35,8 +35,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -45,7 +45,7 @@ var testNow = time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 
 // TestPerformGrab_CreatesDownloadAndPatchesStatus is §8.2's happy path: one
 // deterministically named Download, owned by the target, whose spec.source is
-// exactly downloads.ResolveSource's -- the mapping the Search controller's
+// exactly grabsource.ResolveSource's -- the mapping the Search controller's
 // interactive grabs use too. The grab writes no status.phase, which is the
 // Movie reconciler's under k8s.ManagerCatalogarr, and no
 // status.activeDownloadRef, which ruling R-5 gives to that reconciler alone.
@@ -77,9 +77,9 @@ func TestPerformGrab_CreatesDownloadAndPatchesStatus(t *testing.T) {
 	assert.Equal(t, commonv1.ProtocolTorrent, dl.Spec.Protocol)
 	assert.Equal(t, downloadv1alpha1.GrabSourceSearch, dl.Spec.GrabbedBy)
 	assert.Equal(t, target, dl.Spec.Target)
-	wantSource, err := downloads.ResolveSource(release)
+	wantSource, err := grabsource.ResolveSource(release)
 	require.NoError(t, err)
-	assert.Equal(t, wantSource, dl.Spec.Source, "both grab paths map a release through downloads.ResolveSource")
+	assert.Equal(t, wantSource, dl.Spec.Source, "both grab paths map a release through grabsource.ResolveSource")
 	require.NotNil(t, dl.Spec.Source.MagnetURL, "a magnet needs no indexer round-trip and wins")
 	require.NotNil(t, dl.Spec.Source.ExpectedInfoHash, "the info-hash guard rides along with the magnet")
 	require.Len(t, dl.OwnerReferences, 1)
@@ -184,7 +184,7 @@ func TestPerformGrab_ExistingDownloadStopsANonLeaseGrab(t *testing.T) {
 
 	// A user grabbed a different release interactively.
 	picked := torrentRelease("guid-user-picked", "my-indexer", profile.Tiers[1][0].Quality, 0)
-	pickedSource, err := downloads.ResolveSource(picked)
+	pickedSource, err := grabsource.ResolveSource(picked)
 	require.NoError(t, err)
 	existing := interactiveDownload(t, ctx, c, movie, target, picked, pickedSource)
 	seedWorkerStatus(t, ctx, c, movie, existing.Name, &catalogv1alpha1.PendingGrab{
@@ -692,7 +692,7 @@ func TestPerformGrab_TheGuardReadsLiveNotTheCache(t *testing.T) {
 	profile := hdBlurayWeb(t)
 	picked := torrentRelease("guid-user-picked", "my-indexer", profile.Tiers[1][0].Quality, 0)
 	automatic := torrentRelease("guid-automatic", "my-indexer", profile.Tiers[0][0].Quality, 0)
-	pickedSource, err := downloads.ResolveSource(picked)
+	pickedSource, err := grabsource.ResolveSource(picked)
 	require.NoError(t, err)
 
 	setup := func() (string, *catalogv1alpha1.Movie, commonv1.MediaRef) {

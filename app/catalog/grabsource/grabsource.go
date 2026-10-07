@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package downloads holds the facts about a Download that both grab paths
+// Package grabsource holds the facts about a Download that both grab paths
 // must agree on: which spec.source a release maps to, and which Downloads are
 // working on a given catalog item.
 //
@@ -29,7 +29,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // app/catalog/controller/rollup.DownloadNonTerminal, the set the Movie and
 // Episode reconcilers derive status.activeDownloadRef from (gap-fix ruling
 // R-5), which the grab path's guard uses too so the two cannot disagree.
-package downloads
+//
+// It left app/catalog/worker/grab/downloads so the manager's Search
+// controller links no worker package (design 2026-10-06 §4.3 C5).
+package grabsource
 
 import (
 	"encoding/base32"

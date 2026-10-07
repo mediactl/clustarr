@@ -32,8 +32,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -290,7 +290,7 @@ func TestPerformGrab_ExistingDownloadDuplicateClearsPendingGrab(t *testing.T) {
 	profile := hdBlurayWeb(t)
 	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
 	picked := torrentRelease("guid-user-picked", "my-indexer", profile.Tiers[1][0].Quality, 0)
-	src, err := downloads.ResolveSource(picked)
+	src, err := grabsource.ResolveSource(picked)
 	require.NoError(t, err)
 	existing := interactiveDownload(t, ctx, c, movie, target, picked, src)
 	seedWorkerStatus(t, ctx, c, movie, existing.Name, &catalogv1alpha1.PendingGrab{
@@ -353,7 +353,7 @@ func TestHandler_InteractiveGrabOfTheSameReleaseDoesNotStrandDelayed(t *testing.
 	// controller built it before the two mappings were one.
 	magnet := release.MagnetURL
 	existing := interactiveDownload(t, ctx, c, movie, target, release, downloadv1alpha1.DownloadSource{MagnetURL: &magnet})
-	resolved, err := downloads.ResolveSource(release)
+	resolved, err := grabsource.ResolveSource(release)
 	require.NoError(t, err)
 	require.NotEqual(t, resolved, existing.Spec.Source, "the fixture must reproduce a source the grab path would not produce")
 
@@ -412,7 +412,7 @@ func TestHandler_UnsourceableReleaseIsDiscardedWithoutStranding(t *testing.T) {
 	err := h.Handle(ctx, grabTaskMessage(t, ns, target, nil))
 	var discard *events.DiscardError
 	require.ErrorAs(t, err, &discard, "an unsourceable release is discarded, not retried")
-	require.ErrorIs(t, err, downloads.ErrNoSource)
+	require.ErrorIs(t, err, grabsource.ErrNoSource)
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))

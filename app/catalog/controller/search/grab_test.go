@@ -25,12 +25,12 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/decision"
 )
 
 // TestBuildDownloadSourceIsTheGrabWorkersMapping pins the interactive path to
-// downloads.ResolveSource, the mapping the automatic grab path applies. The
+// grabsource.ResolveSource, the mapping the automatic grab path applies. The
 // two name a Download identically and spec.source is immutable, so any
 // release they map differently is a release a user's grab and an automatic
 // grab cannot both apply -- the carried "two grab paths disagree" failure.
@@ -48,10 +48,10 @@ func TestBuildDownloadSourceIsTheGrabWorkersMapping(t *testing.T) {
 		{Protocol: commonv1.ProtocolUsenet, GUID: "g3", IndexerRef: "idx", DownloadURL: "https://idx.example/nzb/g3"},
 		{Protocol: commonv1.ProtocolTorrent, GUID: "g4", DownloadURL: "https://tracker.example/g4.torrent"},
 	} {
-		want, err := downloads.ResolveSource(rel)
+		want, err := grabsource.ResolveSource(rel)
 		require.NoError(t, err)
 		require.Equalf(t, want, BuildDownloadSource(rel), "release %s", rel.GUID)
-		require.Equalf(t, downloads.SourceApplyConfiguration(want), toDownloadSourceAC(BuildDownloadSource(rel)),
+		require.Equalf(t, grabsource.SourceApplyConfiguration(want), toDownloadSourceAC(BuildDownloadSource(rel)),
 			"release %s", rel.GUID)
 	}
 

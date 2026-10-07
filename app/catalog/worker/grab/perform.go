@@ -31,7 +31,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -147,7 +147,7 @@ func performGrab(
 		}
 		return clearPendingGrab(ctx, d, ns, statusTargets, dup)
 	}
-	source, err := downloads.ResolveSource(release)
+	source, err := grabsource.ResolveSource(release)
 	if err != nil {
 		// The release snapshot is immutable, so no retry can give it a
 		// source. Clear pendingGrab before giving up, or the discard strands
@@ -257,7 +257,7 @@ func performGrab(
 }
 
 // createDownload applies the grab's Download. Its spec.source comes from
-// downloads.ResolveSource, the one mapping the Search controller's
+// grabsource.ResolveSource, the one mapping the Search controller's
 // interactive grabs use as well.
 func createDownload(
 	ctx context.Context,
@@ -297,7 +297,7 @@ func createDownload(
 
 	spec := downloadac.DownloadSpec().
 		WithProtocol(release.Protocol).
-		WithSource(downloads.SourceApplyConfiguration(source)).
+		WithSource(grabsource.SourceApplyConfiguration(source)).
 		WithRelease(release).
 		WithTarget(commonv1.MediaRef{Kind: target.Kind, Name: target.Name, Keys: keys}).
 		WithGrabbedBy(grabbedBy)
@@ -326,7 +326,7 @@ func createDownload(
 
 // guardExistingDownloads is the half of the double-grab guard that no lease
 // can provide: it asks the apiserver which Downloads are already working on
-// the grab's items -- downloads.Covers, and rollup.DownloadNonTerminal, the
+// the grab's items -- grabsource.Covers, and rollup.DownloadNonTerminal, the
 // same liveness test the reconcilers derive status.activeDownloadRef from.
 // c should be Deps.Reader, a live read: see its doc for the cache window a
 // cached list leaves open.
@@ -388,7 +388,7 @@ func guardExistingDownloads(
 			continue
 		}
 		for j, st := range statusTargets {
-			if downloads.Covers(dl, st.Kind, st.Name, items[j].GetUID()) {
+			if grabsource.Covers(dl, st.Kind, st.Name, items[j].GetUID()) {
 				blockers = append(blockers, dl.Name)
 				break
 			}

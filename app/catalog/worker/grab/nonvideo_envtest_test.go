@@ -34,8 +34,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -244,7 +244,7 @@ func TestGrab_NonVideoKindsTakeTheWholeGrabPath(t *testing.T) {
 			assert.Equal(t, target, dl.Spec.Target, "spec.target is the item itself, with no keys")
 			assert.Equal(t, k.wantProfile, dl.Spec.QualityProfileRef, "the Download records the profile the item inherits")
 			assert.Equal(t, downloadv1alpha1.GrabSourceRSS, dl.Spec.GrabbedBy)
-			wantSource, err := downloads.ResolveSource(release)
+			wantSource, err := grabsource.ResolveSource(release)
 			require.NoError(t, err)
 			assert.Equal(t, wantSource, dl.Spec.Source)
 			require.Len(t, dl.OwnerReferences, 1)

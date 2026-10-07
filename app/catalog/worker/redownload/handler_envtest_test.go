@@ -44,8 +44,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
@@ -249,12 +249,12 @@ func (f *fixture) failedDownload(t *testing.T, target commonv1.MediaRef, guid st
 		MagnetURL: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
 		InfoHash:  "0123456789abcdef0123456789abcdef01234567",
 	}
-	src, err := downloads.ResolveSource(rel)
+	src, err := grabsource.ResolveSource(rel)
 	require.NoError(t, err)
 	name := k8s.ChildName(target.Name, guid)
 	dl := downloadac.Download(name, f.ns).WithSpec(downloadac.DownloadSpec().
 		WithProtocol(rel.Protocol).
-		WithSource(downloads.SourceApplyConfiguration(src)).
+		WithSource(grabsource.SourceApplyConfiguration(src)).
 		WithRelease(rel).
 		WithTarget(target).
 		WithGrabbedBy(downloadv1alpha1.GrabSourceSearch))

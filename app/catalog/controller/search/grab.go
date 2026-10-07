@@ -21,12 +21,12 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/decision"
 )
 
 // BuildDownloadSource maps a release to a Download's spec.source. It is
-// downloads.ResolveSource -- the one mapping the automatic grab path
+// grabsource.ResolveSource -- the one mapping the automatic grab path
 // (app/catalog/worker/grab) uses too -- and must stay exactly that.
 //
 // Both paths name a Download k8s.ChildName(target, guid), and
@@ -38,11 +38,11 @@ import (
 // worker's rejected apply dead-lettered with the item stranded at
 // Phase=Delayed.
 //
-// A release with nothing to fetch it by (downloads.ErrNoSource) maps to an
+// A release with nothing to fetch it by (grabsource.ErrNoSource) maps to an
 // empty source, which the CRD's "exactly one of" rule rejects on apply; that
 // rejection is what handleGrabs records in status.grabbed for the GUID.
 func BuildDownloadSource(rel commonv1.ReleaseInfo) downloadv1alpha1.DownloadSource {
-	src, err := downloads.ResolveSource(rel)
+	src, err := grabsource.ResolveSource(rel)
 	if err != nil {
 		return downloadv1alpha1.DownloadSource{}
 	}
@@ -53,7 +53,7 @@ func BuildDownloadSource(rel commonv1.ReleaseInfo) downloadv1alpha1.DownloadSour
 // the apply configuration k8s.Apply needs, through the same converter the
 // grab worker uses.
 func toDownloadSourceAC(src downloadv1alpha1.DownloadSource) *downloadac.DownloadSourceApplyConfiguration {
-	return downloads.SourceApplyConfiguration(src)
+	return grabsource.SourceApplyConfiguration(src)
 }
 
 // grabDecision is resolveGrab's verdict for one requested GUID.

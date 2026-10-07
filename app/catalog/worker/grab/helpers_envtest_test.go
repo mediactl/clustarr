@@ -40,7 +40,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
+	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -263,7 +263,7 @@ func interactiveDownload(t *testing.T, ctx context.Context, c client.Client, own
 		WithOwnerReferences(ownerRef).
 		WithSpec(downloadac.DownloadSpec().
 			WithProtocol(rel.Protocol).
-			WithSource(downloads.SourceApplyConfiguration(src)).
+			WithSource(grabsource.SourceApplyConfiguration(src)).
 			WithRelease(rel).
 			WithTarget(target).
 			WithQualityProfileRef("hd-bluray-web").
