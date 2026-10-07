@@ -131,6 +131,31 @@ func NewObject(kind commonv1.MediaKind) (client.Object, error) {
 	}
 }
 
+// NewList returns an empty list of kind's items, ready for a List: the
+// reaper's audit reads the eight kinds' status.artwork through it.
+func NewList(kind commonv1.MediaKind) (client.ObjectList, error) {
+	switch kind {
+	case commonv1.MediaKindMovie:
+		return &catalogv1alpha1.MovieList{}, nil
+	case commonv1.MediaKindSeries:
+		return &catalogv1alpha1.SeriesList{}, nil
+	case commonv1.MediaKindArtist:
+		return &catalogv1alpha1.ArtistList{}, nil
+	case commonv1.MediaKindAlbum:
+		return &catalogv1alpha1.AlbumList{}, nil
+	case commonv1.MediaKindAuthor:
+		return &catalogv1alpha1.AuthorList{}, nil
+	case commonv1.MediaKindBook:
+		return &catalogv1alpha1.BookList{}, nil
+	case commonv1.MediaKindAudiobook:
+		return &catalogv1alpha1.AudiobookList{}, nil
+	case commonv1.MediaKindComic:
+		return &catalogv1alpha1.ComicList{}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrNoArtwork, kind)
+	}
+}
+
 // gvkFor is the GroupVersionKind of kind's list, for the reaper's
 // metadata-only List.
 func gvkFor(kind commonv1.MediaKind) (schema.GroupVersionKind, bool) {

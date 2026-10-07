@@ -114,6 +114,19 @@ func PublishFetch(ctx context.Context, bus events.Publisher, obj client.Object, 
 	if bus == nil {
 		return fmt.Errorf("artwork: %s %s/%s drifted but there is no bus to publish on", kind, obj.GetNamespace(), obj.GetName())
 	}
+	return PublishFetchFor(ctx, bus, obj, kind, specHash)
+}
+
+// PublishFetchFor publishes an ArtworkFetchTask for obj under
+// schema.MsgIDForArtworkFetch(uid, token), whatever its drift: the gateway's
+// fetch handler runs a full pass either way, and its stale() refetches a
+// missing or mismatched object. [PublishFetch] calls it with the spec hash;
+// the reaper's audit with "audit-<reason>-<generation>" (artwork design §B.5
+// as amended 2026-10-07).
+func PublishFetchFor(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind, token string) error {
+	if bus == nil {
+		return fmt.Errorf("artwork: no bus to publish %s %s/%s's fetch task on", kind, obj.GetNamespace(), obj.GetName())
+	}
 	schemaName, data, err := schema.Encode(schema.ArtworkFetchTask{
 		MediaRef: commonv1.MediaRef{Kind: kind, Name: obj.GetName()},
 	})
@@ -121,7 +134,7 @@ func PublishFetch(ctx context.Context, bus events.Publisher, obj client.Object, 
 		return err
 	}
 	env := &events.Envelope{
-		ID:     schema.MsgIDForArtworkFetch(obj.GetUID(), specHash),
+		ID:     schema.MsgIDForArtworkFetch(obj.GetUID(), token),
 		Type:   "catalog.ArtworkFetchTask",
 		Schema: schemaName,
 		Source: "catalogarr@" + version.String(),

@@ -262,6 +262,23 @@ var (
 		"Total bytes of orphaned object-store chunks purged, by bucket.",
 		"bucket",
 	)
+
+	// ArtworkObjects is the artwork bucket's objects at the reaper's last
+	// sweep, by variant and metadata version ("none" for an object stored
+	// before metadata existed): the backfill's progress.
+	ArtworkObjects = newGaugeVec(
+		"clustarr_artwork_objects",
+		"Artwork objects at the last reaper sweep, by variant and metadata version.",
+		"variant", "meta_version",
+	)
+
+	// ArtworkAuditTasksTotal counts the fetch and render tasks the reaper's
+	// audit published, by variant and reason (missing, digest, meta).
+	ArtworkAuditTasksTotal = newCounterVec(
+		"clustarr_artwork_audit_tasks_total",
+		"Total artwork repair and backfill tasks the reaper's audit published, by variant and reason.",
+		"variant", "reason",
+	)
 )
 
 // Work-queue telemetry, shared by every NATS consumer across services.

@@ -264,10 +264,27 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// is pinned to one replica by its Deployment, not by a lease. The
 	// 30-minute grace (artwork.DefaultReapGrace) covers the gateway's Puts
 	// from another process.
-	if err := mgr.Add(&artwork.Reaper{
-		Store:  bus.ObjectStore(events.BucketArtwork),
-		Client: mgr.GetAPIReader(),
-	}); err != nil {
+	//
+	// It also purges the orphaned chunks two racing Puts leak, in the
+	// artwork and fingerprint buckets (Admin), and audits status.artwork and
+	// status.overlay, read from this manager's cache, against the bucket,
+	// publishing paced fetch and render tasks for what is missing,
+	// mismatched or metadata-stale (artwork design §B.5 as amended
+	// 2026-10-07). A bus that is not a StreamAdmin publishes unpaced; one
+	// that is not an ObjectStoreAdmin purges nothing.
+	reaper := &artwork.Reaper{
+		Store:     bus.ObjectStore(events.BucketArtwork),
+		Client:    mgr.GetAPIReader(),
+		Cache:     mgr.GetClient(),
+		Publisher: bus,
+	}
+	if lag, ok := bus.(events.StreamAdmin); ok {
+		reaper.Lag = lag
+	}
+	if admin, ok := bus.(events.ObjectStoreAdmin); ok {
+		reaper.Admin = admin
+	}
+	if err := mgr.Add(reaper); err != nil {
 		return fmt.Errorf("catalogarr: add the artwork reaper: %w", err)
 	}
 
