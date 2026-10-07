@@ -136,15 +136,20 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		}
 	}
 
-	if err := ServeRPC(o.Bus, reg); err != nil {
+	stopRPC, err := ServeRPC(o.Bus, reg)
+	if err != nil {
 		stopSub()
 		stopMarkers()
 		return nil, err
 	}
-	if err := ServeExtras(o.Bus, o.Bus.KV(events.BucketPlexExtras), reg, clock); err != nil {
+	stopExtras, err := ServeExtras(o.Bus, o.Bus.KV(events.BucketPlexExtras), reg, clock)
+	if err != nil {
+		stopRPC()
 		stopSub()
 		stopMarkers()
 		return nil, err
 	}
-	return func() { stopSub(); stopMarkers() }, nil
+	// The responders drain with the consumers (ADR-0020 §1): a request
+	// already buffered when the agent stops is still answered.
+	return func() { stopConcurrently(stopRPC, stopExtras, stopSub, stopMarkers) }, nil
 }

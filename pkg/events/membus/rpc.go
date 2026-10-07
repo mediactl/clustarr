@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -34,6 +35,62 @@ type responder struct {
 	limits  events.ServeLimits
 	gate    *events.ServeGate
 	done    <-chan struct{}
+
+	// mu guards draining and calls: Request enters a responder that is not
+	// draining, and drain waits for the calls already inside to leave.
+	mu       sync.Mutex
+	draining bool
+	calls    int
+	idle     chan struct{} // closed when draining and calls reach zero
+}
+
+// enter admits one call unless r is draining.
+func (r *responder) enter() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.draining {
+		return false
+	}
+	r.calls++
+	return true
+}
+
+// exit ends a call entered with enter.
+func (r *responder) exit() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls--
+	if r.draining && r.calls == 0 && r.idle != nil {
+		close(r.idle)
+		r.idle = nil
+	}
+}
+
+func (r *responder) isDraining() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.draining
+}
+
+// drain stops r taking calls and waits for those inside it until ctx ends.
+func (r *responder) drain(ctx context.Context) error {
+	r.mu.Lock()
+	r.draining = true
+	if r.calls == 0 {
+		r.mu.Unlock()
+		return nil
+	}
+	if r.idle == nil {
+		r.idle = make(chan struct{})
+	}
+	idle := r.idle
+	r.mu.Unlock()
+	select {
+	case <-idle:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // call encodes in, runs the handler on its own goroutine so a slow responder

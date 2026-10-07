@@ -42,6 +42,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/mediactl/clustarr/app/segments/worker"
+	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
@@ -207,15 +208,23 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return worker.ExitRetriable
 	}
-	defer nc.Close()
 	ncRef.Store(nc)
+	// The bus shutdown's budget runs from SIGTERM: the subscription's drain
+	// (sub.Drain, the durable's AckWait) and then the bus and connection
+	// drain, inside the Deployment's terminationGracePeriodSeconds of
+	// AckWait + 25 s (ADR-0020 §1).
+	shutdownBudget := spec.AckWait + shutdownSlack
 	// Equivalent to obs.BusHooks(), inlined: pkg/obs pulls in
 	// controller-runtime, which this binary does not link.
 	bus, err := natsbus.New(nc, natsbus.WithHooks(events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract}))
 	if err != nil {
 		log.ErrorContext(ctx, "bus", "error", err)
+		busconn.ShutdownAfter(ctx, shutdownBudget, nil, nc)()
 		return worker.ExitRetriable
 	}
+	// Deferred first, so it runs last: after the subscription's own drain
+	// and the presence key's removal.
+	defer busconn.ShutdownAfter(ctx, shutdownBudget, bus, nc)()
 	busRef.Store(bus)
 	sub := spec.Subscription()
 	sub.MaxInFlight = events.SlotsFor(spec, overrides)
@@ -289,9 +298,14 @@ type wedgeFunc func() error
 // Wedged implements events.WedgeReporter.
 func (f wedgeFunc) Wedged() error { return f() }
 
+// shutdownSlack is what of the terminationGracePeriodSeconds' 25 s past the
+// durable's AckWait the bus and connection drain may spend.
+const shutdownSlack = 20 * time.Second
+
 // healthzHandler is markers' /healthz: 200 "ok", or 500 with the wedge the
 // bus reports (the `bus` liveness check, split §3.3 as amended 2026-10-07).
-// markers links no pkg/busconn (§4.5.4), so it asks the bus itself.
+// markers serves its own probes, with no controller-runtime healthz, so it
+// asks the bus itself.
 func healthzHandler(w events.WedgeReporter) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		if w != nil {

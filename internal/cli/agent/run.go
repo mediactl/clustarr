@@ -83,8 +83,11 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	defer nc.Close()
-	defer func() { _ = raw.Close() }()
+	// The bus drains once mgr.Start has returned (ADR-0020 §1): every
+	// runnable has stopped its subscriptions and drained its responders by
+	// then, so this drains what is left and the connection, within the
+	// remainder of the graceful-shutdown timeout, then falls back to Close.
+	defer busconn.ShutdownAfter(ctx, o.ShutdownTimeout(), raw, nc)()
 
 	// 7. Wait for the manager's topology; an agent never ensures it.
 	if err := busconn.AwaitTopology(ctx, raw, events.Default(), o.TopologyWait); err != nil {

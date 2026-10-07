@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -57,7 +58,10 @@ type rpcVerb struct {
 // the per-verb span each of lookup/lookupEpisodes/search/resolve opens
 // immediately, at least make that traffic traced today; once pkg/events
 // extracts the trace header, both spans get a real parent for free.
-func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
+//
+// stop drains the three responders (events.Requester.Serve's stop), for the
+// gateway's runnable to call at <-ctx.Done() (ADR-0020 §1).
+func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) (stop func(), err error) {
 	verbs := map[string]rpcVerb{
 		events.RPCMetadataLookup: {name: "lookup", fn: func(ctx context.Context, req schema.MetadataRequest) schema.MetadataResponse {
 			return lookup(ctx, reg, req)
@@ -69,9 +73,11 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 			return resolve(ctx, reg, req)
 		}},
 	}
+	var stops []func()
+	stopAll := func() { stopConcurrently(stops...) }
 	for subject, v := range verbs {
 		v := v
-		err := bus.Serve(subject, events.QueueGroupCatalog, func(ctx context.Context, data []byte) ([]byte, error) {
+		s, err := bus.Serve(subject, events.QueueGroupCatalog, func(ctx context.Context, data []byte) ([]byte, error) {
 			ctx, span := tracing.Start(ctx, "metadata.rpc.serve."+v.name)
 			defer span.End()
 
@@ -87,10 +93,12 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 			return json.Marshal(resp)
 		})
 		if err != nil {
-			return fmt.Errorf("metadata: serve %s: %w", subject, err)
+			stopAll()
+			return nil, fmt.Errorf("metadata: serve %s: %w", subject, err)
 		}
+		stops = append(stops, s)
 	}
-	return nil
+	return stopAll, nil
 }
 
 // lookup answers rpc.catalog.metadata.lookup. MediaKindEpisode and
@@ -501,4 +509,14 @@ func idsOf(v any) map[string]string {
 	default:
 		return nil
 	}
+}
+
+// stopConcurrently runs every stop function at once and waits for them: each
+// drains for up to its own budget, so one after another would add them up.
+func stopConcurrently(stops ...func()) {
+	var wg sync.WaitGroup
+	for _, s := range stops {
+		wg.Go(s)
+	}
+	wg.Wait()
 }

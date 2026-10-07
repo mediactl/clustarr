@@ -96,6 +96,9 @@ type Bus struct {
 	stopOnce sync.Once
 	done     chan struct{}
 	wg       sync.WaitGroup
+	// draining is set by Drain: new subscriptions and responders are
+	// refused, as natsbus refuses them.
+	draining bool
 }
 
 var _ events.Bus = (*Bus)(nil)
@@ -234,6 +237,57 @@ func (b *Bus) isClosed() bool {
 	return b.closed
 }
 
+// accepting reports whether the bus still takes new subscriptions and
+// responders: not closed and not draining.
+func (b *Bus) accepting() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return !b.closed && !b.draining
+}
+
+// Drain implements events.Bus as natsbus's does (ADR-0020 §1): every
+// subscription stops as its stop function would, every responder takes no
+// new request and finishes the ones it holds, and Drain waits for them until
+// ctx ends; then it closes the bus as Close does.
+func (b *Bus) Drain(ctx context.Context) error {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil
+	}
+	b.draining = true
+	var stops []func()
+	for ms := range b.subs {
+		ms.mu.Lock()
+		if ms.stopFn != nil {
+			stops = append(stops, ms.stopFn)
+		}
+		ms.mu.Unlock()
+	}
+	var responders []*responder
+	for _, rs := range b.responders {
+		responders = append(responders, rs...)
+	}
+	b.mu.Unlock()
+
+	var wg sync.WaitGroup
+	for _, stop := range stops {
+		wg.Go(stop)
+	}
+	for _, r := range responders {
+		wg.Go(func() { _ = r.drain(ctx) })
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	var err error
+	select {
+	case <-done:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	return errors.Join(err, b.Close())
+}
+
 // Publish stores e on subject.
 func (b *Bus) Publish(ctx context.Context, subject string, e *events.Envelope,
 	opts ...events.PublishOption,
@@ -320,7 +374,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	if err := sub.Validate(); err != nil {
 		return nil, err
 	}
-	if b.isClosed() {
+	if !b.accepting() {
 		return nil, events.ErrClosed
 	}
 
@@ -347,7 +401,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		handlers.Wait()
 	}()
 	var once sync.Once
-	return func() {
+	stop := func() {
 		once.Do(func() {
 			stopLoop()
 			<-drained
@@ -356,7 +410,11 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 			delete(b.subs, ms)
 			b.mu.Unlock()
 		})
-	}, nil
+	}
+	ms.mu.Lock()
+	ms.stopFn = stop
+	ms.mu.Unlock()
+	return stop, nil
 }
 
 // freeSlots is the free slots of every running Subscribe on stream's durable:
@@ -467,6 +525,8 @@ type memSub struct {
 	// zero while they do not; stopping is set once the loop has ended.
 	saturatedSince time.Time
 	stopping       bool
+	// stopFn is the stop function Subscribe returned, which Drain calls.
+	stopFn func()
 }
 
 // memDelivery is one running handler's message and the attempt it runs.
@@ -806,24 +866,49 @@ func (b *Bus) deadLetter(ctx context.Context, msg *message, durable, reason stri
 	}
 }
 
-// Serve registers an in-process responder.
+// Serve registers an in-process responder. The stop function drains it as
+// natsbus's does: it takes no new request, waits for the calls it holds --
+// each bounded by its caller's context -- and then removes it.
 func (b *Bus) Serve(subject, queue string,
 	h func(ctx context.Context, data []byte) ([]byte, error),
-) error {
+) (func(), error) {
 	if subject == "" {
-		return fmt.Errorf("membus: %w", events.ErrNoResponders)
+		return nil, fmt.Errorf("membus: %w", events.ErrNoResponders)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.closed {
-		return events.ErrClosed
+	if b.closed || b.draining {
+		return nil, events.ErrClosed
 	}
 	limits := b.opts.serveLimits.WithDefaults()
-	b.responders[subject] = append(b.responders[subject], &responder{
+	r := &responder{
 		subject: subject, queue: queue, handle: h,
 		limits: limits, gate: events.NewServeGate(limits), done: b.done,
-	})
-	return nil
+	}
+	b.responders[subject] = append(b.responders[subject], r)
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			_ = r.drain(context.Background())
+			b.forgetResponder(r)
+		})
+	}, nil
+}
+
+// forgetResponder removes r from the bus's responders.
+func (b *Bus) forgetResponder(r *responder) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	rs := b.responders[r.subject]
+	for i, x := range rs {
+		if x == r {
+			b.responders[r.subject] = append(rs[:i:i], rs[i+1:]...)
+			break
+		}
+	}
+	if len(b.responders[r.subject]) == 0 {
+		delete(b.responders, r.subject)
+	}
 }
 
 // Request calls a responder and decodes its single reply.
@@ -845,23 +930,35 @@ func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 		return events.ErrClosed
 	}
 	r := pickResponder(b.responders, subject)
+	if r != nil && !r.enter() {
+		r = nil
+	}
 	b.mu.Unlock()
 	if r == nil {
 		return fmt.Errorf("membus: %q: %w", subject, events.ErrNoResponders)
 	}
+	defer r.exit()
 	reqEnv := &events.Envelope{}
 	b.opts.hooks.RunBeforePublish(ctx, reqEnv)
 	return r.call(ctx, reqEnv, b.opts.hooks, in, out)
 }
 
+// pickResponder is the first responder for subject that is not draining,
+// exact subjects before wildcard filters.
 func pickResponder(all map[string][]*responder, subject string) *responder {
-	if rs := all[subject]; len(rs) > 0 {
-		return rs[0]
+	for _, r := range all[subject] {
+		if !r.isDraining() {
+			return r
+		}
 	}
 	for filter, rs := range all {
-		if len(rs) > 0 && strings.ContainsAny(filter, "*>") &&
-			events.SubjectMatches(filter, subject) {
-			return rs[0]
+		if !strings.ContainsAny(filter, "*>") || !events.SubjectMatches(filter, subject) {
+			continue
+		}
+		for _, r := range rs {
+			if !r.isDraining() {
+				return r
+			}
 		}
 	}
 	return nil

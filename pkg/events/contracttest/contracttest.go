@@ -1527,7 +1527,7 @@ func testRequestReply(t *testing.T, newBus func() events.Bus) {
 		Echo     string `json:"echo"`
 	}
 
-	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
+	_, err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 		func(_ context.Context, data []byte) ([]byte, error) {
 			var in request
 			if err := json.Unmarshal(data, &in); err != nil {
@@ -1769,7 +1769,7 @@ func testHooksContract(t *testing.T, newBus func() events.Bus,
 		ctx, bus := setup(t, func() events.Bus { return newBusWithHooks(hooks) })
 		got := make(chan hookDelivery, 1)
 
-		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
+		_, err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 			func(ctx context.Context, _ []byte) ([]byte, error) {
 				v, ok := ctx.Value(hooksCtxKey{}).(string)
 				select {
@@ -1802,7 +1802,7 @@ func testHooksContract(t *testing.T, newBus func() events.Bus,
 		ctx, bus := setup(t, newBus)
 		got := make(chan hookDelivery, 1)
 
-		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
+		_, err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 			func(ctx context.Context, _ []byte) ([]byte, error) {
 				v, ok := ctx.Value(hooksCtxKey{}).(string)
 				select {

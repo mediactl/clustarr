@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
@@ -137,13 +136,19 @@ func EnsureTopology(ctx context.Context, bus events.Bus, t events.Topology) erro
 	return nil
 }
 
+// Checker is a health check: controller-runtime's healthz.Checker, spelled
+// as its underlying type so this package links no controller-runtime and
+// cmd/markers and cmd/transcode can shut their bus down through it
+// (ADR-0020 §1). A Checker is assignable to healthz.Checker.
+type Checker = func(*http.Request) error
+
 // WedgeChecker is the `bus` liveness check (split §3.3 as amended
 // 2026-10-07): it fails while a subscription of the process has sat at its
 // lapsed cap past its handler budget plus its first-delivery deadline, which
 // only handlers that ignore their context cause -- a local fault a restart
 // cures. It reads the bus's own state, never the broker, so a NATS outage
 // never fails it. A nil reporter always passes.
-func WedgeChecker(r events.WedgeReporter) healthz.Checker {
+func WedgeChecker(r events.WedgeReporter) Checker {
 	return func(*http.Request) error {
 		if r == nil {
 			return nil
@@ -158,7 +163,7 @@ func WedgeChecker(r events.WedgeReporter) healthz.Checker {
 // It deliberately does not become a liveness check. A NATS outage would then
 // restart every controller in the cluster at once, and a controller whose
 // Kubernetes watches are healthy has useful work to do regardless.
-func ReadyChecker(nc *nats.Conn, bus *natsbus.Bus) healthz.Checker {
+func ReadyChecker(nc *nats.Conn, bus *natsbus.Bus) Checker {
 	return func(req *http.Request) error {
 		if nc == nil || bus == nil {
 			return fmt.Errorf("NATS is not configured")

@@ -109,8 +109,8 @@ func registerWorkers(
 
 	// search.Serve is index's single registration point for the RPC queue
 	// group: it registers clustarr.rpc.index.search, .download, .query and
-	// .blocklist in one call. It has no unsubscribe, so its stop drains in-flight
-	// fan-outs rather than deregistering the responders.
+	// .blocklist in one call. Its stop drains the responders (ADR-0020 §1),
+	// then the in-flight fan-outs.
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := search.Serve(ctx, bus, svc)
 		if err != nil {

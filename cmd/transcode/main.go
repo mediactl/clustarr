@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/worker"
 	"github.com/mediactl/clustarr/app/transcode/worker/graft"
 	"github.com/mediactl/clustarr/app/transcode/worker/inprocess"
+	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
@@ -154,7 +155,6 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return jobspec.WorkerExitRetriable
 	}
-	defer nc.Close()
 	// Equivalent to obs.BusHooks(), inlined: pkg/obs (the top-level package)
 	// pulls in controller-runtime, which this binary must not link.
 	bus, err := natsbus.New(nc, natsbus.WithHooks(events.Hooks{
@@ -163,8 +163,12 @@ func run(args []string, getenv func(string) string) int {
 	}))
 	if err != nil {
 		log.ErrorContext(ctx, "bus", "error", err)
+		busconn.ShutdownAfter(ctx, shutdownBudget, nil, nc)()
 		return jobspec.WorkerExitRetriable
 	}
+	// The one shutdown path (ADR-0020 §1): once Serve has returned, the
+	// claim's answer and the lease's release still reach the server.
+	defer busconn.ShutdownAfter(ctx, shutdownBudget, bus, nc)()
 	opts := worker.Options{
 		DataDir: *dataDir, Threads: worker.ThreadsFromEnv(), PodName: need["POD_NAME"],
 		Telemetry: bus.KV(events.BucketProgress),
@@ -185,6 +189,11 @@ func run(args []string, getenv func(string) string) int {
 	log.ErrorContext(ctx, "serve", "error", err)
 	return jobspec.WorkerExitRetriable
 }
+
+// shutdownBudget bounds the bus and connection drain once the pod is told to
+// stop (busconn.ShutdownAfter): inside the pool pod's default 30 s
+// terminationGracePeriodSeconds, after the worker's own return.
+const shutdownBudget = 20 * time.Second
 
 // runSelfCheck runs the image check CI and the pool's start run: no
 // cluster, no environment.
@@ -243,12 +252,14 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return 1
 	}
-	defer nc.Close()
 	bus, err := natsbus.New(nc)
 	if err != nil {
 		log.ErrorContext(ctx, "bus", "error", err)
+		busconn.ShutdownAfter(ctx, shutdownBudget, nil, nc)()
 		return 1
 	}
+	// The graft's answer is a KV write: drained, not dropped (ADR-0020 §1).
+	defer busconn.ShutdownAfter(ctx, shutdownBudget, bus, nc)()
 	res, err := grafttask.Serve(ctx, grafttask.NewAnswerer(bus, pod), t, func(ctx context.Context, t grafttask.Task) grafttask.Result {
 		return graftWithFFmpeg(ctx, t, dataDir, log)
 	})

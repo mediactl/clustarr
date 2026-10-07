@@ -166,6 +166,16 @@ func (o Options) Validate() error {
 	return nil
 }
 
+// ShutdownTimeout is GracefulShutdownTimeout, DefaultGracefulShutdownTimeout
+// when unset: the manager's wait for its runnables on SIGTERM, whose
+// remainder pkg/busconn.Shutdown spends draining the bus (ADR-0020 §1).
+func (o Options) ShutdownTimeout() time.Duration {
+	if o.GracefulShutdownTimeout == 0 {
+		return DefaultGracefulShutdownTimeout
+	}
+	return o.GracefulShutdownTimeout
+}
+
 // UsesBus reports whether a NATS endpoint was configured.
 func (o Options) UsesBus() bool { return strings.TrimSpace(o.NATSURL) != "" }
 
@@ -209,10 +219,7 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		scheme = MustNewScheme()
 	}
 
-	shutdown := o.GracefulShutdownTimeout
-	if shutdown == 0 {
-		shutdown = DefaultGracefulShutdownTimeout
-	}
+	shutdown := o.ShutdownTimeout()
 
 	opts := ctrl.Options{
 		Scheme:                        scheme,

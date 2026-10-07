@@ -53,15 +53,15 @@ type extrasService struct {
 // asks the ui's Plex provider for an item's extras on every refresh and
 // deletes the ones it holds when the answer is empty, so an error is
 // answered as an error -- a stale entry when there is one -- and never as
-// an empty list.
-func ServeExtras(bus events.Requester, kv events.KV, reg *pkgmetadata.Registry, clock clockwork.Clock) error {
+// an empty list. stop drains the responder (ADR-0020 §1).
+func ServeExtras(bus events.Requester, kv events.KV, reg *pkgmetadata.Registry, clock clockwork.Clock) (stop func(), err error) {
 	s := &extrasService{kv: kv, clock: clock}
 	for _, p := range reg.Plex {
 		if e, ok := p.(pkgmetadata.PlexExtrasProvider); ok {
 			s.providers = append(s.providers, e)
 		}
 	}
-	err := bus.Serve(events.RPCMetadataExtras, events.QueueGroupCatalog, func(ctx context.Context, data []byte) ([]byte, error) {
+	stop, err = bus.Serve(events.RPCMetadataExtras, events.QueueGroupCatalog, func(ctx context.Context, data []byte) ([]byte, error) {
 		ctx, span := tracing.Start(ctx, "metadata.rpc.serve.extras")
 		defer span.End()
 		var req schema.PlexExtrasRequest
@@ -76,9 +76,9 @@ func ServeExtras(bus events.Requester, kv events.KV, reg *pkgmetadata.Registry, 
 		return json.Marshal(resp)
 	})
 	if err != nil {
-		return fmt.Errorf("metadata: serve %s: %w", events.RPCMetadataExtras, err)
+		return nil, fmt.Errorf("metadata: serve %s: %w", events.RPCMetadataExtras, err)
 	}
-	return nil
+	return stop, nil
 }
 
 func (s *extrasService) get(ctx context.Context, plexID string) schema.PlexExtrasResponse {

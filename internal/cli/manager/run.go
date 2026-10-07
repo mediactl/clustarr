@@ -94,8 +94,11 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	defer nc.Close()
-	defer func() { _ = bus.Close() }()
+	// The bus drains last (ADR-0020 §1): this deferred call runs once
+	// mgr.Start has returned, every runnable stopped, so the intake's acks
+	// after a decision lands still reach the server. It spends what is left
+	// of the graceful-shutdown timeout, then falls back to Close.
+	defer busconn.ShutdownAfter(ctx, o.ShutdownTimeout(), bus, nc)()
 
 	// 6. The manager is the only process that creates or updates the
 	// topology (§5.9); the leader keeps it and backstops the dead letters.

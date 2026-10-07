@@ -339,9 +339,11 @@ func capOutcomes(in []schema.SearchOutcome) []schema.SearchOutcome {
 // not scheduled and a NATS partition alike -- none of which readiness
 // touches.
 //
-// stop drains in-flight fan-outs, including the stragglers that outlived
-// their reply. It cannot deregister the responders: events.Requester.Serve
-// has no unsubscribe and its handlers run until the bus is closed. It is
+// stop drains the four responders first (events.Requester.Serve's stop,
+// ADR-0020 §1): they leave the queue group, still answer what they hold, and
+// their running handlers finish, so a download or blocklist call in flight
+// at a rollout is answered rather than timed out. Then it drains in-flight
+// fan-outs, including the stragglers that outlived their reply. It is
 // idempotent.
 func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 	switch {
@@ -372,11 +374,19 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 		{events.RPCIndexQuery, "index.rpc.serve.query", s.handleQuery},
 		{events.RPCIndexBlocklist, "index.rpc.serve.blocklist", s.handleBlocklist},
 	}
+	var stops []func()
+	stopResponders := func() {
+		var wg sync.WaitGroup
+		for _, st := range stops {
+			wg.Go(st)
+		}
+		wg.Wait()
+	}
 	for _, v := range verbs {
 		// The bus hands every inbound RPC a bare context, so without a span
 		// started here every RPC-triggered indexer call would be an orphaned
 		// root.
-		if err := bus.Serve(v.subject, events.QueueGroupIndex,
+		st, err := bus.Serve(v.subject, events.QueueGroupIndex,
 			func(ctx context.Context, data []byte) ([]byte, error) {
 				ctx, span := tracing.Start(ctx, v.span)
 				defer span.End()
@@ -385,13 +395,17 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 					tracing.RecordError(span, err)
 				}
 				return out, err
-			}); err != nil {
+			})
+		if err != nil {
+			stopResponders()
 			cancel()
 			return nil, fmt.Errorf("app/indexer/search: serve %s: %w", v.subject, err)
 		}
+		stops = append(stops, st)
 	}
 	return func() {
 		s.stopOnce.Do(func() {
+			stopResponders()
 			cancel()
 			s.mu.Lock()
 			s.stopping = true

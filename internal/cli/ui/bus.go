@@ -66,9 +66,9 @@ import (
 // in its log (M7 final review). So the connection's state is logged once
 // here, at startup, naming the URL it is trying.
 //
-// The returned close drains the connection; the command defers it around
-// run, so the connection is drained when ui shuts down rather than left to
-// the process exit. It is never nil.
+// The returned close shuts the bus down through busconn.Shutdown; the command
+// defers it around run, so the connection is drained when ui shuts down
+// rather than left to the process exit. It is never nil.
 func buildBus(ctx context.Context, natsURL string) uiBus {
 	logger := log.FromContext(ctx).WithName("ui")
 	bus, nc, err := busconn.Connect(natsURL, "ui", busconn.WithHooks(obs.BusHooks()))
@@ -177,9 +177,16 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		progress:  progress,
 		transcode: transcode,
 		imports:   importDetail,
-		close:     nc.Close,
+		// busconn.Shutdown, every process's one shutdown path (ADR-0020
+		// §1): ui serves no responder and binds no durable, so this drains
+		// the connection -- its watches and outbound buffer -- and closes it.
+		close: busconn.ShutdownAfter(ctx, busShutdownBudget, bus, nc),
 	}
 }
+
+// busShutdownBudget bounds ui's bus shutdown once its context ends: well
+// inside the Deployment's 30 s terminationGracePeriodSeconds.
+const busShutdownBudget = 10 * time.Second
 
 // busReadTimeout bounds one KV read the Downloads page makes.
 const busReadTimeout = 2 * time.Second

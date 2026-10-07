@@ -115,13 +115,17 @@ type Bus struct {
 	js   jetstream.JetStream
 	opts options
 
-	mu           sync.Mutex
-	closed       bool
+	mu     sync.Mutex
+	closed bool
+	// draining is set by Drain: new subscriptions and responders are
+	// refused, while publishes, requests and KV writes still work.
+	draining     bool
 	topology     events.Topology
 	buckets      map[string]jetstream.KeyValue
 	objectStores map[string]jetstream.ObjectStore
-	responders   []*nats.Subscription
+	responders   []*responder
 	subs         []*subscription
+	cores        []*coreSub
 	// retired keeps, per retired durable, what Ensure found of it
 	// (events.MergeRetired).
 	retired map[string]events.RetiredReport
@@ -217,8 +221,9 @@ func (b *Bus) RetiredReports() []events.RetiredReport {
 	return events.SortedRetired(b.retired)
 }
 
-// Close stops every subscription and responder. It does not close the NATS
-// connection, which the caller owns.
+// Close stops every subscription and responder at once, without a drain:
+// the hard abort Drain falls back to (ADR-0020 §1). It does not close the
+// NATS connection, which the caller owns.
 func (b *Bus) Close() error {
 	b.mu.Lock()
 	if b.closed {
@@ -226,8 +231,8 @@ func (b *Bus) Close() error {
 		return nil
 	}
 	b.closed = true
-	responders, subs := b.responders, b.subs
-	b.responders, b.subs = nil, nil
+	responders, subs, cores := b.responders, b.subs, b.cores
+	b.responders, b.subs, b.cores = nil, nil, nil
 	b.mu.Unlock()
 	b.serveCancel()
 
@@ -235,10 +240,21 @@ func (b *Bus) Close() error {
 		s.halt()
 	}
 	var errs []error
-	for _, s := range responders {
-		errs = append(errs, unsubscribe(s))
+	for _, r := range responders {
+		errs = append(errs, r.halt())
+	}
+	for _, c := range cores {
+		c.stop()
 	}
 	return errors.Join(errs...)
+}
+
+// accepting reports whether the bus still takes new subscriptions and
+// responders: not closed and not draining.
+func (b *Bus) accepting() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return !b.closed && !b.draining
 }
 
 // unsubscribe removes a core-NATS subscription, treating one the connection
@@ -352,10 +368,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	if err := sub.Validate(); err != nil {
 		return nil, err
 	}
-	b.mu.Lock()
-	closed := b.closed
-	b.mu.Unlock()
-	if closed {
+	if !b.accepting() {
 		return nil, events.ErrClosed
 	}
 
@@ -363,7 +376,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		b.handle(hctx, eff, h, m, dh)
 	})
 	b.mu.Lock()
-	if b.closed {
+	if b.closed || b.draining {
 		b.mu.Unlock()
 		s.halt()
 		return nil, events.ErrClosed
@@ -537,19 +550,24 @@ func respondError(m *nats.Msg, code int, msg string) {
 // before a slot frees is dropped unrun and unanswered. A handler that panics
 // is logged with its stack and answered with events.ErrResponderFailed, and
 // the responder keeps serving.
+//
+// The stop function drains the responder (ADR-0020 §1): nats.go's
+// Subscription.Drain takes it out of the queue group and still delivers what
+// it buffered, the respond goroutines finish, and its handlers' context is
+// cancelled only after the request timeout plus responderDrainGrace. Drain
+// does the same for every responder at once; Close cancels at once.
 func (b *Bus) Serve(subject, queue string,
 	h func(ctx context.Context, data []byte) ([]byte, error),
-) error {
-	b.mu.Lock()
-	if b.closed {
-		b.mu.Unlock()
-		return events.ErrClosed
+) (func(), error) {
+	if !b.accepting() {
+		return nil, events.ErrClosed
 	}
-	b.mu.Unlock()
 
 	limits := b.opts.serveLimits.WithDefaults()
 	gate := events.NewServeGate(limits)
-	cb := func(m *nats.Msg) {
+	r := &responder{bus: b, subject: subject, queue: queue}
+	r.ctx, r.cancel = context.WithCancel(b.serveCtx)
+	r.cb = func(m *nats.Msg) {
 		var callerLeft time.Duration
 		hasCaller := false
 		if m.Header != nil {
@@ -557,46 +575,56 @@ func (b *Bus) Serve(subject, queue string,
 		}
 		timeout, bounded, expired := events.HandlerTimeout(b.opts.requestTimeout, callerLeft, hasCaller)
 		if expired {
-			logging.FromContext(b.serveCtx).Debug("bus: request dropped: its caller's deadline had passed",
+			logging.FromContext(r.ctx).Debug("bus: request dropped: its caller's deadline had passed",
 				"subject", m.Subject)
 			return
 		}
 		leave, ok := gate.Admit()
 		if !ok {
-			logging.FromContext(b.serveCtx).Warn("bus: request refused: responder busy",
+			logging.FromContext(r.ctx).Warn("bus: request refused: responder busy",
 				"subject", m.Subject, "concurrency", limits.Concurrency, "queue", limits.Queue)
 			respondError(m, events.ServiceErrorBusy, events.BusyMessage(limits))
 			return
 		}
-		ctx, cancel := b.serveCtx, context.CancelFunc(func() {})
+		ctx, cancel := r.ctx, context.CancelFunc(func() {})
 		if bounded {
 			// Measured from now, receipt, so a request that waits for a
 			// slot spends its caller's time waiting, not on top of it.
 			ctx, cancel = context.WithTimeout(ctx, timeout)
 		}
+		r.running.Add(1)
 		go func() {
+			defer r.running.Done()
 			defer leave()
 			defer cancel()
 			b.respond(ctx, gate, subject, m, h)
 		}()
 	}
 
-	var (
-		sub *nats.Subscription
-		err error
-	)
-	if queue == "" {
-		sub, err = b.nc.Subscribe(subject, cb)
-	} else {
-		sub, err = b.nc.QueueSubscribe(subject, queue, cb)
-	}
+	sub, err := r.subscribe()
 	if err != nil {
-		return fmt.Errorf("natsbus: serve %q: %w", subject, err)
+		r.cancel()
+		return nil, fmt.Errorf("natsbus: serve %q: %w", subject, err)
 	}
+	r.sub = sub
 	b.mu.Lock()
-	b.responders = append(b.responders, sub)
+	if b.closed || b.draining {
+		b.mu.Unlock()
+		_ = r.halt()
+		return nil, events.ErrClosed
+	}
+	b.responders = append(b.responders, r)
 	b.mu.Unlock()
-	return nil
+	stop := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), b.stopBudget())
+		defer cancel()
+		if err := r.drain(ctx); err != nil {
+			logging.FromContext(r.ctx).Warn("bus: responder drain cut short; running handlers cancelled",
+				"subject", subject, "error", err)
+		}
+		b.forgetResponder(r)
+	}
+	return stop, nil
 }
 
 // respond waits for a handler slot, runs h on one admitted request and

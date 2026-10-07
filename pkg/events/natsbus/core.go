@@ -29,25 +29,58 @@ import (
 
 var _ events.CoreSubscriber = (*Bus)(nil)
 
+// coreSub is one SubscribeCore call's subscription, which the bus tracks so
+// Drain drains it and Close ends it.
+type coreSub struct {
+	bus  *Bus
+	sub  *nats.Subscription
+	once sync.Once
+}
+
+// stop unsubscribes once and forgets the subscription.
+func (c *coreSub) stop() {
+	c.once.Do(func() {
+		_ = unsubscribe(c.sub)
+		c.bus.forgetCore(c)
+	})
+}
+
+// forgetCore drops a stopped core subscription from the bus's list.
+func (b *Bus) forgetCore(c *coreSub) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, x := range b.cores {
+		if x == c {
+			b.cores = append(b.cores[:i], b.cores[i+1:]...)
+			return
+		}
+	}
+}
+
 // SubscribeCore implements events.CoreSubscriber: a plain core NATS
 // subscription (nc.Subscribe), no stream and no durable, ended by the stop
-// function or by ctx. h runs on the subscription's delivery goroutine.
+// function, by ctx, or by the bus's Drain or Close. h runs on the
+// subscription's delivery goroutine.
 func (b *Bus) SubscribeCore(ctx context.Context, subject string, h func(subject string, data []byte)) (func(), error) {
-	b.mu.Lock()
-	closed := b.closed
-	b.mu.Unlock()
-	if closed {
+	if !b.accepting() {
 		return nil, events.ErrClosed
 	}
 	sub, err := b.nc.Subscribe(subject, func(m *nats.Msg) { h(m.Subject, m.Data) })
 	if err != nil {
 		return nil, fmt.Errorf("natsbus: subscribe %s: %w", subject, err)
 	}
-	var once sync.Once
-	stop := func() { once.Do(func() { _ = sub.Unsubscribe() }) }
+	c := &coreSub{bus: b, sub: sub}
+	b.mu.Lock()
+	if b.closed || b.draining {
+		b.mu.Unlock()
+		_ = unsubscribe(sub)
+		return nil, events.ErrClosed
+	}
+	b.cores = append(b.cores, c)
+	b.mu.Unlock()
 	go func() {
 		<-ctx.Done()
-		stop()
+		c.stop()
 	}()
-	return stop, nil
+	return c.stop, nil
 }

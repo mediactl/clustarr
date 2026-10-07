@@ -362,9 +362,16 @@ type Requester interface {
 	Request(ctx context.Context, subject string, in, out any) error
 
 	// Serve registers h as a responder on subject inside queue group queue.
-	// Handlers run until the bus is closed, concurrently up to the bus's
-	// ServeLimits, each no longer than its caller waits (serve.go).
-	Serve(subject, queue string, h func(ctx context.Context, data []byte) ([]byte, error)) error
+	// Handlers run concurrently up to the bus's ServeLimits, each no longer
+	// than its caller waits (serve.go), until stop, Drain or Close.
+	//
+	// stop drains this responder, as Drain drains every one (ADR-0020 §1):
+	// it takes no new request, still answers the requests already buffered
+	// client-side, and waits for its running handlers, which keep their
+	// context for up to the bus's request timeout before it is cancelled.
+	// A runnable calls it at <-ctx.Done(), as it calls Subscribe's stop. It
+	// is idempotent.
+	Serve(subject, queue string, h func(ctx context.Context, data []byte) ([]byte, error)) (stop func(), err error)
 }
 
 // Entry is a single key/value revision.
@@ -668,8 +675,23 @@ type Bus interface {
 	// policy has changed.
 	Ensure(ctx context.Context, t Topology) error
 
+	// Drain is the graceful shutdown (ADR-0020 §1). It stops every pull
+	// subscription the way its stop function does -- no more fetches, a nak
+	// for anything still arriving, running handlers keeping their context
+	// for up to Subscription.Drain -- and drains every responder: no new
+	// request is taken, the requests already buffered are still answered,
+	// and it waits for running handlers until ctx ends. Only then does it
+	// cancel the handlers' context and close the bus, as Close does. It
+	// returns ctx's error when ctx ended first. New subscriptions and
+	// responders are refused once it starts; publishes, requests and KV
+	// writes keep working until it returns, so a draining handler can
+	// still settle and answer. It does not close the NATS connection,
+	// which pkg/busconn.Shutdown drains after it.
+	Drain(ctx context.Context) error
+
 	// Close releases the connection and stops every subscription and
-	// responder.
+	// responder at once, cancelling running handlers without a drain: the
+	// hard abort Drain falls back to.
 	Close() error
 }
 
