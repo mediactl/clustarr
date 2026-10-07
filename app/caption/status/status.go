@@ -21,273 +21,12 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/v1alpha1"
-	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
-
-// -----------------------------------------------------------------------
-// SubtitleRequest
-// -----------------------------------------------------------------------
-
-// IsLive reports whether it is a LIVE item under the item-liveness protocol,
-// the one rule both SubtitleRequest managers use to decide which entries of
-// status.items exist:
-//
-//  1. An item is live if and only if the controller currently owns its
-//     nextSearchAt. The controller sends a non-empty nextSearchAt for every
-//     item it wants -- satisfied ones included -- and stops sending an item
-//     it no longer wants.
-//  2. The controller creates items with {langKey, nextSearchAt, attempts}
-//     only.
-//  3. The worker, on every apply, after its re-read, re-sends its leaves
-//     ONLY for live items. It drops a non-live item from its apply, which
-//     releases its leaves, so no manager owns the entry any more and
-//     server-side apply deletes it. If a fetch task's own langKey is not
-//     live, the want was withdrawn: the worker records nothing and acks.
-//     The worker never creates an item.
-//
-// Why a protocol at all: a listType=map entry exists for as long as ANY
-// manager owns ANY of its fields. Ruling R4 has each manager re-declare
-// every item on every apply, so before this rule a language the controller
-// stopped wanting lived forever -- the worker kept re-sending the entry it
-// had once written, and nothing could ever remove it.
-//
-// Liveness is read from the object, not from managedFields: nextSearchAt
-// has exactly one writer (the controller, per [RequestControllerFields]),
-// so a non-empty value on a freshly read object is the controller's latest
-// declaration. The read must be fresh for the same reason every seed must
-// be (see [PatchRequest]).
-//
-// The controller's half of rule 1 had a trap of its own: rendering an entry
-// without nextSearchAt as a bare langKey is still a claim on the entry, so a
-// controller that seeded from a status still holding a withdrawn item kept
-// it alive forever. [RequestControllerFields] therefore renders only live
-// items too. That makes withdrawing an item a matter of leaving it out, or of
-// clearing its nextSearchAt in the source -- either way nothing is sent --
-// and it means a caller that wants an item MUST give it a non-empty
-// nextSearchAt in the source status, not set one through the returned
-// configuration after the fact.
-func IsLive(it subtitlev1alpha1.SubtitleItem) bool {
-	return it.NextSearchAt != nil && !it.NextSearchAt.IsZero()
-}
-
-// LiveItemKeys returns the langKeys of st's live items (see [IsLive]).
-func LiveItemKeys(st subtitlev1alpha1.SubtitleRequestStatus) sets.Set[string] {
-	out := sets.New[string]()
-	for _, it := range st.Items {
-		if IsLive(it) {
-			out.Insert(it.LangKey)
-		}
-	}
-	return out
-}
-
-// RequestControllerFields returns the complete set k8s.ManagerCaption owns
-// on SubtitleRequest.status, seeded from the live status so that an apply
-// which changes one field still declares the others.
-//
-// It deliberately does NOT seed Conditions -- see the package doc's "One
-// declaration per manager" section. Phase is an enum the CRD does not admit
-// "" for, so a request that has not been planned yet omits it instead of
-// sending a value the apiserver would reject; that is a property of the
-// object's SHAPE (never planned) rather than of this reconcile's OUTCOME, the
-// same exception app/indexer/status makes for Indexer.status.protocol and
-// pkg/download.ApplyStatus makes for Download.status.stage.
-// ObservedGeneration, ProfileGeneration and ProbeHash are plain,
-// non-enum values, so -- like pkg/download.ApplyStatus's Message and
-// OutputPath -- they are sent unconditionally, zero value included: an empty
-// probeHash before the first probe is exactly as real a value as a populated
-// one, and omitting it because this reconcile has nothing new to say would be
-// the outcome-driven release CLAUDE.md warns about.
-//
-// Existing is rendered in full on every call, the same way
-// pkg/download.ApplyStatus renders Files: looping and appending is safe here
-// specifically because ac is freshly constructed inside this function and
-// never seeded a second time.
-//
-// Items is the fragile half (ruling R4). Every LIVE entry in st.Items
-// ([IsLive]) is rendered, and for each only langKey (the shared map key) and
-// this manager's two owned leaves -- attempts and nextSearchAt -- are set. A
-// non-live entry is not rendered at all, not even as a bare langKey, which
-// would still claim the entry and keep a withdrawn item alive (see
-// [IsLive]). A caller that needs to change one item's controller-owned
-// leaves must mutate the SOURCE SubtitleRequestStatus (or assign directly
-// into the returned configuration's Items slice) rather than call
-// ac.WithItems again, which would append and double every entry -- the exact
-// hazard [MediaFileStatus.Sidecars] hit in Phase C.
-func RequestControllerFields(st subtitlev1alpha1.SubtitleRequestStatus) *subtitleac.SubtitleRequestStatusApplyConfiguration {
-	ac := subtitleac.SubtitleRequestStatus().
-		WithObservedGeneration(st.ObservedGeneration).
-		WithProfileGeneration(st.ProfileGeneration).
-		WithProbeHash(st.ProbeHash)
-	if st.Phase != "" {
-		ac = ac.WithPhase(st.Phase)
-	}
-	if st.FileFingerprint != nil {
-		ac = ac.WithFileFingerprint(*st.FileFingerprint)
-	}
-	for _, e := range st.Existing {
-		exAC := subtitleac.ExistingSub().WithLangKey(e.LangKey).WithSource(e.Source).WithPath(e.Path)
-		if e.StreamIndex != nil {
-			exAC = exAC.WithStreamIndex(*e.StreamIndex)
-		}
-		ac = ac.WithExisting(exAC)
-	}
-
-	items := make([]*subtitleac.SubtitleItemApplyConfiguration, 0, len(st.Items))
-	for _, it := range st.Items {
-		if !IsLive(it) {
-			continue
-		}
-		items = append(items, requestControllerItemAC(it))
-	}
-	ac.Items = itemSlice(items)
-	return ac
-}
-
-// requestControllerItemAC renders the k8s.ManagerCaption half of one
-// SubtitleItem: the shared map key plus attempts and nextSearchAt, and
-// nothing else. Both are pointer-shaped (Attempts is rendered as a whole
-// value, the same atomic treatment pkg/download.ApplyStatus gives Health) and
-// omitted while zero/nil -- a language the controller has never scheduled a
-// search for has neither, and that absence is the CRD's documented shape for
-// "not yet attempted", not an outcome this reconcile failed to compute.
-func requestControllerItemAC(it subtitlev1alpha1.SubtitleItem) *subtitleac.SubtitleItemApplyConfiguration {
-	ac := subtitleac.SubtitleItem().WithLangKey(it.LangKey)
-	if it.Attempts != (commonv1alpha1.Attempts{}) {
-		ac = ac.WithAttempts(it.Attempts)
-	}
-	if it.NextSearchAt != nil {
-		ac = ac.WithNextSearchAt(*it.NextSearchAt)
-	}
-	return ac
-}
-
-// RequestWorkerFields returns the complete set k8s.ManagerCaptionWorker
-// owns on SubtitleRequest.status: every leaf of every LIVE item except
-// nextSearchAt and attempts, which belong to the controller.
-//
-// Every live entry in st.Items is rendered, for the same reason
-// [RequestControllerFields] renders every entry: ruling R4 requires each
-// manager to re-send every leaf it owns for every item on every apply, not
-// just the item this call is actually updating -- a worker that only rendered
-// the item it just searched would release every other item's state on its
-// next write.
-//
-// A non-live entry is deliberately NOT rendered: that release is rule 3 of
-// the item-liveness protocol ([IsLive]). Once the controller stops sending
-// an item's nextSearchAt, this apply releases the worker's leaves on it,
-// nothing owns the entry, and server-side apply deletes it.
-func RequestWorkerFields(st subtitlev1alpha1.SubtitleRequestStatus) *subtitleac.SubtitleRequestStatusApplyConfiguration {
-	ac := subtitleac.SubtitleRequestStatus()
-	items := make([]*subtitleac.SubtitleItemApplyConfiguration, 0, len(st.Items))
-	for _, it := range st.Items {
-		if !IsLive(it) {
-			continue
-		}
-		items = append(items, requestWorkerItemAC(it))
-	}
-	ac.Items = itemSlice(items)
-	return ac
-}
-
-// requestWorkerItemAC renders the k8s.ManagerCaptionWorker half of one
-// SubtitleItem.
-//
-// State is an enum the CRD does not admit "" for, so it is sent only once a
-// worker has actually observed one -- the same shape exception
-// requestControllerItemAC and pkg/download.ApplyStatus make for their own
-// enums. Score and scoreOutOf are plain, non-pointer integers and are sent
-// UNCONDITIONALLY, zero included, matching pkg/download.ApplyStatus's
-// treatment of its own telemetry counters: a candidate that genuinely scored
-// 0 and "no candidate chosen yet" are indistinguishable if either is allowed
-// to omit the field, and omitting on a transient outcome is the release bug.
-// Provider, subtitleID, path and lastError are plain strings and are sent
-// unconditionally for the same reason pkg/download.ApplyStatus sends Message
-// and OutputPath unconditionally. downloadedAt is a pointer and is omitted
-// while nil -- a language never downloaded has no downloadedAt, which is the
-// CRD's documented shape.
-func requestWorkerItemAC(it subtitlev1alpha1.SubtitleItem) *subtitleac.SubtitleItemApplyConfiguration {
-	ac := subtitleac.SubtitleItem().
-		WithLangKey(it.LangKey).
-		WithScore(it.Score).
-		WithScoreOutOf(it.ScoreOutOf).
-		WithProvider(it.Provider).
-		WithSubtitleID(it.SubtitleID).
-		WithPath(it.Path).
-		WithLastError(it.LastError)
-	if it.State != "" {
-		ac = ac.WithState(it.State)
-	}
-	if it.DownloadedAt != nil {
-		ac = ac.WithDownloadedAt(*it.DownloadedAt)
-	}
-	return ac
-}
-
-// itemSlice dereferences a slice of item apply configurations into the value
-// slice the generated Items field holds, or nil for an empty input so an
-// empty status renders no items key at all rather than an empty list -- items
-// is optional, and there is nothing to declare for a request with none.
-func itemSlice(items []*subtitleac.SubtitleItemApplyConfiguration) []subtitleac.SubtitleItemApplyConfiguration {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]subtitleac.SubtitleItemApplyConfiguration, len(items))
-	for i, it := range items {
-		out[i] = *it
-	}
-	return out
-}
-
-// PatchRequest applies a complete SubtitleRequest.status declaration under
-// mgr.
-//
-// The caller mutates the seeded apply configuration rather than building one,
-// which is what makes the complete-declaration rule enforceable in one place.
-// mgr must be k8s.ManagerCaption or k8s.ManagerCaptionWorker; anything
-// else is a programming error and is refused rather than allowed to claim
-// fields no part of the split accounts for.
-//
-// req is both the seed and the target. It must be FRESHLY READ: the seed is
-// only as complete as the status it was taken from, so an object fetched
-// before the worker's slow provider search re-declares stale item state and
-// silently reverts whatever landed in between. A lost update is not a release
-// and no release-regression test can see one.
-//
-// mutate must not call ac.WithItems: both [RequestControllerFields] and
-// [RequestWorkerFields] already seed Items exactly once, and WithItems
-// appends, so a second call doubles every entry. A mutate that needs
-// different items assigns ac.Items directly.
-func PatchRequest(
-	ctx context.Context,
-	c client.Client,
-	mgr k8s.FieldManager,
-	req *subtitlev1alpha1.SubtitleRequest,
-	mutate func(*subtitleac.SubtitleRequestStatusApplyConfiguration),
-) error {
-	var ac *subtitleac.SubtitleRequestStatusApplyConfiguration
-	switch mgr {
-	case k8s.ManagerCaption:
-		ac = RequestControllerFields(req.Status)
-	case k8s.ManagerCaptionWorker:
-		ac = RequestWorkerFields(req.Status)
-	default:
-		return fmt.Errorf("status: %q owns no part of SubtitleRequest.status", mgr)
-	}
-	if mutate != nil {
-		mutate(ac)
-	}
-
-	obj := subtitleac.SubtitleRequest(req.Name, req.Namespace).WithStatus(ac)
-	_, err := k8s.PatchStatus(ctx, c, mgr, obj)
-	return err
-}
 
 // -----------------------------------------------------------------------
 // SubtitleProfile
@@ -319,9 +58,8 @@ func ProfileFields(st subtitlev1alpha1.SubtitleProfileStatus) *subtitleac.Subtit
 // PatchProfile applies a complete SubtitleProfile.status declaration under
 // mgr.
 //
-// mgr must be k8s.ManagerCaption; every other manager, including
-// k8s.ManagerCaptionWorker, is refused. SubtitleProfile has exactly one
-// legitimate writer.
+// mgr must be k8s.ManagerCaption; every other manager is refused.
+// SubtitleProfile has exactly one legitimate writer.
 func PatchProfile(
 	ctx context.Context,
 	c client.Client,
@@ -352,9 +90,8 @@ func PatchProfile(
 // clustarr-provider-throttle KV bucket, never onto this object directly, and
 // only the provider controller projects that KV state into
 // status.throttledUntil/throttleReason/quota/errorsLast120s and the
-// conditions. [PatchProvider] enforces that by refusing
-// k8s.ManagerCaptionWorker the same way it refuses every manager outside
-// the split.
+// conditions. [PatchProvider] enforces that by refusing every other
+// manager.
 //
 // ThrottledUntil, TokenExpiresAt and LastSuccessAt are pointers and are
 // omitted while nil -- an unthrottled, never-authenticated or never-queried
@@ -407,8 +144,8 @@ func providerQuotaAC(q *subtitlev1alpha1.ProviderQuota) *subtitleac.ProviderQuot
 // PatchProvider applies a complete SubtitleProvider.status declaration under
 // mgr.
 //
-// mgr must be k8s.ManagerCaption; every other manager, including
-// k8s.ManagerCaptionWorker, is refused. See ruling R2 and [ProviderFields].
+// mgr must be k8s.ManagerCaption; every other manager is refused. See
+// ruling R2 and [ProviderFields].
 func PatchProvider(
 	ctx context.Context,
 	c client.Client,

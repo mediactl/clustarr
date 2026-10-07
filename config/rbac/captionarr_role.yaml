@@ -13,9 +13,7 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - episodes
   - mediafiles
-  - movies
   verbs:
   - get
   - list
@@ -41,7 +39,6 @@ rules:
   resources:
   - subtitleprofiles/status
   - subtitleproviders/status
-  - subtitlerequests/status
   verbs:
   - get
   - patch
@@ -53,16 +50,4 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - subtitle.clustarr.io
-  resources:
-  - subtitlerequests
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
   - watch

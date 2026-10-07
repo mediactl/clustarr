@@ -91,15 +91,20 @@ type Reconciler struct {
 	Clock func() time.Time
 	// Items is the item path (loop spec §3.12): the loop's second key type.
 	// app/remediation/manager.Register sets it before SetupWithManager.
-	Items    ItemReconciler
-	c        client.Client
-	env      *Env
-	recorder k8sevents.EventRecorder
-	cfg      Config
-	planners []Bound
-	acts     []Actuator
-	limiter  *WriteLimiter
-	keys     keyStates
+	Items ItemReconciler
+	// SubtitleProfileWake is S1''s subtitleProfileWake (loop spec §2.13):
+	// called when a file's subtitles profile or phase changes, never
+	// blocking. app/remediation/manager.Register sets it; nil signals
+	// nothing.
+	SubtitleProfileWake func()
+	c                   client.Client
+	env                 *Env
+	recorder            k8sevents.EventRecorder
+	cfg                 Config
+	planners            []Bound
+	acts                []Actuator
+	limiter             *WriteLimiter
+	keys                keyStates
 }
 
 // NewReconciler binds the planners in Order and the actuators in their order.
@@ -513,7 +518,7 @@ func (r *Reconciler) gate() []bool {
 // each item kind's Watches, §3.12).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := builder.TypedControllerManagedBy[Key](mgr).Named(ControllerName).
-		Watches(&catalogv1alpha1.MediaFile{}, mediaFileEvents())
+		Watches(&catalogv1alpha1.MediaFile{}, mediaFileEvents(r.SubtitleProfileWake))
 	seen := map[string]bool{}
 	var watchers []Watcher
 	for _, p := range r.planners {

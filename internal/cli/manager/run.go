@@ -28,6 +28,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/autoscale"
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
+	subtitleprofile "github.com/mediactl/clustarr/app/caption/controller/subtitleprofile"
 	captionmanager "github.com/mediactl/clustarr/app/caption/manager"
 	catalogmanager "github.com/mediactl/clustarr/app/catalog/manager"
 	"github.com/mediactl/clustarr/app/catalog/searchplan"
@@ -266,6 +267,9 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 		name string
 		add  func() error
 	}
+	// The loop signals the slim SubtitleProfile reconciler through one Wake
+	// (loop spec §2.13): caption registers it, the loop calls Signal.
+	wake := subtitleprofile.NewWake(subtitleprofile.WakeDebounce)
 	steps := []step{
 		{"catalog", func() error {
 			return catalogmanager.Register(mgr, bus, catalogmanager.Options{
@@ -300,7 +304,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			})
 		}},
 		{"caption", func() error {
-			return captionmanager.Register(mgr, bus, captionmanager.Options{Options: o.Options, DataDir: o.DataDir})
+			return captionmanager.Register(mgr, bus, captionmanager.Options{Options: o.Options, ProfileWake: wake})
 		}},
 		// The MediaFile remediation loop (ADR-0016, loop spec §3.1), after
 		// transcode and caption: the only writer of MediaFile status.
@@ -315,6 +319,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				Artwork: p.artwork,
 				// The search planner's (A4.2).
 				WantedWakes: p.wanted, DonorBudget: p.budget, SearchLivePerMinute: o.SearchLivePerMinute,
+				SubtitleProfileWake: wake.Signal,
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge

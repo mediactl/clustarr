@@ -91,6 +91,12 @@ type Options struct {
 	WantedWakes         <-chan schema.ItemRef
 	DonorBudget         *searchplan.DonorBudget
 	SearchLivePerMinute int
+
+	// SubtitleProfileWake is the slim SubtitleProfile reconciler's
+	// subtitleProfileWake (loop spec §2.13): the loop calls it when a file's
+	// subtitles profile or phase changes. internal/cli/manager hands the
+	// caption manager the same Wake.
+	SubtitleProfileWake func()
 }
 
 // Deps is what Planners, Actuators and Stages build from.
@@ -143,6 +149,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err != nil {
 		return err
 	}
+	r.SubtitleProfileWake = o.SubtitleProfileWake
 	// mgr.GetEventRecorder returns controller-runtime's recorder.EventRecorder,
 	// which embeds the events.k8s.io EventRecorder the item reconcilers hold.
 	recorder := func(name string) k8sevents.EventRecorder { return mgr.GetEventRecorder(name) }

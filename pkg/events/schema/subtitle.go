@@ -139,19 +139,6 @@ type OnDiskSubtitle struct {
 	Score int32  `json:"score"`
 }
 
-// FetchTaskV1 is the v1 payload, kept only while the SubtitleRequest
-// controller still publishes it; F5.3 deletes it with that controller.
-type FetchTaskV1 struct {
-	RequestRef Ref    `json:"requestRef"`
-	LangKey    string `json:"langKey"`
-	MinScore   int32  `json:"minScore,omitempty"`
-	Upgrade    bool   `json:"upgrade,omitempty"`
-	ProbeHash  string `json:"probeHash,omitempty"`
-}
-
-// Schema implements Payload.
-func (FetchTaskV1) Schema() string { return FetchTaskV1Schema }
-
 // SubtitleVerdict is what a fetch found (loop spec §6.6).
 type SubtitleVerdict string
 

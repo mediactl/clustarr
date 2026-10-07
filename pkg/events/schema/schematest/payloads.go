@@ -58,7 +58,6 @@ func Payloads() []schema.Payload {
 		schema.TranscodeProgress{},
 		schema.SubtitleEvent{},
 		schema.FetchTask{},
-		schema.FetchTaskV1{}, // until F5.3 deletes it with the SubtitleRequest controller
 		schema.ScanTask{},
 		schema.ListTask{},
 		schema.RecycleSweepTask{},

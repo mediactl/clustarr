@@ -231,10 +231,6 @@ const (
 	// ManagerCaption is the caption controller manager.
 	ManagerCaption FieldManager = "caption"
 
-	// ManagerCaptionWorker is a caption subtitle fetch worker. It
-	// applies SubtitleRequest.status.items entries only.
-	ManagerCaptionWorker FieldManager = "caption-worker"
-
 	// ManagerDLQProjector is the DLQ projector wired into catalog's
 	// RoleHistory branch (built by task G1-4, wired by G1-5), the one
 	// subscriber to events.ConsumerDLQProjector. Design spec §5 originally
@@ -324,7 +320,6 @@ func FieldManagers() []FieldManager {
 		ManagerTranscode,
 		ManagerTranscodePool,
 		ManagerCaption,
-		ManagerCaptionWorker,
 		ManagerDLQProjector,
 		ManagerUI,
 		ManagerAutoscale,

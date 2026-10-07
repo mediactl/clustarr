@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/remediation"
@@ -34,7 +33,7 @@ import (
 
 // Sources: S2', S3', S4' and S11 as the old controller's naming watches;
 // S23's TranscodeJob (deduplicated with the probe's) holds a rename while a
-// transcode runs; S23's SubtitleRequest, until F5.3, wakes the file.
+// transcode runs.
 func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	c := mgr.GetClient()
 	via := func(f func(context.Context, client.Reader, client.Object) []types.NamespacedName) func(context.Context, client.Object) []types.NamespacedName {
@@ -60,11 +59,6 @@ func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 		{
 			Name: "S23/TranscodeJob", Object: &transcodev1alpha1.TranscodeJob{}, Handler: remediation.MapFiles(mediafile.FileOfTranscodeJob),
 			Predicates: []predicate.Predicate{mediafile.TranscodeJobPhaseChanged()},
-		},
-		{
-			Name: "S23/SubtitleRequest", Object: &subtitlev1alpha1.SubtitleRequest{},
-			Handler:    remediation.MapFiles(mediafile.FileOfSubtitleRequest),
-			Predicates: []predicate.Predicate{mediafile.SubtitleRequestItemsChanged()},
 		},
 	}, nil
 }

@@ -81,3 +81,30 @@ func Register(ctx context.Context, idx client.FieldIndexer) error {
 	}
 	return nil
 }
+
+// SubtitleProfile indexes a MediaFile by the SubtitleProfile its subtitles
+// block was planned with, and by profile and phase (loop spec §3.16): the
+// slim SubtitleProfile reconciler counts the files each profile planned
+// through it.
+const SubtitleProfile = "remediation.mediafile.subtitleProfile"
+
+// SubtitleProfileValues is SubtitleProfile's extractor: "<profile>" and
+// "<profile>/<phase>" for a file whose subtitles block names a profile.
+func SubtitleProfileValues(o client.Object) []string {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok || mf.Status.Subtitles == nil || mf.Status.Subtitles.Profile == "" {
+		return nil
+	}
+	s := mf.Status.Subtitles
+	return []string{s.Profile, s.Profile + "/" + string(s.Phase)}
+}
+
+// RegisterSubtitleProfile registers SubtitleProfile on idx. The slim
+// SubtitleProfile reconciler, the index's one reader, calls it, so
+// app/caption/manager starts without the loop.
+func RegisterSubtitleProfile(ctx context.Context, idx client.FieldIndexer) error {
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, SubtitleProfile, SubtitleProfileValues); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", SubtitleProfile, err)
+	}
+	return nil
+}

@@ -20,8 +20,8 @@ package subtitleprofile
 import (
 	"fmt"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/dlclark/regexp2"
+
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/subtitleplan"
 	"github.com/mediactl/clustarr/pkg/subtitles"
@@ -34,8 +34,8 @@ const (
 	// app/transcode/controller/transcodeprofile's identical ruling: "pick
 	// deterministically, never create two requests, and surface it (a
 	// condition on the losing profile is reasonable)." Overlap=True never
-	// blocks a SubtitleRequest being ensured for the files this profile DOES
-	// win; it is informational for the files it does not.
+	// changes which files this profile wins; it is informational for the
+	// files it does not.
 	ConditionOverlap = "Overlap"
 
 	// ReasonSelectorOverlap is Overlap's reason when set True.
@@ -59,45 +59,12 @@ const (
 	// as the SubtitleProfile controller validates it ... Plan trusts it
 	// rather than re-deriving it."
 	ReasonKeyMismatch = "KeyMismatch"
+
+	// ReasonInvalidFilter is Invalid's reason when a mustContain or
+	// mustNotContain pattern does not compile under regexp2 (loop spec
+	// §2.13), which the fetch worker could only report per task.
+	ReasonInvalidFilter = "InvalidFilter"
 )
-
-// itemKey names one catalog item a MediaFile can reference.
-type itemKey struct {
-	kind            commonv1.MediaKind
-	namespace, name string
-}
-
-// itemSet is the catalog items that currently exist, of the kinds
-// [eligibleKind] admits: the Movies and Episodes one reconcile lists.
-type itemSet map[itemKey]bool
-
-// newItemSet indexes movies and episodes.
-func newItemSet(movies []catalogv1alpha1.Movie, episodes []catalogv1alpha1.Episode) itemSet {
-	s := make(itemSet, len(movies)+len(episodes))
-	for i := range movies {
-		s[itemKey{commonv1.MediaKindMovie, movies[i].Namespace, movies[i].Name}] = true
-	}
-	for i := range episodes {
-		s[itemKey{commonv1.MediaKindEpisode, episodes[i].Namespace, episodes[i].Name}] = true
-	}
-	return s
-}
-
-// manages reports whether mf's item still exists: the MediaFile is one
-// Clustarr manages, not a record an import list's removeAndKeep left behind.
-//
-// removeAndKeep (gap-fix X7b's ruling) deletes the Movie or Episode and keeps
-// both the file and its MediaFile record -- the record is what stops a
-// library rescan from adopting the file again and re-creating the item, and
-// what a list that re-adds the item re-attaches to. Radarr deletes the file
-// records outright, so from then on nothing in it touches the file; here the
-// record stays, and it must not be mistaken for a managed file. A subtitle
-// profile therefore skips it: the user kept the file, not Clustarr's
-// management of it. The rule is level-based -- re-adding the item makes the
-// file eligible again, with no marker to maintain.
-func (s itemSet) manages(mf *catalogv1alpha1.MediaFile) bool {
-	return s[itemKey{mf.Spec.MediaRef.Kind, mf.Namespace, mf.Spec.MediaRef.Name}]
-}
 
 // canonicalKey renders the langKey LanguageItem.Key is required to equal,
 // per that field's own doc comment and pkg/subtitles/planner.go's
@@ -122,59 +89,22 @@ func wantedKeys(spec subtitlev1alpha1.SubtitleProfileSpec) []string {
 	return out
 }
 
-// selectFiles resolves every eligible file in files -- a video kind whose
-// catalog item still exists in items ([itemSet.manages]) -- against the full
-// profiles list (subtitleplan.WinningProfile, the loop's one rule), and
-// reports, from sp's point of view:
-//
-//   - matching: the files sp itself wins (these are what status.matchingFiles
-//     counts and what the caller ensures a SubtitleRequest for).
-//   - overlapped: true when sp's own selector matched at least one file it
-//     did NOT win -- another profile's selector matched the same file and
-//     beat it under profileLess. sp still wins every file selectFiles
-//     returns in matching; overlapped only ever describes files sp lost.
-func selectFiles(
-	sp *subtitlev1alpha1.SubtitleProfile,
-	profiles []subtitlev1alpha1.SubtitleProfile,
-	files []catalogv1alpha1.MediaFile,
-	items itemSet,
-) (matching []*catalogv1alpha1.MediaFile, overlapped bool) {
-	for i := range files {
-		mf := &files[i]
-		if !subtitleplan.EligibleKind(mf.Spec.MediaRef.Kind) || !items.manages(mf) {
-			continue
-		}
-		winner := subtitleplan.WinningProfile(mf.Labels, profiles)
-		if winner == nil {
-			continue
-		}
-		switch {
-		case winner.Name == sp.Name:
-			matching = append(matching, mf)
-		case subtitleplan.SelectorMatches(sp, mf.Labels):
-			overlapped = true
-		}
-	}
-	return matching, overlapped
-}
-
 // validateProfile reports whether sp cannot be used at all, and why. It
-// checks two static (data-independent) shapes:
+// checks three static (data-independent) shapes:
 //
 //  1. Two profiles both setting spec.default. The CRD's own doc comment says
 //     the controller sets Invalid "on the newer one", so the loser here is
-//     whichever one profileLess ranks behind the winner across all profiles
+//     whichever one subtitleplan.ProfileLess ranks behind the winner across all profiles
 //     currently marked default.
 //  2. A LanguageItem whose own Key does not match its canonical derivation --
 //     see [ReasonKeyMismatch]'s doc comment for why this controller, not
 //     pkg/subtitles.Plan, is where that gets enforced.
+//  3. A mustContain or mustNotContain pattern that does not compile
+//     ([ReasonInvalidFilter]).
 //
-// Unlike transcodeprofile's validateProfile, there is no per-FILE decision
-// to defer here: pkg/subtitles.Plan's inputs (existing subtitles, audio
-// languages) are computed by the SubtitleRequest controller (task F-4) from
-// a specific MediaFile, not by this controller from the profile alone, so
-// there is nothing analogous to transcodeprofile's rejected
-// Dolby-Vision-shaped check to avoid re-deriving here.
+// There is no per-file decision here: pkg/subtitles.Plan's inputs (existing
+// subtitles, audio languages) are the remediation loop's subtitles planner's,
+// computed from a specific MediaFile (loop spec §6.4).
 func validateProfile(sp *subtitlev1alpha1.SubtitleProfile, all []subtitlev1alpha1.SubtitleProfile) (invalid bool, reason, message string) {
 	if sp.Spec.Default {
 		if winner := subtitleplan.DefaultWinner(all); winner != nil && winner.Name != sp.Name {
@@ -188,6 +118,16 @@ func validateProfile(sp *subtitlev1alpha1.SubtitleProfile, all []subtitlev1alpha
 			return true, ReasonKeyMismatch, fmt.Sprintf(
 				"language %q: key %q does not match the canonical key %q derived from language=%q forced=%t hi=%q",
 				l.Language, l.Key, want, l.Language, l.Forced, l.HI)
+		}
+	}
+	for _, f := range []struct {
+		field    string
+		patterns []string
+	}{{"mustContain", sp.Spec.MustContain}, {"mustNotContain", sp.Spec.MustNotContain}} {
+		for _, pat := range f.patterns {
+			if _, err := regexp2.Compile(pat, regexp2.IgnoreCase); err != nil {
+				return true, ReasonInvalidFilter, fmt.Sprintf("%s %q does not compile: %v", f.field, pat, err)
+			}
 		}
 	}
 	return false, "", ""

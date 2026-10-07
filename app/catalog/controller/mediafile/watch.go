@@ -29,7 +29,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -37,20 +36,16 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// Field index keys. Registered against TranscodeJob and SubtitleRequest so
-// Reconcile can List "every {TranscodeJob,SubtitleRequest} for this
-// MediaFile" -- the direction the mapping functions below don't need,
-// because both spec types name their MediaFile directly.
+// Field index key. Registered against TranscodeJob so the loop can List
+// "every TranscodeJob for this MediaFile" -- the direction the mapping
+// functions below don't need, because the spec names its MediaFile
+// directly.
 //
-// Each is spelled as the apiserver spells the field label of a CRD
+// It is spelled as the apiserver spells the field label of a CRD
 // selectable field -- no leading dot -- so one client.MatchingFields reads
 // the cache's index on the manager's client and the apiserver's
-// fieldSelector on a raw one. SubtitleRequest declares the field
-// selectable; TranscodeJob does not yet (see transcodeJobsOf).
-const (
-	transcodeJobMediaFileRefIndex    = "spec.mediaFileRef"
-	subtitleRequestMediaFileRefIndex = "spec.mediaFileRef"
-)
+// fieldSelector on a raw one.
+const transcodeJobMediaFileRefIndex = "spec.mediaFileRef"
 
 func indexTranscodeJobByMediaFileRef(o client.Object) []string {
 	tj, ok := o.(*transcodev1alpha1.TranscodeJob)
@@ -58,14 +53,6 @@ func indexTranscodeJobByMediaFileRef(o client.Object) []string {
 		return nil
 	}
 	return []string{tj.Spec.MediaFileRef}
-}
-
-func indexSubtitleRequestByMediaFileRef(o client.Object) []string {
-	sr, ok := o.(*subtitlev1alpha1.SubtitleRequest)
-	if !ok || sr.Spec.MediaFileRef == "" {
-		return nil
-	}
-	return []string{sr.Spec.MediaFileRef}
 }
 
 // extractTranscodeJobPhase is §10's predicate: catalog's mediafile
@@ -79,24 +66,6 @@ func extractTranscodeJobPhase(o client.Object) string {
 		return ""
 	}
 	return string(tj.Status.Phase)
-}
-
-// extractSubtitleItemsSignature is §10's other predicate:
-// "status.items changed", via k8s.StatusFieldChanged. Items is a slice, not
-// comparable, so this renders a comparable projection of the fields the
-// sidecar feedback path cares about (langKey/state/path), not the whole
-// struct -- a score or attempts-count change alone should not re-trigger
-// this controller.
-func extractSubtitleItemsSignature(o client.Object) string {
-	sr, ok := o.(*subtitlev1alpha1.SubtitleRequest)
-	if !ok {
-		return ""
-	}
-	sig := ""
-	for _, it := range sr.Status.Items {
-		sig += it.LangKey + "=" + string(it.State) + ":" + it.Path + ";"
-	}
-	return sig
 }
 
 // FileOfTranscodeJob is the file a TranscodeJob names (spec.mediaFileRef).
@@ -372,18 +341,3 @@ func SeriesNamingChanged() predicate.Predicate {
 
 // RootFolderNamingChanged is a RootFolder's naming predicate.
 func RootFolderNamingChanged() predicate.Predicate { return rootFolderNamingChanged() }
-
-// SubtitleRequestItemsChanged passes a SubtitleRequest whose items' langKey,
-// state or path moved.
-func SubtitleRequestItemsChanged() predicate.Predicate {
-	return k8s.StatusFieldChanged(extractSubtitleItemsSignature)
-}
-
-// FileOfSubtitleRequest is the file a SubtitleRequest names.
-func FileOfSubtitleRequest(_ context.Context, o client.Object) []types.NamespacedName {
-	sr, ok := o.(*subtitlev1alpha1.SubtitleRequest)
-	if !ok || sr.Spec.MediaFileRef == "" {
-		return nil
-	}
-	return []types.NamespacedName{{Namespace: sr.Namespace, Name: sr.Spec.MediaFileRef}}
-}

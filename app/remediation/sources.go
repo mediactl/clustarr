@@ -76,9 +76,11 @@ func MapFiles(fn func(context.Context, client.Object) []types.NamespacedName) ha
 // mediaFileEvents is S1's file arm: create and delete always; an update by
 // fileUpdateWakes; the initial list at handler.LowPriority (TypedFuncs). A
 // status-only update never maps to the file key (the self-trigger rule);
+// one that changes the file's subtitles profile or phase signals
+// profileWake, the slim SubtitleProfile reconciler's wake (S1', §2.13);
 // S1' and the item keys of S1 are the item arm, ItemReconciler.fileWakes,
 // registered on the same controller (§3.3).
-func mediaFileEvents() handler.TypedEventHandler[client.Object, Key] {
+func mediaFileEvents(profileWake func()) handler.TypedEventHandler[client.Object, Key] {
 	key := func(o client.Object) Key {
 		return Key{Kind: KindMediaFile, Namespace: o.GetNamespace(), Name: o.GetName()}
 	}
@@ -87,6 +89,9 @@ func mediaFileEvents() handler.TypedEventHandler[client.Object, Key] {
 			q.Add(key(e.Object))
 		},
 		UpdateFunc: func(_ context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
+			if profileWake != nil && subtitleProfileSignature(e.ObjectOld) != subtitleProfileSignature(e.ObjectNew) {
+				profileWake() // S1': the slim SubtitleProfile reconciler re-counts (§2.13)
+			}
 			wake, user := fileUpdateWakes(e.ObjectOld, e.ObjectNew)
 			switch {
 			case !wake:
@@ -97,6 +102,9 @@ func mediaFileEvents() handler.TypedEventHandler[client.Object, Key] {
 			}
 		},
 		DeleteFunc: func(_ context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
+			if profileWake != nil && subtitleProfileSignature(e.Object) != "" {
+				profileWake() // a planned file is gone: its profile counts one fewer
+			}
 			q.Add(key(e.Object))
 		},
 	}

@@ -30,7 +30,7 @@ import (
 const (
 	// HeaderMsgID is the NATS server-side deduplication key. Its value is
 	// derived from the producer's identity, never random: see MsgIDForObject,
-	// MsgIDForRelease and MsgIDForSubtitle.
+	// MsgIDForRelease and MsgIDForSubtitleFetch.
 	HeaderMsgID = "Nats-Msg-Id"
 
 	// HeaderID carries the envelope's ID beside Nats-Msg-Id. When a

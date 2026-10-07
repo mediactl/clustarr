@@ -39,8 +39,8 @@ import (
 // actuators read, once, from app/remediation/manager.Register (§3.16): the
 // loop's own (mfindex: UID and Item, the one MediaFile index by item that
 // replaced nine) and the ones its domain functions read by their unchanged
-// names (mediafile.RegisterIndexes: the TranscodeJob, AudioGraft and
-// SubtitleRequest refs and the two RootFolder naming indexes). Since Series
+// names (mediafile.RegisterIndexes: the TranscodeJob and AudioGraft refs and the
+// two RootFolder naming indexes). Since Series
 // and Comic became item keys (ADR-0019 A3.2) it also registers
 // ".spec.seriesRef" (series.RegisterIndexes) and the Issue-by-comicRef index
 // (comic.RegisterIndexes): one registrar per process (split §3.5.2 step 9).

@@ -16,9 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package manager is caption's manager-side registration (spec §4.2.1):
-// the SubtitleProfile controller and its Bootstrap, the SubtitleProvider
-// controller (the only writer of provider status, ruling R2) and the
-// SubtitleRequest controller.
+// the slim SubtitleProfile reconciler, its Bootstrap and the loop's Wake that
+// feeds it, and the SubtitleProvider controller (the only writer of provider
+// status, ruling R2). A file's subtitles are the remediation loop's (loop
+// spec §6).
 package manager
 
 import (
@@ -29,7 +30,6 @@ import (
 
 	"github.com/mediactl/clustarr/app/caption/controller/subtitleprofile"
 	"github.com/mediactl/clustarr/app/caption/controller/subtitleprovider"
-	"github.com/mediactl/clustarr/app/caption/controller/subtitlerequest"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -37,25 +37,20 @@ import (
 // Options is what the caption manager registration takes.
 type Options struct {
 	k8s.Options
-	// DataDir is where the RWX media volume is mounted; SubtitleRequest
-	// reads a media file's directory through it (app/caption/datapath).
-	DataDir string
+	// ProfileWake is the loop's subtitleProfileWake; internal/cli/manager
+	// hands the same Wake to the remediation loop.
+	ProfileWake *subtitleprofile.Wake
 }
 
-// Register registers caption's three reconcilers (§6.5, §16 M5):
+// Register registers caption's two reconcilers:
 //
-//   - subtitleprofile validates each SubtitleProfile and ensures one
-//     SubtitleRequest per video-kind MediaFile the profile wins, woken by
-//     MediaFile.status.probeHash (task F-3);
+//   - subtitleprofile validates each SubtitleProfile and counts the files
+//     the loop planned with it, woken by its own generation and by
+//     o.ProfileWake (loop spec §2.13); never by MediaFile;
 //   - subtitleprovider validates each SubtitleProvider through
 //     app/caption/providerset.Validate and projects the shared
 //     clustarr-provider-throttle KV state into its status -- ruling R2 makes
-//     it that status's only writer (task F-3);
-//   - subtitlerequest plans each request, publishes a fetch task for every
-//     language that is due, and runs the adaptive and upgrade cadences
-//     (task F-4). It needs the bus -- a nil Bus fails every reconcile that
-//     has a task to send -- and o.DataDir, through which it reads the media
-//     file's directory exactly as the fetch worker does.
+//     it that status's only writer.
 //
 // Secrets are read through the API reader, never the cache: a cached Get
 // would start a cluster-wide Secret informer.
@@ -63,10 +58,14 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
 		return errors.New("caption manager: Register needs the bus")
 	}
+	if o.ProfileWake == nil {
+		return errors.New("caption manager: Register needs the SubtitleProfile wake the loop signals")
+	}
 	c := mgr.GetClient()
-	if err := subtitleprofile.NewReconciler(
-		c, mgr.GetScheme(), mgr.GetEventRecorder("subtitleprofile"),
-	).SetupWithManager(mgr); err != nil {
+	if err := mgr.Add(o.ProfileWake); err != nil {
+		return fmt.Errorf("caption: subtitleprofile wake: %w", err)
+	}
+	if err := subtitleprofile.NewReconciler(c, mgr.GetEventRecorder("subtitleprofile")).SetupWithManager(mgr, o.ProfileWake); err != nil {
 		return fmt.Errorf("caption: subtitleprofile: %w", err)
 	}
 	// An English default profile on a cluster that has none, so subtitles
@@ -74,19 +73,10 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := mgr.Add(&subtitleprofile.Bootstrap{Client: c, Namespace: o.Namespace}); err != nil {
 		return fmt.Errorf("caption: subtitleprofile bootstrap: %w", err)
 	}
-
 	provider := subtitleprovider.NewReconciler(c, bus.KV(events.BucketProviderThrottle), mgr.GetEventRecorder("subtitleprovider"))
 	provider.Secrets = mgr.GetAPIReader()
 	if err := provider.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("caption: subtitleprovider: %w", err)
-	}
-
-	if err := (&subtitlerequest.Reconciler{
-		Client:  c,
-		Bus:     bus,
-		DataDir: o.DataDir,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("caption: subtitlerequest: %w", err)
 	}
 	return nil
 }
