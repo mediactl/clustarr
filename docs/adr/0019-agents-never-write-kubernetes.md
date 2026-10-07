@@ -30,9 +30,10 @@ write Kubernetes"):
 
 An audit of the branch at `530b5dfb` (design §3) found 44 Kubernetes write paths in agent code
 (4 `catalog`, 5 `events`, 5 `metadata`, 16 `import`, 5 `index`, 1 `caption`, 4 in each engine
-domain) under eleven field managers, four of which are written from more than one process; four of
-the paths are already removed by ADR-0016's fold. Among the rest are a forced status apply with no
-compare-and-swap (`Download.status.import`), MediaFile and item deletes with no precondition,
+domain) under eleven field managers, four of which are written from more than one process;
+four of the paths are already removed by ADR-0016's fold. Among the rest are a forced status
+apply with no compare-and-swap (`Download.status.import`), MediaFile and item deletes with no
+precondition,
 two Secrets written by both the manager and an agent, and engine finalizers that make data
 removal depend on a Kubernetes round trip from the engine. The same audit found that agents
 also make the policy decisions behind those writes: which release to grab and when, which

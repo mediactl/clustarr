@@ -555,7 +555,7 @@ transcode and probe buckets are counted at full size.
   `pkg/metadata/scenemap`, and the planners this design names (`app/catalog/grabplan`,
   `app/grab/lifecycle`, `app/import/importplan`, `app/import/manager/scanapply`). The
   `go list -deps` guards of split §4.5.1 keep their lists; A7 adds the planners to the
-  manager's allow-list and asserts the agent roots do not link them (§9.3).
+  manager's allow-list and asserts the agent roots do not link them (§9.2).
 - **CPU.** The manager runs only item-state rules (comparisons over parsed facts), never
   regexp2 scoring: release evaluation stays in the search agent and the RSS matcher. The grab
   planner's input is at most 200 ranked candidates per search answer, usually a handful.

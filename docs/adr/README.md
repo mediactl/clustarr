@@ -26,6 +26,7 @@ later change can tell whether its premise still holds.
 | [0014](0014-download-working-areas-on-the-shared-volume.md) | Download working areas live on the shared data volume (`scratch.path`, `publishDir`), not on node-local scratch; the single shared volume stays the pattern for both engines | Accepted, 2026-09-24 |
 | [0015](0015-no-cuda-image.md) | There is no CUDA image: nvidia pools run the transcoder image, the NVIDIA container runtime injecting the driver's libraries (NVENC, NVDEC, CUDA) from the host | Accepted, 2026-10-01 |
 | [0016](0016-per-file-work-is-mediafile-status.md) | Per-file work (subtitles, transcode, graft) is MediaFile status written by one remediation loop; SubtitleRequest, TranscodeJob and AudioGraft go, Download stays (supersedes 0004) | Accepted, 2026-10-06 |
+| [0019](0019-agents-never-write-kubernetes.md) | The manager is the control plane: every lifecycle is a state machine in its reconcile loop, it routes and admits every task, and it is the only writer of every CR; agents execute tasks, report over NATS and never write the Kubernetes API; the Download kind is removed, a grab is an entry in its owner's status (reverses 0016's "Download stays") | Accepted, 2026-10-07 |
 
 Refinements that did not change a decision are recorded in the spec, not here:
 
@@ -36,6 +37,9 @@ Refinements that did not change a decision are recorded in the spec, not here:
 - **0008:** the lease bucket has no TTL. The grab path reclaims a lease whose
   holder Download is terminal, being deleted, or missing for ten minutes, and
   re-enters one it holds itself (gap fix X4a, spec §5 and §8.2).
+- **0008:** under ADR-0019 the delay profile and the keep-best pending grab are the owning
+  item's state machine in the manager (`status.pendingGrab`); the KV grab lease and
+  `clustarr-pending` retire, because one reconcile per owner serialises grabs (2026-10-07).
 - **0009:** under ADR-0016 the remediation loop admits transcodes from
   `MediaFile.status.transcode` rather than from TranscodeJobs, and is the one
   writer squasharr was; the pools, the JetStream queue and the task lease are
@@ -44,6 +48,9 @@ Refinements that did not change a decision are recorded in the spec, not here:
   ui indexes the bucket by watch; the reaper audits and purges orphan chunks
   (`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md` §B,
   amended 2026-10-07).
+- **0016:** its "These stay resources: Download" is reversed by ADR-0019 (2026-10-07); the
+  rest of 0016 stands. A grab now lives in its owning item's status, not on the MediaFile,
+  for the reasons 0016 gave for not folding Download into per-file work.
 
 ## Writing one
 
