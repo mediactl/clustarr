@@ -53,6 +53,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -451,45 +452,13 @@ func (r *Reconciler) completeSearch(ctx context.Context, s *catalogv1alpha1.Sear
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
 }
 
-// WorkerOutcomeName is the status.indexerOutcomes entry name the search worker
-// reserves for a failure that is not any one indexer's fault -- an invalid
-// QualityProfile, an unsupported media kind, a target that vanished mid-flight.
-//
-// It lives here rather than in the worker because both halves need it and the
-// dependency only points one way: the worker imports this package, so this
-// package cannot import the worker. The value is deliberately not a valid
-// DNS-1123 subdomain, so it can never collide with a real Indexer object's name
-// in a listType=map keyed by name.
-const WorkerOutcomeName = "catalogarr/search-worker"
-
-// TruncatedOutcomeName is the status.indexerOutcomes entry the search worker
-// adds when indexarr cut the federated reply at schema.MaxSearchReleases: the
-// results were decided from a partial set, and that has to be visible on the
-// object rather than only in a log line. Reserved the same way as
-// WorkerOutcomeName.
-const TruncatedOutcomeName = "catalogarr/truncated"
-
-// reservedOutcomePrefix begins every outcome name the search worker reserves
-// for something that is not one named Indexer. The slash keeps each of them
-// out of the DNS-1123 namespace a real Indexer's name lives in.
-const reservedOutcomePrefix = "catalogarr/"
-
-// UnnamedOutcomeName is the status.indexerOutcomes name the search worker
-// gives the n-th (1-based, in reply order) outcome indexarr reported with no
-// indexer name at all -- an indexer that failed before it could be named.
-// Such an outcome used to be dropped, which hid exactly the failure an
-// operator most needs to see.
-func UnnamedOutcomeName(n int) string {
-	return reservedOutcomePrefix + "unnamed-indexer-" + strconv.Itoa(n)
-}
-
 // indexerOutcomeCount counts the outcomes that are real indexers, leaving out
 // the worker's reserved entries (its own failure, the truncation marker) but
 // keeping the unnamed indexers, which were real indexers that answered.
 func indexerOutcomeCount(outcomes []catalogv1alpha1.IndexerOutcome) int {
 	n := 0
 	for _, o := range outcomes {
-		if o.Name == WorkerOutcomeName || o.Name == TruncatedOutcomeName {
+		if o.Name == searchoutcome.WorkerOutcomeName || o.Name == searchoutcome.TruncatedOutcomeName {
 			continue
 		}
 		n++
@@ -500,7 +469,7 @@ func indexerOutcomeCount(outcomes []catalogv1alpha1.IndexerOutcome) int {
 // truncated reports whether the worker marked the reply as cut short.
 func truncated(outcomes []catalogv1alpha1.IndexerOutcome) bool {
 	for _, o := range outcomes {
-		if o.Name == TruncatedOutcomeName {
+		if o.Name == searchoutcome.TruncatedOutcomeName {
 			return true
 		}
 	}
@@ -520,7 +489,7 @@ func workerFailure(s *catalogv1alpha1.Search) (string, bool) {
 		return "", false
 	}
 	for _, o := range s.Status.IndexerOutcomes {
-		if o.Name == WorkerOutcomeName && o.State == catalogv1alpha1.IndexerOutcomeError {
+		if o.Name == searchoutcome.WorkerOutcomeName && o.State == catalogv1alpha1.IndexerOutcomeError {
 			return o.Error, true
 		}
 	}
@@ -545,9 +514,10 @@ const noQueryResponderRequeue = 15 * time.Second
 // leaving the list empty would print a perfectly successful query-mode
 // search as blank. Deliberately not a valid DNS-1123 subdomain, so it can
 // never collide with a real Indexer's name in this listType=map keyed by
-// name -- the same trick WorkerOutcomeName uses in applyconfiguration.go,
-// and the same "_local-index" spelling app/indexer/query's own metrics use for
-// the same reason (app/indexer/query/service.go's localIndexLabel).
+// name -- the same trick searchoutcome.WorkerOutcomeName uses in
+// applyconfiguration.go, and the same "_local-index" spelling
+// app/indexer/query's own metrics use for the same reason
+// (app/indexer/query/service.go's localIndexLabel).
 const QueryOutcomeName = "_local-index"
 
 // runQuery answers a free-text Search (spec.query) directly against

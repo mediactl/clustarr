@@ -29,7 +29,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	searchctl "github.com/mediactl/clustarr/app/catalog/controller/search"
+	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
@@ -111,9 +111,9 @@ func TestWorkerTerminalFailureKeepsAnEarlierRunsResults(t *testing.T) {
 	for _, o := range got.Status.IndexerOutcomes {
 		names[o.Name] = o
 	}
-	require.Contains(t, names, searchctl.WorkerOutcomeName)
-	require.Equal(t, catalogv1alpha1.IndexerOutcomeError, names[searchctl.WorkerOutcomeName].State)
-	require.Contains(t, names[searchctl.WorkerOutcomeName].Error, "no longer exists")
+	require.Contains(t, names, searchoutcome.WorkerOutcomeName)
+	require.Equal(t, catalogv1alpha1.IndexerOutcomeError, names[searchoutcome.WorkerOutcomeName].State)
+	require.Contains(t, names[searchoutcome.WorkerOutcomeName].Error, "no longer exists")
 	require.Contains(t, names, "idx", "the first run's indexer outcome is re-declared, not dropped")
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeOK, names["idx"].State)
 
@@ -160,5 +160,5 @@ func TestWorkerTerminalFailureTwiceDoesNotDuplicateItsOutcome(t *testing.T) {
 	got := &catalogv1alpha1.Search{}
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-twice"}, got))
 	require.Len(t, got.Status.IndexerOutcomes, 1, "the fresh entry replaces the stale one rather than joining it")
-	require.Equal(t, searchctl.WorkerOutcomeName, got.Status.IndexerOutcomes[0].Name)
+	require.Equal(t, searchoutcome.WorkerOutcomeName, got.Status.IndexerOutcomes[0].Name)
 }

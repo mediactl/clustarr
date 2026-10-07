@@ -40,6 +40,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/search"
+	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -583,7 +584,7 @@ func workerReportedFailure(t *testing.T, c client.Client, ns, name string, finis
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithFinishedAt(finishedAt).
-				WithIndexerOutcomes(catalogac.IndexerOutcome().WithName(search.WorkerOutcomeName).WithState(catalogv1alpha1.IndexerOutcomeError).WithError(message))))
+				WithIndexerOutcomes(catalogac.IndexerOutcome().WithName(searchoutcome.WorkerOutcomeName).WithState(catalogv1alpha1.IndexerOutcomeError).WithError(message))))
 	require.NoError(t, err)
 }
 

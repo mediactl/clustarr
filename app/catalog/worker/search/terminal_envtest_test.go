@@ -29,7 +29,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	searchctl "github.com/mediactl/clustarr/app/catalog/controller/search"
+	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
@@ -76,7 +76,7 @@ func TestWorkerReportsATerminalFailureOnTheSearchObject(t *testing.T) {
 	require.NotNil(t, got.Status.FinishedAt, "finishedAt is the reconciler's completion trigger")
 	require.Empty(t, got.Status.Results)
 	require.Len(t, got.Status.IndexerOutcomes, 1)
-	require.Equal(t, searchctl.WorkerOutcomeName, got.Status.IndexerOutcomes[0].Name)
+	require.Equal(t, searchoutcome.WorkerOutcomeName, got.Status.IndexerOutcomes[0].Name)
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeError, got.Status.IndexerOutcomes[0].State)
 	require.Contains(t, got.Status.IndexerOutcomes[0].Error, "qualityProfileRef")
 	require.Empty(t, string(got.Status.Phase), "phase belongs to the reconciler; the worker never writes it")
@@ -219,15 +219,15 @@ func TestWorkerReportsNamelessOutcomesAndTruncation(t *testing.T) {
 	require.Len(t, byName, 4, "one named indexer, two nameless ones and the truncation marker: %+v", got.Status.IndexerOutcomes)
 	require.Equal(t, "idx", got.Status.IndexerOutcomes[0].Name, "real outcomes keep the reply's order, first")
 
-	first, ok := byName[searchctl.UnnamedOutcomeName(1)]
+	first, ok := byName[searchoutcome.UnnamedOutcomeName(1)]
 	require.True(t, ok, "the first nameless outcome is reported, not dropped")
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeError, first.State)
 	require.Equal(t, "tls: handshake failure", first.Error, "its error is what the operator needs")
-	second, ok := byName[searchctl.UnnamedOutcomeName(2)]
+	second, ok := byName[searchoutcome.UnnamedOutcomeName(2)]
 	require.True(t, ok)
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeTimeout, second.State)
 
-	marker, ok := byName[searchctl.TruncatedOutcomeName]
+	marker, ok := byName[searchoutcome.TruncatedOutcomeName]
 	require.True(t, ok, "a truncated reply is visible on the object")
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeSkipped, marker.State)
 	require.Contains(t, marker.Error, fmt.Sprint(schema.MaxSearchReleases))

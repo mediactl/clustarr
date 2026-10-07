@@ -53,7 +53,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	searchctl "github.com/mediactl/clustarr/app/catalog/controller/search"
+	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -530,7 +530,7 @@ func (w *Worker) terminal(ctx context.Context, srch *catalogv1alpha1.Search, rea
 		return discard
 	}
 	outcome := catalogv1alpha1.IndexerOutcome{
-		Name:  searchctl.WorkerOutcomeName,
+		Name:  searchoutcome.WorkerOutcomeName,
 		State: catalogv1alpha1.IndexerOutcomeError,
 		Error: truncateOutcomeError(reason + ": " + cause.Error()),
 	}
@@ -823,7 +823,7 @@ const maxOutcomeErrorBytes = 512
 // mapOutcomes projects the RPC's per-indexer report onto the API type.
 //
 // An outcome with no indexer name is kept, under a reserved name
-// (searchctl.UnnamedOutcomeName) numbered in reply order. It used to be
+// (searchoutcome.UnnamedOutcomeName) numbered in reply order. It used to be
 // dropped, because status.indexerOutcomes is listType=map keyed by name and an
 // entry with no key makes the apiserver reject the whole status apply -- but
 // dropping it meant an indexer that failed before indexarr could name it
@@ -836,7 +836,7 @@ func mapOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutco
 		name := outcomeName(o)
 		if name == "" {
 			unnamed++
-			name = searchctl.UnnamedOutcomeName(unnamed)
+			name = searchoutcome.UnnamedOutcomeName(unnamed)
 		}
 		out = append(out, catalogv1alpha1.IndexerOutcome{
 			Name:       name,
@@ -858,7 +858,7 @@ func outcomeName(o schema.SearchOutcome) string {
 	return o.IndexerName
 }
 
-// withTruncation adds the searchctl.TruncatedOutcomeName marker to an already
+// withTruncation adds the searchoutcome.TruncatedOutcomeName marker to an already
 // capped outcome list: indexarr cut the reply at schema.MaxSearchReleases, so
 // the results the user reads were decided from a partial set. The marker
 // takes the last slot when the list is already at MaxIndexerOutcomes, because
@@ -866,7 +866,7 @@ func outcomeName(o schema.SearchOutcome) string {
 // and a hundredth indexer's line is the cheaper thing to lose.
 func withTruncation(outcomes []catalogv1alpha1.IndexerOutcome, releases int) []catalogv1alpha1.IndexerOutcome {
 	marker := catalogv1alpha1.IndexerOutcome{
-		Name:  searchctl.TruncatedOutcomeName,
+		Name:  searchoutcome.TruncatedOutcomeName,
 		State: catalogv1alpha1.IndexerOutcomeSkipped,
 		Count: int32(releases),
 		Error: fmt.Sprintf("indexarr cut the federated reply at %d releases; any release beyond that was never decided",
