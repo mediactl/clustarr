@@ -65,10 +65,13 @@ func registerWorkers(
 	// configured" -- deliberately, rather than falling back to a plain GET of
 	// what is usually a details page -- so an unwired field made every
 	// definition-backed indexer searchable and ungrabbable.
+	//
+	// Fetch applies the Indexer's requestDelay to cc's limiter before each
+	// grab (genericFetcherFor): no reconciler in this process writes it.
 	dl := &download.Service{
 		Client:      c,
 		Bus:         bus,
-		Fetch:       download.NewFetcherFor(c, cc.Limiters()),
+		Fetch:       genericFetcherFor(c, cc),
 		Definitions: cc.DefinitionFetcherFor,
 	}
 	q := &query.Service{Store: store}

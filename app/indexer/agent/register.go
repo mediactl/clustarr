@@ -32,12 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
-	"github.com/mediactl/clustarr/app/indexer/clientcache"
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/ratelimit"
 	"github.com/mediactl/clustarr/pkg/relindex"
 )
 
@@ -80,15 +77,12 @@ type Options struct {
 	IndexDSN           string // Postgres DSN; selects relindex.OpenPostgres
 	FacadeBindAddress  string // "0" disables the facade
 	FacadeAPIKeySecret string // Secret in Namespace holding the facade's keys
-	// Clients is the ClientCache the search fan-out, RSS poll and download
-	// verb share. Nil builds one from clients.DefaultLimiterConfig with the
-	// session store. Transitional: indexarr's --role all shim passes the cache
-	// its Indexer reconciler evicts from; W4.25 (R8) deletes the field.
-	Clients *clientcache.ClientCache
 }
 
-// Register opens the release index, registers the verbs, the RSS consumer,
-// the sweep and (unless disabled) the facade, and returns the
+// Register opens the release index, builds the domain's own ClientCache
+// (with its limiter, its indexarr-worker session store and the session
+// watch that keeps it current), registers the verbs, the RSS consumer, the
+// sweep and (unless disabled) the facade, and returns the
 // index.releaseindex check and the store's closer.
 func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 	if bus == nil {
@@ -110,18 +104,16 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		_ = closer.Close()
 		return catalogagent.Registration{}, err
 	}
-	cc := o.Clients
-	if cc == nil {
-		// One Limiter for the whole domain, behind one ClientCache: the search
-		// fan-out, the RSS poll and the download verb all pace against the
-		// same bucket per host, and every wire client any of them uses --
-		// Torznab or Cardigann -- comes out of the one builder, so
-		// spec.proxyRef cannot reach one path and miss another.
-		cc = clientcache.NewClientCache(mgr.GetClient(), ratelimit.New(idxclients.DefaultLimiterConfig()))
-		// The KV half of the session store: without it the cache reads a
-		// definition-backed Indexer's login session from the owned Secret
-		// only, which is correct but a live apiserver GET per client build.
-		cc.Sessions = idxclients.NewSessionStore(mgr.GetClient(), bus, k8s.ManagerIndexarrWorker)
+	// One Limiter for the whole domain, behind one ClientCache: the search
+	// fan-out, the RSS poll and the download verb all pace against the same
+	// bucket per host, and every wire client any of them uses -- Torznab or
+	// Cardigann -- comes out of the one builder, so spec.proxyRef cannot reach
+	// one path and miss another. The cache, its limiter and its session store
+	// are this domain's own (R8): the manager's Indexer reconciler paces its
+	// caps probes and logins on another limiter, in another process.
+	cc, err := newClientCache(mgr.GetClient(), bus, mgr.Add)
+	if err != nil {
+		return fail(err)
 	}
 	v, err := registerWorkers(mgr, bus, store, cc)
 	if err != nil {

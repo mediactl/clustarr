@@ -83,10 +83,12 @@ type Reconciler struct {
 	// mgr.GetEventRecorder, matching indexarr's other two controllers.
 	Recorder k8sevents.EventRecorder
 
-	// Limiters paces every outbound indexer request in this process, keyed
-	// by indexer host. D1-8 constructs exactly one and hands the same
-	// instance to this reconciler, to the search fan-out and to the RSS
-	// worker, so all three share one bucket per host.
+	// Limiters paces this process's own requests to each indexer host: the
+	// caps probe and the Cardigann login. Since the manager/agent split it is
+	// the manager's own instance (app/indexer/manager). The index agent's
+	// ClientCache paces searches, RSS polls and grabs on another (§5.12), and
+	// in the worst case this adds one request per host per capsTTL inside the
+	// agent's gap, which R8 accepts.
 	//
 	// Like Recorder, it is optional: a nil Limiters disables pacing rather
 	// than panicking, which is what lets a unit test construct a
@@ -104,16 +106,6 @@ type Reconciler struct {
 	// The cost of not pruning is one map entry per distinct host, which is
 	// a handful of bytes bounded by the size of the cluster's indexer set.
 	Limiters *ratelimit.Limiter
-
-	// ForgetClient evicts an Indexer's built client from the process's
-	// client cache: on deletion, and after a re-login, whose cached client
-	// still carries the old session. run.go wires it to
-	// clientcache.ClientCache.Forget. This reconciler never builds through
-	// that cache -- it has the fresh spec and Secret in hand and calls
-	// clients.BuildClient directly.
-	//
-	// Optional: nil evicts nothing, which is correct for a unit test.
-	ForgetClient func(types.UID)
 
 	// Bus seeds the RSS poll chain (ruling R36). Nothing else in this
 	// reconciler publishes.
@@ -150,10 +142,12 @@ type capsMemo struct {
 }
 
 // NewReconciler builds a Reconciler. recorder comes from
-// mgr.GetEventRecorder and writes events.k8s.io/v1 Events; limiters is the one
-// process-wide *ratelimit.Limiter indexarr shares across the caps probe, the
-// search fan-out and the RSS poll; bus is the one the RSS worker consumes
-// from, and is what lets this reconciler seed the first poll.
+// mgr.GetEventRecorder and writes events.k8s.io/v1 Events; limiters is the
+// manager's own *ratelimit.Limiter, pacing the caps probe and the logins (the
+// index agent paces its searches, polls and grabs on another, §5.12); bus is
+// the one the RSS worker consumes from, and is what lets this reconciler seed
+// the first poll and watch the sessions the index agent drops. Its session
+// store writes as indexarr.
 func NewReconciler(
 	c client.Client,
 	recorder k8sevents.EventRecorder,
@@ -221,13 +215,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 	if !idx.DeletionTimestamp.IsZero() {
-		// The caps memo and the client cache are both keyed by UID and are
-		// safe to prune. The limiter bucket is keyed by HOST and is not --
-		// see the Limiters field's comment.
+		// The caps memo is keyed by UID and is safe to prune. The limiter
+		// bucket is keyed by HOST and is not -- see the Limiters field's
+		// comment. The index agent's client cache is in another process and
+		// prunes a deleted Indexer itself (clientcache.ClientCache.Prune).
 		r.forget(idx.UID)
-		if r.ForgetClient != nil {
-			r.ForgetClient(idx.UID)
-		}
 		return ctrl.Result{}, nil
 	}
 

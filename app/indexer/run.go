@@ -35,14 +35,11 @@ import (
 
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	indexagent "github.com/mediactl/clustarr/app/indexer/agent"
-	"github.com/mediactl/clustarr/app/indexer/clientcache"
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
 
 // Service identity, from §2 and §6.2.
@@ -325,15 +322,12 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	// One Limiter and one ClientCache for --role all, shared by the manager's
-	// Indexer reconciler and the index domain until W4.25 (R8) gives each its
-	// own. The KV half of the session store: without it the cache reads a
-	// definition-backed Indexer's login session from the owned Secret only,
-	// which is correct but a live apiserver GET per client build.
-	clients := clientcache.NewClientCache(mgr.GetClient(), ratelimit.New(idxclients.DefaultLimiterConfig()))
-	clients.Sessions = idxclients.NewSessionStore(mgr.GetClient(), bus, k8s.ManagerIndexarrWorker)
-
-	reg, err := indexagent.Register(ctx, mgr, bus, agentOptions(o, clients))
+	// The two halves share nothing but the process (R8, §5.12): the manager's
+	// Indexer reconciler builds its own limiter and session store, and the
+	// index domain its own ClientCache, limiter, session store and session
+	// watch. Two limiters and two stores in one process is the cost R8
+	// accepts until Wave 5 runs them in two.
+	reg, err := indexagent.Register(ctx, mgr, bus, agentOptions(o))
 	if err != nil {
 		return fmt.Errorf("indexarr: %w", err)
 	}
@@ -349,7 +343,7 @@ func Run(ctx context.Context, o Options) error {
 	if err := k8s.AddProbes(mgr, ready, nil); err != nil {
 		return err
 	}
-	if err := indexermanager.Register(mgr, bus, managerOptions(o, clients)); err != nil {
+	if err := indexermanager.Register(mgr, bus, managerOptions(o)); err != nil {
 		return fmt.Errorf("indexarr: %w", err)
 	}
 
@@ -363,18 +357,18 @@ func Run(ctx context.Context, o Options) error {
 
 // agentOptions: Validate already enforced the facade rules; a disabled
 // facade reaches the agent as DisabledBindAddress.
-func agentOptions(o Options, cc *clientcache.ClientCache) indexagent.Options {
+func agentOptions(o Options) indexagent.Options {
 	addr := o.FacadeBindAddress
 	if !o.FacadeEnabled() {
 		addr = k8s.DisabledBindAddress
 	}
 	return indexagent.Options{Options: o.Options, IndexPath: o.IndexPath, IndexDSN: o.IndexDSN,
-		FacadeBindAddress: addr, FacadeAPIKeySecret: o.FacadeAPIKeySecret, Clients: cc}
+		FacadeBindAddress: addr, FacadeAPIKeySecret: o.FacadeAPIKeySecret}
 }
 
-func managerOptions(o Options, cc *clientcache.ClientCache) indexermanager.Options {
+func managerOptions(o Options) indexermanager.Options {
 	return indexermanager.Options{Options: o.Options, CardigannDefinitionsDir: o.CardigannDefinitionsDir,
-		CardigannBundled: o.CardigannBundled, Limiter: cc.Limiters(), ForgetClient: cc.Forget}
+		CardigannBundled: o.CardigannBundled}
 }
 
 // readinessChecks is §13's readiness gate for indexarr: the informer caches

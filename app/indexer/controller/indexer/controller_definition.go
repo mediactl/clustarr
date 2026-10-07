@@ -145,11 +145,6 @@ func (r *Reconciler) reconcileDefinition(
 				break
 			}
 			r.markProbed(idx.UID, idx.Generation, now)
-			// The cached client carries the OLD session; the key cannot see
-			// a new one, so evict and let the next search rebuild.
-			if r.ForgetClient != nil {
-				r.ForgetClient(idx.UID)
-			}
 		default:
 			r.markProbed(idx.UID, idx.Generation, now)
 		}

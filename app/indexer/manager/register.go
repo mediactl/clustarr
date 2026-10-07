@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
@@ -48,13 +47,6 @@ type Options struct {
 	// applies (--cardigann-definitions-dir, --cardigann-bundled).
 	CardigannDefinitionsDir string
 	CardigannBundled        bool
-	// Limiter paces the caps probe and the logins. Nil builds one from
-	// clients.DefaultLimiterConfig. Transitional: indexarr's --role all shim
-	// passes the one limiter its index agent shares; W4.25 (R8) deletes it.
-	Limiter *ratelimit.Limiter
-	// ForgetClient evicts an Indexer's built wire client from the agent's
-	// ClientCache. Transitional, as Limiter; nil evicts nothing.
-	ForgetClient func(types.UID)
 }
 
 // Register adds indexarr's reconcilers (§6.2, §16 M2 and M6) -- Indexer,
@@ -69,8 +61,10 @@ type Options struct {
 // catalogarr's setupControllers carries the long note on why the marker and
 // the recorder type have to move in the same commit.
 //
-// The Indexer reconciler is the only writer of its limiter's per-host Config
-// (it is the only reader of spec.requestDelay).
+// The Indexer reconciler paces on the manager's own limiter, which this
+// function builds and nothing else shares: it is the only writer of that
+// limiter's per-host Config. The index agent paces searches, RSS polls and
+// grabs on its own ClientCache's limiter, in another process (R8, §5.12).
 //
 // bus is not optional, even though indexer.NewReconciler tolerates nil by
 // logging a warning. The reconciler SEEDS the first RssTask (ruling R36) and
@@ -89,16 +83,12 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
 		return errors.New("indexer manager: Register needs the bus")
 	}
-	lim := o.Limiter
-	if lim == nil {
-		lim = ratelimit.New(idxclients.DefaultLimiterConfig())
-	}
 	c := mgr.GetClient()
 
-	idxReconciler := indexer.NewReconciler(c, mgr.GetEventRecorder("indexer"), lim, bus)
-	// So a deleted Indexer does not leave its built client, and that
-	// client's idle connections, in the cache forever.
-	idxReconciler.ForgetClient = o.ForgetClient
+	idxReconciler := indexer.NewReconciler(c, mgr.GetEventRecorder("indexer"),
+		// The manager's own bucket per host: caps probes and logins only. The
+		// index agent paces searches, polls and grabs on its own limiter (§5.12).
+		ratelimit.New(idxclients.DefaultLimiterConfig()), bus)
 	if err := idxReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("indexarr: indexer: %w", err)
 	}
