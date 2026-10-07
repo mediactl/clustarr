@@ -29,13 +29,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
+	catalogdomain "github.com/mediactl/clustarr/app/catalog/agent/catalog"
+	eventsdomain "github.com/mediactl/clustarr/app/catalog/agent/events"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/app/catalog/controller/artist"
@@ -62,20 +65,13 @@ import (
 	artworkgateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
-	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab"
-	workerhistory "github.com/mediactl/clustarr/app/catalog/worker/history"
 	markerworker "github.com/mediactl/clustarr/app/catalog/worker/markers"
-	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
-	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
-	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
@@ -108,9 +104,11 @@ const (
 	// RoleController runs the catalog controllers. Leader-elected.
 	RoleController Role = "controller"
 
-	// RoleWorker runs the search, grab, rss-matcher and redownload
-	// consumers. Every replica runs them. The import and importlist consumers are
-	// importarr's (amendment §A1.2, §A1.3).
+	// RoleWorker runs the catalog and events agent domains (Role.domains):
+	// the search, grab and artwork-render consumers, and the rss-matcher,
+	// redownload, history and DLQ-projector consumers. Every replica runs
+	// them. The import and importlist consumers are importarr's (amendment
+	// §A1.2, §A1.3).
 	RoleWorker Role = "worker"
 
 	// RoleMetadata is the metadata gateway: it owns every outbound metadata
@@ -122,9 +120,10 @@ const (
 	// events.k8s.io Events on the owning CR.
 	RoleHistory Role = "history"
 
-	// RoleArtwork is the renderer (spec §C.6): the catalogarr-artwork-render
-	// consumer, which draws rating badges onto stored posters and writes
-	// status.overlay. Not leader-elected; it scales by consumer.
+	// RoleArtwork runs the catalog agent domain, whose renderer (spec §C.6),
+	// the catalogarr-artwork-render consumer, draws rating badges onto
+	// stored posters and writes status.overlay; the domain's search and grab
+	// consumers come with it. Not leader-elected; it scales by consumer.
 	RoleArtwork Role = "artwork"
 
 	// RoleAll runs everything in one process, for kind and for development.
@@ -283,19 +282,18 @@ func Run(ctx context.Context, o Options) error {
 	if err := ready.Add("cache", cacheReady); err != nil {
 		return err
 	}
-	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
-		return err
-	}
-
 	if o.Role.RunsControllers() {
 		if err := setupControllers(mgr, bus, o); err != nil {
 			return err
 		}
 	}
 	if o.Role.RunsWorkers() {
-		if err := setupWorkers(mgr, bus, o); err != nil {
+		if err := setupWorkers(ctx, mgr, bus, o, &ready); err != nil {
 			return err
 		}
+	}
+	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
+		return err
 	}
 
 	log.Info("starting", "role", o.Role, "leaderElection", o.ManagerOptions().LeaderElection)
@@ -433,8 +431,8 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 
 	// Spec §C.4: which items each OverlayProfile badges, and the render
-	// tasks a selection change calls for. The renderer they reach is
-	// RoleArtwork's (setupArtworkWorker).
+	// tasks a selection change calls for. The renderer they reach is the
+	// catalog agent domain's (app/catalog/agent/catalog).
 	if err := (&overlayprofile.Reconciler{Client: c, Bus: bus}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: overlayprofile: %w", err)
 	}
@@ -539,16 +537,53 @@ func setupNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 	return nil
 }
 
-// setupWorkers registers the queue consumers, the metadata gateway, the
-// history sink plus DLQ projector, and the artwork renderer.
+// agentDomain is one catalog agent domain this shim can run (spec §3.5.3).
+type agentDomain struct {
+	name     string
+	register func(context.Context, ctrl.Manager, events.Bus, k8s.Options) (catalogagent.Registration, error)
+}
+
+// domains maps --role onto the agent domains it runs. catalogarr's roles do
+// not partition the domains: worker is the catalog and events domains
+// (search, grab and the renderer; the RSS matcher, redownload, the history
+// sink and the DLQ projector), artwork the catalog domain, history the
+// events domain, all every domain. A domain two roles name runs once.
+// catalogarr's Deployment runs controller,worker,history,artwork -- the
+// catalog and events domains, exactly the consumers it ran before.
+func (r Role) domains() []agentDomain {
+	var out []agentDomain
+	if r.Has(RoleWorker) || r.Has(RoleArtwork) || r.Has(RoleAll) {
+		out = append(out, agentDomain{"catalog", func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o k8s.Options) (catalogagent.Registration, error) {
+			return catalogdomain.Register(ctx, mgr, bus, catalogdomain.Options{Options: o})
+		}})
+	}
+	if r.Has(RoleWorker) || r.Has(RoleHistory) || r.Has(RoleAll) {
+		out = append(out, agentDomain{"events", func(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o k8s.Options) (catalogagent.Registration, error) {
+			return eventsdomain.Register(ctx, mgr, bus, eventsdomain.Options{Options: o})
+		}})
+	}
+	return out
+}
+
+// setupWorkers registers every agent domain o.Role names, the metadata
+// gateway for RoleMetadata and RoleAll, and the replay handler for
+// RoleHistory and RoleAll. It then registers the field indexes the domains
+// declared, once, and asserts they reached the cache. ready gains each
+// domain's checks.
 //
 // The import and importlist consumers are importarr's
 // (work.importarr.fileimport, work.importarr.list -- amendment §A1.6).
-func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	if o.Role.Has(RoleWorker) || o.Role.Has(RoleAll) {
-		if err := setupQueueWorkers(mgr, bus, o); err != nil {
-			return err
+func setupWorkers(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, ready *k8s.Checks) error {
+	var indexes []k8s.FieldIndex
+	for _, d := range o.Role.domains() {
+		reg, err := d.register(ctx, mgr, bus, o.Options)
+		if err != nil {
+			return fmt.Errorf("catalogarr: %s domain: %w", d.name, err)
 		}
+		if err := ready.Merge(reg.Ready); err != nil {
+			return fmt.Errorf("catalogarr: %s domain: %w", d.name, err)
+		}
+		indexes = appendNewIndexes(indexes, reg.Indexes)
 	}
 	if o.Role.Has(RoleMetadata) || o.Role.Has(RoleAll) {
 		if err := setupMetadataGateway(mgr, bus); err != nil {
@@ -556,214 +591,47 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		}
 	}
 	if o.Role.Has(RoleHistory) || o.Role.Has(RoleAll) {
-		if err := setupHistory(mgr, bus); err != nil {
+		if err := setupReplay(mgr, bus); err != nil {
 			return err
 		}
 	}
-	if o.Role.Has(RoleArtwork) || o.Role.Has(RoleAll) {
-		if err := setupArtworkWorker(mgr, bus, o); err != nil {
-			return err
+	if err := catalogagent.RegisterIndexes(ctx, mgr.GetFieldIndexer(), indexes); err != nil {
+		return fmt.Errorf("catalogarr: %w", err)
+	}
+	return catalogagent.AssertIndexes(mgr, indexes)
+}
+
+// appendNewIndexes appends each index of more not declared already. The
+// catalog and events domains both declare search.IndexDownloadTarget, and a
+// process running both registers it once: a second IndexField of one name
+// on one kind is an "indexer conflict".
+func appendNewIndexes(have, more []k8s.FieldIndex) []k8s.FieldIndex {
+	for _, ix := range more {
+		if !slices.ContainsFunc(have, func(h k8s.FieldIndex) bool {
+			return h.Name == ix.Name && reflect.TypeOf(h.Object) == reflect.TypeOf(ix.Object)
+		}) {
+			have = append(have, ix)
 		}
 	}
-	return nil
+	return have
 }
 
-// setupArtworkWorker registers RoleArtwork's one consumer, the renderer
-// (spec §C.6): catalogarr-artwork-render, on every replica. It reads items
-// and lists OverlayProfiles through the uncached API reader -- the recheck
-// before each status.overlay apply must see the gateway's latest ratings
-// and poster, and the profiles as they are, which a cache may not have yet.
-// MaxConcurrentRenders stays at its default (renderer.DefaultMaxConcurrentRenders):
-// the catalogarr pod runs the controllers beside it under one GOMEMLIMIT.
-func setupArtworkWorker(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	topo := o.BusTopology()
-	h := &renderer.Handler{
-		Client:   mgr.GetClient(),
-		Reader:   mgr.GetAPIReader(),
-		Store:    bus.ObjectStore(events.BucketArtwork),
-		Topology: &topo,
-	}
-	if err := h.SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: add the artwork render consumer: %w", err)
-	}
-	return nil
-}
-
-// setupHistory registers RoleHistory's two consumers (§13, §16 M6; plan task
-// G1-4 built them, G1-5 wires them): the history sink on
-// ConsumerCatalogHistory, projecting every clustarr.evt.> domain event onto
-// an events.k8s.io Event regarding the CR it concerns, and the DLQ projector
-// on ConsumerDLQProjector, which per ruling R1 annotates the dead-lettered
-// CR under k8s.ManagerDLQProjector and emits a Warning Event -- it never
-// writes status.
-//
-// Until this was filled in, --role history was a valid role that started
-// nothing: both durable consumers existed server-side since M0 with no
-// subscriber, so every domain event and every dead letter piled up
-// unacknowledged on CLUSTARR_EVENTS and CLUSTARR_DLQ while the manifests ran
-// `--role controller,worker,history` and reported Ready.
-//
-// Both subscriptions are k8s.EveryReplica runnables inside their own
-// SetupWithManager, so every replica of the catalogarr Deployment drains the
-// two streams, not only the leader.
-//
-// Each gets its own recorder name, so `kubectl get events` attributes a
-// projected domain event and a dead letter to different reporting
-// controllers.
-//
-// The third piece is the clustarr.io/replay handler (design §5; task X5a
-// built it, X14 wires it): a metadata-only controller per annotatable kind
-// that reads a dead letter back off CLUSTARR_DLQ and republishes it. Both it
-// and the projector get the same DLQ reader -- the projector uses it to
-// record which sequence to replay (clustarr.io/dead-letter-seq) -- and
-// neither exists without one: the in-memory bus keeps no stream to read
-// back, so on it the projector leaves the sequence out and no replay handler
-// is registered. k8s.ConnectBus returns a JetStream-backed bus, so in
-// production both are always wired.
-func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
-	if err := workerhistory.NewSink(workerhistory.SinkDeps{
-		Recorder: mgr.GetEventRecorder("catalogarr-history"),
-	}).SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: history sink: %w", err)
-	}
+// setupReplay registers the clustarr.io/replay handler (design §5): a
+// metadata-only controller per annotatable kind that reads a dead letter
+// back off CLUSTARR_DLQ and republishes it. It needs the JetStream DLQ
+// reader; on a bus without one nothing is registered. W3.8 moves it to the
+// controller role (R9).
+func setupReplay(mgr ctrl.Manager, bus events.Bus) error {
 	reader, replayable := history.DLQReaderFor(bus)
-	if err := workerhistory.NewDLQProjector(workerhistory.DLQDeps{
-		Client:   mgr.GetClient(),
-		Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"),
-		DLQ:      reader,
-	}).SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: dlq projector: %w", err)
-	}
 	if !replayable {
 		return nil
 	}
 	if err := replay.NewReplayer(replay.ReplayDeps{
-		Client:   mgr.GetClient(),
-		Bus:      bus,
-		DLQ:      reader,
-		Recorder: mgr.GetEventRecorder("clustarr-replay"),
+		Client: mgr.GetClient(), Bus: bus, DLQ: reader, Recorder: mgr.GetEventRecorder("clustarr-replay"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: dlq replay: %w", err)
 	}
 	return nil
-}
-
-// setupQueueWorkers registers the search, grab, rss-matcher and redownload
-// consumers.
-//
-// Order is load-bearing and is the reason the indexes are registered here
-// rather than by whichever worker happens to want them first: the RSS matcher
-// reads the live queue through app/catalog/worker/search's Download target
-// index and matches releases through its own indexes, and when they are
-// missing its lookups degrade rather than fail. See registerWorkerIndexes
-// and assertWorkerIndexes, which turn that silent degradation into a
-// startup failure.
-//
-// Three things every consumer here shares, each set once:
-//
-//   - the bus topology this process installed (o.BusTopology(), the value
-//     Run hands k8s.EnsureTopology), which each consumer looks its durable
-//     consumer up in. Left unset, each falls back to events.Default(),
-//     which is only right while BusTopology's single-node collapse happens
-//     to leave consumers untouched -- an invariant nothing enforces;
-//   - an uncached reader (mgr.GetAPIReader()) for the grab path's
-//     double-grab guard, on every route into it: the search sink, the
-//     scheduled grab and the RSS matcher. Through the cache, a Download
-//     another path created milliseconds earlier can be missed and grabbed
-//     beside (x4a-report "cache window");
-//   - one TheXEM scene-numbering source (newSceneMaps), so the search
-//     worker and the RSS matcher read a scene number the same way and TheXEM
-//     is asked once per series per TTL, not once per consumer.
-func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	if err := registerWorkerIndexes(context.Background(), mgr); err != nil {
-		return err
-	}
-	if err := assertWorkerIndexes(mgr); err != nil {
-		return fmt.Errorf("catalogarr: assert worker indexes: %w", err)
-	}
-
-	w, err := buildQueueWorkers(mgr, bus, o)
-	if err != nil {
-		return err
-	}
-	if err := w.search.SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: subscribe search: %w", err)
-	}
-	if err := w.grab.SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
-	}
-	if err := w.rss.SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
-	}
-	if err := w.redownload.SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: subscribe redownload: %w", err)
-	}
-	return nil
-}
-
-// queueWorkers is the four consumers setupQueueWorkers registers, built
-// but not yet subscribed, so a test can inspect exactly what Run hands each
-// one (wiring_envtest_test.go's TestQueueWorkersShareRunsWiring).
-type queueWorkers struct {
-	search *search.Worker
-	grab   *grab.Handler
-	rss    *rssmatcher.Handler
-	// redownload is spec §8.3's failed-Download consumer (gap fix Y3): it
-	// frees the item's grab lease and publishes a redownload search, which
-	// the search worker above turns into a grab recorded as
-	// grabbedBy=redownload.
-	redownload *redownload.Handler
-}
-
-// buildQueueWorkers builds the search, grab, rss-matcher and redownload
-// consumers with every seam setupQueueWorkers' doc comment names set.
-func buildQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (queueWorkers, error) {
-	c := mgr.GetClient()
-	cat := catalogue.LoadedCatalogue()
-	topo := o.BusTopology()
-
-	sceneMaps, err := newSceneMaps()
-	if err != nil {
-		return queueWorkers{}, err
-	}
-
-	grabDeps := grab.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: bus}
-
-	// The bridge from the search worker's ranked results to a grab (§8.2's
-	// two halves). Both resolvers must be set: grab.Sink logs a warning and
-	// DROPS an approved release when either is nil, which would make the
-	// whole automatic-search path a silent no-op.
-	sink := grab.Sink{
-		Deps: grabDeps,
-		ResolveProfile: func(ctx context.Context, name string) (quality.Profile, error) {
-			return resolveQualityProfile(ctx, c, name, cat)
-		},
-		ResolveDelay: func(ctx context.Context, ns string, ref *string, tags []string) (catalogv1alpha1.DelayProfileSpec, error) {
-			return resolveDelayProfile(ctx, c, ns, ref, tags)
-		},
-	}
-
-	searchWorker := search.NewWorker(c, search.NewBusSearchRPC(bus), cat)
-	searchWorker.Sink = sink
-	searchWorker.Topology = &topo
-	searchWorker.SceneMaps = sceneMaps
-
-	grabHandler := grab.NewHandler(grabDeps)
-	grabHandler.Topology = &topo
-
-	rss := rssmatcher.NewHandler(rssmatcher.Deps{
-		Client:    c,
-		Reader:    mgr.GetAPIReader(),
-		Bus:       bus,
-		Topology:  &topo,
-		SceneMaps: sceneMaps,
-		Catalogue: cat,
-	})
-
-	redownloadHandler := redownload.NewHandler(c, bus)
-	redownloadHandler.Topology = &topo
-
-	return queueWorkers{search: searchWorker, grab: grabHandler, rss: rss, redownload: redownloadHandler}, nil
 }
 
 // setupMetadataGateway registers RoleMetadata's gateway: every outbound
