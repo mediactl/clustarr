@@ -23,8 +23,8 @@ import "sigs.k8s.io/controller-runtime/pkg/client"
 // than registered (spec §3.5.2 step 9). A field index name is global to a
 // cache, and a second IndexField of one name on one kind is an error, so
 // only the process registers the indexes its components declare: once, and
-// then it proves each reached the cache (app/catalog/agent.RegisterIndexes,
-// AssertIndexes). A component that registered its own would make the
+// then it proves each reached the cache (internal/cli/agent's
+// registerIndexes, then app/catalog/agent.AssertIndexes). A component that registered its own would make the
 // process's other readers of the same index an ordering accident.
 type FieldIndex struct {
 	// Object is an empty object of the indexed kind, as IndexField takes it.

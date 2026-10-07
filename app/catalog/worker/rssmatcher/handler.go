@@ -157,7 +157,8 @@ func (h *Handler) Subscription() events.Subscription {
 
 // SetupWithManager registers the subscription as a manager.Runnable so it
 // starts with the manager and drains on shutdown. See the package doc for the
-// full registration the wiring task performs, including IndexFields.
+// full registration, including the declared FieldIndexes the agent
+// registers.
 //
 // It is a k8s.EveryReplica rather than a manager.RunnableFunc: §3 runs the
 // queue workers on every replica, and a bare RunnableFunc has no

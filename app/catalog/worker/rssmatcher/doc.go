@@ -31,8 +31,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // normalizedTitle+year -> monitored items". A controller-runtime field index
 // IS that map: the manager's informers maintain it, lookups are in-memory, and
 // it needs no second cache layer, no invalidation and no code of its own
-// beyond the extractor functions. IndexFields builds thirteen of them: six for
-// movies and series, seven for the non-video kinds (nonvideo.go).
+// beyond the extractor functions. FieldIndexes declares thirteen of them: six
+// for movies and series, seven for the non-video kinds (nonvideo.go).
 //
 // # Approved releases take the same path as a search's
 //
@@ -44,9 +44,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing registers itself. catalogarr's setupQueueWorkers registers this
-// package's thirteen indexes and app/catalog/worker/search's Download target
-// index together, from one call (registerWorkerIndexes), and then:
+// Nothing registers itself. The events domain declares this package's
+// thirteen indexes and app/catalog/worker/search's Download target index
+// (FieldIndexes), the agent registers them once (spec §3.5.2 step 9), and
+// the domain then:
 //
 //	h := rssmatcher.NewHandler(rssmatcher.Deps{
 //		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus,
@@ -58,8 +59,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	}
 //
 // The Download indexes are NOT registered by the search worker. They used to
-// be -- search.Worker.SetupWithManager called RegisterDownloadIndexes itself
-// -- which made them a side effect of whichever worker happened to be
+// be -- search.Worker.SetupWithManager registered them itself -- which made
+// them a side effect of whichever worker happened to be
 // enabled, while this package read the blocklist and the live queue through
 // them and, when they were absent, degraded to "not blocklisted, empty queue"
 // with a WARNING rather than an error. Task C12a moved the registration into

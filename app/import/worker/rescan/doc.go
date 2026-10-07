@@ -182,12 +182,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task C12 wires it into importarr's
-// setupWorkers with exactly:
+// Nothing here registers itself. The import domain (app/import/agent)
+// declares [FieldIndexes] in its Registration, the agent registers them once
+// before the manager starts (spec §3.5.2 step 9), and the domain wires the
+// worker with:
 //
-//	if err := rescan.IndexMediaFileByPath(ctx, mgr); err != nil {
-//	        return fmt.Errorf("importarr: index mediafile path: %w", err)
-//	}
 //	spec, ok := o.BusTopology().Consumer(events.ConsumerImportScan)
 //	if !ok {
 //	        return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
@@ -211,8 +210,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	        return err
 //	}
 //
-// IndexMediaFileByPath must run before the manager starts: it registers the
-// spec.path field index the incremental fingerprint check reads.
+// The spec.path field index the incremental fingerprint check reads is one
+// of the declared [FieldIndexes]; the agent registers it before the manager
+// starts.
 //
 // Non-video attribution needs no new registration, but the walk now lists
 // Artists, Albums, Authors, Books, Audiobooks, Comics and Issues, and reads

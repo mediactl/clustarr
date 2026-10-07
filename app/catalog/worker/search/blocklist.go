@@ -33,7 +33,7 @@ import (
 )
 
 // IndexDownloadTarget is the field index name, used both by
-// RegisterDownloadIndexes and by the worker's own List calls. It is exported
+// FieldIndexes and by the worker's own List calls. It is exported
 // so a task that shares a manager with this worker can reuse the index
 // instead of registering a second, conflicting one under a different name.
 //
@@ -64,27 +64,12 @@ func downloadTargetKeys(o client.Object) []string {
 	return []string{TargetIndexValue(d.Spec.Target)}
 }
 
-// RegisterDownloadIndexes registers FieldIndexes on idx: the one field index
-// the search worker needs on Download, "is there already an active Download
-// for this target" (the queue). Call it once per manager, before the cache
-// starts.
-//
 // The blocklist has no index. It is one List of the Downloads carrying
 // download.clustarr.io/blocklisted per decision (LoadBlocklist) -- see that
 // label's doc comment for why the blocklist has no CRD of its own -- and the
-// two blocklist indexes this used to register, by info hash and by title,
-// were read by nothing once LoadBlocklist replaced the per-release lookups.
-//
-// The agent's process registers declared indexes itself; this stays for
-// tests that build a manager by hand.
-func RegisterDownloadIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	for _, fi := range FieldIndexes() {
-		if err := idx.IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// two blocklist indexes once registered beside IndexDownloadTarget, by info
+// hash and by title, were read by nothing once LoadBlocklist replaced the
+// per-release lookups.
 
 // TargetIndexValue is the IndexDownloadTarget key for one catalog item. It is
 // not events.MediaKey: the index is scoped to a namespace by the List call

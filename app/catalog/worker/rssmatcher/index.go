@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rssmatcher
 
 import (
-	"context"
 	"strconv"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,7 +27,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// The field index names this package registers. They carry a package-specific
+// The field index names this package declares. They carry a package-specific
 // prefix on purpose: a field index name is global to a manager's cache and
 // registering the same name twice is an error, so a name like "spec.tmdbID"
 // would collide the moment another controller wanted the same lookup.
@@ -85,9 +84,9 @@ const (
 )
 
 // FieldIndexes declares the thirteen indexes Match needs: six for movies
-// and series, then seven for the non-video kinds (nonvideo.go), in the order
-// IndexFields registers them. The events domain declares them and the
-// process registers each once (spec §3.5.2 step 9, §5.7).
+// and series, then seven for the non-video kinds (nonvideo.go). The events
+// domain declares them and the agent registers each once (spec §3.5.2 step
+// 9, §5.7).
 func FieldIndexes() []k8s.FieldIndex {
 	return []k8s.FieldIndex{
 		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTmdbID, Extract: movieTmdbIDKeys},
@@ -104,25 +103,6 @@ func FieldIndexes() []k8s.FieldIndex {
 		{Object: &catalogv1alpha1.Comic{}, Name: IndexComicTitle, Extract: comicTitleKeys},
 		{Object: &catalogv1alpha1.Issue{}, Name: IndexIssueComicNumber, Extract: issueKeys},
 	}
-}
-
-// IndexFields registers the thirteen indexes Match needs: six for movies
-// and series, seven for the non-video kinds (nonvideo.go). Call it once per
-// manager, before the cache starts.
-//
-// It takes a client.FieldIndexer rather than a ctrl.Manager so a test can
-// drive it with a fake indexer, and so the call site reads the same whether
-// the indexer comes from a manager or from somewhere else.
-//
-// It registers exactly FieldIndexes. The agent's process registers declared
-// indexes itself; this stays for tests that build a manager by hand.
-func IndexFields(ctx context.Context, idx client.FieldIndexer) error {
-	for _, fi := range FieldIndexes() {
-		if err := idx.IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // movieTmdbIDKeys is IndexMovieTmdbID's value function: spec.tmdbID as a

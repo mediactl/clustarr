@@ -20,7 +20,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -30,35 +29,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
-
-type indexKey struct {
-	kind reflect.Type
-	name string
-}
-
-// RegisterIndexes registers each declared index on idx, once. It refuses an
-// incomplete declaration and one (kind, name) declared twice before it
-// registers anything: IndexField on an existing (kind, name) is an "indexer
-// conflict", and a half-registered set is a degraded reader.
-func RegisterIndexes(ctx context.Context, idx client.FieldIndexer, ix []k8s.FieldIndex) error {
-	seen := make(map[indexKey]bool, len(ix))
-	for _, fi := range ix {
-		if fi.Object == nil || fi.Name == "" || fi.Extract == nil {
-			return fmt.Errorf("catalog agent: field index %q on %T: incomplete declaration", fi.Name, fi.Object)
-		}
-		k := indexKey{reflect.TypeOf(fi.Object), fi.Name}
-		if seen[k] {
-			return fmt.Errorf("catalog agent: field index %q on %T is declared twice", fi.Name, fi.Object)
-		}
-		seen[k] = true
-	}
-	for _, fi := range ix {
-		if err := idx.IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
-			return fmt.Errorf("catalog agent: register field index %q on %T: %w", fi.Name, fi.Object, err)
-		}
-	}
-	return nil
-}
 
 // AssertIndexes adds a runnable that, once the caches have synced, issues
 // one cached List per declared index and fails the manager if any is not

@@ -80,7 +80,7 @@ type Option = natsbus.Option
 // exactly how the propagation came to exist and never run in production
 // (Task C1 installed the hooks in pkg/events; no call site passed them), so
 // cmd/clustarr's TestEveryServicePassesBusHooks parses every service's run.go
-// and fails when a busconn.Connect (or k8s.ConnectBus) call site omits them.
+// and fails when a busconn.Connect call site omits them.
 func WithHooks(h events.Hooks) Option { return natsbus.WithHooks(h) }
 
 // Connect dials NATS and wraps the connection in a JetStream bus.

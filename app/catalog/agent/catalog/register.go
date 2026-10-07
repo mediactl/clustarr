@@ -77,8 +77,8 @@ type workers struct {
 // buildWorkers builds them with every seam set. Three things the consumers
 // share, each set once:
 //
-//   - the bus topology this process installed (o.BusTopology(), the value
-//     the process hands k8s.EnsureTopology), which each consumer looks its
+//   - the bus topology (o.BusTopology(), the topology the manager ensures
+//     and the agent awaits), which each consumer looks its
 //     durable consumer up in. Left unset, each falls back to
 //     events.Default(), which is only right while BusTopology's single-node
 //     collapse happens to leave consumers untouched -- an invariant nothing

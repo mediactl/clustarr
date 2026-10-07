@@ -978,16 +978,15 @@ func (w *Worker) topology() events.Topology {
 // private copy of EveryReplica, which the registration guard could not see
 // because it was unexported.)
 //
-// It does NOT call [RegisterDownloadIndexes]. It used to, and that made the
-// Download indexes a side effect of this worker being enabled -- while
+// It registers no field index. It used to register the Download indexes, and
+// that made them a side effect of this worker being enabled -- while
 // app/catalog/worker/rssmatcher read the same ones and degraded to "not
 // blocklisted, empty queue" with a warning when they were missing. A role
 // that ran the RSS matcher without the search worker would therefore have
 // grabbed blocklisted releases, silently. (The blocklist is one labelled List
-// now, LoadBlocklist; only the queue's index remains.) Task C12a moved the registration to
-// catalogarr's registerWorkerIndexes, which runs once for every worker role,
-// and added a startup assertion that the indexes really reached the cache.
-// The caller must have made that call before this one.
+// now, LoadBlocklist; only the queue's index remains.) The domain declares
+// [FieldIndexes], and the agent registers them once, before the manager
+// starts, and asserts that they really reached the cache (spec §3.5.2 step 9).
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	if w.Publisher == nil {
 		// The WantedScan fan-out publishes back onto the same bus it consumes

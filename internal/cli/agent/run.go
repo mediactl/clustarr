@@ -117,13 +117,11 @@ func Run(ctx context.Context, o Options) error {
 			}
 		}()
 	}
-	if len(reg.Indexes) > 0 {
-		if err := catalogagent.RegisterIndexes(ctx, mgr.GetFieldIndexer(), reg.Indexes); err != nil {
-			return fmt.Errorf("agent %s: %w", o.Domain, err)
-		}
-		if err := catalogagent.AssertIndexes(mgr, reg.Indexes); err != nil {
-			return fmt.Errorf("agent %s: %w", o.Domain, err)
-		}
+	if err := registerIndexes(ctx, mgr.GetFieldIndexer(), reg.Indexes); err != nil {
+		return fmt.Errorf("agent %s: %w", o.Domain, err)
+	}
+	if err := catalogagent.AssertIndexes(mgr, reg.Indexes); err != nil {
+		return fmt.Errorf("agent %s: %w", o.Domain, err)
 	}
 	if err := ready.Merge(reg.Ready); err != nil {
 		return err

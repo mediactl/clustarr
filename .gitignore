@@ -7,7 +7,13 @@ cover.out
 /clustarr/clustarr
 .superpowers/
 
-# A bare `go build` of ./cmd/clustarr drops this binary in the repo root.
+# A bare `go build` of one of ./cmd/* drops its binary in the repo root.
 # CLAUDE.md says never to do that (use `make build` -> bin/); this keeps a
 # slip from ever reaching a commit.
 /clustarr
+/manager
+/agent
+/markers
+/transcode
+# No /ui: the ui/ package directory holds that name, so `go build ./cmd/ui`
+# cannot drop a binary there, and the pattern would hide new ui/ files.

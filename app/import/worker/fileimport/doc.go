@@ -153,12 +153,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task D2-8 wires it into importarr-worker's
-// setup with exactly:
+// Nothing here registers itself. The import domain (app/import/agent)
+// declares [FieldIndexes] in its Registration, the agent registers them once
+// before the manager starts (spec §3.5.2 step 9), and the domain wires the
+// worker with:
 //
-//	if err := fileimport.IndexMediaFileByTarget(ctx, mgr); err != nil {
-//	        return fmt.Errorf("importarr: index mediafile target: %w", err)
-//	}
 //	spec, ok := o.BusTopology().Consumer(events.ConsumerImportFile)
 //	if !ok {
 //	        return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportFile)
@@ -183,9 +182,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // leader lease on any service that elects, and a completed-download import
 // must not wait for leadership.
 //
-// IndexMediaFileByTarget must run before the manager starts: it registers
-// the field index this worker uses to find a target's existing MediaFiles
-// (a movie's too, when the Worker has no APIReader).
+// The field index this worker uses to find a target's existing MediaFiles (a
+// movie's too, when the Worker has no APIReader) is one of the declared
+// [FieldIndexes]; the agent registers it before the manager starts.
 //
 // The retrigger controller (app/import/controller/retrigger) is a separate
 // controller, registered the same way as any other (its doc comment has the

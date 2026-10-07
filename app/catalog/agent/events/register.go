@@ -111,8 +111,9 @@ type workers struct {
 // The projector gets the DLQ reader the clustarr.io/replay handler reads
 // with, to record which sequence to replay (clustarr.io/dead-letter-seq).
 // The in-memory bus keeps no stream to read back, so on it the projector
-// leaves the sequence out. k8s.ConnectBus returns a JetStream-backed bus, so
-// in production it is always wired.
+// leaves the sequence out. busconn.Connect returns a JetStream-backed bus,
+// and the agent's domain bus forwards its JetStream(), so in production it is
+// always wired.
 //
 // The RSS matcher shares the catalog domain's seams (catalog.buildWorkers'
 // doc): the installed topology, the uncached reader for the double-grab

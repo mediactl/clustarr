@@ -44,7 +44,7 @@ CRD_DIR := config/crd/bases
 #     writer of TranscodeJob.status, over NATS (X14), and app/squash/worker
 #     holds no RBAC markers.
 #
-# cmd/clustarr's guards read RBAC_ROLES and RBAC_PATHS_* from here rather than
+# test/guards reads RBAC_ROLES and RBAC_PATHS_* from here rather than
 # restating them: TestEveryPackageWithRBACMarkersIsInARole fails when a
 # package with markers is in no role, and the chart copies of every role are
 # held byte-identical to these files by TestChartRBACMatchesTheGeneratedRoles.
@@ -53,7 +53,7 @@ RBAC_ROLES := catalogarr importarr indexarr grabarr grabarr-engine squasharr cap
 RBAC_PATHS_catalogarr := ./app/catalog/...
 RBAC_PATHS_importarr := ./app/import/...
 RBAC_PATHS_indexarr := ./app/indexer/...
-RBAC_PATHS_grabarr := ./app/grab ./app/grab/manager ./app/grab/controller/... ./app/grab/status
+RBAC_PATHS_grabarr := ./app/grab/manager ./app/grab/controller/... ./app/grab/status
 RBAC_PATHS_grabarr-engine := ./app/grab/engine/... ./app/grab/agent/... ./app/grab/status
 RBAC_PATHS_squasharr := ./app/squash/... ./app/autoscale/...
 RBAC_PATHS_captionarr := ./app/caption/...
@@ -162,11 +162,10 @@ cardigann-bundle: ## Re-pack .data/Definitions into the embedded Cardigann corpu
 
 
 .PHONY: build
-build: ## Build the clustarr binary.
+build: ## Build the five binaries.
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/manager ./cmd/manager
 	CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/agent ./cmd/agent
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/ui ./cmd/ui
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/clustarr ./cmd/clustarr
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/transcode ./cmd/transcode
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/markers ./cmd/markers
 

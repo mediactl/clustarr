@@ -31,7 +31,7 @@ type Registration struct {
 	Ready, Live *k8s.Checks
 	// Indexes are the cache field indexes the domain's consumers read. The
 	// domain declares them and never registers them: the process registers
-	// each once (RegisterIndexes) and proves it reached the cache
+	// each once (internal/cli/agent) and proves it reached the cache
 	// (AssertIndexes).
 	Indexes []k8s.FieldIndex
 	// Close releases what the domain holds open -- the release index, an

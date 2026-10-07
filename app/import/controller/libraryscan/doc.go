@@ -59,6 +59,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	        return fmt.Errorf("importarr: libraryscan: %w", err)
 //	}
 //
-// setupControllers therefore needs the bus in scope; in Run it already is,
-// from the k8s.ConnectBus call above the setupControllers call site.
+// The import manager registration therefore needs the bus; the manager's Run
+// connects it (busconn.Connect) before it registers any component.
 package libraryscan

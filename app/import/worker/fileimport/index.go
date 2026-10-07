@@ -18,9 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fileimport
 
 import (
-	"context"
-
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -65,20 +62,6 @@ func mediaFileTargetKeys(o client.Object) []string {
 		}
 	}
 	return keys
-}
-
-// IndexMediaFileByTarget registers [FieldIndexes] on the manager's cache. It
-// must be called before the manager starts, exactly like
-// app/import/worker/rescan.IndexMediaFileByPath -- the informer is built with
-// the indexes it was given. The agent's process registers declared indexes
-// itself; this stays for tests that build a manager by hand.
-func IndexMediaFileByTarget(ctx context.Context, mgr ctrl.Manager) error {
-	for _, fi := range FieldIndexes() {
-		if err := mgr.GetFieldIndexer().IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // targetKey builds the index value for a MediaRef's kind and name.
