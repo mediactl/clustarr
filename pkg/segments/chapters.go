@@ -22,7 +22,6 @@ import (
 
 	"github.com/dlclark/regexp2"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
@@ -54,16 +53,16 @@ const (
 )
 
 type chapterRule struct {
-	kind catalogv1alpha1.MarkerKind
+	kind Kind
 	re   *regexp2.Regexp
 }
 
 // chapterRules are tried in this order; a chapter takes the first match.
 var chapterRules = []chapterRule{
-	{catalogv1alpha1.MarkerIntro, compile(introPattern)},
-	{catalogv1alpha1.MarkerRecap, compile(recapPattern)},
-	{catalogv1alpha1.MarkerCredits, compile(creditsPattern)},
-	{catalogv1alpha1.MarkerPreview, compile(previewPattern)},
+	{KindIntro, compile(introPattern)},
+	{KindRecap, compile(recapPattern)},
+	{KindCredits, compile(creditsPattern)},
+	{KindPreview, compile(previewPattern)},
 }
 
 func compile(p string) *regexp2.Regexp {
@@ -85,22 +84,22 @@ func FromChapters(ch []commonv1.Chapter, movie bool, durationMs int64) []Segment
 			continue
 		}
 		for _, r := range chapterRules {
-			if movie && r.kind != catalogv1alpha1.MarkerCredits {
+			if movie && r.kind != KindCredits {
 				continue
 			}
-			if r.kind == catalogv1alpha1.MarkerPreview && c.StartMillis*2 < durationMs {
+			if r.kind == KindPreview && c.StartMillis*2 < durationMs {
 				continue
 			}
 			if ok, err := r.re.MatchString(c.Title); err == nil && ok {
 				conf := chapterConfidence
-				if r.kind == catalogv1alpha1.MarkerCredits {
+				if r.kind == KindCredits {
 					if exact, err := creditsTitle.MatchString(c.Title); err == nil && exact {
 						conf = ExactCreditsConfidence
 					}
 				}
 				out = append(out, Segment{
 					Kind: r.kind, StartMs: c.StartMillis, EndMs: c.EndMillis,
-					Source: catalogv1alpha1.SegmentSourceChapters, Confidence: conf,
+					Source: SourceChapters, Confidence: conf,
 				})
 				break
 			}

@@ -27,7 +27,6 @@ import (
 	"strconv"
 	"time"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/segments"
@@ -139,7 +138,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			fctx, cancel := context.WithTimeout(ctx, orDefault(h.FileTimeout, defaultFileTimeout))
 			res = h.analyze(fctx, f, movie, at(intros, i), at(endings, i), usable)
 			cancel()
-		case f.rec != nil && at(intros, i) != nil && !hasKind(f.rec.Segments, catalogv1alpha1.MarkerIntro):
+		case f.rec != nil && at(intros, i) != nil && !hasKind(f.rec.Segments, segments.KindIntro):
 			res = withIntro(f, at(intros, i), usable)
 		default:
 			continue
@@ -164,7 +163,7 @@ func (h *Handler) record(ctx context.Context, f schema.AnalyzeFile) *segments.Re
 	}
 	var r segments.Record
 	if json.Unmarshal(e.Value, &r) != nil || r.ProbeHash != f.ProbeHash || r.Version != segments.AnalyzerVersion ||
-		r.Result == string(catalogv1alpha1.MarkersError) {
+		r.Result == segments.ResultError {
 		return nil
 	}
 	return &r
@@ -174,7 +173,7 @@ func (h *Handler) record(ctx context.Context, f schema.AnalyzeFile) *segments.Re
 func withIntro(f *file, intro *align.Region, usable int) schema.SegmentsResult {
 	res := schema.SegmentsResult{
 		MediaFile: f.MediaFile, ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion,
-		Result: string(catalogv1alpha1.MarkersFound),
+		Result: segments.ResultFound,
 	}
 	for _, s := range append(append([]segments.Segment(nil), f.rec.Segments...), introSegment(intro, usable)) {
 		res.Segments = append(res.Segments, schema.SegmentJSON{
@@ -189,10 +188,10 @@ func introSegment(r *align.Region, usable int) segments.Segment {
 	if usable < 3 {
 		conf = pairConfidence
 	}
-	return analysis(catalogv1alpha1.MarkerIntro, r.StartS, r.EndS, conf)
+	return analysis(segments.KindIntro, r.StartS, r.EndS, conf)
 }
 
-func hasKind(segs []segments.Segment, k catalogv1alpha1.MarkerKind) bool {
+func hasKind(segs []segments.Segment, k segments.Kind) bool {
 	for _, s := range segs {
 		if s.Kind == k {
 			return true
@@ -239,7 +238,7 @@ func endWindow(durS float64, movie bool) (fromS, lenS float64) {
 func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, ending *align.Region, usable int) schema.SegmentsResult {
 	res := schema.SegmentsResult{MediaFile: f.MediaFile, ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion}
 	if f.err != nil {
-		res.Result, res.Message = string(catalogv1alpha1.MarkersError), clamp(f.err.Error())
+		res.Result, res.Message = segments.ResultError, clamp(f.err.Error())
 		return res
 	}
 	durMs := f.DurationMs
@@ -248,9 +247,9 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 	var cands []segments.Segment
 	for _, s := range out {
 		switch s.Kind {
-		case catalogv1alpha1.MarkerPreview:
+		case segments.KindPreview:
 			previewStart = s.StartMs
-		case catalogv1alpha1.MarkerCredits:
+		case segments.KindCredits:
 			cands = append(cands, s)
 		}
 	}
@@ -259,18 +258,18 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 	}
 	fromS, _ := endWindow(f.durS, movie)
 	if ending != nil {
-		cands = append(cands, analysis(catalogv1alpha1.MarkerCredits, fromS+ending.StartS, fromS+ending.EndS, themeConfidence))
+		cands = append(cands, analysis(segments.KindCredits, fromS+ending.StartS, fromS+ending.EndS, themeConfidence))
 	}
 	began := time.Now()
 	fr, err := h.Decoder.Frames(ctx, f.Path, fromS)
 	stageSeconds.WithLabelValues("frames").Observe(time.Since(began).Seconds())
 	if err != nil {
-		res.Result, res.Message = string(catalogv1alpha1.MarkersError), clamp(err.Error())
+		res.Result, res.Message = segments.ResultError, clamp(err.Error())
 		return res
 	}
 	fr = padToEnd(fr, int(f.durS-fromS))
 	for _, run := range frames.CreditRuns(frames.Stats(fr), int(fromS)) {
-		cands = append(cands, analysis(catalogv1alpha1.MarkerCredits, float64(run.StartS), min(float64(run.EndS), f.durS), run.Confidence))
+		cands = append(cands, analysis(segments.KindCredits, float64(run.StartS), min(float64(run.EndS), f.durS), run.Confidence))
 	}
 	credits, ok := segments.Credits(durMs, movie, f.Anime, cands, previewStart)
 	if h.Detector != nil && (!ok || credits.Confidence < standConfidence) {
@@ -282,7 +281,7 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 		stageSeconds.WithLabelValues("dnn").Observe(time.Since(began).Seconds())
 	}
 	if ok {
-		if credits.Source != catalogv1alpha1.SegmentSourceChapters {
+		if credits.Source != segments.SourceChapters {
 			out = append(out, credits)
 		}
 		if f.Anime && previewStart == 0 {
@@ -291,9 +290,9 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 			}
 		}
 	}
-	res.Result = string(catalogv1alpha1.MarkersNotFound)
+	res.Result = segments.ResultNotFound
 	if len(out) > 0 {
-		res.Result = string(catalogv1alpha1.MarkersFound)
+		res.Result = segments.ResultFound
 	}
 	for _, s := range out {
 		res.Segments = append(res.Segments, schema.SegmentJSON{
@@ -338,13 +337,13 @@ func (h *Handler) dnn(ctx context.Context, f *file, fromS float64) (segments.Seg
 	if err != nil || !ok {
 		return segments.Segment{}, false
 	}
-	return analysis(catalogv1alpha1.MarkerCredits, start, f.durS, dnnConfidence), true
+	return analysis(segments.KindCredits, start, f.durS, dnnConfidence), true
 }
 
-func analysis(k catalogv1alpha1.MarkerKind, startS, endS float64, conf int32) segments.Segment {
+func analysis(k segments.Kind, startS, endS float64, conf int32) segments.Segment {
 	return segments.Segment{
 		Kind: k, StartMs: int64(startS * 1000), EndMs: int64(endS * 1000),
-		Source: catalogv1alpha1.SegmentSourceAnalysis, Confidence: conf,
+		Source: segments.SourceAnalysis, Confidence: conf,
 	}
 }
 

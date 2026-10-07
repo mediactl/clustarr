@@ -51,7 +51,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/probestore"
-	"github.com/mediactl/clustarr/pkg/segments"
 )
 
 // The MediaFile controller's RBAC. The Events group is events.k8s.io and not
@@ -421,11 +420,11 @@ func (r *Reconciler) followUpMarkers(ctx context.Context, mf *catalogv1alpha1.Me
 }
 
 // planSegments asks for the file's segment analysis when it is due
-// (segments.Due): its season's plan for an episode, its own for a movie
+// (segmentplan.Due): its season's plan for an episode, its own for a movie
 // (app/catalog/segmentplan). An episode not in the cache yet plans nothing;
 // its next reconcile does.
 func (r *Reconciler) planSegments(ctx context.Context, mf *catalogv1alpha1.MediaFile, now time.Time) error {
-	if !segments.Due(mf, now) {
+	if !segmentplan.Due(mf, now) {
 		return nil
 	}
 	var ep *catalogv1alpha1.Episode

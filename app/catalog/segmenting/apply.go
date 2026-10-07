@@ -189,8 +189,8 @@ func (a *Applier) markers(ctx context.Context, mf *catalogv1alpha1.MediaFile, ti
 	}
 
 	for _, s := range segments.Merge(theintrodb, analysed) {
-		ac.WithSegments(catalogac.MarkerSegment().WithKind(s.Kind).WithStartMs(s.StartMs).WithEndMs(s.EndMs).
-			WithSource(s.Source).WithConfidence(s.Confidence))
+		ac.WithSegments(catalogac.MarkerSegment().WithKind(catalogv1alpha1.MarkerKind(s.Kind)).WithStartMs(s.StartMs).WithEndMs(s.EndMs).
+			WithSource(catalogv1alpha1.SegmentSource(s.Source)).WithConfidence(s.Confidence))
 	}
 	return ac, nil
 }
@@ -206,8 +206,8 @@ func theIntroDBSegments(m *catalogv1alpha1.FileMarkers) []segments.Segment {
 				conf = 100
 			}
 			out = append(out, segments.Segment{
-				Kind: s.Kind, StartMs: s.StartMs, EndMs: s.EndMs,
-				Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: conf,
+				Kind: segments.Kind(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs,
+				Source: segments.SourceTheIntroDB, Confidence: conf,
 			})
 		}
 	}

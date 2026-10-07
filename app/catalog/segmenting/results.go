@@ -60,8 +60,8 @@ func (r *Results) Handle(ctx context.Context, m events.Message) error {
 	}
 	for _, s := range res.Segments {
 		up.Segments = append(up.Segments, segments.Segment{
-			Kind: catalogv1alpha1.MarkerKind(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs,
-			Source: catalogv1alpha1.SegmentSource(s.Source), Confidence: s.Confidence,
+			Kind: segments.Kind(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs,
+			Source: segments.Source(s.Source), Confidence: s.Confidence,
 		})
 	}
 	return r.Applier.ApplyMerged(ctx, client.ObjectKey{Namespace: ns, Name: name}, nil, up)

@@ -21,10 +21,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // detection). Its subpackages do the detecting.
 package segments
 
-import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-)
-
 // AnalyzerVersion is recorded in status.markers.analysis.version; raise it
 // when detection changes, and every file is analyzed once more. 2: credits
 // reach the end past the last keyframe, the DNN is asked whenever no
@@ -33,13 +29,43 @@ import (
 // 100 and outranks TheIntroDB, any other chapter 90 (2026-10-01).
 const AnalyzerVersion int32 = 3
 
+// Kind is a segment's kind. The values are api/catalog/v1alpha1.MarkerKind's
+// (TestLocalEnumsAreTheAPIs); they are declared here so cmd/markers links no
+// Kubernetes API types (spec 2026-10-06 §7.2.9).
+type Kind string
+
+// Kinds, as MarkerKind spells them.
+const (
+	KindIntro   Kind = "intro"
+	KindRecap   Kind = "recap"
+	KindCredits Kind = "credits"
+	KindPreview Kind = "preview"
+)
+
+// Source is where a segment came from, as SegmentSource spells it.
+type Source string
+
+// Sources.
+const (
+	SourceTheIntroDB Source = "theintrodb"
+	SourceChapters   Source = "chapters"
+	SourceAnalysis   Source = "analysis"
+)
+
+// Results of an analysis, as MarkersResult spells them.
+const (
+	ResultFound    = "Found"
+	ResultNotFound = "NotFound"
+	ResultError    = "Error"
+)
+
 // Segment is one detected or fetched segment.
 type Segment struct {
-	Kind       catalogv1alpha1.MarkerKind    `json:"kind"`
-	StartMs    int64                         `json:"startMs"`
-	EndMs      int64                         `json:"endMs"`
-	Source     catalogv1alpha1.SegmentSource `json:"source"`
-	Confidence int32                         `json:"confidence"`
+	Kind       Kind   `json:"kind"`
+	StartMs    int64  `json:"startMs"`
+	EndMs      int64  `json:"endMs"`
+	Source     Source `json:"source"`
+	Confidence int32  `json:"confidence"`
 }
 
 // Record is a file's analysis as kept in the clustarr-segments bucket,

@@ -19,8 +19,6 @@ package segments
 
 import (
 	"sort"
-
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
 
 // Credit bounds and agreement (spec §6.3).
@@ -55,12 +53,12 @@ func Credits(durationMs int64, movie, anime bool, cands []Segment, previewStartM
 		endsRight := durationMs-c.EndMs <= endSlackMs ||
 			(previewStartMs > 0 && abs64(previewStartMs-c.EndMs) <= endSlackMs) ||
 			(anime && previewStartMs == 0 && durationMs-c.EndMs <= animePreviewMs)
-		if c.Kind == catalogv1alpha1.MarkerCredits && n >= minCreditsMs && n <= maxMs && endsRight {
+		if c.Kind == KindCredits && n >= minCreditsMs && n <= maxMs && endsRight {
 			valid = append(valid, c)
 		}
 	}
 	for _, c := range valid {
-		if c.Source == catalogv1alpha1.SegmentSourceChapters {
+		if c.Source == SourceChapters {
 			return c, true
 		}
 	}
@@ -94,8 +92,8 @@ func AnimePreview(credits Segment, durationMs int64) (Segment, bool) {
 		return Segment{}, false
 	}
 	return Segment{
-		Kind: catalogv1alpha1.MarkerPreview, StartMs: credits.EndMs, EndMs: durationMs,
-		Source: catalogv1alpha1.SegmentSourceAnalysis, Confidence: standConfidence,
+		Kind: KindPreview, StartMs: credits.EndMs, EndMs: durationMs,
+		Source: SourceAnalysis, Confidence: standConfidence,
 	}, true
 }
 

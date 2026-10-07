@@ -124,7 +124,7 @@ func (p *Planner) Handle(ctx context.Context, m events.Message) error {
 		f := schema.AnalyzeFile{
 			MediaFile: mf.Name, UID: string(mf.UID), Path: mf.Spec.Path, ProbeHash: mf.Status.ProbeHash,
 			DurationMs: mf.Status.MediaInfo.RuntimeMillis, Chapters: mf.Status.MediaInfo.ChapterList,
-			Due: segments.Due(mf, now), Anime: anime,
+			Due: Due(mf, now), Anime: anime,
 		}
 		if f.Due {
 			due.Write([]byte(f.ProbeHash))

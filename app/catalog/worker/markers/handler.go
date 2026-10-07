@@ -303,18 +303,18 @@ func (h *Handler) now() time.Time {
 func toSegments(s metadata.Segments) []segments.Segment {
 	var out []segments.Segment
 	for _, k := range []struct {
-		kind catalogv1alpha1.MarkerKind
+		kind segments.Kind
 		list []metadata.Segment
 	}{
-		{catalogv1alpha1.MarkerIntro, s.Intro},
-		{catalogv1alpha1.MarkerRecap, s.Recap},
-		{catalogv1alpha1.MarkerCredits, s.Credits},
-		{catalogv1alpha1.MarkerPreview, s.Preview},
+		{segments.KindIntro, s.Intro},
+		{segments.KindRecap, s.Recap},
+		{segments.KindCredits, s.Credits},
+		{segments.KindPreview, s.Preview},
 	} {
 		for _, x := range k.list {
 			out = append(out, segments.Segment{
 				Kind: k.kind, StartMs: x.StartMs, EndMs: x.EndMs,
-				Source: catalogv1alpha1.SegmentSourceTheIntroDB, Confidence: 100,
+				Source: segments.SourceTheIntroDB, Confidence: 100,
 			})
 		}
 	}
