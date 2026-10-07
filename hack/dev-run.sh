@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# hack/dev-run.sh -- the processes `clustarr all` used to be (spec 2026-10-06
-# §3.10): the manager, one agent per domain and the ui, against the current
+# hack/dev-run.sh -- the processes the retired all-in-one command used to run
+# (spec 2026-10-06 §3.10): the manager, one agent per domain and the ui, against the current
 # kube context's API server and a NATS at $NATS_URL (for kind:
 # `kubectl -n clustarr-system port-forward svc/nats 4222` and
 # NATS_URL=nats://127.0.0.1:4222). Manager and agent code never share a

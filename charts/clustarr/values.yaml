@@ -436,7 +436,7 @@ ui:
   # reachable from inside the cluster, or a private ingress hostname if PMS
   # runs elsewhere. Empty (the default) means no shipped value can guess an
   # operator's own reachable hostname, so the provider roots answer 503
-  # naming the flag, exactly as `clustarr ui --external-url=""` does.
+  # naming the flag, exactly as `ui --external-url=""` does.
   #
   # plexGuids maps to --plex-guids: items a plex MetadataProvider found in
   # Plex's own metadata service are answered with their plex:// GUIDs, which

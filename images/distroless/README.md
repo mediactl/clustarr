@@ -3,10 +3,10 @@
 `images/Dockerfile.native` builds `ghcr.io/mediactl/clustarr/native` FROM
 scratch (spec `docs/superpowers/specs/2026-10-06-manager-agent-split-design.md`
 §10.1.3): the `agent`, `markers` and `transcode` binaries on FFmpeg 9's
-libraries. It replaced the `transcoder` image (this file's
-`Dockerfile.transcoder` until then) and the debian-based `media` image, which
-carried `ffmpeg`, `ffprobe` and `par2` executables; nothing runs an external
-media program any more (R2).
+libraries. It replaced the `transcoder` image (built from this directory's
+Dockerfile until then) and the debian-based `media` image, which carried
+`ffmpeg`, `ffprobe` and `par2` executables; nothing runs an external media
+program any more (R2).
 
 | Target | Platforms | Runs | Size |
 | --- | --- | --- | --- |

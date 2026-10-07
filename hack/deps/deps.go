@@ -48,8 +48,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // PAR2 verify and repair deliberately add no module. The research note
 // measures akalin/gopar as too slow and too memory-hungry for a 50 GB release,
-// and images/Dockerfile.media already ships par2cmdline-turbo v1.5.0, which
-// pkg/download/usenet execs. The full D2-0 record, including why the cgo NNTP
+// and the media image of the time shipped par2cmdline-turbo v1.5.0, which
+// pkg/download/usenet exec'd (par2go replaces it, §11.1 step 12). The full D2-0 record, including why the cgo NNTP
 // pool the research note recommends was never added (javi11/nntppool/v4 is
 // cgo-only and cmd/clustarr builds with CGO_ENABLED=0 for the controller
 // image), is in .superpowers/sdd/2026-09-22-phase-d2-grabarr/task-D2-0-report.md.
