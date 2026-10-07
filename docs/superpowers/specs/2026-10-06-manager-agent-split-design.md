@@ -14,6 +14,49 @@ deploy as one release with no migration code: §11.3's live cutover runbook and 
 replaced by `docs/runbooks/unify-cold-cutover.md`, and the legacy-lease gate (§5.8,
 `--legacy-lease-check`) is removed.
 
+**Amended 2026-10-07 (F8.11): the fold, ADR-0019, the unbranded names, cold turkey.** The
+sections below now follow what was built: the fold's F0-F7, F8.6 and F8.7 (ADR-0016), ADR-0019's
+waves A1-A6 (agents never write Kubernetes), Wave U, and the two removals. Every amended passage
+is marked **Amended 2026-10-07 (F8.11; ...)** and wins where it and the body disagree; the body
+before each mark stays as the record of what was decided first. Names are still the pre-Wave U
+ones throughout, amendments included, read through the unbranded-names design §6.
+
+- **The fold** (remediation-loop design, "loop §n", §8.3's list): §3.4.1, §3.4.3, §4.3 C6-C7,
+  §4.4, §4.6, §5.2 (`catalogarr-markers`, `captionarr-worker`), §5.13, §5.14, §5.15, §6.5.2,
+  §6.5.3, §11.1, §11.3.
+- **ADR-0019** (`docs/superpowers/specs/2026-10-07-agents-report-over-nats-design.md`, "agents
+  §n"): §3.4.3, §3.5.3 (the `events` domain keeps only the RSS matcher; the engine,
+  DLQ-projector and history-sink rows; `catalog` loses the grab worker), §4.4, §4.6 and §10.2.4
+  (no agent write verb: the generated agent roles are read-only), §5.2 (every agent row of the
+  "After the split" column), §5.3 (§5.3.1, the agent-side Secret writes of §5.3.2, §5.3.4),
+  §5.13, §5.14, §5.15, and loop §4.14's agent table (amended in the loop spec).
+- **The unbranded names** (Wave U; `docs/superpowers/specs/2026-10-07-unbranded-names-design.md`
+  §8): R7's brand half, §3.11 "Unchanged", §10.0's kept names, loop §7.3.9's two retirements
+  (`squasharr-transcode-results` and `catalogarr-segments-result` left with their streams; no
+  `Topology.Retired` entry), and the A-wave plan's R22 (`catalogarr-grab` deleted in N+1): it,
+  `catalogarr-redownload`, `clustarr-leases` and `clustarr-pending` left the topology outright
+  in the Download removal (A9.2).
+- **Cold turkey** (owner, 2026-10-07; both plans' "Cold-turkey revision"): one release and no
+  migration code. Never built, so nothing below describes them as present: the loop spec's
+  release-N `--legacy-fold` and `--legacy-fold-retain`, `app/catalog/legacyfold` (the Migrator,
+  adoption, `manager legacy-fold report` and `restore-markers`), `status.legacyFold`, the field
+  manager `clustarr-legacy-fold`, the retired field managers (`k8s.RetiredFieldManagers()` is
+  empty: `catalogarr-markers`, `captionarr-worker` and `grabarr-engine` are deleted, not kept
+  valid), `Topology.Retired` entries, ADR-0019's Download adoption, `status.legacyDownloads` and
+  `manager downloads export`, the legacy-lease gate, and release N+1. SubtitleRequest,
+  TranscodeJob and AudioGraft (ADR-0016) and Download (ADR-0019) are deleted outright -- types,
+  generated code, CRDs, RBAC and installer entries -- right after the waves that replaced them;
+  27 CRDs remain. The loop recomputes transcode, subtitle and graft state from the files; the
+  one-time cluster cleanup is `docs/runbooks/unify-cold-cutover.md` (§11.3 as amended).
+
+**Controller names that are gone** (none is reused): `movie`, `episode`, `album`, `book`,
+`audiobook`, `issue`, `rename`, `transcodejob`, `audiograft` and `subtitlerequest` (folded into
+the remediation loop's `mediafile`, beside the new `transcode-admission`; loop §8); `series` and
+`comic` (loop item keys, A3.2); `download`, `downloadclient-blocklist`, `indexarr-directgrab`,
+`torrent-engine` and `usenet-engine` (A3.6, A3.7: grabs are `status.downloads[]` entries on the
+owning item, and engines execute commands from their per-engine durables); `fileimport-retrigger`
+(A3.8); `replay-download` (A3.9); `replay-transcodejob` and `replay-subtitlerequest` (F8.6).
+
 **Reconciled with main `80175fdc`, 2026-10-07.** The 28 commits
 `0d3ae234..80175fdc` are folded in below (summary under "Drift since
 `0d3ae234`"): the fork tag is now `.13`, on main's published `.12`; the MP4
@@ -376,6 +419,15 @@ manager-only, and session `Drop` becomes a compare-and-swap. New names:
 `clustarr-autoscale` (`k8s.ManagerAutoscale`, §9.5) and the pinned default
 field owner `clustarr` (`k8s.DefaultFieldOwner`, §5.3.5).
 
+**Amended 2026-10-07 (F8.11; unbranded names §8).** R7's first half is superseded for the
+brand (owner, 2026-10-07): every field manager, stream, durable, subject, RPC subject, queue
+group, Envelope `Source`, label and object name that carried an *arr brand was renamed by Wave
+U's token map (`catalogarr` → `catalog`, `importarr-worker` → `import-worker`,
+`CLUSTARR_WORK_SQUASHARR` → `CLUSTARR_WORK_TRANSCODE`, ...), outright, with no legacy-name table
+and no dual reads. Its second half stands -- a new manager or CAS path only where the split puts
+one name in two processes -- and since ADR-0019 there is no such case left: every `k8s.Manager*`
+but `clustarr-ui` is written from `cmd/manager` alone (§5.2 as amended).
+
 **R8. Indexarr split.** Indexer, IndexerDefinition, IndexerProxy, DirectGrab
 and the bundle loader (made leader-only) go to the manager, with the caps-probe
 and login limiter local to the manager. RPC, RSS, facade, relindex and sweeper
@@ -635,7 +687,7 @@ come from `obsflags.Bind`.
 | `--nats-url` | `$NATS_URL`, else `nats://clustarr-nats:4222` | `NATS_URL` | every service | bus; handed to engine pods (`EngineRuntime.NATSURL`) and pools (`pool.Config.NATSURL`) |
 | `--nats-single-node` | `false` | — | every service | `EnsureTopology` (only the manager ensures) |
 | `--graceful-shutdown-timeout` | `60s` | — | every service | |
-| `--data-dir` | `/data` | — | grabarr, squasharr and captionarr `--data-dir`; importarr `--data-path` | rename, librarydelete, Download data removal, DownloadClient statfs, RootFolder probe, MediaFile stat, SubtitleRequest ReadDir; the mount path stamped onto engines and pools |
+| `--data-dir` | `/data` | — | grabarr, squasharr and captionarr `--data-dir`; importarr `--data-path` | rename, librarydelete, Download data removal, DownloadClient statfs, RootFolder probe, the remediation loop's `/data` stats and directory listings; the mount path stamped onto engines and pools |
 | `--engine-scratch-dir` | `/scratch` | — | grabarr controller `--scratch-dir` | scratch mount path the DownloadClient controller stamps onto engines |
 | `--native-image` | `""`, required | `CLUSTARR_NATIVE_IMAGE` | grabarr `--engine-image` (`CLUSTARR_ENGINE_IMAGE`) and squasharr `--worker-image` (`CLUSTARR_WORKER_IMAGE`), merged | engine pods and pool Jobs; R1 makes them one image (§13 OD3) |
 | `--data-claim` | `clustarr-data` | `CLUSTARR_DATA_CLAIM` | grabarr and squasharr `--data-claim` | engine and pool `/data` claim |
@@ -644,8 +696,13 @@ come from `obsflags.Bind`.
 | `--intel-render-groups` | `""` | `CLUSTARR_INTEL_RENDER_GROUPS` | squasharr | Intel pool `supplementalGroups` |
 | `--gpu-node-label-nvidia` | `nvidia.com/gpu.present` | `CLUSTARR_GPU_NODE_LABEL_NVIDIA` | squasharr | |
 | `--gpu-node-label-intel` | `intel.feature.node.kubernetes.io/gpu` | `CLUSTARR_GPU_NODE_LABEL_INTEL` | squasharr | |
-| `--job-window` | `32` | — | squasharr | |
-| `--job-retention` | `24h` | — | squasharr | |
+| `--job-window` | `32` | — | squasharr | the transcode window: files, not jobs (remediation-loop design §5.11) |
+| `--graft-concurrency` | `2` | — | squasharr (`audiograft.DefaultConcurrency`) | the admission ledger's graft slots (remediation-loop design §5.13) |
+| `--remediation-concurrency` | `16` | — | new (ADR-0016) | the remediation loop's workers, 1 to 64 (remediation-loop design §3.1) |
+| `--remediation-bulk-writes-per-second` | `25` | — | new (ADR-0016) | the loop's status-write limiter; `0` disables (§3.7 there) |
+| `--remediation-io-workers` | `8` | — | new (ADR-0016) | the loop's `/data` executor, 1 to 64 (§3.17 there) |
+| `--search-live-per-minute` | `20` | — | new (ADR-0019) | the search planner's pacer: live automatic searches per minute per namespace; index-only searches are not paced (agents §5.4) |
+| `--facade-api-key-secret` | `indexarr-facade` | `CLUSTARR_FACADE_API_KEY_SECRET` | indexarr (agent-side before ADR-0019) | the facade key Secret the manager creates when absent and never changes (agents §7.5, A6.4); the index agent only reads it |
 | `--cardigann-definitions-dir` | `""` | `CLUSTARR_CARDIGANN_DEFINITIONS_DIR` | indexarr | `bundle.Loader`, now the manager's (R9); the chart's cardigann mount moves to the manager |
 | `--cardigann-bundled` | `true` | `CLUSTARR_CARDIGANN_BUNDLED` | indexarr | `bundle.Loader` |
 | `--trakt-base-url` | `""` | `CLUSTARR_TRAKT_BASE_URL` | importarr | ImportList controller's device-code flow |
@@ -659,6 +716,13 @@ come from `obsflags.Bind`.
 (engine-only); `--sample-max-bytes`, `--plex-base-url`, `--index-path`,
 `--index-dsn` and `--facade-*` (agent-only); `--engine-image` and
 `--worker-image`, merged into `--native-image`.
+
+**Amended 2026-10-07 (F8.11; loop §8.3, ADR-0019, cold turkey).** `--job-retention` is gone
+(the fold keeps no Succeeded job to retire). The four ADR-0016 rows and `--search-live-per-minute`
+are new; `--facade-api-key-secret` moved back to the manager, which creates the Secret (A6.4),
+while the agent keeps a flag of the same name to read it. `--legacy-lease-check` is removed with
+the gate (cold turkey), and the loop spec's release-N `--legacy-fold` and `--legacy-fold-retain`
+were never built.
 
 **Validation, before anything touches the cluster:** `--nats-url`,
 `--native-image`, `--data-claim`, `--engine-service-account` and `--data-dir`
@@ -716,14 +780,22 @@ election explicitly; `TestNoBareRunnableFunc` already bans bare `RunnableFunc`.
 
 | Component | Reconcilers (L) | Other runnables | Today |
 | --- | --- | --- | --- |
-| catalog (`app/catalog/manager`) | movie, series, episode, artist, album, author, book, audiobook, comic, issue, mediafile (with the probe-record KV watch `probeRecordsSource` as a raw source, §6.5.3), rootfolder, qualityprofile, delayprofile, metadataprovider, search, overlayprofile, the metadata refresher (`app/catalog/controller/metadatarefresh`), and the 16 `replay-<kind>` controllers (`app/catalog/history/replay`) | `qualityprofile.Bootstrap` (L); `metadataprovider.Bootstrap` (L); `wantedcron.Runnable` (L); the segment planner on durable `catalogarr-segments-plan` (E); `artwork.Reaper` (L, `app/catalog/artwork`) | `app/catalog/run.go:344-470`; replay moves from the history role (`:632-639`), the reaper from the metadata role (`:848-853`) |
-| import (`app/import/manager`) | libraryscan, rename, rootfolderschedule, importexclusion, librarydelete, importlist, retrigger (`app/import/controller/retrigger`) | `recyclesweep.Scheduler` (L, new, §3.5.3) | `app/import/run.go:379-453` |
-| index (`app/indexer/manager`) | indexer (its own limiter and no ClientCache, R8), indexerdefinition, directgrab (`app/indexer/controller/directgrab`), indexerproxy | `bundle.Loader` as `k8s.LeaderOnly`; today `EveryReplica` (`indexer/run.go:663`), repeating about 1,500 API calls on every pod start | `app/indexer/run.go:595-667` |
-| grab (`app/grab/manager`) | downloadclient, the blocklist sweeper, download | — | `app/grab/run.go:353-383` |
-| squash (`app/squash/manager`) | transcodeprofile, transcodejob | `ResultsConsumer` on durable `squasharr-transcode-results` (L, `results.go:66`) | `app/squash/run.go:383-415` |
-| caption (`app/caption/manager`) | subtitleprofile, subtitleprovider, subtitlerequest | `subtitleprofile.Bootstrap` (L) | `app/caption/run.go:244-271` |
+| catalog (`app/catalog/manager`) | artist, author, rootfolder, qualityprofile, delayprofile, metadataprovider, search, overlayprofile, the metadata refresher (`app/catalog/controller/metadatarefresh`), and the `replay-<kind>` controllers (`app/catalog/history/replay`) | `qualityprofile.Bootstrap` (L); `metadataprovider.Bootstrap` (L); `wantedcron.Runnable` (L); the segment planner on durable `catalogarr-segments-plan` (E); `artwork.Reaper` (L, `app/catalog/artwork`); the history sink `catalogarr-history` and the DLQ projector `clustarr-dlq-projector` (L, `app/catalog/worker/history`, ADR-0019 A2.5) | `app/catalog/run.go:344-470`; replay moves from the history role (`:632-639`), the reaper from the metadata role (`:848-853`) |
+| import (`app/import/manager`) | libraryscan, rootfolderschedule, importexclusion, librarydelete (one `librarydelete-<kind>` per kind), importlist (it also diffs and applies the import agent's snapshot and holds the Trakt tokens, A6.2) | `recyclesweep.Scheduler` (L, new, §3.5.3); the scan intake `importarr-intake-scan` into `app/import/manager/scanapply` (L, A6.1) | `app/import/run.go:379-453` |
+| index (`app/indexer/manager`) | indexer (its own limiter and no ClientCache, R8; since ADR-0019 also the health ladder and RSS scheduling from `clustarr-indexer-health` records, A6.3, and the session Secret mirrored from KV, A6.4), indexerdefinition, indexerproxy | `bundle.Loader` as `k8s.LeaderOnly`; today `EveryReplica` (`indexer/run.go:663`), repeating about 1,500 API calls on every pod start; `EnsureFacadeKey` (A6.4) | `app/indexer/run.go:595-667` |
+| grab (`app/grab/manager`) | downloadclient (reads engine records, ensures each rendered engine's durable, resyncs; A3.7) | — | `app/grab/run.go:353-383` |
+| squash (`app/squash/manager`) | the slim `transcodeprofile` reconciler (status under `squasharr`, pool Jobs under `squasharr-pool`) and `transcode-admission` | the task sweep (L) | `app/squash/run.go:383-415` (`ResultsConsumer` retired: `clustarr-transcodes` records) |
+| caption (`app/caption/manager`) | subtitleprovider, the slim `subtitleprofile` reconciler | `subtitleprofile.Bootstrap` (L) | `app/caption/run.go:244-271` |
+| remediation (`app/remediation/manager`) | `mediafile`: the remediation loop, file and item keys, the only writer of MediaFile status (ADR-0016); since ADR-0019 the item keys (Movie, Episode, Album, Book, Audiobook, Issue, Series, Comic) also run the search, grab, downloads, metadata, artwork and overlay stages | the candidate intake `catalogarr-intake-candidate` and the task-events intake `clustarr-task-events` (L, `app/intake`, `app/intake/advisory`); the dispatch ledger (`app/dispatch`) | the thirteen MediaFile watchers it replaces; the grab worker, redownload handler, grab leases and the Download controller (ADR-0019) |
 | autoscale (`app/autoscale`, R5) | the HPA reconciler (`app/autoscale/controller`) | `extmetrics.Server` (E, a `*manager.Server`, started before the caches, §9.4); `extmetrics.CertManager` (L); `extmetrics.QueueGauge` (L); `extmetrics.NamespaceGuard` (E) | new |
 | process | — | the `CacheSyncChecker` runnable (E); `busconn.KeepTopology` (L) and `busconn.WatchDeadLetters` (L) (§5.9) | `pkg/k8s/manager.go:372-403`; the other two new |
+
+**Amended 2026-10-07 (F8.11; loop §8.3, ADR-0019 A2-A6).** The table above is as built after
+the fold and ADR-0019: the movie, episode, album, book, audiobook, issue, series and comic
+controllers became the loop's keys, and rename, retrigger, directgrab, the download controller,
+the blocklist sweeper, transcodejob, subtitlerequest and squasharr's `ResultsConsumer` are gone
+(the header lists every gone controller name). The loop's records sources replace
+`probeRecordsSource` (§5.13 as amended).
 
 `TestControllerNamesAreUniqueAcrossTheBinary` becomes load-bearing: it must
 cover the replay controllers beside the typed reconcilers (`replay-movie`
@@ -884,6 +956,41 @@ Durables are named with their stream and retention (WQ = WorkQueue).
 | `caption` (`app/caption/agent`: fetch) | `captionarr-fetch-high`, `captionarr-fetch-normal` (`CLUSTARR_WORK_CAPTIONARR`, WQ; `fetch/worker.go:155-170`) | — | providerset built by `providerset/build` with the KV throttle `clustarr-provider-throttle`; `providers.Extract = native.Extract` (§7.3) | `caption.data`; healthz `ffgo` | HPA 0..1 (throttled, §9.1.1) |
 | `torrent-engine` (`app/grab/agent/torrent.Register`) | none | — | DownloadClient and proxy Secret read through the APIReader; `net.DefaultResolver` swapped when proxied; `dltorrent` client and `ReAttach`; `torrent.Reconciler` (controller `torrent-engine`); `torrent.Reaper`; `engine.ProgressPublisher` writing KV `clustarr-progress` (`grab/run.go:456-556`) | `torrent-engine.reattach` | StatefulSet replicas from the DownloadClient spec (manager-rendered) |
 | `usenet-engine` (`app/grab/agent/usenet.Register`) | none | — | direct client and `usenet.BuildClient` with `usenet.LibraryRepairer{Runner: par2child.Exec{}}` (§8.6); `usenet.Reconciler`; `usenet.Reaper`; `ProgressPublisher` (`grab/run.go:561-605`); once main's connection budget lands, its per-server collector (below) | — | Deployment, 1 replica (CEL) |
+
+**Amended 2026-10-07 (F8.11; ADR-0019, agents §3-§7, A2-A7).** Agents execute tasks the
+manager admits and report through records and intake messages; they write no Kubernetes object
+and publish no task. The table above changes so:
+
+- **`catalog`** loses `catalogarr-grab` and the grab worker (A4.4): the grab decision is the item
+  key's grab stage in the manager (`app/catalog/grabplan`). The search worker answers in
+  `clustarr-searches` records and writes no Search status (A4.3); the renderer writes only the
+  overlay object, whose metadata the manager reads (A5.3). No `search.IndexDownloadTarget` index.
+- **`events`** keeps only `catalogarr-rss-matcher`, which publishes candidates on
+  `clustarr.intake.candidate.<kind>.<uid>` instead of grabbing (A4.4). `catalogarr-redownload` is
+  gone (a redownload is the search planner's level, A-plan R25), and `catalogarr-history` and
+  `clustarr-dlq-projector` are leader-only consumers in the manager (A2.5). Its HPA floor of 1
+  now protects only the matcher.
+- **`metadata`** answers in `clustarr-item-metadata` records and writes no item status (A5.1);
+  the artwork fetcher writes only `original` objects and their metadata (A5.2). The markers
+  worker answers in `clustarr-markers`; on a limit longer than 5 minutes it defers the record,
+  and the loop's markers planner republishes the task at the reset (agents §5.6, A7.1).
+  `catalogarr-segments-result` is gone (F3.4).
+- **`import`**: a completed download is imported by two tasks, inspect and execute, answered in
+  `clustarr-imports` (A3.8); the rescan reports observations on
+  `clustarr.intake.scan.<namespace>.<uid>` and writes nothing (A6.1); the list sync reports a
+  snapshot in `clustarr-importlist` (A6.2); the recycle consumer also removes named files
+  (`schema.RecycleFilesTask`). No `fileimport.IndexMediaFileByTarget` Download index.
+- **`index`** reports health outcomes in `clustarr-indexer-health` (A6.3); its session store is
+  KV only, and it reads the facade key the manager creates, failing closed until it exists
+  (A6.4). The blocklist is its release index's, served on `clustarr.rpc.indexarr.blocklist`
+  (A3.1).
+- **`torrent-engine`** and **`usenet-engine`** have no reconciler, reaper or finalizer. Each binds
+  its per-engine durable `grabarr-engine-<KVKeyToken(client)>-<ordinal>` on
+  `CLUSTARR_WORK_ENGINE`, which the manager's DownloadClient controller creates, executes engine
+  commands, and writes transfer and engine records (`clustarr-transfers`, `clustarr-engines`); a
+  transfer no entry claims is removed with its bytes kept after `UnidentifiedGrace` (A3.6, A3.7).
+- **Every domain** writes a presence key in `clustarr-progress` (A2.1), and its controller-runtime
+  client is `k8s.ReadOnly` with its Event recorders discarded (A7.1).
 
 **The usenet connection budget** (main's design `e4b59a5c`, phase-A plan
 `db53ebd1`; built on main by another session, not landed at `80175fdc`). Phase
@@ -1338,6 +1445,13 @@ which skips today).
   `<fullname>-data` and `<fullname>-index` (cluster-plex and live data depend on
   them, §10.0).
 
+**Amended 2026-10-07 (F8.11; unbranded names §2, §8).** "Unchanged" is superseded except for
+the ui Service, the art-signing Secret and the PVCs: field managers, streams, durables,
+subjects, RPC subjects, queue groups, controller names, Envelope `Source` strings, the engine
+ServiceAccount and selectors and the facade Secret were renamed by Wave U, outright (cold turkey:
+the cutover runbook removes the old objects; nothing reads an old name). The fold and ADR-0019
+also removed controllers and durables (the header's list; §5.13 as amended).
+
 ---
 
 ## 4. Package layout and dependency guards
@@ -1561,14 +1675,16 @@ and `app/autoscale/extmetrics` (the hand-rolled external.metrics.k8s.io server).
   only tests call them). Keep `buildSupplementary` and `newSupplementaryProber`.
 - **C5. `app/catalog/grabsource`**, from worker/grab/downloads, renamed.
   controller/search/grab.go:44,55 and worker/grab switch.
-- **C6. `app/catalog/worker/segmentresults`**, from segmenting's apply.go,
-  results.go and the Results half of setup.go (`NewApplier`), with marker
-  setup.go:32 (`mediafiles/status patch`). segmenting keeps plan.go, the
-  planner `Setup` and marker :31. run.go:809 switches.
+- **C6. `app/catalog/segmentplan`**, the segment planner (`plan.go`, the planner half of
+  `setup.go`, `Due`), which the manager runs; `app/catalog/segmenting` kept `Applier` and
+  `Results` in the metadata domain until the fold deleted them (F3.4: TheIntroDB and segment
+  analysis answer through `clustarr-markers` and `clustarr-segments` records). The MediaFile
+  reconciler's `segmenting.PublishPlan` call became `segmentplan.PublishPlan`. **(Amended
+  2026-10-07, F8.11: W2.9's inverted move, remediation-loop design §8.3.)**
 - **C7. `app/catalog/worker/markers`**, from markers' handler.go and setup.go
   with markers handler.go:60–61. `app/catalog/markers` keeps due.go and
-  publish.go and gets the `now` clock var. run.go:803 switches; the handler uses
-  `segmentresults.Applier`.
+  publish.go and gets the `now` clock var. run.go:803 switches; the handler answers in
+  the `clustarr-markers` record (F3.4), never through `segmenting.{Applier, TheIntroDBUpdate}`.
 - **C8. History splits in three.**
   - `app/catalog/history` (shared, no RBAC markers): target.go, dlqstore.go,
     doc.go, and the constants `AnnotationDeadLettered` and
@@ -1738,36 +1854,42 @@ app/catalog/
   controller/rollup [S]   status [S]
   artwork [S] (Drift, PublishFetch, RenderToken, PublishRender, ResolveSources, Item, Reaper)
   overlayplan [S]   grabsource [S]   markers [S] (Due, MsgID, Publish, PublishAt)
-  segmenting [M] (PublishPlan, Planner)
+  segmentplan [M] (PublishPlan, Planner, Due)   grabplan [M]   searchplan [M]
   history [S] (target, dlqstore, constants)   history/replay [M]
   metadata [A:metadata] (gateway, 19 clients)   metadata/artwork [A:metadata] (Fetcher, Handler, Pass)
-  worker/{search,grab,artwork} [A:catalog]
-  worker/{rssmatcher,redownload,history} [A:events] (+ worker/grab, shared with catalog)
-  worker/{markers,segmentresults} [A:metadata]
+  worker/{search,artwork} [A:catalog]
+  worker/rssmatcher [A:events]   worker/history [M] (the history sink and DLQ projector)
+  worker/markers [A:metadata]
 app/import/
   manager [M]   agent [A:import]
-  controller/{importexclusion,importlist,librarydelete,libraryscan,rename,
-              rootfolderschedule,retrigger} [M]
+  controller/{importexclusion,importlist,librarydelete,libraryscan,
+              recyclesweep,rootfolderschedule} [M]
+  manager/scanapply [M]   importplan [M]   mediafilespec/specwrite [M]
   scanprogress [S]   mediafilespec [S]   importliststate [S]   importtarget [S]
   worker/{rescan,fileimport,importlist,probe} [A:import]
 app/indexer/
   manager [M]   agent [A:index] (+ facade key)
-  controller/{indexer,indexerdefinition,indexerproxy,directgrab} [M]   bundle, bundle/embedded [M]
-  clients [S]   proxy [S]   status [S]   limits [S]   rssschedule [S]
-  clientcache, search, query, facade, download, worker/rss [A:index]
+  controller/{indexer,indexerdefinition,indexerproxy} [M]   bundle, bundle/embedded [M]
+  clients [S]   proxy [S]   status [S]   status/statuspatch [M]   limits [S]   rssschedule [S]
+  clientcache, search, query, facade, download, health, blocklist, worker/rss [A:index]
 app/grab/
   manager [M]   agent/torrent [A:torrent-engine]   agent/usenet [A:usenet-engine]
-  controller/{download,downloadclient} [M]   status [S] (+EngineFinalizer)
+  controller/downloadclient [M]   lifecycle [M]
   engine, engine/torrent, engine/usenet [A:engines]
 app/squash/
-  manager [M]   controller/{pool,transcodejob,transcodeprofile} [M]   status [M]
+  manager [M]   controller/{pool,transcodeprofile} [M]   status [M]
+  transcodeplan, admission, graftplan [M]
   task [M,T]   jobspec [M,T]   worker, worker/inprocess [T]
 app/caption/
   manager [M]   agent [A:caption]
-  controller/{subtitleprofile,subtitleprovider,subtitlerequest} [M]
+  controller/{subtitleprofile,subtitleprovider} [M]   subtitleplan [M]
   providerset, status, throttle, itemindex, datapath [S]
   providerset/build, worker/fetch [A:caption]
 app/segments/worker [K]
+app/remediation/ [M] (the loop; manager, mfindex, probe, transcode, graft, naming, subtitles,
+  markers, rename, replay; since ADR-0019 the item stages search, grab, downloads, metadata,
+  artwork, dlindex)
+app/intake, app/intake/advisory, app/dispatch [M]
 app/autoscale, app/autoscale/{controller,extmetrics} [M]
 
 pkg/agentdomain [M,A]   pkg/binpath [M,A,U,K,T]   pkg/busconn [M,A,U]
@@ -1793,6 +1915,16 @@ pkg/importlist, pkg/importlist/trakt [S]   pkg/importlist/{arr,custom,imdbcsv,md
 | cmd/agent | 1520 / 1262 / 146 | |
 | cmd/markers | 537 | segmentarr-worker today: 520 (before §7.2.9 drops the API types) |
 | cmd/transcode | 540 | squasharr-worker today: 535 |
+
+**Amended 2026-10-07 (F8.11; loop §8.3, ADR-0019, Wave U).** The tree above is edited in place
+for the fold and ADR-0019; `app/squash` is `app/transcode` since Wave U. Gone with their kinds
+or replaced: `segmenting`, `worker/{grab,redownload,segmentresults}`,
+`controller/{rename,retrigger,directgrab,download,transcodejob,audiograft,subtitlerequest}`
+and `app/grab/status` (the engines write records, not status). No agent root links
+`app/catalog/{grabplan,searchplan}`, `app/grab/lifecycle`, `app/import/{importplan,manager/...}`,
+`app/intake`, `app/dispatch`, `app/remediation`, `app/import/mediafilespec/specwrite` or
+`app/indexer/status/statuspatch` (agents §9.2, `TestAgentLinksNoPlanner`). The closures below
+predate both.
 
 The agent still links two controller-directory packages through its workers,
 `app/catalog/controller/rollup` (`DownloadNonTerminal`) and
@@ -2011,6 +2143,30 @@ RBAC_PATHS_grabarr-engine := ./app/grab/engine/... ./app/grab/status
   needs lives in that side's package (hence the three-way history split, C8).
   `app/catalog/history` (shared) carries no markers.
 
+**Amended 2026-10-07 (F8.11; loop §8.3, §4.14; ADR-0019 §9.1; Wave U).** The paths after the fold
+and ADR-0019 (`app/squash` is `app/transcode` since Wave U, and the engine identity is
+`grab-engine`, W6.9 as amended):
+
+```make
+RBAC_ROLES := manager agent-catalog agent-events agent-metadata agent-import agent-index agent-caption grabarr-engine
+RBAC_PATHS_manager := ./app/catalog/controller/... ./app/catalog/history/replay ./app/catalog/worker/history ./app/catalog/segmentplan ./app/catalog/artwork ./app/remediation/... ./app/intake/... ./app/dispatch/... ./app/import/controller/... ./app/import/manager/... ./app/indexer/controller/... ./app/indexer/manager ./app/indexer/bundle/... ./app/indexer/clients ./app/indexer/proxy ./app/indexer/status/... ./app/grab/controller/... ./app/squash/controller/... ./app/squash/status ./app/squash/admission ./app/caption/controller/... ./app/caption/providerset ./app/autoscale/...
+RBAC_PATHS_agent-catalog := ./app/catalog/worker/search ./app/catalog/worker/artwork
+RBAC_PATHS_agent-events := ./app/catalog/worker/rssmatcher
+RBAC_PATHS_agent-metadata := ./app/catalog/metadata/... ./app/catalog/worker/markers
+RBAC_PATHS_agent-import := ./app/import/worker/...
+RBAC_PATHS_agent-index := ./app/indexer/agent ./app/indexer/clients ./app/indexer/clientcache ./app/indexer/proxy ./app/indexer/search ./app/indexer/query ./app/indexer/download ./app/indexer/facade ./app/indexer/worker/...
+RBAC_PATHS_agent-caption := ./app/caption/worker/... ./app/caption/providerset/...
+RBAC_PATHS_grabarr-engine := ./app/grab/engine/... ./app/grab/agent/...
+```
+
+The two bullets naming `app/catalog/worker/grab` and `app/grab/status` are void: both packages are
+gone. The manager role alone grants writes. No agent package carries a write marker (agents
+§9.1, A7.2), so every generated agent role holds `get`, `list` and `watch` only, `secrets` `get`
+only, and no `events`, `leases`, `*/status`, `*/finalizers` or `*/scale`; `agent-caption` and
+`agent-metadata` hold no verb on a per-file resource beyond reads (remediation-loop design
+§4.14 as amended); the markers ServiceAccount has no binding, and the pool and graft pods mount
+no token. Cold turkey: no role grants the four removed kinds (`TestNoRoleGrantsTheFoldedKinds`).
+
 ### 4.7 Binary sizes
 
 **Method.** Measured: `go build -trimpath -ldflags "-s -w"`. Projected: take
@@ -2095,6 +2251,36 @@ pkg/k8s/patch.go:77,110) and always force ownership (patch.go:88,121).
 | `clustarr` (no FieldOwner; user agent) | **Manager:** Creates at series/reconciler.go:716, artist :437, author :441, comic :472, librarydelete/reconciler.go:295, qualityprofile/bootstrap.go:89,96,99, metadataprovider/defaults.go:83, subtitleprofile/defaults.go:66; JSON patches at metadata/refresher.go:228 and history/replay.go:302; finalizer Updates pkg/k8s/finalizers.go:100,128. **Engines:** finalizer Updates | manager + engines; name pinned by §5.3.5 |
 | **New:** `clustarr-autoscale` (`k8s.ManagerAutoscale`, R5) | HPAs, the `v1beta1.external.metrics.k8s.io` APIService `spec.caBundle` (§9.4) | manager |
 
+**Amended 2026-10-07 (F8.11; loop §8.3, ADR-0019 agents §7.0, cold turkey).** The "After the
+split" column above is the split's. After the fold and ADR-0019 every `k8s.Manager*` but
+`clustarr-ui` is written only from `cmd/manager`, and 19 constants remain:
+
+| Manager | After the fold and ADR-0019 |
+| --- | --- |
+| `catalogarr` | manager: item rollups, `status.downloads[]`, `downloadPhase` and `downloadNonces` (A3.5); MediaFile status and the loop's MediaFile main resource, one apply per pass (F3.4) |
+| `catalogarr-worker` | manager: Search `finishedAt`, `indexerOutcomes` and `results`, rendered by the Search controller from `clustarr-searches` records (A4.3); no longer agent `catalog` |
+| `catalogarr-grab` | manager: `pendingGrab`, `pendingGrabs`, `lastSearchedAt`, `searchAttempts`, `donorSearchAttempts` and `searchDispatch`, the item keys' grab and search stages (A4.1, A4.2); no longer agents `catalog` and `events`; no Download |
+| `catalogarr-metadata` | manager: `status.metadata` and `status.artwork`, from `clustarr-item-metadata` records and the artwork objects' metadata (A5.1, A5.2); no longer agent `metadata` |
+| `catalogarr-artwork` | manager: `status.overlay` of Movie and Series from the overlay object's metadata (A5.3); `PatchOverlay` is gone; no longer agent `catalog` |
+| `catalogarr-markers` | deleted (F3.4, F9.4): TheIntroDB and the segment analysis answer through `clustarr-markers` and `clustarr-segments` records the loop applies as `catalogarr` |
+| `importarr` | manager only: LibraryScan, ImportList and RootFolder writes, the observed-fingerprint annotation (the scan applier, A6.1), the Trakt token Secret (A6.2); no longer agent `import` |
+| `importarr-worker` | manager only, through `app/import/mediafilespec/specwrite`: MediaFile spec (the scan applier, A6.1; the import's materialisation, A3.8; the loop's rename, F3.5) and the spec of scan- and list-added items (A6.1, A6.2) |
+| `indexarr` | manager: Indexer controller fields, the session Secret mirrored from KV, the facade key Secret (A6.4) |
+| `indexarr-worker` | manager: the escalation and RSS fields, applied by the Indexer controller from `clustarr-indexer-health` records (`statuspatch.PatchCAS`, A6.3); no longer agent `index`, which writes neither Secret (§5.3.2 as amended) |
+| `grabarr` | manager: DownloadClient status and its engine workloads |
+| `grabarr-engine` | deleted with the Download kind (A9.1): engines write transfer and engine records |
+| `squasharr`, `squasharr-pool` | manager: TranscodeProfile status and pool Jobs; TranscodeJob is deleted (F9.2) |
+| `captionarr` | manager: SubtitleProfile and SubtitleProvider status; SubtitleRequest is deleted (F9.2) |
+| `captionarr-worker` | deleted (F5.3): the fetch worker answers through `clustarr-subtitles` |
+| `clustarr-dlq-projector` | manager, leader-only: the two dead-letter annotations (A2.5); no longer agent `events` |
+| `catalogarr-series`, `catalogarr-fanout`, `catalogarr-classify`, `clustarr-autoscale` | manager (unchanged) |
+| `clustarr-ui` | ui (unchanged) |
+| `clustarr` (default owner) | manager: Creates and the item finalizer `download.clustarr.io/transfers` (`k8s.EnsureFinalizer`); engines hold no finalizer |
+
+Agents, `markers` and `transcode` write no Kubernetes object: only KV records, object-store
+entries and messages on `clustarr.intake.>`, `clustarr.rel.>` and `clustarr.evt.>` (agents §9.2).
+The redownload handler is gone (a redownload is the search planner's level, A-plan R25).
+
 `markers` and `transcode` write no Kubernetes objects, only KV and object-store
 entries (cmd/segmentarr-worker/main.go:112, cmd/squasharr-worker/main.go:107,
 app/squash/worker/lease.go:58,84,159,229). The redownload handler (now in
@@ -2163,6 +2349,26 @@ stay; fixing them is §13 OD13.
   `metadata` stays at exactly 1 replica with `strategy: Recreate`
   (catalogarr-metadata.yaml:40-42) and may never scale until `Pass` becomes
   `k8s.PatchStatusCAS`.
+
+**Amended 2026-10-07 (F8.11; ADR-0019 agents §7.0, §7.5, A4, A6).** No manager spans two
+processes any more:
+
+- **§5.3.1 is superseded.** `catalogarr-grab` is written only by the manager's item stages, in
+  their own compare-and-swap apply per pass (A4.1, A4.2); the grab worker, the
+  `clustarr-leases` lease, the live-read duplicate guard and the Download it created are gone.
+  The field-manager guard's multi-home allow-list is empty (§5.15 as amended).
+- **§5.3.2's agent-side Secret writes are superseded.** The agent writes neither Secret: the
+  session store is KV only (`Drop` keeps its KV compare-and-swap, `DeleteRevision`); the Indexer
+  controller mirrors the KV session into the Secret under `indexarr` and empties it by CAS when
+  the KV session goes; the manager creates the facade key under `indexarr` (`EnsureFacadeKey`),
+  and the agent only reads it, every 30 s, failing closed until it exists (A6.4).
+  `TestSessionDropDoesNotWipeANewerSave` keeps its KV case and loses its Secret case.
+- **§5.3.3** no longer applies: `importarr` and `importarr-worker` are written from the manager
+  alone (A3.8, A6.1, A6.2).
+- **§5.3.4 is superseded.** `catalogarr-artwork`, `catalogarr-worker`, `catalogarr-metadata` and
+  `clustarr-dlq-projector` are written from the manager alone, so an agent replica count
+  touches no status write; the metadata gateway stays one replica for its in-process provider
+  limiters (ADR-0007), not for a status apply.
 
 **5.3.5 The default user-agent manager.** In binaries named `manager` and
 `agent`, untagged writes would record `manager` and `agent`, leaving stale
@@ -2560,8 +2766,10 @@ cmd/manager; the index agent reads IndexerDefinitions from its cache
 | `artwork.Reaper` | in `setupMetadataGateway`, non-electing (catalog/run.go:848-851) | manager, from `app/catalog/artwork`, so the manager does not link the gateway's `x/image/webp` decoders | `bus.ObjectStore(events.BucketArtwork)`; `mgr.GetAPIReader()` for metadata-only paged lists (reaper.go:58-80,199); list on the 8 kinds; the 30-minute grace (reaper.go:43-49) covers the gateway's Puts from another process |
 | `bundle.Loader` | `EveryReplica` (indexer/run.go:663) | manager, `k8s.LeaderOnly` | cached client; embedded FS or the `/etc/clustarr/cardigann` mount |
 | `qualityprofile.Bootstrap`, `metadataprovider.Bootstrap`, `wantedcron`, `subtitleprofile.Bootstrap` | controller roles | manager (unchanged) | `o.Namespace`, `o.WatchNamespaces`, bus publish |
-| squasharr `ResultsConsumer` | leader-only (results.go:64-66) | manager (unchanged; shares `writeStatus` with the reconciler) | `squasharr-transcode-results` |
-| `probeRecordsSource` (R3) | new | manager, as a raw source on the MediaFile controller (leader-only by being a controller source) | KV `clustarr-probes` |
+| the loop's six records sources (`recordsource.New` per bucket, remediation-loop design §4.9) | new | manager, raw sources on the `mediafile` controller (leader-only by being controller sources) | KV buckets `clustarr-{probes,transcodes,grafts,subtitles,markers,segments}` |
+| the records sources of the six agent-written buckets (ADR-0019 A1.6) | new | manager, raw sources on the item keys and the DownloadClient, Search and Indexer controllers | KV buckets `clustarr-{transfers,engines,imports,searches,item-metadata,indexer-health}` |
+| the candidate, scan and task-events intakes (ADR-0019 A2.3, A2.4, A6.1) | new | manager, leader-only consumers `catalogarr-intake-candidate`, `importarr-intake-scan`, `clustarr-task-events` | `CLUSTARR_INTAKE`, `CLUSTARR_TASK_EVENTS`; the dispatch ledger |
+| the history sink and the DLQ projector (ADR-0019 A2.5) | agent `events` | manager, leader-only (`catalogarr-history`, `clustarr-dlq-projector`) | `CLUSTARR_EVENTS`, `CLUSTARR_DLQ`; cached client |
 | `recyclesweep.Scheduler` | new (replaces the agent timer) | manager, `k8s.LeaderOnly` | bus publish |
 | `extmetrics.CertManager`, `extmetrics.QueueGauge` | new (R5) | manager, `k8s.LeaderOnly` | APIReader; `events.StreamAdmin` |
 | `busconn.KeepTopology`, `busconn.WatchDeadLetters` | new (§5.9) | manager, `k8s.LeaderOnly` | the NATS connection; `events.StreamAdmin`; `events.DeadLetterWatcher` |
@@ -2570,6 +2778,11 @@ cmd/manager; the index agent reads IndexerDefinitions from its cache
 `indexSweeper` is the one leader-only runnable not moved: it needs the store
 the manager must not link (§5.12). After these moves no agent holds a
 `NeedLeaderElection()==true` runnable.
+
+**Amended 2026-10-07 (F8.11; loop §8.3, ADR-0019, cold turkey).** The `ResultsConsumer` row is
+deleted (F6.6: the transcode answers in `clustarr-transcodes` records) and `probeRecordsSource`
+became the loop's records sources; the loop spec's release-N `legacyfold.Migrator` was never
+built.
 
 **Amended 2026-10-07 (NATS research; `nats-object-store.md` §6.6, §6.11).** The
 `artwork.Reaper` row's "Needs" column gains, for its two new duties (the
@@ -2607,7 +2820,13 @@ today's controllers: uid/gid 1000, `fsGroup` 1000 with `OnRootMismatch`,
    "already gone" and drops the finalizer, leaking the data silently.
 6. DownloadClient `DiskSpaceOK`: `r.DiskUsage(r.DataDir)` at
    downloadclient/controller.go:204.
-7. SubtitleRequest: `os.ReadDir` at caption/controller/subtitlerequest/reconciler.go:251.
+7. The subtitles planner's directory listing (remediation-loop design §6.4.3), through the
+   loop's I/O executor (§3.17 there). **(Amended 2026-10-07, F8.11.)**
+
+**Amended 2026-10-07 (F8.11; ADR-0019 agents §6.8, A3.5).** Item 5's Download finalizer is gone
+with the kind: an entry's payload removal is an effect of its owner's downloads stage
+(`app/remediation/downloads`), under the item finalizer `download.clustarr.io/transfers`. Items
+1 and 3 are the remediation loop's (its stats and its rename planner).
 
 `--data-dir` feeds grab's `DataDir`, caption's `DataDir`, the squasharr pool's
 logical root (squash/run.go:427) and the engine render. squasharr's own
@@ -2688,7 +2907,8 @@ ONNX or par2 library (R3).
   and does not revert a newer generation from a stale object.
 - **`TestAgentForgetsClientOnSessionChange`** (KV Put, then rebuild),
   **`TestBundleLoaderIsLeaderOnly`**.
-- **`TestGatedLeaseLockWaitsForLegacyLeases`** (pkg/k8s, envtest).
+- **`TestGatedLeaseLockWaitsForLegacyLeases`** (pkg/k8s, envtest). **Removed with the gate
+  (cold turkey, 2026-10-07).**
 - **`TestControllerNamesAreUniqueAcrossTheBinary`**
   (cmd/clustarr/runnable_registration_test.go:702) moves and runs over the
   manager registration.
@@ -2720,6 +2940,27 @@ ONNX or par2 library (R3).
   §2.4, S9): every handler heartbeat interval (each worker package's exported
   `HeartbeatInterval`) is at most a third of its durable's
   `events.AckDeadline(sub, 1)`, so two heartbeats can be lost before a lapse.
+
+**Amended 2026-10-07 (F8.11; loop §8.3, ADR-0019 agents §9.2, cold turkey).**
+
+- `TestEveryFieldManagerHasItsHome`'s alias list drops `fetch.FieldManager` (F5.3) and its
+  multi-home allow-list is empty: every `k8s.Manager*` but `ManagerUI` has the one home
+  `cmd/manager`; the deleted names (`catalogarr-markers`, `captionarr-worker`,
+  `grabarr-engine`) have none, and `RetiredFieldManagers()` is empty.
+- **`TestOnlyTheLoopWatchesMediaFile`** (remediation-loop design §3.20; its allow-list empty
+  since F7.3), **`TestOnlyTheLoopWritesMediaFileStatus`** (§2.12) and
+  **`TestMediaFileStatusIsOwnedByCatalogarrAlone`** (§2.12, replacing
+  `TestMediaFileFieldManagersStayDisjoint`). The loop spec's release-N guards
+  (`TestOnlyLegacyFoldNamesTheFoldedKinds`, `TestOnlyLegacyFoldAppliesAsCatalogarrMarkers`,
+  `TestReleaseNGrantsOnTheFoldedKinds`) were never written; F9's
+  `TestNoCodeNamesTheFoldedKinds` and `TestNoRoleGrantsTheFoldedKinds` carry their intent.
+- ADR-0019's guards (agents §9.2): **`TestNoAgentRoleGrantsAWriteVerb`**,
+  **`TestAgentsCallNoKubernetesWriter`** (type-checked over every module package an agent root
+  reaches), **`TestAgentsPublishNoTask`**, **`TestAgentLinksNoPlanner`** (extends
+  `TestAgentLinksNoManagerRegistration`), **`TestRecordsWritersAreTheirAgents`**,
+  **`TestAgentClientIsReadOnly`** (`internal/cli/agent`), and `starttest.AssertWroteOnlyAs` per
+  agent identity, which now asserts that an agent writes nothing.
+- `TestSessionDropDoesNotWipeANewerSave` keeps only its KV case (§5.3 as amended).
 
 ---
 
@@ -2949,13 +3190,14 @@ only to NATS.
 One record per MediaFile UID. Every write is a compare-and-swap (`Create` when
 absent, else `Update(rev)`); on a CAS miss the writer re-reads and decides again.
 
-- **The reconciler** (`Store.Request(ctx, want, prev)`) writes a `requested`
-  record with `Seq = prev.Seq + 1` (1 when absent) and `RequestedVersion =
-  want.ProbeVersion`, as an `Update` at the revision `judgeProbe` read, then
-  publishes the task. It writes only when `judgeProbe` returned **request**
-  for that revision, so it never overwrites a record the judge would
-  incorporate or wait on; a CAS miss means another write landed, and the
-  reconcile re-reads and judges again.
+- **The loop's probe planner** (`app/remediation/probe`, remediation-loop design §4.12;
+  amended 2026-10-07, F8.11) builds the request with `probestore.NewRequest`: a `requested`
+  record with `Seq = records.NextSeq(prev.Seq, 0, now)` and `RequestedVersion =
+  want.ProbeVersion`, written as a compare-and-swap at the revision the judge read. The request
+  follows the ProbePending apply (remediation-loop design §3.8): status first, then the record
+  and the publish (`probestore.TaskMessage`). It writes only when the judge returned
+  **request** for that revision, so it never overwrites a record the judge would incorporate or
+  wait on; a CAS miss means another write landed, and the pass re-reads and judges again.
 - **The probe worker** (`Store.Answer(task, rec)`) writes `probed` or `failed`
   with `Seq = task.Seq` and `RequestedVersion = task.ProbeVersion` when the
   current record is absent, `requested` with
@@ -3046,20 +3288,13 @@ Labels and the spec takeover are applied only on incorporation.
 `status.probedAt`, which moves only on incorporation. So a swap stays pending,
 and its rename held, until a record arrives for **the swap target's path with its
 new hash**; a record from before the swap differs in path or hash and is never
-incorporated. `probedAt` is the manager's `now`, after the job's `finishedAt`,
-both set in the manager, so squasharr's retention check
-(transcodeprofile/controller.go:368,421) works as today.
+incorporated.
 
-**The leader-only waker** (`app/catalog/controller/mediafile/results.go`):
-`func (r *Reconciler) probeRecordsSource() source.Source`, registered with
-`WatchesRawSource` (precedent: `limitsSource`,
-app/indexer/controller/indexer/controller.go:669,685). It runs
-`KV(BucketProbes).Watch(ctx, ">")`, enqueues `{rec.MediaFile.Namespace,
-rec.MediaFile.Name}` for each `probed` or `failed` value, skips `requested`
-values and delete markers, and re-opens the watch after 5 s if it closes while
-ctx is live. Controller sources start only on the leader, and the watch replays
-every record at start, so a result that landed while no leader ran is still
-incorporated. It writes nothing (R3 amendment).
+**The leader-only waker** (amended 2026-10-07, F8.11).
+`recordsource.New(bus, events.BucketProbes, …)` (remediation-loop design §4.9) opens the watch
+`UpdatesOnly` and re-opens from the last revision; the informer's initial list reconciles every
+file, so it never replays at start. It is a raw source on the loop's `mediafile` controller, so
+it runs only on the leader, and it writes nothing.
 
 **Lost updates.** Reconcile does no slow work between reading the MediaFile and
 applying status (the probe was the slow work); it reads the KV record inside
@@ -3071,33 +3306,11 @@ opened: `path` (:252; FileMissing; size and mtime feed the probeHash,
 `bytesChanged` and the spec-takeover values) and `mf.Spec.Path` inside
 `swapTarget` (:552; whether the source is still present, which decides a kept job).
 
-**Downstream gates.** A Go-only method (no schema change) in
-`api/catalog/v1alpha1/mediafile_transcoded.go`:
-`func (mf *MediaFile) ProbeCurrent() bool`, true when `probeHash != ""`,
-`mediaInfo != nil`, and Probed is not False with reason `ProbePending`. During
-a stale-bytes ProbePending, `status.probeHash` still names the old bytes (it
-moves only on incorporation), so checks that compare hashes pass while the
-summary describes replaced bytes; the window used to be one reconcile and is
-now the probe queue's latency. The common trigger is an upgrade import to the
-same canonical path, which reuses the MediaFile (`k8s.ChildName(..., dest)`,
-fileimport/process.go:363). Its callers:
-
-- `transcodeprofile.probed` (profile.go:148-150): no new job is planned.
-- The transcodejob reconcile (transcodejob/controller.go:507-516): after the
-  `MediaInfo == nil` check, `!mf.ProbeCurrent()` is
-  `r.wait(tj, st, "waiting for MediaFile %s to be re-probed", mf.Name)` and a
-  requeue after `requeueWaiting`: the job stays Planned, is not dispatched and
-  takes no slot. Without it a job would take a slot (a GPU on nvidia or intel),
-  the worker would re-probe and exit `ExitInvalidSource`
-  (app/squash/worker/run.go:211-214), and the job would be replaced only after
-  the probe landed (transcodeprofile/controller.go:192-213).
-- captionarr `subtitleprofile/controller.go:187` and
-  `subtitlerequest/reconciler.go:218`.
-- `segmenting.Applier.ApplyMerged` (apply.go:92, after C6 in
-  `app/catalog/worker/segmentresults`): an update for a file whose probe is
-  pending is dropped like one for another probe hash ("re-probing: its new
-  probe asks again"), so a TheIntroDB or analysis result for the old bytes is
-  never applied to the new ones.
+**Downstream gates** (amended 2026-10-07, F8.11). `ProbeCurrent()` stays a Go-only
+method; the gate is structural: every planner after the probe returns its last block while
+`!view.ProbeCurrent()` on the draft (remediation-loop design §3.5), held by
+`TestNoPlannerPlansFromAPendingProbe`, which replaced this section's per-reader gates (plan task
+W4.14, dropped).
 
 **Constants** in `probe.go`: `probeRequestTimeoutHigh=6h`,
 `probeRequestTimeoutLow=72h`, `probeRepublishWindow=50m`,
@@ -6017,6 +6230,13 @@ Job prefix `squasharr-pool-` and the label `app.kubernetes.io/managed-by=squasha
 (Jobs are listed by that label, `transcodejob/pools.go:88`, so the component rename
 is safe).
 
+**Amended 2026-10-07 (F8.11; unbranded names §2.10, §8).** The kept names above become §2.10's:
+the engine ServiceAccount `<fullname>-grab-engine` (kustomize `grab-engine`) and component
+`grab-engine`, the pool Job prefix `transcode-pool-` and label
+`app.kubernetes.io/managed-by=transcode`, and the facade Secret `<fullname>-index-facade`
+(kustomize `index-facade`). The ui Service, the art-signing Secret and the PVCs stay. Cold
+turkey: the cutover runbook deletes the old objects, and nothing reads an old name.
+
 ### 10.1 Images
 
 #### 10.1.1 Binary paths and self-checks
@@ -6505,6 +6725,17 @@ ClusterRole `<fullname>-<identity>` per generated role, with its BEGIN/END
 sentinels; the grabarr-engine SA, ClusterRole and binding always rendered (the
 manager is always on); the leader-election RoleBinding for `manager` only; the
 markers SA with no binding; ui unchanged.
+
+**Amended 2026-10-07 (F8.11; ADR-0019 agents §9.1; Wave U).** The paths are §4.6's as amended.
+The generated agent roles are read-only: `agent-*` and the engine role hold `get`, `list` and
+`watch` only, `secrets` `get` only, and no `events`, `leases`, `*/status`, `*/finalizers` or
+`*/scale`; the manager role holds every write, and of Secrets `get`, `create` and `patch` (its
+own: the facade key, sessions, Trakt tokens, the External Metrics CA). The agent client is
+wrapped in `k8s.ReadOnly` at runtime (A7.1), so a write that slipped past both is refused and
+counted. `TestNoAgentRoleGrantsAWriteVerb` checks every generated agent role and its chart copy.
+The engine identity is `grab-engine` (`config/rbac/grab_engine_role.yaml`, ClusterRole
+`clustarr-grab-engine-role`; W6.9 as amended), and no role grants `downloads`,
+`subtitlerequests`, `transcodejobs` or `audiografts` (cold turkey).
 
 #### 10.2.5 Chart files
 
@@ -7001,7 +7232,10 @@ parallel agent and never with `go mod tidy`.
 | 6 | R5 bus: `Slots`, slot-gated pull, lapse reclaim with the lapsed cap, drain, bind-only `Subscribe` (durable and dead-letter watcher) with re-binding, the watchers as topology objects, `ConsumerState`, `Missing`, `events.DeadLetterWatcher`, `busconn.KeepTopology` and `WatchDeadLetters`, the `Validate` changes, membus parity, contract tests | 1 | §9.2, §9.3, §5.9 |
 | 7 | R5 manager: `pkg/agentdomain`, `app/autoscale/{controller,extmetrics}` | 0c, 3, 6 | §9.4, §9.5 |
 | 8 | Wave 5: `internal/cli/*`, `cmd/manager`, `cmd/agent`, `cmd/ui`, the `cmd/markers`/`cmd/transcode` renames, deps guards (the agent's `Require` list holds only `app/grab/engine/torrent` and `go-llsqlite/adapter` here, §4.5.3), `pkg/binpath`, engine argv and pool command; then delete `cmd/clustarr` and the `app/<svc>` roots, moving their tests per §10.3.5 | 3-7 | §3, §4.3 |
-| 9 | Images, installers, RBAC regeneration, test moves, e2e renames, KEDA removal. The native image lands **without** the par2 stage, the `libpar2shim.so` trace entry, `ENV PAR2GO_LIB`, `self-check:par2-child` and the par2go and ffgo parts of `agent --self-check` (until step 11 the agent links no ffgo, until step 12 no par2go): `stage.sh`'s `trace` fails on a missing file (`:14`), so each lands with the step that makes it exist, the way §4.3 step 5.1 handles `ffprobeexec` | 8 | §10 |
+| 8f | The fold (ADR-0016): F0-F7 of the remediation-loop design §8.6 (records, the API, the loop, item keys, subtitles, transcode and admission, graft), F8.6 and F8.7, then the folded-kinds removal (F9.2, F9.4), F8.9, F8.11 and the gate F8.12 | 8 | remediation-loop design §8.6 |
+| 8a | ADR-0019 (agents report over NATS): waves A1-A3, then A4-A6, then the Download removal (A9.1-A9.3, A9.5); A7 (read-only agent roles and client) after F8.12 | 8f's F3 and F4 | `docs/superpowers/plans/2026-10-07-agents-report-over-nats.md` |
+| 8u | Wave U: the unbranded names, a cold-turkey swap with no migration | 8a's A3 | `docs/superpowers/specs/2026-10-07-unbranded-names-design.md` |
+| 9 | Images, installers, RBAC regeneration, test moves, e2e renames, KEDA removal. The native image lands **without** the par2 stage, the `libpar2shim.so` trace entry, `ENV PAR2GO_LIB`, `self-check:par2-child` and the par2go and ffgo parts of `agent --self-check` (until step 11 the agent links no ffgo, until step 12 no par2go): `stage.sh`'s `trace` fails on a missing file (`:14`), so each lands with the step that makes it exist, the way §4.3 step 5.1 handles `ffprobeexec` | 8, 8f, 8a | §10 |
 | 10 | Markers decode on ffgo (markers already links purego through ONNX, and `cmd/clustarr` never linked segments, so this may land any time after 0c) | 0c | §7.2 |
 | 11 | Native probe (`pkg/mediainfo/native`; `ffprobeexec` becomes `test/ffprobeoracle`); embedded extraction on ffgo; `pkg/ffruntime` in transcode; the agent deps guard gains `Require` ffgo and `pkg/mediainfo/native`; `agent --self-check` gains `ffruntime.Load` and `Require` | 0c, 8 (these put purego into packages `cmd/clustarr` links, which `TestClustarrNeverLinksADynamicLoader` forbids until it is deleted) | §6, §7.3, §7.4 |
 | 12 | par2 integration (`pkg/par2child`, usenet `Repairer`, dispatch); the agent deps guard gains `Require` `pkg/par2child` and par2go; the image's par2 stage, `trace` entry, `ENV PAR2GO_LIB`, `self-check:par2-child` and the par2go part of `agent --self-check` | 0b, 0c, 8, 9 (same reason) | §8 |
@@ -7016,6 +7250,13 @@ depends on 6 and 7 (and on 8 only where it wires a flag, a liveness check or a
 guard into `internal/cli`, `cmd/markers` or `test/guards`), runs beside 8, and is
 green before the fold's first wave, whose records waker and `KV.Watch` options
 build on its `events.WatchOption` (loop spec §4.15 as amended).
+
+**Amended 2026-10-07 (F8.11; loop §8.6; both plans' cold-turkey revision).** Rows 8f, 8a and 8u
+are new. The order the owner set: F3 → F4 → A1 → A2 → A3 → Wave U → A4 / A5 / A6 → the Download
+removal → F5 → F6 → F7 → F8.6 → F8.7 → the folded-kinds removal (F9.2, F9.4) → F8.9 → F8.11 →
+F8.12 → A7 → W6.9-W6.17 → W6b → W9 → W10 → Wave N (ADR-0020, ADR-0021) → the test batch, which
+writes every deferred test. There is no release N+1: the four kinds are deleted inside this one
+release, and F8.1-F8.5, F9.1, A8 and A9.4 are dropped.
 
 ### 11.2 Gates before any deploy
 
@@ -7044,103 +7285,17 @@ not the pinned build.
 
 ### 11.3 Live cutover runbook (kind-cluster-plex)
 
-**State as inventoried** (2026-10-06 ~19:37Z; re-read before running): release
-`clustarr` revision 130, chart 0.4.0, Helm v4.2.2 with server-side apply, 10
-revisions of history; controller and media images at `ce0bd69`, transcoder pinned
-to `44461d0`. 11 Deployments (catalogarr, catalogarr-metadata, importarr(+worker),
-indexarr, grabarr, squasharr, captionarr(+worker), segmentarr-worker, ui, nats-box)
-plus three CR-owned workloads (the `frugal-engine` usenet Deployment and
-`torrent-engine` StatefulSet, owned by DownloadClients; one transcode pool Job owned
-by TranscodeProfile `hevc-mkv`). Five `<svc>.clustarr.io` leases, none for indexarr
-(SQLite, no election). No HPA, no external-metrics APIService, no KEDA, no
-Prometheus; one node (12 CPU, ~62.6Gi, 1 NVIDIA and 1 Intel GPU), so every HPA's
-maxReplicas will be 1. Two memory notes are stale: **downloads are not paused**
-(frugal enabled, 63 Downloads Completed with `Imported=False`), and **transcoding is
-stalled, not running**: the pool Job runs `transcoder:471aa61` while squasharr wants
-`44461d0`, and one Running TranscodeJob
-(`avatar---the-last-airbender-403da1849a-s02e09-debec48de0-c5a05678`) whose worker
-pod has been gone since 2026-10-02 holds the drain, so all 31 Planned jobs wait.
-
-**What a plain `helm upgrade` would break** (why the runbook exists): it creates the
-manager before deleting the old controllers, so both write at once (the wanted cron
-fires twice, the 2026-10-06 nzbgeek class; slot admission over-admits; two engine
-builders flap the engine templates; indexarr's lease-less controllers and SQLite run
-twice; two metadata gateways double the provider rate); it deletes the helm-owned
-`clustarr-index` PVC (PV reclaim Delete); it fails the values schema under
-`--reuse-values` or defaults image tags to 0.1.0; it invalidates the engines' SA
-tokens if the SA is renamed (it is not, §10.0); it breaks the torrent engine's
-`/bin/sh` wrapper on a FROM-scratch image unless the new manager re-renders the
-engines (it does, §3.5.5); and it orphans the GPU-holding pool Job if pool names or
-the managed-by label change (they do not, §3.8). `k8s.GatedLeaseLock` (§5.8) is a
-safety net for the first case, not a substitute for step 5.
-
-**Runbook** (the kubectl and helm writes are for that operator):
-
-0. **Freeze.** Ask the other sessions (`ListAgents`; at inventory clustarr-c9 busy,
-   clustarr-2b waiting, clustarr-d2 idle) to stop helm upgrades. Save
-   `helm get values -o yaml` and `helm get manifest` for revision N, the rollback
-   target.
-1. **Images and CRDs.** Build all images and `kind load` them now, while the old
-   system is healthy (a load stalls etcd and can cost every lease); wait until lease
-   transitions stop moving. If a CRD changed:
-   `kubectl apply --server-side --force-conflicts -f config/crd/bases/`.
-2. **Protect data.** `kubectl -n clustarr-system annotate pvc clustarr-index helm.sh/resource-policy=keep`;
-   confirm the art key's keep annotation; record the facade Secret name
-   (`clustarr-indexarr-facade`).
-3. **Quiesce transcode** (the owner approves the pause and its lift). Set
-   `spec.suspend=true` on the orphaned Running TranscodeJob and all 31 Planned jobs
-   (withdraws their tasks, `controller.go:388-401`); wait until pool Job
-   `squasharr-pool-hevc-mkv-nvidia-b8e379254f` reads suspend=true, Active=0 and no
-   startTime; delete it (background propagation) to free `nvidia.com/gpu`.
-4. **Quiesce downloads and imports.** Confirm no Download is Queued, Downloading or
-   Paused and `/data/torrents/.state` is absent; let any import in flight finish
-   (importarr-worker logs).
-5. **Stop every old writer.** Scale to 0: `clustarr-catalogarr`, `clustarr-importarr`,
-   `clustarr-grabarr`, `clustarr-squasharr`, `clustarr-captionarr`,
-   `clustarr-indexarr`, `clustarr-catalogarr-metadata`, `clustarr-importarr-worker`,
-   `clustarr-captionarr-worker`, `clustarr-segmentarr-worker`. Wait until their pods
-   are gone (longest grace 120 s) and all five leases show an empty `holderIdentity`
-   or a `renewTime` more than 60 s old. The engines and `clustarr-ui` keep running (no
-   controller re-renders the engines meanwhile; the ui is read-only). Queues buffer in
-   JetStream; do not restart NATS (single-node work streams are memory-backed).
-6. **Upgrade.** `helm upgrade clustarr <chart 0.5.0> -n clustarr-system -f <fresh values> --timeout 15m --wait`,
-   never `--reuse-values` (add `--force-conflicts` if a kept object was edited with
-   kubectl). The fresh values set `image.clustarr.tag` and `image.native.tag`
-   explicitly, carry `ui.plex` (`externalURL http://clustarr-ui.clustarr-system.svc.cluster.local:8080`),
-   `storage.data.existingClaim: clustarr-data`, the nats config, the live resources
-   mapped by §10.2.8 (captionarr's 1536Mi to the manager; captionarrWorker's to
-   `agents.caption`; segmentarrWorker's 6 CPU / 3Gi to `markers`), and
-   `markers.consumerSlots: {segmentarr-analyze: 3}` (§13 OD34). Helm creates the
-   manager, agents and markers, keeps the ui and its Service, and deletes the old,
-   already-empty Deployments, Services, SAs and RBAC. The manager's `EnsureTopology`
-   creates `CLUSTARR_WORK_PROBE`, `clustarr-probes`, `importarr-probe-high`,
-   `importarr-probe-low` and `importarr-recycle`, and raises autoscaled durables'
-   `MaxAckPending`; no existing durable is renamed, so no `nats consumer rm` is needed.
-7. **Verify.** `manager.clustarr.io` is held by the manager pod and no old lease
-   renews. `kubectl get apiservice v1beta1.external.metrics.k8s.io` is Available;
-   `kubectl get hpa` shows five HPAs at maxReplicas 1;
-   `kubectl get --raw /apis/external.metrics.k8s.io/v1beta1/namespaces/clustarr-system/clustarr_consumer_lag`
-   answers. The engines are re-rendered (new engine-config-hash, argv `/usr/bin/agent
-   --domain=…`, native image, pods Ready, DownloadClient `EngineReady=True`), and
-   torrents keep `.torrent.db` (R13). Exactly one `agent-index` pod mounts
-   `clustarr-index`, and the facade Secret is unchanged. The ui is ready and the Plex
-   provider answers through `media/clusterplex-config`. MediaFiles stay `Probed=True`
-   with no mass re-probe (ProbeVersion unchanged); markers re-decodes a season's
-   windows only at its next task (FingerprintVersion 2). No pod runs an ffmpeg,
-   ffprobe or par2 executable.
-8. **Resume transcode** (owner's OK): unsuspend the TranscodeJobs; confirm one new
-   pool Job appears (`/usr/bin/transcode`, component `transcode`, native image),
-   measures its device and takes a task.
-9. **Clean up.** Delete the stale `captionarr`, `catalogarr`, `grabarr`, `importarr`
-   and `squasharr` `.clustarr.io` leases. One release later remove
-   `--legacy-lease-check` and `k8s.GatedLeaseLock` (§13 OD6).
-
-**Rollback.** Scale the manager, agents and markers to 0 and wait until
-`manager.clustarr.io` lapses; delete the new pool Job; `helm rollback clustarr N`
-(the old images are still loaded); remove the new streams and consumers only if they
-interfere (they do not: nothing old consumes them); unsuspend the TranscodeJobs with
-the owner's OK. The old binaries ensure their own topology on start and rewrite
-`MaxAckPending` back to their per-pod values.
+**Amended 2026-10-07 (F8.11; owner: cold turkey).** The split, the fold, ADR-0019 and the
+unbranded names deploy as one release with no migration code, and its runbook is
+`docs/runbooks/unify-cold-cutover.md`, which carries every step this section had, in order
+(freeze and save, images, protect data, quiesce transcode and downloads, stop every old writer,
+CRDs, deploy, verify, clean up), adds the cold turkey's (delete the removed kinds' objects and
+CRDs, the old NATS streams, durables and buckets, the stale `managedFields` and the old leases,
+once, by hand), and needs the owner's OK at every step. **There is no rollback**: no export,
+restore or `helm rollback` path is built or kept. A plain `helm upgrade` is never the cutover:
+it runs old and new writers together, and under the fold the previous `catalogarr` and the loop
+would each release the other's MediaFile status fields. The inventory this section held
+(2026-10-06) is re-read by that runbook before the cutover.
 
 **cluster-plex** needs no change: it depends on the `clustarr-ui` Service and port
 8080, the art signing key, Secret `plex-token` and the catalog CRDs, all unchanged.

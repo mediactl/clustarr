@@ -2764,6 +2764,18 @@ keeps item status under `catalogarr-metadata`, the grab worker item status under
 and the engines Download status. NATS has no per-bucket authorisation here, so bucket writers are held
 by the guards below.
 
+> **Amended 2026-10-07 (ADR-0019 §9.1; split plan F8.11).** No agent identity keeps any write
+> verb, on per-file work or anything else. The `agent-metadata` gateway row's "Kept" is read-only:
+> the gateway answers in `clustarr-item-metadata` records, and the item keys apply
+> `status.metadata` under `catalogarr-metadata` in the manager (A5.1). The grab worker is gone
+> (A4.4) and `catalogarr-grab` is the manager's (A4.1); the engines write transfer and engine
+> records, not Download status, and the Download kind is deleted (A9.1). The `agent-import`
+> fileimport row's donor comes from the owner's `audioDonor` entry and its execute record (F7.1
+> as amended), not a Download. So the paragraph above's three exceptions are void: every
+> `k8s.Manager*` but `clustarr-ui` is written only from `cmd/manager`, and the roles are ADR-0019
+> §9.1's table, held by `TestNoAgentRoleGrantsAWriteVerb`. The AudioGraft, SubtitleRequest and
+> TranscodeJob kinds are deleted, not kept for adoption (cold turkey).
+
 ### 4.15 Changes to `pkg/events`, metrics, tests
 
 **`pkg/events`** (landed serially in F1, before any fan-out):
