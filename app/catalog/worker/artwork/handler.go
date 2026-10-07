@@ -459,7 +459,7 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 		headers[gateway.HeaderSourceURL] = u
 	}
 	overlayKey := objectKey(it, events.ArtworkVariantOverlay)
-	put, err := h.Store.Put(ctx, overlayKey, &buf, headers)
+	put, err := h.Store.Put(ctx, overlayKey, &buf, events.ObjectMeta{Headers: headers})
 	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("artwork: put %s: %w", overlayKey, err)

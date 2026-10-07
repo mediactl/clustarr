@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"sort"
 	"strings"
 
@@ -72,9 +73,18 @@ func (o *objectHandle) resolve(ctx context.Context) (jetstream.ObjectStore, erro
 
 // objectError maps JetStream object-store failures onto the package
 // sentinels.
+//
+// nats.go's ErrUpdateMetaDeleted (SetMeta on a deleted object) is
+// ErrObjectNotFound too; ErrCantGetBucket (a bucket link, which nothing in
+// clustarr creates) is named rather than left a bare cause (artwork design
+// §B.1 as amended 2026-10-07).
 func objectError(op, bucket, name string, err error) error {
-	if errors.Is(err, jetstream.ErrObjectNotFound) {
+	if errors.Is(err, jetstream.ErrObjectNotFound) || errors.Is(err, jetstream.ErrUpdateMetaDeleted) {
 		return fmt.Errorf("natsbus: %s %s/%s: %w", op, bucket, name, events.ErrObjectNotFound)
+	}
+	if errors.Is(err, jetstream.ErrCantGetBucket) {
+		return fmt.Errorf("natsbus: %s %s/%s: the object is a bucket link, which clustarr never creates: %w",
+			op, bucket, name, err)
 	}
 	if errors.Is(err, jetstream.ErrBucketNotFound) {
 		return fmt.Errorf("natsbus: %s %s: %w", op, bucket, events.ErrBucketNotFound)
@@ -128,11 +138,12 @@ func objectInfoOf(bucket string, info *jetstream.ObjectInfo) (events.ObjectInfo,
 		return events.ObjectInfo{}, fmt.Errorf("natsbus: object %s/%s: %w", bucket, info.Name, err)
 	}
 	return events.ObjectInfo{
-		Name:    info.Name,
-		Size:    int64(info.Size),
-		Digest:  digest,
-		ModTime: info.ModTime,
-		Headers: headerToMap(info.Headers),
+		Name:     info.Name,
+		Size:     int64(info.Size),
+		Digest:   digest,
+		ModTime:  info.ModTime,
+		Headers:  headerToMap(info.Headers),
+		Metadata: maps.Clone(info.Metadata),
 	}, nil
 }
 
@@ -163,19 +174,41 @@ func (o *objectHandle) Get(ctx context.Context, name string) (events.ObjectInfo,
 // Put writes name unconditionally, reading r to completion. JetStream chunks
 // the object into stream messages under max_payload (128 KiB per chunk by
 // default), so an object far larger than the connection's max_payload still
-// round-trips whole.
+// round-trips whole. meta replaces the object's whole meta, headers and
+// metadata alike (research E3).
 func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
-	headers map[string]string,
+	meta events.ObjectMeta,
 ) (events.ObjectInfo, error) {
 	store, err := o.resolve(ctx)
 	if err != nil {
 		return events.ObjectInfo{}, err
 	}
-	info, err := store.Put(ctx, jetstream.ObjectMeta{Name: name, Headers: mapToHeader(headers)}, r)
+	info, err := store.Put(ctx, jetstream.ObjectMeta{
+		Name: name, Headers: mapToHeader(meta.Headers), Metadata: maps.Clone(meta.Metadata),
+	}, r)
 	if err != nil {
 		return events.ObjectInfo{}, objectError("put", o.name, name, err)
 	}
 	return objectInfoOf(o.name, info)
+}
+
+// SetMeta is NATS UpdateMeta with the name unchanged: no rename can happen
+// (a rename purges the old name with no tombstone, E5). It rewrites no chunk.
+// It has no compare-and-swap (publishMeta sends no expected sequence), so only
+// the object's one writer calls it, under its per-item lock (artwork design
+// §B.3 as amended).
+func (o *objectHandle) SetMeta(ctx context.Context, name string, meta events.ObjectMeta) error {
+	store, err := o.resolve(ctx)
+	if err != nil {
+		return err
+	}
+	err = store.UpdateMeta(ctx, name, jetstream.ObjectMeta{
+		Name: name, Headers: mapToHeader(meta.Headers), Metadata: maps.Clone(meta.Metadata),
+	})
+	if err != nil {
+		return objectError("set meta", o.name, name, err)
+	}
+	return nil
 }
 
 // Delete removes name. An absent object -- never written, or already

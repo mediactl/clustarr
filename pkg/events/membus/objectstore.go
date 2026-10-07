@@ -34,10 +34,11 @@ import (
 
 // memObject is one stored object, spec §B.1.
 type memObject struct {
-	data    []byte
-	digest  string
-	headers map[string]string
-	modTime time.Time
+	data     []byte
+	digest   string
+	headers  map[string]string
+	metadata map[string]string
+	modTime  time.Time
 }
 
 // objectBucket is one in-memory object-store bucket.
@@ -72,11 +73,12 @@ func (o *objectHandle) resolve() (*objectBucket, error) {
 // bucket's mutex.
 func infoOf(name string, obj *memObject) events.ObjectInfo {
 	return events.ObjectInfo{
-		Name:    name,
-		Size:    int64(len(obj.data)),
-		Digest:  obj.digest,
-		ModTime: obj.modTime,
-		Headers: cloneHeaders(obj.headers),
+		Name:     name,
+		Size:     int64(len(obj.data)),
+		Digest:   obj.digest,
+		ModTime:  obj.modTime,
+		Headers:  cloneHeaders(obj.headers),
+		Metadata: cloneHeaders(obj.metadata),
 	}
 }
 
@@ -112,9 +114,10 @@ func (o *objectHandle) Get(ctx context.Context, name string) (events.ObjectInfo,
 }
 
 // Put writes name unconditionally, computing the hex SHA-256 digest of the
-// content read from r.
+// content read from r. meta replaces the object's headers and metadata
+// whole, as a NATS Put does.
 func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
-	headers map[string]string,
+	meta events.ObjectMeta,
 ) (events.ObjectInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return events.ObjectInfo{}, err
@@ -129,15 +132,45 @@ func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
 	}
 	sum := sha256.Sum256(data)
 	obj := &memObject{
-		data:    data,
-		digest:  hex.EncodeToString(sum[:]),
-		headers: cloneHeaders(headers),
-		modTime: o.bus.clock.Now(),
+		data:     data,
+		digest:   hex.EncodeToString(sum[:]),
+		headers:  cloneHeaders(meta.Headers),
+		metadata: cloneHeaders(meta.Metadata),
+		modTime:  o.bus.clock.Now(),
 	}
 	b.mu.Lock()
 	b.objects[name] = obj
 	b.mu.Unlock()
 	return infoOf(name, obj), nil
+}
+
+// SetMeta replaces a live object's headers and metadata, keeping its bytes
+// and digest; its modTime becomes now, as a NATS meta publish's does. A
+// missing object is ErrObjectNotFound.
+func (o *objectHandle) SetMeta(ctx context.Context, name string, meta events.ObjectMeta) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	old, ok := b.objects[name]
+	if !ok {
+		return fmt.Errorf("membus: set meta %s/%s: %w", o.name, name, events.ErrObjectNotFound)
+	}
+	// A new memObject rather than an in-place edit: an info rendered
+	// earlier shares nothing with it.
+	b.objects[name] = &memObject{
+		data:     old.data,
+		digest:   old.digest,
+		headers:  cloneHeaders(meta.Headers),
+		metadata: cloneHeaders(meta.Metadata),
+		modTime:  o.bus.clock.Now(),
+	}
+	return nil
 }
 
 // Delete removes name. Unlike KV's Delete, deleting an absent object is

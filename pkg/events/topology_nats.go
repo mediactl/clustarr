@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -155,6 +156,7 @@ func ObjectStoreConfig(o ObjectStoreSpec) jetstream.ObjectStoreConfig {
 		MaxBytes:    o.MaxBytes,
 		Replicas:    max(o.Replicas, 1),
 		TTL:         o.MaxAge,
+		Metadata:    maps.Clone(o.Metadata),
 	}
 }
 

@@ -202,6 +202,48 @@ const (
 	ArtworkVariantOverlay  = "overlay"
 )
 
+// ArtworkMetaVersion is the version of the metadata set every artwork object
+// carries (artwork design §B.2 as amended 2026-10-07), recorded under
+// ArtworkMetaKeyVersion. Raise it when the set changes: the writers' lazy
+// backfill and the reaper's audit key on it.
+const ArtworkMetaVersion = "1"
+
+// ArtworkMaxImageBytes caps one artwork image: the gateway's fetch limit
+// (artwork design §B.4) and the ui's whole-object read bound (§B.8 as
+// amended), here so both can name it.
+const ArtworkMaxImageBytes = 20 << 20
+
+// The metadata keys of an artwork object (artwork design §B.2 as amended
+// 2026-10-07). Every object carries the version, kind, uid, namespace,
+// name, image type and variant; language when its provider image names
+// one; width and height when known; and an overlay its profile and the
+// digest of the original it was drawn on. BucketMetaKeyKeyScheme is a
+// bucket's, not an object's.
+const (
+	ArtworkMetaKeyVersion        = "clustarr.io/meta-version"
+	ArtworkMetaKeyKind           = "clustarr.io/kind"
+	ArtworkMetaKeyUID            = "clustarr.io/uid"
+	ArtworkMetaKeyNamespace      = "clustarr.io/namespace"
+	ArtworkMetaKeyName           = "clustarr.io/name"
+	ArtworkMetaKeyImageType      = "clustarr.io/image-type"
+	ArtworkMetaKeyVariant        = "clustarr.io/variant"
+	ArtworkMetaKeyLanguage       = "clustarr.io/language"
+	ArtworkMetaKeyWidth          = "clustarr.io/width"
+	ArtworkMetaKeyHeight         = "clustarr.io/height"
+	ArtworkMetaKeyProfile        = "clustarr.io/profile"
+	ArtworkMetaKeyOriginalDigest = "clustarr.io/original-digest"
+	BucketMetaKeyKeyScheme       = "clustarr.io/key-scheme"
+)
+
+// ArtworkKeyScheme is BucketArtwork's key scheme, recorded in the bucket's
+// metadata so a reader can check it (ArtworkKey builds the names).
+const ArtworkKeyScheme = "<kind>/<uid>/<imageType>/<variant>"
+
+// FingerprintKeyScheme is ObjectStoreFingerprints' key scheme, recorded in
+// the bucket's metadata (segments.FingerprintKey builds the names: no
+// version suffix for the CLI decoder's legacy keys, ".v<N>" from version 2).
+const FingerprintKeyScheme = "<probeHash>.<start|end>[.v<FingerprintVersion>]"
+
 // Priority is the work-queue lane a task is placed in. It is the third token
 // of every clustarr.work.* subject and decides which durable consumer, and so
 // which worker pool and concurrency budget, picks the task up.

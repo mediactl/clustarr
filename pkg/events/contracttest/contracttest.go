@@ -1329,7 +1329,7 @@ func testObjectStorePutGet(t *testing.T, newBus func() events.Bus) {
 		"Clustarr-Source": "provider",
 	}
 
-	info, err := store.Put(ctx, "movie/uid-1/poster/original", bytes.NewReader(content), headers)
+	info, err := store.Put(ctx, "movie/uid-1/poster/original", bytes.NewReader(content), events.ObjectMeta{Headers: headers})
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -1375,7 +1375,7 @@ func testObjectStoreOverwrite(t *testing.T, newBus func() events.Bus) {
 	store := bus.ObjectStore(events.BucketArtwork)
 	name := "movie/uid-2/poster/original"
 
-	first, err := store.Put(ctx, name, bytes.NewReader([]byte("v1")), nil)
+	first, err := store.Put(ctx, name, bytes.NewReader([]byte("v1")), events.ObjectMeta{})
 	if err != nil {
 		t.Fatalf("first Put: %v", err)
 	}
@@ -1383,7 +1383,7 @@ func testObjectStoreOverwrite(t *testing.T, newBus func() events.Bus) {
 	// calls virtually never tie, but this removes any doubt rather than
 	// leaving the assertion to chance.
 	time.Sleep(2 * time.Millisecond)
-	second, err := store.Put(ctx, name, bytes.NewReader([]byte("v2, a longer body")), nil)
+	second, err := store.Put(ctx, name, bytes.NewReader([]byte("v2, a longer body")), events.ObjectMeta{})
 	if err != nil {
 		t.Fatalf("second Put: %v", err)
 	}
@@ -1457,7 +1457,7 @@ func testObjectStoreDeleteThenGet(t *testing.T, newBus func() events.Bus) {
 	if err := store.Delete(ctx, neverWritten); !errors.Is(err, events.ErrObjectNotFound) {
 		t.Fatalf("Delete of a name never written error = %v, want ErrObjectNotFound", err)
 	}
-	if _, err := store.Put(ctx, name, bytes.NewReader([]byte("v1")), nil); err != nil {
+	if _, err := store.Put(ctx, name, bytes.NewReader([]byte("v1")), events.ObjectMeta{}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	if err := store.Delete(ctx, name); err != nil {
@@ -1484,7 +1484,7 @@ func testObjectStoreListByPrefix(t *testing.T, newBus func() events.Bus) {
 
 	put := func(name string) {
 		t.Helper()
-		if _, err := store.Put(ctx, name, bytes.NewReader([]byte(name)), nil); err != nil {
+		if _, err := store.Put(ctx, name, bytes.NewReader([]byte(name)), events.ObjectMeta{}); err != nil {
 			t.Fatalf("Put %s: %v", name, err)
 		}
 	}

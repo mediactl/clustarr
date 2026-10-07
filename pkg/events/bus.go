@@ -448,6 +448,27 @@ type ObjectInfo struct {
 	// object (Content-Type, Clustarr-Source, Clustarr-Source-URL,
 	// Clustarr-Rendered-From; spec §B.2).
 	Headers map[string]string
+
+	// Metadata is the object's metadata map, ObjectMeta.Metadata as the last
+	// Put or SetMeta sent it (artwork design §B.2 as amended 2026-10-07).
+	Metadata map[string]string
+}
+
+// ObjectMeta is everything an object carries besides its bytes (artwork
+// design §B.1 and §B.2 as amended 2026-10-07). A Put sends all of it: NATS
+// replaces an object's whole meta on every Put, so a key set any other way is
+// gone after the next Put that does not send it again (research E3) -- the
+// object-store twin of the server-side-apply complete-declaration rule. Each
+// writer renders its complete set through one function.
+type ObjectMeta struct {
+	// Headers say how to serve the bytes and where they came from
+	// (Content-Type, Clustarr-Source, Clustarr-Source-URL,
+	// Clustarr-Rendered-From).
+	Headers map[string]string
+
+	// Metadata says whose bytes they are: the clustarr.io/* keys of the
+	// artwork design §B.2 as amended (ArtworkMetaKey* in subjects.go).
+	Metadata map[string]string
 }
 
 // ObjectStore is a single bucket of the broker's object store, spec §B.1.
@@ -458,8 +479,16 @@ type ObjectStore interface {
 	Get(ctx context.Context, name string) (ObjectInfo, io.ReadCloser, error)
 
 	// Put writes name unconditionally, reading r to completion, and returns
-	// the stored object's info.
-	Put(ctx context.Context, name string, r io.Reader, headers map[string]string) (ObjectInfo, error)
+	// the stored object's info. meta is a complete declaration: headers and
+	// metadata the previous version carried and meta omits are gone.
+	Put(ctx context.Context, name string, r io.Reader, meta ObjectMeta) (ObjectInfo, error)
+
+	// SetMeta replaces name's headers and metadata without touching its
+	// bytes (NATS UpdateMeta with the name unchanged, so no rename can
+	// happen). It has no compare-and-swap: only the object's one writer
+	// calls it, under its per-item lock (artwork design §B.3 as amended
+	// 2026-10-07). A missing or deleted object is ErrObjectNotFound.
+	SetMeta(ctx context.Context, name string, meta ObjectMeta) error
 
 	// Delete removes name. An object that is absent -- never written, or
 	// already deleted -- is ErrObjectNotFound; deleting an absent object is

@@ -239,6 +239,11 @@ type ObjectStoreSpec struct {
 	// MaxAge expires objects this old; zero keeps them. An object store
 	// has no expiry per object, so it applies to the whole bucket.
 	MaxAge time.Duration
+	// Metadata is the bucket's own metadata, ensured by Ensure: its key
+	// scheme (BucketMetaKeyKeyScheme) and, for the artwork bucket, the
+	// object metadata version its writers use (artwork design §B.2 as
+	// amended 2026-10-07) -- the scheme, not a claim the backfill finished.
+	Metadata map[string]string
 }
 
 // Topology is the full broker layout Clustarr expects: every stream, durable
@@ -1090,6 +1095,7 @@ func defaultObjectStores() []ObjectStoreSpec {
 			MaxBytes:    FingerprintsMaxBytes,
 			MaxAge:      90 * 24 * time.Hour,
 			Replicas:    3,
+			Metadata:    map[string]string{BucketMetaKeyKeyScheme: FingerprintKeyScheme},
 		},
 		{
 			Name:        BucketArtwork,
@@ -1097,6 +1103,10 @@ func defaultObjectStores() []ObjectStoreSpec {
 			Storage:     StorageFile,
 			MaxBytes:    ArtworkMaxBytes,
 			Replicas:    3,
+			Metadata: map[string]string{
+				BucketMetaKeyKeyScheme: ArtworkKeyScheme,
+				ArtworkMetaKeyVersion:  ArtworkMetaVersion,
+			},
 		},
 	}
 }

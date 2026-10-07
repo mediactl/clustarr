@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"io"
 
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/chromaprint"
 )
@@ -55,7 +56,7 @@ func (h *Handler) window(ctx context.Context, f *file, which string, fromS, lenS
 	var buf bytes.Buffer
 	_ = binary.Write(&buf, binary.LittleEndian, fp)
 	if h.Fingerprints != nil {
-		_, _ = h.Fingerprints.Put(ctx, name, &buf, nil) // a cache: a failed write is recomputed next time
+		_, _ = h.Fingerprints.Put(ctx, name, &buf, events.ObjectMeta{}) // a cache: a failed write is recomputed next time
 	}
 	return fp, nil
 }

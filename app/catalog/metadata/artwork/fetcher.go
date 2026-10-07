@@ -55,7 +55,7 @@ import (
 // read through pkg/metadata.ReadBody, so a larger body is
 // pkgmetadata.ErrResponseTooLarge without ever buffering more than one byte
 // past the cap.
-const MaxImageBytes = 20 << 20
+const MaxImageBytes = events.ArtworkMaxImageBytes
 
 // MaxImageDimension is the largest width or height, in pixels, an original
 // may have (spec §B.4). image.DecodeConfig reads only the header, so the
@@ -355,11 +355,11 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, t catalogv1alpha1
 			ErrImageTooLarge, format, cfg.Width, cfg.Height, MaxImageDimension)
 	}
 
-	info, err := f.Store.Put(ctx, key, bytes.NewReader(body), map[string]string{
+	info, err := f.Store.Put(ctx, key, bytes.NewReader(body), events.ObjectMeta{Headers: map[string]string{
 		HeaderContentType: stored,
 		HeaderSource:      string(src.Kind),
 		HeaderSourceURL:   src.URL,
-	})
+	}})
 	if err != nil {
 		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("store: %w", err)
 	}
