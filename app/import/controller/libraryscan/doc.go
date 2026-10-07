@@ -42,8 +42,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // writers would clobber each other's entries, and only this controller may
 // write LibraryScan.status at all -- real chunking needs either a new capped
 // per-chunk field or a KV.Watch aggregator. Intra-scan directory fan-out is
-// follow-up work, not a silent omission. ConsumerImportScan's MaxAckPending
-// of 4 still does useful work: four different scans can be in flight at once.
+// follow-up work, not a silent omission. ConsumerImportScan's 4 slots per
+// pod still do useful work: four different scans can be in flight at once in
+// each pod (MaxAckPending = Slots x AutoscaleReplicaCeiling across replicas).
 //
 // # Registration
 //

@@ -109,7 +109,8 @@ type DLQProjector struct {
 func NewDLQProjector(d DLQDeps) *DLQProjector { return &DLQProjector{Deps: d} }
 
 // Subscription is the clustarr-dlq-projector durable consumer from §5's
-// table (AckWait 30s, MaxDeliver 3, BackOff 5s/30s, MaxAckPending 64), read
+// table (AckWait 30s, MaxDeliver 3, BackOff 5s/30s, 64 slots per pod;
+// MaxAckPending = Slots x AutoscaleReplicaCeiling across replicas), read
 // from events.Default() rather than restated.
 func (p *DLQProjector) Subscription() events.Subscription {
 	spec, ok := events.Default().Consumer(events.ConsumerDLQProjector)

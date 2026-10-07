@@ -59,7 +59,8 @@ func NewSink(d SinkDeps) *Sink { return &Sink{Deps: d} }
 
 // Subscription is the catalogarr-history durable consumer from §5's table,
 // read from events.Default() rather than restated so the tuning lives in one
-// place (AckWait 30s, MaxDeliver 3, BackOff 5s/30s, MaxAckPending 512 --
+// place (AckWait 30s, MaxDeliver 3, BackOff 5s/30s, 512 slots per pod and
+// MaxAckPending = Slots x AutoscaleReplicaCeiling across replicas --
 // CLUSTARR_EVENTS is a high-volume firehose whose consumer must never fall
 // meaningfully behind the producers).
 func (s *Sink) Subscription() events.Subscription {

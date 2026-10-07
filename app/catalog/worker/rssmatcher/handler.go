@@ -136,7 +136,8 @@ func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
 
 // Subscription is the catalogarr-rss-matcher durable consumer from §5's
 // table: the whole clustarr.rel.> firehose, AckWait 30s, MaxDeliver 6,
-// BackOff 1s/5s/30s/2m/10m, MaxAckPending 256. It is read from the topology
+// BackOff 1s/5s/30s/2m/10m, 256 slots per pod (MaxAckPending = Slots x
+// AutoscaleReplicaCeiling across replicas). It is read from the topology
 // the process installed (Deps.Topology) rather than restated, so the tuning
 // lives in one place and the consumer subscribed to is the one created.
 func (h *Handler) Subscription() events.Subscription {

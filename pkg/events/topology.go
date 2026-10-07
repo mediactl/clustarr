@@ -758,7 +758,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterAllReleases},
 			AckWait: 30 * s, MaxDeliver: 6,
 			BackOff:       []time.Duration{1 * s, 5 * s, 30 * s, 2 * m, 10 * m},
-			MaxAckPending: 256,
+			MaxAckPending: 256 * AutoscaleReplicaCeiling,
 			Slots:         256,
 		},
 		{
@@ -818,7 +818,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterCatalogArtworkRender},
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
-			MaxAckPending: 32,
+			MaxAckPending: 4 * AutoscaleReplicaCeiling,
 			Slots:         4,
 		},
 		{
@@ -852,7 +852,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterCatalogSegmentsAnalyze},
 			AckWait: 30 * m, MaxDeliver: 3,
 			BackOff:       []time.Duration{1 * m, 10 * m},
-			MaxAckPending: 4,
+			MaxAckPending: 1 * AutoscaleReplicaCeiling,
 			Slots:         1,
 		},
 		{
@@ -870,7 +870,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterAllEvents},
 			AckWait: 30 * s, MaxDeliver: 3,
 			BackOff:       []time.Duration{5 * s, 30 * s},
-			MaxAckPending: 512,
+			MaxAckPending: 512 * AutoscaleReplicaCeiling,
 			Slots:         512,
 		},
 		{
@@ -885,7 +885,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterDownloadFailed, FilterDownloadBlocklisted},
 			AckWait: 30 * s, MaxDeliver: 6,
 			BackOff:       []time.Duration{5 * s, 30 * s, 2 * m, 10 * m},
-			MaxAckPending: 16,
+			MaxAckPending: 16 * AutoscaleReplicaCeiling,
 			Slots:         16,
 		},
 		// importarr (amendment §A1.6). AckWait is 60s on all three, which is
@@ -914,14 +914,14 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterImportScan},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
-			MaxAckPending: 4, Slots: 4, Heartbeat: 30 * s,
+			MaxAckPending: 4 * AutoscaleReplicaCeiling, Slots: 4, Heartbeat: 30 * s,
 		},
 		{
 			Name: ConsumerImportList, Stream: StreamWorkImportarr,
 			Filters: []string{FilterImportList},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{5 * m, 30 * m, 2 * h},
-			MaxAckPending: 2, Slots: 2, Heartbeat: 30 * s,
+			MaxAckPending: 2 * AutoscaleReplicaCeiling, Slots: 2, Heartbeat: 30 * s,
 		},
 		{
 			// A file import is retried on this backoff when it could not
@@ -935,7 +935,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterImportFile},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{1 * m, 10 * m, 45 * m},
-			MaxAckPending: 4, Slots: 4, Heartbeat: 30 * s,
+			MaxAckPending: 4 * AutoscaleReplicaCeiling, Slots: 4, Heartbeat: 30 * s,
 		},
 		{
 			// The recycle-bin sweep (spec 2026-10-06 §3.5.3, OD36): one
@@ -1003,7 +1003,7 @@ func defaultConsumers() []ConsumerSpec {
 			Filters: []string{FilterAllDLQ},
 			AckWait: 30 * s, MaxDeliver: 3,
 			BackOff:       []time.Duration{5 * s, 30 * s},
-			MaxAckPending: 64,
+			MaxAckPending: 64 * AutoscaleReplicaCeiling,
 			Slots:         64,
 		},
 	}
