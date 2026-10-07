@@ -155,9 +155,6 @@ type Reconciler struct {
 	// file's record, requests its probes and incorporates their answers through it,
 	// and the controller is woken for every answer (probeRecordsSource). Required.
 	Probes *probestore.Store
-
-	// watchProbeRecords replaces Probes.Watch in a test.
-	watchProbeRecords func(ctx context.Context) (<-chan clustarrevents.Entry, error)
 }
 
 // NewReconciler builds a Reconciler with production defaults: probes through
@@ -649,7 +646,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(rootFolderNamingChanged()))
 	if r.Probes != nil {
 		// Leader-only like every controller source: a probe answered while no
-		// leader ran is replayed when one starts.
+		// leader ran is read by the pass the informer's initial list enqueues
+		// (recordsource).
 		b = b.WatchesRawSource(r.probeRecordsSource())
 	}
 	return b.WithOptions(controller.Options{

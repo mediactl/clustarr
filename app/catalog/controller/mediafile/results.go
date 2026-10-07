@@ -19,72 +19,53 @@ package mediafile
 
 import (
 	"context"
-	"fmt"
-	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	clustarrevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/probestore"
+	"github.com/mediactl/clustarr/pkg/records/recordsource"
 )
 
-// probeWatchRetry is how long probeRecordsSource waits before it opens again
-// a watch that ended while the controller runs.
-var probeWatchRetry = 5 * time.Second
-
-// probeRecordsSource wakes the reconciler for every answered probe: a KV watch
-// on clustarr-probes that enqueues the MediaFile a probed or failed record
-// names and skips requests, deletes and undecodable values. It writes nothing:
-// Reconcile reads the record itself, so an event never stands in for the
-// record (spec 2026-10-06 §6.5.3; the R3 amendment). Controller sources start
-// only on the leader, and the watch replays every record when it opens, so an
-// answer that landed while no leader ran is incorporated at the next start.
+// probeRecordsSource wakes the reconciler for every answered probe: S16 of
+// the remediation loop to come (loop spec §3.18, §4.9), a records source over
+// clustarr-probes that enqueues the MediaFile a probed or failed record names
+// and skips requests, deletes and undecodable values. It writes nothing:
+// Reconcile reads the record itself. Controller sources start only on the
+// leader; a probe answered while no leader ran is read by the pass the
+// informer's initial list enqueues.
 func (r *Reconciler) probeRecordsSource() source.Source {
-	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-		ch, err := r.watchProbes(ctx)
-		if err != nil {
-			return fmt.Errorf("mediafile: watch %s: %w", clustarrevents.BucketProbes, err)
-		}
-		go r.forwardProbeRecords(ctx, ch, q)
-		return nil
-	})
+	return recordsource.New(r.Probes.Bus(), clustarrevents.BucketProbes, mediaFileRequest,
+		recordsource.OnRecreated[reconcile.Request](r.wakePendingProbes))
 }
 
-func (r *Reconciler) watchProbes(ctx context.Context) (<-chan clustarrevents.Entry, error) {
-	if r.watchProbeRecords != nil {
-		return r.watchProbeRecords(ctx)
+func mediaFileRequest(ref schema.Ref) (reconcile.Request, bool) {
+	if ref.Name == "" {
+		return reconcile.Request{}, false
 	}
-	return r.Probes.Watch(ctx)
+	return reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}}, true
 }
 
-// forwardProbeRecords enqueues from ch until ctx ends, opening the watch again
-// probeWatchRetry after it closes.
-func (r *Reconciler) forwardProbeRecords(ctx context.Context, ch <-chan clustarrevents.Entry, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	for {
-		for e := range ch {
-			rec, ok := probestore.Decode(e)
-			if !ok || rec.MediaFile.Name == "" || (rec.State != schema.ProbeProbed && rec.State != schema.ProbeFailed) {
-				continue
-			}
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: rec.MediaFile.Namespace, Name: rec.MediaFile.Name}})
+// wakePendingProbes enqueues every MediaFile whose status says a probe is
+// pending (Probed False, ProbePending): its request went with a recreated
+// bucket (loop spec §4.9, §5.15 "records bucket lost").
+func (r *Reconciler) wakePendingProbes(ctx context.Context, enqueue func(reconcile.Request)) {
+	var list catalogv1alpha1.MediaFileList
+	if err := r.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Warn("mediafile: could not list MediaFiles to wake their pending probes", "error", err)
+		return
+	}
+	for i := range list.Items {
+		mf := &list.Items[i]
+		c := k8s.FindCondition(mf.Status.Conditions, catalogv1alpha1.MediaFileConditionProbed)
+		if c != nil && c.Status == metav1.ConditionFalse && c.Reason == catalogv1alpha1.MediaFileReasonProbePending {
+			enqueue(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Name}})
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(probeWatchRetry):
-		}
-		next, err := r.watchProbes(ctx)
-		if err != nil {
-			logging.FromContext(ctx).Warn("mediafile: could not open the probe records watch again; retrying", "error", err)
-			closed := make(chan clustarrevents.Entry)
-			close(closed)
-			next = closed
-		}
-		ch = next
 	}
 }

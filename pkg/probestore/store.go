@@ -92,6 +92,10 @@ func New(bus Bus, opts ...Option) *Store {
 	return s
 }
 
+// Bus is the bus the store was built on: the manager wakes the MediaFile
+// reconciler from its clustarr-probes bucket (recordsource).
+func (s *Store) Bus() Bus { return s.bus }
+
 func (s *Store) now() time.Time {
 	if s.Now != nil {
 		return s.Now().UTC()
