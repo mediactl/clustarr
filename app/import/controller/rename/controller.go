@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // proposes in MediaFile.status.naming, when the file's RootFolder sets
 // spec.naming.renameFiles.
 //
-// The move and the spec apply are app/import/worker/rescan's RenameFile,
+// The move and the spec apply are app/import/mediafilespec's RenameFile,
 // which the LibraryScan rename pass shares; this package only decides when
 // to call it. catalogarr owns all of MediaFileStatus, so nothing here
 // writes status: after the move, catalogarr's own watch re-probes the file
@@ -55,14 +55,14 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // Event reasons. A refusal RenameFile reports is recorded under its
-// rescan.Rename* reason.
+// mediafilespec.Rename* reason.
 const (
 	// ReasonRenamed: the file was moved to its canonical path.
 	ReasonRenamed = "Renamed"
@@ -94,7 +94,7 @@ type Reconciler struct {
 }
 
 // Reconcile renames one MediaFile's file when it is renameable
-// ([rescan.Renameable]) and the RootFolder its item is stored under sets
+// ([mediafilespec.Renameable]) and the RootFolder its item is stored under sets
 // spec.naming.renameFiles, or spec.naming.renameTranscoded for a file
 // squasharr transcoded -- that one in its own folder.
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
@@ -106,7 +106,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err := r.Client.Get(ctx, req.NamespacedName, &mf); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if k8s.IsDeleting(&mf) || !rescan.Renameable(&mf) {
+	if k8s.IsDeleting(&mf) || !mediafilespec.Renameable(&mf) {
 		return ctrl.Result{}, nil
 	}
 	roots, mode, err := r.renameMode(ctx, &mf)
@@ -126,7 +126,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	}
 
-	out, err := rescan.RenameFile(ctx, r.Client, r.APIReader, &mf, false, mode == renameInFolder)
+	out, err := mediafilespec.RenameFile(ctx, r.Client, r.APIReader, &mf, false, mode == renameInFolder)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -135,13 +135,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	case out.Moved:
 		r.event(&mf, corev1.EventTypeNormal, ReasonRenamed, "renamed %s to %s", out.From, out.To)
 		log.Info("renamed a library file to its canonical path", "from", out.From, "to", out.To)
-	case out.Reason == rescan.RenameCollision:
+	case out.Reason == mediafilespec.RenameCollision:
 		r.event(&mf, corev1.EventTypeWarning, out.Reason, "not renamed to %s: something already exists there", out.To)
-	case out.Reason == rescan.RenameChanged:
+	case out.Reason == mediafilespec.RenameChanged:
 		r.event(&mf, corev1.EventTypeWarning, out.Reason,
 			"not renamed to %s: the file changed since it was recorded; retrying once it is re-observed", out.To)
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
-	case out.Reason == rescan.RenameHeld:
+	case out.Reason == mediafilespec.RenameHeld:
 		r.event(&mf, corev1.EventTypeNormal, out.Reason, "not renamed to %s: %s", out.To, heldBecause(&mf))
 	}
 	return ctrl.Result{}, nil
@@ -279,7 +279,7 @@ func (r *Reconciler) rootFolderRef(ctx context.Context, mf *catalogv1alpha1.Medi
 	return "", nil
 }
 
-// Predicate admits a MediaFile that is [rescan.Renameable] when it is first
+// Predicate admits a MediaFile that is [mediafilespec.Renameable] when it is first
 // seen, and on an update only when its conditions, its proposed path or its
 // transcode tag changed (a finished transcode is what renameTranscoded
 // renames after, and with a template naming no codec it changes nothing
@@ -288,7 +288,7 @@ func (r *Reconciler) rootFolderRef(ctx context.Context, mf *catalogv1alpha1.Medi
 func Predicate() predicate.Predicate {
 	renameable := func(o client.Object) bool {
 		mf, ok := o.(*catalogv1alpha1.MediaFile)
-		return ok && rescan.Renameable(mf)
+		return ok && mediafilespec.Renameable(mf)
 	}
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool { return renameable(e.Object) },

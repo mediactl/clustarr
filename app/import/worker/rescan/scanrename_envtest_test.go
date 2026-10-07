@@ -35,6 +35,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -43,7 +44,7 @@ import (
 // plantCandidate plants a movie file at rel beneath the root folder,
 // records it under rescan.FieldManager as an import would, and seeds
 // catalogarr's status proposing expectedBase in the same folder: a rename
-// candidate (rescan.Renameable). It waits until the manager's cache -- the
+// candidate (mediafilespec.Renameable). It waits until the manager's cache -- the
 // one the rename pass lists MediaFiles from -- holds the seeded status.
 func (f *fixture) plantCandidate(t *testing.T, ctx context.Context, rel, expectedBase string) staleFile {
 	t.Helper()
@@ -69,7 +70,7 @@ func (f *fixture) plantCandidate(t *testing.T, ctx context.Context, rel, expecte
 		WithExpectedPath(expected).WithCurrent(false).WithQuality(correctedQuality))
 	waitFor(t, 10*time.Second, func() bool {
 		var mf catalogv1alpha1.MediaFile
-		return f.c.Get(ctx, types.NamespacedName{Namespace: f.ns, Name: name}, &mf) == nil && rescan.Renameable(&mf)
+		return f.c.Get(ctx, types.NamespacedName{Namespace: f.ns, Name: name}, &mf) == nil && mediafilespec.Renameable(&mf)
 	})
 	return staleFile{name: name, path: path, expected: expected}
 }
@@ -154,8 +155,8 @@ func TestLibraryScanRenamePassDryRunThenApply(t *testing.T) {
 	assert.Equal(t, int64(2), progress.Unchanged)
 	status := f.settle(t, ctx, scan)
 	assert.Equal(t, []catalogv1alpha1.RenamedFile{
-		{From: heat.path, To: heat.expected, Reason: rescan.RenameDryRun},
-		{From: ronin.path, To: ronin.expected, Reason: rescan.RenameDryRun},
+		{From: heat.path, To: heat.expected, Reason: mediafilespec.RenameDryRun},
+		{From: ronin.path, To: ronin.expected, Reason: mediafilespec.RenameDryRun},
 	}, status.Renamed)
 	assert.Zero(t, status.FilesRenamed)
 	assert.Equal(t, int64(2), status.FilesSeen)
@@ -170,7 +171,7 @@ func TestLibraryScanRenamePassDryRunThenApply(t *testing.T) {
 	status = f.settle(t, ctx, scan)
 	require.Len(t, status.Renamed, 2)
 	for _, r := range status.Renamed {
-		assert.Equal(t, rescan.RenameDryRun, r.Reason, r.From)
+		assert.Equal(t, mediafilespec.RenameDryRun, r.Reason, r.From)
 	}
 	assert.Zero(t, status.FilesRenamed)
 	for _, sf := range []staleFile{heat, ronin, alien} {
@@ -213,7 +214,7 @@ func TestLibraryScanRenamePassRecordsAFailureAndCarriesOn(t *testing.T) {
 	failed := status.Renamed[0]
 	assert.Equal(t, gone.path, failed.From)
 	assert.Equal(t, gone.expected, failed.To)
-	assert.True(t, strings.HasPrefix(failed.Reason, rescan.RenameFailed+": "), failed.Reason)
+	assert.True(t, strings.HasPrefix(failed.Reason, mediafilespec.RenameFailed+": "), failed.Reason)
 	assert.Contains(t, failed.Reason, "no such file")
 	assert.Equal(t, catalogv1alpha1.RenamedFile{From: heat.path, To: heat.expected}, status.Renamed[1])
 	assert.Equal(t, int64(1), status.FilesRenamed)

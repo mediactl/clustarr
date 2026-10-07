@@ -30,8 +30,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -213,21 +213,21 @@ func TestReconcileCarriesTheRenamePass(t *testing.T) {
 	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{FilesRenamed: 2, Renamed: []scanprogress.RenamedFile{
 		{From: "/data/media/m/a.mkv", To: "/data/media/m/A.mkv"},
 		{From: "/data/media/m/b.mkv", To: "/data/media/m/B.mkv"},
-		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameCollision},
+		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: mediafilespec.RenameCollision},
 	}})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
 	// The redelivery, restarted from the top: the moved files are no longer
 	// candidates, and the third is refused for another reason this time.
 	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{Renamed: []scanprogress.RenamedFile{
-		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameHeld},
+		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: mediafilespec.RenameHeld},
 	}})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
 	want := []catalogv1alpha1.RenamedFile{
 		{From: "/data/media/m/a.mkv", To: "/data/media/m/A.mkv"},
 		{From: "/data/media/m/b.mkv", To: "/data/media/m/B.mkv"},
-		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameHeld},
+		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: mediafilespec.RenameHeld},
 	}
 	after := getScan(t, ctx, c, ns, scan.Name)
 	assert.Equal(t, int64(2), after.Status.FilesRenamed)

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package rescan_test
+package mediafilespec_test
 
 import (
 	"context"
@@ -33,13 +33,13 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // renameSpecLeaves is every MediaFileSpec field importarr's complete render
 // sends for a steady, imported file. A rename re-applies all of them, so
-// every one must still be owned by rescan.FieldManager afterwards.
+// every one must still be owned by mediafilespec.FieldManager afterwards.
 var renameSpecLeaves = []string{
 	"spec.mediaRef", "spec.path", "spec.sizeBytes", "spec.modTime", "spec.quality", "spec.revision",
 	"spec.releaseType", "spec.releaseGroup", "spec.edition", "spec.languages", "spec.importedFrom",
@@ -59,7 +59,7 @@ type staleFile struct {
 }
 
 // plantStaleFile plants a movie file and its .en.srt sidecar, records the
-// file under rescan.FieldManager with every frozen field importarr ever
+// file under mediafilespec.FieldManager with every frozen field importarr ever
 // sets -- as fileimport would -- and seeds catalogarr's status under
 // k8s.ManagerCatalogarr: Ready and Probed True, NamingCurrent False, and a
 // status.naming proposing expectedBase in the same folder with the
@@ -81,7 +81,7 @@ func (f *fixture) plantStaleFile(t *testing.T, ctx context.Context, expectedBase
 	require.NoError(t, err)
 
 	name := k8s.ChildName(movie.Name, "mediafile", path)
-	_, err = k8s.Apply(ctx, f.c, rescan.FieldManager, catalogac.MediaFile(name, f.ns).WithSpec(
+	_, err = k8s.Apply(ctx, f.c, mediafilespec.FieldManager, catalogac.MediaFile(name, f.ns).WithSpec(
 		catalogac.MediaFileSpec().
 			WithMediaRef(commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}).
 			WithPath(path).
@@ -177,7 +177,7 @@ const renamedBase = "Heat (1995) {tmdb-949} [Bluray-2160p][x264].mkv"
 
 // A rename moves the file and its sidecar, and re-applies importarr's
 // COMPLETE spec with the new path and the probe-corrected quality: every
-// frozen field survives, and rescan.FieldManager still owns each one --
+// frozen field survives, and mediafilespec.FieldManager still owns each one --
 // the rename is not a second, narrower apply that releases the rest.
 func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 	ctx := context.Background()
@@ -185,9 +185,9 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Moved: true}, out)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Moved: true}, out)
 
 	requireAbsent(t, sf.path)
 	requireExists(t, sf.expected)
@@ -201,7 +201,7 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 	assert.Equal(t, want, after.Spec, "only path and quality change; every frozen field is re-asserted verbatim")
 
 	for _, leaf := range renameSpecLeaves {
-		assert.Equal(t, []string{string(rescan.FieldManager)}, managersOf(t, after.ManagedFields, leaf), leaf)
+		assert.Equal(t, []string{string(mediafilespec.FieldManager)}, managersOf(t, after.ManagedFields, leaf), leaf)
 	}
 	for _, leaf := range renameSpecLeaves {
 		assert.NotContains(t, managersOf(t, after.ManagedFields, leaf), string(k8s.ManagerImportarr),
@@ -220,7 +220,7 @@ func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalogarr(t *testing.
 	require.NoError(t, err)
 	require.NoError(t, takeOver(ctx, f.c, f.ns, sf.name, info.Size(), info.ModTime()))
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false, false)
+	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false, false)
 	require.NoError(t, err)
 	require.True(t, out.Moved, "outcome %+v", out)
 	requireExists(t, sf.expected)
@@ -233,8 +233,8 @@ func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalogarr(t *testing.
 	for _, leaf := range []string{"spec.sizeBytes", "spec.modTime", "spec.original"} {
 		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, managersOf(t, after.ManagedFields, leaf), leaf)
 	}
-	assert.Contains(t, managersOf(t, after.ManagedFields, "spec.path"), string(rescan.FieldManager))
-	assert.Equal(t, []string{string(rescan.FieldManager)}, managersOf(t, after.ManagedFields, "spec.quality"))
+	assert.Contains(t, managersOf(t, after.ManagedFields, "spec.path"), string(mediafilespec.FieldManager))
+	assert.Equal(t, []string{string(mediafilespec.FieldManager)}, managersOf(t, after.ManagedFields, "spec.quality"))
 }
 
 // A file already at the proposed path is never overwritten.
@@ -245,9 +245,9 @@ func TestRenameFileRefusesACollision(t *testing.T) {
 	mustWriteFile(t, sf.expected, 1234)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameCollision}, out)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameCollision}, out)
 
 	requireExists(t, sf.path)
 	st, err := os.Stat(sf.expected)
@@ -265,12 +265,12 @@ func TestRenameFileRefusesAFileChangedInFlight(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	restore := rescan.SetRenameBeforeMove(func() { require.NoError(t, os.Truncate(sf.path, 10)) })
+	restore := mediafilespec.SetRenameBeforeMove(func() { require.NoError(t, os.Truncate(sf.path, 10)) })
 	defer restore()
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameChanged}, out)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameChanged}, out)
 
 	requireExists(t, sf.path)
 	requireAbsent(t, sf.expected)
@@ -285,9 +285,9 @@ func TestRenameFileDryRunTouchesNothing(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, true, false)
+	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, true, false)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameDryRun}, out)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameDryRun}, out)
 
 	requireExists(t, sf.path)
 	requireExists(t, sf.sidecar)
@@ -314,34 +314,34 @@ func TestRenameFileHoldsWhatItMayNotMove(t *testing.T) {
 			name: "catalogarr holds it",
 			naming: catalogac.NamingStatus().WithExpectedPath(sf.expected).WithCurrent(false).
 				WithReason(catalogv1alpha1.NamingReasonTranscodePending),
-			want: rescan.RenameHeld,
+			want: mediafilespec.RenameHeld,
 		},
 		{
 			name:   "another folder",
 			naming: catalogac.NamingStatus().WithExpectedPath(otherFolder).WithCurrent(false),
-			want:   rescan.RenameHeld, to: otherFolder,
+			want:   mediafilespec.RenameHeld, to: otherFolder,
 		},
 		{
 			name:   "already current",
 			naming: catalogac.NamingStatus().WithExpectedPath(sf.path).WithCurrent(true),
-			want:   rescan.RenameNotCurrent,
+			want:   mediafilespec.RenameNotCurrent,
 		},
 		{
 			name:   "spec.path is the proposal though current still reads false",
 			naming: catalogac.NamingStatus().WithExpectedPath(sf.path).WithCurrent(false),
-			want:   rescan.RenameNotCurrent,
+			want:   mediafilespec.RenameNotCurrent,
 		},
 		{
 			name:   "nothing proposed",
 			naming: catalogac.NamingStatus().WithCurrent(false).WithReason(catalogv1alpha1.NamingReasonMetadataPending),
-			want:   rescan.RenameNotCurrent,
+			want:   mediafilespec.RenameNotCurrent,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f.seedNamingStatus(t, ctx, sf.name, tc.naming)
 			before := f.read(t, ctx, sf.name)
 
-			out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
+			out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, out.Reason)
 			assert.False(t, out.Moved)
@@ -364,7 +364,7 @@ func TestRenameFileMovesBackWhenTheMediaFileChangedInFlight(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	restore := rescan.SetRenameBeforeMove(func() {
+	restore := mediafilespec.SetRenameBeforeMove(func() {
 		// catalogarr records that captionarr's sidecar is an SDH track.
 		f.seedNamingStatus(t, ctx, sf.name, catalogac.NamingStatus().
 			WithExpectedPath(sf.expected).WithCurrent(false).WithQuality(correctedQuality),
@@ -372,9 +372,9 @@ func TestRenameFileMovesBackWhenTheMediaFileChangedInFlight(t *testing.T) {
 	})
 	defer restore()
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameChanged}, out)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameChanged}, out)
 
 	requireExists(t, sf.path)
 	requireAbsent(t, sf.expected)
@@ -393,12 +393,12 @@ func TestRenameFileRefusesATargetThatAppearsBeforeTheMove(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	restore := rescan.SetRenameBeforeMove(func() { require.NoError(t, os.WriteFile(sf.expected, []byte("arrived late"), 0o644)) })
+	restore := mediafilespec.SetRenameBeforeMove(func() { require.NoError(t, os.WriteFile(sf.expected, []byte("arrived late"), 0o644)) })
 	defer restore()
 
-	out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: rescan.RenameCollision}, out)
+	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameCollision}, out)
 
 	st, err := os.Stat(sf.path)
 	require.NoError(t, err)
@@ -436,7 +436,7 @@ func TestRenameFileRollsForwardAnUnrecordedMove(t *testing.T) {
 				require.NoError(t, os.Rename(sf.path, sf.expected))
 				require.NoError(t, os.Truncate(sf.expected, 10))
 			},
-			want: rescan.RenameCollision,
+			want: mediafilespec.RenameCollision,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -445,15 +445,15 @@ func TestRenameFileRollsForwardAnUnrecordedMove(t *testing.T) {
 			before := f.read(t, ctx, sf.name)
 			tc.crash(t, sf)
 
-			out, err := rescan.RenameFile(ctx, f.c, f.api(t), before, false, false)
+			out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
 			require.NoError(t, err)
 			after := f.read(t, ctx, sf.name)
 			if tc.want != "" {
-				assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Reason: tc.want}, out)
+				assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: tc.want}, out)
 				assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "nothing was applied")
 				return
 			}
-			assert.Equal(t, rescan.RenameOutcome{From: sf.path, To: sf.expected, Moved: true}, out)
+			assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Moved: true}, out)
 			requireAbsent(t, sf.path)
 			requireExists(t, sf.expected)
 			requireExists(t, filepath.Join(filepath.Dir(sf.expected), "Heat (1995) {tmdb-949} [Bluray-2160p][x264].en.srt"))

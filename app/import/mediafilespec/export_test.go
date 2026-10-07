@@ -15,13 +15,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package rescan
+package mediafilespec
 
-// WalkOrderLess exposes walkOrderLess to the external test package.
-var WalkOrderLess = walkOrderLess
-
-// KeptOutputName exposes keptOutputName to the external test package.
-var KeptOutputName = keptOutputName
-
-// ClampRunes exposes clampRunes to the external test package.
-var ClampRunes = clampRunes
+// SetRenameBeforeMove installs fn as the hook RenameFile runs between its
+// read of the MediaFile and its move, and returns a func that removes it.
+func SetRenameBeforeMove(fn func()) (restore func()) {
+	prev := renameBeforeMove
+	renameBeforeMove = fn
+	return func() { renameBeforeMove = prev }
+}

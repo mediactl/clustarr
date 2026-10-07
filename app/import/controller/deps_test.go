@@ -58,6 +58,8 @@ func TestImportControllersLinkNoWorkerCode(t *testing.T) {
 	for _, pkg := range []string{
 		"github.com/mediactl/clustarr/app/import/controller/libraryscan", // I1
 		"github.com/mediactl/clustarr/app/import/scanprogress",           // I1
+		"github.com/mediactl/clustarr/app/import/controller/rename",      // I2
+		"github.com/mediactl/clustarr/app/import/mediafilespec",          // I2
 	} {
 		t.Run(pkg[strings.LastIndex(pkg, "/")+1:], func(t *testing.T) {
 			denyLinks(t, pkg, importWorkers)

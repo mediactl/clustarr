@@ -34,6 +34,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -234,7 +235,7 @@ func (w *Worker) assignManually(
 		// name when the name parses, scored like any scanned file; an
 		// unparseable one is recorded without it. The person named the
 		// episode, so the name's numbering does not override them.
-		fresh = frozenFields{}
+		fresh = mediafilespec.Frozen{}
 		if parsed, err := release.ParsePath(path, release.Options{Kind: ref.Kind}); err == nil {
 			var profile, language string
 			if v := st.manual.video; v != nil {
@@ -243,7 +244,7 @@ func (w *Worker) assignManually(
 			fresh = w.freshVideoSpec(ctx, st, path, parsed, profile, language)
 		}
 	}
-	fresh.importedFrom = catalogac.ImportSource().
+	fresh.ImportedFrom = catalogac.ImportSource().
 		WithManual(true).
 		WithImportedAt(metav1.NewTime(w.now()))
 	return w.recordAttribution(ctx, st, path, rel, info, existing, ref, fresh)

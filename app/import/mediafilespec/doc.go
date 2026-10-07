@@ -15,13 +15,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package rescan
-
-// WalkOrderLess exposes walkOrderLess to the external test package.
-var WalkOrderLess = walkOrderLess
-
-// KeptOutputName exposes keptOutputName to the external test package.
-var KeptOutputName = keptOutputName
-
-// ClampRunes exposes clampRunes to the external test package.
-var ClampRunes = clampRunes
+// Package mediafilespec is importarr's one render of MediaFileSpec under
+// k8s.ManagerImportarrWorker ([Apply], [ReassertFrozen]) and the rename of
+// one library file to the path catalogarr proposes ([RenameFile]). The
+// rescan worker and the rename controller both write through it, so
+// neither can become a second, narrower apply that releases what the
+// other sends; it links no worker package, so the manager's rename
+// controller does not link the rescan (spec §4.3 I2).
+package mediafilespec

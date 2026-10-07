@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package rescan_test
+package mediafilespec_test
 
 import (
 	"context"
@@ -32,7 +32,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -64,12 +64,12 @@ func TestRenameFileKeepingTheFolderRenamesInPlace(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
 		WithStatusSubresource(&catalogv1alpha1.MediaFile{}).WithObjects(mf).Build()
 
-	out, err := rescan.RenameFile(ctx, c, c, mf, false, false)
+	out, err := mediafilespec.RenameFile(ctx, c, c, mf, false, false)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameHeld, out.Reason, "the whole-path rename holds a file whose canonical folder differs")
+	assert.Equal(t, mediafilespec.RenameHeld, out.Reason, "the whole-path rename holds a file whose canonical folder differs")
 	require.FileExists(t, from)
 
-	out, err = rescan.RenameFile(ctx, c, c, mf, false, true)
+	out, err = mediafilespec.RenameFile(ctx, c, c, mf, false, true)
 	require.NoError(t, err)
 	require.True(t, out.Moved, "reason %q", out.Reason)
 	want := filepath.Join(season, filepath.Base(expected))
@@ -80,7 +80,7 @@ func TestRenameFileKeepingTheFolderRenamesInPlace(t *testing.T) {
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(mf), &got))
 	assert.Equal(t, want, got.Spec.Path)
 
-	out, err = rescan.RenameFile(ctx, c, c, &got, false, true)
+	out, err = mediafilespec.RenameFile(ctx, c, c, &got, false, true)
 	require.NoError(t, err)
-	assert.Equal(t, rescan.RenameNotCurrent, out.Reason, "already named: nothing to do")
+	assert.Equal(t, mediafilespec.RenameNotCurrent, out.Reason, "already named: nothing to do")
 }

@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
@@ -127,11 +127,11 @@ func TestProgressSummary(t *testing.T) {
 // appends any other, and keeps the newest 200 -- the CRD's MaxItems.
 func TestMergeRenamed(t *testing.T) {
 	list := scanprogress.MergeRenamed(nil,
-		scanprogress.RenamedFile{From: "a", To: "A", Reason: rescan.RenameDryRun},
-		scanprogress.RenamedFile{From: "b", To: "B", Reason: rescan.RenameCollision})
+		scanprogress.RenamedFile{From: "a", To: "A", Reason: mediafilespec.RenameDryRun},
+		scanprogress.RenamedFile{From: "b", To: "B", Reason: mediafilespec.RenameCollision})
 	list = scanprogress.MergeRenamed(list, scanprogress.RenamedFile{From: "a", To: "A"}, scanprogress.RenamedFile{From: "c", To: "C"})
 	assert.Equal(t, []scanprogress.RenamedFile{
-		{From: "a", To: "A"}, {From: "b", To: "B", Reason: rescan.RenameCollision}, {From: "c", To: "C"},
+		{From: "a", To: "A"}, {From: "b", To: "B", Reason: mediafilespec.RenameCollision}, {From: "c", To: "C"},
 	}, list)
 
 	for i := range 250 {

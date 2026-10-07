@@ -27,14 +27,13 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -44,32 +43,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// FieldManager is the server-side-apply field manager every write in this
-// package uses, on the Movie it attributes a file to and on the MediaFile
-// itself. It is k8s.ManagerImportarrWorker, NOT k8s.ManagerImportarr, and
-// the difference is not cosmetic.
-//
-// This worker runs on the same replicas as importarr's controllers --
-// run.go adds it with mgr.Add(k8s.EveryReplica(...)), inside the same
-// manager process -- and those controllers write under ManagerImportarr.
-// Server-side apply replaces a manager's whole ownership set on every apply
-// rather than merging it, so two writers sharing ONE manager name on one
-// object silently release each other's fields. Today they never meet on one
-// object, so the name was inert; M3's fileimport consumer writes
-// Download.status.import AND MediaFileSpec from these same replicas, which
-// is exactly the shape that forced catalogarr-worker to split into
-// catalogarr-metadata and catalogarr-grab after both directions of that
-// release were reproduced against a real apiserver. Splitting before the
-// collision costs one word; splitting after it costs a debugging session.
-//
-// It is exported so the tests that assert the split -- catalogarr's
-// mandatory two-writer gate above all, which has to stand in for this
-// worker rather than run it -- name the manager production actually uses
-// instead of restating a constant that can drift away from it. It had
-// drifted: production wrote as ManagerImportarr while the gate, and
-// k8s.ManagerImportarrWorker's own doc comment, described ManagerImportarr-
-// Worker.
-const FieldManager = k8s.ManagerImportarrWorker
+// FieldManager is the manager every rescan apply runs under; the one
+// declaration is mediafilespec's, which renders this manager's MediaFileSpec.
+const FieldManager = mediafilespec.FieldManager
 
 // AnnotationObservedFingerprint is how a rescan tells catalogarr that a
 // post-transcode file changed on disk. Its value is the file's size and
@@ -105,18 +81,6 @@ const (
 	cacheCatchUp = 2 * time.Second
 )
 
-// staleReadError is an apply to an existing MediaFile that the apiserver
-// refused because the object changed after the walk read it: the
-// resourceVersion precondition failed.
-type staleReadError struct {
-	key types.NamespacedName
-	rv  string
-	err error
-}
-
-func (e *staleReadError) Error() string { return e.err.Error() }
-func (e *staleReadError) Unwrap() error { return e.err }
-
 // handleMediaFile attributes one walked media file and records the result,
 // retrying when the MediaFile it read changed before it could write.
 //
@@ -131,7 +95,7 @@ func (e *staleReadError) Unwrap() error { return e.err }
 func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo, probe *fileProbe) error {
 	for attempt := 0; ; attempt++ {
 		err := w.attributeMediaFile(ctx, st, path, info, probe)
-		var stale *staleReadError
+		var stale *mediafilespec.StaleReadError
 		if !errors.As(err, &stale) {
 			return err
 		}
@@ -141,18 +105,18 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 		st.progress.Deferred++
 		st.progress.FilesSkipped++
 		logging.FromContext(ctx).Info("a MediaFile kept changing while the scan wrote it; the next scan picks it up",
-			"mediaFile", stale.key.Name, "path", relPath(st.root.Spec.Path, path))
+			"mediaFile", stale.Key.Name, "path", relPath(st.root.Spec.Path, path))
 		return nil
 	}
 }
 
 // awaitNewerCopy waits, briefly, for the cache to hold a newer copy of the
 // MediaFile a conflict proved has moved on. It reports whether it arrived.
-func (w *Worker) awaitNewerCopy(ctx context.Context, stale *staleReadError) bool {
+func (w *Worker) awaitNewerCopy(ctx context.Context, stale *mediafilespec.StaleReadError) bool {
 	deadline := w.now().Add(cacheCatchUp)
 	for {
 		var mf catalogv1alpha1.MediaFile
-		if err := w.Client.Get(ctx, stale.key, &mf); err == nil && mf.ResourceVersion != stale.rv {
+		if err := w.Client.Get(ctx, stale.Key, &mf); err == nil && mf.ResourceVersion != stale.RV {
 			return true
 		} else if apierrors.IsNotFound(err) {
 			return true // deleted: the retry records the file afresh
@@ -218,7 +182,7 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 		return w.assignManually(ctx, st, path, rel, info, existing)
 	case existing != nil:
 		if !st.task.DryRun {
-			if err := w.applyObserved(ctx, st.scan.Namespace, existing, existing.Spec.MediaRef, path, info, frozenFields{}); err != nil {
+			if err := w.applyObserved(ctx, st.scan.Namespace, existing, existing.Spec.MediaRef, path, info, mediafilespec.Frozen{}); err != nil {
 				return err
 			}
 		}
@@ -359,7 +323,7 @@ func (w *Worker) existingForRescan(
 		return existing, false, err
 	}
 	if existing.Spec.Original != nil && !*existing.Spec.Original {
-		if sameFingerprint(existing, info) {
+		if mediafilespec.SameFingerprint(existing, info) {
 			st.progress.Transcoded++
 			st.progress.FilesSkipped++
 			return existing, true, nil
@@ -372,7 +336,7 @@ func (w *Worker) existingForRescan(
 	// The incremental fingerprint is spec.sizeBytes plus spec.modTime
 	// directly: a file whose size and mtime are unchanged has nothing
 	// new to record.
-	if st.incremental() && sameFingerprint(existing, info) {
+	if st.incremental() && mediafilespec.SameFingerprint(existing, info) {
 		st.progress.Unchanged++
 		st.progress.FilesSkipped++
 		return existing, true, nil
@@ -418,19 +382,6 @@ func (w *Worker) existingMediaFile(ctx context.Context, namespace, path string) 
 	return &list.Items[0], nil
 }
 
-// sameFingerprint compares the stored size and mtime with what is on disk.
-// Both sides are truncated to whole seconds because metav1.Time serialises as
-// RFC 3339, so a stored mtime has already lost its sub-second part and an
-// exact comparison would never hold.
-func sameFingerprint(mf *catalogv1alpha1.MediaFile, info os.FileInfo) bool {
-	if mf.Spec.SizeBytes != info.Size() {
-		return false
-	}
-	stored := mf.Spec.ModTime.Time.UTC().Truncate(time.Second)
-	onDisk := info.ModTime().UTC().Truncate(time.Second)
-	return !stored.IsZero() && stored.Equal(onDisk)
-}
-
 // applyMovie creates (or re-asserts) the Movie a scanned file was attributed
 // to, under [FieldManager]. addMethod is "scan", which the CRD's own
 // enum carries precisely so a scanned discovery is distinguishable from
@@ -452,27 +403,6 @@ func (w *Worker) applyMovie(ctx context.Context, st *scanState, name string, tmd
 	return nil
 }
 
-// frozenFields is what a first sighting of a file freezes into
-// MediaFileSpec beyond the observed path, size and mtime (spec §8.4). A nil
-// or empty field is not sent, so this manager never claims a field it has
-// nothing to say about.
-type frozenFields struct {
-	quality        *commonv1.Quality
-	revision       *commonv1.Revision
-	releaseType    commonv1.ReleaseType
-	releaseGroup   *string
-	edition        *string
-	languages      []string
-	importedFrom   *catalogac.ImportSourceApplyConfiguration
-	formatScore    *int32
-	matchedFormats []string
-	profileHash    string
-	original       *bool
-	// track narrows an album MediaRef to one recording; see
-	// commonv1.MediaRef.Track.
-	track string
-}
-
 // maxMatchedFormats is MediaFileSpec.MatchedFormats' MaxItems.
 const maxMatchedFormats = 200
 
@@ -491,7 +421,7 @@ const maxMatchedFormats = 200
 // profileHash says so; the file is still fully tracked.
 func (w *Worker) freshVideoSpec(
 	ctx context.Context, st *scanState, path string, parsed *release.ParsedRelease, profileRef, originalLanguage string,
-) frozenFields {
+) mediafilespec.Frozen {
 	languageName := ""
 	if originalLanguage != "" {
 		if n, ok := catalogue.LanguageName(originalLanguage); ok {
@@ -499,13 +429,13 @@ func (w *Worker) freshVideoSpec(
 		}
 	}
 	parsed.Languages = parsed.LanguagesFor(languageName)
-	f := frozenFields{
-		quality:      &parsed.Quality,
-		revision:     &parsed.Revision,
-		releaseType:  parsed.ReleaseType,
-		releaseGroup: ptr.To(parsed.Group),
-		edition:      ptr.To(parsed.Edition),
-		languages:    parsed.Languages,
+	f := mediafilespec.Frozen{
+		Quality:      &parsed.Quality,
+		Revision:     &parsed.Revision,
+		ReleaseType:  parsed.ReleaseType,
+		ReleaseGroup: ptr.To(parsed.Group),
+		Edition:      ptr.To(parsed.Edition),
+		Languages:    parsed.Languages,
 	}
 	profile := w.profile(ctx, st, profileRef)
 	if profile == nil {
@@ -521,12 +451,12 @@ func (w *Worker) freshVideoSpec(
 			OriginalLanguageName: languageName, ReleaseType: parsed.ReleaseType,
 			ReleaseTitle: filepath.Base(path), Filename: filepath.Base(path),
 		})
-	f.formatScore = ptr.To(int32(score)) //nolint:gosec // a custom-format score is a small bounded sum
+	f.FormatScore = ptr.To(int32(score)) //nolint:gosec // a custom-format score is a small bounded sum
 	if len(matched) > maxMatchedFormats {
 		matched = matched[:maxMatchedFormats]
 	}
-	f.matchedFormats = matched
-	f.profileHash = profile.Hash
+	f.MatchedFormats = matched
+	f.ProfileHash = profile.Hash
 	return f
 }
 
@@ -583,140 +513,21 @@ func (w *Worker) catalogue() *catalogue.Catalogue {
 // to a different quality than the release it was frozen from.
 //
 // An apply to an existing MediaFile carries the resourceVersion it was read
-// at, and a refusal for that reason comes back as a *staleReadError; see
+// at, and a refusal for that reason comes back as a *mediafilespec.StaleReadError; see
 // handleMediaFile.
 func (w *Worker) applyObserved(
 	ctx context.Context, namespace string, existing *catalogv1alpha1.MediaFile,
-	ref commonv1.MediaRef, path string, info os.FileInfo, fresh frozenFields,
+	ref commonv1.MediaRef, path string, info os.FileInfo, fresh mediafilespec.Frozen,
 ) error {
 	name, rv := k8s.ChildName(ref.Name, "mediafile", path), ""
 	if existing != nil {
 		name, rv = existing.Name, existing.ResourceVersion
 		ref = existing.Spec.MediaRef
-		fresh = reassertFrozen(&existing.Spec)
-	} else if fresh.track != "" {
-		ref.Track = fresh.track
+		fresh = mediafilespec.ReassertFrozen(&existing.Spec)
+	} else if fresh.Track != "" {
+		ref.Track = fresh.Track
 	}
-	return applySpec(ctx, w.Client, namespace, name, rv, ref, path, info, fresh)
-}
-
-// applySpec applies importarr's complete MediaFileSpec for one MediaFile
-// under [FieldManager]: ref, path, the size and mtime info observed, and
-// every frozen field f carries. It is the one render of this manager's set
-// on a MediaFile -- the rescan and the rename both go through it, so neither
-// can become a second, narrower apply that releases what the other sends.
-//
-// A nil info sends no size or mtime: a transcoded file's are catalogarr's
-// (see [RenameFile]). A non-empty rv is the resourceVersion the caller read,
-// sent as a precondition, and a refusal for that reason comes back as a
-// *staleReadError.
-func applySpec(
-	ctx context.Context, c client.Client, namespace, name, rv string,
-	ref commonv1.MediaRef, path string, info os.FileInfo, f frozenFields,
-) error {
-	spec := catalogac.MediaFileSpec().
-		WithMediaRef(ref).
-		WithPath(path)
-	if info != nil {
-		spec = spec.WithSizeBytes(info.Size()).WithModTime(metav1.NewTime(info.ModTime()))
-	}
-	if f.quality != nil {
-		spec = spec.WithQuality(*f.quality)
-	}
-	if f.revision != nil {
-		spec = spec.WithRevision(*f.revision)
-	}
-	if f.releaseType != "" {
-		spec = spec.WithReleaseType(f.releaseType)
-	}
-	if f.releaseGroup != nil {
-		spec = spec.WithReleaseGroup(*f.releaseGroup)
-	}
-	if f.edition != nil {
-		spec = spec.WithEdition(*f.edition)
-	}
-	if len(f.languages) > 0 {
-		spec = spec.WithLanguages(f.languages...)
-	}
-	if f.importedFrom != nil {
-		spec = spec.WithImportedFrom(f.importedFrom)
-	}
-	if f.formatScore != nil {
-		spec = spec.WithFormatScore(*f.formatScore)
-	}
-	if len(f.matchedFormats) > 0 {
-		spec = spec.WithMatchedFormats(f.matchedFormats...)
-	}
-	if f.profileHash != "" {
-		spec = spec.WithProfileHash(f.profileHash)
-	}
-	if f.original != nil {
-		spec = spec.WithOriginal(*f.original)
-	}
-
-	ac := catalogac.MediaFile(name, namespace).WithSpec(spec)
-	if rv != "" {
-		ac = ac.WithResourceVersion(rv)
-	}
-	if _, err := k8s.Apply(ctx, c, FieldManager, ac); err != nil {
-		if rv != "" && apierrors.IsConflict(err) {
-			return &staleReadError{
-				key: types.NamespacedName{Namespace: namespace, Name: name}, rv: rv,
-				err: fmt.Errorf("rescan: apply media file %s: %w", name, err),
-			}
-		}
-		return fmt.Errorf("rescan: apply media file %s: %w", name, err)
-	}
-	return nil
-}
-
-// reassertFrozen reads every field this manager owns back off an existing
-// spec, sending only what is set.
-func reassertFrozen(s *catalogv1alpha1.MediaFileSpec) frozenFields {
-	var f frozenFields
-	if s.Quality != (commonv1.Quality{}) {
-		f.quality = &s.Quality
-	}
-	if s.Revision != (commonv1.Revision{}) {
-		f.revision = &s.Revision
-	}
-	f.releaseType = s.ReleaseType
-	if s.ReleaseGroup != "" {
-		f.releaseGroup = &s.ReleaseGroup
-	}
-	if s.Edition != "" {
-		f.edition = &s.Edition
-	}
-	f.languages = s.Languages
-	if s.FormatScore != 0 {
-		f.formatScore = &s.FormatScore
-	}
-	f.matchedFormats = s.MatchedFormats
-	f.profileHash = s.ProfileHash
-	f.original = s.Original
-	if src := s.ImportedFrom; src != nil {
-		ac := catalogac.ImportSource()
-		if src.DownloadRef != "" {
-			ac = ac.WithDownloadRef(src.DownloadRef)
-		}
-		if src.ReleaseTitle != "" {
-			ac = ac.WithReleaseTitle(src.ReleaseTitle)
-		}
-		if src.IndexerName != "" {
-			ac = ac.WithIndexerName(src.IndexerName)
-		}
-		if src.Protocol != "" {
-			ac = ac.WithProtocol(src.Protocol)
-		}
-		if !src.ImportedAt.IsZero() {
-			ac = ac.WithImportedAt(src.ImportedAt)
-		}
-		if src.Manual {
-			ac = ac.WithManual(true)
-		}
-		f.importedFrom = ac
-	}
-	return f
+	return mediafilespec.Apply(ctx, w.Client, namespace, name, rv, ref, path, info, fresh)
 }
 
 // resolveIMDb asks the metadata gateway to turn an IMDb id into a TMDB one.

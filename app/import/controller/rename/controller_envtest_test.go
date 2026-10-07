@@ -43,7 +43,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/rename"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -191,7 +191,7 @@ func newFixture(t *testing.T, ctx context.Context, ns string, o fixtureOpts) *fi
 	require.NoError(t, err)
 
 	name := k8s.ChildName(ref.Name, "mediafile", path)
-	_, err = k8s.Apply(ctx, c, rescan.FieldManager, catalogac.MediaFile(name, ns).WithSpec(
+	_, err = k8s.Apply(ctx, c, mediafilespec.FieldManager, catalogac.MediaFile(name, ns).WithSpec(
 		catalogac.MediaFileSpec().
 			WithMediaRef(ref).
 			WithPath(path).
@@ -323,7 +323,7 @@ func TestReconcileRenamesAFileItsRootFolderAllows(t *testing.T) {
 				"spec.releaseType", "spec.releaseGroup", "spec.languages", "spec.importedFrom", "spec.formatScore",
 				"spec.matchedFormats", "spec.profileHash", "spec.original",
 			} {
-				assert.Equal(t, []string{string(rescan.FieldManager)}, managersOf(t, after.ManagedFields, leaf), leaf)
+				assert.Equal(t, []string{string(mediafilespec.FieldManager)}, managersOf(t, after.ManagedFields, leaf), leaf)
 			}
 			assert.Equal(t, []string{"Normal Renamed renamed " + f.path + " to " + f.expected}, f.events())
 		})

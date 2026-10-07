@@ -29,6 +29,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -267,10 +268,10 @@ func (w *Worker) handleNonVideoFile(ctx context.Context, st *scanState, path, re
 // kind's release type. There is no revision, group, edition or language to
 // parse from a track, part, ebook or issue file name, and no custom-format
 // score, which is TRaSH video data.
-func (w *Worker) freshNonVideoSpec(ctx context.Context, kind commonv1.MediaKind, path, rel string) frozenFields {
-	f := frozenFields{releaseType: fileimport.ReleaseTypeFor(kind)}
+func (w *Worker) freshNonVideoSpec(ctx context.Context, kind commonv1.MediaKind, path, rel string) mediafilespec.Frozen {
+	f := mediafilespec.Frozen{ReleaseType: fileimport.ReleaseTypeFor(kind)}
 	if q, ok := fileimport.FrozenFileQuality(ctx, w.ProbeAudio, kind, path, rel); ok {
-		f.quality = &q
+		f.Quality = &q
 	}
 	return f
 }
@@ -281,7 +282,7 @@ func (w *Worker) freshNonVideoSpec(ctx context.Context, kind commonv1.MediaKind,
 // frozen fields are re-asserted verbatim (observedSpec).
 func (w *Worker) recordAttribution(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo,
-	existing *catalogv1alpha1.MediaFile, ref commonv1.MediaRef, fresh frozenFields,
+	existing *catalogv1alpha1.MediaFile, ref commonv1.MediaRef, fresh mediafilespec.Frozen,
 ) error {
 	if existing != nil && (existing.Spec.MediaRef.Kind != ref.Kind || existing.Spec.MediaRef.Name != ref.Name) {
 		st.unmatched(rel, CodeRecordedElsewhere, fmt.Sprintf(
