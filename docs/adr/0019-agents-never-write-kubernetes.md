@@ -237,6 +237,16 @@ sequence, and the engine applies only the newest.
     Downloads, their blocklist labels and their in-flight and seeding transfers are an accepted
     loss; the bytes stay on disk, and the engines remove each transfer no entry claims after its
     grace, keeping its data. The one-time cleanup is `docs/runbooks/unify-cold-cutover.md`.
+- Searches stay per item, as the design's §6.2 says.
+  - *Amended 2026-10-07 (owner, Wave S): a Series is searched per season on a person's
+    request --* a Search with `grabBest` on a series (`spec.season` for one season) is planned
+    by the Series' own key (`Series.status.seasonSearch` under `catalog-grab`), one season task
+    in flight, each behind the namespace's live-search pace and admitted on
+    `catalog-search-high`; the catalog agent answers it at the series' season key, and the
+    Series' grab planner judges packs and singles against the season's episodes. An
+    interactive season search is one task of the Search controller. Nothing publishes an
+    Episode search for a season; searches are otherwise per item. Design:
+    `docs/superpowers/specs/2026-10-07-series-search-design.md`.
 
 ## Revisit triggers
 

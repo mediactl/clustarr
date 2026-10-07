@@ -1,8 +1,8 @@
 # Series and season search, and the interactive results order (Wave S)
 
-**Status:** Proposed, 2026-10-07, from the owner's decisions of the same day (§1). Nothing here
-is implemented. The plan is `docs/superpowers/plans/2026-10-07-series-search.md` (S1-S12); it
-runs after Wave N and before W10 and the test batch.
+**Status:** Built, 2026-10-07 (implement-only: the tests are the batch's), from the owner's
+decisions of the same day (§1). The plan is `docs/superpowers/plans/2026-10-07-series-search.md`
+(S1-S12). Where the build departs from this text, "As built" at the end says so.
 
 **Basis:**
 
@@ -809,3 +809,44 @@ the same path. **Recommendation:** yes, as a follow-up after Wave S lands and th
 planner has run on the live cluster: it removes most first-time live queries, which is the cost
 the 2026-10-06 incident was about, and needs no API beyond §14 (a request reason on
 `SeasonSearchState`).
+
+## As built (2026-10-07)
+
+Deviations from the text above, each a ruling of the implementing session:
+
+- **`SeasonSearchRequest.UID` is a `string`**, not `types.UID`: controller-gen cannot apply
+  `MaxLength` to `types.UID` and refuses the type. The value is the Search's uid all the same.
+- **The search worker's indexes live in a leaf, `app/catalog/worker/titleindex`**
+  (`IndexMovieTitle`, `IndexSeriesTitleYear`, `IndexEpisodeSeriesSeason`, their value functions,
+  `SeriesTitleKey`, `SeasonKey`, `SearchIndexes`), because the RSS matcher imports the search
+  worker and the worker cannot import the matcher. `rssmatcher` re-exports the names (unchanged
+  strings) and `rssmatcher.SearchIndexes`; the catalog domain declares
+  `titleindex.SearchIndexes()`.
+- **`SeasonPlan.Finals` is `[]searchplan.SeasonFinal`** (the season and the request it served),
+  so the stage labels `clustarr_season_searches_total{trigger}` for a state replaced in the same
+  pass. A trigger whose Search is gone is inferred: `season` for a one-season state.
+- **Season facts** read the union of `status.seasons` and the Episodes' seasons; "wanted" counts a
+  monitored, aired episode that is missing or below its cutoff (`wantedcron.CandidateOf`) **or**
+  covered by a live video grab, since `CandidateOf` reads a Downloading episode as not wanted and
+  `AllDownloading` could otherwise never be reached.
+- **"Back of the queue"** for a season every indexer paced: the next due season is the lowest
+  `Queued` one with the fewest attempts, then by number; the map-keyed list is not reordered.
+  A season reading `Searching` with no dispatch in flight is queued again rather than stall.
+- **A planned Search stalls** (`Failed, Stalled`) also when the Series never takes it -- no state,
+  or another request's finished state -- for `SeriesSearchStallTimeout`.
+- **`FullSeasonNotAired` is exempt for a person's pick** in `grabplan.exempt` and the Search
+  controller's `resolveGrab`, as `TranscodedFinal` is, so the manual exemption of
+  `CoverageRejections` reaches a pick without `spec.override`.
+- **The planner's per-episode re-check** adds, for an automatic candidate only, a `NotMonitored`
+  and an `Availability` ("has not aired") rejection; the Search controller's season display runs
+  the item-state rules alone, as an interactive search judges neither.
+- **The in-pass `taken` set covers every episode a payload brings** (its coverage), not only the
+  episodes it is taken for, so a pack narrowed past an episode still cannot bring it twice.
+- **Pack preference:** `RankKey.EpisodeCount` counts absolute numbers too (an anime batch), and a
+  season search's release covering every episode of the season ranks as whole. In the grab
+  planner an anime batch is whole when its coverage names every aired episode of a season and
+  more than one.
+- **Season size:** a pack naming several whole seasons is measured as that many of the searched
+  season, the only season whose runtimes the search knows.
+- **The namesake message** names a series for an Episode target.
+- No RBAC changed: the manager's role already granted `searches` reads and `series/status`.

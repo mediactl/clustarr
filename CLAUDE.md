@@ -174,9 +174,27 @@ concurrent grab conflicts; `spec.override` for a permanent rejection,
 after a confirm). The Search controller sends each pick to the item's
 owner as a manual Candidate, and the panel polls until `status.grabbed`
 names the grab entry it became (`downloadRef`) or the owner's refusal.
-The ui role patches `searches` for it. A season has no search of its own:
-a Series is not a Search fan-out kind, and N episode searches at once is
-the indexer burst the wanted-sweep gotcha forbids.
+The ui role patches `searches` for it. A season is searched as one
+query, planned by the Series (Wave S, 2026-10-07,
+`docs/superpowers/specs/2026-10-07-series-search-design.md`): each season
+header has Sonarr's two buttons -- the magnifier (`actions.SearchSeason`, a
+Search with `grabBest` and `spec.season`) and the person
+(`actions.InteractiveSeasonSearch`, `spec.season` without `grabBest`), whose
+results open in the season's modal listing season packs first
+(`?filter=packs|all`, `ReleaseDecision.coversSeason`) -- plus a badge from
+`Series.status.seasonSearch`. The series header's "search now" is the
+whole-series search. A planned Search (`SearchSpec.PlannedBySeries`) is
+served by the Series key's season planner (`searchplan.DecideSeasons`,
+the search stage's Series mode): one request at a time, one season task in
+flight, each behind the namespace's live-search pace slot and admitted on
+`catalog-search-high`; the Search mirrors it in `status.seasons`. A Series
+is still not a Search fan-out kind (`ContainerKind`). Every interactive
+search's results are banded -- approved, rejected, then the identity
+mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
+`status.otherTitles` and collapsed behind "N releases for other titles",
+never dropped -- in the agent before its cap and again after the
+item-state rules; and a yearless, title-only match on a title another
+library item carries is `UnknownItem` (`decision.Identity.Namesakes`).
 Series monitoring is Sonarr's (2026-09-29): an episode is searched only
 when its Series and the episode itself are monitored (the Episode
 reconciler reads its Series, a Series' `spec.monitored` change wakes its
@@ -827,7 +845,12 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   local release index (`clustarr.rpc.index.query`, every release the
   RSS feeds delivered, no indexer query) -- an item never searched gets one
   live search, and Add New, "Search now" and redownloads stay live. A
-  pool of searches must never be fired at an indexer in one burst.
+  pool of searches must never be fired at an indexer in one burst. A
+  season search (Wave S) is one paced query per season per indexer,
+  never one per episode: it counts as each wanted episode's search (the
+  Episode folds its season's answer into `lastSearchedAt` once, so its
+  next search is IndexOnly) and an Episode waits while its season is
+  queued or searching; nothing publishes per-episode searches for it.
 - **An import that imports nothing is classed, never blocklisted at once
   (2026-10-07).** Refusing every file used to read as a bad release, so a
   good 21 GB download the item merely would not take (its file transcoded)
