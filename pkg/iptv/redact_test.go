@@ -31,11 +31,11 @@ import (
 func TestRedact(t *testing.T) {
 	for in, want := range map[string]string{
 		"http://user:pw@provider.example/get.php?username=u&password=p&type=m3u_plus": "http://provider.example/get.php",
-		"http://provider.example/live/user/pass/1001.ts":                             "http://provider.example/…/1001.ts",
-		"http://provider.example:8080/":                                              "http://provider.example:8080/",
-		"https://epg.example/guide.xml.gz?token=abc#frag":                            "https://epg.example/guide.xml.gz",
-		"not a url\x7f":                                                              "<redacted url>",
-		"/relative/path":                                                             "<redacted url>",
+		"http://provider.example/live/user/pass/1001.ts":                              "http://provider.example/…/1001.ts",
+		"http://provider.example:8080/":                                               "http://provider.example:8080/",
+		"https://epg.example/guide.xml.gz?token=abc#frag":                             "https://epg.example/guide.xml.gz",
+		"not a url\x7f":  "<redacted url>",
+		"/relative/path": "<redacted url>",
 	} {
 		assert.Equal(t, want, iptv.Redact(in), in)
 	}
