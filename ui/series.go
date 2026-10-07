@@ -283,7 +283,12 @@ func episodeRow(ep *catalogv1.Episode, now time.Time) views.EpisodeRow {
 // episodeStatus is Sonarr's status cell (EpisodeStatus.tsx), the first
 // case that applies: a grab in flight, a grab waiting out its delay, the
 // file's quality (warned below the cutoff), no air date yet, not aired,
-// unmonitored, else missing.
+// unmonitored, else missing. Every input is the Episode's own status,
+// which the catalog derives from the grab entries and the MediaFile
+// (ADR-0019 §6.2): activeDownloadRef and the Downloading phase are its
+// Series' non-terminal entry covering it, pendingGrab the Series' pending
+// grab naming it, and hasFile, fileQuality and the cutoff and Transcoded
+// phases its MediaFile's status.
 func episodeStatus(ep *catalogv1.Episode, monitored bool, now time.Time) views.EpisodeStatus {
 	st := ep.Status
 	switch {

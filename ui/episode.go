@@ -40,9 +40,11 @@ import (
 // the row's person icon on its Search tab with an interactive search
 // running. An interactive search is a Search without grabBest
 // (actions.InteractiveSearch) whose status.results the panel polls; its
-// download button adds the release to spec.grab (actions.GrabRelease) and
-// the Search controller grabs it. Every route serves htmx its component
-// and anyone else a page.
+// download button adds the release to spec.grab (actions.GrabRelease), the
+// Search controller sends the pick to the item's owner as a manual
+// Candidate (ADR-0019 §6.6), and status.grabbed names the grab entry the
+// owner's grab planner made of it, or the owner's refusal. Every route
+// serves htmx its component and anyone else a page.
 
 // handleEpisodeDetails serves GET /library/{namespace}/episode/{name}/details,
 // on the Details tab, or the Search tab with ?tab=search.
@@ -255,17 +257,24 @@ func searchPanel(search *catalogv1.Search, now time.Time) views.SearchPanel {
 }
 
 // grabState is how a release's grab stands: "" when none was asked for,
-// "requested" while the controller has not reported it, then "grabbed" or
-// "failed" from status.grabbed.
+// "requested" until status.grabbed settles it, then "grabbed" once it names
+// the grab entry the release became on the item's owner (downloadRef) or
+// "failed" with its error. An entry with neither is a pick the Search
+// controller has sent to the owner as a Candidate and whose entry or
+// refusal is still to come (ADR-0019 §6.6), so it stays "requested" and
+// the panel keeps polling.
 func grabState(search *catalogv1.Search, guid string) (state, reason string) {
 	for _, g := range search.Status.Grabbed {
 		if g.GUID != guid {
 			continue
 		}
-		if g.Error != "" {
+		switch {
+		case g.Error != "":
 			return "failed", g.Error
+		case g.DownloadRef != "":
+			return "grabbed", ""
 		}
-		return "grabbed", ""
+		return "requested", ""
 	}
 	if slices.Contains(search.Spec.Grab, guid) {
 		return "requested", ""

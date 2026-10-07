@@ -162,13 +162,18 @@ A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
 title (opening the episode's details modal, Details and Search tabs), air
 date, Sonarr's status cell (`episodeStatus`: downloading, pending, the
 file's quality -- amber below the cutoff -- TBA, unaired, unmonitored,
-missing) and two searches: the magnifier is "search now" (a Search with
-`grabBest`), the person an interactive search -- a Search without
-`grabBest` (`actions.InteractiveSearch`) whose ranked `status.results`
-the modal polls (`GET /searches/{ns}/{name}`) and whose download button
-adds the release to `spec.grab` (`actions.GrabRelease`: a merge patch of
-the whole list under the read resourceVersion, so a concurrent grab
-conflicts; `spec.override` for a permanent rejection, after a confirm).
+missing; read from the Episode's status, which the catalog derives from
+its Series' grab entries -- `activeDownloadRef`, `pendingGrab` -- and its
+MediaFile's status) and two searches: the magnifier is "search now" (a
+Search with `grabBest`), the person an interactive search -- a Search
+without `grabBest` (`actions.InteractiveSearch`) whose ranked
+`status.results` the modal polls (`GET /searches/{ns}/{name}`) and whose
+download button adds the release to `spec.grab` (`actions.GrabRelease`: a
+merge patch of the whole list under the read resourceVersion, so a
+concurrent grab conflicts; `spec.override` for a permanent rejection,
+after a confirm). The Search controller sends each pick to the item's
+owner as a manual Candidate, and the panel polls until `status.grabbed`
+names the grab entry it became (`downloadRef`) or the owner's refusal.
 The ui role patches `searches` for it. A season has no search of its own:
 a Series is not a Search fan-out kind, and N episode searches at once is
 the indexer burst the wanted-sweep gotcha forbids.

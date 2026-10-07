@@ -63,7 +63,9 @@ func InteractiveSearch(
 
 // GrabRelease is the interactive search's download button: it adds guid to
 // the spec.grab of search -- the Search as the caller read it -- and the
-// Search controller creates the Download (grabbedBy interactive). override
+// Search controller sends the pick to the item's owner as a manual
+// Candidate (grabbedBy interactive), whose grab planner makes the grab
+// entry status.grabbed then names (ADR-0019 §6.6). override
 // sets spec.override, which a release with a permanent rejection needs;
 // the caller decides, since it shows the person the rejection first.
 //
