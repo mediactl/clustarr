@@ -586,6 +586,19 @@ type ObjectStore interface {
 // missing object.
 var ErrObjectNotFound = errors.New("events: object not found")
 
+// ObjectStoreAdmin is implemented by both buses (artwork design §B.1 and §B.5
+// as amended 2026-10-07); membus has no chunks and purges nothing.
+type ObjectStoreAdmin interface {
+	// PurgeOrphanChunks purges every chunk subject of bucket whose NUID no
+	// live object names and whose newest message is older than grace (a Put
+	// writes its chunks before its meta, so grace covers one in progress).
+	// Two concurrent Puts of one name each write a full chunk set and purge
+	// only the NUID they read before they started, so the loser's set is
+	// never referenced again (research E8); no meta names it, so List cannot
+	// see it.
+	PurgeOrphanChunks(ctx context.Context, bucket string, grace time.Duration) (purged int, bytes uint64, err error)
+}
+
 // Bus is the whole broker contract: publish, subscribe, request/reply,
 // key/value, object storage and topology management.
 type Bus interface {

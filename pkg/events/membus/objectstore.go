@@ -328,3 +328,11 @@ func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, er
 	}
 	return events.ObjectStoreStatus{Bucket: o.name, Created: b.created, Bytes: size}, nil
 }
+
+var _ events.ObjectStoreAdmin = (*Bus)(nil)
+
+// PurgeOrphanChunks implements events.ObjectStoreAdmin: membus stores each
+// object whole, so no chunk can be orphaned and nothing is purged.
+func (b *Bus) PurgeOrphanChunks(context.Context, string, time.Duration) (int, uint64, error) {
+	return 0, 0, nil
+}

@@ -242,6 +242,28 @@ var (
 	)
 )
 
+// Object stores (artwork design §B.5 as amended 2026-10-07), labelled by
+// bucket (clustarr-artwork, clustarr-fingerprints) and, for artwork, by
+// variant (original, overlay).
+var (
+	// ObjectOrphanChunksPurgedTotal counts chunk subjects natsbus's
+	// PurgeOrphanChunks purged, by bucket: the full copies two racing Puts
+	// of one name leak, which no meta names.
+	ObjectOrphanChunksPurgedTotal = newCounterVec(
+		"clustarr_object_orphan_chunks_purged_total",
+		"Total orphaned object-store chunk subjects purged, by bucket.",
+		"bucket",
+	)
+
+	// ObjectOrphanBytesPurgedTotal counts the bytes those purges freed
+	// (estimated from each subject's last chunk), by bucket.
+	ObjectOrphanBytesPurgedTotal = newCounterVec(
+		"clustarr_object_orphan_bytes_purged_total",
+		"Total bytes of orphaned object-store chunks purged, by bucket.",
+		"bucket",
+	)
+)
+
 // Work-queue telemetry, shared by every NATS consumer across services.
 var (
 	// WorkQueuePending is the backlog of a durable consumer, by stream and

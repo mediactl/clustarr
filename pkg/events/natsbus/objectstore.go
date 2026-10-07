@@ -26,12 +26,14 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/internal/evqueue"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // ObjectStore binds to bucket, created by Ensure. The binding is lazy and
@@ -363,4 +365,65 @@ func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, er
 		out.Created = bs.StreamInfo().Created
 	}
 	return out, nil
+}
+
+var _ events.ObjectStoreAdmin = (*Bus)(nil)
+
+// PurgeOrphanChunks implements events.ObjectStoreAdmin (artwork design §B.5 as
+// amended 2026-10-07). It needs the object store's stream layout ($O.<bucket>.C.
+// <nuid> chunks, the OBJ_<bucket> stream; ADR-20), which is why it lives only
+// here. The meta-level List cannot see an orphan, since no meta names it.
+//
+// A List read before a racing Put replaced X with Y lists X; Y's chunks are
+// then not live here but younger than the grace, so they stay.
+func (b *Bus) PurgeOrphanChunks(ctx context.Context, bucket string, grace time.Duration) (int, uint64, error) {
+	store, err := (&objectHandle{bus: b, name: bucket}).resolve(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	live := map[string]bool{}
+	all, err := store.List(ctx)
+	if err != nil && !errors.Is(err, jetstream.ErrNoObjectsFound) {
+		return 0, 0, objectError("list", bucket, "", err)
+	}
+	for _, info := range all {
+		live[info.NUID] = true
+	}
+	s, err := b.lookupStream(ctx, "OBJ_"+bucket)
+	if err != nil {
+		return 0, 0, err
+	}
+	prefix := "$O." + bucket + ".C."
+	info, err := s.Info(ctx, jetstream.WithSubjectFilter(prefix+">"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("natsbus: chunk subjects of %s: %w", bucket, err)
+	}
+	var purged int
+	var freed uint64
+	var errs []error
+	for subject, msgs := range info.State.Subjects {
+		if live[strings.TrimPrefix(subject, prefix)] {
+			continue
+		}
+		last, err := s.GetLastMsgForSubject(ctx, subject)
+		if err != nil {
+			if errors.Is(err, jetstream.ErrMsgNotFound) {
+				continue // purged meanwhile, by a Delete or a Put's own cleanup
+			}
+			errs = append(errs, fmt.Errorf("natsbus: last chunk of %s: %w", subject, err))
+			continue
+		}
+		if time.Since(last.Time) < grace {
+			continue // a Put in progress: chunks precede their meta
+		}
+		if err := s.Purge(ctx, jetstream.WithPurgeSubject(subject)); err != nil {
+			errs = append(errs, fmt.Errorf("natsbus: purge %s: %w", subject, err))
+			continue
+		}
+		purged++
+		freed += msgs * uint64(len(last.Data)) // the chunk size; the last chunk may be shorter
+	}
+	metrics.ObjectOrphanChunksPurgedTotal.WithLabelValues(bucket).Add(float64(purged))
+	metrics.ObjectOrphanBytesPurgedTotal.WithLabelValues(bucket).Add(float64(freed))
+	return purged, freed, errors.Join(errs...)
 }
