@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -80,7 +79,6 @@ type Options struct {
 	NodeLabelNVIDIA   string
 	NodeLabelIntel    string
 	JobWindow         int
-	JobRetention      time.Duration
 	GraftConcurrency  int
 
 	CardigannDefinitionsDir string
@@ -120,7 +118,7 @@ func DefaultOptions() Options {
 	o.DataClaim, o.EngineServiceAccount = downloadclient.DefaultDataClaimName, downloadclient.DefaultEngineServiceAccount
 	o.Slots = transcodemanager.DefaultSlots()
 	o.NodeLabelNVIDIA, o.NodeLabelIntel = pool.DefaultNodeLabelNVIDIA, pool.DefaultNodeLabelIntel
-	o.JobWindow, o.JobRetention = transcodemanager.DefaultJobWindow, transcodemanager.DefaultJobRetention
+	o.JobWindow = transcodemanager.DefaultJobWindow
 	o.GraftConcurrency = audiograft.DefaultConcurrency
 	o.CardigannBundled = true
 	o.FacadeAPIKeySecret = DefaultFacadeAPIKeySecret

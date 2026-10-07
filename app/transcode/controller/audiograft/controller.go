@@ -20,8 +20,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // graft Job -- transcode --graft-task on the pool's pod template,
 // class cpu -- and records the Job's result, which its pod leaves in its
 // termination message, as the AudioGraft's status. It never runs a graft
-// beside an open TranscodeJob of the file, and the TranscodeProfile
-// controller never plans one beside a graft (Grafting).
+// while the file's transcode is in flight (its MediaFile's status.transcode
+// Queued, Running or Swapping), and the transcode planner never dispatches
+// one beside a standalone graft (graftstate.StandaloneFor). It reads no
+// TranscodeJob.
 package audiograft
 
 import (
@@ -70,7 +72,6 @@ import (
 // +kubebuilder:rbac:groups="",resources=pods,verbs=list
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes;movies;mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=list
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 
 // LabelGraft names the AudioGraft a graft Job (and its pod) runs for.
 const LabelGraft = "transcode.clustarr.io/audiograft"
@@ -135,7 +136,6 @@ func (r *Reconciler) SetupWithManager(mgr controllerruntime.Manager) error {
 			return o.GetLabels()[LabelGraft] != ""
 		}))).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.graftsOfFile)).
-		Watches(&transcodev1alpha1.TranscodeJob{}, handler.EnqueueRequestsFromMapFunc(r.graftsOfTranscode)).
 		Complete(r)
 }
 
@@ -160,26 +160,6 @@ func (r *Reconciler) graftsOfFile(ctx context.Context, o ctrl.Object) []reconcil
 				seen[g.Name] = true
 				out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: g.Namespace, Name: g.Name}})
 			}
-		}
-	}
-	return out
-}
-
-// graftsOfTranscode maps a TranscodeJob to the AudioGraft that joined it and
-// to those waiting on its file.
-func (r *Reconciler) graftsOfTranscode(ctx context.Context, o ctrl.Object) []reconcile.Request {
-	tj, ok := o.(*transcodev1alpha1.TranscodeJob)
-	if !ok {
-		return nil
-	}
-	var out []reconcile.Request
-	if g := tj.Status.Graft; g != nil && g.AudioGraft != "" {
-		out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: tj.Namespace, Name: g.AudioGraft}})
-	}
-	var l transcodev1alpha1.AudioGraftList
-	if err := r.List(ctx, &l, ctrl.InNamespace(tj.Namespace), ctrl.MatchingFields{IndexMediaFileRef: tj.Spec.MediaFileRef}); err == nil {
-		for _, g := range l.Items {
-			out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: g.Namespace, Name: g.Name}})
 		}
 	}
 	return out
@@ -285,19 +265,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			}
 		}
 	}
-	if tj, err := r.openTranscode(ctx, r.Client, mf); err != nil {
-		return reconcile.Result{}, err
-	} else if tj != nil {
-		if jg := tj.Status.Graft; jg != nil && jg.AudioGraft == g.Name && jg.Phase == transcodev1alpha1.GraftJoined {
-			return r.joined(ctx, &g, st, tj, mf)
-		}
-		// Not dispatched yet: the dispatcher attaches this graft when it
-		// dispatches. Dispatched without it: wait it out, then graft.
-		reason := ReasonTranscodeRunning
-		if !dispatched(tj) {
-			reason = ReasonWaitingForTranscode
-		}
-		return r.wait(ctx, &g, st, reason, 5*time.Minute)
+	if transcodeInFlight(mf) {
+		// The file's transcode is out to a worker (status.transcode Queued,
+		// Running or Swapping): wait it out, then graft. Nothing joins a
+		// graft to a transcode until F7.2 (loop spec §5.13).
+		return r.wait(ctx, &g, st, ReasonTranscodeRunning, 5*time.Minute)
 	}
 	// A transcode the file is due rewrites it anyway: wait for it, a while,
 	// rather than rewrite the file twice.
@@ -381,40 +353,28 @@ func missing(g *transcodev1alpha1.AudioGraft, mf *catalogv1alpha1.MediaFile) str
 
 func base(t string) string { b, _, _ := strings.Cut(t, "-"); return strings.ToLower(b) }
 
-// transcodingLive reports an open TranscodeJob of the file, read from the
-// apiserver.
+// transcodingLive reports the file's transcode in flight, read from the
+// apiserver: the MediaFile's own status.transcode (ADR-0016; nothing reads
+// a TranscodeJob any more).
 func (r *Reconciler) transcodingLive(ctx context.Context, mf *catalogv1alpha1.MediaFile) (bool, error) {
-	tj, err := r.openTranscode(ctx, r.APIReader, mf)
-	return tj != nil, err
-}
-
-// openTranscode is the file's open TranscodeJob, nil when none.
-func (r *Reconciler) openTranscode(ctx context.Context, c ctrl.Reader, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.TranscodeJob, error) {
-	var l transcodev1alpha1.TranscodeJobList
-	if err := c.List(ctx, &l, ctrl.InNamespace(mf.Namespace)); err != nil {
-		return nil, fmt.Errorf("audiograft: list TranscodeJobs: %w", err)
-	}
-	for i := range l.Items {
-		if j := &l.Items[i]; j.Spec.MediaFileRef == mf.Name && !transcodeDone(j) {
-			return j, nil
+	var fresh catalogv1alpha1.MediaFile
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: mf.Name}, &fresh); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
 		}
+		return false, fmt.Errorf("audiograft: get MediaFile %s: %w", mf.Name, err)
 	}
-	return nil, nil
+	return transcodeInFlight(&fresh), nil
 }
 
-func transcodeDone(j *transcodev1alpha1.TranscodeJob) bool {
-	switch j.Status.Phase {
-	case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed, transcodev1alpha1.TranscodeJobPhaseSkipped:
-		return true
-	}
-	return false
-}
-
-// dispatched reports whether a TranscodeJob's task is out to a worker.
-func dispatched(j *transcodev1alpha1.TranscodeJob) bool {
-	switch j.Status.Phase {
-	case transcodev1alpha1.TranscodeJobPhaseQueued, transcodev1alpha1.TranscodeJobPhaseRunning, transcodev1alpha1.TranscodeJobPhaseVerifying:
-		return true
+// transcodeInFlight reports mf's transcode out to a worker or swapping in:
+// status.transcode Queued, Running or Swapping.
+func transcodeInFlight(mf *catalogv1alpha1.MediaFile) bool {
+	if t := mf.Status.Transcode; t != nil {
+		switch t.Phase {
+		case catalogv1alpha1.TranscodePhaseQueued, catalogv1alpha1.TranscodePhaseRunning, catalogv1alpha1.TranscodePhaseSwapping:
+			return true
+		}
 	}
 	return false
 }
@@ -561,87 +521,23 @@ func (r *Reconciler) reduce(ctx context.Context, g *transcodev1alpha1.AudioGraft
 	return res, true, err
 }
 
-// joined records g riding along with tj, which the dispatcher attached it
-// to.
-func (r *Reconciler) joined(ctx context.Context, g *transcodev1alpha1.AudioGraft, st transcodev1alpha1.AudioGraftStatus,
-	tj *transcodev1alpha1.TranscodeJob, mf *catalogv1alpha1.MediaFile,
-) (reconcile.Result, error) {
-	now := metav1.NewTime(r.now())
-	st.Phase, st.Reason, st.Message = transcodev1alpha1.AudioGraftRunning, ReasonJoinedTranscode, "grafting in the same pass as TranscodeJob "+tj.Name
-	st.JobName, st.MediaFileRef, st.TargetProbeHash = graftstate.JoinedPrefix+tj.Name, mf.Name, mf.Status.ProbeHash
-	st.StartedAt, st.CompletedAt = &now, nil
-	logging.FromContext(ctx).Info("audiograft: joined a transcode", "transcodeJob", tj.Name)
-	return reconcile.Result{}, r.apply(ctx, g, st)
-}
-
-// followJoined reads the TranscodeJob g rides along with: done is false
-// while it runs, true once its result is in st -- or once the transcode
-// ended without one (it ran without the graft, or failed), which falls back
-// to a graft of g's own.
+// followJoined settles a graft recorded as riding along with a
+// TranscodeJob: no TranscodeJob carries a graft any more (ADR-0016's fold;
+// F7.2 joins grafts to the transcode block), so it grafts alone.
 func (r *Reconciler) followJoined(ctx context.Context, g *transcodev1alpha1.AudioGraft, st *transcodev1alpha1.AudioGraftStatus) (reconcile.Result, bool, error) {
 	if st.Phase.Terminal() {
 		return reconcile.Result{}, true, nil
 	}
-	name := graftstate.Joined(g)
-	unjoin := func(why string) (reconcile.Result, bool, error) {
-		logging.FromContext(ctx).Info("audiograft: the joined transcode carried no graft; grafting alone", "transcodeJob", name, "why", why)
-		st.JobName, st.Phase, st.Reason, st.Message = "", transcodev1alpha1.AudioGraftWaiting, ReasonJobLost, why
-		return reconcile.Result{}, true, nil
-	}
-	var tj transcodev1alpha1.TranscodeJob
-	if err := r.Get(ctx, types.NamespacedName{Namespace: g.Namespace, Name: name}, &tj); err != nil {
-		if apierrors.IsNotFound(err) {
-			return unjoin("the TranscodeJob is gone")
-		}
-		return reconcile.Result{}, false, err
-	}
-	jg := tj.Status.Graft
-	if jg == nil || jg.AudioGraft != g.Name {
-		return unjoin("the TranscodeJob ran without this graft")
-	}
-	switch jg.Phase {
-	case transcodev1alpha1.GraftFailed:
-	case transcodev1alpha1.GraftSucceeded:
-		if tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseSucceeded {
-			if transcodeDone(&tj) {
-				return unjoin("the transcode did not swap")
-			}
-			return reconcile.Result{}, false, nil // the swap is reported with the transcode's success
-		}
-	default: // Joined
-		if transcodeDone(&tj) {
-			return unjoin("the transcode ended before its graft reported")
-		}
-		return reconcile.Result{}, false, nil
-	}
-	record(st, resultOf(jg), g.Spec.Release, r.now())
-	if err := r.apply(ctx, g, *st); err != nil {
-		return reconcile.Result{}, false, err
-	}
-	logging.FromContext(ctx).Info("audiograft: the joined graft finished", "transcodeJob", name, "phase", jg.Phase, "reason", jg.Reason)
-	return reconcile.Result{}, false, nil
+	logging.FromContext(ctx).Info("audiograft: the joined transcode is gone; grafting alone", "transcodeJob", graftstate.Joined(g))
+	st.JobName, st.Phase, st.Reason, st.Message = "", transcodev1alpha1.AudioGraftWaiting, ReasonJobLost, "the transcode it joined is gone"
+	return reconcile.Result{}, true, nil
 }
 
-// resultOf is a TranscodeJob's status.graft as a graft result.
-func resultOf(g *transcodev1alpha1.GraftResult) grafttask.Result {
-	res := grafttask.Result{
-		Phase: grafttask.PhaseFailed, Reason: g.Reason, Message: g.Message, RateName: g.RateName, RateMicros: g.RateMicros,
-		RateMarginMilli: g.RateMarginMilli, CoveragePercent: g.CoveragePercent, ResidualMillis: g.ResidualMillis,
-		Within80Percent: g.Within80Percent, GraftTag: g.GraftTag,
-	}
-	if g.Phase == transcodev1alpha1.GraftSucceeded {
-		res.Phase = grafttask.PhaseSucceeded
-	}
-	for _, s := range g.Segments {
-		res.Segments = append(res.Segments, grafttask.Segment(s))
-	}
-	return res
-}
-
-// JoinTask is the graft a TranscodeJob of mf carries for g, the dispatcher
-// asks at dispatch (phase 4 addendum): when g's donor is reduced, mf still
-// lacks one of its languages, no graft Job of g's own runs, and no
-// donor-fault failure stands for this donor and this file.
+// JoinTask is the graft a transcode of mf would carry for g (phase 4
+// addendum; nothing joins one until F7.2 folds grafts into the transcode
+// block): when g's donor is reduced, mf still lacks one of its languages, no
+// graft Job of g's own runs, and no donor-fault failure stands for this
+// donor and this file.
 func JoinTask(g *transcodev1alpha1.AudioGraft, mf *catalogv1alpha1.MediaFile, folders []catalogv1alpha1.RootFolder) (grafttask.Task, bool) {
 	if g.Status.DonorAudioPath == "" || graftstate.Standalone(g) || mf.Status.MediaInfo == nil {
 		return grafttask.Task{}, false

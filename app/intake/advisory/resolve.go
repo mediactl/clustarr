@@ -21,11 +21,9 @@ import (
 	"context"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
@@ -67,7 +65,7 @@ type UIDResolver interface {
 }
 
 // CacheResolver resolves through the manager's cache: a MediaFile by the
-// remediation loop's UID index, a TranscodeJob by listing, a grab entry
+// remediation loop's UID index, a grab entry
 // (an engine command's or an import's) by remediation.item.download to its
 // owner (A3.3, ruling A2-2). An item's or a Search's UID is not indexed yet
 // (A4 adds those), so such a term resolves only from a nak the intake
@@ -91,8 +89,7 @@ func (r CacheResolver) ResolveUID(ctx context.Context, id cataloghistory.Dispatc
 			Kind: owner.Kind, APIVersion: catalogv1alpha1.GroupVersion.String(),
 		}, true
 	}
-	switch id.Kind {
-	case "MediaFile":
+	if id.Kind == "MediaFile" {
 		var list catalogv1alpha1.MediaFileList
 		if err := r.Reader.List(ctx, &list, client.MatchingFields{mfindex.UID: id.UID}); err != nil || len(list.Items) != 1 {
 			return cataloghistory.Target{}, false
@@ -102,19 +99,6 @@ func (r CacheResolver) ResolveUID(ctx context.Context, id cataloghistory.Dispatc
 			Namespace: mf.Namespace, Name: mf.Name,
 			Kind: "MediaFile", APIVersion: catalogv1alpha1.GroupVersion.String(),
 		}, true
-	case "TranscodeJob":
-		var list transcodev1alpha1.TranscodeJobList
-		if err := r.Reader.List(ctx, &list); err != nil {
-			return cataloghistory.Target{}, false
-		}
-		for i := range list.Items {
-			if list.Items[i].UID == types.UID(id.UID) {
-				return cataloghistory.Target{
-					Namespace: list.Items[i].Namespace, Name: list.Items[i].Name,
-					Kind: "TranscodeJob", APIVersion: transcodev1alpha1.GroupVersion.String(),
-				}, true
-			}
-		}
 	}
 	return cataloghistory.Target{}, false
 }

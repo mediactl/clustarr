@@ -15,13 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package manager is transcode's manager-side registration (spec §4.2.1):
-// the TranscodeProfile and TranscodeJob reconcilers, the leader-only results
-// consumer that shares the TranscodeJob status CAS path, and the AudioGraft
-// controller, which runs graft and donor-reduce Jobs on the cpu pool's pod
-// template (the spec's drift note; main 6e44ba35 added the reduce Job, and the
-// TranscodeJob dispatcher attaches a waiting graft to the task it dispatches,
-// audiograft.JoinTask). The pool pods run cmd/transcode.
+// Package manager is transcode's manager-side registration (spec §4.2.1;
+// loop spec §3.1 "Registration changes"): transcode-admission, the pools and
+// the slim TranscodeProfile reconciler, on the admission ledger the
+// remediation loop shares, plus (until F7.3) the AudioGraft controller, which
+// runs graft and donor-reduce Jobs on the cpu pool's pod template. A file's
+// transcode is its MediaFile's status.transcode, which the loop alone writes
+// (ADR-0016); nothing here reads or writes a TranscodeJob. The pool pods run
+// cmd/transcode.
 package manager
 
 import (
@@ -29,14 +30,14 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/mediactl/clustarr/app/transcode/admission"
 	"github.com/mediactl/clustarr/app/transcode/controller/audiograft"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
-	"github.com/mediactl/clustarr/app/transcode/controller/transcodejob"
 	"github.com/mediactl/clustarr/app/transcode/controller/transcodeprofile"
+	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -46,71 +47,75 @@ import (
 // Options is what the transcode manager registration takes.
 type Options struct {
 	k8s.Options
-	Slots             map[string]int32 // the per-hardware admission budget (--slots)
-	DataDir           string           // the logical /data root the pools mount
-	WorkerImage       string           // the image every pool and graft Job runs
-	DataClaimName     string           // the RWX claim the pools mount at DataDir
-	IntelRenderGroups []int64          // supplementalGroups for Intel pools
-	NodeLabelNVIDIA   string           // the label marking an NVIDIA node
-	NodeLabelIntel    string           // the label marking an Intel GPU node
-	JobWindow         int              // most non-terminal TranscodeJobs per profile
-	JobRetention      time.Duration    // how long a Succeeded job outlives its re-probe
-	GraftConcurrency  int              // most audio grafts running at once (--graft-concurrency)
-	Logging           logging.Options  // rendered onto the pool workers' args
-	Tracing           tracing.Options  // likewise
+	Slots             map[string]int32  // the per-hardware admission budget (--slots)
+	DataDir           string            // the logical /data root the pools mount
+	WorkerImage       string            // the image every pool and graft Job runs
+	DataClaimName     string            // the RWX claim the pools mount at DataDir
+	IntelRenderGroups []int64           // supplementalGroups for Intel pools
+	NodeLabelNVIDIA   string            // the label marking an NVIDIA node
+	NodeLabelIntel    string            // the label marking an Intel GPU node
+	JobWindow         int               // most files per profile in a window phase (--job-window, loop spec §5.11)
+	GraftConcurrency  int               // most audio grafts running at once (--graft-concurrency)
+	Ledger            *admission.Ledger // shared with the remediation loop (the manager command builds it once)
+	Logging           logging.Options   // rendered onto the pool workers' args
+	Tracing           tracing.Options   // likewise
 }
 
-// Register adds the three reconcilers and the results consumer (§6.4, §16
-// M4): the TranscodeProfile controller, which hashes profiles and creates a
-// TranscodeJob per file a profile wins; the TranscodeJob controller, which
-// plans, admits against the --slots budget and dispatches each job's task to
-// its pool over bus, and whose results consumer turns the pool workers'
-// status events on transcode-results into TranscodeJob status
-// (spec 2026-09-23 §18.2); and the AudioGraft controller.
+// namespacesOf is the namespaces admission rebuilds from: the manager's
+// own when it is namespaced, else all (nil).
+func namespacesOf(o k8s.Options) []string {
+	if o.Namespace == "" {
+		return nil
+	}
+	return []string{o.Namespace}
+}
+
+// Register adds transcode-admission, the slim TranscodeProfile reconciler
+// (pools and status) and, until F7.3, the AudioGraft controller (loop spec
+// §5.6, §5.12, §5.14).
 //
-// The TranscodeJob reconciler reads TranscodeJobs through
-// mgr.GetAPIReader(), never the cache: its status writes are conditional on
-// the resourceVersion they read, and admission counts the jobs it
-// dispatched a moment ago; a cache one event behind would conflict on the
-// first and admit past the budget on the second (ADR-0005).
+// The ledger is the one the remediation loop takes grants from: admission
+// rebuilds and resyncs it, passes over it and wakes the loop; the slim
+// reconciler renders each profile's pools from its confirmed dispatches and
+// counts the profile's files. The budget (o.Slots) and the window
+// (o.JobWindow) are the ledger's own, set where it is built.
 //
-// bus carries the tasks, the results and the controller's
-// clustarr.evt.transcode.job.* history events (§5); Leases is the bucket
-// withdrawal writes its cancel markers to. Register refuses a nil bus before
-// it touches mgr.
+// bus carries clustarr-progress (health, limits, tier), clustarr-transcodes
+// and clustarr-transcode-leases, which admission's task sweep withdraws
+// through. Register refuses a nil bus or ledger, and a bus that cannot
+// administer streams, before it touches mgr.
 func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
 		return errors.New("transcode manager: Register needs the bus")
 	}
-	profiles := transcodeprofile.NewLegacyReconciler(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"))
-	profiles.Window, profiles.Retention = o.JobWindow, o.JobRetention
-	profiles.Progress = bus.KV(events.BucketProgress)
+	if o.Ledger == nil {
+		return errors.New("transcode manager: Register needs the admission ledger the loop shares")
+	}
+	admin, ok := bus.(events.StreamAdmin)
+	if !ok {
+		return fmt.Errorf("transcode manager: %T cannot administer streams", bus)
+	}
+	cfg := poolConfig(o)
+	adm := &admission.Reconciler{
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Ledger: o.Ledger, Bus: bus, Admin: admin,
+		Namespaces: namespacesOf(o.Options), Pool: cfg, AudioGraftIndex: audiograft.IndexMediaFileRef,
+		Withdrawal: task.Withdrawal{
+			Records: task.Requests(bus.KV(events.BucketTranscodes)),
+			Leases:  bus.KV(events.BucketTranscodeLeases), Admin: admin,
+		},
+	}
+	if err := adm.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("transcode: %s: %w", admission.ControllerName, err)
+	}
+	profiles := &transcodeprofile.Reconciler{
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Ledger: o.Ledger, Pool: cfg,
+		Recorder: mgr.GetEventRecorder("transcodeprofile"), Progress: bus.KV(events.BucketProgress),
+	}
 	if err := profiles.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("transcode: transcodeprofile: %w", err)
 	}
-	rec := &transcodejob.Reconciler{
-		Client:   mgr.GetClient(),
-		Reader:   mgr.GetAPIReader(),
-		Slots:    o.Slots,
-		Pool:     poolConfig(o),
-		Recorder: mgr.GetEventRecorder("transcodejob"),
-		Bus:      bus,
-		Leases:   bus.KV(events.BucketTranscodeLeases),
-	}
-	// natsbus and membus both implement events.StreamAdmin; the comma-ok
-	// form only keeps a bus that does not (a narrower test double) from
-	// panicking a real run.
-	if admin, ok := bus.(events.StreamAdmin); ok {
-		rec.Admin = admin
-	}
-	if err := rec.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("transcode: transcodejob: %w", err)
-	}
-	if err := mgr.Add(rec.ResultsConsumer()); err != nil {
-		return fmt.Errorf("transcode: transcode results consumer: %w", err)
-	}
 	grafts := &audiograft.Reconciler{
-		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Pool: poolConfig(o), Concurrency: o.GraftConcurrency,
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Pool: cfg, Concurrency: o.GraftConcurrency,
 	}
 	if err := grafts.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("transcode: audiograft: %w", err)
@@ -118,9 +123,10 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	return nil
 }
 
-// poolConfig is what the TranscodeJob controller renders every pool Job
-// with, from this controller's own options and environment. It is a
-// function of o alone so a test can hold each option to the pool it reaches
+// poolConfig is what admission and the slim TranscodeProfile reconciler
+// render every pool Job with (and the AudioGraft controller its graft
+// Jobs), from this manager's own options and environment. It is a function
+// of o alone so a test can hold each option to the pool it reaches
 // (TestPoolConfigCarriesTheControllerOptions): several of them -- the render
 // groups, the claim -- have legal empty values that only fail on a real
 // node.
@@ -132,7 +138,7 @@ func poolConfig(o Options) pool.Config {
 		DataDir:           o.DataDir,
 		IntelRenderGroups: o.IntelRenderGroups,
 		// §18.5: the labels a GPU class's nodes carry, which admission
-		// reads to choose an auto job's class and the class's pools are
+		// reads to choose an auto file's class and the class's pools are
 		// held to.
 		NodeLabelNVIDIA: o.NodeLabelNVIDIA,
 		NodeLabelIntel:  o.NodeLabelIntel,

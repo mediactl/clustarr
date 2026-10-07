@@ -143,12 +143,6 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 			return Target{}, 0, "", false
 		}
 		return mediaFileTarget(p.File.Namespace, p.File.Name), p.Seq, DispatchSubTranscode, true
-	case transcodeTaskRef{}.Schema():
-		var p transcodeTaskAttempt
-		if err := schema.Decode(env.Schema, env.Data, &p); err != nil || p.Job.Name == "" {
-			return Target{}, 0, "", false
-		}
-		return resolveTranscodeTask(env.Key, env.Data), int64(p.Attempt), DispatchSubTranscode, true
 	case schema.FetchTask{}.Schema():
 		var p schema.FetchTask
 		if err := schema.Decode(env.Schema, env.Data, &p); err != nil || p.MediaFile.Name == "" {
@@ -194,16 +188,6 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 	return Target{}, 0, "", false
 }
 
-// transcodeTaskAttempt is app/transcode/task.Task's job and attempt, decoded
-// without importing it (transcodeTaskRef's reason).
-type transcodeTaskAttempt struct {
-	Job     schema.Ref `json:"job"`
-	Attempt int32      `json:"attempt"`
-}
-
-// Schema implements schema.Payload; it is app/transcode/task.TaskV1's.
-func (transcodeTaskAttempt) Schema() string { return transcodeTaskRef{}.Schema() }
-
 // transcodeTaskV2 is app/transcode/task.Task's MediaFile and dispatch seq
 // (loop spec §4.12), decoded without importing it.
 type transcodeTaskV2 struct {
@@ -220,12 +204,11 @@ func (transcodeTaskV2) Schema() string { return "transcode.Task.v2" }
 // UID names when the shape says.
 type DispatchID struct {
 	// UID is the task's key: an item's or a Search's (search), an entry's
-	// (engine, import), a MediaFile's (probe, markers, transcode) or a
-	// TranscodeJob's (the doomed controller's v1 Msg-Id).
+	// (engine, import) or a MediaFile's (probe, markers, transcode).
 	UID string
 	Seq int64
 	Sub string
-	// Kind is "MediaFile" or "TranscodeJob" when the shape names it; ""
+	// Kind is "MediaFile" when the shape names it; ""
 	// for an item, a Search or an entry.
 	Kind string
 	// Entry marks a UID that is a grab entry's, found through its owner's
@@ -269,10 +252,6 @@ func ParseDispatchID(id string) (DispatchID, bool) {
 	case len(parts) == 3 && parts[0] == "transcode":
 		if n, ok := num(parts[2]); ok && parts[1] != "" {
 			return DispatchID{UID: parts[1], Seq: n, Sub: DispatchSubTranscode, Kind: "MediaFile"}, true
-		}
-	case len(parts) == 2:
-		if n, ok := num(parts[1]); ok && parts[0] != "" {
-			return DispatchID{UID: parts[0], Seq: n, Sub: DispatchSubTranscode, Kind: "TranscodeJob"}, true
 		}
 	}
 	return DispatchID{}, false

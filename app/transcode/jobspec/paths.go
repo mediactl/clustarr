@@ -27,8 +27,8 @@ import (
 )
 
 // LogicalDataRoot is where every path stored in a CRD lives: RootFolder
-// paths must start with /data/media/ (a CEL rule), and MediaFile and
-// TranscodeJob paths are under a root folder. app/transcode/worker's
+// paths must start with /data/media/ (a CEL rule), and MediaFile paths are
+// under a root folder. app/transcode/worker's
 // Options.DataDir is where that volume is mounted in THIS process -- /data in
 // a Job pod, so the mapping is the identity in production.
 const LogicalDataRoot = "/data"
@@ -113,35 +113,6 @@ func OutputPath(source, profileName string, container transcodev1alpha1.Containe
 		return stem + "." + ext, nil
 	}
 	return stem + " - " + profileName + "." + ext, nil
-}
-
-// JobOutputPath is OutputPath for a TranscodeJob, honouring its explicit
-// spec.outputPath: when set it wins, must be absolute, carry the profile's
-// container extension (a .mp4 name over mkv data is exactly what ruling R8
-// refused), and -- with replaceSource=false -- must not be the source
-// itself. The TranscodeJob controller is its only caller; F6.6 deletes both.
-func JobOutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
-	container transcodev1alpha1.Container, replaceSource bool,
-) (string, error) {
-	ext := strings.ToLower(string(container))
-	if ext == "" {
-		ext = string(transcodev1alpha1.ContainerMKV)
-	}
-	source := filepath.Clean(spec.SourcePath)
-	if spec.OutputPath != nil && *spec.OutputPath != "" {
-		out := filepath.Clean(*spec.OutputPath)
-		if !filepath.IsAbs(out) {
-			return "", fmt.Errorf("spec.outputPath %q is not absolute", *spec.OutputPath)
-		}
-		if got := strings.TrimPrefix(filepath.Ext(out), "."); !strings.EqualFold(got, ext) {
-			return "", fmt.Errorf("spec.outputPath %q has extension %q, but profile %s writes %s", out, got, profileName, ext)
-		}
-		if !replaceSource && out == source {
-			return "", fmt.Errorf("spec.outputPath is the source, but the profile's policy.replaceSource=false keeps the source")
-		}
-		return out, nil
-	}
-	return OutputPath(spec.SourcePath, profileName, container, replaceSource)
 }
 
 // RecycleBinOf is the recycle bin a RootFolder's swaps link into.

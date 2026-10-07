@@ -22,9 +22,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // from the admission ledger's confirmed dispatches under transcode-pool, and
 // writes TranscodeProfile.status under transcode. It never watches or writes
 // a MediaFile (D3): it counts files through the
-// remediation.mediafile.transcodeProfile index and is woken by the ledger's
-// profileWake. Until F6.6 the LegacyReconciler (legacy.go), the per-file
-// pass that creates TranscodeJobs, is what the manager registers.
+// remediation.mediafile.transcodeProfile index, which its SetupWithManager
+// registers (mfindex.RegisterTranscodeProfile, as subtitleprofile registers
+// its own), and is woken by the ledger's profileWake. Nothing creates a
+// TranscodeJob any more.
 package transcodeprofile
 
 import (
@@ -46,6 +47,7 @@ import (
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/app/transcode/admission"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
@@ -246,6 +248,9 @@ func (r *Reconciler) writeStatus(ctx context.Context, tp *transcodev1alpha1.Tran
 // profile's generation, its pool Jobs, and the ledger's profileWake. It
 // never watches a MediaFile.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mfindex.RegisterTranscodeProfile(context.Background(), mgr.GetFieldIndexer()); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).Named("transcodeprofile").
 		For(&transcodev1alpha1.TranscodeProfile{}, builder.WithPredicates(k8s.GenerationChanged())).
 		Owns(&batchv1.Job{}, builder.WithPredicates(pool.JobPredicate())).

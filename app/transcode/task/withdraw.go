@@ -32,7 +32,7 @@ import (
 
 // Withdrawal takes a MediaFile's transcode dispatch back (loop spec §5.10):
 // one implementation for the remediation loop's Withdraw effect and the
-// admission sweep, so the squash manager need not import the loop's
+// admission sweep, so the transcode manager need not import the loop's
 // adapter. It imports only pkg/records and pkg/events.
 type Withdrawal struct {
 	Records *records.Requester[*Record]

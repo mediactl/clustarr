@@ -71,8 +71,8 @@ type JobEvent struct {
 // Schema implements Payload.
 func (JobEvent) Schema() string { return "transcode.JobEvent.v2" }
 
-// JobEventV1 reports a transition of a TranscodeJob (the doomed controller's;
-// kept for history until F8.6). Subject:
+// JobEventV1 reports a transition of a TranscodeJob (the retired
+// controller's; nothing publishes one, and history decodes it until F8.6). Subject:
 // clustarr.evt.transcode.job.<queued|started|succeeded|failed|skipped>.<uid>.
 type JobEventV1 struct {
 	// JobRef is the TranscodeJob the event is about.

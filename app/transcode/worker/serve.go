@@ -369,7 +369,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		return context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	}
 	log := logging.FromContext(ctx)
-	if m.Envelope().Schema == (task.TaskV1{}).Schema() {
+	if m.Envelope().Schema == task.TaskV1Schema {
 		log.InfoContext(ctx, "transcode worker: a v1 task; the loop requests this file again as v2")
 		sctx, cancel := settle()
 		defer cancel()

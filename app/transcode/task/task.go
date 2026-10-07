@@ -19,8 +19,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // pools (spec §6, §17.5, §18.1; loop spec §4.12): the Task the remediation
 // loop publishes for one MediaFile's dispatch, the Lease a worker holds in
 // clustarr-transcode-leases, and the Record a worker answers through in
-// clustarr-transcodes. It imports no Kubernetes client. TaskV1, LeaseV1 and
-// StatusEvent are the TranscodeJob controller's, until F6.6 deletes it.
+// clustarr-transcodes. It imports no Kubernetes client. [TaskV1Schema] names
+// the TranscodeJob-keyed task the fold retired, which a worker acks unread
+// (until F9.4 removes the stale-ack branch).
 package task
 
 import (
@@ -100,40 +101,15 @@ type Lease struct {
 // Schema implements schema.Payload.
 func (Lease) Schema() string { return "transcode.Lease.v2" }
 
-// TaskV1 is one dispatch of one TranscodeJob (the doomed controller's).
-type TaskV1 struct {
-	Job             schema.Ref `json:"job"`
-	Attempt         int32      `json:"attempt"`
-	Class           string     `json:"class"`
-	Profile         Profile    `json:"profile"`
-	SourcePath      string     `json:"sourcePath"`
-	SourceProbeHash string     `json:"sourceProbeHash"`
-	SourceSizeBytes int64      `json:"sourceSizeBytes"`
-	SourceModifier  string     `json:"sourceModifier,omitempty"`
-	OutputPath      string     `json:"outputPath"`
-	Root            RootFolder `json:"root"`
-	OutputRoot      string     `json:"outputRoot,omitempty"`
-	// Engine is the engine the recorded plan was made for: EngineFFgo.
-	Engine string `json:"engine,omitempty"`
-	// PlanHash is the recorded plan's hash; the worker compares its own
-	// plan's with it.
-	PlanHash string          `json:"planHash,omitempty"`
-	Deadline metav1.Duration `json:"deadline"`
-
-	// Graft is an audio graft riding along with this transcode (anime
-	// dual-audio, phase 4 addendum): the worker aligns the donor before it
-	// encodes and muxes the dub in with the transcode. Its Target is the
-	// source; nil for a plain transcode.
-	Graft *grafttask.Task `json:"graft,omitempty"`
-}
+// TaskV1Schema names the TranscodeJob-keyed task (one dispatch of one
+// TranscodeJob) the fold retired: nothing publishes one, and a worker acks a
+// leftover delivery unread (loop spec §4.12; F9.4 deletes the branch).
+const TaskV1Schema = "transcode.Task.v1"
 
 // EngineFFgo is the engine every task runs on, in-process. (status.plan's
 // engine enum still admits "ffmpeg": a plan recorded by the deleted argv
 // engine, which dispatch plans again.)
 const EngineFFgo = "ffgo"
-
-// Schema implements schema.Payload.
-func (TaskV1) Schema() string { return "transcode.Task.v1" }
 
 // Outcome is how an attempt ended.
 type Outcome string
@@ -163,47 +139,6 @@ const (
 	ReasonDeadLettered     Reason = "DeadLettered"
 )
 
-// EventKind is what a StatusEvent reports.
-type EventKind string
-
-const (
-	EventClaimed  EventKind = "claimed"
-	EventProgress EventKind = "progress"
-	EventFinished EventKind = "finished"
-)
-
-// StatusEvent is one report from the worker running a delivery of an
-// attempt. Seq counts from 1 within one delivery; the Msg-Id
-// <uid>/<attempt>/<delivery>/<seq> makes a re-publish a duplicate.
-//
-// Class is the hardware class of the pool the task was taken from. With
-// Attempt it proves which dispatch the worker is running, so transcode can
-// adopt an attempt whose Queued write was lost after the publish, and correct
-// the class when a re-dispatch's publish was absorbed as a duplicate of an
-// earlier one to another pool.
-type StatusEvent struct {
-	Job        schema.Ref                  `json:"job"`
-	Attempt    int32                       `json:"attempt"`
-	Class      transcodev1alpha1.Hardware  `json:"class,omitempty"`
-	Delivery   uint64                      `json:"delivery"`
-	Seq        uint64                      `json:"seq"`
-	Kind       EventKind                   `json:"kind"`
-	Pod        string                      `json:"pod,omitempty"`
-	Node       string                      `json:"node,omitempty"`
-	Progress   *transcodev1alpha1.Progress `json:"progress,omitempty"`
-	Outcome    Outcome                     `json:"outcome,omitempty"`
-	Reason     Reason                      `json:"reason,omitempty"`
-	Message    string                      `json:"message,omitempty"`
-	Result     *transcodev1alpha1.Result   `json:"result,omitempty"`
-	StderrTail string                      `json:"stderrTail,omitempty"`
-	// Graft is what came of the task's graft, when it carried one.
-	Graft *grafttask.Result `json:"graft,omitempty"`
-	At    time.Time         `json:"at"`
-}
-
-// Schema implements schema.Payload.
-func (StatusEvent) Schema() string { return "transcode.StatusEvent.v1" }
-
 // LeaseState is whether a lease is held by a worker or marks a withdrawal.
 type LeaseState string
 
@@ -211,17 +146,3 @@ const (
 	LeaseHeld      LeaseState = "held"
 	LeaseCancelled LeaseState = "cancelled"
 )
-
-// LeaseV1 is one TranscodeJob's claim (the doomed controller's). A cancelled
-// lease applies to its own Attempt and earlier ones only (spec §6).
-type LeaseV1 struct {
-	Job     schema.Ref `json:"job"`
-	Attempt int32      `json:"attempt"`
-	State   LeaseState `json:"state"`
-	Pod     string     `json:"pod,omitempty"`
-	Node    string     `json:"node,omitempty"`
-	Since   time.Time  `json:"since"`
-}
-
-// Schema implements schema.Payload.
-func (LeaseV1) Schema() string { return "transcode.Lease.v1" }

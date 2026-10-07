@@ -99,10 +99,8 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			"while a Ready node carries it with allocatable gpu.intel.com/i915, and intel pools are held to it. "+
 			"Defaults to $"+cli.EnvGPUNodeLabelIntel+".")
 	fs.IntVar(&d.JobWindow, "job-window", d.JobWindow,
-		"Most TranscodeJobs a profile keeps that have not finished: it holds the next files, not one job per "+
-			"matching file. 0 is no limit.")
-	fs.DurationVar(&d.JobRetention, "job-retention", d.JobRetention,
-		"How long a Succeeded TranscodeJob is kept once its MediaFile has been re-probed. 0 keeps it for good.")
+		"Most files per TranscodeProfile in a window phase (Pending, Planned, Queued, Running, Swapping); "+
+			"0 is unlimited.")
 	fs.IntVar(&d.GraftConcurrency, "graft-concurrency", d.GraftConcurrency,
 		"Most audio grafts (AudioGraft Jobs, each a CPU pod of a cpu pool's size) running at once.")
 

@@ -22,7 +22,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Hardware classes a transcode slot can be budgeted against, from §12's
@@ -38,16 +37,13 @@ const (
 	HardwareIntel = "intel"
 )
 
-// DefaultJobWindow and DefaultJobRetention are --job-window's and
-// --job-retention's defaults.
-const (
-	DefaultJobWindow    = 32
-	DefaultJobRetention = 24 * time.Hour
-)
+// DefaultJobWindow is --job-window's default: the most files per
+// TranscodeProfile in a window phase (loop spec §5.11).
+const DefaultJobWindow = 32
 
 // DefaultSlots is §12's default budget: two concurrent CPU encodes and one per
-// GPU vendor. The scheduler dispatches a Planned TranscodeJob to its pool
-// only while a slot of its hardware class is free.
+// GPU vendor. Admission grants a file's dispatch to its pool only while a
+// slot of its hardware class is free (loop spec §5.6).
 func DefaultSlots() map[string]int32 {
 	return map[string]int32{HardwareCPU: 2, HardwareNVIDIA: 1, HardwareIntel: 1}
 }

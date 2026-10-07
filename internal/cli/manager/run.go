@@ -305,7 +305,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				Options: o.Options, Slots: o.Slots,
 				DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
 				IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
-				JobWindow: o.JobWindow, JobRetention: o.JobRetention, GraftConcurrency: o.GraftConcurrency,
+				JobWindow: o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
 				Logging: o.Logging, Tracing: o.Tracing,
 			})
 		}},

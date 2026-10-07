@@ -62,8 +62,9 @@ const (
 )
 
 // TraceParentEnv carries the W3C traceparent of the controller span that
-// created the Job (app/transcode/controller/transcodejob), so the worker's spans
-// join that trace ([ContextWithTraceParent]).
+// created a worker's Job, so the worker's spans join that trace
+// ([ContextWithTraceParent]). No controller sets it today: a pool task
+// carries its trace in the bus envelope's Clustarr-Trace header.
 const TraceParentEnv = "CLUSTARR_TRACEPARENT"
 
 // ContextWithTraceParent returns ctx carrying the remote span context

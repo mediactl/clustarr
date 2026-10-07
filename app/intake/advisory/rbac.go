@@ -17,8 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package advisory
 
-// CacheResolver reads MediaFiles and TranscodeJobs through the manager's
-// cache to resolve a terminated task's UID.
+// CacheResolver reads MediaFiles through the manager's cache to resolve a
+// terminated task's UID.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch

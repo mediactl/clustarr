@@ -686,29 +686,10 @@ rules:
   - transcode.clustarr.io
   resources:
   - audiografts/status
-  - transcodejobs/status
   - transcodeprofiles/status
   verbs:
   - get
   - patch
-  - update
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodejobs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodejobs/finalizers
-  verbs:
   - update
 # END generated from config/rbac/squasharr_role.yaml.
 {{- end }}

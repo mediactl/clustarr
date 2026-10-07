@@ -16247,7 +16247,7 @@ check() { go doc "$1" "$2" >/dev/null 2>&1 || { echo "MISSING $1 $2"; fail=1; };
 for s in Checks AddProbes LeaderOnly FieldIndex; do check ./pkg/k8s "$s"; done
 for s in Registration RegisterIndexes AssertIndexes NewSceneMaps; do check ./app/catalog/agent "$s"; done
 for p in catalog import indexer grab squash caption; do check ./app/$p/manager Register; check ./app/$p/manager Options; done
-for s in ParseSlots FormatSlots DefaultSlots DefaultJobWindow DefaultJobRetention; do check ./app/squash/manager "$s"; done
+for s in ParseSlots FormatSlots DefaultSlots DefaultJobWindow; do check ./app/squash/manager "$s"; done
 for p in app/catalog/agent/catalog app/catalog/agent/events app/catalog/agent/metadata app/import/agent app/indexer/agent app/caption/agent app/grab/agent/torrent app/grab/agent/usenet; do check ./$p Register; check ./$p Options; done
 for f in app/indexer/facadekey.go app/grab/proxy.go app/catalog/wiring.go; do test ! -e "$f" || { echo "STILL PRESENT $f"; fail=1; }; done
 grep -rn 'k8s.EveryReplica(loader.Run)' app/ && { echo "bundle loader is not LeaderOnly"; fail=1; }
@@ -38861,7 +38861,7 @@ for s in SlotsEnv ParseSlotOverrides SlotsFor; do check ./pkg/events "$s"; done
 check ./pkg/events Subscription.Drain; check ./pkg/events ConsumerSpec.Slots
 check ./pkg/agentdomain Domains
 for p in catalog import indexer grab squash caption; do check ./app/$p/manager Register; check ./app/$p/manager Options; done
-for s in ParseSlots FormatSlots DefaultSlots DefaultJobWindow DefaultJobRetention; do check ./app/squash/manager "$s"; done
+for s in ParseSlots FormatSlots DefaultSlots DefaultJobWindow; do check ./app/squash/manager "$s"; done
 for p in app/catalog/agent/catalog app/catalog/agent/events app/catalog/agent/metadata app/import/agent app/indexer/agent app/caption/agent app/grab/agent/torrent app/grab/agent/usenet; do check ./$p Register; check ./$p Options; done
 check ./app/catalog/agent Registration; check ./app/catalog/agent AssertIndexes
 check ./app/autoscale Register; check ./app/autoscale Options

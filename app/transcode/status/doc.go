@@ -27,20 +27,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // not enforce RBAC.
 //
 // config/rbac/role.yaml and the chart's copy of it ARE regenerated for these
-// four markers, because cmd/clustarr's TestGeneratedRoleCoversEveryStatusWriter
+// markers, because cmd/clustarr's TestGeneratedRoleCoversEveryStatusWriter
 // reads marker TEXT out of the tree and requires the generated Role to grant
 // every <resource>/status it finds. A marker without a regeneration is a
 // tree-wide test failure, not a note for later.
 //
-// transcode's OTHER rules -- the TranscodeProfile and TranscodeJob
-// reconcilers' own read/write access, batch/v1 Jobs, MediaFile reads -- are
-// not here, because the controllers and worker that need them do not exist
-// yet (tasks E-1 through E-3). This package's markers cover exactly what it
-// writes: both kinds' /status subresources, plus the read access this
-// package's own seed functions need to Get before applying.
+// transcode's OTHER rules -- the TranscodeProfile reconciler's and
+// transcode-admission's own read access, batch/v1 Jobs, MediaFile reads --
+// sit on those controllers. This package's markers cover exactly what it
+// writes: TranscodeProfile's /status subresource, plus the read access its
+// callers need to Get before applying. Nothing writes TranscodeJob status
+// any more (ADR-0016).
 //
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles/status,verbs=get;update;patch
 package status

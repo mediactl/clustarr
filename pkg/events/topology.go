@@ -195,8 +195,8 @@ func SubscriptionSpec(s Subscription) ConsumerSpec {
 // come and go with profiles, so the worker's Pull creates it, and
 // transcode's periodic sweep deletes it -- through StreamAdmin's
 // Subscriptions and DeleteSubscription, which removes its dead-letter
-// watcher too -- once no TranscodeProfile with its UID exists (the sweep in
-// app/transcode/controller/transcodejob/withdraw.go; spec §6.4). A profile
+// watcher too -- once no TranscodeProfile with its UID exists (admission's
+// sweep, app/transcode/admission/sweep.go; loop spec §5.6). A profile
 // that still exists keeps every class's durable, idle or not. There is no
 // Heartbeat: the worker sends InProgress
 // itself while it renews its lease (spec §17.3). AckWait governs redelivery
@@ -810,7 +810,7 @@ func defaultStreams() []StreamSpec {
 		durableStream(work(StreamWorkMarkers, FilterWorkMarkers, 256*MiB)),
 		{
 			Name:        StreamWorkTranscode,
-			Description: "Transcode tasks the transcode controller admitted, and the workers' status events.",
+			Description: "Transcode tasks the remediation loop dispatched.",
 			Subjects:    []string{FilterWorkTranscode},
 			Retention:   RetentionWorkQueue,
 			Storage:     StorageFile,
@@ -1092,15 +1092,6 @@ func defaultConsumers() []ConsumerSpec {
 			Slots:           16,
 			SampleFrequency: SampleFrequencyDispatched,
 			Dispatched:      true,
-		},
-		{
-			Name: ConsumerTranscodeResults, Stream: StreamWorkTranscode,
-			Description: "Worker status events: the transcode controller sets TranscodeJob status and decides the next step.",
-			Filters:     []string{FilterTranscodeResults},
-			AckWait:     30 * s, MaxDeliver: 10,
-			BackOff:       []time.Duration{5 * s, 30 * s, 2 * m},
-			MaxAckPending: 1,
-			Slots:         1,
 		},
 		{
 			Name: ConsumerDLQProjector, Stream: StreamDLQ,

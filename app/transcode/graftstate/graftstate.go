@@ -15,9 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package graftstate is what transcode's TranscodeProfile, TranscodeJob
-// and AudioGraft controllers share about an audio graft's state, kept apart
-// so none of the three imports another for it.
+// Package graftstate is what the transcode planner, transcode-admission and
+// the AudioGraft controller share about an audio graft's state, kept apart
+// so none of them imports another for it.
 package graftstate
 
 import (
@@ -31,8 +31,9 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
 
-// JoinedPrefix starts an AudioGraft's status.jobName when its graft rides
-// along with a TranscodeJob: "transcodejob/<name>".
+// JoinedPrefix starts an AudioGraft's status.jobName when its graft rode
+// along with a TranscodeJob: "transcodejob/<name>". Nothing joins one any
+// more; the AudioGraft controller settles such a graft alone.
 const JoinedPrefix = "transcodejob/"
 
 // Reason the AudioGraft controller gives a reduce Job.

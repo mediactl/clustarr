@@ -27,7 +27,6 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
@@ -435,36 +434,34 @@ func resolveJobEvent(key string, data []byte) Target {
 	return mediaFileTarget(p.File.Namespace, p.File.Name)
 }
 
-// resolveJobEventV1 resolves a v1 transcode event to its TranscodeJob (the
-// doomed controller's; F8.6 retires it).
+// resolveJobEventV1 resolves a v1 transcode event to its namespace alone:
+// nothing reads or writes a TranscodeJob any more, so a v1 event names no
+// object (loop spec §5.16). F8.6 deletes it.
 func resolveJobEventV1(key string, data []byte) Target {
 	var p schema.JobEventV1
-	if err := schema.Decode(p.Schema(), data, &p); err != nil {
-		return Target{Namespace: namespaceOf(key)}
-	}
-	return refTarget(p.JobRef, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
+	_ = schema.Decode(p.Schema(), data, &p)
+	return Target{Namespace: cmp.Or(p.JobRef.Namespace, namespaceOf(key))}
 }
 
-// transcodeTaskRef is the one field of app/transcode/task.Task a dead letter
-// needs: the TranscodeJob the task was dispatched for. It is decoded here
-// rather than importing app/transcode/task, which would make catalog depend
-// on transcode's worker types for one reference.
+// transcodeTaskRef is the one field of a v1 transcode task (one TranscodeJob
+// dispatch) a dead letter needs. It is decoded here rather than importing
+// app/transcode/task, which would make catalog depend on transcode's worker
+// types for one reference.
 type transcodeTaskRef struct {
 	Job schema.Ref `json:"job"`
 }
 
-// Schema implements schema.Payload; it is app/transcode/task.Task's.
+// Schema implements schema.Payload; it is app/transcode/task.TaskV1Schema.
 func (transcodeTaskRef) Schema() string { return "transcode.Task.v1" }
 
-// resolveTranscodeTask names the TranscodeJob a dead-lettered transcode task
-// was dispatched for, so the DLQ projector annotates it and transcode blocks
-// the job (spec §18.3).
+// resolveTranscodeTask resolves a dead-lettered v1 transcode task to its
+// namespace alone: nothing reads or writes a TranscodeJob any more, so the
+// DLQ projector annotates no object for it (loop spec §5.16). F8.6 deletes
+// it.
 func resolveTranscodeTask(key string, data []byte) Target {
 	var p transcodeTaskRef
-	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.Job.Name == "" {
-		return Target{Namespace: namespaceOf(key)}
-	}
-	return refTarget(p.Job, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
+	_ = schema.Decode(p.Schema(), data, &p)
+	return Target{Namespace: cmp.Or(p.Job.Namespace, namespaceOf(key))}
 }
 
 // resolveTranscodeTaskV2 names the MediaFile a dead-lettered v2 transcode

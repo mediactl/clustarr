@@ -99,7 +99,6 @@ const (
 	FilterWorkCaption         = "clustarr.work.caption.>"
 	FilterWorkTranscode       = "clustarr.work.transcode.>"
 	FilterWorkMarkers         = "clustarr.work.markers.>"
-	FilterTranscodeResults    = "clustarr.work.transcode.result.>"
 	FilterAllDLQ              = "clustarr.dlq.>"
 	FilterCatalogSearch       = "clustarr.work.catalog.search.>"
 	FilterCatalogMetadata     = "clustarr.work.catalog.metadata.>"
@@ -138,7 +137,6 @@ const (
 	ConsumerIndexRSS             = "index-rss"
 	ConsumerCaptionFetchHigh     = "caption-fetch-high"
 	ConsumerCaptionFetchNormal   = "caption-fetch-normal"
-	ConsumerTranscodeResults     = "transcode-results"
 	ConsumerDLQProjector         = "clustarr-dlq-projector"
 	ConsumerCatalogArtworkFetch  = "catalog-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalog-artwork-render"
@@ -595,21 +593,9 @@ const TranscodeLeaseTTL = 90 * time.Second
 // WorkTranscodeTaskSubject is where the remediation loop publishes one
 // MediaFile's transcode dispatch for the pool of its profile and hardware
 // class (loop spec §4.12): the profile's UID, the class, and the MediaFile's
-// UID (the TranscodeJob's, from the doomed controller, until F6.6). Profile
-// and file are UIDs because a profile name may contain ".".
+// UID. Profile and file are UIDs because a profile name may contain ".".
 func WorkTranscodeTaskSubject(profileUID, class, fileUID string) string {
 	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.%s", tok(profileUID), tok(class), tok(fileUID))
-}
-
-// WorkTranscodeTaskSubjectAnyProfile is jobUID's task subject with a
-// wildcard in place of the profile token: the job UID alone already
-// identifies the subject uniquely, so withdrawal (ruling R23) does not need
-// to resolve the TranscodeProfile -- which may be gone, or momentarily
-// unreadable -- just to purge a task it dispatched. A caller passes it to
-// PurgeSubject, which every [StreamAdmin] implementation purges as a
-// wildcard, not a literal subject.
-func WorkTranscodeTaskSubjectAnyProfile(class, jobUID string) string {
-	return fmt.Sprintf("clustarr.work.transcode.task.*.%s.%s", tok(class), tok(jobUID))
 }
 
 // WorkTranscodeTaskSubjectAnyPool is a MediaFile's task subject with
@@ -620,12 +606,6 @@ func WorkTranscodeTaskSubjectAnyProfile(class, jobUID string) string {
 // is for PurgeSubject and Subjects.
 func WorkTranscodeTaskSubjectAnyPool(fileUID string) string {
 	return "clustarr.work.transcode.task.*.*." + tok(fileUID)
-}
-
-// WorkTranscodeResultSubject is where a worker publishes a job's status
-// events; transcode-results consumes them.
-func WorkTranscodeResultSubject(jobUID string) string {
-	return "clustarr.work.transcode.result." + tok(jobUID)
 }
 
 // FilterTranscodeTasks is one pool's share of CLUSTARR_WORK_TRANSCODE.
@@ -643,8 +623,7 @@ func TranscodeTaskConsumerName(profileUID, class string) string {
 }
 
 // TranscodeLeaseKey is a MediaFile's transcode lease in
-// clustarr-transcode-leases (a TranscodeJob's, from the doomed controller,
-// until F6.6).
+// clustarr-transcode-leases.
 func TranscodeLeaseKey(fileUID string) string { return "lease." + KVKeyToken(fileUID) }
 
 // MsgIDForTranscodeTask is a transcode dispatch's Msg-Id,
@@ -652,18 +631,6 @@ func TranscodeLeaseKey(fileUID string) string { return "lease." + KVKeyToken(fil
 // the stream's Duplicates window is absorbed, and the next seq never is.
 func MsgIDForTranscodeTask(mfUID string, seq int64) string {
 	return "transcode/" + mfUID + "/" + strconv.FormatInt(seq, 10)
-}
-
-// MsgIDForTranscodeJobTask carries a TranscodeJob's dispatch count (the
-// doomed controller's, until F6.6).
-func MsgIDForTranscodeJobTask(jobUID string, attempt int32) string {
-	return jobUID + "/" + strconv.Itoa(int(attempt))
-}
-
-// MsgIDForTranscodeEvent makes a re-published status event a duplicate;
-// delivery separates two workers' runs of one attempt.
-func MsgIDForTranscodeEvent(jobUID string, attempt int32, delivery, seq uint64) string {
-	return fmt.Sprintf("%s/%d/%d/%d", jobUID, attempt, delivery, seq)
 }
 
 // SubjectMatches reports whether subject matches a NATS subject filter, with

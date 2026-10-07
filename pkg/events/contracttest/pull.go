@@ -183,22 +183,22 @@ func testPurgeSubject(t *testing.T, newBus func() events.Bus) {
 	nothingWithin(ctx, t, p, 500*time.Millisecond)
 }
 
-// testPurgeSubjectWildcard is ruling R23: withdraw purges a TranscodeJob's
-// task with a wildcard in place of the profile token
-// (events.WorkTranscodeTaskSubjectAnyProfile), since it does not resolve
-// the TranscodeProfile any more. The purge must match every subject that
-// differs only in the wildcarded token -- across profiles here -- and leave
-// a sibling that differs in a token the filter does NOT wildcard (the job
+// testPurgeSubjectWildcard is ruling R23 (loop spec §5.10): withdrawal
+// purges a MediaFile's task with wildcards in place of the profile and class
+// tokens (events.WorkTranscodeTaskSubjectAnyPool), since it does not resolve
+// the TranscodeProfile. The purge must match every subject that differs
+// only in the wildcarded tokens -- across profiles here -- and leave a
+// sibling that differs in a token the filter does NOT wildcard (the file
 // here) alone.
 func testPurgeSubjectWildcard(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
 	ps, sa := pullBus(t, bus)
 	publishTask(ctx, t, bus, "profA", "job1") // matches: only the profile token differs from the filter
 	publishTask(ctx, t, bus, "profB", "job1") // matches, under an entirely different profile
-	publishTask(ctx, t, bus, "profA", "job2") // sibling: the job token differs -- must survive
+	publishTask(ctx, t, bus, "profA", "job2") // sibling: the file token differs -- must survive
 
 	if err := sa.PurgeSubject(ctx, events.StreamWorkTranscode,
-		events.WorkTranscodeTaskSubjectAnyProfile("cpu", "job1")); err != nil {
+		events.WorkTranscodeTaskSubjectAnyPool("job1")); err != nil {
 		t.Fatalf("PurgeSubject (wildcard): %v", err)
 	}
 
