@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -83,6 +84,28 @@ const (
 	IndexIssueComicNumber = "rssmatcher.clustarr.io/issue-comic-number"
 )
 
+// FieldIndexes declares the thirteen indexes Match needs: six for movies
+// and series, then seven for the non-video kinds (nonvideo.go), in the order
+// IndexFields registers them. The events domain declares them and the
+// process registers each once (spec §3.5.2 step 9, §5.7).
+func FieldIndexes() []k8s.FieldIndex {
+	return []k8s.FieldIndex{
+		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTmdbID, Extract: movieTmdbIDKeys},
+		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTvdbID, Extract: seriesTvdbIDKeys},
+		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTitleYear, Extract: movieTitleYearKeys},
+		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTitleYear, Extract: seriesTitleYearKeys},
+		{Object: &catalogv1alpha1.Episode{}, Name: IndexEpisodeSeriesSeason, Extract: episodeSeasonKeys},
+		{Object: &catalogv1alpha1.Episode{}, Name: IndexEpisodeSeriesAbsolute, Extract: episodeAbsoluteKeys},
+		{Object: &catalogv1alpha1.Artist{}, Name: IndexArtistName, Extract: artistNameKeys},
+		{Object: &catalogv1alpha1.Album{}, Name: IndexAlbumArtistTitle, Extract: albumKeys},
+		{Object: &catalogv1alpha1.Author{}, Name: IndexAuthorName, Extract: authorNameKeys},
+		{Object: &catalogv1alpha1.Book{}, Name: IndexBookAuthorTitle, Extract: bookKeys},
+		{Object: &catalogv1alpha1.Audiobook{}, Name: IndexAudiobookAuthorTitle, Extract: audiobookKeys},
+		{Object: &catalogv1alpha1.Comic{}, Name: IndexComicTitle, Extract: comicTitleKeys},
+		{Object: &catalogv1alpha1.Issue{}, Name: IndexIssueComicNumber, Extract: issueKeys},
+	}
+}
+
 // IndexFields registers the thirteen indexes Match needs: six for movies
 // and series, seven for the non-video kinds (nonvideo.go). Call it once per
 // manager, before the cache starts.
@@ -90,67 +113,55 @@ const (
 // It takes a client.FieldIndexer rather than a ctrl.Manager so a test can
 // drive it with a fake indexer, and so the call site reads the same whether
 // the indexer comes from a manager or from somewhere else.
+//
+// It registers exactly FieldIndexes. The agent's process registers declared
+// indexes itself; this stays for tests that build a manager by hand.
 func IndexFields(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Movie{}, IndexMovieTmdbID, func(o client.Object) []string {
-		m, ok := o.(*catalogv1alpha1.Movie)
-		if !ok || m.Spec.TmdbID == 0 {
-			return nil
-		}
-		return []string{strconv.FormatInt(m.Spec.TmdbID, 10)}
-	}); err != nil {
-		return err
-	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Series{}, IndexSeriesTvdbID, func(o client.Object) []string {
-		s, ok := o.(*catalogv1alpha1.Series)
-		if !ok || s.Spec.TvdbID == 0 {
-			return nil
-		}
-		return []string{strconv.FormatInt(s.Spec.TvdbID, 10)}
-	}); err != nil {
-		return err
-	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Movie{}, IndexMovieTitleYear, movieTitleYearKeys); err != nil {
-		return err
-	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Series{}, IndexSeriesTitleYear, seriesTitleYearKeys); err != nil {
-		return err
-	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Episode{}, IndexEpisodeSeriesSeason, func(o client.Object) []string {
-		ep, ok := o.(*catalogv1alpha1.Episode)
-		if !ok || ep.Spec.SeriesRef == "" {
-			return nil
-		}
-		return []string{seasonKey(ep.Spec.SeriesRef, ep.Spec.SeasonNumber)}
-	}); err != nil {
-		return err
-	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.Episode{}, IndexEpisodeSeriesAbsolute, func(o client.Object) []string {
-		ep, ok := o.(*catalogv1alpha1.Episode)
-		if !ok || ep.Spec.SeriesRef == "" || ep.Status.AbsoluteNumber == nil {
-			return nil
-		}
-		return []string{absoluteKey(ep.Spec.SeriesRef, *ep.Status.AbsoluteNumber)}
-	}); err != nil {
-		return err
-	}
-	for _, f := range []struct {
-		obj     client.Object
-		name    string
-		extract client.IndexerFunc
-	}{
-		{&catalogv1alpha1.Artist{}, IndexArtistName, artistNameKeys},
-		{&catalogv1alpha1.Album{}, IndexAlbumArtistTitle, albumKeys},
-		{&catalogv1alpha1.Author{}, IndexAuthorName, authorNameKeys},
-		{&catalogv1alpha1.Book{}, IndexBookAuthorTitle, bookKeys},
-		{&catalogv1alpha1.Audiobook{}, IndexAudiobookAuthorTitle, audiobookKeys},
-		{&catalogv1alpha1.Comic{}, IndexComicTitle, comicTitleKeys},
-		{&catalogv1alpha1.Issue{}, IndexIssueComicNumber, issueKeys},
-	} {
-		if err := idx.IndexField(ctx, f.obj, f.name, f.extract); err != nil {
+	for _, fi := range FieldIndexes() {
+		if err := idx.IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// movieTmdbIDKeys is IndexMovieTmdbID's value function: spec.tmdbID as a
+// decimal string, and nothing for a Movie without one.
+func movieTmdbIDKeys(o client.Object) []string {
+	m, ok := o.(*catalogv1alpha1.Movie)
+	if !ok || m.Spec.TmdbID == 0 {
+		return nil
+	}
+	return []string{strconv.FormatInt(m.Spec.TmdbID, 10)}
+}
+
+// seriesTvdbIDKeys is IndexSeriesTvdbID's value function: spec.tvdbID as a
+// decimal string, and nothing for a Series without one.
+func seriesTvdbIDKeys(o client.Object) []string {
+	s, ok := o.(*catalogv1alpha1.Series)
+	if !ok || s.Spec.TvdbID == 0 {
+		return nil
+	}
+	return []string{strconv.FormatInt(s.Spec.TvdbID, 10)}
+}
+
+// episodeSeasonKeys is IndexEpisodeSeriesSeason's value function.
+func episodeSeasonKeys(o client.Object) []string {
+	ep, ok := o.(*catalogv1alpha1.Episode)
+	if !ok || ep.Spec.SeriesRef == "" {
+		return nil
+	}
+	return []string{seasonKey(ep.Spec.SeriesRef, ep.Spec.SeasonNumber)}
+}
+
+// episodeAbsoluteKeys is IndexEpisodeSeriesAbsolute's value function: only
+// an Episode whose absolute number is known is indexed.
+func episodeAbsoluteKeys(o client.Object) []string {
+	ep, ok := o.(*catalogv1alpha1.Episode)
+	if !ok || ep.Spec.SeriesRef == "" || ep.Status.AbsoluteNumber == nil {
+		return nil
+	}
+	return []string{absoluteKey(ep.Spec.SeriesRef, *ep.Status.AbsoluteNumber)}
 }
 
 // TitleYearKey is the IndexMovieTitleYear / IndexSeriesTitleYear value for

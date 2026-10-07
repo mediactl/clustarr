@@ -25,6 +25,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // MediaFileByTargetIndexKey is the cache field index this worker looks a
@@ -37,30 +38,47 @@ import (
 // Movie of the same name.
 const MediaFileByTargetIndexKey = ".spec.mediaRef.target"
 
-// IndexMediaFileByTarget registers [MediaFileByTargetIndexKey] on the
-// manager's cache. It must be called before the manager starts, exactly like
+// FieldIndexes declares the one index the file-import worker reads:
+// [MediaFileByTargetIndexKey] on MediaFile. The import domain declares it
+// and the process registers it once (spec §3.5.2 step 9, §5.7).
+func FieldIndexes() []k8s.FieldIndex {
+	return []k8s.FieldIndex{{
+		Object: &catalogv1alpha1.MediaFile{}, Name: MediaFileByTargetIndexKey, Extract: mediaFileTargetKeys,
+	}}
+}
+
+// mediaFileTargetKeys is [MediaFileByTargetIndexKey]'s value function.
+func mediaFileTargetKeys(o client.Object) []string {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok || mf.Spec.MediaRef.Name == "" {
+		return nil
+	}
+	ref := mf.Spec.MediaRef
+	keys := []string{targetKey(string(ref.Kind), ref.Name)}
+	if ref.Kind == commonv1.MediaKindEpisode {
+		// A multi-episode file backs every episode in keys
+		// (EpisodeFileRef), and is each one's existing file.
+		for _, k := range ref.Keys {
+			if k != ref.Name {
+				keys = append(keys, targetKey(string(ref.Kind), k))
+			}
+		}
+	}
+	return keys
+}
+
+// IndexMediaFileByTarget registers [FieldIndexes] on the manager's cache. It
+// must be called before the manager starts, exactly like
 // app/import/worker/rescan.IndexMediaFileByPath -- the informer is built with
-// the indexes it was given.
+// the indexes it was given. The agent's process registers declared indexes
+// itself; this stays for tests that build a manager by hand.
 func IndexMediaFileByTarget(ctx context.Context, mgr ctrl.Manager) error {
-	return mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, MediaFileByTargetIndexKey,
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Name == "" {
-				return nil
-			}
-			ref := mf.Spec.MediaRef
-			keys := []string{targetKey(string(ref.Kind), ref.Name)}
-			if ref.Kind == commonv1.MediaKindEpisode {
-				// A multi-episode file backs every episode in keys
-				// (EpisodeFileRef), and is each one's existing file.
-				for _, k := range ref.Keys {
-					if k != ref.Name {
-						keys = append(keys, targetKey(string(ref.Kind), k))
-					}
-				}
-			}
-			return keys
-		})
+	for _, fi := range FieldIndexes() {
+		if err := mgr.GetFieldIndexer().IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // targetKey builds the index value for a MediaRef's kind and name.

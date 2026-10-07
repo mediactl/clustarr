@@ -28,6 +28,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -45,23 +46,44 @@ import (
 // neither does a Download already being deleted.
 const IndexDownloadTarget = "search.clustarr.io/download-target"
 
-// RegisterDownloadIndexes adds the one field index the search worker needs on
-// Download: "is there already an active Download for this target" (the
-// queue). Call it once per manager, before the cache starts.
+// FieldIndexes declares the one index the search worker reads on Download:
+// the per-target live queue (IndexDownloadTarget). The RSS matcher reads it
+// too, so the catalog and events domains both declare it and the process
+// registers it once (spec §5.7).
+func FieldIndexes() []k8s.FieldIndex {
+	return []k8s.FieldIndex{{Object: &downloadv1alpha1.Download{}, Name: IndexDownloadTarget, Extract: downloadTargetKeys}}
+}
+
+// downloadTargetKeys is IndexDownloadTarget's value function: a non-terminal
+// Download's target, and nothing for any other.
+func downloadTargetKeys(o client.Object) []string {
+	d, ok := o.(*downloadv1alpha1.Download)
+	if !ok || !rollup.DownloadNonTerminal(d) {
+		return nil
+	}
+	return []string{TargetIndexValue(d.Spec.Target)}
+}
+
+// RegisterDownloadIndexes registers FieldIndexes on idx: the one field index
+// the search worker needs on Download, "is there already an active Download
+// for this target" (the queue). Call it once per manager, before the cache
+// starts.
 //
 // The blocklist has no index. It is one List of the Downloads carrying
 // download.clustarr.io/blocklisted per decision (LoadBlocklist) -- see that
 // label's doc comment for why the blocklist has no CRD of its own -- and the
 // two blocklist indexes this used to register, by info hash and by title,
 // were read by nothing once LoadBlocklist replaced the per-release lookups.
+//
+// The agent's process registers declared indexes itself; this stays for
+// tests that build a manager by hand.
 func RegisterDownloadIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	return idx.IndexField(ctx, &downloadv1alpha1.Download{}, IndexDownloadTarget, func(o client.Object) []string {
-		d, ok := o.(*downloadv1alpha1.Download)
-		if !ok || !rollup.DownloadNonTerminal(d) {
-			return nil
+	for _, fi := range FieldIndexes() {
+		if err := idx.IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
+			return err
 		}
-		return []string{TargetIndexValue(d.Spec.Target)}
-	})
+	}
+	return nil
 }
 
 // TargetIndexValue is the IndexDownloadTarget key for one catalog item. It is
