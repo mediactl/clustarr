@@ -53,7 +53,7 @@ var ErrConflict = records.ErrRaced
 
 // MaxValue is clustarr-probes' MaxValueSize (loop spec §4.3): a probe answer's
 // MediaInfo runs to about 153 KB at the schema's worst case.
-const MaxValue = 256 << 10
+const MaxValue = events.ProbesMaxValueSize
 
 // Option configures a Store.
 type Option func(*Store)

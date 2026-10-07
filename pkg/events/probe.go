@@ -128,5 +128,8 @@ func probeBucket() BucketSpec {
 		Name: BucketProbes, Description: "One probe record per MediaFile UID.",
 		TTL: probeRecordTTL, History: 1, Storage: StorageFile, Replicas: 3,
 		LimitMarkerTTL: 5 * time.Minute, Durable: true,
+		// A records bucket (loop spec 2026-10-06 §4.3): Validate holds it to
+		// the records rule.
+		Records: true, MaxBytes: ProbesMaxBytes, MaxValueSize: ProbesMaxValueSize,
 	}
 }

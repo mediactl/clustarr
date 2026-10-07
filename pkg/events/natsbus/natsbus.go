@@ -122,6 +122,9 @@ type Bus struct {
 	objectStores map[string]jetstream.ObjectStore
 	responders   []*nats.Subscription
 	subs         []*subscription
+	// retired keeps, per retired durable, what Ensure found of it
+	// (events.MergeRetired).
+	retired map[string]events.RetiredReport
 
 	// serveCtx parents every responder's handler context; Close cancels it,
 	// so handlers still running or waiting for a slot stop with the bus.
@@ -180,6 +183,7 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 		opts:         o,
 		buckets:      map[string]jetstream.KeyValue{},
 		objectStores: map[string]jetstream.ObjectStore{},
+		retired:      map[string]events.RetiredReport{},
 	}, nil
 }
 
@@ -188,15 +192,29 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 func (b *Bus) JetStream() jetstream.JetStream { return b.js }
 
 // Ensure applies t and remembers it, so Publish can resolve a subject to its
-// stream without a round trip.
+// stream without a round trip, then retires t.Retired (events.Retire).
 func (b *Bus) Ensure(ctx context.Context, t events.Topology) error {
 	if err := events.EnsureTopology(ctx, b.js, t); err != nil {
 		return err
 	}
+	// The retirement runs last: t.Retired names durables a release removed,
+	// which Ensure deletes and purges every time (loop spec 2026-10-06
+	// §4.15, §7.3.9).
+	reports, err := events.Retire(ctx, b, t.Retired, time.Now().UTC())
 	b.mu.Lock()
 	b.topology = t
+	events.MergeRetired(b.retired, reports)
 	b.mu.Unlock()
-	return nil
+	return err
+}
+
+var _ events.RetiredReporter = (*Bus)(nil)
+
+// RetiredReports implements events.RetiredReporter.
+func (b *Bus) RetiredReports() []events.RetiredReport {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return events.SortedRetired(b.retired)
 }
 
 // Close stops every subscription and responder. It does not close the NATS

@@ -66,6 +66,7 @@ const (
 
 // Byte-size helpers for stream limits.
 const (
+	KiB = 1 << 10
 	MiB = 1 << 20
 	GiB = 1 << 30
 )
@@ -226,6 +227,17 @@ type BucketSpec struct {
 	// bucket whose contents are not rebuilt soon after a NATS restart and
 	// that has no TTL bounding it inside the memory store.
 	Durable bool
+
+	// Records marks a records bucket (loop spec 2026-10-06 §4.3): one
+	// compare-and-swap record per MediaFile UID, every write through
+	// pkg/records. Validate holds it to Durable, History 1, MaxBytes and
+	// MaxValueSize set, and a TTL of 0 or at least RecordsMinTTL.
+	Records bool
+	// MaxBytes bounds the bucket; 0 is unbounded. A KV stream discards new,
+	// so a full bucket refuses a write rather than evicting a live record.
+	MaxBytes int64
+	// MaxValueSize bounds one value; 0 is the server's limit.
+	MaxValueSize int32
 }
 
 // ObjectStoreSpec is the declarative configuration of one object-store
@@ -253,6 +265,9 @@ type Topology struct {
 	Consumers    []ConsumerSpec
 	Buckets      []BucketSpec
 	ObjectStores []ObjectStoreSpec
+	// Retired are durables a release removed: Ensure deletes each and purges
+	// its filter, every time (loop spec 2026-10-06 §4.15, §7.3.9).
+	Retired []RetiredConsumer
 }
 
 // TopologyKind is the kind of JetStream object a TopologyObject is.
@@ -451,6 +466,7 @@ func (t Topology) clone() Topology {
 		Consumers:    append([]ConsumerSpec(nil), t.Consumers...),
 		Buckets:      append([]BucketSpec(nil), t.Buckets...),
 		ObjectStores: append([]ObjectStoreSpec(nil), t.ObjectStores...),
+		Retired:      append([]RetiredConsumer(nil), t.Retired...),
 	}
 	for i := range out.Streams {
 		out.Streams[i].Subjects = append([]string(nil), out.Streams[i].Subjects...)
@@ -476,7 +492,11 @@ func (t Topology) clone() Topology {
 //     discards new messages, since delay profiles publish grabs into the
 //     future, and no stream pairs schedules with DiscardNew, which
 //     nats-server refuses;
-//   - the dead-letter stream and the advisory stream exist.
+//   - the dead-letter stream and the advisory stream exist;
+//   - every Records bucket is Durable, keeps one value, is bounded in bytes
+//     and per value, and keeps a record at least 7 days or forever;
+//   - every retired durable names a stream in the topology, is no longer a
+//     consumer, and purges only that stream's subjects.
 func (t Topology) Validate() error {
 	var errs []error
 	seen := map[string]StreamSpec{}
@@ -573,6 +593,26 @@ func (t Topology) Validate() error {
 				break
 			}
 		}
+		if b.Records {
+			if !b.Durable {
+				errs = append(errs, fieldErr(b.Name+".Durable", "a records bucket must be Durable: it holds the only copy of a worker's answer"))
+			}
+			if b.History != 1 {
+				errs = append(errs, fieldErr(b.Name+".History", "a records bucket keeps one value per key"))
+			}
+			if b.MaxBytes <= 0 {
+				errs = append(errs, fieldErr(b.Name+".MaxBytes", "a records bucket must be bounded"))
+			}
+			if b.MaxValueSize <= 0 {
+				errs = append(errs, fieldErr(b.Name+".MaxValueSize", "a records bucket must bound one value"))
+			}
+			if b.TTL != 0 && b.TTL < RecordsMinTTL {
+				errs = append(errs, fieldErr(b.Name+".TTL", "a records bucket keeps a record at least 7 days, longer than any request timeout"))
+			}
+			if b.TTL > 0 && b.LimitMarkerTTL <= 0 {
+				errs = append(errs, fieldErr(b.Name+".LimitMarkerTTL", "a records bucket with a TTL needs limit markers"))
+			}
+		}
 	}
 	objectStores := map[string]bool{}
 	for _, o := range t.ObjectStores {
@@ -590,6 +630,19 @@ func (t Topology) Validate() error {
 					"object store names cannot contain dots: "+o.Name))
 				break
 			}
+		}
+	}
+	for _, r := range t.Retired {
+		s, ok := seen[r.Stream]
+		switch {
+		case r.Durable == "":
+			errs = append(errs, fieldErr("RetiredConsumer.Durable", "is required"))
+		case !ok:
+			errs = append(errs, fieldErr(r.Durable+".Stream", "unknown stream "+r.Stream))
+		case names[r.Durable]:
+			errs = append(errs, fieldErr(r.Durable, "is both a consumer and retired"))
+		case r.Purge != "" && !subjectCovered(s.Subjects, r.Purge):
+			errs = append(errs, fieldErr(r.Durable+".Purge", "filter "+r.Purge+" is outside stream "+s.Name))
 		}
 	}
 	return errors.Join(errs...)
@@ -639,9 +692,9 @@ const (
 )
 
 // Default returns the production topology from the Clustarr design, the
-// probe queue (probe.go) included: its streams, every static durable consumer
-// and, for each, the dead-letter watcher Subscribe binds, its key/value
-// buckets and its object stores.
+// probe queue (probe.go) and the records buckets (records.go) included: its
+// streams, every static durable consumer and, for each, the dead-letter
+// watcher Subscribe binds, its key/value buckets and its object stores.
 //
 // Three declarations the design once carried are gone because nothing ever
 // used them (gap fixes Z2): the catalogarr-import consumer and its
@@ -650,13 +703,14 @@ const (
 // definitions-sync subject, which no worker consumed and nothing published,
 // because Cardigann definitions arrive through indexarr's startup bundle
 // loader; and the clustarr-search-cache bucket, which nothing read or wrote.
-// Ensure never deletes, so a broker that already holds the two consumers or
-// the bucket keeps them, idle and empty, until an operator removes them.
+// Ensure never deletes, except the durables Topology.Retired names, so a
+// broker that already holds the two consumers or the bucket keeps them, idle
+// and empty, until an operator removes them.
 func Default() Topology {
 	return Topology{
 		Streams:      append(defaultStreams(), probeStream()),
 		Consumers:    withDeadLetterWatchers(append(defaultConsumers(), probeConsumers()...)),
-		Buckets:      append(defaultBuckets(), probeBucket()),
+		Buckets:      append(append(defaultBuckets(), probeBucket()), recordBuckets()...),
 		ObjectStores: defaultObjectStores(),
 	}
 }
@@ -1053,6 +1107,10 @@ func defaultBuckets() []BucketSpec {
 		s.Durable = true
 		return s
 	}
+	records := func(s BucketSpec, maxBytes int64, maxValue int32) BucketSpec {
+		s.Records, s.MaxBytes, s.MaxValueSize = true, maxBytes, maxValue
+		return s
+	}
 	return []BucketSpec{
 		b(BucketLeases, 0, "Double-grab guard; keys are created, never put."),
 		b(BucketPending, 7*24*time.Hour, "Best pending candidate per media key."),
@@ -1071,7 +1129,7 @@ func defaultBuckets() []BucketSpec {
 		durable(b(BucketPlexExtras, 0, "Plex's extras per Plex id, for the Plex provider's extras route.")),
 		// Durable: only re-analysis rebuilds a file's raw segments, which the
 		// merge into status.markers needs (spec 2026-10-01 §5.2).
-		durable(b(BucketSegments, 0, "Raw segment analysis per MediaFile.")),
+		records(durable(b(BucketSegments, 0, "Raw segment analysis per MediaFile.")), SegmentsMaxBytes, SegmentsMaxValueSize),
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
 		b(BucketTranscodeLeases, TranscodeLeaseTTL,
 			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; squasharr writes cancel markers."),

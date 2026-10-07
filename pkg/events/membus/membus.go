@@ -89,6 +89,9 @@ type Bus struct {
 	objectStores map[string]*objectBucket
 	responders   map[string][]*responder
 	subs         map[*memSub]struct{} // running Subscribe calls, for Wedged
+	// retired keeps, per retired durable, what Ensure found of it
+	// (events.MergeRetired).
+	retired map[string]events.RetiredReport
 
 	stopOnce sync.Once
 	done     chan struct{}
@@ -119,14 +122,38 @@ func New(clock clockwork.Clock, opts ...Option) *Bus {
 		objectStores: map[string]*objectBucket{},
 		responders:   map[string][]*responder{},
 		subs:         map[*memSub]struct{}{},
+		retired:      map[string]events.RetiredReport{},
 		done:         make(chan struct{}),
 	}
 }
 
-// Ensure creates or updates the streams, consumers and buckets in t. Existing
+// Ensure creates or updates every stream, bucket and object store in t, then
+// retires t.Retired (events.Retire).
+func (b *Bus) Ensure(ctx context.Context, t events.Topology) error {
+	if err := b.ensure(t); err != nil {
+		return err
+	}
+	reports, err := events.Retire(ctx, b, t.Retired, b.clock.Now().UTC())
+	b.mu.Lock()
+	events.MergeRetired(b.retired, reports)
+	b.mu.Unlock()
+	return err
+}
+
+var _ events.RetiredReporter = (*Bus)(nil)
+
+// RetiredReports implements events.RetiredReporter.
+func (b *Bus) RetiredReports() []events.RetiredReport {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return events.SortedRetired(b.retired)
+}
+
+// ensure creates or updates the streams, consumers and buckets in t. Existing
 // messages survive an update, and a changed retention policy is refused
-// exactly as natsbus refuses it.
-func (b *Bus) Ensure(_ context.Context, t events.Topology) error {
+// exactly as natsbus refuses it. It holds b.mu, so the retirement, which
+// calls the bus's own StreamAdmin methods, runs after it returns.
+func (b *Bus) ensure(t events.Topology) error {
 	if err := t.Validate(); err != nil {
 		return fmt.Errorf("membus: invalid topology: %w", err)
 	}

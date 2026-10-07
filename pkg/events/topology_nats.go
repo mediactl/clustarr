@@ -143,6 +143,9 @@ func KeyValueConfig(b BucketSpec) jetstream.KeyValueConfig {
 		Storage:        natsStorage(b.Storage),
 		Replicas:       max(b.Replicas, 1),
 		LimitMarkerTTL: b.LimitMarkerTTL,
+		// nats.go maps 0 to unlimited (jetstream/kv.go).
+		MaxBytes:     b.MaxBytes,
+		MaxValueSize: b.MaxValueSize,
 	}
 }
 
