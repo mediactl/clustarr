@@ -52,6 +52,10 @@ func KnownType(t catalogv1alpha1.ImageType) bool {
 type Source struct {
 	URL  string
 	Kind catalogv1alpha1.ArtworkSource
+	// Language is the provider image's ISO 639-1 language (Image.Language),
+	// recorded in the object's metadata (artwork design §B.2 as amended
+	// 2026-10-07); "" for a custom override or an image that names none.
+	Language string
 }
 
 // ResolveSources picks one source per image type (spec §B.4): the
@@ -64,7 +68,7 @@ func ResolveSources(overrides []catalogv1alpha1.ArtworkOverride, images []catalo
 		if _, taken := out[img.Type]; taken || !KnownType(img.Type) || !Fetchable(img.URL) {
 			continue
 		}
-		out[img.Type] = Source{URL: img.URL, Kind: catalogv1alpha1.ArtworkSourceProvider}
+		out[img.Type] = Source{URL: img.URL, Kind: catalogv1alpha1.ArtworkSourceProvider, Language: img.Language}
 	}
 	for _, o := range overrides {
 		if o.URL == "" || !KnownType(o.Type) {

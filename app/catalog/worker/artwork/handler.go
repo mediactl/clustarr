@@ -39,6 +39,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	gateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
@@ -55,12 +56,13 @@ import (
 // The overlay object's headers beyond the gateway's (spec §B.2).
 const (
 	// HeaderRenderedFrom is the inputs digest an overlay was rendered from
-	// (InputsDigest). An original never carries it.
-	HeaderRenderedFrom = "Clustarr-Rendered-From"
+	// (InputsDigest). An original never carries it. An alias: the name
+	// lives in app/catalog/artwork, which builds every object's whole set.
+	HeaderRenderedFrom = catalogartwork.HeaderRenderedFrom
 
 	// SourceRender is an overlay's Clustarr-Source: neither the provider's
-	// nor a custom image, but this role's.
-	SourceRender = "render"
+	// nor a custom image, but this role's (an alias, like HeaderRenderedFrom).
+	SourceRender = catalogartwork.SourceRender
 
 	// ContentTypeJPEG is every overlay's Content-Type.
 	ContentTypeJPEG = "image/jpeg"
