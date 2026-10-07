@@ -13,8 +13,9 @@ ENVTEST_K8S_VERSION ?= 1.37.0
 # TestPostgresStoreContract runs instead of skipping.
 PG_ASSETS ?= $(GOBIN)/pg-assets
 IMG ?= ghcr.io/mediactl/clustarr:dev
-MEDIA_IMG ?= ghcr.io/mediactl/clustarr/media:dev
-TRANSCODER_IMG ?= ghcr.io/mediactl/clustarr/transcoder:dev
+NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev
+NATIVE_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/native-debug:dev
+IMAGE_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # The ffgo fork, which go.mod replaces with a local directory until its tag is
 # published (spec §7.6, R12; Wave 0 of
 # docs/superpowers/plans/2026-10-06-manager-agent-split.md names the
@@ -197,33 +198,16 @@ build: ## Build the five binaries.
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/markers ./cmd/markers
 
 .PHONY: docker-build
-docker-build: contexts ## Build controller, media and transcoder images.
-	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
-	docker build -f images/Dockerfile.media -t $(MEDIA_IMG) .
-	docker build -f images/Dockerfile.transcoder --target transcoder -t $(TRANSCODER_IMG) .
+docker-build: contexts ## Build the clustarr (manager, ui) and native (agent, markers, transcode) images.
+	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
+	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
 
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): nvidia pools run
-# the transcoder image, the NVIDIA container runtime injecting the driver.
-# The transcoder is FROM scratch; its -debug twin adds a busybox.
-TRANSCODER_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/transcoder-debug:dev
-# The classes the transcoder image is self-checked for: it serves every
-# pool, cpu, nvidia and intel (ADR 0015).
-TRANSCODER_CLASSES ?= cpu cuda intel
-
-.PHONY: docker-build-transcoder
-docker-build-transcoder: ## Build the transcoder image and its -debug twin.
-	docker build -f images/Dockerfile.transcoder --target transcoder -t $(TRANSCODER_IMG) .
-	docker build -f images/Dockerfile.transcoder --target transcoder-debug -t $(TRANSCODER_DEBUG_IMG) .
-
-.PHONY: docker-selfcheck-transcoder
-docker-selfcheck-transcoder: ## Run --self-check in the transcoder image as the pool pods run it.
-	@set -e; for c in $(TRANSCODER_CLASSES); do \
-	  echo "== $(TRANSCODER_IMG) ($$c)"; \
-	  docker run --rm --read-only --cap-drop=ALL --user 1000:1000 $(TRANSCODER_IMG) --self-check=$$c >/dev/null; \
-	done; \
-	if docker run --rm --entrypoint /bin/sh $(TRANSCODER_IMG) -c true 2>/dev/null; then echo "$(TRANSCODER_IMG) has a shell" >&2; exit 1; fi; \
-	docker run --rm --entrypoint /bin/sh $(TRANSCODER_DEBUG_IMG) -c 'set -e; for f in /usr/share/licenses/ffmpeg/LICENSE.txt /usr/share/licenses/ffmpeg/SOURCE /usr/share/licenses/clustarr/LICENSE /usr/share/licenses/ffgo/LICENSE /usr/share/doc/libc6/copyright; do test -s $$f || { echo "missing notice $$f" >&2; exit 1; }; done; for f in /usr/bin/ffmpeg /usr/bin/ffprobe; do ! test -e $$f || { echo "$$f is in the image" >&2; exit 1; }; done'; \
-	echo "ok"
+# the native image, the NVIDIA container runtime injecting the driver.
+.PHONY: docker-build-native
+docker-build-native: contexts ## Build the native image and its -debug twin.
+	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
+	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
 
 ##@ Test
 

@@ -1,0 +1,219 @@
+# syntax=docker/dockerfile:1.7
+#
+# ghcr.io/mediactl/clustarr/native -- the agent, markers and transcode
+# binaries on FFmpeg 9's libraries, FROM scratch (spec 2026-10-06 §10.1.3,
+# R1, R2). Targets:
+#
+#   native        every agent domain (the download engines included), markers,
+#                 every transcode pool (cpu, nvidia, intel) and the graft
+#                 Jobs; amd64 and arm64 (Intel's VAAPI driver and QSV runtimes
+#                 on amd64 only)
+#   native-debug  the same plus a static busybox, for kubectl exec
+#
+#   make docker-build-native     # both, with the pinned build contexts
+#
+# No ENTRYPOINT: the image holds three binaries, so every container names its
+# own (pkg/binpath; TestEveryContainerNamesItsBinary), and one that names none
+# fails at once instead of starting the wrong program.
+#
+# There is no CUDA target (docs/adr/0015-no-cuda-image.md). An nvidia pool
+# runs `native`: the NVIDIA container runtime injects the driver's libraries
+# (libcuda, libnvidia-encode, libnvcuvid) into a pod that asks for them with
+# runtimeClassName, an nvidia.com/gpu request and
+# NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+# (app/squash/controller/pool.applyHardware).
+#
+# There is no ffmpeg, ffprobe or par2 executable in the image: every binary
+# runs FFmpeg through ffgo in-process, and (from §11.1 step 12) par2 through
+# par2go. stage.sh refuses all three, so a copy cannot creep back in.
+#
+# FFmpeg is BtbN's 9.0 shared GPL build (FFMPEG_RELEASE/FFMPEG_VERSION pin
+# one, checked by its SHA-256): NVENC/NVDEC and the CUDA filters, VAAPI
+# through libva (dlopen'ed), and the libvpl dispatcher. Only the seven
+# libraries ffgo and its shim load are staged (upgrade guide U3). They, the
+# ffgo shim compiled against the same tarball's headers from the fork's own
+# shim/ffshim.c, and ONNX Runtime live in /usr/lib, which the dynamic linker
+# searches without an ld.so.cache. hack/native-assets.sh reads the FFmpeg and
+# ONNX Runtime pins from this file's ARG defaults, so tests load what ships.
+
+ARG GO_VERSION=1.27
+ARG FFMPEG_BRANCH=9.0
+
+# Empty unless `--build-context ffgo=<dir>` replaces it (spec §7.6, §10.1.5):
+# go.mod replaces the ffgo fork with a local directory until its tag is
+# published. The COPY target is go.mod's directory as /src/.. sees it.
+# par2go is a published module and needs no stage (upgrade guide U1).
+FROM scratch AS ffgo
+
+# ---------------------------------------------------------------------------
+# build: agent (cgo, R13), markers and transcode (purego), and the ffgo
+# shim's source. Built on the target platform: the agent needs cgo.
+# ---------------------------------------------------------------------------
+FROM golang:${GO_VERSION}-bookworm AS build
+ARG VERSION=dev
+ARG FFGO_COMMIT=""
+WORKDIR /src
+ENV GOFLAGS=-trimpath
+COPY --from=ffgo / /ffgo-unify/
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    set -eux; \
+    ld="-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}"; \
+    CGO_ENABLED=1 go build -ldflags "${ld}" -o /out/agent ./cmd/agent; \
+    CGO_ENABLED=0 go build -ldflags "${ld}" -o /out/markers ./cmd/markers; \
+    CGO_ENABLED=0 go build -ldflags "${ld}" -o /out/transcode ./cmd/transcode; \
+    mkdir -p /out/ffgo /out/licenses/clustarr /out/licenses/ffgo; \
+    ffgo="$(go list -m -f '{{.Dir}}' github.com/obinnaokechukwu/ffgo)"; \
+    cp -r "${ffgo}/shim" /out/ffgo/; \
+    cp "${ffgo}/LICENSE" /out/licenses/ffgo/LICENSE; \
+    printf 'ffgo %s\nSource: https://github.com/mediactl/ffgo (a fork of https://github.com/obinnaokechukwu/ffgo)\n' \
+      "${FFGO_COMMIT:-$(go list -m -f '{{if .Replace}}{{.Replace.Path}} {{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/obinnaokechukwu/ffgo)}" \
+      > /out/licenses/ffgo/SOURCE; \
+    cp LICENSE /out/licenses/clustarr/LICENSE
+
+# ---------------------------------------------------------------------------
+# ffmpeg: BtbN's shared build into /usr, and the shim against its headers
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS ffmpeg
+ARG TARGETARCH
+ARG FFMPEG_BRANCH
+# One dated BtbN build, checked by its published SHA-256, so CI, the release
+# and hack/native-assets.sh use the same FFmpeg. FFMPEG_URL (with
+# FFMPEG_SHA256) overrides.
+ARG FFMPEG_RELEASE=autobuild-2026-09-30-13-08
+ARG FFMPEG_VERSION=n9.0.2-17-g2a571b6068
+ARG FFMPEG_SHA256_AMD64=01a9764d0b5364b66cfeb4617557c64321b0e232e172ec73f0a701c5f7694326
+ARG FFMPEG_SHA256_ARM64=706ccdbc8b0537646345532713a9b6750c0a6258cc001ec1c0379754f0ae730a
+ARG FFMPEG_URL=""
+ARG FFMPEG_SHA256=""
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils gcc libc6-dev \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/ffgo/shim /src/shim
+# Only the seven libraries ffgo and libffshim.so load (upgrade guide U3; the
+# shim links -lavdevice); each `cp -a` keeps the soname links, and stage.sh's
+# trace pulls each library's own dependencies.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) a=linux64; sum="${FFMPEG_SHA256_AMD64}" ;; \
+      arm64) a=linuxarm64; sum="${FFMPEG_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    url="https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/ffmpeg-${FFMPEG_VERSION}-${a}-gpl-shared-${FFMPEG_BRANCH}.tar.xz"; \
+    if [ -n "${FFMPEG_URL}" ]; then url="${FFMPEG_URL}"; sum="${FFMPEG_SHA256}"; fi; \
+    curl -fsSL -o /tmp/ff.tar.xz "${url}"; \
+    if [ -n "${sum}" ]; then echo "${sum}  /tmp/ff.tar.xz" | sha256sum -c -; fi; \
+    mkdir -p /opt/ffmpeg; \
+    tar -xJf /tmp/ff.tar.xz --strip-components=1 -C /opt/ffmpeg; \
+    mkdir -p /out/usr/lib /out/usr/share/licenses/ffmpeg; \
+    for l in avutil avcodec avformat avfilter avdevice swscale swresample; do cp -a /opt/ffmpeg/lib/lib${l}.so* /out/usr/lib/; done; \
+    cp /opt/ffmpeg/LICENSE.txt /out/usr/share/licenses/ffmpeg/LICENSE.txt; \
+    printf 'FFmpeg %s, built by BtbN/FFmpeg-Builds (GPL, shared): %s\nSource: https://github.com/FFmpeg/FFmpeg (the commit after the last "g" in the version)\nBuild scripts: https://github.com/BtbN/FFmpeg-Builds\n' \
+      "$(LD_LIBRARY_PATH=/opt/ffmpeg/lib /opt/ffmpeg/bin/ffmpeg -hide_banner -version 2>/dev/null | head -n1 || echo "${FFMPEG_VERSION}")" "${url}" \
+      > /out/usr/share/licenses/ffmpeg/SOURCE; \
+    gcc -shared -fPIC -O2 -Wall -DFFSHIM_HAVE_AVDEVICE=1 -DFFSHIM_HAVE_AVFILTER=1 \
+      -I/opt/ffmpeg/include -o /out/usr/lib/libffshim.so /src/shim/ffshim.c \
+      -L/opt/ffmpeg/lib -lavutil -lavcodec -lavformat -lavdevice -lavfilter
+
+# ---------------------------------------------------------------------------
+# ort: ONNX Runtime's shared library, for markers' text detector
+# (pkg/segments/textdet through onnxruntime-purego, C API 23 = ORT 1.23)
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS ort
+ARG TARGETARCH
+ARG ORT_VERSION=1.23.2
+ARG ORT_SHA256_AMD64=1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b
+ARG ORT_SHA256_ARM64=7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810241e5c
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) a=x64; sum="${ORT_SHA256_AMD64}" ;; \
+      arm64) a=aarch64; sum="${ORT_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/ort.tgz "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${a}-${ORT_VERSION}.tgz"; \
+    echo "${sum}  /tmp/ort.tgz" | sha256sum -c -; \
+    mkdir -p /tmp/ort /out/usr/lib /out/usr/share/licenses/onnxruntime; \
+    tar -xzf /tmp/ort.tgz --strip-components=1 -C /tmp/ort; \
+    install -m 0644 "/tmp/ort/lib/libonnxruntime.so.${ORT_VERSION}" /out/usr/lib/libonnxruntime.so; \
+    install -m 0644 /tmp/ort/LICENSE /tmp/ort/ThirdPartyNotices.txt /out/usr/share/licenses/onnxruntime/
+
+# ---------------------------------------------------------------------------
+# staging: lddtree everything the binaries load into /staging
+# ---------------------------------------------------------------------------
+# Staged from Debian 13: BtbN's FFmpeg 9 calls libva 2.21's vaMapBuffer2, and
+# Debian 12's libva 2.17 lacks it. glibc and libstdc++ run binaries built
+# against older versions, as the agent (bookworm, cgo) and BtbN's are.
+FROM debian:trixie-slim AS staging-base
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pax-utils ca-certificates gcc binutils \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=ffmpeg /out/ /
+COPY --from=ort /out/ /
+COPY --from=build /out/agent /out/markers /out/transcode /usr/bin/
+COPY --from=build /out/licenses/ /usr/share/licenses/
+COPY images/distroless/stage.sh /stage.sh
+
+# Intel (amd64 only): Debian 13's VAAPI driver (the non-free iHD build: the
+# free one has no HEVC 10-bit encode on Kaby Lake through Comet Lake) and
+# libva 2.22, and both QSV runtimes -- libmfx-gen for Gen12 and newer, and
+# Media SDK's libmfxhw64 for Broadwell..Ice Lake, which Debian 13 dropped, so
+# it alone comes from Debian 12. All of it is dlopen'ed, so it is named for
+# lddtree. On arm64 there is no Intel GPU to drive.
+#
+# Then the C++-symbol check (spec §7.6 item 2): ONNX Runtime is C++, and
+# FFmpeg's libraries must never export a C++ symbol beside it.
+FROM staging-base AS staging
+ARG TARGETARCH
+RUN set -eux; \
+    if [ "${TARGETARCH}" = amd64 ]; then \
+      sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.list.d/debian.sources; \
+      grep -q '^Components: main non-free$' /etc/apt/sources.list.d/debian.sources; \
+      printf 'Types: deb\nURIs: http://deb.debian.org/debian\nSuites: bookworm\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' \
+        > /etc/apt/sources.list.d/bookworm.sources; \
+      printf 'Package: *\nPin: release n=bookworm\nPin-Priority: 100\n' > /etc/apt/preferences.d/bookworm; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends intel-media-va-driver-non-free libmfx-gen1.2 libva2 libva-drm2 libmfx1/bookworm; \
+      rm -rf /var/lib/apt/lists/*; \
+      d=/usr/lib/x86_64-linux-gnu; \
+      export EXTRA_DLOPEN="$d/dri/iHD_drv_video.so $d/libva.so.2 $d/libva-drm.so.2 $d/libmfx-gen.so.1.2 $(ls $d/libmfx-gen/*.so) $d/libmfxhw64.so.1 $(ls $d/mfx/*.so)"; \
+    fi; \
+    /stage.sh /staging; \
+    if nm -D --defined-only /staging/usr/lib/libav*.so.* /staging/usr/lib/libsw*.so.* | grep -q ' _Z'; then \
+      echo 'FFmpeg exports C++ symbols beside ONNX Runtime' >&2; exit 1; \
+    fi
+
+# ---------------------------------------------------------------------------
+# native: FROM scratch, plus what one architecture alone needs
+# ---------------------------------------------------------------------------
+FROM scratch AS native-base
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr-native"
+COPY --from=staging /staging/ /
+ENV FFGO_SHIM_DIR=/usr/lib \
+    ORT_LIB_PATH=/usr/lib/libonnxruntime.so
+VOLUME ["/data"]
+USER 1000:1000
+
+# libva logs every driver load at info level on stderr; errors only keeps
+# FFmpeg's own error in a transcode's stderr tail. The driver path is where
+# staging put iHD, under amd64's multiarch directory.
+FROM native-base AS native-amd64
+ENV LIBVA_MESSAGING_LEVEL=1 \
+    LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
+    LIBVA_DRIVER_NAME=iHD
+
+# arm64 stages no libva and no driver (see staging), so it names none.
+FROM native-base AS native-arm64
+
+FROM native-${TARGETARCH} AS native
+
+FROM native AS native-debug
+COPY --from=busybox:1.37-musl /bin/ /bin/
+COPY images/distroless/busybox-SOURCE /usr/share/licenses/busybox/SOURCE
