@@ -21,3 +21,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // namespace, applied under clustarr-autoscale. MatchingNodes and RenderHPA
 // are its pure halves.
 package controller
+
+// The reconciler's RBAC (spec 2026-10-06 §9.5). horizontalpodautoscalers
+// carries create and update beside patch because a server-side apply that
+// creates the object needs them; deployments/scale carries get beside
+// update because k8s.ScaleTo reads the Scale before writing it; nodes is
+// the MatchingNodes watch.
+//
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments/scale,verbs=get;update
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
