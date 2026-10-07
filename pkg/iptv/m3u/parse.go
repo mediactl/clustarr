@@ -25,13 +25,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 )
 
 const (
-	// MaxBytes caps a playlist's size.
-	MaxBytes int64 = 64 << 20
-	// MaxEntries caps a playlist's channel count.
+	// MaxBytes caps a playlist's size. It is read line by line and only live
+	// entries are kept, so the cap bounds the read, not memory: an Xtream
+	// Codes m3u_plus lists the panel's whole VOD catalogue (recorded
+	// 2026-10-07: 328 MiB, 28,527 of its 1.24 million entries live).
+	MaxBytes int64 = 1 << 30
+	// MaxEntries caps a playlist's channel count, its live entries.
 	MaxEntries = 200000
 	// maxTvgKey is the longest tvg-id a "t:" key carries within the CRD's
 	// 64-byte key.
@@ -40,7 +44,7 @@ const (
 
 var (
 	// ErrResponseTooLarge is a playlist over MaxBytes.
-	ErrResponseTooLarge = errors.New("m3u: playlist larger than 64 MiB")
+	ErrResponseTooLarge = errors.New("m3u: playlist larger than 1 GiB")
 	// ErrTooManyEntries is a playlist over MaxEntries.
 	ErrTooManyEntries = fmt.Errorf("m3u: playlist has more than %d entries", MaxEntries)
 
@@ -75,7 +79,10 @@ func NameKey(group, name string) string {
 	return "n:" + strings.ToLower(nameKeyEncoding.EncodeToString(sum[:]))[:26]
 }
 
-// countingReader fails once more than MaxBytes have been read.
+// maxBytes is MaxBytes, lowered by tests (export_test.go).
+var maxBytes = MaxBytes
+
+// countingReader fails once more than maxBytes have been read.
 type countingReader struct {
 	r io.Reader
 	n int64
@@ -84,7 +91,7 @@ type countingReader struct {
 func (c *countingReader) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
 	c.n += int64(n)
-	if c.n > MaxBytes {
+	if c.n > maxBytes {
 		return n, ErrResponseTooLarge
 	}
 	return n, err
@@ -95,7 +102,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // gives every entry its Key: "t:<tvg-id>" when the tvg-id is non-empty,
 // unique in the playlist and short enough, else NameKey.
 func Parse(r io.Reader) (Playlist, error) {
-	sc := bufio.NewScanner(&countingReader{r: io.LimitReader(r, MaxBytes+1)})
+	sc := bufio.NewScanner(&countingReader{r: io.LimitReader(r, maxBytes+1)})
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	var (
 		pl      Playlist
@@ -140,6 +147,10 @@ func Parse(r io.Reader) (Playlist, error) {
 			if pending == nil {
 				continue
 			}
+			if xtreamVOD(line) {
+				pending = nil
+				continue
+			}
 			if len(pl.Entries) == MaxEntries {
 				return Playlist{}, ErrTooManyEntries
 			}
@@ -159,6 +170,18 @@ func Parse(r io.Reader) (Playlist, error) {
 	}
 	assignKeys(pl.Entries)
 	return pl, nil
+}
+
+// xtreamVOD reports whether a stream URL is an Xtream Codes movie or series
+// episode (/movie/<user>/<pass>/<id>.<ext>, /series/...), which an m3u_plus
+// lists beside the live channels and Live TV never relays.
+func xtreamVOD(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	first, _, _ := strings.Cut(strings.TrimPrefix(u.Path, "/"), "/")
+	return first == "movie" || first == "series"
 }
 
 func assignKeys(entries []Entry) {

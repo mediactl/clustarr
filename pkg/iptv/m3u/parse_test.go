@@ -106,7 +106,9 @@ func playlistOf(n int) string {
 }
 
 func TestTheCapsAreErrors(t *testing.T) {
-	_, err := m3u.Parse(io.MultiReader(strings.NewReader("#EXTM3U\n"), io.LimitReader(neverEnding{}, m3u.MaxBytes+2)))
+	restore := m3u.SetMaxBytes(1 << 20)
+	_, err := m3u.Parse(io.MultiReader(strings.NewReader("#EXTM3U\n"), io.LimitReader(neverEnding{}, 1<<20+2)))
+	restore()
 	require.ErrorIs(t, err, m3u.ErrResponseTooLarge)
 	_, err = m3u.Parse(strings.NewReader(playlistOf(m3u.MaxEntries + 1)))
 	require.ErrorIs(t, err, m3u.ErrTooManyEntries)
@@ -141,4 +143,59 @@ func (neverEnding) Read(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// An Xtream Codes m3u_plus lists the panel's movies and series beside its
+// live channels: recorded 2026-10-07, 28,527 live, 158,516 movie and
+// 1,055,592 series entries in 328 MiB. Live TV relays live streams only.
+const xtreamPlus = `#EXTM3U
+#EXTINF:-1 tvg-id="bbc.parliament.uk" tvg-name="UK - BBC PARLIAMENT FHD" group-title="EU | UK | GENERAL",UK - BBC PARLIAMENT FHD
+http://p.example:80/user/pass/1123276
+#EXTINF:-1 tvg-id="nbc.us" group-title="AM | USA | NBC",NBC
+http://p.example:80/live/user/pass/1123277.ts
+#EXTINF:-1 tvg-id="" group-title="MOVIES | ACTION",Heat (1995)
+http://p.example:80/movie/user/pass/55.mkv
+#EXTINF:-1 tvg-id="" group-title="SERIES | DRAMA",Show S01 E01
+http://p.example:80/series/user/pass/66.mp4
+`
+
+func TestXtreamMoviesAndSeriesAreNotEntries(t *testing.T) {
+	pl, err := m3u.Parse(strings.NewReader(xtreamPlus))
+	require.NoError(t, err)
+	names := make([]string, 0, len(pl.Entries))
+	for _, e := range pl.Entries {
+		names = append(names, e.Name)
+	}
+	require.Equal(t, []string{"UK - BBC PARLIAMENT FHD", "NBC"}, names)
+}
+
+func TestTheEntryCapCountsOnlyLiveEntries(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(playlistOf(m3u.MaxEntries))
+	for i := range 10 {
+		fmt.Fprintf(&b, "#EXTINF:-1 group-title=\"SERIES\",Show E%d\nhttp://p.example/series/u/p/%d.mkv\n", i, i)
+	}
+	pl, err := m3u.Parse(strings.NewReader(b.String()))
+	require.NoError(t, err)
+	require.Len(t, pl.Entries, m3u.MaxEntries)
+}
+
+func TestAnXtreamPlaylistOver64MiBOfSeriesParses(t *testing.T) {
+	pl, err := m3u.Parse(io.MultiReader(strings.NewReader(xtreamPlus), io.LimitReader(&seriesForever{}, 80<<20)))
+	require.NoError(t, err)
+	require.Len(t, pl.Entries, 2)
+}
+
+// seriesForever is Xtream series entries forever.
+type seriesForever struct{ buf []byte }
+
+func (s *seriesForever) Read(p []byte) (int, error) {
+	if len(s.buf) == 0 {
+		s.buf = []byte("#EXTINF:-1 tvg-id=\"\" tvg-logo=\"http://img.example/poster.jpg\" group-title=\"SERIES | DRAMA\",Show S01 E01\nhttp://p.example:80/series/user/pass/66.mp4\n")
+	}
+	n := 0
+	for n < len(p) {
+		n += copy(p[n:], s.buf)
+	}
+	return n, nil
 }
