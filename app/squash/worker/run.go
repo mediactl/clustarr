@@ -133,7 +133,7 @@ type Options struct {
 	Measurement *transcode.Measurement
 
 	// Engine runs a task planned for the in-process engine
-	// (task.EngineFFgo); nil when this pod cannot (cmd/squasharr-worker
+	// (task.EngineFFgo); nil when this pod cannot (cmd/transcode
 	// logs why), and such a task is retriable.
 	Engine Engine
 
@@ -256,7 +256,7 @@ func (r *runner) run(ctx context.Context) error {
 	log := logging.FromContext(ctx)
 
 	if r.o.Engine == nil {
-		// cmd/squasharr-worker logged why at start (no FFmpeg 9, no shim):
+		// cmd/transcode logged why at start (no FFmpeg 9, no shim):
 		// the task waits for a pod that can run it rather than failing here.
 		return retriable("squasharr worker: this pod has no in-process engine (the transcoder image carries FFmpeg 9 and the ffgo shim)")
 	}

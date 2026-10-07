@@ -43,7 +43,7 @@ import (
 )
 
 // Engine is the in-process transcoder, the worker's only one:
-// app/squash/worker/inprocess, which cmd/squasharr-worker supplies through
+// app/squash/worker/inprocess, which cmd/transcode supplies through
 // Options.Engine. This package never imports it: cmd/clustarr imports this
 // package for planning and must stay a static binary, and ffgo's purego
 // would make it a dynamic one (TestClustarrNeverLinksADynamicLoader).

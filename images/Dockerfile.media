@@ -76,7 +76,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -o /out/clustarr ./cmd/clustarr && \
     go build \
       -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
-      -o /out/segmentarr-worker ./cmd/segmentarr-worker
+      -o /out/segmentarr-worker ./cmd/markers
 
 # ---------------------------------------------------------------------------
 # tools: fetch ffmpeg/ffprobe and par2

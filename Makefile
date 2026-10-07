@@ -38,7 +38,7 @@ CRD_DIR := config/crd/bases
 #     its own ServiceAccount: the engine pods the DownloadClient controller
 #     creates. Its role reads only its own packages, and grabarr's reads
 #     everything under app/grab/ EXCEPT the engines -- the controller never
-#     needs an engine's grants. The transcode pool Jobs cmd/squasharr-worker
+#     needs an engine's grants. The transcode pool Jobs cmd/transcode
 #     runs are the other kind of per-pod workload, but carry no
 #     ServiceAccount and so no role of their own: squasharr is the sole
 #     writer of TranscodeJob.status, over NATS (X14), and app/squash/worker
@@ -167,8 +167,8 @@ build: ## Build the clustarr binary.
 	CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/agent ./cmd/agent
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/ui ./cmd/ui
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/clustarr ./cmd/clustarr
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/squasharr-worker ./cmd/squasharr-worker
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/segmentarr-worker ./cmd/segmentarr-worker
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/transcode ./cmd/transcode
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/markers ./cmd/markers
 
 .PHONY: docker-build
 docker-build: ## Build controller, media and transcoder images.

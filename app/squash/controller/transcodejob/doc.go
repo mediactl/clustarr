@@ -85,7 +85,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // under no RootFolder is blocked here.
 //
 // Pools: after dispatching, the same pass sizes each (profile, class) pool
-// Job -- a long-lived work-queue batch/v1 Job running cmd/squasharr-worker,
+// Job -- a long-lived work-queue batch/v1 Job running cmd/transcode,
 // rendered by app/squash/controller/pool and applied under squasharr-pool --
 // to the jobs dispatched to it (pools.go; spec §7). It is created or resumed
 // with work, raised as work grows, and suspended when none is left:

@@ -21,8 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // controller, which runs graft and donor-reduce Jobs on the cpu pool's pod
 // template (the spec's drift note; main 6e44ba35 added the reduce Job, and the
 // TranscodeJob dispatcher attaches a waiting graft to the task it dispatches,
-// audiograft.JoinTask). The pool pods run cmd/squasharr-worker, which becomes
-// cmd/transcode in Wave 5.
+// audiograft.JoinTask). The pool pods run cmd/transcode.
 package manager
 
 import (
@@ -151,8 +150,8 @@ func poolConfig(o Options) pool.Config {
 }
 
 // workerObservabilityArgs renders the root command's --log-* and
-// --tracing-* flags (pkg/obs/obsflags.Bind, which both cmd/clustarr's
-// bindObservabilityFlags and cmd/squasharr-worker call) for a pool's
+// --tracing-* flags (pkg/obs/obsflags.Bind, which both internal/cli's
+// NewRoot and cmd/transcode call) for a pool's
 // workers, so a pool pod logs in the controller's format and level and
 // exports its spans -- the squasharr.worker.process and transcode.run
 // (ffmpeg) spans -- to the same collector. Only what differs from the flags'

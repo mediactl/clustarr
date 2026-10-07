@@ -30,7 +30,7 @@ import (
 // shared fsGroup -- can rewrite what one wrote. config/manager and the chart
 // set it on every Deployment that mounts /data; squasharr passes it on to
 // its transcode Jobs and grabarr to its engine workloads, and
-// cmd/squasharr-worker's pool pods read it the same way.
+// cmd/transcode's pool pods read it the same way.
 const UmaskEnv = "UMASK"
 
 // ParseUmask reads an octal umask such as "002", "0002" or "0o002". Empty
@@ -53,11 +53,10 @@ func ParseUmask(s string) (mask int, ok bool, err error) {
 
 // ApplyUmaskFromEnv sets the process umask from $UMASK before any service
 // starts. (syscall.Umask is Unix-only; so is the rest of this package --
-// it reads syscall.Stat_t elsewhere.) Every subcommand of cmd/clustarr --
-// each service, the engines and the transcode worker -- inherits it from
-// the root command, and cmd/squasharr-worker calls it directly, which is how
-// "every service" in §11 is met without cmd/squasharr-worker depending on
-// cmd/clustarr.
+// it reads syscall.Stat_t elsewhere.) The manager, agent and ui binaries
+// apply it in their root command's PersistentPreRunE (internal/cli), and
+// cmd/transcode and cmd/markers call it directly, which is how "every
+// service" in §11 is met without them depending on the cobra binaries.
 func ApplyUmaskFromEnv() error {
 	mask, ok, err := ParseUmask(os.Getenv(UmaskEnv))
 	if err != nil || !ok {

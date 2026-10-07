@@ -59,7 +59,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
-      -o /out/squasharr-worker ./cmd/squasharr-worker \
+      -o /out/squasharr-worker ./cmd/transcode \
  && mkdir -p /out/ffgo /out/licenses/clustarr /out/licenses/ffgo \
  && ffgo="$(go list -m -f '{{.Dir}}' github.com/obinnaokechukwu/ffgo)" \
  && cp -r "$ffgo/shim" /out/ffgo/ \

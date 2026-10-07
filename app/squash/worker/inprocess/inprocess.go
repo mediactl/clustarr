@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package inprocess is the squasharr worker's in-process engine:
 // pkg/transcode/engine on ffgo, behind worker.Engine. Only
-// cmd/squasharr-worker imports it. The worker package never does, because
+// cmd/transcode imports it. The worker package never does, because
 // cmd/clustarr imports the worker package for planning, and ffgo loads
 // FFmpeg through purego, which makes the Go linker emit a dynamically
 // linked binary that the distroless controller image cannot start.

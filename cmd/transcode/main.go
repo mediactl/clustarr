@@ -15,15 +15,18 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Command squasharr-worker is a transcode pool's pod: a pure consumer of the
+// Command transcode is a transcode pool's pod: a pure consumer of the
 // squasharr work queue (spec §9). It holds no Kubernetes credentials; tasks
-// arrive over NATS and results leave over NATS.
+// arrive over NATS and results leave over NATS. With --graft-task it is an
+// audio graft Job's pod instead. Its exit codes are a contract with the pool
+// Job's podFailurePolicy (spec §3.8).
 package main
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -45,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // The in-process engine grafts a joined dub into a transcode in one pass.
@@ -52,25 +56,56 @@ var _ worker.GraftEngine = inprocess.Engine{}
 
 func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 
+// flags is transcode's flag set: newFlags builds it, run parses it, and
+// manifest_test.go parses every argv squasharr stamps onto a pool or graft
+// pod through it.
+type flags struct {
+	fs                                                 *pflag.FlagSet
+	dataDir, selfCheck, scratchDir, graftTask, termLog *string
+	trial, version                                     *bool
+	lo                                                 *logging.Options
+	to                                                 *tracing.Options
+}
+
+func newFlags() flags {
+	fs := pflag.NewFlagSet("transcode", pflag.ContinueOnError)
+	f := flags{fs: fs}
+	f.dataDir = fs.String("data-dir", jobspec.LogicalDataRoot, "Where the RWX /data volume is mounted.")
+	f.selfCheck = fs.String("self-check", "", "Check this image can transcode for a class (cpu, cuda, intel), print the report as JSON and exit: 0 when it can.")
+	f.trial = fs.Bool("trial", false, "With --self-check, also encode for real on the class's GPU.")
+	f.scratchDir = fs.String("scratch-dir", os.TempDir(), "With --trial, where the trial writes its clip.")
+	f.graftTask = fs.String("graft-task", "", "Run this audio graft (grafttask.Task JSON) instead of serving a pool, write its result to --termination-log and exit: 0 when it succeeded.")
+	f.termLog = fs.String("termination-log", "/dev/termination-log", "With --graft-task, where the result is written (the pod's termination message).")
+	f.version = fs.Bool("version", false, "Print the version and exit.")
+	f.lo, f.to = obsflags.Bind(fs)
+	return f
+}
+
+// printVersion answers --version, right after the flag parse and before the
+// environment checks (the image check, spec §10.1.4). It is not a pool run,
+// so its 0 is not the "run never returns 0" contract below.
+func printVersion(w io.Writer) int {
+	fmt.Fprintf(w, "transcode %s\n", version.String())
+	return 0
+}
+
 // run never returns 0: a work-queue Job ends when any pod succeeds.
 func run(args []string, getenv func(string) string) int {
-	fs := pflag.NewFlagSet("squasharr-worker", pflag.ContinueOnError)
-	dataDir := fs.String("data-dir", jobspec.LogicalDataRoot, "Where the RWX /data volume is mounted.")
-	selfCheck := fs.String("self-check", "", "Check this image can transcode for a class (cpu, cuda, intel), print the report as JSON and exit: 0 when it can.")
-	trial := fs.Bool("trial", false, "With --self-check, also encode for real on the class's GPU.")
-	scratchDir := fs.String("scratch-dir", os.TempDir(), "With --trial, where the trial writes its clip.")
-	graftTask := fs.String("graft-task", "", "Run this audio graft (grafttask.Task JSON) instead of serving a pool, write its result to --termination-log and exit: 0 when it succeeded.")
-	termLog := fs.String("termination-log", "/dev/termination-log", "With --graft-task, where the result is written (the pod's termination message).")
-	lo, to := obsflags.Bind(fs)
-	if err := fs.Parse(args); err != nil {
-		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
+	f := newFlags()
+	dataDir, selfCheck, trial, scratchDir := f.dataDir, f.selfCheck, f.trial, f.scratchDir
+	graftTask, termLog, lo, to := f.graftTask, f.termLog, f.lo, f.to
+	if err := f.fs.Parse(args); err != nil {
+		fmt.Fprintln(os.Stderr, "transcode:", err)
 		return jobspec.WorkerExitMisconfigured
+	}
+	if *f.version {
+		return printVersion(os.Stdout)
 	}
 	if *selfCheck != "" {
 		return runSelfCheck(selfcheck.Class(*selfCheck), *trial, *scratchDir)
 	}
 	if err := fsops.ApplyUmaskFromEnv(); err != nil {
-		fmt.Fprintln(os.Stderr, "squasharr-worker:", err)
+		fmt.Fprintln(os.Stderr, "transcode:", err)
 		return jobspec.WorkerExitMisconfigured
 	}
 	if *graftTask != "" {
@@ -79,7 +114,7 @@ func run(args []string, getenv func(string) string) int {
 	need := map[string]string{}
 	for _, k := range []string{"NATS_URL", "CLUSTARR_POOL_PROFILE_UID", "CLUSTARR_POOL_CLASS", "POD_NAME"} {
 		if need[k] = getenv(k); need[k] == "" {
-			fmt.Fprintf(os.Stderr, "squasharr-worker: $%s is required\n", k)
+			fmt.Fprintf(os.Stderr, "transcode: $%s is required\n", k)
 			return jobspec.WorkerExitMisconfigured
 		}
 	}
@@ -88,7 +123,7 @@ func run(args []string, getenv func(string) string) int {
 	defer stopSignals()
 	ctx = logging.NewContext(ctx, logging.New(*lo))
 	log := logging.FromContext(ctx)
-	to.ServiceName = "squasharr-worker"
+	to.ServiceName = "transcode"
 	shutdown, err := tracing.Setup(ctx, *to)
 	if err != nil {
 		log.ErrorContext(ctx, "tracing", "error", err)
@@ -109,7 +144,7 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "the in-process engine is unavailable", "error", err)
 		return jobspec.WorkerExitRetriable
 	}
-	nc, err := nats.Connect(need["NATS_URL"], nats.Name("squasharr-worker/"+need["POD_NAME"]))
+	nc, err := nats.Connect(need["NATS_URL"], nats.Name("transcode/"+need["POD_NAME"]))
 	if err != nil {
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return jobspec.WorkerExitRetriable
@@ -158,7 +193,7 @@ func runSelfCheck(class selfcheck.Class, trial bool, dir string) int {
 	out, _ := json.MarshalIndent(r, "", "  ")
 	fmt.Println(string(out))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "squasharr-worker: self-check:", err)
+		fmt.Fprintln(os.Stderr, "transcode: self-check:", err)
 		return jobspec.WorkerExitMisconfigured
 	}
 	return 0

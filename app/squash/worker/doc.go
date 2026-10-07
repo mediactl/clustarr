@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // onto the task by [jobspec.BuildTask] before Process is ever called, and
 // every output (progress, the result, stderr) comes back on the returned Outcome
 // for the caller to do something with. The caller is [Serve], the pool
-// worker loop cmd/squasharr-worker runs, which reports each Outcome to
+// worker loop cmd/transcode runs, which reports each Outcome to
 // squasharr as a finished status event (spec §18.1).
 //
 // # Sequence

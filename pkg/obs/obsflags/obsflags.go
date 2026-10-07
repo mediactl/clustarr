@@ -18,11 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package obsflags binds the logging and tracing flags every Clustarr
 // binary shares onto a pflag.FlagSet.
 //
-// It exists so cmd/squasharr-worker -- a standalone binary that must not
-// import pkg/obs (the top-level package, which pulls in controller-runtime)
-// or pkg/k8s -- can still bind the same --log-* and --tracing-* flags
-// cmd/clustarr's subcommands do, from pkg/obs/logging and pkg/obs/tracing
-// alone.
+// It exists so cmd/transcode and cmd/markers -- standalone binaries that
+// must not import pkg/obs (the top-level package, which pulls in
+// controller-runtime) or pkg/k8s -- can still bind the same --log-* and
+// --tracing-* flags the cobra binaries do, from pkg/obs/logging and
+// pkg/obs/tracing alone.
 package obsflags
 
 import (

@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package pool is the pure renderer for squasharr's pool Jobs: one long-lived
 // work-queue Job per (TranscodeProfile, hardware class), whose pods run
-// cmd/squasharr-worker and pull tasks from NATS (spec
+// cmd/transcode and pull tasks from NATS (spec
 // docs/superpowers/specs/2026-09-23-transcode-worker-design.md, §3 and §7).
 //
 // It renders the pod template ([Template]), classifies drift between what a

@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package jobspec
 
-// Process-level exit codes of cmd/squasharr-worker, distinct from the task
+// Process-level exit codes of cmd/transcode, distinct from the task
 // classifications in run.go: those end up in a task.Result, never in a pod's
 // exit code.
 const (

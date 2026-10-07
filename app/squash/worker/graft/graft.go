@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // target's (pkg/audioalign), mux the dub in beside every copied stream of
 // the target (pkg/transcode/engine), verify the muxed track, and swap the
 // result into place as a transcode swaps. It links FFmpeg through the
-// engine, so only cmd/squasharr-worker imports it.
+// engine, so only cmd/transcode imports it.
 package graft
 
 import (

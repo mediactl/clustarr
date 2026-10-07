@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package squasharr owns transcode.clustarr.io: it watches MediaFiles for
 // non-compliant video and dispatches HEVC 10-bit / AAC transcodes, against a
 // slot budget, to per-(profile, class) worker pools over NATS (spec
-// 2026-09-23). The pool pods run cmd/squasharr-worker, not this package.
+// 2026-09-23). The pool pods run cmd/transcode, not this package.
 package squasharr
 
 import (
@@ -60,7 +60,7 @@ const (
 type Role string
 
 // The roles `clustarr squasharr --role` accepts. The transcode itself runs
-// in pool pods, as cmd/squasharr-worker (spec 2026-09-23 §9): there is no
+// in pool pods, as cmd/transcode (spec 2026-09-23 §9): there is no
 // worker role here any more.
 const (
 	// RoleController runs the TranscodeProfile and TranscodeJob reconcilers,
