@@ -29,13 +29,36 @@ import (
 // events.WorkArtworkFetchSubject and consumed by the gateway's
 // events.ConsumerCatalogArtworkFetch durable ("catalogarr-artwork-fetch";
 // spec §B.7).
+//
+// Version 2 (ADR-0019 §7.1) names what to fetch: the item key plans which
+// images, and the fetcher does the I/O and writes the objects. A v1
+// envelope decodes into it with Item, Fetch and Drop empty.
 type ArtworkFetchTask struct {
 	// MediaRef identifies the item whose artwork to fetch.
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
+
+	// Item is the item, UID included.
+	Item ItemRef `json:"item,omitzero"`
+	// Fetch lists the images to fetch, one per type.
+	Fetch []ArtworkFetch `json:"fetch,omitempty"`
+	// Drop lists the types whose override was removed.
+	Drop []string `json:"drop,omitempty"`
+}
+
+// ArtworkFetch is one image an ArtworkFetchTask names: its artwork type,
+// source URL, source kind (provider or custom) and language.
+type ArtworkFetch struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Kind     string `json:"kind,omitempty"`
+	Language string `json:"language,omitempty"`
 }
 
 // Schema implements Payload.
-func (ArtworkFetchTask) Schema() string { return "catalog.ArtworkFetchTask.v1" }
+func (ArtworkFetchTask) Schema() string { return "catalog.ArtworkFetchTask.v2" }
+
+// LegacySchemas implements Legacy: a v1 task decodes into v2.
+func (ArtworkFetchTask) LegacySchemas() []string { return []string{ArtworkFetchTaskV1Schema} }
 
 // RenderOverlayTask asks the renderer role to recompute an item's overlay
 // poster from its stored original, its OverlayProfile and its current

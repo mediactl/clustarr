@@ -226,7 +226,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	defer span.End()
 
 	switch env.Schema {
-	case schemaSearchTask:
+	case schemaSearchTask, schema.SearchTaskV1Schema:
 		return w.handleSearchTask(ctx, span, m)
 	case schemaWantedScan:
 		return w.handleWantedScan(ctx, span, m)

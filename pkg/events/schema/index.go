@@ -101,6 +101,14 @@ type Release struct {
 
 	// FetchedAt is when indexarr read the release from the indexer.
 	FetchedAt time.Time `json:"fetchedAt"`
+
+	// Blocked is, in a search or query answer, the release index's block
+	// for the request's scope or the global one (ADR-0019 §6.14).
+	Blocked *ReleaseBlock `json:"blocked,omitempty"`
+
+	// Blocks is, on the firehose, every scope that blocks the release
+	// (almost always none): the firehose does not know the item.
+	Blocks []ReleaseBlock `json:"blocks,omitempty"`
 }
 
 // Schema implements Payload.
@@ -282,6 +290,11 @@ type SearchRequest struct {
 
 	// UserInvoked marks an interactive search.
 	UserInvoked bool `json:"userInvoked,omitempty"`
+
+	// Scope is the item's release index block scope (BlockScopeOf): each
+	// release in the reply carries Blocked for it or the global scope
+	// (ADR-0019 §6.14).
+	Scope string `json:"scope,omitempty"`
 }
 
 // Schema implements Payload.
@@ -360,6 +373,10 @@ type QueryRequest struct {
 
 	// Offset pages through the result set.
 	Offset int32 `json:"offset,omitempty"`
+
+	// Scope is the item's release index block scope (BlockScopeOf), as on
+	// SearchRequest.
+	Scope string `json:"scope,omitempty"`
 }
 
 // Schema implements Payload.

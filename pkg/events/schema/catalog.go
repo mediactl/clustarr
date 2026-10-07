@@ -187,6 +187,13 @@ func (ImportListSynced) Schema() string { return "catalog.ImportListSynced.v1" }
 
 // SearchTask asks a search worker to look for releases for a catalog item.
 // Subject: clustarr.work.catalogarr.search.<priority>.<mediaKey>.
+//
+// Version 2 (ADR-0019 §7.3, §7.4) adds what the manager's search planner
+// decides and the search agent needs to answer in clustarr-searches without
+// reading a Kubernetes object: the item and its container, the dispatch's
+// Seq (Msg-Id events.MsgIDForSearch), the profile, protocols, indexer
+// priorities, the release index scope and the donor want. A v1 envelope
+// decodes into it with those fields empty (LegacySchemas).
 type SearchTask struct {
 	// MediaRef identifies what to search for.
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
@@ -215,14 +222,51 @@ type SearchTask struct {
 	// (anime dual-audio spec §6.1), judged on its languages rather than its
 	// quality; empty is the item's video.
 	Purpose string `json:"purpose,omitempty"`
+
+	// Item is the searched item, UID included; the record is keyed by it
+	// (or by SearchRef's UID for an interactive search).
+	Item ItemRef `json:"item,omitzero"`
+	// Container is the Series or Comic of an Episode or Issue.
+	Container *ItemRef `json:"container,omitempty"`
+	// Seq is the item's searchDispatch.seq the record answers.
+	Seq int64 `json:"seq,omitempty"`
+	// QualityProfile is the profile the agent evaluates against.
+	QualityProfile string              `json:"qualityProfile,omitempty"`
+	Protocols      []commonv1.Protocol `json:"protocols,omitempty"`
+	// IndexerPriorities maps an Indexer name to its priority.
+	IndexerPriorities map[string]int32 `json:"indexerPriorities,omitempty"`
+	// Scope is the release index's block scope for the item (BlockScopeOf).
+	Scope string     `json:"scope,omitempty"`
+	Donor *DonorWant `json:"donor,omitempty"`
 }
+
+// DonorWant is what an audio donor search looks for (anime dual-audio spec
+// §6.1): the languages wanted, the anchor language, releases already
+// rejected for the item and donors in flight.
+type DonorWant struct {
+	Languages []string `json:"languages,omitempty"`
+	Anchor    string   `json:"anchor,omitempty"`
+	Rejected  []string `json:"rejected,omitempty"`
+	InFlight  []string `json:"inFlight,omitempty"`
+}
+
+// Earlier schema names, decoded into the current structs (their fields are
+// a subset), so DLQ replays and history keep reading v1 envelopes.
+const (
+	SearchTaskV1Schema       = "catalog.SearchTask.v1"
+	MetadataTaskV1Schema     = "catalog.MetadataTask.v1"
+	ArtworkFetchTaskV1Schema = "catalog.ArtworkFetchTask.v1"
+)
 
 // SearchPurposeAudioDonor is SearchTask.Purpose for an audio donor search;
 // it is downloadv1alpha1.DownloadPurposeAudioDonor's value.
 const SearchPurposeAudioDonor = "audioDonor"
 
 // Schema implements Payload.
-func (SearchTask) Schema() string { return "catalog.SearchTask.v1" }
+func (SearchTask) Schema() string { return "catalog.SearchTask.v2" }
+
+// LegacySchemas implements Legacy: a v1 task decodes into v2.
+func (SearchTask) LegacySchemas() []string { return []string{SearchTaskV1Schema} }
 
 // GrabTask asks a grab worker to turn the best pending candidate for a media
 // key into a Download. It is published with a schedule so delay profiles can
@@ -257,6 +301,10 @@ func (ImportTask) Schema() string { return "catalog.ImportTask.v1" }
 
 // MetadataTask asks the metadata gateway to refresh a catalog item.
 // Subject: clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
+//
+// Version 2 (ADR-0019 §7.1) carries the item and the inputs the gateway's
+// clustarr-item-metadata record answers for (Msg-Id metadata/<item
+// uid>/<inputsHash>). A v1 envelope decodes into it with them empty.
 type MetadataTask struct {
 	// MediaRef identifies the item to refresh.
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
@@ -264,10 +312,18 @@ type MetadataTask struct {
 	// RefreshEpoch increments whenever an operator forces a refresh, so a
 	// forced refresh is not deduplicated against the scheduled one.
 	RefreshEpoch int64 `json:"refreshEpoch,omitempty"`
+
+	// Item is the item, UID included: the record's key.
+	Item ItemRef `json:"item,omitzero"`
+	// Inputs are what the refresh is asked for.
+	Inputs MetadataInputs `json:"inputs,omitzero"`
 }
 
 // Schema implements Payload.
-func (MetadataTask) Schema() string { return "catalog.MetadataTask.v1" }
+func (MetadataTask) Schema() string { return "catalog.MetadataTask.v2" }
+
+// LegacySchemas implements Legacy: a v1 task decodes into v2.
+func (MetadataTask) LegacySchemas() []string { return []string{MetadataTaskV1Schema} }
 
 // MarkersTask asks the metadata domain's marker worker for one MediaFile's
 // TheIntroDB segments (loop spec 2026-10-06 §4.12). The remediation loop

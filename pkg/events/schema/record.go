@@ -31,6 +31,11 @@ type RecordHeader struct {
 	Schema string `json:"schema,omitempty"`
 	// MediaFile is the file whose status incorporates the record.
 	MediaFile Ref `json:"mediaFile"`
+	// Item is set instead of MediaFile by an item-keyed record (ADR-0019
+	// §4.3): the item, Search, Indexer, DownloadClient or ImportList whose
+	// status incorporates it. Absent, it leaves the probe record's JSON
+	// byte-identical.
+	Item *ItemRef `json:"item,omitempty"`
 	// Sub is the unescaped second key token: a subtitle's langKey.
 	Sub string `json:"sub,omitempty"`
 	// Seq is the loop's sequence for the request (records.NextSeq).
@@ -57,3 +62,29 @@ type RecordHeader struct {
 
 // Header gives pkg/records the header of any record that embeds it.
 func (h *RecordHeader) Header() *RecordHeader { return h }
+
+// ItemRef names the object whose status incorporates a record or an intake
+// message (ADR-0019 §4.3): an item, a Search, an Indexer, a DownloadClient or
+// an ImportList. Kind is the object's Kind ("Movie", "Series", …); Ref is
+// flat, so the JSON is {"kind", "namespace", "name", "uid"}.
+type ItemRef struct {
+	Kind string `json:"kind"`
+	Ref
+}
+
+// EntryRef names one grab entry of an owner (ADR-0019 §6.2): its id and uid.
+type EntryRef struct {
+	ID  string `json:"id"`
+	UID string `json:"uid"`
+}
+
+// BlockScopeGlobal is the release index's scope of a block for every item
+// (ADR-0019 §6.14).
+const BlockScopeGlobal = "*"
+
+// BlockScopeOf is the release index's scope of a block for one item:
+// "<kind>/<namespace>/<name>/<uid>". It is injective, since none of the
+// four can hold a '/'.
+func BlockScopeOf(item ItemRef) string {
+	return item.Kind + "/" + item.Namespace + "/" + item.Name + "/" + item.UID
+}

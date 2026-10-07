@@ -30,6 +30,7 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -73,11 +74,32 @@ func Encode(p Payload) (schema string, data []byte, err error) {
 	return p.Schema(), data, nil
 }
 
+// Legacy is implemented by a payload whose earlier versions decode into it:
+// their fields are a subset of its own (SearchTask, MetadataTask and
+// ArtworkFetchTask v1, ADR-0019 A1.4), so DLQ replays and history keep
+// reading envelopes published before the bump.
+type Legacy interface {
+	// LegacySchemas lists the earlier Clustarr-Schema values Decode accepts.
+	LegacySchemas() []string
+}
+
+// Accepts reports whether out decodes a message whose schema header is
+// schema: out's own, one of its LegacySchemas, or empty.
+func Accepts(schema string, out Payload) bool {
+	if schema == "" || schema == out.Schema() {
+		return true
+	}
+	if l, ok := out.(Legacy); ok {
+		return slices.Contains(l.LegacySchemas(), schema)
+	}
+	return false
+}
+
 // Decode unmarshals data into out, checking that schema names the payload out
-// expects. An empty schema skips the check, for messages published before the
-// header was mandatory.
+// expects (or one of its LegacySchemas). An empty schema skips the check, for
+// messages published before the header was mandatory.
 func Decode(schema string, data []byte, out Payload) error {
-	if schema != "" && schema != out.Schema() {
+	if !Accepts(schema, out) {
 		return fmt.Errorf("schema: message is %q, want %q", schema, out.Schema())
 	}
 	if err := json.Unmarshal(data, out); err != nil {
