@@ -201,12 +201,6 @@ func mergeContribution(into *itempass.Contribution, c itempass.Contribution, sta
 		}
 		into.DownloadNonces = c.DownloadNonces
 	}
-	if c.LegacyDownloads != nil {
-		if into.LegacyDownloads != nil {
-			return dup("legacyDownloads")
-		}
-		into.LegacyDownloads = c.LegacyDownloads
-	}
 	if c.Viewed {
 		if into.Viewed {
 			return dup("the episode or issue view")

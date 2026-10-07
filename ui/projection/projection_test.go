@@ -197,7 +197,7 @@ func TestDownloadsSubscribersShareThePipelineListRound(t *testing.T) {
 			Protocol: commonv1.ProtocolTorrent,
 			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
 		},
-		Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading, ProgressPercent: 10},
+		Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 10},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie, download).Build()
 
@@ -289,7 +289,7 @@ func TestOwnershipIndexingPutsADownloadUnderTheRightMovie(t *testing.T) {
 			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieA.Name},
 		},
 		Status: downloadv1.DownloadStatus{
-			Phase:           downloadv1.DownloadPhaseDownloading,
+			Phase:           commonv1.DownloadPhaseDownloading,
 			ProgressPercent: 50,
 		},
 	}

@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package v1alpha1 contains the v1alpha1 API of the download.clustarr.io
-// group: DownloadClient and Download. The group is owned by grab.
+// group: DownloadClient. The group is owned by grab.
 //
 // +kubebuilder:object:generate=true
 // +kubebuilder:ac:generate=true

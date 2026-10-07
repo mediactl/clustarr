@@ -129,7 +129,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	transcodejobctrl "github.com/mediactl/clustarr/app/transcode/controller/transcodejob"
 	"github.com/mediactl/clustarr/pkg/pipeline"
@@ -914,7 +913,7 @@ func TestDownloadScenario1TranscodeLeg(t *testing.T) {
 	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1tj-dc")
 	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
 	dl := newTorrentDownloadE2E(ctx, t, "e2e-dl1tj-dl", &settled, torrentURL, "guid-dl1tj-1", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
+	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
 
 	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
 	require.Len(t, imp.Imported, 1)

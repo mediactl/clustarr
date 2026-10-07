@@ -300,9 +300,6 @@ func withEntries(ctx context.Context, ac *catalogac.MovieStatusApplyConfiguratio
 	if n := itempass.NoncesAC(itempass.Nonces(p, m.Status.DownloadNonces)); n != nil {
 		ac = ac.WithDownloadNonces(n)
 	}
-	if l := itempass.LegacyAC(itempass.Legacy(p, m.Status.LegacyDownloads)); l != nil {
-		ac = ac.WithLegacyDownloads(l)
-	}
 	return ac
 }
 

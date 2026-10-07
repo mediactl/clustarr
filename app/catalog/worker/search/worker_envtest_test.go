@@ -31,7 +31,6 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -72,8 +71,8 @@ type recordingSink struct {
 	namespaces []string
 	targets    []commonv1.MediaRef
 	batches    [][]commonv1.ReleaseDecision
-	grabbedBy  []downloadv1alpha1.GrabSource
-	purposes   []downloadv1alpha1.DownloadPurpose
+	grabbedBy  []commonv1.GrabSource
+	purposes   []commonv1.DownloadPurpose
 	delivery   chan struct{}
 }
 
@@ -82,8 +81,8 @@ func newRecordingSink() *recordingSink {
 }
 
 func (s *recordingSink) Deliver(
-	_ context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision, grabbedBy downloadv1alpha1.GrabSource,
-	purpose downloadv1alpha1.DownloadPurpose,
+	_ context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision, grabbedBy commonv1.GrabSource,
+	purpose commonv1.DownloadPurpose,
 ) error {
 	s.mu.Lock()
 	s.purposes = append(s.purposes, purpose)
@@ -110,7 +109,7 @@ func (s *recordingSink) last() (string, commonv1.MediaRef, []commonv1.ReleaseDec
 }
 
 // lastGrabbedBy is the grab source the latest delivery carried.
-func (s *recordingSink) lastGrabbedBy() downloadv1alpha1.GrabSource {
+func (s *recordingSink) lastGrabbedBy() commonv1.GrabSource {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.grabbedBy) == 0 {
@@ -343,7 +342,7 @@ func TestWorkerHandleDeliversNonInteractiveResultsToTheSink(t *testing.T) {
 	require.Len(t, ranked, 2)
 	require.Equal(t, "g-high", ranked[0].GUID)
 	require.False(t, f.rpc.Requests()[0].UserInvoked, "a cron-driven search is not user invoked")
-	require.Equal(t, downloadv1alpha1.GrabSourceSearch, f.sink.lastGrabbedBy(),
+	require.Equal(t, commonv1.GrabSourceSearch, f.sink.lastGrabbedBy(),
 		"a wanted-sweep search's grab records grabbedBy=search")
 }
 
@@ -363,7 +362,7 @@ func TestWorkerHandleHandsARedownloadSearchsGrabSourceToTheSink(t *testing.T) {
 
 	_, _, _, deliveries := f.sink.last()
 	require.Equal(t, 1, deliveries)
-	require.Equal(t, downloadv1alpha1.GrabSourceRedownload, f.sink.lastGrabbedBy())
+	require.Equal(t, commonv1.GrabSourceRedownload, f.sink.lastGrabbedBy())
 	require.False(t, f.rpc.Requests()[0].UserInvoked, "a redownload is an automatic search")
 }
 

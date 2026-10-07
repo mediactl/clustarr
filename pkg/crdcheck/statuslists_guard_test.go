@@ -23,7 +23,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
@@ -183,7 +182,7 @@ var listFreeExternals = map[string]bool{
 //
 // A cap is half the contract: a writer that exceeds it has its WHOLE apply
 // rejected. Whoever adds a cap here owns truncating to it where the list is
-// written (pkg/download.MaxStatusFiles, app/import/worker/fileimport's caps,
+// written (app/import/worker/fileimport's caps,
 // pkg/mediainfo.MaxStreamsPerKind).
 func TestEveryStatusListIsCapped(t *testing.T) {
 	m := loadAPIModel(t)
@@ -219,9 +218,8 @@ func TestWriterCapsMatchTheirMarkers(t *testing.T) {
 		maxItems[l.key] = l.maxItems
 	}
 	for key, want := range map[string]int{
-		"download.DownloadStatus.Files": download.MaxStatusFiles,
-		"common.MediaInfo.Audio":        mediainfo.MaxStreamsPerKind,
-		"common.MediaInfo.Subtitles":    mediainfo.MaxStreamsPerKind,
+		"common.MediaInfo.Audio":     mediainfo.MaxStreamsPerKind,
+		"common.MediaInfo.Subtitles": mediainfo.MaxStreamsPerKind,
 	} {
 		got, ok := maxItems[key]
 		if !ok {

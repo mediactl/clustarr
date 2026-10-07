@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -86,14 +85,14 @@ func TestAdd_SeedHistoryWithAMetGoalKeepsTheTorrentOffTheSwarm(t *testing.T) {
 	}, 15*time.Second, 20*time.Millisecond, "the transfer never completed; last %+v", item)
 
 	assert.True(t, item.SeedGoalMet, "a goal met before the restart must stay met")
-	assert.Equal(t, downloadv1alpha1.DownloadStageDone, item.Stage, "a torrent past its goal must not seed again")
+	assert.Equal(t, commonv1alpha1.DownloadStageDone, item.Stage, "a torrent past its goal must not seed again")
 	assert.Equal(t, 3*time.Hour, item.SeedTime, "a met goal adds no seed time after the restart")
 	assert.GreaterOrEqual(t, item.UploadedBytes, int64(5<<20), "the upload must count on from the history")
 
 	require.NoError(t, c.Resume(ctx, id))
 	item, err = c.Get(ctx, id)
 	require.NoError(t, err)
-	assert.Equal(t, downloadv1alpha1.DownloadStageDone, item.Stage, "Resume put a torrent past its goal back on the swarm")
+	assert.Equal(t, commonv1alpha1.DownloadStageDone, item.Stage, "Resume put a torrent past its goal back on the swarm")
 }
 
 // SetPriority moves a running torrent's share of the connection budget, the
@@ -117,12 +116,12 @@ func TestSetPriority_MovesTheConnectionBudget(t *testing.T) {
 	}
 	require.Equal(t, c.defaultConns, budget())
 
-	require.NoError(t, c.SetPriority(ctx, id, downloadv1alpha1.DownloadPriorityHigh))
+	require.NoError(t, c.SetPriority(ctx, id, commonv1alpha1.DownloadPriorityHigh))
 	assert.Equal(t, highPriorityConns, budget())
-	require.NoError(t, c.SetPriority(ctx, id, downloadv1alpha1.DownloadPriorityLow))
+	require.NoError(t, c.SetPriority(ctx, id, commonv1alpha1.DownloadPriorityLow))
 	assert.Equal(t, lowPriorityConns, budget())
 	require.NoError(t, c.SetPriority(ctx, id, ""))
 	assert.Equal(t, c.defaultConns, budget(), `"" is normal, anacrolix's own default`)
 
-	require.ErrorIs(t, c.SetPriority(ctx, strings.Repeat("0", 40), downloadv1alpha1.DownloadPriorityHigh), download.ErrNotFound)
+	require.ErrorIs(t, c.SetPriority(ctx, strings.Repeat("0", 40), commonv1alpha1.DownloadPriorityHigh), download.ErrNotFound)
 }

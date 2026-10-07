@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -91,39 +90,4 @@ func TestDownloadClientStatusIsOwnedOnlyByManagerGrab(t *testing.T) {
 	statusManagers := managersOf(t, got.ManagedFields, "status")
 	assert.Equal(t, map[string]bool{k8s.ManagerGrab.String(): true}, statusManagers,
 		"DownloadClient.status must be owned by k8s.ManagerGrab alone")
-}
-
-// TestBlocklistSweeperClaimsNoDownloadStatusField guards the opposite
-// direction: the sweep must never become a status writer on Download at all.
-// It deletes the object outright (see blocklist.go's doc comment for why), so
-// this asserts there is no "status" managedFields entry for k8s.ManagerGrab
-// or k8s.ManagerGrabEngine produced by the sweeper's own reconcile -- the
-// Patch calls in this test's helpers are the fixture simulating a real
-// controller/engine writer, not the sweeper under test.
-func TestBlocklistSweeperClaimsNoDownloadStatusField(t *testing.T) {
-	ctx := context.Background()
-	c := newTestClient(t)
-
-	d := mkBlocklistedDownload(t, ctx, c, "managed-sweep")
-	before := len(d.ManagedFields)
-
-	s := downloadclient.NewBlocklistSweeper(c, events.NewFakeRecorder(10))
-	// blocklistedUntil is unset, so the sweeper reconciles and does nothing --
-	// exactly the path that would be tempted to "helpfully" patch status if
-	// it were going to at all.
-	_, err := s.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "managed-sweep"}})
-	require.NoError(t, err)
-
-	var got downloadv1alpha1.Download
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "managed-sweep"}, &got))
-	assert.Len(t, got.ManagedFields, before, "the sweeper must not add any managedFields entry when it takes no action")
-
-	// Even the fixture's own writes (the create, plus nothing else here --
-	// blocklistedUntil was deliberately left unset) never attribute a status
-	// entry to a manager named "downloadclient" or "downloadclient-blocklist":
-	// the sweeper has no field-manager identity at all, because it never
-	// calls k8s.PatchStatus or k8s.Apply.
-	statusManagers := managersOf(t, got.ManagedFields, "status")
-	assert.NotContains(t, statusManagers, "downloadclient")
-	assert.NotContains(t, statusManagers, "downloadclient-blocklist")
 }

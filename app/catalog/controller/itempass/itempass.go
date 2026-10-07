@@ -34,10 +34,9 @@ import (
 // (ADR-0019 §7.0). nil fields are "this pass decided nothing: re-send the
 // stored value".
 type Contribution struct {
-	Downloads       *[]catalogv1alpha1.DownloadEntry
-	DownloadPhase   *commonv1.DownloadPhase
-	DownloadNonces  *catalogv1alpha1.DownloadNonces
-	LegacyDownloads *catalogv1alpha1.LegacyDownloads // release N (A8.1)
+	Downloads      *[]catalogv1alpha1.DownloadEntry
+	DownloadPhase  *commonv1.DownloadPhase
+	DownloadNonces *catalogv1alpha1.DownloadNonces
 
 	// Views on an Episode or Issue, from its container's entries (§6.1).
 	// Viewed reports that the stage computed them this pass; then a nil
@@ -129,14 +128,6 @@ func Nonces(p *Pass, stored *catalogv1alpha1.DownloadNonces) *catalogv1alpha1.Do
 	return stored
 }
 
-// Legacy is the legacyDownloads a catalog apply sends (release N).
-func Legacy(p *Pass, stored *catalogv1alpha1.LegacyDownloads) *catalogv1alpha1.LegacyDownloads {
-	if p != nil && p.Contribution.LegacyDownloads != nil {
-		return p.Contribution.LegacyDownloads
-	}
-	return stored
-}
-
 // ActiveRef is an Episode's or Issue's activeDownloadRef: the covering
 // entry's id when the view was computed this pass, else the stored value.
 func ActiveRef(p *Pass, stored *string) *string {
@@ -162,7 +153,7 @@ func HasContribution(p *Pass) bool {
 		return false
 	}
 	c := p.Contribution
-	return c.Downloads != nil || c.DownloadPhase != nil || c.DownloadNonces != nil || c.LegacyDownloads != nil || c.Viewed
+	return c.Downloads != nil || c.DownloadPhase != nil || c.DownloadNonces != nil || c.Viewed
 }
 
 // EntryACs renders entries as apply configurations: the one place a
@@ -204,16 +195,6 @@ func NoncesAC(n *catalogv1alpha1.DownloadNonces) *catalogac.DownloadNoncesApplyC
 func EntryAC(e *catalogv1alpha1.DownloadEntry) *catalogac.DownloadEntryApplyConfiguration {
 	ac := &catalogac.DownloadEntryApplyConfiguration{}
 	roundTrip(e, ac)
-	return ac
-}
-
-// LegacyAC renders legacyDownloads, nil for none.
-func LegacyAC(l *catalogv1alpha1.LegacyDownloads) *catalogac.LegacyDownloadsApplyConfiguration {
-	if l == nil {
-		return nil
-	}
-	ac := &catalogac.LegacyDownloadsApplyConfiguration{}
-	roundTrip(l, ac)
 	return ac
 }
 

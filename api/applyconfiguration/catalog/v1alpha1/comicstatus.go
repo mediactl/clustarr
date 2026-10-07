@@ -54,9 +54,6 @@ type ComicStatusApplyConfiguration struct {
 	// DownloadNonces records the one-shot download intents last handled
 	// (ADR-0019 §6.10).
 	DownloadNonces *DownloadNoncesApplyConfiguration `json:"downloadNonces,omitempty"`
-	// LegacyDownloads is release N's record of the Downloads this item
-	// adopted (ADR-0019 §10.2); release N+1 removes it.
-	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
 	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
 	// each naming the issues it covers (ADR-0019 §6.2), written under
 	// catalog-grab.
@@ -153,14 +150,6 @@ func (b *ComicStatusApplyConfiguration) WithDownloadPhase(value commonv1alpha1.D
 // If called multiple times, the DownloadNonces field is set to the value of the last call.
 func (b *ComicStatusApplyConfiguration) WithDownloadNonces(value *DownloadNoncesApplyConfiguration) *ComicStatusApplyConfiguration {
 	b.DownloadNonces = value
-	return b
-}
-
-// WithLegacyDownloads sets the LegacyDownloads field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the LegacyDownloads field is set to the value of the last call.
-func (b *ComicStatusApplyConfiguration) WithLegacyDownloads(value *LegacyDownloadsApplyConfiguration) *ComicStatusApplyConfiguration {
-	b.LegacyDownloads = value
 	return b
 }
 

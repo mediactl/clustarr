@@ -270,10 +270,6 @@ type BookStatus struct {
 	// +optional
 	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
 
-	// LegacyDownloads is release N's record of the Downloads this item
-	// adopted (ADR-0019 §10.2); release N+1 removes it.
-	// +optional
-	LegacyDownloads *LegacyDownloads `json:"legacyDownloads,omitempty"`
 
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
 	// under catalog-grab.

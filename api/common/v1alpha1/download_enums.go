@@ -17,11 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package v1alpha1
 
-// The download vocabulary shared by the Download kind (until release N+1)
-// and the grab entries on catalog items (ADR-0019 §6.2): phases, stages,
-// failure reasons, purposes, grab sources, import rejection classes,
-// priorities and the payload source. api/download/v1alpha1 aliases every one
-// until the Download CRD is removed.
+// The download vocabulary of the grab entries on catalog items (ADR-0019
+// §6.2): phases, stages, failure reasons, purposes, grab sources, import
+// rejection classes, priorities and the payload source.
 
 // DownloadPhase is the lifecycle phase of a Download, owned by the grab
 // controller.
@@ -202,13 +200,13 @@ const (
 	GrabSourceRedownload GrabSource = "redownload"
 )
 
-// IndexerDownload points at a release on an indexer. grab resolves it
-// through index at grab time to obtain the actual .torrent or .nzb bytes;
-// those bytes are deliberately never stored on the Download object, which
-// keeps the object small and keeps indexer credentials out of the API.
+// IndexerDownload points at a release on an indexer. The engine resolves it
+// through index to obtain the actual .torrent or .nzb bytes; those bytes are
+// deliberately never stored on the owning item's grab entry, which keeps the
+// object small and keeps indexer credentials out of the API.
 type IndexerDownload struct {
 	// IndexerRef is the name of the Indexer that published the release, in the
-	// same namespace as the Download.
+	// same namespace as the item holding the grab entry.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	IndexerRef string `json:"indexerRef"`

@@ -47,7 +47,6 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -227,7 +226,7 @@ func testQualityProfile(ns, name string, tierQualities ...string) *catalogv1alph
 	}
 }
 
-func downloadStatusAC(name, ns string, phase downloadv1alpha1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
+func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
 	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
 }
 
@@ -902,7 +901,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		assert.Equal(t, []string{k8s.ManagerCatalog.String()}, statusFieldOwners(t, &got, "activeDownloadRef"),
 			"status.activeDownloadRef must have exactly one owner, the Movie reconciler")
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseAssigned))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", commonv1.DownloadPhaseAssigned))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
@@ -913,7 +912,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.NotNil(t, got.Status.ActiveDownloadRef)
 		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseImported))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", commonv1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
@@ -985,26 +984,26 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		dl := grabPathDownload(t, ctx, c, &live, "prisoners-abc1234567")
 		settled(t, `a Download with no phase yet`, catalogv1alpha1.MoviePhaseDownloading, dl)
 
-		set := func(p downloadv1alpha1.DownloadPhase) {
+		set := func(p commonv1.DownloadPhase) {
 			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", p))
 			require.NoError(t, err)
 		}
-		for _, p := range []downloadv1alpha1.DownloadPhase{
-			downloadv1alpha1.DownloadPhasePending, downloadv1alpha1.DownloadPhaseAssigned,
-			downloadv1alpha1.DownloadPhaseQueued, downloadv1alpha1.DownloadPhaseDownloading,
-			downloadv1alpha1.DownloadPhasePaused, downloadv1alpha1.DownloadPhaseCompleted,
-			downloadv1alpha1.DownloadPhaseSeeding,
+		for _, p := range []commonv1.DownloadPhase{
+			commonv1.DownloadPhasePending, commonv1.DownloadPhaseAssigned,
+			commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading,
+			commonv1.DownloadPhasePaused, commonv1.DownloadPhaseCompleted,
+			commonv1.DownloadPhaseSeeding,
 		} {
-			set(downloadv1alpha1.DownloadPhaseFailed)
+			set(commonv1.DownloadPhaseFailed)
 			settled(t, "reset", catalogv1alpha1.MoviePhaseWanted, "")
 			set(p)
 			settled(t, string(p), catalogv1alpha1.MoviePhaseDownloading, dl)
 		}
-		for _, p := range []downloadv1alpha1.DownloadPhase{
-			downloadv1alpha1.DownloadPhaseImported, downloadv1alpha1.DownloadPhaseFailed,
-			downloadv1alpha1.DownloadPhaseBlocklisted, downloadv1alpha1.DownloadPhaseRemoving,
+		for _, p := range []commonv1.DownloadPhase{
+			commonv1.DownloadPhaseImported, commonv1.DownloadPhaseFailed,
+			commonv1.DownloadPhaseBlocklisted, commonv1.DownloadPhaseRemoving,
 		} {
-			set(downloadv1alpha1.DownloadPhaseDownloading)
+			set(commonv1.DownloadPhaseDownloading)
 			settled(t, "reset", catalogv1alpha1.MoviePhaseDownloading, dl)
 			set(p)
 			settled(t, string(p), catalogv1alpha1.MoviePhaseWanted, "")
@@ -1031,7 +1030,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		grabPathDownload(t, ctx, c, stranger, "sicario-stranger01")
 
 		terminal := grabPathDownload(t, ctx, c, &live, "sicario-failed0001")
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(terminal, "avail-ns", downloadv1alpha1.DownloadPhaseFailed))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(terminal, "avail-ns", commonv1.DownloadPhaseFailed))
 		require.NoError(t, err)
 
 		hasRef := func() bool {

@@ -210,8 +210,7 @@ type DownloadRelease struct {
 	Edition string `json:"edition,omitempty"`
 }
 
-// ImportPhase is a grab's import, summarised (ADR-0019 §6.9). Not
-// downloadv1alpha1.ImportPhase, which release N+1 removes with Download.
+// ImportPhase is a grab's import, summarised (ADR-0019 §6.9).
 // +kubebuilder:validation:Enum=pending;inspected;approved;imported;blocked;held;expired
 type ImportPhase string
 
@@ -306,47 +305,3 @@ type GrabCandidate struct {
 	Manual bool `json:"manual,omitempty"`
 }
 
-// LegacyDownloads is release N's record of the Downloads this owner
-// adopted (ADR-0019 §10.2). Release N+1 removes it.
-type LegacyDownloads struct {
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=64
-	Adopted []LegacyDownload `json:"adopted,omitempty"`
-	// Held is "TooMany" while the owner has more live Downloads than its
-	// entry cap; nothing is truncated.
-	// +optional
-	// +kubebuilder:validation:Enum=TooMany
-	Held string `json:"held,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=1024
-	Message string `json:"message,omitempty"`
-}
-
-// LegacyDownload is one Download release N adopted, blocklisted, dismissed
-// or is removing for this owner.
-type LegacyDownload struct {
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name"`
-	// +kubebuilder:validation:MaxLength=36
-	UID     string        `json:"uid"`
-	Outcome LegacyOutcome `json:"outcome"`
-	At      metav1.Time   `json:"at"`
-}
-
-// LegacyOutcome is what release N did with an adopted Download.
-// +kubebuilder:validation:Enum=adopted;blocklisted;dismissed;removing
-type LegacyOutcome string
-
-// Legacy outcomes.
-const (
-	// LegacyOutcomeAdopted means the Download became an entry.
-	LegacyOutcomeAdopted LegacyOutcome = "adopted"
-	// LegacyOutcomeBlocklisted means a blocklisted Download became a
-	// release-index block.
-	LegacyOutcomeBlocklisted LegacyOutcome = "blocklisted"
-	// LegacyOutcomeDismissed means a terminal Download was dropped.
-	LegacyOutcomeDismissed LegacyOutcome = "dismissed"
-	// LegacyOutcomeRemoving means the Download is being torn down.
-	LegacyOutcomeRemoving LegacyOutcome = "removing"
-)

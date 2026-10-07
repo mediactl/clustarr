@@ -31,7 +31,6 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
@@ -123,7 +122,7 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 		name: "op-download", hash: "cccccccccccccccccccccccccccccccccccccccc",
 		title:  "One.Piece.S01E37.1080p.WEB-DL.x265-OLD",
 		target: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "one-piece-s01e37"},
-		phase:  downloadv1alpha1.DownloadPhaseSeeding,
+		phase:  commonv1.DownloadPhaseSeeding,
 	})
 
 	airDate := metav1.NewTime(time.Date(2000, 6, 4, 0, 0, 0, 0, time.UTC))
@@ -412,64 +411,6 @@ func TestWorkerSnapshotMarksATranscodedCurrentFile(t *testing.T) {
 			require.False(t, opts.UserInvoked, "an automatic search, which TranscodedFinal applies to")
 		})
 	}
-}
-
-func TestWorkerBlocklistPredicateHonoursTheExpiryDeadline(t *testing.T) {
-	ctx := context.Background()
-	f := newWorkerFixture(t, "snapshot-blocklist")
-
-	// Derived from testNow, the instant the worker's clock is frozen at --
-	// not from time.Now(), which is a different clock and drifts away from it
-	// by one day per day.
-	live := metav1.NewTime(testNow.Add(24 * time.Hour))
-	expired := metav1.NewTime(testNow.Add(-24 * time.Hour))
-	newDownload(t, ctx, f.mgr, f.ns, downloadFixture{
-		name: "blocked-live", hash: "1111111111111111111111111111111111111111",
-		title: "The.Matrix.1999.1080p.BluRay.x264-BANNED", target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
-		blocklisted: true, blocklistedUntil: &live, phase: downloadv1alpha1.DownloadPhaseBlocklisted,
-	})
-	newDownload(t, ctx, f.mgr, f.ns, downloadFixture{
-		name: "blocked-expired", hash: "2222222222222222222222222222222222222222",
-		title: "The.Matrix.1999.720p.HDTV.x264-STALE", target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
-		blocklisted: true, blocklistedUntil: &expired, phase: downloadv1alpha1.DownloadPhaseBlocklisted,
-	})
-	// Both entries AND their status.blocklistedUntil: the blocklist is loaded
-	// once, when the search snapshots, so a cache that has seen the create
-	// but not yet the status patch would read the expired entry as
-	// blocklisted forever.
-	eventually(t, 10*time.Second, "both blocklist entries and their deadlines to reach the cache", func() bool {
-		var list downloadv1alpha1.DownloadList
-		if err := f.mgr.List(ctx, &list, client.InNamespace(f.ns),
-			client.MatchingLabels{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue}); err != nil {
-			return false
-		}
-		withDeadline := 0
-		for i := range list.Items {
-			if list.Items[i].Status.BlocklistedUntil != nil {
-				withDeadline++
-			}
-		}
-		return withDeadline == 2
-	})
-
-	capture := &targetCapture{}
-	f.worker.Evaluate = capture.evaluate
-	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
-		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
-		Reason:   schema.SearchReasonMissing,
-	})}))
-
-	target, _, _ := capture.get(t)
-	require.NotNil(t, target.Blocklist)
-	require.True(t, target.Blocklist("1111111111111111111111111111111111111111", "anything"),
-		"a live blocklist entry matches by info hash")
-	require.True(t, target.Blocklist("", "The.Matrix.1999.1080p.BluRay.x264-BANNED"),
-		"a usenet release with no info hash matches by normalized title")
-	require.True(t, target.Blocklist("1111111111111111111111111111111111111111", "unrelated"),
-		"the hash is matched case-insensitively and independently of the title")
-	require.False(t, target.Blocklist("2222222222222222222222222222222222222222", "unrelated"),
-		"an expired blocklist entry no longer blocks; expiry is applied at read time, not baked into the index")
-	require.False(t, target.Blocklist("3333333333333333333333333333333333333333", "Never.Seen.Before"))
 }
 
 // TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease is the search path's

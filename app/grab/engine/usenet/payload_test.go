@@ -26,13 +26,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeRequester is a minimal events.Requester test double, the same shape
@@ -74,7 +73,7 @@ func TestResolveNZBURLFetchesDirectly(t *testing.T) {
 
 	url := srv.URL
 	r := &usenetengine.Resolver{}
-	got, err := r.Resolve(t.Context(), "media", downloadv1alpha1.DownloadSource{NZBURL: &url})
+	got, err := r.Resolve(t.Context(), "media", commonv1.DownloadSource{NZBURL: &url})
 	require.NoError(t, err)
 	assert.Equal(t, body, got)
 }
@@ -87,7 +86,7 @@ func TestResolveNZBURLPropagatesNon200(t *testing.T) {
 
 	url := srv.URL
 	r := &usenetengine.Resolver{}
-	_, err := r.Resolve(t.Context(), "media", downloadv1alpha1.DownloadSource{NZBURL: &url})
+	_, err := r.Resolve(t.Context(), "media", commonv1.DownloadSource{NZBURL: &url})
 	require.Error(t, err)
 }
 
@@ -99,7 +98,7 @@ func TestResolveCapsResponseSize(t *testing.T) {
 
 	url := srv.URL
 	r := &usenetengine.Resolver{MaxBytes: 10}
-	_, err := r.Resolve(t.Context(), "media", downloadv1alpha1.DownloadSource{NZBURL: &url})
+	_, err := r.Resolve(t.Context(), "media", commonv1.DownloadSource{NZBURL: &url})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, usenetengine.ErrPayloadTooLarge)
 }
@@ -109,8 +108,8 @@ func TestResolveIndexerDownloadUsesBytes(t *testing.T) {
 	rpc := &fakeRequester{resp: schema.DownloadResponse{Bytes: want}}
 	r := &usenetengine.Resolver{RPC: rpc}
 
-	src := downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
 	}
 	got, err := r.Resolve(t.Context(), "media", src)
 	require.NoError(t, err)
@@ -131,8 +130,8 @@ func TestResolveIndexerDownloadFollowsRedirectURL(t *testing.T) {
 	rpc := &fakeRequester{resp: schema.DownloadResponse{RedirectURL: srv.URL}}
 	r := &usenetengine.Resolver{RPC: rpc}
 
-	src := downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
 	}
 	got, err := r.Resolve(t.Context(), "media", src)
 	require.NoError(t, err)
@@ -143,8 +142,8 @@ func TestResolveIndexerDownloadRejectsMagnetURL(t *testing.T) {
 	rpc := &fakeRequester{resp: schema.DownloadResponse{MagnetURL: "magnet:?xt=urn:btih:deadbeef"}}
 	r := &usenetengine.Resolver{RPC: rpc}
 
-	src := downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
 	}
 	_, err := r.Resolve(t.Context(), "media", src)
 	require.Error(t, err)
@@ -155,8 +154,8 @@ func TestResolveIndexerDownloadPropagatesNamedError(t *testing.T) {
 	rpc := &fakeRequester{resp: schema.DownloadResponse{Error: "indexer rejected the guid"}}
 	r := &usenetengine.Resolver{RPC: rpc}
 
-	src := downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
 	}
 	_, err := r.Resolve(t.Context(), "media", src)
 	require.Error(t, err)
@@ -167,8 +166,8 @@ func TestResolveIndexerDownloadPropagatesRPCError(t *testing.T) {
 	rpc := &fakeRequester{err: events.ErrNoResponders}
 	r := &usenetengine.Resolver{RPC: rpc}
 
-	src := downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
 	}
 	_, err := r.Resolve(t.Context(), "media", src)
 	require.Error(t, err)
@@ -177,8 +176,8 @@ func TestResolveIndexerDownloadPropagatesRPCError(t *testing.T) {
 
 func TestResolveWithNoRPCConfiguredFailsRatherThanBlocking(t *testing.T) {
 	r := &usenetengine.Resolver{}
-	src := downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
 	}
 	_, err := r.Resolve(t.Context(), "media", src)
 	require.Error(t, err)
@@ -187,7 +186,7 @@ func TestResolveWithNoRPCConfiguredFailsRatherThanBlocking(t *testing.T) {
 func TestResolveRejectsUnsupportedSource(t *testing.T) {
 	torrentURL := "https://tracker.invalid/download/abc.torrent"
 	r := &usenetengine.Resolver{}
-	_, err := r.Resolve(t.Context(), "media", downloadv1alpha1.DownloadSource{TorrentURL: &torrentURL})
+	_, err := r.Resolve(t.Context(), "media", commonv1.DownloadSource{TorrentURL: &torrentURL})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, usenetengine.ErrUnsupportedSource)
 }
@@ -200,8 +199,8 @@ func TestResolveIndexerDownloadDecompressesAGzipReply(t *testing.T) {
 	require.Equal(t, schema.DownloadEncodingGzip, rpc.resp.Encoding, "the fixture must cross compressed")
 	r := &usenetengine.Resolver{RPC: rpc}
 
-	got, err := r.Resolve(t.Context(), "media", downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
+	got, err := r.Resolve(t.Context(), "media", commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzbgeek", GUID: "abc123"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
@@ -239,12 +238,12 @@ func TestResolveFetchErrorsCarryNoCredentials(t *testing.T) {
 		for _, branch := range []struct {
 			name string
 			r    *usenetengine.Resolver
-			src  downloadv1alpha1.DownloadSource
+			src  commonv1.DownloadSource
 		}{
-			{"nzbURL", &usenetengine.Resolver{MaxBytes: 10}, downloadv1alpha1.DownloadSource{NZBURL: &raw}},
+			{"nzbURL", &usenetengine.Resolver{MaxBytes: 10}, commonv1.DownloadSource{NZBURL: &raw}},
 			{
 				"redirectURL", &usenetengine.Resolver{MaxBytes: 10, RPC: &fakeRequester{resp: schema.DownloadResponse{RedirectURL: raw}}},
-				downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g"}},
+				commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g"}},
 			},
 		} {
 			t.Run(tc.name+"/"+branch.name, func(t *testing.T) {
@@ -268,7 +267,7 @@ func TestResolveUnsupportedSourceErrorCarriesNoURL(t *testing.T) {
 	torrentURL := "https://tracker.example/download/abc.torrent?passkey=s3cret-passkey"
 	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=https%3A%2F%2Ftracker.example%2Fs3cret-passkey%2Fannounce"
 	r := &usenetengine.Resolver{}
-	for _, src := range []downloadv1alpha1.DownloadSource{{TorrentURL: &torrentURL}, {MagnetURL: &magnet}} {
+	for _, src := range []commonv1.DownloadSource{{TorrentURL: &torrentURL}, {MagnetURL: &magnet}} {
 		_, err := r.Resolve(t.Context(), "media", src)
 		require.ErrorIs(t, err, usenetengine.ErrUnsupportedSource)
 		assert.NotContains(t, err.Error(), "s3cret")
@@ -295,7 +294,7 @@ func TestResolveDrainsANon200BodyOnlyBoundedly(t *testing.T) {
 	defer cancel()
 	url := srv.URL
 	start := time.Now()
-	_, err := (&usenetengine.Resolver{}).Resolve(ctx, "media", downloadv1alpha1.DownloadSource{NZBURL: &url})
+	_, err := (&usenetengine.Resolver{}).Resolve(ctx, "media", commonv1.DownloadSource{NZBURL: &url})
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(start), 2*time.Second, "the drain must be bounded")

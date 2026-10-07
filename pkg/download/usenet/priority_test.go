@@ -24,10 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
+	"github.com/stretchr/testify/require"
 )
 
 func manyParts(seed byte, n, size int) [][]byte {
@@ -54,26 +53,26 @@ func TestClientTransfersStrictlyByPriorityClass(t *testing.T) {
 	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 1, 1)}})
 	ctx := context.Background()
 
-	highID, err := c.Add(ctx, download.AddRequest{Name: "High", Payload: highNZB, Priority: downloadv1alpha1.DownloadPriorityHigh})
+	highID, err := c.Add(ctx, download.AddRequest{Name: "High", Payload: highNZB, Priority: commonv1.DownloadPriorityHigh})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		it, err := c.Get(ctx, highID)
-		return err == nil && it.Stage == downloadv1alpha1.DownloadStageTransferring && it.Status == download.StatusDownloading
+		return err == nil && it.Stage == commonv1.DownloadStageTransferring && it.Status == download.StatusDownloading
 	}, 5*time.Second, 5*time.Millisecond, "the high job must be transferring before the low one is added")
 
-	lowID, err := c.Add(ctx, download.AddRequest{Name: "Low", Payload: lowNZB, Priority: downloadv1alpha1.DownloadPriorityLow})
+	lowID, err := c.Add(ctx, download.AddRequest{Name: "Low", Payload: lowNZB, Priority: commonv1.DownloadPriorityLow})
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
 		it, err := c.Get(ctx, lowID)
-		return err == nil && it.Status == download.StatusQueued && it.Stage == downloadv1alpha1.DownloadStageTransferring
+		return err == nil && it.Status == download.StatusQueued && it.Stage == commonv1.DownloadStageTransferring
 	}, 5*time.Second, 5*time.Millisecond, "an outranked job must report Queued while it waits its turn")
 
 	lowArticles := []string{"low-f0-p0@clustarr.test", "low-f0-p1@clustarr.test"}
 	for {
 		high, err := c.Get(ctx, highID)
 		require.NoError(t, err)
-		if high.Stage != downloadv1alpha1.DownloadStageTransferring {
+		if high.Stage != commonv1.DownloadStageTransferring {
 			break
 		}
 		for _, id := range lowArticles {
@@ -91,9 +90,9 @@ func TestClientTransfersStrictlyByPriorityClass(t *testing.T) {
 // default is normal, and an object built without apiserver defaulting
 // carries "".
 func TestPriorityRankTreatsEmptyAsNormal(t *testing.T) {
-	require.Equal(t, priorityRank(downloadv1alpha1.DownloadPriorityNormal), priorityRank(""))
-	require.Greater(t, priorityRank(downloadv1alpha1.DownloadPriorityHigh), priorityRank(downloadv1alpha1.DownloadPriorityNormal))
-	require.Greater(t, priorityRank(downloadv1alpha1.DownloadPriorityNormal), priorityRank(downloadv1alpha1.DownloadPriorityLow))
+	require.Equal(t, priorityRank(commonv1.DownloadPriorityNormal), priorityRank(""))
+	require.Greater(t, priorityRank(commonv1.DownloadPriorityHigh), priorityRank(commonv1.DownloadPriorityNormal))
+	require.Greater(t, priorityRank(commonv1.DownloadPriorityNormal), priorityRank(commonv1.DownloadPriorityLow))
 }
 
 // TestClientKeepsAddedAtAcrossARestart proves Item.AddedAt is a true age:

@@ -32,7 +32,7 @@ import (
 )
 
 // FinalizerName renders §2's finalizer convention, "<group>/<kind-lowercase>",
-// for example "download.clustarr.io/download".
+// for example "catalog.clustarr.io/movie".
 //
 // Kubernetes validates a finalizer as a qualified name: the part before the
 // slash must be a DNS subdomain and the part after it must be at most 63

@@ -21,14 +21,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/redact"
+	"io"
+	"net/http"
 )
 
 // defaultMaxPayloadBytes caps one resolved .nzb body. Real posts are XML text
@@ -86,7 +85,7 @@ func (r *Resolver) maxBytes() int64 {
 
 // Resolve returns the .nzb bytes for src, a Download in namespace ns's
 // spec.source.
-func (r *Resolver) Resolve(ctx context.Context, ns string, src downloadv1alpha1.DownloadSource) ([]byte, error) {
+func (r *Resolver) Resolve(ctx context.Context, ns string, src commonv1.DownloadSource) ([]byte, error) {
 	switch {
 	case src.NZBURL != nil && *src.NZBURL != "":
 		return r.fetchURL(ctx, *src.NZBURL)
@@ -100,7 +99,7 @@ func (r *Resolver) Resolve(ctx context.Context, ns string, src downloadv1alpha1.
 // sourceMember names which DownloadSource member is set, for an error
 // message. It names the field and never prints its value: a torrentURL
 // carries a tracker passkey, and a magnet's announce URLs often do too.
-func sourceMember(src downloadv1alpha1.DownloadSource) string {
+func sourceMember(src commonv1.DownloadSource) string {
 	switch {
 	case src.MagnetURL != nil:
 		return "magnetURL"
@@ -118,7 +117,7 @@ func sourceMember(src downloadv1alpha1.DownloadSource) string {
 // app/indexer/search.Service.handleDownload serves -- verified against source,
 // not assumed, the same way app/catalog/worker/search.busSearchRPC calls
 // events.RPCIndexSearch.
-func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id downloadv1alpha1.IndexerDownload) ([]byte, error) {
+func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id commonv1.IndexerDownload) ([]byte, error) {
 	if r.RPC == nil {
 		return nil, fmt.Errorf("usenetengine: no RPC requester configured to resolve indexer download %q/%q", id.IndexerRef, id.GUID)
 	}

@@ -146,7 +146,7 @@ func TestProgressPublisherWritesOnlyWhatChanged(t *testing.T) {
 	}
 	eta := 90 * time.Second
 	moving := download.Item{
-		ID: "aaaa", Status: download.StatusDownloading, Stage: downloadv1alpha1.DownloadStageTransferring,
+		ID: "aaaa", Status: download.StatusDownloading, Stage: commonv1alpha1.DownloadStageTransferring,
 		TotalBytes: 3000, DownloadedBytes: 1000, DownRate: 500, ETA: &eta, Peers: 4, Seeders: 2,
 	}
 	idle := download.Item{ID: "bbbb", Status: download.StatusPaused, TotalBytes: 10, DownloadedBytes: 5}

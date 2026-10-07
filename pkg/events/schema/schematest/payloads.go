@@ -37,7 +37,6 @@ func Payloads() []schema.Payload {
 		schema.ImportListSynced{},
 		schema.SearchTask{},
 		schema.GrabTask{},
-		schema.ImportTask{},
 		schema.MetadataTask{},
 		schema.SegmentsPlanTask{},
 		schema.AnalyzeTask{},

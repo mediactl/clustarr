@@ -228,7 +228,7 @@ func testQualityProfile(ns, name string, tierQualities ...string) *catalogv1alph
 	}
 }
 
-func downloadStatusAC(name, ns string, phase downloadv1alpha1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
+func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
 	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
 }
 
@@ -661,7 +661,7 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "rollup-ns"},
 				Spec: downloadv1alpha1.DownloadSpec{
 					Protocol: commonv1.ProtocolTorrent,
-					Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
+					Source:   commonv1.DownloadSource{MagnetURL: &magnet},
 					Release:  commonv1.ReleaseInfo{},
 					Target:   commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"},
 				},
@@ -702,14 +702,14 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 
 		// Completed is on disk and awaiting import: still this item's
 		// Download (R-12).
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseCompleted))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", commonv1.DownloadPhaseCompleted))
 		require.NoError(t, err)
 		require.Never(t, func() bool {
 			var g catalogv1alpha1.Audiobook
 			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef == nil || g.Status.Phase != catalogv1alpha1.AudiobookPhaseDownloading)
 		}, 500*time.Millisecond, 20*time.Millisecond, "a Completed Download is still working on the item")
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseImported))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", commonv1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var g catalogv1alpha1.Audiobook

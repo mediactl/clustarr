@@ -41,7 +41,6 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -94,7 +93,7 @@ func testSeries(ns, name, qualityProfileRef string) *catalogv1alpha1.Series {
 	}
 }
 
-func downloadStatusAC(name, ns string, phase downloadv1alpha1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
+func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
 	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
 }
 
@@ -561,7 +560,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
 		assert.Equal(t, []string{k8s.ManagerCatalog.String()}, statusFieldOwners(t, &got, "activeDownloadRef"))
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseAssigned))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", commonv1.DownloadPhaseAssigned))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
@@ -570,7 +569,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseImported))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", commonv1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
@@ -595,12 +594,12 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogGrab, downloadac.Download("the-wire-s01e05-donor", "ep-ns").
 			WithOwnerReferences(ref).
 			WithSpec(downloadac.DownloadSpec().
-				WithProtocol(commonv1.ProtocolUsenet).WithPurpose(downloadv1alpha1.DownloadPurposeAudioDonor).
+				WithProtocol(commonv1.ProtocolUsenet).WithPurpose(commonv1.DownloadPurposeAudioDonor).
 				WithSource(downloadac.DownloadSource().WithNZBURL("http://indexer.example/donor.nzb")).
 				WithRelease(commonv1.ReleaseInfo{GUID: "donor", IndexerRef: "example", Title: "The.Wire.S01E05.DVDRip.DL", Protocol: commonv1.ProtocolUsenet}).
 				WithTarget(commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e05"})))
 		require.NoError(t, err)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("the-wire-s01e05-donor", "ep-ns", downloadv1alpha1.DownloadPhaseDownloading))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("the-wire-s01e05-donor", "ep-ns", commonv1.DownloadPhaseDownloading))
 		require.NoError(t, err)
 		require.Never(t, func() bool {
 			var got catalogv1alpha1.Episode
@@ -657,26 +656,26 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		dl := grabPathDownload(t, ctx, c, &live, name+"-abc1234567", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name})
 		settled(t, "a Download with no phase yet", catalogv1alpha1.EpisodePhaseDownloading, dl)
 
-		set := func(p downloadv1alpha1.DownloadPhase) {
+		set := func(p commonv1.DownloadPhase) {
 			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", p))
 			require.NoError(t, err)
 		}
-		for _, p := range []downloadv1alpha1.DownloadPhase{
-			downloadv1alpha1.DownloadPhasePending, downloadv1alpha1.DownloadPhaseAssigned,
-			downloadv1alpha1.DownloadPhaseQueued, downloadv1alpha1.DownloadPhaseDownloading,
-			downloadv1alpha1.DownloadPhasePaused, downloadv1alpha1.DownloadPhaseCompleted,
-			downloadv1alpha1.DownloadPhaseSeeding,
+		for _, p := range []commonv1.DownloadPhase{
+			commonv1.DownloadPhasePending, commonv1.DownloadPhaseAssigned,
+			commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading,
+			commonv1.DownloadPhasePaused, commonv1.DownloadPhaseCompleted,
+			commonv1.DownloadPhaseSeeding,
 		} {
-			set(downloadv1alpha1.DownloadPhaseFailed)
+			set(commonv1.DownloadPhaseFailed)
 			settled(t, "reset", catalogv1alpha1.EpisodePhaseWanted, "")
 			set(p)
 			settled(t, string(p), catalogv1alpha1.EpisodePhaseDownloading, dl)
 		}
-		for _, p := range []downloadv1alpha1.DownloadPhase{
-			downloadv1alpha1.DownloadPhaseImported, downloadv1alpha1.DownloadPhaseFailed,
-			downloadv1alpha1.DownloadPhaseBlocklisted, downloadv1alpha1.DownloadPhaseRemoving,
+		for _, p := range []commonv1.DownloadPhase{
+			commonv1.DownloadPhaseImported, commonv1.DownloadPhaseFailed,
+			commonv1.DownloadPhaseBlocklisted, commonv1.DownloadPhaseRemoving,
 		} {
-			set(downloadv1alpha1.DownloadPhaseDownloading)
+			set(commonv1.DownloadPhaseDownloading)
 			settled(t, "reset", catalogv1alpha1.EpisodePhaseDownloading, dl)
 			set(p)
 			settled(t, string(p), catalogv1alpha1.EpisodePhaseWanted, "")
@@ -765,7 +764,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 				got.Status.ActiveDownloadRef != nil
 		}, 500*time.Millisecond, 50*time.Millisecond, "an episode outside the pack's keys is not covered")
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseFailed))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", commonv1.DownloadPhaseFailed))
 		require.NoError(t, err)
 		for _, name := range []string{"pack-show-s01e01", "pack-show-s01e02"} {
 			require.Eventually(t, func() bool {

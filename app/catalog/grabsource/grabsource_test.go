@@ -35,7 +35,7 @@ func TestResolveSource(t *testing.T) {
 	tests := []struct {
 		name string
 		rel  commonv1.ReleaseInfo
-		want downloadv1alpha1.DownloadSource
+		want commonv1.DownloadSource
 	}{
 		{
 			name: "a magnet wins and carries the info hash",
@@ -44,7 +44,7 @@ func TestResolveSource(t *testing.T) {
 				MagnetURL: "magnet:?xt=urn:btih:" + hexHash, DownloadURL: "https://idx/dl?apikey=k",
 				InfoHash: hexHash,
 			},
-			want: downloadv1alpha1.DownloadSource{
+			want: commonv1.DownloadSource{
 				MagnetURL:        new("magnet:?xt=urn:btih:" + hexHash),
 				ExpectedInfoHash: new(hexHash),
 			},
@@ -55,8 +55,8 @@ func TestResolveSource(t *testing.T) {
 				Protocol: commonv1.ProtocolTorrent, GUID: "g", IndexerRef: "idx",
 				DownloadURL: "https://idx/dl?apikey=k", InfoHash: hexHash,
 			},
-			want: downloadv1alpha1.DownloadSource{
-				IndexerDownload:  &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g", URL: "https://idx/dl?apikey=k"},
+			want: commonv1.DownloadSource{
+				IndexerDownload:  &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g", URL: "https://idx/dl?apikey=k"},
 				ExpectedInfoHash: new(hexHash),
 			},
 		},
@@ -66,8 +66,8 @@ func TestResolveSource(t *testing.T) {
 				Protocol: commonv1.ProtocolTorrent, GUID: "g", IndexerRef: "idx",
 				InfoHash: "0123456789ABCDEF0123456789ABCDEF01234567",
 			},
-			want: downloadv1alpha1.DownloadSource{
-				IndexerDownload:  &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g"},
+			want: commonv1.DownloadSource{
+				IndexerDownload:  &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g"},
 				ExpectedInfoHash: new(hexHash),
 			},
 		},
@@ -77,19 +77,19 @@ func TestResolveSource(t *testing.T) {
 				Protocol: commonv1.ProtocolUsenet, GUID: "g", IndexerRef: "idx",
 				DownloadURL: "https://idx/nzb", InfoHash: hexHash,
 			},
-			want: downloadv1alpha1.DownloadSource{
-				IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g", URL: "https://idx/nzb"},
+			want: commonv1.DownloadSource{
+				IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g", URL: "https://idx/nzb"},
 			},
 		},
 		{
 			name: "a torrent no indexer stands behind is fetched directly",
 			rel:  commonv1.ReleaseInfo{Protocol: commonv1.ProtocolTorrent, GUID: "g", DownloadURL: "https://x/t.torrent"},
-			want: downloadv1alpha1.DownloadSource{TorrentURL: new("https://x/t.torrent")},
+			want: commonv1.DownloadSource{TorrentURL: new("https://x/t.torrent")},
 		},
 		{
 			name: "an nzb no indexer stands behind is fetched directly",
 			rel:  commonv1.ReleaseInfo{Protocol: commonv1.ProtocolUsenet, IndexerRef: "idx", DownloadURL: "https://x/a.nzb"},
-			want: downloadv1alpha1.DownloadSource{NZBURL: new("https://x/a.nzb")},
+			want: commonv1.DownloadSource{NZBURL: new("https://x/a.nzb")},
 		},
 		{
 			name: "a magnet field that is not a magnet falls through to index",
@@ -97,8 +97,8 @@ func TestResolveSource(t *testing.T) {
 				Protocol: commonv1.ProtocolTorrent, GUID: "g", IndexerRef: "idx",
 				MagnetURL: "https://aggregator/redirect/123",
 			},
-			want: downloadv1alpha1.DownloadSource{
-				IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g"},
+			want: commonv1.DownloadSource{
+				IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g"},
 			},
 		},
 	}
@@ -112,7 +112,7 @@ func TestResolveSource(t *testing.T) {
 	}
 }
 
-func members(s downloadv1alpha1.DownloadSource) int {
+func members(s commonv1.DownloadSource) int {
 	n := 0
 	for _, set := range []bool{s.MagnetURL != nil, s.TorrentURL != nil, s.NZBURL != nil, s.IndexerDownload != nil} {
 		if set {
@@ -154,8 +154,8 @@ func TestExpectedInfoHash(t *testing.T) {
 }
 
 func TestSourceApplyConfigurationRoundTripsEveryMember(t *testing.T) {
-	src := downloadv1alpha1.DownloadSource{
-		IndexerDownload:  &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g", URL: "u"},
+	src := commonv1.DownloadSource{
+		IndexerDownload:  &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g", URL: "u"},
 		ExpectedInfoHash: new(hexHash),
 	}
 	ac := SourceApplyConfiguration(src)
@@ -166,7 +166,7 @@ func TestSourceApplyConfigurationRoundTripsEveryMember(t *testing.T) {
 	assert.Equal(t, hexHash, *ac.ExpectedInfoHash)
 	assert.Nil(t, ac.MagnetURL)
 
-	direct := SourceApplyConfiguration(downloadv1alpha1.DownloadSource{TorrentURL: new("t"), NZBURL: ptr.To("n"), MagnetURL: ptr.To("m")})
+	direct := SourceApplyConfiguration(commonv1.DownloadSource{TorrentURL: new("t"), NZBURL: ptr.To("n"), MagnetURL: ptr.To("m")})
 	assert.Equal(t, "t", *direct.TorrentURL)
 	assert.Equal(t, "n", *direct.NZBURL)
 	assert.Equal(t, "m", *direct.MagnetURL)

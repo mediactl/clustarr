@@ -560,9 +560,6 @@ func withEntries(ctx context.Context, ac *catalogac.ComicStatusApplyConfiguratio
 	if n := itempass.NoncesAC(itempass.Nonces(p, o.Status.DownloadNonces)); n != nil {
 		ac = ac.WithDownloadNonces(n)
 	}
-	if l := itempass.LegacyAC(itempass.Legacy(p, o.Status.LegacyDownloads)); l != nil {
-		ac = ac.WithLegacyDownloads(l)
-	}
 	return ac
 }
 

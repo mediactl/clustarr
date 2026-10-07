@@ -57,9 +57,6 @@ type ArtworkFetch struct {
 // Schema implements Payload.
 func (ArtworkFetchTask) Schema() string { return "catalog.ArtworkFetchTask.v2" }
 
-// LegacySchemas implements Legacy: a v1 task decodes into v2.
-func (ArtworkFetchTask) LegacySchemas() []string { return []string{ArtworkFetchTaskV1Schema} }
-
 // RenderOverlayTask asks the renderer role to recompute an item's overlay
 // poster from its stored original, its OverlayProfile and its current
 // ratings. Subject: clustarr.work.catalog.artwork.render.<mediaKey>,

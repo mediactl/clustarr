@@ -18,20 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package torrent
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
-	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // The persisted seed record only grows, a met goal is written at once, and
@@ -70,123 +63,4 @@ func TestNextSeedRecord(t *testing.T) {
 	require.NotNil(t, h)
 	assert.Equal(t, download.SeedHistory{UploadedBytes: 20, SeedTime: 100 * time.Second, GoalMet: true}, *h)
 	assert.Nil(t, (*seedRecord)(nil).history())
-}
-
-// An info hash other than spec.source.expectedInfoHash is reported as the
-// engine's failure, payloadMismatch, instead of being retried forever; and
-// the engine does not resolve the payload again while the controller's
-// verdict is on its way.
-func TestPayloadMismatchIsReportedNotRetried(t *testing.T) {
-	ctx := context.Background()
-	c := newEnvtestClient(t)
-	const ns = "torrent-payload-mismatch"
-	newTestNamespace(t, ctx, c, ns)
-	mkTorrentDownloadClient(t, ctx, c, ns, "torrents")
-
-	fc := newFakeClient()
-	fc.addErr = download.ErrPayloadMismatch
-	e := &Engine{Client: fc, StateDir: t.TempDir()}
-	_, err := e.ReAttach(ctx)
-	require.NoError(t, err)
-	r := &Reconciler{Client: c, Engine: e, EngineID: "torrents-0", StateDir: e.StateDir}
-
-	dl := mkTorrentDownload(t, ctx, c, ns, "swapped", "torrents-0", "torrents", nil)
-	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dl)}
-
-	res, err := r.Reconcile(ctx, req)
-	require.NoError(t, err, "a payload mismatch is a report, not an error to back off and retry")
-	assert.Zero(t, res.RequeueAfter)
-
-	var got downloadv1alpha1.Download
-	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
-	assert.Equal(t, downloadv1alpha1.DownloadFailurePayloadMismatch, got.Status.EngineFailureReason)
-	assert.Contains(t, got.Status.Message, "info hash")
-	assert.Empty(t, got.Status.DownloadID, "nothing was added")
-	assert.True(t, got.Status.EngineFailureReason.IsReleaseFault(), "the controller blocklists it")
-
-	fc.addErr = nil
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-	assert.Zero(t, fc.addCallCount(), "the engine resolved and added the mismatched payload again")
-}
-
-// sync drives a spec.priority change to the client, persists the seed
-// counters for a re-attach to hand back, and removes an imported torrent
-// past its goal only when both the Download's removeOnImport and the
-// client's removeCompleted allow it.
-func TestSyncPriorityRemoveCompletedAndSeedRecord(t *testing.T) {
-	ctx := context.Background()
-	c := newEnvtestClient(t)
-	const ns = "torrent-z1-sync"
-	newTestNamespace(t, ctx, c, ns)
-	mkTorrentDownloadClient(t, ctx, c, ns, "torrents")
-
-	fc := newFakeClient()
-	e := &Engine{Client: fc, StateDir: t.TempDir()}
-	_, err := e.ReAttach(ctx)
-	require.NoError(t, err)
-	r := &Reconciler{Client: c, Engine: e, EngineID: "torrents-0", StateDir: e.StateDir}
-
-	dl := mkTorrentDownload(t, ctx, c, ns, "seeded", "torrents-0", "torrents", nil)
-	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dl)}
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-	require.NoError(t, c.Get(ctx, req.NamespacedName, dl))
-	id := dl.Status.DownloadID
-	require.NotEmpty(t, id)
-
-	// spec.priority edited after the Add.
-	dl.Spec.Priority = downloadv1alpha1.DownloadPriorityHigh
-	require.NoError(t, c.Update(ctx, dl))
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-	require.NotEmpty(t, fc.priorityCalls)
-	assert.Equal(t, priorityCall{id: id, priority: downloadv1alpha1.DownloadPriorityHigh}, fc.priorityCalls[len(fc.priorityCalls)-1])
-
-	// The torrent has seeded and met its goal; the client-wide switch is off.
-	fc.mu.Lock()
-	item := fc.items[id]
-	item.UploadedBytes, item.SeedTime, item.SeedGoalMet = 3<<20, 2*time.Hour, true
-	fc.items[id] = item
-	fc.mu.Unlock()
-	var dc downloadv1alpha1.DownloadClient
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "torrents"}, &dc))
-	off := false
-	dc.Spec.Torrent.RemoveCompleted = &off
-	require.NoError(t, c.Update(ctx, &dc))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerImport,
-		downloadac.Download(dl.Name, ns).WithStatus(downloadac.DownloadStatus().
-			WithImport(downloadac.ImportState().WithState(downloadv1alpha1.ImportPhaseImported))))
-	require.NoError(t, err)
-
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-	assert.Empty(t, fc.removeCallsSnapshot(), "removeCompleted=false kept nothing on the engine")
-	got, errs := loadDescriptors(e.StateDir)
-	require.Empty(t, errs)
-	require.Len(t, got, 1)
-	require.NotNil(t, got[0].Desc.Seed, "the seed counters were not persisted")
-	assert.True(t, got[0].Desc.Seed.GoalMet)
-	assert.EqualValues(t, 3<<20, got[0].Desc.Seed.UploadedBytes)
-	assert.EqualValues(t, 7200, got[0].Desc.Seed.SeedTimeSeconds)
-	assert.Equal(t, downloadv1alpha1.DownloadPriorityHigh, got[0].Desc.Priority, "a priority change must survive a restart")
-
-	// A restart hands the persisted seeding back to the client.
-	fc2 := newFakeClient()
-	_, err = (&Engine{Client: fc2, StateDir: e.StateDir}).ReAttach(ctx)
-	require.NoError(t, err)
-	require.Len(t, fc2.addRequests, 1)
-	require.NotNil(t, fc2.addRequests[0].SeedHistory)
-	assert.Equal(t, download.SeedHistory{UploadedBytes: 3 << 20, SeedTime: 2 * time.Hour, GoalMet: true},
-		*fc2.addRequests[0].SeedHistory)
-	assert.Equal(t, downloadv1alpha1.DownloadPriorityHigh, fc2.addRequests[0].Priority)
-
-	// Turning the switch back on removes it.
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "torrents"}, &dc))
-	on := true
-	dc.Spec.Torrent.RemoveCompleted = &on
-	require.NoError(t, c.Update(ctx, &dc))
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
-	assert.Len(t, fc.removeCallsSnapshot(), 1, "removeCompleted=true with removeOnImport=true removes the torrent")
 }

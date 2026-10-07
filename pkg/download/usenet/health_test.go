@@ -24,10 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
+	"github.com/stretchr/testify/require"
 )
 
 // swissCheese is a twelve-article release seven of whose articles the only
@@ -165,33 +164,33 @@ func TestSetPriorityRaisesAWaitingJob(t *testing.T) {
 	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}})
 	ctx := context.Background()
 
-	highID, err := c.Add(ctx, download.AddRequest{Name: "High", Payload: highNZB, Priority: downloadv1alpha1.DownloadPriorityHigh})
+	highID, err := c.Add(ctx, download.AddRequest{Name: "High", Payload: highNZB, Priority: commonv1.DownloadPriorityHigh})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		it, err := c.Get(ctx, highID)
 		return err == nil && it.Status == download.StatusDownloading
 	}, 5*time.Second, 5*time.Millisecond)
 
-	lowID, err := c.Add(ctx, download.AddRequest{Name: "Low", Payload: lowNZB, Priority: downloadv1alpha1.DownloadPriorityLow})
+	lowID, err := c.Add(ctx, download.AddRequest{Name: "Low", Payload: lowNZB, Priority: commonv1.DownloadPriorityLow})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		it, err := c.Get(ctx, lowID)
-		return err == nil && it.Status == download.StatusQueued && it.Stage == downloadv1alpha1.DownloadStageTransferring
+		return err == nil && it.Status == download.StatusQueued && it.Stage == commonv1.DownloadStageTransferring
 	}, 5*time.Second, 5*time.Millisecond, "the low job must be waiting behind the high one")
 
-	require.NoError(t, c.SetPriority(ctx, lowID, downloadv1alpha1.DownloadPriorityHigh))
+	require.NoError(t, c.SetPriority(ctx, lowID, commonv1.DownloadPriorityHigh))
 	require.Eventually(t, func() bool {
 		high, err := c.Get(ctx, highID)
 		require.NoError(t, err)
-		require.Equal(t, downloadv1alpha1.DownloadStageTransferring, high.Stage,
+		require.Equal(t, commonv1.DownloadStageTransferring, high.Stage,
 			"the high job finished first; the test cannot tell whether the raise did anything")
 		return srv.servedCount("low-f0-p1@clustarr.test") > 0
 	}, 5*time.Second, 5*time.Millisecond, "a raised job still waited for the job it now shares a class with")
 
 	j, err := c.lookup(lowID)
 	require.NoError(t, err)
-	require.Equal(t, downloadv1alpha1.DownloadPriorityHigh, j.getPriority())
+	require.Equal(t, commonv1.DownloadPriorityHigh, j.getPriority())
 
-	require.NoError(t, c.SetPriority(ctx, lowID, downloadv1alpha1.DownloadPriorityHigh), "the same class again is a no-op")
-	require.ErrorIs(t, c.SetPriority(ctx, "no-such-job", downloadv1alpha1.DownloadPriorityLow), download.ErrNotFound)
+	require.NoError(t, c.SetPriority(ctx, lowID, commonv1.DownloadPriorityHigh), "the same class again is a no-op")
+	require.ErrorIs(t, c.SetPriority(ctx, "no-such-job", commonv1.DownloadPriorityLow), download.ErrNotFound)
 }

@@ -145,17 +145,6 @@ func TestResolve_SelfContainedRefs(t *testing.T) {
 		}, got)
 	})
 
-	t.Run("ImportTask resolves a Download, a different group than its own schema prefix", func(t *testing.T) {
-		env := envelopeFor(t, "", schema.ImportTask{
-			DownloadRef: schema.Ref{Namespace: "default", Name: "dl-abc123"},
-		})
-		got := history.Resolve(env)
-		require.Equal(t, history.Target{
-			Namespace: "default", Name: "dl-abc123",
-			Kind: "Download", APIVersion: "download.clustarr.io/v1alpha1",
-		}, got)
-	})
-
 	t.Run("IndexerEvent", func(t *testing.T) {
 		env := envelopeFor(t, "", schema.IndexerEvent{
 			IndexerRef: schema.Ref{Namespace: "default", Name: "nzbgeek"},
@@ -174,18 +163,6 @@ func TestResolve_SelfContainedRefs(t *testing.T) {
 		})
 		got := history.Resolve(env)
 		require.Equal(t, "Indexer", got.Kind)
-	})
-
-	t.Run("DownloadEvent", func(t *testing.T) {
-		env := envelopeFor(t, "", schema.DownloadEvent{
-			DownloadRef: schema.Ref{Namespace: "default", Name: "dl-abc123"},
-			Action:      "completed",
-		})
-		got := history.Resolve(env)
-		require.Equal(t, history.Target{
-			Namespace: "default", Name: "dl-abc123",
-			Kind: "Download", APIVersion: "download.clustarr.io/v1alpha1",
-		}, got)
 	})
 
 	t.Run("JobEvent", func(t *testing.T) {

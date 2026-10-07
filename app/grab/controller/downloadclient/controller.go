@@ -80,8 +80,7 @@ const (
 // Reconciler stands up a DownloadClient's engine workload -- a StatefulSet for
 // protocol=torrent, a Deployment for protocol=usenet -- and reports
 // DiskSpaceOK, EngineReady and the Ready roll-up. Field manager: k8s.ManagerGrab
-// only; see doc.go for why the engine's own field set (k8s.ManagerGrabEngine,
-// on Download.status) is out of scope here.
+// only.
 type Reconciler struct {
 	Client   client.Client
 	Recorder events.EventRecorder
@@ -145,10 +144,6 @@ type Reconciler struct {
 
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
-
-	// UnidentifiedGate holds the removal of unidentified transfers; nil is
-	// always open. Release N sets the adoption gate (A8.1, §10.2).
-	UnidentifiedGate func(ctx context.Context, dc *downloadv1alpha1.DownloadClient) bool
 
 	// The leader-local books: when an unidentified transfer was first seen,
 	// which removals were already commanded, which durables were ensured,

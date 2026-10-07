@@ -28,12 +28,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFailureReasonClassifiesEveryPipelineError(t *testing.T) {
@@ -48,21 +47,21 @@ func TestFailureReasonClassifiesEveryPipelineError(t *testing.T) {
 		name string
 		ctx  context.Context
 		err  error
-		want downloadv1alpha1.DownloadFailureReason
+		want commonv1.DownloadFailureReason
 	}{
-		{"health floor crossed", live, fmt.Errorf("%w: health 50%%", ErrUnrecoverable), downloadv1alpha1.DownloadFailureMissingArticles},
-		{"pre-check verdict", live, fmt.Errorf("%w: pre-check found 3 of 4 articles missing", ErrUnrecoverable), downloadv1alpha1.DownloadFailureMissingArticles},
-		{"par2 could not repair", live, fmt.Errorf("%w: need 12 more blocks", ErrRepairFailed), downloadv1alpha1.DownloadFailureMissingArticles},
-		{"encrypted archive", live, fmt.Errorf("%w: movie.rar", ErrEncrypted), downloadv1alpha1.DownloadFailureEncrypted},
-		{"statfs guard", live, fmt.Errorf("fsops: %w", fsops.ErrInsufficientSpace), downloadv1alpha1.DownloadFailureDiskFull},
-		{"ENOSPC on a write", live, writeErr(syscall.ENOSPC), downloadv1alpha1.DownloadFailureDiskFull},
-		{"EDQUOT on a write", live, writeErr(syscall.EDQUOT), downloadv1alpha1.DownloadFailureDiskFull},
-		{"EIO on a write", live, writeErr(syscall.EIO), downloadv1alpha1.DownloadFailureWriteError},
-		{"no par2 binary is a local fault", live, fmt.Errorf("%w: 3 articles missing", ErrPar2Unavailable), downloadv1alpha1.DownloadFailureWriteError},
-		{"deadline", live, context.DeadlineExceeded, downloadv1alpha1.DownloadFailureTimeout},
+		{"health floor crossed", live, fmt.Errorf("%w: health 50%%", ErrUnrecoverable), commonv1.DownloadFailureMissingArticles},
+		{"pre-check verdict", live, fmt.Errorf("%w: pre-check found 3 of 4 articles missing", ErrUnrecoverable), commonv1.DownloadFailureMissingArticles},
+		{"par2 could not repair", live, fmt.Errorf("%w: need 12 more blocks", ErrRepairFailed), commonv1.DownloadFailureMissingArticles},
+		{"encrypted archive", live, fmt.Errorf("%w: movie.rar", ErrEncrypted), commonv1.DownloadFailureEncrypted},
+		{"statfs guard", live, fmt.Errorf("fsops: %w", fsops.ErrInsufficientSpace), commonv1.DownloadFailureDiskFull},
+		{"ENOSPC on a write", live, writeErr(syscall.ENOSPC), commonv1.DownloadFailureDiskFull},
+		{"EDQUOT on a write", live, writeErr(syscall.EDQUOT), commonv1.DownloadFailureDiskFull},
+		{"EIO on a write", live, writeErr(syscall.EIO), commonv1.DownloadFailureWriteError},
+		{"no par2 binary is a local fault", live, fmt.Errorf("%w: 3 articles missing", ErrPar2Unavailable), commonv1.DownloadFailureWriteError},
+		{"deadline", live, context.DeadlineExceeded, commonv1.DownloadFailureTimeout},
 		// A par2 child killed by the deadline reports its own failure; the
 		// expired context decides, so it is not blocklisted as unrepairable.
-		{"repair killed by the deadline", expired, fmt.Errorf("%w: signal: killed", ErrRepairFailed), downloadv1alpha1.DownloadFailureTimeout},
+		{"repair killed by the deadline", expired, fmt.Errorf("%w: signal: killed", ErrRepairFailed), commonv1.DownloadFailureTimeout},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, failureReason(tc.ctx, tc.err))
@@ -123,6 +122,6 @@ func TestClientFailsAJobPastItsDownloadTimeout(t *testing.T) {
 
 	it := waitForTerminal(t, c, id)
 	assert.Equal(t, download.StatusFailed, it.Status)
-	assert.Equal(t, downloadv1alpha1.DownloadFailureTimeout, it.FailureReason)
+	assert.Equal(t, commonv1.DownloadFailureTimeout, it.FailureReason)
 	assert.True(t, strings.Contains(it.Message, "deadline"), "message %q", it.Message)
 }

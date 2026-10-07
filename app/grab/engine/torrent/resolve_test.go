@@ -26,17 +26,16 @@ import (
 	"testing"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 func strPtr(s string) *string { return &s }
 
 func TestResolveSourceMagnetURLIsReturnedDirectly(t *testing.T) {
-	src := downloadv1alpha1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")}
+	src := commonv1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")}
 	got, err := resolveSource(context.Background(), nil, nil, "default", src)
 	require.NoError(t, err)
 	assert.Equal(t, "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", got.Magnet)
@@ -49,7 +48,7 @@ func TestResolveSourceTorrentURLFetchesTheBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	src := downloadv1alpha1.DownloadSource{TorrentURL: strPtr(srv.URL)}
+	src := commonv1.DownloadSource{TorrentURL: strPtr(srv.URL)}
 	got, err := resolveSource(context.Background(), srv.Client(), nil, "default", src)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("fake-metainfo-bytes"), got.Payload)
@@ -62,7 +61,7 @@ func TestResolveSourceTorrentURLNon200IsAnError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	src := downloadv1alpha1.DownloadSource{TorrentURL: strPtr(srv.URL)}
+	src := commonv1.DownloadSource{TorrentURL: strPtr(srv.URL)}
 	_, err := resolveSource(context.Background(), srv.Client(), nil, "default", src)
 	require.Error(t, err)
 }
@@ -74,14 +73,14 @@ func TestResolveSourceTorrentURLOverSizeCapIsRejected(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	src := downloadv1alpha1.DownloadSource{TorrentURL: strPtr(srv.URL)}
+	src := commonv1.DownloadSource{TorrentURL: strPtr(srv.URL)}
 	_, err := resolveSource(context.Background(), srv.Client(), nil, "default", src)
 	require.ErrorIs(t, err, ErrResponseTooLarge)
 }
 
 func TestResolveSourceIndexerDownloadBytesBranch(t *testing.T) {
 	resolver := &FakeIndexerResolver{Response: schema.DownloadResponse{Bytes: []byte("indexer-bytes")}}
-	src := downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{
+	src := commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{
 		IndexerRef: "myindexer", GUID: "guid-1", URL: "https://indexer.example/dl/1",
 	}}
 	got, err := resolveSource(context.Background(), nil, resolver, "ns-a", src)
@@ -97,7 +96,7 @@ func TestResolveSourceIndexerDownloadBytesBranch(t *testing.T) {
 
 func TestResolveSourceIndexerDownloadMagnetBranch(t *testing.T) {
 	resolver := &FakeIndexerResolver{Response: schema.DownloadResponse{MagnetURL: "magnet:?xt=urn:btih:fromindexer"}}
-	src := downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
+	src := commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
 	got, err := resolveSource(context.Background(), nil, resolver, "default", src)
 	require.NoError(t, err)
 	assert.Equal(t, "magnet:?xt=urn:btih:fromindexer", got.Magnet)
@@ -110,7 +109,7 @@ func TestResolveSourceIndexerDownloadRedirectBranchFetches(t *testing.T) {
 	defer srv.Close()
 
 	resolver := &FakeIndexerResolver{Response: schema.DownloadResponse{RedirectURL: srv.URL}}
-	src := downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
+	src := commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
 	got, err := resolveSource(context.Background(), srv.Client(), resolver, "default", src)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("redirected-bytes"), got.Payload)
@@ -118,14 +117,14 @@ func TestResolveSourceIndexerDownloadRedirectBranchFetches(t *testing.T) {
 
 func TestResolveSourceIndexerDownloadErrorBranch(t *testing.T) {
 	resolver := &FakeIndexerResolver{Response: schema.DownloadResponse{Error: "release expired"}}
-	src := downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
+	src := commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
 	_, err := resolveSource(context.Background(), nil, resolver, "default", src)
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "release expired"))
 }
 
 func TestResolveSourceIndexerDownloadWithNoResolverIsAnError(t *testing.T) {
-	src := downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
+	src := commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
 	_, err := resolveSource(context.Background(), nil, nil, "default", src)
 	require.Error(t, err)
 }
@@ -135,7 +134,7 @@ func TestResolveSourceIndexerDownloadWithNoResolverIsAnError(t *testing.T) {
 // (pkg/download/torrent) is the one that actually enforces the match, so
 // resolveSource's only job is to not drop it.
 func TestResolveSourceExpectedInfoHashCarriesThrough(t *testing.T) {
-	src := downloadv1alpha1.DownloadSource{
+	src := commonv1.DownloadSource{
 		MagnetURL:        strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"),
 		ExpectedInfoHash: strPtr("0123456789abcdef0123456789abcdef01234567"),
 	}
@@ -148,8 +147,8 @@ func TestResolveSourceIndexerDownloadDecompressesAGzipReply(t *testing.T) {
 	want := bytes.Repeat([]byte("d8:announce"), 200_000)
 	resolver := &FakeIndexerResolver{Response: schema.DownloadResponse{Bytes: want}.ForWire()}
 	require.Equal(t, schema.DownloadEncodingGzip, resolver.Response.Encoding, "the fixture must cross compressed")
-	got, err := resolveSource(context.Background(), nil, resolver, "ns-a", downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "myindexer", GUID: "guid-1"},
+	got, err := resolveSource(context.Background(), nil, resolver, "ns-a", commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "myindexer", GUID: "guid-1"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, want, got.Payload)
@@ -183,13 +182,13 @@ func TestResolveSourceFetchErrorsCarryNoPasskey(t *testing.T) {
 		raw := tc.base + secretPath
 		for _, branch := range []struct {
 			name string
-			src  downloadv1alpha1.DownloadSource
+			src  commonv1.DownloadSource
 			res  IndexerResolver
 		}{
-			{"torrentURL", downloadv1alpha1.DownloadSource{TorrentURL: strPtr(raw)}, nil},
+			{"torrentURL", commonv1.DownloadSource{TorrentURL: strPtr(raw)}, nil},
 			{
 				"redirectURL",
-				downloadv1alpha1.DownloadSource{IndexerDownload: &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g"}},
+				commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g"}},
 				&FakeIndexerResolver{Response: schema.DownloadResponse{RedirectURL: raw}},
 			},
 		} {

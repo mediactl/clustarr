@@ -105,7 +105,7 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) (client.C
 	return mgr.GetClient(), counter
 }
 
-func downloadStatusAC(name, ns string, phase downloadv1alpha1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
+func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
 	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
 }
 
@@ -271,7 +271,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "issue-ns"},
 				Spec: downloadv1alpha1.DownloadSpec{
 					Protocol: commonv1.ProtocolTorrent,
-					Source:   downloadv1alpha1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
+					Source:   commonv1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
 					Release: commonv1.ReleaseInfo{
 						GUID: "https://indexer.example/" + name, IndexerRef: "example", IndexerName: "Example",
 						Title: "Batman.003.CBZ", Protocol: commonv1.ProtocolTorrent,
@@ -314,7 +314,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		assert.Equal(t, []string{string(k8s.ManagerCatalog)}, refOwners)
 
 		// Downloading, then Completed: both still working on the issue.
-		for _, phase := range []downloadv1alpha1.DownloadPhase{downloadv1alpha1.DownloadPhaseDownloading, downloadv1alpha1.DownloadPhaseCompleted} {
+		for _, phase := range []commonv1.DownloadPhase{commonv1.DownloadPhaseDownloading, commonv1.DownloadPhaseCompleted} {
 			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("batman-003-dl", "issue-ns", phase))
 			require.NoError(t, err)
 			require.Never(t, func() bool {
@@ -324,7 +324,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		}
 
 		// Failed is terminal: the ref goes, and the issue is Wanted again.
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("batman-003-dl", "issue-ns", downloadv1alpha1.DownloadPhaseFailed))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("batman-003-dl", "issue-ns", commonv1.DownloadPhaseFailed))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, key, &got) == nil && got.Status.State != catalogv1alpha1.IssueStateSnatched

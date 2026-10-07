@@ -23,7 +23,6 @@ import (
 	"sync"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -51,7 +50,7 @@ type fakeDownloadClient struct {
 	addErr           error
 	pauseCalls       []string
 	resumeCalls      []string
-	priorityCalls    []downloadv1alpha1.DownloadPriority
+	priorityCalls    []commonv1alpha1.DownloadPriority
 	markImportedIDs  []string
 	removeCalls      []removeCall
 	removeErr        error
@@ -144,7 +143,7 @@ func (f *fakeDownloadClient) Resume(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeDownloadClient) SetPriority(_ context.Context, id string, p downloadv1alpha1.DownloadPriority) error {
+func (f *fakeDownloadClient) SetPriority(_ context.Context, id string, p commonv1alpha1.DownloadPriority) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.items[id]; !ok {

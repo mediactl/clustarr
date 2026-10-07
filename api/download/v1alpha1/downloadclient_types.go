@@ -255,8 +255,8 @@ type TorrentProxy struct {
 // and the cleaners that do act (Decluttarr, Cleanuparr) count strikes over
 // tens of minutes -- so the default is deliberately long: a day without a
 // byte, the same span as the client's default seed inactiveTime. A false
-// positive here blocklists a release for DefaultBlocklistTTL, which costs far
-// more than waiting.
+// positive here blocklists a release for the release index's BlocklistTTL
+// (90 days), which costs far more than waiting.
 const DefaultStallTimeout = 24 * time.Hour
 
 // NNTPProvider is one upstream usenet server. Providers are tried in priority

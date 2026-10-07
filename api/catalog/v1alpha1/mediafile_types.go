@@ -95,8 +95,7 @@ type ImportSource struct {
 	Manual bool `json:"manual,omitempty"`
 
 	// InfoHash is the release's info hash, frozen at import; the search's
-	// current-file check reads it instead of the Download downloadRef named
-	// (ADR-0019 §6.2). Release N backfills it from live Downloads (§10.2).
+	// current-file check reads it (ADR-0019 §6.2).
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	InfoHash string `json:"infoHash,omitempty"`

@@ -879,9 +879,8 @@ spec:
                             as a manual import takes them (§6.10).
                           type: boolean
                         phase:
-                          description: |-
-                            ImportPhase is a grab's import, summarised (ADR-0019 §6.9). Not
-                            downloadv1alpha1.ImportPhase, which release N+1 removes with Download.
+                          description: ImportPhase is a grab's import, summarised
+                            (ADR-0019 §6.9).
                           enum:
                           - pending
                           - inspected
@@ -1153,7 +1152,7 @@ spec:
                             indexerRef:
                               description: |-
                                 IndexerRef is the name of the Indexer that published the release, in the
-                                same namespace as the Download.
+                                same namespace as the item holding the grab entry.
                               minLength: 1
                               type: string
                             url:
@@ -1294,55 +1293,6 @@ spec:
                 description: LastSearchedAt is when the movie was last searched for.
                 format: date-time
                 type: string
-              legacyDownloads:
-                description: |-
-                  LegacyDownloads is release N's record of the Downloads this item
-                  adopted (ADR-0019 §10.2); release N+1 removes it.
-                properties:
-                  adopted:
-                    items:
-                      description: |-
-                        LegacyDownload is one Download release N adopted, blocklisted, dismissed
-                        or is removing for this owner.
-                      properties:
-                        at:
-                          format: date-time
-                          type: string
-                        name:
-                          maxLength: 253
-                          type: string
-                        outcome:
-                          description: LegacyOutcome is what release N did with an
-                            adopted Download.
-                          enum:
-                          - adopted
-                          - blocklisted
-                          - dismissed
-                          - removing
-                          type: string
-                        uid:
-                          maxLength: 36
-                          type: string
-                      required:
-                      - at
-                      - name
-                      - outcome
-                      - uid
-                      type: object
-                    maxItems: 64
-                    type: array
-                    x-kubernetes-list-type: atomic
-                  held:
-                    description: |-
-                      Held is "TooMany" while the owner has more live Downloads than its
-                      entry cap; nothing is truncated.
-                    enum:
-                    - TooMany
-                    type: string
-                  message:
-                    maxLength: 1024
-                    type: string
-                type: object
               metadata:
                 description: Metadata is the cached provider metadata.
                 properties:
@@ -1874,7 +1824,7 @@ spec:
                               indexerRef:
                                 description: |-
                                   IndexerRef is the name of the Indexer that published the release, in the
-                                  same namespace as the Download.
+                                  same namespace as the item holding the grab entry.
                                 minLength: 1
                                 type: string
                               url:

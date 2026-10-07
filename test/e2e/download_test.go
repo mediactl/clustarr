@@ -86,6 +86,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/test/fixtures/nntpstub"
 )
@@ -117,7 +118,7 @@ func TestDownloadTorrentGrabToImportAttempt(t *testing.T) {
 	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
 	dl := newTorrentDownloadE2E(ctx, t, "e2e-dl1-dl", &settled, torrentURL, "guid-dl1-1", QualityProfileName)
 
-	live := waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
+	live := waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
 	require.NotEmpty(t, live.Status.ContentRoot, "a Completed/Seeding Download must publish status.contentRoot")
 	require.NotZero(t, live.Status.DownloadedBytes, "a Completed/Seeding Download must report bytes fetched")
 
@@ -155,7 +156,7 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 	require.Empty(t, dl.Spec.Release.InfoHash,
 		"usenet releases carry no infoHash -- this is the fixed-CEL-rule regression shape pkg/crdcheck guards (c5e86d5)")
 
-	live := waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
+	live := waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
 	require.NotEmpty(t, live.Status.ContentRoot)
 
 	// Cross-server 430 failover: nntp-stub-a is expected (per
@@ -239,10 +240,10 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
 
 	first := newTorrentDownloadE2E(ctx, t, "e2e-dlbl-dl1", &settled, torrentURL, "guid-dlbl-1", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, first, engineReadyTimeout, downloadv1alpha1.DownloadPhaseAssigned)
+	waitForDownloadPhaseAtLeast(ctx, t, first, engineReadyTimeout, commonv1.DownloadPhaseAssigned)
 
 	patchDownloadLabel(ctx, t, first, downloadv1alpha1.LabelBlocklisted, downloadv1alpha1.LabelBlocklistedValue)
-	waitForDownloadPhaseExactly(ctx, t, first, engineReadyTimeout, downloadv1alpha1.DownloadPhaseBlocklisted)
+	waitForDownloadPhaseExactly(ctx, t, first, engineReadyTimeout, commonv1.DownloadPhaseBlocklisted)
 
 	// Live, not degraded: blocklisting one Download is a label on that one
 	// object (this function's own doc comment -- "there is no field-manager
@@ -263,7 +264,7 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 	// release guid, proceeds normally -- the earlier blocklisted Download
 	// (a separate object) must not affect it.
 	second := newTorrentDownloadE2E(ctx, t, "e2e-dlbl-dl2", &settled, torrentURL, "guid-dlbl-2", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, second, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
+	waitForDownloadPhaseAtLeast(ctx, t, second, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
 }
 
 // TestDownloadEnginePinSurvivesControllerRestart is D2-10's slice of
@@ -295,14 +296,14 @@ func TestDownloadEnginePinSurvivesControllerRestart(t *testing.T) {
 	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
 	dl := newTorrentDownloadE2E(ctx, t, "e2e-restart-dl", &settled, torrentURL, "guid-restart-1", QualityProfileName)
 
-	before := waitForDownloadPhaseAtLeast(ctx, t, dl, engineReadyTimeout, downloadv1alpha1.DownloadPhaseAssigned)
+	before := waitForDownloadPhaseAtLeast(ctx, t, dl, engineReadyTimeout, commonv1.DownloadPhaseAssigned)
 	require.NotEmpty(t, before.Spec.ClientRef)
 	require.NotEmpty(t, before.Status.Engine)
 	beforeClientRef, beforeEngine := before.Spec.ClientRef, before.Status.Engine
 
 	kubectlRolloutRestart(ctx, t, "grab")
 
-	after := waitForDownloadPhaseAtLeast(ctx, t, dl, engineReadyTimeout, downloadv1alpha1.DownloadPhaseAssigned)
+	after := waitForDownloadPhaseAtLeast(ctx, t, dl, engineReadyTimeout, commonv1.DownloadPhaseAssigned)
 	require.Equal(t, beforeClientRef, after.Spec.ClientRef, "clientRef must not migrate across a controller restart")
 	require.Equal(t, beforeEngine, after.Status.Engine, "status.engine must not migrate across a controller restart")
 

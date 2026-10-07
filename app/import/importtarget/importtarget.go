@@ -47,9 +47,8 @@ const (
 	AnnotationImportTarget = "catalog.clustarr.io/import-target"
 
 	// AnnotationImportOverride, set to exactly "true", gives the import the
-	// same effect DownloadSpec.Manual has. See [ParseImportOverride] for
-	// what that effect is in code, which is narrower than Manual's doc
-	// comment says.
+	// same effect a grab entry's manual flag has. See [ParseImportOverride]
+	// for what that effect is in code.
 	AnnotationImportOverride = "catalog.clustarr.io/import-override"
 )
 
@@ -152,13 +151,12 @@ func knownKind(k commonv1.MediaKind) bool {
 // rejected, so a typo reads as an error on the Download rather than as a
 // silently ignored instruction.
 //
-// The effect of "true" is the effect DownloadSpec.Manual has in this worker,
-// and no more: the upgrade decision against an existing file is skipped, a
+// The effect of "true" is the effect a grab entry's manual flag has in this
+// worker, and no more: the upgrade decision against an existing file is skipped, a
 // transcoded file may be replaced (transcoded.go), an undeterminable
 // non-video quality is accepted, a video file only the size floor suspects
 // is a sample (Worker.SampleMaxBytes) is imported, and the MediaFile records
-// importedFrom.manual -- the list DownloadSpec.Manual's own doc comment
-// gives. This worker checks neither monitoring nor availability,
+// importedFrom.manual. This worker checks neither monitoring nor availability,
 // so neither has anything to skip, and a quality the profile does not allow
 // is still rejected under either.
 func ParseImportOverride(value string) (bool, error) {

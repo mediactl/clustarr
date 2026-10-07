@@ -295,7 +295,7 @@ func TestHandler_NonVideoReleaseTakesTheGrabPath(t *testing.T) {
 	require.Len(t, downloads.Items, 1)
 	dl := downloads.Items[0]
 	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: lib.album}, dl.Spec.Target)
-	assert.Equal(t, downloadv1alpha1.GrabSourceRSS, dl.Spec.GrabbedBy)
+	assert.Equal(t, commonv1.GrabSourceRSS, dl.Spec.GrabbedBy)
 	assert.Equal(t, qp.Name, dl.Spec.QualityProfileRef, "the album ranks under its artist's profile")
 	assert.Equal(t, "FLAC", dl.Spec.Release.Quality.Name)
 }

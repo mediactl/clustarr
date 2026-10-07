@@ -192,8 +192,7 @@ func (ImportListSynced) Schema() string { return "catalog.ImportListSynced.v1" }
 // decides and the search agent needs to answer in clustarr-searches without
 // reading a Kubernetes object: the item and its container, the dispatch's
 // Seq (Msg-Id events.MsgIDForSearch), the profile, protocols, indexer
-// priorities, the release index scope and the donor want. A v1 envelope
-// decodes into it with those fields empty (LegacySchemas).
+// priorities, the release index scope and the donor want.
 type SearchTask struct {
 	// MediaRef identifies what to search for.
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
@@ -250,23 +249,12 @@ type DonorWant struct {
 	InFlight  []string `json:"inFlight,omitempty"`
 }
 
-// Earlier schema names, decoded into the current structs (their fields are
-// a subset), so DLQ replays and history keep reading v1 envelopes.
-const (
-	SearchTaskV1Schema       = "catalog.SearchTask.v1"
-	MetadataTaskV1Schema     = "catalog.MetadataTask.v1"
-	ArtworkFetchTaskV1Schema = "catalog.ArtworkFetchTask.v1"
-)
-
 // SearchPurposeAudioDonor is SearchTask.Purpose for an audio donor search;
-// it is downloadv1alpha1.DownloadPurposeAudioDonor's value.
+// it is commonv1.DownloadPurposeAudioDonor's value.
 const SearchPurposeAudioDonor = "audioDonor"
 
 // Schema implements Payload.
 func (SearchTask) Schema() string { return "catalog.SearchTask.v2" }
-
-// LegacySchemas implements Legacy: a v1 task decodes into v2.
-func (SearchTask) LegacySchemas() []string { return []string{SearchTaskV1Schema} }
 
 // GrabTask asks a grab worker to turn the best pending candidate for a media
 // key into a Download. It is published with a schedule so delay profiles can
@@ -282,29 +270,12 @@ type GrabTask struct {
 // Schema implements Payload.
 func (GrabTask) Schema() string { return "catalog.GrabTask.v1" }
 
-// ImportTask asks an import worker to import a completed download.
-// Subject: clustarr.work.import.fileimport.<download-uid>, built by
-// events.WorkFileImportSubject and consumed by ConsumerImportFile
-// ("import-fileimport", topology.go). Amendment §A1 moved the importer out
-// of catalog into app/import/worker/fileimport (D2-7); the catalog
-// import subject and consumer this task once named were removed from the
-// topology in gap fixes Z2, never having had a subscriber. The schema name
-// keeps its catalog. prefix, which the history projector's target table
-// resolves.
-type ImportTask struct {
-	// DownloadRef is the completed Download to import.
-	DownloadRef Ref `json:"downloadRef"`
-}
-
-// Schema implements Payload.
-func (ImportTask) Schema() string { return "catalog.ImportTask.v1" }
-
 // MetadataTask asks the metadata gateway to refresh a catalog item.
 // Subject: clustarr.work.catalog.metadata.<high|normal>.<mediaKey>.
 //
 // Version 2 (ADR-0019 §7.1) carries the item and the inputs the gateway's
 // clustarr-item-metadata record answers for (Msg-Id metadata/<item
-// uid>/<inputsHash>). A v1 envelope decodes into it with them empty.
+// uid>/<inputsHash>).
 type MetadataTask struct {
 	// MediaRef identifies the item to refresh.
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
@@ -321,9 +292,6 @@ type MetadataTask struct {
 
 // Schema implements Payload.
 func (MetadataTask) Schema() string { return "catalog.MetadataTask.v2" }
-
-// LegacySchemas implements Legacy: a v1 task decodes into v2.
-func (MetadataTask) LegacySchemas() []string { return []string{MetadataTaskV1Schema} }
 
 // MarkersTask asks the metadata domain's marker worker for one MediaFile's
 // TheIntroDB segments (loop spec 2026-10-06 §4.12). The remediation loop

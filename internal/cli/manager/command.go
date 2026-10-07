@@ -62,7 +62,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var slots, renderGroups string
 
 	fs.StringVar(&d.DataDir, "data-dir", d.DataDir,
-		"RWX media volume, mounted read-write: renames, library deletes, Download data removal, "+
+		"RWX media volume, mounted read-write: renames, library deletes, "+
 			"DownloadClient free-space checks and the MediaFile stat run here. Also the mount path "+
 			"stamped onto the engines and the transcode pools.")
 	fs.StringVar(&d.EngineScratchDir, "engine-scratch-dir", d.EngineScratchDir,

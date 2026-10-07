@@ -252,7 +252,7 @@ func (r *Reconciler) publishResync(ctx context.Context, dc *downloadv1alpha1.Dow
 
 // removeUnidentified commands the removal, bytes kept, of every transfer an
 // engine holds with no claim, once this leader has seen it for
-// lifecycle.UnidentifiedGrace and the gate is open (§6.7).
+// lifecycle.UnidentifiedGrace (§6.7).
 func (r *Reconciler) removeUnidentified(ctx context.Context, dc *downloadv1alpha1.DownloadClient, es engineState, now time.Time) {
 	if r.Bus == nil {
 		return
@@ -260,7 +260,6 @@ func (r *Reconciler) removeUnidentified(ctx context.Context, dc *downloadv1alpha
 	r.mu.Lock()
 	r.books()
 	r.mu.Unlock()
-	gateOpen := r.UnidentifiedGate == nil || r.UnidentifiedGate(ctx, dc)
 	for o, rec := range es.records {
 		for _, u := range rec.Unidentified {
 			key := fmt.Sprintf("%s/%d/%s", dc.UID, o, u.DownloadID)
@@ -272,7 +271,7 @@ func (r *Reconciler) removeUnidentified(ctx context.Context, dc *downloadv1alpha
 			}
 			issued := r.removalsIssued[key]
 			r.mu.Unlock()
-			if !gateOpen || issued || now.Sub(first) < lifecycle.UnidentifiedGrace {
+			if issued || now.Sub(first) < lifecycle.UnidentifiedGrace {
 				continue
 			}
 			cmd := schema.EngineCommand{

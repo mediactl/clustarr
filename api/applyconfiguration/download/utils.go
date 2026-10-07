@@ -33,26 +33,14 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=download.clustarr.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithKind("Download"):
-		return &downloadv1alpha1.DownloadApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadClient"):
 		return &downloadv1alpha1.DownloadClientApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadClientSpec"):
 		return &downloadv1alpha1.DownloadClientSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadClientStatus"):
 		return &downloadv1alpha1.DownloadClientStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("DownloadFile"):
-		return &downloadv1alpha1.DownloadFileApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("DownloadSpec"):
-		return &downloadv1alpha1.DownloadSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("DownloadStatus"):
-		return &downloadv1alpha1.DownloadStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EngineStatus"):
 		return &downloadv1alpha1.EngineStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("ImportedFile"):
-		return &downloadv1alpha1.ImportedFileApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("ImportState"):
-		return &downloadv1alpha1.ImportStateApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NNTPProvider"):
 		return &downloadv1alpha1.NNTPProviderApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PostProcessSpec"):
@@ -63,8 +51,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &downloadv1alpha1.TorrentProxyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TorrentSpec"):
 		return &downloadv1alpha1.TorrentSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("UsenetHealth"):
-		return &downloadv1alpha1.UsenetHealthApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("UsenetSpec"):
 		return &downloadv1alpha1.UsenetSpecApplyConfiguration{}
 

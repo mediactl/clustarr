@@ -35,11 +35,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
-	grabstatus "github.com/mediactl/clustarr/app/grab/status"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -257,100 +255,6 @@ func TestReconcileBelowMinFreeIsNotReady(t *testing.T) {
 	require.False(t, k8s.IsConditionTrue(got.Status.Conditions, downloadv1alpha1.DownloadClientConditionDiskSpaceOK))
 	require.False(t, k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady))
 	require.Equal(t, int64(1<<30), got.Status.FreeBytes)
-}
-
-// TestReconcileAggregatesDownloadCounters proves the Active/Queued/Seeding
-// rollup, and does so against an object that ALREADY has status set from a
-// prior reconcile -- CLAUDE.md's release-regression hazard is invisible
-// against a blank object, because there is nothing yet to release.
-func TestReconcileAggregatesDownloadCounters(t *testing.T) {
-	ctx := context.Background()
-	c := newTestClient(t)
-
-	dc := &downloadv1alpha1.DownloadClient{
-		ObjectMeta: metav1.ObjectMeta{Name: "qbit2", Namespace: "default"},
-		Spec: downloadv1alpha1.DownloadClientSpec{
-			Protocol: commonv1alpha1.ProtocolTorrent,
-			Replicas: 1,
-			Torrent:  &downloadv1alpha1.TorrentSpec{},
-		},
-	}
-	require.NoError(t, c.Create(ctx, dc))
-
-	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "img")
-	r.DiskUsage = func(string) (fsops.Usage, error) {
-		return fsops.Usage{Total: 100 << 30, Free: 50 << 30}, nil
-	}
-	// First reconcile establishes a steady-state status object.
-	reconcileOK(t, r, "default", "qbit2")
-
-	mkDownload := func(name string, phase downloadv1alpha1.DownloadPhase, downRate, upRate int64) {
-		d := &downloadv1alpha1.Download{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name, Namespace: "default",
-				Labels: map[string]string{downloadv1alpha1.LabelClient: "qbit2"},
-			},
-			Spec: downloadv1alpha1.DownloadSpec{
-				Protocol:  commonv1alpha1.ProtocolTorrent,
-				ClientRef: "qbit2",
-				Source:    downloadv1alpha1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0000000000000000000000000000000000000000")},
-				// All five fields DownloadSpec's "release identity is
-				// immutable" CEL rule compares (self.<f> == oldSelf.<f>,
-				// unguarded by has()) are set, InfoHash included: an absent
-				// optional field makes CEL error "no such key" on every
-				// subsequent write to the object, including a status-only
-				// apply. See blocklist_envtest_test.go's mkBlocklistedDownload
-				// for the full explanation; this is a pre-existing
-				// api/download/v1alpha1 landmine, not something this package
-				// introduces or can fix in scope.
-				Release: commonv1alpha1.ReleaseInfo{
-					GUID: name, IndexerRef: "idx", Title: name,
-					Protocol: commonv1alpha1.ProtocolTorrent, InfoHash: "deadbeef",
-				},
-				Target: commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "m-" + name},
-			},
-		}
-		require.NoError(t, c.Create(ctx, d))
-
-		// Two writers, two applies, exactly as production does: Phase is
-		// k8s.ManagerGrab's (app/grab/status.ControllerFields), the two
-		// rates are k8s.ManagerGrabEngine's (EngineFields). Using
-		// app/grab/status.Patch here rather than a direct
-		// client.Status().Update keeps this fixture honest about field-manager
-		// provenance and stays inside forbidigo's rule, which has no
-		// test-file exemption (see mediafile_envtest_test.go's identical
-		// note).
-		require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerGrab, d,
-			func(ac *downloadac.DownloadStatusApplyConfiguration) { ac.WithPhase(phase) }))
-		require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerGrabEngine, d,
-			func(ac *downloadac.DownloadStatusApplyConfiguration) {
-				ac.WithDownloadRateBps(downRate).WithUploadRateBps(upRate)
-			}))
-	}
-
-	mkDownload("d-active", downloadv1alpha1.DownloadPhaseDownloading, 1000, 100)
-	mkDownload("d-queued", downloadv1alpha1.DownloadPhaseQueued, 0, 0)
-	mkDownload("d-assigned", downloadv1alpha1.DownloadPhaseAssigned, 0, 0)
-	mkDownload("d-seeding", downloadv1alpha1.DownloadPhaseSeeding, 0, 500)
-	mkDownload("d-imported", downloadv1alpha1.DownloadPhaseImported, 0, 0)
-
-	// Second reconcile must still declare every field it declared the first
-	// time -- Engine, FreeBytes, Conditions -- alongside the freshly computed
-	// counters, or this test would be exercising exactly the partial-status
-	// hazard CLAUDE.md warns about instead of guarding against it.
-	reconcileOK(t, r, "default", "qbit2")
-
-	var got downloadv1alpha1.DownloadClient
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "qbit2"}, &got))
-	require.Equal(t, int32(1), got.Status.Active)
-	require.Equal(t, int32(2), got.Status.Queued)
-	require.Equal(t, int32(1), got.Status.Seeding)
-	require.Equal(t, int64(1000), got.Status.DownloadRateBps)
-	require.Equal(t, int64(600), got.Status.UploadRateBps)
-	// Still declared, not released, by the second apply.
-	require.NotNil(t, got.Status.Engine)
-	require.Equal(t, "qbit2-engine", got.Status.Engine.WorkloadRef)
-	require.Equal(t, int64(50<<30), got.Status.FreeBytes)
 }
 
 func strPtr(s string) *string { return &s }

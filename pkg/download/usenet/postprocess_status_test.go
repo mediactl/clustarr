@@ -26,10 +26,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUnpackCountsEveryByteItWrites: the extracting stage's progress is
@@ -96,13 +95,13 @@ func TestItemReportsPostProcessingRatherThanAStaleTransfer(t *testing.T) {
 	j.rate.observe(0, now.Add(-20*time.Second))
 	j.rate.observe(30_000_000, now.Add(-10*time.Second)) // the transfer's last sample: 3 MB/s
 
-	j.setStage(downloadv1alpha1.DownloadStageTransferring, download.StatusDownloading)
+	j.setStage(commonv1.DownloadStageTransferring, download.StatusDownloading)
 	it := j.item()
 	require.EqualValues(t, 3_000_000, it.DownRate, "while transferring the rate is the transfer's")
 	require.NotNil(t, it.ETA)
 	require.Empty(t, it.Message)
 
-	j.setStage(downloadv1alpha1.DownloadStageRepairing, download.StatusDownloading)
+	j.setStage(commonv1.DownloadStageRepairing, download.StatusDownloading)
 	j.mu.Lock()
 	j.stageStarted = now.Add(-4*time.Minute - 12*time.Second)
 	j.mu.Unlock()
@@ -116,7 +115,7 @@ func TestItemReportsPostProcessingRatherThanAStaleTransfer(t *testing.T) {
 	j.mu.Lock()
 	j.unpack, j.archiveBytes = progress, archiveBytes(j.nzb.Files)
 	j.mu.Unlock()
-	j.setStage(downloadv1alpha1.DownloadStageExtracting, download.StatusDownloading)
+	j.setStage(commonv1.DownloadStageExtracting, download.StatusDownloading)
 	j.mu.Lock()
 	j.stageStarted = now.Add(-23 * time.Minute)
 	j.mu.Unlock()
@@ -141,18 +140,18 @@ func TestItemReportsPostProcessingRatherThanAStaleTransfer(t *testing.T) {
 func TestSetStageRecordsWhenAStageBegan(t *testing.T) {
 	c, _, _ := newTestClient(t, Config{Providers: []Provider{newStubServer(t).provider("solo", 1, 1)}})
 	j := &job{client: c, id: "x", dir: t.TempDir(), nzb: &nzbJob{}}
-	j.setStage(downloadv1alpha1.DownloadStageRepairing, download.StatusDownloading)
+	j.setStage(commonv1.DownloadStageRepairing, download.StatusDownloading)
 	j.mu.Lock()
 	first := j.stageStarted
 	j.mu.Unlock()
 	require.False(t, first.IsZero())
 
-	j.setStage(downloadv1alpha1.DownloadStageRepairing, download.StatusDownloading)
+	j.setStage(commonv1.DownloadStageRepairing, download.StatusDownloading)
 	j.mu.Lock()
 	require.Equal(t, first, j.stageStarted, "the same stage again keeps its start")
 	j.mu.Unlock()
 
-	j.setStage(downloadv1alpha1.DownloadStageExtracting, download.StatusDownloading)
+	j.setStage(commonv1.DownloadStageExtracting, download.StatusDownloading)
 	j.mu.Lock()
 	require.False(t, j.stageStarted.Before(first), "a new stage starts its own clock")
 	j.mu.Unlock()

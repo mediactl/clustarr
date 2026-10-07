@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -51,7 +50,7 @@ func TestSaveLoadRemoveDescriptorRoundTrips(t *testing.T) {
 		Name:             "my-movie",
 		Category:         "movies",
 		ExpectedInfoHash: "0123456789abcdef0123456789abcdef01234567",
-		Priority:         downloadv1alpha1.DownloadPriorityHigh,
+		Priority:         commonv1alpha1.DownloadPriorityHigh,
 		Paused:           true,
 		SeedCriteria:     &commonv1alpha1.SeedCriteria{Ratio: &ratio, SeedTime: &seedTime},
 	}
@@ -80,7 +79,7 @@ func TestSaveLoadRemoveDescriptorRoundTrips(t *testing.T) {
 	assert.Equal(t, "movies", req.Category)
 	assert.Equal(t, payload, req.Payload)
 	assert.True(t, req.Paused)
-	assert.Equal(t, downloadv1alpha1.DownloadPriorityHigh, req.Priority)
+	assert.Equal(t, commonv1alpha1.DownloadPriorityHigh, req.Priority)
 
 	require.NoError(t, removeDescriptor(dir, "abc123"))
 	got, errs = loadDescriptors(dir)

@@ -77,7 +77,7 @@ func newDownload(t *testing.T, ctx context.Context, c client.Client, ns, name st
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1alpha1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
+			Source:   commonv1alpha1.DownloadSource{MagnetURL: &magnet},
 			Release: commonv1alpha1.ReleaseInfo{
 				GUID:        "https://indexer.example/details/1",
 				IndexerRef:  "example",

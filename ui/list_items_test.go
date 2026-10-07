@@ -78,7 +78,7 @@ func TestDownloadRowsAreItems(t *testing.T) {
 	d := &downloadv1.Download{
 		ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "default"},
 		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent, Release: commonv1.ReleaseInfo{Title: "Arrival 2016"}},
-		Status:     downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading, ProgressPercent: 55},
+		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 55},
 	}
 	enabled := true
 	c := &downloadv1.DownloadClient{

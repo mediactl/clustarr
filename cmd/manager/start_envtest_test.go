@@ -1036,7 +1036,7 @@ func verifyRedownload(t *testing.T, natsURL string) {
 		DownloadRef: schema.Ref{Namespace: "default", Name: failed, UID: "redownload-probe-uid"},
 		Media:       movie,
 		Action:      events.ActionFailed,
-		Reason:      string(downloadv1alpha1.DownloadFailureMissingArticles),
+		Reason:      string(commonv1alpha1.DownloadFailureMissingArticles),
 		At:          time.Now(),
 	})
 	if err != nil {

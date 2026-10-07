@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
@@ -110,7 +111,7 @@ func TestProjectSettledSinceIsWhenItSettled(t *testing.T) {
 		Downloads: []downloadv1.Download{{
 			ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(completed.Add(-time.Hour))},
 			Status: downloadv1.DownloadStatus{
-				Phase:       downloadv1.DownloadPhaseImported,
+				Phase:       commonv1.DownloadPhaseImported,
 				CompletedAt: &metav1.Time{Time: completed},
 				Import:      &downloadv1.ImportState{ImportedAt: &metav1.Time{Time: imported}},
 			},

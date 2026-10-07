@@ -120,7 +120,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/subtitles"
@@ -739,7 +738,7 @@ func TestDownloadScenario1SubtitleLeg(t *testing.T) {
 	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1sub-dc")
 	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
 	dl := newTorrentDownloadE2E(ctx, t, "e2e-dl1sub-dl", &settled, torrentURL, "guid-dl1sub-1", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
+	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
 
 	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
 	require.Len(t, imp.Imported, 1)

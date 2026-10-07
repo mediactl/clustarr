@@ -464,7 +464,7 @@ func verifyRetrigger(t *testing.T, cfg *rest.Config) {
 		ObjectMeta: metav1.ObjectMeta{Name: "retrigger-probe", Namespace: "default"},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1alpha1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
+			Source:   commonv1alpha1.DownloadSource{MagnetURL: &magnet},
 			Release: commonv1alpha1.ReleaseInfo{
 				GUID: "retrigger-probe", IndexerRef: "idx", IndexerName: "Example",
 				Title: "Retrigger Probe 2020 1080p WEB-DL x264-GRP", Protocol: commonv1alpha1.ProtocolTorrent,
@@ -484,7 +484,7 @@ func verifyRetrigger(t *testing.T, cfg *rest.Config) {
 	// The state an earlier import left behind: completed, and Blocked.
 	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download(dl.Name, dl.Namespace).
 		WithStatus(downloadac.DownloadStatus().
-			WithPhase(downloadv1alpha1.DownloadPhaseCompleted).
+			WithPhase(commonv1alpha1.DownloadPhaseCompleted).
 			WithContentRoot("/data/downloads/retrigger-probe"))); err != nil {
 		t.Fatalf("complete the Download: %v", err)
 	}

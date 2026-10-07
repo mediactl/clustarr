@@ -21,14 +21,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/redact"
+	"io"
+	"net/http"
 )
 
 // maxPayloadBytes caps a fetched .torrent body, the same convention every
@@ -102,7 +101,7 @@ type resolved struct {
 // index's download RPC is, per that package's own doc comment, "where to
 // fetch the payload, when the indexer will not proxy it" -- index already
 // held the session and chose not to use it for this link.
-func resolveSource(ctx context.Context, httpClient *http.Client, resolver IndexerResolver, namespace string, src downloadv1alpha1.DownloadSource) (resolved, error) {
+func resolveSource(ctx context.Context, httpClient *http.Client, resolver IndexerResolver, namespace string, src commonv1.DownloadSource) (resolved, error) {
 	var out resolved
 	if src.ExpectedInfoHash != nil {
 		out.ExpectedInfoHash = *src.ExpectedInfoHash

@@ -109,7 +109,7 @@ func TestHandler_ApprovedReleaseTakesTheGrabPath(t *testing.T) {
 	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
 	require.Len(t, downloads.Items, 1)
 	dl := downloads.Items[0]
-	assert.Equal(t, downloadv1alpha1.GrabSourceRSS, dl.Spec.GrabbedBy, "an RSS grab must be attributed to rss")
+	assert.Equal(t, commonv1.GrabSourceRSS, dl.Spec.GrabbedBy, "an RSS grab must be attributed to rss")
 	assert.Equal(t, "guid-1", dl.Spec.Release.GUID)
 	assert.Equal(t, "hd-bluray-web", dl.Spec.QualityProfileRef)
 	require.Len(t, dl.OwnerReferences, 1)
@@ -203,7 +203,7 @@ func TestHandler_BlocklistedReleaseIsRejected(t *testing.T) {
 		},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{MagnetURL: ptrTo(rel.Info.MagnetURL)},
+			Source:   commonv1.DownloadSource{MagnetURL: ptrTo(rel.Info.MagnetURL)},
 			Release:  rel.Info,
 			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
 		},
@@ -602,7 +602,7 @@ func TestHandler_CurrentFileIsTheMediaFile(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "imported-one", Namespace: ns},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{MagnetURL: ptrTo(rel.Info.MagnetURL)},
+			Source:   commonv1.DownloadSource{MagnetURL: ptrTo(rel.Info.MagnetURL)},
 			Release:  rel.Info,
 			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
 		},

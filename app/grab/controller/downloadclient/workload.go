@@ -38,11 +38,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/binpath"
 )
 
-// Labels the engine workload and its pods carry. labelClient deliberately
-// reuses download.clustarr.io as its prefix, the same namespace
-// downloadv1alpha1.LabelClient uses on Download objects, so a future
-// "kubectl get pods -l download.clustarr.io/client=X" reads the same as the
-// Download side.
+// Labels the engine workload and its pods carry. labelClient uses the
+// DownloadClient's own group as its prefix, so
+// "kubectl get pods -l download.clustarr.io/client=X" names a client's engines.
 const (
 	labelComponent  = "app.kubernetes.io/component"
 	labelClient     = "download.clustarr.io/client"

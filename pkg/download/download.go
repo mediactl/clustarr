@@ -17,9 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package download is the seam between grab's controllers and the two
 // transfer engines: BitTorrent (anacrolix, D2-1) and usenet (NNTP + yEnc +
-// PAR2, D2-2). [Client] is the whole contract, and [ApplyStatus] is the one
-// mapping from an engine's observation onto the fields
-// k8s.ManagerGrabEngine owns on Download.status.
+// PAR2, D2-2). [Client] is the whole contract; an engine reports each
+// [Item] as a transfer record (ADR-0019 §6.3), never onto a Kubernetes
+// object.
 //
 // # The interface is deliberately total
 //
@@ -54,22 +54,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # What this package does not decide
 //
-// It does not decide Download.status.phase. [Item.Status] is the engine's own
-// view of a transfer; the controller maps it onto DownloadPhase, because the
-// phase enum is a pinned contract shared with catalog's rollup overlay
-// (plan ruling R1) and an engine must not be able to move an object through
-// it. [ApplyStatus] therefore never emits phase, conditions, or any other
-// field in k8s.ManagerGrab's owned set -- see app/grab/status for the
-// declaration of that split.
+// It does not decide a grab entry's phase. [Item.Status] is the engine's own
+// view of a transfer; the manager's grab lifecycle (app/grab/lifecycle) maps
+// the transfer record onto DownloadPhase, because an engine must not be able
+// to move an item's grab through it.
 package download
 
 import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
 // ErrNotFound is returned by [Client.Get], [Client.Pause], [Client.Resume],
@@ -121,10 +118,7 @@ const (
 	StatusWarning Status = "Warning"
 )
 
-// File is one file inside a transfer. It mirrors
-// downloadv1alpha1.DownloadFile field for field, because [ApplyStatus] copies
-// it straight across and a field that existed here but not there would be
-// silently dropped on every write.
+// File is one file inside a transfer.
 type File struct {
 	// Path is the file's path relative to [Item.ContentRoot]. It is the list
 	// key on status.files, so it must be non-empty and unique within an Item:
@@ -155,20 +149,10 @@ type ByName interface {
 // client returns a copy and never a live view, so a caller may hold one across
 // a slow status apply without racing the engine.
 //
-// Every field here maps onto a Download.status field that
-// k8s.ManagerGrabEngine owns, with two exceptions. [Item.Status] is never
-// persisted: the controller derives status.phase from the persisted
-// telemetry instead, and an engine that wrote a phase would be a second
-// writer of the controller's owned set. [Item.AddedAt] is never persisted
-// either: it is the engine's own bookkeeping, read by its orphan reaper.
-//
-// Two fields are reports the controller turns into verdicts. [Item.FailureReason]
-// is persisted as status.engineFailureReason and [Item.SeedGoalMet] as
-// status.seedGoalReached; the controller reads those and writes
-// status.failureReason, status.seedGoalMetAt, the phase and the conditions
-// under its own manager (gap fix Y2). Before that the engine had no channel
-// for either, so the controller could see no failure but encrypted and never
-// set SeedGoalMet at all.
+// The engine reports it as a transfer record (app/grab/engine's Reporter);
+// the manager's downloads stage turns the record into the grab entry's
+// phase. [Item.FailureReason] and [Item.SeedGoalMet] are the engine's
+// reports, never verdicts.
 //
 // # Torrent-only and usenet-only fields
 //
@@ -193,16 +177,14 @@ type Item struct {
 	// not a free string: a value outside it is rejected by the apiserver on
 	// every subsequent telemetry write, so typing it here turns a runtime
 	// apply failure into a compile error.
-	Stage downloadv1alpha1.DownloadStage
+	Stage commonv1alpha1.DownloadStage
 
 	// FailureReason is why the transfer failed, machine-readable. A client
 	// sets it only together with Status == [StatusFailed], and keeps it
-	// there: a failed transfer stays failed. [ApplyStatus] persists it as
-	// status.engineFailureReason, the engine's report; the CONTROLLER turns
-	// that into status.failureReason, which sits in its owned set alongside
-	// the phase it justifies. Empty and DownloadFailureNone both mean "not
-	// failed".
-	FailureReason downloadv1alpha1.DownloadFailureReason
+	// there: a failed transfer stays failed. It is the engine's report; the
+	// manager's grab lifecycle turns it into the entry's failure reason and
+	// phase. Empty and DownloadFailureNone both mean "not failed".
+	FailureReason commonv1alpha1.DownloadFailureReason
 
 	// TotalBytes is the size of the wanted content -- the selected files, not
 	// the whole torrent.
@@ -262,12 +244,7 @@ type Item struct {
 	Peers int
 
 	// Health reports article availability. Usenet only; nil for a torrent.
-	//
-	// It is the CRD's own type rather than a copy: all four of its fields
-	// reach status.health, server-side apply tracks ownership per leaf inside
-	// that struct, and a local mirror that fell one field behind would
-	// release the missing leaf on every write.
-	Health *downloadv1alpha1.UsenetHealth
+	Health *Health
 
 	// OutputPath is where the finished content was published -- the directory
 	// or single file the importer is pointed at. It is the path the Download
@@ -330,13 +307,11 @@ type Item struct {
 
 	// LastProgressAt is when DownloadedBytes last increased.
 	//
-	// Spec §7 did not sketch it, and it is here because status.lastProgressAt
-	// is in the engine's owned set and nothing else can supply it: it is not
-	// a property of a point-in-time observation but of the sequence, so only
-	// the engine -- which already keeps per-transfer bookkeeping to compute
-	// rates -- knows it. If [ApplyStatus] could not emit it, every telemetry
-	// write would RELEASE status.lastProgressAt and the stall detector would
-	// lose its reference on the first tick after the value was set.
+	// Spec §7 did not sketch it, and it is here because nothing else can
+	// supply it: it is not a property of a point-in-time observation but of
+	// the sequence, so only the engine -- which already keeps per-transfer
+	// bookkeeping to compute rates -- knows it. The stall detector works
+	// from it.
 	LastProgressAt *time.Time
 
 	// AddedAt is when this transfer was first added to the client, carried
@@ -438,7 +413,7 @@ type AddRequest struct {
 	// all (anacrolix runs every torrent at once, and a peerless torrent
 	// consumes nothing), so it maps the class onto each torrent's share of
 	// peer connections instead; see pkg/download/torrent.
-	Priority downloadv1alpha1.DownloadPriority
+	Priority commonv1alpha1.DownloadPriority
 
 	// SeedCriteria is the seed goal for this transfer, already merged from
 	// the client default and the Download's override. Nil means the client
@@ -509,9 +484,34 @@ type Journaled interface {
 }
 
 // ClampMessage cuts an engine message to the transfer record's bound
-// (schema.MaxTransferMessage, 2048 runes at most), as the Download status'
-// message was: one oversized message must not fail the whole report.
-func ClampMessage(s string) string { return clampMessage(s) }
+// (schema.MaxTransferMessage, 2048 runes at most), on a rune boundary: one
+// oversized message must not fail the whole report. The usenet engine's par2
+// failure text -- its 2048-byte output tail behind a prefix -- is over it.
+func ClampMessage(s string) string {
+	if utf8.RuneCountInString(s) <= maxMessageLength {
+		return s
+	}
+	const marker = "…"
+	runes := []rune(s)
+	return string(runes[:maxMessageLength-utf8.RuneCountInString(marker)]) + marker
+}
+
+// maxMessageLength is the transfer record message's bound, in runes.
+const maxMessageLength = 2048
+
+// Health reports article availability for a usenet transfer.
+type Health struct {
+	// HealthPercent is the share of articles successfully fetched so far, as
+	// a whole percentage.
+	HealthPercent int32
+	// CriticalHealthPercent is the floor below which par2 recovery can no
+	// longer repair the download, as a whole percentage.
+	CriticalHealthPercent int32
+	// FailedArticles is the number of articles that could not be fetched.
+	FailedArticles int32
+	// TotalArticles is the number of articles in the NZB.
+	TotalArticles int32
+}
 
 // SeedHistory is a torrent's seeding so far; see [AddRequest.SeedHistory].
 type SeedHistory struct {
@@ -582,7 +582,7 @@ type Client interface {
 	// priority a transfer already has is a no-op -- the engines call it from
 	// a level-driven reconcile on every poll -- and an empty priority is
 	// normal, the CRD default.
-	SetPriority(ctx context.Context, id string, priority downloadv1alpha1.DownloadPriority) error
+	SetPriority(ctx context.Context, id string, priority commonv1alpha1.DownloadPriority) error
 
 	// SetSeedCriteria updates the goal at which a torrent may stop seeding.
 	// It may be called at any time, including after the goal is already met.

@@ -284,7 +284,7 @@ func TestNoRetryPassWhenNoArticleArrived(t *testing.T) {
 
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusFailed, it.Status, "message: %s", it.Message)
-	require.Equal(t, downloadv1alpha1.DownloadFailureMissingArticles, it.FailureReason)
+	require.Equal(t, commonv1alpha1.DownloadFailureMissingArticles, it.FailureReason)
 	for i := range parts {
 		require.Zero(t, srv.servedCount(fmt.Sprintf("f0-p%d@clustarr.test", i)), "article %d was asked for again", i)
 	}
@@ -345,7 +345,7 @@ func TestDiskPreflightFailsAReleaseThatCannotFit(t *testing.T) {
 	require.NoError(t, err)
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusFailed, it.Status)
-	require.Equal(t, downloadv1alpha1.DownloadFailureDiskFull, it.FailureReason)
+	require.Equal(t, commonv1alpha1.DownloadFailureDiskFull, it.FailureReason)
 	require.False(t, it.FailureReason.IsReleaseFault())
 	require.Contains(t, it.Message, "not enough free space")
 	require.Zero(t, srv.servedCount("f0-p1@clustarr.test"), "nothing was fetched")
@@ -373,7 +373,7 @@ func TestPar2DeadlineTurnsAWedgedRepairIntoAFailure(t *testing.T) {
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusFailed, it.Status)
 	require.ErrorContains(t, errors.New(it.Message), "par2 did not finish")
-	require.Equal(t, downloadv1alpha1.DownloadFailureWriteError, it.FailureReason, "a wedged par2 is a local fault")
+	require.Equal(t, commonv1alpha1.DownloadFailureWriteError, it.FailureReason, "a wedged par2 is a local fault")
 }
 
 // A provider that answers but never completes an article stalls the job;
@@ -388,7 +388,7 @@ func TestStallTimeoutFailsAJobThatCompletesNoArticle(t *testing.T) {
 	require.NoError(t, err)
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusFailed, it.Status, "message: %s", it.Message)
-	require.Equal(t, downloadv1alpha1.DownloadFailureStalled, it.FailureReason)
+	require.Equal(t, commonv1alpha1.DownloadFailureStalled, it.FailureReason)
 	require.True(t, it.FailureReason.IsReleaseFault(), "a stall is judged like a stalled torrent")
 }
 
@@ -405,7 +405,7 @@ func TestClientDownloadsAnNZBAndPublishesIt(t *testing.T) {
 
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
-	require.Equal(t, downloadv1alpha1.DownloadStageDone, it.Stage)
+	require.Equal(t, commonv1alpha1.DownloadStageDone, it.Stage)
 	require.True(t, it.CanMoveFiles, "a published usenet transfer may be moved immediately")
 	require.False(t, it.CanBeRemoved, "not until the import says so")
 	require.Equal(t, int32(100), it.ProgressPercent)
@@ -512,7 +512,7 @@ func TestClientFailsADownloadWithTooManyMissingArticles(t *testing.T) {
 
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusFailed, it.Status)
-	require.Equal(t, downloadv1alpha1.DownloadFailureMissingArticles, it.FailureReason)
+	require.Equal(t, commonv1alpha1.DownloadFailureMissingArticles, it.FailureReason)
 	require.False(t, it.HealthPaused, "healthAction delete fails the job; it does not pause it")
 	require.NotNil(t, it.Health)
 	require.Equal(t, int32(2), it.Health.FailedArticles)
@@ -542,7 +542,7 @@ func TestClientReportsAnEncryptedReleaseRatherThanUnpackingGarbage(t *testing.T)
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusFailed, it.Status)
 	require.True(t, it.IsEncrypted, "an encrypted release must be reported as encrypted")
-	require.Equal(t, downloadv1alpha1.DownloadFailureEncrypted, it.FailureReason)
+	require.Equal(t, commonv1alpha1.DownloadFailureEncrypted, it.FailureReason)
 	require.NoDirExists(t, filepath.Join(dataDir, "default", "Locked.Release"),
 		"nothing may be published from an archive that could not be opened")
 }

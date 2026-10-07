@@ -92,7 +92,7 @@ func TestGrabBestGrabsTheTopApprovedReleaseOnce(t *testing.T) {
 	require.Len(t, dls.Items, 1)
 	dl := dls.Items[0]
 	require.Equal(t, "best", dl.Spec.Release.GUID)
-	require.Equal(t, downloadv1alpha1.GrabSourceSearch, dl.Spec.GrabbedBy)
+	require.Equal(t, commonv1.GrabSourceSearch, dl.Spec.GrabbedBy)
 	require.False(t, dl.Spec.Manual, "an automatic pick is not a person's: the importer keeps its upgrade rules")
 
 	var s catalogv1alpha1.Search
@@ -124,7 +124,7 @@ func TestGrabBestSkipsAnItemAlreadyDownloading(t *testing.T) {
 		Spec: downloadv1alpha1.DownloadSpec{
 			Target: commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "the-idiot"},
 		},
-		Status: downloadv1alpha1.DownloadStatus{Phase: downloadv1alpha1.DownloadPhaseDownloading},
+		Status: downloadv1alpha1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading},
 	}
 	r, c := fakeReconciler(t, completedBookSearch(release("best", true)), inFlight)
 	reconcileSearch(t, r, "the-idiot-x")

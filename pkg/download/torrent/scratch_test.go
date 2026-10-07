@@ -32,7 +32,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -146,7 +145,7 @@ func TestScratchPublishFailureIsALocalFault(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	require.Equal(t, download.StatusFailed, item.Status, "message: %s", item.Message)
-	require.Equal(t, downloadv1alpha1.DownloadFailureWriteError, item.FailureReason)
+	require.Equal(t, commonv1alpha1.DownloadFailureWriteError, item.FailureReason)
 	require.False(t, item.FailureReason.IsReleaseFault())
 	_, err = os.Stat(filepath.Join(scratch, "movies", "movie", "greeting.txt"))
 	require.NoError(t, err, "the scratch copy is kept")

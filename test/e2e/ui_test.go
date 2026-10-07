@@ -325,7 +325,7 @@ func newUIDownload(ctx context.Context, t *testing.T, prefix string, movie *cata
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
+			Source:   commonv1.DownloadSource{MagnetURL: &magnet},
 			Release: commonv1.ReleaseInfo{
 				GUID:        "e2e-ui-" + name,
 				IndexerRef:  "e2e-ui-fixture",
@@ -356,8 +356,8 @@ func newUIDownload(ctx context.Context, t *testing.T, prefix string, movie *cata
 // writes phase at all is exactly the fact under test here (see the D3-5
 // plan task text and this file's package doc comment), and the correct
 // response to "not yet" is a named t.Skip from the caller, not a failure.
-func waitForNonEmptyPhase(ctx context.Context, dl *downloadv1alpha1.Download, timeout time.Duration) (downloadv1alpha1.DownloadPhase, bool) {
-	var phase downloadv1alpha1.DownloadPhase
+func waitForNonEmptyPhase(ctx context.Context, dl *downloadv1alpha1.Download, timeout time.Duration) (commonv1.DownloadPhase, bool) {
+	var phase commonv1.DownloadPhase
 	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, func(ctx context.Context) (bool, error) {
 		var live downloadv1alpha1.Download
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dl), &live); err != nil {

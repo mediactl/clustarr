@@ -519,10 +519,6 @@ type SeriesStatus struct {
 	// +optional
 	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
 
-	// LegacyDownloads is release N's record of the Downloads this item
-	// adopted (ADR-0019 §10.2); release N+1 removes it.
-	// +optional
-	LegacyDownloads *LegacyDownloads `json:"legacyDownloads,omitempty"`
 
 	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
 	// each naming the episodes it covers (ADR-0019 §6.2), written under

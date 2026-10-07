@@ -1248,7 +1248,7 @@ func newTorrentDownloadE2E(ctx context.Context, t *testing.T, prefix string, mov
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{TorrentURL: new(torrentURL)},
+			Source:   commonv1.DownloadSource{TorrentURL: new(torrentURL)},
 			Release: commonv1.ReleaseInfo{
 				GUID: guid, IndexerRef: "e2e-fixture", IndexerName: "e2e fixture",
 				Title: "Fixture.Movie.2019.1080p.BluRay.x264-CLUSTARR", Protocol: commonv1.ProtocolTorrent,
@@ -1276,7 +1276,7 @@ func newUsenetDownloadE2E(ctx context.Context, t *testing.T, prefix string, movi
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolUsenet,
-			Source:   downloadv1alpha1.DownloadSource{NZBURL: new(nzbURL)},
+			Source:   commonv1.DownloadSource{NZBURL: new(nzbURL)},
 			Release: commonv1.ReleaseInfo{
 				GUID: guid, IndexerRef: "e2e-fixture", IndexerName: "e2e fixture",
 				Title: "Fixture.Movie.2019.WEB-DL.x264-CLUSTARR", Protocol: commonv1.ProtocolUsenet,
@@ -1297,17 +1297,17 @@ func newUsenetDownloadE2E(ctx context.Context, t *testing.T, prefix string, movi
 // Removing sit outside it on purpose: nothing in this suite expects a
 // Download to pass through them on the happy path, and waitForDownloadPhase
 // AtLeast treats Failed/Blocklisted as an error rather than "not yet".
-var downloadPhaseOrder = []downloadv1alpha1.DownloadPhase{
-	downloadv1alpha1.DownloadPhasePending,
-	downloadv1alpha1.DownloadPhaseAssigned,
-	downloadv1alpha1.DownloadPhaseQueued,
-	downloadv1alpha1.DownloadPhaseDownloading,
-	downloadv1alpha1.DownloadPhaseCompleted,
-	downloadv1alpha1.DownloadPhaseSeeding,
-	downloadv1alpha1.DownloadPhaseImported,
+var downloadPhaseOrder = []commonv1.DownloadPhase{
+	commonv1.DownloadPhasePending,
+	commonv1.DownloadPhaseAssigned,
+	commonv1.DownloadPhaseQueued,
+	commonv1.DownloadPhaseDownloading,
+	commonv1.DownloadPhaseCompleted,
+	commonv1.DownloadPhaseSeeding,
+	commonv1.DownloadPhaseImported,
 }
 
-func downloadPhaseIndex(p downloadv1alpha1.DownloadPhase) int {
+func downloadPhaseIndex(p commonv1.DownloadPhase) int {
 	for i, v := range downloadPhaseOrder {
 		if v == p {
 			return i
@@ -1321,7 +1321,7 @@ func downloadPhaseIndex(p downloadv1alpha1.DownloadPhase) int {
 // errors (carrying status.failureReason/the label) rather than "not yet",
 // so a genuine failure surfaces immediately with a diagnosis instead of
 // waiting out the full timeout.
-func waitForDownloadPhaseAtLeast(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration, threshold downloadv1alpha1.DownloadPhase) downloadv1alpha1.Download {
+func waitForDownloadPhaseAtLeast(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration, threshold commonv1.DownloadPhase) downloadv1alpha1.Download {
 	t.Helper()
 	want := downloadPhaseIndex(threshold)
 	require.GreaterOrEqualf(t, want, 0, "waitForDownloadPhaseAtLeast: %q is not in downloadPhaseOrder", threshold)
@@ -1333,10 +1333,10 @@ func waitForDownloadPhaseAtLeast(ctx context.Context, t *testing.T, dl *download
 				return false, nil
 			}
 			switch live.Status.Phase {
-			case downloadv1alpha1.DownloadPhaseFailed:
+			case commonv1.DownloadPhaseFailed:
 				return false, fmt.Errorf("Download %s reached Failed (reason=%s message=%q)",
 					dl.Name, live.Status.FailureReason, live.Status.Message)
-			case downloadv1alpha1.DownloadPhaseBlocklisted:
+			case commonv1.DownloadPhaseBlocklisted:
 				return false, fmt.Errorf("Download %s reached Blocklisted unexpectedly", dl.Name)
 			}
 			return downloadPhaseIndex(live.Status.Phase) >= want, nil
@@ -1348,7 +1348,7 @@ func waitForDownloadPhaseAtLeast(ctx context.Context, t *testing.T, dl *download
 // without treating any other phase as an error -- unlike
 // waitForDownloadPhaseAtLeast, this is the right wait for a phase (like
 // Blocklisted) that IS the expected outcome.
-func waitForDownloadPhaseExactly(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration, want downloadv1alpha1.DownloadPhase) downloadv1alpha1.Download {
+func waitForDownloadPhaseExactly(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration, want commonv1.DownloadPhase) downloadv1alpha1.Download {
 	t.Helper()
 	var live downloadv1alpha1.Download
 	waitFor(t, ctx, timeout, fmt.Sprintf("Download %s reaching phase %s", dl.Name, want),

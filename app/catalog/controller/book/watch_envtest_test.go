@@ -170,7 +170,7 @@ func TestBookControllerWakesOnInheritedProfileEdits(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 			Spec: downloadv1alpha1.DownloadSpec{
 				Protocol: commonv1.ProtocolTorrent,
-				Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
+				Source:   commonv1.DownloadSource{MagnetURL: &magnet},
 				Target:   commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: key.Name},
 			},
 		}
@@ -206,7 +206,7 @@ func TestBookControllerWakesOnInheritedProfileEdits(t *testing.T) {
 
 	// Completed is on disk, awaiting import: still the item's Download (R-12).
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("earthsea-dl", ns).WithStatus(
-		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseCompleted)))
+		downloadac.DownloadStatus().WithPhase(commonv1.DownloadPhaseCompleted)))
 	require.NoError(t, err)
 	require.Never(t, func() bool {
 		var g catalogv1alpha1.Book
@@ -215,7 +215,7 @@ func TestBookControllerWakesOnInheritedProfileEdits(t *testing.T) {
 
 	// Imported is terminal: the ref goes and the phase is the file's again.
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("earthsea-dl", ns).WithStatus(
-		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseImported)))
+		downloadac.DownloadStatus().WithPhase(commonv1.DownloadPhaseImported)))
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef == nil && got.Status.Phase == steady.Status.Phase

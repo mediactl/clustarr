@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -128,7 +129,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "download in flight",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading}}},
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading}}},
 			},
 			want: pipeline.StageDownloading,
 		},
@@ -136,7 +137,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "download completed, import not started",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseCompleted}}},
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseCompleted}}},
 			},
 			want: pipeline.StageDownloaded,
 		},
@@ -145,7 +146,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
 				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{
-					Phase:  downloadv1.DownloadPhaseCompleted,
+					Phase:  commonv1.DownloadPhaseCompleted,
 					Import: &downloadv1.ImportState{State: downloadv1.ImportPhaseImporting},
 				}}},
 			},
@@ -217,7 +218,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "transcode outranks a finished download",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseCompleted}}},
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseCompleted}}},
 				Jobs:      []transcodev1.TranscodeJob{{Status: transcodev1.TranscodeJobStatus{Phase: transcodev1.TranscodeJobPhaseRunning}}},
 			},
 			want: pipeline.StageTranscoding,
@@ -249,7 +250,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "failure wins over everything",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseFailed}}},
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseFailed}}},
 			},
 			want: pipeline.StageFailed,
 		},
@@ -257,7 +258,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "blocklisted release blocks the item",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseBlocklisted}}},
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseBlocklisted}}},
 			},
 			want: pipeline.StageBlocked,
 		},
@@ -360,7 +361,7 @@ func TestProjectFillsInTheCommonFields(t *testing.T) {
 	movie := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
 	entry := pipeline.Project(movie, pipeline.Related{
 		Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{
-			Phase:           downloadv1.DownloadPhaseDownloading,
+			Phase:           commonv1.DownloadPhaseDownloading,
 			ProgressPercent: 42,
 		}}},
 	})
@@ -383,22 +384,22 @@ func TestProjectMapsEveryDownloadPhase(t *testing.T) {
 	// What the item shows with no Download at all: a phase with no Download
 	// stage falls through to it.
 	fallback := pipeline.Project(item, pipeline.Related{}).Stage
-	want := map[downloadv1.DownloadPhase]pipeline.Stage{
+	want := map[commonv1.DownloadPhase]pipeline.Stage{
 		// The grab created it and grab has not reconciled it yet: the
 		// item is downloading, not still at ReleaseSelected.
-		"":                                  pipeline.StageDownloading,
-		downloadv1.DownloadPhasePending:     pipeline.StageDownloading,
-		downloadv1.DownloadPhaseAssigned:    pipeline.StageDownloading,
-		downloadv1.DownloadPhaseQueued:      pipeline.StageDownloading,
-		downloadv1.DownloadPhaseDownloading: pipeline.StageDownloading,
-		downloadv1.DownloadPhasePaused:      pipeline.StageDownloading,
-		downloadv1.DownloadPhaseCompleted:   pipeline.StageDownloaded,
-		downloadv1.DownloadPhaseSeeding:     pipeline.StageDownloaded,
-		downloadv1.DownloadPhaseImported:    fallback,
-		downloadv1.DownloadPhaseFailed:      pipeline.StageFailed,
-		downloadv1.DownloadPhaseBlocklisted: pipeline.StageBlocked,
+		"":                                pipeline.StageDownloading,
+		commonv1.DownloadPhasePending:     pipeline.StageDownloading,
+		commonv1.DownloadPhaseAssigned:    pipeline.StageDownloading,
+		commonv1.DownloadPhaseQueued:      pipeline.StageDownloading,
+		commonv1.DownloadPhaseDownloading: pipeline.StageDownloading,
+		commonv1.DownloadPhasePaused:      pipeline.StageDownloading,
+		commonv1.DownloadPhaseCompleted:   pipeline.StageDownloaded,
+		commonv1.DownloadPhaseSeeding:     pipeline.StageDownloaded,
+		commonv1.DownloadPhaseImported:    fallback,
+		commonv1.DownloadPhaseFailed:      pipeline.StageFailed,
+		commonv1.DownloadPhaseBlocklisted: pipeline.StageBlocked,
 		// Being torn down: no Download stage; the item's own state shows.
-		downloadv1.DownloadPhaseRemoving: fallback,
+		commonv1.DownloadPhaseRemoving: fallback,
 	}
 	for phase, stage := range want {
 		t.Run(string(phase), func(t *testing.T) {
@@ -420,7 +421,7 @@ func TestProjectMapsEveryDownloadPhase(t *testing.T) {
 	for _, v := range enum {
 		var p string
 		require.NoError(t, json.Unmarshal(v.Raw, &p))
-		_, ok := want[downloadv1.DownloadPhase(p)]
+		_, ok := want[commonv1.DownloadPhase(p)]
 		require.True(t, ok, "DownloadPhase %q has no row: decide which pipeline stage it shows", p)
 	}
 }

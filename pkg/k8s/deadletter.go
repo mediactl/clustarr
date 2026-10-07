@@ -43,22 +43,22 @@ import (
 //
 // The projector annotates only an object it can name exactly, from the dead
 // letter's payload schema (app/catalog/history/target.go's resolvers). That
-// is these seventeen kinds -- the same set its +kubebuilder:rbac patch
+// is these sixteen kinds -- the same set its +kubebuilder:rbac patch
 // markers grant, and the only kinds whose controllers need to fold the
 // condition:
 //
 //	catalog.clustarr.io   Movie, Series, Episode, Artist, Album, Author,
 //	                      Book, Audiobook, Comic, Issue
 //	                        (catalog.ItemEvent, ReleaseEvent, MediaFileEvent,
-//	                        SearchTask, GrabTask and MetadataTask, by
-//	                        MediaRef.kind)
+//	                        SearchTask and MetadataTask, by MediaRef.kind;
+//	                        download.DownloadEvent and the grab entries'
+//	                        tasks, by their owner)
 //	                      ImportList   (catalog.ImportListSynced, import.ListTask)
 //	                      LibraryScan  (import.ScanTask)
 //	                      MediaFile    (import.ProbeTask, catalog.MarkersTask,
 //	                        catalog.SegmentsPlanTask and catalog.AnalyzeTask,
 //	                        by their file; the remediation loop folds it)
 //	index.clustarr.io     Indexer      (index.Release, IndexerEvent, RssTask)
-//	download.clustarr.io  Download     (catalog.ImportTask, download.DownloadEvent)
 //	transcode.clustarr.io TranscodeJob (transcode.JobEvent, transcode.Task)
 //	subtitle.clustarr.io  SubtitleRequest (subtitle.SubtitleEvent, FetchTask)
 //

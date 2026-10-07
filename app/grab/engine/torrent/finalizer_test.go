@@ -19,21 +19,18 @@ package torrent
 
 import (
 	"context"
-	"errors"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -44,82 +41,6 @@ func readyEngine(t *testing.T, fc *fakeClient) *Engine {
 	_, err := e.ReAttach(context.Background())
 	require.NoError(t, err)
 	return e
-}
-
-// TestEngineFinalizerIsHeldWhileRemoveFails is the ordering half of ruling
-// R-6: the engine finalizer comes off only AFTER the transfer is removed. A
-// Remove that fails must leave it on, so the Download controller's
-// removeDataOnDelete finalizer -- which waits for this one -- does not
-// delete files the transfer still holds open.
-func TestEngineFinalizerIsHeldWhileRemoveFails(t *testing.T) {
-	ctx := context.Background()
-	c := newEnvtestClient(t)
-	const ns = "torrent-finalizer-held"
-	newTestNamespace(t, ctx, c, ns)
-	mkTorrentDownloadClient(t, ctx, c, ns, "torrents")
-
-	fc := newFakeClient()
-	e := readyEngine(t, fc)
-	r := &Reconciler{Client: c, Engine: e, EngineID: "torrents-0", StateDir: e.StateDir}
-
-	dl := mkTorrentDownload(t, ctx, c, ns, "movie-held", "torrents-0", "torrents", nil)
-	key := client.ObjectKeyFromObject(dl)
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-	require.NoError(t, err)
-	require.NoError(t, c.Get(ctx, key, dl))
-	id := dl.Status.DownloadID
-	require.NotEmpty(t, id)
-	require.FileExists(t, sidecarFileName(e.StateDir, id))
-
-	require.NoError(t, c.Delete(ctx, dl))
-	fc.removeErr = errors.New("client wedged")
-	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-	require.Error(t, err)
-
-	var held downloadv1alpha1.Download
-	require.NoError(t, c.Get(ctx, key, &held), "the engine finalizer must hold the object while the transfer is live")
-	assert.Equal(t, []string{engine.Finalizer}, held.Finalizers)
-
-	fc.removeErr = nil
-	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-	require.NoError(t, err)
-	err = c.Get(ctx, key, &downloadv1alpha1.Download{})
-	assert.True(t, apierrors.IsNotFound(err), "with the transfer removed and no other finalizer, the Download is gone")
-	assert.NoFileExists(t, sidecarFileName(e.StateDir, id), "the re-attach descriptor goes with the transfer")
-	_, err = fc.Get(ctx, id)
-	assert.ErrorIs(t, err, download.ErrNotFound)
-}
-
-// TestEngineFinalizerIsDroppedForADownloadThatNeverGotATransfer: the
-// finalizer is added before the Add, so an Add that never succeeded still
-// leaves it on; deletion must release it rather than wait for a transfer
-// that does not exist.
-func TestEngineFinalizerIsDroppedForADownloadThatNeverGotATransfer(t *testing.T) {
-	ctx := context.Background()
-	c := newEnvtestClient(t)
-	const ns = "torrent-finalizer-noxfer"
-	newTestNamespace(t, ctx, c, ns)
-	mkTorrentDownloadClient(t, ctx, c, ns, "torrents")
-
-	fc := newFakeClient()
-	fc.addErr = errors.New("indexer down")
-	e := readyEngine(t, fc)
-	r := &Reconciler{Client: c, Engine: e, EngineID: "torrents-0", StateDir: e.StateDir}
-
-	dl := mkTorrentDownload(t, ctx, c, ns, "movie-noxfer", "torrents-0", "torrents", nil)
-	key := client.ObjectKeyFromObject(dl)
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-	require.Error(t, err)
-	require.NoError(t, c.Get(ctx, key, dl))
-	require.Equal(t, []string{engine.Finalizer}, dl.Finalizers, "the finalizer precedes the Add")
-	require.Empty(t, dl.Status.DownloadID)
-
-	require.NoError(t, c.Delete(ctx, dl))
-	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-	require.NoError(t, err)
-	err = c.Get(ctx, key, &downloadv1alpha1.Download{})
-	assert.True(t, apierrors.IsNotFound(err))
-	assert.Empty(t, fc.removeCalls, "there was no transfer to remove")
 }
 
 // TestAddPersistsSelectionAndAgeAndReAttachRestoresBoth drives a pack

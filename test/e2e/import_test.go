@@ -68,7 +68,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // TestFileImportUpgradeAttempt is scenario 2's D2-relevant slice: see this
@@ -99,7 +99,7 @@ func TestFileImportUpgradeAttempt(t *testing.T) {
 	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
 	dl := newTorrentDownloadE2E(ctx, t, "e2e-imp2-dl", &movie, torrentURL, "guid-imp2-upgrade-1", movie.Spec.QualityProfileRef)
 
-	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
+	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
 	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
 	require.Len(t, imp.Imported, 1)
 	require.NotEmpty(t, imp.Imported[0].MediaFileRef)

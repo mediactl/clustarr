@@ -189,10 +189,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.IssueSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("IssueStatus"):
 		return &catalogv1alpha1.IssueStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("LegacyDownload"):
-		return &catalogv1alpha1.LegacyDownloadApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("LegacyDownloads"):
-		return &catalogv1alpha1.LegacyDownloadsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScan"):
 		return &catalogv1alpha1.LibraryScanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScanSpec"):

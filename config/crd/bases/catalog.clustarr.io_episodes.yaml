@@ -625,7 +625,7 @@ spec:
                               indexerRef:
                                 description: |-
                                   IndexerRef is the name of the Indexer that published the release, in the
-                                  same namespace as the Download.
+                                  same namespace as the item holding the grab entry.
                                 minLength: 1
                                 type: string
                               url:

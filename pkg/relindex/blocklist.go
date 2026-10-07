@@ -27,7 +27,7 @@ import (
 )
 
 // BlocklistTTL is how long a blocklist row lives when its writer named no
-// Until: today's DefaultBlocklistTTL, 90 days (ADR-0019 §6.14).
+// Until: 90 days (ADR-0019 §6.14).
 const BlocklistTTL = 90 * 24 * time.Hour
 
 // maxBlockKeysPerQuery bounds the IN lists BlockState builds, well under

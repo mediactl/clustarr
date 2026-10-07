@@ -167,9 +167,7 @@ func (w *Worker) now() time.Time {
 }
 
 // Handle implements events.Handler: it dispatches on the envelope's schema
-// to the inspect or the execute. A v1 ImportTask -- the single-phase import
-// a release before ADR-0019 published -- is discarded: the manager inspects
-// every Completed entry again.
+// to the inspect or the execute.
 func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
 	ctx = tracing.Extract(ctx, env)
@@ -183,8 +181,6 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return w.handleInspect(ctx, m, env)
 	case schema.ImportExecuteTask{}.Schema():
 		return w.handleExecute(ctx, m, env)
-	case schema.ImportTask{}.Schema():
-		return events.Discard("superseded by ADR-0019 two-phase imports", nil)
 	}
 	return events.Discard("fileimport: unknown task schema "+env.Schema, nil)
 }

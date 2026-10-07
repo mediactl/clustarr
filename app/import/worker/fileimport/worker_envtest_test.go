@@ -38,14 +38,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
-	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -190,16 +186,6 @@ func (m *fakeMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m *fakeMessage) Term(context.Context, string) error       { return nil }
 func (m *fakeMessage) InProgress(context.Context) error         { m.heartbeats.Add(1); return nil }
 
-func newImportTaskMessage(t *testing.T, ns, name, uid string) *fakeMessage {
-	t.Helper()
-	task := schema.ImportTask{DownloadRef: schema.Ref{Namespace: ns, Name: name, UID: uid}}
-	schemaName, data, err := schema.Encode(task)
-	require.NoError(t, err)
-	return &fakeMessage{env: &events.Envelope{
-		Schema: schemaName, Data: data, Type: "catalog.ImportTask", Key: ns + "/" + name,
-	}}
-}
-
 // testQualityProfile mirrors app/catalog/worker/search's fixture of the same
 // name: a minimal, cluster-scoped, valid QualityProfile.
 func testQualityProfile(name string) *catalogv1alpha1.QualityProfile {
@@ -279,58 +265,6 @@ func newFixture(t *testing.T, ns string) *fixture {
 		c: c, api: testAPI, bus: bus, worker: worker, ns: ns, mediaRoot: mediaRoot,
 		movieName: movie.Name, profile: qp, rootFolder: rf,
 	}
-}
-
-// createDownload creates a Download targeting the fixture's movie and
-// patches its status (Phase/ContentRoot/CanMoveFiles) under
-// k8s.ManagerGrab, standing in for grab's own engine/controller in a
-// worker-only test.
-func (f *fixture) createDownload(t *testing.T, name, contentRoot string, target commonv1.MediaRef) *downloadv1alpha1.Download {
-	t.Helper()
-	ctx := context.Background()
-	magnet := "magnet:?xt=urn:btih:" + strings.Repeat("a", 40)
-	dl := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
-		Spec: downloadv1alpha1.DownloadSpec{
-			Protocol: commonv1.ProtocolTorrent,
-			Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
-			Release: commonv1.ReleaseInfo{
-				GUID: "g-" + name, IndexerRef: "idx", IndexerName: "Example",
-				Title: "The Matrix 1999 1080p BluRay x264-SPARKS", Protocol: commonv1.ProtocolTorrent,
-				// InfoHash must be set even though it is +optional: the
-				// CRD's "release identity is immutable" CEL rule compares
-				// self.infoHash to oldSelf.infoHash unconditionally (no
-				// has() guard), and a status-subresource apply re-evaluates
-				// every spec CEL rule against the stored object. Leaving it
-				// unset -- the shape a real usenet release's ReleaseInfo
-				// would have, since InfoHash is torrent-only -- makes the
-				// FIRST status apply on ANY such Download fail with "no
-				// such key: infoHash". Discovered empirically against a
-				// real envtest apiserver; flagged in this task's report as
-				// a concern for api/download/v1alpha1's CEL rule, which is
-				// outside D2-7's scope to fix.
-				InfoHash: strings.Repeat("a", 40),
-			},
-			Target:            target,
-			QualityProfileRef: f.profile.Name,
-		},
-	}
-	require.NoError(t, f.c.Create(ctx, dl))
-
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrab,
-		downloadac.Download(dl.Name, f.ns).WithStatus(
-			downloadac.DownloadStatus().
-				WithPhase(downloadv1alpha1.DownloadPhaseCompleted).
-				WithContentRoot(contentRoot).
-				WithCanMoveFiles(false)))
-	require.NoError(t, err)
-
-	waitFor(t, 5*time.Second, func() bool {
-		var got downloadv1alpha1.Download
-		return f.c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: dl.Name}, &got) == nil &&
-			got.Status.Phase == downloadv1alpha1.DownloadPhaseCompleted
-	})
-	return dl
 }
 
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {

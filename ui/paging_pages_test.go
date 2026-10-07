@@ -95,7 +95,7 @@ func downloadsReader(t *testing.T, n int) client.Reader {
 		objs[i] = &downloadv1.Download{
 			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("d-%03d", i), Namespace: "default"},
 			Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-			Status:     downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading},
+			Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading},
 		}
 	}
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()

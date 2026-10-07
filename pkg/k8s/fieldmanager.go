@@ -30,11 +30,7 @@ type FieldManager string
 // status fields the spec assigns them.
 const (
 	// ManagerCatalog is the catalog controller manager. It owns phase
-	// and conditions on every catalog.clustarr.io kind. (This comment used to
-	// also claim Download.status.import, the project's one cross-group
-	// status write. Design spec §8.4 assigned it to catalog before
-	// amendment-1 moved the importer into app/import/worker/fileimport; see
-	// ManagerImport, which now owns that write. Settled at task D2-7.)
+	// and conditions on every catalog.clustarr.io kind.
 	ManagerCatalog FieldManager = "catalog"
 
 	// ManagerCatalogSeries is the catalog Series reconciler when it
@@ -167,27 +163,6 @@ const (
 
 	// ManagerImport is the import controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
-	//
-	// It also owns Download.status.import -- the project's one cross-group
-	// status write, applied by app/import/worker/fileimport (task D2-7), not
-	// by any import controller. That write deliberately uses this bare
-	// manager name rather than ManagerImportWorker: nothing else ever
-	// applies under either name to a Download object, so there is no
-	// collision to guard against the way there is on MediaFile (see
-	// ManagerImportWorker), and app/grab/status.Patch (which owns every
-	// other field manager on Download.status) refuses this name from its own
-	// declaration precisely so that import's write stays import's,
-	// made from import's own code, rather than being routed through
-	// grab's declaration and picking up grab's owned set too.
-	//
-	// Design spec §8.4 assigned this write to catalog, under the name
-	// ManagerCatalog. Amendment-1 moved the importer out of catalog
-	// into app/import/worker/fileimport ("Nothing named 'importer' remains in
-	// catalog"), and this field's ownership moved with it. Three comments
-	// disagreed on the result until task D2-7 settled it: this one and
-	// app/grab/status already said import; ManagerCatalog's comment and
-	// DownloadStatus' own field doc still said catalog. All three are now
-	// consistent.
 	ManagerImport FieldManager = "import"
 
 	// ManagerImportWorker is an import scan, list or file-import worker.
@@ -242,15 +217,9 @@ const (
 	// API-key Secret (§13 OD14).
 	ManagerIndexWorker FieldManager = "index-worker"
 
-	// ManagerGrab is the grab controller manager, the single writer for
-	// download.clustarr.io phase and conditions.
+	// ManagerGrab is the grab controller manager, the single writer of
+	// DownloadClient status and the engine workloads it renders.
 	ManagerGrab FieldManager = "grab"
-
-	// ManagerGrabEngine was a torrent or usenet engine pod's, which applied
-	// the telemetry fields of Download.status. Retired (ADR-0019 A3.6):
-	// engines write no Kubernetes object; RetiredFieldManagers keeps it
-	// valid until N+1.
-	ManagerGrabEngine FieldManager = "grab-engine"
 
 	// ManagerTranscode is the transcode controller manager.
 	ManagerTranscode FieldManager = "transcode"
@@ -364,11 +333,10 @@ func FieldManagers() []FieldManager {
 
 // RetiredFieldManagers are names no writer may use any more but Validate
 // still accepts: release N's one release apply of every MediaFile's
-// catalog-markers entry runs under it (loop spec §7.3.8, F8.4), and
-// grab-engine retired with the Download kind (ADR-0019 A3.6: engines write
-// no Kubernetes object). F9.4 and A9.1 empty the list.
+// catalog-markers entry runs under it (loop spec §7.3.8, F8.4). F9.4 empties
+// the list. grab-engine went with the Download kind (ADR-0019 A9.1).
 func RetiredFieldManagers() []FieldManager {
-	return []FieldManager{ManagerCatalogMarkers, ManagerGrabEngine}
+	return []FieldManager{ManagerCatalogMarkers}
 }
 
 // String returns the manager name as the apiserver sees it.

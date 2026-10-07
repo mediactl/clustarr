@@ -44,18 +44,18 @@ import (
 // if a phase is ever added to or removed from that enum without a matching
 // update here, rather than silently covering fewer phases than the API
 // allows.
-var allDownloadPhases = []downloadv1.DownloadPhase{
-	downloadv1.DownloadPhasePending,
-	downloadv1.DownloadPhaseAssigned,
-	downloadv1.DownloadPhaseQueued,
-	downloadv1.DownloadPhaseDownloading,
-	downloadv1.DownloadPhasePaused,
-	downloadv1.DownloadPhaseCompleted,
-	downloadv1.DownloadPhaseSeeding,
-	downloadv1.DownloadPhaseImported,
-	downloadv1.DownloadPhaseFailed,
-	downloadv1.DownloadPhaseBlocklisted,
-	downloadv1.DownloadPhaseRemoving,
+var allDownloadPhases = []commonv1.DownloadPhase{
+	commonv1.DownloadPhasePending,
+	commonv1.DownloadPhaseAssigned,
+	commonv1.DownloadPhaseQueued,
+	commonv1.DownloadPhaseDownloading,
+	commonv1.DownloadPhasePaused,
+	commonv1.DownloadPhaseCompleted,
+	commonv1.DownloadPhaseSeeding,
+	commonv1.DownloadPhaseImported,
+	commonv1.DownloadPhaseFailed,
+	commonv1.DownloadPhaseBlocklisted,
+	commonv1.DownloadPhaseRemoving,
 }
 
 // TestAllElevenDownloadPhasesRenderWithoutPanicking is Task D3-2's own
@@ -122,7 +122,7 @@ func TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar(t *testing.T) {
 	d := downloadv1.Download{
 		ObjectMeta: metav1.ObjectMeta{Name: "not-started", Namespace: "default"},
 		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhasePending, ProgressPercent: 0},
+		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhasePending, ProgressPercent: 0},
 	}
 
 	var buf bytes.Buffer
@@ -196,7 +196,7 @@ func TestDownloadsPageListsThroughTheReader(t *testing.T) {
 			Protocol: commonv1.ProtocolTorrent,
 			Release:  commonv1.ReleaseInfo{Title: "Arrival 2016"},
 		},
-		Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading, ProgressPercent: 55},
+		Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 55},
 	}
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d).Build()
 

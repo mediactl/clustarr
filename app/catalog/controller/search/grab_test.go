@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/decision"
 )
@@ -64,7 +63,7 @@ func TestBuildDownloadSourceIsTheGrabWorkersMapping(t *testing.T) {
 	require.NotNil(t, magnet.ExpectedInfoHash, "the info-hash guard rides along on the interactive path too")
 	require.Equal(t, hash, *magnet.ExpectedInfoHash)
 
-	require.Equal(t, downloadv1alpha1.DownloadSource{}, BuildDownloadSource(commonv1.ReleaseInfo{GUID: "nothing"}),
+	require.Equal(t, commonv1.DownloadSource{}, BuildDownloadSource(commonv1.ReleaseInfo{GUID: "nothing"}),
 		"a release with no source maps to an empty one, which the apiserver refuses on apply")
 }
 

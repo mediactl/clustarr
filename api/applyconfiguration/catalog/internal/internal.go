@@ -196,9 +196,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: legacyDownloads
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AlbumMetadata
@@ -745,9 +742,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: legacyDownloads
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookMetadata
@@ -1151,9 +1145,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: legacyDownloads
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BookMetadata
@@ -1429,9 +1420,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: issueFileCount
       type:
         scalar: numeric
-    - name: legacyDownloads
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicMetadata
@@ -2571,38 +2559,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownload
-  map:
-    fields:
-    - name: at
-      type:
-        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: name
-      type:
-        scalar: string
-    - name: outcome
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyOutcome
-    - name: uid
-      type:
-        scalar: string
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
-  map:
-    fields:
-    - name: adopted
-      type:
-        list:
-          elementType:
-            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownload
-          elementRelationship: atomic
-    - name: held
-      type:
-        scalar: string
-    - name: message
-      type:
-        scalar: string
-- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyOutcome
-  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScan
   map:
     fields:
@@ -3374,9 +3330,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: legacyDownloads
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MovieMetadata
@@ -4661,9 +4614,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
-    - name: legacyDownloads
-      type:
-        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesMetadata

@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
@@ -89,7 +90,7 @@ func TestStatusFieldChangedHandlesMissingObjects(t *testing.T) {
 	}
 }
 
-func downloadPhase(o client.Object) downloadv1alpha1.DownloadPhase {
+func downloadPhase(o client.Object) commonv1.DownloadPhase {
 	d, ok := o.(*downloadv1alpha1.Download)
 	if !ok {
 		return ""
@@ -97,7 +98,7 @@ func downloadPhase(o client.Object) downloadv1alpha1.DownloadPhase {
 	return d.Status.Phase
 }
 
-func download(phase downloadv1alpha1.DownloadPhase) *downloadv1alpha1.Download {
+func download(phase commonv1.DownloadPhase) *downloadv1alpha1.Download {
 	d := &downloadv1alpha1.Download{
 		ObjectMeta: metav1.ObjectMeta{Name: "inception-abc1234567", Namespace: "media"},
 	}
@@ -109,9 +110,9 @@ func TestStatusFieldInIsTheImporterWatch(t *testing.T) {
 	// §10: catalog's importer watches Downloads in phase Completed,
 	// Seeding or Failed.
 	p := StatusFieldIn(downloadPhase,
-		downloadv1alpha1.DownloadPhase("Completed"),
-		downloadv1alpha1.DownloadPhase("Seeding"),
-		downloadv1alpha1.DownloadPhase("Failed"),
+		commonv1.DownloadPhase("Completed"),
+		commonv1.DownloadPhase("Seeding"),
+		commonv1.DownloadPhase("Failed"),
 	)
 
 	if !p.Create(event.CreateEvent{Object: download("Completed")}) {
@@ -221,7 +222,7 @@ func TestCombinators(t *testing.T) {
 
 	both := And(
 		HasLabel(downloadv1alpha1.LabelClient, "qbit"),
-		StatusFieldIn(downloadPhase, downloadv1alpha1.DownloadPhase("Completed")),
+		StatusFieldIn(downloadPhase, commonv1.DownloadPhase("Completed")),
 	)
 	if !both.Create(event.CreateEvent{Object: mine}) {
 		t.Error("And filtered out an object matching both predicates")
@@ -232,7 +233,7 @@ func TestCombinators(t *testing.T) {
 
 	either := Or(
 		HasLabel(downloadv1alpha1.LabelClient, "sabnzbd"),
-		StatusFieldIn(downloadPhase, downloadv1alpha1.DownloadPhase("Completed")),
+		StatusFieldIn(downloadPhase, commonv1.DownloadPhase("Completed")),
 	)
 	if !either.Create(event.CreateEvent{Object: download("Completed")}) {
 		t.Error("Or filtered out an object matching one predicate")

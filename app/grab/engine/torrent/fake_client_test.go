@@ -25,7 +25,6 @@ import (
 	"time"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -64,7 +63,7 @@ type removeCall struct {
 // priorityCall records one SetPriority invocation.
 type priorityCall struct {
 	id       string
-	priority downloadv1alpha1.DownloadPriority
+	priority commonv1alpha1.DownloadPriority
 }
 
 func newFakeClient() *fakeClient {
@@ -96,7 +95,7 @@ func (f *fakeClient) Add(_ context.Context, req download.AddRequest) (string, er
 		return id, nil
 	}
 	status := download.StatusDownloading
-	stage := downloadv1alpha1.DownloadStageTransferring
+	stage := commonv1alpha1.DownloadStageTransferring
 	if req.Paused {
 		status = download.StatusPaused
 		stage = ""
@@ -160,12 +159,12 @@ func (f *fakeClient) Resume(_ context.Context, id string) error {
 	}
 	f.resumeCalls = append(f.resumeCalls, id)
 	item.Status = download.StatusDownloading
-	item.Stage = downloadv1alpha1.DownloadStageTransferring
+	item.Stage = commonv1alpha1.DownloadStageTransferring
 	f.items[id] = item
 	return nil
 }
 
-func (f *fakeClient) SetPriority(_ context.Context, id string, p downloadv1alpha1.DownloadPriority) error {
+func (f *fakeClient) SetPriority(_ context.Context, id string, p commonv1alpha1.DownloadPriority) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.items[id]; !ok {
@@ -222,7 +221,7 @@ func (f *fakeClient) addCallCount() int {
 
 // fail marks id failed with reason, the way pkg/download/torrent's session
 // does on a stall or a write error.
-func (f *fakeClient) fail(id string, reason downloadv1alpha1.DownloadFailureReason) {
+func (f *fakeClient) fail(id string, reason commonv1alpha1.DownloadFailureReason) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	item := f.items[id]

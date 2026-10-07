@@ -24,8 +24,7 @@ import (
 	"time"
 
 	anatorrent "github.com/anacrolix/torrent"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -169,7 +168,7 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 		// Complete in the scratch dir: it reads Completed -- and is
 		// imported -- only once it has moved to publishDir.
 		item.Status = download.StatusDownloading
-		item.Stage = downloadv1alpha1.DownloadStagePublishing
+		item.Stage = commonv1.DownloadStagePublishing
 		if !sess.publishing {
 			sess.publishing = true
 			go c.publish(id)
@@ -177,9 +176,9 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 	case complete:
 		item.Status = download.StatusCompleted
 		if !sess.paused && t.Seeding() {
-			item.Stage = downloadv1alpha1.DownloadStageSeeding
+			item.Stage = commonv1.DownloadStageSeeding
 		} else {
-			item.Stage = downloadv1alpha1.DownloadStageDone
+			item.Stage = commonv1.DownloadStageDone
 		}
 	case sess.paused:
 		// A paused transfer reports StatusPaused regardless of what stage it
@@ -188,17 +187,17 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 		item.Status = download.StatusPaused
 	case info == nil || selecting:
 		item.Status = download.StatusQueued
-		item.Stage = downloadv1alpha1.DownloadStageFetchingMetadata
+		item.Stage = commonv1.DownloadStageFetchingMetadata
 	case isChecking(t):
 		item.Status = download.StatusQueued
-		item.Stage = downloadv1alpha1.DownloadStageVerifying
+		item.Stage = commonv1.DownloadStageVerifying
 	case stats.ActivePeers == 0:
 		item.Status = download.StatusWarning
-		item.Stage = downloadv1alpha1.DownloadStageTransferring
+		item.Stage = commonv1.DownloadStageTransferring
 		item.Message = "no peers connected"
 	default:
 		item.Status = download.StatusDownloading
-		item.Stage = downloadv1alpha1.DownloadStageTransferring
+		item.Stage = commonv1.DownloadStageTransferring
 	}
 
 	return item
@@ -329,7 +328,7 @@ func (s *session) checkStallLocked(stop func(), timeout time.Duration, now time.
 	}
 	stop()
 	s.failed = true
-	s.failureReason = downloadv1alpha1.DownloadFailureStalled
+	s.failureReason = commonv1.DownloadFailureStalled
 	s.message = fmt.Sprintf("stalled: no data received for %s (stall timeout %s)",
 		now.Sub(since).Truncate(time.Second), timeout)
 }
@@ -458,9 +457,9 @@ func (s *session) onWriteChunkError(t *anatorrent.Torrent) func(error) {
 // volume is out of space (ENOSPC) or the writer out of quota (EDQUOT, the
 // same condition as far as a download is concerned), writeError for
 // anything else. Both are local faults, so neither blocklists the release.
-func chunkWriteFailure(err error) downloadv1alpha1.DownloadFailureReason {
+func chunkWriteFailure(err error) commonv1.DownloadFailureReason {
 	if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) {
-		return downloadv1alpha1.DownloadFailureDiskFull
+		return commonv1.DownloadFailureDiskFull
 	}
-	return downloadv1alpha1.DownloadFailureWriteError
+	return commonv1.DownloadFailureWriteError
 }

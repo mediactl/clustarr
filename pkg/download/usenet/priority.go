@@ -19,10 +19,9 @@ package usenet
 
 import (
 	"context"
-	"time"
-
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
+	"time"
 )
 
 // turnPollInterval is how often a job waiting its turn -- paused, or
@@ -32,11 +31,11 @@ const turnPollInterval = 250 * time.Millisecond
 
 // priorityRank orders the three spec.priority classes. An empty value is the
 // CRD default, normal.
-func priorityRank(p downloadv1alpha1.DownloadPriority) int {
+func priorityRank(p commonv1.DownloadPriority) int {
 	switch p {
-	case downloadv1alpha1.DownloadPriorityHigh:
+	case commonv1.DownloadPriorityHigh:
 		return 2
-	case downloadv1alpha1.DownloadPriorityLow:
+	case commonv1.DownloadPriorityLow:
 		return 0
 	default:
 		return 1
@@ -65,7 +64,7 @@ func priorityRank(p downloadv1alpha1.DownloadPriority) int {
 // hold neither.
 func (c *Client) outranked(j *job) bool {
 	mine := priorityRank(j.getPriority())
-	if mine == priorityRank(downloadv1alpha1.DownloadPriorityHigh) {
+	if mine == priorityRank(commonv1.DownloadPriorityHigh) {
 		return false
 	}
 
@@ -96,19 +95,19 @@ func (j *job) transferring() bool {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.stage == downloadv1alpha1.DownloadStageTransferring && j.status == download.StatusDownloading
+	return j.stage == commonv1.DownloadStageTransferring && j.status == download.StatusDownloading
 }
 
 // getPriority is j's spec.priority class ("" reads as normal wherever it is
 // ranked).
-func (j *job) getPriority() downloadv1alpha1.DownloadPriority {
-	p, _ := j.prio.Load().(downloadv1alpha1.DownloadPriority)
+func (j *job) getPriority() commonv1.DownloadPriority {
+	p, _ := j.prio.Load().(commonv1.DownloadPriority)
 	return p
 }
 
 // setPriority changes j's class and reports whether it changed; "" and
 // normal are the same class.
-func (j *job) setPriority(p downloadv1alpha1.DownloadPriority) bool {
+func (j *job) setPriority(p commonv1.DownloadPriority) bool {
 	if priorityRank(j.getPriority()) == priorityRank(p) {
 		return false
 	}

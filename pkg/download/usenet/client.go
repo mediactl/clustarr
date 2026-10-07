@@ -24,7 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Parse the NZB, fetch every article over a bounded multi-provider connection
 // pool, yEnc-decode each part straight to its authoritative offset, verify and
 // repair with par2, unpack, clean up, and publish with one atomic rename. The
-// stages surface as downloadv1alpha1.DownloadStage values and the article
+// stages surface as commonv1alpha1.DownloadStage values and the article
 // accounting surfaces as [download.Item].Health, which is this client's alone
 // to populate.
 //
@@ -41,9 +41,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What it deliberately does not do
 //
 // It does not seed, so [Client.SetSeedCriteria] is a no-op; the reasoning is
-// on the interface. It does not write Download.status -- the engine runnable
-// does, through download.ApplyStatus -- and it never reads a Secret: the
-// caller resolves provider credentials into [Provider].
+// on the interface. It reports nothing anywhere -- the engine runnable writes
+// its transfer records -- and it never reads a Secret: the caller resolves
+// provider credentials into [Provider].
 package usenet
 
 import (
@@ -363,7 +363,7 @@ type job struct {
 
 	abortHealth int32
 
-	// prio is the job's spec.priority class, a downloadv1alpha1.DownloadPriority.
+	// prio is the job's spec.priority class, a commonv1alpha1.DownloadPriority.
 	// [Client.SetPriority] changes it after the Add, and [Client.outranked]
 	// reads it for other jobs under only the client lock, so it is atomic
 	// rather than guarded by mu. See [job.getPriority].
@@ -385,8 +385,8 @@ type job struct {
 
 	mu           sync.Mutex
 	status       download.Status
-	stage        downloadv1alpha1.DownloadStage
-	reason       downloadv1alpha1.DownloadFailureReason
+	stage        commonv1alpha1.DownloadStage
+	reason       commonv1alpha1.DownloadFailureReason
 	message      string
 	outputPath   string
 	downloaded   int64
@@ -460,7 +460,7 @@ func (j *job) downloadedBytes() int64 {
 	return j.downloaded
 }
 
-func (j *job) setStage(stage downloadv1alpha1.DownloadStage, status download.Status) {
+func (j *job) setStage(stage commonv1alpha1.DownloadStage, status download.Status) {
 	j.mu.Lock()
 	if stage != j.stage {
 		j.stageStarted = time.Now()
@@ -470,10 +470,10 @@ func (j *job) setStage(stage downloadv1alpha1.DownloadStage, status download.Sta
 	_ = j.checkpoint()
 }
 
-func (j *job) fail(reason downloadv1alpha1.DownloadFailureReason, err error) {
+func (j *job) fail(reason commonv1alpha1.DownloadFailureReason, err error) {
 	j.mu.Lock()
 	j.status = download.StatusFailed
-	j.stage = downloadv1alpha1.DownloadStageDone
+	j.stage = commonv1alpha1.DownloadStageDone
 	j.reason = reason
 	if err != nil {
 		j.message = err.Error()
@@ -582,14 +582,14 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	}
 	j := c.newJob(m.ID, m.Name, m.Category, dir, parsed, payload)
 	j.status = download.Status(m.Status)
-	j.stage = downloadv1alpha1.DownloadStage(m.Stage)
-	j.reason = downloadv1alpha1.DownloadFailureReason(m.Reason)
+	j.stage = commonv1alpha1.DownloadStage(m.Stage)
+	j.reason = commonv1alpha1.DownloadFailureReason(m.Reason)
 	j.message = m.Message
 	j.outputPath = m.OutputPath
 	j.imported = m.Imported
 	j.encrypted = m.Encrypted
 	j.paused.Store(m.Paused)
-	j.prio.Store(downloadv1alpha1.DownloadPriority(m.Priority))
+	j.prio.Store(commonv1alpha1.DownloadPriority(m.Priority))
 	j.healthPaused = m.HealthPaused
 	j.healthOverride = m.HealthOverride
 	j.renames = m.Renames
@@ -633,11 +633,11 @@ func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob, payload 
 		payload:     payload,
 		abortHealth: c.cfg.AbortHealthPercent,
 		status:      download.StatusQueued,
-		stage:       downloadv1alpha1.DownloadStageFetchingMetadata,
-		reason:      downloadv1alpha1.DownloadFailureNone,
+		stage:       commonv1alpha1.DownloadStageFetchingMetadata,
+		reason:      commonv1alpha1.DownloadFailureNone,
 		finished:    make(chan struct{}),
 	}
-	j.prio.Store(downloadv1alpha1.DownloadPriority(""))
+	j.prio.Store(commonv1alpha1.DownloadPriority(""))
 	j.done = make([]bitset, len(parsed.Files))
 	j.failedSegs = make([]bitset, len(parsed.Files))
 	for i := range parsed.Files {
@@ -828,7 +828,7 @@ func (j *job) run(ctx context.Context) {
 	}
 
 	for {
-		j.setStage(downloadv1alpha1.DownloadStageTransferring, download.StatusDownloading)
+		j.setStage(commonv1alpha1.DownloadStageTransferring, download.StatusDownloading)
 		err := j.transfer(ctx)
 		if err == nil {
 			break
@@ -888,7 +888,7 @@ func (j *job) abort(ctx context.Context, err error) {
 		return
 	}
 	reason := failureReason(ctx, err)
-	if reason == downloadv1alpha1.DownloadFailureEncrypted {
+	if reason == commonv1alpha1.DownloadFailureEncrypted {
 		j.mu.Lock()
 		j.encrypted = true
 		j.mu.Unlock()
@@ -918,21 +918,21 @@ func (j *job) abort(ctx context.Context, err error) {
 // (DownloadFailureReason.IsReleaseFault). An archive that fails to extract
 // for a reason other than a password or a write is classed writeError, the
 // conservative side: blocklisting needs evidence against the release.
-func failureReason(ctx context.Context, err error) downloadv1alpha1.DownloadFailureReason {
+func failureReason(ctx context.Context, err error) commonv1alpha1.DownloadFailureReason {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return downloadv1alpha1.DownloadFailureTimeout
+		return commonv1alpha1.DownloadFailureTimeout
 	case errors.Is(err, ErrEncrypted):
-		return downloadv1alpha1.DownloadFailureEncrypted
+		return commonv1alpha1.DownloadFailureEncrypted
 	case errors.Is(err, ErrStalled):
-		return downloadv1alpha1.DownloadFailureStalled
+		return commonv1alpha1.DownloadFailureStalled
 	case errors.Is(err, ErrUnrecoverable), errors.Is(err, ErrArticleMissing), errors.Is(err, ErrRepairFailed):
-		return downloadv1alpha1.DownloadFailureMissingArticles
+		return commonv1alpha1.DownloadFailureMissingArticles
 	case errors.Is(err, fsops.ErrInsufficientSpace), errors.Is(err, errPreflightSpace),
 		errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
-		return downloadv1alpha1.DownloadFailureDiskFull
+		return commonv1alpha1.DownloadFailureDiskFull
 	default:
-		return downloadv1alpha1.DownloadFailureWriteError
+		return commonv1alpha1.DownloadFailureWriteError
 	}
 }
 
@@ -949,7 +949,7 @@ func (j *job) waitForPropagation(ctx context.Context) error {
 	if wait <= 0 {
 		return nil
 	}
-	j.setStage(downloadv1alpha1.DownloadStageFetchingMetadata, download.StatusQueued)
+	j.setStage(commonv1alpha1.DownloadStageFetchingMetadata, download.StatusQueued)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -964,7 +964,7 @@ func (j *job) preCheck(ctx context.Context) error {
 	if !j.client.cfg.PreCheck {
 		return nil
 	}
-	j.setStage(downloadv1alpha1.DownloadStageVerifying, download.StatusQueued)
+	j.setStage(commonv1alpha1.DownloadStageVerifying, download.StatusQueued)
 
 	ids := make([]string, 0, j.nzb.TotalSegments)
 	for _, f := range j.nzb.Files {
@@ -1064,7 +1064,7 @@ func (j *job) postProcess(ctx context.Context) error {
 		j.mu.Lock()
 		j.unpack, j.archiveBytes = progress, archives
 		j.mu.Unlock()
-		j.setStage(downloadv1alpha1.DownloadStageExtracting, download.StatusDownloading)
+		j.setStage(commonv1alpha1.DownloadStageExtracting, download.StatusDownloading)
 		log := logging.FromContext(ctx)
 		log.InfoContext(ctx, "usenet: unpacking", "download", j.id, "archiveBytes", archives)
 		started := time.Now()
@@ -1144,7 +1144,7 @@ func (j *job) repair(ctx context.Context) error {
 		return fmt.Errorf("%w: %d articles missing and no par2 to repair them",
 			ErrPar2Unavailable, j.failedArticles())
 	}
-	j.setStage(downloadv1alpha1.DownloadStageRepairing, download.StatusDownloading)
+	j.setStage(commonv1alpha1.DownloadStageRepairing, download.StatusDownloading)
 	log := logging.FromContext(ctx)
 	log.InfoContext(ctx, "usenet: par2 verifying and repairing", "download", j.id,
 		"failedArticles", j.failedArticles(), "setBytes", j.nzb.TotalBytes)
@@ -1170,7 +1170,7 @@ func (j *job) repair(ctx context.Context) error {
 // publish moves the finished content into the data directory with one atomic
 // rename, so the importer never sees a half-written release.
 func (j *job) publish(ctx context.Context, content string) error {
-	j.setStage(downloadv1alpha1.DownloadStagePublishing, download.StatusDownloading)
+	j.setStage(commonv1alpha1.DownloadStagePublishing, download.StatusDownloading)
 
 	name := j.name
 	if name == "" {
@@ -1201,7 +1201,7 @@ func (j *job) publish(ctx context.Context, content string) error {
 	j.outputPath = dest
 	j.publishedFiles = files
 	j.status = download.StatusCompleted
-	j.stage = downloadv1alpha1.DownloadStageDone
+	j.stage = commonv1alpha1.DownloadStageDone
 	j.mu.Unlock()
 	return j.checkpoint()
 }
@@ -1306,7 +1306,7 @@ func (j *job) item() download.Item {
 	// The download rate is the transfer's: once it ends, the meter's last
 	// sample would stand for as long as post-processing runs.
 	var rate int64
-	if j.stage == downloadv1alpha1.DownloadStageTransferring {
+	if j.stage == commonv1alpha1.DownloadStageTransferring {
 		rate = j.rate.bps()
 	}
 
@@ -1335,7 +1335,7 @@ func (j *job) item() download.Item {
 		HealthPaused:    j.healthPaused && j.pausedLocked(),
 		Message:         message,
 		AddedAt:         j.addedAt,
-		Health: &downloadv1alpha1.UsenetHealth{
+		Health: &download.Health{
 			HealthPercent:         health,
 			CriticalHealthPercent: j.nzb.criticalHealthPercent(),
 			FailedArticles:        int32(failed),              //nolint:gosec // bounded by the NZB.
@@ -1478,7 +1478,7 @@ func (c *Client) Resume(_ context.Context, id string) error {
 // SetPriority changes the job's priority class. The class only gates the
 // transfer ([Client.outranked]), so the change takes effect at the next batch
 // boundary; the same class again is a no-op and writes nothing.
-func (c *Client) SetPriority(_ context.Context, id string, priority downloadv1alpha1.DownloadPriority) error {
+func (c *Client) SetPriority(_ context.Context, id string, priority commonv1alpha1.DownloadPriority) error {
 	j, err := c.lookup(id)
 	if err != nil {
 		return err

@@ -28,7 +28,6 @@ import (
 	"time"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -39,13 +38,13 @@ import (
 // themselves -- see doc.go's "Persistence" section for why those live in a
 // sibling ".torrent" file instead of here.
 type descriptor struct {
-	Name             string                            `json:"name"`
-	Category         string                            `json:"category"`
-	Magnet           string                            `json:"magnet,omitempty"`
-	ExpectedInfoHash string                            `json:"expectedInfoHash,omitempty"`
-	Priority         downloadv1alpha1.DownloadPriority `json:"priority,omitempty"`
-	Paused           bool                              `json:"paused"`
-	SeedCriteria     *commonv1alpha1.SeedCriteria      `json:"seedCriteria,omitempty"`
+	Name             string                          `json:"name"`
+	Category         string                          `json:"category"`
+	Magnet           string                          `json:"magnet,omitempty"`
+	ExpectedInfoHash string                          `json:"expectedInfoHash,omitempty"`
+	Priority         commonv1alpha1.DownloadPriority `json:"priority,omitempty"`
+	Paused           bool                            `json:"paused"`
+	SeedCriteria     *commonv1alpha1.SeedCriteria    `json:"seedCriteria,omitempty"`
 
 	// Selection is the file selection resolved from the catalog at the
 	// first Add ([resolveSelection]); nil wants every file. It is persisted

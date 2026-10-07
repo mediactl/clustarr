@@ -25,7 +25,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -151,12 +150,9 @@ var resolvers = map[string]resolver{
 	schema.MediaFileEvent{}.Schema():    resolveMediaFileEvent,
 	schema.ImportListSynced{}.Schema():  resolveImportListSynced,
 	schema.SearchTask{}.Schema():        resolveSearchTask,
-	schema.SearchTaskV1Schema:           resolveSearchTask,
 	schema.GrabTask{}.Schema():          resolveGrabTask,
 	schema.MetadataTask{}.Schema():      resolveMetadataTask,
-	schema.MetadataTaskV1Schema:         resolveMetadataTask,
 	schema.WantedScan{}.Schema():        resolveWantedScan,
-	schema.ImportTask{}.Schema():        resolveImportTask,
 	schema.Release{}.Schema():           resolveRelease,
 	schema.IndexerEvent{}.Schema():      resolveIndexerEvent,
 	schema.RssTask{}.Schema():           resolveRssTask,
@@ -170,7 +166,6 @@ var resolvers = map[string]resolver{
 	schema.RecycleSweepTask{}.Schema():  resolveRecycleSweepTask,
 	schema.RecycleFilesTask{}.Schema():  resolveRecycleFilesTask,
 	schema.ArtworkFetchTask{}.Schema():  resolveArtworkFetchTask,
-	schema.ArtworkFetchTaskV1Schema:     resolveArtworkFetchTask,
 	schema.RenderOverlayTask{}.Schema(): resolveRenderOverlayTask,
 	schema.SegmentsPlanTask{}.Schema():  resolveSegmentsPlanTask,
 	schema.AnalyzeTask{}.Schema():       resolveAnalyzeTask,
@@ -352,46 +347,25 @@ func resolveWantedScan(key string, data []byte) Target {
 	return Target{Namespace: p.Namespace}
 }
 
-func resolveImportTask(key string, data []byte) Target {
-	var p schema.ImportTask
-	if err := schema.Decode(p.Schema(), data, &p); err != nil {
-		return Target{Namespace: namespaceOf(key)}
-	}
-	return refTarget(p.DownloadRef, downloadv1alpha1.GroupVersion.String(), "Download")
-}
-
 // EntryOwners finds the owner holding a grab entry by its id or uid (the
 // manager's remediation.item.download index, dlindex.OwnerOf), in namespace
 // (every namespace when empty).
 type EntryOwners func(ctx context.Context, namespace, idOrUID string) (schema.ItemRef, bool)
 
 // ResolveWith is Resolve with the entry index (ADR-0019 §6.11, §8.5): a
-// Download-keyed v1 ImportTask, and a DownloadEvent naming no media, resolve
-// to the owner holding the entry the Download became, so a dead letter of
-// either lands on the owner where every resolver now points. owners nil is
-// Resolve.
+// DownloadEvent naming no media resolves to the owner holding the grab entry
+// it names (its downloadRef is the entry's id and uid), so its dead letter
+// lands on the owner where every resolver points. owners nil is Resolve.
 func ResolveWith(ctx context.Context, env *events.Envelope, owners EntryOwners) Target {
 	t := Resolve(env)
-	if owners == nil || env == nil || (t.Kind != "Download") {
+	if owners == nil || env == nil || t.KindKnown() || env.Schema != (schema.DownloadEvent{}).Schema() {
 		return t
 	}
-	var ref schema.Ref
-	switch env.Schema {
-	case schema.ImportTask{}.Schema():
-		var p schema.ImportTask
-		if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
-			return t
-		}
-		ref = p.DownloadRef
-	case schema.DownloadEvent{}.Schema():
-		var p schema.DownloadEvent
-		if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
-			return t
-		}
-		ref = p.DownloadRef
-	default:
+	var p schema.DownloadEvent
+	if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
 		return t
 	}
+	ref := p.DownloadRef
 	for _, id := range []string{ref.UID, ref.Name} {
 		if id == "" {
 			continue
@@ -438,22 +412,22 @@ func resolveRssTask(key string, data []byte) Target {
 }
 
 // resolveDownloadEvent resolves a grab's event to its owner (ADR-0019
-// §6.11): Media names the owner item (or, from before A3, the Download's
-// target); an event naming no media keeps the Download it names, which
-// ResolveWith maps to the owner holding that entry.
+// §6.11): Media names the owner item. An event naming no media resolves to
+// its namespace alone, which ResolveWith maps to the owner holding the
+// entry its downloadRef names.
 func resolveDownloadEvent(key string, data []byte) Target {
 	var p schema.DownloadEvent
 	if err := schema.Decode(p.Schema(), data, &p); err != nil {
 		return Target{Namespace: namespaceOf(key)}
 	}
+	ns := p.DownloadRef.Namespace
+	if ns == "" {
+		ns = namespaceOf(key)
+	}
 	if p.Media.Name != "" && p.Media.Kind != "" {
-		ns := p.DownloadRef.Namespace
-		if ns == "" {
-			ns = namespaceOf(key)
-		}
 		return mediaTarget(ns, p.Media.Name, p.Media.Kind)
 	}
-	return refTarget(p.DownloadRef, downloadv1alpha1.GroupVersion.String(), "Download")
+	return Target{Namespace: ns}
 }
 
 func resolveJobEvent(key string, data []byte) Target {

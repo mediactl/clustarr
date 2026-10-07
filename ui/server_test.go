@@ -170,7 +170,7 @@ func TestDownloadsEventsStreamsServerSentEvents(t *testing.T) {
 	d := downloadv1.Download{
 		ObjectMeta: metav1.ObjectMeta{Name: "arrival"},
 		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading, ProgressPercent: 42},
+		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 42},
 	}
 	srv := ui.NewServer(t.Context(), ui.Options{
 		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) {
@@ -216,12 +216,12 @@ func TestDownloadsEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 	pending := downloadv1.Download{
 		ObjectMeta: metav1.ObjectMeta{Name: "arrival"},
 		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhasePending},
+		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhasePending},
 	}
 	downloading := downloadv1.Download{
 		ObjectMeta: metav1.ObjectMeta{Name: "arrival"},
 		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading, ProgressPercent: 10},
+		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 10},
 	}
 
 	ch := make(chan []downloadv1.Download, 2)
@@ -333,7 +333,7 @@ func TestDownloadsEventPayloadIsExactlyViewsDownloadRows(t *testing.T) {
 				Protocol: commonv1.ProtocolTorrent,
 				Release:  commonv1.ReleaseInfo{Title: "Arrival 2016"},
 			},
-			Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading, ProgressPercent: 55},
+			Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 55},
 		},
 	}
 

@@ -75,9 +75,9 @@ func Encode(p Payload) (schema string, data []byte, err error) {
 }
 
 // Legacy is implemented by a payload whose earlier versions decode into it:
-// their fields are a subset of its own (SearchTask, MetadataTask and
-// ArtworkFetchTask v1, ADR-0019 A1.4), so DLQ replays and history keep
-// reading envelopes published before the bump.
+// their fields are a subset of its own, so DLQ replays and history keep
+// reading envelopes published before a bump. No payload has one since the
+// cold cutover (ADR-0019 A9.1).
 type Legacy interface {
 	// LegacySchemas lists the earlier Clustarr-Schema values Decode accepts.
 	LegacySchemas() []string

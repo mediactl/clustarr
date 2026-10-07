@@ -25,8 +25,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 )
 
 // G2-4 found status.import written uncapped: 200 items and 1024 characters
@@ -53,21 +51,6 @@ func TestCapRejectionsFitsTheCRD(t *testing.T) {
 	got = capRejections([]string{long})
 	assert.Equal(t, maxRejectionChars, utf8.RuneCountInString(got[0]), "the apiserver counts characters, not bytes")
 	assert.True(t, utf8.ValidString(got[0]), "a rune is never split")
-}
-
-func TestCapImportedKeepsTheFirstAndCountsTheRest(t *testing.T) {
-	imported := make([]*downloadac.ImportedFileApplyConfiguration, maxImportList+3)
-	for i := range imported {
-		imported[i] = downloadac.ImportedFile().WithMediaFileRef("mf-" + strconv.Itoa(i))
-	}
-	listed, unlisted := capImported(imported)
-	require.Len(t, listed, maxImportList)
-	assert.Equal(t, 3, unlisted)
-	assert.Equal(t, "mf-0", *listed[0].MediaFileRef)
-
-	listed, unlisted = capImported(imported[:2])
-	assert.Len(t, listed, 2)
-	assert.Zero(t, unlisted)
 }
 
 func TestTruncateChars(t *testing.T) {

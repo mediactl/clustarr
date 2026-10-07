@@ -34,7 +34,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -64,7 +63,7 @@ func TestStall_AMagnetNobodyServesFailsAfterTheTimeout(t *testing.T) {
 		require.NoError(t, err)
 		return item.Status == download.StatusFailed
 	}, 5*time.Second, 20*time.Millisecond)
-	assert.Equal(t, downloadv1alpha1.DownloadFailureStalled, item.FailureReason)
+	assert.Equal(t, commonv1alpha1.DownloadFailureStalled, item.FailureReason)
 	assert.Contains(t, item.Message, "stalled")
 
 	// Resume is not a way out of a failure.
@@ -106,7 +105,7 @@ func TestStall_APausedTransferNeverStallsAndResumeRestartsTheClock(t *testing.T)
 		require.NoError(t, err)
 		return item.Status == download.StatusFailed
 	}, 5*time.Second, 20*time.Millisecond)
-	assert.Equal(t, downloadv1alpha1.DownloadFailureStalled, item.FailureReason)
+	assert.Equal(t, commonv1alpha1.DownloadFailureStalled, item.FailureReason)
 }
 
 // Zero disables stall detection: the Config every caller had before Y2.
@@ -133,7 +132,7 @@ func TestStall_ProgressRestartsTheWindow(t *testing.T) {
 	s.checkStallLocked(stop, time.Hour, t0.Add(111*time.Minute))
 	require.True(t, s.failed)
 	assert.True(t, stopped, "a stalled transfer must stop requesting data")
-	assert.Equal(t, downloadv1alpha1.DownloadFailureStalled, s.failureReason)
+	assert.Equal(t, commonv1alpha1.DownloadFailureStalled, s.failureReason)
 }
 
 // Seed criteria: any one limit meets the goal -- ratio, seed time, or
@@ -172,10 +171,10 @@ func TestChunkWriteFailureClassifiesDiskFull(t *testing.T) {
 	wrap := func(errno syscall.Errno) error {
 		return fmt.Errorf("storage: %w", &fs.PathError{Op: "write", Path: "/data/x", Err: errno})
 	}
-	assert.Equal(t, downloadv1alpha1.DownloadFailureDiskFull, chunkWriteFailure(wrap(syscall.ENOSPC)))
-	assert.Equal(t, downloadv1alpha1.DownloadFailureDiskFull, chunkWriteFailure(wrap(syscall.EDQUOT)))
-	assert.Equal(t, downloadv1alpha1.DownloadFailureWriteError, chunkWriteFailure(wrap(syscall.EIO)))
-	assert.Equal(t, downloadv1alpha1.DownloadFailureWriteError, chunkWriteFailure(wrap(syscall.EROFS)))
+	assert.Equal(t, commonv1alpha1.DownloadFailureDiskFull, chunkWriteFailure(wrap(syscall.ENOSPC)))
+	assert.Equal(t, commonv1alpha1.DownloadFailureDiskFull, chunkWriteFailure(wrap(syscall.EDQUOT)))
+	assert.Equal(t, commonv1alpha1.DownloadFailureWriteError, chunkWriteFailure(wrap(syscall.EIO)))
+	assert.Equal(t, commonv1alpha1.DownloadFailureWriteError, chunkWriteFailure(wrap(syscall.EROFS)))
 }
 
 // A completed torrent reports its seed goal on its own -- before any import
@@ -208,7 +207,7 @@ func TestSeedGoal_ACompletedTorrentReportsTheGoalAndStopsSeeding(t *testing.T) {
 	}, 15*time.Second, 20*time.Millisecond, "the seed goal was never reported; last %+v", item)
 
 	assert.Equal(t, download.StatusCompleted, item.Status)
-	assert.Equal(t, downloadv1alpha1.DownloadStageDone, item.Stage, "a torrent past its seed goal must stop seeding")
+	assert.Equal(t, commonv1alpha1.DownloadStageDone, item.Stage, "a torrent past its seed goal must stop seeding")
 	assert.GreaterOrEqual(t, item.SeedTime, 300*time.Millisecond)
 	assert.False(t, item.CanBeRemoved, "not imported yet")
 
@@ -221,5 +220,5 @@ func TestSeedGoal_ACompletedTorrentReportsTheGoalAndStopsSeeding(t *testing.T) {
 	require.NoError(t, c.Resume(ctx, id))
 	item, err = c.Get(ctx, id)
 	require.NoError(t, err)
-	assert.Equal(t, downloadv1alpha1.DownloadStageDone, item.Stage)
+	assert.Equal(t, commonv1alpha1.DownloadStageDone, item.Stage)
 }

@@ -105,9 +105,8 @@ func importText(s string, maxBytes int) string {
 	return k8s.ClampText(k8s.SanitizeText(s), maxBytes)
 }
 
-// relPath renders srcPath relative to root, matching
-// ImportedFile.SourcePath's documented contract ("the path the file had
-// inside the download"). It falls back to the absolute path when the two
+// relPath renders srcPath relative to root: the path the file had inside
+// the download. It falls back to the absolute path when the two
 // are unrelated, mirroring app/import/worker/rescan.relPath.
 func relPath(root, path string) string {
 	if root == "" {

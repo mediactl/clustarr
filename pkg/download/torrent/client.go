@@ -47,7 +47,6 @@ import (
 	"github.com/anacrolix/torrent/storage"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -158,7 +157,7 @@ type session struct {
 	// priority is the class [applyPriorityBudget] last applied, normalised
 	// ("" is normal), so [Client.SetPriority] can tell a change from the
 	// level-driven repeat of the same value.
-	priority downloadv1alpha1.DownloadPriority
+	priority commonv1alpha1.DownloadPriority
 
 	// activeSince is when the transfer last became able to make progress:
 	// its Add in this process -- including a re-attach, so an engine restart
@@ -167,7 +166,7 @@ type session struct {
 	activeSince time.Time
 
 	failed        bool
-	failureReason downloadv1alpha1.DownloadFailureReason
+	failureReason commonv1alpha1.DownloadFailureReason
 	message       string
 
 	hasSeedCriteria bool
@@ -303,7 +302,7 @@ func (c *Client) Info(ctx context.Context) (download.Info, error) {
 		info.DownloadRateBps += item.DownRate
 		info.UploadRateBps += item.UpRate
 		switch {
-		case item.Stage == downloadv1alpha1.DownloadStageSeeding:
+		case item.Stage == commonv1alpha1.DownloadStageSeeding:
 			info.Seeding++
 		case item.Status == download.StatusDownloading || item.Status == download.StatusWarning:
 			info.Active++
@@ -432,7 +431,7 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	} else {
 		go selectOnInfo(t, sess, req.WantFile)
 	}
-	if p := normalPriority(req.Priority); p != downloadv1alpha1.DownloadPriorityNormal {
+	if p := normalPriority(req.Priority); p != commonv1alpha1.DownloadPriorityNormal {
 		c.applyPriorityBudget(t, p)
 	}
 	t.SetOnWriteChunkError(sess.onWriteChunkError(t))
@@ -520,7 +519,7 @@ func (c *Client) Resume(ctx context.Context, id string) error {
 // torrent's share of the peer-connection budget to the new class's, the same
 // lever [Client.Add] uses (see [applyPriorityBudget]). The same class again
 // is a no-op, so the engine may call it on every poll.
-func (c *Client) SetPriority(ctx context.Context, id string, priority downloadv1alpha1.DownloadPriority) error {
+func (c *Client) SetPriority(ctx context.Context, id string, priority commonv1alpha1.DownloadPriority) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -692,7 +691,7 @@ func resolveSpec(req download.AddRequest) (*anatorrent.TorrentSpec, error) {
 // ClientConfig.EstablishedConnsPerTorrent default.
 //
 // Checked against the spec (gap-fix ruling R-12): design spec §4.4 gives
-// DownloadSpec.Priority only its enum, {high,normal,low} defaulting to
+// a grab's priority only its enum, {high,normal,low} defaulting to
 // normal, and says nothing of what a client does with it. The API type's
 // doc is the only statement of intent -- "high jumps the queue", "low runs
 // only when the engine is otherwise idle" -- and it presumes a queue this
@@ -708,11 +707,11 @@ const (
 	lowPriorityConns  = 10
 )
 
-func (c *Client) applyPriorityBudget(t *anatorrent.Torrent, p downloadv1alpha1.DownloadPriority) {
+func (c *Client) applyPriorityBudget(t *anatorrent.Torrent, p commonv1alpha1.DownloadPriority) {
 	switch normalPriority(p) {
-	case downloadv1alpha1.DownloadPriorityHigh:
+	case commonv1alpha1.DownloadPriorityHigh:
 		t.SetMaxEstablishedConns(highPriorityConns)
-	case downloadv1alpha1.DownloadPriorityLow:
+	case commonv1alpha1.DownloadPriorityLow:
 		t.SetMaxEstablishedConns(lowPriorityConns)
 	default:
 		t.SetMaxEstablishedConns(c.defaultConns)
@@ -720,9 +719,9 @@ func (c *Client) applyPriorityBudget(t *anatorrent.Torrent, p downloadv1alpha1.D
 }
 
 // normalPriority is p with "" read as normal, spec.priority's CRD default.
-func normalPriority(p downloadv1alpha1.DownloadPriority) downloadv1alpha1.DownloadPriority {
+func normalPriority(p commonv1alpha1.DownloadPriority) commonv1alpha1.DownloadPriority {
 	if p == "" {
-		return downloadv1alpha1.DownloadPriorityNormal
+		return commonv1alpha1.DownloadPriorityNormal
 	}
 	return p
 }
@@ -902,9 +901,9 @@ func (c *Client) publish(id string) {
 
 	t.DisallowDataUpload()
 	fail := func(err error) {
-		reason := downloadv1alpha1.DownloadFailureWriteError
+		reason := commonv1alpha1.DownloadFailureWriteError
 		if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) {
-			reason = downloadv1alpha1.DownloadFailureDiskFull
+			reason = commonv1alpha1.DownloadFailureDiskFull
 		}
 		sess.mu.Lock()
 		sess.failed = true
@@ -987,7 +986,7 @@ func (c *Client) publish(id string) {
 	case goalMet:
 		nt.DisallowDataUpload()
 	}
-	if prio != downloadv1alpha1.DownloadPriorityNormal {
+	if prio != commonv1alpha1.DownloadPriorityNormal {
 		c.applyPriorityBudget(nt, prio)
 	}
 	nt.SetOnWriteChunkError(sess.onWriteChunkError(nt))

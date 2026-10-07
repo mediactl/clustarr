@@ -61,9 +61,6 @@ type AudiobookStatusApplyConfiguration struct {
 	// DownloadNonces records the one-shot download intents last handled
 	// (ADR-0019 §6.10).
 	DownloadNonces *DownloadNoncesApplyConfiguration `json:"downloadNonces,omitempty"`
-	// LegacyDownloads is release N's record of the Downloads this item
-	// adopted (ADR-0019 §10.2); release N+1 removes it.
-	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
 	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
 	// under catalog-grab.
 	SearchDispatch *DispatchApplyConfiguration `json:"searchDispatch,omitempty"`
@@ -197,14 +194,6 @@ func (b *AudiobookStatusApplyConfiguration) WithDownloadPhase(value commonv1alph
 // If called multiple times, the DownloadNonces field is set to the value of the last call.
 func (b *AudiobookStatusApplyConfiguration) WithDownloadNonces(value *DownloadNoncesApplyConfiguration) *AudiobookStatusApplyConfiguration {
 	b.DownloadNonces = value
-	return b
-}
-
-// WithLegacyDownloads sets the LegacyDownloads field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the LegacyDownloads field is set to the value of the last call.
-func (b *AudiobookStatusApplyConfiguration) WithLegacyDownloads(value *LegacyDownloadsApplyConfiguration) *AudiobookStatusApplyConfiguration {
-	b.LegacyDownloads = value
 	return b
 }
 

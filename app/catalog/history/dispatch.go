@@ -47,7 +47,6 @@ const (
 	DispatchSubList         = "list"
 	DispatchSubRecycle      = "recycle"
 	DispatchSubRSS          = "rss"
-	DispatchSubImportV1     = "import"
 )
 
 // DispatchSubEntry is a grab entry's engine-command dispatch: the entry's
@@ -99,7 +98,7 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 		return Target{}, 0, "", false
 	}
 	switch env.Schema {
-	case schema.SearchTask{}.Schema(), schema.SearchTaskV1Schema:
+	case schema.SearchTask{}.Schema():
 		var p schema.SearchTask
 		if err := schema.Decode(env.Schema, env.Data, &p); err != nil {
 			return Target{}, 0, "", false
@@ -117,10 +116,10 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 			t = Resolve(env)
 		}
 		return t, p.Seq, DispatchSubSearch, t.KindKnown()
-	case schema.MetadataTask{}.Schema(), schema.MetadataTaskV1Schema:
+	case schema.MetadataTask{}.Schema():
 		t = Resolve(env)
 		return t, 0, DispatchSubMetadata, t.KindKnown()
-	case schema.ArtworkFetchTask{}.Schema(), schema.ArtworkFetchTaskV1Schema:
+	case schema.ArtworkFetchTask{}.Schema():
 		t = Resolve(env)
 		return t, 0, DispatchSubArtworkFetch, t.KindKnown()
 	case schema.RenderOverlayTask{}.Schema():
@@ -162,9 +161,6 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 	case schema.RssTask{}.Schema():
 		t = Resolve(env)
 		return t, 0, DispatchSubRSS, t.KindKnown()
-	case schema.ImportTask{}.Schema():
-		t = Resolve(env)
-		return t, 0, DispatchSubImportV1, t.KindKnown()
 	case schema.EngineCommand{}.Schema():
 		var p schema.EngineCommand
 		if err := schema.Decode(env.Schema, env.Data, &p); err != nil || p.Owner.Name == "" || p.Entry.UID == "" {

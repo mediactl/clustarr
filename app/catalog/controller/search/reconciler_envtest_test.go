@@ -444,7 +444,7 @@ func TestReconcileHandlesSpecGrab(t *testing.T) {
 	require.Equal(t, commonv1.ProtocolTorrent, dl.Spec.Protocol)
 	require.NotNil(t, dl.Spec.Source.IndexerDownload)
 	require.Equal(t, "g1", dl.Spec.Source.IndexerDownload.GUID)
-	require.Equal(t, downloadv1alpha1.GrabSourceInteractive, dl.Spec.GrabbedBy)
+	require.Equal(t, commonv1.GrabSourceInteractive, dl.Spec.GrabbedBy)
 	require.True(t, dl.Spec.Manual,
 		"a hand-picked grab must skip the importer's monitored and availability gates, or it downloads in full and is thrown away")
 	require.Equal(t, "hd-bluray-web", dl.Spec.QualityProfileRef)
