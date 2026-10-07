@@ -42,9 +42,13 @@ import (
 // and Author reconcilers for theirs) apply status.metadata under
 // catalog-metadata in the manager (ADR-0019 §7.1, A5.1).
 //
+// Provider Secrets are read by name (registry.go), uncached in an agent
+// (k8s.AgentManagerOptions), so get is the only verb: an agent role's
+// secrets grant is get alone (ADR-0019 §9.1, A7.2).
+//
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;albums;authors;books;audiobooks;comics,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 
 // Options configures Setup. Client, Reader and Bus are required;
 // everything else defaults.

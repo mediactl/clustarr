@@ -87,6 +87,7 @@ CRD_DIR := config/crd/bases
 # package with markers is in no role, and the chart copies of every role are
 # held byte-identical to these files by TestChartRBACMatchesTheGeneratedRoles.
 # app/autoscale rides squasharr's role until the installers wave recuts RBAC_ROLES into the manager role (spec 2026-10-06 §4.6, §10.2.4).
+# Since ADR-0019 (A7.2) no package an agent links carries a write marker, so grabarr-engine is read-only and every write below is the manager's; W6.9 generates one read-only role per agent identity.
 RBAC_ROLES := catalogarr importarr indexarr grabarr grabarr-engine squasharr captionarr
 RBAC_PATHS_catalogarr := ./app/catalog/... ./app/remediation/... ./app/dispatch/... ./app/intake/...
 RBAC_PATHS_importarr := ./app/import/...
