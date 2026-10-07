@@ -166,6 +166,28 @@ func ListCandidates(ctx context.Context, c client.Reader, want func(commonv1.Med
 	return out, nil
 }
 
+// CandidateOf is one item as a sweep sees it (the per-kind reading
+// ListCandidates applies), false for a kind no sweep searches: the search
+// planner reads its due, IndexOnly and donor inputs through it (ADR-0019
+// §7.3), so the planner and the sweep agree on what is wanted.
+func CandidateOf(o client.Object, now time.Time) (Candidate, bool) {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Movie:
+		return movieCandidate(t), true
+	case *catalogv1alpha1.Episode:
+		return episodeCandidate(t), true
+	case *catalogv1alpha1.Album:
+		return albumCandidate(t), true
+	case *catalogv1alpha1.Book:
+		return bookCandidate(t), true
+	case *catalogv1alpha1.Audiobook:
+		return audiobookCandidate(t), true
+	case *catalogv1alpha1.Issue:
+		return issueCandidate(t, now), true
+	}
+	return Candidate{}, false
+}
+
 func candidate(obj metav1.Object, kind commonv1.MediaKind, reason schema.SearchReason, a commonv1.Attempts, last *metav1.Time) Candidate {
 	return Candidate{
 		Namespace: obj.GetNamespace(),

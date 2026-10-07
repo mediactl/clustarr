@@ -69,6 +69,12 @@ type Options struct {
 	// from it and plan their fetches against it. Nil keeps their stored
 	// status.artwork and plans none.
 	Artwork *objindex.Index
+	// WantedWakes receives wantedcron's sweep (the remediation loop
+	// enqueues each item at low priority), and DonorBudget is the search
+	// planner's budget the sweep refills (ADR-0019 §7.3); nil wakes and
+	// refills nothing.
+	WantedWakes chan<- schema.ItemRef
+	DonorBudget wantedcron.DonorBudget
 }
 
 // Register adds every catalog reconciler and manager-side runnable.
@@ -262,12 +268,14 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalog: metadata refresh: %w", err)
 	}
 
-	// §6.1's twelve-hourly missing/cutoff-unmet sweep. It is leader-elected
-	// (see Runnable.NeedLeaderElection), so a sweep fires once per cluster
-	// rather than once per replica.
+	// §6.1's twelve-hourly missing/cutoff-unmet sweep, now only a timer
+	// that wakes the remediation loop's search planner (ADR-0019 §7.3). It
+	// is leader-elected (see Runnable.NeedLeaderElection), so a sweep fires
+	// once per cluster rather than once per replica.
 	if err := (&wantedcron.Runnable{
 		Client:     c,
-		Bus:        bus,
+		Wakes:      o.WantedWakes,
+		Budget:     o.DonorBudget,
 		Schedule:   wantedcron.TwelveHourly(),
 		Namespaces: o.WatchNamespaces,
 	}).SetupWithManager(mgr); err != nil {

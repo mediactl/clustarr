@@ -47,6 +47,7 @@ import (
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/intake"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -76,6 +77,9 @@ type ItemReconciler struct {
 	Inbox *intake.Inbox
 	// DeliveryWakes are the advisory intake's wakes (a resolved nak or term).
 	DeliveryWakes <-chan cataloghistory.Target
+	// WantedWakes are wantedcron's sweep: every candidate item, enqueued at
+	// handler.LowPriority so the search planner looks at it (§7.3).
+	WantedWakes <-chan schema.ItemRef
 	// Client writes the item's finalizer, the other managers' sets and the
 	// effects' objects.
 	Client client.Client

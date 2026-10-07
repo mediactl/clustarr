@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/records"
 )
 
 // LeaderElectionID is the one lease every reconciler runs under (spec §3.11):
@@ -95,6 +96,10 @@ type Options struct {
 	RemediationConcurrency         int
 	RemediationBulkWritesPerSecond int
 	RemediationIOWorkers           int
+	// SearchLivePerMinute paces live automatic searches per namespace
+	// (ADR-0019 §5.4, the Pacer's search class); index-only ones are not
+	// paced.
+	SearchLivePerMinute int
 
 	Autoscale                  bool
 	ExternalMetricsBindAddress string
@@ -123,6 +128,7 @@ func DefaultOptions() Options {
 	o.RemediationConcurrency = remediation.DefaultConcurrency
 	o.RemediationBulkWritesPerSecond = remediation.DefaultBulkWritesPerSecond
 	o.RemediationIOWorkers = remediation.DefaultIOWorkers
+	o.SearchLivePerMinute = records.DefaultRates()[records.PaceSearch]
 	o.Autoscale = true
 	o.ExternalMetricsBindAddress, o.ExternalMetricsService, o.ExternalMetricsSecret = ":6443", "external-metrics", "external-metrics-tls"
 	return o
@@ -154,6 +160,9 @@ func (o Options) Validate() error {
 	}
 	if o.RemediationIOWorkers < 1 || o.RemediationIOWorkers > 64 {
 		errs = append(errs, fmt.Errorf("--remediation-io-workers %d: must be 1 to 64", o.RemediationIOWorkers))
+	}
+	if o.SearchLivePerMinute < 1 {
+		errs = append(errs, fmt.Errorf("--search-live-per-minute %d: must be 1 or more", o.SearchLivePerMinute))
 	}
 	if o.RemediationBulkWritesPerSecond < 0 {
 		errs = append(errs, fmt.Errorf("--remediation-bulk-writes-per-second %d: must be 0 (off) or more", o.RemediationBulkWritesPerSecond))

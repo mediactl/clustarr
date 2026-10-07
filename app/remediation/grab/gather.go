@@ -211,12 +211,12 @@ func (s *Stage) candidates(ctx context.Context, item client.Object, v *grabplan.
 				return err
 			}
 			target := v.Covered[i].Ref
-			if err := addRecord(it, searchDispatchOf(it), &target); err != nil {
+			if err := addRecord(it, itemread.SearchDispatch(it), &target); err != nil {
 				return err
 			}
 		}
 	default:
-		if err := addRecord(item, searchDispatchOf(item), nil); err != nil {
+		if err := addRecord(item, itemread.SearchDispatch(item), nil); err != nil {
 			return err
 		}
 	}
@@ -335,25 +335,6 @@ func pendingOf(o client.Object) []catalogv1alpha1.PendingGrab {
 		return append([]catalogv1alpha1.PendingGrab(nil), t.Status.PendingGrabs...)
 	case *catalogv1alpha1.Comic:
 		return append([]catalogv1alpha1.PendingGrab(nil), t.Status.PendingGrabs...)
-	}
-	return nil
-}
-
-// searchDispatchOf is a searchable item's status.searchDispatch.
-func searchDispatchOf(o client.Object) *catalogv1alpha1.Dispatch {
-	switch t := o.(type) {
-	case *catalogv1alpha1.Movie:
-		return t.Status.SearchDispatch
-	case *catalogv1alpha1.Episode:
-		return t.Status.SearchDispatch
-	case *catalogv1alpha1.Album:
-		return t.Status.SearchDispatch
-	case *catalogv1alpha1.Book:
-		return t.Status.SearchDispatch
-	case *catalogv1alpha1.Audiobook:
-		return t.Status.SearchDispatch
-	case *catalogv1alpha1.Issue:
-		return t.Status.SearchDispatch
 	}
 	return nil
 }

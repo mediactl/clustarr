@@ -133,6 +133,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.IntVar(&d.RemediationIOWorkers, "remediation-io-workers", d.RemediationIOWorkers,
 		"Goroutines the remediation loop's /data calls (stat, readdir) run on (1 to 64), each with a deadline "+
 			"and a mount-health breaker: a hung mount pins at most this many, never the loop's workers.")
+	fs.IntVar(&d.SearchLivePerMinute, "search-live-per-minute", d.SearchLivePerMinute,
+		"Live automatic searches the search planner dispatches per minute per namespace (1 or more): a pool of "+
+			"searches is never fired at an indexer in one burst. Index-only searches, which ask no indexer, are not paced.")
 
 	fs.BoolVar(&d.Autoscale, "autoscale", d.Autoscale,
 		"Scale the autoscaled agent domains with HPAs the manager renders, fed by its own External Metrics API. "+

@@ -20,17 +20,16 @@ package wantedcron
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // Schedule is when the sweep runs. It is deliberately the one-method subset of
@@ -71,8 +70,22 @@ func (n everyNHoursOnTheHour) Next(t time.Time) time.Time {
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;albums;books;audiobooks;issues,verbs=get;list;watch
 
-// Runnable is the twelve-hourly missing/cutoff-unmet sweep. It holds no state
-// between ticks: every sweep is a fresh List.
+// DonorBudget is the search planner's per-namespace budget of first-time
+// live donor searches (searchplan.DonorBudget), which each sweep refills.
+type DonorBudget interface {
+	Refill(namespace string, n int)
+}
+
+// DonorSearchesPerSweep is the budget a sweep refills per namespace
+// (searchplan.DonorSearchesPerSweep).
+const DonorSearchesPerSweep = 20
+
+// Runnable is the twelve-hourly missing/cutoff-unmet sweep. Since ADR-0019
+// (§7.3, A4.2) it keeps only its timer: it decides nothing and publishes
+// nothing, it wakes every due item's key in the remediation loop at low
+// priority, where the item's search planner decides due, IndexOnly, the
+// donor cap and pacing, and refills each namespace's donor budget. It holds
+// no state between ticks: every sweep is a fresh List.
 type Runnable struct {
 	// Client is the manager's client. The sweep runs a List per tick rather
 	// than a watch: it wants a point-in-time census twice a day, not a live
@@ -80,8 +93,13 @@ type Runnable struct {
 	// trip anyway.
 	Client client.Client
 
-	// Bus publishes the WantedScan messages.
-	Bus events.Publisher
+	// Wakes receives every swept item's ref; the loop enqueues each at
+	// handler.LowPriority. A send waits for room, so a sweep never drops an
+	// item; nil wakes nothing.
+	Wakes chan<- schema.ItemRef
+
+	// Budget is refilled with DonorSearchesPerSweep per swept namespace.
+	Budget DonorBudget
 
 	// Schedule decides when to sweep. Nil means TwelveHourly.
 	Schedule Schedule
@@ -94,20 +112,16 @@ type Runnable struct {
 	Namespaces []string
 
 	// OnTick is a test-only hook called after each completed sweep.
-	OnTick func(published []string, err error)
+	OnTick func(woken []string, err error)
 }
 
-// SetupWithManager registers the sweep. This is the ONLY call
-// app/catalog/run.go needs to make for wantedcron; see the package doc for the
-// exact shape, including the fact that setupControllers does not yet receive
-// an events.Bus.
+// SetupWithManager registers the sweep.
 func (r *Runnable) SetupWithManager(mgr ctrl.Manager) error {
 	return mgr.Add(r)
 }
 
-// NeedLeaderElection makes the sweep singleton across replicas: §3 runs the
-// controllers under a leader lease, and this is a controller-side job even
-// though it reconciles nothing.
+// NeedLeaderElection makes the sweep singleton across replicas: the loop it
+// wakes is the leader's.
 func (r *Runnable) NeedLeaderElection() bool { return true }
 
 func (r *Runnable) now() time.Time {
@@ -157,25 +171,18 @@ func (r *Runnable) tick(ctx context.Context, at time.Time) {
 			log.Error("wantedcron: sweep panicked", "panic", rec)
 		}
 	}()
-	published, err := r.runOnce(ctx, at)
+	woken, err := r.runOnce(ctx, at)
 	if err != nil {
 		log.Error("wantedcron: sweep failed", "error", err)
 	}
 	if r.OnTick != nil {
-		r.OnTick(published, err)
+		r.OnTick(woken, err)
 	}
 }
 
-// runOnce is one sweep: list the catalog, decide which namespaces still hold
-// something worth searching for, and publish one low-tier WantedScan each.
-//
-// The Msg-Id is "wantedscan:<namespace>:<epoch>", so a re-fire inside the
-// stream's deduplication window -- a leader flapping between replicas, say --
-// does not enqueue a second sweep of the same namespace.
-//
-// A publish failure for one namespace does not abort the others: a full work
-// queue in one namespace must not silence the whole cluster's sweep. The
-// first error is returned once every namespace has been attempted.
+// runOnce is one sweep: list the catalog, refill each namespace's donor
+// budget, and wake every item whose search or donor search is due by its
+// backoff. It returns the namespaces it woke items in.
 func (r *Runnable) runOnce(ctx context.Context, at time.Time) ([]string, error) {
 	ctx, span := tracing.Start(ctx, "wantedcron.runOnce")
 	defer span.End()
@@ -190,53 +197,39 @@ func (r *Runnable) runOnce(ctx context.Context, at time.Time) ([]string, error) 
 	}
 
 	namespaces := eligibleNamespaces(cands, at)
-	epoch := at.Unix()
-	published := make([]string, 0, len(namespaces))
-	var firstErr error
-	for _, ns := range namespaces {
-		if err := r.publish(ctx, ns, epoch, at); err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
+	if r.Budget != nil {
+		for _, ns := range namespaces {
+			r.Budget.Refill(ns, DonorSearchesPerSweep)
+		}
+	}
+	woken := 0
+	for _, c := range cands {
+		if !c.Due(at, true) && !c.DonorDue(at) {
 			continue
 		}
-		published = append(published, ns)
+		if r.Wakes == nil {
+			break
+		}
+		ref := schema.ItemRef{Kind: kindName(c.Ref.Kind), Ref: schema.Ref{Namespace: c.Namespace, Name: c.Ref.Name, UID: c.UID}}
+		select {
+		case r.Wakes <- ref:
+			woken++
+		case <-ctx.Done():
+			return namespaces, ctx.Err()
+		}
 	}
 	logging.FromContext(ctx).Info("wantedcron: sweep complete",
-		"items", len(cands), "namespaces", len(published))
-	return published, firstErr
+		"items", len(cands), "woken", woken, "namespaces", len(namespaces))
+	return namespaces, nil
 }
 
-func (r *Runnable) publish(ctx context.Context, ns string, epoch int64, at time.Time) error {
-	schemaName, data, err := schema.Encode(schema.WantedScan{
-		Namespace:   ns,
-		Kinds:       SweptKinds,
-		CutoffUnmet: true,
-		Epoch:       epoch,
-	})
-	if err != nil {
-		return err
+// kindName is a media kind as its object Kind ("movie" reads "Movie").
+func kindName(k commonv1.MediaKind) string {
+	s := string(k)
+	if s == "" {
+		return s
 	}
-	msgID := fmt.Sprintf("wantedscan:%s:%d", ns, epoch)
-	env := &events.Envelope{
-		ID:     msgID,
-		Type:   "catalog.WantedScan",
-		Schema: schemaName,
-		Source: "catalog@" + version.String(),
-		// The scan is namespace-wide, so there is no owning object to name.
-		// The trailing slash keeps the key parseable by the <namespace>/<name>
-		// convention every catalog consumer splits on.
-		Key:  ns + "/",
-		Time: at,
-		Data: data,
-	}
-	// runOnce's span is the parent: every search the sweep causes should hang
-	// off the sweep that asked for it.
-	tracing.Inject(ctx, env)
-	if _, err := r.Bus.Publish(ctx, events.WorkWantedScanSubject(ns), env, events.WithMsgID(msgID)); err != nil {
-		return fmt.Errorf("wantedcron: publish WantedScan for %q: %w", ns, err)
-	}
-	return nil
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // listOptions turns the watched-namespace set into List options: one

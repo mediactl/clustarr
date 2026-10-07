@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
+	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/import/mediafilespec/specwrite"
 	"github.com/mediactl/clustarr/app/intake"
@@ -48,8 +49,10 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/probe"
 	"github.com/mediactl/clustarr/app/remediation/rename"
 	replayactuator "github.com/mediactl/clustarr/app/remediation/replay"
+	searchstage "github.com/mediactl/clustarr/app/remediation/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/probestore"
@@ -79,6 +82,13 @@ type Options struct {
 	// changes wake the items (S26). Nil runs no artwork stage and keeps
 	// every stored status.artwork.
 	Artwork *objindex.Index
+	// The search planner's inputs (ADR-0019 §7.3, §5.4): wantedcron's
+	// sweep, the first-time live donor budget it refills, and the
+	// live-search pace per namespace (--search-live-per-minute; 0 is the
+	// default rate).
+	WantedWakes         <-chan schema.ItemRef
+	DonorBudget         *searchplan.DonorBudget
+	SearchLivePerMinute int
 }
 
 // Deps is what Planners, Actuators and Stages build from.
@@ -99,10 +109,19 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := remediation.RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("remediation: indexes: %w", err)
 	}
+	rates := records.DefaultRates()
+	if o.SearchLivePerMinute > 0 {
+		rates[records.PaceSearch] = o.SearchLivePerMinute
+	}
 	env := &remediation.Env{
 		Reader: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Bus: bus,
 		IO:    remediation.NewIOExecutor(max(o.IOWorkers, 1)),
-		Pacer: records.NewPacer(records.DefaultRates(), time.Now), DataDir: o.DataDir,
+		Pacer: records.NewPacer(rates, time.Now), DataDir: o.DataDir,
+	}
+	if o.Dispatch != nil {
+		// catalog-search-normal's outstanding searches, rebuilt from the
+		// items' searchDispatch after a leader change (A4.2 step 4).
+		o.Dispatch.Register(searchstage.LedgerSource{})
 	}
 	d := Deps{Env: env, Options: o, Manager: mgr}
 	r, err := remediation.NewReconciler(mgr.GetClient(), env, mgr.GetEventRecorder(remediation.ControllerName),
@@ -119,8 +138,9 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Stages:   Stages(d),
 		Env:      env,
 		Dispatch: o.Dispatch, Book: o.Book, Inbox: o.Inbox, DeliveryWakes: o.DeliveryWakes,
-		Client:   mgr.GetClient(),
-		Recorder: recorder,
+		WantedWakes: o.WantedWakes,
+		Client:      mgr.GetClient(),
+		Recorder:    recorder,
 		// The import materialisation's MediaFile spec writer (A3.8): the
 		// manager-only specwrite, under import-worker.
 		SpecWriter: specWriter,
@@ -150,6 +170,11 @@ func Stages(d Deps) []remediation.ItemStage {
 		downloads.New(downloads.Options{
 			Reader: d.Manager.GetClient(), APIReader: d.Manager.GetAPIReader(), Bus: d.Env.Bus,
 			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Recorder: recorder,
+		}),
+		// The search planner (ADR-0019 §7.3, A4.2).
+		searchstage.New(searchstage.Options{
+			Reader: d.Manager.GetClient(), Bus: d.Env.Bus,
+			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Budget: d.Options.DonorBudget,
 		}),
 	}
 	meta := metadatastage.Options{Bus: d.Env.Bus}

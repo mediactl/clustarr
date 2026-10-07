@@ -19,41 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // scan with per-item >=6h gap and Attempts backoff 6h*2^n capped 7d)".
 //
 // It is a manager.Runnable, not a reconciler: there is no custom resource to
-// reconcile, only a clock. Every twelve hours it lists the catalog, decides
-// which namespaces still hold an item worth searching for, and publishes one
-// WantedScan per eligible namespace at the low tier.
+// reconcile, only a clock. Since ADR-0019 (§7.3, A4.2) it keeps only that
+// timer: every twelve hours it lists the catalog, wakes each item whose
+// search (or audio donor search) is due by its backoff in the remediation
+// loop at low priority, and refills each namespace's budget of first-time
+// live donor searches. The per-item decision -- due, IndexOnly, the donor
+// cap, pacing and admission -- is the item key's search planner's
+// (app/catalog/searchplan), which reads items through this package's
+// Candidate, CandidateOf, Backoff and Eligible, so the sweep and the
+// planner cannot disagree about what is wanted. Nothing is published: the
+// WantedScan message and its expansion in the catalog agent retired.
 //
-// # Why the sweep publishes per namespace, not per item
-//
-// §5's subject table pins clustarr.work.catalog.wantedscan.low.<namespace>
-// to catalog.WantedScan.v1 and describes it as "cron -> search workers", and
-// the catalog-search-normal consumer -- the SEARCH worker's, not this
-// package's -- already filters wantedscan.>. So the handoff is one message per
-// namespace, and the search worker expands it into per-item searches.
-//
-// That leaves the per-item backoff §6.1 attributes to wantedcron running in
-// the search worker. Backoff and NextEligible are therefore exported from
-// here: this package owns the policy, the search worker (Task C8) applies it
-// per item. eligibleNamespaces uses the same two functions, so the sweep never
-// wakes a namespace whose every item the search worker would immediately skip.
-//
-// # Registration (Task C12)
-//
-// Nothing registers itself. app/catalog/run.go's setupControllers makes exactly
-// this call -- and it needs an events.Bus, which setupControllers does not
-// take today, so C12 either threads bus through or registers this from Run:
-//
-//	if err := (&wantedcron.Runnable{
-//		Client:     mgr.GetClient(),
-//		Bus:        bus,
-//		Schedule:   wantedcron.TwelveHourly(),
-//		Namespaces: o.WatchNamespaces,
-//	}).SetupWithManager(mgr); err != nil {
-//		return err
-//	}
-//
-// It is leader-elected: a sweep from every replica would publish the same
-// WantedScan N times. (The stream's deduplication window would absorb the
-// duplicates, but relying on that instead of on the lease would make the
-// Msg-Id load-bearing for correctness rather than for safety.)
+// It is leader-elected: the loop it wakes is the leader's.
 package wantedcron

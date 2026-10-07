@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
 	captionmanager "github.com/mediactl/clustarr/app/caption/manager"
 	catalogmanager "github.com/mediactl/clustarr/app/catalog/manager"
+	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/app/dispatch"
 	grabmanager "github.com/mediactl/clustarr/app/grab/manager"
@@ -44,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -172,7 +174,16 @@ type planes struct {
 	// (ADR-0019 §7.1, §8.1 S26): the item keys and the Artist and Author
 	// reconcilers render status.artwork and status.overlay from it.
 	artwork *objindex.Index
+	// wanted carries wantedcron's sweep to the remediation loop, and budget
+	// is the search planner's first-time live donor budget the sweep
+	// refills (§7.3).
+	wanted chan schema.ItemRef
+	budget *searchplan.DonorBudget
 }
+
+// wantedWakeBuffer is the wantedcron sweep's channel buffer: the sweep
+// waits for room, so it only smooths the hand-off to the loop's queue.
+const wantedWakeBuffer = 1024
 
 // newPlanes builds the shared planes and adds the leader-only runnables
 // among them to mgr.
@@ -181,7 +192,10 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	if !ok {
 		return planes{}, fmt.Errorf("manager: admission needs a bus that reports consumer state; %T does not", bus)
 	}
-	p := planes{states: extmetrics.NewStateCache(admin)}
+	p := planes{
+		states: extmetrics.NewStateCache(admin),
+		wanted: make(chan schema.ItemRef, wantedWakeBuffer), budget: searchplan.NewDonorBudget(),
+	}
 	p.ledger = dispatch.New(dispatch.Options{
 		Topology: o.BusTopology(),
 		States:   p.states,
@@ -254,7 +268,10 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	}
 	steps := []step{
 		{"catalog", func() error {
-			return catalogmanager.Register(mgr, bus, catalogmanager.Options{Options: o.Options, DLQProjector: p.projector, Artwork: p.artwork})
+			return catalogmanager.Register(mgr, bus, catalogmanager.Options{
+				Options: o.Options, DLQProjector: p.projector, Artwork: p.artwork,
+				WantedWakes: p.wanted, DonorBudget: p.budget,
+			})
 		}},
 		{"import", func() error {
 			return importmanager.Register(mgr, bus, importmanager.Options{Options: o.Options, TraktBaseURL: o.TraktBaseURL})
@@ -296,6 +313,8 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				// (ADR-0019 A3.3; A2's hand-off).
 				Dispatch: p.ledger, Inbox: p.inbox, DeliveryWakes: p.tasks.Wakes(), Book: p.book,
 				Artwork: p.artwork,
+				// The search planner's (A4.2).
+				WantedWakes: p.wanted, DonorBudget: p.budget, SearchLivePerMinute: o.SearchLivePerMinute,
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge

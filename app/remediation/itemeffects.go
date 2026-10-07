@@ -72,6 +72,10 @@ type DispatchPublish struct {
 	Durable string
 	Ledger  dispatch.Key
 	Seq     int64
+	// Pace, when set, is the records-pacer class whose reservation for
+	// PaceKey the publish consumes once it lands (a live search's
+	// "search/<namespace>", ADR-0019 §5.4).
+	Pace, PaceKey string
 }
 
 // DispatchAnswered tells the ledger a dispatch's answer was incorporated.
@@ -197,6 +201,9 @@ func (ir *ItemReconciler) runItemEffect(ctx context.Context, item client.Object,
 		}
 		if ir.Dispatch != nil {
 			ir.Dispatch.Published(e.Durable, e.Ledger, e.Seq)
+		}
+		if e.Pace != "" && ir.Env.Pacer != nil {
+			ir.Env.Pacer.Consume(e.Pace, e.PaceKey)
 		}
 		return nil
 	case DispatchAnswered:

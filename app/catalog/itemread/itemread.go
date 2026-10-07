@@ -504,3 +504,43 @@ func Tombstoned(entries []catalogv1alpha1.DownloadEntry, item client.Object, rel
 	}
 	return false
 }
+
+// SearchDispatch is a searchable item's status.searchDispatch (ruling R12:
+// Movie, Episode, Album, Book, Audiobook, Issue), nil for any other.
+func SearchDispatch(o client.Object) *catalogv1alpha1.Dispatch {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Movie:
+		return t.Status.SearchDispatch
+	case *catalogv1alpha1.Episode:
+		return t.Status.SearchDispatch
+	case *catalogv1alpha1.Album:
+		return t.Status.SearchDispatch
+	case *catalogv1alpha1.Book:
+		return t.Status.SearchDispatch
+	case *catalogv1alpha1.Audiobook:
+		return t.Status.SearchDispatch
+	case *catalogv1alpha1.Issue:
+		return t.Status.SearchDispatch
+	}
+	return nil
+}
+
+// Searchable reports a kind the search planner dispatches for (R12, P1): a
+// Series or a Comic is never searched itself, its Episodes and Issues are.
+func Searchable(kind string) bool {
+	switch strings.ToLower(kind) {
+	case "movie", "episode", "album", "book", "audiobook", "issue":
+		return true
+	}
+	return false
+}
+
+// HasDonorAttempts reports a kind with status.donorSearchAttempts (Movie,
+// Episode): the kinds an audio donor is searched for.
+func HasDonorAttempts(kind string) bool {
+	switch strings.ToLower(kind) {
+	case "movie", "episode":
+		return true
+	}
+	return false
+}
