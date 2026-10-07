@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/indexer/download"
 	"github.com/mediactl/clustarr/app/indexer/proxy"
 	"github.com/mediactl/clustarr/pkg/cardigann"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
@@ -50,6 +51,11 @@ import (
 // indexers from a hundred apiserver GETs per search to a hundred per five
 // minutes.
 const DefaultClientCacheTTL = 5 * time.Minute
+
+// sessionRewatchDelay is how long WatchSessions waits before watching the
+// sessions bucket again after its watch ended (a NATS restart wipes a
+// memory-backed bucket on single-node NATS, ending every watch on it).
+const sessionRewatchDelay = 5 * time.Second
 
 // ClientCache builds the wire [idxclients.Client] for one Indexer -- a
 // *torznab.Client for spec.generic, the Cardigann engine adapter for
@@ -196,9 +202,9 @@ func (cc *ClientCache) ttl() time.Duration {
 // what app/indexer/run.go hands to both.
 //
 // The cache key cannot see a new login session either -- a session lives in
-// a Secret and a KV entry, not on the Indexer -- so the reconciler calls
-// [ClientCache.Forget] after every successful login, and the next call
-// rebuilds with the fresh session.
+// a Secret and a KV entry, not on the Indexer -- so
+// [ClientCache.WatchSessions] evicts the entry whenever the Indexer's session
+// key changes, and the next call rebuilds with the fresh session.
 func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (idxclients.Client, error) {
 	if idx == nil {
 		return nil, errors.New("indexer: no Indexer to build a client for")
@@ -413,16 +419,112 @@ func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, proxies string, built i
 // alongside the cache and leaving room for the two to diverge.
 func (cc *ClientCache) Limiters() *ratelimit.Limiter { return cc.limiters }
 
-// Forget drops idx's entry. The Indexer reconciler calls it on delete
-// (through its ForgetClient hook, which the wiring points here), which
-// is what keeps the map bounded by the cluster's live Indexer set rather than
-// by every Indexer this process has ever seen. It is keyed by UID, so an
-// Indexer deleted and recreated under the same name is a different object and
-// correctly gets a fresh client.
+// Forget drops idx's entry. It is keyed by UID, so an Indexer deleted and
+// recreated under the same name is a different object and correctly gets a
+// fresh client.
+//
+// It evicts the client only. The applied generation stays until Prune sees
+// the Indexer gone.
 func (cc *ClientCache) Forget(uid types.UID) {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 	delete(cc.entries, uid)
+}
+
+// Prune drops every entry older than the TTL, and the entry and applied
+// generation of every Indexer that is no longer in cc's client (the agent's
+// informer). It replaces the reconciler's delete-time Forget, which ran in
+// the manager since the split and could not reach this cache. It is what
+// keeps the maps bounded by the cluster's live Indexer set rather than by
+// every Indexer this process has ever seen. If the List fails it prunes by
+// age only and keeps every applied generation, because dropping a live one
+// would reopen the stale-revert window.
+func (cc *ClientCache) Prune(ctx context.Context, now time.Time) {
+	var live map[types.UID]bool
+	var list indexv1alpha1.IndexerList
+	if err := cc.client.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Warn("clientcache: listing Indexers to prune failed; pruning by age only", "error", err)
+	} else {
+		live = make(map[types.UID]bool, len(list.Items))
+		for i := range list.Items {
+			live[list.Items[i].UID] = true
+		}
+	}
+	ttl := cc.ttl()
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	for uid, e := range cc.entries {
+		if (live != nil && !live[uid]) || (ttl > 0 && now.Sub(e.builtAt) >= ttl) {
+			delete(cc.entries, uid)
+		}
+	}
+	if live != nil {
+		for uid := range cc.applied {
+			if !live[uid] {
+				delete(cc.applied, uid)
+			}
+		}
+	}
+}
+
+// WatchSessions keeps the cache current across processes, and runs until ctx
+// ends. Any Put or Delete of an Indexer's key in kv (the
+// clustarr-indexer-sessions bucket) evicts that Indexer's client, so the next
+// For rebuilds with the session the manager saved or the agent dropped.
+// Every TTL it also Prunes. The index agent adds it as a k8s.EveryReplica
+// (§5.12). A watch that ends while ctx is live is re-established after
+// sessionRewatchDelay. Until then the TTL bounds how long a cached client
+// can carry a replaced session.
+func (cc *ClientCache) WatchSessions(ctx context.Context, kv events.KV) error {
+	log := logging.FromContext(ctx)
+	every := cc.ttl()
+	if every <= 0 {
+		every = DefaultClientCacheTTL
+	}
+	prune := time.NewTicker(every)
+	defer prune.Stop()
+	rewatch := time.NewTimer(0)
+	defer rewatch.Stop()
+	var updates <-chan events.Entry
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-rewatch.C:
+			ch, err := kv.Watch(ctx, ">")
+			if err != nil {
+				log.Warn("clientcache: watching the sessions bucket failed; retrying", "error", err)
+				rewatch.Reset(sessionRewatchDelay)
+				continue
+			}
+			updates = ch
+		case e, ok := <-updates:
+			if !ok {
+				updates = nil
+				if ctx.Err() != nil {
+					return nil
+				}
+				log.Warn("clientcache: the sessions watch ended; watching again")
+				rewatch.Reset(sessionRewatchDelay)
+				continue
+			}
+			cc.forgetSession(e.Key)
+		case <-prune.C:
+			cc.Prune(ctx, cc.now())
+		}
+	}
+}
+
+// forgetSession evicts the client of the Indexer whose session key is key.
+// It leaves the applied generation alone.
+func (cc *ClientCache) forgetSession(key string) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	for uid := range cc.entries {
+		if idxclients.SessionKey(uid) == key {
+			delete(cc.entries, uid)
+		}
+	}
 }
 
 // Len reports how many entries are cached. It exists for tests, which is why
