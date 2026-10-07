@@ -88,14 +88,6 @@ func TestResolve_CatalogMediaKinds(t *testing.T) {
 		}, got)
 	})
 
-	t.Run("GrabTask", func(t *testing.T) {
-		env := envelopeFor(t, "default/dune", schema.GrabTask{
-			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "dune"},
-		})
-		got := history.Resolve(env)
-		require.Equal(t, "Book", got.Kind)
-	})
-
 	t.Run("MetadataTask", func(t *testing.T) {
 		env := envelopeFor(t, "default/watchmen", schema.MetadataTask{
 			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindComic, Name: "watchmen"},

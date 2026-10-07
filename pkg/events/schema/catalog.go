@@ -256,20 +256,6 @@ const SearchPurposeAudioDonor = "audioDonor"
 // Schema implements Payload.
 func (SearchTask) Schema() string { return "catalog.SearchTask.v2" }
 
-// GrabTask asks a grab worker to turn the best pending candidate for a media
-// key into a Download. It is published with a schedule so delay profiles can
-// hold it. Subject: clustarr.work.catalog.grab.normal.<mediaKey>.
-type GrabTask struct {
-	// MediaRef identifies the catalog item to grab for.
-	MediaRef commonv1.MediaRef `json:"mediaRef"`
-
-	// Keys narrows a pack grab to specific episodes or issues.
-	Keys []string `json:"keys,omitempty"`
-}
-
-// Schema implements Payload.
-func (GrabTask) Schema() string { return "catalog.GrabTask.v1" }
-
 // MetadataTask asks the metadata gateway to refresh a catalog item.
 // Subject: clustarr.work.catalog.metadata.<high|normal>.<mediaKey>.
 //

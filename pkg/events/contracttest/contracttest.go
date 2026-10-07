@@ -1088,7 +1088,7 @@ func testAckRemoves(t *testing.T, newBus func() events.Bus) {
 	}
 }
 
-// testScheduledPublish covers the delay-profile path: a grab published with
+// testScheduledPublish covers the scheduled path: a task published with
 // WithScheduleAt must be held until it is due and then delivered on its real
 // work subject, not on the holding subject.
 func testScheduledPublish(t *testing.T, newBus func() events.Bus) {
@@ -1102,8 +1102,8 @@ func testScheduledPublish(t *testing.T, newBus func() events.Bus) {
 
 	stop, err := bus.Subscribe(ctx, events.Subscription{
 		Stream:      events.StreamWorkCatalog,
-		Durable:     "ct-grab",
-		Filters:     []string{events.FilterCatalogGrab},
+		Durable:     "ct-scheduled",
+		Filters:     []string{events.FilterCatalogSearch},
 		AckWait:     5 * time.Second,
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
@@ -1120,10 +1120,10 @@ func testScheduledPublish(t *testing.T, newBus func() events.Bus) {
 	}
 	defer stop()
 
-	subject := events.WorkGrabSubject("movie-delayed")
+	subject := events.WorkSearchSubject(events.PriorityNormal, "movie-delayed")
 	due := time.Now().Add(2 * time.Second)
 	if _, err := bus.Publish(ctx, subject,
-		envelope("grab-delayed", "catalog.GrabTask.v1", map[string]string{"k": "v"}),
+		envelope("scheduled-delayed", "ct.ScheduledTask.v1", map[string]string{"k": "v"}),
 		events.WithScheduleAt(due)); err != nil {
 		t.Fatalf("Publish with a schedule: %v", err)
 	}
@@ -1146,8 +1146,8 @@ func testScheduledPublish(t *testing.T, newBus func() events.Bus) {
 
 func testKVCreateAndCAS(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
-	kv := bus.KV(events.BucketLeases)
-	key := events.LeaseKey("movie/the-thing")
+	kv := bus.KV(events.BucketImportExclusions)
+	key := "ct." + events.KVKeyToken("movie/the-thing")
 
 	rev, err := kv.Create(ctx, key, []byte("download-1"))
 	if err != nil {
@@ -1205,12 +1205,12 @@ func testKVCreateAndCAS(t *testing.T, newBus func() events.Bus) {
 
 // testKVDeleteRevision holds the revision-checked delete: a caller that read
 // a key and then decides to delete it must not delete a value another writer
-// put there in between -- the grab lease a failed Download frees can be
-// reclaimed by a new grab between the read and the delete.
+// put there in between -- a lease freed after a read can be reclaimed by
+// another writer between the read and the delete.
 func testKVDeleteRevision(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
-	kv := bus.KV(events.BucketLeases)
-	key := events.LeaseKey("movie/the-thing")
+	kv := bus.KV(events.BucketImportExclusions)
+	key := "ct." + events.KVKeyToken("movie/the-thing")
 
 	read, err := kv.Create(ctx, key, []byte("download-1"))
 	if err != nil {
@@ -1253,8 +1253,8 @@ func testKVDeleteRevision(t *testing.T, newBus func() events.Bus) {
 
 func testKVTTL(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
-	kv := bus.KV(events.BucketLeases)
-	key := events.LeaseKey("movie-ttl")
+	kv := bus.KV(events.BucketImportExclusions)
+	key := "ct." + events.KVKeyToken("movie-ttl")
 
 	if _, err := kv.Create(ctx, key, []byte("cached"), events.WithTTL(time.Second)); err != nil {
 		t.Fatalf("Create with TTL: %v", err)

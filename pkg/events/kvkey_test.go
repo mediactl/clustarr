@@ -118,8 +118,6 @@ func TestKVKeyBuildersAreInjective(t *testing.T) {
 		fn   func(string) string
 	}{
 		{"ExclusionKey", func(s string) string { return events.ExclusionKey("imdb", s) }},
-		{"LeaseKey", events.LeaseKey},
-		{"PendingKey", events.PendingKey},
 	} {
 		seen := make(map[string]string, len(inputs))
 		for _, in := range inputs {
@@ -138,23 +136,6 @@ func TestExclusionKeySegmentsCannotForgeTheSeparator(t *testing.T) {
 	require.NotEqual(t,
 		events.ExclusionKey("imdb.tt0113277", "x"),
 		events.ExclusionKey("imdb", "tt0113277.x"))
-}
-
-// LeaseKey and PendingKey were legal only by accident: MediaKey flattens a
-// DNS-1123 namespace and name for the WIRE (a different grammar), and every
-// byte that survived happened to also be legal in a KV key. They are now
-// legal by construction, for any input at all.
-func TestLeaseAndPendingKeysAreLegalForAnyMediaKey(t *testing.T) {
-	for _, mk := range []string{
-		events.MediaKey("Movie", "default", "the-matrix"),
-		events.MediaKey("Episode", "media/ops", "s01e02"),
-		events.MediaKey("Movie", "default", "Wall·E (2008)"),
-		"hand-written:not-a-media-key",
-		"",
-	} {
-		assert.True(t, events.ValidKVKey(events.LeaseKey(mk)), "LeaseKey(%q)", mk)
-		assert.True(t, events.ValidKVKey(events.PendingKey(mk)), "PendingKey(%q)", mk)
-	}
 }
 
 // A readable prefix is the only reason MediaKey keeps one, so check the

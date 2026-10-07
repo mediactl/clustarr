@@ -66,8 +66,8 @@ var (
 	// out or purged).
 	ErrMessageNotFound = errors.New("events: message not found")
 
-	// ErrKeyExists is returned by KV.Create when the key is already present.
-	// It is the double-grab guard used by the clustarr-leases bucket.
+	// ErrKeyExists is returned by KV.Create when the key is already present:
+	// a create-only key is a lease (the transcode leases bucket's).
 	ErrKeyExists = errors.New("events: key exists")
 
 	// ErrRevisionMismatch is returned by KV.Update and KV.DeleteRevision when
@@ -272,14 +272,13 @@ func DeadLetterEnvelope(orig *Envelope, subject string, attempts uint64,
 // other subject does not: an event on CLUSTARR_EVENTS
 // (clustarr.evt.<group>.<kind>.<action>.<uid>) or a release on
 // CLUSTARR_RELEASES names its producer's domain, not the task that failed on
-// it, and one event is consumed by several durables -- catalog-history and
-// catalog-redownload both read a Download's failed event. Reading tokens
-// 2 and 3 of those gave clustarr.dlq.download.download.<id>, a "service" that
+// it, and one event can be consumed by several durables. Reading tokens 2
+// and 3 of those gave clustarr.dlq.download.download.<id>, a "service" that
 // does not exist, shared by every consumer of the event, so two consumers'
 // dead letters of one event collided on one subject and the projector's
 // last-sequence lookup could name the other's copy. Those take the tokens
 // from the consumer's durable name, <service>-<task>, instead:
-// catalog-redownload's lands on clustarr.dlq.catalog.redownload.<id>.
+// catalog-history's lands on clustarr.dlq.catalog.history.<id>.
 // Anything unparseable falls back to "unknown".
 func dlqServiceTask(subject, durable string) (service, task string) {
 	service, task = "unknown", "unknown"

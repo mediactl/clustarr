@@ -108,7 +108,7 @@ var _ pkgmetadata.Cache = (*kvCache)(nil)
 // provider ids from outside this process and are not guaranteed to be
 // alphanumeric. It used to be a kvKeyTok local to this file; task C14 lifted
 // it into pkg/events, which had its own (non-)implementation of the same
-// grammar and was getting it wrong for LeaseKey/PendingKey/ExclusionKey.
+// grammar and was getting it wrong for its KV keys.
 func cacheKey(kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs) string {
 	keys := make([]string, 0, len(ids))
 	for k := range ids {

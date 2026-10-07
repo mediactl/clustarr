@@ -309,7 +309,7 @@ type TopologyObject struct {
 }
 
 // String names o as StreamAdmin.Missing reports it: "stream CLUSTARR_EVENTS",
-// "consumer CLUSTARR_WORK_CATALOG/catalog-grab", "kv <bucket>",
+// "consumer CLUSTARR_WORK_CATALOG/catalog-metadata", "kv <bucket>",
 // "object store clustarr-artwork".
 func (o TopologyObject) String() string {
 	if o.Kind == TopologyConsumer {
@@ -703,30 +703,6 @@ func fieldErr(field, msg string) error {
 	return fmt.Errorf("events: %s %s", field, msg)
 }
 
-// ConsumerCatalogRedownload is the durable consumer that turns a failed
-// Download into a redownload search (spec §8.3): catalog frees the item's
-// grab lease and publishes a catalog.SearchTask with reason redownload.
-//
-// It and its filters live here rather than beside the other names in
-// subjects.go only because this file is the one the task that added it owned
-// (gap fixes Y3); they are ordinary exported names of the package.
-const ConsumerCatalogRedownload = "catalog-redownload"
-
-// The two download-event subjects ConsumerCatalogRedownload filters.
-//
-// failed is the one spec §8.3 names. blocklisted is the other way a Download
-// can end blamed on its release: grab derives Blocklisted from the
-// download.clustarr.io/blocklisted label ahead of any telemetry, so a
-// Download labelled while it is still transferring goes straight to
-// Blocklisted and never publishes failed -- and Radarr's "remove from queue
-// and blocklist" is exactly a mark-as-failed, which redownloads. A Download
-// that fails and is then blocklisted publishes both; the redownload search's
-// deterministic Msg-Id (per Download UID) makes the pair one search.
-const (
-	FilterDownloadFailed      = "clustarr.evt.download.download.failed.>"
-	FilterDownloadBlocklisted = "clustarr.evt.download.download.blocklisted.>"
-)
-
 // Default returns the production topology from the Clustarr design, the
 // probe queue (probe.go) and the records buckets (records.go) included: its
 // streams, every static durable consumer and, for each, the dead-letter
@@ -914,14 +890,6 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			Name: ConsumerCatalogGrab, Stream: StreamWorkCatalog,
-			Filters: []string{FilterCatalogGrab},
-			AckWait: 60 * s, MaxDeliver: 5,
-			BackOff:       []time.Duration{10 * s, 1 * m, 5 * m},
-			MaxAckPending: 16,
-			Slots:         16,
-		},
-		{
 			Name: ConsumerCatalogMetadata, Stream: StreamWorkCatalog,
 			Filters: []string{FilterCatalogMetadata},
 			AckWait: 60 * s, MaxDeliver: 8,
@@ -1009,21 +977,6 @@ func defaultConsumers() []ConsumerSpec {
 			BackOff:       []time.Duration{5 * s, 30 * s},
 			MaxAckPending: 512 * AutoscaleReplicaCeiling,
 			Slots:         512,
-		},
-		{
-			// Gap fixes Y3 (spec §8.3). On EVENTS beside catalog-history,
-			// which reads the same subjects as history; a second durable
-			// is what gives this one its own acks and redeliveries. The
-			// work is a lease delete and a publish per item, so 30s is
-			// ample; MaxDeliver 6 leaves room for the handler's short
-			// wait for grab's blocklist label (two 5s retries) on top
-			// of the four backoff steps for real failures.
-			Name: ConsumerCatalogRedownload, Stream: StreamEvents,
-			Filters: []string{FilterDownloadFailed, FilterDownloadBlocklisted},
-			AckWait: 30 * s, MaxDeliver: 6,
-			BackOff:       []time.Duration{5 * s, 30 * s, 2 * m, 10 * m},
-			MaxAckPending: 16 * AutoscaleReplicaCeiling,
-			Slots:         16,
 		},
 		// import (amendment §A1.6). AckWait is 60s on all three, which is
 		// the floor set by terminationGracePeriodSeconds: 60 in
@@ -1178,8 +1131,6 @@ func defaultBuckets() []BucketSpec {
 		return s
 	}
 	return []BucketSpec{
-		b(BucketLeases, 0, "Double-grab guard; keys are created, never put."),
-		b(BucketPending, 7*24*time.Hour, "Best pending candidate per media key."),
 		b(BucketImportExclusions, 0, "Exclusions the list and search paths consult; durable."),
 		b(BucketIndexerSessions, 30*24*time.Hour, "Cardigann cookies and JWTs."),
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),

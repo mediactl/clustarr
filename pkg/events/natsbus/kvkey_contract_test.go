@@ -80,8 +80,6 @@ func TestKVKeyBuildersProduceKeysARealServerAccepts(t *testing.T) {
 	for _, id := range hostile {
 		for name, key := range map[string]string{
 			"ExclusionKey": events.ExclusionKey("imdb", id),
-			"LeaseKey":     events.LeaseKey(events.MediaKey("Movie", "default", id)),
-			"PendingKey":   events.PendingKey(events.MediaKey("Series", "ns", id)),
 		} {
 			t.Run(name+"/"+id, func(t *testing.T) {
 				// ValidKVKey is exported and callers will trust it, so pin

@@ -39,9 +39,6 @@ func TestMediaKeyDistinguishesKinds(t *testing.T) {
 	movie := MediaKey("Movie", "default", "thing")
 	series := MediaKey("Series", "default", "thing")
 	require.NotEqual(t, movie, series)
-	assert.NotEqual(t, LeaseKey(movie), LeaseKey(series))
-	assert.NotEqual(t, PendingKey(movie), PendingKey(series))
-	assert.NotEqual(t, WorkGrabSubject(movie), WorkGrabSubject(series))
 }
 
 // The separator-flattening collision the digest exists to prevent: tok()
@@ -57,9 +54,7 @@ func TestMediaKeySurvivesSubjectTokenisation(t *testing.T) {
 	assert.Equal(t, "Movie-default-foo-bar", strings.TrimSuffix(b, b[len(b)-mediaKeyHashLen-1:]))
 
 	// ... and the full keys still differ after every transform that touches them.
-	assert.NotEqual(t, WorkGrabSubject(a), WorkGrabSubject(b))
 	assert.NotEqual(t, WorkSearchSubject(PriorityNormal, a), WorkSearchSubject(PriorityNormal, b))
-	assert.NotEqual(t, LeaseKey(a), LeaseKey(b))
 }
 
 // A media key is interpolated into a subject, so it must not reintroduce a

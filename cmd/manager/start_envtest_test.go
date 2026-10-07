@@ -170,9 +170,6 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				d.Options, d.Role = o, catalogapp.RoleWorker
 				return catalogapp.Run(ctx, d)
 			},
-			// Gap fix Y3: the redownload consumer is subscribed in the
-			// running worker, not only built.
-			verify: func(t *testing.T) { verifyRedownload(t, natsURL) },
 		},
 		{name: "app/catalog/metadata", run: func(ctx context.Context, o k8s.Options) error {
 			d := catalogapp.DefaultOptions()
@@ -1005,52 +1002,6 @@ func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 			}
 		}
 		return false
-	})
-}
-
-// verifyRedownload proves spec §8.3's failed-Download consumer (gap fix Y3,
-// app/catalog/worker/redownload) runs in `catalog --role worker`: a lease
-// held by a Download is freed once grab's failed event for that Download
-// reaches the bus. The Movie does not exist, so the consumer frees the lease
-// and publishes no search -- the lease is its first observable piece of
-// work, and it can only disappear if something subscribed
-// catalog-redownload.
-func verifyRedownload(t *testing.T, natsURL string) {
-	t.Helper()
-	ctx := context.Background()
-	bus, nc, err := k8s.ConnectBus(natsURL, "start-test")
-	if err != nil {
-		t.Fatalf("connect the bus: %v", err)
-	}
-	t.Cleanup(func() { _ = bus.Close(); nc.Close() })
-
-	const failed = "redownload-probe-failed"
-	movie := commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "redownload-probe"}
-	lease := events.LeaseKey(events.MediaKey(string(movie.Kind), "default", movie.Name))
-	kv := bus.KV(events.BucketLeases)
-	if _, err := kv.Create(ctx, lease, []byte(failed)); err != nil {
-		t.Fatalf("take the probe lease: %v", err)
-	}
-
-	schemaName, data, err := schema.Encode(schema.DownloadEvent{
-		DownloadRef: schema.Ref{Namespace: "default", Name: failed, UID: "redownload-probe-uid"},
-		Media:       movie,
-		Action:      events.ActionFailed,
-		Reason:      string(commonv1alpha1.DownloadFailureMissingArticles),
-		At:          time.Now(),
-	})
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	if _, err := bus.Publish(ctx, events.DownloadEventSubject(events.ActionFailed, "redownload-probe-uid"), &events.Envelope{
-		ID: "redownload-probe-uid:failed", Type: "download.DownloadEvent", Schema: schemaName,
-		Source: "start-test", Key: "default/" + failed, Time: time.Now(), Data: data,
-	}); err != nil {
-		t.Fatalf("publish the failed event: %v", err)
-	}
-	waitFor(t, "the redownload consumer to free the failed Download's lease", func() bool {
-		_, err := kv.Get(ctx, lease)
-		return errors.Is(err, events.ErrKeyNotFound)
 	})
 }
 

@@ -36,7 +36,6 @@ func Payloads() []schema.Payload {
 		schema.MediaFileEvent{},
 		schema.ImportListSynced{},
 		schema.SearchTask{},
-		schema.GrabTask{},
 		schema.MetadataTask{},
 		schema.SegmentsPlanTask{},
 		schema.AnalyzeTask{},

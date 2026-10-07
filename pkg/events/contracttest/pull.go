@@ -359,9 +359,9 @@ func testMissing(t *testing.T, newBus func() events.Bus) {
 		t.Fatalf("%T does not implement events.StreamAdmin", bus)
 	}
 
-	grab, ok := events.Default().ForSingleNode().Consumer(events.ConsumerCatalogGrab)
+	grab, ok := events.Default().ForSingleNode().Consumer(events.ConsumerCatalogMetadata)
 	if !ok {
-		t.Fatalf("the default topology has no %s", events.ConsumerCatalogGrab)
+		t.Fatalf("the default topology has no %s", events.ConsumerCatalogMetadata)
 	}
 	bare := Topology()
 	full := Topology()

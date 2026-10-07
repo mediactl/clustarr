@@ -102,7 +102,6 @@ const (
 	FilterTranscodeResults    = "clustarr.work.transcode.result.>"
 	FilterAllDLQ              = "clustarr.dlq.>"
 	FilterCatalogSearch       = "clustarr.work.catalog.search.>"
-	FilterCatalogGrab         = "clustarr.work.catalog.grab.>"
 	FilterCatalogMetadata     = "clustarr.work.catalog.metadata.>"
 	FilterCatalogWanted       = "clustarr.work.catalog.wantedscan.>"
 	FilterImportScan          = "clustarr.work.import.scan.>"
@@ -130,7 +129,6 @@ const (
 	ConsumerCatalogRSSMatcher    = "catalog-rss-matcher"
 	ConsumerCatalogSearchHigh    = "catalog-search-high"
 	ConsumerCatalogSearchNorm    = "catalog-search-normal"
-	ConsumerCatalogGrab          = "catalog-grab"
 	ConsumerCatalogMetadata      = "catalog-metadata"
 	ConsumerCatalogHistory       = "catalog-history"
 	ConsumerImportScan           = "import-scan"
@@ -155,8 +153,6 @@ const (
 
 // Key/value bucket names. NATS bucket names may not contain dots.
 const (
-	BucketLeases           = "clustarr-leases"
-	BucketPending          = "clustarr-pending"
 	BucketImportExclusions = "clustarr-import-exclusions"
 	BucketIndexerSessions  = "clustarr-indexer-sessions"
 	BucketIndexerLimits    = "clustarr-indexer-limits"
@@ -378,12 +374,6 @@ func WorkSearchSubject(p Priority, mediaKey string) string {
 	return fmt.Sprintf("clustarr.work.catalog.search.%s.%s", tok(string(p)), tok(mediaKey))
 }
 
-// WorkGrabSubject builds clustarr.work.catalog.grab.normal.<mediaKey>.
-// Grab tasks are published with WithScheduleAt to honour delay profiles.
-func WorkGrabSubject(mediaKey string) string {
-	return "clustarr.work.catalog.grab.normal." + tok(mediaKey)
-}
-
 // WorkMetadataSubject builds
 // clustarr.work.catalog.metadata.<high|normal>.<mediaKey>.
 func WorkMetadataSubject(p Priority, mediaKey string) string {
@@ -519,8 +509,8 @@ func ArtworkKey(kind commonv1.MediaKind, uid types.UID, imageType, variant strin
 // the message would re-trigger itself.
 //
 // The holding subject inserts a "sched" token after the service, turning
-// clustarr.work.catalog.grab.normal.<key> into
-// clustarr.work.catalog.sched.grab.normal.<key>. It therefore stays inside
+// clustarr.work.catalog.search.normal.<key> into
+// clustarr.work.catalog.sched.search.normal.<key>. It therefore stays inside
 // the same work stream while matching no consumer's filters, which all name a
 // task directly. Only clustarr.work.* subjects can be scheduled, because they
 // are the only streams with AllowMsgSchedules.
@@ -552,27 +542,11 @@ func DLQSubject(service, task, id string) string {
 	return fmt.Sprintf("clustarr.dlq.%s.%s.%s", tok(service), tok(task), tok(id))
 }
 
-// LeaseKey builds the clustarr-leases key guarding a single media key against
-// a double grab.
-//
-// The media key goes through [KVKeyToken] rather than being interpolated
-// raw. It is tok()-stable already, so today every byte it carries is legal
-// in a KV key -- but only by accident of [MediaKey] flattening a
-// DNS-1123 namespace and name for the WIRE, which is a different grammar
-// with different forbidden characters that happens to be stricter. Escaping
-// here makes the key legal by construction instead of by coincidence.
-func LeaseKey(mediaKey string) string { return "grab." + KVKeyToken(mediaKey) }
-
-// PendingKey builds the clustarr-pending key holding the best candidate so
-// far for a media key. See [LeaseKey] for why the media key is escaped.
-func PendingKey(mediaKey string) string { return "grab." + KVKeyToken(mediaKey) }
-
 // ExclusionKey is the clustarr-import-exclusions key for one exclusion. The
 // import-list and search paths consult this bucket rather than listing
 // ImportExclusion resources on every candidate, which would not scale.
 //
-// Both segments go through [KVKeyToken], and unlike [LeaseKey] that is not a
-// precaution: id comes straight out of ImportExclusion.spec.externalIDs, an
+// Both segments go through [KVKeyToken], and that is not a precaution: id comes straight out of ImportExclusion.spec.externalIDs, an
 // unconstrained map[string]string. "tt0113277:2", "Amélie" and "50%" are all
 // ids a user can type, all three are rejected by nats.go's key grammar, and
 // the resulting object is not merely un-published but UNDELETABLE -- the

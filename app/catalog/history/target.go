@@ -150,7 +150,6 @@ var resolvers = map[string]resolver{
 	schema.MediaFileEvent{}.Schema():    resolveMediaFileEvent,
 	schema.ImportListSynced{}.Schema():  resolveImportListSynced,
 	schema.SearchTask{}.Schema():        resolveSearchTask,
-	schema.GrabTask{}.Schema():          resolveGrabTask,
 	schema.MetadataTask{}.Schema():      resolveMetadataTask,
 	schema.WantedScan{}.Schema():        resolveWantedScan,
 	schema.Release{}.Schema():           resolveRelease,
@@ -245,14 +244,6 @@ func resolveSearchTask(key string, data []byte) Target {
 		if t := itemTarget(p.Item); t.KindKnown() {
 			return t
 		}
-	}
-	return mediaTarget(namespaceOf(key), p.MediaRef.Name, p.MediaRef.Kind)
-}
-
-func resolveGrabTask(key string, data []byte) Target {
-	var p schema.GrabTask
-	if err := schema.Decode(p.Schema(), data, &p); err != nil {
-		return Target{Namespace: namespaceOf(key)}
 	}
 	return mediaTarget(namespaceOf(key), p.MediaRef.Name, p.MediaRef.Kind)
 }

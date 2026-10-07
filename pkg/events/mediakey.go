@@ -28,9 +28,8 @@ import (
 const mediaKeyHashLen = 10
 
 // MediaKey builds the <mediaKey> token that spec §5's work subjects and §5's
-// KV buckets use to name one media item: the search, grab and metadata
-// subjects interpolate it, and LeaseKey and PendingKey derive the
-// clustarr-leases and clustarr-pending keys from it.
+// KV buckets use to name one media item: the search and metadata subjects
+// interpolate it.
 //
 // Two properties matter, and neither is free:
 //

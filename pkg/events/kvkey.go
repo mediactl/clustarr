@@ -26,8 +26,8 @@ import (
 
 // KVKeyToken escapes s into the alphabet [0-9A-Za-z-], a strict subset of
 // the key grammar nats.go enforces (see [ValidKVKey]). It is the one
-// implementation every KV key in this repo is built from: [LeaseKey],
-// [PendingKey] and [ExclusionKey] here, and catalog's metadata cache key.
+// implementation every KV key in this repo is built from: [ExclusionKey]
+// and [TranscodeLeaseKey] here, and catalog's metadata cache key.
 //
 // The encoding is injective, and that is the point rather than a nicety. A
 // lossy sanitiser that mapped every illegal byte to the same replacement
