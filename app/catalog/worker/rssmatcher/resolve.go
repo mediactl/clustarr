@@ -212,7 +212,6 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		st.available = v.Available
 		st.qualityProfile = v.QualityProfileRef
 		st.identity = v.Identity
-		st.currentFile = v.Current
 		if v.Owner.UID != "" {
 			st.scope = schema.BlockScopeOf(v.Owner)
 		}
@@ -240,15 +239,10 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 // read failure is returned, so the release is retried rather than decided
 // against a guess; the error never wraps NotFound, which decideOne reads as
 // "the item itself is gone".
-func currentFile(ctx context.Context, c client.Reader, ns string, hasFile bool, fileRef *string) (*decision.Current, error) {
-	if !hasFile || fileRef == nil || *fileRef == "" {
-		return nil, nil
-	}
-	cur, err := search.CurrentFile(ctx, c, ns, *fileRef)
-	if err != nil {
-		return nil, fmt.Errorf("rssmatcher: %w", err)
-	}
-	return cur, nil
+func currentFile(context.Context, client.Reader, string, bool, *string) (*decision.Current, error) {
+	// The current file is the manager's item-state input (ADR-0019 §6.6);
+	// A4.4 turns this matcher into a candidate sender.
+	return nil, nil
 }
 
 // queueFor is the live grabs already working on ref, through the search

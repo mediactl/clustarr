@@ -24,18 +24,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // Options is what the catalog domain's Register takes; each consumer looks
@@ -105,23 +107,15 @@ func buildWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (workers, error) 
 	if err != nil {
 		return workers{}, err
 	}
-	grabDeps := grab.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: bus}
-	// The bridge from the search worker's ranked results to a grab (§8.2's
-	// two halves). Both resolvers must be set: grab.Sink logs a warning and
-	// DROPS an approved release when either is nil, which would make the
-	// whole automatic-search path a silent no-op.
-	sink := grab.Sink{
-		Deps: grabDeps,
-		ResolveProfile: func(ctx context.Context, name string) (quality.Profile, error) {
-			return resolveQualityProfile(ctx, c, name, cat)
-		},
-		ResolveDelay: func(ctx context.Context, ns string, ref *string, tags []string) (catalogv1alpha1.DelayProfileSpec, error) {
-			return resolveDelayProfile(ctx, c, ns, ref, tags)
-		},
-	}
+	// The search worker answers every search in clustarr-searches and
+	// writes nothing else (ADR-0019 §7.4): the manager's planners decide.
+	pod, _ := os.Hostname()
+	kv := bus.KV(events.BucketSearches)
 	sw := search.NewWorker(c, search.NewBusSearchRPC(bus), cat)
-	sw.Sink, sw.Topology, sw.SceneMaps = sink, &topo, sceneMaps
-	gh := grab.NewHandler(grabDeps)
+	sw.Topology, sw.SceneMaps = &topo, sceneMaps
+	sw.Records = records.NewWriter(kv, agentrecords.Searches(), pod, version.String())
+	sw.Answers = records.NewReader(kv, agentrecords.Searches())
+	gh := grab.NewHandler(grab.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: bus})
 	gh.Topology = &topo
 	render := &renderer.Handler{
 		Reader:   mgr.GetAPIReader(),

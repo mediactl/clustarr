@@ -195,8 +195,8 @@ func firstTitle(id decision.Identity) string {
 
 // NonVideoItem is what a decision about one album, book, audiobook or comic
 // issue reads off the cluster: the profile it ranks under, whether it is
-// monitored and out, what it is (its decision.Identity), and the file it
-// already has.
+// monitored and out, and what it is (its decision.Identity). The file it
+// already has is the manager's item-state input (ADR-0019 §6.6).
 type NonVideoItem struct {
 	// QualityProfileRef is the item's own override, else its container's
 	// (Artist, Author); an Issue always takes its Comic's.
@@ -208,12 +208,6 @@ type NonVideoItem struct {
 	// Identity is AlbumIdentity, BookIdentity, AudiobookIdentity or
 	// IssueIdentity.
 	Identity decision.Identity
-	// Current is the file the item already has, nil for none. A book's and
-	// an issue's is their one MediaFile, read through CurrentFile; an
-	// album's and an audiobook's is their status rollup, because each is
-	// several MediaFiles (tracks, parts) and the rollup is what an upgrade
-	// has to beat.
-	Current *decision.Current
 	// Owner is the grab owner (ADR-0019 §6.1): the item itself, or an
 	// Issue's Comic. Its schema.BlockScopeOf is the scope a search or an RSS
 	// match asks the release index's block state for (§6.14).
@@ -251,16 +245,6 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Available = a.Status.Metadata == nil || releasedBy(a.Status.Metadata.ReleaseDate, now)
 		v.Identity = AlbumIdentity(&a, &artist)
 		v.Owner = ownerRef(string(commonv1.MediaKindAlbum), &a)
-		// The album's quality is the lowest across its imported tracks
-		// (status.quality), which is what an upgrade has to beat. That the
-		// album HAS a file is status.quality itself: the Album reconciler
-		// sets it from every MediaFile the album owns, while
-		// status.trackFileCount counts only files tied to a track, which the
-		// importer does for a one-track album alone -- gating on the count
-		// read nearly every imported album as empty, and grabbed it again.
-		if a.Status.Quality != nil {
-			v.Current = &decision.Current{Quality: *a.Status.Quality, FormatScore: int(a.Status.FormatScore)}
-		}
 		return v, nil
 
 	case commonv1.MediaKindBook:
@@ -284,7 +268,7 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Available = b.Status.Metadata == nil || releasedBy(b.Status.Metadata.ReleaseDate, now)
 		v.Identity = BookIdentity(&b, author)
 		v.Owner = ownerRef(string(commonv1.MediaKindBook), &b)
-		return v, currentFileOf(ctx, c, ns, b.Status.HasFile, b.Status.FileRef, &v)
+		return v, nil
 
 	case commonv1.MediaKindAudiobook:
 		var ab catalogv1alpha1.Audiobook
@@ -296,11 +280,6 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Available = ab.Status.Metadata == nil || releasedBy(ab.Status.Metadata.ReleaseDate, now)
 		v.Identity = AudiobookIdentity(&ab)
 		v.Owner = ownerRef(string(commonv1.MediaKindAudiobook), &ab)
-		// An audiobook's parts are several MediaFiles; status.quality is
-		// the recording's, which is what an upgrade has to beat.
-		if ab.Status.HasFile && ab.Status.Quality != nil {
-			v.Current = &decision.Current{Quality: *ab.Status.Quality}
-		}
 		return v, nil
 
 	case commonv1.MediaKindIssue:
@@ -319,23 +298,9 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Available = releasedBy(iss.Status.Date, now)
 		v.Identity = IssueIdentity(&iss, &comic)
 		v.Owner = ownerRef(string(commonv1.MediaKindComic), &comic)
-		return v, currentFileOf(ctx, c, ns, iss.Status.HasFile, iss.Status.FileRef, &v)
+		return v, nil
 	}
 	return v, fmt.Errorf("unsupported media kind %q", ref.Kind)
-}
-
-// currentFileOf sets v.Current from the MediaFile fileRef names, when the
-// item has a file at all.
-func currentFileOf(ctx context.Context, c client.Reader, ns string, hasFile bool, fileRef *string, v *NonVideoItem) error {
-	if !hasFile || fileRef == nil || *fileRef == "" {
-		return nil
-	}
-	cur, err := CurrentFile(ctx, c, ns, *fileRef)
-	if err != nil {
-		return err
-	}
-	v.Current = cur
-	return nil
 }
 
 // nonVideoIDs is the request half of a non-video snapshot: the title, the

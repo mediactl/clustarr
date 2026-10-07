@@ -270,7 +270,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 		{"catalog", func() error {
 			return catalogmanager.Register(mgr, bus, catalogmanager.Options{
 				Options: o.Options, DLQProjector: p.projector, Artwork: p.artwork,
-				WantedWakes: p.wanted, DonorBudget: p.budget,
+				WantedWakes: p.wanted, DonorBudget: p.budget, Inbox: p.inbox,
 			})
 		}},
 		{"import", func() error {

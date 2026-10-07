@@ -82,17 +82,26 @@ type Inbox struct {
 	order map[OwnerKey][]*parked
 	byID  map[string]*parked
 	wakes chan schema.ItemRef
+	// settled remembers each recent settlement by Msg-Id, so the Search
+	// controller can report a pick its owner refused (A4.3); bounded by
+	// settledMax, oldest first out.
+	settled      map[string]Outcome
+	settledOrder []string
 }
+
+// settledMax bounds the settlements an inbox remembers.
+const settledMax = 1024
 
 // NewInbox is an inbox of at most limit parked candidates: the consumer's
 // MaxAckPending (64).
 func NewInbox(limit int) *Inbox {
 	limit = max(limit, 1)
 	return &Inbox{
-		max:   limit,
-		order: map[OwnerKey][]*parked{},
-		byID:  map[string]*parked{},
-		wakes: make(chan schema.ItemRef, limit),
+		max:     limit,
+		order:   map[OwnerKey][]*parked{},
+		byID:    map[string]*parked{},
+		wakes:   make(chan schema.ItemRef, limit),
+		settled: map[string]Outcome{},
 	}
 }
 
@@ -126,10 +135,27 @@ func (in *Inbox) Settle(msgID string, o Outcome) {
 	if ok {
 		in.removeLocked(p)
 	}
+	if _, seen := in.settled[msgID]; !seen {
+		in.settledOrder = append(in.settledOrder, msgID)
+		if len(in.settledOrder) > settledMax {
+			delete(in.settled, in.settledOrder[0])
+			in.settledOrder = in.settledOrder[1:]
+		}
+	}
+	in.settled[msgID] = o
 	in.mu.Unlock()
 	if ok {
 		p.done <- o
 	}
+}
+
+// Settled is how an owner's pass settled msgID, false when this leader
+// settled no such candidate (yet, or before it led).
+func (in *Inbox) Settled(msgID string) (Outcome, bool) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	o, ok := in.settled[msgID]
+	return o, ok
 }
 
 // Wakes is S30: each parked candidate's owner, to enqueue at PriorityUser.

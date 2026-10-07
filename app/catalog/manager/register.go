@@ -47,6 +47,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/metadataset"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
+	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
@@ -75,6 +76,9 @@ type Options struct {
 	// refills nothing.
 	WantedWakes chan<- schema.ItemRef
 	DonorBudget wantedcron.DonorBudget
+	// Inbox is the candidate inbox, which the Search controller asks how
+	// an owner settled a pick.
+	Inbox *intake.Inbox
 }
 
 // Register adds every catalog reconciler and manager-side runnable.
@@ -246,9 +250,12 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalog: metadataprovider bootstrap: %w", err)
 	}
 
-	if err := searchctl.NewReconciler(c, bus,
-		mgr.GetEventRecorder("search"),
-	).SetupWithManager(mgr); err != nil {
+	// The Search controller incorporates the search agent's answers and
+	// sends picks to their owners as candidates (ADR-0019 §7.4, §6.6); the
+	// candidate inbox tells it how an owner settled one.
+	sr := searchctl.NewReconciler(c, bus, mgr.GetEventRecorder("search"))
+	sr.Inbox = o.Inbox
+	if err := sr.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalog: search: %w", err)
 	}
 

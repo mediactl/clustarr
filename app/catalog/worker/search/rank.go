@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
+	"time"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // MaxResults is the hard cap on Search.status.results
@@ -77,6 +80,83 @@ func RankAndCap(ds []decision.Decision, o decision.Options, limit int) []commonv
 			Rejections:          ordered[i].Rejections,
 			Rank:                int32(i + 1),
 		}
+	}
+	return out
+}
+
+// RankScored is RankAndCap for a search record (ADR-0019 §7.4): the
+// decisions best-first, approved ahead of rejected, at most limit, each
+// with what the manager's grab planner re-checks it by -- its parsed
+// coverage, the release index's block state from the answer (rels), its
+// format score and its indexer's priority.
+func RankScored(ds []decision.Decision, o decision.Options, rels []schema.Release, limit int) []schema.ScoredRelease {
+	ranked := RankAndCap(ds, o, limit)
+	byRelease := make(map[string]*decision.Decision, len(ds))
+	for i := range ds {
+		byRelease[releaseKey(ds[i].Release)] = &ds[i]
+	}
+	blocked := make(map[string]*schema.ReleaseBlock, len(rels))
+	for i := range rels {
+		if rels[i].Blocked != nil {
+			blocked[releaseKey(rels[i].Info)] = rels[i].Blocked
+		}
+	}
+	out := make([]schema.ScoredRelease, 0, len(ranked))
+	for _, rd := range ranked {
+		sr := schema.ScoredRelease{Decision: rd, Score: rd.FormatScore, IndexerPriority: priorityOf(o, rd.IndexerRef)}
+		if d := byRelease[releaseKey(rd.ReleaseInfo)]; d != nil {
+			sr.Score = int32(d.Score) //nolint:gosec // a format score fits
+			sr.Parsed = parsedFacts(d)
+		}
+		if b := blocked[releaseKey(rd.ReleaseInfo)]; b != nil {
+			cp := *b
+			sr.Blocked = &cp
+		}
+		out = append(out, sr)
+	}
+	return out
+}
+
+// releaseKey identifies a release within one answer.
+func releaseKey(r commonv1.ReleaseInfo) string {
+	return r.IndexerRef + "\x00" + r.GUID + "\x00" + r.Title
+}
+
+// priorityOf is an indexer's priority as the ranking read it (25 when the
+// task named none).
+func priorityOf(o decision.Options, ref string) int32 {
+	if p, ok := o.IndexerPriority[ref]; ok {
+		return int32(p) //nolint:gosec // 1..50
+	}
+	return 25
+}
+
+// parsedFacts is what a decision's parsed title covers.
+func parsedFacts(d *decision.Decision) schema.ParsedFacts {
+	p := d.Parsed
+	if p == nil {
+		return schema.ParsedFacts{}
+	}
+	f := schema.ParsedFacts{
+		Seasons: int32s(p.Seasons), Episodes: int32s(p.Episodes), Absolute: int32s(p.Absolute),
+		FullSeason: p.FullSeason, MultiSeason: p.MultiSeason,
+	}
+	if p.AirDate != nil {
+		f.AirDate = p.AirDate.UTC().Format(time.DateOnly)
+	}
+	if p.Comic != nil {
+		f.Issue = p.Comic.Issue
+	}
+	return f
+}
+
+func int32s(ns []int) []int32 {
+	if len(ns) == 0 {
+		return nil
+	}
+	out := make([]int32, len(ns))
+	for i, n := range ns {
+		out[i] = int32(n) //nolint:gosec // season and episode numbers fit
 	}
 	return out
 }

@@ -22,42 +22,35 @@ import (
 	"fmt"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
-// itemSnapshot is everything the worker reads off the cluster before it can
-// decide anything: the catalog item's search identity, the QualityProfile to
-// resolve, and the decision engine's Target (current file, live queue, the
-// blocklist predicate and the item's decision.Identity included -- all but
-// Identity.IDQueryIndexers, which only the search's reply can supply; Handle
-// fills it in once index has answered).
+// itemSnapshot is what the worker reads off the cluster before it can
+// decide anything: the catalog item's search identity, its QualityProfile
+// ref, and the decision engine's Target for the release rules -- its
+// identity, availability and runtime. Since ADR-0019 (§7.4) it reads no
+// current file, queue or blocklist: those are the item-state rules the
+// manager runs (pkg/decision.ItemStateRejections).
 type itemSnapshot struct {
 	IDs               TargetIDs
 	QualityProfileRef string
 	Target            decision.Target
 	// Owner is the grab owner (the item, or an Episode's Series and an
 	// Issue's Comic, ADR-0019 §6.1); the request asks the release index for
-	// block state under its BlockScopeOf (§6.14).
+	// block state under its BlockScopeOf (§6.14) when the task names no
+	// scope.
 	Owner schema.ItemRef
 }
 
-// snapshot fetches the item named by ref in namespace ns, its current
-// MediaFile if it has one, and the live queue for it, and folds the blocklist
-// informer into a predicate the decision engine can call per release.
-//
-// Movie, episode, album, book, audiobook and issue are implemented -- the
-// kinds Searchable admits (nonvideo.go has the last four). Handle discards a
-// SearchTask for any other kind, a container, before it gets here; the
-// default branch is a belt-and-braces error, not a silent empty snapshot.
+// snapshot fetches the item named by ref in namespace ns: movie, episode,
+// album, book, audiobook and issue -- the kinds Searchable admits.
 func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef) (itemSnapshot, error) {
 	snap := itemSnapshot{
 		Target: decision.Target{
@@ -65,11 +58,6 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			Key:  events.MediaKey(string(ref.Kind), ns, ref.Name),
 		},
 	}
-
-	var (
-		hasFile bool
-		fileRef *string
-	)
 
 	switch ref.Kind {
 	case commonv1.MediaKindMovie:
@@ -91,7 +79,6 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		}
 		snap.Target.Identity = MovieIdentity(&m)
 		snap.Owner = ownerRef(string(commonv1.MediaKindMovie), &m)
-		hasFile, fileRef = m.Status.HasFile, m.Status.FileRef
 
 	case commonv1.MediaKindEpisode:
 		var e catalogv1alpha1.Episode
@@ -163,7 +150,6 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		// shares that builder, and an RSS pack target can resolve to a
 		// single episode too.
 		snap.Target.Identity.SingleEpisodeSearch = true
-		hasFile, fileRef = e.Status.HasFile, e.Status.FileRef
 
 	case commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
 		v, err := ReadNonVideo(ctx, w.Client, ns, ref, w.now())
@@ -174,9 +160,6 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		snap.Target.Monitored = v.Monitored
 		snap.Target.Available = v.Available
 		snap.Target.Identity = v.Identity
-		// Already resolved, MediaFile and all (ReadNonVideo), so hasFile
-		// stays false and the file is not read a second time below.
-		snap.Target.Current = v.Current
 		snap.Owner = v.Owner
 		snap.IDs = nonVideoIDs(v.Identity)
 
@@ -184,21 +167,6 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		return snap, fmt.Errorf("unsupported media kind %q", ref.Kind)
 	}
 
-	if hasFile && fileRef != nil && *fileRef != "" {
-		current, err := CurrentFile(ctx, w.Client, ns, *fileRef)
-		if err != nil {
-			return snap, err
-		}
-		snap.Target.Current = current
-	}
-
-	queue, err := w.queue(ctx, ns, ref)
-	if err != nil {
-		return snap, err
-	}
-	snap.Target.Queue = queue
-	// The blocklist is the answer's block state (ADR-0019 §6.14); Handle
-	// sets Target.Blocklist once the index has answered.
 	return snap, nil
 }
 
@@ -213,64 +181,4 @@ func episodeAvailable(e *catalogv1alpha1.Episode, now time.Time) bool {
 		return !e.Status.AirDate.After(now)
 	}
 	return e.Status.Phase != "" && e.Status.Phase != catalogv1alpha1.EpisodePhaseUnaired
-}
-
-// CurrentFile reads the MediaFile named name -- the file an item already
-// has -- into the decision engine's Current. Quality, revision, format score
-// and matched formats are read from MediaFileSpec, not status: spec §8.4
-// freezes the decided fields on spec at import time and MediaFileStatus
-// carries none of them. Transcoded
-// is rollup.Transcoded's verdict (catalogv1alpha1.(*MediaFile).Transcoded,
-// the one place that rule lives).
-//
-// SourceHash is spec.importedFrom.infoHash, frozen at import (ADR-0019
-// §6.2): a torrent's info hash outlives the grab that fetched it, and
-// already-imported matching falls back to the release title, which
-// spec.importedFrom.releaseTitle always carries.
-//
-// It is exported so app/catalog/worker/rssmatcher reads an item's current
-// file through this same code: an RSS decision and a search decision about
-// one item must see the same file, revision, source hash and all. Reading
-// the item's status rollup instead (hasFile/fileQuality/fileFormatScore)
-// loses the revision, so a PROPER of the quality already on disk reads as
-// no upgrade, and the source hash and title, so a re-post of the very
-// release already imported reads as new.
-func CurrentFile(ctx context.Context, c client.Reader, ns, name string) (*decision.Current, error) {
-	var mf catalogv1alpha1.MediaFile
-	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &mf); err != nil {
-		if apierrors.IsNotFound(err) {
-			// status.hasFile is a rollup written by another reconcile; a
-			// dangling fileRef means the rollup has not caught up with a
-			// deletion yet. Deciding as if there were no file is the safe
-			// reading -- it can only approve an upgrade the user wanted.
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get MediaFile %s/%s: %w", ns, name, err)
-	}
-
-	cur := &decision.Current{
-		Quality:     mf.Spec.Quality,
-		Revision:    mf.Spec.Revision,
-		FormatScore: int(mf.Spec.FormatScore),
-		Formats:     mf.Spec.MatchedFormats,
-		// A transcoded file is final: no search approves a release over
-		// it (decision.ReasonTranscodedFinal); only a person's own pick
-		// of one (Search spec.grab) still may.
-		Transcoded: rollup.Transcoded(&mf),
-		// A file whose audio lacks the profile's language is replaced by
-		// any accepted release (decision.LacksLanguage).
-		AudioLanguages: rollup.ProbedAudioLanguages(&mf),
-	}
-	if mf.Spec.ImportedFrom == nil {
-		return cur, nil
-	}
-	cur.SourceTitle = mf.Spec.ImportedFrom.ReleaseTitle
-	cur.SourceHash = mf.Spec.ImportedFrom.InfoHash
-	return cur, nil
-}
-
-// queue is the live grabs already working on this item, as the decision
-// engine's queue-preference check needs them (QueuedFor).
-func (w *Worker) queue(ctx context.Context, ns string, ref commonv1.MediaRef) ([]decision.Queued, error) {
-	return QueuedFor(ctx, w.Client, ns, ref)
 }

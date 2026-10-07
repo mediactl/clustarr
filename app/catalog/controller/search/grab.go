@@ -19,41 +19,8 @@ package search
 
 import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/decision"
 )
-
-// BuildDownloadSource maps a release to a Download's spec.source. It is
-// grabsource.ResolveSource -- the one mapping the automatic grab path
-// (app/catalog/worker/grab) uses too -- and must stay exactly that.
-//
-// Both paths name a Download k8s.ChildName(target, guid), and
-// DownloadSpec.Source is `self == oldSelf`. While this function and the grab
-// worker's own chooseSource disagreed (this one never set expectedInfoHash,
-// that one picked a direct URL for an Indexer without a Secret), a user's
-// grab here and an automatic grab of the same release could not both be
-// applied: the second was rejected as "source is immutable", and the grab
-// worker's rejected apply dead-lettered with the item stranded at
-// Phase=Delayed.
-//
-// A release with nothing to fetch it by (grabsource.ErrNoSource) maps to an
-// empty source, which the CRD's "exactly one of" rule rejects on apply; that
-// rejection is what handleGrabs records in status.grabbed for the GUID.
-func BuildDownloadSource(rel commonv1.ReleaseInfo) downloadv1alpha1.DownloadSource {
-	src, err := grabsource.ResolveSource(rel)
-	if err != nil {
-		return downloadv1alpha1.DownloadSource{}
-	}
-	return src
-}
-
-// toDownloadSourceAC converts the plain value BuildDownloadSource returns into
-// the apply configuration k8s.Apply needs, through the same converter the
-// grab worker uses.
-func toDownloadSourceAC(src downloadv1alpha1.DownloadSource) downloadv1alpha1.DownloadSource {
-	return grabsource.SourceApplyConfiguration(src)
-}
 
 // grabDecision is resolveGrab's verdict for one requested GUID.
 type grabDecision struct {
@@ -75,6 +42,10 @@ type grabDecision struct {
 // item is not available yet -- and a human looking at status.results and
 // picking that release is making exactly the judgement call the temporary
 // rejection was deferring.
+//
+// Since ADR-0019 (§6.6 step 4) an allowed pick is sent to the item's owner
+// as a manual Candidate, and the owner's grab planner applies the same
+// exemptions against its fresh state.
 func resolveGrab(guid string, results []commonv1.ReleaseDecision, override bool) grabDecision {
 	for _, r := range results {
 		if r.GUID != guid {

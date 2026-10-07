@@ -38,28 +38,26 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
-	"github.com/mediactl/clustarr/app/remediation/dlindex"
+	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/pkg/records/recordsource"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -89,7 +87,9 @@ const queueFullRequeue = time.Minute
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles;mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
 // the group to grant and the core group is not. The marker and the recorder
@@ -124,11 +124,25 @@ type Reconciler struct {
 	// opportunistically; see its doc comment.
 	Query QueryRPC
 
-	// APIReader reads uncached: the grabBest pick looks for a Download
-	// already in flight for its item right before it applies one (the
-	// lost-update rule). SetupWithManager sets mgr.GetAPIReader(); nil
-	// falls back to Client.
+	// APIReader reads uncached: the compare-and-swap that incorporates an
+	// interactive answer reads through it. SetupWithManager sets
+	// mgr.GetAPIReader(); nil falls back to Client.
 	APIReader client.Reader
+
+	// Searches reads the search agent's answers in clustarr-searches
+	// (ADR-0019 §7.4), RecordsBus watches the bucket for them, and Inbox
+	// tells the owner's settlement of a pick. The manager sets all three.
+	Searches   *records.Reader[*schema.SearchRecord]
+	RecordsBus recordsource.Bus
+	Inbox      *intake.Inbox
+}
+
+// apiReader is APIReader, else Client.
+func (r *Reconciler) apiReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 // NewReconciler builds a Search reconciler with the real clock and the project
@@ -150,6 +164,10 @@ func NewReconciler(c client.Client, bus events.Publisher, rec k8sevents.EventRec
 	}
 	if requester, ok := bus.(events.Requester); ok {
 		r.Query = NewBusQueryRPC(requester)
+	}
+	if b, ok := bus.(events.Bus); ok {
+		r.Searches = records.NewReader(b.KV(events.BucketSearches), agentrecords.Searches())
+		r.RecordsBus = b
 	}
 	return r
 }
@@ -174,14 +192,18 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("search").
 		For(&catalogv1alpha1.Search{}).
 		// A container Search owns its children (container.go): each
 		// child's change reconciles the parent, which counts them.
 		Owns(&catalogv1alpha1.Search{}).
-		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
+		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute})
+	if r.RecordsBus != nil {
+		// The search agent's answers (ADR-0019 §7.4).
+		b = b.WatchesRawSource(recordSource(r.RecordsBus))
+	}
+	return b.Complete(r)
 }
 
 func (r *Reconciler) now() time.Time {
@@ -209,6 +231,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// reaching it and leave the object behind forever. ttlDeadline returns the
 	// zero time for anything that has not finished, so this cannot delete a
 	// search in flight.
+	// An interactive search's answer arrives in clustarr-searches: write it
+	// into status, and the next reconcile completes the Search.
+	if s.Spec.MediaRef != nil && !isContainer(s) && s.Status.Phase != "" && s.Status.FinishedAt == nil {
+		if wrote, err := r.incorporate(ctx, s); err != nil {
+			return ctrl.Result{}, err
+		} else if wrote {
+			return ctrl.Result{}, nil
+		}
+	}
 	switch {
 	case r.ttlExpired(s):
 		return r.deleteExpired(ctx, s)
@@ -231,7 +262,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	case s.Status.Phase == catalogv1alpha1.SearchPhaseRunning && r.stuck(s):
 		return r.failStuck(ctx, s)
 	case s.Status.Phase == catalogv1alpha1.SearchPhaseCompleted && r.grabsPending(s):
-		return r.handleGrabs(ctx, s)
+		return r.handlePicks(ctx, s)
 	}
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
 }
@@ -369,26 +400,23 @@ func (r *Reconciler) startSearch(ctx context.Context, s *catalogv1alpha1.Search)
 
 	now := r.now()
 	mediaKey := events.MediaKey(string(s.Spec.MediaRef.Kind), s.Namespace, s.Spec.MediaRef.Name)
-	schemaName, data, err := schema.Encode(schema.SearchTask{
-		MediaRef:    *s.Spec.MediaRef,
-		Keys:        s.Spec.MediaRef.Keys,
-		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: s.Namespace, Name: s.Name, UID: string(s.UID)},
-		UserInvoked: true,
-	})
+	task, err := r.interactiveTask(ctx, s)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	schemaName, data, err := schema.Encode(task)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	msgID := events.MsgIDForSearch(string(s.UID), task.Seq)
 	env := &events.Envelope{
-		ID:     events.MsgIDForObject(string(s.UID), s.Generation, "search"),
+		ID:     msgID,
 		Type:   "catalog.SearchTask",
 		Schema: schemaName,
 		Source: "catalog@" + version.String(),
 		// The envelope key is the OWNING object -- this Search -- per
 		// events.Envelope's contract; the worker resolves the namespace from
-		// it. The mediaKey identifies the item and belongs in the subject,
-		// where the grab lease and the pending bucket derive from the same
-		// token.
+		// it. The mediaKey identifies the item and belongs in the subject.
 		Key:  s.Namespace + "/" + s.Name,
 		Time: now,
 		Data: data,
@@ -396,7 +424,7 @@ func (r *Reconciler) startSearch(ctx context.Context, s *catalogv1alpha1.Search)
 	tracing.Inject(ctx, env)
 
 	u := newStatusUpdate(s)
-	if _, err := r.Bus.Publish(ctx, events.WorkSearchSubject(events.PriorityHigh, mediaKey), env); err != nil {
+	if _, err := r.Bus.Publish(ctx, events.WorkSearchSubject(events.PriorityHigh, mediaKey), env, events.WithMsgID(msgID)); err != nil {
 		if errors.Is(err, events.ErrQueueFull) {
 			// Back-pressure, not failure: leave the phase alone so the next
 			// reconcile still takes the startSearch branch, and say why on
@@ -668,7 +696,9 @@ func (r *Reconciler) grabsPending(s *catalogv1alpha1.Search) bool {
 		done[g.GUID] = g
 	}
 	for _, guid := range guids {
-		if g, ok := done[guid]; !ok || g.Error != "" {
+		// No result, an error to retry, or a pick sent and not yet an
+		// entry on its owner.
+		if g, ok := done[guid]; !ok || g.Error != "" || g.DownloadRef == "" {
 			return true
 		}
 	}
@@ -701,277 +731,6 @@ func bestApproved(s *catalogv1alpha1.Search) string {
 		}
 	}
 	return ""
-}
-
-// handleGrabs turns spec.grab into Download objects -- spec §8.2's "Search-CR
-// grabs: user sets spec.grab=[guid]; controller creates Downloads (Override
-// required for Permanent rejections), fills status.grabbed".
-//
-// Re-running it is a no-op rather than a conflict: k8s.Apply is a server-side
-// apply, the Download names are deterministic (k8s.ChildName, the spec's
-// <target>-<sha1(guid)[:10]>), and every DownloadSpec field this path sets is
-// covered by a `self == oldSelf` CEL rule, so re-applying the same values
-// passes and applying different ones would be rejected loudly.
-func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search) (ctrl.Result, error) {
-	log := logging.FromContext(ctx)
-	guids := grabGUIDs(s)
-	best := bestApproved(s)
-	grabbed := make(map[string]catalogv1alpha1.GrabResult, len(s.Status.Grabbed))
-	for _, g := range s.Status.Grabbed {
-		grabbed[g.GUID] = g
-	}
-
-	if s.Spec.MediaRef == nil {
-		// A query-mode Search's results have no catalog item behind them:
-		// resolveTarget switches on spec.mediaRef.Kind and the loop below
-		// dereferences *s.Spec.MediaRef for WithTarget and
-		// k8s.ChildName(s.Spec.MediaRef.Name, guid), both nil for every
-		// query-mode object (SearchSpec's CEL rule makes query and
-		// mediaRef mutually exclusive). Report the gap per guid, like
-		// every other grab rejection here, instead of reaching either.
-		for _, guid := range guids {
-			if existing, done := grabbed[guid]; done && existing.Error == "" {
-				continue
-			}
-			grabbed[guid] = catalogv1alpha1.GrabResult{
-				GUID:  guid,
-				Error: "query-mode search has no spec.mediaRef; nothing to attach the Download to",
-			}
-		}
-	} else {
-		owner, qualityProfileRef, err := r.resolveTarget(ctx, s)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		for _, guid := range guids {
-			if existing, done := grabbed[guid]; done && existing.Error == "" {
-				continue
-			}
-			got := resolveGrab(guid, s.Status.Results, s.Spec.Override)
-			if !got.Allowed {
-				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: got.Error}
-				continue
-			}
-
-			name := k8s.ChildName(s.Spec.MediaRef.Name, guid)
-			// spec.grabBest's pick is the automatic search's grab, not a
-			// person's: grabbedBy search, and not manual, so the importer
-			// keeps its upgrade comparison.
-			grabSource, manual := downloadv1alpha1.GrabSourceInteractive, true
-			if guid == best && !slices.Contains(s.Spec.Grab, guid) {
-				grabSource, manual = downloadv1alpha1.GrabSourceSearch, false
-				// The worker's "already queued" rejection predates a search
-				// that can take tens of seconds, in which an automatic grab
-				// or another container search may have grabbed the item:
-				// look again, uncached, before an automatic grab applies.
-				other, err := r.inFlightDownload(ctx, s, name)
-				if err != nil {
-					return ctrl.Result{}, err
-				}
-				if other != "" {
-					grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: "the item is already downloading as " + other}
-					continue
-				}
-			}
-			// Manual is set because a Search-CR grab IS an operator-forced grab:
-			// the user read status.results and picked this release by hand, so
-			// the importer treats the import as that person's decision (see
-			// DownloadSpec.Manual): no upgrade comparison against the item's
-			// existing file, an undeterminable non-video quality accepted, a
-			// video file only the sample size floor suspects imported anyway.
-			// Without it a hand-picked release that is not an upgrade completes
-			// in full and is thrown away at the import gate -- a silent waste
-			// of the user's bandwidth and of a seeding slot.
-			specAC := downloadac.DownloadSpec().
-				WithProtocol(got.Release.Protocol).
-				WithSource(toDownloadSourceAC(BuildDownloadSource(got.Release))).
-				WithRelease(got.Release).
-				WithTarget(*s.Spec.MediaRef).
-				WithGrabbedBy(grabSource).
-				WithManual(manual)
-			if qualityProfileRef != "" {
-				specAC = specAC.WithQualityProfileRef(qualityProfileRef)
-			}
-			dl := downloadac.Download(name, s.Namespace).WithSpec(specAC)
-			if owner != nil {
-				ownerAC, oerr := k8s.OwnerReferenceAC(owner, r.Scheme)
-				if oerr != nil {
-					return ctrl.Result{}, oerr
-				}
-				dl = dl.WithOwnerReferences(ownerAC)
-			}
-
-			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalog, dl); err != nil {
-				log.Error("search: grab failed", "guid", guid, "download", name, "err", err)
-				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: err.Error()}
-				r.eventWarning(s, "GrabFailed", "could not create Download %s: %v", name, err)
-				continue
-			}
-			grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, DownloadRef: name}
-			r.event(s, "Grabbed", "created Download %s", name)
-		}
-	}
-
-	u := newStatusUpdate(s)
-	u.grabbed = make([]catalogv1alpha1.GrabResult, 0, len(guids))
-	for _, guid := range guids {
-		u.grabbed = append(u.grabbed, grabbed[guid])
-	}
-	if err := r.apply(ctx, s, u); err != nil {
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
-}
-
-// inFlightDownload names a live grab entry covering s's item other than
-// ours, read uncached from the item's owner (ADR-0019 §6.2): an Episode's
-// Series and an Issue's Comic hold its grabs, so a season pack covering the
-// episode counts too, which the Download target match missed. "" when there
-// is none.
-func (r *Reconciler) inFlightDownload(ctx context.Context, s *catalogv1alpha1.Search, ours string) (string, error) {
-	reader := r.APIReader
-	if reader == nil {
-		reader = r.Client
-	}
-	ns, ref := s.Namespace, s.Spec.MediaRef
-	key := client.ObjectKey{Namespace: ns, Name: ref.Name}
-	var (
-		owner  client.Object
-		covers = func(*catalogv1alpha1.DownloadEntry) bool { return true }
-	)
-	switch ref.Kind {
-	case commonv1.MediaKindEpisode:
-		var ep catalogv1alpha1.Episode
-		if err := reader.Get(ctx, key, &ep); err != nil {
-			return "", client.IgnoreNotFound(err)
-		}
-		owner, key = &catalogv1alpha1.Series{}, client.ObjectKey{Namespace: ns, Name: ep.Spec.SeriesRef}
-		covers = func(e *catalogv1alpha1.DownloadEntry) bool {
-			return rollup.CoversEpisode(e, ep.Name, ep.Spec.SeasonNumber, ep.Spec.EpisodeNumber)
-		}
-	case commonv1.MediaKindIssue:
-		var is catalogv1alpha1.Issue
-		if err := reader.Get(ctx, key, &is); err != nil {
-			return "", client.IgnoreNotFound(err)
-		}
-		owner, key = &catalogv1alpha1.Comic{}, client.ObjectKey{Namespace: ns, Name: is.Spec.ComicRef}
-		covers = func(e *catalogv1alpha1.DownloadEntry) bool { return rollup.CoversIssue(e, is.Name, is.Spec.Number) }
-	case commonv1.MediaKindMovie:
-		owner = &catalogv1alpha1.Movie{}
-	case commonv1.MediaKindSeries:
-		owner = &catalogv1alpha1.Series{}
-	case commonv1.MediaKindAlbum:
-		owner = &catalogv1alpha1.Album{}
-	case commonv1.MediaKindBook:
-		owner = &catalogv1alpha1.Book{}
-	case commonv1.MediaKindAudiobook:
-		owner = &catalogv1alpha1.Audiobook{}
-	case commonv1.MediaKindComic:
-		owner = &catalogv1alpha1.Comic{}
-	default:
-		return "", nil
-	}
-	if err := reader.Get(ctx, key, owner); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			return "", nil
-		}
-		return "", fmt.Errorf("read the grabs of %s %s: %w", ref.Kind, ref.Name, err)
-	}
-	entries := dlindex.Entries(owner)
-	if a := rollup.ActiveEntry(entries, func(e *catalogv1alpha1.DownloadEntry) bool {
-		return e.ID != ours && !rollup.IsDonor(e) && covers(e)
-	}); a != nil {
-		return a.ID, nil
-	}
-	return "", nil
-}
-
-// resolveTarget fetches the catalog item a grab is for, so the Download can
-// carry its ownerReference and its QualityProfile -- both listed in spec
-// §8.2's Download field set. A missing item is not fatal: the Download is
-// still created, just without an owner, and the grab path reports the item
-// separately. That keeps a stale MediaRef from silently swallowing a grab the
-// user explicitly asked for.
-//
-// The profile is the one the search worker ranked the results against: an
-// episode's is its Series'; an album's, a book's and an issue's is its own
-// override or else its container's (Artist, Author, Comic); an audiobook
-// names its own. A missing container leaves the profile empty rather than
-// failing the grab, for the same reason a missing item does.
-func (r *Reconciler) resolveTarget(ctx context.Context, s *catalogv1alpha1.Search) (client.Object, string, error) {
-	key := client.ObjectKey{Namespace: s.Namespace, Name: s.Spec.MediaRef.Name}
-	switch s.Spec.MediaRef.Kind {
-	case commonv1.MediaKindAlbum:
-		a := &catalogv1alpha1.Album{}
-		if err := r.Client.Get(ctx, key, a); err != nil {
-			return nil, "", client.IgnoreNotFound(err)
-		}
-		if ref := ptr.Deref(a.Spec.QualityProfileRef, ""); ref != "" {
-			return a, ref, nil
-		}
-		artist := &catalogv1alpha1.Artist{}
-		ref, err := r.containerProfile(ctx, s.Namespace, a.Spec.ArtistRef, artist, func() string { return artist.Spec.QualityProfileRef })
-		return a, ref, err
-	case commonv1.MediaKindBook:
-		b := &catalogv1alpha1.Book{}
-		if err := r.Client.Get(ctx, key, b); err != nil {
-			return nil, "", client.IgnoreNotFound(err)
-		}
-		if ref := ptr.Deref(b.Spec.QualityProfileRef, ""); ref != "" {
-			return b, ref, nil
-		}
-		author := &catalogv1alpha1.Author{}
-		ref, err := r.containerProfile(ctx, s.Namespace, ptr.Deref(b.Spec.AuthorRef, ""), author, func() string { return author.Spec.QualityProfileRef })
-		return b, ref, err
-	case commonv1.MediaKindAudiobook:
-		ab := &catalogv1alpha1.Audiobook{}
-		if err := r.Client.Get(ctx, key, ab); err != nil {
-			return nil, "", client.IgnoreNotFound(err)
-		}
-		return ab, ab.Spec.QualityProfileRef, nil
-	case commonv1.MediaKindIssue:
-		iss := &catalogv1alpha1.Issue{}
-		if err := r.Client.Get(ctx, key, iss); err != nil {
-			return nil, "", client.IgnoreNotFound(err)
-		}
-		comic := &catalogv1alpha1.Comic{}
-		ref, err := r.containerProfile(ctx, s.Namespace, iss.Spec.ComicRef, comic, func() string { return comic.Spec.QualityProfileRef })
-		return iss, ref, err
-	case commonv1.MediaKindMovie:
-		m := &catalogv1alpha1.Movie{}
-		if err := r.Client.Get(ctx, key, m); err != nil {
-			return nil, "", client.IgnoreNotFound(err)
-		}
-		return m, m.Spec.QualityProfileRef, nil
-	case commonv1.MediaKindEpisode:
-		e := &catalogv1alpha1.Episode{}
-		if err := r.Client.Get(ctx, key, e); err != nil {
-			return nil, "", client.IgnoreNotFound(err)
-		}
-		series := &catalogv1alpha1.Series{}
-		if err := r.Client.Get(ctx, client.ObjectKey{Namespace: s.Namespace, Name: e.Spec.SeriesRef}, series); err != nil {
-			if apierrors.IsNotFound(err) {
-				return e, "", nil
-			}
-			return nil, "", err
-		}
-		return e, series.Spec.QualityProfileRef, nil
-	default:
-		return nil, "", nil
-	}
-}
-
-// containerProfile reads the named container into obj and returns profile()
-// from it: "" when name is empty or the container is gone.
-func (r *Reconciler) containerProfile(ctx context.Context, ns, name string, obj client.Object, profile func() string) (string, error) {
-	if name == "" {
-		return "", nil
-	}
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, obj); err != nil {
-		return "", client.IgnoreNotFound(err)
-	}
-	return profile(), nil
 }
 
 // ttlDeadline is when this Search may be deleted, or the zero time when it is

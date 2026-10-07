@@ -238,10 +238,18 @@ func resolveImportListSynced(key string, data []byte) Target {
 	return refTarget(p.ListRef, catalogv1alpha1.GroupVersion.String(), "ImportList")
 }
 
+// resolveSearchTask resolves a v2 SearchTask to its Item (ADR-0019 A4.3),
+// the item whose searchDispatch it answers; a task naming no item (an
+// interactive one for an item the cache had not seen) to its MediaRef.
 func resolveSearchTask(key string, data []byte) Target {
 	var p schema.SearchTask
 	if err := schema.Decode(p.Schema(), data, &p); err != nil {
 		return Target{Namespace: namespaceOf(key)}
+	}
+	if p.Item.Name != "" {
+		if t := itemTarget(p.Item); t.KindKnown() {
+			return t
+		}
 	}
 	return mediaTarget(namespaceOf(key), p.MediaRef.Name, p.MediaRef.Kind)
 }
