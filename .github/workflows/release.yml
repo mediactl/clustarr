@@ -1,19 +1,17 @@
 # Builds the container images and the Helm chart, and publishes them to the
 # repository's GitHub Container Registry namespace.
 #
-#   ghcr.io/<owner>/<repo>                    controller      (images/Dockerfile.controller)
-#   ghcr.io/<owner>/<repo>/media              media           (images/Dockerfile.media)
-#   ghcr.io/<owner>/<repo>/transcoder         transcoder      (images/Dockerfile.transcoder, target transcoder; every pool, nvidia's included)
-#   ghcr.io/<owner>/<repo>/transcoder-debug   the same plus a busybox (target transcoder-debug)
-#   ghcr.io/<owner>/<repo>/e2e-fixtures       e2e fixture services (images/Dockerfile.e2e-fixtures)
+#   ghcr.io/<owner>/<repo>                    clustarr: manager and ui   (images/Dockerfile.clustarr)
+#   ghcr.io/<owner>/<repo>/native             agent, markers, transcode  (images/Dockerfile.native, target native; every pool, nvidia's included)
+#   ghcr.io/<owner>/<repo>/native-debug       the same plus a busybox    (target native-debug)
+#   ghcr.io/<owner>/<repo>/e2e-fixtures       e2e fixture services       (images/Dockerfile.e2e-fixtures)
 #   oci://ghcr.io/<owner>/<repo>/charts       the clustarr Helm chart
 #
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): the NVIDIA
 # container runtime injects the driver's libraries into an nvidia pool's pod.
-# transcoder-cuda and transcoder-cuda-distroless(-debug) were last published
-# on 2026-10-01; transcoder-distroless(-debug), which became transcoder when
-# the Wolfi transcoder and its ffmpeg executable were deleted (ffgo Phase 5),
-# on the same day.
+# media, transcoder and transcoder-debug were last published before the
+# manager/agent split (spec 2026-10-06, OD38); their tags remain, as do
+# transcoder-cuda's and transcoder-distroless's (2026-10-01).
 #
 # Pull requests build every image and lint the chart, and publish nothing.
 # A push to main publishes the images as :main and :sha-<short>. A tag
@@ -22,8 +20,8 @@
 # X.Y.Z -- the chart's default image tag -- pushes it, and creates the GitHub
 # Release with the chart archive attached.
 #
-# Each image is built natively per architecture (the media images compile
-# with cgo, so emulating arm64 under QEMU would be very slow), pushed by
+# Each image is built natively per architecture (the native image's agent
+# compiles with cgo, so emulating arm64 under QEMU would be very slow), pushed by
 # digest, and then joined into one multi-arch tag by the merge job -- Docker's
 # documented pattern for multi-platform builds on native runners.
 name: Build and release
@@ -59,17 +57,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, target: "", arch: amd64, runner: ubuntu-24.04 }
-          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, target: "", arch: arm64, runner: ubuntu-24.04-arm }
-          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, target: "", arch: amd64, runner: ubuntu-24.04 }
-          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, target: "", arch: arm64, runner: ubuntu-24.04-arm }
-          # The transcoders (FROM scratch) are self-checked for each class.
-          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
-          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
-          - { image: transcoder-debug, suffix: /transcoder-debug, dockerfile: images/Dockerfile.transcoder, target: transcoder-debug, arch: amd64, runner: ubuntu-24.04, class: "cpu cuda intel" }
-          - { image: transcoder-debug, suffix: /transcoder-debug, dockerfile: images/Dockerfile.transcoder, target: transcoder-debug, arch: arm64, runner: ubuntu-24.04-arm, class: cpu }
-          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04 }
-          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: clustarr, suffix: "", dockerfile: images/Dockerfile.clustarr, target: clustarr, arch: amd64, runner: ubuntu-24.04, checks: "version:manager version:ui no-shell" }
+          - { image: clustarr, suffix: "", dockerfile: images/Dockerfile.clustarr, target: clustarr, arch: arm64, runner: ubuntu-24.04-arm, checks: "version:manager version:ui no-shell" }
+          # native serves every pool (ADR 0015): checked for each class it can.
+          - { image: native, suffix: /native, dockerfile: images/Dockerfile.native, target: native, arch: amd64, runner: ubuntu-24.04, checks: "self-check:transcode:cpu self-check:transcode:cuda self-check:transcode:intel self-check:agent self-check:markers version:agent version:markers version:transcode no-shell" }
+          - { image: native, suffix: /native, dockerfile: images/Dockerfile.native, target: native, arch: arm64, runner: ubuntu-24.04-arm, checks: "self-check:transcode:cpu self-check:agent self-check:markers version:agent version:markers version:transcode no-shell" }
+          - { image: native-debug, suffix: /native-debug, dockerfile: images/Dockerfile.native, target: native-debug, arch: amd64, runner: ubuntu-24.04, checks: "notices no-media-executables ffmpeg-libraries" }
+          - { image: native-debug, suffix: /native-debug, dockerfile: images/Dockerfile.native, target: native-debug, arch: arm64, runner: ubuntu-24.04-arm, checks: "notices no-media-executables ffmpeg-libraries" }
+          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04, checks: "" }
+          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm, checks: "" }
     env:
       PUSH: ${{ github.event_name != 'pull_request' }}
     steps:
@@ -110,11 +106,11 @@ jobs:
         with:
           images: ${{ steps.vars.outputs.image }}
 
-      # The transcoders are self-checked before they are pushed:
-      # the image that ships is the image that passed (build cache shared
-      # with the push below).
-      - name: Build ${{ matrix.image }} for its self-check
-        if: matrix.class != ''
+      # Every image with checks is checked before it is pushed: the image
+      # that ships is the image that passed (build cache shared with the
+      # push below).
+      - name: Build ${{ matrix.image }} for its checks
+        if: matrix.checks != ''
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -127,16 +123,14 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
 
-      - name: Self-check ${{ matrix.image }}
-        if: matrix.class != ''
+      # The one definition of the image checks (hack/image-checks.sh).
+      - name: Check ${{ matrix.image }}
+        if: matrix.checks != ''
         env:
           IMAGE: selfcheck/${{ matrix.image }}:ci
-          CLASS: ${{ matrix.class }}
-        # A space-separated list: transcoder serves cpu, nvidia (cuda) and intel pools.
-        run: |
-          for class in $CLASS; do
-            docker run --rm --read-only --cap-drop=ALL --user 1000:1000 "$IMAGE" --self-check="$class"
-          done
+          CHECKS: ${{ matrix.checks }}
+        # CHECKS is a space-separated list, split on purpose.
+        run: hack/image-checks.sh "$IMAGE" $CHECKS
 
       - name: Build (and push by digest outside pull requests)
         id: build
@@ -167,7 +161,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Underscores, not hyphens: image names contain hyphens, so a pattern
-          # like digests-transcoder-* would also match transcoder-debug's digests.
+          # like digests-native-* would also match native-debug's digests.
           name: digests_${{ matrix.image }}_${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
@@ -185,10 +179,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { image: controller, suffix: "" }
-          - { image: media, suffix: /media }
-          - { image: transcoder, suffix: /transcoder }
-          - { image: transcoder-debug, suffix: /transcoder-debug }
+          - { image: clustarr, suffix: "" }
+          - { image: native, suffix: /native }
+          - { image: native-debug, suffix: /native-debug }
           - { image: e2e-fixtures, suffix: /e2e-fixtures }
     steps:
       - name: Download digests
@@ -260,14 +253,14 @@ jobs:
       - name: Fetch chart dependencies
         run: |
           helm repo add nats https://nats-io.github.io/k8s/helm/charts/
-          helm repo add kedacore https://kedacore.github.io/charts
           helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
           helm dependency build charts/clustarr
 
       - name: Lint and render
         run: |
-          helm lint charts/clustarr
+          helm lint --strict charts/clustarr
           helm template clustarr charts/clustarr > /dev/null
+          helm template clustarr charts/clustarr --set autoscaling.enabled=false > /dev/null
 
   chart-release:
     name: chart release
@@ -296,9 +289,11 @@ jobs:
           version="${REF_NAME#v}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           helm repo add nats https://nats-io.github.io/k8s/helm/charts/
-          helm repo add kedacore https://kedacore.github.io/charts
           helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
           helm dependency build charts/clustarr
+          # The CRDs live once, in config/crd/bases; a published chart carries
+          # them (charts/clustarr/crds/README.md).
+          cp config/crd/bases/*.yaml charts/clustarr/crds/
           # appVersion is the chart's default image tag, so it must be the
           # tag the merge job just published.
           helm package charts/clustarr --version "${version}" --app-version "${version}" -d dist
